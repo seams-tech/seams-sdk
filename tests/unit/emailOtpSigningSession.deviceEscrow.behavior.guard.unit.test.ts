@@ -166,7 +166,7 @@ test.describe('Email OTP signing-session device escrow guard', () => {
     expect(lockSlice).toContain('clearLastProfileSelection');
     expect(lockSlice).not.toContain('deleteEmailOtpDeviceEnrollmentEscrowRecord');
     expect(lockSlice).not.toContain('clearAllEmailOtpDeviceEnrollmentEscrowRecords');
-    expect(workerSource).toContain("type: 'removeEmailOtpDeviceEnrollmentEscrowFromDevice'");
+    expect(workerSource).toContain("case 'removeEmailOtpDeviceEnrollmentEscrowFromDevice'");
     expect(workerSource).toContain('deleteEmailOtpDeviceEnrollmentEscrowRecord');
   });
 });

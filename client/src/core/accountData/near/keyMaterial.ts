@@ -4,49 +4,94 @@ import {
   parseThresholdEd25519ParticipantsV1,
 } from '@shared/threshold/participants';
 import { toTrimmedString } from '@shared/utils/validation';
-import type { PasskeyClientDBManager } from '../../indexedDB/passkeyClientDB/manager';
-import type { AccountKeyMaterialDBManager } from '../../indexedDB/accountKeyMaterialDB/manager';
 import type { ThresholdEd25519KeyMaterial } from './types';
 import type {
   KeyMaterialAlgorithm,
   KeyMaterialKind,
   KeyMaterialRecord,
-} from '../../indexedDB/accountKeyMaterialDB.types';
-import { getAccountKeyMaterial, storeAccountKeyMaterial } from '../../indexedDB/accountKeyMaterial';
+} from '../../indexedDB/keyMaterial.types';
+import {
+  getAccountKeyMaterial,
+  storeAccountKeyMaterial,
+  type AccountKeyMaterialStorePort,
+  type StoreAccountKeyMaterialInput,
+} from '../../indexedDB/accountKeyMaterial';
+import type { ProfileAccountContextPort } from '../../indexedDB/profileAccountProjection';
 import { buildNearAccountRefs } from './accountRefs';
 
 export interface NearKeyMaterialDeps {
-  clientDB: Pick<PasskeyClientDBManager, 'resolveProfileAccountContext'>;
-  accountKeyMaterialDB: Pick<AccountKeyMaterialDBManager, 'getKeyMaterial' | 'storeKeyMaterial'>;
+  clientDB: ProfileAccountContextPort;
+  keyMaterialStore: AccountKeyMaterialStorePort;
 }
 
-export interface StoreNearKeyMaterialInput {
+type StoreNearKeyMaterialTarget =
+  | {
+      profileId?: never;
+      chainIdKey?: never;
+    }
+  | {
+      profileId: string;
+      chainIdKey: string;
+    };
+
+type StoreNearKeyMaterialInputBase = {
   nearAccountId: AccountId;
   signerSlot: number;
   keyKind: KeyMaterialKind;
   algorithm?: KeyMaterialAlgorithm;
   publicKey: string;
-  signerId?: string;
+  signerId: string;
   wrapKeySalt?: string;
   payload?: Record<string, unknown>;
   timestamp?: number;
   schemaVersion?: number;
-  profileId?: string;
-  chainIdKey?: string;
-}
+};
 
-export interface StoreNearThresholdKeyMaterialInput {
+export type StoreNearKeyMaterialInput = StoreNearKeyMaterialInputBase & StoreNearKeyMaterialTarget;
+
+type StoreNearThresholdKeyMaterialInputBase = {
   nearAccountId: AccountId;
   signerSlot: number;
   publicKey: string;
   relayerKeyId: string;
   keyVersion: string;
   participants?: ThresholdEd25519KeyMaterial['participants'];
-  signerId?: string;
+  signerId: string;
   timestamp?: number;
   schemaVersion?: number;
-  profileId?: string;
-  chainIdKey?: string;
+};
+
+export type StoreNearThresholdKeyMaterialInput = StoreNearThresholdKeyMaterialInputBase &
+  StoreNearKeyMaterialTarget;
+
+function applyOptionalNearKeyMaterialFields(
+  target: StoreAccountKeyMaterialInput,
+  input: StoreNearKeyMaterialInput,
+): void {
+  if (input.wrapKeySalt) {
+    target.wrapKeySalt = input.wrapKeySalt;
+  }
+  if (input.payload) {
+    target.payload = input.payload;
+  }
+  if (typeof input.timestamp === 'number') {
+    target.timestamp = input.timestamp;
+  }
+  if (typeof input.schemaVersion === 'number') {
+    target.schemaVersion = input.schemaVersion;
+  }
+}
+
+function applyOptionalNearThresholdFields(
+  target: StoreNearKeyMaterialInput,
+  input: StoreNearThresholdKeyMaterialInput,
+): void {
+  if (typeof input.timestamp === 'number') {
+    target.timestamp = input.timestamp;
+  }
+  if (typeof input.schemaVersion === 'number') {
+    target.schemaVersion = input.schemaVersion;
+  }
 }
 
 function mapThresholdNearKey(
@@ -115,23 +160,47 @@ export async function storeNearKeyMaterial(
   if (!publicKey) {
     throw new Error('IndexedDBManager: Missing publicKey for key write');
   }
+  const signerId = toTrimmedString(input.signerId || '');
+  if (!signerId) {
+    throw new Error('IndexedDBManager: Missing signerId for key write');
+  }
 
   const explicitChainIdKey = toTrimmedString(input.chainIdKey || '').toLowerCase();
+  const explicitProfileId = toTrimmedString(input.profileId || '');
+  const accountRefs = buildNearAccountRefs(accountAddress as AccountId);
 
-  await storeAccountKeyMaterial(deps, {
-    accountRefs: buildNearAccountRefs(accountAddress as AccountId),
+  if (explicitProfileId || explicitChainIdKey) {
+    if (!explicitProfileId || !explicitChainIdKey) {
+      throw new Error(
+        'IndexedDBManager: profileId and chainIdKey are required together for explicit NEAR key material writes',
+      );
+    }
+    const explicitInput: StoreAccountKeyMaterialInput = {
+      accountRefs,
+      signerSlot: input.signerSlot,
+      keyKind,
+      algorithm,
+      publicKey,
+      signerId,
+      explicitProfileId,
+      explicitChainIdKey,
+      explicitAccountAddress: accountAddress,
+    };
+    applyOptionalNearKeyMaterialFields(explicitInput, input);
+    await storeAccountKeyMaterial(deps, explicitInput);
+    return;
+  }
+
+  const mappedInput: StoreAccountKeyMaterialInput = {
+    accountRefs,
     signerSlot: input.signerSlot,
     keyKind,
     algorithm,
     publicKey,
-    ...(input.signerId ? { signerId: input.signerId } : {}),
-    ...(input.wrapKeySalt ? { wrapKeySalt: input.wrapKeySalt } : {}),
-    ...(input.payload ? { payload: input.payload } : {}),
-    ...(typeof input.timestamp === 'number' ? { timestamp: input.timestamp } : {}),
-    ...(typeof input.schemaVersion === 'number' ? { schemaVersion: input.schemaVersion } : {}),
-    ...(input.profileId ? { explicitProfileId: input.profileId } : {}),
-    ...(explicitChainIdKey ? { explicitChainIdKey } : {}),
-  });
+    signerId,
+  };
+  applyOptionalNearKeyMaterialFields(mappedInput, input);
+  await storeAccountKeyMaterial(deps, mappedInput);
 }
 
 export async function storeNearThresholdKeyMaterial(
@@ -147,20 +216,41 @@ export async function storeNearThresholdKeyMaterial(
       clientShareDerivation: 'prf_first_v1',
     });
 
-  await storeNearKeyMaterial(deps, {
+  const payload = {
+    relayerKeyId,
+    keyVersion,
+    participants,
+  };
+  const profileId = toTrimmedString(input.profileId || '');
+  const chainIdKey = toTrimmedString(input.chainIdKey || '').toLowerCase();
+  if (profileId || chainIdKey) {
+    if (!profileId || !chainIdKey) {
+      throw new Error(
+        'IndexedDBManager: profileId and chainIdKey are required together for explicit NEAR threshold key writes',
+      );
+    }
+    const explicitInput: StoreNearKeyMaterialInput = {
+      nearAccountId: input.nearAccountId,
+      signerSlot: input.signerSlot,
+      keyKind: 'threshold_share_v1',
+      publicKey: input.publicKey,
+      signerId: input.signerId,
+      payload,
+      profileId,
+      chainIdKey,
+    };
+    applyOptionalNearThresholdFields(explicitInput, input);
+    await storeNearKeyMaterial(deps, explicitInput);
+    return;
+  }
+  const mappedInput: StoreNearKeyMaterialInput = {
     nearAccountId: input.nearAccountId,
     signerSlot: input.signerSlot,
     keyKind: 'threshold_share_v1',
     publicKey: input.publicKey,
     signerId: input.signerId,
-    payload: {
-      relayerKeyId,
-      keyVersion,
-      participants,
-    },
-    timestamp: input.timestamp,
-    schemaVersion: input.schemaVersion,
-    profileId: input.profileId,
-    chainIdKey: input.chainIdKey,
-  });
+    payload,
+  };
+  applyOptionalNearThresholdFields(mappedInput, input);
+  await storeNearKeyMaterial(deps, mappedInput);
 }

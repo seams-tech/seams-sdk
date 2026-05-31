@@ -1,16 +1,21 @@
-import { PasskeyClientDBManager } from '../../client/src/core/indexedDB/passkeyClientDB/manager.ts';
 import {
   getNearAccountIdForProfile,
   resolveNearAccountProfileContinuity,
 } from '../../client/src/core/accountData/near/accountProjection.ts';
+import type {
+  AccountSignerRecord,
+  ChainAccountRecord,
+} from '../../client/src/core/indexedDB/passkeyClientDB.types.ts';
 
-const chainAccounts = [
+const chainAccounts: ChainAccountRecord[] = [
   {
     profileId: 'profile-alice',
     chainIdKey: 'near:testnet',
     accountAddress: 'alice.testnet',
     accountModel: 'near-native',
     isPrimary: true,
+    createdAt: 1,
+    updatedAt: 2,
   },
   {
     profileId: 'profile-alice',
@@ -18,11 +23,12 @@ const chainAccounts = [
     accountAddress: `0x${'11'.repeat(20)}`,
     accountModel: 'threshold-ecdsa',
     isPrimary: true,
-    deployed: false,
+    createdAt: 1,
+    updatedAt: 2,
   },
 ];
 
-const accountSigners = [
+const accountSigners: AccountSignerRecord[] = [
   {
     profileId: 'profile-alice',
     chainIdKey: 'near:testnet',
@@ -34,6 +40,8 @@ const accountSigners = [
     signerAuthMethod: 'passkey',
     signerSource: 'passkey_registration',
     status: 'active',
+    addedAt: 1,
+    updatedAt: 2,
   },
   {
     profileId: 'profile-alice',
@@ -46,6 +54,8 @@ const accountSigners = [
     signerAuthMethod: 'passkey',
     signerSource: 'passkey_registration',
     status: 'active',
+    addedAt: 1,
+    updatedAt: 2,
   },
   {
     profileId: 'profile-alice',
@@ -58,6 +68,8 @@ const accountSigners = [
     signerAuthMethod: 'passkey',
     signerSource: 'passkey_registration',
     status: 'pending',
+    addedAt: 1,
+    updatedAt: 2,
   },
 ];
 
@@ -95,23 +107,20 @@ const fakeManager = {
     };
   },
   async getProfileContinuitySnapshot(profileId: string) {
-    return PasskeyClientDBManager.prototype.getProfileContinuitySnapshot.call(
-      this as unknown as PasskeyClientDBManager,
-      profileId,
-    );
+    const profile = await this.getProfile(profileId);
+    if (!profile) return null;
+    return {
+      profile,
+      chainAccounts: await this.listChainAccountsByProfile(profile.profileId),
+      accountSigners: await this.listAccountSignersByProfile({ profileId: profile.profileId }),
+    };
   },
 };
 
-const snapshot = await PasskeyClientDBManager.prototype.getProfileContinuitySnapshot.call(
-  fakeManager as unknown as PasskeyClientDBManager,
-  'profile-alice',
-);
-const nearAccountId = await getNearAccountIdForProfile(
-  fakeManager as unknown as PasskeyClientDBManager,
-  'profile-alice',
-);
+const snapshot = await fakeManager.getProfileContinuitySnapshot('profile-alice');
+const nearAccountId = await getNearAccountIdForProfile(fakeManager, 'profile-alice');
 const resolvedSnapshot = await resolveNearAccountProfileContinuity(
-  fakeManager as unknown as PasskeyClientDBManager,
+  fakeManager,
   'alice.testnet',
 );
 const activeSigners = await fakeManager.listAccountSignersByProfile({

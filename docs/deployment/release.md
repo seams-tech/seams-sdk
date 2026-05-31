@@ -62,7 +62,7 @@ Expected R2 outputs:
 npm publish remains manual:
 
 ```bash
-npm login --scope=@seams-xyz --registry=https://registry.npmjs.org
+npm login --scope=@seams-sdk --registry=https://registry.npmjs.org
 pnpm install --frozen-lockfile
 pnpm build:sdk-prod
 cd sdk

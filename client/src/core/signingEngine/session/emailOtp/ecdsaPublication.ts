@@ -17,7 +17,9 @@ import {
   type ThresholdRuntimePolicyScope,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WarmSessionEcdsaCapabilityState } from '@/core/signingEngine/session/warmCapabilities/types';
+import type { EmailOtpEcdsaReadyPersistInput } from '@/core/signingEngine/session/warmCapabilities/persistencePorts';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
+import { SigningSessionIds } from '../operationState/types';
 import { configuredEmailOtpEcdsaSnapshotChainTargets } from './persistedSnapshot';
 import { ecdsaBootstrapWithWalletSigningSessionId } from './routePlan';
 import { requestSealEmailOtpWarmSessionMaterial } from './workerRequests';
@@ -62,10 +64,7 @@ export function emailOtpEcdsaPublicationChainTargets(args: {
     targets.push(target);
   };
   pushTarget(args.primaryChain);
-  if (
-    args.emailOtpAuthContext.retention === 'session' &&
-    args.emailOtpAuthContext.reason === 'login'
-  ) {
+  if (args.emailOtpAuthContext.reason === 'login') {
     for (const target of configuredEmailOtpEcdsaSnapshotChainTargets(args.configs)) {
       pushTarget(target);
     }
@@ -167,6 +166,19 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   if (!thresholdSessionId || !walletSigningSessionId || !relayerUrl || !shamirPrimeB64u) {
     throw new Error('Email OTP sealed refresh is missing threshold-session persistence metadata');
   }
+  const readyPersistenceInput: EmailOtpEcdsaReadyPersistInput = {
+    authMethod: 'email_otp',
+    curve: 'ecdsa',
+    walletId: args.walletId,
+    chainTarget: args.primaryChain,
+    walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
+    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(thresholdSessionId),
+    emailOtpAuthContext: args.emailOtpAuthContext,
+    material: {
+      kind: 'worker_handle',
+      workerSessionId: thresholdSessionId,
+    },
+  };
 
   const thresholdSessionAuthToken = String(
     session?.jwt || keyRef.thresholdSessionAuthToken || '',
@@ -178,6 +190,9 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   const rpId = String(args.bootstrap.keygen.rpId || '').trim();
   const ecdsaThresholdKeyId = String(keyRef.ecdsaThresholdKeyId || '').trim();
   const ethereumAddress = normalizeEthereumAddress(keyRef.ethereumAddress);
+  const clientVerifyingShareB64u = String(
+    keyRef.backendBinding?.clientVerifyingShareB64u || '',
+  ).trim();
   const thresholdEcdsaPublicKeyB64u = String(keyRef.thresholdEcdsaPublicKeyB64u || '').trim();
   const relayerKeyId = String(keyRef.backendBinding?.relayerKeyId || '').trim();
   const participantIds = Array.isArray(keyRef.participantIds)
@@ -189,16 +204,21 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
     !ecdsaThresholdKeyId ||
     !rpId ||
     !ethereumAddress ||
+    !clientVerifyingShareB64u ||
     !relayerKeyId ||
     !participantIds.length ||
     (sessionKind === 'jwt' && !thresholdSessionAuthToken)
   ) {
     throw new Error('Email OTP sealed refresh is missing ECDSA restore metadata');
   }
+  if (readyPersistenceInput.material.kind !== 'worker_handle') {
+    throw new Error('Email OTP sealed refresh requires worker-owned warm material');
+  }
+  const emailOtpWorkerSessionId = readyPersistenceInput.material.workerSessionId;
 
   const sealed = await requestSealEmailOtpWarmSessionMaterial({
     workerCtx,
-    sessionId: thresholdSessionId,
+    sessionId: emailOtpWorkerSessionId,
     transport: {
       relayerUrl,
       ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
@@ -224,12 +244,12 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   }
 
   const sealedRecordBase = {
-    thresholdSessionId,
+    thresholdSessionId: readyPersistenceInput.thresholdSessionId,
     sealedSecretB64u,
     curve: 'ecdsa' as const,
     authMethod: 'email_otp' as const,
-    walletSigningSessionId,
-    thresholdSessionIds: { ecdsa: thresholdSessionId },
+    walletSigningSessionId: readyPersistenceInput.walletSigningSessionId,
+    thresholdSessionIds: { ecdsa: readyPersistenceInput.thresholdSessionId },
     walletId: String(args.walletId || '').trim(),
     userId: String(keyRef.userId || args.walletId || '').trim(),
     signingRootId: String(keyRef.signingRootId || '').trim(),
@@ -248,9 +268,9 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   if (!actualChainTarget) {
     throw new Error('Email OTP sealed refresh requires exact ECDSA chain target');
   }
-  if (!thresholdEcdsaChainTargetsEqual(actualChainTarget, args.primaryChain)) {
+  if (!thresholdEcdsaChainTargetsEqual(actualChainTarget, readyPersistenceInput.chainTarget)) {
     throw new Error(
-      `Email OTP sealed refresh chain target drifted from ${thresholdEcdsaChainTargetKey(args.primaryChain)} to ${thresholdEcdsaChainTargetKey(actualChainTarget)}`,
+      `Email OTP sealed refresh chain target drifted from ${thresholdEcdsaChainTargetKey(readyPersistenceInput.chainTarget)} to ${thresholdEcdsaChainTargetKey(actualChainTarget)}`,
     );
   }
   const updatedAtMs = Date.now();
@@ -267,8 +287,10 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
       sessionKind,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
       keyHandle,
+      ecdsaThresholdKeyId,
       ethereumAddress,
       relayerKeyId,
+      clientVerifyingShareB64u,
       ...(thresholdEcdsaPublicKeyB64u ? { thresholdEcdsaPublicKeyB64u } : {}),
       participantIds,
     },

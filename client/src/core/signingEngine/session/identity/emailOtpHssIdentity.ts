@@ -1,7 +1,3 @@
-import {
-  toWalletSubjectId,
-  type WalletSubjectId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   EcdsaThresholdKeyId,
   EvmFamilyEcdsaSessionLanePolicy,
@@ -20,7 +16,6 @@ export type {
   ThresholdEcdsaSessionId,
   ThresholdOwnerAddress,
   WalletSigningSessionId,
-  WalletSubjectId,
 };
 
 export type WalletSessionUserId = string & { readonly __brand: 'WalletSessionUserId' };
@@ -88,10 +83,6 @@ export function toWalletSessionUserId(value: unknown): WalletSessionUserId {
 
 export function toEmailOtpAuthSubjectId(value: unknown): EmailOtpAuthSubjectId {
   return requiredEmailOtpHssString(value, 'authSubjectId') as EmailOtpAuthSubjectId;
-}
-
-export function toEcdsaHssWalletSubjectId(value: unknown): WalletSubjectId {
-  return toWalletSubjectId(value);
 }
 
 export function toEcdsaHssThresholdKeyId(value: unknown): EcdsaThresholdKeyId {

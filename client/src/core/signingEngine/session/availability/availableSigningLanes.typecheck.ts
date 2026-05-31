@@ -8,6 +8,7 @@ import {
 import type { EvmFamilyEcdsaKeyHandle } from '../identity/evmFamilyEcdsaIdentity';
 import type {
   ConcreteAvailableEcdsaSigningLane,
+  ConcreteAvailableEd25519SigningLane,
   EcdsaAvailableLaneIdentityInput,
   ReadAvailableSigningLanesInput,
 } from './availableSigningLanes';
@@ -162,5 +163,59 @@ const emailOtpLaneWithResolvedKey: ConcreteAvailableEcdsaSigningLane = {
   thresholdSessionId: 'threshold-session-1',
 };
 void emailOtpLaneWithResolvedKey;
+
+const ed25519Lane: ConcreteAvailableEd25519SigningLane = {
+  authMethod: 'passkey',
+  curve: 'ed25519',
+  chain: 'near',
+  state: 'ready',
+  walletSigningSessionId: 'wallet-signing-session-1',
+  thresholdSessionId: 'threshold-session-1',
+};
+void ed25519Lane;
+
+// @ts-expect-error ready Ed25519 lanes require auth method identity.
+const readyEd25519LaneMissingAuthMethod: ConcreteAvailableEd25519SigningLane = {
+  curve: 'ed25519',
+  chain: 'near',
+  state: 'ready',
+  walletSigningSessionId: 'wallet-signing-session-1',
+  thresholdSessionId: 'threshold-session-1',
+};
+void readyEd25519LaneMissingAuthMethod;
+
+// @ts-expect-error ready Ed25519 lanes require a wallet signing session id.
+const readyEd25519LaneMissingWalletSigningSessionId: ConcreteAvailableEd25519SigningLane = {
+  authMethod: 'passkey',
+  curve: 'ed25519',
+  chain: 'near',
+  state: 'ready',
+  thresholdSessionId: 'threshold-session-1',
+};
+void readyEd25519LaneMissingWalletSigningSessionId;
+
+// @ts-expect-error ready Ed25519 lanes require a threshold session id.
+const readyEd25519LaneMissingThresholdSessionId: ConcreteAvailableEd25519SigningLane = {
+  authMethod: 'passkey',
+  curve: 'ed25519',
+  chain: 'near',
+  state: 'ready',
+  walletSigningSessionId: 'wallet-signing-session-1',
+};
+void readyEd25519LaneMissingThresholdSessionId;
+
+// @ts-expect-error shared ECDSA lanes require the source target.
+const sharedEcdsaLaneMissingSourceTarget: ConcreteAvailableEcdsaSigningLane = {
+  ...passkeyLane,
+  source: 'evm_family_shared_key',
+};
+void sharedEcdsaLaneMissingSourceTarget;
+
+const sharedEcdsaLane: ConcreteAvailableEcdsaSigningLane = {
+  ...passkeyLane,
+  source: 'evm_family_shared_key',
+  sourceChainTarget: chainTarget,
+};
+void sharedEcdsaLane;
 
 export {};

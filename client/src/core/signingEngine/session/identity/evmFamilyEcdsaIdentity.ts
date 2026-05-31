@@ -8,21 +8,25 @@ import {
 } from '@shared/utils/thresholdEcdsaKeyHandle';
 import type { AccountId } from '@/core/types/accountIds';
 import type {
+  ThresholdEcdsaBackendBinding,
   ThresholdEcdsaClientAdditiveShareHandle,
   ThresholdEcdsaCanonicalExportArtifact,
   ThresholdEcdsaSecp256k1KeyRef,
 } from '../../interfaces/signing';
+import {
+  parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial,
+  parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
+  thresholdEcdsaRecordHasRoleLocalSigningMaterial,
+} from '@/core/platform/ecdsaRoleLocalRecords';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from './laneIdentity';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   toWalletId,
-  toWalletSubjectId,
-  walletSubjectIdFromWalletProfile,
+  walletIdFromWalletProfile,
   type ThresholdEcdsaChainTarget,
   type WalletId,
-  type WalletSubjectId,
 } from '../../interfaces/ecdsaChainTarget';
 import {
   SigningSessionIds,
@@ -34,7 +38,7 @@ import type {
   ThresholdSessionKind,
 } from '../../threshold/sessionPolicy';
 
-export type { WalletId, WalletSubjectId, ThresholdEcdsaSessionId, WalletSigningSessionId };
+export type { WalletId, ThresholdEcdsaSessionId, WalletSigningSessionId };
 
 export type RpId = string & { readonly __brand: 'RpId' };
 export type EcdsaThresholdKeyId = string & { readonly __brand: 'EcdsaThresholdKeyId' };
@@ -55,6 +59,9 @@ export type EmailOtpAuthSubjectId = string & {
 };
 export type EmailOtpProviderId = string & {
   readonly __brand: 'EmailOtpProviderId';
+};
+export type BaseEcdsaSubjectId = WalletId & {
+  readonly __baseEcdsaSubjectIdBrand: 'BaseEcdsaSubjectId';
 };
 export type VerifiedThresholdSessionAuth = string & {
   readonly __brand: 'VerifiedThresholdSessionAuth';
@@ -401,7 +408,6 @@ export type EvmFamilyEcdsaMaterialResolution =
 
 export type BuildEvmFamilyEcdsaKeyIdentityInput = {
   walletId: unknown;
-  subjectId: unknown;
   rpId: unknown;
   ecdsaThresholdKeyId: unknown;
   signingRootId: unknown;
@@ -410,10 +416,7 @@ export type BuildEvmFamilyEcdsaKeyIdentityInput = {
   thresholdOwnerAddress: unknown;
 };
 
-export type BuildBaseEvmFamilyEcdsaKeyIdentityInput = Omit<
-  BuildEvmFamilyEcdsaKeyIdentityInput,
-  'subjectId'
->;
+export type BuildBaseEvmFamilyEcdsaKeyIdentityInput = BuildEvmFamilyEcdsaKeyIdentityInput;
 
 export type BuildEvmFamilyEcdsaKeyHandleInput = ThresholdEcdsaKeyHandleInput;
 
@@ -454,13 +457,15 @@ export type BuildResolvedEvmFamilyEcdsaKeyInput<
   authBinding: TAuthBinding;
 };
 
-export type BuildThresholdEcdsaSessionTransportAuthInput = {
-  thresholdSessionKind: 'jwt';
-  thresholdSessionAuthToken: unknown;
-} | {
-  thresholdSessionKind: 'cookie';
-  thresholdSessionAuthToken?: never;
-};
+export type BuildThresholdEcdsaSessionTransportAuthInput =
+  | {
+      thresholdSessionKind: 'jwt';
+      thresholdSessionAuthToken: unknown;
+    }
+  | {
+      thresholdSessionKind: 'cookie';
+      thresholdSessionAuthToken?: never;
+    };
 
 export type BuildReadyEcdsaSignerSessionInput = {
   keyRef: ThresholdEcdsaSecp256k1KeyRef;
@@ -757,13 +762,6 @@ export function buildEvmFamilyEcdsaKeyIdentity(
   input: BuildEvmFamilyEcdsaKeyIdentityInput,
 ): EvmFamilyEcdsaKeyIdentity {
   const walletId = toWalletId(input.walletId);
-  const subjectId = toWalletSubjectId(input.subjectId);
-  const expectedSubjectId = walletSubjectIdFromWalletProfile({ walletId });
-  if (subjectId !== expectedSubjectId) {
-    throw new Error(
-      '[evm-family-ecdsa] subjectId must match the wallet-derived base ECDSA subject',
-    );
-  }
   return buildNormalizedEvmFamilyEcdsaKeyIdentity({
     walletId,
     rpId: input.rpId,
@@ -822,14 +820,12 @@ export function buildSessionBootstrapKeyContext(input: {
   };
 }
 
-export function deriveBaseEcdsaSubjectIdFromWalletId(walletId: WalletId | string): WalletSubjectId {
-  return walletSubjectIdFromWalletProfile({ walletId: toWalletId(walletId) });
-}
-
-export function deriveBaseEcdsaSubjectIdFromKey(
-  key: Pick<EvmFamilyEcdsaKeyIdentity, 'walletId'>,
-): WalletSubjectId {
-  return deriveBaseEcdsaSubjectIdFromWalletId(key.walletId);
+export function deriveBaseEcdsaSubjectIdFromWalletId(
+  walletId: WalletId | string,
+): BaseEcdsaSubjectId {
+  return walletIdFromWalletProfile({
+    walletId: toWalletId(walletId),
+  }) as BaseEcdsaSubjectId;
 }
 
 export async function deriveEvmFamilyEcdsaKeyHandle(
@@ -999,39 +995,53 @@ function buildEmailOtpWorkerShareHandle(args: {
   };
 }
 
+function assertNeverThresholdEcdsaBackendBinding(value: never): never {
+  throw new Error('[evm-family-ecdsa] unsupported ECDSA backend binding material kind');
+}
+
+function requireThresholdEcdsaBackendBinding(
+  binding: ThresholdEcdsaSecp256k1KeyRef['backendBinding'],
+): ThresholdEcdsaBackendBinding {
+  if (!binding) {
+    throw new Error('[evm-family-ecdsa] ready ECDSA signer session requires backend binding');
+  }
+  return binding;
+}
+
 function buildThresholdEcdsaSignerClientShare(args: {
-  keyRef: ThresholdEcdsaSecp256k1KeyRef;
+  backendBinding: ThresholdEcdsaBackendBinding;
   publicFacts: VerifiedEcdsaPublicFacts;
   chainTarget: ThresholdEcdsaChainTarget;
   session: ThresholdEcdsaSignerSessionIdentity;
 }): ThresholdEcdsaSignerClientShare {
-  const handle = args.keyRef.backendBinding?.clientAdditiveShareHandle;
-  if (handle?.kind === 'email_otp_worker_session') {
-    return {
-      kind: 'email_otp_worker_share',
-      handle: buildEmailOtpWorkerShareHandle({
-        handle,
-        publicFacts: args.publicFacts,
-        chainTarget: args.chainTarget,
-        session: args.session,
-      }),
-    };
+  switch (args.backendBinding.materialKind) {
+    case 'email_otp_worker_handle':
+      return {
+        kind: 'email_otp_worker_share',
+        handle: buildEmailOtpWorkerShareHandle({
+          handle: args.backendBinding.clientAdditiveShareHandle,
+          publicFacts: args.publicFacts,
+          chainTarget: args.chainTarget,
+          session: args.session,
+        }),
+      };
+    case 'inline_role_local_ready':
+      return {
+        kind: 'inline_client_share',
+        clientAdditiveShare32B64u: requiredString(
+          args.backendBinding.clientAdditiveShare32B64u,
+          'clientAdditiveShare32B64u',
+        ),
+      };
+    case 'metadata_only':
+      throw new Error('[evm-family-ecdsa] ready ECDSA signer session requires signing material');
+    default:
+      return assertNeverThresholdEcdsaBackendBinding(args.backendBinding);
   }
-  return {
-    kind: 'inline_client_share',
-    clientAdditiveShare32B64u: requiredString(
-      args.keyRef.backendBinding?.clientAdditiveShare32B64u,
-      'clientAdditiveShare32B64u',
-    ),
-  };
 }
 
 function hasReadyThresholdEcdsaRecordClientShare(record: ThresholdEcdsaSessionRecord): boolean {
-  const handle = record.clientAdditiveShareHandle;
-  if (handle?.kind === 'email_otp_worker_session') {
-    return Boolean(String(handle.sessionId || '').trim());
-  }
-  return Boolean(String(record.clientAdditiveShare32B64u || '').trim());
+  return thresholdEcdsaRecordHasRoleLocalSigningMaterial(record);
 }
 
 export function buildKnownReadyThresholdEcdsaSessionPolicy(args: {
@@ -1078,6 +1088,7 @@ export function buildReadyThresholdEcdsaSession(args: {
 export function buildReadyEcdsaSignerSession(
   input: BuildReadyEcdsaSignerSessionInput,
 ): ReadyEcdsaSignerSession {
+  const backendBinding = requireThresholdEcdsaBackendBinding(input.keyRef.backendBinding);
   const session = buildReadyThresholdEcdsaSession({
     walletSigningSessionId: input.keyRef.walletSigningSessionId,
     thresholdSessionId: input.keyRef.thresholdSessionId,
@@ -1107,9 +1118,9 @@ export function buildReadyEcdsaSignerSession(
       kind: 'threshold_ecdsa_signer_transport',
       relayerUrl: requiredString(input.keyRef.relayerUrl, 'relayerUrl'),
       ecdsaThresholdKeyId: normalizeEcdsaThresholdKeyId(input.keyRef.ecdsaThresholdKeyId),
-      relayerKeyId: requiredString(input.keyRef.backendBinding?.relayerKeyId, 'relayerKeyId'),
+      relayerKeyId: requiredString(backendBinding.relayerKeyId, 'relayerKeyId'),
       clientVerifyingShareB64u: requiredString(
-        input.keyRef.backendBinding?.clientVerifyingShareB64u,
+        backendBinding.clientVerifyingShareB64u,
         'clientVerifyingShareB64u',
       ),
       ...(String(input.keyRef.relayerVerifyingShareB64u || '').trim()
@@ -1118,7 +1129,7 @@ export function buildReadyEcdsaSignerSession(
       auth: transportAuth,
     },
     clientShare: buildThresholdEcdsaSignerClientShare({
-      keyRef: input.keyRef,
+      backendBinding,
       publicFacts: input.publicFacts,
       chainTarget,
       session: signerIdentity,
@@ -1132,6 +1143,43 @@ export function buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord(args: {
 }): ThresholdEcdsaSecp256k1KeyRef {
   const record = args.record;
   const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({ record });
+  const ecdsaRoleLocalReadyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
+  const inlineSigningMaterial = record.clientAdditiveShareHandle
+    ? null
+    : (() => {
+        try {
+          return parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial(record);
+        } catch {
+          return null;
+        }
+      })();
+  const backendBinding = record.clientAdditiveShareHandle
+    ? {
+        materialKind: 'email_otp_worker_handle' as const,
+        relayerKeyId: record.relayerKeyId,
+        clientVerifyingShareB64u: record.clientVerifyingShareB64u,
+        clientAdditiveShareHandle: record.clientAdditiveShareHandle,
+        ecdsaRoleLocalReadyRecord,
+        ...(record.ecdsaHssRoleLocalClientState
+          ? { ecdsaHssRoleLocalClientState: record.ecdsaHssRoleLocalClientState }
+          : {}),
+      }
+    : inlineSigningMaterial
+      ? {
+          materialKind: 'inline_role_local_ready' as const,
+          relayerKeyId: record.relayerKeyId,
+          clientVerifyingShareB64u: record.clientVerifyingShareB64u,
+          clientAdditiveShare32B64u: inlineSigningMaterial.clientAdditiveShare32B64u,
+          ecdsaRoleLocalReadyRecord,
+          ...(record.ecdsaHssRoleLocalClientState
+            ? { ecdsaHssRoleLocalClientState: record.ecdsaHssRoleLocalClientState }
+            : {}),
+        }
+      : {
+          materialKind: 'metadata_only' as const,
+          relayerKeyId: record.relayerKeyId,
+          clientVerifyingShareB64u: record.clientVerifyingShareB64u,
+        };
   return {
     type: 'threshold-ecdsa-secp256k1',
     userId: String(record.walletId),
@@ -1143,19 +1191,7 @@ export function buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord(args: {
     ...(signingRootBinding.signingRootVersion
       ? { signingRootVersion: signingRootBinding.signingRootVersion }
       : {}),
-    backendBinding: {
-      relayerKeyId: record.relayerKeyId,
-      clientVerifyingShareB64u: record.clientVerifyingShareB64u,
-      ...(record.clientAdditiveShare32B64u
-        ? { clientAdditiveShare32B64u: record.clientAdditiveShare32B64u }
-        : {}),
-      ...(record.clientAdditiveShareHandle
-        ? { clientAdditiveShareHandle: record.clientAdditiveShareHandle }
-        : {}),
-      ...(record.ecdsaHssRoleLocalClientState
-        ? { ecdsaHssRoleLocalClientState: record.ecdsaHssRoleLocalClientState }
-        : {}),
-    },
+    backendBinding,
     ...(args.exportArtifact ? { ecdsaHssExportArtifact: args.exportArtifact } : {}),
     participantIds: record.participantIds,
     thresholdSessionKind: record.thresholdSessionKind,
@@ -1404,9 +1440,9 @@ export function deriveEvmFamilyKeyFingerprint(
   key: EvmFamilyEcdsaKeyIdentity,
 ): EvmFamilyKeyFingerprint {
   const canonical = alphabetizeStringify({
-    version: 'evm_family_ecdsa_key_fingerprint_v1',
+    version: 'evm_family_ecdsa_key_fingerprint_v2',
     walletId: String(key.walletId),
-    subjectId: String(deriveBaseEcdsaSubjectIdFromKey(key)),
+    baseEcdsaSubjectId: String(deriveBaseEcdsaSubjectIdFromWalletId(key.walletId)),
     rpId: String(key.rpId),
     keyScope: key.keyScope,
     ecdsaThresholdKeyId: String(key.ecdsaThresholdKeyId),

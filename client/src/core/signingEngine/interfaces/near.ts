@@ -77,8 +77,14 @@ export type NearResolvedEd25519SigningSessionState = NearResolvedEd25519SessionA
 };
 
 export type NearEmailOtpSigningHook = {
-  prepare: () => Promise<{ challengeId: string; emailHint?: string }>;
-  resend?: () => Promise<{ challengeId: string; emailHint?: string }>;
+  prepare: (args: { requiredSignatureUses: number }) => Promise<{
+    challengeId: string;
+    emailHint?: string;
+  }>;
+  resend?: (args: { requiredSignatureUses: number }) => Promise<{
+    challengeId: string;
+    emailHint?: string;
+  }>;
   complete: (
     authorization: NearEd25519EmailOtpStepUpAuthorization,
   ) => Promise<{ sessionId: string; sessionState?: NearResolvedEd25519SigningSessionState }>;
@@ -90,14 +96,14 @@ export type NearEd25519WarmupHook = {
 };
 
 export type NearPasskeyEd25519ReconnectHook = {
-  prepare: (args: { usesNeeded: number }) => Promise<{
+  prepare: (args: { requiredSignatureUses: number }) => Promise<{
     sessionId: string;
     walletSigningSessionId: string;
     sessionPolicyDigest32: string;
   }>;
   reconnect: (args: {
     authorization: NearEd25519PasskeyStepUpAuthorization;
-    usesNeeded: number;
+    requiredSignatureUses: number;
   }) => Promise<{ sessionId: string; sessionState?: NearResolvedEd25519SigningSessionState }>;
 };
 

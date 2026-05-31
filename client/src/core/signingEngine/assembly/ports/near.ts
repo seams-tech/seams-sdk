@@ -1,4 +1,5 @@
-import { IndexedDBManager } from '@/core/indexedDB';
+import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
+import { getBrowserPlatformIndexedDB } from '@/core/platform';
 import type { AccountId } from '@/core/types/accountIds';
 import type { NearSigningApiDeps } from '../../interfaces/operationDeps';
 import {
@@ -16,6 +17,7 @@ import type { CreateSigningEnginePortsArgs } from './shared';
 
 export function createNearSigningDeps(args: {
   createArgs: CreateSigningEnginePortsArgs;
+  indexedDB?: UnifiedIndexedDBManager;
   nearRpcUrl: string;
   signingSessionCoordinator: SigningSessionCoordinator;
   getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
@@ -26,6 +28,7 @@ export function createNearSigningDeps(args: {
     signingSessionCoordinator,
     getEmailOtpWarmSessionStatus,
   } = args;
+  const indexedDB = args.indexedDB || getBrowserPlatformIndexedDB(createArgs.platformRuntime);
   return {
     nearRpcUrl,
     resolveThresholdEd25519SessionId: (nearAccountId: AccountId): string | null => {
@@ -48,6 +51,7 @@ export function createNearSigningDeps(args: {
     resolveEmailOtpSigningSessionAuthLane: ({ thresholdSessionId, curve }) =>
       createWarmSessionCapabilityReader({
         touchConfirm: createArgs.touchConfirm,
+        signingSessionSeal: null,
         getEmailOtpWarmSessionStatus,
       }).resolveEmailOtpSigningSessionAuthLane({ thresholdSessionId, curve }),
     isEmailOtpEd25519WarmupPending: ({ nearAccountId }) =>
@@ -77,7 +81,7 @@ export function createNearSigningDeps(args: {
       createArgs.readAvailableSigningLanesForSigning(snapshotArgs),
     resolveAccountAuthMethodForSigning: async ({ nearAccountId }) => {
       const accountAuth = await resolveEvmFamilyTransactionWalletAuth({
-        deps: { indexedDB: IndexedDBManager },
+        deps: { indexedDB },
         walletId: String(nearAccountId),
         senderSignatureAlgorithm: 'secp256k1',
       });
@@ -86,7 +90,7 @@ export function createNearSigningDeps(args: {
     reconnectPasskeyEd25519CapabilityForSigning: async ({
       nearAccountId,
       record,
-      localPrfCredential,
+      policySecretSource,
       remainingUses,
       sessionId,
       walletSigningSessionId,
@@ -94,7 +98,7 @@ export function createNearSigningDeps(args: {
       reconnectPasskeyEd25519CapabilityForSigning({
         nearAccountId,
         record,
-        localPrfCredential,
+        policySecretSource,
         remainingUses,
         sessionId,
         walletSigningSessionId,

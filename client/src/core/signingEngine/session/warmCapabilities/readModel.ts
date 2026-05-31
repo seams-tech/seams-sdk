@@ -17,14 +17,73 @@ import type {
   WarmSessionPrfClaim,
 } from './types';
 
-export type WarmSessionReadPorts =
+export type WarmSessionReadPortsInput =
   | Partial<
       Pick<
         WarmSessionStatusReader & WarmSessionStatusBatchReader,
         'getWarmSessionStatus' | 'getWarmSessionStatuses'
       >
     >
+  | null
   | undefined;
+
+export type WarmSessionReadPortsSingle = {
+  statusPort: 'single';
+  getWarmSessionStatus: WarmSessionStatusReader['getWarmSessionStatus'];
+  getWarmSessionStatuses?: never;
+};
+
+export type WarmSessionReadPortsBatch = {
+  statusPort: 'batch';
+  getWarmSessionStatus?: never;
+  getWarmSessionStatuses: WarmSessionStatusBatchReader['getWarmSessionStatuses'];
+};
+
+export type WarmSessionReadPortsSingleAndBatch = {
+  statusPort: 'single_and_batch';
+  getWarmSessionStatus: WarmSessionStatusReader['getWarmSessionStatus'];
+  getWarmSessionStatuses: WarmSessionStatusBatchReader['getWarmSessionStatuses'];
+};
+
+export type WarmSessionReadPorts =
+  | WarmSessionReadPortsSingle
+  | WarmSessionReadPortsBatch
+  | WarmSessionReadPortsSingleAndBatch;
+
+export function normalizeWarmSessionReadPorts(
+  ports: WarmSessionReadPortsInput,
+): WarmSessionReadPorts | null {
+  const getWarmSessionStatus =
+    typeof ports?.getWarmSessionStatus === 'function'
+      ? (args: Parameters<WarmSessionStatusReader['getWarmSessionStatus']>[0]) =>
+          ports.getWarmSessionStatus!(args)
+      : null;
+  const getWarmSessionStatuses =
+    typeof ports?.getWarmSessionStatuses === 'function'
+      ? (args: Parameters<WarmSessionStatusBatchReader['getWarmSessionStatuses']>[0]) =>
+          ports.getWarmSessionStatuses!(args)
+      : null;
+  if (getWarmSessionStatus && getWarmSessionStatuses) {
+    return {
+      statusPort: 'single_and_batch',
+      getWarmSessionStatus,
+      getWarmSessionStatuses,
+    };
+  }
+  if (getWarmSessionStatus) {
+    return {
+      statusPort: 'single',
+      getWarmSessionStatus,
+    };
+  }
+  if (getWarmSessionStatuses) {
+    return {
+      statusPort: 'batch',
+      getWarmSessionStatuses,
+    };
+  }
+  return null;
+}
 
 export function reportWarmSessionAvailabilityFailure(args: {
   operation: 'status_read' | 'claim';
@@ -39,11 +98,11 @@ export function reportWarmSessionAvailabilityFailure(args: {
 }
 
 export async function readWarmSessionClaim(
-  touchConfirm: WarmSessionReadPorts,
+  touchConfirm: WarmSessionReadPorts | null,
   sessionIdRaw: string,
 ): Promise<WarmSessionPrfClaim | null> {
   const sessionId = String(sessionIdRaw || '').trim();
-  if (!touchConfirm || !sessionId || typeof touchConfirm.getWarmSessionStatus !== 'function') {
+  if (!touchConfirm || !sessionId || touchConfirm.statusPort === 'batch') {
     return null;
   }
   const status = await touchConfirm
@@ -87,7 +146,7 @@ export function toWarmSessionClaimFromStatusResult(args: {
 }
 
 export async function readWarmSessionClaims(args: {
-  touchConfirm: WarmSessionReadPorts;
+  touchConfirm: WarmSessionReadPorts | null;
   sessionIds: string[];
 }): Promise<Map<string, WarmSessionPrfClaim | null>> {
   const normalizedSessionIds = Array.from(
@@ -97,7 +156,13 @@ export async function readWarmSessionClaims(args: {
   if (!normalizedSessionIds.length) {
     return out;
   }
-  if (args.touchConfirm && typeof args.touchConfirm.getWarmSessionStatuses === 'function') {
+  if (!args.touchConfirm) {
+    for (const sessionId of normalizedSessionIds) {
+      out.set(sessionId, null);
+    }
+    return out;
+  }
+  if (args.touchConfirm.statusPort !== 'single') {
     const batch = await args.touchConfirm.getWarmSessionStatuses({
       sessionIds: normalizedSessionIds,
     });

@@ -1,4 +1,5 @@
 import type { Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 import {
   createInMemoryConsoleApiKeyService,
   createInMemoryConsoleBootstrapTokenService,
@@ -15,6 +16,15 @@ import {
 } from '@server/threshold/session/signingSessionSeal';
 import { walletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
 import type { SessionAdapter } from '@server/router/relay';
+import {
+  computeEcdsaHssRoleLocalRelayerKeyId,
+  computeEcdsaHssRoleLocalThresholdKeyId,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import {
+  initSync as initHssClientSignerWasmSync,
+  threshold_ecdsa_hss_role_local_client_bootstrap,
+} from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 import { startExpressRouter } from '../relayer/helpers';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 import {
@@ -34,6 +44,17 @@ const TEST_SERVER_DECRYPT_EXPONENT_B64U = '6LQXS-i0F0votBdL6LQXS-i0F0votBdL6LQXS
 export const TEST_WEBAUTHN_GET_COUNTER_KEY = '__w3a_test_webauthn_get_calls';
 const TEST_SESSION_COOKIE_NAME =
   String(process.env.SESSION_COOKIE_NAME || 'seams-jwt').trim() || 'seams-jwt';
+const HSS_CLIENT_SIGNER_WASM_URL = new URL(
+  '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
+  import.meta.url,
+);
+let hssClientSignerWasmInitialized = false;
+
+function ensureHssClientSignerWasm(): void {
+  if (hssClientSignerWasmInitialized) return;
+  initHssClientSignerWasmSync({ module: readFileSync(HSS_CLIENT_SIGNER_WASM_URL) });
+  hssClientSignerWasmInitialized = true;
+}
 
 export type SealedRefreshHarness = {
   baseUrl: string;
@@ -78,7 +99,7 @@ function createThresholdAwareSealedRefreshSessionAdapter(): ReturnType<
       if (parsed.ok) return parsed;
       const claims = decodeUnsignedJwtClaims(readBearerToken(headers));
       const kind = String(claims?.kind || '').trim();
-      if (kind === 'threshold_ed25519_session_v1' || kind === 'threshold_ecdsa_session_v1') {
+      if (kind === 'threshold_ed25519_session_v1' || kind === 'threshold_ecdsa_session_v2') {
         return { ok: true as const, claims: claims as Record<string, unknown> };
       }
       return parsed;
@@ -103,12 +124,12 @@ async function installThresholdRegistrationBootstrapMock(
   },
 ): Promise<void> {
   const threshold = input.threshold as {
-    bootstrapEcdsaFromRegistrationMaterial?: (request: {
-      walletSessionUserId: string;
-      rpId: string;
-      clientRootShare32B64u: string;
-      sessionPolicy: Record<string, unknown>;
-    }) => Promise<Record<string, unknown>>;
+    ecdsaHssRoleLocalBootstrap?: (request: Record<string, unknown>) => Promise<{
+      ok: boolean;
+      code?: string;
+      message?: string;
+      value?: Record<string, unknown>;
+    }>;
     authSessionStore?: {
       putSession: (
         id: string,
@@ -123,8 +144,8 @@ async function installThresholdRegistrationBootstrapMock(
       ) => Promise<void>;
     };
   };
-  if (typeof threshold.bootstrapEcdsaFromRegistrationMaterial !== 'function') {
-    throw new Error('Missing threshold-ecdsa staged bootstrap hook');
+  if (typeof threshold.ecdsaHssRoleLocalBootstrap !== 'function') {
+    throw new Error('Missing threshold-ecdsa role-local bootstrap hook');
   }
 
   const positiveInt = (value: unknown, fallback: number): number => {
@@ -149,6 +170,7 @@ async function installThresholdRegistrationBootstrapMock(
     }
 
     const corsHeaders = corsHeadersForRoute(route);
+    try {
     const payload = JSON.parse(req.postData() || '{}');
     const accountId = String(payload?.new_account_id || '').trim();
     const rpId = String(payload?.rp_id || '').trim() || 'example.localhost';
@@ -173,13 +195,14 @@ async function installThresholdRegistrationBootstrapMock(
     };
 
     const signThresholdSessionAuthToken = async (args: {
-      kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v1';
+      kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v2';
       sessionId: string;
       walletSigningSessionId: string;
       relayerKeyId: string;
       participantIds: number[];
       expiresAtMs: number;
       runtimePolicyScope: typeof input.runtimePolicyScope;
+      keyHandle?: string;
     }): Promise<string> => {
       const nowSec = Math.floor(nowMs / 1000);
       const expSec = Math.floor(args.expiresAtMs / 1000);
@@ -193,6 +216,7 @@ async function installThresholdRegistrationBootstrapMock(
         participantIds: args.participantIds,
         thresholdExpiresAtMs: args.expiresAtMs,
         runtimePolicyScope: args.runtimePolicyScope,
+        ...(args.keyHandle ? { keyHandle: args.keyHandle } : {}),
         iat: nowSec,
         exp: expSec,
       });
@@ -276,11 +300,6 @@ async function installThresholdRegistrationBootstrapMock(
     ).trim();
     let thresholdEcdsaResponse: Record<string, unknown> | undefined;
     if (thresholdEcdsaClientRootShare32B64u) {
-      const bootstrapEcdsaFromRegistrationMaterial =
-        threshold.bootstrapEcdsaFromRegistrationMaterial;
-      if (!bootstrapEcdsaFromRegistrationMaterial) {
-        throw new Error('Missing staged ECDSA bootstrap helper');
-      }
       const policy = thresholdEcdsa?.session_policy || {};
       const sessionId = String(policy?.sessionId || policy?.session_id || `ecdsa-session-${nowMs}`);
       const walletSigningSessionId = String(
@@ -290,53 +309,97 @@ async function installThresholdRegistrationBootstrapMock(
       const remainingUses = positiveInt(policy?.remainingUses || policy?.remaining_uses, 10_000);
       const participantIds = asParticipantIds(policy?.participantIds, [1, 2]);
       const runtimePolicyScope = resolveRuntimePolicyScope(policy);
-      const bootstrap = (await bootstrapEcdsaFromRegistrationMaterial({
-        walletSessionUserId: accountId,
+      const signingRootScope = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
+      const signingRootVersion = String(signingRootScope.signingRootVersion || '').trim();
+      const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
+        walletId: accountId,
         rpId,
+        signingRootId: signingRootScope.signingRootId,
+        signingRootVersion,
+      });
+      const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
+        walletId: accountId,
+        rpId,
+      });
+      ensureHssClientSignerWasm();
+      const clientBootstrap = threshold_ecdsa_hss_role_local_client_bootstrap({
+        walletId: accountId,
+        rpId,
+        ecdsaThresholdKeyId,
+        signingRootId: signingRootScope.signingRootId,
+        signingRootVersion,
+        keyPurpose: 'evm-signing',
+        keyVersion: 'v1',
         clientRootShare32B64u: thresholdEcdsaClientRootShare32B64u,
-        sessionPolicy: {
-          version: 'threshold_session_v1',
-          walletSessionUserId: accountId,
-          rpId,
-          sessionId,
-          ttlMs,
-          remainingUses,
-          participantIds,
-          runtimePolicyScope,
-        },
-      })) as Record<string, unknown>;
-      if (!bootstrap?.ok) {
+      }) as {
+        contextBinding32B64u: string;
+        clientPublicKey33B64u: string;
+        clientShareRetryCounter: number;
+      };
+      const bootstrapResult = await threshold.ecdsaHssRoleLocalBootstrap!({
+        formatVersion: 'ecdsa-hss-role-local',
+        walletId: accountId,
+        rpId,
+        ecdsaThresholdKeyId,
+        signingRootId: signingRootScope.signingRootId,
+        signingRootVersion,
+        keyScope: 'evm-family',
+        relayerKeyId,
+        clientPublicKey33B64u: clientBootstrap.clientPublicKey33B64u,
+        clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
+        contextBinding32B64u: clientBootstrap.contextBinding32B64u,
+        requestId: `threshold-ecdsa-registration-${nowMs}`,
+        sessionId,
+        walletSigningSessionId,
+        ttlMs,
+        remainingUses,
+        participantIds,
+      });
+      if (!bootstrapResult.ok) {
         await route.fulfill({
           status: 400,
           headers: { 'Content-Type': 'application/json', ...corsHeaders },
           body: JSON.stringify({
             success: false,
-            error: String(bootstrap?.message || 'ecdsa bootstrap'),
+            error: String(bootstrapResult.message || 'ecdsa bootstrap'),
           }),
         });
         return;
       }
+      const bootstrap = bootstrapResult.value || {};
+      const expiresAtMs = Number(bootstrap.expiresAtMs || nowMs + ttlMs);
+      const bootstrapParticipantIds = Array.isArray(bootstrap.participantIds)
+        ? (bootstrap.participantIds as number[])
+        : participantIds;
+      const bootstrapSessionId = String(bootstrap.sessionId || sessionId);
+      const bootstrapRelayerKeyId = String(bootstrap.relayerKeyId || relayerKeyId);
+      const jwt = await signThresholdSessionAuthToken({
+        kind: 'threshold_ecdsa_session_v2',
+        sessionId: bootstrapSessionId,
+        walletSigningSessionId,
+        relayerKeyId: bootstrapRelayerKeyId,
+        participantIds: bootstrapParticipantIds,
+        expiresAtMs,
+        runtimePolicyScope,
+        keyHandle: String(bootstrap.keyHandle || ''),
+      });
 
       thresholdEcdsaResponse = {
         ecdsaThresholdKeyId: String(bootstrap.ecdsaThresholdKeyId || ''),
-        relayerKeyId: String(bootstrap.relayerKeyId || ''),
+        relayerKeyId: bootstrapRelayerKeyId,
         thresholdEcdsaPublicKeyB64u: String(bootstrap.thresholdEcdsaPublicKeyB64u || ''),
         ethereumAddress: String(bootstrap.ethereumAddress || ''),
         relayerVerifyingShareB64u: String(bootstrap.relayerVerifyingShareB64u || ''),
-        participantIds: Array.isArray(bootstrap.participantIds)
-          ? bootstrap.participantIds
-          : participantIds,
+        participantIds: bootstrapParticipantIds,
         session: {
           sessionKind: 'jwt',
-          sessionId: String(bootstrap.sessionId || sessionId),
+          sessionId: bootstrapSessionId,
           walletSigningSessionId,
-          expiresAtMs: Number(bootstrap.expiresAtMs || nowMs + ttlMs),
-          participantIds: Array.isArray(bootstrap.participantIds)
-            ? bootstrap.participantIds
-            : participantIds,
+          expiresAtMs,
+          participantIds: bootstrapParticipantIds,
           remainingUses: Number(bootstrap.remainingUses || remainingUses),
           runtimePolicyScope,
-          jwt: String(bootstrap.jwt || ''),
+          jwt,
         },
       };
     }
@@ -351,6 +414,16 @@ async function installThresholdRegistrationBootstrapMock(
         ...(thresholdEcdsaResponse ? { thresholdEcdsa: thresholdEcdsaResponse } : {}),
       }),
     });
+    } catch (error) {
+      await route.fulfill({
+        status: 500,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders },
+        body: JSON.stringify({
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      });
+    }
   });
 }
 
@@ -518,6 +591,7 @@ export async function setupThresholdEcdsaSealedRefreshHarness(
     threshold,
     session,
     publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+    orgProjectEnv,
     bootstrapGrantBroker: createRelayBootstrapGrantBroker({
       apiKeys,
       tokenStore: bootstrapTokenStore,
@@ -673,6 +747,7 @@ export async function readWalletIframeThresholdPersistence(page: Page): Promise<
       curve: string;
       thresholdSessionIds: Record<string, unknown>;
       chainTargetKey: string;
+      hasEcdsaThresholdKeyId: boolean;
       remainingUses: number | null;
     }>;
   }>
@@ -689,19 +764,20 @@ export async function readWalletIframeThresholdPersistence(page: Page): Promise<
               curve: string;
               thresholdSessionIds: Record<string, unknown>;
               chainTargetKey: string;
+              hasEcdsaThresholdKeyId: boolean;
               remainingUses: number | null;
             }>
           > => {
             try {
-              const request = indexedDB.open('seams_wallet_v1');
+              const request = indexedDB.open('seams_wallet');
               const db = await new Promise<IDBDatabase>((resolve, reject) => {
                 request.onerror = () => reject(request.error);
                 request.onsuccess = () => resolve(request.result);
               });
               try {
-                if (!db.objectStoreNames.contains('signing_session_seals_v1')) return [];
-                const tx = db.transaction('signing_session_seals_v1', 'readonly');
-                const store = tx.objectStore('signing_session_seals_v1');
+                if (!db.objectStoreNames.contains('signing_session_seals')) return [];
+                const tx = db.transaction('signing_session_seals', 'readonly');
+                const store = tx.objectStore('signing_session_seals');
                 const getAll = store.getAll();
                 const rows = await new Promise<unknown[]>((resolve, reject) => {
                   getAll.onerror = () => reject(getAll.error);
@@ -740,6 +816,7 @@ export async function readWalletIframeThresholdPersistence(page: Page): Promise<
                       curve: String(row.curve || ''),
                       thresholdSessionIds,
                       chainTargetKey,
+                      hasEcdsaThresholdKeyId: Boolean(ecdsaRestore?.ecdsaThresholdKeyId),
                       remainingUses: Number.isFinite(remainingUses) ? Math.floor(remainingUses) : null,
                     };
                   });

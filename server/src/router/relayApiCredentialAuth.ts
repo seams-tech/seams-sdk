@@ -301,7 +301,7 @@ export async function resolveRegistrationBootstrapApiCredentialAuth(
         ? (signerSelection.ed25519 as Record<string, unknown>)
         : {};
     const requestedAccountId = String(
-      bodyRecord.walletSubjectId ||
+      bodyRecord.walletId ||
         bodyRecord.new_account_id ||
         bodyRecord.newAccountId ||
         ed25519.nearAccountId ||

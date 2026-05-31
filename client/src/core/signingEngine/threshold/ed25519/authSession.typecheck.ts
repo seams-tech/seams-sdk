@@ -1,40 +1,46 @@
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import type { ThresholdEd25519SessionMintAuthorization } from './authSession';
+import type {
+  ThresholdEd25519ProvidedPrfSecretSource,
+  ThresholdEd25519SessionMintAuthorization,
+  ThresholdEd25519WebAuthnPrfSecretSource,
+} from './authSession';
 import type { ProvisionWarmEd25519CapabilityArgs } from '../../session/warmCapabilities/types';
 
 declare const credential: WebAuthnAuthenticationCredential;
+declare const webauthnPrfSource: ThresholdEd25519WebAuthnPrfSecretSource;
+declare const providedPrfSource: ThresholdEd25519ProvidedPrfSecretSource;
 
 const validAppSessionJwtAuth = {
   kind: 'app_session_jwt',
   appSessionJwt: 'app-session-jwt',
-  localPrfCredential: credential,
+  localSecretSource: webauthnPrfSource,
 } satisfies ThresholdEd25519SessionMintAuthorization;
 void validAppSessionJwtAuth;
 
 const validAppSessionCookieAuth = {
   kind: 'app_session_cookie',
-  localPrfCredential: credential,
+  localSecretSource: webauthnPrfSource,
 } satisfies ThresholdEd25519SessionMintAuthorization;
 void validAppSessionCookieAuth;
 
 const validThresholdPolicyWebAuthnAuth = {
   kind: 'threshold_session_policy_webauthn',
-  webauthnAuthentication: credential,
+  policySecretSource: webauthnPrfSource,
 } satisfies ThresholdEd25519SessionMintAuthorization;
 void validThresholdPolicyWebAuthnAuth;
 
 const validThresholdEcdsaSessionJwtAuth = {
   kind: 'threshold_ecdsa_session_jwt',
   thresholdEcdsaSessionJwt: 'threshold-ecdsa-session-jwt',
-  localPrfFirstB64u: 'local-prf-first',
+  localSecretSource: providedPrfSource,
 } satisfies ThresholdEd25519SessionMintAuthorization;
 void validThresholdEcdsaSessionJwtAuth;
 
-// @ts-expect-error app-session JWT auth cannot carry a threshold-session WebAuthn assertion.
 const invalidAppSessionJwtWithThresholdAssertion: ThresholdEd25519SessionMintAuthorization = {
   kind: 'app_session_jwt',
   appSessionJwt: 'app-session-jwt',
-  localPrfCredential: credential,
+  localSecretSource: webauthnPrfSource,
+  // @ts-expect-error app-session JWT auth cannot carry a threshold-session WebAuthn assertion.
   webauthnAuthentication: credential,
 };
 void invalidAppSessionJwtWithThresholdAssertion;
@@ -42,7 +48,7 @@ void invalidAppSessionJwtWithThresholdAssertion;
 // @ts-expect-error app-session cookie auth cannot carry a JWT.
 const invalidAppSessionCookieWithJwt: ThresholdEd25519SessionMintAuthorization = {
   kind: 'app_session_cookie',
-  localPrfCredential: credential,
+  localSecretSource: webauthnPrfSource,
   appSessionJwt: 'app-session-jwt',
 };
 void invalidAppSessionCookieWithJwt;
@@ -50,16 +56,16 @@ void invalidAppSessionCookieWithJwt;
 // @ts-expect-error threshold session-policy WebAuthn auth cannot carry app-session PRF material.
 const invalidThresholdPolicyWithLocalPrf: ThresholdEd25519SessionMintAuthorization = {
   kind: 'threshold_session_policy_webauthn',
-  webauthnAuthentication: credential,
-  localPrfCredential: credential,
+  policySecretSource: webauthnPrfSource,
+  localSecretSource: webauthnPrfSource,
 };
 void invalidThresholdPolicyWithLocalPrf;
 
-// @ts-expect-error threshold ECDSA session auth must not carry a WebAuthn assertion.
 const invalidThresholdEcdsaSessionWithWebAuthn: ThresholdEd25519SessionMintAuthorization = {
   kind: 'threshold_ecdsa_session_jwt',
   thresholdEcdsaSessionJwt: 'threshold-ecdsa-session-jwt',
-  localPrfFirstB64u: 'local-prf-first',
+  localSecretSource: providedPrfSource,
+  // @ts-expect-error threshold ECDSA session auth must not carry a WebAuthn assertion.
   webauthnAuthentication: credential,
 };
 void invalidThresholdEcdsaSessionWithWebAuthn;

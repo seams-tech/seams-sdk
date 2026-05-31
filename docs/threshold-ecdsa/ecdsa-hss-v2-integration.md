@@ -45,7 +45,7 @@ should remove superseded paths directly after replacement.
 This change is a breaking ECDSA HSS account format change. Existing
 `threshold_ecdsa_hss_key_v1` server records and old IndexedDB ECDSA HSS client
 artifacts must be deleted before enabling the role-local flow. Recreated ECDSA
-HSS accounts bootstrap new `threshold_ecdsa_hss_role_local` server records and
+HSS accounts bootstrap new `threshold_ecdsa_hss_role_local_v2` server records and
 new `ecdsa-hss-role-local-client-state` browser artifacts.
 
 Do not add migration or compatibility readers for old ECDSA HSS records. Any
@@ -104,7 +104,7 @@ HSS surfaces:
   active Express/Cloudflare routers, the client RPC module, and the server
   service surface.
 - Product key stores now accept only the role-local
-  `threshold_ecdsa_hss_role_local` record shape on active product paths.
+  `threshold_ecdsa_hss_role_local_v2` record shape on active product paths.
 - Product relayer derivation uses the fixed `evm-family` threshold PRF ECDSA
   HSS context.
 - Client export reconstructs `privateKeyHex` locally from the explicit export
@@ -159,7 +159,7 @@ Rules:
 
 - `walletSessionUserId` comes from authenticated claims.
 - `rpId` comes from authenticated claims.
-- `subjectId` comes from the resolved wallet/account subject for this session.
+- `walletId` comes from the resolved wallet for this session.
 - `ecdsaThresholdKeyId` is required in the request and must resolve to the same
   wallet/session subject.
 - `relayerKeyId` is required in the request and must match the active relayer
@@ -174,7 +174,7 @@ Core functions must receive normalized domain types, not raw route bodies.
 Use one active server record version:
 
 ```ts
-version: 'threshold_ecdsa_hss_role_local'
+version: 'threshold_ecdsa_hss_role_local_v2'
 ```
 
 Use one active client record artifact kind for local role state:
@@ -312,7 +312,7 @@ Replay scope:
 ecdsa-hss-export
 walletSessionUserId
 rpId
-subjectId
+walletId
 ecdsaThresholdKeyId
 relayerKeyId
 keyHandle
@@ -402,7 +402,7 @@ type EcdsaHssClientBootstrapRequest = {
   formatVersion: 'ecdsa-hss-role-local';
   walletSessionUserId: WalletSessionUserId;
   rpId: RpId;
-  subjectId: WalletSubjectId;
+  walletId: WalletId;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: SigningRootId;
   signingRootVersion: string;
@@ -435,7 +435,7 @@ type EcdsaHssServerBootstrapResponse = {
   formatVersion: 'ecdsa-hss-role-local';
   walletSessionUserId: WalletSessionUserId;
   rpId: RpId;
-  subjectId: WalletSubjectId;
+  walletId: WalletId;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: RelayerKeyId;
   contextBinding32B64u: string;
@@ -475,10 +475,10 @@ Persist only relayer-side signing material and public identity:
 
 ```ts
 type EcdsaHssRelayerKeyRecord = {
-  version: 'threshold_ecdsa_hss_role_local';
+  version: 'threshold_ecdsa_hss_role_local_v2';
   walletSessionUserId: WalletSessionUserId;
   rpId: RpId;
-  subjectId: WalletSubjectId;
+  walletId: WalletId;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   keyHandle: string;
   signingRootId: SigningRootId;
@@ -519,7 +519,7 @@ type EcdsaHssExportShareResponse = {
   formatVersion: 'ecdsa-hss-role-local-export';
   walletSessionUserId: WalletSessionUserId;
   rpId: RpId;
-  subjectId: WalletSubjectId;
+  walletId: WalletId;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: RelayerKeyId;
   contextBinding32B64u: string;
@@ -700,7 +700,7 @@ type EcdsaHssExportShareRequest = {
   formatVersion: 'ecdsa-hss-role-local-export';
   walletSessionUserId: WalletSessionUserId;
   rpId: RpId;
-  subjectId: WalletSubjectId;
+  walletId: WalletId;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: RelayerKeyId;
   contextBinding32B64u: string;
@@ -745,7 +745,7 @@ Rules:
 - export nonce storage is keyed by wallet user, ECDSA key id, relayer key id,
   export nonce, and authorization digest
 - the key-store parser, filtered uniqueness index, and insert-conflict query use
-  only `threshold_ecdsa_hss_role_local` for active ECDSA HSS records
+  only `threshold_ecdsa_hss_role_local_v2` for active ECDSA HSS records
 
 ### Checklist
 
@@ -769,10 +769,10 @@ Rules:
       `ecdsaHss.prepare` and onto role-local bootstrap while preserving
       resolver and share assertions.
 - [x] Update key-store validation to accept only
-      `threshold_ecdsa_hss_role_local`.
+      `threshold_ecdsa_hss_role_local_v2`.
 - [x] Resolve ECDSA key identity inventory from role-local records only.
 - [x] Point the Postgres shared-identity helper index at
-      `threshold_ecdsa_hss_role_local`.
+      `threshold_ecdsa_hss_role_local_v2`.
 - [x] Delete hidden-eval transport parsers once no route imports them.
 - [x] Add product route tests for forbidden fields, malformed public keys,
       relayer key mismatch, and zero canonical key rejection.
@@ -831,7 +831,7 @@ type EcdsaHssClientState =
       artifactKind: 'ecdsa-hss-role-local-client-state';
       walletSessionUserId: WalletSessionUserId;
       rpId: RpId;
-      subjectId: WalletSubjectId;
+      walletId: WalletId;
       ecdsaThresholdKeyId: EcdsaThresholdKeyId;
       relayerKeyId: RelayerKeyId;
       contextBinding32B64u: string;
@@ -853,7 +853,7 @@ type EcdsaHssClientState =
       artifactKind: 'ecdsa-hss-secp256k1-export';
       walletSessionUserId: WalletSessionUserId;
       rpId: RpId;
-      subjectId: WalletSubjectId;
+      walletId: WalletId;
       ecdsaThresholdKeyId: EcdsaThresholdKeyId;
       relayerKeyId: RelayerKeyId;
       ethereumAddress: string;
@@ -990,7 +990,7 @@ Authorization rules:
   verification.
 - Passkey first-bootstrap is allowed only for deterministic key creation:
   `ecdsaThresholdKeyId` must equal
-  `computeEcdsaHssRoleLocalThresholdKeyId(walletSessionUserId, rpId, subjectId,
+  `computeEcdsaHssRoleLocalThresholdKeyId(walletSessionUserId, rpId, walletId,
   signingRootId, signingRootVersion)`, and `relayerKeyId` must equal
   `computeEcdsaHssRoleLocalRelayerKeyId(walletSessionUserId, rpId)`.
 - The request must carry either a valid registration-continuation bearer whose
@@ -1005,7 +1005,7 @@ Authorization rules:
   cannot include `clientPublicKey33B64u` or `contextBinding32B64u`, which are
   derived from that PRF output. The challenge must instead be a deterministic
   digest over the pre-client-root request identity:
-  `walletSessionUserId`, `rpId`, `subjectId`, `ecdsaThresholdKeyId`,
+  `walletSessionUserId`, `rpId`, `walletId`, `ecdsaThresholdKeyId`,
   `signingRootId`, `signingRootVersion`, `keyScope`, `relayerKeyId`,
   `requestId`, `sessionId`, `walletSigningSessionId`, `ttlMs`,
   `remainingUses`, and `participantIds`.
@@ -1117,7 +1117,7 @@ base64url(SHA-256(alphabetizeStringify({
   version: "ecdsa-hss:role-local:product-export-confirmation:v1",
   walletSessionUserId,
   rpId,
-  subjectId,
+  walletId,
   ecdsaThresholdKeyId,
   relayerKeyId,
   contextBinding32B64u,
@@ -1280,7 +1280,7 @@ record_json->>'version' = 'threshold_ecdsa_hss_key_v1'
 Implementation must update those filters to the new active version:
 
 ```text
-threshold_ecdsa_hss_role_local
+threshold_ecdsa_hss_role_local_v2
 ```
 
 The parser in `server/src/core/ThresholdService/validation.ts` and the record

@@ -12,6 +12,26 @@ const RP_ID = 'localhost';
 const RELAYER_URL = 'https://relay.example.test';
 const RELAYER_KEY_ID = 'ed25519:relayer-key';
 const PARTICIPANT_IDS = [1, 2, 3];
+const TEST_WEBAUTHN_CREDENTIAL = {
+  id: 'credential-id',
+  rawId: 'credential-id',
+  type: 'public-key',
+  authenticatorAttachment: 'platform',
+  response: {
+    clientDataJSON: 'client-data',
+    authenticatorData: 'authenticator-data',
+    signature: 'signature',
+    userHandle: undefined,
+  },
+  clientExtensionResults: {
+    prf: {
+      results: {
+        first: Buffer.alloc(32, 7).toString('base64url'),
+        second: undefined,
+      },
+    },
+  },
+};
 
 function writeEd25519Record(args: {
   thresholdSessionId: string;
@@ -77,7 +97,7 @@ test.describe('passkey Ed25519 reconnect recovery', () => {
     const result = await reconnectPasskeyEd25519CapabilityForSigning({
       nearAccountId: ACCOUNT_ID,
       record: oldRecord,
-      localPrfCredential: {} as any,
+      localPrfCredential: TEST_WEBAUTHN_CREDENTIAL as any,
       remainingUses: 1,
       sessionId: plannedSessionId,
       walletSigningSessionId: plannedWalletSigningSessionId,

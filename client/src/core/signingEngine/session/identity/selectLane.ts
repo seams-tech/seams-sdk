@@ -488,15 +488,23 @@ function selectConcreteTransactionCandidate<
   buildLane: (candidate: TCandidate) => TLane;
 }): TransactionLaneSelectionResult {
   const { intent } = args;
-  const policyAuthMethod = intent.authSelectionPolicy.authMethod;
-  const candidates = args.candidates.filter(
-    (candidate) => candidate.candidate.authMethod === policyAuthMethod,
-  );
+  const candidates =
+    intent.authSelectionPolicy.kind === 'any'
+      ? args.candidates
+      : (() => {
+          const policyAuthMethod = intent.authSelectionPolicy.authMethod;
+          return args.candidates.filter(
+            (candidate) => candidate.candidate.authMethod === policyAuthMethod,
+          );
+        })();
 
   if (!candidates.length) {
     return {
       ok: false,
-      failure: { kind: 'no_candidate', authMethod: policyAuthMethod },
+      failure:
+        intent.authSelectionPolicy.kind === 'any'
+          ? { kind: 'no_candidate' }
+          : { kind: 'no_candidate', authMethod: intent.authSelectionPolicy.authMethod },
     };
   }
 

@@ -35,7 +35,6 @@ function makeEmailOtpEcdsaSealedRecord(
     curve: 'ecdsa',
     walletId: 'alice.testnet',
     userId: 'alice.testnet',
-    subjectId: 'alice.testnet',
     signingRootId: 'root-1',
     signingRootVersion: 'v1',
     relayerUrl: 'https://relay.example',
@@ -142,6 +141,55 @@ function makeEmailOtpEd25519SealedRecord(
 }
 
 test.describe('sealed recovery method adapters', () => {
+  test('rejects ECDSA sealed recovery records with subjectId', () => {
+    const now = Date.now();
+    const normalized = normalizeSealedRecoveryRecord({
+      v: 1,
+      alg: 'shamir3pass-v1',
+      storageScope: 'iframe_origin_indexeddb',
+      authMethod: 'email_otp',
+      secretKind: 'signing_session_secret32',
+      storeKey: 'email_otp:ecdsa:tempo:tsess-ecdsa',
+      walletSigningSessionId: 'wsess-ecdsa',
+      thresholdSessionIds: {
+        ecdsa: 'tsess-ecdsa',
+      },
+      sealedSecretB64u: 'sealed-secret',
+      curve: 'ecdsa',
+      walletId: 'alice.testnet',
+      userId: 'alice.testnet',
+      subjectId: 'alice.testnet',
+      signingRootId: 'root-1',
+      signingRootVersion: 'v1',
+      relayerUrl: 'https://relay.example',
+      ecdsaRestore: {
+        chainTarget: TEMPO_CHAIN_TARGET,
+        rpId: 'example.com',
+        sessionKind: 'jwt',
+        thresholdSessionAuthToken: 'jwt-ecdsa',
+        keyHandle: 'key-handle-ecdsa',
+        ecdsaThresholdKeyId: 'ecdsa-key',
+        ethereumAddress: `0x${'33'.repeat(20)}`,
+        relayerKeyId: 'relayer-key',
+        clientVerifyingShareB64u: 'client-verifying-share',
+        thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
+        participantIds: [1, 2],
+      },
+      issuedAtMs: now - 1_000,
+      expiresAtMs: now + 60_000,
+      remainingUses: 3,
+      updatedAtMs: now,
+    });
+
+    expect(normalized).toMatchObject({
+      kind: 'rejected',
+      rejection: {
+        kind: 'rejected_sealed_recovery_record',
+        reason: 'invalid_identity',
+      },
+    });
+  });
+
   test('restores before claiming passkey ECDSA PRF material', async () => {
     const calls: Array<{ kind: 'restore' | 'claim'; args: Record<string, unknown> }> = [];
     const prfFirstB64u = await claimPasskeyEcdsaPrfFirst({

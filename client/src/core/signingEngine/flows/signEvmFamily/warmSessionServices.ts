@@ -138,6 +138,7 @@ export function createEvmFamilyWarmSessionServices(
   };
   const capabilityReader = createWarmSessionCapabilityReader({
     touchConfirm: deps.touchConfirm,
+    signingSessionSeal: null,
     getEmailOtpWarmSessionStatus,
   });
   const statusReader = createWarmSessionStatusReader({

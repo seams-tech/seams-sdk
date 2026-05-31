@@ -1,57 +1,118 @@
-import type { AccountId } from '@/core/types/accountIds';
-import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdEd25519SessionRecord } from '@/core/signingEngine/session/persistence/records';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletSessionRef,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
+import type { EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
+import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
+import type { VerifiedEcdsaPublicFacts } from '../identity/evmFamilyEcdsaIdentity';
+import type { EcdsaRoleLocalWorkerExportMaterial } from '@/core/platform/ecdsaRoleLocalRecords';
+import type {
+  EmailOtpEcdsaAuthorizedExportStepUpInput,
+  EmailOtpEcdsaFreshLoginExportStepUpInput,
+} from './exportRecovery';
 
-type EmailOtpChallengeWorkerArgs =
-  Parameters<typeof import('./exportRecovery')['requestTransactionSigningChallenge']>[1];
-type RecoverEd25519ExportPrfFirstArgs =
-  import('./exportRecoveryRuntime').RecoverEd25519ExportPrfFirstArgs;
+declare const walletSession: WalletSessionRef;
+declare const chainTarget: ThresholdEcdsaChainTarget;
+declare const routePlan: EmailOtpRoutePlan;
+declare const record: ThresholdEcdsaSessionRecord;
+declare const roleLocalMaterial: EcdsaRoleLocalWorkerExportMaterial;
+declare const publicFacts: VerifiedEcdsaPublicFacts;
+declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
 
-declare const walletId: WalletId;
-declare const nearAccountId: AccountId;
-declare const ed25519Record: ThresholdEd25519SessionRecord;
-
-const walletSessionChallenge: Extract<
-  EmailOtpChallengeWorkerArgs,
-  { kind: 'wallet_session_challenge' }
-> = {
-  kind: 'wallet_session_challenge',
-  walletSession: {
-    walletId,
-    walletSessionUserId: 'user-1',
-  },
-  chain: 'evm',
-};
-void walletSessionChallenge;
-
-const nearAccountChallenge: Extract<EmailOtpChallengeWorkerArgs, { kind: 'near_account_challenge' }> =
-  {
-    kind: 'near_account_challenge',
-    nearAccountId,
-    chain: 'near',
-  };
-void nearAccountChallenge;
-
-const invalidWalletSessionChallenge: Extract<
-  EmailOtpChallengeWorkerArgs,
-  { kind: 'wallet_session_challenge' }
-> = {
-  kind: 'wallet_session_challenge',
-  walletSession: {
-    // @ts-expect-error wallet-session Email OTP challenge requires WalletId.
-    walletId: 'alice.testnet',
-    walletSessionUserId: 'user-1',
-  },
-  chain: 'evm',
-};
-void invalidWalletSessionChallenge;
-
-const validRecoverEd25519ExportArgs: RecoverEd25519ExportPrfFirstArgs = {
-  nearAccountId,
+const authorizedExport: EmailOtpEcdsaAuthorizedExportStepUpInput = {
+  mode: 'export_step_up',
+  source: 'authorized_signing_session',
+  walletSession,
   challengeId: 'challenge-1',
   otpCode: '123456',
-  record: ed25519Record,
+  relayUrl: 'https://relay.example',
+  routePlan,
+  record,
+  rpId: 'localhost',
+  shamirPrimeB64u: 'prime',
+  keyHandle: 'ehss-key-handle-1',
+  roleLocalMaterial,
 };
-void validRecoverEd25519ExportArgs;
+void authorizedExport;
+
+// @ts-expect-error authorized ECDSA export requires role-local material.
+const authorizedExportWithoutRoleLocalMaterial: EmailOtpEcdsaAuthorizedExportStepUpInput = {
+  mode: 'export_step_up',
+  source: 'authorized_signing_session',
+  walletSession,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  relayUrl: 'https://relay.example',
+  routePlan,
+  record,
+  rpId: 'localhost',
+  shamirPrimeB64u: 'prime',
+  keyHandle: 'ehss-key-handle-1',
+};
+void authorizedExportWithoutRoleLocalMaterial;
+
+const freshExport: EmailOtpEcdsaFreshLoginExportStepUpInput = {
+  mode: 'export_step_up',
+  source: 'fresh_login',
+  walletSession,
+  chainTarget,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  relayUrl: 'https://relay.example',
+  routePlan,
+  publicFacts,
+  runtimePolicyScope,
+  authSubjectMode: 'explicit_auth_subject',
+  authSubjectId: 'email-subject-1',
+};
+void freshExport;
+
+const freshExportWithWalletSessionSubject: EmailOtpEcdsaFreshLoginExportStepUpInput = {
+  mode: 'export_step_up',
+  source: 'fresh_login',
+  walletSession,
+  chainTarget,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  relayUrl: 'https://relay.example',
+  routePlan,
+  publicFacts,
+  runtimePolicyScope,
+  authSubjectMode: 'wallet_session_subject',
+};
+void freshExportWithWalletSessionSubject;
+
+// @ts-expect-error fresh Email OTP ECDSA export requires runtimePolicyScope.
+const freshExportWithoutRuntimeScope: EmailOtpEcdsaFreshLoginExportStepUpInput = {
+  mode: 'export_step_up',
+  source: 'fresh_login',
+  walletSession,
+  chainTarget,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  relayUrl: 'https://relay.example',
+  routePlan,
+  publicFacts,
+  authSubjectMode: 'wallet_session_subject',
+};
+void freshExportWithoutRuntimeScope;
+
+// @ts-expect-error wallet-session subject branch rejects explicit authSubjectId.
+const freshExportWithMixedSubject: EmailOtpEcdsaFreshLoginExportStepUpInput = {
+  mode: 'export_step_up',
+  source: 'fresh_login',
+  walletSession,
+  chainTarget,
+  challengeId: 'challenge-1',
+  otpCode: '123456',
+  relayUrl: 'https://relay.example',
+  routePlan,
+  publicFacts,
+  runtimePolicyScope,
+  authSubjectMode: 'wallet_session_subject',
+  authSubjectId: 'email-subject-1',
+};
+void freshExportWithMixedSubject;
 
 export {};

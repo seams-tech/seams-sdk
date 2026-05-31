@@ -13,6 +13,22 @@ type WarmSessionStatusOnlyUiConfirmPort = UiConfirmRuntimeBridgePort & {
   }) => Promise<WarmSessionStatusBatchResult>;
 };
 
+export type WarmSessionStatusOnlyReaderPort = {
+  getWarmSessionStatus: (args: { sessionId: string }) => Promise<WarmSessionStatusResult>;
+  getWarmSessionStatuses?: (args: {
+    sessionIds: string[];
+  }) => Promise<WarmSessionStatusBatchResult>;
+  claimWarmSessionMaterial?: never;
+  clearVolatileWarmSessionMaterial?: never;
+  requestUserConfirmation?: never;
+  prompt?: never;
+  webauthnPrompt?: never;
+  touchIdPrompt?: never;
+  passkeyCredentialCollector?: never;
+  freshBootstrap?: never;
+  bootstrapEcdsaSession?: never;
+};
+
 type WarmSessionClaimArgs = Parameters<
   UiConfirmRuntimeBridgePort['claimWarmSessionMaterial']
 >[0];
@@ -118,7 +134,7 @@ export function createWarmSessionAwareUiConfirm(args: {
 export function createWarmSessionStatusOnlyUiConfirm(args: {
   base: UiConfirmRuntimeBridgePort;
   secondary: SecondaryWarmSessionStatusOnlyPort;
-}): UiConfirmRuntimeBridgePort {
+}): WarmSessionStatusOnlyReaderPort {
   const { base, secondary } = args;
   const primary = base as WarmSessionStatusOnlyUiConfirmPort;
   const readPrimaryWarmSessionStatusOnly = async (statusArgs: {
@@ -194,5 +210,5 @@ export function createWarmSessionStatusOnlyUiConfirm(args: {
       const value = Reflect.get(target, prop, receiver);
       return typeof value === 'function' ? value.bind(target) : value;
     },
-  }) as UiConfirmRuntimeBridgePort;
+  }) as unknown as WarmSessionStatusOnlyReaderPort;
 }

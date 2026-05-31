@@ -6,8 +6,6 @@ import {
   type EvmFamilyWarmSessionServicesDeps,
 } from './warmSessionServices';
 import {
-  summarizeEvmFamilyEcdsaLane,
-  summarizeEvmFamilyEcdsaSessionRecord,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import { emitEvmFamilySigningEvent } from './events';
@@ -111,23 +109,6 @@ export async function ensureEvmFamilyThresholdEcdsaRecordReady(
   ) {
     throw new Error('[SigningEngine][ecdsa] reconnect plan identity does not match requested reconnect identity');
   }
-  try {
-    console.info('[SigningEngine][ecdsa][reconnect-selected-lane]', {
-      walletId,
-      chain,
-      chainId: args.chainId,
-      source,
-      selectedLane: summarizeEvmFamilyEcdsaLane(args.lane),
-      requestedReconnectIdentity: {
-        thresholdSessionId,
-        walletSigningSessionId,
-      },
-      selectedRecord: summarizeEvmFamilyEcdsaSessionRecord(selectedRecord),
-      operationUsesNeeded,
-      sessionBudgetUses,
-    });
-  } catch {}
-
   const readyCapability = await warmSessionServices.ensureEcdsaCapabilityReady({
     walletId,
     chainTarget,

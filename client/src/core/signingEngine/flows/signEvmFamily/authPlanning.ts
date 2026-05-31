@@ -5,6 +5,7 @@ import {
 } from '@/core/signingEngine/stepUpConfirmation/types';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
+import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '@/core/platform/ecdsaRoleLocalRecords';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEcdsaSigningBootstrapResult } from '../../interfaces/operationDeps';
 import type { WarmSessionStatusReader, WarmSessionStatusResult } from '../../uiConfirm/types';
@@ -16,7 +17,6 @@ import {
   isSigningSessionBudgetExhaustedError,
   type SigningSessionBudgetStatusAuth,
 } from '../../session/budget/budget';
-import { resolveEmailOtpEcdsaWorkerSessionId } from '../../session/availability/readiness';
 import type { SigningSessionPlan } from '../../session/operationState/types';
 import { SigningOperationIntent, SigningSessionPlanKind } from '../../session/operationState/types';
 import type { PreparedThresholdSigningOperation } from '../../session/operationState/preparedOperation';
@@ -142,6 +142,8 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
     readiness: {
       status: 'ready' as const,
       thresholdSessionId,
+      expiresAtMs: Math.floor(Number(input.expiresAtMs) || 0),
+      remainingUses: Math.floor(Number(input.remainingUses) || 0),
     },
     expiresAtMs: Math.floor(Number(input.expiresAtMs) || 0),
     remainingUses: Math.floor(Number(input.remainingUses) || 0),
@@ -149,18 +151,27 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
 
   const materialIsEmailOtp = isEmailOtpThresholdEcdsaSigningContext({ record });
   if (materialIsEmailOtp) {
-    const emailOtpWorkerSessionId = resolveEmailOtpEcdsaWorkerSessionId(record);
-    const readEmailOtpStatus = async () => {
-      if (emailOtpWorkerSessionId && typeof args.deps.getEmailOtpWarmSessionStatus === 'function') {
-        return await args.deps
-          .getEmailOtpWarmSessionStatus(emailOtpWorkerSessionId)
-          .catch(() => null);
-      }
-      return await args.deps.touchConfirm
-        .getWarmSessionStatus({ sessionId: record.thresholdSessionId })
-        .catch(() => null);
-    };
-    let status = await readEmailOtpStatus();
+    const roleLocalState = classifyThresholdEcdsaSessionRecordRoleLocalState({
+      record,
+      nowMs: Date.now(),
+    });
+    if (
+      roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
+      roleLocalState.inlineSigningMaterial.kind === 'inline_client_share'
+    ) {
+      return buildBackingReadiness({
+        expiresAtMs: record.expiresAtMs,
+        remainingUses: record.remainingUses,
+      });
+    }
+    const status =
+      roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
+      roleLocalState.inlineSigningMaterial.kind === 'email_otp_worker_share' &&
+      typeof args.deps.getEmailOtpWarmSessionStatus === 'function'
+        ? await args.deps
+            .getEmailOtpWarmSessionStatus(roleLocalState.inlineSigningMaterial.workerSessionId)
+            .catch(() => null)
+        : null;
     const statusExpiresAtMs = status?.ok ? status.expiresAtMs : 0;
     const statusRemainingUses = status?.ok ? status.remainingUses : 0;
     return buildBackingReadiness({
@@ -216,6 +227,8 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
       readiness: {
         status: 'ready',
         thresholdSessionId: args.lane.thresholdSessionId,
+        expiresAtMs: Math.floor(Number(budgetIdentity.status.expiresAtMs) || 0),
+        remainingUses: Math.floor(Number(budgetIdentity.status.remainingUses) || 0),
       },
       expiresAtMs: Math.floor(Number(budgetIdentity.status.expiresAtMs) || 0),
       remainingUses: Math.floor(Number(budgetIdentity.status.remainingUses) || 0),
@@ -226,6 +239,8 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
       readiness: {
         status: 'exhausted',
         thresholdSessionId: args.lane.thresholdSessionId,
+        expiresAtMs: 0,
+        remainingUses: 0,
       },
       expiresAtMs: 0,
       remainingUses: 0,
@@ -286,8 +301,9 @@ export async function resolveEvmFamilyTransactionStepUp(
           signingSessionRecord: emailOtpReauthRecord || null,
           reauthSource:
             preparedSelection?.kind === 'reauth_required' &&
-            preparedSelection.authMethod === SIGNER_AUTH_METHODS.emailOtp
-              ? { kind: 'selection', authority: preparedSelection.reauthAuthority }
+            'reauthAnchor' in preparedSelection &&
+            preparedSelection.reauthAnchor
+              ? { kind: 'reauth_anchor', anchor: preparedSelection.reauthAnchor }
               : { kind: 'material' },
           onEvent: args.onEvent,
           requestEmailOtpTransactionSigningChallenge:

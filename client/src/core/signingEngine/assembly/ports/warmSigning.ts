@@ -1,7 +1,8 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
-import { base64UrlDecode } from '@shared/utils/base64';
+import {
+  parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial,
+} from '@/core/platform/ecdsaRoleLocalRecords';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../interfaces/signing';
-import { toAccountId } from '@/core/types/accountIds';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
   getThresholdEcdsaSessionRecordByThresholdSessionId,
@@ -20,7 +21,10 @@ import type {
   WarmCapabilitiesPublicDeps,
 } from '../../session/warmCapabilities/public';
 import type { PasskeyPublicDeps } from '../../session/passkey/public';
-import { createWarmSessionStatusOnlyUiConfirm } from '../../uiConfirm/warmSessionUiConfirm';
+import {
+  createWarmSessionStatusOnlyUiConfirm,
+  type WarmSessionStatusOnlyReaderPort,
+} from '../../uiConfirm/warmSessionUiConfirm';
 import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/types';
 import { persistThresholdEcdsaBootstrapForWalletTarget } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
 import {
@@ -51,7 +55,7 @@ export type WarmSigningPorts = {
   ecdsaSessions: ThresholdEcdsaSessionStoreDeps & {
     exportArtifactsByLane: Map<string, ThresholdEcdsaCanonicalExportArtifact>;
   };
-  statusUiConfirm: UiConfirmRuntimeBridgePort;
+  statusUiConfirm: WarmSessionStatusOnlyReaderPort;
   capabilityReader: WarmSessionCapabilityReader;
   statusReader: WarmSigningStatusReader;
   getThresholdEcdsaSessionRecordByThresholdSessionId: (
@@ -86,7 +90,13 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
   });
   const capabilityReader = createWarmSessionCapabilityReader({
     touchConfirm: args.touchConfirm,
-    signingSessionSeal: args.signingSessionSeal,
+    signingSessionSeal:
+      args.signingSessionSeal.keyVersion && args.signingSessionSeal.shamirPrimeB64u
+        ? {
+            keyVersion: args.signingSessionSeal.keyVersion,
+            shamirPrimeB64u: args.signingSessionSeal.shamirPrimeB64u,
+          }
+        : null,
     getThresholdEcdsaSessionRecordByThresholdSessionId: getSessionRecordByThresholdSessionId,
     getEmailOtpWarmSessionStatus: args.getEmailOtpWarmSessionStatus,
   });
@@ -174,10 +184,10 @@ export function createWarmCapabilitiesPublicDeps(args: {
     ) =>
       await persistThresholdEcdsaBootstrapForWalletTarget({
         indexedDB: args.indexedDB,
-        walletId: toAccountId(persistArgs.walletId),
+        walletId: persistArgs.walletId,
         chainTarget: persistArgs.chainTarget,
         bootstrap: persistArgs.bootstrap,
-        ensureEmailOtpNearAccountMapping: persistArgs.ensureEmailOtpNearAccountMapping,
+        signerAuth: persistArgs.signerAuth,
       }),
     hydrateSigningSession: async (hydrateArgs: HydrateSigningSessionInput) =>
       await cacheSigningSessionPrfFirst(args.touchConfirm, hydrateArgs),
@@ -209,20 +219,8 @@ export function createWarmCapabilitiesPublicDeps(args: {
           sessionId: emailOtpWorkerShareSessionId,
         });
       }
-      const clientAdditiveShare32B64u = String(record.clientAdditiveShare32B64u || '').trim();
-      if (!clientAdditiveShare32B64u) {
-        throw new Error('missing ECDSA signing material');
-      }
-      let clientSigningShare32: Uint8Array;
-      try {
-        clientSigningShare32 = base64UrlDecode(clientAdditiveShare32B64u);
-      } catch {
-        throw new Error('clientAdditiveShare32B64u must be valid base64url');
-      }
-      if (clientSigningShare32.length !== 32) {
-        throw new Error('clientAdditiveShare32B64u must decode to 32 bytes');
-      }
-      return clientSigningShare32;
+      return parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial(record)
+        .clientSigningShare32;
     },
   };
 }

@@ -79,7 +79,7 @@ Lessons for future identity refactors:
 
 1. Make `nearAccountId` mean a NEAR chain account only.
 2. Move wallet/session identity to explicit wallet/session types.
-3. Move ECDSA identity to `WalletSubjectId + ThresholdEcdsaChainTarget`.
+3. Move ECDSA identity to `WalletId + ThresholdEcdsaChainTarget`.
 4. Make SDK and iframe ECDSA/Tempo/EVM inputs protocol-neutral.
 5. Delete account-shaped compatibility paths as each boundary is replaced.
 6. Add guards so `nearAccountId` cannot drift back into ECDSA, Tempo, EVM,
@@ -94,7 +94,7 @@ Lessons for future identity refactors:
 | NEAR signer account | NEAR chain account | `nearAccount: NearAccountRef` |
 | Wallet session lookup | wallet/session scope | `walletSession: WalletSessionRef` |
 | Current app wallet | wallet identity | `walletId: WalletId` |
-| ECDSA lane principal | protocol-neutral subject | `subjectId: WalletSubjectId` |
+| ECDSA lane principal | protocol-neutral subject | `subjectId: WalletId` |
 | HSS/session audit user | session/audit scope | `walletSessionUserId` |
 | UI label | display metadata | `walletDisplayName` or `accountDisplayName` |
 
@@ -125,7 +125,7 @@ The scan shows three different classes of usage:
    Ed25519 HSS derivation.
 2. Wallet/session usage that should move to `WalletId`, `WalletSessionRef`, or
    `walletSessionUserId`.
-3. ECDSA/Tempo/EVM usage that should move to `WalletSubjectId +
+3. ECDSA/Tempo/EVM usage that should move to `WalletId +
    ThresholdEcdsaChainTarget`, with wallet session data passed separately.
 
 Several files are mixed surfaces. For example, wallet iframe message definitions
@@ -138,8 +138,6 @@ searches.
 ```ts
 export type WalletId = string & { readonly __brand: 'WalletId' };
 
-export type WalletSubjectId = string & { readonly __brand: 'WalletSubjectId' };
-
 export type WalletSessionRef = {
   walletId: WalletId;
   walletSessionUserId: string;
@@ -151,7 +149,7 @@ export type NearAccountRef =
 
 export type EcdsaCommandSubject = {
   walletSession: WalletSessionRef;
-  subjectId: WalletSubjectId;
+  walletId: WalletId;
 };
 
 export type NearCommandSubject = {
@@ -165,10 +163,10 @@ Rules:
 1. `NearAccountRef` is the only NEAR chain account identity.
 2. `WalletSessionRef` is the only wallet-session/audit context after the SDK
    boundary.
-3. `WalletSubjectId` is the only ECDSA lane principal.
-4. ECDSA commands always require `subjectId + chainTarget`.
+3. `WalletId` is the only ECDSA lane principal.
+4. ECDSA commands always require `walletId + chainTarget`.
 5. Wallet/session code may map the current hosted wallet profile to a
-   `WalletSubjectId` once at the app/session boundary.
+   `WalletId` once at the app/session boundary.
 6. Core ECDSA signing/export/restore/budget/nonce/HSS code must never derive
    `subjectId` from `nearAccountId`.
 
@@ -187,7 +185,7 @@ accounts:
 7. Server routes and records that explicitly represent hosted NEAR accounts.
 
 Every other use should move to `walletId`, `walletSessionUserId`,
-`WalletSubjectId`, or an explicit display label.
+`WalletId`, or an explicit display label.
 
 ## Forbidden `nearAccountId` Surface
 
@@ -269,7 +267,7 @@ identity.
 ## Suggestions From Scan
 
 1. Build on the existing identity module before adding a new one.
-   `WalletSubjectId`, `NearAccountRef`, `nearAccountRefFromAccountId(...)`, and
+   `WalletId`, `NearAccountRef`, `nearAccountRefFromAccountId(...)`, and
    `thresholdEcdsaChainTarget*` already live in
    `client/src/core/signingEngine/interfaces/ecdsaChainTarget.ts`.
    Add `WalletId`, `WalletSessionRef`, and boundary constructors there or move
@@ -300,7 +298,7 @@ identity.
    `signingSessionCoordinator.architecture.guard.unit.test.ts` should stay
    deleted.
 8. Track remaining account-to-subject derivations explicitly. The rescan found
-   direct `toWalletSubjectId(nearAccountId)` calls in the SDK facade,
+   direct `toWalletId(nearAccountId)` calls in the SDK facade,
    `SigningEngine.ts`, `session/public.ts`, availability/readiness,
    warm-capability cleanup/status, email-OTP companion sessions, recovery lane
    selection, and assembly shared ports.
@@ -347,7 +345,7 @@ identity.
 
 ### Phase 1: Add Identity Types And Boundary Helpers
 
-- [x] Extend the existing identity surface. `WalletSubjectId`, `NearAccountRef`,
+- [x] Extend the existing identity surface. `WalletId`, `NearAccountRef`,
    and `nearAccountRefFromAccountId(...)` already exist in
    `client/src/core/signingEngine/interfaces/ecdsaChainTarget.ts`.
 - [x] Add `WalletId`, `WalletSessionRef`, `NearCommandSubject`, and
@@ -356,24 +354,24 @@ identity.
    - `walletIdFromSessionValue(...)`
    - `walletSessionRefFromSession(...)`
    - `nearAccountRefFromAccountId(...)`
-   - `walletSubjectIdFromWalletProfile(...)`
+   - `walletIdFromWalletProfile(...)`
 - [x] Move call sites to use these constructors at app/SDK/iframe/server route
    boundaries.
    - [x] Public SeamsPasskey EVM, Tempo, registration, login, and link-device
      bootstrap/owner-management boundaries now use
-     `walletSubjectIdFromWalletProfile(...)` for hosted-wallet profile
+     `walletIdFromWalletProfile(...)` for hosted-wallet profile
      derivation.
    - [x] Iframe and server route boundaries now use typed wallet/session,
      NEAR-account, or ECDSA lane identities at the ECDSA-relevant command
      boundaries; NEAR-owned routes keep account ids.
-- [x] Forbid new `toWalletSubjectId(nearAccountId)` calls in core ECDSA code.
+- [x] Forbid new `toWalletId(nearAccountId)` calls in core ECDSA code.
    The Refactor 36 guard now freezes the current account-to-subject derivation
    allowlist so later phases can delete entries without letting new ones appear.
    The allowlist is down to signing-engine internals only.
 - [x] Move any account-to-subject derivation that remains in the app/demo layer
    behind an explicitly named hosted-wallet profile adapter.
    The demo site and React account-menu export flow no longer call
-   `toWalletSubjectId(nearAccountId)` directly.
+   `toWalletId(nearAccountId)` directly.
 
 Phase 1 validation on 2026-05-12:
 
@@ -1005,7 +1003,7 @@ Detailed completed Phase 7 subtasks:
   - [x] ECDSA iframe payloads
 
 - [x] Replace SDK/app boundary derivation with explicit hosted-wallet adapters.
-  - [x] No `toWalletSubjectId(nearAccountId)` outside approved boundary
+  - [x] No `toWalletId(nearAccountId)` outside approved boundary
     adapters.
   - [x] No ECDSA core helper accepts `nearAccountId` and internally derives
     `subjectId`.
@@ -1193,7 +1191,7 @@ Guard checks:
 - [x] ECDSA HSS prepare/finalize requests use `walletSessionUserId` and
   `subjectId`.
 - [x] ECDSA nonce and budget identities do not contain `nearAccountId`.
-- [x] No production core ECDSA code calls `toWalletSubjectId(args.nearAccountId)`.
+- [x] No production core ECDSA code calls `toWalletId(args.nearAccountId)`.
 - [x] Refactor-36 raw identity parsing allowlists stay finite and avoid becoming a
   compatibility sink for account-shaped ECDSA identity.
 

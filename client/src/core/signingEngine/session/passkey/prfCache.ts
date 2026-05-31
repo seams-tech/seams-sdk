@@ -1,6 +1,5 @@
-import type {
-  WarmSessionMaterialWriter,
-} from '../../uiConfirm/types';
+import type { WarmSessionMaterialWriter } from '../../uiConfirm/types';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 
 type SigningSessionCacheTransport = Parameters<
   WarmSessionMaterialWriter['putWarmSessionMaterial']
@@ -22,9 +21,7 @@ function toNonNegativeInt(value: unknown): number | undefined {
 }
 
 export function generateSessionId(prefix: string): string {
-  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-    ? crypto.randomUUID()
-    : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return secureRandomId(prefix, 32, 'passkey PRF cache session IDs');
 }
 
 function normalizeSigningSessionCacheEntry(
@@ -48,6 +45,7 @@ function normalizeSigningSessionCacheEntry(
     prfFirstB64u,
     expiresAtMs: Math.floor(expiresAtMsRaw),
     remainingUses,
+    ...(args.transport ? { transport: args.transport } : {}),
   };
 }
 

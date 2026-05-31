@@ -2,15 +2,19 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { parseRawThresholdEcdsaSessionRecord } from './records';
 import type {
   getEmailOtpThresholdEcdsaKeyRefForSigning,
   getEmailOtpThresholdEcdsaSessionRecordForSigning,
   getPasskeyThresholdEcdsaKeyRefForSigning,
   getPasskeyThresholdEcdsaSessionRecordForSigning,
+  RawThresholdEcdsaSessionRecord,
+  ThresholdEcdsaSessionRecord,
 } from './records';
 
 declare const walletId: WalletId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
+declare const rawEcdsaRecord: RawThresholdEcdsaSessionRecord;
 
 type EmailOtpEcdsaSigningLookupArgs = Parameters<
   typeof getEmailOtpThresholdEcdsaSessionRecordForSigning
@@ -65,3 +69,11 @@ const invalidPasskeyLookupArgs: PasskeyEcdsaSigningLookupArgs = {
   source: 'login',
 };
 void invalidPasskeyLookupArgs;
+
+// @ts-expect-error raw ECDSA records must be parsed before core consumers receive them.
+const rawRecordAsNormalizedRecord: ThresholdEcdsaSessionRecord = rawEcdsaRecord;
+void rawRecordAsNormalizedRecord;
+
+const parsedRecord: ThresholdEcdsaSessionRecord =
+  parseRawThresholdEcdsaSessionRecord(rawEcdsaRecord);
+void parsedRecord;

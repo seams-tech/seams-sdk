@@ -11,57 +11,57 @@ set_option maxHeartbeats 1000000
 
 namespace ecdsa_hss
 
-/-- [ecdsa_hss::shared::context::EcdsaHssStableKeyContextV1]
+/-- [ecdsa_hss::shared::context::EcdsaHssStableKeyContext]
     Source: 'src/lib.rs', lines 4:8-12:9
     Visibility: public -/
-structure shared.context.EcdsaHssStableKeyContextV1 where
-  wallet_session_user_id : String
-  subject_id : String
+structure shared.context.EcdsaHssStableKeyContext where
+  wallet_id : String
+  rp_id : String
   ecdsa_threshold_key_id : String
   signing_root_id : String
   signing_root_version : String
   key_purpose : String
   key_version : String
 
-/-- [ecdsa_hss::wire::ServerEvalOperationV1]
+/-- [ecdsa_hss::wire::ServerEvalOperation]
     Source: 'src/lib.rs', lines 20:4-25:5
     Visibility: public -/
 @[discriminant isize]
-inductive wire.ServerEvalOperationV1 where
-| RegistrationBootstrap : wire.ServerEvalOperationV1
-| SessionBootstrap : wire.ServerEvalOperationV1
-| NonExportSign : wire.ServerEvalOperationV1
-| ExplicitKeyExport : wire.ServerEvalOperationV1
+inductive wire.ServerEvalOperation where
+| RegistrationBootstrap : wire.ServerEvalOperation
+| SessionBootstrap : wire.ServerEvalOperation
+| NonExportSign : wire.ServerEvalOperation
+| ExplicitKeyExport : wire.ServerEvalOperation
 
-/-- [ecdsa_hss::wire::AllowedOutputKindV1]
+/-- [ecdsa_hss::wire::AllowedOutputKind]
     Source: 'src/lib.rs', lines 28:4-31:5
     Visibility: public -/
 @[discriminant isize]
-inductive wire.AllowedOutputKindV1 where
-| ThresholdMaterialOnly : wire.AllowedOutputKindV1
-| ThresholdMaterialAndRelayerExportShare : wire.AllowedOutputKindV1
+inductive wire.AllowedOutputKind where
+| ThresholdMaterialOnly : wire.AllowedOutputKind
+| ThresholdMaterialAndRelayerExportShare : wire.AllowedOutputKind
 
-/-- [ecdsa_hss::wire::PrepareEnvelopeV1]
-    Source: 'src/lib.rs', lines 49:4-53:5
+/-- [ecdsa_hss::wire::PrepareEnvelope]
+    Source: 'src/lib.rs', lines 47:4-51:5
     Visibility: public -/
-structure wire.PrepareEnvelopeV1 where
-  operation : wire.ServerEvalOperationV1
-  context : shared.context.EcdsaHssStableKeyContextV1
+structure wire.PrepareEnvelope where
+  operation : wire.ServerEvalOperation
+  context : shared.context.EcdsaHssStableKeyContext
   relayer_key_id : String
 
-/-- [ecdsa_hss::wire::ThresholdRespondRequestV1]
-    Source: 'src/lib.rs', lines 56:4-60:5
+/-- [ecdsa_hss::wire::ThresholdRespondRequest]
+    Source: 'src/lib.rs', lines 54:4-58:5
     Visibility: public -/
-structure wire.ThresholdRespondRequestV1 where
+structure wire.ThresholdRespondRequest where
   client_public_key33 : Array Std.U8 33#usize
   client_share_retry_counter : Std.U32
   expected_relayer_key_id : String
 
-/-- [ecdsa_hss::wire::FinalizeEnvelopeV1]
-    Source: 'src/lib.rs', lines 63:4-74:5
+/-- [ecdsa_hss::wire::FinalizeEnvelope]
+    Source: 'src/lib.rs', lines 61:4-72:5
     Visibility: public -/
-structure wire.FinalizeEnvelopeV1 where
-  operation : wire.ServerEvalOperationV1
+structure wire.FinalizeEnvelope where
+  operation : wire.ServerEvalOperation
   raw_root_material_dropped : Bool
   relayer_key_id : String
   context_binding32 : Array Std.U8 32#usize
@@ -72,10 +72,10 @@ structure wire.FinalizeEnvelopeV1 where
   client_share_retry_counter : Std.U32
   relayer_share_retry_counter : Std.U32
 
-/-- [ecdsa_hss::client::NonExportClientOutputV1]
-    Source: 'src/lib.rs', lines 81:4-88:5
+/-- [ecdsa_hss::client::NonExportClientOutput]
+    Source: 'src/lib.rs', lines 79:4-86:5
     Visibility: public -/
-structure client.NonExportClientOutputV1 where
+structure client.NonExportClientOutput where
   client_public_key33 : Array Std.U8 33#usize
   relayer_public_key33 : Array Std.U8 33#usize
   threshold_public_key33 : Array Std.U8 33#usize
@@ -83,10 +83,10 @@ structure client.NonExportClientOutputV1 where
   client_share_retry_counter : Std.U32
   relayer_share_retry_counter : Std.U32
 
-/-- [ecdsa_hss::client::ExplicitExportClientOutputV1]
-    Source: 'src/lib.rs', lines 91:4-99:5
+/-- [ecdsa_hss::client::ExplicitExportClientOutput]
+    Source: 'src/lib.rs', lines 89:4-97:5
     Visibility: public -/
-structure client.ExplicitExportClientOutputV1 where
+structure client.ExplicitExportClientOutput where
   relayer_export_share32 : Array Std.U8 32#usize
   client_public_key33 : Array Std.U8 33#usize
   relayer_public_key33 : Array Std.U8 33#usize
@@ -95,20 +95,18 @@ structure client.ExplicitExportClientOutputV1 where
   client_share_retry_counter : Std.U32
   relayer_share_retry_counter : Std.U32
 
-/-- [ecdsa_hss::client::ClientOutputV1]
-    Source: 'src/lib.rs', lines 102:4-105:5
+/-- [ecdsa_hss::client::ClientOutput]
+    Source: 'src/lib.rs', lines 100:4-103:5
     Visibility: public -/
 @[discriminant isize]
-inductive client.ClientOutputV1 where
-| NonExport : client.NonExportClientOutputV1 → client.ClientOutputV1
-| ExplicitExport :
-  client.ExplicitExportClientOutputV1 →
-  client.ClientOutputV1
+inductive client.ClientOutput where
+| NonExport : client.NonExportClientOutput → client.ClientOutput
+| ExplicitExport : client.ExplicitExportClientOutput → client.ClientOutput
 
-/-- [ecdsa_hss::server::RetainedServerStateV1]
-    Source: 'src/lib.rs', lines 128:4-138:5
+/-- [ecdsa_hss::server::RetainedServerState]
+    Source: 'src/lib.rs', lines 126:4-136:5
     Visibility: public -/
-structure server.RetainedServerStateV1 where
+structure server.RetainedServerState where
   raw_root_material_dropped : Bool
   relayer_key_id : String
   relayer_share32 : Array Std.U8 32#usize
@@ -119,39 +117,39 @@ structure server.RetainedServerStateV1 where
   client_share_retry_counter : Std.U32
   relayer_share_retry_counter : Std.U32
 
-/-- [ecdsa_hss::server::FinalizedServerSessionV1]
-    Source: 'src/lib.rs', lines 141:4-145:5
+/-- [ecdsa_hss::server::FinalizedServerSession]
+    Source: 'src/lib.rs', lines 139:4-143:5
     Visibility: public -/
-structure server.FinalizedServerSessionV1 where
-  operation : wire.ServerEvalOperationV1
-  context : shared.context.EcdsaHssStableKeyContextV1
-  retained : server.RetainedServerStateV1
+structure server.FinalizedServerSession where
+  operation : wire.ServerEvalOperation
+  context : shared.context.EcdsaHssStableKeyContext
+  retained : server.RetainedServerState
 
-/-- [ecdsa_hss::server::StagedServerSessionV1]
-    Source: 'src/lib.rs', lines 148:4-151:5
+/-- [ecdsa_hss::server::StagedServerSession]
+    Source: 'src/lib.rs', lines 146:4-149:5
     Visibility: public -/
-structure server.StagedServerSessionV1 where
-  prepare : wire.PrepareEnvelopeV1
+structure server.StagedServerSession where
+  prepare : wire.PrepareEnvelope
   y_relayer32_le : Array Std.U8 32#usize
 
-/-- [ecdsa_hss::server::RespondResponseV1]
-    Source: 'src/lib.rs', lines 154:4-157:5
+/-- [ecdsa_hss::server::RespondResponse]
+    Source: 'src/lib.rs', lines 152:4-155:5
     Visibility: public -/
-structure server.RespondResponseV1 where
-  client_output : client.ClientOutputV1
-  finalize : wire.FinalizeEnvelopeV1
+structure server.RespondResponse where
+  client_output : client.ClientOutput
+  finalize : wire.FinalizeEnvelope
 
-/-- [ecdsa_hss::server::boundary::VisibleOperationBoundaryV1]
-    Source: 'src/lib.rs', lines 169:8-172:9
+/-- [ecdsa_hss::server::boundary::VisibleOperationBoundary]
+    Source: 'src/lib.rs', lines 167:8-170:9
     Visibility: public -/
-structure server.boundary.VisibleOperationBoundaryV1 where
-  operation : wire.ServerEvalOperationV1
-  allowed_output_kind : wire.AllowedOutputKindV1
+structure server.boundary.VisibleOperationBoundary where
+  operation : wire.ServerEvalOperation
+  allowed_output_kind : wire.AllowedOutputKind
 
-/-- [ecdsa_hss::server::boundary::VisibleNonExportBoundaryV1]
-    Source: 'src/lib.rs', lines 175:8-182:9
+/-- [ecdsa_hss::server::boundary::VisibleNonExportBoundary]
+    Source: 'src/lib.rs', lines 173:8-180:9
     Visibility: public -/
-structure server.boundary.VisibleNonExportBoundaryV1 where
+structure server.boundary.VisibleNonExportBoundary where
   client_public_key33 : Array Std.U8 33#usize
   relayer_public_key33 : Array Std.U8 33#usize
   threshold_public_key33 : Array Std.U8 33#usize
@@ -159,10 +157,10 @@ structure server.boundary.VisibleNonExportBoundaryV1 where
   client_share_retry_counter : Std.U32
   relayer_share_retry_counter : Std.U32
 
-/-- [ecdsa_hss::server::boundary::VisibleExplicitExportBoundaryV1]
-    Source: 'src/lib.rs', lines 185:8-193:9
+/-- [ecdsa_hss::server::boundary::VisibleExplicitExportBoundary]
+    Source: 'src/lib.rs', lines 183:8-191:9
     Visibility: public -/
-structure server.boundary.VisibleExplicitExportBoundaryV1 where
+structure server.boundary.VisibleExplicitExportBoundary where
   relayer_export_share32 : Array Std.U8 32#usize
   client_public_key33 : Array Std.U8 33#usize
   relayer_public_key33 : Array Std.U8 33#usize
@@ -171,23 +169,23 @@ structure server.boundary.VisibleExplicitExportBoundaryV1 where
   client_share_retry_counter : Std.U32
   relayer_share_retry_counter : Std.U32
 
-/-- [ecdsa_hss::server::boundary::VisibleClientBoundaryV1]
-    Source: 'src/lib.rs', lines 196:8-199:9
+/-- [ecdsa_hss::server::boundary::VisibleClientBoundary]
+    Source: 'src/lib.rs', lines 194:8-197:9
     Visibility: public -/
 @[discriminant isize]
-inductive server.boundary.VisibleClientBoundaryV1 where
+inductive server.boundary.VisibleClientBoundary where
 | NonExport :
-  server.boundary.VisibleNonExportBoundaryV1 →
-  server.boundary.VisibleClientBoundaryV1
+  server.boundary.VisibleNonExportBoundary →
+  server.boundary.VisibleClientBoundary
 | ExplicitExport :
-  server.boundary.VisibleExplicitExportBoundaryV1 →
-  server.boundary.VisibleClientBoundaryV1
+  server.boundary.VisibleExplicitExportBoundary →
+  server.boundary.VisibleClientBoundary
 
-/-- [ecdsa_hss::server::boundary::VisibleFinalizeBoundaryV1]
-    Source: 'src/lib.rs', lines 202:8-213:9
+/-- [ecdsa_hss::server::boundary::VisibleFinalizeBoundary]
+    Source: 'src/lib.rs', lines 200:8-211:9
     Visibility: public -/
-structure server.boundary.VisibleFinalizeBoundaryV1 where
-  operation : wire.ServerEvalOperationV1
+structure server.boundary.VisibleFinalizeBoundary where
+  operation : wire.ServerEvalOperation
   raw_root_material_dropped : Bool
   relayer_key_id : String
   context_binding32 : Array Std.U8 32#usize
@@ -198,40 +196,40 @@ structure server.boundary.VisibleFinalizeBoundaryV1 where
   client_share_retry_counter : Std.U32
   relayer_share_retry_counter : Std.U32
 
-/-- [ecdsa_hss::server::boundary::VisibleRespondBoundaryV1]
-    Source: 'src/lib.rs', lines 229:8-233:9
+/-- [ecdsa_hss::server::boundary::VisibleRespondBoundary]
+    Source: 'src/lib.rs', lines 227:8-231:9
     Visibility: public -/
-structure server.boundary.VisibleRespondBoundaryV1 where
-  operation : server.boundary.VisibleOperationBoundaryV1
-  client_output : server.boundary.VisibleClientBoundaryV1
-  finalize : server.boundary.VisibleFinalizeBoundaryV1
+structure server.boundary.VisibleRespondBoundary where
+  operation : server.boundary.VisibleOperationBoundary
+  client_output : server.boundary.VisibleClientBoundary
+  finalize : server.boundary.VisibleFinalizeBoundary
 
-/-- [ecdsa_hss::server::boundary::HiddenEvalInputBoundaryV1]
-    Source: 'src/lib.rs', lines 236:8-245:9
+/-- [ecdsa_hss::server::boundary::HiddenEvalInputBoundary]
+    Source: 'src/lib.rs', lines 234:8-243:9
     Visibility: public -/
-structure server.boundary.HiddenEvalInputBoundaryV1 where
-  operation : wire.ServerEvalOperationV1
-  allowed_output_kind : wire.AllowedOutputKindV1
-  context : shared.context.EcdsaHssStableKeyContextV1
+structure server.boundary.HiddenEvalInputBoundary where
+  operation : wire.ServerEvalOperation
+  allowed_output_kind : wire.AllowedOutputKind
+  context : shared.context.EcdsaHssStableKeyContext
   relayer_key_id : String
   client_public_key33 : Array Std.U8 33#usize
   client_share_retry_counter : Std.U32
   expected_relayer_key_id : String
   y_relayer32_le : Array Std.U8 32#usize
 
-/-- [ecdsa_hss::server::boundary::HiddenEvalTransportBoundaryV1]
-    Source: 'src/lib.rs', lines 248:8-252:9
+/-- [ecdsa_hss::server::boundary::HiddenEvalTransportBoundary]
+    Source: 'src/lib.rs', lines 246:8-250:9
     Visibility: public -/
-structure server.boundary.HiddenEvalTransportBoundaryV1 where
-  operation : server.boundary.VisibleOperationBoundaryV1
-  client_output : server.boundary.VisibleClientBoundaryV1
-  finalize : server.boundary.VisibleFinalizeBoundaryV1
+structure server.boundary.HiddenEvalTransportBoundary where
+  operation : server.boundary.VisibleOperationBoundary
+  client_output : server.boundary.VisibleClientBoundary
+  finalize : server.boundary.VisibleFinalizeBoundary
 
-/-- [ecdsa_hss::server::boundary::HiddenEvalPersistedStateBoundaryV1]
-    Source: 'src/lib.rs', lines 255:8-266:9
+/-- [ecdsa_hss::server::boundary::HiddenEvalPersistedStateBoundary]
+    Source: 'src/lib.rs', lines 253:8-264:9
     Visibility: public -/
-structure server.boundary.HiddenEvalPersistedStateBoundaryV1 where
-  operation : wire.ServerEvalOperationV1
+structure server.boundary.HiddenEvalPersistedStateBoundary where
+  operation : wire.ServerEvalOperation
   raw_root_material_dropped : Bool
   relayer_key_id : String
   relayer_share32 : Array Std.U8 32#usize
@@ -242,12 +240,12 @@ structure server.boundary.HiddenEvalPersistedStateBoundaryV1 where
   client_share_retry_counter : Std.U32
   relayer_share_retry_counter : Std.U32
 
-/-- [ecdsa_hss::server::boundary::HiddenEvalBoundaryV1]
-    Source: 'src/lib.rs', lines 269:8-273:9
+/-- [ecdsa_hss::server::boundary::HiddenEvalBoundary]
+    Source: 'src/lib.rs', lines 267:8-271:9
     Visibility: public -/
-structure server.boundary.HiddenEvalBoundaryV1 where
-  input : server.boundary.HiddenEvalInputBoundaryV1
-  transport : server.boundary.HiddenEvalTransportBoundaryV1
-  persisted : server.boundary.HiddenEvalPersistedStateBoundaryV1
+structure server.boundary.HiddenEvalBoundary where
+  input : server.boundary.HiddenEvalInputBoundary
+  transport : server.boundary.HiddenEvalTransportBoundary
+  persisted : server.boundary.HiddenEvalPersistedStateBoundary
 
 end ecdsa_hss

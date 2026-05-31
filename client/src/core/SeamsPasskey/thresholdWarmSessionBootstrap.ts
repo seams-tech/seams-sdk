@@ -16,7 +16,12 @@ import {
   getNearThresholdKeyMaterial,
   storeNearThresholdKeyMaterial,
 } from '../accountData/near/keyMaterial';
-import { persistWarmSessionEd25519Capability } from '../signingEngine/session/warmCapabilities/persistence';
+import {
+  persistWarmSessionEd25519Capability,
+  type PersistWarmSessionEd25519JwtEmailOtpCapabilityArgs,
+  type PersistWarmSessionEd25519JwtPasskeyCapabilityArgs,
+} from '../signingEngine/session/warmCapabilities/persistence';
+import type { ThresholdEcdsaEmailOtpAuthContext } from '../signingEngine/session/identity/laneIdentity';
 import { getPrfFirstB64uFromCredential } from '../signingEngine/threshold/crypto/webauthn';
 import {
   getStoredThresholdEd25519SessionRecordForAccount,
@@ -46,6 +51,16 @@ import type {
 import { resolveThresholdWarmSessionDefaults } from './thresholdWarmSessionDefaults';
 
 export const THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1 = 'threshold-ed25519-hss-v1';
+
+export type RegisteredThresholdEd25519SessionAuth =
+  | {
+      kind: 'passkey';
+      emailOtpAuthContext?: never;
+    }
+  | {
+      kind: 'email_otp';
+      emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+    };
 
 export type ThresholdWarmSessionPolicyDraft = {
   sessionId: string;
@@ -79,6 +94,28 @@ export type CompletedThresholdEd25519Registration = {
   registered: WalletRegistrationThresholdEd25519Response;
   operationalPublicKey: string;
 };
+
+type PersistRegisteredThresholdEd25519SessionBaseArgs = {
+  signingEngine: PasskeyManagerContext['signingEngine'];
+  nearAccountId: AccountId;
+  signerSlot: number;
+  rpId: string;
+  relayerUrl: string;
+  registrationSessionPolicy: ThresholdWarmSessionRequestEnvelope['session_policy'];
+  completedRegistration: CompletedThresholdEd25519Registration;
+};
+
+export type PersistRegisteredThresholdEd25519SessionArgs =
+  | (PersistRegisteredThresholdEd25519SessionBaseArgs & {
+      auth: Extract<RegisteredThresholdEd25519SessionAuth, { kind: 'passkey' }>;
+      prfFirstB64u: string | null;
+      registrationHssClientMaterial?: never;
+    })
+  | (PersistRegisteredThresholdEd25519SessionBaseArgs & {
+      auth: Extract<RegisteredThresholdEd25519SessionAuth, { kind: 'email_otp' }>;
+      prfFirstB64u: string;
+      registrationHssClientMaterial: ThresholdEd25519RegistrationHssClientMaterial;
+    });
 
 type ThresholdWarmSessionRelayResult = {
   sessionKind?: string;
@@ -182,12 +219,60 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterial(args:
       derivationVersion: args.derivationVersion,
       onProgress: args.onProgress,
     });
-  if (!prepared.success) {
-    throw new Error(prepared.error || 'Failed to prepare threshold Ed25519 HSS registration');
+  if (!prepared.ok) {
+    throw new Error(prepared.message || 'Failed to prepare threshold Ed25519 HSS registration');
   }
   const prfFirstB64u = String(getPrfFirstB64uFromCredential(args.credential) || '').trim();
   if (!prfFirstB64u) {
     throw new Error('Missing PRF.first output from credential for threshold Ed25519 HSS masking');
+  }
+
+  return {
+    hssContext: {
+      signingRootId: args.signingRootId,
+      nearAccountId: args.nearAccountId,
+      keyPurpose: args.keyPurpose,
+      keyVersion: args.keyVersion,
+      participantIds: prepared.participantIds,
+      derivationVersion: args.derivationVersion,
+    },
+    prfFirstB64u,
+    clientInputs: {
+      contextBindingB64u: prepared.contextBindingB64u,
+      yClientB64u: prepared.yClientB64u,
+      tauClientB64u: prepared.tauClientB64u,
+    },
+  };
+}
+
+export async function prepareThresholdEd25519RegistrationHssClientMaterialFromPrfFirst(args: {
+  context: PasskeyManagerContext;
+  prfFirstB64u: string;
+  signingRootId: string;
+  nearAccountId: AccountId;
+  keyPurpose: string;
+  keyVersion: string;
+  participantIds: number[];
+  derivationVersion: number;
+  onProgress?: (message: string) => void;
+}): Promise<ThresholdEd25519RegistrationHssClientMaterial> {
+  const prfFirstB64u = String(args.prfFirstB64u || '').trim();
+  if (!prfFirstB64u) {
+    throw new Error('Missing PRF.first material for threshold Ed25519 HSS registration');
+  }
+  const prepared =
+    await args.context.signingEngine.prepareThresholdEd25519HssClientCeremonyFromPrfFirst({
+      prfFirstB64u,
+      signingRootId: args.signingRootId,
+      nearAccountId: String(args.nearAccountId),
+      keyPurpose: args.keyPurpose,
+      keyVersion: args.keyVersion,
+      participantIds: args.participantIds,
+      derivationVersion: args.derivationVersion,
+      onProgress: args.onProgress,
+    });
+  if (!prepared.ok) {
+    throw new Error(prepared.message || 'Failed to prepare threshold Ed25519 HSS registration');
   }
 
   return {
@@ -336,6 +421,7 @@ export function completeRegisteredThresholdEd25519Registration(args: {
 export async function storeThresholdEd25519KeyMaterial(args: {
   nearAccountId: AccountId;
   signerSlot: number;
+  signerId: string;
   publicKey: string;
   relayerKeyId: string;
   keyVersion: string;
@@ -346,6 +432,7 @@ export async function storeThresholdEd25519KeyMaterial(args: {
 }): Promise<void> {
   const nearAccountId = String(args.nearAccountId || '').trim();
   const publicKey = String(args.publicKey || '').trim();
+  const signerId = String(args.signerId || '').trim();
   const relayerKeyId = String(args.relayerKeyId || '').trim();
   const keyVersion = String(args.keyVersion || '').trim();
   if (!nearAccountId) {
@@ -357,18 +444,22 @@ export async function storeThresholdEd25519KeyMaterial(args: {
   if (!publicKey) {
     throw new Error('Threshold Ed25519 key persistence requires publicKey');
   }
+  if (!signerId) {
+    throw new Error('Threshold Ed25519 key persistence requires signerId');
+  }
   if (!relayerKeyId || !keyVersion) {
     throw new Error('Threshold Ed25519 key persistence requires complete relayer metadata');
   }
 
   await storeNearThresholdKeyMaterial(
     {
-      clientDB: IndexedDBManager.clientDB,
-      accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
+      clientDB: IndexedDBManager,
+      keyMaterialStore: IndexedDBManager,
     },
     {
       nearAccountId: nearAccountId as AccountId,
       signerSlot: args.signerSlot,
+      signerId,
       publicKey,
       relayerKeyId,
       keyVersion,
@@ -388,19 +479,57 @@ export async function storeThresholdEd25519KeyMaterial(args: {
   );
 }
 
-export async function persistRegisteredThresholdEd25519Session(args: {
+async function reconstructEmailOtpRegisteredThresholdEd25519ClientBase(args: {
   signingEngine: PasskeyManagerContext['signingEngine'];
   nearAccountId: AccountId;
-  signerSlot: number;
-  rpId: string;
   relayerUrl: string;
-  prfFirstB64u: string | null;
-  registrationSessionPolicy: ThresholdWarmSessionRequestEnvelope['session_policy'];
-  completedRegistration: CompletedThresholdEd25519Registration;
-}): Promise<void> {
+  relayerKeyId: string;
+  thresholdSessionAuthToken: string;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  material: ThresholdEd25519RegistrationHssClientMaterial;
+}): Promise<string> {
+  const material = args.material;
+  const signingRootScope = signingRootScopeFromRuntimePolicyScope(args.runtimePolicyScope);
+  const signingRootId = String(signingRootScope.signingRootId || '').trim();
+  const materialSigningRootId = String(material.hssContext.signingRootId || '').trim();
+  const materialNearAccountId = String(material.hssContext.nearAccountId || '').trim();
+  if (!signingRootId || materialSigningRootId !== signingRootId) {
+    throw new Error('Email OTP Ed25519 registration HSS signing-root binding mismatch');
+  }
+  if (materialNearAccountId !== String(args.nearAccountId || '').trim()) {
+    throw new Error('Email OTP Ed25519 registration HSS account binding mismatch');
+  }
+  const completed = await args.signingEngine.runThresholdEd25519HssCeremonyWithSession({
+    relayerUrl: args.relayerUrl,
+    thresholdSessionAuthToken: args.thresholdSessionAuthToken,
+    relayerKeyId: args.relayerKeyId,
+    operation: 'warm_session_reconstruction',
+    context: {
+      ...material.hssContext,
+      signingRootId,
+    },
+    clientInputs: material.clientInputs,
+    outputProjection: {
+      kind: 'client-masked-projection',
+      clientRecoverableSecretB64u: material.prfFirstB64u,
+    },
+  });
+  if (!completed.ok || !completed.clientOutput.xClientBaseB64u) {
+    throw new Error(
+      completed.message || 'Email OTP Ed25519 registration warm-session reconstruction failed',
+    );
+  }
+  const xClientBaseB64u = String(completed.clientOutput.xClientBaseB64u || '').trim();
+  return xClientBaseB64u;
+}
+
+export async function persistRegisteredThresholdEd25519Session(
+  args: PersistRegisteredThresholdEd25519SessionArgs,
+): Promise<void> {
   await storeThresholdEd25519KeyMaterial({
     nearAccountId: args.nearAccountId,
     signerSlot: args.signerSlot,
+    signerId: args.completedRegistration.operationalPublicKey,
     publicKey: args.completedRegistration.registered.publicKey,
     relayerKeyId: args.completedRegistration.registered.relayerKeyId,
     keyVersion: args.completedRegistration.registered.keyVersion,
@@ -410,7 +539,13 @@ export async function persistRegisteredThresholdEd25519Session(args: {
     timestamp: Date.now(),
   });
 
-  if (!args.prfFirstB64u) return;
+  const prfFirstB64u = String(args.prfFirstB64u || '').trim();
+  if (!prfFirstB64u) {
+    if (args.auth.kind === 'email_otp') {
+      throw new Error('Email OTP Ed25519 registration requires PRF.first warm-session material');
+    }
+    return;
+  }
 
   const session = args.completedRegistration.registered.session;
   if (!session) {
@@ -436,29 +571,75 @@ export async function persistRegisteredThresholdEd25519Session(args: {
     : normalizeThresholdEd25519ParticipantIds(args.registrationSessionPolicy.participantIds) || [
         ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
       ];
-  const runtimePolicyScope =
-    session.runtimePolicyScope || args.registrationSessionPolicy.runtimePolicyScope;
+  const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(
+    session.runtimePolicyScope || args.registrationSessionPolicy.runtimePolicyScope,
+  );
 
-  persistWarmSessionEd25519Capability({
-    kind: 'jwt_passkey',
-    nearAccountId: String(args.nearAccountId),
-    rpId: args.rpId,
-    relayerUrl: args.relayerUrl,
-    relayerKeyId: args.completedRegistration.registered.relayerKeyId,
-    participantIds,
-    sessionKind: 'jwt',
-    sessionId,
-    walletSigningSessionId,
-    expiresAtMs,
-    remainingUses,
-    jwt,
-    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    source: 'registration',
-  });
+  if (args.auth.kind === 'email_otp') {
+    const registrationHssClientMaterial = args.registrationHssClientMaterial;
+    if (!registrationHssClientMaterial) {
+      throw new Error('Email OTP Ed25519 registration requires HSS client material');
+    }
+    const materialPrfFirstB64u = String(registrationHssClientMaterial.prfFirstB64u || '').trim();
+    if (materialPrfFirstB64u !== prfFirstB64u) {
+      throw new Error('Email OTP Ed25519 registration warm-session PRF binding mismatch');
+    }
+    if (!runtimePolicyScope) {
+      throw new Error('Email OTP Ed25519 registration warm session requires runtimePolicyScope');
+    }
+    const xClientBaseB64u = await reconstructEmailOtpRegisteredThresholdEd25519ClientBase({
+      signingEngine: args.signingEngine,
+      nearAccountId: args.nearAccountId,
+      relayerUrl: args.relayerUrl,
+      relayerKeyId: args.completedRegistration.registered.relayerKeyId,
+      thresholdSessionAuthToken: jwt,
+      runtimePolicyScope,
+      material: registrationHssClientMaterial,
+    });
+    const warmSessionArgs: PersistWarmSessionEd25519JwtEmailOtpCapabilityArgs = {
+      kind: 'jwt_email_otp',
+      nearAccountId: String(args.nearAccountId),
+      rpId: args.rpId,
+      relayerUrl: args.relayerUrl,
+      relayerKeyId: args.completedRegistration.registered.relayerKeyId,
+      participantIds,
+      sessionKind: 'jwt',
+      sessionId,
+      walletSigningSessionId,
+      expiresAtMs,
+      remainingUses,
+      jwt,
+      emailOtpAuthContext: args.auth.emailOtpAuthContext,
+      xClientBaseB64u,
+      source: 'email_otp',
+    };
+    warmSessionArgs.runtimePolicyScope = runtimePolicyScope;
+    persistWarmSessionEd25519Capability(warmSessionArgs);
+  } else {
+    const warmSessionArgs: PersistWarmSessionEd25519JwtPasskeyCapabilityArgs = {
+      kind: 'jwt_passkey',
+      nearAccountId: String(args.nearAccountId),
+      rpId: args.rpId,
+      relayerUrl: args.relayerUrl,
+      relayerKeyId: args.completedRegistration.registered.relayerKeyId,
+      participantIds,
+      sessionKind: 'jwt',
+      sessionId,
+      walletSigningSessionId,
+      expiresAtMs,
+      remainingUses,
+      jwt,
+      source: 'registration',
+    };
+    if (runtimePolicyScope) {
+      warmSessionArgs.runtimePolicyScope = runtimePolicyScope;
+    }
+    persistWarmSessionEd25519Capability(warmSessionArgs);
+  }
 
   await args.signingEngine.hydrateSigningSession({
     sessionId,
-    prfFirstB64u: args.prfFirstB64u,
+    prfFirstB64u,
     expiresAtMs,
     remainingUses,
     transport: {
@@ -519,9 +700,9 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
       participantIds,
       derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
     });
-  if (!prepared.success) {
+  if (!prepared.ok) {
     throw new Error(
-      prepared.error || 'Failed to prepare threshold Ed25519 HSS reconstruction ceremony',
+      prepared.message || 'Failed to prepare threshold Ed25519 HSS reconstruction ceremony',
     );
   }
   const completed = await args.context.signingEngine.runThresholdEd25519HssCeremonyWithSession({
@@ -547,9 +728,9 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
       clientRecoverableSecretB64u: prfFirstB64u,
     },
   });
-  if (!completed.success || !completed.clientOutput?.xClientBaseB64u) {
+  if (!completed.ok || !completed.clientOutput.xClientBaseB64u) {
     throw new Error(
-      completed.error || 'Failed to reconstruct threshold Ed25519 single-key HSS client base',
+      completed.message || 'Failed to reconstruct threshold Ed25519 single-key HSS client base',
     );
   }
   const xClientBaseB64u = String(completed.clientOutput.xClientBaseB64u || '').trim();
@@ -590,8 +771,8 @@ export async function prewarmThresholdEd25519ClientBaseFromCredential(args: {
   const task = (async (): Promise<void> => {
     const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
       {
-        clientDB: IndexedDBManager.clientDB,
-        accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
+        clientDB: IndexedDBManager,
+        keyMaterialStore: IndexedDBManager,
       },
       toAccountId(nearAccountId),
       signerSlot,

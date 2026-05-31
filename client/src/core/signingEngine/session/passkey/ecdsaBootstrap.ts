@@ -19,15 +19,13 @@ import type {
 } from '../../threshold/sessionPolicy';
 import type { ThresholdEcdsaHssRouteAuth } from '@/core/rpcClients/relayer/thresholdEcdsa';
 import type { AppOrThresholdSessionAuth, AppSessionJwtAuth } from '@shared/utils/sessionTokens';
-import type { SigningOperationIntent } from '../operationState/types';
+import { SigningSessionIds, type SigningOperationIntent } from '../operationState/types';
 import type {
   ThresholdEcdsaChainTarget,
   WalletId,
-  WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   toWalletId,
-  walletSubjectIdFromWalletProfile,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEcdsaSessionIdentity,
@@ -35,12 +33,14 @@ import {
 } from '../warmCapabilities/ecdsaProvisionPlan';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
-  deriveBaseEcdsaSubjectIdFromKey,
   toEvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyIdentity,
   type EvmFamilyEcdsaSessionLanePolicy,
 } from '../identity/evmFamilyEcdsaIdentity';
+import type { PasskeyEcdsaReadyPersistInput } from '../warmCapabilities/persistencePorts';
+import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
+import type { ThresholdEcdsaBootstrapSignerAuth } from '../warmCapabilities/ecdsaBootstrapPersistence';
 
 export type ExistingEcdsaBootstrapKeyIntent = {
   kind: 'existing_ecdsa_key';
@@ -158,6 +158,12 @@ export type PasskeyFreshEcdsaBootstrapRequest =
     })
   | (PasskeyFreshEcdsaBootstrapTargetRequestBase & {
       sessionKind: 'jwt';
+      routeAuth: PasskeyFreshBootstrapRouteAuth;
+      clientRootShare32B64u: string;
+      webauthnAuthentication: WebAuthnAuthenticationCredential;
+    })
+  | (PasskeyFreshEcdsaBootstrapTargetRequestBase & {
+      sessionKind: 'jwt';
       clientRootShare32B64u: string;
       webauthnAuthentication: WebAuthnAuthenticationCredential;
       routeAuth?: never;
@@ -235,6 +241,7 @@ export type ThresholdSessionActivationDeps = {
     walletId: WalletId;
     chainTarget: ThresholdEcdsaChainTarget;
     bootstrap: ThresholdEcdsaSessionBootstrapResult;
+    signerAuth: ThresholdEcdsaBootstrapSignerAuth;
   }) => Promise<void>;
   upsertThresholdEcdsaSessionFromBootstrap: (
     args:
@@ -242,7 +249,7 @@ export type ThresholdSessionActivationDeps = {
           walletId: WalletId;
           chainTarget: ThresholdEcdsaChainTarget;
           bootstrap: ThresholdEcdsaSessionBootstrapResult;
-          source: ThresholdEcdsaSessionStoreSource;
+          source: 'email_otp';
           hasEmailOtpAuthContext: true;
           emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
         }
@@ -250,7 +257,7 @@ export type ThresholdSessionActivationDeps = {
           walletId: WalletId;
           chainTarget: ThresholdEcdsaChainTarget;
           bootstrap: ThresholdEcdsaSessionBootstrapResult;
-          source: ThresholdEcdsaSessionStoreSource;
+          source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
           hasEmailOtpAuthContext: false;
           emailOtpAuthContext?: never;
         },
@@ -298,18 +305,6 @@ export function ecdsaBootstrapWalletId(request: EcdsaBootstrapRequest): AccountI
   return hasExactEcdsaBootstrapIdentity(request) ? request.key.walletId : request.walletId;
 }
 
-function targetBootstrapSubjectId(
-  request: Extract<EcdsaBootstrapRequest, { walletId: AccountId | string }>,
-): WalletSubjectId {
-  return walletSubjectIdFromWalletProfile({ walletId: String(request.walletId) });
-}
-
-export function ecdsaBootstrapSubjectId(request: EcdsaBootstrapRequest): WalletSubjectId {
-  return hasExactEcdsaBootstrapIdentity(request)
-    ? deriveBaseEcdsaSubjectIdFromKey(request.key)
-    : targetBootstrapSubjectId(request);
-}
-
 export function ecdsaBootstrapChainTarget(
   request: EcdsaBootstrapRequest,
 ): ThresholdEcdsaChainTarget {
@@ -325,6 +320,62 @@ function ecdsaBootstrapSessionIdentityFromLanePolicy(
     thresholdSessionId: lanePolicy.thresholdSessionId,
     walletSigningSessionId: lanePolicy.walletSigningSessionId,
   });
+}
+
+function passkeyEcdsaBootstrapCredential(
+  request: EcdsaBootstrapRequest,
+): WebAuthnAuthenticationCredential | null {
+  return request.kind === 'passkey_fresh_ecdsa_bootstrap' &&
+    'webauthnAuthentication' in request &&
+    request.webauthnAuthentication
+    ? request.webauthnAuthentication
+    : null;
+}
+
+function passkeyEcdsaPersistenceSource(args: {
+  request: EcdsaBootstrapRequest;
+  thresholdSessionId: ReturnType<typeof SigningSessionIds.thresholdEcdsaSession>;
+}): PasskeyEcdsaReadyPersistInput['persistenceSource'] | null {
+  const credential = passkeyEcdsaBootstrapCredential(args.request);
+  if (credential) {
+    const credentialIdB64u = String(credential.rawId || credential.id || '').trim();
+    if (!credentialIdB64u) {
+      throw new Error('[SigningEngine][ecdsa] passkey ECDSA persistence requires credential id');
+    }
+    return {
+      kind: 'fresh_webauthn',
+      credentialIdB64u,
+    };
+  }
+  switch (args.request.kind) {
+    case 'passkey_cookie_reconnect_ecdsa_bootstrap':
+    case 'threshold_session_auth_reconnect_ecdsa_bootstrap':
+      return {
+        kind: 'session_reconnect',
+        restoredThresholdSessionId: args.thresholdSessionId,
+      };
+    case 'reuse_warm_ecdsa_bootstrap':
+    case 'passkey_fresh_ecdsa_bootstrap':
+    case 'email_otp_ecdsa_bootstrap':
+      return null;
+  }
+  args.request satisfies never;
+  return null;
+}
+
+function ecdsaBootstrapSignerAuth(
+  request: EcdsaBootstrapRequest,
+): ThresholdEcdsaBootstrapSignerAuth {
+  if (request.kind === 'email_otp_ecdsa_bootstrap') {
+    return {
+      authMethod: SIGNER_AUTH_METHODS.emailOtp,
+      signerSource: SIGNER_SOURCES.emailOtpRegistration,
+    };
+  }
+  return {
+    authMethod: SIGNER_AUTH_METHODS.passkey,
+    signerSource: SIGNER_SOURCES.passkeyRegistration,
+  };
 }
 
 function toActivateEcdsaSessionRequest(
@@ -347,7 +398,6 @@ function toActivateEcdsaSessionRequest(
     return {
       kind: 'key_enrollment_bootstrap',
       walletId: targetRequest.walletId,
-      subjectId: targetBootstrapSubjectId(targetRequest),
       chainTarget: targetRequest.chainTarget,
       relayerUrl,
       ...(targetRequest.keyIntent ? { keyIntent: targetRequest.keyIntent } : {}),
@@ -502,12 +552,17 @@ export async function bootstrapEcdsaSessionValue(
     activationDeps,
     toActivateEcdsaSessionRequest(normalizedRequest, relayerUrl),
   );
-  await deps.touchConfirm.putWarmSessionMaterial({
-    sessionId: activation.session.sessionId,
-    prfFirstB64u: activation.clientRootShare32B64u,
-    expiresAtMs: Number(activation.session.expiresAtMs),
-    remainingUses: Number(activation.session.remainingUses),
-  });
+  const thresholdSessionAuthToken = String(
+    activation.session.jwt || activation.thresholdEcdsaKeyRef.thresholdSessionAuthToken || '',
+  ).trim();
+  const transport = {
+    curve: 'ecdsa' as const,
+    walletId: String(walletId),
+    chainTarget,
+    relayerUrl,
+    walletSigningSessionId: activation.session.walletSigningSessionId,
+    thresholdSessionAuthToken,
+  };
   const thresholdEcdsaKeyRef = requireCanonicalThresholdEcdsaKeyRefIdentity(
     activation.thresholdEcdsaKeyRef,
   );
@@ -520,6 +575,7 @@ export async function bootstrapEcdsaSessionValue(
     walletId,
     chainTarget,
     bootstrap: canonicalBootstrap,
+    signerAuth: ecdsaBootstrapSignerAuth(normalizedRequest),
   });
   if (normalizedRequest.kind === 'email_otp_ecdsa_bootstrap') {
     deps.upsertThresholdEcdsaSessionFromBootstrap({
@@ -531,12 +587,46 @@ export async function bootstrapEcdsaSessionValue(
       emailOtpAuthContext: normalizedRequest.emailOtpAuthContext,
     });
   } else {
+    const source =
+      normalizedRequest.source === 'email_otp'
+        ? 'manual-bootstrap'
+        : normalizedRequest.source || 'manual-bootstrap';
     deps.upsertThresholdEcdsaSessionFromBootstrap({
       walletId,
       chainTarget,
       bootstrap: canonicalBootstrap,
-      source: normalizedRequest.source || 'manual-bootstrap',
+      source,
       hasEmailOtpAuthContext: false,
+    });
+  }
+  const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession(activation.session.sessionId);
+  const passkeyPersistenceSource = passkeyEcdsaPersistenceSource({
+    request: normalizedRequest,
+    thresholdSessionId,
+  });
+  if (normalizedRequest.kind !== 'email_otp_ecdsa_bootstrap' && passkeyPersistenceSource) {
+    const readyPersistenceInput: PasskeyEcdsaReadyPersistInput = {
+      authMethod: 'passkey',
+      curve: 'ecdsa',
+      walletId,
+      chainTarget,
+      walletSigningSessionId: SigningSessionIds.walletSigningSession(
+        activation.session.walletSigningSessionId,
+      ),
+      thresholdSessionId,
+      persistenceSource: passkeyPersistenceSource,
+      passkeyPrfSealMaterial: {
+        kind: 'ecdsa_client_root_share',
+        clientRootShare32B64u: activation.clientRootShare32B64u,
+        transport,
+      },
+    };
+    await deps.touchConfirm.putWarmSessionMaterial({
+      sessionId: readyPersistenceInput.thresholdSessionId,
+      prfFirstB64u: readyPersistenceInput.passkeyPrfSealMaterial.clientRootShare32B64u,
+      expiresAtMs: Number(activation.session.expiresAtMs),
+      remainingUses: Number(activation.session.remainingUses),
+      transport: readyPersistenceInput.passkeyPrfSealMaterial.transport,
     });
   }
   return canonicalBootstrap;

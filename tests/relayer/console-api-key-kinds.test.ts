@@ -390,7 +390,7 @@ test.describe('console API key kinds', () => {
           Origin: 'https://example.com',
         },
         body: JSON.stringify({
-          walletSubject: { kind: 'provided', walletSubjectId: 'alice.testnet' },
+          wallet: { kind: 'provided', walletId: 'alice.testnet' },
           rpId: 'example.com',
           signerSelection: {
             mode: 'ed25519_only',

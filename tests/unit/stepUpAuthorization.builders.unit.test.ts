@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { SigningAuthPlanKind } from '../../client/src/core/signingEngine/stepUpConfirmation/types';
+import { confirmSigningOperation } from '../../client/src/core/signingEngine/stepUpConfirmation/confirmOperation';
 import { buildNearEd25519StepUpAuthorization } from '../../client/src/core/signingEngine/flows/signNear/stepUpAuthorization';
 import { buildEvmFamilyEcdsaStepUpAuthorization } from '../../client/src/core/signingEngine/flows/signEvmFamily/stepUpAuthorization';
 import type { WebAuthnAuthenticationCredential } from '../../client/src/core/types/webauthn';
@@ -67,6 +68,64 @@ test.describe('step-up authorization builders', () => {
       otpCode: '123456',
       emailHint: 'a***@x.test',
     });
+  });
+
+  test('confirmSigningOperation rejects Email OTP prompt on passkey auth plan', async () => {
+    await expect(
+      confirmSigningOperation({
+        runtime: {
+          orchestrateSigningConfirmation: async () => {
+            throw new Error('orchestrate should not run');
+          },
+        },
+        request: {
+          chain: 'near',
+          kind: 'transaction',
+          sessionId: 'session-1',
+          ctx: { touchConfirm: { requestUserConfirmation: async () => ({ confirmed: true }) } },
+          signingAuthPlan: {
+            kind: SigningAuthPlanKind.PasskeyReauth,
+            method: 'passkey',
+          },
+          emailOtpPrompt: {
+            challengeId: 'otp-should-not-be-here',
+          },
+          txSigningRequests: [],
+          rpcCall: {},
+        },
+      } as never),
+    ).rejects.toThrow('auth_method_route_mismatch');
+  });
+
+  test('confirmSigningOperation rejects WebAuthn challenge on Email OTP auth plan', async () => {
+    await expect(
+      confirmSigningOperation({
+        runtime: {
+          orchestrateSigningConfirmation: async () => {
+            throw new Error('orchestrate should not run');
+          },
+        },
+        request: {
+          chain: 'near',
+          kind: 'transaction',
+          sessionId: 'session-1',
+          ctx: { touchConfirm: { requestUserConfirmation: async () => ({ confirmed: true }) } },
+          signingAuthPlan: {
+            kind: SigningAuthPlanKind.EmailOtpReauth,
+            method: 'email_otp',
+            emailOtpPrompt: {
+              challengeId: 'otp-1',
+            },
+          },
+          webauthnChallenge: {
+            kind: 'intent_digest',
+            challengeB64u: 'passkey-should-not-be-here',
+          },
+          txSigningRequests: [],
+          rpcCall: {},
+        },
+      } as never),
+    ).rejects.toThrow('auth_method_route_mismatch');
   });
 
   test('buildEvmFamilyEcdsaStepUpAuthorization normalizes passkey credentials', () => {

@@ -1,4 +1,5 @@
 import type { ConsoleBillingService } from '../console/billing';
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type { ConsoleBillingPrepaidReservationService } from '../console/billingPrepaidReservations';
 import type {
   ConsoleSponsoredCallExecutorKind,
@@ -69,7 +70,13 @@ export interface RecordSponsoredExecutionInput {
     billingLedgerEntryId: string | null;
   }) => Omit<
     CreateConsoleSponsoredCallRecordRequest,
-    'txOrExecutionRef' | 'receiptStatus' | 'feeUnit' | 'feeAmount' | 'executorKind' | 'errorCode' | 'errorMessage'
+    | 'txOrExecutionRef'
+    | 'receiptStatus'
+    | 'feeUnit'
+    | 'feeAmount'
+    | 'executorKind'
+    | 'errorCode'
+    | 'errorMessage'
   >;
   assessment: SponsorshipExecutionAssessment;
   walletId: string;
@@ -96,8 +103,7 @@ export interface SponsoredExecutionPrepaidSettlementInput {
   requestDetails: Record<string, unknown>;
 }
 
-export interface FinalizedSponsoredPrepaidSettlement
-  extends SponsoredPrepaidReservationSettlement {
+export interface FinalizedSponsoredPrepaidSettlement extends SponsoredPrepaidReservationSettlement {
   sourceEventId: string;
   estimatedSpendMinor: number;
   billingLedgerEntryId: string | null;
@@ -147,7 +153,10 @@ export interface RunSponsorshipExecutionInput<
 export async function recordSponsoredExecution(
   input: RecordSponsoredExecutionInput,
 ): Promise<ConsoleSponsoredCallRecord> {
-  const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(input.billing, input.context);
+  const beforeBalanceState = await readSponsorshipBillingBalanceSnapshot(
+    input.billing,
+    input.context,
+  );
   if (!input.prepaidSettlementInput?.reservation) {
     throw new Error(
       'Atomic sponsored settlement requires an active prepaid reservation handle on recordSponsoredExecution input',
@@ -172,41 +181,45 @@ export async function recordSponsoredExecution(
     );
   }
   const runtime = billingRuntime!;
-  const record = await withConsoleTenantContextTx(runtime.pool, {
-    namespace: runtime.namespace,
-    orgId: input.context.orgId,
-  }, async (tx: TxQueryable) => {
-    const recordId = `scr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-    const finalized = await finalizeSponsoredPrepaidSettlementInTx(tx, {
-      billingNamespace: runtime.namespace,
-      billingContext: input.context,
-      billingNow: runtime.now(),
-      billingSourceEventIdPrefix: input.billingSourceEventIdPrefix,
-      walletId: input.walletId,
-      occurredAt: input.occurredAt,
-      recordId,
-      prepaidSettlementInput: input.prepaidSettlementInput!,
-    });
-    return await createConsoleSponsoredCallRecordTx(tx, {
+  const record = await withConsoleTenantContextTx(
+    runtime.pool,
+    {
       namespace: runtime.namespace,
-      ctx: input.context,
-      now: runtime.now,
-      request: {
-        ...input.buildRecord({
-          prepaidSettlement: finalized?.settlement || null,
-          billingLedgerEntryId: finalized?.billingLedgerEntryId || null,
-        }),
-        id: recordId,
-        txOrExecutionRef: input.assessment.txOrExecutionRef,
-        receiptStatus: input.assessment.receiptStatus,
-        feeUnit: input.assessment.feeUnit,
-        feeAmount: input.assessment.feeAmount,
-        executorKind: input.assessment.executorKind,
-        errorCode: input.assessment.recordErrorCode,
-        errorMessage: input.assessment.recordErrorMessage,
-      },
-    });
-  });
+      orgId: input.context.orgId,
+    },
+    async (tx: TxQueryable) => {
+      const recordId = `scr_${Date.now().toString(36)}_${secureRandomBase36(8, 'sponsored call record IDs')}`;
+      const finalized = await finalizeSponsoredPrepaidSettlementInTx(tx, {
+        billingNamespace: runtime.namespace,
+        billingContext: input.context,
+        billingNow: runtime.now(),
+        billingSourceEventIdPrefix: input.billingSourceEventIdPrefix,
+        walletId: input.walletId,
+        occurredAt: input.occurredAt,
+        recordId,
+        prepaidSettlementInput: input.prepaidSettlementInput!,
+      });
+      return await createConsoleSponsoredCallRecordTx(tx, {
+        namespace: runtime.namespace,
+        ctx: input.context,
+        now: runtime.now,
+        request: {
+          ...input.buildRecord({
+            prepaidSettlement: finalized?.settlement || null,
+            billingLedgerEntryId: finalized?.billingLedgerEntryId || null,
+          }),
+          id: recordId,
+          txOrExecutionRef: input.assessment.txOrExecutionRef,
+          receiptStatus: input.assessment.receiptStatus,
+          feeUnit: input.assessment.feeUnit,
+          feeAmount: input.assessment.feeAmount,
+          executorKind: input.assessment.executorKind,
+          errorCode: input.assessment.recordErrorCode,
+          errorMessage: input.assessment.recordErrorMessage,
+        },
+      });
+    },
+  );
   if (input.balanceEvents) {
     await emitSponsorshipBalanceTransitionEvents({
       services: input.balanceEvents,
@@ -255,7 +268,9 @@ async function finalizeSponsoredPrepaidSettlementInTx(
   tx: TxQueryable,
   input: {
     billingNamespace: string;
-    billingContext: ConsoleBillingContext & ConsoleBillingPrepaidReservationContext & ConsoleSponsoredCallContext;
+    billingContext: ConsoleBillingContext &
+      ConsoleBillingPrepaidReservationContext &
+      ConsoleSponsoredCallContext;
     billingNow: Date;
     billingSourceEventIdPrefix: string;
     walletId: string;

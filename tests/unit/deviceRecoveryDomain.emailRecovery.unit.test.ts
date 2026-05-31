@@ -136,14 +136,30 @@ function createLocalDomain(options?: {
         clientVerifyingShareB64u: 'client-ecdsa-verifying-share',
       }),
       prepareThresholdEd25519HssClientCeremonyFromCredential: async () => ({
-        success: true,
+        ok: true,
         contextBindingB64u: 'ctx-binding',
+        signingRootId: 'root',
+        nearAccountId: 'alice.testnet',
+        keyPurpose: 'near-ed25519-signing',
+        keyVersion: 'v1',
+        participantIds: [1, 2],
+        derivationVersion: 1,
         yClientB64u: 'y-client',
         tauClientB64u: 'tau-client',
       }),
       runThresholdEd25519HssCeremonyWithSession: async () => ({
-        success: true,
+        ok: true,
+        contextBindingB64u: 'ctx-binding',
+        preparedSession: {
+          contextBindingB64u: 'ctx-binding',
+          evaluatorDriverStateB64u: 'evaluator-state',
+        },
+        finalizedReport: {
+          contextBindingB64u: 'ctx-binding',
+          clientOutputMessageB64u: 'client-output',
+        },
         clientOutput: {
+          contextBindingB64u: 'ctx-binding',
           xClientBaseB64u: 'x-client-base',
         },
       }),
@@ -153,7 +169,7 @@ function createLocalDomain(options?: {
         clientShareRetryCounter: 0,
         contextBinding32B64u: 'context-binding',
       }),
-      storeWalletSubjectEcdsaSignerRecords: async () => undefined,
+      storeWalletEcdsaSignerRecords: async () => undefined,
       hydrateSigningSession: async (input: any) => {
         warmSigningSession = {
           sessionId: String(input?.sessionId || ''),
@@ -219,12 +235,12 @@ test.describe('EmailRecoveryDomain', () => {
     const thresholdMaterialWrites: any[] = [];
 
     const originalFetch = globalThis.fetch;
-    const clientDb = IndexedDBManager.clientDB as { resolveProfileAccountContext?: unknown };
-    const accountKeyMaterialDb = IndexedDBManager.accountKeyMaterialDB as {
+    const clientDb = IndexedDBManager as unknown as { resolveProfileAccountContext?: unknown };
+    const keyMaterialPort = IndexedDBManager as unknown as {
       storeKeyMaterial?: unknown;
     };
     const originalProfileLookup = clientDb.resolveProfileAccountContext;
-    const originalStoreKeyMaterial = accountKeyMaterialDb.storeKeyMaterial;
+    const originalStoreKeyMaterial = keyMaterialPort.storeKeyMaterial;
     try {
       globalThis.fetch = (async (input: unknown) => {
         const url = String((input as any)?.url || input);
@@ -261,9 +277,8 @@ test.describe('EmailRecoveryDomain', () => {
                 chainTargets: [{ kind: 'evm', namespace: 'eip155', chainId: 11155111 }],
                 prepare: {
                   formatVersion: 'ecdsa-hss-role-local',
-                  walletSessionUserId: 'alice.testnet',
+                  walletId: 'alice.testnet',
                   rpId: 'example.test',
-                  subjectId: 'alice.testnet',
                   ecdsaThresholdKeyId: 'ecdsa-threshold-key',
                   signingRootId: 'signing-root-id',
                   signingRootVersion: 'root-email-recovery-v1',
@@ -321,9 +336,8 @@ test.describe('EmailRecoveryDomain', () => {
                 {
                   keyScope: 'evm-family',
                   chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 11155111 },
-                  walletSessionUserId: 'alice.testnet',
+                  walletId: 'alice.testnet',
                   rpId: 'example.test',
-                  subjectId: 'alice.testnet',
                   keyHandle: 'key-handle',
                   ecdsaThresholdKeyId: 'ecdsa-threshold-key',
                   signingRootId: 'signing-root-id',
@@ -361,7 +375,7 @@ test.describe('EmailRecoveryDomain', () => {
         String(accountRef.accountAddress || '').trim() === 'alice.testnet'
           ? { profileId: 'legacy-near:alice.testnet', accountRef }
           : null;
-      accountKeyMaterialDb.storeKeyMaterial = async (input: any) => {
+      keyMaterialPort.storeKeyMaterial = async (input: any) => {
         thresholdMaterialWrites.push({
           publicKey: input?.publicKey,
           relayerKeyId: input?.payload?.relayerKeyId,
@@ -408,7 +422,7 @@ test.describe('EmailRecoveryDomain', () => {
     } finally {
       globalThis.fetch = originalFetch;
       clientDb.resolveProfileAccountContext = originalProfileLookup;
-      accountKeyMaterialDb.storeKeyMaterial = originalStoreKeyMaterial;
+      keyMaterialPort.storeKeyMaterial = originalStoreKeyMaterial;
     }
   });
 

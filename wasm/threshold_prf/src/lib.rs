@@ -46,9 +46,9 @@ fn push_len16(out: &mut Vec<u8>, label: &str, value: &str) -> Result<(), JsValue
     Ok(())
 }
 
-fn encode_ecdsa_hss_context_v1(
-    wallet_session_user_id: &str,
-    subject_id: &str,
+fn encode_ecdsa_hss_context_v2(
+    wallet_id: &str,
+    rp_id: &str,
     ecdsa_threshold_key_id: &str,
     signing_root_id: &str,
     signing_root_version: &str,
@@ -56,15 +56,11 @@ fn encode_ecdsa_hss_context_v1(
     key_version: &str,
 ) -> Result<Vec<u8>, JsValue> {
     let mut out = Vec::new();
-    out.extend_from_slice(b"ecdsa-hss:context:v1");
-    push_len16(&mut out, "scheme_id", "ecdsa-hss-v1")?;
+    out.extend_from_slice(b"ecdsa-hss:context:v2");
+    push_len16(&mut out, "scheme_id", "ecdsa-hss-v2")?;
     push_len16(&mut out, "curve", "secp256k1")?;
-    push_len16(
-        &mut out,
-        "wallet_session_user_id",
-        wallet_session_user_id,
-    )?;
-    push_len16(&mut out, "subject_id", subject_id)?;
+    push_len16(&mut out, "wallet_id", wallet_id)?;
+    push_len16(&mut out, "rp_id", rp_id)?;
     push_len16(&mut out, "key_scope", "evm-family")?;
     push_len16(
         &mut out,
@@ -185,17 +181,17 @@ pub fn init_threshold_prf() {
 pub fn threshold_prf_derive_ecdsa_hss_y_relayer(
     share_wire_i: Vec<u8>,
     share_wire_j: Vec<u8>,
-    wallet_session_user_id: String,
-    subject_id: String,
+    wallet_id: String,
+    rp_id: String,
     ecdsa_threshold_key_id: String,
     signing_root_id: String,
     signing_root_version: String,
     key_purpose: String,
     key_version: String,
 ) -> Result<Vec<u8>, JsValue> {
-    let context_bytes = encode_ecdsa_hss_context_v1(
-        &wallet_session_user_id,
-        &subject_id,
+    let context_bytes = encode_ecdsa_hss_context_v2(
+        &wallet_id,
+        &rp_id,
         &ecdsa_threshold_key_id,
         &signing_root_id,
         &signing_root_version,

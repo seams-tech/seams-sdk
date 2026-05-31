@@ -1,5 +1,9 @@
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
+import type {
+  ThresholdEcdsaBackendBinding,
+  ThresholdEcdsaSecp256k1KeyRef,
+} from '../../interfaces/signing';
+import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaKeyIdentity,
@@ -11,7 +15,9 @@ import {
   buildKnownReadyThresholdEcdsaSessionPolicy,
   buildResolvedEvmFamilyEcdsaKey,
   buildThresholdEcdsaSessionTransportAuth,
+  deriveBaseEcdsaSubjectIdFromWalletId,
   toThresholdOwnerAddress,
+  type BaseEcdsaSubjectId,
   type EcdsaKeyFacts,
   type EcdsaWalletSignerRecord,
   type EvmFamilyEcdsaKeyHandle,
@@ -31,6 +37,7 @@ import {
   type ThresholdEcdsaSessionTransportAuth,
   type VerifiedEcdsaPublicFacts,
 } from './evmFamilyEcdsaIdentity';
+import { walletIdFromWalletProfile } from '../../interfaces/ecdsaChainTarget';
 
 const evmTarget = {
   kind: 'evm',
@@ -88,9 +95,18 @@ void invalidKeyWithTarget;
 const invalidKeyWithSubjectId: EvmFamilyEcdsaKeyIdentity = {
   ...key,
   // @ts-expect-error shared key identity derives the base ECDSA subject from wallet identity.
-  subjectId: 'wallet-subject-alice',
+  subjectId: 'wallet-alice',
 };
 void invalidKeyWithSubjectId;
+
+const baseEcdsaSubjectId = deriveBaseEcdsaSubjectIdFromWalletId(key.walletId);
+const validBaseEcdsaSubjectId: BaseEcdsaSubjectId = baseEcdsaSubjectId;
+void validBaseEcdsaSubjectId;
+
+const registrationWalletId = walletIdFromWalletProfile({ walletId: key.walletId });
+// @ts-expect-error protocol-local ECDSA HSS subject identity requires its narrow builder.
+const invalidBaseEcdsaSubjectId: BaseEcdsaSubjectId = registrationWalletId;
+void invalidBaseEcdsaSubjectId;
 
 const invalidLaneWithDuplicateKeyId: EvmFamilyEcdsaSessionLane = {
   ...lane,
@@ -217,7 +233,7 @@ void invalidPublicFactsWithKeyId;
 const invalidPublicFactsWithSubject: VerifiedEcdsaPublicFacts = {
   ...publicFacts,
   // @ts-expect-error public facts reject auth/session subject fields.
-  subjectId: 'wallet-subject-alice',
+  subjectId: 'wallet-alice',
 };
 void invalidPublicFactsWithSubject;
 
@@ -381,7 +397,7 @@ void invalidResolvedKeyWithSigningRoot;
 const invalidResolvedKeyWithSubjectId: ResolvedEvmFamilyEcdsaKey = {
   ...resolvedPasskeyKey,
   // @ts-expect-error resolved key facade derives the base ECDSA subject from wallet identity.
-  subjectId: 'wallet-subject-alice',
+  subjectId: 'wallet-alice',
 };
 void invalidResolvedKeyWithSubjectId;
 
@@ -452,7 +468,7 @@ declare const readyMaterial: ReadyEvmFamilyEcdsaMaterial;
 const invalidReadyMaterialWithSubjectId = {
   ...readyMaterial,
   // @ts-expect-error ready material derives subject from key/lane identity.
-  subjectId: 'wallet-subject-alice',
+  subjectId: 'wallet-alice',
 } satisfies ReadyEvmFamilyEcdsaMaterial;
 void invalidReadyMaterialWithSubjectId;
 
@@ -507,10 +523,58 @@ const invalidSignerSessionWithExportArtifact: ReadyEcdsaSignerSession = {
 };
 void invalidSignerSessionWithExportArtifact;
 
+declare const roleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
+
+const validInlineBackendBinding = {
+  materialKind: 'inline_role_local_ready',
+  relayerKeyId: 'relayer-key',
+  clientVerifyingShareB64u: 'client-verifying-share',
+  clientAdditiveShare32B64u: 'client-share',
+  ecdsaRoleLocalReadyRecord: roleLocalReadyRecord,
+} satisfies ThresholdEcdsaBackendBinding;
+void validInlineBackendBinding;
+
+const invalidInlineBackendBindingWithWorkerHandle = {
+  materialKind: 'inline_role_local_ready',
+  relayerKeyId: 'relayer-key',
+  clientVerifyingShareB64u: 'client-verifying-share',
+  clientAdditiveShare32B64u: 'client-share',
+  ecdsaRoleLocalReadyRecord: roleLocalReadyRecord,
+  clientAdditiveShareHandle: {
+    kind: 'email_otp_worker_session' as const,
+    sessionId: 'worker-session',
+  },
+};
+// @ts-expect-error inline backend bindings reject Email OTP worker handles.
+void (invalidInlineBackendBindingWithWorkerHandle satisfies ThresholdEcdsaBackendBinding);
+
+const invalidWorkerBackendBindingWithInlineShare = {
+  materialKind: 'email_otp_worker_handle',
+  relayerKeyId: 'relayer-key',
+  clientVerifyingShareB64u: 'client-verifying-share',
+  clientAdditiveShareHandle: {
+    kind: 'email_otp_worker_session' as const,
+    sessionId: 'worker-session',
+  },
+  ecdsaRoleLocalReadyRecord: roleLocalReadyRecord,
+  clientAdditiveShare32B64u: 'client-share',
+};
+// @ts-expect-error Email OTP worker backend bindings reject inline share bytes.
+void (invalidWorkerBackendBindingWithInlineShare satisfies ThresholdEcdsaBackendBinding);
+
+const invalidMetadataBackendBindingWithMaterial = {
+  materialKind: 'metadata_only',
+  relayerKeyId: 'relayer-key',
+  clientVerifyingShareB64u: 'client-verifying-share',
+  clientAdditiveShare32B64u: 'client-share',
+};
+// @ts-expect-error metadata-only backend bindings reject signing material.
+void (invalidMetadataBackendBindingWithMaterial satisfies ThresholdEcdsaBackendBinding);
+
 const invalidSignerSessionWithSubjectId: ReadyEcdsaSignerSession = {
   ...signerSession,
   // @ts-expect-error signer sessions derive subject from the shared key identity.
-  subjectId: 'wallet-subject-alice',
+  subjectId: 'wallet-alice',
 };
 void invalidSignerSessionWithSubjectId;
 

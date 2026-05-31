@@ -17,6 +17,7 @@ import {
   type WorkerSuccessResponse,
 } from '@/core/types/signer-worker';
 import { AccountId, toAccountId } from '@/core/types/accountIds';
+import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import type { SigningRuntimeDeps } from '../../interfaces/runtime';
 import type {
   NearEd25519TransactionSigningBoundary,
@@ -100,6 +101,7 @@ import { requireNearStepUpAuth } from './requireNearStepUpAuth';
 import { runSigningConfirmationCommand } from '../shared/signingConfirmation';
 import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
 import type { NearAccountRef } from '../../interfaces/ecdsaChainTarget';
+import { requiredNearTransactionSignatureUses } from './signatureUses';
 
 function emitNearSigningEvent(
   onEvent: ((event: SigningFlowEvent) => void) | undefined,
@@ -145,11 +147,7 @@ function readinessFromPreparedBudgetIdentity(
 }
 
 function createNearTransactionSigningOperationId(): SigningOperationId {
-  const cryptoObj = globalThis as { crypto?: { randomUUID?: () => string } };
-  const randomId =
-    typeof cryptoObj.crypto?.randomUUID === 'function'
-      ? cryptoObj.crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const randomId = secureRandomBase64Url(32, 'NEAR transaction signing operation IDs');
   return SigningSessionIds.signingOperation(`near-transaction-sign:${randomId}`);
 }
 
@@ -298,7 +296,7 @@ export async function runNearTransactionsWithActionsSigning({
       operationFingerprint,
     });
   }
-  const usesNeeded = 1;
+  const requiredSignatureUses = requiredNearTransactionSignatureUses(txSigningRequests);
   const confirmationOperationId = ensureSigningOperationId();
   const signingOperation = {
     operationId: confirmationOperationId,
@@ -333,10 +331,9 @@ export async function runNearTransactionsWithActionsSigning({
     );
   }
   const thresholdAuthPlan = {
-    sessionId:
-      isWarmSessionSigningAuthPlan(providedSigningAuthPlan)
-        ? providedSigningAuthPlan.sessionId
-        : providedSessionId,
+    sessionId: isWarmSessionSigningAuthPlan(providedSigningAuthPlan)
+      ? providedSigningAuthPlan.sessionId
+      : providedSessionId,
     lane: signingLane,
     signingAuthPlan: providedSigningAuthPlan,
     confirmationAuthPayload: { signingAuthPlan: providedSigningAuthPlan },
@@ -372,7 +369,7 @@ export async function runNearTransactionsWithActionsSigning({
   const preparedStepUp = await requireNearStepUpAuth({
     signingAuthPlan: providedSigningAuthPlan,
     signingLane,
-    usesNeeded,
+    requiredSignatureUses,
     ...(emailOtpSigning ? { emailOtpSigning } : {}),
     ...(passkeyEd25519Reconnect ? { passkeyEd25519Reconnect } : {}),
   });
@@ -445,8 +442,7 @@ export async function runNearTransactionsWithActionsSigning({
   const nonceLeaseRefs = confirmation.nonceLeases || [];
   let thresholdSignatureCreated = false;
   let walletSpendRecorded = false;
-  let signedTransactionOperation: SignedTransactionOperation<SelectedEd25519Lane> | null =
-    null;
+  let signedTransactionOperation: SignedTransactionOperation<SelectedEd25519Lane> | null = null;
 
   const credentialWithPrf: WebAuthnAuthenticationCredential | undefined =
     stepUpAuthorization.kind === 'passkey' ? stepUpAuthorization.credential : undefined;
@@ -477,7 +473,9 @@ export async function runNearTransactionsWithActionsSigning({
         });
         const refreshedSessionId = String(refreshed.sessionId || '').trim();
         if (!refreshedSessionId) {
-          throw new Error('[SigningEngine] Email OTP signing did not return a threshold session id');
+          throw new Error(
+            '[SigningEngine] Email OTP signing did not return a threshold session id',
+          );
         }
         canonicalThresholdSessionId = refreshedSessionId;
         refreshedThresholdSessionState = refreshed.sessionState || null;
@@ -497,15 +495,13 @@ export async function runNearTransactionsWithActionsSigning({
         });
         const refreshed = await passkeyEd25519Reconnect.reconnect({
           authorization: stepUpAuthorization,
-          usesNeeded,
+          requiredSignatureUses,
         });
         const refreshedSessionId = String(refreshed.sessionId || '').trim();
         if (!refreshedSessionId) {
           throw new Error('[SigningEngine] passkey signing did not return a threshold session id');
         }
-        if (
-          refreshedSessionId !== stepUpAuthorization.plannedPasskeyReconnect.sessionId
-        ) {
+        if (refreshedSessionId !== stepUpAuthorization.plannedPasskeyReconnect.sessionId) {
           throw new Error(
             '[SigningEngine] passkey signing returned a different threshold session id than the confirmed session policy',
           );
@@ -532,24 +528,25 @@ export async function runNearTransactionsWithActionsSigning({
       const trustedBudgetStatusAuth =
         budgetStatusAuthFromEd25519SessionState(thresholdSessionState);
       const provisionedRemainingUses = thresholdSessionState.remainingUses;
-      if (emailOtpSigning && provisionedRemainingUses < usesNeeded) {
+      if (emailOtpSigning && provisionedRemainingUses < requiredSignatureUses) {
         throw new Error(
-          `[SigningEngine] Email OTP NEAR signing session has ${provisionedRemainingUses} remaining use(s), but this operation requires ${usesNeeded}. Retry the Email OTP prompt to provision a fresh signing session.`,
+          `[SigningEngine] Email OTP NEAR signing session has ${provisionedRemainingUses} remaining signature use(s), but this operation requires ${requiredSignatureUses}. Retry the Email OTP prompt to provision a fresh signing session.`,
         );
       }
       const cachedXClientBaseB64u = String(thresholdSessionState.xClientBaseB64u || '').trim();
+      const canClaimWarmSessionPrfFirst = thresholdAuthPlan.warmSessionReady;
       const prfFirstB64u = signingContext.threshold
         ? cachedXClientBaseB64u
           ? ''
-          : thresholdAuthPlan.warmSessionReady
+          : canClaimWarmSessionPrfFirst
             ? await (async () => {
                 const prfFirst = await signingSessionCoordinator.claimPrfFirstByThresholdSessionId({
                   kind: 'wallet_scoped_ed25519_claim',
                   thresholdSessionId: thresholdAuthPlan.sessionId,
-                  uses: usesNeeded,
+                  uses: requiredSignatureUses,
                   errorContext: 'threshold-ed25519 transaction signing',
                   walletId: nearAccountId,
-                  authMethod: 'passkey',
+                  authMethod: thresholdAuthPlan.lane.authMethod,
                   curve: 'ed25519',
                   chain: 'near',
                   walletSigningSessionId: thresholdAuthPlan.lane.walletSigningSessionId,
@@ -560,6 +557,13 @@ export async function runNearTransactionsWithActionsSigning({
         : requirePrfFirstFromCredential(credentialWithPrf);
 
       if (!cachedXClientBaseB64u && !prfFirstB64u) {
+        console.warn('[SigningEngine][near][ed25519] missing client base and PRF for signing', {
+          nearAccountId,
+          thresholdSessionId: canonicalThresholdSessionId,
+          authMethod: thresholdAuthPlan.lane.authMethod,
+          warmSessionReady: thresholdAuthPlan.warmSessionReady,
+          hasCredentialWithPrf: Boolean(credentialWithPrf),
+        });
         throw new Error('Missing PRF.first output for signing');
       }
 
@@ -649,7 +653,9 @@ export async function runNearTransactionsWithActionsSigning({
   let activeBudgetAdmittedOperation = ed25519SigningBoundary.initialBudgetAdmittedOperation;
   const buildBudgetSigningLane = (): NearTransactionSigningLane => {
     if (String(thresholdSessionState.thresholdSessionId) !== canonicalThresholdSessionId) {
-      throw new Error('[SigningEngine][near] budget signing lane session does not match worker session');
+      throw new Error(
+        '[SigningEngine][near] budget signing lane session does not match worker session',
+      );
     }
     return thresholdSessionState.signingLane;
   };
@@ -659,7 +665,7 @@ export async function runNearTransactionsWithActionsSigning({
     const budgetIdentity = await sessionCoordinator.prepareBudgetIdentity({
       lane,
       ...(trustedBudgetStatusAuth ? { trustedStatusAuth: trustedBudgetStatusAuth } : {}),
-      operationUsesNeeded: 1,
+      operationUsesNeeded: requiredSignatureUses,
     });
     const refreshedPreparedOperation = replacePreparedTransactionLane(transactionOperation, {
       lane,
@@ -673,6 +679,7 @@ export async function runNearTransactionsWithActionsSigning({
   ): SigningSessionBudgetFinalizer | undefined => {
     if (!signingContext.threshold || !sessionCoordinator) return;
     return createSigningSessionBudgetFinalizer({
+      budgetMode: 'with_budget',
       signingSessionBudget: sessionCoordinator,
       budgetIdentity: operationState.budgetAdmission.budgetIdentity,
       finalization,
@@ -711,7 +718,7 @@ export async function runNearTransactionsWithActionsSigning({
           lane: buildBudgetSigningLane(),
           thresholdSessionIds: [operationState.lane.thresholdSessionId],
           backingMaterialSessionIds: [],
-          uses: 1,
+          uses: requiredSignatureUses,
           reason: SigningOperationIntent.TransactionSign,
         },
         ...(trustedBudgetStatusAuth ? { trustedStatusAuth: trustedBudgetStatusAuth } : {}),
@@ -727,7 +734,9 @@ export async function runNearTransactionsWithActionsSigning({
       await finalizePreparedSigningSession({
         status: 'success',
         hooks: {
-          recordSuccess: async () => await finalizer.recordSuccess(),
+          recordSuccess: async () => {
+            await finalizer.recordSuccess();
+          },
           recordZeroSpend: (error) => finalizer.recordZeroSpend(error),
         },
       });
@@ -744,6 +753,7 @@ export async function runNearTransactionsWithActionsSigning({
       {
         kind: 'zero_spend',
         operationId: confirmationOperationId,
+        operationFingerprint,
         lane: buildBudgetSigningLane(),
         reason: 'signing_failed',
         error,
@@ -756,7 +766,9 @@ export async function runNearTransactionsWithActionsSigning({
         status: 'zero_spend',
         error,
         hooks: {
-          recordSuccess: async () => await finalizer.recordSuccess(),
+          recordSuccess: async () => {
+            await finalizer.recordSuccess();
+          },
           recordZeroSpend: (zeroSpendError) => finalizer.recordZeroSpend(zeroSpendError),
         },
       });
@@ -811,17 +823,15 @@ export async function runNearTransactionsWithActionsSigning({
     commandKind: SigningOperationCommandKind.ReserveBudget,
     execute: async () => {
       if (refreshedBudgetIdentityRequired) {
-        activeBudgetAdmittedOperation = await admitSelectedNearTransactionLaneBudget(
-          buildBudgetSigningLane(),
-        );
+        activeBudgetAdmittedOperation =
+          await admitSelectedNearTransactionLaneBudget(buildBudgetSigningLane());
         refreshedBudgetIdentityRequired = false;
       }
       if (!activeBudgetAdmittedOperation) {
         // Confirmed-auth lanes can only become budget-admitted after confirmation
         // has produced fresh auth material.
-        activeBudgetAdmittedOperation = await admitSelectedNearTransactionLaneBudget(
-          buildBudgetSigningLane(),
-        );
+        activeBudgetAdmittedOperation =
+          await admitSelectedNearTransactionLaneBudget(buildBudgetSigningLane());
       }
       if (
         String(activeBudgetAdmittedOperation.lane.thresholdSessionId) !==
@@ -912,10 +922,10 @@ export async function runNearTransactionsWithActionsSigning({
                       await signingSessionCoordinator.claimPrfFirstByThresholdSessionId({
                         kind: 'wallet_scoped_ed25519_claim',
                         thresholdSessionId: thresholdAuthPlan.sessionId,
-                        uses: usesNeeded,
+                        uses: requiredSignatureUses,
                         errorContext: 'threshold-ed25519 transaction signing repair',
                         walletId: nearAccountId,
-                        authMethod: 'passkey',
+                        authMethod: thresholdAuthPlan.lane.authMethod,
                         curve: 'ed25519',
                         chain: 'near',
                         walletSigningSessionId: thresholdAuthPlan.lane.walletSigningSessionId,
@@ -1010,6 +1020,14 @@ export async function runNearTransactionsWithActionsSigning({
         }
 
         if (isThresholdSessionAuthUnavailableError(err)) {
+          console.warn('[SigningEngine][near][transactions] threshold session auth unavailable', {
+            nearAccountId,
+            message: err.message,
+            requiredSignatureUses,
+            thresholdSessionId: thresholdAuthPlan.sessionId,
+            authMethod: thresholdAuthPlan.lane.authMethod,
+            warmSessionReady: thresholdAuthPlan.warmSessionReady,
+          });
           const finalError = new Error(THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR);
           await finalizeFailedSigningAttempt(finalError);
           throw finalError;

@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { runNearTransactionsWithActionsSigning as signPreparedTransactionsWithActions } from '@/core/signingEngine/flows/signNear/signTransactions';
+import { createNearSigningSessionCoordinator } from '@/core/signingEngine/flows/signNear/shared/thresholdAuthMode';
 import { connectEd25519Session } from '@/core/signingEngine/threshold/ed25519/connectSession';
+import { buildThresholdEd25519WebAuthnPrfSecretSource } from '@/core/signingEngine/threshold/ed25519/authSession';
 import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/session/warmCapabilities/persistence';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
@@ -95,40 +97,36 @@ function createNearThresholdRuntimeCtx({
 }) {
   return {
     indexedDB: {
-      clientDB: {
-        resolveProfileAccountContext: async () => ({
-          profileId: `profile-${nearAccountId}`,
-          accountRef: {
-            chainIdKey: 'near:testnet',
-            accountAddress: nearAccountId,
-          },
-        }),
-      },
-      accountKeyMaterialDB: {
-        getKeyMaterial: async () => ({
-          profileId: `profile-${nearAccountId}`,
-          signerSlot: 1,
+      resolveProfileAccountContext: async () => ({
+        profileId: `profile-${nearAccountId}`,
+        accountRef: {
           chainIdKey: 'near:testnet',
-          keyKind: 'threshold_share_v1' as const,
-          algorithm: 'ed25519' as const,
-          publicKey: 'ed25519:threshold-public-key',
-          payload: {
-            relayerKeyId,
-            keyVersion: 'threshold-ed25519-hss-v1',
-            participants: [
-              { id: 1, role: 'client' },
-              {
-                id: 2,
-                role: 'relayer',
-                relayerUrl,
-                relayerKeyId,
-              },
-            ],
-          },
-          timestamp: Date.now(),
-          schemaVersion: 1,
-        }),
-      },
+          accountAddress: nearAccountId,
+        },
+      }),
+      getKeyMaterial: async () => ({
+        profileId: `profile-${nearAccountId}`,
+        signerSlot: 1,
+        chainIdKey: 'near:testnet',
+        keyKind: 'threshold_share_v1' as const,
+        algorithm: 'ed25519' as const,
+        publicKey: 'ed25519:threshold-public-key',
+        payload: {
+          relayerKeyId,
+          keyVersion: 'threshold-ed25519-hss-v1',
+          participants: [
+            { id: 1, role: 'client' },
+            {
+              id: 2,
+              role: 'relayer',
+              relayerUrl,
+              relayerKeyId,
+            },
+          ],
+        },
+        timestamp: Date.now(),
+        schemaVersion: 1,
+      }),
     },
     nearContextFixture: {
       initializeUser: () => undefined,
@@ -153,6 +151,46 @@ function createNearThresholdRuntimeCtx({
     },
     requestWorkerOperation,
   } as any;
+}
+
+function createNearThresholdTestIndexedDB(args: {
+  profileId: string;
+  nearAccountId: string;
+  relayerUrl: string;
+  relayerKeyId: string;
+}) {
+  return {
+    resolveProfileAccountContext: async () => ({
+      profileId: args.profileId,
+      accountRef: {
+        chainIdKey: 'near:testnet',
+        accountAddress: args.nearAccountId,
+      },
+    }),
+    getKeyMaterial: async () => ({
+      profileId: args.profileId,
+      signerSlot: 1,
+      chainIdKey: 'near:testnet',
+      keyKind: 'threshold_share_v1' as const,
+      algorithm: 'ed25519' as const,
+      publicKey: 'ed25519:threshold-public-key',
+      payload: {
+        relayerKeyId: args.relayerKeyId,
+        keyVersion: 'threshold-ed25519-hss-v1',
+        participants: [
+          { id: 1, role: 'client' },
+          {
+            id: 2,
+            role: 'relayer',
+            relayerUrl: args.relayerUrl,
+            relayerKeyId: args.relayerKeyId,
+          },
+        ],
+      },
+      timestamp: Date.now(),
+      schemaVersion: 1,
+    }),
+  };
 }
 
 function activeBudgetStatus(walletSigningSessionId: string, remainingUses: number = 10) {
@@ -309,6 +347,7 @@ async function signTransactionsWithActions(args: any) {
 
   return await signPreparedTransactionsWithActions({
     ...args,
+    nearAccount: args.nearAccount || { kind: 'named', accountId: nearAccountId },
     transactionOperation,
     ed25519SigningBoundary,
     signingSessionCoordinator:
@@ -321,6 +360,53 @@ async function signTransactionsWithActions(args: any) {
 }
 
 test.describe('threshold ed25519 immediate signing fallback', () => {
+  test('claims Email OTP warm PRF material without passkey restore', async () => {
+    let restoreCalls = 0;
+    let claimRequest: Record<string, unknown> | null = null;
+    const coordinator = createNearSigningSessionCoordinator({
+      getWarmSessionStatus: async () => ({
+        ok: true as const,
+        remainingUses: 3,
+        expiresAtMs: Date.now() + 60_000,
+      }),
+      claimWarmSessionMaterial: async (request: Record<string, unknown>) => {
+        claimRequest = request;
+        return {
+          ok: true as const,
+          prfFirstB64u: 'email-otp-hydrated-prf-first',
+          remainingUses: 2,
+          expiresAtMs: Date.now() + 60_000,
+        };
+      },
+      restorePersistedSessionForSigning: async () => {
+        restoreCalls += 1;
+        throw new Error('Email OTP warm-session claim must not restore passkey material');
+      },
+    } as any);
+
+    const prfFirstB64u = await coordinator.claimPrfFirstByThresholdSessionId({
+      kind: 'wallet_scoped_ed25519_claim',
+      thresholdSessionId: 'email-otp-threshold-session',
+      uses: 1,
+      errorContext: 'threshold-ed25519 transaction signing',
+      walletId: 'email-otp-account.testnet',
+      authMethod: 'email_otp',
+      curve: 'ed25519',
+      chain: 'near',
+      walletSigningSessionId: 'email-otp-wallet-session',
+    });
+
+    expect(prfFirstB64u).toBe('email-otp-hydrated-prf-first');
+    expect(restoreCalls).toBe(0);
+    expect(claimRequest).toMatchObject({
+      sessionId: 'email-otp-threshold-session',
+      uses: 1,
+      consume: true,
+      curve: 'ed25519',
+      chain: 'near',
+    });
+  });
+
   test('uses Email OTP client-base session material without falling back to WebAuthn', async () => {
     const originalSessionStorage = (globalThis as { sessionStorage?: Storage }).sessionStorage;
     const originalFetch = globalThis.fetch;
@@ -391,42 +477,12 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       const signed = await signTransactionsWithActions({
         ctx: {
-          indexedDB: {
-            clientDB: {
-              resolveProfileAccountContext: async () => ({
-                profileId: 'profile-email-otp-ed25519',
-                accountRef: {
-                  chainIdKey: 'near:testnet',
-                  accountAddress: nearAccountId,
-                },
-              }),
-            },
-            accountKeyMaterialDB: {
-              getKeyMaterial: async () => ({
-                profileId: 'profile-email-otp-ed25519',
-                signerSlot: 1,
-                chainIdKey: 'near:testnet',
-                keyKind: 'threshold_share_v1' as const,
-                algorithm: 'ed25519' as const,
-                publicKey: 'ed25519:threshold-public-key',
-                payload: {
-                  relayerKeyId,
-                  keyVersion: 'threshold-ed25519-hss-v1',
-                  participants: [
-                    { id: 1, role: 'client' },
-                    {
-                      id: 2,
-                      role: 'relayer',
-                      relayerUrl,
-                      relayerKeyId,
-                    },
-                  ],
-                },
-                timestamp: Date.now(),
-                schemaVersion: 1,
-              }),
-            },
-          },
+          indexedDB: createNearThresholdTestIndexedDB({
+            profileId: 'profile-email-otp-ed25519',
+            nearAccountId,
+            relayerUrl,
+            relayerKeyId,
+          }),
           nearContextFixture: {
             initializeUser: () => undefined,
           },
@@ -644,42 +700,12 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       const signed = await signTransactionsWithActions({
         ctx: {
-          indexedDB: {
-            clientDB: {
-              resolveProfileAccountContext: async () => ({
-                profileId: 'profile-email-otp-ed25519-per-operation',
-                accountRef: {
-                  chainIdKey: 'near:testnet',
-                  accountAddress: nearAccountId,
-                },
-              }),
-            },
-            accountKeyMaterialDB: {
-              getKeyMaterial: async () => ({
-                profileId: 'profile-email-otp-ed25519-per-operation',
-                signerSlot: 1,
-                chainIdKey: 'near:testnet',
-                keyKind: 'threshold_share_v1' as const,
-                algorithm: 'ed25519' as const,
-                publicKey: 'ed25519:threshold-public-key',
-                payload: {
-                  relayerKeyId,
-                  keyVersion: 'threshold-ed25519-hss-v1',
-                  participants: [
-                    { id: 1, role: 'client' },
-                    {
-                      id: 2,
-                      role: 'relayer',
-                      relayerUrl,
-                      relayerKeyId,
-                    },
-                  ],
-                },
-                timestamp: Date.now(),
-                schemaVersion: 1,
-              }),
-            },
-          },
+          indexedDB: createNearThresholdTestIndexedDB({
+            profileId: 'profile-email-otp-ed25519-per-operation',
+            nearAccountId,
+            relayerUrl,
+            relayerKeyId,
+          }),
           nearContextFixture: {
             initializeUser: () => undefined,
           },
@@ -784,7 +810,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
               sessionId: refreshedSessionId,
               walletSigningSessionId,
               expiresAtMs: Date.now() + 60_000,
-              remainingUses: 1,
+              remainingUses: 2,
               jwt: 'email-otp-refreshed-threshold-jwt',
               xClientBaseB64u: 'email-otp-refreshed-x-client-base',
               source: 'email_otp',
@@ -799,7 +825,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           },
         },
         signingSessionCoordinator: new SigningSessionCoordinator({
-          getStatus: async () => activeBudgetStatus(walletSigningSessionId, 1),
+          getStatus: async () => activeBudgetStatus(walletSigningSessionId, 2),
           consumeUse: async ({ uses }) => {
             consumedUses = uses;
             markThresholdEd25519EmailOtpSessionConsumedForAccount({
@@ -821,7 +847,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       expect(Array.isArray(signed)).toBe(true);
       expect(signed).toHaveLength(2);
-      expect(consumedUses).toBe(1);
+      expect(consumedUses).toBe(2);
       expect(resolvedSigningAuthMode).toBe('');
       expect(resolvedSigningAuthPlanKind).toBe('emailOtpReauth');
       expect(capturedChallengeId).toBe('near-email-otp-challenge');
@@ -908,42 +934,12 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       await expect(
         signTransactionsWithActions({
           ctx: {
-            indexedDB: {
-              clientDB: {
-                resolveProfileAccountContext: async () => ({
-                  profileId: 'profile-email-otp-refresh-required',
-                  accountRef: {
-                    chainIdKey: 'near:testnet',
-                    accountAddress: nearAccountId,
-                  },
-                }),
-              },
-              accountKeyMaterialDB: {
-                getKeyMaterial: async () => ({
-                  profileId: 'profile-email-otp-refresh-required',
-                  signerSlot: 1,
-                  chainIdKey: 'near:testnet',
-                  keyKind: 'threshold_share_v1' as const,
-                  algorithm: 'ed25519' as const,
-                  publicKey: 'ed25519:threshold-public-key',
-                  payload: {
-                    relayerKeyId,
-                    keyVersion: 'threshold-ed25519-hss-v1',
-                    participants: [
-                      { id: 1, role: 'client' },
-                      {
-                        id: 2,
-                        role: 'relayer',
-                        relayerUrl,
-                        relayerKeyId,
-                      },
-                    ],
-                  },
-                  timestamp: Date.now(),
-                  schemaVersion: 1,
-                }),
-              },
-            },
+            indexedDB: createNearThresholdTestIndexedDB({
+              profileId: 'profile-email-otp-refresh-required',
+              nearAccountId,
+              relayerUrl,
+              relayerKeyId,
+            }),
             nearContextFixture: {
               initializeUser: () => undefined,
             },
@@ -1073,42 +1069,12 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       const signed = await signTransactionsWithActions({
         ctx: {
-          indexedDB: {
-            clientDB: {
-              resolveProfileAccountContext: async () => ({
-                profileId: 'profile-immediate-fallback',
-                accountRef: {
-                  chainIdKey: 'near:testnet',
-                  accountAddress: nearAccountId,
-                },
-              }),
-            },
-            accountKeyMaterialDB: {
-              getKeyMaterial: async () => ({
-                profileId: 'profile-immediate-fallback',
-                signerSlot: 1,
-                chainIdKey: 'near:testnet',
-                keyKind: 'threshold_share_v1' as const,
-                algorithm: 'ed25519' as const,
-                publicKey: 'ed25519:threshold-public-key',
-                payload: {
-                  relayerKeyId,
-                  keyVersion: 'threshold-ed25519-hss-v1',
-                  participants: [
-                    { id: 1, role: 'client' },
-                    {
-                      id: 2,
-                      role: 'relayer',
-                      relayerUrl,
-                      relayerKeyId,
-                    },
-                  ],
-                },
-                timestamp: Date.now(),
-                schemaVersion: 1,
-              }),
-            },
-          },
+          indexedDB: createNearThresholdTestIndexedDB({
+            profileId: 'profile-immediate-fallback',
+            nearAccountId,
+            relayerUrl,
+            relayerKeyId,
+          }),
           nearContextFixture: {
             initializeUser: () => undefined,
           },
@@ -1594,7 +1560,10 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           remainingUses: 1,
           auth: {
             kind: 'threshold_session_policy_webauthn',
-            webauthnAuthentication: credential as any,
+            policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+              credential: credential as any,
+              rpId: 'example.localhost',
+            }),
           },
         });
 
@@ -1697,7 +1666,10 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           auth: {
             kind: 'app_session_jwt',
             appSessionJwt,
-            localPrfCredential: credential as any,
+            localSecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+              credential: credential as any,
+              rpId: 'example.localhost',
+            }),
           },
           runtimeScopeBootstrap: {
             environmentId: 'dev',
@@ -1801,7 +1773,10 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           auth: {
             kind: 'app_session_jwt',
             appSessionJwt,
-            localPrfCredential: credential as any,
+            localSecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+              credential: credential as any,
+              rpId: 'example.localhost',
+            }),
           },
           runtimeScopeBootstrap: {
             environmentId: 'dev',
@@ -1889,7 +1864,10 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
           sessionKind: 'cookie',
           auth: {
             kind: 'threshold_session_policy_webauthn',
-            webauthnAuthentication: credential as any,
+            policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+              credential: credential as any,
+              rpId: 'example.localhost',
+            }),
           },
         });
 
@@ -2018,7 +1996,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       expect(workerCalls).toBe(2);
       expect(consumeCalls).toHaveLength(1);
       expect(consumeCalls[0]).toMatchObject({
-        nearAccountId,
+        owner: { curve: 'ed25519', accountId: nearAccountId },
         walletSigningSessionId,
         uses: 1,
         reason: 'transaction_sign',
@@ -2287,7 +2265,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       expect(completedChallengeId).toBe('near-budget-otp-resend-challenge-2');
       expect(consumeCalls).toHaveLength(1);
       expect(consumeCalls[0]).toMatchObject({
-        nearAccountId,
+        owner: { curve: 'ed25519', accountId: nearAccountId },
         walletSigningSessionId,
         uses: 1,
         reason: 'transaction_sign',

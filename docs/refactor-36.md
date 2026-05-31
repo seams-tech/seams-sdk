@@ -333,7 +333,7 @@ export type EcdsaSessionProvisionPlan =
 ```ts
 export type PasskeyEcdsaSessionProvision = {
   kind: 'passkey_ecdsa_session_provision';
-  subjectId: WalletSubjectId;
+  subjectId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   newSessionIdentity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
@@ -351,7 +351,7 @@ export type PasskeyEcdsaSessionProvision = {
 ```ts
 export type ThresholdSessionAuthEcdsaReconnect = {
   kind: 'threshold_session_auth_ecdsa_reconnect';
-  subjectId: WalletSubjectId;
+  subjectId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   existingSessionIdentity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
@@ -367,7 +367,7 @@ export type ThresholdSessionAuthEcdsaReconnect = {
 ```ts
 export type EmailOtpEcdsaSessionProvision = {
   kind: 'email_otp_ecdsa_session_provision';
-  subjectId: WalletSubjectId;
+  subjectId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   newSessionIdentity: EcdsaSessionIdentity;
   signingKeyContext: EcdsaSigningKeyContext;
@@ -1953,7 +1953,7 @@ Target stable key context:
 ```ts
 type ThresholdEcdsaHssStableKeyContext = {
   walletSessionUserId: string;
-  subjectId: WalletSubjectId;
+  subjectId: WalletId;
   keyScope: 'evm-family';
   ecdsaThresholdKeyId: string;
   signingRootId: string;

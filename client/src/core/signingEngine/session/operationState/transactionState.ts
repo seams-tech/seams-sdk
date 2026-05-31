@@ -1,7 +1,12 @@
 import type { AccountId } from '@/core/types/accountIds';
 import type { SensitiveOperationPolicy } from '@shared/utils/signerDomain';
 import type { WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { LaneCandidate, SelectedLane } from '../identity/laneIdentity';
+import type {
+  LaneCandidate,
+  SelectedLane,
+  ThresholdEcdsaSessionStoreSource,
+  ThresholdEd25519SessionStoreSource,
+} from '../identity/laneIdentity';
 import type {
   TransactionConcreteAvailableLane,
   TransactionIntentReceivedState,
@@ -19,6 +24,18 @@ import {
   SigningSessionPlanKind,
 } from './types';
 import type { SigningSessionPreparedBudgetIdentity } from '../budget/budget';
+import type {
+  ExactSigningLaneIdentity,
+  ExactSigningLaneIdentityKey,
+} from '../identity/exactSigningLaneIdentity';
+import type {
+  FreshStepUpSatisfiedForAdmission,
+  FreshStepUpRequired,
+  StepUpExpiryState,
+  StepUpProjectionState,
+} from './stepUpFreshness';
+import { assertFreshnessMatchesLane } from './stepUpFreshness';
+import { exactSigningLaneIdentity } from '../identity/exactSigningLaneIdentity';
 import type { SigningPlannerDecisionTraceEvent } from '../planning/planner';
 import {
   prepareThresholdSigningOperation,
@@ -27,7 +44,10 @@ import {
   type ThresholdSigningOperationCoordinator,
   type ThresholdSigningReadinessInput,
 } from './preparedOperation';
-import type { EvmEip155ChainTarget, TempoChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  EvmEip155ChainTarget,
+  TempoChainTarget,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 type TransactionSigningIntentBase = {
   operationId?: SigningOperationId;
@@ -65,6 +85,7 @@ export type TransactionSigningIntent =
   | EvmFamilyEcdsaTransactionSigningIntent;
 
 export type TransactionAuthSelectionPolicy =
+  | { kind: 'any' }
   | { kind: 'explicit'; authMethod: SigningAuthMethod }
   | { kind: 'account_class'; authMethod: SigningAuthMethod };
 
@@ -148,6 +169,7 @@ export type ReauthAdmittedLifecycle<
   TAuthPlan = unknown,
 > = {
   kind: 'ReauthAdmitted';
+  reauthAnchor: ReauthAnchorIdentity;
   previousOperation: BudgetAdmittedOperation<TLane>;
   operation: BudgetAdmittedTransactionOperation<TLane, TAuthPlan>;
   authPlan: TAuthPlan;
@@ -155,6 +177,30 @@ export type ReauthAdmittedLifecycle<
   state?: never;
   result?: never;
   finalizedAtMs?: never;
+};
+
+export type ReauthAnchorSourceState = {
+  kind: 'reauth_anchor_source_state';
+  availabilitySource:
+    | 'durable_sealed_record'
+    | 'runtime_session_record'
+    | 'runtime_and_durable'
+    | 'evm_family_shared_key';
+  storeSource: ThresholdEcdsaSessionStoreSource | ThresholdEd25519SessionStoreSource;
+  retention: 'session' | 'single_use' | 'unknown';
+  remainingUses: number | null;
+  expiry: StepUpExpiryState;
+  projection: StepUpProjectionState;
+};
+
+export type ReauthAnchorIdentity = {
+  kind: 'reauth_anchor_identity';
+  laneIdentity: ExactSigningLaneIdentity;
+  laneIdentityKey: ExactSigningLaneIdentityKey;
+  sourceState: ReauthAnchorSourceState;
+  freshness: FreshStepUpRequired;
+  readyLane?: never;
+  budget?: never;
 };
 
 export type SignedWalletSigningBudgetLifecycle<
@@ -393,6 +439,28 @@ export function recordPreparedTransactionBudgetAdmission<TLane extends Transacti
   };
 }
 
+export function recordPreparedTransactionBudgetAdmissionFromFreshness<
+  TLane extends TransactionLane,
+>(
+  operation: PreparedTransactionOperation<TLane>,
+  budgetAdmission: TransactionBudgetAdmission,
+  freshness: FreshStepUpSatisfiedForAdmission,
+): BudgetAdmittedLifecycle<TLane> {
+  assertFreshnessMatchesLane({
+    freshness,
+    laneIdentity: exactSigningLaneIdentity(operation.lane),
+  });
+  if (freshness.projection.version !== budgetAdmission.budgetIdentity.projectionVersion) {
+    throw new Error('[SigningSession] admission freshness projection does not match budget');
+  }
+  const admittedOperation = admitTransactionBudget(operation, budgetAdmission);
+  return {
+    kind: 'BudgetAdmitted',
+    operation: admittedOperation,
+    state: recordTransactionBudgetAdmission(admittedOperation),
+  };
+}
+
 export function recordPreparedTransactionNoBudget<TLane extends TransactionLane>(
   operation: PreparedTransactionOperation<TLane>,
   reason: PreparedNoBudgetLifecycle<TLane>['reason'],
@@ -410,10 +478,7 @@ export function isPreparedTransactionBudgetAdmitted<TLane extends TransactionLan
   return budget.kind === 'BudgetAdmitted';
 }
 
-export function recordTransactionStepUpConfirmed<
-  TLane extends TransactionLane,
-  TAuthPlan,
->(
+export function recordTransactionStepUpConfirmed<TLane extends TransactionLane, TAuthPlan>(
   operation: BudgetAdmittedOperation<TLane>,
   authPlan: TAuthPlan,
 ): StepUpConfirmedLifecycle<TLane, TAuthPlan> {
@@ -427,22 +492,37 @@ export function recordTransactionStepUpConfirmed<
   };
 }
 
-export function recordTransactionReauthAdmitted<
-  TLane extends TransactionLane,
-  TAuthPlan,
->(
+export function recordTransactionReauthAdmitted<TLane extends TransactionLane, TAuthPlan>(
+  reauthAnchor: ReauthAnchorIdentity,
   previousOperation: BudgetAdmittedOperation<TLane>,
   operation: BudgetAdmittedOperation<TLane>,
   authPlan: TAuthPlan,
 ): ReauthAdmittedLifecycle<TLane, TAuthPlan> {
   return {
     kind: 'ReauthAdmitted',
+    reauthAnchor,
     previousOperation,
     operation: {
       ...operation,
       authPlan,
     },
     authPlan,
+  };
+}
+
+export function buildReauthAnchorIdentity(args: {
+  freshness: FreshStepUpRequired;
+  sourceState: ReauthAnchorSourceState;
+}): ReauthAnchorIdentity {
+  if (args.freshness.kind !== 'fresh_step_up_required') {
+    throw new Error('[SigningSession] reauth anchors require fresh-step-up-required state');
+  }
+  return {
+    kind: 'reauth_anchor_identity',
+    laneIdentity: args.freshness.laneIdentity,
+    laneIdentityKey: args.freshness.laneIdentityKey,
+    sourceState: args.sourceState,
+    freshness: args.freshness,
   };
 }
 
@@ -456,10 +536,7 @@ export function recordTransactionSigned<TLane extends TransactionLane>(
   };
 }
 
-export function recordSignedWalletSigningBudgetLifecycle<
-  TLane extends TransactionLane,
-  TResult,
->(
+export function recordSignedWalletSigningBudgetLifecycle<TLane extends TransactionLane, TResult>(
   operation: BudgetAdmittedOperation<TLane>,
   result: TResult,
 ): SignedWalletSigningBudgetLifecycle<TLane, TResult> {
@@ -473,10 +550,7 @@ export function recordSignedWalletSigningBudgetLifecycle<
   };
 }
 
-export function recordFinalizedWalletSigningBudgetLifecycle<
-  TLane extends TransactionLane,
-  TResult,
->(
+export function recordFinalizedWalletSigningBudgetLifecycle<TLane extends TransactionLane, TResult>(
   operation: SignedTransactionOperation<TLane, TResult>,
   finalizedAtMs: number,
 ): FinalizedWalletSigningBudgetLifecycle<TLane, TResult> {

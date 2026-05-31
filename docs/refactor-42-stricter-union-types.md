@@ -1,5 +1,8 @@
 # Stricter Union Types Audit for `signingEngine`
 
+Date created: 2026-05-25
+Status:
+
 ## Scope
 
 Reviewed `client/src/core/signingEngine/` for optional fields that model auth, session, signing, threshold material, budget, recovery, worker protocol, and lifecycle state. The scan covered all 399 files under the folder, then focused on the optional-heavy and security-sensitive modules.
@@ -293,26 +296,26 @@ Recommended tightening:
 
 ## Todo
 
-- [ ] Tighten available lane/readiness unions so concrete `ready` lanes require session identity, auth method, and required status fields.
-- [ ] Add type fixtures rejecting ready Ed25519 lanes without `authMethod`, `walletSigningSessionId`, or `thresholdSessionId`.
-- [ ] Add type fixtures rejecting ready ECDSA lanes without verified public facts and exact lane identity.
-- [ ] Split Email OTP ECDSA internal inputs into mode-specific registration, login reconnect, transaction step-up, and export step-up inputs.
-- [ ] Add type fixtures rejecting Email OTP registration bootstrap without role-local identity and registration attempt.
-- [ ] Add type fixtures rejecting Email OTP transaction step-up without auth lane or explicit reauth authority.
-- [ ] Convert HSS lifecycle `success: boolean` results into `Result`-style discriminated unions.
-- [ ] Add type fixtures rejecting HSS success results without success payloads and HSS failure results with success-only payloads.
-- [ ] Parse raw worker messages into operation-specific strict request unions at the worker boundary.
-- [ ] Decide whether ECDSA presign step `incomingMessages` may be omitted; if empty is valid, require `incomingMessages: ArrayBuffer[]`.
-- [ ] Introduce raw persisted record types plus normalized internal ECDSA record unions.
-- [ ] Keep persistence compatibility handling isolated to IndexedDB/request boundary parsers.
-- [ ] Split budget trace events by event kind so success events require status and failure events require error.
-- [ ] Split budget projections into explicit `known`, `unknown`, `expired`, and `missing` states.
-- [ ] Split Near signing public option bags from prepared core execution states.
-- [ ] Split ECDSA export fresh-material states into route-auth-ready and needs-challenge branches.
-- [ ] Normalize optional capability reader ports once into configured dependency unions.
-- [ ] Add static checks that public ECDSA identity cannot satisfy `ReadyEcdsaMaterial`.
-- [ ] Add static checks that diagnostics objects are never accepted by selection/admission builders.
-- [ ] Review remaining `?:` usage after each phase and leave `?: never` branch-exclusion guards intact.
+- [x] Tighten available lane/readiness unions so concrete `ready` lanes require session identity, auth method, and required status fields.
+- [x] Add type fixtures rejecting ready Ed25519 lanes without `authMethod`, `walletSigningSessionId`, or `thresholdSessionId`.
+- [x] Add type fixtures rejecting ready ECDSA lanes without verified public facts and exact lane identity.
+- [x] Split Email OTP ECDSA internal inputs into mode-specific registration, login reconnect, transaction step-up, and export step-up inputs.
+- [x] Add type fixtures rejecting Email OTP registration bootstrap without role-local identity and registration attempt.
+- [x] Add type fixtures rejecting Email OTP transaction step-up without auth lane or explicit reauth authority.
+- [x] Convert HSS lifecycle `success: boolean` results into `Result`-style discriminated unions.
+- [x] Add type fixtures rejecting HSS success results without success payloads and HSS failure results with success-only payloads.
+- [x] Parse raw worker messages into operation-specific strict request unions at the worker boundary.
+- [x] Decide whether ECDSA presign step `incomingMessages` may be omitted; if empty is valid, require `incomingMessages: ArrayBuffer[]`.
+- [x] Introduce raw persisted record types plus normalized internal ECDSA record unions.
+- [x] Keep persistence compatibility handling isolated to IndexedDB/request boundary parsers.
+- [x] Split budget trace events by event kind so success events require status and failure events require error.
+- [x] Split budget projections into explicit `known`, `unknown`, `expired`, and `missing` states.
+- [x] Split Near signing public option bags from prepared core execution states.
+- [x] Split ECDSA export fresh-material states into route-auth-ready and needs-challenge branches.
+- [x] Normalize optional capability reader ports once into configured dependency unions.
+- [x] Add static checks that public ECDSA identity cannot satisfy `ReadyEcdsaMaterial`.
+- [x] Add static checks that diagnostics objects are never accepted by selection/admission builders.
+- [x] Review remaining `?:` usage after each phase and leave `?: never` branch-exclusion guards intact.
 
 ## Static Type Fixture Checklist
 

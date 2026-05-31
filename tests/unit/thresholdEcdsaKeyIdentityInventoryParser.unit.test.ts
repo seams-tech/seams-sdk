@@ -5,12 +5,12 @@ import {
 } from '../../client/src/core/signingEngine/session/passkey/ecdsaKeyFactsInventory';
 import { toAccountId } from '../../client/src/core/types/accountIds';
 import {
-  toWalletSubjectId,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const WALLET_ID = toAccountId('alice.testnet');
-const SUBJECT_ID = toWalletSubjectId(WALLET_ID);
+const SUBJECT_ID = toWalletId(WALLET_ID);
 const RP_ID = 'wallet.example.test';
 const OWNER_ADDRESS = `0x${'ab'.repeat(20)}`;
 const THRESHOLD_ECDSA_PUBLIC_KEY_B64U = 'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC';
@@ -104,12 +104,12 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
     });
   });
 
-  test('rejects records that do not bind the expected wallet subject, rpId, and owner', () => {
+  test('rejects records that do not bind the expected wallet, rpId, and owner', () => {
     const parsed = parseThresholdEcdsaKeyIdentityTargets({
       nearAccountId: WALLET_ID,
       rpId: RP_ID,
       records: [
-        inventoryRecord({ subjectId: 'wallet_subject_other' }),
+        inventoryRecord({ subjectId: 'wallet_other' }),
         inventoryRecord({ rpId: 'other.example.test' }),
         inventoryRecord({
           ownerAddress: `0x${'cd'.repeat(20)}`,

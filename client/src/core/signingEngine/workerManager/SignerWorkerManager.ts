@@ -1,5 +1,4 @@
 import { UnifiedIndexedDBManager } from '@/core/indexedDB';
-import { IndexedDBManager } from '@/core/indexedDB';
 import { type NearClient } from '@/core/rpcClients/near/NearClient';
 import type { UiConfirmSigningSessionPort } from '../uiConfirm/types';
 import { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
@@ -18,7 +17,7 @@ import type {
   ExportPrivateKeysWithUiWorkerResult,
 } from '@/core/types/secure-confirm-worker';
 import type { NearSigningKeyOps } from '../interfaces/nearKeyOps';
-import { WorkerTransport, getWorkerTransport, requestWorkerOperation } from './workerTransport';
+import type { WorkerTransport } from './workerTransport';
 import { createNearKeyOps } from './nearKeyOps/createNearKeyOps';
 
 export interface SignerWorkerManagerContext extends SigningRuntimeDeps {
@@ -29,6 +28,22 @@ export interface SignerWorkerManagerContext extends SigningRuntimeDeps {
   tempoExplorerUrl?: string;
   evmExplorerUrl?: string;
 }
+
+export type SignerWorkerManagerDeps = {
+  indexedDB: UnifiedIndexedDBManager;
+  touchIdPrompt: TouchIdPrompt;
+  touchConfirm: UiConfirmSigningSessionPort;
+  nearClient: NearClient;
+  userPreferencesManager: UserPreferencesManager;
+  nonceCoordinator: NonceCoordinator;
+  relayerUrl: string;
+  workerTransport: WorkerTransport;
+  chains?: readonly SeamsChainConfig[];
+  nearExplorerUrl?: string;
+  tempoExplorerUrl?: string;
+  evmExplorerUrl?: string;
+  getTheme?: () => ThemeName;
+};
 
 /**
  * WebAuthnWorkers handles PRF, workers, and COSE operations
@@ -52,36 +67,20 @@ export class SignerWorkerManager {
   private workerTransport: WorkerTransport;
   readonly nearKeyOps: NearSigningKeyOps;
 
-  constructor(
-    touchConfirm: UiConfirmSigningSessionPort,
-    nearClient: NearClient,
-    userPreferencesManager: UserPreferencesManager,
-    nonceCoordinator: NonceCoordinator,
-    relayerUrl: string,
-    chains?: readonly SeamsChainConfig[],
-    rpIdOverride?: string,
-    enableSafariGetWebauthnRegistrationFallback: boolean = true,
-    nearExplorerUrl?: string,
-    tempoExplorerUrl?: string,
-    evmExplorerUrl?: string,
-    getTheme?: () => ThemeName,
-  ) {
-    this.indexedDB = IndexedDBManager;
-    this.touchIdPrompt = new TouchIdPrompt(
-      rpIdOverride,
-      enableSafariGetWebauthnRegistrationFallback,
-    );
-    this.touchConfirm = touchConfirm;
-    this.nearClient = nearClient;
-    this.userPreferencesManager = userPreferencesManager;
-    this.nonceCoordinator = nonceCoordinator;
-    this.relayerUrl = relayerUrl;
-    this.chains = chains;
-    this.nearExplorerUrl = nearExplorerUrl;
-    this.tempoExplorerUrl = tempoExplorerUrl;
-    this.evmExplorerUrl = evmExplorerUrl;
-    this.getTheme = getTheme;
-    this.workerTransport = getWorkerTransport();
+  constructor(deps: SignerWorkerManagerDeps) {
+    this.indexedDB = deps.indexedDB;
+    this.touchIdPrompt = deps.touchIdPrompt;
+    this.touchConfirm = deps.touchConfirm;
+    this.nearClient = deps.nearClient;
+    this.userPreferencesManager = deps.userPreferencesManager;
+    this.nonceCoordinator = deps.nonceCoordinator;
+    this.relayerUrl = deps.relayerUrl;
+    this.chains = deps.chains;
+    this.nearExplorerUrl = deps.nearExplorerUrl;
+    this.tempoExplorerUrl = deps.tempoExplorerUrl;
+    this.evmExplorerUrl = deps.evmExplorerUrl;
+    this.getTheme = deps.getTheme;
+    this.workerTransport = deps.workerTransport;
     this.nearKeyOps = createNearKeyOps(() => this.getContext());
   }
 
@@ -116,7 +115,7 @@ export class SignerWorkerManager {
     kind: K;
     request: SignerWorkerOperationRequest<K, T>;
   }): Promise<SignerWorkerOperationResult<K, T>> {
-    return requestWorkerOperation(args);
+    return this.workerTransport.requestOperation(args);
   }
 
   requestExportPrivateKeysWithUi(

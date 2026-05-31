@@ -1,0 +1,470 @@
+import { expect, test } from '@playwright/test';
+import { toAccountId } from '../../client/src/core/types/accountIds';
+import {
+  buildBaseEvmFamilyEcdsaKeyIdentity,
+  buildVerifiedEcdsaPublicFacts,
+  toEvmFamilyEcdsaKeyHandle,
+} from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { buildReauthAnchorIdentityFromAvailableLane } from '../../client/src/core/signingEngine/session/availability/availableSigningLanes';
+import {
+  exactSigningLaneIdentity,
+  exactSigningLaneIdentityKey,
+} from '../../client/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import {
+  buildEcdsaEmailOtpSigningLane,
+  buildNearTransactionSigningLane,
+} from '../../client/src/core/signingEngine/session/operationState/lanes';
+import {
+  SigningOperationIntent,
+  SigningSessionIds,
+} from '../../client/src/core/signingEngine/session/operationState/types';
+import {
+  assertFreshnessMatchesLane,
+  buildFreshStepUpRequired,
+  buildFreshStepUpSatisfied,
+  buildFreshStepUpSatisfiedForAdmission,
+  buildStepUpFreshnessFromRestoredSealedRecord,
+  buildStepUpFreshnessFromTrustedBudgetStatus,
+  stepUpFreshnessDiagnostics,
+} from '../../client/src/core/signingEngine/session/operationState/stepUpFreshness';
+import { buildReauthAnchorIdentity } from '../../client/src/core/signingEngine/session/operationState/transactionState';
+import { recordPreparedTransactionBudgetAdmissionFromFreshness } from '../../client/src/core/signingEngine/session/operationState/transactionState';
+import {
+  buildSigningBudgetReservationIdentity,
+  signingBudgetReservationKey,
+} from '../../client/src/core/signingEngine/session/budget/budget';
+
+const tempoChainTarget = { kind: 'tempo', chainId: 4242, networkSlug: 'tempo-test' } as const;
+
+function makeNearLane(args?: { thresholdSessionId?: string }) {
+  return buildNearTransactionSigningLane({
+    accountId: toAccountId('freshness-alice.testnet'),
+    authMethod: 'passkey',
+    walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-session-near'),
+    thresholdSessionId: SigningSessionIds.thresholdEd25519Session(
+      args?.thresholdSessionId || 'threshold-session-near',
+    ),
+    storageSource: 'login',
+  });
+}
+
+function makeEcdsaKey() {
+  return buildBaseEvmFamilyEcdsaKeyIdentity({
+    walletId: 'freshness-wallet.testnet',
+    rpId: 'localhost',
+    ecdsaThresholdKeyId: 'ecdsa-threshold-key',
+    signingRootId: 'proj_test:dev',
+    signingRootVersion: '1',
+    participantIds: [1, 2],
+    thresholdOwnerAddress: '0x0000000000000000000000000000000000000042',
+  });
+}
+
+function makeEcdsaLane(args?: { thresholdSessionId?: string }) {
+  const key = makeEcdsaKey();
+  return buildEcdsaEmailOtpSigningLane({
+    key,
+    keyHandle: toEvmFamilyEcdsaKeyHandle('tempo:4242:ecdsa-threshold-key'),
+    walletId: toAccountId(String(key.walletId)),
+    chainTarget: tempoChainTarget,
+    walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-session-ecdsa'),
+    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(
+      args?.thresholdSessionId || 'threshold-session-ecdsa',
+    ),
+  });
+}
+
+function makeOperation() {
+  return {
+    operationId: SigningSessionIds.signingOperation('operation-1'),
+    operationFingerprint: SigningSessionIds.signingOperationFingerprint('fingerprint-1'),
+  };
+}
+
+test.describe('step-up freshness identity', () => {
+  test('builds an admission-ready Ed25519 freshness state only with a known projection', () => {
+    const lane = makeNearLane();
+    const laneIdentity = exactSigningLaneIdentity(lane);
+    const operation = makeOperation();
+
+    const satisfied = buildFreshStepUpSatisfied({
+      walletId: lane.accountId,
+      ...operation,
+      laneIdentity,
+      projection: { kind: 'known', version: 'projection-1' },
+      expiry: { kind: 'known', expiresAtMs: 1_900_000_000_000 },
+      provenance: {
+        kind: 'trusted_server_budget_status',
+        projectionVersion: 'projection-1',
+        observedAtMs: 1_800_000_000_000,
+      },
+      remainingUses: 1,
+    });
+
+    const admission = buildFreshStepUpSatisfiedForAdmission(satisfied);
+
+    expect(admission.kind).toBe('fresh_step_up_satisfied_for_admission');
+    expect(admission.laneIdentityKey).toBe(exactSigningLaneIdentityKey(laneIdentity));
+    expect(admission.thresholdSessionIds.map(String)).toEqual(['threshold-session-near']);
+    expect(stepUpFreshnessDiagnostics(admission)).toMatchObject({
+      kind: 'fresh_step_up_satisfied_for_admission',
+      laneIdentityKey: exactSigningLaneIdentityKey(laneIdentity),
+      remainingUses: 1,
+      projection: { kind: 'known', version: 'projection-1' },
+    });
+  });
+
+  test('rejects admission when ECDSA freshness has no projection', () => {
+    const lane = makeEcdsaLane();
+    const laneIdentity = exactSigningLaneIdentity(lane);
+    const operation = makeOperation();
+
+    const satisfied = buildFreshStepUpSatisfied({
+      walletId: lane.walletId,
+      ...operation,
+      laneIdentity,
+      projection: { kind: 'unavailable', reason: 'email_otp_refresh_rejected' },
+      expiry: { kind: 'unavailable', reason: 'email_otp_refresh_rejected' },
+      provenance: {
+        kind: 'email_otp_refresh_boundary',
+        httpStatus: 401,
+        observedAtMs: 1_800_000_000_000,
+      },
+      remainingUses: 1,
+    });
+
+    expect(() => buildFreshStepUpSatisfiedForAdmission(satisfied)).toThrow(
+      '[StepUpFreshness] admission requires a known projection',
+    );
+  });
+
+  test('prevents freshness from one exact lane satisfying another lane', () => {
+    const sourceLane = makeNearLane({ thresholdSessionId: 'threshold-source' });
+    const targetLane = makeNearLane({ thresholdSessionId: 'threshold-target' });
+    const operation = makeOperation();
+
+    const required = buildFreshStepUpRequired({
+      walletId: sourceLane.accountId,
+      ...operation,
+      laneIdentity: exactSigningLaneIdentity(sourceLane),
+      projection: { kind: 'known', version: 'projection-1' },
+      expiry: { kind: 'known', expiresAtMs: 1_900_000_000_000 },
+      provenance: {
+        kind: 'trusted_server_budget_status',
+        projectionVersion: 'projection-1',
+        observedAtMs: 1_800_000_000_000,
+      },
+      reason: 'wallet_budget_exhausted',
+    });
+
+    expect(() =>
+      assertFreshnessMatchesLane({
+        freshness: required,
+        laneIdentity: exactSigningLaneIdentity(targetLane),
+      }),
+    ).toThrow('[StepUpFreshness] freshness does not match exact lane identity');
+  });
+
+  test('builds reauth anchors from required freshness without ready material', () => {
+    const lane = makeEcdsaLane();
+    const operation = makeOperation();
+    const required = buildFreshStepUpRequired({
+      walletId: lane.walletId,
+      ...operation,
+      laneIdentity: exactSigningLaneIdentity(lane),
+      projection: { kind: 'unavailable', reason: 'budget_status_unavailable' },
+      expiry: { kind: 'unavailable', reason: 'budget_status_unavailable' },
+      provenance: {
+        kind: 'trusted_server_budget_status',
+        projectionVersion: 'projection-1',
+        observedAtMs: 1_800_000_000_000,
+      },
+      reason: 'threshold_session_exhausted',
+    });
+
+    const anchor = buildReauthAnchorIdentity({
+      freshness: required,
+      sourceState: {
+        kind: 'reauth_anchor_source_state',
+        availabilitySource: 'durable_sealed_record',
+        storeSource: 'email_otp',
+        retention: 'single_use',
+        remainingUses: 0,
+        expiry: required.expiry,
+        projection: required.projection,
+      },
+    });
+
+    expect(anchor.laneIdentityKey).toBe(required.laneIdentityKey);
+    expect('readyLane' in anchor).toBe(false);
+    expect('budget' in anchor).toBe(false);
+    expect(stepUpFreshnessDiagnostics(anchor.freshness)).toMatchObject({
+      kind: 'fresh_step_up_required',
+      laneIdentityKey: required.laneIdentityKey,
+      reason: 'threshold_session_exhausted',
+      projection: { kind: 'unavailable', reason: 'budget_status_unavailable' },
+    });
+  });
+
+  test('builds an ECDSA reauth anchor from an exhausted available lane', () => {
+    const key = makeEcdsaKey();
+    const keyHandle = toEvmFamilyEcdsaKeyHandle('tempo:4242:ecdsa-threshold-key');
+    const anchor = buildReauthAnchorIdentityFromAvailableLane({
+      walletId: key.walletId,
+      ...makeOperation(),
+      lane: {
+        key,
+        publicFacts: buildVerifiedEcdsaPublicFacts({
+          keyHandle,
+          publicKeyB64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+          participantIds: [1, 2],
+          thresholdOwnerAddress: key.thresholdOwnerAddress,
+        }),
+        authMethod: 'email_otp',
+        curve: 'ecdsa',
+        chainTarget: tempoChainTarget,
+        state: 'exhausted',
+        source: 'runtime_and_durable',
+        walletSigningSessionId: 'wallet-session-ecdsa',
+        thresholdSessionId: 'threshold-session-ecdsa',
+        remainingUses: 0,
+        updatedAtMs: 1_800_000_000_000,
+      },
+      nowMs: 1_800_000_000_001,
+    });
+
+    expect(anchor).toMatchObject({
+      kind: 'reauth_anchor_identity',
+      sourceState: {
+        availabilitySource: 'runtime_and_durable',
+        storeSource: 'email_otp',
+        retention: 'single_use',
+        remainingUses: 0,
+      },
+      freshness: {
+        kind: 'fresh_step_up_required',
+        reason: 'threshold_session_exhausted',
+      },
+    });
+  });
+
+  test('builds an Ed25519 reauth anchor from an expired available lane', () => {
+    const anchor = buildReauthAnchorIdentityFromAvailableLane({
+      walletId: 'freshness-alice.testnet',
+      ...makeOperation(),
+      lane: {
+        authMethod: 'passkey',
+        curve: 'ed25519',
+        chain: 'near',
+        state: 'expired',
+        source: 'durable_sealed_record',
+        walletSigningSessionId: 'wallet-session-near',
+        thresholdSessionId: 'threshold-session-near',
+        remainingUses: 1,
+        expiresAtMs: 1_700_000_000_000,
+        updatedAtMs: 1_700_000_000_001,
+      },
+      nowMs: 1_800_000_000_000,
+    });
+
+    expect(anchor).toMatchObject({
+      kind: 'reauth_anchor_identity',
+      sourceState: {
+        availabilitySource: 'durable_sealed_record',
+        storeSource: 'login',
+        retention: 'session',
+        remainingUses: 1,
+      },
+      freshness: {
+        kind: 'fresh_step_up_required',
+        reason: 'threshold_session_expired',
+      },
+    });
+  });
+
+  test('builds satisfied and required freshness from trusted budget status', () => {
+    const lane = makeNearLane();
+    const laneIdentity = exactSigningLaneIdentity(lane);
+    const operation = makeOperation();
+
+    const satisfied = buildStepUpFreshnessFromTrustedBudgetStatus({
+      walletId: lane.accountId,
+      ...operation,
+      laneIdentity,
+      observedAtMs: 1_800_000_000_000,
+      status: {
+        sessionId: String(lane.walletSigningSessionId),
+        status: 'active',
+        remainingUses: 2,
+        expiresAtMs: 1_900_000_000_000,
+        projectionVersion: 'projection-1',
+      },
+    });
+    const required = buildStepUpFreshnessFromTrustedBudgetStatus({
+      walletId: lane.accountId,
+      ...operation,
+      laneIdentity,
+      observedAtMs: 1_800_000_000_000,
+      status: {
+        sessionId: String(lane.walletSigningSessionId),
+        status: 'exhausted',
+        remainingUses: 0,
+        projectionVersion: 'projection-2',
+      },
+    });
+
+    expect(satisfied).toMatchObject({
+      kind: 'fresh_step_up_satisfied',
+      projection: { kind: 'known', version: 'projection-1' },
+      expiry: { kind: 'known', expiresAtMs: 1_900_000_000_000 },
+      remainingUses: 2,
+    });
+    expect(required).toMatchObject({
+      kind: 'fresh_step_up_required',
+      reason: 'threshold_session_exhausted',
+      projection: { kind: 'known', version: 'projection-2' },
+      expiry: { kind: 'unavailable', reason: 'budget_status_unavailable' },
+    });
+  });
+
+  test('builds restored-record freshness with unavailable projection', () => {
+    const lane = makeEcdsaLane();
+    const laneIdentity = exactSigningLaneIdentity(lane);
+    const operation = makeOperation();
+
+    const restored = buildStepUpFreshnessFromRestoredSealedRecord({
+      walletId: lane.walletId,
+      ...operation,
+      laneIdentity,
+      recordVersion: 'sealed-v1',
+      updatedAtMs: 1_800_000_000_000,
+      remainingUses: 1,
+      expiresAtMs: 1_900_000_000_000,
+      nowMs: 1_800_000_000_000,
+    });
+    const expired = buildStepUpFreshnessFromRestoredSealedRecord({
+      walletId: lane.walletId,
+      ...operation,
+      laneIdentity,
+      recordVersion: 'sealed-v1',
+      updatedAtMs: 1_800_000_000_000,
+      remainingUses: 1,
+      expiresAtMs: 1_700_000_000_000,
+      nowMs: 1_800_000_000_000,
+    });
+
+    expect(restored).toMatchObject({
+      kind: 'fresh_step_up_satisfied',
+      projection: { kind: 'unavailable', reason: 'restored_record_has_no_projection' },
+      expiry: { kind: 'known', expiresAtMs: 1_900_000_000_000 },
+    });
+    expect(expired).toMatchObject({
+      kind: 'fresh_step_up_required',
+      reason: 'threshold_session_expired',
+      projection: { kind: 'unavailable', reason: 'restored_record_has_no_projection' },
+    });
+  });
+
+  test('admits transaction budget only from matching admission freshness', () => {
+    const lane = makeNearLane();
+    const laneIdentity = exactSigningLaneIdentity(lane);
+    const operation = makeOperation();
+    const satisfied = buildFreshStepUpSatisfied({
+      walletId: lane.accountId,
+      ...operation,
+      laneIdentity,
+      projection: { kind: 'known', version: 'projection-1' },
+      expiry: { kind: 'known', expiresAtMs: 1_900_000_000_000 },
+      provenance: {
+        kind: 'trusted_server_budget_status',
+        projectionVersion: 'projection-1',
+        observedAtMs: 1_800_000_000_000,
+      },
+      remainingUses: 1,
+    });
+    const budgetAdmission = {
+      budgetIdentity: {
+        walletSigningSessionId: String(lane.walletSigningSessionId),
+        projectionVersion: 'projection-1',
+        status: {
+          sessionId: String(lane.walletSigningSessionId),
+          status: 'active' as const,
+          projectionVersion: 'projection-1',
+          remainingUses: 1,
+          expiresAtMs: 1_900_000_000_000,
+        },
+      },
+    };
+
+    const lifecycle = recordPreparedTransactionBudgetAdmissionFromFreshness(
+      {
+        intent: {
+          curve: 'ed25519',
+          chain: 'near',
+          walletId: lane.accountId,
+          authSelectionPolicy: { kind: 'explicit', authMethod: 'passkey' },
+          operationUsesNeeded: 1,
+        },
+        lane,
+        readiness: { status: 'ready', remainingUses: 1, expiresAtMs: 1_900_000_000_000 },
+      },
+      budgetAdmission,
+      buildFreshStepUpSatisfiedForAdmission(satisfied),
+    );
+
+    expect(lifecycle.kind).toBe('BudgetAdmitted');
+    expect(() =>
+      recordPreparedTransactionBudgetAdmissionFromFreshness(
+        lifecycle.operation,
+        {
+          budgetIdentity: {
+            ...budgetAdmission.budgetIdentity,
+            projectionVersion: 'projection-2',
+            status: {
+              ...budgetAdmission.budgetIdentity.status,
+              projectionVersion: 'projection-2',
+            },
+          },
+        },
+        buildFreshStepUpSatisfiedForAdmission(satisfied),
+      ),
+    ).toThrow('[SigningSession] admission freshness projection does not match budget');
+  });
+});
+
+test.describe('budget reservation identity', () => {
+  test('keys reservations by operation, exact lane, projection, and session ids', () => {
+    const lane = makeNearLane({ thresholdSessionId: 'threshold-reservation-a' });
+    const nextLane = makeNearLane({ thresholdSessionId: 'threshold-reservation-b' });
+    const operation = makeOperation();
+    const baseSpend = {
+      ...operation,
+      walletId: lane.accountId,
+      walletSigningSessionId: lane.walletSigningSessionId,
+      thresholdSessionIds: [lane.thresholdSessionId],
+      backingMaterialSessionIds: [],
+      uses: 1 as const,
+      reason: SigningOperationIntent.TransactionSign,
+    };
+
+    const first = buildSigningBudgetReservationIdentity({
+      spend: { ...baseSpend, lane },
+      projectionVersion: 'projection-1',
+    });
+    const same = buildSigningBudgetReservationIdentity({
+      spend: { ...baseSpend, lane },
+      projectionVersion: 'projection-1',
+    });
+    const differentLane = buildSigningBudgetReservationIdentity({
+      spend: {
+        ...baseSpend,
+        lane: nextLane,
+        thresholdSessionIds: [nextLane.thresholdSessionId],
+      },
+      projectionVersion: 'projection-1',
+    });
+
+    expect(signingBudgetReservationKey(first)).toBe(signingBudgetReservationKey(same));
+    expect(signingBudgetReservationKey(first)).not.toBe(signingBudgetReservationKey(differentLane));
+  });
+});

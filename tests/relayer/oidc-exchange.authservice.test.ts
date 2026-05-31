@@ -224,6 +224,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       email: 'alice.example+demo@example.com',
       authProvider: 'google_oidc',
       accountIdSlugVersion: 'hmac_readable_v1',
+      walletIdDerivationNonce: expect.any(String),
       collisionCounter: 0,
     });
 
@@ -293,7 +294,7 @@ test.describe('AuthService OIDC exchange verification', () => {
     );
   });
 
-  test('Google Email OTP login repairs missing wallet subject link from finalized enrollment', async () => {
+  test('Google Email OTP login repairs missing wallet link from finalized enrollment', async () => {
     const service = makeService();
     const registered = await service.resolveGoogleEmailOtpSession({
       providerSubject: 'google:subject-orphaned-enrollment',
@@ -512,7 +513,7 @@ test.describe('AuthService OIDC exchange verification', () => {
     expect(registered.walletId).not.toContain('google');
   });
 
-  test('Google Email OTP registration is deterministic for the same provider subject', async () => {
+  test('Google Email OTP registration randomizes fresh attempts for the same provider subject', async () => {
     const service = makeService();
     const first = await service.resolveGoogleEmailOtpSession({
       providerSubject: 'google:subject-deterministic',
@@ -535,7 +536,8 @@ test.describe('AuthService OIDC exchange verification', () => {
     });
     expect(second.ok).toBe(true);
     if (!second.ok) return;
-    expect(second.walletId).toBe(first.walletId);
+    expect(second.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
+    expect(second.walletId).not.toBe(first.walletId);
   });
 
   test('Google Email OTP registration keeps existing active wallet login semantics', async () => {
@@ -594,6 +596,10 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:expired-subject',
       email: 'expired@example.com',
       walletId: 'expired.relayer.testnet',
+      authProvider: 'google_oidc',
+      accountIdSlugVersion: 'hmac_readable_v1',
+      walletIdDerivationNonce: 'expiredAttemptNonce001',
+      collisionCounter: 0,
       state: 'started',
       createdAtMs: 1,
       updatedAtMs: 1,

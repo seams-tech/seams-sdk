@@ -37,6 +37,10 @@ import {
   normalizeThresholdRuntimePolicyScope,
   type ThresholdRuntimePolicyScope,
 } from '../../threshold/sessionPolicy';
+import {
+  toAuthorizingWalletSigningSessionId,
+  type EmailOtpAuthLane,
+} from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { EvmFamilySigningTarget } from '../signEvmFamily/types';
 
 export type ExactEcdsaExportLane = {
@@ -77,13 +81,36 @@ export type ReadyThresholdEcdsaExportMaterial = {
 
 export type ReadyEcdsaExportMaterial = ReadyThresholdEcdsaExportMaterial;
 
-export type FreshEmailOtpEcdsaExportMaterial = {
-  kind: 'fresh_email_otp';
+type FreshEmailOtpEcdsaExportSubject =
+  | {
+      authSubjectMode: 'explicit_auth_subject';
+      authSubjectId: string;
+    }
+  | {
+      authSubjectMode: 'wallet_session_subject';
+      authSubjectId?: never;
+    };
+
+export type FreshEmailOtpEcdsaExportMaterialNeedsChallenge =
+  FreshEmailOtpEcdsaExportSubject & {
+    kind: 'fresh_email_otp_needs_challenge';
+    chainTarget: ThresholdEcdsaChainTarget;
+    publicFacts: VerifiedEcdsaPublicFacts;
+    runtimePolicyScope: ThresholdRuntimePolicyScope;
+  };
+
+export type FreshEmailOtpEcdsaExportMaterialRouteAuthReady = {
+  kind: 'fresh_email_otp_route_auth_ready';
   chainTarget: ThresholdEcdsaChainTarget;
   publicFacts: VerifiedEcdsaPublicFacts;
-  authSubjectId?: string;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  record: ThresholdEcdsaSessionRecord;
+  authLane: EmailOtpAuthLane;
 };
+
+export type FreshEmailOtpEcdsaExportMaterial =
+  | FreshEmailOtpEcdsaExportMaterialNeedsChallenge
+  | FreshEmailOtpEcdsaExportMaterialRouteAuthReady;
 
 export type EcdsaExportMaterial = ReadyEcdsaExportMaterial | FreshEmailOtpEcdsaExportMaterial;
 
@@ -255,17 +282,53 @@ export async function resolveFreshEmailOtpEcdsaExportMaterialForLane(
     actual: publicFacts,
     context: 'fresh Email OTP export lane',
   });
-  const authSubjectId = String(runtimeRecord?.emailOtpAuthContext?.authSubjectId || '').trim();
+  const authSubjectId = String(
+    runtimeRecord?.source === 'email_otp' ? runtimeRecord.emailOtpAuthContext.authSubjectId : '',
+  ).trim();
   const runtimePolicyScope =
     runtimeRecord?.runtimePolicyScope ||
     normalizeThresholdRuntimePolicyScope(sealedRestore?.runtimePolicyScope);
-  return {
-    kind: 'fresh_email_otp',
+  if (!runtimePolicyScope) {
+    throw new Error(
+      '[SigningEngine][ecdsa-export] fresh Email OTP export requires runtimePolicyScope',
+    );
+  }
+  const thresholdSessionAuthToken = String(runtimeRecord?.thresholdSessionAuthToken || '').trim();
+  const walletSigningSessionId = String(runtimeRecord?.walletSigningSessionId || '').trim();
+  if (runtimeRecord && thresholdSessionAuthToken && walletSigningSessionId) {
+    return {
+      kind: 'fresh_email_otp_route_auth_ready',
+      chainTarget: exportLane.session.chainTarget,
+      publicFacts,
+      runtimePolicyScope,
+      record: runtimeRecord,
+      authLane: {
+        kind: 'signing_session',
+        jwt: thresholdSessionAuthToken,
+        thresholdSessionId: runtimeRecord.thresholdSessionId,
+        authorizingWalletSigningSessionId:
+          toAuthorizingWalletSigningSessionId(walletSigningSessionId),
+        curve: 'ecdsa',
+        chainTarget: exportLane.session.chainTarget,
+      },
+    };
+  }
+  const base = {
+    kind: 'fresh_email_otp_needs_challenge' as const,
     chainTarget: exportLane.session.chainTarget,
     publicFacts,
-    ...(authSubjectId ? { authSubjectId } : {}),
-    ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    runtimePolicyScope,
   };
+  return authSubjectId
+    ? {
+        ...base,
+        authSubjectMode: 'explicit_auth_subject',
+        authSubjectId,
+      }
+    : {
+        ...base,
+        authSubjectMode: 'wallet_session_subject',
+      };
 }
 
 export async function resolveEcdsaExportMaterialForLane(

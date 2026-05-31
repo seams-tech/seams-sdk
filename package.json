@@ -1,5 +1,5 @@
 {
-  "name": "seams-xyz-monorepo",
+  "name": "seams-sdk-monorepo",
   "private": true,
   "type": "module",
   "scripts": {
@@ -17,6 +17,8 @@
     "lint:rust": "bash -lc 'for dir in wasm/*_signer; do (cd \"$dir\" && cargo clippy --all-targets); done'",
     "lint:rust:strict": "bash -lc 'for dir in wasm/*_signer; do (cd \"$dir\" && cargo clippy --all-targets -- -D warnings); done'",
     "check:signing-architecture": "node ./sdk/scripts/checks/check-stable-experimental-export-boundaries.mjs && node ./sdk/scripts/checks/check-signing-root-refactor-boundaries.mjs",
+    "check:bundle-size": "pnpm -C sdk check:bundle-size",
+    "check:wasm-exports": "pnpm -C sdk check:wasm-exports",
     "check:signer-parity": "pnpm -C tests test:signer-parity",
     "check:formal-verification": "cargo hss-fv all",
     "type-check:sdk": "pnpm -C sdk type-check",

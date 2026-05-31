@@ -15,7 +15,6 @@ import type {
 } from '../../client/src/core/signingEngine/interfaces/signing';
 import {
   toWalletId,
-  toWalletSubjectId,
 } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { UiConfirmContext } from '../../client/src/core/signingEngine/uiConfirm/types';
 import type { WorkerOperationContext } from '../../client/src/core/signingEngine/workerManager/executeWorkerOperation';
@@ -36,7 +35,7 @@ import {
 } from '../../client/src/core/signingEngine/flows/signEvmFamily/signers/secp256k1';
 
 const WALLET_ID = 'alice.testnet';
-const SUBJECT_ID = toWalletSubjectId(WALLET_ID);
+const SUBJECT_ID = toWalletId(WALLET_ID);
 const RP_ID = 'localhost';
 const ECDSA_THRESHOLD_KEY_ID = 'ehss-shared-key';
 const SIGNING_ROOT_ID = 'project:dev';

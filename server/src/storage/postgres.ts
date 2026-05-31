@@ -85,6 +85,223 @@ export async function getPostgresPool(postgresUrl: string): Promise<PgPool> {
 
 const MIGRATION_LOCK_ID = 9452360123581;
 
+async function queryOne(
+  executor: PgQueryExecutor,
+  text: string,
+  values: unknown[] = [],
+): Promise<Record<string, unknown> | null> {
+  const result = await executor.query(text, values);
+  const row = result.rows[0];
+  return row && typeof row === 'object' && !Array.isArray(row)
+    ? (row as Record<string, unknown>)
+    : null;
+}
+
+async function tableExists(executor: PgQueryExecutor, tableName: string): Promise<boolean> {
+  const row = await queryOne(
+    executor,
+    `
+      SELECT to_regclass($1) AS table_name
+    `,
+    [`public.${tableName}`],
+  );
+  return Boolean(row?.table_name);
+}
+
+async function columnExists(
+  executor: PgQueryExecutor,
+  tableName: string,
+  columnName: string,
+): Promise<boolean> {
+  const row = await queryOne(
+    executor,
+    `
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = $1
+        AND column_name = $2
+      LIMIT 1
+    `,
+    [tableName, columnName],
+  );
+  return Boolean(row);
+}
+
+async function migrateWalletIdTables(executor: PgQueryExecutor): Promise<void> {
+  if (await tableExists(executor, 'wallet_subjects')) {
+    await executor.query(`
+      INSERT INTO wallets
+        (namespace, wallet_id, rp_id, record_json, created_at_ms, updated_at_ms)
+      SELECT
+        namespace,
+        wallet_subject_id,
+        rp_id,
+        jsonb_set(
+          jsonb_set(record_json - 'walletSubjectId', '{walletId}', to_jsonb(wallet_subject_id)),
+          '{version}',
+          to_jsonb('wallet_v1'::text)
+        ),
+        created_at_ms,
+        updated_at_ms
+      FROM wallet_subjects
+      ON CONFLICT (namespace, wallet_id) DO UPDATE SET
+        rp_id = EXCLUDED.rp_id,
+        record_json = EXCLUDED.record_json,
+        created_at_ms = LEAST(wallets.created_at_ms, EXCLUDED.created_at_ms),
+        updated_at_ms = GREATEST(wallets.updated_at_ms, EXCLUDED.updated_at_ms)
+    `);
+  }
+
+  if (await tableExists(executor, 'wallet_auth_method_bindings')) {
+    await executor.query(`
+      INSERT INTO wallet_auth_methods
+        (
+          namespace,
+          wallet_auth_method_id,
+          wallet_id,
+          rp_id,
+          kind,
+          status,
+          auth_identifier_key,
+          credential_id_b64u,
+          credential_public_key_b64u,
+          signer_slot,
+          email_hash_hex,
+          challenge_id,
+          record_json,
+          created_at_ms,
+          updated_at_ms
+        )
+      SELECT
+        namespace,
+        CASE
+          WHEN kind = 'passkey' THEN 'passkey:' || rp_id || ':' || credential_id_b64u
+          ELSE 'email_otp:' || wallet_subject_id || ':' || rp_id || ':' || email_hash_hex
+        END,
+        wallet_subject_id,
+        rp_id,
+        kind,
+        status,
+        CASE WHEN kind = 'passkey' THEN credential_id_b64u ELSE email_hash_hex END,
+        credential_id_b64u,
+        record_json->>'credentialPublicKeyB64u',
+        NULL,
+        email_hash_hex,
+        record_json->>'challengeId',
+        jsonb_set(
+          jsonb_set(
+            jsonb_set(record_json - 'walletSubjectId', '{walletId}', to_jsonb(wallet_subject_id)),
+            '{version}',
+            to_jsonb('wallet_auth_method_v1'::text)
+          ),
+          '{kind}',
+          to_jsonb(kind)
+        ),
+        created_at_ms,
+        updated_at_ms
+      FROM wallet_auth_method_bindings
+      ON CONFLICT (namespace, wallet_auth_method_id) DO UPDATE SET
+        wallet_id = EXCLUDED.wallet_id,
+        rp_id = EXCLUDED.rp_id,
+        kind = EXCLUDED.kind,
+        status = EXCLUDED.status,
+        auth_identifier_key = EXCLUDED.auth_identifier_key,
+        credential_id_b64u = EXCLUDED.credential_id_b64u,
+        credential_public_key_b64u = EXCLUDED.credential_public_key_b64u,
+        signer_slot = EXCLUDED.signer_slot,
+        email_hash_hex = EXCLUDED.email_hash_hex,
+        challenge_id = EXCLUDED.challenge_id,
+        record_json = EXCLUDED.record_json,
+        created_at_ms = LEAST(wallet_auth_methods.created_at_ms, EXCLUDED.created_at_ms),
+        updated_at_ms = GREATEST(wallet_auth_methods.updated_at_ms, EXCLUDED.updated_at_ms)
+    `);
+  }
+
+  if (await tableExists(executor, 'wallet_authenticators')) {
+    await executor.query(`
+      INSERT INTO wallet_auth_methods
+        (
+          namespace,
+          wallet_auth_method_id,
+          wallet_id,
+          rp_id,
+          kind,
+          status,
+          auth_identifier_key,
+          credential_id_b64u,
+          credential_public_key_b64u,
+          signer_slot,
+          email_hash_hex,
+          challenge_id,
+          record_json,
+          created_at_ms,
+          updated_at_ms
+        )
+      SELECT
+        namespace,
+        'passkey:' || rp_id || ':' || credential_id_b64u,
+        wallet_subject_id,
+        rp_id,
+        'passkey',
+        'active',
+        credential_id_b64u,
+        credential_id_b64u,
+        record_json->>'credentialPublicKeyB64u',
+        NULL,
+        NULL,
+        NULL,
+        jsonb_build_object(
+          'version', 'wallet_auth_method_v1',
+          'kind', 'passkey',
+          'status', 'active',
+          'walletId', wallet_subject_id,
+          'rpId', rp_id,
+          'credentialIdB64u', credential_id_b64u,
+          'credentialPublicKeyB64u', record_json->>'credentialPublicKeyB64u',
+          'counter', COALESCE((record_json->>'counter')::bigint, 0),
+          'createdAtMs', created_at_ms,
+          'updatedAtMs', updated_at_ms
+        ),
+        created_at_ms,
+        updated_at_ms
+      FROM wallet_authenticators
+      ON CONFLICT (namespace, wallet_auth_method_id) DO UPDATE SET
+        wallet_id = EXCLUDED.wallet_id,
+        rp_id = EXCLUDED.rp_id,
+        kind = EXCLUDED.kind,
+        status = EXCLUDED.status,
+        auth_identifier_key = EXCLUDED.auth_identifier_key,
+        credential_id_b64u = EXCLUDED.credential_id_b64u,
+        credential_public_key_b64u = EXCLUDED.credential_public_key_b64u,
+        record_json = EXCLUDED.record_json,
+        created_at_ms = LEAST(wallet_auth_methods.created_at_ms, EXCLUDED.created_at_ms),
+        updated_at_ms = GREATEST(wallet_auth_methods.updated_at_ms, EXCLUDED.updated_at_ms)
+    `);
+  }
+
+  if (
+    (await tableExists(executor, 'wallet_signers')) &&
+    (await columnExists(executor, 'wallet_signers', 'wallet_subject_id')) &&
+    !(await columnExists(executor, 'wallet_signers', 'wallet_id'))
+  ) {
+    await executor.query('ALTER TABLE wallet_signers RENAME COLUMN wallet_subject_id TO wallet_id');
+  }
+  if (await tableExists(executor, 'wallet_signers')) {
+    await executor.query(`
+      UPDATE wallet_signers
+      SET record_json = jsonb_set(record_json - 'walletSubjectId', '{walletId}', to_jsonb(wallet_id))
+      WHERE record_json ? 'walletSubjectId'
+    `);
+  }
+
+  await executor.query('DROP TABLE IF EXISTS wallet_authenticators');
+  await executor.query('DROP TABLE IF EXISTS wallet_auth_method_bindings');
+  await executor.query('DROP TABLE IF EXISTS wallet_subjects');
+  await executor.query('DROP TABLE IF EXISTS account_signers');
+  await executor.query('DROP TABLE IF EXISTS smart_account_recovery_subjects');
+}
+
 export async function ensurePostgresSchema(input: {
   postgresUrl: string;
   logger: NormalizedLogger;
@@ -160,55 +377,83 @@ export async function ensurePostgresSchema(input: {
     `);
 
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS wallet_subjects (
+      CREATE TABLE IF NOT EXISTS wallets (
         namespace TEXT NOT NULL,
-        wallet_subject_id TEXT NOT NULL,
+        wallet_id TEXT NOT NULL,
         rp_id TEXT NOT NULL,
         record_json JSONB NOT NULL,
         created_at_ms BIGINT NOT NULL,
         updated_at_ms BIGINT NOT NULL,
-        PRIMARY KEY (namespace, wallet_subject_id)
+        PRIMARY KEY (namespace, wallet_id)
       )
     `);
+    await migrateWalletIdTables(pool);
     await pool.query(`
-      CREATE INDEX IF NOT EXISTS wallet_subjects_rp_idx
-      ON wallet_subjects (namespace, rp_id, created_at_ms)
+      CREATE INDEX IF NOT EXISTS wallets_rp_idx
+      ON wallets (namespace, rp_id, created_at_ms)
     `);
 
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS wallet_authenticators (
+      CREATE TABLE IF NOT EXISTS wallet_auth_methods (
         namespace TEXT NOT NULL,
-        wallet_subject_id TEXT NOT NULL,
+        wallet_auth_method_id TEXT NOT NULL,
+        wallet_id TEXT NOT NULL,
         rp_id TEXT NOT NULL,
-        credential_id_b64u TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        status TEXT NOT NULL,
+        auth_identifier_key TEXT NOT NULL,
+        credential_id_b64u TEXT,
+        credential_public_key_b64u TEXT,
+        signer_slot INTEGER,
+        email_hash_hex TEXT,
+        challenge_id TEXT,
         record_json JSONB NOT NULL,
         created_at_ms BIGINT NOT NULL,
         updated_at_ms BIGINT NOT NULL,
-        PRIMARY KEY (namespace, wallet_subject_id, credential_id_b64u)
+        PRIMARY KEY (namespace, wallet_auth_method_id),
+        CHECK (kind IN ('passkey', 'email_otp')),
+        CHECK (status IN ('active', 'revoked'))
       )
     `);
     await pool.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS wallet_authenticators_credential_uidx
-      ON wallet_authenticators (namespace, rp_id, credential_id_b64u)
+      CREATE INDEX IF NOT EXISTS wallet_auth_methods_wallet_idx
+      ON wallet_auth_methods (namespace, wallet_id, rp_id, status)
+    `);
+    await pool.query(`
+      DROP INDEX IF EXISTS wallet_auth_methods_identifier_uidx
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS wallet_auth_methods_identifier_idx
+      ON wallet_auth_methods (namespace, kind, rp_id, auth_identifier_key)
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS wallet_auth_methods_passkey_uidx
+      ON wallet_auth_methods (namespace, rp_id, credential_id_b64u)
+      WHERE kind = 'passkey' AND credential_id_b64u IS NOT NULL
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS wallet_auth_methods_email_uidx
+      ON wallet_auth_methods (namespace, wallet_id, rp_id, email_hash_hex)
+      WHERE kind = 'email_otp' AND email_hash_hex IS NOT NULL
     `);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS wallet_signers (
         namespace TEXT NOT NULL,
-        wallet_subject_id TEXT NOT NULL,
+        wallet_id TEXT NOT NULL,
         signer_family TEXT NOT NULL,
         signer_id TEXT NOT NULL,
         chain_target_key TEXT,
         record_json JSONB NOT NULL,
         created_at_ms BIGINT NOT NULL,
         updated_at_ms BIGINT NOT NULL,
-        PRIMARY KEY (namespace, wallet_subject_id, signer_family, signer_id),
+        PRIMARY KEY (namespace, wallet_id, signer_family, signer_id),
         CHECK (signer_family IN ('ed25519', 'ecdsa'))
       )
     `);
     await pool.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS wallet_signers_chain_target_uidx
-      ON wallet_signers (namespace, wallet_subject_id, signer_family, chain_target_key)
+      ON wallet_signers (namespace, wallet_id, signer_family, chain_target_key)
       WHERE chain_target_key IS NOT NULL
     `);
 
@@ -350,8 +595,7 @@ export async function ensurePostgresSchema(input: {
         relayer_key_id TEXT NOT NULL,
         key_handle TEXT,
         threshold_key_id TEXT,
-        wallet_session_user_id TEXT,
-        subject_id TEXT,
+        wallet_id TEXT,
         rp_id TEXT,
         signing_root_id TEXT,
         signing_root_version TEXT,
@@ -367,9 +611,8 @@ export async function ensurePostgresSchema(input: {
       'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS threshold_key_id TEXT',
     );
     await pool.query(
-      'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS wallet_session_user_id TEXT',
+      'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS wallet_id TEXT',
     );
-    await pool.query('ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS subject_id TEXT');
     await pool.query('ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS rp_id TEXT');
     await pool.query(
       'ALTER TABLE threshold_ecdsa_keys ADD COLUMN IF NOT EXISTS signing_root_id TEXT',
@@ -396,18 +639,24 @@ export async function ensurePostgresSchema(input: {
     await pool.query('DROP INDEX IF EXISTS threshold_ecdsa_keys_shared_identity_idx');
     await pool.query('DROP INDEX IF EXISTS threshold_ecdsa_keys_shared_identity_uidx');
     await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS threshold_ecdsa_keys_threshold_identity_uidx
+      ON threshold_ecdsa_keys (namespace, threshold_key_id, signing_root_id, signing_root_version)
+      WHERE
+        threshold_key_id IS NOT NULL AND
+        signing_root_id IS NOT NULL AND
+        signing_root_version IS NOT NULL
+    `);
+    await pool.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS threshold_ecdsa_keys_shared_identity_uidx
       ON threshold_ecdsa_keys (
         namespace,
-        wallet_session_user_id,
-        subject_id,
+        wallet_id,
         rp_id,
         signing_root_id,
         signing_root_version
       )
       WHERE
-        wallet_session_user_id IS NOT NULL AND
-        subject_id IS NOT NULL AND
+        wallet_id IS NOT NULL AND
         rp_id IS NOT NULL AND
         signing_root_id IS NOT NULL AND
         signing_root_version IS NOT NULL

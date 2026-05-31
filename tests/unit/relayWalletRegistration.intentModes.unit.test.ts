@@ -137,8 +137,9 @@ test.describe('wallet registration intent relayer modes', () => {
     let authCalled = false;
     const response = await handleRelayWalletRegistrationIntent({
       body: {
-        walletSubject: { kind: 'server_generated' },
+        wallet: { kind: 'server_generated' },
         rpId: 'wallet.example.test',
+        authMethod: { kind: 'passkey' },
         signerSelection: modeCases[0].signerSelection,
       },
       headers: {
@@ -182,8 +183,9 @@ test.describe('wallet registration intent relayer modes', () => {
     let capturedRequest: unknown = null;
     const response = await handleRelayWalletRegistrationIntent({
       body: {
-        walletSubject: { kind: 'server_generated' },
+        wallet: { kind: 'server_generated' },
         rpId: 'wallet.example.test',
+        authMethod: { kind: 'passkey' },
         signerSelection: modeCases[0].signerSelection,
       },
       headers: {
@@ -206,8 +208,9 @@ test.describe('wallet registration intent relayer modes', () => {
               ok: true,
               intent: {
                 version: 'registration_intent_v1',
-                walletSubjectId: 'wallet_subject_route_context',
+                walletId: 'wallet_route_context',
                 rpId: 'wallet.example.test',
+                authMethod: { kind: 'passkey' },
                 signerSelection: modeCases[0].signerSelection,
                 runtimePolicyScope: {
                   orgId: ORG_ID,
@@ -248,8 +251,9 @@ test.describe('wallet registration intent relayer modes', () => {
     test(`creates ${entry.mode} registration intents through the relayer route`, async () => {
       const response = await handleRelayWalletRegistrationIntent({
         body: {
-          walletSubject: { kind: 'server_generated' },
+          wallet: { kind: 'server_generated' },
           rpId: 'wallet.example.test',
+          authMethod: { kind: 'passkey' },
           signerSelection: entry.signerSelection,
         },
         headers: {

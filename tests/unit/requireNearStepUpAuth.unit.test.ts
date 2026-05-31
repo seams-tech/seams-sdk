@@ -28,7 +28,7 @@ test.describe('requireNearStepUpAuth', () => {
     const prepared = await requireNearStepUpAuth({
       signingAuthPlan,
       signingLane,
-      usesNeeded: 1,
+      requiredSignatureUses: 1,
     });
 
     expect(prepared).toEqual({
@@ -49,17 +49,22 @@ test.describe('requireNearStepUpAuth', () => {
       walletSigningSessionId: SigningSessionIds.walletSigningSession('wallet-session-email'),
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-email'),
     });
+    const preparedUses: number[] = [];
 
     const prepared = await requireNearStepUpAuth({
       signingAuthPlan,
       signingLane,
-      usesNeeded: 1,
+      requiredSignatureUses: 2,
       emailOtpSigning: {
-        prepare: async () => ({ challengeId: 'otp-1', emailHint: 'a***@x.test' }),
+        prepare: async ({ requiredSignatureUses }) => {
+          preparedUses.push(requiredSignatureUses);
+          return { challengeId: 'otp-1', emailHint: 'a***@x.test' };
+        },
         complete: async () => ({ sessionId: 'threshold-session-email' }),
       },
     });
 
+    expect(preparedUses).toEqual([2]);
     expect(prepared.kind).toBe('email_otp');
     if (prepared.kind !== 'email_otp') throw new Error('expected email_otp branch');
     expect(prepared.emailOtpPrompt.challengeId).toBe('otp-1');
@@ -79,21 +84,26 @@ test.describe('requireNearStepUpAuth', () => {
       thresholdSessionId: SigningSessionIds.thresholdEd25519Session('threshold-session-passkey'),
       storageSource: 'login',
     });
+    const preparedUses: number[] = [];
 
     const prepared = await requireNearStepUpAuth({
       signingAuthPlan,
       signingLane,
-      usesNeeded: 2,
+      requiredSignatureUses: 2,
       passkeyEd25519Reconnect: {
-        prepare: async () => ({
-          sessionId: 'threshold-session-passkey',
-          walletSigningSessionId: 'wallet-session-passkey',
-          sessionPolicyDigest32: 'digest-32',
-        }),
+        prepare: async ({ requiredSignatureUses }) => {
+          preparedUses.push(requiredSignatureUses);
+          return {
+            sessionId: 'threshold-session-passkey',
+            walletSigningSessionId: 'wallet-session-passkey',
+            sessionPolicyDigest32: 'digest-32',
+          };
+        },
         reconnect: async () => ({ sessionId: 'threshold-session-passkey' }),
       },
     });
 
+    expect(preparedUses).toEqual([2]);
     expect(prepared.kind).toBe('passkey');
     if (prepared.kind !== 'passkey') throw new Error('expected passkey branch');
     expect(prepared.plannedPasskeyReconnect).toEqual({

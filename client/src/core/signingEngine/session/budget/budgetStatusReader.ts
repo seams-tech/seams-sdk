@@ -2,6 +2,7 @@ import type { SigningSessionStatus } from '@/core/types/seams';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
+  getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordForAccount,
   type ThresholdEcdsaSessionStoreDeps,
@@ -405,9 +406,10 @@ function resolveWalletSigningBudgetStatusAuth(
   if (args.ecdsaLaneCheck) {
     if (targetThresholdIds.size !== 1) return null;
     for (const targetThresholdSessionId of targetThresholdIds) {
-      const record = getStoredThresholdEcdsaSessionRecordByThresholdSessionId(
-        targetThresholdSessionId,
-      );
+      const record = getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
+        thresholdSessionId: targetThresholdSessionId,
+        chainTarget: args.ecdsaLaneCheck.chainTarget,
+      });
       if (record && ecdsaRecordMatchesBudgetLane(record, args.ecdsaLaneCheck)) {
         pushCandidate(record);
       }

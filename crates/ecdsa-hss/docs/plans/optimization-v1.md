@@ -3,6 +3,9 @@
 Date created: April 9, 2026
 Last updated: April 9, 2026
 
+Removal note: this optimization plan is historical. The old ECDSA HSS context
+version and its benchmark path were removed after v2 invalidation.
+
 ## Purpose
 
 This plan is the active optimization backlog for `ecdsa-hss`.

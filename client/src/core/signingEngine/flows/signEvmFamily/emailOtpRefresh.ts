@@ -3,7 +3,6 @@ import type { EmailOtpEcdsaSigningBootstrapResult } from '../../interfaces/opera
 import {
   buildEcdsaSessionIdentity,
   ecdsaSessionIdentitiesEqual,
-  type EmailOtpEcdsaSessionProvision,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import {
   resolveReadyEvmFamilyEcdsaMaterial,
@@ -25,7 +24,6 @@ import {
   type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
 import type { EvmFamilyEcdsaEmailOtpStepUpAuthorization } from './stepUpAuthorization';
-import { buildEvmFamilyEmailOtpEcdsaProvisionPlan } from './provisionPlan';
 
 export type EvmFamilyEmailOtpSigningCompleter = {
   complete: (otpCode: string, challengeId?: string) => Promise<EmailOtpEcdsaSigningBootstrapResult>;
@@ -35,7 +33,6 @@ export type EvmFamilyEmailOtpSigningRefreshResult = {
   readyMaterial: ReadyEvmFamilyEcdsaMaterial;
   record: ThresholdEcdsaSessionRecord;
   lane: ResolvedEvmFamilyEcdsaSigningLane;
-  provisionPlan: EmailOtpEcdsaSessionProvision;
 };
 
 export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
@@ -89,13 +86,6 @@ export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
       `[SigningEngine][ecdsa] Email OTP refresh did not return ready ECDSA material: ${materialResolution.kind}`,
     );
   }
-  const provisionPlan = buildEvmFamilyEmailOtpEcdsaProvisionPlan({
-    authorization: args.authorization,
-    material: materialResolution.material,
-    chainTarget: args.chainTarget,
-    clientRootShare32B64u: completed.clientRootShare32B64u,
-    sessionBudgetUses: 1,
-  });
   const lane = buildEvmFamilyEcdsaSigningLaneContext({
     walletId,
     chain: args.chain,
@@ -111,6 +101,5 @@ export async function completeEvmFamilyEmailOtpSigningRefresh(args: {
     readyMaterial: materialResolution.material,
     record,
     lane,
-    provisionPlan,
   };
 }

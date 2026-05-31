@@ -171,6 +171,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
     threshold,
     session,
     publishableKeyAuth: createRelayPublishableKeyAuthAdapter(apiKeys),
+    orgProjectEnv,
     bootstrapGrantBroker: createRelayBootstrapGrantBroker({
       apiKeys,
       tokenStore: bootstrapTokenStore,
@@ -272,6 +273,8 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         await import('/sdk/esm/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u.js');
       const credentialExtensionsMod =
         await import('/sdk/esm/core/signingEngine/webauthnAuth/credentials/credentialExtensions.js');
+      const ecdsaClientRootMod =
+        await import('/sdk/esm/core/signingEngine/session/passkey/ecdsaClientRoot.js');
       const identityMod =
         await import('/sdk/esm/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.js');
       const { IndexedDBManager } = indexedDbMod as any;
@@ -279,18 +282,16 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
       const { getStoredThresholdEd25519SessionRecordForAccount } = recordsMod as any;
       const { collectAuthenticationCredentialForChallengeB64u } = webauthnCredentialMod as any;
       const { getPrfFirstB64uFromCredential } = credentialExtensionsMod as any;
+      const { derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst } =
+        ecdsaClientRootMod as any;
       const { buildEvmFamilyEcdsaKeyIdentity, buildEvmFamilyEcdsaSessionLanePolicy } =
         identityMod as any;
-      const token = String(w.__w3aRegistrationContinuationToken || '').trim();
-      if (!token) {
-        throw new Error('missing registration continuation token for fresh Tempo ECDSA bootstrap');
-      }
       const context = input.pm.getContext();
       const signingEngine = context.signingEngine;
       const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
         {
-          clientDB: IndexedDBManager.clientDB,
-          accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
+          clientDB: IndexedDBManager,
+          keyMaterialStore: IndexedDBManager,
         },
         input.accountId,
         1,
@@ -389,11 +390,18 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         localPrfCredential,
       });
       const walletSigningSessionId = String(connectedEd25519?.walletSigningSessionId || '').trim();
-      const clientRootShare32B64u = String(
+      const thresholdEcdsaPrfFirstB64u = String(
         connectedEd25519?.ecdsaHssClientRootShare32B64u ||
           getPrfFirstB64uFromCredential(localPrfCredential) ||
           '',
       ).trim();
+      const clientRootShare32B64u = thresholdEcdsaPrfFirstB64u
+        ? String(
+            await derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst(
+              thresholdEcdsaPrfFirstB64u,
+            ),
+          ).trim()
+        : '';
       if (!connectedEd25519?.ok || !walletSigningSessionId || !clientRootShare32B64u) {
         throw new Error(
           String(
@@ -450,13 +458,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         thresholdSessionId,
         walletSigningSessionId,
       };
-      const routeAuth =
-        chainTarget.kind === 'tempo'
-          ? {
-              kind: 'registration_continuation' as const,
-              token,
-            }
-          : null;
+      const routeAuth = null;
       const authMaterial = routeAuth
         ? { routeAuth }
         : { webauthnAuthentication: localPrfCredential };
@@ -487,7 +489,6 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
               try {
                 const key = buildEvmFamilyEcdsaKeyIdentity({
                   walletId: input.accountId,
-                  subjectId: input.accountId,
                   rpId,
                   ecdsaThresholdKeyId: existingEcdsaThresholdKeyId,
                   signingRootId: existingSigningRootId,
@@ -592,6 +593,8 @@ export async function runThresholdEcdsaTempoFlow(
       await import('/sdk/esm/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u.js');
     const credentialExtensionsMod =
       await import('/sdk/esm/core/signingEngine/webauthnAuth/credentials/credentialExtensions.js');
+    const ecdsaClientRootMod =
+      await import('/sdk/esm/core/signingEngine/session/passkey/ecdsaClientRoot.js');
     const identityMod =
       await import('/sdk/esm/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.js');
 
@@ -601,6 +604,8 @@ export async function runThresholdEcdsaTempoFlow(
     const { getStoredThresholdEd25519SessionRecordForAccount } = recordsMod as any;
     const { collectAuthenticationCredentialForChallengeB64u } = webauthnCredentialMod as any;
     const { getPrfFirstB64uFromCredential } = credentialExtensionsMod as any;
+    const { derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst } =
+      ecdsaClientRootMod as any;
     const { buildEvmFamilyEcdsaKeyIdentity, buildEvmFamilyEcdsaSessionLanePolicy } =
       identityMod as any;
 
@@ -691,13 +696,6 @@ export async function runThresholdEcdsaTempoFlow(
         };
       }
       globalThis.fetch = originalFetch;
-      if (!registrationContinuationToken) {
-        return {
-          ok: false,
-          accountId,
-          error: 'missing registration continuation token after registration',
-        };
-      }
       const signingEngine = (pm as any).signingEngine as {
         bootstrapEcdsaSession: (args: Record<string, unknown>) => Promise<Record<string, unknown>>;
         connectEd25519Session: (args: Record<string, unknown>) => Promise<Record<string, unknown>>;
@@ -724,8 +722,8 @@ export async function runThresholdEcdsaTempoFlow(
       };
       const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
         {
-          clientDB: IndexedDBManager.clientDB,
-          accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
+          clientDB: IndexedDBManager,
+          keyMaterialStore: IndexedDBManager,
         },
         accountId,
         1,
@@ -819,11 +817,18 @@ export async function runThresholdEcdsaTempoFlow(
         localPrfCredential,
       });
       const walletSigningSessionId = String(connectedEd25519?.walletSigningSessionId || '').trim();
-      const clientRootShare32B64u = String(
+      const thresholdEcdsaPrfFirstB64u = String(
         connectedEd25519?.ecdsaHssClientRootShare32B64u ||
           getPrfFirstB64uFromCredential(localPrfCredential) ||
           '',
       ).trim();
+      const clientRootShare32B64u = thresholdEcdsaPrfFirstB64u
+        ? String(
+            await derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst(
+              thresholdEcdsaPrfFirstB64u,
+            ),
+          ).trim()
+        : '';
       if (!connectedEd25519?.ok || !walletSigningSessionId || !clientRootShare32B64u) {
         return {
           ok: false,
@@ -968,7 +973,6 @@ export async function runThresholdEcdsaTempoFlow(
                   try {
                     const key = buildEvmFamilyEcdsaKeyIdentity({
                       walletId: accountId,
-                      subjectId: accountId,
                       rpId,
                       ecdsaThresholdKeyId: existingEcdsaThresholdKeyId,
                       signingRootId: existingSigningRootId,
@@ -1051,6 +1055,45 @@ export async function runThresholdEcdsaTempoFlow(
                 e && typeof e === 'object' && 'message' in e
                   ? (e as { message?: unknown }).message
                   : e || 'bootstrapEcdsaSession failed',
+            ),
+          };
+        }
+      } else {
+        try {
+          const bootstrapFreshEcdsaForRequest = (globalThis as any)
+            .__w3aBootstrapFreshTempoEcdsaSession;
+          if (typeof bootstrapFreshEcdsaForRequest !== 'function') {
+            return {
+              ok: false,
+              accountId,
+              error: 'missing fresh ECDSA bootstrap helper',
+            };
+          }
+          const boot = await bootstrapFreshEcdsaForRequest({
+            pm,
+            accountId,
+            relayerUrl: input.relayerUrl,
+            ttlMs: 100,
+            remainingUses: 1,
+            chainTarget: signingChainTarget,
+          });
+          keygen = boot.keygen;
+          session = normalizeTempoFlowSession(boot.session);
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        } catch (e: unknown) {
+          const stack =
+            e && typeof e === 'object' && 'stack' in e
+              ? String((e as { stack?: unknown }).stack || '').trim()
+              : '';
+          return {
+            ok: false,
+            accountId,
+            error:
+              stack ||
+              String(
+                e && typeof e === 'object' && 'message' in e
+                  ? (e as { message?: unknown }).message
+                  : e || 'bootstrap stale ECDSA session failed',
               ),
           };
         }

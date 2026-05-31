@@ -154,9 +154,10 @@ async function buildReadySecp256k1SigningMaterialFromKeyRefFallback(args: {
   const keyRef = args.keyRef;
   const publicFacts = await toVerifiedEcdsaPublicFactsFromKeyRef({ keyRef });
 
-  const resolvedAuthMaterial = createWarmSessionCapabilityReader(
-    {},
-  ).resolveEcdsaAuthByThresholdSessionId(args.queueIdentity.thresholdSessionId);
+  const resolvedAuthMaterial =
+    createWarmSessionCapabilityReader().resolveEcdsaAuthByThresholdSessionId(
+      args.queueIdentity.thresholdSessionId,
+    );
   const canonicalRecord = resolvedAuthMaterial?.record || null;
   const canonicalRecordThresholdKeyId = canonicalRecord
     ? String(
@@ -380,21 +381,6 @@ async function updateEmailOtpSealedRecordPolicyAfterEcdsaClaim(args: {
 }): Promise<void> {
   const thresholdSessionId = String(args.thresholdSessionId || '').trim();
   if (!thresholdSessionId) return;
-  if (args.remainingUses <= 0 || args.expiresAtMs <= Date.now()) {
-    await deleteDurableSealedSessionRecord(
-      createDeleteDurableSealedSessionCommand({
-        durableRecord: {
-          authMethod: 'email_otp',
-          curve: 'ecdsa',
-          thresholdSessionId,
-          chainTarget: args.chainTarget,
-        },
-        deleteReason: args.remainingUses <= 0 ? 'exhausted' : 'expired',
-        preserveResolvedIdentity: true,
-      }),
-    ).catch(() => undefined);
-    return;
-  }
   await updateExactSealedSessionPolicy({
     thresholdSessionId,
     filter: {

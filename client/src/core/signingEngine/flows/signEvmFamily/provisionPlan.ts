@@ -1,5 +1,4 @@
 import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential } from '../../session/passkey/ecdsaClientRoot';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
@@ -7,21 +6,23 @@ import {
   buildEcdsaReconnectMaterial,
   buildEcdsaSessionIdentity,
   buildEcdsaSigningKeyContextFromRecord,
-  buildEmailOtpEcdsaSessionProvision,
   buildPasskeyEcdsaSessionProvision,
+  buildPasskeyEcdsaProvisionSecretSource,
   buildThresholdSessionAuthEcdsaReconnect,
   type CookieEcdsaReconnect,
-  type EmailOtpEcdsaSessionProvision,
   type PasskeyEcdsaSessionProvision,
   type ThresholdSessionAuthEcdsaReconnect,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import type { ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
-import type { ReadyEvmFamilyEcdsaMaterial } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type {
-  EvmFamilyEcdsaEmailOtpStepUpAuthorization,
   EvmFamilyEcdsaPasskeyStepUpAuthorization,
   EvmFamilyEcdsaWarmSessionStepUpAuthorization,
 } from './stepUpAuthorization';
+
+type PasskeyEcdsaProvisionMaterial = {
+  lane: Pick<ResolvedEvmFamilyEcdsaSigningLane, 'key' | 'chainTarget'>;
+  record: ThresholdEcdsaSessionRecord;
+};
 
 export type EvmFamilyWarmSessionReconnectPlan =
   | ThresholdSessionAuthEcdsaReconnect
@@ -29,7 +30,13 @@ export type EvmFamilyWarmSessionReconnectPlan =
 
 export function buildEvmFamilyWarmSessionReconnectPlan(args: {
   authorization: EvmFamilyEcdsaWarmSessionStepUpAuthorization;
-  material: ReadyEvmFamilyEcdsaMaterial;
+  material: {
+    lane: Pick<
+      ResolvedEvmFamilyEcdsaSigningLane,
+      'chainTarget' | 'thresholdSessionId' | 'walletSigningSessionId'
+    >;
+    record: ThresholdEcdsaSessionRecord;
+  };
   sessionBudgetUses: number;
 }): EvmFamilyWarmSessionReconnectPlan {
   return buildThresholdSessionAuthEcdsaReconnect({
@@ -47,7 +54,7 @@ export function buildEvmFamilyWarmSessionReconnectPlan(args: {
 
 export async function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
   authorization: EvmFamilyEcdsaPasskeyStepUpAuthorization;
-  material: ReadyEvmFamilyEcdsaMaterial;
+  material: PasskeyEcdsaProvisionMaterial;
   sessionBudgetUses: number;
 }): Promise<PasskeyEcdsaSessionProvision> {
   if (!args.authorization.plannedPasskeyReconnect) {
@@ -72,8 +79,10 @@ export async function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
     sessionKind: args.material.record.thresholdSessionKind || 'jwt',
     sessionBudgetUses: args.sessionBudgetUses,
     requestId: args.authorization.plannedPasskeyReconnect.webauthnChallenge.requestId,
-    clientRootShare32B64u,
-    webauthnAuthentication: args.authorization.credential,
+    provisionSecretSource: buildPasskeyEcdsaProvisionSecretSource({
+      clientRootShare32B64u,
+      webauthnAuthentication: args.authorization.credential,
+    }),
   };
   if (args.material.record.runtimePolicyScope) {
     return buildPasskeyEcdsaSessionProvision({
@@ -84,52 +93,9 @@ export async function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
       sessionKind: baseArgs.sessionKind,
       sessionBudgetUses: baseArgs.sessionBudgetUses,
       requestId: baseArgs.requestId,
-      clientRootShare32B64u: baseArgs.clientRootShare32B64u,
-      webauthnAuthentication: baseArgs.webauthnAuthentication,
+      provisionSecretSource: baseArgs.provisionSecretSource,
       runtimePolicyScope: args.material.record.runtimePolicyScope,
     });
   }
   return buildPasskeyEcdsaSessionProvision(baseArgs);
-}
-
-export function buildEvmFamilyEmailOtpEcdsaProvisionPlan(args: {
-  authorization: EvmFamilyEcdsaEmailOtpStepUpAuthorization;
-  material: ReadyEvmFamilyEcdsaMaterial;
-  chainTarget: ThresholdEcdsaChainTarget;
-  clientRootShare32B64u: string;
-  sessionBudgetUses: number;
-}): EmailOtpEcdsaSessionProvision {
-  const record = args.material.record;
-  if (record.source !== 'email_otp' || !record.emailOtpAuthContext) {
-    throw new Error(
-      '[SigningEngine][ecdsa] Email OTP provision requires email OTP-authenticated ECDSA state',
-    );
-  }
-  const baseArgs = {
-    key: args.material.lane.key,
-    chainTarget: args.chainTarget,
-    newSessionIdentity: buildEcdsaSessionIdentity({
-      thresholdSessionId: record.thresholdSessionId,
-      walletSigningSessionId: record.walletSigningSessionId,
-    }),
-    signingKeyContext: buildEcdsaSigningKeyContextFromRecord(record),
-    sessionKind: record.thresholdSessionKind,
-    sessionBudgetUses: args.sessionBudgetUses,
-    emailOtpAuthContext: record.emailOtpAuthContext,
-    clientRootShare32B64u: args.clientRootShare32B64u,
-  };
-  if (record.runtimePolicyScope) {
-    return buildEmailOtpEcdsaSessionProvision({
-      key: baseArgs.key,
-      chainTarget: baseArgs.chainTarget,
-      newSessionIdentity: baseArgs.newSessionIdentity,
-      signingKeyContext: baseArgs.signingKeyContext,
-      sessionKind: baseArgs.sessionKind,
-      sessionBudgetUses: baseArgs.sessionBudgetUses,
-      emailOtpAuthContext: baseArgs.emailOtpAuthContext,
-      clientRootShare32B64u: baseArgs.clientRootShare32B64u,
-      runtimePolicyScope: record.runtimePolicyScope,
-    });
-  }
-  return buildEmailOtpEcdsaSessionProvision(baseArgs);
 }

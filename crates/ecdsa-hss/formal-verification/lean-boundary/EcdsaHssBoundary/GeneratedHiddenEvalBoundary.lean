@@ -4,17 +4,17 @@ namespace EcdsaHssBoundary
 
 open ecdsa_hss
 
-abbrev GeneratedHiddenEvalInputBoundaryV1 :=
-  server.boundary.HiddenEvalInputBoundaryV1
-abbrev GeneratedHiddenEvalTransportBoundaryV1 :=
-  server.boundary.HiddenEvalTransportBoundaryV1
-abbrev GeneratedHiddenEvalPersistedStateBoundaryV1 :=
-  server.boundary.HiddenEvalPersistedStateBoundaryV1
-abbrev GeneratedHiddenEvalBoundaryV1 :=
-  server.boundary.HiddenEvalBoundaryV1
+abbrev GeneratedHiddenEvalInputBoundary :=
+  server.boundary.HiddenEvalInputBoundary
+abbrev GeneratedHiddenEvalTransportBoundary :=
+  server.boundary.HiddenEvalTransportBoundary
+abbrev GeneratedHiddenEvalPersistedStateBoundary :=
+  server.boundary.HiddenEvalPersistedStateBoundary
+abbrev GeneratedHiddenEvalBoundary :=
+  server.boundary.HiddenEvalBoundary
 
 def toHandwrittenHiddenEvalInputBoundary
-    (boundary : GeneratedHiddenEvalInputBoundaryV1) :
+    (boundary : GeneratedHiddenEvalInputBoundary) :
     HiddenEvalInputBoundaryModel :=
   {
     operation := boundary.operation
@@ -28,7 +28,7 @@ def toHandwrittenHiddenEvalInputBoundary
   }
 
 def toHandwrittenHiddenEvalTransportBoundary
-    (boundary : GeneratedHiddenEvalTransportBoundaryV1) :
+    (boundary : GeneratedHiddenEvalTransportBoundary) :
     HiddenEvalTransportBoundaryModel :=
   {
     operation := toHandwrittenOperationBoundary boundary.operation
@@ -37,7 +37,7 @@ def toHandwrittenHiddenEvalTransportBoundary
   }
 
 def toHandwrittenHiddenEvalPersistedStateBoundary
-    (boundary : GeneratedHiddenEvalPersistedStateBoundaryV1) :
+    (boundary : GeneratedHiddenEvalPersistedStateBoundary) :
     HiddenEvalPersistedStateBoundaryModel :=
   {
     operation := boundary.operation
@@ -53,7 +53,7 @@ def toHandwrittenHiddenEvalPersistedStateBoundary
   }
 
 def toHandwrittenHiddenEvalBoundary
-    (boundary : GeneratedHiddenEvalBoundaryV1) : HiddenEvalBoundaryModel :=
+    (boundary : GeneratedHiddenEvalBoundary) : HiddenEvalBoundaryModel :=
   {
     input := toHandwrittenHiddenEvalInputBoundary boundary.input
     transport := toHandwrittenHiddenEvalTransportBoundary boundary.transport
@@ -61,7 +61,7 @@ def toHandwrittenHiddenEvalBoundary
   }
 
 theorem hiddenEvalInputBoundary_matchesHandwrittenModel
-    (boundary : GeneratedHiddenEvalInputBoundaryV1) :
+    (boundary : GeneratedHiddenEvalInputBoundary) :
     toHandwrittenHiddenEvalInputBoundary boundary =
       {
         operation := boundary.operation
@@ -76,7 +76,7 @@ theorem hiddenEvalInputBoundary_matchesHandwrittenModel
   rfl
 
 theorem hiddenEvalPersistedStateBoundary_matchesHandwrittenModel
-    (boundary : GeneratedHiddenEvalPersistedStateBoundaryV1) :
+    (boundary : GeneratedHiddenEvalPersistedStateBoundary) :
     toHandwrittenHiddenEvalPersistedStateBoundary boundary =
       {
         operation := boundary.operation
@@ -93,7 +93,7 @@ theorem hiddenEvalPersistedStateBoundary_matchesHandwrittenModel
   rfl
 
 theorem hiddenEvalBoundary_matchesHandwrittenModel
-    (boundary : GeneratedHiddenEvalBoundaryV1) :
+    (boundary : GeneratedHiddenEvalBoundary) :
     toHandwrittenHiddenEvalBoundary boundary =
       {
         input := toHandwrittenHiddenEvalInputBoundary boundary.input

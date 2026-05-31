@@ -156,6 +156,46 @@ function createBudgetBackedSigningSessionCoordinator(args: {
   } as any);
 }
 
+function createNearTestIndexedDB(args: {
+  profileId: string;
+  nearAccountId: string;
+  relayerUrl: string;
+  relayerKeyId: string;
+}) {
+  return {
+    resolveProfileAccountContext: async () => ({
+      profileId: args.profileId,
+      accountRef: {
+        chainIdKey: 'near:testnet',
+        accountAddress: args.nearAccountId,
+      },
+    }),
+    getKeyMaterial: async () => ({
+      profileId: args.profileId,
+      signerSlot: 1,
+      chainIdKey: 'near:testnet',
+      keyKind: 'threshold_share_v1' as const,
+      algorithm: 'ed25519' as const,
+      publicKey: 'ed25519:threshold-public-key',
+      payload: {
+        relayerKeyId: args.relayerKeyId,
+        keyVersion: 'threshold-ed25519-hss-v1',
+        participants: [
+          { id: 1, role: 'client' },
+          {
+            id: 2,
+            role: 'relayer',
+            relayerUrl: args.relayerUrl,
+            relayerKeyId: args.relayerKeyId,
+          },
+        ],
+      },
+      timestamp: Date.now(),
+      schemaVersion: 1,
+    }),
+  };
+}
+
 test.describe('near signing session selection', () => {
   test('prefers the canonical threshold-ed25519 session over other signer session slots', async () => {
     const originalSessionStorage = (globalThis as { sessionStorage?: Storage }).sessionStorage;
@@ -240,42 +280,12 @@ test.describe('near signing session selection', () => {
           createSigningSessionId: () => 'unexpected-generated-session',
           getSignerWorkerContext: () =>
             ({
-              indexedDB: {
-                clientDB: {
-                  resolveProfileAccountContext: async () => ({
-                    profileId: 'profile-alice',
-                    accountRef: {
-                      chainIdKey: 'near:testnet',
-                      accountAddress: 'alice.testnet',
-                    },
-                  }),
-                },
-                accountKeyMaterialDB: {
-                  getKeyMaterial: async () => ({
-                    profileId: 'profile-alice',
-                    signerSlot: 1,
-                    chainIdKey: 'near:testnet',
-                    keyKind: 'threshold_share_v1' as const,
-                    algorithm: 'ed25519' as const,
-                    publicKey: 'ed25519:threshold-public-key',
-                    payload: {
-                      relayerKeyId: 'ed25519:relayer-key-id',
-                      keyVersion: 'threshold-ed25519-hss-v1',
-                      participants: [
-                        { id: 1, role: 'client' },
-                        {
-                          id: 2,
-                          role: 'relayer',
-                          relayerUrl: 'https://relay.example.test',
-                          relayerKeyId: 'ed25519:relayer-key-id',
-                        },
-                      ],
-                    },
-                    timestamp: Date.now(),
-                    schemaVersion: 1,
-                  }),
-                },
-              },
+              indexedDB: createNearTestIndexedDB({
+                profileId: 'profile-alice',
+                nearAccountId: 'alice.testnet',
+                relayerUrl: 'https://relay.example.test',
+                relayerKeyId: 'ed25519:relayer-key-id',
+              }),
               nearContextFixture: {
                 initializeUser: () => undefined,
               },
@@ -440,37 +450,12 @@ test.describe('near signing session selection', () => {
           }),
           getSignerWorkerContext: () =>
             ({
-              indexedDB: {
-                clientDB: {
-                  resolveProfileAccountContext: async () => ({
-                    profileId: 'profile-prepared-warm',
-                    accountRef: {
-                      chainIdKey: 'near:testnet',
-                      accountAddress: nearAccountId,
-                    },
-                  }),
-                },
-                accountKeyMaterialDB: {
-                  getKeyMaterial: async () => ({
-                    profileId: 'profile-prepared-warm',
-                    signerSlot: 1,
-                    chainIdKey: 'near:testnet',
-                    keyKind: 'threshold_share_v1' as const,
-                    algorithm: 'ed25519' as const,
-                    publicKey: 'ed25519:threshold-public-key',
-                    payload: {
-                      relayerKeyId,
-                      keyVersion: 'threshold-ed25519-hss-v1',
-                      participants: [
-                        { id: 1, role: 'client' },
-                        { id: 2, role: 'relayer', relayerUrl, relayerKeyId },
-                      ],
-                    },
-                    timestamp: Date.now(),
-                    schemaVersion: 1,
-                  }),
-                },
-              },
+              indexedDB: createNearTestIndexedDB({
+                profileId: 'profile-prepared-warm',
+                nearAccountId,
+                relayerUrl,
+                relayerKeyId,
+              }),
               nearContextFixture: {
                 initializeUser: () => undefined,
               },
@@ -679,37 +664,12 @@ test.describe('near signing session selection', () => {
           createSigningSessionId: () => 'unexpected-generated-session',
           getSignerWorkerContext: () =>
             ({
-              indexedDB: {
-                clientDB: {
-                  resolveProfileAccountContext: async () => ({
-                    profileId: 'profile-otp-confirmation-order',
-                    accountRef: {
-                      chainIdKey: 'near:testnet',
-                      accountAddress: nearAccountId,
-                    },
-                  }),
-                },
-                accountKeyMaterialDB: {
-                  getKeyMaterial: async () => ({
-                    profileId: 'profile-otp-confirmation-order',
-                    signerSlot: 1,
-                    chainIdKey: 'near:testnet',
-                    keyKind: 'threshold_share_v1' as const,
-                    algorithm: 'ed25519' as const,
-                    publicKey: 'ed25519:threshold-public-key',
-                    payload: {
-                      relayerKeyId,
-                      keyVersion: 'threshold-ed25519-hss-v1',
-                      participants: [
-                        { id: 1, role: 'client' },
-                        { id: 2, role: 'relayer', relayerUrl, relayerKeyId },
-                      ],
-                    },
-                    timestamp: Date.now(),
-                    schemaVersion: 1,
-                  }),
-                },
-              },
+              indexedDB: createNearTestIndexedDB({
+                profileId: 'profile-otp-confirmation-order',
+                nearAccountId,
+                relayerUrl,
+                relayerKeyId,
+              }),
               nearContextFixture: {
                 initializeUser: () => undefined,
               },
@@ -964,37 +924,12 @@ test.describe('near signing session selection', () => {
           createSigningSessionId: () => 'unexpected-generated-session',
           getSignerWorkerContext: () =>
             ({
-              indexedDB: {
-                clientDB: {
-                  resolveProfileAccountContext: async () => ({
-                    profileId: 'profile-otp-missing-runtime',
-                    accountRef: {
-                      chainIdKey: 'near:testnet',
-                      accountAddress: nearAccountId,
-                    },
-                  }),
-                },
-                accountKeyMaterialDB: {
-                  getKeyMaterial: async () => ({
-                    profileId: 'profile-otp-missing-runtime',
-                    signerSlot: 1,
-                    chainIdKey: 'near:testnet',
-                    keyKind: 'threshold_share_v1' as const,
-                    algorithm: 'ed25519' as const,
-                    publicKey: 'ed25519:threshold-public-key',
-                    payload: {
-                      relayerKeyId,
-                      keyVersion: 'threshold-ed25519-hss-v1',
-                      participants: [
-                        { id: 1, role: 'client' },
-                        { id: 2, role: 'relayer', relayerUrl, relayerKeyId },
-                      ],
-                    },
-                    timestamp: Date.now(),
-                    schemaVersion: 1,
-                  }),
-                },
-              },
+              indexedDB: createNearTestIndexedDB({
+                profileId: 'profile-otp-missing-runtime',
+                nearAccountId,
+                relayerUrl,
+                relayerKeyId,
+              }),
               nearContextFixture: {
                 initializeUser: () => undefined,
               },
@@ -1202,37 +1137,12 @@ test.describe('near signing session selection', () => {
           },
           getSignerWorkerContext: () =>
             ({
-              indexedDB: {
-                clientDB: {
-                  resolveProfileAccountContext: async () => ({
-                    profileId: 'profile-durable-ed25519-valid-budget',
-                    accountRef: {
-                      chainIdKey: 'near:testnet',
-                      accountAddress: nearAccountId,
-                    },
-                  }),
-                },
-                accountKeyMaterialDB: {
-                  getKeyMaterial: async () => ({
-                    profileId: 'profile-durable-ed25519-valid-budget',
-                    signerSlot: 1,
-                    chainIdKey: 'near:testnet',
-                    keyKind: 'threshold_share_v1' as const,
-                    algorithm: 'ed25519' as const,
-                    publicKey: 'ed25519:threshold-public-key',
-                    payload: {
-                      relayerKeyId,
-                      keyVersion: 'threshold-ed25519-hss-v1',
-                      participants: [
-                        { id: 1, role: 'client' },
-                        { id: 2, role: 'relayer', relayerUrl, relayerKeyId },
-                      ],
-                    },
-                    timestamp: Date.now(),
-                    schemaVersion: 1,
-                  }),
-                },
-              },
+              indexedDB: createNearTestIndexedDB({
+                profileId: 'profile-durable-ed25519-valid-budget',
+                nearAccountId,
+                relayerUrl,
+                relayerKeyId,
+              }),
               nearContextFixture: {
                 initializeUser: () => undefined,
               },
@@ -1413,7 +1323,7 @@ test.describe('near signing session selection', () => {
                       authMethod: 'passkey' as const,
                       curve: 'ed25519' as const,
                       chain: 'near' as const,
-                      state: 'missing' as const,
+                      state: 'expired' as const,
                       source: 'runtime_session_record' as const,
                       walletSigningSessionId: staleWalletSigningSessionId,
                       thresholdSessionId: staleSessionId,
@@ -1477,37 +1387,12 @@ test.describe('near signing session selection', () => {
           },
           getSignerWorkerContext: () =>
             ({
-              indexedDB: {
-                clientDB: {
-                  resolveProfileAccountContext: async () => ({
-                    profileId: 'profile-passkey-stale-runtime-restorable',
-                    accountRef: {
-                      chainIdKey: 'near:testnet',
-                      accountAddress: nearAccountId,
-                    },
-                  }),
-                },
-                accountKeyMaterialDB: {
-                  getKeyMaterial: async () => ({
-                    profileId: 'profile-passkey-stale-runtime-restorable',
-                    signerSlot: 1,
-                    chainIdKey: 'near:testnet',
-                    keyKind: 'threshold_share_v1' as const,
-                    algorithm: 'ed25519' as const,
-                    publicKey: 'ed25519:threshold-public-key',
-                    payload: {
-                      relayerKeyId,
-                      keyVersion: 'threshold-ed25519-hss-v1',
-                      participants: [
-                        { id: 1, role: 'client' },
-                        { id: 2, role: 'relayer', relayerUrl, relayerKeyId },
-                      ],
-                    },
-                    timestamp: Date.now(),
-                    schemaVersion: 1,
-                  }),
-                },
-              },
+              indexedDB: createNearTestIndexedDB({
+                profileId: 'profile-passkey-stale-runtime-restorable',
+                nearAccountId,
+                relayerUrl,
+                relayerKeyId,
+              }),
               nearContextFixture: {
                 initializeUser: () => undefined,
               },
@@ -1732,37 +1617,12 @@ test.describe('near signing session selection', () => {
           createSigningSessionId: () => 'unexpected-generated-session',
           getSignerWorkerContext: () =>
             ({
-              indexedDB: {
-                clientDB: {
-                  resolveProfileAccountContext: async () => ({
-                    profileId: 'profile-otp-runtime-candidate-selection',
-                    accountRef: {
-                      chainIdKey: 'near:testnet',
-                      accountAddress: nearAccountId,
-                    },
-                  }),
-                },
-                accountKeyMaterialDB: {
-                  getKeyMaterial: async () => ({
-                    profileId: 'profile-otp-runtime-candidate-selection',
-                    signerSlot: 1,
-                    chainIdKey: 'near:testnet',
-                    keyKind: 'threshold_share_v1' as const,
-                    algorithm: 'ed25519' as const,
-                    publicKey: 'ed25519:threshold-public-key',
-                    payload: {
-                      relayerKeyId,
-                      keyVersion: 'threshold-ed25519-hss-v1',
-                      participants: [
-                        { id: 1, role: 'client' },
-                        { id: 2, role: 'relayer', relayerUrl, relayerKeyId },
-                      ],
-                    },
-                    timestamp: Date.now(),
-                    schemaVersion: 1,
-                  }),
-                },
-              },
+              indexedDB: createNearTestIndexedDB({
+                profileId: 'profile-otp-runtime-candidate-selection',
+                nearAccountId,
+                relayerUrl,
+                relayerKeyId,
+              }),
               nearContextFixture: {
                 initializeUser: () => undefined,
               },
@@ -1934,37 +1794,12 @@ test.describe('near signing session selection', () => {
             }),
             getSignerWorkerContext: () =>
             ({
-              indexedDB: {
-                clientDB: {
-                  resolveProfileAccountContext: async () => ({
-                    profileId: 'profile-otp-runtime-candidate-missing',
-                    accountRef: {
-                      chainIdKey: 'near:testnet',
-                      accountAddress: nearAccountId,
-                    },
-                  }),
-                },
-                accountKeyMaterialDB: {
-                  getKeyMaterial: async () => ({
-                    profileId: 'profile-otp-runtime-candidate-missing',
-                    signerSlot: 1,
-                    chainIdKey: 'near:testnet',
-                    keyKind: 'threshold_share_v1' as const,
-                    algorithm: 'ed25519' as const,
-                    publicKey: 'ed25519:threshold-public-key',
-                    payload: {
-                      relayerKeyId,
-                      keyVersion: 'threshold-ed25519-hss-v1',
-                      participants: [
-                        { id: 1, role: 'client' },
-                        { id: 2, role: 'relayer', relayerUrl, relayerKeyId },
-                      ],
-                    },
-                    timestamp: Date.now(),
-                    schemaVersion: 1,
-                  }),
-                },
-              },
+              indexedDB: createNearTestIndexedDB({
+                profileId: 'profile-otp-runtime-candidate-missing',
+                nearAccountId,
+                relayerUrl,
+                relayerKeyId,
+              }),
               nearContextFixture: {
                 initializeUser: () => undefined,
               },
@@ -2155,37 +1990,12 @@ test.describe('near signing session selection', () => {
           createSigningSessionId: () => 'unexpected-generated-session',
           getSignerWorkerContext: () =>
             ({
-              indexedDB: {
-                clientDB: {
-                  resolveProfileAccountContext: async () => ({
-                    profileId: 'profile-otp-post-confirm-retry',
-                    accountRef: {
-                      chainIdKey: 'near:testnet',
-                      accountAddress: nearAccountId,
-                    },
-                  }),
-                },
-                accountKeyMaterialDB: {
-                  getKeyMaterial: async () => ({
-                    profileId: 'profile-otp-post-confirm-retry',
-                    signerSlot: 1,
-                    chainIdKey: 'near:testnet',
-                    keyKind: 'threshold_share_v1' as const,
-                    algorithm: 'ed25519' as const,
-                    publicKey: 'ed25519:threshold-public-key',
-                    payload: {
-                      relayerKeyId,
-                      keyVersion: 'threshold-ed25519-hss-v1',
-                      participants: [
-                        { id: 1, role: 'client' },
-                        { id: 2, role: 'relayer', relayerUrl, relayerKeyId },
-                      ],
-                    },
-                    timestamp: Date.now(),
-                    schemaVersion: 1,
-                  }),
-                },
-              },
+              indexedDB: createNearTestIndexedDB({
+                profileId: 'profile-otp-post-confirm-retry',
+                nearAccountId,
+                relayerUrl,
+                relayerKeyId,
+              }),
               nearContextFixture: {
                 initializeUser: () => undefined,
               },
@@ -2513,5 +2323,44 @@ test.describe('near signing session selection', () => {
 
     expect(restoreCalls).toEqual(['restored-passkey-ed25519', 'restored-passkey-ed25519']);
     expect(consumeFlags).toEqual([false, true]);
+  });
+
+  test('claims Email OTP Ed25519 warm material without passkey restore', async () => {
+    const restoreCalls: string[] = [];
+    const claimCurves: Array<string | undefined> = [];
+    const coordinator = createNearSigningSessionCoordinator({
+      getWarmSessionStatus: async () => ({
+        ok: true as const,
+        remainingUses: 2,
+        expiresAtMs: Date.now() + 60_000,
+      }),
+      claimWarmSessionMaterial: async ({ curve }: { curve?: string }) => {
+        claimCurves.push(curve);
+        return {
+          ok: true as const,
+          prfFirstB64u: 'AQ',
+          remainingUses: 2,
+          expiresAtMs: Date.now() + 60_000,
+        };
+      },
+      restorePersistedSessionForSigning: async ({ thresholdSessionId }: any) => {
+        restoreCalls.push(String(thresholdSessionId));
+      },
+    } as any);
+
+    await coordinator.claimPrfFirstByThresholdSessionId({
+      kind: 'wallet_scoped_ed25519_claim',
+      thresholdSessionId: 'email-otp-ed25519-session',
+      errorContext: 'test Email OTP Ed25519 signing',
+      uses: 1,
+      walletId: 'alice.testnet',
+      authMethod: 'email_otp',
+      curve: 'ed25519',
+      chain: 'near',
+      walletSigningSessionId: 'wallet-session',
+    });
+
+    expect(restoreCalls).toEqual([]);
+    expect(claimCurves).toEqual(['ed25519']);
   });
 });

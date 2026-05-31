@@ -104,6 +104,14 @@ export {
   inferNearRecoveryChainIdKey,
 } from './core/recoveryExecutionRecords';
 export {
+  createWalletAuthMethodStore,
+  normalizeWalletAuthMethod,
+  putWalletAuthMethodWithExecutor,
+  resolveWalletAuthMethodStoreNamespace,
+  type WalletAuthMethodRecord,
+  type WalletAuthMethodStore,
+} from './core/WalletAuthMethodStore';
+export {
   NEAR_EMAIL_RECOVERY_ACTION,
   markTrackedRecoverySessionVerified,
   recordTrackedNearRecoveryExecution,

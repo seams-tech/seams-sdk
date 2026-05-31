@@ -1,6 +1,6 @@
 import {
-  IndexedDBManager,
   createIndexedDBNonceLaneCoordinationStore,
+  IndexedDBManager,
 } from '@/core/indexedDB';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { createEvmNonceBackend } from '@/core/rpcClients/evm/nonceBackend';
@@ -18,6 +18,7 @@ import { createUiConfirmManager } from '../uiConfirm/UiConfirmManager';
 import type { UiConfirmRuntimeBridgePort } from '../uiConfirm/types';
 import { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import { SignerWorkerManager } from '../workerManager/SignerWorkerManager';
+import { getWorkerTransport } from '../workerManager/workerTransport';
 import { UserPreferencesManager } from '../session/userPreferences';
 import UserPreferencesInstance from '../session/userPreferences';
 
@@ -30,11 +31,13 @@ export type ManagerAssembly = {
 };
 
 export function createManagerAssembly(args: {
+  indexedDB: typeof IndexedDBManager;
   seamsPasskeyConfigs: SeamsConfigsReadonly;
   nearClient: NearClient;
   getTheme: () => ThemeName;
   getAppearanceTokens?: () => ThemeTokenOverridesInput | undefined;
 }): ManagerAssembly {
+  const indexedDB = args.indexedDB;
   const touchIdPrompt = new TouchIdPrompt(
     args.seamsPasskeyConfigs.wallet.iframe?.rpIdOverride,
     true,
@@ -45,7 +48,7 @@ export function createManagerAssembly(args: {
     chains,
   });
   const nonceLaneCoordinationStore = createIndexedDBNonceLaneCoordinationStore({
-    indexedDB: IndexedDBManager,
+    indexedDB,
   });
   const nonceCoordinator = createNonceCoordinator({
     evmNonceBackend,
@@ -75,7 +78,7 @@ export function createManagerAssembly(args: {
     {
       touchIdPrompt: touchIdPrompt,
       nearClient: args.nearClient,
-      indexedDB: IndexedDBManager,
+      indexedDB,
       userPreferencesManager: userPreferencesManager,
       nonceCoordinator: nonceCoordinator,
       chains,
@@ -88,20 +91,21 @@ export function createManagerAssembly(args: {
     },
   );
 
-  const signerWorkerManager = new SignerWorkerManager(
+  const signerWorkerManager = new SignerWorkerManager({
+    indexedDB,
+    touchIdPrompt,
     touchConfirm,
-    args.nearClient,
+    nearClient: args.nearClient,
     userPreferencesManager,
     nonceCoordinator,
-    args.seamsPasskeyConfigs.network.relayer.url,
+    relayerUrl: args.seamsPasskeyConfigs.network.relayer.url,
+    workerTransport: getWorkerTransport(),
     chains,
-    args.seamsPasskeyConfigs.wallet.iframe?.rpIdOverride,
-    true,
     nearExplorerUrl,
     tempoExplorerUrl,
     evmExplorerUrl,
-    args.getTheme,
-  );
+    getTheme: args.getTheme,
+  });
 
   return {
     touchIdPrompt,

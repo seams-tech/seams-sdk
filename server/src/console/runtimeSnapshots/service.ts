@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type {
   ConsoleRuntimeSnapshot,
   ConsoleRuntimeSnapshotPayload,
@@ -111,7 +112,7 @@ export function computeConsoleRuntimeSnapshotChecksum(input: {
 }
 
 function makeSnapshotId(now: Date): string {
-  return `runtime_snapshot_${now.getTime().toString(36)}_${Math.random().toString(16).slice(2, 10)}`;
+  return `runtime_snapshot_${now.getTime().toString(36)}_${secureRandomBase36(8, 'console IDs')}`;
 }
 
 function readEffectiveAt(input: string | undefined, fallback: Date): string {

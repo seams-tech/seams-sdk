@@ -62,9 +62,8 @@ function parsePreparedEcdsaRecord(raw: unknown): DeviceLinkingPreparedEcdsaRecor
   const chainTargets = Array.isArray(raw.chainTargets) ? raw.chainTargets : [];
   const prepare = isObject(raw.prepare) ? raw.prepare : null;
   const formatVersion = toOptionalTrimmedString(prepare?.formatVersion);
-  const walletSessionUserId = toOptionalTrimmedString(prepare?.walletSessionUserId);
+  const walletId = toOptionalTrimmedString(prepare?.walletId);
   const rpId = toOptionalTrimmedString(prepare?.rpId);
-  const subjectId = toOptionalTrimmedString(prepare?.subjectId);
   const ecdsaThresholdKeyId = toOptionalTrimmedString(prepare?.ecdsaThresholdKeyId);
   const signingRootId = toOptionalTrimmedString(prepare?.signingRootId);
   const signingRootVersion = toOptionalTrimmedString(prepare?.signingRootVersion);
@@ -87,9 +86,8 @@ function parsePreparedEcdsaRecord(raw: unknown): DeviceLinkingPreparedEcdsaRecor
     kind !== 'evm_family_ecdsa_keygen' ||
     chainTargets.length === 0 ||
     formatVersion !== 'ecdsa-hss-role-local' ||
-    !walletSessionUserId ||
+    !walletId ||
     !rpId ||
-    !subjectId ||
     !ecdsaThresholdKeyId ||
     !signingRootId ||
     !signingRootVersion ||
@@ -112,9 +110,8 @@ function parsePreparedEcdsaRecord(raw: unknown): DeviceLinkingPreparedEcdsaRecor
     chainTargets: chainTargets as WalletRegistrationEcdsaPreparePayload['chainTargets'],
     prepare: {
       formatVersion: 'ecdsa-hss-role-local',
-      walletSessionUserId,
+      walletId,
       rpId,
-      subjectId,
       ecdsaThresholdKeyId,
       signingRootId,
       signingRootVersion,

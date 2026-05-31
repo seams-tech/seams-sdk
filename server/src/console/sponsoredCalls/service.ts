@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type {
   ConsoleSponsoredCallRecord,
   ConsoleSponsoredCallRecordPage,
@@ -17,7 +18,9 @@ export interface InMemoryConsoleSponsoredCallServiceOptions {
 }
 
 export interface ConsoleSponsoredCallService {
-  getOverviewSummary(ctx: ConsoleSponsoredCallContext): Promise<ConsoleSponsoredCallOverviewSummary>;
+  getOverviewSummary(
+    ctx: ConsoleSponsoredCallContext,
+  ): Promise<ConsoleSponsoredCallOverviewSummary>;
   listRecords(
     ctx: ConsoleSponsoredCallContext,
     request?: ListConsoleSponsoredCallRecordsRequest,
@@ -38,7 +41,7 @@ function toIso(date: Date): string {
 
 function makeId(prefix: string, now: Date): string {
   const ts = now.getTime().toString(36);
-  const rand = Math.random().toString(36).slice(2, 10);
+  const rand = secureRandomBase36(8, 'console IDs');
   return `${prefix}_${ts}_${rand}`;
 }
 
@@ -185,7 +188,10 @@ export function createInMemoryConsoleSponsoredCallService(
       };
     },
 
-    async getRecordByIdempotencyKey(ctx, idempotencyKey): Promise<ConsoleSponsoredCallRecord | null> {
+    async getRecordByIdempotencyKey(
+      ctx,
+      idempotencyKey,
+    ): Promise<ConsoleSponsoredCallRecord | null> {
       const normalized = normalizeString(idempotencyKey);
       if (!normalized) return null;
       const store = requireOrgStore(ctx.orgId);

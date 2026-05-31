@@ -366,6 +366,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ecdsa-hss"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "k256",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sha3",
+ "zeroize",
+]
+
+[[package]]
 name = "ed25519"
 version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1158,6 +1171,7 @@ dependencies = [
  "bs58",
  "chacha20poly1305",
  "curve25519-dalek",
+ "ecdsa-hss",
  "ed25519-dalek",
  "frost-ed25519",
  "hkdf",

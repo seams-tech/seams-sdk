@@ -1,4 +1,5 @@
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 import {
   UserConfirmationType,
   type RegistrationSummary,
@@ -29,10 +30,7 @@ export async function requestRegistrationCredentialConfirmation({
     throw new Error('UserConfirm manager request bridge is unavailable');
   }
 
-  const requestId =
-    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-      ? crypto.randomUUID()
-      : `register-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const requestId = secureRandomId('register', 32, 'registration credential confirmation IDs');
 
   const title = confirmerText?.title;
   const body = confirmerText?.body;

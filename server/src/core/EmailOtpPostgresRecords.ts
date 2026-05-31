@@ -92,7 +92,7 @@ export function parseCurrentEmailOtpChallengeRecord(
   const obj = parsed as Record<string, unknown>;
   const version = toOptionalTrimmedString(obj.version);
   const challengeId = toOptionalTrimmedString(obj.challengeId);
-  const userId = toOptionalTrimmedString(obj.userId);
+  const challengeSubjectId = toOptionalTrimmedString(obj.challengeSubjectId);
   const walletId = toOptionalTrimmedString(obj.walletId);
   const orgId = toOptionalTrimmedString(obj.orgId) || undefined;
   const otpChannel = toOptionalTrimmedString(obj.otpChannel);
@@ -109,7 +109,7 @@ export function parseCurrentEmailOtpChallengeRecord(
   if (version !== 'email_otp_challenge_v1') return null;
   if (
     !challengeId ||
-    !userId ||
+    !challengeSubjectId ||
     !walletId ||
     !email ||
     !otpCode ||
@@ -142,7 +142,7 @@ export function parseCurrentEmailOtpChallengeRecord(
   return {
     version: 'email_otp_challenge_v1',
     challengeId,
-    userId,
+    challengeSubjectId,
     walletId,
     ...(orgId ? { orgId } : {}),
     otpChannel: EMAIL_OTP_CHANNEL,
@@ -295,6 +295,7 @@ export function parseCurrentGoogleEmailOtpRegistrationAttemptRecord(
   const walletId = toOptionalTrimmedString(obj.walletId);
   const authProvider = toOptionalTrimmedString(obj.authProvider);
   const accountIdSlugVersion = toOptionalTrimmedString(obj.accountIdSlugVersion);
+  const walletIdDerivationNonce = toOptionalTrimmedString(obj.walletIdDerivationNonce);
   const collisionCounter = toNonNegativeSafeInt(obj.collisionCounter);
   const state = toOptionalTrimmedString(obj.state);
   const createdAtMs = toPositiveSafeInt(obj.createdAtMs);
@@ -311,6 +312,8 @@ export function parseCurrentGoogleEmailOtpRegistrationAttemptRecord(
     !walletId ||
     !authProvider ||
     accountIdSlugVersion !== 'hmac_readable_v1' ||
+    !walletIdDerivationNonce ||
+    !isB64uString(walletIdDerivationNonce) ||
     collisionCounter == null ||
     !state ||
     !createdAtMs ||
@@ -337,6 +340,7 @@ export function parseCurrentGoogleEmailOtpRegistrationAttemptRecord(
     walletId,
     authProvider,
     accountIdSlugVersion: 'hmac_readable_v1',
+    walletIdDerivationNonce,
     collisionCounter,
     state,
     createdAtMs,

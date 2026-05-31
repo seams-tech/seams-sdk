@@ -1401,7 +1401,7 @@ export function createRelayRouteDefinitions(
     apiCredentialRoute(
       'wallet_add_signer_intent',
       'POST',
-      '/wallets/:walletSubjectId/signers/intent',
+      '/wallets/:walletId/signers/intent',
       'Create a wallet add-signer intent',
       {
         plane: 'api_credentials',
@@ -1416,7 +1416,7 @@ export function createRelayRouteDefinitions(
     publicRoute(
       'wallet_add_signer_start',
       'POST',
-      '/wallets/:walletSubjectId/signers/start',
+      '/wallets/:walletId/signers/start',
       'Start a wallet add-signer ceremony',
       {
         plane: 'public',
@@ -1429,7 +1429,7 @@ export function createRelayRouteDefinitions(
     publicRoute(
       'wallet_add_signer_hss_respond',
       'POST',
-      '/wallets/:walletSubjectId/signers/hss/respond',
+      '/wallets/:walletId/signers/hss/respond',
       'Continue a wallet add-signer HSS ceremony',
       {
         plane: 'public',
@@ -1441,7 +1441,7 @@ export function createRelayRouteDefinitions(
     publicRoute(
       'wallet_add_signer_finalize',
       'POST',
-      '/wallets/:walletSubjectId/signers/finalize',
+      '/wallets/:walletId/signers/finalize',
       'Finalize a wallet add-signer ceremony',
       {
         plane: 'public',
@@ -1451,11 +1451,66 @@ export function createRelayRouteDefinitions(
       ['authService'],
       { kind: 'none' },
     ),
-    userSessionRoute(
-      'wallet_subject_ecdsa_key_facts_inventory',
+    apiCredentialRoute(
+      'wallet_add_auth_method_intent',
       'POST',
-      '/wallets/:walletSubjectId/signers/ecdsa/key-facts/inventory',
-      'Resolve wallet-subject ECDSA key facts for explicit repair inventory',
+      '/wallets/:walletId/auth-methods/intent',
+      'Create a wallet add-auth-method intent',
+      {
+        plane: 'api_credentials',
+        credentials: ['secret_key', 'bootstrap_token'],
+        scopes: ['wallets.auth_methods.create'],
+        environmentBinding: 'required',
+        originBinding: 'required',
+      },
+      { kind: 'none' },
+      ['authService'],
+    ),
+    publicRoute(
+      'wallet_add_auth_method_start',
+      'POST',
+      '/wallets/:walletId/auth-methods/start',
+      'Start a wallet add-auth-method ceremony',
+      {
+        plane: 'public',
+        proof: 'challenge_exchange',
+        rationale:
+          'Add-auth-method start is authorized by an active wallet authority and a new auth-method proof.',
+      },
+      ['authService'],
+    ),
+    publicRoute(
+      'wallet_add_auth_method_finalize',
+      'POST',
+      '/wallets/:walletId/auth-methods/finalize',
+      'Finalize a wallet add-auth-method ceremony',
+      {
+        plane: 'public',
+        proof: 'challenge_exchange',
+        rationale:
+          'Add-auth-method finalize is bound to a completed add-auth-method ceremony state.',
+      },
+      ['authService'],
+      { kind: 'none' },
+    ),
+    publicRoute(
+      'wallet_revoke_auth_method',
+      'POST',
+      '/wallets/:walletId/auth-methods/revoke',
+      'Revoke an active wallet auth method',
+      {
+        plane: 'public',
+        proof: 'challenge_exchange',
+        rationale: 'Auth-method revoke is authorized by an active wallet authority.',
+      },
+      ['authService'],
+      { kind: 'none' },
+    ),
+    userSessionRoute(
+      'wallet_ecdsa_key_facts_inventory',
+      'POST',
+      '/wallets/:walletId/signers/ecdsa/key-facts/inventory',
+      'Resolve wallet ECDSA key facts for explicit repair inventory',
       ['authService'],
     ),
     apiCredentialRoute(

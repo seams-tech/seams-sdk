@@ -1,4 +1,5 @@
-import { IndexedDBManager } from '@/core/indexedDB';
+import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
+import type { PlatformRuntime } from '@/core/platform';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { AccountId } from '@/core/types/accountIds';
 import type { SeamsConfigsReadonly, SigningSessionStatus, ThemeName } from '@/core/types/seams';
@@ -81,6 +82,7 @@ export type SigningEngineConveniencePorts = {
 };
 
 export type CreateSigningEnginePortsArgs = {
+  platformRuntime: PlatformRuntime;
   seamsPasskeyConfigs: SeamsConfigsReadonly;
   nearClient: NearClient;
   touchIdPrompt: TouchIdPrompt;
@@ -203,7 +205,7 @@ export type NearKeyOpsDeps = {
 };
 
 export type SigningEnginePorts = {
-  indexedDB: typeof IndexedDBManager;
+  indexedDB: UnifiedIndexedDBManager;
   thresholdEd25519LifecycleDeps: ThresholdEd25519LifecycleDeps;
   nearSigningDeps: NearSigningApiDeps;
   tempoSigningDeps: EvmFamilySigningDeps;
@@ -258,10 +260,11 @@ export function createGetOrCreateActiveThresholdEcdsaSessionId(): (
 
 export function createWorkerResourceWarmupDepsFactory(
   args: CreateSigningEnginePortsArgs,
+  runtimeDeps: { indexedDB: UnifiedIndexedDBManager },
 ): () => WorkerResourceWarmupDeps {
   return () => ({
     workerBaseOrigin: args.getWorkerBaseOrigin(),
-    indexedDB: IndexedDBManager,
+    indexedDB: runtimeDeps.indexedDB,
     nearClient: args.nearClient,
     nonceCoordinator: args.nonceCoordinator,
     prewarmWorkers: args.signerWorkerManager.prewarmWorkers.bind(args.signerWorkerManager),

@@ -16,3 +16,4 @@ export * from './signingSessionSeal';
 export * from './emailOtpRecoveryKey';
 export * from './registrationIntent';
 export * from './ecdsaKeyFactsInventory';
+export * from './secureRandomId';

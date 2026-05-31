@@ -16,14 +16,12 @@ const runtimePolicyScope = {
 
 test.describe('Email OTP ECDSA role-local identity', () => {
   test('derives concrete role-local key identity and verifies the key handle', async () => {
-    const walletSessionUserId = 'wallet-1';
+    const walletId = 'wallet-1';
     const rpId = 'wallet.example.test';
-    const subjectId = 'wallet-1';
     const signingRoot = signingRootScopeFromRuntimePolicyScope(runtimePolicyScope);
     const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
-      walletSessionUserId,
+      walletId,
       rpId,
-      subjectId,
       signingRootId: signingRoot.signingRootId,
       signingRootVersion: signingRoot.signingRootVersion!,
     });
@@ -36,9 +34,8 @@ test.describe('Email OTP ECDSA role-local identity', () => {
     await expect(
       resolveEmailOtpEcdsaRoleLocalKeyIdentityForHandle({
         keyHandle,
-        walletSessionUserId,
+        walletId,
         rpId,
-        subjectId,
         runtimePolicyScope,
       }),
     ).resolves.toEqual({
@@ -46,7 +43,7 @@ test.describe('Email OTP ECDSA role-local identity', () => {
       signingRootId: signingRoot.signingRootId,
       signingRootVersion: signingRoot.signingRootVersion,
       relayerKeyId: await computeEcdsaHssRoleLocalRelayerKeyId({
-        walletSessionUserId,
+        walletId,
         rpId,
       }),
     });
@@ -56,9 +53,8 @@ test.describe('Email OTP ECDSA role-local identity', () => {
     await expect(
       resolveEmailOtpEcdsaRoleLocalKeyIdentityForHandle({
         keyHandle: 'ehss-key-wrong',
-        walletSessionUserId: 'wallet-1',
+        walletId: 'wallet-1',
         rpId: 'wallet.example.test',
-        subjectId: 'wallet-1',
         runtimePolicyScope,
       }),
     ).rejects.toThrow('keyHandle does not match runtime policy key identity');

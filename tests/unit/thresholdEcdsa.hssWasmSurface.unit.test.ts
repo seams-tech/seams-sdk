@@ -3,12 +3,15 @@ import { readFileSync } from 'node:fs';
 import * as EthSignerWasm from '../../wasm/eth_signer/pkg/eth_signer.js';
 import * as HssClientSignerWasm from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 
-const ETH_SIGNER_WASM_URL = new URL('../../wasm/eth_signer/pkg/eth_signer_bg.wasm', import.meta.url);
+const ETH_SIGNER_WASM_URL = new URL(
+  '../../wasm/eth_signer/pkg/eth_signer_bg.wasm',
+  import.meta.url,
+);
 const HSS_CLIENT_SIGNER_WASM_URL = new URL(
   '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
   import.meta.url,
 );
-const FIXTURE_URL = new URL('../../crates/ecdsa-hss/fixtures/role_local_v1.json', import.meta.url);
+const FIXTURE_URL = new URL('../../crates/ecdsa-hss/fixtures/role_local_v2.json', import.meta.url);
 
 let ethSignerWasmInitialized = false;
 let hssClientSignerWasmInitialized = false;
@@ -40,13 +43,13 @@ function bytesHex(bytes: Uint8Array | number[]): string {
 function readRoleLocalFixture() {
   return JSON.parse(readFileSync(FIXTURE_URL, 'utf8')) as {
     context: {
-      wallet_session_user_id: string;
-      subject_id: string;
-      ecdsa_threshold_key_id: string;
-      signing_root_id: string;
-      signing_root_version: string;
-      key_purpose: string;
-      key_version: string;
+      walletId: string;
+      rpId: string;
+      ecdsaThresholdKeyId: string;
+      signingRootId: string;
+      signingRootVersion: string;
+      keyPurpose: string;
+      keyVersion: string;
     };
     inputs: {
       relayer_key_id: string;
@@ -65,13 +68,13 @@ function readRoleLocalFixture() {
 
 function contextPayload(fixture: ReturnType<typeof readRoleLocalFixture>) {
   return {
-    walletSessionUserId: fixture.context.wallet_session_user_id,
-    subjectId: fixture.context.subject_id,
-    ecdsaThresholdKeyId: fixture.context.ecdsa_threshold_key_id,
-    signingRootId: fixture.context.signing_root_id,
-    signingRootVersion: fixture.context.signing_root_version,
-    keyPurpose: fixture.context.key_purpose,
-    keyVersion: fixture.context.key_version,
+    walletId: fixture.context.walletId,
+    rpId: fixture.context.rpId,
+    ecdsaThresholdKeyId: fixture.context.ecdsaThresholdKeyId,
+    signingRootId: fixture.context.signingRootId,
+    signingRootVersion: fixture.context.signingRootVersion,
+    keyPurpose: fixture.context.keyPurpose,
+    keyVersion: fixture.context.keyVersion,
   };
 }
 
@@ -113,24 +116,38 @@ test.describe('threshold ECDSA HSS WASM surface', () => {
     ensureHssClientSignerWasm();
     const fixture = readRoleLocalFixture();
     const context = contextPayload(fixture);
-    const clientBootstrap =
-      HssClientSignerWasm.threshold_ecdsa_hss_role_local_client_bootstrap({
-        ...context,
-        clientRootShare32B64u: bytesB64u(hexToBytes(fixture.inputs.y_client32_le_hex)),
-      }) as { clientPublicKey33B64u: string; clientShareRetryCounter: number };
+    const clientBootstrap = HssClientSignerWasm.threshold_ecdsa_hss_role_local_client_bootstrap({
+      ...context,
+      clientRootShare32B64u: bytesB64u(hexToBytes(fixture.inputs.y_client32_le_hex)),
+    }) as {
+      contextBinding32B64u: string;
+      clientPublicKey33B64u: string;
+      clientShareRetryCounter: number;
+    };
 
     const relayerBootstrap = EthSignerWasm.threshold_ecdsa_hss_role_local_relayer_bootstrap({
       ...context,
       relayerKeyId: fixture.inputs.relayer_key_id,
       yRelayer32Le: Array.from(hexToBytes(fixture.inputs.y_relayer32_le_hex)),
-      clientPublicKey33: Array.from(Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url')),
+      clientPublicKey33: Array.from(
+        Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url'),
+      ),
       clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
     }) as {
+      contextBinding32: number[];
       relayerPublicKey33: number[];
       groupPublicKey33: number[];
       ethereumAddress20: number[];
     };
 
+    expect(bytesHex(Buffer.from(clientBootstrap.contextBinding32B64u, 'base64url'))).toBe(
+      bytesHex(relayerBootstrap.contextBinding32),
+    );
+    expect(Buffer.from(clientBootstrap.contextBinding32B64u, 'base64url')).toHaveLength(32);
+    expect(Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url')).toHaveLength(33);
+    expect(relayerBootstrap.relayerPublicKey33).toHaveLength(33);
+    expect(relayerBootstrap.groupPublicKey33).toHaveLength(33);
+    expect(relayerBootstrap.ethereumAddress20).toHaveLength(20);
     expect(bytesHex(Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url'))).toBe(
       fixture.identity.client_public_key33_hex,
     );

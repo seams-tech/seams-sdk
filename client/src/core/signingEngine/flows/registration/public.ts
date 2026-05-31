@@ -4,7 +4,10 @@ import type {
   StoreUserDataInput,
 } from '@/core/accountData/near/types';
 import type { AccountId } from '@/core/types/accountIds';
-import type { WebAuthnAuthenticationCredential, WebAuthnRegistrationCredential } from '@/core/types';
+import type {
+  WebAuthnAuthenticationCredential,
+  WebAuthnRegistrationCredential,
+} from '@/core/types';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { RegistrationCredentialConfirmationPayload } from '../../workerManager/validation';
 import type { WebAuthnAllowCredential } from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
@@ -17,26 +20,31 @@ import type { NearSigningKeyOps } from '../../interfaces/nearKeyOps';
 import {
   atomicStoreRegistrationData as atomicStoreRegistrationDataValue,
   getAllUsers as getAllUsersValue,
-  getAuthenticatorsByUser as getAuthenticatorsByUserValue,
   getLastUser as getLastUserValue,
   getUserBySignerSlot as getUserBySignerSlotValue,
   hasPasskeyCredential as hasPasskeyCredentialValue,
   initializeCurrentUser as initializeCurrentUserValue,
+  nearAuthenticatorsByAccount as nearAuthenticatorsByAccountValue,
   rollbackUserRegistration as rollbackUserRegistrationValue,
   setLastUser as setLastUserValue,
-  storeWalletSubjectEd25519SignerRecord as storeWalletSubjectEd25519SignerRecordValue,
-  storeWalletSubjectEd25519RegistrationData as storeWalletSubjectEd25519RegistrationDataValue,
-  storeWalletSubjectEcdsaRegistrationData as storeWalletSubjectEcdsaRegistrationDataValue,
-  storeWalletSubjectEcdsaSignerRecords as storeWalletSubjectEcdsaSignerRecordsValue,
+  storeWalletEd25519SignerRecord as storeWalletEd25519SignerRecordValue,
+  storeWalletEd25519RegistrationData as storeWalletEd25519RegistrationDataValue,
+  storeWalletEmailOtpEd25519RegistrationData as storeWalletEmailOtpEd25519RegistrationDataValue,
+  storeWalletEmailOtpEcdsaRegistrationData as storeWalletEmailOtpEcdsaRegistrationDataValue,
+  storeWalletEmailOtpEcdsaSignerRecords as storeWalletEmailOtpEcdsaSignerRecordsValue,
+  storeWalletEcdsaRegistrationData as storeWalletEcdsaRegistrationDataValue,
+  storeWalletEcdsaSignerRecords as storeWalletEcdsaSignerRecordsValue,
   storeAuthenticator as storeAuthenticatorValue,
   storeUserData as storeUserDataValue,
   updateLastLogin as updateLastLoginValue,
   type StoredRegistrationData,
-  type StoreWalletSubjectEcdsaSignerRecordsInput,
-  type StoreWalletSubjectEcdsaRegistrationInput,
-  type StoreWalletSubjectEcdsaSignerRecordsResult,
-  type StoreWalletSubjectEd25519RegistrationInput,
-  type StoreWalletSubjectEd25519SignerRecordInput,
+  type StoreWalletEcdsaSignerRecordsInput,
+  type StoreWalletEcdsaRegistrationInput,
+  type StoreWalletEcdsaSignerRecordsResult,
+  type StoreWalletEmailOtpEd25519RegistrationInput,
+  type StoreWalletEmailOtpEcdsaRegistrationInput,
+  type StoreWalletEd25519RegistrationInput,
+  type StoreWalletEd25519SignerRecordInput,
   type StoreAuthenticatorInput,
 } from './accountLifecycle';
 import {
@@ -47,9 +55,13 @@ import {
 export type { StoreAuthenticatorInput };
 export type { StoredRegistrationData };
 export type {
-  StoreWalletSubjectEcdsaSignerRecordsInput,
-  StoreWalletSubjectEcdsaRegistrationInput,
-  StoreWalletSubjectEcdsaSignerRecordsResult,
+  StoreWalletEcdsaSignerRecordsInput,
+  StoreWalletEcdsaRegistrationInput,
+  StoreWalletEcdsaSignerRecordsResult,
+  StoreWalletEmailOtpEd25519RegistrationInput,
+  StoreWalletEmailOtpEcdsaRegistrationInput,
+  StoreWalletEd25519RegistrationInput,
+  StoreWalletEd25519SignerRecordInput,
 };
 
 export type RegistrationPublicDeps = {
@@ -81,11 +93,11 @@ export function getLastUser(deps: RegistrationPublicDeps): Promise<ClientUserDat
   return getLastUserValue(deps.accountLifecycle);
 }
 
-export function getAuthenticatorsByUser(
+export function nearAuthenticatorsByAccount(
   deps: RegistrationPublicDeps,
   nearAccountId: AccountId,
 ): Promise<ClientAuthenticatorData[]> {
-  return getAuthenticatorsByUserValue(deps.accountLifecycle, nearAccountId);
+  return nearAuthenticatorsByAccountValue(deps.accountLifecycle, nearAccountId);
 }
 
 export function updateLastLogin(
@@ -145,32 +157,53 @@ export function atomicStoreRegistrationData(
   return atomicStoreRegistrationDataValue(deps.accountLifecycle, args);
 }
 
-export function storeWalletSubjectEd25519RegistrationData(
+export function storeWalletEd25519RegistrationData(
   deps: RegistrationPublicDeps,
-  args: StoreWalletSubjectEd25519RegistrationInput,
+  args: StoreWalletEd25519RegistrationInput,
 ): Promise<StoredRegistrationData> {
-  return storeWalletSubjectEd25519RegistrationDataValue(deps.accountLifecycle, args);
+  return storeWalletEd25519RegistrationDataValue(deps.accountLifecycle, args);
 }
 
-export function storeWalletSubjectEd25519SignerRecord(
+export function storeWalletEmailOtpEd25519RegistrationData(
   deps: RegistrationPublicDeps,
-  args: StoreWalletSubjectEd25519SignerRecordInput,
+  args: StoreWalletEmailOtpEd25519RegistrationInput,
 ): Promise<StoredRegistrationData> {
-  return storeWalletSubjectEd25519SignerRecordValue(deps.accountLifecycle, args);
+  return storeWalletEmailOtpEd25519RegistrationDataValue(deps.accountLifecycle, args);
 }
 
-export function storeWalletSubjectEcdsaSignerRecords(
+export function storeWalletEd25519SignerRecord(
   deps: RegistrationPublicDeps,
-  args: StoreWalletSubjectEcdsaSignerRecordsInput,
-): Promise<StoreWalletSubjectEcdsaSignerRecordsResult> {
-  return storeWalletSubjectEcdsaSignerRecordsValue(deps.accountLifecycle, args);
+  args: StoreWalletEd25519SignerRecordInput,
+): Promise<StoredRegistrationData> {
+  return storeWalletEd25519SignerRecordValue(deps.accountLifecycle, args);
 }
 
-export function storeWalletSubjectEcdsaRegistrationData(
+export function storeWalletEcdsaSignerRecords(
   deps: RegistrationPublicDeps,
-  args: StoreWalletSubjectEcdsaRegistrationInput,
-): Promise<StoreWalletSubjectEcdsaSignerRecordsResult> {
-  return storeWalletSubjectEcdsaRegistrationDataValue(deps.accountLifecycle, args);
+  args: StoreWalletEcdsaSignerRecordsInput,
+): Promise<StoreWalletEcdsaSignerRecordsResult> {
+  return storeWalletEcdsaSignerRecordsValue(deps.accountLifecycle, args);
+}
+
+export function storeWalletEmailOtpEcdsaSignerRecords(
+  deps: RegistrationPublicDeps,
+  args: StoreWalletEcdsaSignerRecordsInput,
+): Promise<StoreWalletEcdsaSignerRecordsResult> {
+  return storeWalletEmailOtpEcdsaSignerRecordsValue(deps.accountLifecycle, args);
+}
+
+export function storeWalletEcdsaRegistrationData(
+  deps: RegistrationPublicDeps,
+  args: StoreWalletEcdsaRegistrationInput,
+): Promise<StoreWalletEcdsaSignerRecordsResult> {
+  return storeWalletEcdsaRegistrationDataValue(deps.accountLifecycle, args);
+}
+
+export function storeWalletEmailOtpEcdsaRegistrationData(
+  deps: RegistrationPublicDeps,
+  args: StoreWalletEmailOtpEcdsaRegistrationInput,
+): Promise<StoreWalletEcdsaSignerRecordsResult> {
+  return storeWalletEmailOtpEcdsaRegistrationDataValue(deps.accountLifecycle, args);
 }
 
 export function requestRegistrationCredentialConfirmation(
@@ -204,59 +237,3 @@ export function extractCosePublicKey(
 ): Promise<Uint8Array> {
   return deps.signingKeyOps.extractCosePublicKey(attestationObjectBase64url);
 }
-
-export function createRegistrationPublicApi(deps: RegistrationPublicDeps) {
-  return {
-    storeUserData: (userData: StoreUserDataInput) => storeUserData(deps, userData),
-    getAllUsers: () => getAllUsers(deps),
-    getUserBySignerSlot: (nearAccountId: AccountId, signerSlot: number) =>
-      getUserBySignerSlot(deps, nearAccountId, signerSlot),
-    getLastUser: () => getLastUser(deps),
-    getAuthenticatorsByUser: (nearAccountId: AccountId) =>
-      getAuthenticatorsByUser(deps, nearAccountId),
-    updateLastLogin: (nearAccountId: AccountId) => updateLastLogin(deps, nearAccountId),
-    setLastUser: (nearAccountId: AccountId, signerSlot: number = 1) =>
-      setLastUser(deps, nearAccountId, signerSlot),
-    initializeCurrentUser: (args: { nearAccountId: AccountId; nearClient?: NearClient }) =>
-      initializeCurrentUser(deps, args),
-    storeAuthenticator: (authenticatorData: StoreAuthenticatorInput) =>
-      storeAuthenticator(deps, authenticatorData),
-    rollbackUserRegistration: (nearAccountId: AccountId) =>
-      rollbackUserRegistration(deps, nearAccountId),
-    hasPasskeyCredential: (nearAccountId: AccountId) => hasPasskeyCredential(deps, nearAccountId),
-    atomicStoreRegistrationData: (args: {
-      nearAccountId: AccountId;
-      credential: WebAuthnRegistrationCredential;
-      operationalPublicKey: string;
-    }) => atomicStoreRegistrationData(deps, args),
-    storeWalletSubjectEd25519RegistrationData: (
-      args: StoreWalletSubjectEd25519RegistrationInput,
-    ) => storeWalletSubjectEd25519RegistrationData(deps, args),
-    storeWalletSubjectEd25519SignerRecord: (
-      args: StoreWalletSubjectEd25519SignerRecordInput,
-    ) => storeWalletSubjectEd25519SignerRecord(deps, args),
-    storeWalletSubjectEcdsaSignerRecords: (
-      args: StoreWalletSubjectEcdsaSignerRecordsInput,
-    ) => storeWalletSubjectEcdsaSignerRecords(deps, args),
-    storeWalletSubjectEcdsaRegistrationData: (
-      args: StoreWalletSubjectEcdsaRegistrationInput,
-    ) => storeWalletSubjectEcdsaRegistrationData(deps, args),
-    requestRegistrationCredentialConfirmation: (params: {
-    nearAccountId: string;
-    signerSlot: number;
-    confirmerText?: { title?: string; body?: string };
-    confirmationConfigOverride?: Partial<ConfirmationConfig>;
-    challengeB64u?: string;
-  }) => requestRegistrationCredentialConfirmation(deps, params),
-    getAuthenticationCredentialsSerialized: (args: {
-      nearAccountId: AccountId;
-      challengeB64u: string;
-      allowCredentials: WebAuthnAllowCredential[];
-      includeSecondPrfOutput?: boolean;
-    }) => getAuthenticationCredentialsSerialized(deps, args),
-    extractCosePublicKey: (attestationObjectBase64url: string) =>
-      extractCosePublicKey(deps, attestationObjectBase64url),
-  };
-}
-
-export type RegistrationPublicApi = ReturnType<typeof createRegistrationPublicApi>;

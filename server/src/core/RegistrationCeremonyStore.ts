@@ -1,5 +1,7 @@
 import type {
   CloudflareDurableObjectNamespaceLike,
+  AddAuthMethodIntentGrant,
+  AddAuthMethodIntentV1,
   EcdsaHssServerBootstrapResponse,
   AddSignerIntentGrant,
   AddSignerIntentV1,
@@ -8,8 +10,22 @@ import type {
   WalletAddSignerStartResponse,
   WalletRegistrationEcdsaWalletKey,
   WalletRegistrationStartResponse,
-  WalletSubjectId,
+  WalletId,
 } from './types';
+import type { RegistrationAuthority } from '@shared/utils/registrationIntent';
+import {
+  addAuthMethodIntentGrantFromString,
+  normalizeAddAuthMethodInput,
+  walletIdFromString,
+} from '@shared/utils/registrationIntent';
+import {
+  parseAppSessionVersion,
+  parseChallengeSubjectId,
+  parseEmailOtpChallengeId,
+  parseOrgId,
+  parseProviderSubject,
+  parseWalletId,
+} from '@shared/utils/domainIds';
 import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
 import type { NormalizedLogger } from './logger';
 import { THRESHOLD_DO_OBJECT_NAME_DEFAULT } from './defaultConfigsServer';
@@ -64,11 +80,34 @@ export type ConsumedAddSignerIntent = Omit<StoredAddSignerIntent, 'kind' | 'cons
   consumedAtMs: number;
 };
 
+export type StoredAddAuthMethodIntent = {
+  kind: 'add_auth_method_intent_allocated';
+  grant: AddAuthMethodIntentGrant;
+  intent: AddAuthMethodIntentV1;
+  digestB64u: string;
+  orgId: string;
+  signingRootId?: string;
+  signingRootVersion?: string;
+  expectedOrigin?: string;
+  expiresAtMs: number;
+  consumedAtMs?: never;
+};
+
+export type ConsumedAddAuthMethodIntent = Omit<
+  StoredAddAuthMethodIntent,
+  'kind' | 'consumedAtMs'
+> & {
+  kind: 'add_auth_method_intent_consumed';
+  consumedAtMs: number;
+};
+
 export type StoredRegistrationWebAuthnCredential = {
   credentialIdB64u: string;
   credentialPublicKeyB64u: string;
   counter: number;
 };
+
+export type StoredRegistrationAuthority = RegistrationAuthority;
 
 type WalletRegistrationEd25519StartPayload = NonNullable<
   Extract<WalletRegistrationStartResponse, { ok: true }>['ed25519']
@@ -109,7 +148,7 @@ export type StoredEd25519RegistrationCompleted = WalletRegistrationEd25519StartP
   kind: 'ed25519_completed';
   responded: StoredEd25519RegistrationResponded['responded'];
   completedAtMs: number;
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
 };
 
 type StoredEcdsaRegistrationBase = Omit<WalletRegistrationEcdsaStartPayload, 'kind'> & {
@@ -134,7 +173,7 @@ export type StoredEcdsaRegistrationCompleted = StoredEcdsaRegistrationBase & {
   kind: 'ecdsa_completed';
   responded: StoredEcdsaRegistrationResponded['responded'];
   completedAtMs: number;
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   walletKeys: WalletRegistrationEcdsaWalletKey[];
 };
 
@@ -180,7 +219,7 @@ type StoredWalletRegistrationCeremonyBase = {
   signingRootVersion?: string;
   expectedOrigin?: string;
   expiresAtMs: number;
-  webauthn: StoredRegistrationWebAuthnCredential;
+  authority: StoredRegistrationAuthority;
 };
 
 export type StoredWalletRegistrationCeremony = StoredWalletRegistrationCeremonyBase & {
@@ -222,7 +261,7 @@ export type StoredEcdsaAddSignerCompleted = StoredEcdsaAddSignerBase & {
   kind: 'ecdsa_add_signer_completed';
   responded: StoredEcdsaAddSignerResponded['responded'];
   completedAtMs: number;
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   walletKeys: WalletRegistrationEcdsaWalletKey[];
 };
 
@@ -252,10 +291,33 @@ export type StoredWalletAddSignerCeremony = {
   signerState: StoredWalletAddSignerSignerState;
 };
 
+export type StoredWalletAddAuthMethodCeremony = {
+  addAuthMethodCeremonyId: string;
+  intent: AddAuthMethodIntentV1;
+  digestB64u: string;
+  orgId: string;
+  expectedOrigin?: string;
+  expiresAtMs: number;
+  auth:
+    | {
+        kind: 'webauthn_assertion';
+        credentialIdB64u: string;
+      }
+    | {
+        kind: 'app_session';
+      };
+  authority: StoredRegistrationAuthority;
+};
+
 export interface RegistrationCeremonyStore {
   putIntent(intent: StoredRegistrationIntent): Promise<void>;
   getIntent(grant: RegistrationIntentGrant): Promise<StoredRegistrationIntent | null>;
   takeIntent(grant: RegistrationIntentGrant): Promise<ConsumedRegistrationIntent | null>;
+  putAddAuthMethodIntent(intent: StoredAddAuthMethodIntent): Promise<void>;
+  getAddAuthMethodIntent(grant: AddAuthMethodIntentGrant): Promise<StoredAddAuthMethodIntent | null>;
+  takeAddAuthMethodIntent(
+    grant: AddAuthMethodIntentGrant,
+  ): Promise<ConsumedAddAuthMethodIntent | null>;
   putAddSignerIntent(intent: StoredAddSignerIntent): Promise<void>;
   getAddSignerIntent(grant: AddSignerIntentGrant): Promise<StoredAddSignerIntent | null>;
   takeAddSignerIntent(grant: AddSignerIntentGrant): Promise<ConsumedAddSignerIntent | null>;
@@ -267,12 +329,22 @@ export interface RegistrationCeremonyStore {
   getAddSignerCeremony(addSignerCeremonyId: string): Promise<StoredWalletAddSignerCeremony | null>;
   updateAddSignerCeremony(ceremony: StoredWalletAddSignerCeremony): Promise<void>;
   takeAddSignerCeremony(addSignerCeremonyId: string): Promise<StoredWalletAddSignerCeremony | null>;
+  putAddAuthMethodCeremony(ceremony: StoredWalletAddAuthMethodCeremony): Promise<void>;
+  getAddAuthMethodCeremony(
+    addAuthMethodCeremonyId: string,
+  ): Promise<StoredWalletAddAuthMethodCeremony | null>;
+  updateAddAuthMethodCeremony(ceremony: StoredWalletAddAuthMethodCeremony): Promise<void>;
+  takeAddAuthMethodCeremony(
+    addAuthMethodCeremonyId: string,
+  ): Promise<StoredWalletAddAuthMethodCeremony | null>;
 }
 
 export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStore {
   private readonly intents = new Map<string, StoredRegistrationIntent>();
+  private readonly addAuthMethodIntents = new Map<string, StoredAddAuthMethodIntent>();
   private readonly addSignerIntents = new Map<string, StoredAddSignerIntent>();
   private readonly ceremonies = new Map<string, StoredWalletRegistrationCeremony>();
+  private readonly addAuthMethodCeremonies = new Map<string, StoredWalletAddAuthMethodCeremony>();
   private readonly addSignerCeremonies = new Map<string, StoredWalletAddSignerCeremony>();
 
   async putIntent(intent: StoredRegistrationIntent): Promise<void> {
@@ -295,6 +367,32 @@ export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStor
     this.intents.delete(key);
     if (intent.expiresAtMs <= Date.now()) return null;
     return { ...intent, kind: 'intent_consumed', consumedAtMs: Date.now() };
+  }
+
+  async putAddAuthMethodIntent(intent: StoredAddAuthMethodIntent): Promise<void> {
+    this.pruneExpired();
+    this.addAuthMethodIntents.set(intent.grant, intent);
+  }
+
+  async getAddAuthMethodIntent(
+    grant: AddAuthMethodIntentGrant,
+  ): Promise<StoredAddAuthMethodIntent | null> {
+    this.pruneExpired();
+    const intent = this.addAuthMethodIntents.get(String(grant || '').trim()) || null;
+    if (!intent || intent.expiresAtMs <= Date.now()) return null;
+    return intent;
+  }
+
+  async takeAddAuthMethodIntent(
+    grant: AddAuthMethodIntentGrant,
+  ): Promise<ConsumedAddAuthMethodIntent | null> {
+    this.pruneExpired();
+    const key = String(grant || '').trim();
+    const intent = this.addAuthMethodIntents.get(key) || null;
+    if (!intent) return null;
+    this.addAuthMethodIntents.delete(key);
+    if (intent.expiresAtMs <= Date.now()) return null;
+    return { ...intent, kind: 'add_auth_method_intent_consumed', consumedAtMs: Date.now() };
   }
 
   async putAddSignerIntent(intent: StoredAddSignerIntent): Promise<void> {
@@ -350,6 +448,38 @@ export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStor
     return ceremony;
   }
 
+  async putAddAuthMethodCeremony(ceremony: StoredWalletAddAuthMethodCeremony): Promise<void> {
+    this.pruneExpired();
+    this.addAuthMethodCeremonies.set(ceremony.addAuthMethodCeremonyId, ceremony);
+  }
+
+  async getAddAuthMethodCeremony(
+    addAuthMethodCeremonyId: string,
+  ): Promise<StoredWalletAddAuthMethodCeremony | null> {
+    this.pruneExpired();
+    const ceremony =
+      this.addAuthMethodCeremonies.get(String(addAuthMethodCeremonyId || '').trim()) || null;
+    if (!ceremony || ceremony.expiresAtMs <= Date.now()) return null;
+    return ceremony;
+  }
+
+  async updateAddAuthMethodCeremony(ceremony: StoredWalletAddAuthMethodCeremony): Promise<void> {
+    this.pruneExpired();
+    if (ceremony.expiresAtMs <= Date.now()) return;
+    this.addAuthMethodCeremonies.set(ceremony.addAuthMethodCeremonyId, ceremony);
+  }
+
+  async takeAddAuthMethodCeremony(
+    addAuthMethodCeremonyId: string,
+  ): Promise<StoredWalletAddAuthMethodCeremony | null> {
+    this.pruneExpired();
+    const key = String(addAuthMethodCeremonyId || '').trim();
+    const ceremony = this.addAuthMethodCeremonies.get(key) || null;
+    this.addAuthMethodCeremonies.delete(key);
+    if (!ceremony || ceremony.expiresAtMs <= Date.now()) return null;
+    return ceremony;
+  }
+
   async putAddSignerCeremony(ceremony: StoredWalletAddSignerCeremony): Promise<void> {
     this.pruneExpired();
     this.addSignerCeremonies.set(ceremony.addSignerCeremonyId, ceremony);
@@ -386,11 +516,17 @@ export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStor
     for (const [key, intent] of this.intents) {
       if (intent.expiresAtMs <= now) this.intents.delete(key);
     }
+    for (const [key, intent] of this.addAuthMethodIntents) {
+      if (intent.expiresAtMs <= now) this.addAuthMethodIntents.delete(key);
+    }
     for (const [key, intent] of this.addSignerIntents) {
       if (intent.expiresAtMs <= now) this.addSignerIntents.delete(key);
     }
     for (const [key, ceremony] of this.ceremonies) {
       if (ceremony.expiresAtMs <= now) this.ceremonies.delete(key);
+    }
+    for (const [key, ceremony] of this.addAuthMethodCeremonies) {
+      if (ceremony.expiresAtMs <= now) this.addAuthMethodCeremonies.delete(key);
     }
     for (const [key, ceremony] of this.addSignerCeremonies) {
       if (ceremony.expiresAtMs <= now) this.addSignerCeremonies.delete(key);
@@ -439,6 +575,190 @@ function parseStoredAddSignerIntent(value: unknown): StoredAddSignerIntent | nul
   return value as StoredAddSignerIntent;
 }
 
+function parseStoredAddAuthMethodIntent(value: unknown): StoredAddAuthMethodIntent | null {
+  value = parseJsonValue(value);
+  if (!isRecord(value)) return null;
+  if (value.kind !== 'add_auth_method_intent_allocated') return null;
+  const grant = trimString(value.grant);
+  const digestB64u = trimString(value.digestB64u);
+  const orgId = typeof value.orgId === 'string' ? value.orgId : null;
+  const expiresAtMs = Number(value.expiresAtMs);
+  if (!grant || !digestB64u || orgId === null || !Number.isFinite(expiresAtMs)) return null;
+  const intent = isRecord(value.intent) ? value.intent : null;
+  if (!intent) return null;
+  const version = trimString(intent.version);
+  const walletId = walletIdFromString(trimString(intent.walletId));
+  const rpId = trimString(intent.rpId);
+  const authMethod = normalizeAddAuthMethodInput(intent.authMethod);
+  const nonceB64u = trimString(intent.nonceB64u);
+  if (version !== 'add_auth_method_intent_v1' || !walletId || !rpId || !authMethod || !nonceB64u) {
+    return null;
+  }
+  const parsedIntent: AddAuthMethodIntentV1 = {
+    version: 'add_auth_method_intent_v1',
+    walletId,
+    rpId,
+    authMethod,
+    nonceB64u,
+  };
+  if (Object.prototype.hasOwnProperty.call(intent, 'runtimePolicyScope')) {
+    const runtimePolicyScope = parseRuntimePolicyScopeLike(intent.runtimePolicyScope);
+    if (!runtimePolicyScope) return null;
+    parsedIntent.runtimePolicyScope = runtimePolicyScope;
+  }
+  const normalizedGrant = addAuthMethodIntentGrantFromString(grant);
+  if (!normalizedGrant) {
+    return null;
+  }
+  return {
+    kind: 'add_auth_method_intent_allocated',
+    grant: normalizedGrant,
+    intent: parsedIntent,
+    digestB64u,
+    orgId,
+    expiresAtMs: Math.floor(expiresAtMs),
+    ...(trimString(value.signingRootId) ? { signingRootId: trimString(value.signingRootId) } : {}),
+    ...(trimString(value.signingRootVersion)
+      ? { signingRootVersion: trimString(value.signingRootVersion) }
+      : {}),
+    ...(trimString(value.expectedOrigin) ? { expectedOrigin: trimString(value.expectedOrigin) } : {}),
+  };
+}
+
+function hasDefinedField(obj: Record<string, unknown>, field: string): boolean {
+  return field in obj && obj[field] !== undefined;
+}
+
+function parseRuntimePolicyScopeLike(
+  value: unknown,
+): AddAuthMethodIntentV1['runtimePolicyScope'] | null {
+  if (!isRecord(value)) return null;
+  const orgId = trimString(value.orgId);
+  const projectId = trimString(value.projectId);
+  const envId = trimString(value.envId);
+  const signingRootVersion = trimString(value.signingRootVersion);
+  if (!orgId || !projectId || !envId) return null;
+  if (hasDefinedField(value, 'signingRootVersion') && !signingRootVersion) return null;
+  return signingRootVersion
+    ? { orgId, projectId, envId, signingRootVersion }
+    : { orgId, projectId, envId };
+}
+
+function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAuthority | null {
+  value = parseJsonValue(value);
+  if (!isRecord(value)) return null;
+  const walletId =
+    typeof value.walletId === 'string' && value.walletId.trim()
+      ? (value.walletId as WalletId)
+      : null;
+  const rpId = typeof value.rpId === 'string' && value.rpId.trim() ? value.rpId : null;
+  const registrationIntentDigestB64u =
+    typeof value.registrationIntentDigestB64u === 'string' &&
+    value.registrationIntentDigestB64u.trim()
+      ? value.registrationIntentDigestB64u
+      : null;
+  if (!walletId || !rpId || !registrationIntentDigestB64u) return null;
+
+  switch (value.kind) {
+    case 'passkey': {
+      if (hasDefinedField(value, 'emailHashHex') || hasDefinedField(value, 'challengeId')) {
+        return null;
+      }
+      const credentialIdB64u =
+        typeof value.credentialIdB64u === 'string' && value.credentialIdB64u.trim()
+          ? value.credentialIdB64u
+          : null;
+      const credentialPublicKeyB64u =
+        typeof value.credentialPublicKeyB64u === 'string' && value.credentialPublicKeyB64u.trim()
+          ? value.credentialPublicKeyB64u
+          : null;
+      const counter = Number(value.counter);
+      if (!credentialIdB64u || !credentialPublicKeyB64u || !Number.isSafeInteger(counter)) {
+        return null;
+      }
+      return {
+        kind: 'passkey',
+        walletId,
+        rpId,
+        credentialIdB64u,
+        credentialPublicKeyB64u,
+        counter,
+        registrationIntentDigestB64u,
+      };
+    }
+    case 'email_otp': {
+      if (
+        hasDefinedField(value, 'credentialIdB64u') ||
+        hasDefinedField(value, 'credentialPublicKeyB64u') ||
+        hasDefinedField(value, 'counter')
+      ) {
+        return null;
+      }
+      const emailHashHex =
+        typeof value.emailHashHex === 'string' && value.emailHashHex.trim()
+          ? value.emailHashHex
+          : null;
+      const providerSubject =
+        typeof value.providerSubject === 'string' && value.providerSubject.trim()
+          ? value.providerSubject
+          : null;
+      const email =
+        typeof value.email === 'string' && value.email.trim()
+          ? value.email.toLowerCase()
+          : null;
+      const challengeId =
+        typeof value.challengeId === 'string' && value.challengeId.trim()
+          ? value.challengeId
+          : null;
+      const challengeSubjectId = parseChallengeSubjectId(value.challengeSubjectId);
+      const parsedProviderSubject = parseProviderSubject(providerSubject);
+      const parsedChallengeId = parseEmailOtpChallengeId(challengeId);
+      const originalWalletId = parseWalletId(value.originalWalletId);
+      const finalWalletId = parseWalletId(value.finalWalletId);
+      const orgId = parseOrgId(value.orgId);
+      const appSessionVersion = parseAppSessionVersion(value.appSessionVersion);
+      const challengePurpose =
+        value.challengePurpose === 'registration' ||
+        value.challengePurpose === 'registration_reroll'
+          ? value.challengePurpose
+          : null;
+      if (
+        !providerSubject ||
+        !email ||
+        !emailHashHex ||
+        !challengeId ||
+        !challengeSubjectId.ok ||
+        !parsedProviderSubject.ok ||
+        !parsedChallengeId.ok ||
+        !originalWalletId.ok ||
+        !finalWalletId.ok ||
+        !orgId.ok ||
+        !appSessionVersion.ok ||
+        !challengePurpose
+      ) {
+        return null;
+      }
+      return {
+        kind: 'email_otp',
+        walletId,
+        rpId,
+        providerSubject: parsedProviderSubject.value,
+        challengeSubjectId: challengeSubjectId.value,
+        email,
+        emailHashHex,
+        challengeId: parsedChallengeId.value,
+        originalWalletId: originalWalletId.value,
+        finalWalletId: finalWalletId.value,
+        orgId: orgId.value,
+        appSessionVersion: appSessionVersion.value,
+        challengePurpose,
+        registrationIntentDigestB64u,
+      };
+    }
+  }
+  return null;
+}
+
 function parseStoredWalletRegistrationCeremony(
   value: unknown,
 ): StoredWalletRegistrationCeremony | null {
@@ -451,8 +771,12 @@ function parseStoredWalletRegistrationCeremony(
   if (typeof value.digestB64u !== 'string' || !value.digestB64u.trim()) return null;
   if (typeof value.orgId !== 'string') return null;
   if (!Number.isFinite(Number(value.expiresAtMs))) return null;
-  if (!isRecord(value.webauthn) || !isRecord(value.signerState)) return null;
-  return value as StoredWalletRegistrationCeremony;
+  const authority = parseStoredRegistrationAuthority(value.authority);
+  if (!authority || !isRecord(value.signerState)) return null;
+  return {
+    ...(value as Omit<StoredWalletRegistrationCeremony, 'authority'>),
+    authority,
+  };
 }
 
 function parseStoredWalletAddSignerCeremony(value: unknown): StoredWalletAddSignerCeremony | null {
@@ -467,6 +791,57 @@ function parseStoredWalletAddSignerCeremony(value: unknown): StoredWalletAddSign
   if (!Number.isFinite(Number(value.expiresAtMs))) return null;
   if (!isRecord(value.auth) || !isRecord(value.signerState)) return null;
   return value as StoredWalletAddSignerCeremony;
+}
+
+function parseAddAuthMethodCeremonyAuth(
+  value: unknown,
+): StoredWalletAddAuthMethodCeremony['auth'] | null {
+  if (!isRecord(value)) return null;
+  if (value.kind === 'app_session') {
+    return { kind: 'app_session' };
+  }
+  if (value.kind !== 'webauthn_assertion') return null;
+  const credentialIdB64u = trimString(value.credentialIdB64u);
+  if (!credentialIdB64u) return null;
+  return {
+    kind: 'webauthn_assertion',
+    credentialIdB64u,
+  };
+}
+
+function parseStoredWalletAddAuthMethodCeremony(
+  value: unknown,
+): StoredWalletAddAuthMethodCeremony | null {
+  value = parseJsonValue(value);
+  if (!isRecord(value)) return null;
+  const addAuthMethodCeremonyId = trimString(value.addAuthMethodCeremonyId);
+  const digestB64u = trimString(value.digestB64u);
+  const orgId = typeof value.orgId === 'string' ? value.orgId : null;
+  const expiresAtMs = Number(value.expiresAtMs);
+  if (!addAuthMethodCeremonyId || !digestB64u || orgId === null || !Number.isFinite(expiresAtMs)) {
+    return null;
+  }
+  const auth = parseAddAuthMethodCeremonyAuth(value.auth);
+  const authority = parseStoredRegistrationAuthority(value.authority);
+  const intentRecord = parseStoredAddAuthMethodIntent({
+    kind: 'add_auth_method_intent_allocated',
+    grant: 'ignored',
+    intent: value.intent,
+    digestB64u,
+    orgId,
+    expiresAtMs,
+  });
+  if (!auth || !authority || !intentRecord) return null;
+  return {
+    addAuthMethodCeremonyId,
+    intent: intentRecord.intent,
+    digestB64u,
+    orgId,
+    expiresAtMs: Math.floor(expiresAtMs),
+    auth,
+    authority,
+    ...(trimString(value.expectedOrigin) ? { expectedOrigin: trimString(value.expectedOrigin) } : {}),
+  };
 }
 
 function parseJsonRecord<T>(row: unknown, parser: (value: unknown) => T | null): T | null {
@@ -528,6 +903,57 @@ class PostgresRegistrationCeremonyStore implements RegistrationCeremonyStore {
     const intent = parseJsonRecord(result.rows[0], parseStoredRegistrationIntent);
     if (!intent) return null;
     return { ...intent, kind: 'intent_consumed', consumedAtMs: Date.now() };
+  }
+
+  async putAddAuthMethodIntent(intent: StoredAddAuthMethodIntent): Promise<void> {
+    const pool = await this.poolPromise;
+    await pool.query(
+      `
+        INSERT INTO wallet_registration_intents
+          (namespace, intent_grant, record_json, expires_at_ms)
+        VALUES ($1, $2, $3::jsonb, $4)
+        ON CONFLICT (namespace, intent_grant) DO UPDATE SET
+          record_json = EXCLUDED.record_json,
+          expires_at_ms = EXCLUDED.expires_at_ms
+      `,
+      [this.namespace, intent.grant, JSON.stringify(intent), intent.expiresAtMs],
+    );
+  }
+
+  async getAddAuthMethodIntent(
+    grant: AddAuthMethodIntentGrant,
+  ): Promise<StoredAddAuthMethodIntent | null> {
+    const pool = await this.poolPromise;
+    const key = String(grant || '').trim();
+    if (!key) return null;
+    const result = await pool.query(
+      `
+        SELECT record_json
+        FROM wallet_registration_intents
+        WHERE namespace = $1 AND intent_grant = $2 AND expires_at_ms > $3
+      `,
+      [this.namespace, key, Date.now()],
+    );
+    return parseJsonRecord(result.rows[0], parseStoredAddAuthMethodIntent);
+  }
+
+  async takeAddAuthMethodIntent(
+    grant: AddAuthMethodIntentGrant,
+  ): Promise<ConsumedAddAuthMethodIntent | null> {
+    const pool = await this.poolPromise;
+    const key = String(grant || '').trim();
+    if (!key) return null;
+    const result = await pool.query(
+      `
+        DELETE FROM wallet_registration_intents
+        WHERE namespace = $1 AND intent_grant = $2 AND expires_at_ms > $3
+        RETURNING record_json
+      `,
+      [this.namespace, key, Date.now()],
+    );
+    const intent = parseJsonRecord(result.rows[0], parseStoredAddAuthMethodIntent);
+    if (!intent) return null;
+    return { ...intent, kind: 'add_auth_method_intent_consumed', consumedAtMs: Date.now() };
   }
 
   async putAddSignerIntent(intent: StoredAddSignerIntent): Promise<void> {
@@ -648,6 +1074,79 @@ class PostgresRegistrationCeremonyStore implements RegistrationCeremonyStore {
       [this.namespace, key, Date.now()],
     );
     return parseJsonRecord(result.rows[0], parseStoredWalletRegistrationCeremony);
+  }
+
+  async putAddAuthMethodCeremony(ceremony: StoredWalletAddAuthMethodCeremony): Promise<void> {
+    const pool = await this.poolPromise;
+    await pool.query(
+      `
+        INSERT INTO wallet_registration_ceremonies
+          (namespace, registration_ceremony_id, record_json, expires_at_ms)
+        VALUES ($1, $2, $3::jsonb, $4)
+        ON CONFLICT (namespace, registration_ceremony_id) DO UPDATE SET
+          record_json = EXCLUDED.record_json,
+          expires_at_ms = EXCLUDED.expires_at_ms
+      `,
+      [
+        this.namespace,
+        ceremony.addAuthMethodCeremonyId,
+        JSON.stringify(ceremony),
+        ceremony.expiresAtMs,
+      ],
+    );
+  }
+
+  async getAddAuthMethodCeremony(
+    addAuthMethodCeremonyId: string,
+  ): Promise<StoredWalletAddAuthMethodCeremony | null> {
+    const pool = await this.poolPromise;
+    const key = String(addAuthMethodCeremonyId || '').trim();
+    if (!key) return null;
+    const result = await pool.query(
+      `
+        SELECT record_json
+        FROM wallet_registration_ceremonies
+        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $3
+      `,
+      [this.namespace, key, Date.now()],
+    );
+    return parseJsonRecord(result.rows[0], parseStoredWalletAddAuthMethodCeremony);
+  }
+
+  async updateAddAuthMethodCeremony(ceremony: StoredWalletAddAuthMethodCeremony): Promise<void> {
+    const pool = await this.poolPromise;
+    if (ceremony.expiresAtMs <= Date.now()) return;
+    await pool.query(
+      `
+        UPDATE wallet_registration_ceremonies
+        SET record_json = $3::jsonb, expires_at_ms = $4
+        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $5
+      `,
+      [
+        this.namespace,
+        ceremony.addAuthMethodCeremonyId,
+        JSON.stringify(ceremony),
+        ceremony.expiresAtMs,
+        Date.now(),
+      ],
+    );
+  }
+
+  async takeAddAuthMethodCeremony(
+    addAuthMethodCeremonyId: string,
+  ): Promise<StoredWalletAddAuthMethodCeremony | null> {
+    const pool = await this.poolPromise;
+    const key = String(addAuthMethodCeremonyId || '').trim();
+    if (!key) return null;
+    const result = await pool.query(
+      `
+        DELETE FROM wallet_registration_ceremonies
+        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $3
+        RETURNING record_json
+      `,
+      [this.namespace, key, Date.now()],
+    );
+    return parseJsonRecord(result.rows[0], parseStoredWalletAddAuthMethodCeremony);
   }
 
   async putAddSignerCeremony(ceremony: StoredWalletAddSignerCeremony): Promise<void> {
@@ -810,7 +1309,13 @@ class CloudflareDurableObjectRegistrationCeremonyStore implements RegistrationCe
   }
 
   private key(
-    scope: 'intent' | 'add-signer-intent' | 'ceremony' | 'add-signer',
+    scope:
+      | 'intent'
+      | 'add-auth-method-intent'
+      | 'add-signer-intent'
+      | 'ceremony'
+      | 'add-auth-method'
+      | 'add-signer',
     id: string,
   ): string {
     return `${this.prefix}${scope}:${id}`;
@@ -894,6 +1399,49 @@ class CloudflareDurableObjectRegistrationCeremonyStore implements RegistrationCe
     return { ...intent, kind: 'add_signer_intent_consumed', consumedAtMs: Date.now() };
   }
 
+  async putAddAuthMethodIntent(intent: StoredAddAuthMethodIntent): Promise<void> {
+    const parsed = parseStoredAddAuthMethodIntent(intent);
+    if (!parsed) throw new Error('Invalid add-auth-method intent record');
+    const ttlMs = Math.max(1, parsed.expiresAtMs - Date.now());
+    const response = await callDo<void>(this.stub, {
+      op: 'set',
+      key: this.key('add-auth-method-intent', parsed.grant),
+      value: parsed,
+      ttlMs,
+    });
+    if (!response.ok) throw new Error(response.message);
+  }
+
+  async getAddAuthMethodIntent(
+    grant: AddAuthMethodIntentGrant,
+  ): Promise<StoredAddAuthMethodIntent | null> {
+    const key = trimString(grant);
+    if (!key) return null;
+    const response = await callDo<unknown | null>(this.stub, {
+      op: 'get',
+      key: this.key('add-auth-method-intent', key),
+    });
+    if (!response.ok) return null;
+    const intent = parseStoredAddAuthMethodIntent(response.value);
+    if (!intent || intent.expiresAtMs <= Date.now()) return null;
+    return intent;
+  }
+
+  async takeAddAuthMethodIntent(
+    grant: AddAuthMethodIntentGrant,
+  ): Promise<ConsumedAddAuthMethodIntent | null> {
+    const key = trimString(grant);
+    if (!key) return null;
+    const response = await callDo<unknown | null>(this.stub, {
+      op: 'getdel',
+      key: this.key('add-auth-method-intent', key),
+    });
+    if (!response.ok) return null;
+    const intent = parseStoredAddAuthMethodIntent(response.value);
+    if (!intent || intent.expiresAtMs <= Date.now()) return null;
+    return { ...intent, kind: 'add_auth_method_intent_consumed', consumedAtMs: Date.now() };
+  }
+
   async putCeremony(ceremony: StoredWalletRegistrationCeremony): Promise<void> {
     const parsed = parseStoredWalletRegistrationCeremony(ceremony);
     if (!parsed) throw new Error('Invalid registration ceremony record');
@@ -947,6 +1495,65 @@ class CloudflareDurableObjectRegistrationCeremonyStore implements RegistrationCe
     });
     if (!response.ok) return null;
     const ceremony = parseStoredWalletRegistrationCeremony(response.value);
+    if (!ceremony || ceremony.expiresAtMs <= Date.now()) return null;
+    return ceremony;
+  }
+
+  async putAddAuthMethodCeremony(ceremony: StoredWalletAddAuthMethodCeremony): Promise<void> {
+    const parsed = parseStoredWalletAddAuthMethodCeremony(ceremony);
+    if (!parsed) throw new Error('Invalid add-auth-method ceremony record');
+    const ttlMs = Math.max(1, parsed.expiresAtMs - Date.now());
+    const response = await callDo<void>(this.stub, {
+      op: 'set',
+      key: this.key('add-auth-method', parsed.addAuthMethodCeremonyId),
+      value: parsed,
+      ttlMs,
+    });
+    if (!response.ok) throw new Error(response.message);
+  }
+
+  async getAddAuthMethodCeremony(
+    addAuthMethodCeremonyId: string,
+  ): Promise<StoredWalletAddAuthMethodCeremony | null> {
+    const key = trimString(addAuthMethodCeremonyId);
+    if (!key) return null;
+    const response = await callDo<unknown | null>(this.stub, {
+      op: 'get',
+      key: this.key('add-auth-method', key),
+    });
+    if (!response.ok) return null;
+    const ceremony = parseStoredWalletAddAuthMethodCeremony(response.value);
+    if (!ceremony || ceremony.expiresAtMs <= Date.now()) return null;
+    return ceremony;
+  }
+
+  async updateAddAuthMethodCeremony(
+    ceremony: StoredWalletAddAuthMethodCeremony,
+  ): Promise<void> {
+    const parsed = parseStoredWalletAddAuthMethodCeremony(ceremony);
+    if (!parsed) throw new Error('Invalid add-auth-method ceremony record');
+    if (parsed.expiresAtMs <= Date.now()) return;
+    const ttlMs = Math.max(1, parsed.expiresAtMs - Date.now());
+    const response = await callDo<void>(this.stub, {
+      op: 'set',
+      key: this.key('add-auth-method', parsed.addAuthMethodCeremonyId),
+      value: parsed,
+      ttlMs,
+    });
+    if (!response.ok) throw new Error(response.message);
+  }
+
+  async takeAddAuthMethodCeremony(
+    addAuthMethodCeremonyId: string,
+  ): Promise<StoredWalletAddAuthMethodCeremony | null> {
+    const key = trimString(addAuthMethodCeremonyId);
+    if (!key) return null;
+    const response = await callDo<unknown | null>(this.stub, {
+      op: 'getdel',
+      key: this.key('add-auth-method', key),
+    });
+    if (!response.ok) return null;
+    const ceremony = parseStoredWalletAddAuthMethodCeremony(response.value);
     if (!ceremony || ceremony.expiresAtMs <= Date.now()) return null;
     return ceremony;
   }
@@ -1068,9 +1675,9 @@ export function createRegistrationCeremonyStore(
   return new MemoryRegistrationCeremonyStore();
 }
 
-export function createWalletSubjectId(): WalletSubjectId {
+export function createWalletId(): WalletId {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
   const encoded = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
-  return `wallet_${encoded}` as WalletSubjectId;
+  return `wallet_${encoded}` as WalletId;
 }

@@ -20,17 +20,18 @@ import {
 import {
   exportEcdsaKeyWithAuthorization,
   exportEcdsaKeyWithFreshEmailOtpLane,
-  recoverEd25519ExportPrfFirst,
+  exportEd25519SeedWithAuthorization,
   requestExportChallenge,
   requestTransactionSigningChallenge,
   type EmailOtpEcdsaExportArtifact,
+  type EmailOtpEd25519ExportArtifact,
 } from './exportRecovery';
 import type {
   EmailOtpThresholdEcdsaLoginResult,
   LoginEmailOtpEcdsaCapabilityArgs,
 } from './ecdsaLogin';
 
-export type { EmailOtpEcdsaExportArtifact } from './exportRecovery';
+export type { EmailOtpEcdsaExportArtifact, EmailOtpEd25519ExportArtifact } from './exportRecovery';
 
 type EmailOtpEcdsaRouteChain = ThresholdEcdsaChainTarget['kind'];
 export type EmailOtpRouteChain = 'near' | EmailOtpEcdsaRouteChain;
@@ -52,11 +53,18 @@ export type RequestEmailOtpChallengeArgs =
       walletSession?: never;
     };
 
-export type RecoverEd25519ExportPrfFirstArgs = {
+export type ExportEd25519SeedWithAuthorizationArgs = {
   nearAccountId: AccountId;
   challengeId: string;
   otpCode: string;
   record: ThresholdEd25519SessionRecord;
+  signingRootId: string;
+  keyVersion: string;
+  participantIds: number[];
+  thresholdSessionId: string;
+  thresholdSessionAuthToken: string;
+  relayerKeyId: string;
+  expectedPublicKey: string;
   routeAuth?: AppOrThresholdSessionAuth;
   authLane?: EmailOtpAuthLane;
 };
@@ -109,10 +117,10 @@ export class EmailOtpExportRecoveryRuntime {
     return await requestExportChallenge(this.workerPorts(), args);
   }
 
-  async recoverEd25519ExportPrfFirst(
-    args: RecoverEd25519ExportPrfFirstArgs,
-  ): Promise<{ prfFirstB64u: string }> {
-    return await recoverEd25519ExportPrfFirst(this.signingSessionWorkerPorts(), args);
+  async exportEd25519SeedWithAuthorization(
+    args: ExportEd25519SeedWithAuthorizationArgs,
+  ): Promise<EmailOtpEd25519ExportArtifact> {
+    return await exportEd25519SeedWithAuthorization(this.signingSessionWorkerPorts(), args);
   }
 
   async exportEcdsaKeyWithAuthorization(

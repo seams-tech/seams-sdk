@@ -540,7 +540,7 @@ export type ThresholdOnlyWarmSessionPrfClaimArgs = ClaimWarmSessionPrfArgsBase &
 export type WalletScopedEd25519WarmSessionPrfClaimArgs = ClaimWarmSessionPrfArgsBase & {
   kind: 'wallet_scoped_ed25519_claim';
   walletId: string;
-  authMethod: 'passkey';
+  authMethod: 'passkey' | 'email_otp';
   walletSigningSessionId: string;
   curve: 'ed25519';
   chain: 'near';

@@ -4,10 +4,7 @@ import type {
 } from '../crypto/webauthn';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import { bootstrapEcdsaSession } from './bootstrapSession';
-import type {
-  ThresholdEcdsaChainTarget,
-  WalletSubjectId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdSessionKind } from '../sessionPolicy';
 
 /**
@@ -21,7 +18,6 @@ export async function connectEcdsaSession(args: {
   relayerUrl: string;
   relayerKeyId: string;
   userId: string;
-  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   participantIds?: number[];
   sessionKind?: ThresholdSessionKind;
@@ -49,7 +45,6 @@ export async function connectEcdsaSession(args: {
     touchIdPrompt: args.touchIdPrompt,
     relayerUrl: args.relayerUrl,
     userId: String(args.userId || '').trim(),
-    subjectId: args.subjectId,
     chainTarget: args.chainTarget,
     participantIds: args.participantIds,
     sessionKind: args.sessionKind,

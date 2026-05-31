@@ -52,12 +52,12 @@ def clientBoundaryRevealsCanonicalX
 
 def allowedOutputKindForClientBoundary
     (clientOutput : EcdsaHssBoundary.ClientBoundaryModel) :
-    ecdsa_hss.wire.AllowedOutputKindV1 :=
+    ecdsa_hss.wire.AllowedOutputKind :=
   match clientOutput with
   | EcdsaHssBoundary.ClientBoundaryModel.nonExport _ =>
-    ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly
+    ecdsa_hss.wire.AllowedOutputKind.ThresholdMaterialOnly
   | EcdsaHssBoundary.ClientBoundaryModel.explicitExport _ =>
-    ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndRelayerExportShare
+    ecdsa_hss.wire.AllowedOutputKind.ThresholdMaterialAndRelayerExportShare
 
 def BoundaryRespectsFrozenDisclosurePolicy
     (boundary : EcdsaHssBoundary.RespondBoundaryModel) : Prop :=
@@ -130,7 +130,7 @@ def HiddenEvalBoundaryIndistinguishableUnderClientSecretVariation : Prop :=
 def HiddenEvalNonExportTransportExcludesCanonicalSecret : Prop :=
   ∀ (boundary : HiddenEvalTransportBoundaryModel),
       boundary.operation.allowedOutputKind =
-          ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly →
+          ecdsa_hss.wire.AllowedOutputKind.ThresholdMaterialOnly →
       transportBoundaryRevealsCanonicalX? boundary = none
 
 def HiddenEvalTransportNeverCarriesRawRootMaterial : Prop :=

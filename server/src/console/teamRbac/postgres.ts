@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type { NormalizedLogger } from '../../core/logger';
 import { getPostgresPool } from '../../storage/postgres';
 import {
@@ -34,7 +35,7 @@ function nowMs(now: Date): number {
 }
 
 function makeId(prefix: string, now: Date): string {
-  return `${prefix}_${now.getTime().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+  return `${prefix}_${now.getTime().toString(36)}_${secureRandomBase36(8, 'console IDs')}`;
 }
 
 function normalizeRole(raw: unknown): ConsoleTeamRole | null {
@@ -271,7 +272,8 @@ async function ensureActorMembership(
       : parsed.email;
   const nextDisplayName =
     actorDisplayName &&
-    (!String(parsed.displayName || '').trim() || String(parsed.displayName || '').trim() === actorUserId)
+    (!String(parsed.displayName || '').trim() ||
+      String(parsed.displayName || '').trim() === actorUserId)
       ? actorDisplayName
       : parsed.displayName || null;
   await q.query(
@@ -540,7 +542,11 @@ export async function createPostgresConsoleTeamRbacService(
         if (!actorUserId) {
           throw new ConsoleTeamRbacError('invalid_body', 400, 'Actor user id is required');
         }
-        const actor = await findMemberByUserId(q, { namespace, orgId: ctx.orgId, userId: actorUserId });
+        const actor = await findMemberByUserId(q, {
+          namespace,
+          orgId: ctx.orgId,
+          userId: actorUserId,
+        });
         if (!actor) {
           throw new ConsoleTeamRbacError(
             'member_not_found',
@@ -556,7 +562,11 @@ export async function createPostgresConsoleTeamRbacService(
           );
         }
 
-        const target = await findMemberById(q, { namespace, orgId: ctx.orgId, memberId: targetMemberId });
+        const target = await findMemberById(q, {
+          namespace,
+          orgId: ctx.orgId,
+          memberId: targetMemberId,
+        });
         if (!target) {
           throw new ConsoleTeamRbacError(
             'member_not_found',
@@ -812,7 +822,10 @@ export async function createPostgresConsoleTeamRbacService(
           String(member.userId || '').trim() === String(ctx.actorUserId || '').trim()
             ? (() => {
                 const actorEmail = resolveActorEmail(ctx);
-                if (actorEmail && (isConsoleLocalEmail(member.email) || !String(member.email || '').trim())) {
+                if (
+                  actorEmail &&
+                  (isConsoleLocalEmail(member.email) || !String(member.email || '').trim())
+                ) {
                   return actorEmail;
                 }
                 return member.email;
@@ -825,7 +838,8 @@ export async function createPostgresConsoleTeamRbacService(
                 if (
                   actorDisplayName &&
                   (!String(member.displayName || '').trim() ||
-                    String(member.displayName || '').trim() === String(ctx.actorUserId || '').trim())
+                    String(member.displayName || '').trim() ===
+                      String(ctx.actorUserId || '').trim())
                 ) {
                   return actorDisplayName;
                 }

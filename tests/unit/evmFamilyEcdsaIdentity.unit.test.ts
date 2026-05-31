@@ -11,6 +11,7 @@ import {
   buildKnownReadyThresholdEcdsaSessionPolicy,
   buildReadyEcdsaSignerSession,
   buildResolvedEvmFamilyEcdsaKey,
+  buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord,
   buildThresholdEcdsaSessionTransportAuth,
   deriveEvmFamilyEcdsaKeyHandle,
   deriveEvmFamilyKeyFingerprint,
@@ -23,10 +24,7 @@ import {
   toVerifiedEcdsaPublicFactsFromReadyMaterial,
   toVerifiedEcdsaPublicFactsFromRecord,
 } from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import {
-  toWalletSubjectId,
-  type ThresholdEcdsaChainTarget,
-} from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   clearStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   clearStoredThresholdEcdsaSessionRecordsForWalletKeyHandle,
@@ -43,14 +41,15 @@ import {
   type ThresholdEcdsaSessionStoreDeps,
 } from '../../client/src/core/signingEngine/session/persistence/records';
 import { selectedEcdsaLane } from '../../client/src/core/signingEngine/session/identity/laneIdentity';
+import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '../../client/src/core/platform/ecdsaRoleLocalRecords';
 
 const WALLET_ID = toAccountId('alice.testnet');
-const SUBJECT_ID = toWalletSubjectId(WALLET_ID);
 const OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 const OTHER_OWNER_ADDRESS = '0x2222222222222222222222222222222222222222';
 const RP_ID = 'localhost';
 const VALID_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const OTHER_VALID_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const VALID_SHARE_32_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 const EVM_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'evm',
@@ -76,22 +75,22 @@ function makeRecord(
     signingRootId: 'project:dev',
     signingRootVersion: 'default',
     relayerKeyId: 'relayer-key',
-    clientVerifyingShareB64u: 'client-verifying-share',
-    clientAdditiveShare32B64u: 'client-share',
+    clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
+    clientAdditiveShare32B64u: VALID_SHARE_32_B64U,
     ecdsaHssRoleLocalClientState: {
       kind: 'role_local_ready',
       artifactKind: 'ecdsa-hss-role-local-client-state',
-      contextBinding32B64u: 'context-binding',
-      clientShare32B64u: 'client-share',
-      clientPublicKey33B64u: 'client-public-key',
+      contextBinding32B64u: VALID_SHARE_32_B64U,
+      clientShare32B64u: VALID_SHARE_32_B64U,
+      clientPublicKey33B64u: VALID_PUBLIC_KEY_B64U,
       clientShareRetryCounter: 0,
-      relayerPublicKey33B64u: 'relayer-public-key',
+      relayerPublicKey33B64u: OTHER_VALID_PUBLIC_KEY_B64U,
       groupPublicKey33B64u: VALID_PUBLIC_KEY_B64U,
       ethereumAddress: OWNER_ADDRESS,
       clientCaitSithInput: {
         participantId: 1,
-        mappedPrivateShare32B64u: 'mapped-private-share',
-        verifyingShare33B64u: 'verifying-share',
+        mappedPrivateShare32B64u: VALID_SHARE_32_B64U,
+        verifyingShare33B64u: VALID_PUBLIC_KEY_B64U,
       },
       createdAtMs: 1_800_000_000_000,
       updatedAtMs: 1_800_000_000_000,
@@ -126,9 +125,13 @@ function makeKeyRef(
     signingRootId: 'project:dev',
     signingRootVersion: 'default',
     backendBinding: {
+      materialKind: 'inline_role_local_ready',
       relayerKeyId: 'relayer-key',
-      clientVerifyingShareB64u: 'client-verifying-share',
-      clientAdditiveShare32B64u: 'client-share',
+      clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
+      clientAdditiveShare32B64u: VALID_SHARE_32_B64U,
+      ecdsaRoleLocalReadyRecord: parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
+        makeRecord(),
+      ),
     },
     participantIds: [1, 2],
     thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
@@ -289,11 +292,6 @@ test.describe('EVM-family ECDSA identity', () => {
   test('builds ready signer session material with transport auth and inline share', async () => {
     const keyRef = makeKeyRef({
       thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
-      backendBinding: {
-        relayerKeyId: 'relayer-key',
-        clientVerifyingShareB64u: 'client-verifying-share',
-        clientAdditiveShare32B64u: 'client-share',
-      },
     });
     const publicFacts = await toVerifiedEcdsaPublicFactsFromKeyRef({ keyRef });
     const signerSession = buildReadyEcdsaSignerSession({
@@ -320,7 +318,7 @@ test.describe('EVM-family ECDSA identity', () => {
     if (signerSession.clientShare.kind !== 'inline_client_share') {
       throw new Error('expected inline client share');
     }
-    expect(signerSession.clientShare.clientAdditiveShare32B64u).toBe('client-share');
+    expect(signerSession.clientShare.clientAdditiveShare32B64u).toBe(VALID_SHARE_32_B64U);
     expect('keyRef' in signerSession).toBe(false);
     expect('thresholdSessionAuthToken' in signerSession).toBe(false);
   });
@@ -363,6 +361,55 @@ test.describe('EVM-family ECDSA identity', () => {
     expect(signerSession.clientShare.kind).toBe('inline_client_share');
   });
 
+  test('builds key refs with normalized role-local ready records', () => {
+    const record = makeRecord({
+      thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
+    });
+    const keyRef = buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord({ record });
+    expect(keyRef.backendBinding?.ecdsaRoleLocalReadyRecord?.kind).toBe(
+      'ecdsa_role_local_ready_record_v1',
+    );
+    expect(
+      keyRef.backendBinding?.ecdsaRoleLocalReadyRecord?.publicFacts
+        .hssClientSharePublicKey33B64u,
+    ).toBe(VALID_PUBLIC_KEY_B64U);
+  });
+
+  test('treats Email OTP registration ECDSA records with inline HSS share as ready', async () => {
+    const record = makeRecord({
+      source: 'email_otp',
+      emailOtpAuthContext: {
+        retention: 'session',
+        reason: 'login',
+        policy: 'session',
+        authMethod: 'email_otp',
+      },
+      thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
+    });
+
+    const resolution = resolveReadyEvmFamilyEcdsaMaterial({
+      record,
+      rpId: RP_ID,
+      expected: {
+        walletId: WALLET_ID,
+        chainTarget: EVM_TARGET,
+        authMethod: 'email_otp',
+        source: 'email_otp',
+        thresholdSessionId: record.thresholdSessionId,
+        walletSigningSessionId: record.walletSigningSessionId,
+      },
+    });
+
+    expect(resolution.kind).toBe('ready');
+    if (resolution.kind !== 'ready') {
+      throw new Error('expected ready Email OTP ECDSA material');
+    }
+    const signerSession = await toReadyEcdsaSignerSessionFromReadyMaterial({
+      material: resolution.material,
+    });
+    expect(signerSession.clientShare.kind).toBe('inline_client_share');
+  });
+
   test('ready-material public facts come from the validated session record', async () => {
     const record = makeRecord({
       thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
@@ -401,12 +448,16 @@ test.describe('EVM-family ECDSA identity', () => {
       thresholdSessionKind: 'cookie',
       thresholdSessionAuthToken: undefined,
       backendBinding: {
+        materialKind: 'email_otp_worker_handle',
         relayerKeyId: 'relayer-key',
-        clientVerifyingShareB64u: 'client-verifying-share',
+        clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
         clientAdditiveShareHandle: {
           kind: 'email_otp_worker_session',
           sessionId: 'email-otp-worker-share-1',
         },
+        ecdsaRoleLocalReadyRecord: parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
+          makeRecord(),
+        ),
       },
     });
     const publicFacts = await toVerifiedEcdsaPublicFactsFromKeyRef({ keyRef });
@@ -439,8 +490,9 @@ test.describe('EVM-family ECDSA identity', () => {
     const keyRef = makeKeyRef({
       thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
       backendBinding: {
+        materialKind: 'metadata_only',
         relayerKeyId: 'relayer-key',
-        clientVerifyingShareB64u: 'client-verifying-share',
+        clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
       },
     });
     const publicFacts = await toVerifiedEcdsaPublicFactsFromKeyRef({ keyRef });
@@ -463,7 +515,7 @@ test.describe('EVM-family ECDSA identity', () => {
         thresholdSessionKind: 'jwt',
         thresholdSessionAuthToken: 'threshold-auth-token',
       }),
-    ).toThrow(/clientAdditiveShare32B64u is required/);
+    ).toThrow(/requires signing material/);
   });
 
   test('builds verified public facts from durable sealed record metadata', async () => {
@@ -830,18 +882,18 @@ test.describe('EVM-family ECDSA identity', () => {
     expect('subjectId' in stored).toBe(false);
   });
 
-  test('rejects persisted ECDSA records with subjectId that mismatches walletId', () => {
+  test('rejects persisted ECDSA records with any subjectId', () => {
     const deps: ThresholdEcdsaSessionStoreDeps = {
       recordsByLane: new Map(),
       now: () => 1_800_000_000_000,
     };
     const rawRecord = {
       ...makeRecord(),
-      subjectId: toWalletSubjectId('bob.testnet'),
+      subjectId: 'alice.testnet',
     } as Record<string, unknown>;
 
     expect(() => upsertStoredThresholdEcdsaSessionRecord(deps, rawRecord)).toThrow(
-      /subjectId mismatch/,
+      /unexpected subjectId/,
     );
   });
 

@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type { WebhookDispatchRequest, WebhookDispatchResult } from './service';
 import {
   normalizeConsoleWebhookEventCategory,
@@ -9,7 +10,7 @@ const WEBHOOK_DISPATCH_TIMEOUT_MS = 10_000;
 
 export function makeId(prefix: string, now: Date): string {
   const ts = now.getTime().toString(36);
-  const rand = Math.random().toString(36).slice(2, 10);
+  const rand = secureRandomBase36(8, 'console IDs');
   return `${prefix}_${ts}_${rand}`;
 }
 

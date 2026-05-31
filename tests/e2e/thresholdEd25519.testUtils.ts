@@ -445,6 +445,7 @@ export async function installCreateAccountAndRegisterUserMock(
       orgId: string;
       projectId: string;
       envId: string;
+      signingRootVersion: string;
     };
     threshold?: unknown;
   },
@@ -916,6 +917,7 @@ export async function installThresholdEd25519RegistrationMocks(
       orgId: string;
       projectId: string;
       envId: string;
+      signingRootVersion: string;
     };
     mutateThresholdEd25519Response?: (
       thresholdEd25519: Record<string, unknown>,

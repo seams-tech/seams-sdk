@@ -2,6 +2,9 @@
 
 Date created: April 9, 2026
 
+Removal note: this memo is historical where it describes the old ECDSA HSS
+context version. The active crate removed that path after v2 invalidation.
+
 ## Decision
 
 The canonical export object for `ecdsa-hss` v1 is a scalar-first object:

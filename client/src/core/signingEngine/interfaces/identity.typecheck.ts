@@ -39,7 +39,7 @@ const invalidNearSubjectWithEcdsaSubject = {
   walletSession,
   nearAccount: { kind: 'named', accountId: 'wallet.testnet' },
   // @ts-expect-error NEAR command subjects carry NEAR account identity, not ECDSA subject identity.
-  subjectId: 'wallet-subject',
+  subjectId: 'wallet',
 } satisfies NearCommandSubject;
 
 void invalidRawWalletSession;

@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type { NormalizedLogger } from '../../core/logger';
 import { getPostgresPool } from '../../storage/postgres';
 import {
@@ -58,7 +59,7 @@ function nowMs(now: Date): number {
 
 function makeId(prefix: string, now: Date): string {
   const ts = now.getTime().toString(36);
-  const rand = Math.random().toString(36).slice(2, 10);
+  const rand = secureRandomBase36(8, 'console IDs');
   return `${prefix}_${ts}_${rand}`;
 }
 
@@ -88,7 +89,9 @@ function parseBoolean(raw: unknown): boolean {
 }
 
 function parsePolicyKind(raw: unknown): ConsolePolicyKind {
-  return String(raw || '').trim().toUpperCase() === 'GAS_SPONSORSHIP'
+  return String(raw || '')
+    .trim()
+    .toUpperCase() === 'GAS_SPONSORSHIP'
     ? 'GAS_SPONSORSHIP'
     : 'TRANSACTION';
 }
@@ -141,7 +144,9 @@ async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<
 }
 
 function isUniqueViolation(error: unknown): boolean {
-  return Boolean(error && typeof error === 'object' && (error as { code?: unknown }).code === '23505');
+  return Boolean(
+    error && typeof error === 'object' && (error as { code?: unknown }).code === '23505',
+  );
 }
 
 function isCanonicalPolicyId(policyId: string, createdAtMs: number): boolean {
@@ -311,8 +316,7 @@ async function planPolicyIdMigrations(q: Queryable): Promise<PolicyIdMigrationPl
 
     for (const row of orgRows) {
       if (handledSourceIds.has(row.id)) continue;
-      const needsRewrite =
-        !isCanonicalPolicyId(row.id, row.createdAtMs) || row.namespaceIdRank > 1;
+      const needsRewrite = !isCanonicalPolicyId(row.id, row.createdAtMs) || row.namespaceIdRank > 1;
       if (!needsRewrite) continue;
       plans.push({
         forceSystemDefault: row.isSystemDefault,
@@ -808,7 +812,11 @@ export async function createPostgresConsolePolicyService(
     return row ? parsePolicyRow(row) : null;
   }
 
-  async function generatePolicyId(q: Queryable, ctx: ConsolePoliciesContext, now: Date): Promise<string> {
+  async function generatePolicyId(
+    q: Queryable,
+    ctx: ConsolePoliciesContext,
+    now: Date,
+  ): Promise<string> {
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const candidate = makeId('policy', now);
       const existing = await findPolicy(q, { orgId: ctx.orgId, policyId: candidate });
@@ -882,13 +890,7 @@ export async function createPostgresConsolePolicyService(
        VALUES
         ($1, $2, $3, 'ORG', $2, $4, $5, $5)
        ON CONFLICT (namespace, org_id, scope_type, scope_id) DO NOTHING`,
-      [
-        namespace,
-        ctx.orgId,
-        makeId('policy_assignment', now),
-        defaultPolicyId,
-        createdAtMs,
-      ],
+      [namespace, ctx.orgId, makeId('policy_assignment', now), defaultPolicyId, createdAtMs],
     );
   }
 
@@ -1317,7 +1319,9 @@ export async function createPostgresConsolePolicyService(
         );
         const byScope = new Map<string, string>();
         for (const row of out.rows) {
-          const scopeType = String((row as PgRow).scope_type || 'ORG') as ConsolePolicyAssignment['scopeType'];
+          const scopeType = String(
+            (row as PgRow).scope_type || 'ORG',
+          ) as ConsolePolicyAssignment['scopeType'];
           const scopeId = String((row as PgRow).scope_id || '');
           const policyId = String((row as PgRow).policy_id || '');
           if (!scopeId || !policyId) continue;
@@ -1337,7 +1341,9 @@ export async function createPostgresConsolePolicyService(
           }
           const environmentId = String(wallet.environmentId || '').trim();
           if (environmentId) {
-            const environmentPolicyId = byScope.get(assignmentScopeKey('ENVIRONMENT', environmentId));
+            const environmentPolicyId = byScope.get(
+              assignmentScopeKey('ENVIRONMENT', environmentId),
+            );
             if (environmentPolicyId) {
               resolved[walletId] = environmentPolicyId;
               continue;

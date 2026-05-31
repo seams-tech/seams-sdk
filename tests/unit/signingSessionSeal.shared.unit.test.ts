@@ -36,7 +36,7 @@ test.describe('shared signing-session seal specs', () => {
       },
       sealedSecretB64u: 'sealed-k',
       curve: 'ecdsa',
-      subjectId: 'wallet-subject:alice',
+      subjectId: 'wallet:alice',
       walletId: 'alice.testnet',
       userId: 'alice.testnet',
       signingRootId: 'root',

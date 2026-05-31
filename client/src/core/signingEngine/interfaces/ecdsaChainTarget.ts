@@ -5,12 +5,11 @@ import {
 } from '@/core/config/chains';
 import type { AccountId } from '@/core/types/accountIds';
 import type { SeamsChainConfig, SeamsChainNetwork } from '@/core/types/seams';
+import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
 
-export type WalletId = string & { readonly __brand: 'WalletId' };
+export type { WalletId } from '@shared/utils/domainIds';
 
 export type BaseEcdsaWalletId = WalletId;
-
-export type WalletSubjectId = string & { readonly __brand: 'WalletSubjectId' };
 
 export type NearAccountRef =
   | { kind: 'named'; accountId: AccountId }
@@ -83,35 +82,16 @@ function defaultNetworkSlug(kind: BoundaryEcdsaChainFamily, chainId: number): st
   return kind === 'tempo' ? `tempo-${chainId}` : `evm-${chainId}`;
 }
 
-export function toWalletSubjectId(value: unknown): WalletSubjectId {
-  return requireNonEmptyString(value, 'wallet subject id') as WalletSubjectId;
-}
-
 export function toWalletId(value: unknown): WalletId {
-  return requireNonEmptyString(value, 'wallet id') as WalletId;
-}
-
-export function walletSubjectIdFromAccountContext(args: {
-  subjectId?: unknown;
-  walletId?: unknown;
-  profileId?: unknown;
-}): WalletSubjectId {
-  const subjectId =
-    nonEmptyString(args.subjectId) ||
-    nonEmptyString(args.walletId) ||
-    nonEmptyString(args.profileId);
-  if (!subjectId) {
-    throw new Error('[threshold-ecdsa] missing protocol-neutral wallet subject id');
+  const parsed = parseWalletId(value);
+  if (!parsed.ok) {
+    throw new Error(parsed.error.message);
   }
-  return subjectId as WalletSubjectId;
+  return parsed.value;
 }
 
-export function walletSubjectIdFromWalletProfile(args: {
-  subjectId?: unknown;
-  walletId?: unknown;
-  profileId?: unknown;
-}): WalletSubjectId {
-  return walletSubjectIdFromAccountContext(args);
+export function walletIdFromWalletProfile(args: { walletId: unknown }): WalletId {
+  return toWalletId(args.walletId);
 }
 
 export function walletIdFromSessionValue(value: unknown): WalletId {

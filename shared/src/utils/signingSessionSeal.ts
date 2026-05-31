@@ -3,12 +3,6 @@ export const SIGNING_SESSION_SEAL_ALG = 'shamir3pass-v1' as const;
 export const SIGNING_SESSION_SEAL_STORAGE_SCOPE = 'iframe_origin_indexeddb' as const;
 export const SIGNING_SESSION_SECRET_KIND = 'signing_session_secret32' as const;
 
-export const SIGNING_SESSION_SEAL_DB_NAME = 'seams_wallet_v1' as const;
-export const SIGNING_SESSION_SEAL_DB_VERSION = 5 as const;
-export const SIGNING_SESSION_SEAL_STORE_NAME = 'signing_session_seals_v1' as const;
-export const SIGNING_SESSION_RESTORE_LEASE_STORE_NAME =
-  'signing_session_restore_leases_v1' as const;
-
 export const PASSKEY_PRF_FIRST_SALT_V1 = new Uint8Array([
   0x40, 0x0c, 0x31, 0x8b, 0x66, 0x95, 0x97, 0x36, 0x59, 0xa1, 0x69, 0x8a, 0xe5, 0x80, 0xdf, 0xd8,
   0x00, 0x1d, 0x99, 0x51, 0xba, 0x32, 0xc6, 0x95, 0xe6, 0x34, 0x99, 0x47, 0x50, 0x4f, 0x3f, 0x84,
@@ -49,6 +43,7 @@ export type SealedSigningSessionEcdsaRestoreMetadata = {
   thresholdSessionAuthToken?: string;
   sessionKind: 'jwt' | 'cookie';
   keyHandle: string;
+  ecdsaThresholdKeyId?: string;
   ethereumAddress: string;
   relayerKeyId: string;
   clientVerifyingShareB64u?: string;

@@ -29,8 +29,9 @@ Takeaways:
     - Serves SDK files under a stable base (default `/sdk`).
     - Sets COEP/CORP only in strict mode; echoes CORS from request (dev only).
     - Emits two tiny virtual assets used by wallet pages: `wallet-shims.js`, `wallet-service.css`.
-  - `seamsWalletService({ walletServicePath?, sdkBasePath?, coepMode? })`
+  - `seamsWalletService({ walletServicePath?, sdkBasePath?, walletHostVariant?, coepMode? })`
     - Serves minimal wallet HTML with only external CSS/JS (no inline) so strict CSP works.
+    - `walletHostVariant` selects `runtime`, `full`, `near`, or `ecdsa` host bundles.
   - `seamsWasmMime()`
     - Forces `application/wasm` for any `.wasm` file.
   - `seamsHeaders({ walletOrigin?, walletServicePath?, sdkBasePath?, devCSP?, coepMode? })`
@@ -40,7 +41,7 @@ Takeaways:
   - `seamsApp({ walletOrigin?, emitHeaders?, coepMode? })`
     - Dev (serve): same behavior as `seamsAppServer({ walletOrigin })` (headers only on the app origin).
     - Build (build): when `emitHeaders: true`, writes `_headers` (COOP + Permissions‑Policy; optional COEP/CORP when enabled; strict CSP scoped to wallet HTML routes).
-  - `seamsWallet({ walletOrigin?, walletServicePath?, sdkBasePath?, emitHeaders?, coepMode? })`
+  - `seamsWallet({ walletOrigin?, walletServicePath?, sdkBasePath?, walletHostVariant?, emitHeaders?, coepMode? })`
     - Dev (serve): same behavior as `seamsWalletServer({ ... })` (serves `/wallet-service` + `/sdk` with headers).
     - Build (build): when `emitHeaders: true`, writes `_headers` (same as above; strict CSP scoped to wallet HTML routes).
   - `seamsApp({ walletOrigin?, emitHeaders? })`

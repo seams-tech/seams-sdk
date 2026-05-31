@@ -4491,7 +4491,9 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
   --navbar-primary: var(--site-brand, oklch(0.52 0.138 255));
   min-height: 100dvh;
   display: grid;
-  place-items: center;
+  align-content: center;
+  justify-items: center;
+  gap: 1rem;
   padding: 1rem;
   background:
     radial-gradient(
@@ -4500,6 +4502,16 @@ html[data-w3a-theme='dark'] .dashboard-input--audit:focus-visible,
       transparent 58%
     ),
     color-mix(in srgb, var(--navbar-bg) 84%, #a1a4af 16%);
+}
+
+.dashboard-login__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: var(--navbar-text);
+  text-decoration: none;
+  font-size: 1.2rem;
+  font-weight: 700;
 }
 
 @media (max-width: 1460px) {

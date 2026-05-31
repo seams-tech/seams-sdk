@@ -1,5 +1,6 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
+import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '@/core/platform/ecdsaRoleLocalRecords';
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import {
   ThresholdEcdsaSessionRecord,
@@ -21,7 +22,7 @@ import {
   type DiscoveredSigningSessionLane,
   readWalletScopedLaneClaimsForLanes,
   readWalletScopedLaneClaimsForWallet as readWalletScopedLaneClaimsForWalletCore,
-  resolveEmailOtpEcdsaWorkerSessionId,
+  warmClaimFromRecordPolicy,
 } from '../availability/readiness';
 import {
   readWarmSessionCapabilityRecordsForWallet,
@@ -30,9 +31,11 @@ import {
   listWarmSessionEcdsaRecordsForWalletTarget,
 } from './store';
 import {
+  normalizeWarmSessionReadPorts,
   readWarmSessionClaim,
   toSigningSessionStatus,
   toWarmSessionClaimFromStatusResult,
+  type WarmSessionReadPortsInput,
 } from './readModel';
 import {
   buildEcdsaSessionIdentity,
@@ -85,7 +88,7 @@ export function normalizeUsesNeeded(usesNeededRaw: unknown): number {
 }
 
 export type WarmSessionStatusReaderDeps = {
-  touchConfirm?: Parameters<typeof readWarmSessionClaim>[0];
+  touchConfirm?: WarmSessionReadPortsInput;
   readWalletScopedLaneClaimsForWallet?: typeof readWalletScopedLaneClaimsForWalletCore;
   readWalletScopedLaneClaimsForLanes?: typeof readWalletScopedLaneClaimsForLanes;
   getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
@@ -116,10 +119,15 @@ export type WarmSigningStatusReader = ThresholdWarmSessionStatusReader & {
 export function createWarmSessionStatusReader(
   deps: WarmSessionStatusReaderDeps,
 ): WarmSigningStatusReader {
+  const touchConfirm = normalizeWarmSessionReadPorts(deps.touchConfirm);
   const readWalletScopedLaneClaimsForWallet =
     deps.readWalletScopedLaneClaimsForWallet || readWalletScopedLaneClaimsForWalletCore;
   const readWalletScopedLaneClaimsForExactLanes =
     deps.readWalletScopedLaneClaimsForLanes || readWalletScopedLaneClaimsForLanes;
+  const claimReaderDeps = {
+    touchConfirm,
+    getEmailOtpWarmSessionStatus: deps.getEmailOtpWarmSessionStatus,
+  };
 
   function buildLanesForRecords(records: Array<ThresholdEcdsaSessionRecord | null>): DiscoveredSigningSessionLane[] {
     return records
@@ -132,15 +140,35 @@ export function createWarmSessionStatusReader(
   ): Promise<WarmSessionPrfClaim | null> {
     const identity = tryBuildEcdsaSessionIdentity(record);
     if (!identity) return null;
-    const workerSessionId =
-      record.source === 'email_otp' ? resolveEmailOtpEcdsaWorkerSessionId(record) : '';
-    if (workerSessionId) {
-      const status = await deps.getEmailOtpWarmSessionStatus(workerSessionId).catch(() => null);
+    if (record.source === 'email_otp') {
+      const roleLocalState = classifyThresholdEcdsaSessionRecordRoleLocalState({
+        record,
+        nowMs: Date.now(),
+      });
+      if (
+        roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
+        roleLocalState.inlineSigningMaterial.kind === 'inline_client_share'
+      ) {
+        return warmClaimFromRecordPolicy({
+          sessionId: identity.thresholdSessionId,
+          remainingUses: record.remainingUses,
+          expiresAtMs: record.expiresAtMs,
+        });
+      }
+      if (
+        roleLocalState.kind !== 'ready_email_otp_role_local_material_v1' ||
+        roleLocalState.inlineSigningMaterial.kind !== 'email_otp_worker_share'
+      ) {
+        return null;
+      }
+      const status = await deps
+        .getEmailOtpWarmSessionStatus(roleLocalState.inlineSigningMaterial.workerSessionId)
+        .catch(() => null);
       return status
         ? toWarmSessionClaimFromStatusResult({ sessionId: identity.thresholdSessionId, status })
         : null;
     }
-    return await readWarmSessionClaim(deps.touchConfirm, identity.thresholdSessionId);
+    return await readWarmSessionClaim(touchConfirm, identity.thresholdSessionId);
   }
 
   async function readWalletScopedClaimsForRecords(
@@ -156,7 +184,7 @@ export function createWarmSessionStatusReader(
       records.ecdsa.tempo ? buildDiscoveredLaneForRecord(records.ecdsa.tempo) : null,
     ].filter((lane): lane is DiscoveredSigningSessionLane => lane !== null);
     const walletScopedClaims = exactLanes.length
-      ? await readWalletScopedLaneClaimsForExactLanes({ deps, lanes: exactLanes })
+      ? await readWalletScopedLaneClaimsForExactLanes({ deps: claimReaderDeps, lanes: exactLanes })
       : new Map<string, WarmSessionPrfClaim | null>();
     return {
       ed25519Claim:
@@ -380,7 +408,8 @@ export function createWarmSessionStatusReader(
         sessionId: identity.thresholdSessionId,
         claim: args.claim,
         authMethod: args.record.source === 'email_otp' ? 'email_otp' : 'passkey',
-        retention: args.record.emailOtpAuthContext?.retention || null,
+        retention:
+          args.record.source === 'email_otp' ? args.record.emailOtpAuthContext.retention : null,
       }),
       key,
       lane: selectedEcdsaLane({
@@ -408,7 +437,7 @@ export function createWarmSessionStatusReader(
     });
     if (!records.length) return [];
     const claimsByThresholdSessionId = await readWalletScopedLaneClaimsForExactLanes({
-      deps,
+      deps: claimReaderDeps,
       lanes: buildLanesForRecords(records),
     });
     return records.map((record) =>
@@ -443,7 +472,7 @@ export function createWarmSessionStatusReader(
       };
     }
     const claimsByThresholdSessionId = await readWalletScopedLaneClaimsForExactLanes({
-      deps,
+      deps: claimReaderDeps,
       lanes: buildLanesForRecords([record]),
     });
     return toEcdsaSigningSessionStatus({

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '../../client/src/core/types/accountIds';
 import {
-  toWalletSubjectId,
+  toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
@@ -14,7 +14,6 @@ import {
   type ReadyEvmFamilyEcdsaMaterial,
 } from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
-  buildEvmFamilyEmailOtpEcdsaProvisionPlan,
   buildEvmFamilyPasskeyEcdsaProvisionPlan,
   buildEvmFamilyWarmSessionReconnectPlan,
 } from '../../client/src/core/signingEngine/flows/signEvmFamily/provisionPlan';
@@ -29,6 +28,9 @@ const CHAIN_TARGET: ThresholdEcdsaChainTarget = {
   networkSlug: 'ethereum',
 };
 const TEST_PRF_FIRST_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const VALID_ECDSA_SHARE32_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const VALID_ECDSA_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 const TEST_WEBAUTHN_CREDENTIAL = {
   id: 'credential-id',
@@ -76,10 +78,29 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
     signingRootId: 'root-1',
     signingRootVersion: 'v1',
     relayerKeyId: 'relayer-key-1',
-    clientVerifyingShareB64u: 'verifying-share',
-    clientAdditiveShare32B64u: 'client-share',
-    participantIds: [1, 2, 3],
+    clientVerifyingShareB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+    clientAdditiveShare32B64u: VALID_ECDSA_SHARE32_B64U,
+    ecdsaHssRoleLocalClientState: {
+      kind: 'role_local_ready',
+      artifactKind: 'ecdsa-hss-role-local-client-state',
+      contextBinding32B64u: VALID_ECDSA_SHARE32_B64U,
+      clientShare32B64u: VALID_ECDSA_SHARE32_B64U,
+      clientPublicKey33B64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+      clientShareRetryCounter: 0,
+      relayerPublicKey33B64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
+      groupPublicKey33B64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+      ethereumAddress: THRESHOLD_OWNER_ADDRESS,
+      clientCaitSithInput: {
+        participantId: 1,
+        mappedPrivateShare32B64u: VALID_ECDSA_SHARE32_B64U,
+        verifyingShare33B64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+      },
+      createdAtMs: 1_800_000_000_000,
+      updatedAtMs: 1_800_000_000_000,
+    },
+    participantIds: [1, 2],
     ethereumAddress: THRESHOLD_OWNER_ADDRESS,
+    thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'threshold-session-1',
     walletSigningSessionId: 'wallet-session-1',
@@ -166,7 +187,7 @@ test.describe('EVM-family step-up provision-plan builders', () => {
       walletSigningSessionId: 'wallet-session-2',
     });
     expect(plan.requestId).toBe('request-1');
-    expect(plan.clientRootShare32B64u).toBe(expectedClientRootShare32B64u);
+    expect(plan.provisionSecretSource.clientRootShare32B64u).toBe(expectedClientRootShare32B64u);
   });
 
   test('buildEvmFamilyWarmSessionReconnectPlan returns a threshold-session reconnect branch', () => {
@@ -210,38 +231,5 @@ test.describe('EVM-family step-up provision-plan builders', () => {
       thresholdSessionId: 'threshold-session-1',
       walletSigningSessionId: 'wallet-session-1',
     });
-  });
-
-  test('buildEvmFamilyEmailOtpEcdsaProvisionPlan returns an email-otp provision branch', () => {
-    const record = makeRecord();
-    const material = makeReadyMaterial({
-      record,
-      authMethod: 'email_otp',
-      source: 'email_otp',
-    });
-
-    const plan = buildEvmFamilyEmailOtpEcdsaProvisionPlan({
-      authorization: {
-        kind: 'email_otp',
-        signingAuthPlan: {
-          kind: SigningAuthPlanKind.EmailOtpReauth,
-          method: 'email_otp',
-        },
-        challengeId: 'otp-1',
-        otpCode: '123456',
-        emailHint: 'a***@x.test',
-      },
-      material,
-      chainTarget: CHAIN_TARGET,
-      clientRootShare32B64u: 'client-root-share',
-      sessionBudgetUses: 1,
-    });
-
-    expect(plan.kind).toBe('email_otp_ecdsa_session_provision');
-    expect(plan.newSessionIdentity).toEqual({
-      thresholdSessionId: 'threshold-session-1',
-      walletSigningSessionId: 'wallet-session-1',
-    });
-    expect(plan.emailOtpAuthContext.reason).toBe('sign');
   });
 });

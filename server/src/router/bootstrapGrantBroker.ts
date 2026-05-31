@@ -91,7 +91,7 @@ function normalizeClientContext(input: unknown): RelayBootstrapGrantClientContex
 
 const REGISTRATION_FLOW_GRANT_ALLOWED_PATHS = [
   '/wallets/register/intent',
-  '/wallets/:walletSubjectId/signers/intent',
+  '/wallets/:walletId/signers/intent',
 ] as const;
 
 function normalizeRegistrationBootstrapGrantFlow(raw: unknown): 'registration_v1' {
@@ -114,6 +114,9 @@ function isRpIdAllowedForOrigin(input: { origin: string; rpId: string }): boolea
   if (!origin || !rpId) return false;
   try {
     const host = new URL(origin).hostname.toLowerCase();
+    if ((host === 'localhost' || host === '127.0.0.1') && rpId.endsWith('.localhost')) {
+      return true;
+    }
     return host === rpId || host.endsWith(`.${rpId}`);
   } catch {
     return false;

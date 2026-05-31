@@ -6,7 +6,6 @@ import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/typ
 import { toAccountId } from '@/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetsEqual,
-  walletSubjectIdFromWalletProfile,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   toEvmFamilyEcdsaKeyHandle,
@@ -124,11 +123,11 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
       { recordsByLane: new Map() },
       {
         walletId: toAccountId(args.walletId),
-        subjectId: walletSubjectIdFromWalletProfile({ walletId: args.walletId }),
         authMetadata: { rpId: thresholdEcdsaRecordRpId(args.record) },
         chainTarget: args.record.chainTarget,
         relayerUrl: args.record.relayerUrl,
         keyHandle: toEvmFamilyEcdsaKeyHandle(args.record.keyHandle),
+        ecdsaThresholdKeyId: args.record.ecdsaThresholdKeyId,
         relayerKeyId: args.record.relayerKeyId,
         clientVerifyingShareB64u: args.record.clientVerifyingShareB64u,
         participantIds: [...args.record.participantIds],

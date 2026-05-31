@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   deriveEcdsaCapabilityState,
   deriveEd25519CapabilityState,
+  normalizeWarmSessionReadPorts,
   readWarmSessionClaims,
   resolveEcdsaAuthMaterial,
   resolveEcdsaSealTransport,
@@ -68,33 +69,34 @@ test.describe('warmSessionReadModel', () => {
   test('uses batch warm-session status reads when available', async () => {
     let batchCalls = 0;
     let singleReads = 0;
-    const claims = await readWarmSessionClaims({
-      touchConfirm: {
-        getWarmSessionStatus: async () => {
-          singleReads += 1;
-          return { ok: false, code: 'worker_error', message: 'should not be called' };
-        },
-        getWarmSessionStatuses: async ({ sessionIds }) => {
-          batchCalls += 1;
-          return {
-            results: sessionIds.map((sessionId) => ({
-              sessionId,
-              result:
-                sessionId === 'warm-session'
-                  ? {
-                      ok: true as const,
-                      remainingUses: 2,
-                      expiresAtMs: 999,
-                    }
-                  : {
-                      ok: false as const,
-                      code: 'not_found',
-                      message: 'missing',
-                    },
-            })),
-          };
-        },
+    const touchConfirm = normalizeWarmSessionReadPorts({
+      getWarmSessionStatus: async () => {
+        singleReads += 1;
+        return { ok: false, code: 'worker_error', message: 'should not be called' };
       },
+      getWarmSessionStatuses: async ({ sessionIds }) => {
+        batchCalls += 1;
+        return {
+          results: sessionIds.map((sessionId) => ({
+            sessionId,
+            result:
+              sessionId === 'warm-session'
+                ? {
+                    ok: true as const,
+                    remainingUses: 2,
+                    expiresAtMs: 999,
+                  }
+                : {
+                    ok: false as const,
+                    code: 'not_found',
+                    message: 'missing',
+                  },
+          })),
+        };
+      },
+    });
+    const claims = await readWarmSessionClaims({
+      touchConfirm,
       sessionIds: ['warm-session', 'missing-session'],
     });
 

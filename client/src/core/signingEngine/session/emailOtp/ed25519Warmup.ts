@@ -41,10 +41,8 @@ import {
 import {
   EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION,
   reconstructEmailOtpEd25519Session,
-  registerEmailOtpEd25519Capability,
   type EmailOtpThresholdEd25519ProvisioningResult,
   type ReconstructEmailOtpEd25519SessionArgs,
-  type RegisterEmailOtpEd25519CapabilityArgs,
 } from './provisioning';
 import type {
   EmailOtpThresholdEcdsaLoginResult,
@@ -119,76 +117,14 @@ export type EmailOtpEd25519WarmupPorts = {
 };
 
 export class EmailOtpEd25519Warmup {
-  private warmupByAccount: Map<string, Promise<EmailOtpThresholdEd25519ProvisioningResult>> =
-    new Map();
-
   constructor(private readonly ports: EmailOtpEd25519WarmupPorts) {}
 
-  isPending(args: { nearAccountId: AccountId }): boolean {
-    const accountId = this.normalizeWarmupAccountId(args.nearAccountId);
-    return Boolean(accountId && this.getWarmupMap().has(accountId));
+  isPending(_args: { nearAccountId: AccountId }): boolean {
+    return false;
   }
 
-  async waitForPending(args: { nearAccountId: AccountId }): Promise<boolean> {
-    const accountId = this.normalizeWarmupAccountId(args.nearAccountId);
-    if (!accountId) return false;
-    const pending = this.getWarmupMap().get(accountId);
-    if (!pending) return false;
-    await pending;
-    return true;
-  }
-
-  scheduleProvisioning(
-    args: RegisterEmailOtpEd25519CapabilityArgs,
-    options?: {
-      provisionCapability?: (
-        args: RegisterEmailOtpEd25519CapabilityArgs,
-      ) => Promise<EmailOtpThresholdEd25519ProvisioningResult>;
-    },
-  ): void {
-    const accountId = this.normalizeWarmupAccountId(args.nearAccountId);
-    if (!accountId) return;
-    const warmupMap = this.getWarmupMap();
-    if (warmupMap.has(accountId)) return;
-    const provisionCapability =
-      options?.provisionCapability || ((request) => this.provisionCapability(request));
-    const pending = provisionCapability(args);
-    warmupMap.set(accountId, pending);
-    void pending
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error || 'unknown error');
-        console.warn('[email-otp] background threshold-ed25519 warm-up failed', {
-          nearAccountId: accountId,
-          message,
-        });
-      })
-      .finally(() => {
-        const currentWarmupMap = this.getWarmupMap();
-        if (currentWarmupMap.get(accountId) === pending) {
-          currentWarmupMap.delete(accountId);
-        }
-      });
-  }
-
-  async provisionCapability(
-    args: RegisterEmailOtpEd25519CapabilityArgs,
-  ): Promise<EmailOtpThresholdEd25519ProvisioningResult> {
-    return await registerEmailOtpEd25519Capability({
-      input: args,
-      configs: this.ports.configs,
-      getSignerWorkerContext: this.ports.getSignerWorkerContext,
-      persistEmailOtpThresholdEd25519LocalMetadata:
-        this.ports.persistEmailOtpThresholdEd25519LocalMetadata,
-      persistWarmSessionEd25519Capability: this.ports.persistWarmSessionEd25519Capability,
-      hydrateSigningSession: this.ports.hydrateSigningSession,
-      sessionPersistenceMode: this.ports.configs.signing.sessionPersistenceMode,
-      readExactSealedSession: this.ports.readExactSealedSession,
-      getThresholdEcdsaSessionRecordByThresholdSessionId:
-        this.ports.getThresholdEcdsaSessionRecordByThresholdSessionId,
-      getThresholdEd25519SessionRecordByThresholdSessionId:
-        this.ports.getThresholdEd25519SessionRecordByThresholdSessionId,
-      registerSigningSession: (record) => this.ports.registerSigningSession(record),
-    });
+  async waitForPending(_args: { nearAccountId: AccountId }): Promise<boolean> {
+    return false;
   }
 
   async reconstructSession(
@@ -307,6 +243,11 @@ export class EmailOtpEd25519Warmup {
         : {
             kind: 'defer',
             reason: 'missing_runtime_policy_scope',
+            ed25519Key: {
+              relayerKeyId: args.record.relayerKeyId,
+              keyVersion: EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION,
+              participantIds: args.record.participantIds,
+            },
           },
     });
     if (ecdsaLogin.ed25519Reconstruction.kind !== 'completed') {
@@ -322,14 +263,4 @@ export class EmailOtpEd25519Warmup {
     };
   }
 
-  private normalizeWarmupAccountId(nearAccountId: AccountId): string {
-    return String(nearAccountId || '').trim();
-  }
-
-  private getWarmupMap(): Map<string, Promise<EmailOtpThresholdEd25519ProvisioningResult>> {
-    if (!(this.warmupByAccount instanceof Map)) {
-      this.warmupByAccount = new Map();
-    }
-    return this.warmupByAccount;
-  }
 }

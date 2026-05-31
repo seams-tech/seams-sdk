@@ -159,8 +159,6 @@ function exportLaneStatePriority(lane: ConcreteExportAvailableLane): number {
     case 'expired':
     case 'exhausted':
       return 2;
-    case 'missing':
-      return 1;
   }
 }
 
@@ -266,8 +264,7 @@ function selectExactExportAvailableLane<TLane extends ConcreteExportAvailableLan
       `[SigningEngine][${args.context}] exact lane selection failed: ambiguous_candidates`,
     );
   };
-  const selectableCandidates = args.candidates.filter((candidate) => candidate.state !== 'missing');
-  if (!selectableCandidates.length) {
+  if (!args.candidates.length) {
     emitSigningSessionFlowFailure(traceScope, {
       stage: 'key_export.exact_lane_no_candidate',
       context: args.context,
@@ -277,7 +274,7 @@ function selectExactExportAvailableLane<TLane extends ConcreteExportAvailableLan
     throw new Error(`[SigningEngine][${args.context}] exact lane selection failed: no_candidate`);
   }
   const collapsed = selectCanonicalExportCandidates({
-    candidates: selectableCandidates,
+    candidates: args.candidates,
     ecdsaContext: args.ecdsaContext,
   });
   if (collapsed.kind === 'ambiguous') {
@@ -408,9 +405,7 @@ async function resolveNearEd25519ExportLane(
   const emailOtpCandidates = concreteCandidates.filter(
     (candidate) => candidate.authMethod === 'email_otp',
   );
-  const selectionCandidates = emailOtpCandidates.some((candidate) => candidate.state !== 'missing')
-    ? emailOtpCandidates
-    : concreteCandidates;
+  const selectionCandidates = emailOtpCandidates.length ? emailOtpCandidates : concreteCandidates;
 
   const selected = selectExactExportAvailableLane({
     context: 'ed25519-export',
@@ -459,9 +454,7 @@ async function resolveEcdsaExportLane(
   const emailOtpTargetCandidates = materialCandidates.filter(
     (candidate) => candidate.authMethod === 'email_otp',
   );
-  const selectionCandidates = emailOtpTargetCandidates.some(
-    (candidate) => candidate.state !== 'missing',
-  )
+  const selectionCandidates = emailOtpTargetCandidates.length
     ? emailOtpTargetCandidates
     : materialCandidates;
   const selected = selectExactExportAvailableLane({

@@ -22,6 +22,7 @@ const BATCH_RUNTIME_POLICY_SCOPE = {
   orgId: 'org_threshold_batch',
   projectId: 'proj_threshold_batch',
   envId: 'dev',
+  signingRootVersion: 'default',
 } as const;
 
 test.describe('threshold-ed25519 batch signing', () => {

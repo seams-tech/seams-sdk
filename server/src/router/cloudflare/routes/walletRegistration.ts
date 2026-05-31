@@ -1,5 +1,9 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import {
+  handleRelayWalletAddAuthMethodFinalize,
+  handleRelayWalletAddAuthMethodIntent,
+  handleRelayWalletRevokeAuthMethod,
+  handleRelayWalletAddAuthMethodStart,
   handleRelayWalletAddSignerFinalize,
   handleRelayWalletAddSignerHssRespond,
   handleRelayWalletAddSignerIntent,
@@ -8,7 +12,7 @@ import {
   handleRelayWalletRegistrationHssRespond,
   handleRelayWalletRegistrationIntent,
   handleRelayWalletRegistrationStart,
-  handleRelayWalletSubjectEcdsaKeyFactsInventory,
+  handleRelayWalletEcdsaKeyFactsInventory,
 } from '../../relayWalletRegistration';
 import { resolveSourceIpFromFetchHeaders } from '../../relayApiKeyAuth';
 import type { RouteResponse } from '../../routeExecutionContext';
@@ -29,13 +33,17 @@ const ROUTE_IDS = [
   'wallet_add_signer_start',
   'wallet_add_signer_hss_respond',
   'wallet_add_signer_finalize',
-  'wallet_subject_ecdsa_key_facts_inventory',
+  'wallet_add_auth_method_intent',
+  'wallet_add_auth_method_start',
+  'wallet_add_auth_method_finalize',
+  'wallet_revoke_auth_method',
+  'wallet_ecdsa_key_facts_inventory',
 ] as const;
 
-function readWalletSubjectIdFromPath(route: RouteDefinition, pathname: string): string | undefined {
+function readWalletIdFromPath(route: RouteDefinition, pathname: string): string | undefined {
   const routeSegments = route.path.split('/').filter(Boolean);
   const pathSegments = pathname.split('/').filter(Boolean);
-  const index = routeSegments.indexOf(':walletSubjectId');
+  const index = routeSegments.indexOf(':walletId');
   if (index < 0) return undefined;
   const segment = pathSegments[index];
   return segment ? decodeURIComponent(segment) : undefined;
@@ -65,7 +73,7 @@ export async function handleWalletRegistration(
       String(ctx.request.headers.get('origin') || ctx.request.headers.get('Origin') || '').trim() ||
       undefined,
     pathParams: {
-      walletSubjectId: readWalletSubjectIdFromPath(route, ctx.pathname),
+      walletId: readWalletIdFromPath(route, ctx.pathname),
     },
     route,
     services: {
@@ -87,13 +95,21 @@ export async function handleWalletRegistration(
           : route.id === 'wallet_registration_finalize'
             ? await handleRelayWalletRegistrationFinalize(common)
             : route.id === 'wallet_add_signer_intent'
-              ? await handleRelayWalletAddSignerIntent(common)
-              : route.id === 'wallet_add_signer_start'
-                ? await handleRelayWalletAddSignerStart(common)
-                : route.id === 'wallet_add_signer_hss_respond'
-                  ? await handleRelayWalletAddSignerHssRespond(common)
-                  : route.id === 'wallet_add_signer_finalize'
-                    ? await handleRelayWalletAddSignerFinalize(common)
-                    : await handleRelayWalletSubjectEcdsaKeyFactsInventory(common);
+            ? await handleRelayWalletAddSignerIntent(common)
+            : route.id === 'wallet_add_signer_start'
+              ? await handleRelayWalletAddSignerStart(common)
+              : route.id === 'wallet_add_signer_hss_respond'
+                ? await handleRelayWalletAddSignerHssRespond(common)
+                : route.id === 'wallet_add_signer_finalize'
+                  ? await handleRelayWalletAddSignerFinalize(common)
+                  : route.id === 'wallet_add_auth_method_intent'
+                    ? await handleRelayWalletAddAuthMethodIntent(common)
+                    : route.id === 'wallet_add_auth_method_start'
+                      ? await handleRelayWalletAddAuthMethodStart(common)
+                      : route.id === 'wallet_add_auth_method_finalize'
+                        ? await handleRelayWalletAddAuthMethodFinalize(common)
+                        : route.id === 'wallet_revoke_auth_method'
+                          ? await handleRelayWalletRevokeAuthMethod(common)
+                  : await handleRelayWalletEcdsaKeyFactsInventory(common);
   return toFetchRouteResponse(response);
 }

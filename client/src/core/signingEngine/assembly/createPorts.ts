@@ -1,4 +1,4 @@
-import { IndexedDBManager } from '@/core/indexedDB';
+import { getBrowserPlatformIndexedDB } from '@/core/platform';
 import {
   createEmailOtpWarmSessionStatusReader,
   createSigningSessionCoordinatorPort,
@@ -7,9 +7,6 @@ import {
 import { createEvmFamilySigningDeps } from './ports/evmFamily';
 import { createNearSigningDeps } from './ports/near';
 import {
-  createNearKeyOpsDeps,
-  createRegistrationAccountLifecycleDeps,
-  createRegistrationSessionDeps,
   createThresholdEd25519LifecycleDeps,
   createThresholdSessionActivationDeps,
 } from './ports/registration';
@@ -35,6 +32,8 @@ export type {
 export function createSigningEnginePorts(
   args: CreateSigningEnginePortsArgs,
 ): SigningEnginePorts {
+  const indexedDB = getBrowserPlatformIndexedDB(args.platformRuntime);
+  const runtimeDeps = { indexedDB };
   const nearRpcUrl = resolveNearRpcUrl(args);
   const getEmailOtpWarmSessionStatus = createEmailOtpWarmSessionStatusReader(args);
   const signingSessionCoordinator = createSigningSessionCoordinatorPort({
@@ -43,36 +42,47 @@ export function createSigningEnginePorts(
   });
   const getOrCreateActiveThresholdEcdsaSessionId =
     createGetOrCreateActiveThresholdEcdsaSessionId();
-  const getWorkerResourceWarmupDeps = createWorkerResourceWarmupDepsFactory(args);
+  const getWorkerResourceWarmupDeps = createWorkerResourceWarmupDepsFactory(args, runtimeDeps);
   const getWarmThresholdEd25519SessionStatus = createWarmThresholdEd25519SessionStatusReader({
     createArgs: args,
     getEmailOtpWarmSessionStatus,
   });
 
   return {
-    indexedDB: IndexedDBManager,
+    indexedDB,
     thresholdEd25519LifecycleDeps: createThresholdEd25519LifecycleDeps(args),
     nearSigningDeps: createNearSigningDeps({
       createArgs: args,
+      indexedDB,
       nearRpcUrl,
       signingSessionCoordinator,
       getEmailOtpWarmSessionStatus,
     }),
     tempoSigningDeps: createEvmFamilySigningDeps({
       createArgs: args,
+      indexedDB,
       signingSessionCoordinator,
       getEmailOtpWarmSessionStatus,
     }),
-    privateKeyExportRecoveryDeps: createPrivateKeyExportRecoveryDeps(args),
-    registrationAccountLifecycleDeps: createRegistrationAccountLifecycleDeps(args),
-    registrationSessionDeps: createRegistrationSessionDeps({
-      createArgs: args,
-    }),
+    privateKeyExportRecoveryDeps: createPrivateKeyExportRecoveryDeps(args, runtimeDeps),
+    registrationAccountLifecycleDeps: {
+      indexedDB,
+      userPreferencesManager: args.userPreferencesManager,
+      nonceCoordinator: args.nonceCoordinator,
+      extractCosePublicKey: args.extractCosePublicKey,
+    },
+    registrationSessionDeps: {
+      touchConfirm: args.touchConfirm,
+      touchIdPrompt: args.touchIdPrompt,
+    },
     thresholdSessionActivationDeps: createThresholdSessionActivationDeps({
       createArgs: args,
+      indexedDB,
       getOrCreateActiveThresholdEcdsaSessionId,
     }),
-    nearKeyOpsDeps: createNearKeyOpsDeps(args),
+    nearKeyOpsDeps: {
+      signingKeyOps: args.signerWorkerManager.nearKeyOps,
+    },
     resolveCanonicalThresholdEcdsaSessionIdForWalletTarget:
       createResolveCanonicalThresholdEcdsaSessionIdForWalletTarget(args),
     signingSessionCoordinator,

@@ -510,7 +510,7 @@ test.describe('UserConfirm worker router', () => {
         };
 
         await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          const request = indexedDB.deleteDatabase('seams_wallet');
           request.onsuccess = () => resolve();
           request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();
@@ -642,7 +642,7 @@ test.describe('UserConfirm worker router', () => {
         };
 
         await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          const request = indexedDB.deleteDatabase('seams_wallet');
           request.onsuccess = () => resolve();
           request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();
@@ -823,7 +823,7 @@ test.describe('UserConfirm worker router', () => {
           source: 'login',
         });
         await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          const request = indexedDB.deleteDatabase('seams_wallet');
           request.onsuccess = () => resolve();
           request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();
@@ -956,14 +956,13 @@ test.describe('UserConfirm worker router', () => {
         };
         sessionStoreMod.clearAllThresholdEcdsaSessionRecords(deps);
         await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          const request = indexedDB.deleteDatabase('seams_wallet');
           request.onsuccess = () => resolve();
           request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();
         });
         sessionStoreMod.upsertStoredThresholdEcdsaSessionRecord(deps, {
           walletId: 'alice.testnet',
-          subjectId: 'alice.testnet',
           rpId: 'example.localhost',
           relayerUrl: 'https://relay-ecdsa.example',
           chainTarget: {
@@ -1135,7 +1134,7 @@ test.describe('UserConfirm worker router', () => {
         const mod = await import(paths.touchConfirmManager);
         const sealedStoreMod = await import(paths.sealedSessionStore);
         await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          const request = indexedDB.deleteDatabase('seams_wallet');
           request.onsuccess = () => resolve();
           request.onerror = () =>
             reject(request.error || new Error('Failed to clear sealed session test database'));
@@ -1281,7 +1280,7 @@ test.describe('UserConfirm worker router', () => {
         (manager as any).attachWorkerRouter(fakeWorker);
 
         await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          const request = indexedDB.deleteDatabase('seams_wallet');
           request.onsuccess = () => resolve();
           request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();
@@ -1426,7 +1425,7 @@ test.describe('UserConfirm worker router', () => {
         };
 
         await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          const request = indexedDB.deleteDatabase('seams_wallet');
           request.onsuccess = () => resolve();
           request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();
@@ -1560,7 +1559,7 @@ test.describe('UserConfirm worker router', () => {
         };
 
         await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          const request = indexedDB.deleteDatabase('seams_wallet');
           request.onsuccess = () => resolve();
           request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();
@@ -1741,7 +1740,7 @@ test.describe('UserConfirm worker router', () => {
         };
 
         await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          const request = indexedDB.deleteDatabase('seams_wallet');
           request.onsuccess = () => resolve();
           request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();
@@ -1918,7 +1917,7 @@ test.describe('UserConfirm worker router', () => {
         };
 
         await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          const request = indexedDB.deleteDatabase('seams_wallet');
           request.onsuccess = () => resolve();
           request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();
@@ -2128,7 +2127,7 @@ test.describe('UserConfirm worker router', () => {
         };
 
         await new Promise<void>((resolve, reject) => {
-          const request = indexedDB.deleteDatabase('seams_wallet_v1');
+          const request = indexedDB.deleteDatabase('seams_wallet');
           request.onsuccess = () => resolve();
           request.onerror = () => reject(request.error || new Error('Failed to clear sealed session test database'));
           request.onblocked = () => resolve();

@@ -8,7 +8,7 @@ import {
 import type { CloudflareDurableObjectNamespaceLike } from '@server/core/types';
 import {
   registrationIntentGrantFromString,
-  walletSubjectIdFromString,
+  walletIdFromString,
   type AddSignerIntentV1,
   type RegistrationIntentV1,
   type RegistrationSignerSelection,
@@ -74,15 +74,16 @@ const SIGNER_SELECTION = {
 
 const INTENT = {
   version: 'registration_intent_v1',
-  walletSubjectId: walletSubjectIdFromString('wallet_subject_registration_store'),
+  walletId: walletIdFromString('wallet_registration_store'),
   rpId: 'wallet.example.test',
+  authMethod: { kind: 'passkey' },
   signerSelection: SIGNER_SELECTION,
   nonceB64u: 'nonce',
 } satisfies RegistrationIntentV1;
 
 const ADD_SIGNER_INTENT = {
   version: 'add_signer_intent_v1',
-  walletSubjectId: INTENT.walletSubjectId,
+  walletId: INTENT.walletId,
   rpId: INTENT.rpId,
   signerSelection: {
     mode: 'ecdsa',
@@ -112,10 +113,14 @@ function makeCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletRegistrati
     digestB64u: 'digest',
     orgId: 'org_registration_store',
     expiresAtMs,
-    webauthn: {
+    authority: {
+      kind: 'passkey',
+      walletId: INTENT.walletId,
+      rpId: INTENT.rpId,
       credentialIdB64u: 'credential',
       credentialPublicKeyB64u: 'public-key',
       counter: 0,
+      registrationIntentDigestB64u: 'digest',
     },
     signerState: {
       kind: 'ed25519_prepared',
@@ -145,9 +150,8 @@ function makeAddSignerCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletA
       chainTargets: [{ kind: 'tempo', chainId: 42431 }],
       prepare: {
         formatVersion: 'ecdsa-hss-role-local',
-        walletSessionUserId: String(INTENT.walletSubjectId),
+        walletId: String(INTENT.walletId),
         rpId: INTENT.rpId,
-        subjectId: String(INTENT.walletSubjectId),
         ecdsaThresholdKeyId: 'ek_add_signer',
         signingRootId: 'project:dev',
         signingRootVersion: 'default',
@@ -212,4 +216,39 @@ test('Cloudflare Durable Object registration ceremony store consumes grants and 
   await expect(
     store.takeAddSignerCeremony(addSignerCeremony.addSignerCeremonyId),
   ).resolves.toBeNull();
+});
+
+test('registration ceremony store rejects mixed raw authority branches', async () => {
+  const namespace = new FakeDurableObjectNamespace();
+  const store = createRegistrationCeremonyStore({
+    config: {
+      kind: 'cloudflare-do',
+      namespace,
+      name: 'registration-store-test',
+      keyPrefix: 'test-prefix',
+    },
+    logger: undefined,
+    isNode: false,
+  });
+
+  const ceremony = makeCeremony();
+  const mixedAuthorityCeremony = {
+    ...ceremony,
+    authority: {
+      ...ceremony.authority,
+      emailHashHex: 'abcd',
+      challengeId: 'challenge',
+    },
+  };
+  await namespace.stub.fetch('https://durable-object.test', {
+    method: 'POST',
+    body: JSON.stringify({
+      op: 'set',
+      key: `test-prefix:wallet-registration:ceremony:${ceremony.registrationCeremonyId}`,
+      value: mixedAuthorityCeremony,
+      ttlMs: 60_000,
+    }),
+  });
+
+  await expect(store.getCeremony(ceremony.registrationCeremonyId)).resolves.toBeNull();
 });

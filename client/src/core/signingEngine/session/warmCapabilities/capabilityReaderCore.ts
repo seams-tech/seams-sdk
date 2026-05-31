@@ -35,16 +35,29 @@ import type {
 } from './types';
 import type { WarmSigningStatusReader } from './statusReader';
 
+export type WarmSessionCapabilityReaderSealConfigured = {
+  seal: 'configured';
+  keyVersion: string;
+  shamirPrimeB64u: string;
+};
+
+export type WarmSessionCapabilityReaderSealUnavailable = {
+  seal: 'unconfigured';
+  keyVersion?: never;
+  shamirPrimeB64u?: never;
+};
+
+export type WarmSessionCapabilityReaderSeal =
+  | WarmSessionCapabilityReaderSealConfigured
+  | WarmSessionCapabilityReaderSealUnavailable;
+
 export type WarmSessionCapabilityReaderCoreDeps = {
-  touchConfirm?: WarmSessionReadPorts;
+  touchConfirm: WarmSessionReadPorts | null;
   statusReader: Pick<
     WarmSigningStatusReader,
     'readWalletScopedClaimsForRecords' | 'readEcdsaWarmSessionClaimForRecord'
   >;
-  signingSessionSeal?: {
-    keyVersion?: string;
-    shamirPrimeB64u?: string;
-  };
+  signingSessionSeal: WarmSessionCapabilityReaderSeal;
 };
 
 export type WarmSessionCapabilityReaderCore = {
@@ -310,14 +323,18 @@ export function createWarmSessionCapabilityReaderCore(
     const record = readWarmSessionEcdsaRecordByThresholdSessionIdForTarget(args);
     if (!record) return null;
     const auth = resolveEcdsaAuthMaterial(record);
+    const fallbackKeyVersion =
+      deps.signingSessionSeal.seal === 'configured' ? deps.signingSessionSeal.keyVersion : '';
+    const fallbackShamirPrimeB64u =
+      deps.signingSessionSeal.seal === 'configured'
+        ? deps.signingSessionSeal.shamirPrimeB64u
+        : '';
     return resolveEcdsaSealTransport({
       record,
       auth,
-      keyVersion: String(
-        record.signingSessionSealKeyVersion || deps.signingSessionSeal?.keyVersion || '',
-      ).trim(),
+      keyVersion: String(record.signingSessionSealKeyVersion || fallbackKeyVersion).trim(),
       shamirPrimeB64u: String(
-        record.signingSessionSealShamirPrimeB64u || deps.signingSessionSeal?.shamirPrimeB64u || '',
+        record.signingSessionSealShamirPrimeB64u || fallbackShamirPrimeB64u,
       ).trim(),
     });
   }

@@ -1,4 +1,5 @@
 import { getNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/types';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { AccountId } from '@/core/types/accountIds';
@@ -18,7 +19,7 @@ export const PRF_MISSING_ERROR =
   'Missing PRF.first output from credential (requires a PRF-enabled passkey)';
 
 export function generateNearSigningSessionId(): string {
-  return `sess-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return secureRandomId('sess', 32, 'NEAR signing session IDs');
 }
 
 export function toCredentialForRelayJson(
@@ -61,12 +62,12 @@ export async function resolveNearSigningMaterials(args: {
   }
   const resolvedSignerSlot =
     parsedSignerSlot ??
-    (await getLastLoggedInSignerSlot(nearAccountId, args.ctx.indexedDB.clientDB));
+    (await getLastLoggedInSignerSlot(nearAccountId, args.ctx.indexedDB));
 
   const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
     {
-      clientDB: args.ctx.indexedDB.clientDB,
-      accountKeyMaterialDB: args.ctx.indexedDB.accountKeyMaterialDB,
+      clientDB: args.ctx.indexedDB,
+      keyMaterialStore: args.ctx.indexedDB,
     },
     nearAccountId,
     resolvedSignerSlot,

@@ -10,7 +10,7 @@ export async function clickWalletIframeConfirm(
 ): Promise<boolean> {
   const timeoutMs = Math.max(250, Math.floor(opts?.timeoutMs ?? 15_000));
   try {
-    const iframeEl = page.locator('iframe[allow*="publickey-credentials-get"]').first();
+    const iframeEl = page.locator('iframe[allow*="publickey-credentials-get"]').last();
     await iframeEl.waitFor({ state: 'attached', timeout: timeoutMs }).catch(() => undefined);
     const frame = await iframeEl.contentFrame();
     if (!frame) return false;

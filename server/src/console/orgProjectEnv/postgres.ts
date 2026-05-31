@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type { NormalizedLogger } from '../../core/logger';
 import { getPostgresPool } from '../../storage/postgres';
 import {
@@ -85,7 +86,7 @@ function normalizeSigningRootVersion(input: unknown, fallback?: string): string 
 }
 
 function makeResourceId(prefix: string, now: Date): string {
-  return `${prefix}_${now.getTime().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+  return `${prefix}_${now.getTime().toString(36)}_${secureRandomBase36(6, 'console IDs')}`;
 }
 
 function parseOrgRow(row: PgRow): ConsoleOrganization {

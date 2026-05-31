@@ -1,29 +1,26 @@
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
-import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
   buildEd25519SessionPolicy,
   normalizeThresholdRuntimePolicyScope,
-  parseThresholdRuntimePolicyScopeFromJwt,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
+  deriveThresholdEd25519HssClientOutputMaskWasm,
   deriveThresholdEd25519HssClientInputsWasm,
-  prepareThresholdEd25519HssClientRequestWasm,
 } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
-import { runThresholdEd25519HssCeremonyWithSession as runThresholdEd25519HssCeremonyWithSessionValue } from '@/core/signingEngine/threshold/ed25519/hssLifecycle';
+import {
+  runThresholdEd25519HssCeremonyWithSession as runThresholdEd25519HssCeremonyWithSessionValue,
+} from '@/core/signingEngine/threshold/ed25519/hssLifecycle';
 import {
   THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
   THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
 } from '@/core/signingEngine/threshold/ed25519/hssClientBase';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
-import {
-  THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
-  normalizeThresholdEd25519ParticipantIds,
-} from '@shared/threshold/participants';
+import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type {
   BuildCurrentSealedSessionRecordInput,
@@ -39,15 +36,6 @@ import type {
 import type { PersistWarmSessionEd25519CapabilityArgs } from '../warmCapabilities/persistence';
 import { attachEd25519SessionToEmailOtpSigningSessionSealBestEffort } from './companionSessions';
 
-type ManagedRegistrationBootstrapGrant = {
-  token: string;
-  runtimePolicyScope: ThresholdRuntimePolicyScope;
-};
-
-type RegistrationTransport =
-  | { mode: 'managed'; relayerUrl: string; environmentId: string; publishableKey: string }
-  | { mode: 'backend_proxy'; bootstrapUrl: string; relayerUrl: string };
-
 export const EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION = 'threshold-ed25519-hss-v1' as const;
 
 export type EmailOtpThresholdEd25519ProvisioningResult = {
@@ -61,24 +49,6 @@ export type EmailOtpThresholdEd25519ProvisioningResult = {
   jwt: string;
   xClientBaseB64u?: string;
 };
-
-export type EmailOtpEd25519RegistrationFreshIntent = {
-  kind: 'registration_ed25519_provisioning';
-  registrationAttemptId: string;
-  walletSigningSessionId?: never;
-  ecdsaThresholdSessionId?: never;
-};
-
-export type EmailOtpEd25519RegistrationCompanionProvisioningIntent = {
-  kind: 'registration_ed25519_companion_provisioning';
-  registrationAttemptId: string;
-  walletSigningSessionId: string;
-  ecdsaThresholdSessionId: string;
-};
-
-export type EmailOtpEd25519RegistrationProvisioningIntent =
-  | EmailOtpEd25519RegistrationFreshIntent
-  | EmailOtpEd25519RegistrationCompanionProvisioningIntent;
 
 export type EmailOtpEd25519SessionReconstructionKey = {
   relayerKeyId: string;
@@ -94,35 +64,33 @@ export type EmailOtpEd25519SessionReconstructionPlan =
     }
   | {
       kind: 'defer';
-      reason:
-        | 'missing_ed25519_key_identity'
-        | 'missing_runtime_policy_scope'
-        | 'not_needed_for_ecdsa';
+      reason: 'missing_runtime_policy_scope';
+      ed25519Key: EmailOtpEd25519SessionReconstructionKey;
+      runtimePolicyScope?: never;
+    }
+  | {
+      kind: 'defer';
+      reason: 'missing_ed25519_key_identity' | 'not_needed_for_ecdsa';
+      ed25519Key?: never;
+      runtimePolicyScope?: never;
     };
 
 type EmailOtpEd25519CommonArgs = {
   nearAccountId: AccountId | string;
   relayUrl: string;
   rpId: string;
-  prfFirstB64u: string;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   participantIds?: number[];
   ttlMs?: number;
   remainingUses?: number;
 };
 
-export type RegisterEmailOtpEd25519CapabilityArgs = EmailOtpEd25519CommonArgs &
-  EmailOtpEd25519RegistrationProvisioningIntent & {
-    appSessionJwt?: string;
-    routeAuth?: AppOrThresholdSessionAuth;
-    runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  };
-
 export type ReconstructEmailOtpEd25519SessionArgs = Omit<
   EmailOtpEd25519CommonArgs,
   'participantIds'
 > & {
   kind: 'session_ed25519_reconstruction';
+  prfFirstB64u: string;
   routeAuth: AppOrThresholdSessionAuth;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   walletSigningSessionId: string;
@@ -132,190 +100,9 @@ export type ReconstructEmailOtpEd25519SessionArgs = Omit<
   appSessionJwt?: never;
 };
 
-type NormalizedEmailOtpEd25519ProvisioningCommon = {
-  nearAccountId: AccountId;
-  relayUrl: string;
-  rpId: string;
-  prfFirstB64u: string;
-  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
-  appSessionJwt?: string;
-  routeAuth?: AppOrThresholdSessionAuth;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  participantIds?: number[];
-  ttlMs?: number;
-  remainingUses?: number;
-};
-
-type NormalizedEmailOtpEd25519ProvisioningInput =
-  | (NormalizedEmailOtpEd25519ProvisioningCommon & EmailOtpEd25519RegistrationFreshIntent)
-  | (NormalizedEmailOtpEd25519ProvisioningCommon & {
-      kind: 'registration_ed25519_companion_provisioning';
-      registrationAttemptId: string;
-      walletSigningSessionId: string;
-      ecdsaThresholdSessionId: string;
-    });
-
 function normalizeOptionalString(value: unknown): string | undefined {
   const normalized = String(value ?? '').trim();
   return normalized || undefined;
-}
-
-function normalizeEmailOtpEd25519ProvisioningInput(
-  input: RegisterEmailOtpEd25519CapabilityArgs,
-): NormalizedEmailOtpEd25519ProvisioningInput {
-  const nearAccountId = toAccountId(input.nearAccountId);
-  const relayUrl = String(input.relayUrl || '').trim();
-  const rpId = String(input.rpId || '').trim();
-  const prfFirstB64u = String(input.prfFirstB64u || '').trim();
-  if (!relayUrl) {
-    throw new Error('Email OTP threshold-ed25519 provisioning requires relayerUrl');
-  }
-  if (!rpId) throw new Error('Email OTP threshold-ed25519 provisioning requires rpId');
-  if (!prfFirstB64u) {
-    throw new Error('Email OTP threshold-ed25519 provisioning requires client seed material');
-  }
-  const common: NormalizedEmailOtpEd25519ProvisioningCommon = {
-    nearAccountId,
-    relayUrl,
-    rpId,
-    prfFirstB64u,
-    emailOtpAuthContext: input.emailOtpAuthContext,
-    ...(input.appSessionJwt ? { appSessionJwt: input.appSessionJwt } : {}),
-    ...(input.routeAuth ? { routeAuth: input.routeAuth } : {}),
-    ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
-    ...(Array.isArray(input.participantIds) ? { participantIds: input.participantIds } : {}),
-    ...(typeof input.ttlMs === 'number' ? { ttlMs: input.ttlMs } : {}),
-    ...(typeof input.remainingUses === 'number' ? { remainingUses: input.remainingUses } : {}),
-  };
-  const registrationAttemptId = normalizeOptionalString(input.registrationAttemptId);
-  if (!registrationAttemptId) {
-    throw new Error('Email OTP threshold-ed25519 registration requires a registration attempt');
-  }
-  if (input.kind === 'registration_ed25519_provisioning') {
-    return {
-      ...common,
-      kind: 'registration_ed25519_provisioning',
-      registrationAttemptId,
-    };
-  }
-  const walletSigningSessionId = normalizeOptionalString(input.walletSigningSessionId);
-  const ecdsaThresholdSessionId = normalizeOptionalString(input.ecdsaThresholdSessionId);
-  if (!walletSigningSessionId || !ecdsaThresholdSessionId) {
-    throw new Error(
-      'Email OTP companion threshold-ed25519 provisioning requires ECDSA session identity',
-    );
-  }
-  return {
-    ...common,
-    kind: 'registration_ed25519_companion_provisioning',
-    registrationAttemptId,
-    walletSigningSessionId,
-    ecdsaThresholdSessionId,
-  };
-}
-
-export async function registerEmailOtpEd25519Capability(args: {
-  input: RegisterEmailOtpEd25519CapabilityArgs;
-  configs: SeamsConfigsReadonly;
-  getSignerWorkerContext: () => WorkerOperationContext | null | undefined;
-  persistEmailOtpThresholdEd25519LocalMetadata: (args: {
-    nearAccountId: AccountId;
-    rpId: string;
-    relayerUrl: string;
-    publicKey: string;
-    relayerKeyId: string;
-    keyVersion: string;
-    participantIds: number[];
-  }) => Promise<void>;
-  persistWarmSessionEd25519Capability: (
-    args: PersistWarmSessionEd25519CapabilityArgs,
-  ) => unknown | Promise<unknown>;
-  hydrateSigningSession: (args: {
-    sessionId: string;
-    prfFirstB64u: string;
-    expiresAtMs: number;
-    remainingUses: number;
-    transport?: WarmSessionSealTransportInput;
-  }) => Promise<void>;
-  sessionPersistenceMode?: string | null;
-  readExactSealedSession: (
-    thresholdSessionId: string,
-    filter: SigningSessionSealedRecordFilter,
-  ) => Promise<SigningSessionSealedStoreRecord | null>;
-  getThresholdEcdsaSessionRecordByThresholdSessionId: (
-    thresholdSessionId: string,
-  ) => ThresholdEcdsaSessionRecord | null;
-  getThresholdEd25519SessionRecordByThresholdSessionId: (
-    thresholdSessionId: string,
-  ) => ThresholdEd25519SessionRecord | null;
-  registerSigningSession: (
-    record: BuildCurrentSealedSessionRecordInput,
-  ) => Promise<void>;
-}): Promise<EmailOtpThresholdEd25519ProvisioningResult> {
-  const input = normalizeEmailOtpEd25519ProvisioningInput(args.input);
-  const nearAccountId = input.nearAccountId;
-  const relayerUrl = input.relayUrl;
-  const rpId = input.rpId;
-  const prfFirstB64u = input.prfFirstB64u;
-
-  const participantIds = normalizeThresholdEd25519ParticipantIds(input.participantIds) || [
-    ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
-  ];
-  const keyVersion = EMAIL_OTP_THRESHOLD_ED25519_HSS_KEY_VERSION;
-  const registrationTransport = resolveRegistrationTransportFromConfig({
-    configs: args.configs,
-    relayerUrl,
-  });
-
-  let runtimePolicyScope =
-    input.runtimePolicyScope ||
-    parseThresholdRuntimePolicyScopeFromJwt(input.appSessionJwt) ||
-    parseThresholdRuntimePolicyScopeFromJwt(input.routeAuth?.jwt);
-  let managedGrantForNextRegistrationRequest: ManagedRegistrationBootstrapGrant | null = null;
-  if (!runtimePolicyScope && registrationTransport.mode === 'managed') {
-    managedGrantForNextRegistrationRequest = await requestManagedRegistrationBootstrapGrant({
-      relayerUrl: registrationTransport.relayerUrl,
-      environmentId: registrationTransport.environmentId,
-      publishableKey: registrationTransport.publishableKey,
-      nearAccountId: String(nearAccountId),
-      rpId,
-    });
-    runtimePolicyScope = managedGrantForNextRegistrationRequest.runtimePolicyScope;
-  }
-  const orgId = String(runtimePolicyScope?.orgId || '').trim();
-  const signingRootId = runtimePolicyScope
-    ? signingRootScopeFromRuntimePolicyScope(runtimePolicyScope).signingRootId
-    : '';
-  if (!orgId || !signingRootId) {
-    throw new Error(
-      'Email OTP threshold-ed25519 provisioning requires canonical signing-root scope',
-    );
-  }
-
-  const workerCtx = args.getSignerWorkerContext();
-  if (!workerCtx) {
-    throw new Error('Email OTP threshold-ed25519 provisioning requires the dedicated emailOtp worker');
-  }
-  const context = {
-    signingRootId,
-    nearAccountId: String(nearAccountId),
-    keyPurpose: THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
-    keyVersion,
-    participantIds,
-    derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
-  };
-  const clientInputs = await deriveThresholdEd25519HssClientInputsWasm({
-    sessionId: `email-otp-ed25519-registration:${String(nearAccountId)}`,
-    ...context,
-    prfFirstB64u,
-    workerCtx,
-  });
-
-  void managedGrantForNextRegistrationRequest;
-  void clientInputs;
-  throw new Error(
-    'Email OTP Ed25519 registration provisioning must use a wallet-subject ceremony before it can run',
-  );
 }
 
 export async function reconstructEmailOtpEd25519Session(args: {
@@ -443,34 +230,6 @@ export async function reconstructEmailOtpEd25519Session(args: {
       'Email OTP threshold-ed25519 session reconstruction mint returned incomplete data',
     );
   }
-  await args.persistWarmSessionEd25519Capability({
-    kind: 'jwt_email_otp',
-    nearAccountId,
-    rpId,
-    relayerUrl,
-    relayerKeyId,
-    runtimePolicyScope: sessionScope,
-    participantIds,
-    sessionKind: 'jwt',
-    sessionId,
-    walletSigningSessionId,
-    expiresAtMs,
-    remainingUses,
-    jwt,
-    emailOtpAuthContext: input.emailOtpAuthContext,
-    source: 'email_otp',
-  });
-  await args.hydrateSigningSession({
-    sessionId,
-    prfFirstB64u,
-    expiresAtMs,
-    remainingUses,
-    transport: {
-      curve: 'ed25519',
-      relayerUrl,
-      thresholdSessionAuthToken: jwt,
-    },
-  });
   const completed = await runThresholdEd25519HssCeremonyWithSessionValue({
     relayerUrl,
     thresholdSessionAuthToken: jwt,
@@ -487,9 +246,9 @@ export async function reconstructEmailOtpEd25519Session(args: {
     },
     workerCtx,
   });
-  if (!completed.success || !completed.clientOutput?.xClientBaseB64u) {
+  if (!completed.ok || !completed.clientOutput.xClientBaseB64u) {
     throw new Error(
-      completed.error || 'Email OTP threshold-ed25519 session reconstruction failed',
+      completed.message || 'Email OTP threshold-ed25519 session reconstruction failed',
     );
   }
   await args.persistWarmSessionEd25519Capability({
@@ -509,6 +268,19 @@ export async function reconstructEmailOtpEd25519Session(args: {
     xClientBaseB64u: completed.clientOutput.xClientBaseB64u,
     emailOtpAuthContext: input.emailOtpAuthContext,
     source: 'email_otp',
+  });
+  await args.hydrateSigningSession({
+    sessionId,
+    prfFirstB64u,
+    expiresAtMs,
+    remainingUses,
+    transport: {
+      curve: 'ed25519',
+      walletId: String(nearAccountId),
+      relayerUrl,
+      walletSigningSessionId,
+      thresholdSessionAuthToken: jwt,
+    },
   });
   await attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({
     sessionPersistenceMode: args.sessionPersistenceMode,
@@ -559,26 +331,6 @@ function replaceUrlPathSuffix(url: string, fromPath: string, toPath: string): st
   return '';
 }
 
-function resolveRegistrationTransportFromConfig(args: {
-  configs: SeamsConfigsReadonly;
-  relayerUrl: string;
-}): RegistrationTransport {
-  const registration = args.configs.registration;
-  if (registration.mode === 'managed') {
-    return {
-      mode: 'managed',
-      relayerUrl: String(args.relayerUrl || args.configs.network.relayer.url || '').trim(),
-      environmentId: String(registration.environmentId || '').trim(),
-      publishableKey: String(registration.publishableKey || '').trim(),
-    };
-  }
-  return {
-    mode: 'backend_proxy',
-    bootstrapUrl: String(registration.bootstrapUrl || '').trim(),
-    relayerUrl: String(args.relayerUrl || args.configs.network.relayer.url || '').trim(),
-  };
-}
-
 async function readJsonObjectResponse(response: Response): Promise<Record<string, unknown>> {
   const parsed = await response.json().catch(() => ({}));
   return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
@@ -606,45 +358,4 @@ async function postJsonExpectOk(args: {
     );
   }
   return data;
-}
-
-async function requestManagedRegistrationBootstrapGrant(args: {
-  relayerUrl: string;
-  environmentId: string;
-  publishableKey: string;
-  nearAccountId: string;
-  rpId: string;
-}): Promise<ManagedRegistrationBootstrapGrant> {
-  const data = await postJsonExpectOk({
-    url: joinUrlPath(args.relayerUrl, '/v1/registration/bootstrap-grants'),
-    headers: { Authorization: `Bearer ${args.publishableKey}` },
-    operation: 'Managed registration bootstrap grant',
-    body: {
-      environmentId: args.environmentId,
-      newAccountId: args.nearAccountId,
-      rpId: args.rpId,
-      flow: 'registration_v1',
-    },
-  });
-  const grant =
-    data.grant && typeof data.grant === 'object' && !Array.isArray(data.grant)
-      ? (data.grant as Record<string, unknown>)
-      : {};
-  const token = String(grant.token || '').trim();
-  const orgId = String(grant.orgId || '').trim();
-  const projectId = String(grant.projectId || '').trim();
-  const envId = String(grant.envId || '').trim();
-  const signingRootVersion = String(grant.signingRootVersion || '').trim();
-  if (!token || !orgId || !projectId || !envId || !signingRootVersion) {
-    throw new Error('Managed registration grant response missing token or runtime scope');
-  }
-  return {
-    token,
-    runtimePolicyScope: {
-      orgId,
-      projectId,
-      envId,
-      signingRootVersion,
-    },
-  };
 }

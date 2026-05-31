@@ -211,7 +211,7 @@ test.describe('Wallet iframe preferences sync', () => {
 
     const indexedDbNoise = consoleErrors.find(
       (m) =>
-        m.includes('PasskeyClientDBManager') ||
+        m.includes('SeamsWalletDBManager') ||
         m.includes('IndexedDB is disabled in this environment'),
     );
     expect(indexedDbNoise).toBeUndefined();

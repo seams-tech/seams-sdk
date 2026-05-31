@@ -2,7 +2,7 @@ import { base64UrlDecode } from './base64';
 
 export const APP_SESSION_JWT_KIND = 'app_session_v1' as const;
 export const THRESHOLD_ED25519_SESSION_AUTH_TOKEN_KIND = 'threshold_ed25519_session_v1' as const;
-export const THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND = 'threshold_ecdsa_session_v1' as const;
+export const THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND = 'threshold_ecdsa_session_v2' as const;
 
 export type AppSessionJwtKind = typeof APP_SESSION_JWT_KIND;
 export type ThresholdSessionAuthTokenKind =

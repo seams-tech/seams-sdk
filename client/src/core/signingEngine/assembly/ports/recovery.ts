@@ -1,4 +1,4 @@
-import { IndexedDBManager } from '@/core/indexedDB';
+import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import type { PrivateKeyExportRecoveryDeps } from '../../interfaces/operationDeps';
 import { configuredThresholdEcdsaChainTargets } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -6,7 +6,7 @@ import {
   readPersistedAvailableSigningLanes,
   readPersistedAvailableSigningLanesForTargets,
 } from '../../session/availability/persistedAvailableSigningLanes';
-import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
+import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/types';
 import type { WarmSessionCapabilityReader } from '../../session/warmCapabilities/types';
 import type { WarmSigningStatusReader } from '../../session/warmCapabilities/statusReader';
 import type { WalletSigningBudgetAvailableStatusDeps } from '../../session/budget/budgetStatusReader';
@@ -22,9 +22,10 @@ import type { CreateSigningEnginePortsArgs } from './shared';
 
 export function createPrivateKeyExportRecoveryDeps(
   args: CreateSigningEnginePortsArgs,
+  runtimeDeps: { indexedDB: UnifiedIndexedDBManager },
 ): PrivateKeyExportRecoveryDeps {
   return {
-    indexedDB: IndexedDBManager,
+    indexedDB: runtimeDeps.indexedDB,
     relayerUrl: args.seamsPasskeyConfigs.network.relayer.url,
     getRpId: () => args.touchIdPrompt.getRpId(),
     requestExportPrivateKeysWithUi: (payload) =>
@@ -41,20 +42,24 @@ export function createRecoveryPublicDeps(args: {
   ecdsaSessions: RecoveryPublicEcdsaSessionStoreDeps;
   touchConfirm: UiConfirmRuntimeBridgePort;
   emailOtpSessions: {
+    readWarmSessionStatusOnly: (sessionId: string) => Promise<WarmSessionStatusResult>;
     restorePersistedSessionForSigning: RecoveryPublicDeps['laneSelection']['restoreEmailOtpPersistedSessionForSigning'];
     requestExportChallenge:
       & EmailOtpNearAccountExportAuthorizationDeps['requestExportChallenge']
       & EmailOtpWalletSessionExportAuthorizationDeps['requestExportChallenge'];
     exportEcdsaKeyWithFreshEmailOtpLane: RecoveryPublicDeps['ecdsa']['emailOtp']['exportEcdsaKeyWithFreshEmailOtpLane'];
     exportEcdsaKeyWithAuthorization: RecoveryPublicDeps['ecdsa']['emailOtp']['exportEcdsaKeyWithAuthorization'];
-    recoverEd25519ExportPrfFirst: RecoveryPublicDeps['nearSingleKeyHss']['emailOtpSessions']['recoverEd25519ExportPrfFirst'];
+    exportEd25519SeedWithAuthorization: RecoveryPublicDeps['nearSingleKeyHss']['emailOtpSessions']['exportEd25519SeedWithAuthorization'];
   };
+  indexedDB: UnifiedIndexedDBManager;
   warmSessionPolicy: {
     getWarmSession: WarmSessionCapabilityReader['getWarmSession'];
     resolveExactEcdsaRecord: WarmSigningStatusReader['resolveExactEcdsaRecord'];
   };
   getWalletSigningBudgetStatus: WalletSigningBudgetAvailableStatusDeps['getAvailableStatus'];
 }): RecoveryPublicDeps {
+  const getEmailOtpWarmSessionStatus = (sessionId: string) =>
+    args.emailOtpSessions.readWarmSessionStatusOnly(sessionId);
   const configuredChainTargets = configuredThresholdEcdsaChainTargets(
     args.seamsPasskeyConfigs.network.chains,
   );
@@ -82,6 +87,7 @@ export function createRecoveryPublicDeps(args: {
           {
             ecdsaSessions: args.ecdsaSessions,
             statusReader: args.touchConfirm,
+            getEmailOtpWarmSessionStatus,
             getWalletSigningBudgetStatus: args.getWalletSigningBudgetStatus,
           },
           availableLanesArgs,
@@ -92,6 +98,7 @@ export function createRecoveryPublicDeps(args: {
           {
             ecdsaSessions: args.ecdsaSessions,
             statusReader: args.touchConfirm,
+            getEmailOtpWarmSessionStatus,
             getWalletSigningBudgetStatus: args.getWalletSigningBudgetStatus,
           },
           completeConfiguredEcdsaTargets(availableLanesArgs),
@@ -102,17 +109,14 @@ export function createRecoveryPublicDeps(args: {
         args.emailOtpSessions.restorePersistedSessionForSigning(restoreArgs),
     },
     nearSingleKeyHss: {
-      indexedDB: {
-        clientDB: IndexedDBManager.clientDB,
-        accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
-      },
+      indexedDB: args.indexedDB,
       touchConfirm: args.touchConfirm,
       emailOtpSessions: {
         requestExportChallenge: (
           request: Parameters<EmailOtpNearAccountExportAuthorizationDeps['requestExportChallenge']>[0],
         ) => args.emailOtpSessions.requestExportChallenge(request),
-        recoverEd25519ExportPrfFirst: (request) =>
-          args.emailOtpSessions.recoverEd25519ExportPrfFirst(request),
+        exportEd25519SeedWithAuthorization: (request) =>
+          args.emailOtpSessions.exportEd25519SeedWithAuthorization(request),
       },
       getSignerWorkerContext: () =>
         args.signerWorkerManager.getContext(),

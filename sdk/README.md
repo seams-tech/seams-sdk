@@ -145,6 +145,8 @@ interface SeamsPasskeyConfig {
   iframeWallet?: {
     walletOrigin: string; // e.g., 'https://wallet.web3authn.org'
     walletServicePath?: string; // Default: '/wallet-service'
+    sdkBasePath?: string; // Default: '/sdk'
+    walletHostVariant?: 'runtime' | 'full' | 'near' | 'ecdsa'; // Default: 'runtime'
     rpIdOverride?: string; // Optional: Credential scope override
   };
 
@@ -167,6 +169,7 @@ The SDK isolates all sensitive operations in a cross-origin iframe (e.g., `walle
 iframeWallet: {
   walletOrigin: 'https://wallet.web3authn.org',
   walletServicePath: '/wallet-service',
+  walletHostVariant: 'runtime',
 }
 ```
 

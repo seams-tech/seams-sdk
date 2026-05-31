@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type { NormalizedLogger } from '../../core/logger';
 import { getPostgresPool } from '../../storage/postgres';
 import {
@@ -31,7 +32,7 @@ function nowMs(now: Date): number {
 
 function makeId(prefix: string, now: Date): string {
   const ts = now.getTime().toString(36);
-  const rand = Math.random().toString(36).slice(2, 10);
+  const rand = secureRandomBase36(8, 'console IDs');
   return `${prefix}_${ts}_${rand}`;
 }
 
@@ -382,14 +383,7 @@ export async function createPostgresConsoleKeyExportService(
               AND org_id = $2
               AND id = $3
             RETURNING *`,
-          [
-            namespace,
-            ctx.orgId,
-            exportId,
-            JSON.stringify(nextApprovals),
-            nextStatus,
-            updatedAtMs,
-          ],
+          [namespace, ctx.orgId, exportId, JSON.stringify(nextApprovals), nextStatus, updatedAtMs],
         );
         return updated ? parseRecordRow(updated) : null;
       });

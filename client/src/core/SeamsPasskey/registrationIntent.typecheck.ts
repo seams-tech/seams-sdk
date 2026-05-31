@@ -1,5 +1,5 @@
 import {
-  walletSubjectIdFromString,
+  walletIdFromString,
   type AddSignerIntentV1,
   type AddSignerSelection,
   type NearAccountOwnershipProofV1,
@@ -40,7 +40,7 @@ const nearAccountOwnershipProof = {
   version: 'near_account_ownership_proof_v1',
   message: {
     version: 'near_account_ownership_proof_message_v1',
-    walletSubjectId: walletSubjectIdFromString('wallet_alice'),
+    walletId: walletIdFromString('wallet_alice'),
     rpId: 'wallet.example.test',
     nearAccountId: 'alice.testnet',
     publicKey: 'ed25519:public-key',
@@ -84,8 +84,9 @@ void ({
 
 void ({
   version: 'registration_intent_v1',
-  walletSubjectId: walletSubjectIdFromString('wallet_alice'),
+  walletId: walletIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
+  authMethod: { kind: 'passkey' },
   signerSelection: {
     mode: 'ed25519_only',
     ed25519: ed25519Spec,
@@ -95,7 +96,7 @@ void ({
 
 void ({
   version: 'add_signer_intent_v1',
-  walletSubjectId: walletSubjectIdFromString('wallet_alice'),
+  walletId: walletIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
   signerSelection: {
     mode: 'ed25519',
@@ -172,9 +173,10 @@ void ({
 
 void ({
   version: 'registration_intent_v1',
-  // @ts-expect-error registration intent requires a branded wallet subject id
-  walletSubjectId: 'wallet_alice',
+  // @ts-expect-error registration intent requires a branded wallet id
+  walletId: 'wallet_alice',
   rpId: 'wallet.example.test',
+  authMethod: { kind: 'passkey' },
   signerSelection: {
     mode: 'ed25519_only',
     ed25519: ed25519Spec,
@@ -184,8 +186,9 @@ void ({
 
 void ({
   version: 'registration_intent_v1',
-  walletSubjectId: walletSubjectIdFromString('wallet_alice'),
+  walletId: walletIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
+  authMethod: { kind: 'passkey' },
   signerSelection: {
     mode: 'ed25519_only',
     ed25519: ed25519Spec,
@@ -195,8 +198,8 @@ void ({
 
 void ({
   version: 'add_signer_intent_v1',
-  // @ts-expect-error add-signer intent requires a branded wallet subject id
-  walletSubjectId: 'wallet_alice',
+  // @ts-expect-error add-signer intent requires a branded wallet id
+  walletId: 'wallet_alice',
   rpId: 'wallet.example.test',
   signerSelection: {
     mode: 'ecdsa',
@@ -207,7 +210,7 @@ void ({
 
 void ({
   version: 'add_signer_intent_v1',
-  walletSubjectId: walletSubjectIdFromString('wallet_alice'),
+  walletId: walletIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
   signerSelection: {
     mode: 'ecdsa',

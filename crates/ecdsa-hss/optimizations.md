@@ -2,6 +2,10 @@
 
 Last updated: 2026-05-20
 
+Removal note: entries that refer to the old ECDSA HSS context version are
+historical. The active crate no longer retains those code paths, fixtures, or
+benchmarks.
+
 ## Purpose
 
 This file is the optimization ledger for `ecdsa-hss`.
@@ -48,7 +52,7 @@ pnpm benchmark:ecdsa-hss:wasm
 
 Representative benchmark input:
 
-- committed fixture corpus entry: `role_local_v1`
+- committed fixture corpus entry: `role_local_v2`
 
 ## Baseline
 
@@ -284,7 +288,7 @@ For wasm specifically, this also means:
   - presign-session initialization is negligible
   - the real cost remains inside the threshold presign/sign execution loop
   - the next optimization pass should target the body of
-    `sign_with_role_materials_v1`
+    active role-local sign execution
     and the underlying `signer-core` threshold ECDSA path, not session setup
 
 ### Entry 2: Sign Bridge Inner Split
@@ -697,7 +701,7 @@ For wasm specifically, this also means:
   - updated the native benchmark suite to measure the active role-local API
     shape
   - recorded crate-local logical request/response and retained-state byte-size
-    estimates from `role_local_v1`
+    estimates from `role_local_v2`
 - command:
   - `cargo bench --manifest-path crates/ecdsa-hss/Cargo.toml --bench performance_baseline`
 - result:

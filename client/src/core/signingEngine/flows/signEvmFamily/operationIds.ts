@@ -3,6 +3,7 @@ import {
   type SigningOperationFingerprint,
   type SigningOperationId,
 } from '../../session/operationState/types';
+import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import type { SigningOperationIdFingerprintBinder } from '../../session/planning/operationIdBinding';
 
 export type EvmFamilySigningOperationIds = {
@@ -12,11 +13,7 @@ export type EvmFamilySigningOperationIds = {
 };
 
 function createEvmFamilySigningOperationId(): SigningOperationId {
-  const cryptoObj = globalThis as { crypto?: { randomUUID?: () => string } };
-  const randomId =
-    typeof cryptoObj.crypto?.randomUUID === 'function'
-      ? cryptoObj.crypto.randomUUID()
-      : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const randomId = secureRandomBase64Url(32, 'EVM family signing operation IDs');
   return SigningSessionIds.signingOperation(`evm-family-sign:${randomId}`);
 }
 

@@ -212,10 +212,11 @@ function normalizeConsumeOnceKey(value: string): string {
 function replayGuardTtlMs(expiresAtMs: number, nowMs = Date.now()): number {
   const expires = Number(expiresAtMs);
   if (!Number.isFinite(expires)) return 0;
-  if (expires <= nowMs) return 0;
+  const retainUntilMs = expires + EXPORT_REPLAY_GUARD_CLOCK_SKEW_MS;
+  if (retainUntilMs <= nowMs) return 0;
   return Math.max(
     EXPORT_REPLAY_GUARD_MIN_RETENTION_MS,
-    Math.floor(expires + EXPORT_REPLAY_GUARD_CLOCK_SKEW_MS - nowMs),
+    Math.floor(retainUntilMs - nowMs),
   );
 }
 

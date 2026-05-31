@@ -151,7 +151,13 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
   test('sticky requests keep overlay visible until explicit cancel', async ({ page }) => {
     const routerPath = SDK_ESM_PATHS.walletIframeRouter;
     const result = await page.evaluate(
-      async ({ walletOrigin, waitForSource, captureOverlaySource, routerPath }) => {
+      async ({
+        walletOrigin,
+        waitForSource,
+        captureOverlaySource,
+        routerPath,
+        stickyNearAccount,
+      }) => {
         const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
         const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
         try {
@@ -170,7 +176,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
 
           const stickyPromise = router.exportKeypairWithUI({
             kind: 'near',
-            nearAccount: STICKY_NEAR_ACCOUNT,
+            nearAccount: stickyNearAccount,
             options: {
               chain: 'near',
             },
@@ -208,6 +214,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
         waitForSource: WAIT_FOR_SOURCE,
         captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
         routerPath,
+        stickyNearAccount: STICKY_NEAR_ACCOUNT,
       },
     );
 
@@ -225,7 +232,13 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
   test('sticky demand does not pin later PM_SIGN_TEMPO overlay visibility', async ({ page }) => {
     const routerPath = SDK_ESM_PATHS.walletIframeRouter;
     const result = await page.evaluate(
-      async ({ walletOrigin, waitForSource, captureOverlaySource, routerPath }) => {
+      async ({
+        walletOrigin,
+        waitForSource,
+        captureOverlaySource,
+        routerPath,
+        stickyNearAccount,
+      }) => {
         const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
         const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
         try {
@@ -244,7 +257,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
 
           await router.exportKeypairWithUI({
             kind: 'near',
-            nearAccount: STICKY_NEAR_ACCOUNT,
+            nearAccount: stickyNearAccount,
             options: {
               chain: 'near',
             },
@@ -298,6 +311,7 @@ test.describe('WalletIframeRouter – sticky overlay lifecycle', () => {
         waitForSource: WAIT_FOR_SOURCE,
         captureOverlaySource: CAPTURE_OVERLAY_SOURCE,
         routerPath,
+        stickyNearAccount: STICKY_NEAR_ACCOUNT,
       },
     );
 

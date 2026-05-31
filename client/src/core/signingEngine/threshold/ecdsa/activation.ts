@@ -14,7 +14,6 @@ import type { ThresholdEcdsaHssRouteAuth } from '@/core/rpcClients/relayer/thres
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
   thresholdEcdsaChainTargetKey,
-  type WalletSubjectId,
   type EvmEip155ChainTarget,
   type TempoChainTarget,
   type ThresholdEcdsaChainTarget,
@@ -25,10 +24,10 @@ import type {
   EvmFamilyEcdsaSessionLanePolicy,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import {
-  deriveBaseEcdsaSubjectIdFromKey,
   deriveEvmFamilyKeyFingerprint,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ExistingEcdsaBootstrapKeyIntent } from '../../session/passkey/ecdsaBootstrap';
+import { buildEcdsaRoleLocalReadyRecordFromLegacyState } from '@/core/platform/ecdsaRoleLocalRecords';
 
 export type ThresholdEcdsaEvmChainTarget = EvmEip155ChainTarget;
 export type ThresholdEcdsaTempoChainTarget = TempoChainTarget;
@@ -43,6 +42,19 @@ export const TEMPO_ECDSA_CHAIN_TARGET: ThresholdEcdsaTempoChainTarget = {
   networkSlug: 'tempo-moderato',
 };
 
+function buildWalletBudgetProjectionVersion(args: {
+  walletSigningSessionId: string;
+  expiresAtMs: number;
+  remainingUses: number;
+}): string {
+  return [
+    'wallet-budget',
+    args.walletSigningSessionId,
+    args.expiresAtMs,
+    Math.max(0, Math.floor(Number(args.remainingUses) || 0)),
+  ].join(':');
+}
+
 export type EcdsaKeygenResult = Awaited<ReturnType<typeof keygenEcdsa>>;
 export type EcdsaSessionResult = Awaited<ReturnType<typeof connectEcdsaSession>>;
 export type EcdsaKeygenSuccess = EcdsaKeygenResult & { ok: true };
@@ -56,6 +68,7 @@ export type ThresholdEcdsaSessionBootstrapResult = {
     walletSigningSessionId: string;
     expiresAtMs: number;
     remainingUses: number;
+    projectionVersion?: string;
   };
   clientRootShare32B64u?: string;
   passkeyPrfFirstB64u?: string;
@@ -97,7 +110,6 @@ type ActivateEcdsaRegistrationSessionPlan = {
 type ActivateEcdsaRegistrationRequest = ActivateEcdsaSessionRequestCommon & {
   kind: 'key_enrollment_bootstrap';
   walletId: AccountId | string;
-  subjectId: WalletSubjectId;
   chainTarget: ThresholdEcdsaChainTarget;
   keyIntent?: ExistingEcdsaBootstrapKeyIntent;
   sessionPlan?: ActivateEcdsaRegistrationSessionPlan;
@@ -212,7 +224,6 @@ export async function activateEcdsaSession(
 ): Promise<ThresholdEcdsaSessionActivationResult> {
   const exactActivation = args.kind === 'session_bootstrap';
   const walletId = toAccountId(exactActivation ? String(args.key.walletId) : args.walletId);
-  const subjectId = exactActivation ? deriveBaseEcdsaSubjectIdFromKey(args.key) : args.subjectId;
   const chainTarget = exactActivation ? args.lanePolicy.chainTarget : args.chainTarget;
 
   const requestedSessionId = String(
@@ -233,7 +244,6 @@ export async function activateEcdsaSession(
     chainTarget,
     chainId: chainTarget.chainId,
     userId: walletId,
-    subjectId,
     participantIds: exactActivation
       ? undefined
       : args.keyIntent
@@ -254,7 +264,6 @@ export async function activateEcdsaSession(
   };
   const bootstrapRequestSummary = {
     walletId,
-    subjectId,
     chainTarget,
     targetKey: thresholdEcdsaChainTargetKey(chainTarget),
     operationId: requestedSessionId || null,
@@ -407,6 +416,22 @@ export async function activateEcdsaSession(
         bootstrapOwnerAddress: bootstrap.ethereumAddress,
       })
     : String(bootstrap.ethereumAddress || '').trim();
+  const ecdsaRoleLocalReadyRecord = bootstrap.ecdsaHssRoleLocalClientState
+    ? buildEcdsaRoleLocalReadyRecordFromLegacyState({
+        walletId,
+        rpId: bootstrap.rpId,
+        chainTarget,
+        keyHandle,
+        ecdsaThresholdKeyId,
+        signingRootId,
+        signingRootVersion: signingRootVersion || 'default',
+        participantIds,
+        state: bootstrap.ecdsaHssRoleLocalClientState,
+      })
+    : undefined;
+  if (!ecdsaRoleLocalReadyRecord) {
+    throw new Error('threshold-ecdsa bootstrap returned empty role-local ready record');
+  }
 
   const keygen: EcdsaKeygenSuccess = {
     ok: true,
@@ -432,6 +457,11 @@ export async function activateEcdsaSession(
     walletSigningSessionId,
     expiresAtMs,
     remainingUses,
+    projectionVersion: buildWalletBudgetProjectionVersion({
+      walletSigningSessionId,
+      expiresAtMs,
+      remainingUses,
+    }),
     jwt: bootstrap.jwt,
     clientVerifyingShareB64u,
     ...(bootstrap.code ? { code: bootstrap.code } : {}),
@@ -448,9 +478,11 @@ export async function activateEcdsaSession(
     signingRootId,
     ...(signingRootVersion ? { signingRootVersion } : {}),
     backendBinding: {
+      materialKind: 'inline_role_local_ready',
       relayerKeyId,
       clientVerifyingShareB64u,
-      ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
+      clientAdditiveShare32B64u,
+      ecdsaRoleLocalReadyRecord,
       ...(bootstrap.ecdsaHssRoleLocalClientState
         ? { ecdsaHssRoleLocalClientState: bootstrap.ecdsaHssRoleLocalClientState }
         : {}),

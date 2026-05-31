@@ -1,6 +1,5 @@
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import type { AccountId } from '@/core/types/accountIds';
-import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type {
   ExportPrivateKeysWithUiWorkerPayload,
   ExportPrivateKeysWithUiWorkerResult,
@@ -34,6 +33,7 @@ import type {
 import type { UserPreferencesManager } from '../session/userPreferences';
 import type { WarmSessionEcdsaCapabilityState } from '../session/warmCapabilities/types';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
+import type { ThresholdEd25519WebAuthnPrfSecretSource } from '../threshold/ed25519/authSession';
 import type {
   UiConfirmContextPort,
   UiConfirmRegistrationPort,
@@ -56,7 +56,6 @@ export type NearEd25519SigningSessionStatus = {
 export type EmailOtpEcdsaSigningBootstrapResult = {
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   warmCapability: WarmSessionEcdsaCapabilityState;
-  clientRootShare32B64u: string;
 };
 
 export type NearSigningApiDeps = {
@@ -89,7 +88,7 @@ export type NearSigningApiDeps = {
   reconnectPasskeyEd25519CapabilityForSigning?: (args: {
     nearAccountId: AccountId;
     record: ThresholdEd25519SessionRecord;
-    localPrfCredential: WebAuthnAuthenticationCredential;
+    policySecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
     usesNeeded?: number;
     remainingUses?: number;
     sessionId: string;

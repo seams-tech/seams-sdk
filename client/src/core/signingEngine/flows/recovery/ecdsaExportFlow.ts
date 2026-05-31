@@ -15,13 +15,14 @@ import {
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type { WarmSessionPostSignPolicyAdapterDeps } from '../../session/operationState/warmSessionPolicyAdapter';
 import { assertWarmSessionEcdsaOperationAllowed } from '../../session/operationState/warmSessionPolicyAdapter';
-import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst } from '../../session/passkey/ecdsaClientRoot';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
   ecdsaExportBoundaryChain,
   type EcdsaExportSessionStoreDeps,
   type ExactEcdsaExportLane,
   type FreshEmailOtpEcdsaExportMaterial,
+  type FreshEmailOtpEcdsaExportMaterialNeedsChallenge,
+  type FreshEmailOtpEcdsaExportMaterialRouteAuthReady,
   type ReadyEcdsaExportMaterial,
 } from './ecdsaExportMaterial';
 import { exportEcdsaHssKeyWithThresholdSession } from './ecdsaHssExport';
@@ -35,7 +36,6 @@ import {
 } from './keyExportConfirmation';
 import {
   emitKeyExportEvent,
-  requirePrfFirstForPrivateKeyExport,
   type KeyExportEventCallback,
 } from './keyExportFlow';
 
@@ -60,7 +60,7 @@ export type EcdsaExportFlowDeps = {
       otpCode: string;
       publicFacts: FreshEmailOtpEcdsaExportMaterial['publicFacts'];
       authSubjectId?: string;
-      runtimePolicyScope?: FreshEmailOtpEcdsaExportMaterial['runtimePolicyScope'];
+      runtimePolicyScope: FreshEmailOtpEcdsaExportMaterial['runtimePolicyScope'];
     }) => Promise<EcdsaExportArtifact>;
     exportEcdsaKeyWithAuthorization: (args: {
       walletSession: ReturnType<typeof walletSessionRefFromSession>;
@@ -148,7 +148,7 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpAuthorization(
   args: {
     walletSessionUserId: string;
     exportLane: ExactEcdsaExportLane;
-    material: FreshEmailOtpEcdsaExportMaterial;
+    material: FreshEmailOtpEcdsaExportMaterialNeedsChallenge;
     options: EcdsaExportOptions;
     flowId: string;
     onEvent?: KeyExportEventCallback;
@@ -156,7 +156,7 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpAuthorization(
 ): Promise<{ accountId: string; exportedSchemes: ExportedKeySchemes }> {
   if (
     args.exportLane.session.authMethod !== 'email_otp' ||
-    args.material.kind !== 'fresh_email_otp'
+    args.material.kind !== 'fresh_email_otp_needs_challenge'
   ) {
     throw new Error('[SigningEngine][ecdsa-export] fresh export requires Email OTP lane');
   }
@@ -192,10 +192,80 @@ export async function exportThresholdEcdsaKeyWithFreshEmailOtpAuthorization(
     challengeId: authorization.challengeId,
     otpCode: authorization.otpCode,
     publicFacts: args.material.publicFacts,
-    ...(args.material.authSubjectId ? { authSubjectId: args.material.authSubjectId } : {}),
-    ...(args.material.runtimePolicyScope
-      ? { runtimePolicyScope: args.material.runtimePolicyScope }
+    ...(args.material.authSubjectMode === 'explicit_auth_subject'
+      ? { authSubjectId: args.material.authSubjectId }
       : {}),
+    runtimePolicyScope: args.material.runtimePolicyScope,
+  });
+  emitEcdsaMaterialSucceeded({
+    flowId: args.flowId,
+    nearAccountId: args.walletSessionUserId,
+    chain: exportChain,
+    onEvent: args.onEvent,
+  });
+  await showEcdsaExportArtifact(deps, {
+    walletSessionUserId: args.walletSessionUserId,
+    exportLane: args.exportLane,
+    artifact,
+    options: args.options,
+    flowId: args.flowId,
+    onEvent: args.onEvent,
+  });
+  return {
+    accountId: String(args.walletSessionUserId),
+    exportedSchemes: ['secp256k1'],
+  };
+}
+
+export async function exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth(
+  deps: EcdsaExportFlowDeps,
+  args: {
+    walletSessionUserId: string;
+    exportLane: ExactEcdsaExportLane;
+    material: FreshEmailOtpEcdsaExportMaterialRouteAuthReady;
+    options: EcdsaExportOptions;
+    flowId: string;
+    onEvent?: KeyExportEventCallback;
+  },
+): Promise<{ accountId: string; exportedSchemes: ExportedKeySchemes }> {
+  const exportChain = ecdsaExportBoundaryChain(args.exportLane);
+  const authorization = await requestEmailOtpKeyExportAuthorization(
+    {
+      touchConfirm: deps.touchConfirm,
+      requestExportChallenge: deps.emailOtp.requestExportChallenge,
+    },
+    {
+      kind: 'wallet_session_export_auth',
+      walletSession: walletSessionRefFromSession({
+        walletId: args.walletSessionUserId,
+        walletSessionUserId: args.walletSessionUserId,
+      }),
+      chain: exportChain,
+      publicKey: String(args.material.publicFacts.publicKeyB64u),
+      curve: 'ecdsa' satisfies WalletAuthCurve,
+      authLane: args.material.authLane,
+    },
+  );
+  emitEcdsaMaterialStarted({
+    flowId: args.flowId,
+    nearAccountId: args.walletSessionUserId,
+    chain: exportChain,
+    onEvent: args.onEvent,
+  });
+  const rpId = String(deps.getRpId() || '').trim();
+  if (!rpId) {
+    throw new Error('Missing rpId for threshold-ecdsa Email OTP export');
+  }
+  const artifact = await deps.emailOtp.exportEcdsaKeyWithAuthorization({
+    walletSession: walletSessionRefFromSession({
+      walletId: args.walletSessionUserId,
+      walletSessionUserId: args.walletSessionUserId,
+    }),
+    challengeId: authorization.challengeId,
+    otpCode: authorization.otpCode,
+    record: args.material.record,
+    rpId,
+    authLane: args.material.authLane,
   });
   emitEcdsaMaterialSucceeded({
     flowId: args.flowId,
@@ -233,6 +303,7 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
   const exportPublicKey =
     String(args.material.cachedExportArtifact?.publicKeyHex || '').trim() ||
     String(args.material.publicFacts.publicKeyB64u);
+  const cachedArtifact = args.material.cachedExportArtifact;
 
   if (currentRecord.source === SIGNER_AUTH_METHODS.emailOtp) {
     const rpId = String(deps.getRpId() || '').trim();
@@ -324,36 +395,13 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
     }
     throw error;
   }
-  const rpId = String(deps.getRpId() || '').trim();
-  if (!rpId) {
-    throw new Error('Missing rpId for threshold-ecdsa explicit export');
-  }
-  const exportCredential = await requestThresholdEcdsaExportAuthorization(
-    { touchConfirm: deps.touchConfirm, theme: deps.theme },
-    {
-      walletSessionUserId: args.walletSessionUserId,
-      publicKey: exportPublicKey,
-      chainTarget: args.exportLane.session.chainTarget,
-      flowId: args.flowId,
-      onEvent: args.onEvent,
-    },
-  );
-  const prfFirstB64u = requirePrfFirstForPrivateKeyExport({
-    credential: exportCredential.credential,
-    errorContext: 'threshold-ecdsa explicit export',
-  });
-  const clientRootShare32B64u =
-    await derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst(prfFirstB64u);
-
-  emitEcdsaMaterialStarted({
-    flowId: args.flowId,
-    nearAccountId: args.walletSessionUserId,
-    chain: exportChain,
-    onEvent: args.onEvent,
-  });
-
-  const cachedArtifact = args.material.cachedExportArtifact;
   if (cachedArtifact) {
+    emitEcdsaMaterialStarted({
+      flowId: args.flowId,
+      nearAccountId: args.walletSessionUserId,
+      chain: exportChain,
+      onEvent: args.onEvent,
+    });
     emitEcdsaMaterialSucceeded({
       flowId: args.flowId,
       nearAccountId: args.walletSessionUserId,
@@ -374,6 +422,26 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
       exportedSchemes: ['secp256k1'],
     };
   }
+  const rpId = String(deps.getRpId() || '').trim();
+  if (!rpId) {
+    throw new Error('Missing rpId for threshold-ecdsa explicit export');
+  }
+  const exportCredential = await requestThresholdEcdsaExportAuthorization(
+    { touchConfirm: deps.touchConfirm, theme: deps.theme },
+    {
+      walletSessionUserId: args.walletSessionUserId,
+      publicKey: exportPublicKey,
+      chainTarget: args.exportLane.session.chainTarget,
+      flowId: args.flowId,
+      onEvent: args.onEvent,
+    },
+  );
+  emitEcdsaMaterialStarted({
+    flowId: args.flowId,
+    nearAccountId: args.walletSessionUserId,
+    chain: exportChain,
+    onEvent: args.onEvent,
+  });
 
   const artifact = await exportEcdsaHssKeyWithThresholdSession(
     { getSignerWorkerContext: deps.getSignerWorkerContext },
@@ -382,7 +450,7 @@ export async function exportThresholdEcdsaKeyWithAuthorization(
       rpId,
       signerSession: args.material.signerSession,
       record: args.material.record,
-      clientRootShare32B64u,
+      credential: exportCredential.credential,
     },
   );
   emitEcdsaMaterialSucceeded({

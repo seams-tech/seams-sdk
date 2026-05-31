@@ -116,11 +116,11 @@ test.describe('signing session sealed store', () => {
         };
         const record = await mod.readExactSealedSession(thresholdSessionId, passkeyEcdsa);
         const rawRecord = await new Promise<unknown>((resolve, reject) => {
-          const openReq = indexedDB.open('seams_wallet_v1');
+          const openReq = indexedDB.open('seams_wallet');
           openReq.onsuccess = () => {
             const db = openReq.result;
-            const tx = db.transaction('signing_session_seals_v1', 'readonly');
-            const getReq = tx.objectStore('signing_session_seals_v1').get(record?.storeKey);
+            const tx = db.transaction('signing_session_seals', 'readonly');
+            const getReq = tx.objectStore('signing_session_seals').get(record?.storeKey);
             getReq.onsuccess = () => {
               const value = getReq.result;
               db.close();
@@ -192,19 +192,20 @@ test.describe('signing session sealed store', () => {
         const thresholdSessionId = 'sess-plaintext-record';
         await mod.clearAllSealedSessions();
         const db = await new Promise<IDBDatabase>((resolve, reject) => {
-          const req = indexedDB.open('seams_wallet_v1');
+          const req = indexedDB.open('seams_wallet');
           req.onupgradeneeded = () => {
-            if (!req.result.objectStoreNames.contains('signing_session_seals_v1')) {
-              req.result.createObjectStore('signing_session_seals_v1', {
-                keyPath: 'walletSigningSessionId',
+            if (!req.result.objectStoreNames.contains('signing_session_seals')) {
+              req.result.createObjectStore('signing_session_seals', {
+                keyPath: 'store_key',
               });
             }
           };
           req.onsuccess = () => resolve(req.result);
           req.onerror = () => reject(req.error);
         });
-        const tx = db.transaction('signing_session_seals_v1', 'readwrite');
-        tx.objectStore('signing_session_seals_v1').put({
+        const tx = db.transaction('signing_session_seals', 'readwrite');
+        tx.objectStore('signing_session_seals').put({
+          store_key: `plaintext:${thresholdSessionId}:passkey:ecdsa`,
           v: 1,
           alg: 'plain-v1',
           storageScope: 'iframe_origin_indexeddb',
@@ -300,7 +301,7 @@ test.describe('signing session sealed store', () => {
     expect(result).toBeNull();
   });
 
-  test('drops pre-v5 sealed ECDSA records on IndexedDB upgrade invalidation', async ({ page }) => {
+  test('ignores legacy sealed ECDSA records from the retired v1 database', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         await new Promise<void>((resolve) => {
@@ -314,7 +315,7 @@ test.describe('signing session sealed store', () => {
           const req = indexedDB.open('seams_wallet_v1', 4);
           req.onupgradeneeded = () => {
             const db = req.result;
-            if (!db.objectStoreNames.contains('signing_session_seals_v1')) {
+            if (!db.objectStoreNames.contains('signing_session_seals')) {
               db.createObjectStore('signing_session_seals_v1', {
                 keyPath: 'walletSigningSessionId',
               });
@@ -413,14 +414,23 @@ test.describe('signing session sealed store', () => {
           passkeyEcdsaFilter,
         );
         const recordsAfterUpgrade = await new Promise<string[]>((resolve, reject) => {
-          const req = indexedDB.open('seams_wallet_v1');
+          const req = indexedDB.open('seams_wallet');
           req.onsuccess = () => {
             const db = req.result;
-            const readTx = db.transaction('signing_session_seals_v1', 'readonly');
-            const getAllReq = readTx.objectStore('signing_session_seals_v1').getAll();
+            const readTx = db.transaction('signing_session_seals', 'readonly');
+            const getAllReq = readTx.objectStore('signing_session_seals').getAll();
             getAllReq.onsuccess = () => {
               const keys = (getAllReq.result as Array<Record<string, unknown>>).map((entry) =>
-                String(entry.storeKey || entry.walletSigningSessionId || ''),
+                String(
+                  entry.store_key ||
+                    (entry.sealed_record &&
+                    typeof entry.sealed_record === 'object' &&
+                    !Array.isArray(entry.sealed_record)
+                      ? (entry.sealed_record as Record<string, unknown>).storeKey
+                      : '') ||
+                    entry.walletSigningSessionId ||
+                    '',
+                ),
               );
               db.close();
               resolve(keys);
@@ -498,12 +508,13 @@ test.describe('signing session sealed store', () => {
         );
 
         const db = await new Promise<IDBDatabase>((resolve, reject) => {
-          const req = indexedDB.open('seams_wallet_v1');
+          const req = indexedDB.open('seams_wallet');
           req.onsuccess = () => resolve(req.result);
           req.onerror = () => reject(req.error);
         });
-        const tx = db.transaction('signing_session_seals_v1', 'readwrite');
-        tx.objectStore('signing_session_seals_v1').put({
+        const tx = db.transaction('signing_session_seals', 'readwrite');
+        tx.objectStore('signing_session_seals').put({
+          store_key: 'bad-email-otp-wallet-session:email_otp:ecdsa',
           v: 1,
           alg: 'shamir3pass-v1',
           storageScope: 'iframe_origin_indexeddb',
@@ -750,18 +761,39 @@ test.describe('signing session sealed store', () => {
         };
 
         const db = await new Promise<IDBDatabase>((resolve, reject) => {
-          const req = indexedDB.open('seams_wallet_v1');
+          const req = indexedDB.open('seams_wallet');
           req.onsuccess = () => resolve(req.result);
           req.onerror = () => reject(req.error);
         });
-        const tx = db.transaction('signing_session_seals_v1', 'readwrite');
-        tx.objectStore('signing_session_seals_v1').put(deleteRequiredRaw);
-        tx.objectStore('signing_session_seals_v1').put(rebuildRequiredRaw);
-        tx.objectStore('signing_session_seals_v1').put(missingSigningRootRaw);
-        tx.objectStore('signing_session_seals_v1').put(missingTokenRaw);
-        tx.objectStore('signing_session_seals_v1').put(missingOwnerRaw);
-        tx.objectStore('signing_session_seals_v1').put(missingKeyIdRaw);
-        tx.objectStore('signing_session_seals_v1').put(missingWalletSessionRaw);
+        const tx = db.transaction('signing_session_seals', 'readwrite');
+        tx.objectStore('signing_session_seals').put({
+          store_key: deleteRequiredRaw.storeKey,
+          ...deleteRequiredRaw,
+        });
+        tx.objectStore('signing_session_seals').put({
+          store_key: rebuildRequiredRaw.storeKey,
+          ...rebuildRequiredRaw,
+        });
+        tx.objectStore('signing_session_seals').put({
+          store_key: missingSigningRootRaw.storeKey,
+          ...missingSigningRootRaw,
+        });
+        tx.objectStore('signing_session_seals').put({
+          store_key: missingTokenRaw.storeKey,
+          ...missingTokenRaw,
+        });
+        tx.objectStore('signing_session_seals').put({
+          store_key: missingOwnerRaw.storeKey,
+          ...missingOwnerRaw,
+        });
+        tx.objectStore('signing_session_seals').put({
+          store_key: missingKeyIdRaw.storeKey,
+          ...missingKeyIdRaw,
+        });
+        tx.objectStore('signing_session_seals').put({
+          store_key: missingWalletSessionRaw.storeKey,
+          ...missingWalletSessionRaw,
+        });
         await new Promise<void>((resolve, reject) => {
           tx.oncomplete = () => resolve();
           tx.onerror = () => reject(tx.error);
@@ -805,13 +837,21 @@ test.describe('signing session sealed store', () => {
         );
 
         const remainingKeys = await new Promise<string[]>((resolve, reject) => {
-          const readTx = db.transaction('signing_session_seals_v1', 'readonly');
-          const getReq = readTx.objectStore('signing_session_seals_v1').getAll();
+          const readTx = db.transaction('signing_session_seals', 'readonly');
+          const getReq = readTx.objectStore('signing_session_seals').getAll();
           getReq.onsuccess = () => {
             resolve(
-              (getReq.result as Array<Record<string, unknown>>).map((entry) =>
-                String(entry.storeKey),
-              ),
+              (getReq.result as Array<Record<string, unknown>>).map((entry) => {
+                if (typeof entry.store_key === 'string') return entry.store_key;
+                if (
+                  entry.sealed_record &&
+                  typeof entry.sealed_record === 'object' &&
+                  !Array.isArray(entry.sealed_record)
+                ) {
+                  return String((entry.sealed_record as Record<string, unknown>).storeKey);
+                }
+                return String(entry.storeKey);
+              }),
             );
           };
           getReq.onerror = () => reject(getReq.error);
@@ -1459,13 +1499,13 @@ test.describe('signing session sealed store', () => {
     expect(result.sessionKeys).toEqual([]);
   });
 
-  test('does not create seams_wallet_v1 when IndexedDB persistence is disabled', async ({
+  test('does not create seams_wallet when IndexedDB persistence is disabled', async ({
     page,
   }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         await new Promise<void>((resolve) => {
-          const req = indexedDB.deleteDatabase('seams_wallet_v1');
+          const req = indexedDB.deleteDatabase('seams_wallet');
           req.onsuccess = () => resolve();
           req.onerror = () => resolve();
           req.onblocked = () => resolve();
@@ -1510,7 +1550,7 @@ test.describe('signing session sealed store', () => {
     );
 
     expect(result.record).toBeNull();
-    expect(result.databaseNames).not.toContain('seams_wallet_v1');
+    expect(result.databaseNames).not.toContain('seams_wallet');
   });
 
   test('reads IndexedDB record when browser-session marker is missing', async ({ page }) => {

@@ -16,6 +16,8 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '../../core/thresholdEcdsaChainTarget';
 
+type HssWalletId = string & { readonly __hssWalletIdBrand: unique symbol };
+
 type SelfHostedCloudflareRelayContext = Parameters<typeof handleThresholdEd25519>[0];
 
 type SelfHostedWorker<Env> = {
@@ -42,7 +44,7 @@ type SelfHostedEcdsaSigningRootWalletVerifier = {
     readonly signingRootId: string;
     readonly signingRootVersion: string;
     readonly walletSessionUserId: string;
-    readonly subjectId: string;
+    readonly walletId: HssWalletId;
     readonly chainTarget: ThresholdEcdsaChainTarget;
     readonly ecdsaThresholdKeyId: string;
     readonly walletSigningSessionId: string;
@@ -162,6 +164,11 @@ function optionalBodyString(body: unknown, name: string): string | undefined {
   return requireBodyString(body, name) || undefined;
 }
 
+function requireHssWalletId(body: unknown, name: string): HssWalletId | null {
+  const value = requireBodyString(body, name);
+  return value ? (value as HssWalletId) : null;
+}
+
 function resolveSelfHostedWalletVerifier(
   ctx: SelfHostedCloudflareRelayContext,
 ): SelfHostedEcdsaSigningRootWalletVerifier | null {
@@ -273,7 +280,7 @@ async function handleSigningRootAdminRoutes(
     const signingRootId = requireBodyString(body, 'signingRootId');
     const signingRootVersion = requireBodyString(body, 'signingRootVersion');
     const walletSessionUserId = requireBodyString(body, 'walletSessionUserId');
-    const subjectId = requireBodyString(body, 'subjectId');
+    const hssWalletId = requireHssWalletId(body, 'subjectId');
     const chainTarget = isPlainObject(body)
       ? thresholdEcdsaChainTargetFromValue(body.chainTarget)
       : null;
@@ -286,7 +293,7 @@ async function handleSigningRootAdminRoutes(
       !signingRootId ||
       !signingRootVersion ||
       !walletSessionUserId ||
-      !subjectId ||
+      !hssWalletId ||
       !chainTarget ||
       !ecdsaThresholdKeyId ||
       !walletSigningSessionId ||
@@ -322,7 +329,7 @@ async function handleSigningRootAdminRoutes(
       signingRootId,
       signingRootVersion,
       walletSessionUserId,
-      subjectId,
+      walletId: hssWalletId,
       chainTarget,
       ecdsaThresholdKeyId,
       walletSigningSessionId,

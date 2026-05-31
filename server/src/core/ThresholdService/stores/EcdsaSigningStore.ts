@@ -27,6 +27,7 @@ import {
   toThresholdEcdsaSigningPrefix,
 } from '../validation';
 import { createCloudflareDurableObjectThresholdEcdsaStores } from './CloudflareDurableObjectStore';
+import { secureRandomIdFragment } from '../secureRandomId';
 
 export type ThresholdEcdsaSigningSessionRecord = {
   expiresAtMs: number;
@@ -1135,7 +1136,7 @@ class UpstashRedisRestThresholdEcdsaPresignaturePool implements ThresholdEcdsaPr
     const id = toOptionalTrimmedString(presignatureId);
     if (!key || !id) return null;
     const ttlSeconds = String(toRedisSeconds(this.reservationTtlMs));
-    const marker = `__seams_threshold_ecdsa_presign_deleted__:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+    const marker = `__seams_threshold_ecdsa_presign_deleted__:${Date.now()}:${secureRandomIdFragment()}`;
     try {
       const raw = await this.client.eval(
         ECDSA_PRESIGN_RESERVE_BY_ID_LUA,
@@ -1255,7 +1256,7 @@ class RedisTcpThresholdEcdsaPresignaturePool implements ThresholdEcdsaPresignatu
     const id = toOptionalTrimmedString(presignatureId);
     if (!key || !id) return null;
     const ttlSeconds = String(toRedisSeconds(this.reservationTtlMs));
-    const marker = `__seams_threshold_ecdsa_presign_deleted__:${Date.now()}:${Math.random().toString(16).slice(2)}`;
+    const marker = `__seams_threshold_ecdsa_presign_deleted__:${Date.now()}:${secureRandomIdFragment()}`;
     const evalResp = await this.client.send([
       'EVAL',
       ECDSA_PRESIGN_RESERVE_BY_ID_LUA,

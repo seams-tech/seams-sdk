@@ -1,4 +1,5 @@
 import { errorMessage } from '@shared/utils/errors';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 import { isObject } from '@shared/utils/validation';
 import {
   type NearWorkerProgressEvent,
@@ -105,9 +106,7 @@ const SIGNER_WORKER_KINDS: readonly SignerWorkerKind[] = [
 const MULTICHAIN_WORKER_DEFAULT_TIMEOUT_MS = 20_000;
 
 function makeId(prefix: string): string {
-  const c = globalThis.crypto;
-  if (c?.randomUUID && typeof c.randomUUID === 'function') return c.randomUUID();
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return secureRandomId(prefix, 32, 'signer worker request IDs');
 }
 
 function isReadyFrame(value: unknown): boolean {

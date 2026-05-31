@@ -180,6 +180,7 @@ async function createEmailOtpLoginChallenge(service: AuthService): Promise<{
 }
 
 async function seedEmailOtpEnrollment(service: AuthService): Promise<void> {
+  await seedCanonicalWallet(service);
   const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
   const existing = await enrollmentStore.get(WALLET_ID);
   if (existing) return;
@@ -199,6 +200,24 @@ async function seedEmailOtpEnrollment(service: AuthService): Promise<void> {
     clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
     unlockKeyVersion: 'email-otp-unlock-v1',
     thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+    createdAtMs: nowMs,
+    updatedAtMs: nowMs,
+  });
+}
+
+async function seedCanonicalWallet(
+  service: AuthService,
+  walletId: string = WALLET_ID,
+  rpId = 'localhost',
+): Promise<void> {
+  const walletStore = (service as any).getWalletStore();
+  const existing = await walletStore.getWallet({ walletId });
+  if (existing) return;
+  const nowMs = Date.now();
+  await walletStore.putSubject({
+    version: 'wallet_v1',
+    walletId,
+    rpId,
     createdAtMs: nowMs,
     updatedAtMs: nowMs,
   });
@@ -263,6 +282,7 @@ async function consumeEmailOtpChallengeRateLimit(service: AuthService, clientIp:
 }
 
 async function enrollRecoveryWallet(service: AuthService): Promise<void> {
+  await seedCanonicalWallet(service);
   const challenge = await service.createEmailOtpEnrollmentChallenge({
     userId: USER_ID,
     walletId: WALLET_ID,
@@ -281,7 +301,7 @@ async function enrollRecoveryWallet(service: AuthService): Promise<void> {
   });
   expect(outbox.ok).toBe(true);
   const verified = await service.verifyEmailOtpEnrollment({
-    userId: USER_ID,
+    providerSubject: USER_ID,
     walletId: WALLET_ID,
     orgId: ORG_ID,
     challengeId,
@@ -289,6 +309,7 @@ async function enrollRecoveryWallet(service: AuthService): Promise<void> {
     otpChannel: 'email_otp',
     sessionHash: SESSION_HASH,
     appSessionVersion: APP_SESSION_VERSION,
+    proofEmail: EMAIL,
     recoveryWrappedEnrollmentEscrows: makeRecoveryWrappedEnrollmentEscrows(),
     enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
     clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
@@ -302,6 +323,7 @@ async function verifyEnrollmentWithRecoveryWrappedEnrollmentEscrows(
   service: AuthService,
   recoveryWrappedEnrollmentEscrows: unknown,
 ) {
+  await seedCanonicalWallet(service);
   const challenge = await service.createEmailOtpEnrollmentChallenge({
     userId: USER_ID,
     walletId: WALLET_ID,
@@ -321,7 +343,7 @@ async function verifyEnrollmentWithRecoveryWrappedEnrollmentEscrows(
   expect(outbox.ok).toBe(true);
   if (!outbox.ok) return outbox;
   return service.verifyEmailOtpEnrollment({
-    userId: USER_ID,
+    providerSubject: USER_ID,
     walletId: WALLET_ID,
     orgId: ORG_ID,
     challengeId: challenge.challenge.challengeId,
@@ -329,6 +351,7 @@ async function verifyEnrollmentWithRecoveryWrappedEnrollmentEscrows(
     otpChannel: 'email_otp',
     sessionHash: SESSION_HASH,
     appSessionVersion: APP_SESSION_VERSION,
+    proofEmail: EMAIL,
     recoveryWrappedEnrollmentEscrows,
     enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
     clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
@@ -457,6 +480,47 @@ test.describe('AuthService Email OTP policy', () => {
     expect(active.ok).toBe(true);
   });
 
+  test('Email OTP enrollment finalize rejects missing canonical wallet', async () => {
+    const service = makeService();
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: USER_ID,
+      walletId: WALLET_ID,
+      orgId: ORG_ID,
+      email: EMAIL,
+      otpChannel: 'email_otp',
+      sessionHash: SESSION_HASH,
+      appSessionVersion: APP_SESSION_VERSION,
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) return;
+    const outbox = await service.readEmailOtpOutboxEntry({
+      challengeId: challenge.challenge.challengeId,
+      userId: USER_ID,
+      walletId: WALLET_ID,
+    });
+    expect(outbox.ok).toBe(true);
+    if (!outbox.ok) return;
+
+    const verified = await service.verifyEmailOtpEnrollment({
+      providerSubject: USER_ID,
+      walletId: WALLET_ID,
+      orgId: ORG_ID,
+      challengeId: challenge.challenge.challengeId,
+      otpCode: outbox.otpCode,
+      otpChannel: 'email_otp',
+      sessionHash: SESSION_HASH,
+      appSessionVersion: APP_SESSION_VERSION,
+      proofEmail: EMAIL,
+      recoveryWrappedEnrollmentEscrows: makeRecoveryWrappedEnrollmentEscrows(),
+      enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+      clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+      unlockKeyVersion: 'email-otp-unlock-v1',
+      thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+    });
+    expect(verified.ok).toBe(false);
+    expect(verified.ok ? '' : verified.code).toBe('wallet_registration_incomplete');
+  });
+
   test('Google Email OTP identity link activates after enrollment persistence', async () => {
     process.env.ACCOUNT_ID_DERIVATION_SECRET ||= 'test-account-id-derivation-secret';
     const service = makeService();
@@ -485,6 +549,7 @@ test.describe('AuthService Email OTP policy', () => {
     });
     expect(recordedKey).toEqual({ ok: true });
     await expect(identity.getUserIdBySubject(`wallet:${providerSubject}`)).resolves.toBeNull();
+    await seedCanonicalWallet(service, registered.walletId);
 
     const challenge = await service.createEmailOtpEnrollmentChallenge({
       userId: providerSubject,
@@ -506,7 +571,7 @@ test.describe('AuthService Email OTP policy', () => {
     if (!outbox.ok) return;
 
     const verified = await service.verifyEmailOtpEnrollment({
-      userId: providerSubject,
+      providerSubject,
       walletId: registered.walletId,
       orgId: ORG_ID,
       challengeId: challenge.challenge.challengeId,
@@ -514,6 +579,7 @@ test.describe('AuthService Email OTP policy', () => {
       otpChannel: 'email_otp',
       sessionHash: SESSION_HASH,
       appSessionVersion: APP_SESSION_VERSION,
+      proofEmail: 'activation@example.com',
       recoveryWrappedEnrollmentEscrows: makeRecoveryWrappedEnrollmentEscrows(Date.now(), {
         walletId: registered.walletId,
         userId: providerSubject,
@@ -534,6 +600,85 @@ test.describe('AuthService Email OTP policy', () => {
       state: 'active',
       finalizedPublicKey: 'ed25519:test-public-key',
     });
+  });
+
+  test('Google Email OTP registration challenge verifies after account-name reroll', async () => {
+    process.env.ACCOUNT_ID_DERIVATION_SECRET ||= 'test-account-id-derivation-secret';
+    const service = makeService();
+    const providerSubject = 'google:subject-registration-reroll-challenge';
+    const email = 'registration-reroll@example.com';
+    const first = await service.resolveGoogleEmailOtpSession({
+      providerSubject,
+      email,
+      accountMode: 'register',
+      runtimePolicyScope: {
+        orgId: ORG_ID,
+        projectId: 'project_email_otp_authservice',
+        envId: 'env_email_otp_authservice',
+        signingRootVersion: 'default',
+      },
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok || first.mode !== 'register_started') return;
+
+    const challenge = await service.createEmailOtpEnrollmentChallenge({
+      userId: providerSubject,
+      walletId: first.walletId,
+      orgId: ORG_ID,
+      email,
+      otpChannel: 'email_otp',
+      sessionHash: 'email-otp-registration-session-before-reroll',
+      appSessionVersion: APP_SESSION_VERSION,
+    });
+    expect(challenge.ok).toBe(true);
+    if (!challenge.ok) return;
+    const outbox = await service.readEmailOtpOutboxEntry({
+      challengeId: challenge.challenge.challengeId,
+      userId: providerSubject,
+      walletId: first.walletId,
+    });
+    expect(outbox.ok).toBe(true);
+    if (!outbox.ok) return;
+
+    const second = await service.resolveGoogleEmailOtpSession({
+      providerSubject,
+      email,
+      accountMode: 'register',
+      rerollRegistrationAttempt: true,
+      runtimePolicyScope: {
+        orgId: ORG_ID,
+        projectId: 'project_email_otp_authservice',
+        envId: 'env_email_otp_authservice',
+        signingRootVersion: 'default',
+      },
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok || second.mode !== 'register_started') return;
+    expect(second.walletId).not.toBe(first.walletId);
+    await seedCanonicalWallet(service, second.walletId);
+
+    const verified = await service.verifyEmailOtpEnrollment({
+      providerSubject,
+      walletId: second.walletId,
+      orgId: ORG_ID,
+      challengeId: challenge.challenge.challengeId,
+      otpCode: outbox.otpCode,
+      otpChannel: 'email_otp',
+      sessionHash: 'email-otp-registration-session-after-reroll',
+      appSessionVersion: APP_SESSION_VERSION,
+      recoveryWrappedEnrollmentEscrows: makeRecoveryWrappedEnrollmentEscrows(Date.now(), {
+        walletId: second.walletId,
+        userId: providerSubject,
+      }),
+      enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+      clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+      unlockKeyVersion: 'email-otp-unlock-v1',
+      thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+      googleEmailOtpRegistrationAttemptId: second.registrationAttemptId,
+    });
+    expect(verified.ok).toBe(true);
+    if (!verified.ok) return;
+    expect(verified.walletId).toBe(second.walletId);
   });
 
   test('Email OTP enrollment rejects duplicate recovery key ids', async () => {
@@ -687,7 +832,7 @@ test.describe('AuthService Email OTP policy', () => {
     });
     expect(wrongOperation.ok).toBe(false);
     if (wrongOperation.ok) return;
-    expect(wrongOperation.code).toBe('challenge_binding_mismatch');
+    expect(wrongOperation.code).toBe('challenge_purpose_mismatch');
 
     const verified = await service.verifyEmailOtpChallenge({
       userId: USER_ID,
@@ -738,7 +883,7 @@ test.describe('AuthService Email OTP policy', () => {
     await (service as any).getEmailOtpChallengeStore().put({
       version: 'email_otp_challenge_v1',
       challengeId: 'login-challenge-with-email',
-      userId: USER_ID,
+      challengeSubjectId: USER_ID,
       walletId: WALLET_ID,
       orgId: ORG_ID,
       otpChannel: 'email_otp',
@@ -883,7 +1028,7 @@ test.describe('AuthService Email OTP policy', () => {
       });
       expect(wrongSession.ok).toBe(false);
       if (wrongSession.ok) return;
-      expect(wrongSession.code).toBe('challenge_binding_mismatch');
+      expect(wrongSession.code).toBe('challenge_session_mismatch');
 
       const verifiedFirst = await service.verifyEmailOtpChallenge({
         userId: USER_ID,
@@ -1116,9 +1261,10 @@ test.describe('AuthService Email OTP policy', () => {
           expect(challenge.ok).toBe(true);
           if (!challenge.ok) return;
           expect(challenge.delivery.mode).toBe('log');
+          await seedCanonicalWallet(service);
 
           const verified = await service.verifyEmailOtpEnrollment({
-            userId: USER_ID,
+            providerSubject: USER_ID,
             walletId: WALLET_ID,
             orgId: ORG_ID,
             challengeId: challenge.challenge.challengeId,
@@ -1126,6 +1272,7 @@ test.describe('AuthService Email OTP policy', () => {
             otpChannel: 'email_otp',
             sessionHash: SESSION_HASH,
             appSessionVersion: APP_SESSION_VERSION,
+            proofEmail: EMAIL,
             recoveryWrappedEnrollmentEscrows: makeRecoveryWrappedEnrollmentEscrows().map(
               (record, index) =>
                 index === 0

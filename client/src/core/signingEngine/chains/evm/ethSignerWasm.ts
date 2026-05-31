@@ -5,6 +5,7 @@ import {
   type WorkerOperationContext,
 } from '../../workerManager/executeWorkerOperation';
 import { base64UrlDecode } from '@shared/utils/base64';
+import type { ThresholdEcdsaPresignAbortResult } from '../../workerManager/workerTypes';
 
 type Eip1559TxWasmJson = {
   chainId: number;
@@ -477,10 +478,10 @@ export async function thresholdEcdsaPresignSessionStepWasm(args: {
   sessionId: string;
   relayerParticipantId: number;
   stage: 'triples' | 'presign';
-  incomingMessages?: Uint8Array[];
+  incomingMessages: Uint8Array[];
   workerCtx: WorkerOperationContext;
 }): Promise<ThresholdEcdsaPresignProgressWasm> {
-  const incomingMessages = (args.incomingMessages || []).map((entry) => entry.slice());
+  const incomingMessages = args.incomingMessages.map((entry) => entry.slice());
   const transfer = incomingMessages.map((entry) => entry.buffer);
 
   const raw = await executeWorkerOperation({
@@ -506,7 +507,7 @@ export async function thresholdEcdsaPresignSessionAbortWasm(args: {
   sessionId: string;
   workerCtx: WorkerOperationContext;
 }): Promise<void> {
-  await executeWorkerOperation({
+  const result = await executeWorkerOperation({
     ctx: args.workerCtx,
     kind: ETH_SIGNER_WORKER_KIND,
     request: {
@@ -515,6 +516,19 @@ export async function thresholdEcdsaPresignSessionAbortWasm(args: {
       timeoutMs: ETH_SIGNER_WORKER_TIMEOUT_MS,
     },
   });
+  assertThresholdEcdsaPresignAbortResult({ result, sessionId: args.sessionId });
+}
+
+function assertThresholdEcdsaPresignAbortResult(args: {
+  result: ThresholdEcdsaPresignAbortResult;
+  sessionId: string;
+}): void {
+  if (
+    args.result.kind !== 'threshold_ecdsa_presign_session_aborted' ||
+    args.result.sessionId !== args.sessionId
+  ) {
+    throw new Error('[ethSignerWasm] invalid threshold ECDSA presign abort result');
+  }
 }
 
 export async function thresholdEcdsaComputeSignatureShareWasm(args: {

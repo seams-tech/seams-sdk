@@ -35,15 +35,15 @@ def simulateExplicitExportClientView
 def simulateNonExportServerView
     (input : NonExportServerSimulatorInput) : Option ServerObservableProfile :=
   match input.visibleBoundary.allowedOutputKind with
-  | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly =>
+  | ecdsa_hss.wire.AllowedOutputKind.ThresholdMaterialOnly =>
     some { boundary := input.visibleBoundary }
-  | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndRelayerExportShare => none
+  | ecdsa_hss.wire.AllowedOutputKind.ThresholdMaterialAndRelayerExportShare => none
 
 def simulateExplicitExportServerView
     (input : ExplicitExportServerSimulatorInput) : Option ServerObservableProfile :=
   match input.visibleBoundary.allowedOutputKind with
-  | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialOnly => none
-  | ecdsa_hss.wire.AllowedOutputKindV1.ThresholdMaterialAndRelayerExportShare =>
+  | ecdsa_hss.wire.AllowedOutputKind.ThresholdMaterialOnly => none
+  | ecdsa_hss.wire.AllowedOutputKind.ThresholdMaterialAndRelayerExportShare =>
     some { boundary := input.visibleBoundary }
 
 theorem simulateNonExportClientView_matches_state_projection

@@ -1,11 +1,15 @@
 import type { AccountId } from '../types/accountIds';
 import type { ConfirmationConfig } from '../types/signer-worker';
-import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  ThresholdEcdsaChainTarget,
+  WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   SignerAuthMethod,
   SignerKind,
   SignerSource,
 } from '@shared/utils';
+import type { WalletAuthMethodRecord } from '@shared/utils/registrationIntent';
 
 export interface PasskeyCredentialRecord {
   id: string;
@@ -41,6 +45,32 @@ export interface ProfileAuthenticatorRecord {
   registered: string;
   syncedAt: string;
 }
+
+export type WalletPasskeyAuthenticatorLookup =
+  | {
+      kind: 'all_for_wallet';
+      walletId: WalletId;
+      credentialId?: never;
+    }
+  | {
+      kind: 'by_credential';
+      walletId: WalletId;
+      credentialId: string;
+    };
+
+export type WalletSignerLookup =
+  | {
+      kind: 'active_by_family';
+      walletId: WalletId;
+      signerFamily: 'ed25519' | 'ecdsa';
+      chainTarget?: never;
+    }
+  | {
+      kind: 'active_ecdsa_by_chain_target';
+      walletId: WalletId;
+      signerFamily: 'ecdsa';
+      chainTarget: ThresholdEcdsaChainTarget;
+    };
 
 export interface SignerMutationOptions {
   routeThroughOutbox?: boolean;
@@ -129,6 +159,10 @@ export interface AccountSignerRecord {
   revocationReason?: string;
   metadata?: Record<string, unknown>;
 }
+
+export type LocalWalletAuthMethodRecord = WalletAuthMethodRecord & {
+  localStatus: 'synced' | 'pending';
+};
 
 export interface ProfileContinuitySnapshot {
   profile: ProfileRecord;

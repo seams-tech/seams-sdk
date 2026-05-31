@@ -1,6 +1,5 @@
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import { createWarmSessionStatusReader } from '../../session/warmCapabilities/statusReader';
-import type { EmailOtpPublicDeps } from '../../flows/signEvmFamily/emailOtpPublic';
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import type { CreateSigningEnginePortsArgs } from './shared';
 
@@ -51,20 +50,4 @@ export function createWarmThresholdEd25519SessionStatusReader(args: {
     touchConfirm: args.createArgs.touchConfirm,
     getEmailOtpWarmSessionStatus: args.getEmailOtpWarmSessionStatus,
   }).getEd25519SigningSessionStatus;
-}
-
-export function createEmailOtpPublicDeps(args: {
-  ecdsaSessions: EmailOtpPublicDeps['ecdsaSessions'];
-  relayerUrl: string;
-  shamirPrimeB64u: string;
-  getSignerWorkerContext: EmailOtpPublicDeps['getSignerWorkerContext'];
-  emailOtpSessions: EmailOtpPublicDeps['emailOtpSessions'];
-}): EmailOtpPublicDeps {
-  return {
-    ecdsaSessions: args.ecdsaSessions,
-    relayerUrl: args.relayerUrl,
-    shamirPrimeB64u: args.shamirPrimeB64u,
-    getSignerWorkerContext: args.getSignerWorkerContext,
-    emailOtpSessions: args.emailOtpSessions,
-  };
 }

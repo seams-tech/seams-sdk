@@ -3,6 +3,8 @@
 // - Bridges create/get to top-level via postMessage when needed
 // - Keeps helpers private to reduce file count and surface area
 
+import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+
 type Kind = 'create' | 'get';
 
 // Typed message names for parent-domain bridge
@@ -34,9 +36,7 @@ type BridgeOk = { ok: true; credential: unknown };
 type BridgeErr = { ok: false; error?: string; timeout?: boolean };
 type BridgeResponse = BridgeOk | BridgeErr;
 
-type AnyPublicKeyOptions =
-  | PublicKeyCredentialCreationOptions
-  | PublicKeyCredentialRequestOptions;
+type AnyPublicKeyOptions = PublicKeyCredentialCreationOptions | PublicKeyCredentialRequestOptions;
 
 // Client interface used to request WebAuthn from the parent/top-level context
 export type ParentDomainWebAuthnClient = {
@@ -253,7 +253,7 @@ export class WindowParentDomainWebAuthnClient implements ParentDomainWebAuthnCli
     publicKey: AnyPublicKeyOptions,
     timeoutMs = 60000,
   ): Promise<BridgeResponse> {
-    const requestId = `${kind}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const requestId = `${kind}:${Date.now()}:${secureRandomBase64Url(16, 'Safari WebAuthn bridge request IDs')}`;
     const resultType = getResultTypeFor(kind);
 
     return new Promise((resolve) => {

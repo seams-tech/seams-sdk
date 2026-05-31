@@ -617,6 +617,10 @@ export function usePasskeyAuthMenuController(
         const description = String(result?.description || '').trim();
         const submitLabel = String(result?.submitLabel || '').trim();
         const helperText = String(result?.helperText || '').trim();
+        const codeDelivery =
+          result && typeof result === 'object' && result.codeDelivery === 'reused'
+            ? 'reused'
+            : 'sent';
         if (username) setCurrentValue(username);
         setOtpPromptState((current) =>
           current
@@ -632,7 +636,9 @@ export function usePasskeyAuthMenuController(
               }
             : current,
         );
-        setOtpResendStatus('Code sent');
+        setOtpResendStatus(
+          codeDelivery === 'reused' ? 'Use the email code already sent' : 'Code sent',
+        );
       } catch (error: unknown) {
         setOtpError(getErrorMessage(error, 'Could not choose another wallet name. Try again.'));
       } finally {

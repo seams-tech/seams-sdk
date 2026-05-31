@@ -5,7 +5,7 @@ import {
   type WarmSessionTransitionEvent,
 } from '@/core/signingEngine/session/warmCapabilities/transitions';
 import { selectedEcdsaLane } from '@/core/signingEngine/session/identity/laneIdentity';
-import { toWalletSubjectId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { testEcdsaChainTarget } from './helpers/warmSessionStore.fixtures';
 import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmCapabilities/types';
 
@@ -49,7 +49,7 @@ function createEnvelope(): WarmSessionEnvelope {
             const chainTarget = testEcdsaChainTarget('tempo');
             const key = {
               walletId: 'transition-summary.testnet',
-              subjectId: 'wallet-subject-transition',
+              subjectId: 'wallet-transition',
               rpId: 'example.localhost',
               keyScope: 'evm-family',
               ecdsaThresholdKeyId: 'ek-tempo',
@@ -71,7 +71,7 @@ function createEnvelope(): WarmSessionEnvelope {
               capability: 'ecdsa' as const,
               record: {
                 walletId: 'transition-summary.testnet',
-                subjectId: toWalletSubjectId(key.walletId),
+                subjectId: toWalletId(key.walletId),
                 rpId: 'example.localhost',
                 chainTarget,
                 ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,

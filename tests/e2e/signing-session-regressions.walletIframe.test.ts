@@ -222,19 +222,19 @@ async function runPasskeyEvmSign(
         readSealedRecordSummaries = async (): Promise<Array<Record<string, unknown>>> => {
           const indexedDb = globalThis.indexedDB;
           if (!indexedDb) return [];
-          const openRequest = indexedDb.open('seams_wallet_v1');
+          const openRequest = indexedDb.open('seams_wallet');
           const db = await new Promise<IDBDatabase | null>((resolve) => {
             openRequest.onerror = () => resolve(null);
             openRequest.onsuccess = () => resolve(openRequest.result);
           });
-          if (!db || !Array.from(db.objectStoreNames).includes('signing_session_seals_v1')) {
+          if (!db || !Array.from(db.objectStoreNames).includes('signing_session_seals')) {
             db?.close();
             return [];
           }
           try {
-            const tx = db.transaction('signing_session_seals_v1', 'readonly');
+            const tx = db.transaction('signing_session_seals', 'readonly');
             const values = await new Promise<unknown[]>((resolve) => {
-              const request = tx.objectStore('signing_session_seals_v1').getAll();
+              const request = tx.objectStore('signing_session_seals').getAll();
               request.onerror = () => resolve([]);
               request.onsuccess = () =>
                 resolve(Array.isArray(request.result) ? request.result : []);
@@ -519,6 +519,7 @@ test.describe('signing session regressions (wallet iframe)', () => {
   test('passkey unlock first ECDSA sign succeeds', async ({ page }) => {
     const harness = await setupThresholdEcdsaSealedRefreshHarness(page);
     try {
+      const getCallsBeforeUnlock = await readWebAuthnGetCallCount(page);
       const result = await runPasskeySigningSessionLifecyclePhase(page, harness, {
         accountId: `passkey-unlock-ecdsa-${Date.now()}.w3a-v1.testnet`,
         curve: 'ecdsa',
@@ -529,6 +530,8 @@ test.describe('signing session regressions (wallet iframe)', () => {
       expect(result.ok, result.error || JSON.stringify(result)).toBe(true);
       expect(result.chain).toBe('tempo');
       expect(result.signKind).toBe('tempoTransaction');
+      const getCallsAfterUnlock = await readWebAuthnGetCallCount(page);
+      expect(getCallsAfterUnlock).toBeGreaterThan(getCallsBeforeUnlock);
     } finally {
       await harness.close();
     }
@@ -551,8 +554,6 @@ test.describe('signing session regressions (wallet iframe)', () => {
       const getCallsAfterRefreshSession = await readWebAuthnGetCallCount(page);
       await page.reload();
       await page.waitForTimeout(300);
-      const getCallsBeforeRestoredSign = await readWebAuthnGetCallCount(page);
-      expect(getCallsBeforeRestoredSign).toBe(getCallsAfterRefreshSession);
 
       const restoredSign = await runPasskeyEvmSign(page, harness, {
         accountId,
@@ -564,7 +565,7 @@ test.describe('signing session regressions (wallet iframe)', () => {
       expect(restoredSign.chain).toBe('evm');
       expect(['active', 'exhausted']).toContain(restoredSign.sessionStatus);
       const getCallsAfterRestoredSign = await readWebAuthnGetCallCount(page);
-      expect(getCallsAfterRestoredSign).toBe(getCallsBeforeRestoredSign);
+      expect(getCallsAfterRestoredSign).toBe(getCallsAfterRefreshSession);
 
       const reauthSign = await runPasskeyEvmSign(page, harness, {
         accountId,

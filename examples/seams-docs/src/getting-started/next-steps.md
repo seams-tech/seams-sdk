@@ -95,7 +95,6 @@ chain target.
 ```ts
 import {
   walletSessionRefFromSession,
-  walletSubjectIdFromWalletProfile,
   type ThresholdEcdsaChainTarget,
 } from '@seams/sdk';
 
@@ -105,7 +104,6 @@ export function ecdsaCommandSubject(accountId: string) {
       walletId: accountId,
       walletSessionUserId: accountId,
     }),
-    subjectId: walletSubjectIdFromWalletProfile({ walletId: accountId }),
   };
 }
 
@@ -343,7 +341,7 @@ export function SignEvm(props: { nearAccountId: string }) {
 ## Troubleshooting
 
 - `threshold session expired` or `No cached threshold-ecdsa session token`
-  - Re-bootstrap the chain signer with `kind: 'reuse_warm_ecdsa_bootstrap'`, `walletSession`, `subjectId`, and the concrete `chainTarget`, then retry signing.
+  - Re-bootstrap the chain signer with `kind: 'reuse_warm_ecdsa_bootstrap'`, `walletSession`, and the concrete `chainTarget`, then retry signing.
 - Missing Tempo/EVM session after reload
   - Re-bootstrap the matching `seams.tempo` or `seams.evm` signer before signing.
 - Signing fails right after unlock due to session state

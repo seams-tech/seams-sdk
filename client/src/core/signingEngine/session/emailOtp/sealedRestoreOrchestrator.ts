@@ -168,16 +168,18 @@ export class EmailOtpSealedRestoreOrchestrator {
 
     const ecdsaRecord =
       this.ports.getThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
+    const ecdsaEmailOtpAuthContext =
+      ecdsaRecord?.source === 'email_otp' ? ecdsaRecord.emailOtpAuthContext : null;
     if (
       (ecdsaRecord && ecdsaRecord.source !== 'email_otp') ||
-      (ecdsaRecord && ecdsaRecord.emailOtpAuthContext?.retention !== 'session')
+      (ecdsaRecord && ecdsaEmailOtpAuthContext?.retention !== 'session')
     ) {
       const diagnosticKey = `missing-ecdsa-record:${thresholdSessionId}`;
       if (this.ports.shouldLogDiagnostic(diagnosticKey)) {
         console.debug('[EmailOtpSession] sealed refresh restore waiting for ECDSA record', {
           thresholdSessionId,
           source: ecdsaRecord?.source,
-          retention: ecdsaRecord?.emailOtpAuthContext?.retention,
+          retention: ecdsaEmailOtpAuthContext?.retention,
         });
       }
       return null;

@@ -1,24 +1,35 @@
 import type {
+  BudgetReservationFinalizationCommand,
   BudgetFinalizationSpend,
   ExternallyConsumedBudgetFinalizationSpend,
   ReservedBudgetFinalizationSpend,
+  SigningBudgetFinalizationResult,
   SigningSessionBudget,
-  SigningSessionBudgetReservation,
+  SigningSessionBudgetReserveResult,
   SigningSessionPreparedBudgetIdentity,
+  SigningSessionBudgetSuccessInput,
   SigningSessionBudgetZeroSpendReason,
   UnreservedBudgetFinalizationSpend,
   ZeroBudgetFinalizationSpend,
+  ZeroWalletBudgetSpend,
 } from './budget';
-import { isSigningSessionBudgetInFlightError } from './budget';
-import type {
-  SigningAuthMethod,
-  WalletSigningSpendPlan,
+import {
+  buildSigningBudgetReservationIdentity,
+  buildWalletSigningSpendPlan,
+  isSigningSessionBudgetInFlightError,
+  resolveWalletSigningOperationFingerprint,
+} from './budget';
+import {
+  SigningOperationIntent,
+  SigningSessionIds,
+  type SigningAuthMethod,
+  type WalletSigningSpendPlan,
 } from '../operationState/types';
 
 export type SigningSessionBudgetFinalizer = {
   spend?: WalletSigningSpendPlan;
-  reserve(): Promise<SigningSessionBudgetReservation | null>;
-  recordSuccess(): Promise<void>;
+  reserve(): Promise<SigningSessionBudgetReserveResult>;
+  recordSuccess(): Promise<SigningBudgetFinalizationResult | null>;
   recordZeroSpend(error: unknown): void;
 };
 
@@ -27,15 +38,34 @@ type BudgetFinalizationSpendWithSpend =
   | UnreservedBudgetFinalizationSpend
   | ExternallyConsumedBudgetFinalizationSpend;
 
-export function createSigningSessionBudgetFinalizer(args: {
-  signingSessionBudget?: SigningSessionBudget;
+type SigningSessionBudgetFinalizerBaseArgs = {
   budgetIdentity: SigningSessionPreparedBudgetIdentity;
   finalization: BudgetFinalizationSpend;
   onRecordSuccessError?: (error: unknown, spend: WalletSigningSpendPlan) => void;
   onRecordZeroSpendError?: (error: unknown) => void;
-}): SigningSessionBudgetFinalizer {
+};
+
+export type SigningSessionBudgetFinalizerWithBudgetArgs =
+  SigningSessionBudgetFinalizerBaseArgs & {
+    budgetMode: 'with_budget';
+    signingSessionBudget: SigningSessionBudget;
+  };
+
+export type SigningSessionBudgetFinalizerNoBudgetArgs =
+  SigningSessionBudgetFinalizerBaseArgs & {
+    budgetMode: 'no_budget';
+    signingSessionBudget?: never;
+  };
+
+export type CreateSigningSessionBudgetFinalizerArgs =
+  | SigningSessionBudgetFinalizerWithBudgetArgs
+  | SigningSessionBudgetFinalizerNoBudgetArgs;
+
+export function createSigningSessionBudgetFinalizer(
+  args: CreateSigningSessionBudgetFinalizerArgs,
+): SigningSessionBudgetFinalizer {
   const spend = getFinalizationSpend(args.finalization);
-  const budget = args.signingSessionBudget;
+  const budget = args.budgetMode === 'with_budget' ? args.signingSessionBudget : null;
   if (
     spend &&
     args.budgetIdentity.walletSigningSessionId !== String(spend.walletSigningSessionId)
@@ -61,47 +91,114 @@ export function createSigningSessionBudgetFinalizer(args: {
       );
     },
     async recordSuccess() {
-      if (!budget) return;
-      if (args.finalization.kind === 'zero_spend') return;
-      await budget
-        .recordSuccess(args.finalization)
-        .catch((error) => {
-          if (!spend) return;
-          args.onRecordSuccessError?.(error, spend);
-          // Do not fail open here. A previous regression logged spend failures and
-          // still reported signing success, leaving the next operation to hit
-          // wallet signing-session not_found/exhausted errors unpredictably.
-          throw error;
-        });
+      if (!budget) return null;
+      if (args.finalization.kind === 'zero_spend') return null;
+      const successInput = withSuccessFinalizationCommand({
+        finalization: args.finalization,
+        budgetIdentity: args.budgetIdentity,
+      });
+      return await budget.recordSuccess(successInput).catch((error) => {
+        if (!spend) return null;
+        args.onRecordSuccessError?.(error, spend);
+        // Do not fail open here. A previous regression logged spend failures and
+        // still reported signing success, leaving the next operation to hit
+        // wallet signing-session not_found/exhausted errors unpredictably.
+        throw error;
+      });
     },
     recordZeroSpend(error) {
       if (!budget) return;
       try {
-        budget.recordZeroSpend(
-          args.finalization.kind === 'zero_spend'
-            ? {
-                ...args.finalization,
-                reason: inferSigningSessionBudgetZeroSpendReason({
-                  error,
-                  authMethod: args.finalization.lane.authMethod,
-                }),
-                error,
-              }
-            : {
-                kind: 'zero_spend',
-                operationId: args.finalization.spend.operationId,
-                lane: args.finalization.spend.lane,
-                reason: inferSigningSessionBudgetZeroSpendReason({
-                  error,
-                  authMethod: args.finalization.spend.lane.authMethod,
-                }),
-                error,
-              },
-        );
+        budget.recordZeroSpend(buildZeroSpendRecord(args, error));
       } catch (recordError) {
         args.onRecordZeroSpendError?.(recordError);
       }
     },
+  };
+}
+
+function buildZeroSpendRecord(
+  args: {
+    budgetIdentity: SigningSessionPreparedBudgetIdentity;
+    finalization: BudgetFinalizationSpend;
+  },
+  error: unknown,
+): ZeroWalletBudgetSpend {
+  if (args.finalization.kind === 'zero_spend') {
+    const zeroSpend = {
+      ...args.finalization,
+      reason: inferSigningSessionBudgetZeroSpendReason({
+        error,
+        authMethod: args.finalization.lane.authMethod,
+      }),
+      error,
+    };
+    return withFinalizationCommand({
+      zeroSpend,
+      budgetIdentity: args.budgetIdentity,
+    });
+  }
+  const spend = args.finalization.spend;
+  return withFinalizationCommand({
+    zeroSpend: {
+      kind: 'zero_spend',
+      operationId: spend.operationId,
+      operationFingerprint: SigningSessionIds.signingOperationFingerprint(
+        resolveWalletSigningOperationFingerprint(spend),
+      ),
+      lane: spend.lane,
+      reason: inferSigningSessionBudgetZeroSpendReason({
+        error,
+        authMethod: spend.lane.authMethod,
+      }),
+      error,
+    },
+    budgetIdentity: args.budgetIdentity,
+  });
+}
+
+function withFinalizationCommand(args: {
+  zeroSpend: ZeroBudgetFinalizationSpend;
+  budgetIdentity: SigningSessionPreparedBudgetIdentity;
+}): ZeroWalletBudgetSpend {
+  const spend = buildWalletSigningSpendPlan(
+    {
+      operationId: args.zeroSpend.operationId,
+      operationFingerprint: args.zeroSpend.operationFingerprint,
+      intent: SigningOperationIntent.TransactionSign,
+    },
+    args.zeroSpend.lane,
+    args.zeroSpend.lane.curve === 'ecdsa' ? { ecdsaKey: args.zeroSpend.lane.key } : undefined,
+  );
+  const finalizationCommand: BudgetReservationFinalizationCommand = {
+    kind: 'budget_reservation_finalization_command',
+    reservation: buildSigningBudgetReservationIdentity({
+      spend,
+      projectionVersion: args.budgetIdentity.projectionVersion,
+    }),
+    outcome: 'failed_before_sign',
+  };
+  return {
+    ...args.zeroSpend,
+    finalizationCommand,
+  };
+}
+
+function withSuccessFinalizationCommand(args: {
+  finalization: BudgetFinalizationSpendWithSpend;
+  budgetIdentity: SigningSessionPreparedBudgetIdentity;
+}): SigningSessionBudgetSuccessInput {
+  const finalizationCommand: BudgetReservationFinalizationCommand = {
+    kind: 'budget_reservation_finalization_command',
+    reservation: buildSigningBudgetReservationIdentity({
+      spend: args.finalization.spend,
+      projectionVersion: args.budgetIdentity.projectionVersion,
+    }),
+    outcome: 'signed',
+  };
+  return {
+    ...args.finalization,
+    finalizationCommand,
   };
 }
 
@@ -133,8 +230,8 @@ function requireSuccessFinalization(
 }
 
 async function reserveWithLocalContentionRetry(
-  reserve: () => Promise<SigningSessionBudgetReservation | null>,
-): Promise<SigningSessionBudgetReservation | null> {
+  reserve: () => Promise<SigningSessionBudgetReserveResult>,
+): Promise<SigningSessionBudgetReserveResult> {
   const delaysMs = [20, 50, 100];
   for (let attempt = 0; ; attempt += 1) {
     try {

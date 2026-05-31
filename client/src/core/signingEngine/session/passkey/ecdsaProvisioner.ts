@@ -1,4 +1,8 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import {
+  parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial,
+  thresholdEcdsaRecordHasRoleLocalSigningMaterial,
+} from '@/core/platform/ecdsaRoleLocalRecords';
 import { thresholdEcdsaRecordRpId, type ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
@@ -27,6 +31,7 @@ import {
   type WarmSessionTransitionEvent,
 } from '../warmCapabilities/transitions';
 import {
+  buildEmailOtpEcdsaProvisionSecretSource,
   buildEcdsaSessionIdentity,
   ecdsaSessionIdentitiesEqual,
   ecdsaSessionIdentityMatches,
@@ -125,7 +130,7 @@ type PasskeyEcdsaActivation = EcdsaProvisionActivationCommon & {
   webauthnAuthentication: Extract<
     EcdsaSessionProvisionPlan,
     { kind: 'passkey_ecdsa_session_provision' }
-  >['webauthnAuthentication'];
+  >['provisionSecretSource']['webauthnAuthentication'];
   plan: Extract<EcdsaSessionProvisionPlan, { kind: 'passkey_ecdsa_session_provision' }>;
 };
 
@@ -135,7 +140,7 @@ type EmailOtpEcdsaActivation = EcdsaProvisionActivationCommon & {
   emailOtpAuthContext: Extract<
     EcdsaSessionProvisionPlan,
     { kind: 'email_otp_ecdsa_session_provision' }
-  >['emailOtpAuthContext'];
+  >['provisionSecretSource']['emailOtpAuthContext'];
   plan: Extract<EcdsaSessionProvisionPlan, { kind: 'email_otp_ecdsa_session_provision' }>;
 };
 
@@ -195,8 +200,7 @@ type EcdsaRecordCandidate = {
 };
 
 function hasEcdsaRecordSigningMaterial(record: ThresholdEcdsaSessionRecord): boolean {
-  if (String(record.clientAdditiveShare32B64u || '').trim()) return true;
-  return record.clientAdditiveShareHandle?.kind === 'email_otp_worker_session';
+  return thresholdEcdsaRecordHasRoleLocalSigningMaterial(record);
 }
 
 function readEcdsaRecordCandidates(
@@ -422,8 +426,8 @@ function buildPasskeyEcdsaActivation(args: {
     sessionKind: args.plan.sessionKind,
     sessionBudgetUses: args.plan.sessionBudgetUses,
     runtimePolicy: args.runtimePolicy,
-    clientRootShare32B64u: args.plan.clientRootShare32B64u,
-    webauthnAuthentication: args.plan.webauthnAuthentication,
+    clientRootShare32B64u: args.plan.provisionSecretSource.clientRootShare32B64u,
+    webauthnAuthentication: args.plan.provisionSecretSource.webauthnAuthentication,
     plan: args.plan,
   };
   if (args.options.runtimeScopeBootstrap) {
@@ -461,8 +465,8 @@ function buildEmailOtpEcdsaActivation(args: {
     sessionKind: args.plan.sessionKind,
     sessionBudgetUses: args.plan.sessionBudgetUses,
     runtimePolicy: args.runtimePolicy,
-    clientRootShare32B64u: args.plan.clientRootShare32B64u,
-    emailOtpAuthContext: args.plan.emailOtpAuthContext,
+    clientRootShare32B64u: args.plan.provisionSecretSource.clientRootShare32B64u,
+    emailOtpAuthContext: args.plan.provisionSecretSource.emailOtpAuthContext,
     plan: args.plan,
   };
   if (args.options.runtimeScopeBootstrap) {
@@ -592,8 +596,8 @@ async function provisionPasskeyEcdsaSession(
       ? { runtimeScopeBootstrap: activation.runtimeScopeBootstrap }
       : {}),
     ...(activation.operationIntent ? { operationIntent: activation.operationIntent } : {}),
-    clientRootShare32B64u: plan.clientRootShare32B64u,
-    webauthnAuthentication: plan.webauthnAuthentication,
+    clientRootShare32B64u: plan.provisionSecretSource.clientRootShare32B64u,
+    webauthnAuthentication: plan.provisionSecretSource.webauthnAuthentication,
   };
   return await deps.provisionThresholdEcdsaSession(
     buildPasskeyReconnectEcdsaActivation({
@@ -715,21 +719,21 @@ async function provisionEmailOtpEcdsaSession(
       ? { runtimeScopeBootstrap: activation.runtimeScopeBootstrap }
       : {}),
     ...(activation.operationIntent ? { operationIntent: activation.operationIntent } : {}),
-    clientRootShare32B64u: plan.clientRootShare32B64u,
+    clientRootShare32B64u: plan.provisionSecretSource.clientRootShare32B64u,
   };
-  if (plan.emailOtpAuthContext.retention === 'single_use') {
+  if (plan.provisionSecretSource.emailOtpAuthContext.retention === 'single_use') {
     const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext & {
       retention: 'single_use';
     } = {
-      policy: plan.emailOtpAuthContext.policy,
+      policy: plan.provisionSecretSource.emailOtpAuthContext.policy,
       retention: 'single_use',
-      reason: plan.emailOtpAuthContext.reason,
+      reason: plan.provisionSecretSource.emailOtpAuthContext.reason,
       authMethod: 'email_otp',
-      ...(plan.emailOtpAuthContext.authSubjectId
-        ? { authSubjectId: plan.emailOtpAuthContext.authSubjectId }
+      ...(plan.provisionSecretSource.emailOtpAuthContext.authSubjectId
+        ? { authSubjectId: plan.provisionSecretSource.emailOtpAuthContext.authSubjectId }
         : {}),
-      ...(typeof plan.emailOtpAuthContext.consumedAtMs === 'number'
-        ? { consumedAtMs: plan.emailOtpAuthContext.consumedAtMs }
+      ...(typeof plan.provisionSecretSource.emailOtpAuthContext.consumedAtMs === 'number'
+        ? { consumedAtMs: plan.provisionSecretSource.emailOtpAuthContext.consumedAtMs }
         : {}),
     };
     return await deps.provisionThresholdEcdsaSession(
@@ -754,15 +758,15 @@ async function provisionEmailOtpEcdsaSession(
   const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext & {
     retention: 'session';
   } = {
-    policy: plan.emailOtpAuthContext.policy,
+    policy: plan.provisionSecretSource.emailOtpAuthContext.policy,
     retention: 'session',
-    reason: plan.emailOtpAuthContext.reason,
+    reason: plan.provisionSecretSource.emailOtpAuthContext.reason,
     authMethod: 'email_otp',
-    ...(plan.emailOtpAuthContext.authSubjectId
-      ? { authSubjectId: plan.emailOtpAuthContext.authSubjectId }
+    ...(plan.provisionSecretSource.emailOtpAuthContext.authSubjectId
+      ? { authSubjectId: plan.provisionSecretSource.emailOtpAuthContext.authSubjectId }
       : {}),
-    ...(typeof plan.emailOtpAuthContext.consumedAtMs === 'number'
-      ? { consumedAtMs: plan.emailOtpAuthContext.consumedAtMs }
+    ...(typeof plan.provisionSecretSource.emailOtpAuthContext.consumedAtMs === 'number'
+      ? { consumedAtMs: plan.provisionSecretSource.emailOtpAuthContext.consumedAtMs }
       : {}),
   };
   return await deps.provisionThresholdEcdsaSession(
@@ -1084,8 +1088,11 @@ export async function ensureWarmEcdsaCapabilityReady(
               signingKeyContext: args.plan.signingKeyContext,
               sessionKind: args.plan.sessionKind,
               sessionBudgetUses: args.plan.sessionBudgetUses,
-              emailOtpAuthContext: inheritedEmailOtpRecord.emailOtpAuthContext,
-              clientRootShare32B64u: args.plan.clientRootShare32B64u,
+              provisionSecretSource: buildEmailOtpEcdsaProvisionSecretSource({
+                clientRootShare32B64u:
+                  args.plan.provisionSecretSource.clientRootShare32B64u,
+                emailOtpAuthContext: inheritedEmailOtpRecord.emailOtpAuthContext,
+              }),
               ...(args.plan.runtimePolicyScope
                 ? { runtimePolicyScope: args.plan.runtimePolicyScope }
                 : {}),
@@ -1335,14 +1342,23 @@ export function buildReusableEcdsaBootstrapResult(args: {
   if (!record || !auth || !prfClaim || prfClaim.state !== 'warm') return null;
 
   const clientVerifyingShareB64u = String(record.clientVerifyingShareB64u || '').trim();
-  const clientAdditiveShare32B64u = String(record.clientAdditiveShare32B64u || '').trim();
   const relayerKeyId = String(record.relayerKeyId || '').trim();
   const identity = tryBuildEcdsaSessionIdentity(record);
   // A warm ECDSA capability is only directly reusable when the persisted
   // session record already carries local signing material. Restored passkey
   // lanes often have only the PRF/JWT until reconnect recreates the additive
   // share.
-  if (!clientVerifyingShareB64u || !clientAdditiveShare32B64u || !relayerKeyId || !identity) {
+  if (!clientVerifyingShareB64u || !relayerKeyId || !identity) {
+    return null;
+  }
+  let inlineSigningMaterial: ReturnType<
+    typeof parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial
+  >;
+  try {
+    inlineSigningMaterial = parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial(
+      record,
+    );
+  } catch {
     return null;
   }
   const ecdsaThresholdKeyId = String(resolveThresholdEcdsaKeyIdFromRecord({ record }) || '').trim();
@@ -1369,7 +1385,7 @@ export function buildReusableEcdsaBootstrapResult(args: {
       ecdsaThresholdKeyId,
       relayerKeyId,
       clientVerifyingShareB64u,
-      clientAdditiveShare32B64u,
+      clientAdditiveShare32B64u: inlineSigningMaterial.clientAdditiveShare32B64u,
       participantIds: record.participantIds,
       thresholdEcdsaPublicKeyB64u: record.thresholdEcdsaPublicKeyB64u,
       ethereumAddress: record.ethereumAddress,

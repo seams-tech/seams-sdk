@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import {
+  isConcreteAvailableSigningLane,
   readAvailableSigningLanes,
+  runtimeEcdsaRecordClaimKey,
   type AvailableSigningLanesRuntimeClaim,
   type AvailableSigningLanesRuntimeEcdsaRecord,
   type AvailableSigningLanesRuntimeEd25519Record,
@@ -45,6 +47,7 @@ function thresholdEcdsaSessionJwt(args: {
     kind: THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
     sub: WALLET_ID,
     walletId: WALLET_ID,
+    keyScope: 'evm-family',
     keyHandle: args.keyHandle,
     chainTarget: args.chainTarget,
     sessionId: args.thresholdSessionId,
@@ -114,9 +117,6 @@ function sealedEcdsaRecord(args: {
     thresholdSessionId: args.thresholdSessionId,
     thresholdSessionIds: { ecdsa: args.thresholdSessionId },
     sealedSecretB64u: 'sealed',
-    subjectId: WALLET_ID,
-    signingRootId: 'sr-test:dev',
-    signingRootVersion: 'default',
     relayerUrl: 'https://relay.example.test',
     keyVersion: 'seal-key-v1',
     shamirPrimeB64u: 'shamir-prime',
@@ -136,13 +136,13 @@ function sealedEcdsaRecord(args: {
             ...(sessionKind === 'jwt'
               ? {
                   thresholdSessionAuthToken: thresholdEcdsaSessionJwt({
-                  thresholdSessionId: args.thresholdSessionId,
-                  walletSigningSessionId: args.walletSigningSessionId,
-                  chainTarget,
-                  keyHandle: 'ehss-key-available-lane-ed25519-test',
-                }),
-              }
-            : {}),
+                    thresholdSessionId: args.thresholdSessionId,
+                    walletSigningSessionId: args.walletSigningSessionId,
+                    chainTarget,
+                    keyHandle: 'ehss-key-available-lane-ed25519-test',
+                  }),
+                }
+              : {}),
             ecdsaThresholdKeyId: 'ek-passkey',
             keyHandle: 'ehss-key-available-lane-ed25519-test',
             thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
@@ -150,7 +150,13 @@ function sealedEcdsaRecord(args: {
             relayerKeyId: 'relayer-key',
             clientVerifyingShareB64u: 'client-verifying-share',
             participantIds: args.participantIds || [1, 2],
-    },
+            runtimePolicyScope: {
+              orgId: 'org-test',
+              projectId: 'sr-test',
+              envId: 'dev',
+              signingRootVersion: 'default',
+            },
+          },
     issuedAtMs,
     expiresAtMs: issuedAtMs + 60_000,
     remainingUses: args.remainingUses ?? 1,
@@ -190,6 +196,15 @@ async function readAvailableLanes(args: {
         }),
       listRuntimeEcdsaLanesForWallet: async () => args.runtimeEcdsaRecords || [],
       listRuntimeEd25519RecordsForAccount: async () => args.runtimeRecords || [],
+      readRuntimeEcdsaClaimsForRecords: async (records) => {
+        const claims = new Map<string, AvailableSigningLanesRuntimeClaim | null>();
+        for (const record of records) {
+          const claimKey = runtimeEcdsaRecordClaimKey(record);
+          if (!claimKey) continue;
+          claims.set(claimKey, args.runtimeClaims?.get(record.thresholdSessionId) || null);
+        }
+        return claims;
+      },
       readRuntimeClaimsForSessions: async (sessionIds) => {
         const claims = new Map<string, AvailableSigningLanesRuntimeClaim | null>();
         for (const sessionId of sessionIds) {
@@ -222,11 +237,10 @@ function runtimeEcdsaRecord(args: {
     participantIds: [1, 2],
     thresholdOwnerAddress: args.thresholdOwnerAddress,
   });
-  return {
+  const base = {
     key,
     keyHandle: args.keyHandle || (`ehss-key-${keyId}` as EvmFamilyEcdsaKeyHandle),
     thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-    authMethod: args.authMethod || 'passkey',
     curve: 'ecdsa',
     chainTarget: args.chainTarget,
     thresholdSessionId: args.thresholdSessionId,
@@ -234,10 +248,35 @@ function runtimeEcdsaRecord(args: {
     remainingUses: args.remainingUses ?? 3,
     expiresAtMs: EXPIRES_AT_MS,
     updatedAtMs: args.updatedAtMs ?? 700,
-  };
+  } as const;
+  return (args.authMethod || 'passkey') === 'email_otp'
+    ? { ...base, authMethod: 'email_otp' }
+    : { ...base, authMethod: 'passkey' };
 }
 
 test.describe('Ed25519 available signing lanes duplicate normalization', () => {
+  test('rejects branch-mixed missing lanes at the root concrete-lane guard', () => {
+    const missingEd25519WithIdentity = {
+      authMethod: 'passkey',
+      curve: 'ed25519',
+      chain: 'near',
+      state: 'missing',
+      walletSigningSessionId: 'wallet-session-mixed',
+      thresholdSessionId: 'threshold-session-mixed',
+    } as never;
+    const missingEcdsaWithIdentity = {
+      authMethod: 'email_otp',
+      curve: 'ecdsa',
+      chainTarget: ECDSA_TARGET,
+      state: 'missing',
+      walletSigningSessionId: 'wallet-session-mixed',
+      thresholdSessionId: 'threshold-session-mixed',
+    } as never;
+
+    expect(isConcreteAvailableSigningLane(missingEd25519WithIdentity)).toBe(false);
+    expect(isConcreteAvailableSigningLane(missingEcdsaWithIdentity)).toBe(false);
+  });
+
   test('collapses duplicate durable entries with the same exact lane identity', async () => {
     const availableLanes = await readAvailableLanes({
       sealedRecords: [
@@ -614,6 +653,57 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
       remainingUses: 0,
       walletSigningSessionId: 'wsess-email-otp-runtime-exhausted',
       thresholdSessionId: 'tsess-email-otp-runtime-exhausted',
+    });
+  });
+
+  test('propagates ready Email OTP runtime ECDSA state to shared Tempo lanes', async () => {
+    const thresholdSessionId = 'tsess-email-otp-runtime-ready';
+    const availableLanes = await readAvailableLanes({
+      sealedRecords: [],
+      ecdsaChainTargets: [ECDSA_TARGET, TEMPO_TARGET],
+      runtimeEcdsaRecords: [
+        runtimeEcdsaRecord({
+          authMethod: 'email_otp',
+          chainTarget: ECDSA_TARGET,
+          thresholdSessionId,
+          walletSigningSessionId: 'wsess-email-otp-runtime-ready',
+          thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
+          remainingUses: 1,
+        }),
+      ],
+      runtimeClaims: new Map([
+        [
+          thresholdSessionId,
+          {
+            state: 'warm',
+            sessionId: thresholdSessionId,
+            remainingUses: 1,
+            expiresAtMs: EXPIRES_AT_MS,
+          },
+        ],
+      ]),
+    });
+
+    const evmTargetKey = thresholdEcdsaChainTargetKey(ECDSA_TARGET);
+    const tempoTargetKey = thresholdEcdsaChainTargetKey(TEMPO_TARGET);
+    expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey]).toHaveLength(1);
+    expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey][0]).toMatchObject({
+      authMethod: 'email_otp',
+      source: 'runtime_session_record',
+      state: 'ready',
+      remainingUses: 1,
+      walletSigningSessionId: 'wsess-email-otp-runtime-ready',
+      thresholdSessionId,
+    });
+    expect(availableLanes.ecdsa.candidatesByTarget[tempoTargetKey]).toHaveLength(1);
+    expect(availableLanes.ecdsa.candidatesByTarget[tempoTargetKey][0]).toMatchObject({
+      authMethod: 'email_otp',
+      source: 'evm_family_shared_key',
+      sourceChainTarget: ECDSA_TARGET,
+      state: 'ready',
+      remainingUses: 1,
+      walletSigningSessionId: 'wsess-email-otp-runtime-ready',
+      thresholdSessionId,
     });
   });
 

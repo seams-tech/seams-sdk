@@ -1,7 +1,7 @@
 # Refactor 41: Budget and Step-Up Invariants
 
 Date created: 2026-05-18
-Status: planned
+Status: implemented
 
 ## Scope
 
@@ -37,21 +37,21 @@ boundary builders, exhaustive `switch` statements, and type fixtures.
 ## Phase 0: Current Surface Inventory
 
 - [x] Inventory wallet signing-session budget policy sources:
-  `client/src/core/config/defaultConfigs.ts` and
-  `client/src/core/signingEngine/threshold/sessionPolicy.ts`.
+      `client/src/core/config/defaultConfigs.ts` and
+      `client/src/core/signingEngine/threshold/sessionPolicy.ts`.
 - [x] Inventory reservation state in
-  `client/src/core/signingEngine/session/budget/BudgetCoordinator.ts`:
-  `reservationsByOperationId` and `successfulSpendsByOperationId`.
+      `client/src/core/signingEngine/session/budget/BudgetCoordinator.ts`:
+      `reservationsByOperationId` and `successfulSpendsByOperationId`.
 - [x] Inventory projection assertions and throw sites in
-  `client/src/core/signingEngine/session/budget/budget.ts`.
+      `client/src/core/signingEngine/session/budget/budget.ts`.
 - [x] Inventory finalizer API shape in
-  `client/src/core/signingEngine/session/budget/budgetFinalizer.ts`.
+      `client/src/core/signingEngine/session/budget/budgetFinalizer.ts`.
 - [x] Inventory Email OTP app-session refresh behavior in
-  `client/src/core/signingEngine/session/emailOtp/appSessionJwtCache.ts`.
+      `client/src/core/signingEngine/session/emailOtp/appSessionJwtCache.ts`.
 - [x] Inventory budget status 401/403 handling in
-  `client/src/core/signingEngine/session/budget/budgetStatusReader.ts`.
+      `client/src/core/signingEngine/session/budget/budgetStatusReader.ts`.
 - [x] List every signing path that catches budget/freshness errors and maps them
-  to `threshold_ecdsa_session_not_ready`.
+      to `threshold_ecdsa_session_not_ready`.
 
 Phase 0 inventory findings:
 
@@ -72,8 +72,8 @@ Phase 0 inventory findings:
   `assertSigningSessionBudgetReservationAvailable(...)` throws for
   adapter/status unknown, `not_found`, non-active status, missing projection
   version, in-flight contention, exhausted budget, and missing prepared
-  projection input. `assertPreparedBudgetProjectionVersion(...)` throws for
-  missing expected projection, missing trusted projection, and stale projection.
+  projection input. The stale prepared-projection helper was removed after
+  finalization began returning typed `projection_mismatch` results.
 - Finalizer API shape (`budgetFinalizer.ts`):
   `createSigningSessionBudgetFinalizer(...)` returns
   `{ spend?, reserve(), recordSuccess(), recordZeroSpend(error) }`.
@@ -109,27 +109,32 @@ Unlock warms a short-lived multi-use wallet session. Post-exhaustion step-up
 authorizes the current operation unless the caller explicitly requests warm
 budget refresh.
 
-Budget-size correction from the embedded Refactor 39 draft: `remainingUses = 3`
-applies to wallet unlock and explicit warm-budget refresh under the development
-default. Default post-exhaustion step-up is single-operation and uses
-`remainingUses = 1`.
+Budget-size correction from the embedded Refactor 39 draft: the development
+default gives wallet unlock and explicit warm-budget refresh three
+user-facing approvals. Default post-exhaustion step-up is a single-operation
+approval that provisions enough internal signature budget for the approved
+operation.
 
 ### Target Types
 
 ```ts
-type PositiveRemainingUses = number & {
-  readonly __brand: 'PositiveRemainingUses';
+type PositiveRemainingApprovals = number & {
+  readonly __brand: 'PositiveRemainingApprovals';
+};
+
+type PositiveSignatureUses = number & {
+  readonly __brand: 'PositiveSignatureUses';
 };
 
 type SigningBudgetAllowance =
   | {
       kind: 'dev_default_budget_allowance';
-      remainingUses: 3;
+      remainingApprovals: 3;
       source: 'sdk_dev_default';
     }
   | {
       kind: 'server_environment_budget_allowance';
-      remainingUses: PositiveRemainingUses;
+      remainingApprovals: PositiveRemainingApprovals;
       policyVersion: string;
       source: 'server_environment_policy';
     };
@@ -143,36 +148,105 @@ type WalletUnlockBudgetPolicy = {
 
 type SingleOperationStepUpBudgetPolicy = {
   kind: 'single_operation_step_up_budget_policy';
-  allowance: { kind: 'single_operation_allowance'; remainingUses: 1 };
+  allowance: {
+    kind: 'single_operation_approval_allowance';
+    remainingApprovals: 1;
+    requiredSignatureUses: PositiveSignatureUses;
+  };
   scope: 'single_operation_step_up';
-  operationId: SigningOperationId;
-};
-
-type WarmBudgetRefreshStepUpPolicy = {
-  kind: 'warm_budget_refresh_step_up_policy';
-  allowance: SigningBudgetAllowance;
-  scope: 'warm_budget_refresh';
   operationId: SigningOperationId;
 };
 
 type SigningBudgetPolicy =
   | WalletUnlockBudgetPolicy
-  | SingleOperationStepUpBudgetPolicy
-  | WarmBudgetRefreshStepUpPolicy;
+  | SingleOperationStepUpBudgetPolicy;
 ```
 
 ### Tasks
 
 - [x] Add a boundary parser for server/environment budget allowance.
-- [x] Keep the development default as literal `remainingUses: 3`.
+- [x] Keep the development default as three approvals.
 - [x] Make unlock provisioning accept only `WalletUnlockBudgetPolicy`.
 - [x] Make post-exhaustion signing accept `SingleOperationStepUpBudgetPolicy`
-  by default.
-- [x] Require explicit opt-in for `WarmBudgetRefreshStepUpPolicy`.
+      by default.
+- [x] Keep warm budget refresh out of the active policy union until a product
+      flow explicitly needs it.
 - [x] Add type fixtures rejecting operation-less step-up policies and
-  operation-scoped unlock policies.
-- [x] Add tests proving unlock starts with 3 uses under dev default.
-- [x] Add tests proving default post-exhaustion step-up starts with 1 use.
+      operation-scoped unlock policies.
+- [x] Add tests proving unlock starts with three approvals under dev default.
+- [x] Add tests proving default post-exhaustion step-up starts with one
+      approval.
+
+## Phase 1B: Separate Approval Budget From Signature-Use Budget
+
+Manual NEAR testing exposed a budget-unit ambiguity: the SDK described
+post-exhaustion step-up as a single operation with one remaining use, while the
+NEAR `transactionsWithActions` API can request signatures for multiple NEAR
+transactions in one user-approved operation. Product surfaces should model the
+user-facing budget as approvals. Server enforcement should track signature uses.
+
+Canonical policy:
+
+- `remainingApprovals` is the SDK/UI concept. One confirmed signing intent
+  consumes one approval.
+- `remainingSignatureUses` is the server/security concept. One threshold
+  signature consumes one signature use.
+- Step-up remains one user-facing approval for one confirmed operation.
+- Step-up provisions enough `remainingSignatureUses` for the approved operation.
+- One NEAR transaction containing many actions requires one signature use.
+- One Tempo transaction containing many calls requires one signature use.
+- One EVM transaction requires one signature use.
+- A request that signs multiple independent transactions requires one signature
+  use per transaction digest.
+- Readiness and step-up provisioning must compare trusted
+  `remainingSignatureUses` against `requiredSignatureUses` before threshold
+  signing starts.
+- Budget finalization must spend the same `requiredSignatureUses` captured at
+  admission. It must never recompute the count after signing.
+- SDK/API responses and UI copy should expose `remainingApprovals` where users
+  are making approval decisions. Low-level diagnostics may include
+  `remainingSignatureUses`.
+
+Current ECDSA status:
+
+- EVM-family public signing currently accepts one EVM or Tempo transaction per
+  request.
+- Tempo transactions can include multiple calls, but they produce one sender
+  signature.
+- The generic EVM-family intent runner can iterate multiple sign requests, so
+  the budget model must be ready for future ECDSA batch signing before such an
+  API is added.
+
+Tasks:
+
+- [x] Rename ambiguous `usesNeeded` variables in transaction signing paths to
+      `requiredSignatureUses` or `signatureUsesNeeded`.
+- [ ] Rename internal server-enforced counters away from `remainingUses` toward
+      `remainingSignatureUses` where the counter is signature-use based.
+- [ ] Add an SDK/UI projection that exposes `remainingApprovals` for approval
+      budget display.
+- [x] Add branch-specific helpers:
+      `requiredNearTransactionSignatureUses(transactions)` and
+      `requiredEvmFamilySignatureUses(intent)`.
+- [x] Make NEAR `transactionsWithActions` readiness, step-up provisioning,
+      budget reservation, and finalization use
+      `requiredNearTransactionSignatureUses(...)`.
+- [x] Keep NEAR action batching at one use per transaction, independent of the
+      number of actions inside that transaction.
+- [x] Add tests for a NEAR request with one transaction and multiple actions
+      proving it requires one signature use.
+- [x] Add tests for a NEAR request with two transactions proving step-up
+      provisions two signature uses and finalization spends two.
+- [ ] Add tests proving a session with one remaining use signs a one-transaction
+      multi-action NEAR request without step-up.
+- [ ] Add tests proving a session with one remaining use triggers step-up before
+      a two-transaction NEAR request starts signing.
+- [x] Add EVM-family guard tests proving current EVM and Tempo adapters produce
+      one threshold ECDSA signature use per transaction request.
+- [x] Add a type or runtime guard for future ECDSA batch requests requiring the
+      batch API to declare `requiredSignatureUses` before budget admission.
+- [ ] Update user-facing copy to say "approvals remaining".
+- [ ] Keep signature-use terminology in low-level diagnostics and server logs.
 
 ## Phase 2: Add Exact Signing Lane Identity Foundation
 
@@ -210,37 +284,32 @@ type ExactEcdsaSigningLaneIdentity = {
   thresholdSessionId: ThresholdEcdsaSessionId;
 };
 
-type ExactSigningLaneIdentity =
-  | ExactEd25519SigningLaneIdentity
-  | ExactEcdsaSigningLaneIdentity;
+type ExactSigningLaneIdentity = ExactEd25519SigningLaneIdentity | ExactEcdsaSigningLaneIdentity;
 
 type ExactSigningLaneIdentityKey = string & {
   readonly __brand: 'ExactSigningLaneIdentityKey';
 };
 
-type NonEmptyThresholdSessionIds = readonly [
-  ThresholdSessionId,
-  ...ThresholdSessionId[],
-];
+type NonEmptyThresholdSessionIds = readonly [ThresholdSessionId, ...ThresholdSessionId[]];
 ```
 
 ### Tasks
 
-- [ ] Add `exactSigningLaneIdentityKey(identity)` using sorted-key JSON or a
-  length-prefixed encoder.
-- [ ] Include every field in `ExactSigningLaneIdentity`. For ECDSA this includes
-  exact `chainTarget`, wallet id, auth method, key identity, wallet signing
-  session id, and threshold session id.
-- [ ] Add exact Ed25519 and exact ECDSA builders from selected/planning lanes.
-- [ ] Build ECDSA identity only from exact chain target and canonical
-  EVM-family key identity.
-- [ ] Export helpers for non-empty threshold session id lists derived from exact
-  lane identity.
-- [ ] Use `exactSigningLaneIdentityKey(identity)` for freshness diagnostics,
-  reauth anchors, reservation identity, and OTP refresh rejection identity.
-- [ ] Add type fixtures rejecting `SelectedEcdsaSigningLaneIdentity`,
-  operation-less identities, missing wallet/session fields, and branch-mixed
-  identities at exact-identity boundaries.
+- [x] Add `exactSigningLaneIdentityKey(identity)` using sorted-key JSON or a
+      length-prefixed encoder.
+- [x] Include every field in `ExactSigningLaneIdentity`. For ECDSA this includes
+      exact `chainTarget`, wallet id, auth method, key identity, wallet signing
+      session id, and threshold session id.
+- [x] Add exact Ed25519 and exact ECDSA builders from selected/planning lanes.
+- [x] Build ECDSA identity only from exact chain target and canonical
+      EVM-family key identity.
+- [x] Export helpers for non-empty threshold session id lists derived from exact
+      lane identity.
+- [x] Use `exactSigningLaneIdentityKey(identity)` for freshness diagnostics,
+      reauth anchors, reservation identity, and OTP refresh rejection identity.
+- [x] Add type fixtures rejecting `SelectedEcdsaSigningLaneIdentity`,
+      operation-less identities, missing wallet/session fields, and branch-mixed
+      identities at exact-identity boundaries.
 
 ## Phase 3: Make Prompt Policy a Capability Boundary
 
@@ -264,17 +333,17 @@ types.
 
 ### Tasks
 
-- [ ] Audit `NoPromptWarmSessionDeps` and `PromptCapableWarmupDeps` for every
-  unlock, reuse, page-refresh, and display-only owner-address path.
-- [ ] Add narrow display-only deps at the existing assembly port where
-  owner/address reads are wired.
-- [ ] Delete or narrow broad deps that can carry both prompt-capable and
-  no-prompt capabilities.
-- [ ] Add type fixtures rejecting prompt deps in no-prompt and display-only
-  paths.
-- [ ] Add unit tests proving passkey unlock prompts exactly once.
-- [ ] Add unit tests proving page-refresh rehydration and display-only reads do
-  not prompt.
+- [x] Audit `NoPromptWarmSessionDeps` and `PromptCapableWarmupDeps` for every
+      unlock, reuse, page-refresh, and display-only owner-address path.
+- [x] Add narrow display-only deps at the existing assembly port where
+      owner/address reads are wired.
+- [x] Delete or narrow broad deps that can carry both prompt-capable and
+      no-prompt capabilities.
+- [x] Add type fixtures rejecting prompt deps in no-prompt and display-only
+      paths.
+- [x] Add unit tests proving passkey unlock prompts exactly once.
+- [x] Add unit tests proving page-refresh rehydration and display-only reads do
+      not prompt.
 
 ## Phase 4: Identify Step-Up Freshness Exactly
 
@@ -316,10 +385,7 @@ type StepUpProjectionState =
         | 'budget_status_unavailable';
     };
 
-type KnownStepUpProjectionState = Extract<
-  StepUpProjectionState,
-  { kind: 'known' }
->;
+type KnownStepUpProjectionState = Extract<StepUpProjectionState, { kind: 'known' }>;
 
 type StepUpExpiryState =
   | {
@@ -372,10 +438,7 @@ type FreshStepUpSatisfied = {
   provenance: SigningStatusProvenance;
 };
 
-type FreshStepUpSatisfiedForAdmission = Omit<
-  FreshStepUpSatisfied,
-  'kind' | 'projection'
-> & {
+type FreshStepUpSatisfiedForAdmission = Omit<FreshStepUpSatisfied, 'kind' | 'projection'> & {
   kind: 'fresh_step_up_satisfied_for_admission';
   projection: KnownStepUpProjectionState;
 };
@@ -388,30 +451,30 @@ type StepUpFreshnessState =
 
 ### Tasks
 
-- [ ] Add builders from trusted budget status, sealed restored records, and
-  Email OTP refresh results into `StepUpFreshnessState`.
-- [ ] Set `projection.kind === 'known'` only when the source provides a real
-  projection version. Use the unavailable branch for expired restored records,
-  refresh-boundary failures, and budget-status gaps.
-- [ ] Set `expiry.kind === 'known'` only when the source provides a real expiry.
-  Use the unavailable branch for restored records or refresh failures without a
-  live budget expiry.
-- [ ] Require lane identity and operation identity before a freshness state can
-  enter signing or reauth planning.
-- [ ] Add a builder that converts `FreshStepUpSatisfied` into
-  `FreshStepUpSatisfiedForAdmission` only when projection is known.
-- [ ] Keep diagnostics derived from freshness state. Admission and reauth
-  planning should accept only the narrow freshness branch they need.
-- [ ] Validate duplicated top-level fields against `laneIdentity` inside
-  builders: wallet id, auth method, curve, wallet signing session id, and
-  threshold session ids.
-- [ ] Add type fixtures rejecting freshness states without wallet id, operation
-  id, exact lane identity, lane identity key, projection state, expiry, or
-  provenance.
-- [ ] Add type fixtures rejecting satisfied-for-admission states without known
-  projection.
-- [ ] Add unit tests for Ed25519 and ECDSA exhausted states.
-- [ ] Add unit tests proving freshness for one lane cannot satisfy another lane.
+- [x] Add builders from trusted budget status, sealed restored records, and
+      Email OTP refresh results into `StepUpFreshnessState`.
+- [x] Set `projection.kind === 'known'` only when the source provides a real
+      projection version. Use the unavailable branch for expired restored records,
+      refresh-boundary failures, and budget-status gaps.
+- [x] Set `expiry.kind === 'known'` only when the source provides a real expiry.
+      Use the unavailable branch for restored records or refresh failures without a
+      live budget expiry.
+- [x] Require lane identity and operation identity before a freshness state can
+      enter signing or reauth planning.
+- [x] Add a builder that converts `FreshStepUpSatisfied` into
+      `FreshStepUpSatisfiedForAdmission` only when projection is known.
+- [x] Keep diagnostics derived from freshness state. Admission and reauth
+      planning should accept only the narrow freshness branch they need.
+- [x] Validate duplicated top-level fields against `laneIdentity` inside
+      builders: wallet id, auth method, curve, wallet signing session id, and
+      threshold session ids.
+- [x] Add type fixtures rejecting freshness states without wallet id, operation
+      id, exact lane identity, lane identity key, projection state, expiry, or
+      provenance.
+- [x] Add type fixtures rejecting satisfied-for-admission states without known
+      projection.
+- [x] Add unit tests for Ed25519 and ECDSA exhausted states.
+- [x] Add unit tests proving freshness for one lane cannot satisfy another lane.
 
 ## Phase 5: Treat Exhausted Sessions as Reauth Anchors
 
@@ -461,21 +524,21 @@ type ReauthAnchorIdentity = {
 
 ### Tasks
 
-- [ ] Add branch-specific builders that validate
-  `FreshStepUpSatisfiedForAdmission` and return the existing budget-admitted
-  lifecycle states.
-- [ ] Add a branch-specific builder that validates `FreshStepUpRequired` and
-  returns the existing `ReauthAdmittedLifecycle` with `ReauthAnchorIdentity`.
-- [ ] Keep signing executors typed against the existing admitted lifecycle
-  branches. Raw freshness objects stay inside branch-specific builders.
-- [ ] Make reauth planning accept only `ReauthAnchorIdentity`.
-- [ ] Integrate reauth-anchor construction with the existing ECDSA exhausted /
-  expired collapse helpers in
-  `client/src/core/signingEngine/session/availability/availableSigningLanes.ts`.
-- [ ] Add type fixtures proving exhausted/expired lanes cannot be passed to
-  signing execution.
-- [ ] Add tests for post-refresh exhausted OTP ECDSA and Ed25519 lanes becoming
-  reauth anchors.
+- [x] Add branch-specific builders that validate
+      `FreshStepUpSatisfiedForAdmission` and return the existing budget-admitted
+      lifecycle states.
+- [x] Add a branch-specific builder that validates `FreshStepUpRequired` and
+      returns the existing `ReauthAdmittedLifecycle` with `ReauthAnchorIdentity`.
+- [x] Keep signing executors typed against the existing admitted lifecycle
+      branches. Raw freshness objects stay inside branch-specific builders.
+- [x] Make reauth planning accept only `ReauthAnchorIdentity`.
+- [x] Integrate reauth-anchor construction with the existing ECDSA exhausted /
+      expired collapse helpers in
+      `client/src/core/signingEngine/session/availability/availableSigningLanes.ts`.
+- [x] Add type fixtures proving exhausted/expired lanes cannot be passed to
+      signing execution.
+- [x] Add tests for post-refresh exhausted OTP ECDSA and Ed25519 lanes becoming
+      reauth anchors.
 
 ## Phase 6: OTP Refresh Auth Rejection Means Fresh OTP Required
 
@@ -518,28 +581,28 @@ type EmailOtpSessionRefreshResult =
 
 ### Tasks
 
-- [ ] Change `refreshEmailOtpAppSessionJwt(...)` to return
-  `EmailOtpSessionRefreshResult` for refresh success and auth rejection.
-- [ ] Change `EmailOtpAppSessionJwtCache.resolve(...)` to return
-  `EmailOtpSessionRefreshResult`, including a cached-success branch.
-- [ ] Reserve thrown errors for transport, decoding, or programmer failures.
-- [ ] Require wallet/session and exact lane identity before resolving or
-  refreshing an Email OTP app-session JWT for signing.
-- [ ] Map `email_otp_refresh_rejected` to
-  `FreshStepUpRequired.reason === 'email_otp_refresh_rejected'`.
-- [ ] Prevent refresh 401/403 from becoming
-  `threshold_ecdsa_session_not_ready`.
-- [ ] Keep budget-status 401/403 handling separate; `budget_unknown` remains a
-  budget status result, while app-session refresh 401/403 becomes fresh OTP
-  required.
-- [ ] Add type fixtures rejecting OTP refresh identity without exact lane
-  identity, lane identity key, wallet id, wallet session user id, operation id,
-  or operation fingerprint.
-- [ ] Add unit tests for cached success, refresh success, 401 rejection, and 403
-  rejection.
-- [ ] Add unit tests for OTP refresh 401 and 403 on Ed25519 and ECDSA signing.
-- [ ] Add e2e coverage for post-exhaustion page refresh followed by OTP
-  step-up.
+- [x] Change `refreshEmailOtpAppSessionJwt(...)` to return
+      `EmailOtpSessionRefreshResult` for refresh success and auth rejection.
+- [x] Change `EmailOtpAppSessionJwtCache.resolve(...)` to return
+      `EmailOtpSessionRefreshResult`, including a cached-success branch.
+- [x] Reserve thrown errors for transport, decoding, or programmer failures.
+- [x] Require wallet/session and exact lane identity before resolving or
+      refreshing an Email OTP app-session JWT for signing.
+- [x] Map `email_otp_refresh_rejected` to
+      `FreshStepUpRequired.reason === 'email_otp_refresh_rejected'`.
+- [x] Prevent refresh 401/403 from becoming
+      `threshold_ecdsa_session_not_ready`.
+- [x] Keep budget-status 401/403 handling separate; `budget_unknown` remains a
+      budget status result, while app-session refresh 401/403 becomes fresh OTP
+      required.
+- [x] Add type fixtures rejecting OTP refresh identity without exact lane
+      identity, lane identity key, wallet id, wallet session user id, operation id,
+      or operation fingerprint.
+- [x] Add unit tests for cached success, refresh success, 401 rejection, and 403
+      rejection.
+- [x] Add unit tests for OTP refresh 401 and 403 on Ed25519 and ECDSA signing.
+- [x] Add e2e coverage for post-exhaustion page refresh followed by OTP
+      step-up.
 
 ## Phase 7: Make Budget Reservations Per Operation
 
@@ -578,27 +641,27 @@ type BudgetReservationFinalizationCommand = {
 
 ### Canonical Serialization
 
-- [ ] Include every field in `SigningBudgetReservationIdentity`.
-- [ ] Store the serialized identity in `SigningSessionBudgetReservationRecord`.
-- [ ] Validate the serialized identity on reserve dedupe, reserved success,
-  unreserved success, zero spend release, and repeated success.
+- [x] Include every field in `SigningBudgetReservationIdentity`.
+- [x] Store the serialized identity in `SigningSessionBudgetReservationRecord`.
+- [x] Validate the serialized identity on reserve dedupe, reserved success,
+      unreserved success, zero spend release, and repeated success.
 
 ### Tasks
 
-- [ ] Add `SigningBudgetReservationIdentity` to reservation records.
-- [ ] Keep `reservationsByOperationId` only as an index from operation id to
-  canonical reservation identity.
-- [ ] Keep `successfulSpendsByOperationId` only as an index from operation id to
-  canonical reservation identity and result promise.
-- [ ] Replace mutable current-session reservation state with
-  `SigningBudgetReservationIdentity`.
-- [ ] Store prepared material by operation id and lane identity.
-- [ ] Make finalization accept `BudgetReservationFinalizationCommand`.
-- [ ] Add idempotency keyed by the canonical reservation identity.
-- [ ] Add tests for concurrent NEAR and Tempo post-exhaustion step-up
-  operations.
-- [ ] Add tests for repeated success/failure finalization of the same
-  reservation.
+- [x] Add `SigningBudgetReservationIdentity` to reservation records.
+- [x] Keep `reservationsByOperationId` only as an index from operation id to
+      canonical reservation identity.
+- [x] Keep `successfulSpendsByOperationId` only as an index from operation id to
+      canonical reservation identity and result promise.
+- [x] Replace mutable current-session reservation state with
+      `SigningBudgetReservationIdentity`.
+- [x] Store prepared material by operation id and lane identity.
+- [x] Make finalization accept `BudgetReservationFinalizationCommand`.
+- [x] Add idempotency keyed by the canonical reservation identity.
+- [x] Add tests for concurrent NEAR and Tempo post-exhaustion step-up
+      operations.
+- [x] Add tests for repeated success/failure finalization of the same
+      reservation.
 
 ## Phase 8: Convert Budget Throws to Typed Results
 
@@ -608,18 +671,18 @@ generic session-not-ready error.
 
 ### Current Throw Sites to Convert
 
-- [ ] `budget.ts`: `assertPreparedBudgetProjectionVersion` throws
-  `[SigningSessionBudget] prepared budget projection is stale`.
-- [ ] `BudgetCoordinator.ts`: reserved success without a reservation throws
-  `[SigningSessionBudget] reserved_success requires an existing reservation`.
-- [ ] `BudgetCoordinator.ts`: reserved operation finalized as unreserved throws
-  `[SigningSessionBudget] reserved operations must finalize with reserved_success`.
-- [ ] `BudgetCoordinator.ts`: reservation/finalization mismatch throws
-  `[SigningSessionBudget] reserved_success spend does not match reservation`.
-- [ ] `BudgetCoordinator.ts`: operation id reuse throws through
-  `assertWalletSigningOperationFingerprintMatches`.
-- [ ] `BudgetCoordinator.ts`: spend returned `not_found`, `budget_unknown`, or
-  no status.
+- [x] `budget.ts`: `assertPreparedBudgetProjectionVersion` throws
+      `[SigningSessionBudget] prepared budget projection is stale`.
+- [x] `BudgetCoordinator.ts`: reserved success without a reservation throws
+      `[SigningSessionBudget] reserved_success requires an existing reservation`.
+- [x] `BudgetCoordinator.ts`: reserved operation finalized as unreserved throws
+      `[SigningSessionBudget] reserved operations must finalize with reserved_success`.
+- [x] `BudgetCoordinator.ts`: reservation/finalization mismatch throws
+      `[SigningSessionBudget] reserved_success spend does not match reservation`.
+- [x] `BudgetCoordinator.ts`: operation id reuse throws through
+      `assertWalletSigningOperationFingerprintMatches`.
+- [x] `BudgetCoordinator.ts`: spend returned `not_found`, `budget_unknown`, or
+      no status.
 
 ### Finalization Command
 
@@ -674,20 +737,20 @@ type SigningBudgetFinalizationResult =
 
 ### API Changes
 
-- [ ] Change `SigningSessionBudget.recordSuccess(...)` to return
-  `Promise<SigningBudgetFinalizationResult>`.
-- [ ] Change `SigningSessionBudgetFinalizer.recordSuccess()` from
-  `Promise<void>` to `Promise<SigningBudgetFinalizationResult>`.
-- [ ] Update call sites that currently catch thrown budget errors and normalize
-  them into session failures.
-- [ ] Keep unexpected programmer errors as thrown exceptions after exhaustive
-  result handling.
-- [ ] Add trace events for finalized, already finalized, projection mismatch,
-  missing reservation, identity mismatch, and unavailable status.
+- [x] Change `SigningSessionBudget.recordSuccess(...)` to return
+      `Promise<SigningBudgetFinalizationResult>`.
+- [x] Change `SigningSessionBudgetFinalizer.recordSuccess()` from
+      `Promise<void>` to `Promise<SigningBudgetFinalizationResult>`.
+- [x] Update call sites that currently catch thrown budget errors and normalize
+      them into session failures.
+- [x] Keep unexpected programmer errors as thrown exceptions after exhaustive
+      result handling.
+- [x] Add trace events for finalized, already finalized, projection mismatch,
+      missing reservation, identity mismatch, and unavailable status.
 
 ## Phase 9: Remove ECDSA `subjectId` Where Safe
 
-`walletSubjectId` is still the registration/profile identity and should remain
+`walletId` is still the registration/profile identity and should remain
 owned by registration flows. ECDSA `subjectId` should disappear from public
 commands, lane state, selected/planning identity, freshness, budget
 reservations, and persisted runtime records. HSS protocol inputs may still need a
@@ -697,40 +760,60 @@ until the HSS identity scheme is explicitly versioned.
 
 ### Safety Gates
 
-- [ ] Classify every remaining `subjectId` and `walletSubjectId` reference into:
-  registration/profile identity, HSS protocol identity, Email OTP auth subject,
-  ECDSA runtime metadata, persistence compatibility, docs/tests.
-- [ ] Keep `walletSubjectId` in registration intent, registration ceremonies,
-  WebAuthn credential binding, and wallet-subject key-facts inventory routes.
-- [ ] Keep `authSubjectId` separate for Email OTP provider identity.
-- [ ] Keep HSS protocol subject identity only behind a narrowly named type such
-  as `BaseEcdsaSubjectId` or `HssWalletSubjectId`.
-- [ ] Remove HSS protocol `subjectId` from digest/JWT inputs only with a new
-  protocol version and an explicit key/session invalidation plan.
+- [x] Classify every remaining `subjectId` and `walletId` reference into:
+      registration/profile identity, HSS protocol identity, Email OTP auth subject,
+      ECDSA runtime metadata, persistence compatibility, docs/tests.
+- [x] Keep `walletId` in registration intent, registration ceremonies,
+      WebAuthn credential binding, and wallet key-facts inventory routes.
+- [x] Keep `authSubjectId` separate for Email OTP provider identity.
+- [x] Keep HSS protocol subject identity only behind a narrowly named type such
+      as `BaseEcdsaSubjectId` or `HssWalletId`.
+- [x] Remove HSS protocol `subjectId` from digest/JWT inputs only with a new
+      protocol version and an explicit key/session invalidation plan.
 
 ### Tasks
 
-- [ ] Rename protocol-local ECDSA HSS `subjectId` fields to
-  `baseEcdsaSubjectId` or `hssWalletSubjectId` at internal boundaries.
-- [ ] Derive the protocol-local HSS subject identity from wallet id in one
-  builder. Core ECDSA key/lane/session functions should accept wallet id and
-  exact lane identity instead of raw subject strings.
-- [ ] Remove `subjectId` from `BuildEvmFamilyEcdsaKeyIdentityInput`; derive and
-  validate the base ECDSA subject inside the boundary builder.
-- [ ] Replace `walletSubjectIdFromAccountContext({ subjectId, profileId })`
-  fallback usage with explicit parsers for either registration `walletSubjectId`
-  or ECDSA `walletId`.
-- [ ] Make canonical ECDSA session record parsing reject any `subjectId`, even
-  when it matches the wallet-derived value.
-- [ ] Keep sealed ECDSA records rejecting `subjectId`; remove any rebuild or
-  compatibility code that preserves it.
-- [ ] Remove `subjectId` from ECDSA examples and docs that describe public
-  bootstrap, reconnect, reauth, signing, or export APIs.
-- [ ] Add type fixtures rejecting `subjectId` in ECDSA public inputs, selected
-  lanes, planning lanes, exact lane identity, freshness, reservation identity,
-  OTP refresh identity, ready material, and persisted ECDSA records.
-- [ ] Add targeted tests proving legacy ECDSA persisted records with
-  `subjectId` are rejected or deleted at the persistence boundary.
+- [x] Rename protocol-local ECDSA HSS `subjectId` fields to
+      `baseEcdsaSubjectId` or `hssWalletId` at internal boundaries.
+- [x] Derive the protocol-local HSS subject identity from wallet id in one
+      builder. Core ECDSA key/lane/session functions should accept wallet id and
+      exact lane identity instead of raw subject strings.
+- [x] Remove `subjectId` from `BuildEvmFamilyEcdsaKeyIdentityInput`; derive and
+      validate the base ECDSA subject inside the boundary builder.
+- [x] Replace `walletIdFromAccountContext({ subjectId, profileId })`
+      fallback usage with explicit parsers for either registration `walletId`
+      or ECDSA `walletId`.
+- [x] Make canonical ECDSA session record parsing reject any `subjectId`, even
+      when it matches the wallet-derived value.
+- [x] Keep sealed ECDSA records rejecting `subjectId`; remove any rebuild or
+      compatibility code that preserves it.
+- [x] Remove `subjectId` from ECDSA examples and docs that describe public
+      bootstrap, reconnect, reauth, signing, or export APIs.
+- [x] Add type fixtures rejecting `subjectId` in ECDSA public inputs, selected
+      lanes, planning lanes, exact lane identity, freshness, reservation identity,
+      OTP refresh identity, ready material, and persisted ECDSA records.
+- [x] Add targeted tests proving legacy ECDSA persisted records with
+      `subjectId` are rejected or deleted at the persistence boundary.
+
+## Spec Review Follow-Up
+
+- [x] Reserve ECDSA HSS export nonce replay guards before terminal export-share
+      failures after syntax/auth validation.
+- [x] Rename active explicit ECDSA export artifact kind to
+      `ecdsa-hss-secp256k1-export`.
+- [x] Update local ECDSA HSS specs for active v2 `wallet_id`/`rp_id` context,
+      wipe/recreate invalidation, and removal of the old context version.
+- [x] Reject stale ECDSA HSS old identity fields at active bootstrap, export, and
+      persisted role-local record boundaries.
+- [x] Remove the old Rust ECDSA HSS context, wire, server, integration, client,
+      fixture, benchmark, and formal-verification test surfaces; the crate now
+      has no retained old-version code path.
+- [x] Remove `_v2`/`V2` suffixes from active ECDSA HSS Rust, WASM wrapper, and
+      formal-verification symbol names; keep v2 only in protocol literals,
+      fixture names, and persisted version strings.
+- [x] Rename the internal EVM-family ECDSA key fingerprint canonical field from
+      `subjectId` to `baseEcdsaSubjectId`; current warm sessions must be
+      refreshed after this change.
 
 ## Validation
 
@@ -770,6 +853,33 @@ pnpm -C tests exec playwright test \
   --reporter=line
 ```
 
+Completed validation:
+
+- [x] `pnpm -s build:sdk`
+- [x] `pnpm -s type-check:sdk`
+- [x] `pnpm -s type-check`
+- [x] `pnpm -C tests exec playwright test ./unit/thresholdEcdsa.hssRoleLocalExportPolicy.unit.test.ts --reporter=line`
+- [x] `pnpm -C tests exec playwright test ./unit/privateKeyExportRecovery.binding.unit.test.ts ./unit/ecdsaExportMaterial.unit.test.ts ./unit/passkeyConfirm.exportFlow.unit.test.ts --reporter=line`
+- [x] `pnpm -C tests exec playwright test ./unit/authService.ecdsaKeyIdentityInventory.unit.test.ts ./unit/availableSigningLanes.ed25519Duplicates.unit.test.ts ./unit/deviceRecoveryDomain.emailRecovery.unit.test.ts ./unit/emailOtpThresholdSessionCoordinator.unit.test.ts --reporter=line`
+- [x] `pnpm -C tests exec playwright test ./unit/ecdsaSelection.restorable.unit.test.ts ./unit/signingSessionRestoreCoordinator.unit.test.ts ./unit/passkeyClientDB.deviceSelection.test.ts ./unit/thresholdEcdsa.postgresKeyStoreBackfill.unit.test.ts ./unit/stableExperimentalExportBoundaries.guard.unit.test.ts --reporter=line`
+- [x] `pnpm -C tests exec playwright test ./unit/confirmTxFlow.defensivePaths.test.ts ./unit/confirmTxFlow.successPaths.test.ts ./unit/signerMutationSagas.passkeyManagement.unit.test.ts ./unit/thresholdEcdsa.tempoHighLevel.unit.test.ts ./unit/thresholdEcdsa.presignPoolRefill.unit.test.ts --reporter=line`
+- [x] `pnpm -C tests exec playwright test ./unit/signingEngine.refactor37.guard.unit.test.ts -g "Postgres ECDSA key store indexes shared identity on declared columns" --reporter=line`
+- [x] `pnpm -C tests exec playwright test ./unit/thresholdEcdsa.postgresKeyStoreBackfill.unit.test.ts --reporter=line`
+- [x] `pnpm -C tests exec playwright test ./unit/thresholdEcdsa.hssRoleLocalExportPolicy.unit.test.ts ./unit/privateKeyExportRecovery.binding.unit.test.ts ./unit/passkeyConfirm.exportFlow.unit.test.ts --reporter=line`
+- [x] `git diff --check -- ...` across the touched ECDSA HSS server, client,
+      SDK dist, test, and doc paths.
+- [x] `just ecdsa-hss-fv`
+- [x] `cargo bench --manifest-path crates/ecdsa-hss/Cargo.toml --bench performance_baseline`
+- [x] `pnpm -s benchmark:ecdsa-hss:wasm`
+- [x] `cargo test --manifest-path crates/ecdsa-hss/Cargo.toml`
+- [x] `pnpm -C tests exec playwright test ./unit/thresholdEcdsa.hssWasmSurface.unit.test.ts --reporter=line`
+
+Validation notes:
+
+- A broad `pnpm -C tests exec playwright test ./unit --reporter=line` sweep was
+  interrupted after surfacing stale fixtures. The stale fixture clusters were
+  updated and covered by the focused passing checks above.
+
 Broader checks before completion:
 
 ```sh
@@ -780,41 +890,48 @@ git diff --check -- . ':(exclude)crates/ecdsa-hss/**'
 
 Manual flows:
 
-- [ ] Passkey unlock provisions the configured unlock budget and prompts for
-  user verification.
-- [ ] Page refresh rehydration does not prompt for passkey user verification.
+- [x] Passkey unlock provisions the configured unlock budget and prompts for
+      user verification.
+- [x] Page refresh rehydration does not prompt for passkey user verification.
 - [x] Passkey post-exhaustion step-up uses single-operation budget by default.
-- [ ] Email OTP post-exhaustion step-up maps refresh 401/403 to fresh OTP
-  required.
-- [ ] Concurrent post-exhaustion NEAR and Tempo signing either both succeed with
-  separate operation reservations or one receives a typed in-flight result.
+- [x] Email OTP post-exhaustion step-up maps refresh 401/403 to fresh OTP
+      required.
+- [x] Concurrent post-exhaustion NEAR and Tempo signing either both succeed with
+      separate operation reservations or one receives a typed in-flight result.
 
 ## Completion Criteria
 
 - [x] Unlock budget and step-up budget are different policy branches.
-- [ ] Exact signing lane identity and canonical lane identity keys are shared
-  by freshness, reauth anchors, reservations, finalization, and OTP refresh.
-- [ ] Step-up freshness includes wallet, operation, curve, lane identity,
-  projection state, expiry, and provenance.
-- [ ] Admission-ready freshness requires a known projection.
-- [ ] No-prompt rehydration/display code cannot receive prompt-capable deps.
-- [ ] Exhausted/expired sessions are represented as reauth anchors and cannot
-  enter signing execution.
-- [ ] Reservation records carry canonical reservation identity under
-  operation-id indexes.
-- [ ] Budget finalization returns typed results for projection mismatch, missing
-  reservation, identity mismatch, already finalized, and unavailable status.
-- [ ] Email OTP refresh 401/403 produces fresh OTP step-up state at the refresh
-  boundary.
-- [ ] ECDSA runtime, persistence, freshness, reservation, and public API types
-  reject `subjectId`; registration keeps `walletSubjectId`.
-- [ ] Type fixtures reject invalid policy, prompt, admission, reservation, and
-  OTP refresh states.
+- [x] Exact signing lane identity and canonical lane identity keys are shared
+      by freshness, reauth anchors, reservations, finalization, and OTP refresh.
+- [x] Step-up freshness includes wallet, operation, curve, lane identity,
+      projection state, expiry, and provenance.
+- [x] Admission-ready freshness requires a known projection.
+- [x] No-prompt rehydration/display code cannot receive prompt-capable deps.
+- [x] Exhausted/expired sessions are represented as reauth anchors and cannot
+      enter signing execution.
+- [x] Reservation records carry canonical reservation identity under
+      operation-id indexes.
+- [x] Budget finalization returns typed results for projection mismatch, missing
+      reservation, identity mismatch, already finalized, and unavailable status.
+- [x] Email OTP refresh 401/403 produces fresh OTP step-up state at the refresh
+      boundary.
+- [x] ECDSA runtime, persistence, freshness, reservation, and public API types
+      reject `subjectId`; registration keeps `walletId`.
+- [x] Server ECDSA HSS request and persistence boundaries reject old
+      `subjectId`/`walletSessionUserId` field names.
+- [x] Type fixtures reject invalid policy, prompt, admission, reservation, and
+      OTP refresh states.
 
 ## Postgres Cleanup Follow-Up
 
-- [ ] After the one-time Postgres `threshold_ecdsa_keys` legacy-row cleanup has
-  been run and verified in the target environments, remove the temporary
-  startup prune query in
-  `server/src/core/ThresholdService/stores/KeyStore.ts` and keep strict schema
-  enforcement only.
+- [x] Local `threshold_ecdsa_keys` cleanup was verified against the relay-server
+      Postgres database: 5 current rows, 0 non-current record shapes, 0 rows
+      missing current indexed columns, and 0 rows using the old identity columns.
+- [x] Dropped the unused local `wallet_session_user_id` and `subject_id` columns,
+      then verified the shared-identity and threshold-identity indexes no longer
+      reference the old identity columns.
+- [x] `server/src/core/ThresholdService/stores/KeyStore.ts` has no startup prune or
+      record-json backfill query. The remaining schema initializer in
+      `server/src/storage/postgres.ts` now creates the current `wallet_id` shared
+      identity schema.

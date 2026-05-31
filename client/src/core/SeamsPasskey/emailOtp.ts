@@ -1,11 +1,16 @@
 import {
   EMAIL_OTP_CHANNEL,
+  WALLET_EMAIL_OTP_ACTIONS,
   type WalletEmailOtpChannel,
   type WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { requireTrimmedString, toOptionalTrimmedNonEmptyString } from '@shared/utils/validation';
 import type { WorkerOperationContext } from '../signingEngine/workerManager/executeWorkerOperation';
+import type {
+  EmailOtpWalletRegistrationEcdsaPrepareHandleBinding,
+  EmailOtpWalletRegistrationEcdsaPrepareHandlePayload,
+} from '../signingEngine/workerManager/workerTypes';
 import {
   normalizeThresholdRuntimePolicyScope,
   type ThresholdRuntimePolicyScope,
@@ -161,6 +166,19 @@ function buildWorkerEmailOtpRoutePlan(args: {
   });
 }
 
+function requireEmailOtpChallengeAction(args: {
+  challenge: JsonObject;
+  expectedAction: string;
+  context: string;
+}): void {
+  const action = readOptionalString(args.challenge.action);
+  if (action && action !== args.expectedAction) {
+    throw new Error(
+      `${args.context} returned ${action}; expected ${args.expectedAction}`,
+    );
+  }
+}
+
 async function postJson(args: {
   url: string;
   body: JsonObject;
@@ -214,6 +232,7 @@ export async function requestEmailOtpChallenge(args: {
   otpChannel: WalletEmailOtpChannel;
   emailHint?: string;
   expiresAtMs?: number;
+  appSessionVersion?: string;
 }> {
   if (!args.fetchImpl && args.workerCtx) {
     return await args.workerCtx.requestWorkerOperation({
@@ -245,18 +264,38 @@ export async function requestEmailOtpChallenge(args: {
     },
   });
   const challenge = requireObjectJson(response.challenge, 'wallet/email-otp/login/challenge');
+  requireEmailOtpChallengeAction({
+    challenge,
+    expectedAction: WALLET_EMAIL_OTP_ACTIONS.login,
+    context: 'wallet/email-otp/login/challenge',
+  });
   const delivery =
     response.delivery == null
       ? {}
       : requireObjectJson(response.delivery, 'wallet/email-otp/login/challenge delivery');
   const expiresAtMs = Number(challenge.expiresAtMs);
   const emailHint = readOptionalString(delivery.emailHint);
-  return {
+  const appSessionVersion = readOptionalString(challenge.appSessionVersion);
+  const result: {
+    challengeId: string;
+    otpChannel: typeof EMAIL_OTP_CHANNEL;
+    emailHint?: string;
+    expiresAtMs?: number;
+    appSessionVersion?: string;
+  } = {
     challengeId: readString(challenge.challengeId, 'wallet/email-otp/login/challenge challengeId'),
     otpChannel: EMAIL_OTP_CHANNEL,
-    ...(emailHint ? { emailHint } : {}),
-    ...(Number.isFinite(expiresAtMs) ? { expiresAtMs } : {}),
   };
+  if (emailHint) {
+    result.emailHint = emailHint;
+  }
+  if (Number.isFinite(expiresAtMs)) {
+    result.expiresAtMs = expiresAtMs;
+  }
+  if (appSessionVersion) {
+    result.appSessionVersion = appSessionVersion;
+  }
+  return result;
 }
 
 export async function requestEmailOtpEnrollmentChallenge(args: {
@@ -271,6 +310,7 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
   otpChannel: WalletEmailOtpChannel;
   emailHint?: string;
   expiresAtMs?: number;
+  appSessionVersion?: string;
 }> {
   if (!args.fetchImpl && args.workerCtx) {
     return await args.workerCtx.requestWorkerOperation({
@@ -302,21 +342,41 @@ export async function requestEmailOtpEnrollmentChallenge(args: {
     response.challenge,
     'wallet/email-otp/registration/challenge',
   );
+  requireEmailOtpChallengeAction({
+    challenge,
+    expectedAction: WALLET_EMAIL_OTP_ACTIONS.registration,
+    context: 'wallet/email-otp/registration/challenge',
+  });
   const delivery =
     response.delivery == null
       ? {}
       : requireObjectJson(response.delivery, 'wallet/email-otp/registration/challenge delivery');
   const expiresAtMs = Number(challenge.expiresAtMs);
   const emailHint = readOptionalString(delivery.emailHint);
-  return {
+  const appSessionVersion = readOptionalString(challenge.appSessionVersion);
+  const result: {
+    challengeId: string;
+    otpChannel: typeof EMAIL_OTP_CHANNEL;
+    emailHint?: string;
+    expiresAtMs?: number;
+    appSessionVersion?: string;
+  } = {
     challengeId: readString(
       challenge.challengeId,
       'wallet/email-otp/registration/challenge challengeId',
     ),
     otpChannel: EMAIL_OTP_CHANNEL,
-    ...(emailHint ? { emailHint } : {}),
-    ...(Number.isFinite(expiresAtMs) ? { expiresAtMs } : {}),
   };
+  if (emailHint) {
+    result.emailHint = emailHint;
+  }
+  if (Number.isFinite(expiresAtMs)) {
+    result.expiresAtMs = expiresAtMs;
+  }
+  if (appSessionVersion) {
+    result.appSessionVersion = appSessionVersion;
+  }
+  return result;
 }
 
 export async function requestEmailOtpDeviceRecoveryChallenge(args: {
@@ -522,6 +582,63 @@ export async function enrollEmailOtpWallet(args: {
             appSessionJwt: args.appSessionJwt,
           }),
           otpChannel: EMAIL_OTP_CHANNEL,
+          ...(workerClientSecret32 ? { clientSecret32: workerClientSecret32.buffer.slice(0) } : {}),
+        },
+      },
+    });
+  } finally {
+    zeroizeBytes(workerClientSecret32);
+  }
+}
+
+export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
+  relayUrl: string;
+  walletId: string;
+  userId?: string;
+  shamirPrimeB64u: string;
+  workerCtx: WorkerOperationContext;
+  appSessionJwt?: string;
+  otpChannel?: WalletEmailOtpChannel;
+  clientSecret32?: Uint8Array;
+  ecdsaClientRootHandleBinding: EmailOtpWalletRegistrationEcdsaPrepareHandleBinding;
+}): Promise<{
+  thresholdEcdsaClientVerifyingShareB64u: string;
+  thresholdEd25519PrfFirstB64u: string;
+  recoveryKeys: string[];
+  otpChannel: WalletEmailOtpChannel;
+  enrollmentSealKeyVersion: string;
+  clientUnlockPublicKeyB64u: string;
+  unlockKeyVersion: string;
+  clientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
+  emailOtpEnrollment: {
+    recoveryWrappedEnrollmentEscrows: unknown[];
+    enrollmentSealKeyVersion: string;
+    clientUnlockPublicKeyB64u: string;
+    unlockKeyVersion: string;
+    thresholdEcdsaClientVerifyingShareB64u: string;
+  };
+}> {
+  const workerCtx = requireWorkerCtx(args.workerCtx);
+  let workerClientSecret32: Uint8Array | null = null;
+  try {
+    workerClientSecret32 = args.clientSecret32
+      ? cloneFixed32Bytes(args.clientSecret32, 'clientSecret32')
+      : null;
+    return await workerCtx.requestWorkerOperation({
+      kind: 'emailOtp',
+      request: {
+        type: 'prepareEmailOtpRegistrationEnrollmentMaterial',
+        payload: {
+          relayUrl: readString(args.relayUrl, 'relayUrl'),
+          walletId: readString(args.walletId, 'walletId'),
+          ...(readOptionalString(args.userId) ? { userId: readOptionalString(args.userId) } : {}),
+          shamirPrimeB64u: readString(args.shamirPrimeB64u, 'shamirPrimeB64u'),
+          routePlan: buildWorkerEmailOtpRoutePlan({
+            routeFamily: 'registration',
+            appSessionJwt: args.appSessionJwt,
+          }),
+          otpChannel: EMAIL_OTP_CHANNEL,
+          ecdsaClientRootHandleBinding: args.ecdsaClientRootHandleBinding,
           ...(workerClientSecret32 ? { clientSecret32: workerClientSecret32.buffer.slice(0) } : {}),
         },
       },

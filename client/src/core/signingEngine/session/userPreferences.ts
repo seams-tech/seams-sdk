@@ -1,15 +1,7 @@
 import { ConfirmationConfig, DEFAULT_CONFIRMATION_CONFIG } from '../../types/signer-worker';
-import type { AccountId } from '../../types/accountIds';
-import { toAccountId } from '../../types/accountIds';
 import { IndexedDBManager, type IndexedDBEvent } from '../../indexedDB';
-import { buildNearAccountRefs } from '../../accountData/near/accountRefs';
-import { getLastSelectedNearAccount, updateNearAccountPreferences } from '../../accountData/near/accountProjection';
-import { resolveProfileAccountContextFromCandidates } from '../../indexedDB/profileAccountProjection';
+import { getLastSelectedNearAccount } from '../../accountData/near/accountProjection';
 import { toWalletId, type WalletId } from '../interfaces/ecdsaChainTarget';
-
-function hostedWalletIdAsNearAccountId(walletId: WalletId): AccountId {
-  return toAccountId(walletId);
-}
 
 export class UserPreferencesManager {
   private confirmationConfigChangeListeners: Set<(config: ConfirmationConfig) => void> =
@@ -85,7 +77,7 @@ export class UserPreferencesManager {
   }
 
   private subscribeToIndexedDBChanges(): void {
-    this.unsubscribeFromIndexedDB = IndexedDBManager.clientDB.onChange((event) => {
+    this.unsubscribeFromIndexedDB = IndexedDBManager.onChange((event) => {
       void this.handleIndexedDBEvent(event).catch((error) => {
         console.warn('[SigningEngine]: Error handling IndexedDB event:', error);
       });
@@ -96,18 +88,12 @@ export class UserPreferencesManager {
     switch (event.type) {
       case 'preferences-updated':
       case 'user-updated':
-        if (
-          this.currentWalletId &&
-          event.accountId === hostedWalletIdAsNearAccountId(this.currentWalletId)
-        ) {
+        if (this.currentWalletId && String(event.accountId) === String(this.currentWalletId)) {
           await this.reloadUserSettings();
         }
         break;
       case 'user-deleted':
-        if (
-          this.currentWalletId &&
-          event.accountId === hostedWalletIdAsNearAccountId(this.currentWalletId)
-        ) {
+        if (this.currentWalletId && String(event.accountId) === String(this.currentWalletId)) {
           this.currentWalletId = undefined;
           this.confirmationConfig = DEFAULT_CONFIRMATION_CONFIG;
         }
@@ -163,7 +149,7 @@ export class UserPreferencesManager {
     if (!prev || String(prev) !== String(walletId)) {
       this.notifyCurrentWalletChange(walletId);
     }
-    if (!IndexedDBManager.clientDB.isDisabled()) {
+    if (!IndexedDBManager.isDisabled()) {
       void this.loadSettingsForWallet(walletId).catch(() => undefined);
     }
   }
@@ -178,16 +164,9 @@ export class UserPreferencesManager {
   }
 
   private async loadSettingsForWallet(walletId: WalletId): Promise<void> {
-    if (IndexedDBManager.clientDB.isDisabled()) return;
-    const nearAccountId = hostedWalletIdAsNearAccountId(walletId);
-    const context = await resolveProfileAccountContextFromCandidates(
-      IndexedDBManager.clientDB,
-      buildNearAccountRefs(nearAccountId),
-    ).catch(() => null);
-    if (!context?.profileId) return;
-    const profile = await IndexedDBManager.clientDB.getProfile(context.profileId).catch(() => null);
-    if (!profile) return;
-    this.applyStoredPreferences(profile.preferences);
+    if (IndexedDBManager.isDisabled()) return;
+    const preferences = await IndexedDBManager.getWalletPreferences(walletId).catch(() => undefined);
+    this.applyStoredPreferences(preferences);
   }
 
   async reloadUserSettings(): Promise<void> {
@@ -212,19 +191,14 @@ export class UserPreferencesManager {
   }
 
   async loadUserSettings(): Promise<void> {
-    if (IndexedDBManager.clientDB.isDisabled()) return;
-    const last = await getLastSelectedNearAccount(IndexedDBManager.clientDB).catch(() => null);
+    if (IndexedDBManager.isDisabled()) return;
+    const last = await getLastSelectedNearAccount(IndexedDBManager).catch(() => null);
     if (!last) {
       console.debug('[SigningEngine]: No last user found, using default settings');
       return;
     }
-    this.currentWalletId = toWalletId(last.nearAccountId);
-    const profile = await IndexedDBManager.clientDB.getProfile(last.profileId).catch(() => null);
-    if (!profile) {
-      console.debug('[SigningEngine]: No profile found for last user, using default settings');
-      return;
-    }
-    this.applyStoredPreferences(profile.preferences);
+    this.currentWalletId = toWalletId(last.profileId);
+    await this.loadSettingsForWallet(this.currentWalletId);
   }
 
   async saveUserSettings(): Promise<void> {
@@ -237,9 +211,11 @@ export class UserPreferencesManager {
         return;
       }
 
-      const accountId = hostedWalletIdAsNearAccountId(walletId);
-      await updateNearAccountPreferences(IndexedDBManager.clientDB, accountId, {
-        confirmationConfig: this.confirmationConfig,
+      await IndexedDBManager.updateWalletPreferences({
+        walletId,
+        preferences: {
+          confirmationConfig: this.confirmationConfig,
+        },
       });
     } catch (error) {
       console.warn('[SigningEngine]: Failed to save user settings:', error);

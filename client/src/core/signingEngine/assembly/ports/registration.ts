@@ -1,12 +1,8 @@
-import { IndexedDBManager } from '@/core/indexedDB';
+import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import type { ThresholdEd25519LifecycleDeps } from '../../threshold/ed25519/hssLifecycle';
-import type {
-  RegistrationAccountLifecycleDeps,
-  RegistrationSessionDeps,
-} from '../../interfaces/operationDeps';
 import type { ThresholdSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
 import { generateSessionId as generateSessionIdValue } from '../../session/passkey/prfCache';
-import type { NearKeyOpsDeps, CreateSigningEnginePortsArgs } from './shared';
+import type { CreateSigningEnginePortsArgs } from './shared';
 
 export function createThresholdEd25519LifecycleDeps(
   args: CreateSigningEnginePortsArgs,
@@ -18,32 +14,13 @@ export function createThresholdEd25519LifecycleDeps(
   };
 }
 
-export function createRegistrationAccountLifecycleDeps(
-  args: CreateSigningEnginePortsArgs,
-): RegistrationAccountLifecycleDeps {
-  return {
-    indexedDB: IndexedDBManager,
-    userPreferencesManager: args.userPreferencesManager,
-    nonceCoordinator: args.nonceCoordinator,
-    extractCosePublicKey: args.extractCosePublicKey,
-  };
-}
-
-export function createRegistrationSessionDeps(args: {
-  createArgs: CreateSigningEnginePortsArgs;
-}): RegistrationSessionDeps {
-  return {
-    touchConfirm: args.createArgs.touchConfirm,
-    touchIdPrompt: args.createArgs.touchIdPrompt,
-  };
-}
-
 export function createThresholdSessionActivationDeps(args: {
   createArgs: CreateSigningEnginePortsArgs;
+  indexedDB: UnifiedIndexedDBManager;
   getOrCreateActiveThresholdEcdsaSessionId: ThresholdSessionActivationDeps['getOrCreateActiveThresholdEcdsaSessionId'];
 }): ThresholdSessionActivationDeps {
   return {
-    indexedDB: IndexedDBManager,
+    indexedDB: args.indexedDB,
     touchIdPrompt: args.createArgs.touchIdPrompt,
     touchConfirm: args.createArgs.touchConfirm,
     getSignerWorkerContext: () => args.createArgs.signerWorkerManager.getContext(),
@@ -52,11 +29,5 @@ export function createThresholdSessionActivationDeps(args: {
     persistThresholdEcdsaBootstrapForWalletTarget:
       args.createArgs.persistThresholdEcdsaBootstrapForWalletTarget,
     upsertThresholdEcdsaSessionFromBootstrap: args.createArgs.upsertThresholdEcdsaSessionFromBootstrap,
-  };
-}
-
-export function createNearKeyOpsDeps(args: CreateSigningEnginePortsArgs): NearKeyOpsDeps {
-  return {
-    signingKeyOps: args.signerWorkerManager.nearKeyOps,
   };
 }

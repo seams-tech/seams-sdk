@@ -12,7 +12,6 @@ import { persistWarmSessionEd25519Capability } from '@/core/signingEngine/sessio
 import { SigningSessionCoordinator } from '@/core/signingEngine/session/SigningSessionCoordinator';
 import { runNearTransactionsWithActionsSigning as signTransactionsWithActions } from '@/core/signingEngine/flows/signNear/signTransactions';
 import { SigningEngine } from '@/core/signingEngine/SigningEngine';
-import { createRecoveryPublicApi } from '@/core/signingEngine/flows/recovery/public';
 import {
   clearAllStoredThresholdEd25519SessionRecords,
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
@@ -215,12 +214,12 @@ function fixtureSigningRootSecretShareWirePair(): SigningRootSecretShareWirePair
 }
 
 async function deriveFixtureThresholdEd25519HssServerInputs(
-	context:
-	  | typeof CONTEXT
-	  | {
-	        signingRootId: string;
-	        nearAccountId: string;
-	        keyPurpose: string;
+  context:
+    | typeof CONTEXT
+    | {
+        signingRootId: string;
+        nearAccountId: string;
+        keyPurpose: string;
         keyVersion: string;
         participantIds: readonly number[];
         derivationVersion: number;
@@ -229,10 +228,10 @@ async function deriveFixtureThresholdEd25519HssServerInputs(
   const shareWires = fixtureSigningRootSecretShareWirePair();
   try {
     return await deriveEd25519HssServerInputsFromSigningRootSecretShares({
-	      shareWires,
-	      context: {
-	        signingRootId: context.signingRootId,
-	        nearAccountId: context.nearAccountId,
+      shareWires,
+      context: {
+        signingRootId: context.signingRootId,
+        nearAccountId: context.nearAccountId,
         keyPurpose: context.keyPurpose,
         keyVersion: context.keyVersion,
         participantIds: [...context.participantIds],
@@ -498,18 +497,22 @@ function makeThresholdKeyMaterialRecord(publicKey: string) {
 }
 
 function makeIndexedDbThresholdDeps(publicKey: string) {
+  const clientDB = {
+    getLastProfileState: async () => ({ profileId: 'profile-1', activeSignerSlot: 1 }),
+    resolveProfileAccountContext: async (accountRef: {
+      chainIdKey: string;
+      accountAddress: string;
+    }) => ({ profileId: 'profile-1', accountRef }),
+  };
+  const keyMaterialStore = {
+    getKeyMaterial: async () => makeThresholdKeyMaterialRecord(publicKey),
+    storeKeyMaterial: async () => undefined,
+  };
   return {
-    clientDB: {
-      getLastProfileState: async () => ({ profileId: 'profile-1', activeSignerSlot: 1 }),
-      resolveProfileAccountContext: async (accountRef: {
-        chainIdKey: string;
-        accountAddress: string;
-      }) => ({ profileId: 'profile-1', accountRef }),
-    },
-    accountKeyMaterialDB: {
-      getKeyMaterial: async () => makeThresholdKeyMaterialRecord(publicKey),
-      storeKeyMaterial: async () => undefined,
-    },
+    ...clientDB,
+    ...keyMaterialStore,
+    clientDB,
+    keyMaterialStore,
   };
 }
 
@@ -517,7 +520,7 @@ function createNearEd25519ExportAvailableLanes() {
   const stored = getStoredThresholdEd25519SessionRecordByThresholdSessionId(THRESHOLD_SESSION_ID);
   const lane = stored
     ? {
-        authMethod: stored.source === 'email_otp' ? 'email_otp' as const : 'passkey' as const,
+        authMethod: stored.source === 'email_otp' ? ('email_otp' as const) : ('passkey' as const),
         curve: 'ed25519' as const,
         chain: 'near' as const,
         state: 'ready' as const,
@@ -539,7 +542,11 @@ function createNearEd25519ExportAvailableLanes() {
     },
     lanes: {
       ed25519: {
-        near: lane || { curve: 'ed25519' as const, chain: 'near' as const, state: 'missing' as const },
+        near: lane || {
+          curve: 'ed25519' as const,
+          chain: 'near' as const,
+          state: 'missing' as const,
+        },
       },
     },
     candidates: {
@@ -555,23 +562,36 @@ function installRecoveryPublicApiForTest(args: {
   expectedPublicKey: string;
   exportWorkerCalls?: Array<Record<string, unknown>>;
 }) {
-  args.engine.recoveryPublic = createRecoveryPublicApi({
+  args.engine.recoveryPublicDeps = {
     laneSelection: {
-      readPersistedAvailableSigningLanes: async () => createNearEd25519ExportAvailableLanes() as any,
+      readPersistedAvailableSigningLanes: async () =>
+        createNearEd25519ExportAvailableLanes() as any,
       readPersistedAvailableSigningLanesForTargets: async () =>
         createNearEd25519ExportAvailableLanes() as any,
-      restorePasskeyPersistedSessionForSigning: async () => ({ attempted: 0, restored: 0, deferred: 0 }),
-      restoreEmailOtpPersistedSessionForSigning: async () => ({ attempted: 0, restored: 0, deferred: 0 }),
+      restorePasskeyPersistedSessionForSigning: async () => ({
+        attempted: 0,
+        restored: 0,
+        deferred: 0,
+      }),
+      restoreEmailOtpPersistedSessionForSigning: async () => ({
+        attempted: 0,
+        restored: 0,
+        deferred: 0,
+      }),
     },
     nearSingleKeyHss: {
       indexedDB: makeIndexedDbThresholdDeps(args.expectedPublicKey) as any,
       touchConfirm: args.engine.touchConfirm,
       emailOtpSessions: {
         requestExportChallenge: async () => ({ challengeId: 'challenge-id' }),
-        recoverEd25519ExportPrfFirst: async () => ({ prfFirstB64u: PRF_FIRST_B64U }),
+        exportEd25519SeedWithAuthorization: async () => ({
+          publicKey: args.expectedPublicKey,
+          privateKey: `ed25519:${PRF_FIRST_B64U}`,
+        }),
       },
       getSignerWorkerContext: () => ({
-        requestWorkerOperation: async ({ request }: any) => await invokeNearSignerWorkerDirect(request),
+        requestWorkerOperation: async ({ request }: any) =>
+          await invokeNearSignerWorkerDirect(request),
       }),
     },
     ecdsa: {
@@ -597,13 +617,15 @@ function installRecoveryPublicApiForTest(args: {
         resolveCurrentEcdsaRecord: async () => null,
       },
       getSignerWorkerContext: () => ({
-        requestWorkerOperation: async ({ request }: any) => await invokeNearSignerWorkerDirect(request),
+        requestWorkerOperation: async ({ request }: any) =>
+          await invokeNearSignerWorkerDirect(request),
       }),
     } as any,
     touchConfirm: args.engine.touchConfirm,
     getTheme: () => 'dark',
     getSignerWorkerContext: () => ({
-      requestWorkerOperation: async ({ request }: any) => await invokeNearSignerWorkerDirect(request),
+      requestWorkerOperation: async ({ request }: any) =>
+        await invokeNearSignerWorkerDirect(request),
     }),
     privateKeyExportRecovery: {
       indexedDB: makeIndexedDbThresholdDeps(args.expectedPublicKey) as any,
@@ -619,7 +641,7 @@ function installRecoveryPublicApiForTest(args: {
         };
       },
     },
-  });
+  };
 }
 
 async function maybeServeLocalNearSignerWasm(url: string): Promise<Response | null> {
@@ -1495,13 +1517,15 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
         },
         serverInputs: storedServerInputs,
       });
-      const evaluationResult = await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm({
-        preparedSession,
-        clientRequest,
-        serverInputDelivery: prepared.serverInputDelivery,
-        clientOutputMaskB64u: TEST_CLIENT_OUTPUT_MASK_B64U,
-        workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
-      });
+      const evaluationResult = await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm(
+        {
+          preparedSession,
+          clientRequest,
+          serverInputDelivery: prepared.serverInputDelivery,
+          clientOutputMaskB64u: TEST_CLIENT_OUTPUT_MASK_B64U,
+          workerCtx: TEST_NEAR_SIGNER_WORKER_CTX,
+        },
+      );
       const finalized = await finalizeThresholdEd25519HssServerCeremony({
         operation: 'explicit_key_export',
         preparedSession,
@@ -1630,7 +1654,7 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
         privateKeyExportRecoveryDeps: {
           indexedDB: {
             ...makeIndexedDbThresholdDeps('ed25519:unused'),
-            accountKeyMaterialDB: {
+            keyMaterialStore: {
               getKeyMaterial: async () => ({
                 ...makeThresholdKeyMaterialRecord('ed25519:unused'),
                 payload: {
@@ -1652,7 +1676,7 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
           clientDB: {
             ...makeIndexedDbThresholdDeps('ed25519:unused').clientDB,
           },
-          accountKeyMaterialDB: {
+          keyMaterialStore: {
             getKeyMaterial: async () => null,
             storeKeyMaterial: async () => undefined,
           },
@@ -1683,7 +1707,9 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
             variant: 'drawer',
           },
         } as any),
-      ).rejects.toThrow('[SigningEngine][ed25519-export] exact lane selection failed: no_candidate');
+      ).rejects.toThrow(
+        '[SigningEngine][ed25519-export] exact lane selection failed: no_candidate',
+      );
     } finally {
       clearAllStoredThresholdEd25519SessionRecords();
       restore();
@@ -1853,9 +1879,11 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
       const xClientBaseB64u = String(stored?.xClientBaseB64u || '').trim();
       expect(xClientBaseB64u).not.toBe('');
       expect(lastServerOutputB64u).not.toBe('');
-      expect(String((capturedSigningPayload as Record<string, any> | null)?.threshold?.xClientBaseB64u || '')).toBe(
-        xClientBaseB64u,
-      );
+      expect(
+        String(
+          (capturedSigningPayload as Record<string, any> | null)?.threshold?.xClientBaseB64u || '',
+        ),
+      ).toBe(xClientBaseB64u);
 
       const derivedPublicKey = await deriveThresholdEd25519HssPublicKey({
         xClientBaseB64u,
@@ -1912,7 +1940,11 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
           return { requestId: String(request.requestId || ''), confirmed: true };
         },
       };
-      installRecoveryPublicApiForTest({ engine, expectedPublicKey: thresholdPublicKey, exportWorkerCalls });
+      installRecoveryPublicApiForTest({
+        engine,
+        expectedPublicKey: thresholdPublicKey,
+        exportWorkerCalls,
+      });
 
       const exportResult = await engine.exportKeypairWithUI({
         kind: 'near',
@@ -2149,5 +2181,4 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
       restore();
     }
   });
-
 });

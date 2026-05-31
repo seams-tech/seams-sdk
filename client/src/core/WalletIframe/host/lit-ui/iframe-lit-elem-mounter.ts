@@ -26,22 +26,14 @@
  */
 
 import type { SeamsPasskey } from '@/core/SeamsPasskey';
-import { nearAccountRefFromAccountId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { SignAndSendTransactionHooksOptions } from '@/core/types/sdkSentEvents';
-import {
-  fromTransactionInputsWasm,
-  type ActionResult,
-  type SeamsConfigsInput,
-  type TransactionInput,
-  type TransactionInputWasm,
-} from '@/core/types';
+import { type SeamsConfigsInput } from '@/core/types';
 import {
   uiBuiltinRegistry,
   type PmActionName,
   type WalletUIRegistry,
 } from './iframe-lit-element-registry';
 import { errorMessage } from '@shared/utils/errors';
-import { isObject, isString, toTrimmedString } from '@shared/utils/validation';
+import { isObject, isString } from '@shared/utils/validation';
 import {
   ensureHostBaseStyles,
   markContainer,
@@ -49,40 +41,21 @@ import {
   clearContainerRule,
   HostMounterClasses,
 } from './mounter-styles';
+import type {
+  PmActionArgs,
+  PmActionArgsMap,
+  PmActionResult,
+  PmActionResultMap,
+  RunPmAction,
+  StructuredValue,
+  UiActionArgs,
+} from './uiActionRuntime';
 
 export type EnsureSeamsPasskey = () => void;
 export type GetPasskeyManager = () => SeamsPasskey | null;
 export type UpdateWalletConfigs = (patch: Partial<SeamsConfigsInput>) => void;
 
-type StructuredPrimitive = string | number | boolean | null;
-type StructuredValue =
-  | StructuredPrimitive
-  | undefined
-  | bigint
-  | Uint8Array
-  | StructuredValue[]
-  | { [key: string]: StructuredValue };
-
 type UiProps = Record<string, StructuredValue>;
-type UiActionArgs = Record<string, StructuredValue>;
-
-type SignAndSendArgs = UiActionArgs & {
-  nearAccountId?: string;
-  transactions?: TransactionInput[] | TransactionInputWasm[];
-  txSigningRequests?: TransactionInput[] | TransactionInputWasm[];
-  options?: SignAndSendTransactionHooksOptions;
-};
-
-type PmActionArgsMap = {
-  signAndSendTransactions: SignAndSendArgs;
-};
-
-type PmActionResultMap = {
-  signAndSendTransactions: ActionResult[];
-};
-
-type PmActionArgs = PmActionArgsMap[PmActionName];
-type PmActionResult = PmActionResultMap[PmActionName];
 
 type WalletUiMountPayload = { key: string; props?: UiProps; targetSelector?: string; id?: string };
 type WalletUiUpdatePayload = { id: string; props?: UiProps };
@@ -142,30 +115,6 @@ type SetupLitElemMounterOptions = {
 };
 
 type PostToParent = (message: WalletUiOutboundMessage) => void;
-type RunPmAction = <T extends PmActionName>(
-  action: T,
-  args: PmActionArgsMap[T],
-) => Promise<PmActionResultMap[T]>;
-
-const isWasmTransactionInput = (
-  tx: TransactionInput | TransactionInputWasm,
-): tx is TransactionInputWasm => {
-  return (
-    Array.isArray(tx.actions) &&
-    tx.actions.some((action: unknown) => isObject(action) && 'action_type' in action)
-  );
-};
-
-const normalizeTransactions = (
-  candidate?: TransactionInput[] | TransactionInputWasm[],
-): TransactionInput[] => {
-  if (!Array.isArray(candidate) || candidate.length === 0) return [];
-  if (candidate.every(isWasmTransactionInput)) {
-    return fromTransactionInputsWasm(candidate as TransactionInputWasm[]);
-  }
-  return candidate as TransactionInput[];
-};
-
 const coerceViewportRect = (value: StructuredValue): ViewportRect | null => {
   if (!isObject(value)) return null;
   const rect = value as Partial<Record<keyof ViewportRect, StructuredValue>>;
@@ -347,24 +296,8 @@ export function setupLitElemMounter(opts: SetupLitElemMounterOptions) {
     if (!pm) {
       throw new Error('Passkey manager not initialized');
     }
-    switch (action) {
-      case 'signAndSendTransactions': {
-        const input = args as SignAndSendArgs;
-        const nearAccountId = toTrimmedString(input.nearAccountId);
-        const transactions = normalizeTransactions(input.transactions || input.txSigningRequests);
-        const options = (input.options || {}) as SignAndSendTransactionHooksOptions;
-        if (!nearAccountId || transactions.length === 0) {
-          throw new Error('nearAccountId and transactions required');
-        }
-        return await pm.near.signAndSendTransactions({
-          nearAccount: nearAccountRefFromAccountId(nearAccountId),
-          transactions,
-          options,
-        });
-      }
-      default:
-        throw new Error(`Unknown pm action: ${action}`);
-    }
+    const runtime = await import('./uiActionRuntime');
+    return runtime.runWalletUiAction(pm, action, args);
   };
 
   const mountUiComponent = (payload?: WalletUiMountPayload) => {

@@ -21,13 +21,13 @@ export { buildConfigsFromEnv } from './core/config/defaultConfigs';
 export type {
   AddSignerIntentV1,
   AddSignerSelection,
-  RegisterWalletSubjectInput,
+  RegisterWalletInput,
   RegistrationIntentGrant,
   RegistrationIntentV1,
   RegistrationSignerSelection,
   ThresholdEcdsaAddSignerSpec,
   ThresholdEd25519AddSignerSpec,
-  WalletSubjectId as RegistrationWalletSubjectId,
+  WalletId as RegistrationWalletId,
 } from '@shared/utils/registrationIntent';
 
 export type {
@@ -119,8 +119,8 @@ export {
   nearAccountRefFromAccountId,
   thresholdEcdsaChainTargetFromConfig,
   walletSessionRefFromSession,
-  toWalletSubjectId,
-  walletSubjectIdFromWalletProfile,
+  toWalletId,
+  walletIdFromWalletProfile,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 export type {
   EcdsaCommandSubject,
@@ -129,11 +129,9 @@ export type {
   ThresholdEcdsaChainTarget,
   WalletId,
   WalletSessionRef,
-  WalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export type { SignNEP413MessageParams, SignNEP413MessageResult } from './core/SeamsPasskey/near';
-export { clearAllSealedSessions } from './core/signingEngine/session/persistence/sealedSessionStore';
 
 // === Action Types ===
 export { ActionType } from './core/types/actions';

@@ -4,6 +4,7 @@ import type {
   WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { PersistThresholdEcdsaBootstrapForWalletTargetInput } from './public';
+import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 
 declare const walletId: WalletId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
@@ -13,6 +14,10 @@ const persistThresholdEcdsaBootstrapArgs: PersistThresholdEcdsaBootstrapForWalle
   walletId,
   chainTarget,
   bootstrap,
+  signerAuth: {
+    authMethod: SIGNER_AUTH_METHODS.passkey,
+    signerSource: SIGNER_SOURCES.passkeyRegistration,
+  },
 };
 void persistThresholdEcdsaBootstrapArgs;
 
@@ -22,5 +27,9 @@ const invalidPersistThresholdEcdsaBootstrapArgs: PersistThresholdEcdsaBootstrapF
     walletId: 'alice.testnet',
     chainTarget,
     bootstrap,
+    signerAuth: {
+      authMethod: SIGNER_AUTH_METHODS.passkey,
+      signerSource: SIGNER_SOURCES.passkeyRegistration,
+    },
   };
 void invalidPersistThresholdEcdsaBootstrapArgs;

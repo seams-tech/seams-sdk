@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type { NormalizedLogger } from '../../core/logger';
 import { getPostgresPool } from '../../storage/postgres';
 import {
@@ -62,9 +63,9 @@ export function getConsoleBillingPrepaidReservationPostgresRuntime(
 ): ConsoleBillingPrepaidReservationPostgresRuntime | null {
   if (!service || typeof service !== 'object') return null;
   return (
-    (
-      service as Partial<ConsoleBillingPrepaidReservationPostgresService>
-    )[CONSOLE_BILLING_PREPAID_RESERVATION_POSTGRES_RUNTIME] || null
+    (service as Partial<ConsoleBillingPrepaidReservationPostgresService>)[
+      CONSOLE_BILLING_PREPAID_RESERVATION_POSTGRES_RUNTIME
+    ] || null
   );
 }
 
@@ -74,7 +75,7 @@ function nowMs(now: Date): number {
 
 function makeId(prefix: string, now: Date): string {
   const ts = now.getTime().toString(36);
-  const rand = Math.random().toString(36).slice(2, 10);
+  const rand = secureRandomBase36(8, 'console IDs');
   return `${prefix}_${ts}_${rand}`;
 }
 
@@ -291,7 +292,9 @@ export async function ensureConsoleBillingPrepaidReservationPostgresSchema(
   options: PostgresConsoleBillingPrepaidReservationSchemaOptions,
 ): Promise<void> {
   const pool = await getPostgresPool(options.postgresUrl);
-  await pool.query('SELECT pg_advisory_lock($1)', [CONSOLE_BILLING_PREPAID_RESERVATION_MIGRATION_LOCK_ID]);
+  await pool.query('SELECT pg_advisory_lock($1)', [
+    CONSOLE_BILLING_PREPAID_RESERVATION_MIGRATION_LOCK_ID,
+  ]);
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS console_billing_prepaid_reservation_summaries (
@@ -349,7 +352,9 @@ export async function ensureConsoleBillingPrepaidReservationPostgresSchema(
       policyName: 'console_billing_prepaid_reservations_tenant_rls',
     });
   } finally {
-    await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_BILLING_PREPAID_RESERVATION_MIGRATION_LOCK_ID]);
+    await pool.query('SELECT pg_advisory_unlock($1)', [
+      CONSOLE_BILLING_PREPAID_RESERVATION_MIGRATION_LOCK_ID,
+    ]);
   }
 }
 
@@ -445,7 +450,10 @@ export async function createPostgresConsoleBillingPrepaidReservationService(
             availableBalanceMinor: normalized.postedBalanceMinor - summary.reservedMinor,
           } satisfies ConsoleBillingPrepaidReservationReserveOutcome;
         }
-        if (summary.reservedMinor + normalized.estimatedSpendMinor > normalized.postedBalanceMinor) {
+        if (
+          summary.reservedMinor + normalized.estimatedSpendMinor >
+          normalized.postedBalanceMinor
+        ) {
           throw createInsufficientAvailableBalanceError({
             postedBalanceMinor: normalized.postedBalanceMinor,
             reservedMinor: summary.reservedMinor,

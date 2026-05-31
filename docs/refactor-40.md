@@ -1,7 +1,7 @@
 # Refactor 40: ECDSA HSS v2 Without `subjectId`
 
 Date created: 2026-05-23
-Status: planned
+Status: implementation complete; post-wipe cleanup pending
 
 ## Scope
 
@@ -17,7 +17,7 @@ and different EVM owner addresses from v1. Existing v1 ECDSA HSS keys,
 threshold sessions, sealed sessions, and cached key facts must be treated as
 stale at boundaries.
 
-`walletSubjectId` stays in registration/profile flows. `authSubjectId` stays in
+`walletId` stays in registration/profile flows. `authSubjectId` stays in
 Email OTP provider identity. This refactor targets the generic ECDSA/HSS
 `subjectId` field only.
 
@@ -27,12 +27,13 @@ ECDSA HSS v1 carries both `walletSessionUserId` and `subjectId`. Current callers
 derive `subjectId` from wallet id, then validate that it matches. That duplicate
 identity adds several failure modes:
 
-- Public and internal ECDSA APIs need `subjectId?: never` tripwires.
+- Public and internal ECDSA APIs needed temporary legacy-field tripwires during
+  cutover.
 - Key identity builders accept a raw subject string only to reject mismatches.
 - HSS digests, key ids, JWT claims, and server records all include an identity
   field that duplicates wallet identity.
 - Persistence still has boundary compatibility for matching `subjectId` values.
-- Registration `walletSubjectId`, Email OTP `authSubjectId`, and ECDSA
+- Registration `walletId`, Email OTP `authSubjectId`, and ECDSA
   `subjectId` are easy to confuse.
 
 Use HSS v2 to make wallet identity explicit and singular.
@@ -45,87 +46,87 @@ work.
 
 ### `crates/ecdsa-hss`
 
-- [ ] Add `EcdsaHssStableKeyContextV2` with `wallet_id`, `rp_id`,
+- [x] Add `EcdsaHssStableKeyContextV2` with `wallet_id`, `rp_id`,
   `key_scope`, threshold key id, signing root id, signing root version, key
   purpose, key version, and participant ids.
-- [ ] Add v2 context domain and scheme constants.
-- [ ] Encode v2 context bytes without `wallet_session_user_id` or
+- [x] Add v2 context domain and scheme constants.
+- [x] Encode v2 context bytes without `wallet_session_user_id` or
   `subject_id`.
-- [ ] Add v2 context binding, client-share derivation, relayer-share
+- [x] Add v2 context binding, client-share derivation, relayer-share
   derivation, public identity composition, and export authorization helpers.
-- [ ] Add fixture vectors proving v2 context bytes and derived public identity
+- [x] Add fixture vectors proving v2 context bytes and derived public identity
   differ from v1 for the same wallet/key inputs.
-- [ ] Keep v1 code only long enough for boundary rejection, fixture comparison,
+- [x] Keep v1 code only long enough for boundary rejection, fixture comparison,
   or stale-record classification; remove core callers after v2 cutover.
 
 ### `wasm/hss_client_signer` ECDSA Bindings
 
-- [ ] Add v2 ECDSA client bootstrap binding that accepts wallet id and rp id.
-- [ ] Remove `subjectId` and `walletSessionUserId` from v2 JS input parsing.
-- [ ] Return v2 bootstrap outputs without `subjectId` or `walletSessionUserId`.
-- [ ] Add v2 ECDSA export binding that reconstructs export material from v2
+- [x] Add v2 ECDSA client bootstrap binding that accepts wallet id and rp id.
+- [x] Remove `subjectId` and `walletSessionUserId` from v2 JS input parsing.
+- [x] Return v2 bootstrap outputs without `subjectId` or `walletSessionUserId`.
+- [x] Add v2 ECDSA export binding that reconstructs export material from v2
   context and v2 public identity.
-- [ ] Update TypeScript WASM wrapper types to expose v2-only ECDSA inputs and
+- [x] Update TypeScript WASM wrapper types to expose v2-only ECDSA inputs and
   outputs.
-- [ ] Add WASM surface tests rejecting `subjectId` in v2 inputs.
+- [x] Add WASM surface tests rejecting `subjectId` in v2 inputs.
 
 ### `wasm/threshold_prf`
 
-- [ ] Add v2 ECDSA relayer-share derivation using the same canonical context
+- [x] Add v2 ECDSA relayer-share derivation using the same canonical context
   bytes as `crates/ecdsa-hss`.
-- [ ] Remove `subjectId` and `walletSessionUserId` from the v2 TypeScript PRF
+- [x] Remove `subjectId` and `walletSessionUserId` from the v2 TypeScript PRF
   wrapper.
-- [ ] Add parity vectors proving client WASM context binding and server PRF
+- [x] Add parity vectors proving client WASM context binding and server PRF
   relayer derivation agree.
-- [ ] Keep v1 derivation reachable only from stale-record classification or
+- [x] Keep v1 derivation reachable only from stale-record classification or
   test fixtures until those callers are deleted.
 
 ### TypeScript Digest, JWT, and Persistence Layers
 
-- [ ] Version shared ECDSA HSS key-id, root-proof, passkey-bootstrap auth, and
+- [x] Version shared ECDSA HSS key-id, root-proof, passkey-bootstrap auth, and
   export-authorization digest helpers.
-- [ ] Replace digest inputs that currently carry `subjectId` with wallet id and
+- [x] Replace digest inputs that currently carry `subjectId` with wallet id and
   the v2 protocol-scoped key fields.
-- [ ] Mint and parse `threshold_ecdsa_session_v2` JWT claims without
+- [x] Mint and parse `threshold_ecdsa_session_v2` JWT claims without
   `subjectId`.
-- [ ] Reject v1 ECDSA session claims and request payloads carrying `subjectId`
+- [x] Reject v1 ECDSA session claims and request payloads carrying `subjectId`
   at route/request boundaries.
-- [ ] Store server ECDSA HSS key records as v2 records with wallet id, rp id,
+- [x] Store server ECDSA HSS key records as v2 records with wallet id, rp id,
   key scope, signing root facts, threshold key id, and no subject aliases.
-- [ ] Remove Postgres key-store indexes and conflict guards based on
+- [x] Remove Postgres key-store indexes and conflict guards based on
   `record_json->>'subjectId'`.
-- [ ] Make client sealed-session and IndexedDB ECDSA parsers reject or prune v1
+- [x] Make client sealed-session and IndexedDB ECDSA parsers reject or prune v1
   records and any record carrying raw `subjectId`.
-- [ ] Update ECDSA key-facts inventory parsing so only v2 key records enter
+- [x] Update ECDSA key-facts inventory parsing so only v2 key records enter
   exact lane selection.
-- [ ] Add type fixtures and guard tests rejecting `subjectId` in public ECDSA
+- [x] Add type fixtures and guard tests rejecting `subjectId` in public ECDSA
   inputs, HSS bootstrap, session policy, JWT claims, persisted records, exact
   lane identity, freshness, and budget reservation identities.
 
 ## Phase 0: Current Surface Inventory
 
-- [ ] Inventory Rust ECDSA HSS context encoding in
+- [x] Inventory Rust ECDSA HSS context encoding in
   `crates/ecdsa-hss/src/shared/context.rs`.
-- [ ] Inventory threshold PRF ECDSA context inputs in
+- [x] Inventory threshold PRF ECDSA context inputs in
   `wasm/threshold_prf` and
   `server/src/core/ThresholdService/thresholdPrfWasm.ts`.
-- [ ] Inventory signer-worker ECDSA HSS inputs/outputs in
+- [x] Inventory signer-worker ECDSA HSS inputs/outputs in
   `wasm/hss_client_signer/src/threshold_hss.rs` and
   `client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts`.
-- [ ] Inventory shared TypeScript HSS digest helpers in
+- [x] Inventory shared TypeScript HSS digest helpers in
   `shared/src/threshold/ecdsaHssRoleLocalBootstrap.ts`.
-- [ ] Inventory ECDSA HSS session policies and JWT claims in
+- [x] Inventory ECDSA HSS session policies and JWT claims in
   `client/src/core/signingEngine/threshold/sessionPolicy.ts`,
   `server/src/router/commonRouterUtils.ts`, and
   `server/src/core/ThresholdService/validation.ts`.
-- [ ] Inventory server key records, indexes, and conflict guards in
+- [x] Inventory server key records, indexes, and conflict guards in
   `server/src/core/ThresholdService/stores/KeyStore.ts` and
   `server/src/core/ThresholdService/ThresholdSigningService.ts`.
-- [ ] Inventory client persistence compatibility in
+- [x] Inventory client persistence compatibility in
   `client/src/core/signingEngine/session/persistence/records.ts`,
   `client/src/core/signingEngine/session/persistence/sealedSessionStore.ts`,
   and ECDSA key-facts inventory parsing.
-- [ ] Inventory docs, examples, and type fixtures that still use raw
+- [x] Inventory docs, examples, and type fixtures that still use raw
   `subjectId` for ECDSA HSS.
 
 ## Phase 1: Define HSS v2 Identity
@@ -144,8 +145,6 @@ type EcdsaHssStableKeyContextV2 = {
   keyPurpose: string;
   keyVersion: string;
   participantIds: readonly [1, 2];
-  subjectId?: never;
-  walletSessionUserId?: never;
 };
 
 type EcdsaHssSessionPolicyV2 = {
@@ -162,19 +161,18 @@ type EcdsaHssSessionPolicyV2 = {
   participantIds: readonly [1, 2];
   ttlMs: number;
   remainingUses: PositiveRemainingUses;
-  subjectId?: never;
 };
 ```
 
 ### Tasks
 
-- [ ] Add a single `buildEcdsaHssStableKeyContextV2(...)` boundary builder.
-- [ ] Require wallet id, rp id, key scope, threshold key id, signing root id,
+- [x] Add a single `buildEcdsaHssStableKeyContextV2(...)` boundary builder.
+- [x] Require wallet id, rp id, key scope, threshold key id, signing root id,
   signing root version, key purpose, key version, and participant ids.
-- [ ] Reject raw `subjectId` and `walletSessionUserId` at v2 context builders.
-- [ ] Update exact ECDSA lane identity to depend on wallet id and key identity
+- [x] Reject raw `subjectId` and `walletSessionUserId` at v2 context builders.
+- [x] Update exact ECDSA lane identity to depend on wallet id and key identity
   without derived subject fields.
-- [ ] Add type fixtures rejecting `subjectId` in HSS v2 context, session policy,
+- [x] Add type fixtures rejecting `subjectId` in HSS v2 context, session policy,
   exact lane identity, key identity, and public ECDSA API inputs.
 
 ## Phase 2: Version Rust and WASM HSS Context Encoding
@@ -198,17 +196,17 @@ pub struct EcdsaHssStableKeyContextV2 {
 
 ### Tasks
 
-- [ ] Add `EcdsaHssStableKeyContextV2` in
+- [x] Add `EcdsaHssStableKeyContextV2` in
   `crates/ecdsa-hss/src/shared/context.rs`.
-- [ ] Encode v2 context without `subject_id`.
-- [ ] Include `wallet_id`, `rp_id`, `key_scope`, threshold key id, signing root
+- [x] Encode v2 context without `subject_id`.
+- [x] Include `wallet_id`, `rp_id`, `key_scope`, threshold key id, signing root
   id, signing root version, key purpose, key version, and participant ids in a
   stable order.
-- [ ] Remove `subjectId` from `wasm/hss_client_signer` v2 JS bindings.
-- [ ] Return v2 outputs without `subjectId`.
-- [ ] Add Rust unit tests and WASM surface tests proving v2 context bytes differ
+- [x] Remove `subjectId` from `wasm/hss_client_signer` v2 JS bindings.
+- [x] Return v2 outputs without `subjectId`.
+- [x] Add Rust unit tests and WASM surface tests proving v2 context bytes differ
   from v1 and contain no subject field.
-- [ ] Update formal-verification generated boundary models only after Rust v2
+- [x] Update formal-verification generated boundary models only after Rust v2
   context is settled.
 
 ## Phase 3: Version Threshold PRF ECDSA Derivation
@@ -217,14 +215,14 @@ The relayer share derivation must use the same v2 context bytes as the client.
 
 ### Tasks
 
-- [ ] Add v2 ECDSA HSS PRF derivation in `wasm/threshold_prf`.
-- [ ] Remove the `subjectId` parameter from the v2 TypeScript wrapper in
+- [x] Add v2 ECDSA HSS PRF derivation in `wasm/threshold_prf`.
+- [x] Remove the `subjectId` parameter from the v2 TypeScript wrapper in
   `server/src/core/ThresholdService/thresholdPrfWasm.ts`.
-- [ ] Use the same canonical v2 fields and ordering as
+- [x] Use the same canonical v2 fields and ordering as
   `crates/ecdsa-hss/src/shared/context.rs`.
-- [ ] Add parity vectors proving client HSS v2 context binding and server PRF
+- [x] Add parity vectors proving client HSS v2 context binding and server PRF
   v2 derivation agree.
-- [ ] Delete direct core-code calls to v1 derivation after request/persistence
+- [x] Delete direct core-code calls to v1 derivation after request/persistence
   boundaries reject v1 records.
 
 ## Phase 4: Version Shared HSS Digests and Key IDs
@@ -237,32 +235,32 @@ The relayer share derivation must use the same v2 context bytes as the client.
 
 ### Tasks
 
-- [ ] Replace `subjectId` with `walletId` in
+- [x] Replace `subjectId` with `walletId` in
   `computeEcdsaHssRoleLocalThresholdKeyId(...)`.
-- [ ] Remove `subjectId` from first-bootstrap root proof digest input.
-- [ ] Remove `subjectId` from passkey bootstrap authorization digest input.
-- [ ] Include version strings in every digest so v1 and v2 cannot collide.
-- [ ] Add digest fixtures proving v2 changes when wallet id, rp id, signing
+- [x] Remove `subjectId` from first-bootstrap root proof digest input.
+- [x] Remove `subjectId` from passkey bootstrap authorization digest input.
+- [x] Include version strings in every digest so v1 and v2 cannot collide.
+- [x] Add digest fixtures proving v2 changes when wallet id, rp id, signing
   root, threshold key id, or session id changes.
-- [ ] Add type fixtures rejecting `subjectId` in all v2 digest input objects.
+- [x] Add type fixtures rejecting `subjectId` in all v2 digest input objects.
 
 ## Phase 5: Version Client ECDSA HSS Bootstrap and Activation
 
 ### Tasks
 
-- [ ] Replace `ThresholdEcdsaHssStableKeyContext` with a v2 context type that
+- [x] Replace `ThresholdEcdsaHssStableKeyContext` with a v2 context type that
   carries wallet id and no subject id.
-- [ ] Change `buildThresholdEcdsaClientRootSharePayload(...)` to accept v2
+- [x] Change `buildThresholdEcdsaClientRootSharePayload(...)` to accept v2
   context only.
-- [ ] Remove `subjectId` from
+- [x] Remove `subjectId` from
   `ThresholdEcdsaHssRoleLocalClientBootstrap`.
-- [ ] Update passkey ECDSA bootstrap, Email OTP ECDSA enrollment/login, export
+- [x] Update passkey ECDSA bootstrap, Email OTP ECDSA enrollment/login, export
   recovery, and reconnect flows to pass wallet id only.
-- [ ] Change `buildEvmFamilyEcdsaKeyIdentity(...)` so callers provide wallet id,
+- [x] Change `buildEvmFamilyEcdsaKeyIdentity(...)` so callers provide wallet id,
   public facts, rp/auth binding, and signing root identity with no subject input.
-- [ ] Remove all `deriveBaseEcdsaSubjectIdFromWalletId(...)` and
+- [x] Remove all `deriveBaseEcdsaSubjectIdFromWalletId(...)` and
   `deriveBaseEcdsaSubjectIdFromKey(...)` usage from runtime ECDSA flows.
-- [ ] Add type fixtures rejecting `subjectId` in client HSS bootstrap,
+- [x] Add type fixtures rejecting `subjectId` in client HSS bootstrap,
   activation, reconnect, export, and ECDSA material-state inputs.
 
 ## Phase 6: Version Server HSS Records, Claims, and Routes
@@ -287,8 +285,6 @@ type EcdsaHssRoleLocalKeyRecordV2 = {
   groupPublicKey33B64u: string;
   ethereumAddress: string;
   publicTranscriptDigest32B64u: string;
-  subjectId?: never;
-  walletSessionUserId?: never;
 };
 ```
 
@@ -307,25 +303,24 @@ type ThresholdEcdsaSessionClaimsV2 = {
   rpId: string;
   thresholdExpiresAtMs: number;
   participantIds: readonly [1, 2];
-  subjectId?: never;
 };
 ```
 
 ### Tasks
 
-- [ ] Add v2 request parsers for ECDSA HSS bootstrap and export-share routes.
-- [ ] Reject `subjectId` in v2 request parsers.
-- [ ] Mint `threshold_ecdsa_session_v2` JWTs without `subjectId`.
-- [ ] Parse and authorize only v2 ECDSA threshold session claims in core
+- [x] Add v2 request parsers for ECDSA HSS bootstrap and export-share routes.
+- [x] Reject `subjectId` in v2 request parsers.
+- [x] Mint `threshold_ecdsa_session_v2` JWTs without `subjectId`.
+- [x] Parse and authorize only v2 ECDSA threshold session claims in core
   signing/export paths.
-- [ ] Replace server key conflict guards with wallet id, rp id, signing root id,
+- [x] Replace server key conflict guards with wallet id, rp id, signing root id,
   signing root version, and key scope.
-- [ ] Update Postgres `threshold_ecdsa_keys` indexes to remove
+- [x] Update Postgres `threshold_ecdsa_keys` indexes to remove
   `record_json->>'subjectId'`.
-- [ ] Store v2 key records with `walletId` and no `walletSessionUserId` alias.
-- [ ] Make v1 key records, v1 session claims, and request payloads with
+- [x] Store v2 key records with `walletId` and no `walletSessionUserId` alias.
+- [x] Make v1 key records, v1 session claims, and request payloads with
   `subjectId` fail at request or persistence boundaries.
-- [ ] Add server unit tests for v2 parsing, JWT claims, key store indexing,
+- [x] Add server unit tests for v2 parsing, JWT claims, key store indexing,
   identity mismatch, and v1 rejection.
 
 ## Phase 7: Persistence Boundary Prune
@@ -336,26 +331,26 @@ request/persistence boundaries.
 
 ### Tasks
 
-- [ ] Mark persisted ECDSA HSS v1 key records as stale in key-store parsers.
-- [ ] Delete or ignore v1 `threshold_ecdsa_keys` rows on startup or first read.
-- [ ] Reject sealed ECDSA sessions whose restore metadata points to v1 key
+- [x] Mark persisted ECDSA HSS v1 key records as stale in key-store parsers.
+- [x] Delete or ignore v1 `threshold_ecdsa_keys` rows on startup or first read.
+- [x] Reject sealed ECDSA sessions whose restore metadata points to v1 key
   records, v1 JWT claims, or any raw `subjectId`.
-- [ ] Clear client IndexedDB ECDSA runtime records with `subjectId` or v1 HSS
+- [x] Clear client IndexedDB ECDSA runtime records with `subjectId` or v1 HSS
   record versions.
-- [ ] Make key-facts inventory return only v2 records.
-- [ ] Add tests proving stale v1 key/session/sealed records do not enter exact
+- [x] Make key-facts inventory return only v2 records.
+- [x] Add tests proving stale v1 key/session/sealed records do not enter exact
   lane selection or signing execution.
 
 ## Phase 8: Public API, Docs, and Examples
 
 ### Tasks
 
-- [ ] Remove `subjectId` from ECDSA public interfaces, postMessage payloads,
+- [x] Remove `subjectId` from ECDSA public interfaces, postMessage payloads,
   examples, and docs.
-- [ ] Keep registration `walletSubjectId` in registration docs and route docs.
-- [ ] Keep Email OTP `authSubjectId` in provider-auth docs.
-- [ ] Update error messages so ECDSA wallet identity errors mention `walletId`.
-- [ ] Update refactor guard tests that search for forbidden `subjectId`.
+- [x] Keep registration `walletId` in registration docs and route docs.
+- [x] Keep Email OTP `authSubjectId` in provider-auth docs.
+- [x] Update error messages so ECDSA wallet identity errors mention `walletId`.
+- [x] Update refactor guard tests that search for forbidden `subjectId`.
 
 ## Validation
 
@@ -388,24 +383,33 @@ git diff --check -- . ':(exclude)crates/ecdsa-hss/formal-verification/**'
 
 Manual flows:
 
-- [ ] New passkey ECDSA registration provisions v2 key material and returns a
+- [x] New passkey ECDSA registration provisions v2 key material and returns a
   v2 owner address.
-- [ ] New Email OTP ECDSA enrollment/login provisions v2 key material and
+- [x] New Email OTP ECDSA enrollment/login provisions v2 key material and
   returns a v2 owner address.
-- [ ] Page refresh rehydrates only v2 ECDSA sealed sessions.
-- [ ] Existing v1 ECDSA records are pruned and trigger fresh ECDSA provisioning.
-- [ ] ECDSA export uses v2 context and rejects v1 key handles.
+- [x] Page refresh rehydrates only v2 ECDSA sealed sessions.
+- [x] Existing v1 ECDSA records are pruned and trigger fresh ECDSA provisioning.
+- [x] ECDSA export uses v2 context and rejects v1 key handles.
 
 ## Completion Criteria
 
-- [ ] ECDSA HSS context encoding has a v2 transcript with no subject field.
-- [ ] Client and server PRF derivation use the same v2 context.
-- [ ] HSS key ids, root proofs, passkey bootstrap auth digests, session claims,
+- [x] ECDSA HSS context encoding has a v2 transcript with no subject field.
+- [x] Client and server PRF derivation use the same v2 context.
+- [x] HSS key ids, root proofs, passkey bootstrap auth digests, session claims,
   and server records have v2 versions with no `subjectId`.
-- [ ] Core ECDSA flows accept wallet id and exact lane identity with no raw
+- [x] Core ECDSA flows accept wallet id and exact lane identity with no raw
   subject strings.
-- [ ] Public ECDSA APIs and docs expose no `subjectId`.
-- [ ] Registration still uses `walletSubjectId`.
-- [ ] Email OTP provider identity still uses `authSubjectId`.
-- [ ] v1 ECDSA HSS keys, sessions, sealed records, and JWTs are rejected or
+- [x] Public ECDSA APIs and docs expose no `subjectId`.
+- [x] Registration still uses `walletId`.
+- [x] Email OTP provider identity still uses `authSubjectId`.
+- [x] v1 ECDSA HSS keys, sessions, sealed records, and JWTs are rejected or
   pruned at boundaries.
+
+## Cleanup
+
+- [x] Wipe local IndexedDB legacy keys and accounts.
+- [x] Wipe local Postgres legacy account and threshold signing state.
+- [x] Test new account provisioning, rehydration, signing, and export on clean
+  local state.
+- [x] Remove the ECDSA v2 Rust/WASM/client/server boundary guards that reject
+  `subjectId` and `walletSessionUserId`.

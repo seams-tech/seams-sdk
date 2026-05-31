@@ -7,21 +7,45 @@ import type {
   ListThresholdEcdsaSessionRecordsForWalletTargetInput,
   UpsertThresholdEcdsaSessionFromBootstrapInput,
 } from './public';
-import type { ThresholdEcdsaSessionStoreSource } from './identity/laneIdentity';
 
 declare const walletId: WalletId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const bootstrap: ThresholdEcdsaSessionBootstrapResult;
-declare const source: ThresholdEcdsaSessionStoreSource;
+declare const emailOtpAuthContext: {
+  policy: 'session';
+  retention: 'session';
+  reason: 'login';
+  authMethod: 'email_otp';
+};
 
 const upsertThresholdEcdsaSessionFromBootstrapArgs: UpsertThresholdEcdsaSessionFromBootstrapInput =
   {
     walletId,
     chainTarget,
     bootstrap,
-    source,
+    source: 'registration',
   };
 void upsertThresholdEcdsaSessionFromBootstrapArgs;
+
+const emailOtpUpsertThresholdEcdsaSessionFromBootstrapArgs: UpsertThresholdEcdsaSessionFromBootstrapInput =
+  {
+    walletId,
+    chainTarget,
+    bootstrap,
+    source: 'email_otp',
+    emailOtpAuthContext,
+  };
+void emailOtpUpsertThresholdEcdsaSessionFromBootstrapArgs;
+
+// @ts-expect-error Email OTP ECDSA upsert requires the auth context.
+const invalidEmailOtpUpsertThresholdEcdsaSessionFromBootstrapArgs: UpsertThresholdEcdsaSessionFromBootstrapInput =
+  {
+    walletId,
+    chainTarget,
+    bootstrap,
+    source: 'email_otp',
+  };
+void invalidEmailOtpUpsertThresholdEcdsaSessionFromBootstrapArgs;
 
 const invalidUpsertThresholdEcdsaSessionFromBootstrapArgs: UpsertThresholdEcdsaSessionFromBootstrapInput =
   {
@@ -29,7 +53,7 @@ const invalidUpsertThresholdEcdsaSessionFromBootstrapArgs: UpsertThresholdEcdsaS
     walletId: 'alice.testnet',
     chainTarget,
     bootstrap,
-    source,
+    source: 'registration',
   };
 void invalidUpsertThresholdEcdsaSessionFromBootstrapArgs;
 
@@ -37,7 +61,7 @@ const listThresholdEcdsaSessionRecordsForWalletTargetArgs: ListThresholdEcdsaSes
   {
     walletId,
     chainTarget,
-    source,
+    source: 'registration',
   };
 void listThresholdEcdsaSessionRecordsForWalletTargetArgs;
 
@@ -45,7 +69,7 @@ const invalidListThresholdEcdsaSessionRecordsForWalletTargetArgs: ListThresholdE
   {
     walletId,
     chainTarget,
-    source,
+    source: 'registration',
     // @ts-expect-error public wallet-target session listing no longer accepts signing-root filters.
     signingRootId: 'project:dev',
   };

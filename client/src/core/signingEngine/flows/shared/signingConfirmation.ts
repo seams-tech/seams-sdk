@@ -29,10 +29,8 @@ import {
   type WalletFlowAuthMethod,
   type WalletFlowInteractionKind,
 } from '@/core/types/sdkSentEvents';
-import {
-  SigningOperationCommandKind,
-  runSigningOperationCommand,
-} from './signingStateMachine';
+import { SigningOperationCommandKind, runSigningOperationCommand } from './signingStateMachine';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 
 export type {
   ConfirmIntentDigestSigningOperationRequest,
@@ -42,9 +40,7 @@ export type {
 } from '@/core/signingEngine/stepUpConfirmation/confirmOperation';
 
 export function makeRequestId(prefix: string): string {
-  const c = globalThis.crypto;
-  if (c?.randomUUID && typeof c.randomUUID === 'function') return c.randomUUID();
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return secureRandomId(prefix, 32, 'signing confirmation request IDs');
 }
 
 export function inferDigest32FromSignRequest(req: SignRequest): Uint8Array {
@@ -207,7 +203,8 @@ export function resolveSigningConfirmationAuthMethod(
   authPlan: Pick<SigningAuthPlan, 'kind'> | undefined,
   hasEmailOtpPrompt: boolean,
 ): WalletFlowAuthMethod {
-  if (hasEmailOtpPrompt || authPlan?.kind === SigningAuthPlanKind.EmailOtpReauth) return 'email_otp';
+  if (hasEmailOtpPrompt || authPlan?.kind === SigningAuthPlanKind.EmailOtpReauth)
+    return 'email_otp';
   if (authPlan?.kind === SigningAuthPlanKind.WarmSession) return 'warm_session';
   return 'passkey';
 }

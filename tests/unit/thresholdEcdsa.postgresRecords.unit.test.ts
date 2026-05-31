@@ -38,10 +38,9 @@ async function makeRoleLocalKeyRecord(
   overrides: Partial<EcdsaHssRoleLocalKeyRecord> = {},
 ): Promise<EcdsaHssRoleLocalKeyRecord> {
   const base = {
-    version: 'threshold_ecdsa_hss_role_local',
+    version: 'threshold_ecdsa_hss_role_local_v2',
     ecdsaThresholdKeyId: 'threshold-key',
-    walletSessionUserId: 'alice.testnet',
-    subjectId: 'wallet-subject-alice',
+    walletId: 'alice.testnet',
     rpId: 'example.localhost',
     signingRootId: 'signing-root',
     signingRootVersion: 'default',
@@ -136,6 +135,14 @@ test.describe('threshold ecdsa postgres records', () => {
       },
     });
     expect(parseEcdsaHssRoleLocalKeyRecord(roleLocalRecord)).toEqual(roleLocalRecord);
+    for (const field of [
+      'subjectId',
+      'walletSessionUserId',
+      'subject_id',
+      'wallet_session_user_id',
+    ] as const) {
+      expect(parseEcdsaHssRoleLocalKeyRecord({ ...roleLocalRecord, [field]: 'stale' })).toBeNull();
+    }
     expect(
       parseEcdsaHssRoleLocalKeyRecord({
         ...roleLocalRecord,

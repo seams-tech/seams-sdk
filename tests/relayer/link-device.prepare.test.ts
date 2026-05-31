@@ -66,9 +66,8 @@ function makePreparedLinkDeviceService() {
         ],
         prepare: {
           formatVersion: 'ecdsa-hss-role-local',
-          walletSessionUserId: 'alice.testnet',
+          walletId: 'alice.testnet',
           rpId: 'wallet.example.test',
-          subjectId: 'alice.testnet',
           ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
           signingRootId: 'project:env',
           signingRootVersion: 'v1',
@@ -100,9 +99,8 @@ function makeLinkDeviceEcdsaRespondService() {
       ecdsa: {
         bootstrap: {
           formatVersion: 'ecdsa-hss-role-local',
-          walletSessionUserId: 'alice.testnet',
+          walletId: 'alice.testnet',
           rpId: 'wallet.example.test',
-          subjectId: 'alice.testnet',
           ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
           relayerKeyId: 'rk-evm',
           contextBinding32B64u: 'context-binding',
@@ -135,9 +133,8 @@ function makeLinkDeviceEcdsaRespondService() {
               chainId: 11155111,
               networkSlug: 'sepolia',
             },
-            walletSessionUserId: 'alice.testnet',
+            walletId: 'alice.testnet',
             rpId: 'wallet.example.test',
-            subjectId: 'alice.testnet',
             keyHandle: 'key-handle-link-device',
             ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
             signingRootId: 'project:env',
@@ -157,9 +154,8 @@ function makeLinkDeviceEcdsaRespondService() {
 function makeEcdsaClientBootstrap() {
   return {
     formatVersion: 'ecdsa-hss-role-local',
-    walletSessionUserId: 'alice.testnet',
+    walletId: 'alice.testnet',
     rpId: 'wallet.example.test',
-    subjectId: 'alice.testnet',
     ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
     signingRootId: 'project:env',
     signingRootVersion: 'v1',

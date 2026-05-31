@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import { ConsoleSponsorshipSpendCapError } from './errors';
 import {
   buildConsoleSponsorshipSpendCapWindowKey,
@@ -64,7 +65,7 @@ function toIso(date: Date): string {
 
 function makeId(prefix: string, now: Date): string {
   const ts = now.getTime().toString(36);
-  const rand = Math.random().toString(36).slice(2, 10);
+  const rand = secureRandomBase36(8, 'console IDs');
   return `${prefix}_${ts}_${rand}`;
 }
 
@@ -74,7 +75,9 @@ function cloneReservation(
   return { ...reservation };
 }
 
-function cloneUsage(usage: ConsoleSponsorshipSpendCapWindowUsage): ConsoleSponsorshipSpendCapWindowUsage {
+function cloneUsage(
+  usage: ConsoleSponsorshipSpendCapWindowUsage,
+): ConsoleSponsorshipSpendCapWindowUsage {
   return { ...usage };
 }
 
@@ -139,7 +142,9 @@ export function createInMemoryConsoleSponsorshipSpendCapService(
   return {
     async getReservationBySourceEventId(ctx, sourceEventId) {
       const store = requireOrgStore(stores, ctx.orgId);
-      const reservationId = store.reservationIdsBySourceEventId.get(String(sourceEventId || '').trim());
+      const reservationId = store.reservationIdsBySourceEventId.get(
+        String(sourceEventId || '').trim(),
+      );
       if (!reservationId) return null;
       const reservation = store.reservationsById.get(reservationId);
       return reservation ? cloneReservation(reservation) : null;
@@ -158,7 +163,9 @@ export function createInMemoryConsoleSponsorshipSpendCapService(
       const createdAtIso = toIso(createdAt);
       const normalized = normalizeReserveRequest(request, createdAt);
       const store = requireOrgStore(stores, ctx.orgId);
-      const existingReservationId = store.reservationIdsBySourceEventId.get(normalized.sourceEventId);
+      const existingReservationId = store.reservationIdsBySourceEventId.get(
+        normalized.sourceEventId,
+      );
       if (existingReservationId) {
         const existing = store.reservationsById.get(existingReservationId);
         if (existing) return buildOutcome(store, existing);
@@ -258,7 +265,10 @@ export function createInMemoryConsoleSponsorshipSpendCapService(
       const usageKey = buildConsoleSponsorshipSpendCapWindowKeyFromReservation(reservation);
       const usage = requireUsageForReservation(store, reservation);
       const nextUsedMinor =
-        usage.reservedMinor + usage.settledMinor - reservation.requestedMinor + normalized.settledSpendMinor;
+        usage.reservedMinor +
+        usage.settledMinor -
+        reservation.requestedMinor +
+        normalized.settledSpendMinor;
       if (nextUsedMinor > usage.capMinor) {
         throw createSpendCapExceededError({
           capMinor: usage.capMinor,
@@ -275,7 +285,10 @@ export function createInMemoryConsoleSponsorshipSpendCapService(
 
       reservation.status = 'SETTLED';
       reservation.settledMinor = normalized.settledSpendMinor;
-      reservation.releasedMinor = Math.max(reservation.requestedMinor - normalized.settledSpendMinor, 0);
+      reservation.releasedMinor = Math.max(
+        reservation.requestedMinor - normalized.settledSpendMinor,
+        0,
+      );
       reservation.updatedAt = updatedAtIso;
       store.reservationsById.set(reservation.id, reservation);
       return buildOutcome(store, reservation);

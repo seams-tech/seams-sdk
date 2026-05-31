@@ -23,7 +23,6 @@ import {
 import type {
   EmailOtpThresholdEd25519ProvisioningResult,
   ReconstructEmailOtpEd25519SessionArgs,
-  RegisterEmailOtpEd25519CapabilityArgs,
 } from './provisioning';
 
 export type LoginEmailOtpEcdsaCapabilityForSigningArgs = {
@@ -52,9 +51,6 @@ export class EmailOtpEcdsaLifecycleRuntime {
         relayUrl: string;
       }) => Promise<string>;
       publicationPorts: () => EmailOtpEcdsaPublicationPorts;
-      provisionEd25519Capability: (
-        args: RegisterEmailOtpEd25519CapabilityArgs,
-      ) => Promise<EmailOtpThresholdEd25519ProvisioningResult>;
       reconstructEd25519Session: (
         args: ReconstructEmailOtpEd25519SessionArgs,
       ) => Promise<EmailOtpThresholdEd25519ProvisioningResult>;
@@ -98,8 +94,6 @@ export class EmailOtpEcdsaLifecycleRuntime {
       requireRpId: (operation) => this.ports.runtimeConfig.requireRpId(operation),
       rememberAppSessionJwt: (request) => this.ports.rememberAppSessionJwt(request),
       publicationPorts: this.ports.publicationPorts(),
-      provisionEd25519Capability: (request) =>
-        this.ports.provisionEd25519Capability(request),
     });
   }
 }

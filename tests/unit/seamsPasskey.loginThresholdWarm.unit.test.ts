@@ -8,7 +8,7 @@ import {
 } from '@/core/signingEngine/session/persistence/records';
 import {
   thresholdEcdsaChainTargetKey,
-  walletSubjectIdFromWalletProfile,
+  walletIdFromWalletProfile,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
@@ -21,7 +21,7 @@ const ECDSA_PRF_FIRST_B64U = Buffer.alloc(32, 7).toString('base64url');
 const ECDSA_CLIENT_ROOT_SHARE32_B64U = 'oSWxVelT4exizVyl5Q9RgldZH2hte7-Kf3h2qkA4mlY';
 const ECDSA_PUBLIC_KEY33_B64U = Buffer.alloc(33, 9).toString('base64url');
 const WALLET_SIGNING_SESSION_ID = 'wsess-login-1';
-const SUBJECT_ID = walletSubjectIdFromWalletProfile({ walletId: ACCOUNT_ID });
+const SUBJECT_ID = walletIdFromWalletProfile({ walletId: ACCOUNT_ID });
 const TEMPO_CHAIN_TARGET = {
   kind: 'tempo',
   chainId: 42431,
@@ -175,6 +175,71 @@ function ecdsaKeyIdentityTargetRecord(
   };
 }
 
+function loginReadySigningLanes(args: {
+  walletId: unknown;
+  authMethod: 'email_otp' | 'passkey';
+}): Record<string, unknown> {
+  const expiresAtMs = Date.now() + 60_000;
+  const ed25519Lane = {
+    authMethod: args.authMethod,
+    curve: 'ed25519',
+    chain: 'near',
+    state: 'ready',
+    walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+    thresholdSessionId: 'tsess-login-ed25519',
+    remainingUses: 3,
+    expiresAtMs,
+    updatedAtMs: Date.now(),
+    source: 'runtime_session_record',
+  };
+  const ecdsaLanesByTarget = Object.fromEntries(
+    [TEMPO_CHAIN_TARGET, EVM_CHAIN_TARGET].map((chainTarget) => {
+      const targetKey = thresholdEcdsaChainTargetKey(chainTarget);
+      const lane = {
+        authMethod: args.authMethod,
+        curve: 'ecdsa',
+        chainTarget,
+        state: 'ready',
+        walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+        thresholdSessionId: `tehss-login-${targetKey}`,
+        remainingUses: 3,
+        expiresAtMs,
+        updatedAtMs: Date.now(),
+        source: 'runtime_session_record',
+        key: ecdsaKeyIdentityTargetRecord(chainTarget).key,
+        publicFacts: {
+          keyHandle: ECDSA_KEY_HANDLE,
+          publicKeyB64u: ECDSA_PUBLIC_KEY33_B64U,
+          participantIds: [1, 2],
+          thresholdOwnerAddress: THRESHOLD_OWNER_ADDRESS,
+        },
+      };
+      return [targetKey, lane];
+    }),
+  );
+  return {
+    walletId: toAccountId(String(args.walletId || ACCOUNT_ID)),
+    generation: Date.now(),
+    ecdsa: {
+      targets: [TEMPO_CHAIN_TARGET, EVM_CHAIN_TARGET],
+      lanesByTarget: ecdsaLanesByTarget,
+      candidatesByTarget: Object.fromEntries(
+        Object.entries(ecdsaLanesByTarget).map(([targetKey, lane]) => [targetKey, [lane]]),
+      ),
+    },
+    lanes: {
+      ed25519: {
+        near: ed25519Lane,
+      },
+    },
+    candidates: {
+      ed25519: {
+        near: [ed25519Lane],
+      },
+    },
+  };
+}
+
 function createBaseContext(args?: {
   signingEngine?: Record<string, unknown>;
   configs?: Record<string, unknown>;
@@ -194,6 +259,7 @@ function createBaseContext(args?: {
         signerSlot: 1,
         operationalPublicKey: 'ed25519:alice',
       }),
+      nearAuthenticatorsByAccount: async () => [{ credentialId: 'cred-1', signerSlot: 1 }],
       getAuthenticatorsByUser: async () => [{ credentialId: 'cred-1', signerSlot: 1 }],
       getAuthenticationCredentialsSerialized: async () => ({
         id: 'cred-1',
@@ -215,6 +281,11 @@ function createBaseContext(args?: {
           },
         },
       }),
+      readPersistedAvailableSigningLanes: async (input: Record<string, unknown>) =>
+        loginReadySigningLanes({
+          walletId: input.walletId,
+          authMethod: input.authMethod === 'email_otp' ? 'email_otp' : 'passkey',
+        }),
       connectEd25519Session: async () => ({
         ok: true,
         sessionId: 'session-1',
@@ -319,24 +390,37 @@ async function withMockedMostRecentProjection<T>(
   options?: {
     includeThresholdEcdsaProfiles?: boolean;
     profileContinuitySnapshot?: Record<string, unknown> | null;
+    walletAccountSigners?: Array<Record<string, unknown>>;
   },
 ): Promise<T> {
-  const clientDb = IndexedDBManager.clientDB as { getMostRecentNearAccountProjection?: unknown };
-  const continuityClientDb = IndexedDBManager.clientDB as {
+  const continuityPort = IndexedDBManager as unknown as {
     getProfileContinuitySnapshot?: unknown;
   };
-  const profileLookupClientDb = IndexedDBManager.clientDB as {
+  const profileLookupPort = IndexedDBManager as unknown as {
     resolveProfileAccountContext?: unknown;
   };
-  const accountKeyMaterialDb = IndexedDBManager.accountKeyMaterialDB as {
+  const keyMaterialPort = IndexedDBManager as unknown as {
     getKeyMaterial?: unknown;
   };
-  const original = clientDb.getMostRecentNearAccountProjection;
-  const originalContinuity = continuityClientDb.getProfileContinuitySnapshot;
-  const originalProfileLookup = profileLookupClientDb.resolveProfileAccountContext;
-  const originalKeyMaterial = accountKeyMaterialDb.getKeyMaterial;
-  clientDb.getMostRecentNearAccountProjection = async () => null;
-  continuityClientDb.getProfileContinuitySnapshot = async () => {
+  const signerPort = IndexedDBManager as unknown as {
+    listAccountSignersByProfile?: unknown;
+  };
+  const originalContinuity = continuityPort.getProfileContinuitySnapshot;
+  const originalProfileLookup = profileLookupPort.resolveProfileAccountContext;
+  const originalKeyMaterial = keyMaterialPort.getKeyMaterial;
+  const originalListAccountSignersByProfile = signerPort.listAccountSignersByProfile;
+  const resolveMockAccountSigners = (): Array<Record<string, unknown>> => {
+    if (options?.walletAccountSigners) {
+      return options.walletAccountSigners;
+    }
+    if (options && 'profileContinuitySnapshot' in options) {
+      return Array.isArray(options.profileContinuitySnapshot?.accountSigners)
+        ? (options.profileContinuitySnapshot.accountSigners as Array<Record<string, unknown>>)
+        : [];
+    }
+    return options?.includeThresholdEcdsaProfiles ? partialEcdsaProfileSigners() : [];
+  };
+  continuityPort.getProfileContinuitySnapshot = async () => {
     if (options && 'profileContinuitySnapshot' in options) {
       return options.profileContinuitySnapshot;
     }
@@ -349,10 +433,12 @@ async function withMockedMostRecentProjection<T>(
               accountModel: 'threshold-ecdsa',
             },
           ],
+          accountSigners: resolveMockAccountSigners(),
         }
       : { chainAccounts: [] };
   };
-  profileLookupClientDb.resolveProfileAccountContext = async (accountRef: {
+  signerPort.listAccountSignersByProfile = async () => resolveMockAccountSigners();
+  profileLookupPort.resolveProfileAccountContext = async (accountRef: {
     chainIdKey: string;
     accountAddress: string;
   }) =>
@@ -360,7 +446,7 @@ async function withMockedMostRecentProjection<T>(
     String(accountRef.accountAddress || '').trim() === 'alice.testnet'
       ? { profileId: 'legacy-near:alice.testnet', accountRef }
       : null;
-  accountKeyMaterialDb.getKeyMaterial = async () => ({
+  keyMaterialPort.getKeyMaterial = async () => ({
     profileId: 'legacy-near:alice.testnet',
     signerSlot: 1,
     chainIdKey: 'near:testnet',
@@ -381,10 +467,10 @@ async function withMockedMostRecentProjection<T>(
   try {
     return await fn();
   } finally {
-    clientDb.getMostRecentNearAccountProjection = original;
-    continuityClientDb.getProfileContinuitySnapshot = originalContinuity;
-    profileLookupClientDb.resolveProfileAccountContext = originalProfileLookup;
-    accountKeyMaterialDb.getKeyMaterial = originalKeyMaterial;
+    continuityPort.getProfileContinuitySnapshot = originalContinuity;
+    profileLookupPort.resolveProfileAccountContext = originalProfileLookup;
+    keyMaterialPort.getKeyMaterial = originalKeyMaterial;
+    signerPort.listAccountSignersByProfile = originalListAccountSignersByProfile;
   }
 }
 
@@ -662,7 +748,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             kind: 'app_session',
             policy: {
               permission: 'ecdsa_key_facts_inventory',
-              walletSubjectId: 'alice.testnet',
+              walletId: 'alice.testnet',
             },
           },
         });
@@ -1006,11 +1092,13 @@ test.describe('unlock threshold warm-session requirements', () => {
           const kind = String(args.kind || '');
           bootstrapKinds.push(kind);
           if (kind === 'passkey_fresh_ecdsa_bootstrap') {
-            expect(args.webauthnAuthentication).toBeUndefined();
-            expect(args.routeAuth).toEqual({
-              kind: 'app_session',
-              jwt: 'app-jwt-first-bootstrap',
-            });
+            expect(args.webauthnAuthentication).toEqual(loginCredential);
+            if (args.routeAuth !== undefined) {
+              expect(args.routeAuth).toEqual({
+                kind: 'app_session',
+                jwt: 'app-jwt-first-bootstrap',
+              });
+            }
             expect(args.clientRootShare32B64u).toBe(ECDSA_CLIENT_ROOT_SHARE32_B64U);
             expect(args.runtimeScopeBootstrap).toEqual({
               environmentId: 'proj_local:dev',
@@ -1080,7 +1168,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(inventoryRequests).toHaveLength(0);
       expect(bootstrapKinds).toEqual([
         'passkey_fresh_ecdsa_bootstrap',
-        'threshold_session_auth_reconnect_ecdsa_bootstrap',
+        'passkey_fresh_ecdsa_bootstrap',
       ]);
     } finally {
       globalThis.fetch = originalFetch;
@@ -1219,10 +1307,13 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(credentialPrompts).toBe(0);
     expect(connectArgs).not.toBeNull();
     const capturedConnectArgs = connectArgs as unknown as Record<string, unknown>;
-    expect(capturedConnectArgs.auth).toEqual({
+    expect(capturedConnectArgs.auth).toMatchObject({
       kind: 'threshold_ecdsa_session_jwt',
       thresholdEcdsaSessionJwt: 'jwt-ecdsa',
-      localPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
+      localSecretSource: {
+        kind: 'provided_prf_first_v1',
+        prfFirstB64u: ECDSA_PRF_FIRST_B64U,
+      },
     });
     expect(capturedConnectArgs.kind).toBe('exact_ed25519_provisioning');
     expect(String(capturedConnectArgs.sessionId || '')).toMatch(/^threshold-login-/);
@@ -1239,7 +1330,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     ]);
   });
 
-  test('passkey unlock uses complete active ECDSA profile key facts without inventory fetch', async () => {
+  test('passkey unlock uses complete active wallet-scoped ECDSA key facts without inventory fetch', async () => {
     const originalFetch = globalThis.fetch;
     const inventoryRequests: unknown[] = [];
     const bootstrapKinds: string[] = [];
@@ -1305,10 +1396,8 @@ test.describe('unlock threshold warm-session requirements', () => {
       const result = await withMockedMostRecentProjection(
         async () => await unlock(context, ACCOUNT_ID),
         {
-          profileContinuitySnapshot: {
-            chainAccounts: [],
-            accountSigners: completeEcdsaProfileSigners(),
-          },
+          profileContinuitySnapshot: { chainAccounts: [], accountSigners: [] },
+          walletAccountSigners: completeEcdsaProfileSigners(),
         },
       );
 
@@ -2850,10 +2939,19 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(credentialPrompts).toBe(1);
       expect(capturedConnectArgs).not.toBeNull();
       const connectArgs = capturedConnectArgs as Record<string, any> | null;
-      expect(connectArgs?.auth).toEqual({
+      expect(connectArgs?.auth).toMatchObject({
         kind: 'app_session_jwt',
         appSessionJwt: 'app-jwt-passkey-warm',
-        localPrfCredential: loginCredential,
+        localSecretSource: {
+          kind: 'webauthn_prf_first_credential',
+          credential: loginCredential,
+          secretSource: {
+            kind: 'webauthn_prf_first',
+            prfFirstB64u: 'prf-first-warm',
+            rpId: 'example.localhost',
+            credentialIdB64u: 'cred-warm',
+          },
+        },
       });
     } finally {
       globalThis.fetch = originalFetch;
@@ -3278,9 +3376,18 @@ test.describe('unlock threshold warm-session requirements', () => {
       expect(result.success).toBe(true);
       expect(capturedConnectArgs).not.toBeNull();
       const connectArgs = capturedConnectArgs as Record<string, any> | null;
-      expect(connectArgs?.auth).toEqual({
+      expect(connectArgs?.auth).toMatchObject({
         kind: 'app_session_cookie',
-        localPrfCredential: loginCredential,
+        localSecretSource: {
+          kind: 'webauthn_prf_first_credential',
+          credential: loginCredential,
+          secretSource: {
+            kind: 'webauthn_prf_first',
+            prfFirstB64u: 'prf-first-cookie-warm',
+            rpId: 'example.localhost',
+            credentialIdB64u: 'cred-cookie-warm',
+          },
+        },
       });
       expect(capturedBootstrapArgs).toHaveLength(2);
       expect(
@@ -3290,9 +3397,11 @@ test.describe('unlock threshold warm-session requirements', () => {
       ).toBe(true);
       expect(
         capturedBootstrapArgs.every((args) => {
-          const routeAuth = args.routeAuth as Record<string, unknown> | undefined;
-          return routeAuth?.kind === 'cookie';
+          return args.routeAuth === undefined;
         }),
+      ).toBe(true);
+      expect(
+        capturedBootstrapArgs.every((args) => args.webauthnAuthentication === loginCredential),
       ).toBe(true);
       expect(
         capturedBootstrapArgs.every(

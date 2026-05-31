@@ -16,6 +16,7 @@ import { toAccountId } from '../../types/accountIds';
 import { coerceSignerSlot } from '@shared/utils/signerSlot';
 import { errorMessage } from '@shared/utils/errors';
 import { joinNormalizedUrl, stripTrailingSlashes } from '@shared/utils/normalize';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 import { IndexedDBManager } from '../../indexedDB';
 import { ensureEd25519Prefix, isObject } from '@shared/utils/validation';
 import type { WalletIframeCoordinator } from '../walletIframeCoordinator';
@@ -23,15 +24,13 @@ import { restoreLocalLoginState } from '../restoreLocalLoginState';
 import { linkDeviceWithScannedQRData as linkDeviceWithScannedQRDataDevice1 } from '../scanDevice';
 import { DEVICE_LINKING_CONFIG } from '../../../config';
 import { normalizeRegistrationCredential } from '../../signingEngine/webauthnAuth/credentials/helpers';
-import {
-  redactCredentialExtensionOutputs,
-} from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
+import { redactCredentialExtensionOutputs } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
 import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential } from '../../signingEngine/session/passkey/ecdsaClientRoot';
 import { DEFAULT_WAIT_STATUS } from '../../types/rpc';
 import { ActionType, type ActionArgsWasm } from '../../types/actions';
 import type { WebAuthnRegistrationCredential } from '../../types/webauthn';
-import { THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 } from '@shared/threshold/secp256k1Ecdsa2pShareMapping';
-import { walletSubjectIdFromString } from '@shared/utils/registrationIntent';
+import { THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1 } from '@shared/threshold/secp256k1';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
 import {
   buildThresholdWarmSessionRequestEnvelope,
   createThresholdWarmSessionPolicyDraft,
@@ -97,15 +96,18 @@ function parseLinkDeviceEcdsaPrepare(value: unknown): WalletRegistrationEcdsaPre
   const participantIds = Array.isArray(value.participantIds)
     ? value.participantIds.map((participantId) => Number(participantId))
     : [];
-  if (participantIds.some((participantId) => !Number.isSafeInteger(participantId) || participantId <= 0)) {
+  if (
+    participantIds.some(
+      (participantId) => !Number.isSafeInteger(participantId) || participantId <= 0,
+    )
+  ) {
     throw new Error('link-device/prepare returned invalid ECDSA participant ids');
   }
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(value.runtimePolicyScope);
   return {
     formatVersion: 'ecdsa-hss-role-local',
-    walletSessionUserId: requireLinkDeviceString(value.walletSessionUserId, 'walletSessionUserId'),
+    walletId: requireLinkDeviceString(value.walletId, 'walletId'),
     rpId: requireLinkDeviceString(value.rpId, 'rpId'),
-    subjectId: requireLinkDeviceString(value.subjectId, 'subjectId'),
     ecdsaThresholdKeyId: requireLinkDeviceString(value.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
     signingRootId: requireLinkDeviceString(value.signingRootId, 'signingRootId'),
     signingRootVersion: requireLinkDeviceString(value.signingRootVersion, 'signingRootVersion'),
@@ -141,16 +143,17 @@ function parseLinkDeviceEcdsaWalletKeys(value: unknown): WalletRegistrationEcdsa
       : [];
     if (
       participantIds.length === 0 ||
-      participantIds.some((participantId) => !Number.isSafeInteger(participantId) || participantId <= 0)
+      participantIds.some(
+        (participantId) => !Number.isSafeInteger(participantId) || participantId <= 0,
+      )
     ) {
       throw new Error('link-device/ecdsa/respond returned invalid wallet key participant ids');
     }
     return {
       keyScope: 'evm-family',
       chainTarget,
-      walletSessionUserId: requireLinkDeviceString(raw.walletSessionUserId, 'walletSessionUserId'),
+      walletId: requireLinkDeviceString(raw.walletId, 'walletId'),
       rpId: requireLinkDeviceString(raw.rpId, 'rpId'),
-      subjectId: requireLinkDeviceString(raw.subjectId, 'subjectId'),
       keyHandle: requireLinkDeviceString(raw.keyHandle, 'keyHandle'),
       ecdsaThresholdKeyId: requireLinkDeviceString(raw.ecdsaThresholdKeyId, 'ecdsaThresholdKeyId'),
       signingRootId: requireLinkDeviceString(raw.signingRootId, 'signingRootId'),
@@ -233,9 +236,7 @@ export class LinkDeviceFlow {
   private handleError(err: unknown): void {
     const e = err instanceof Error ? err : new Error(String(err || 'Unknown error'));
     this.error = e;
-    this.session = this.session
-      ? { ...this.session, phase: LinkDeviceEventPhase.FAILED }
-      : null;
+    this.session = this.session ? { ...this.session, phase: LinkDeviceEventPhase.FAILED } : null;
     this.safeOnEvent({
       phase: LinkDeviceEventPhase.FAILED,
       status: 'failed',
@@ -300,9 +301,7 @@ export class LinkDeviceFlow {
     }
     const signerSlotRaw = session.signerSlot;
     const signerSlotParsed = Number(signerSlotRaw);
-    const signerSlot = Number.isFinite(signerSlotParsed)
-      ? Math.floor(signerSlotParsed)
-      : undefined;
+    const signerSlot = Number.isFinite(signerSlotParsed) ? Math.floor(signerSlotParsed) : undefined;
     console.debug('[LinkDeviceFlow] relay poll ok', {
       sessionId,
       url,
@@ -640,6 +639,7 @@ export class LinkDeviceFlow {
     await storeThresholdEd25519KeyMaterial({
       nearAccountId,
       signerSlot: resolvedSignerSlot,
+      signerId: thresholdPublicKey,
       publicKey: thresholdPublicKey,
       relayerKeyId,
       keyVersion: thresholdKeyVersion,
@@ -701,8 +701,8 @@ export class LinkDeviceFlow {
       }
       const ecdsaResult = isObject(ecdsaObj.ecdsa) ? ecdsaObj.ecdsa : {};
       const walletKeys = parseLinkDeviceEcdsaWalletKeys(ecdsaResult.walletKeys);
-      await this.context.signingEngine.storeWalletSubjectEcdsaSignerRecords({
-        walletSubjectId: walletSubjectIdFromString(String(nearAccountId)),
+      await this.context.signingEngine.storeWalletEcdsaSignerRecords({
+        walletId: walletIdFromString(String(nearAccountId)),
         walletKeys,
       });
     }
@@ -797,15 +797,13 @@ export class LinkDeviceFlow {
     }
   }
 
-  private async fetchNonceBlockHashForKey(
-    input: {
-      nearAccount: NearAccountRef;
-      publicKey: string;
-      attempts?: number;
-      delayMs?: number;
-      finality?: 'optimistic' | 'final';
-    },
-  ): Promise<{ nextNonce: string; blockHash: string }> {
+  private async fetchNonceBlockHashForKey(input: {
+    nearAccount: NearAccountRef;
+    publicKey: string;
+    attempts?: number;
+    delayMs?: number;
+    finality?: 'optimistic' | 'final';
+  }): Promise<{ nextNonce: string; blockHash: string }> {
     const nearAccountId = input.nearAccount.accountId;
     const attempts = Math.max(1, Math.floor(input.attempts ?? 6));
     const delayMs = Math.max(50, Math.floor(input.delayMs ?? 250));
@@ -847,10 +845,7 @@ export class LinkDeviceFlow {
    */
   async generateQR(): Promise<{ qrData: DeviceLinkingQRData; qrCodeDataURL: string }> {
     try {
-      const sessionId =
-        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? `ldsess-${crypto.randomUUID()}`
-          : `ldsess-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      const sessionId = secureRandomId('ldsess', 32, 'link device session IDs');
 
       const signerSlot = coerceSignerSlot(this.options?.signerSlot ?? 2);
       const tempKeypair = await this.context.signingEngine.generateEphemeralNearKeypair();
@@ -987,9 +982,7 @@ export class LinkDeviceFlow {
 
   cancel(): void {
     this.cancelled = true;
-    this.session = this.session
-      ? { ...this.session, phase: LinkDeviceEventPhase.CANCELLED }
-      : null;
+    this.session = this.session ? { ...this.session, phase: LinkDeviceEventPhase.CANCELLED } : null;
     this.safeOnEvent({
       phase: LinkDeviceEventPhase.CANCELLED,
       status: 'cancelled',

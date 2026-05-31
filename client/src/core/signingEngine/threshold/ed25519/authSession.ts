@@ -5,60 +5,168 @@ import {
   type ThresholdSessionKind,
 } from '../sessionPolicy';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
-import { redactCredentialExtensionOutputs } from '../crypto/webauthn';
+import {
+  getPrfFirstB64uFromCredential,
+  redactCredentialExtensionOutputs,
+} from '../crypto/webauthn';
+import {
+  buildWebAuthnPrfFirstSecretSource,
+  type RequiredPrfAuthenticatorSuccess,
+  type WebAuthnPrfFirstSecretSource,
+} from '@/core/platform/types';
+import { toRpId } from '../../session/identity/evmFamilyEcdsaIdentity';
+
+export type ThresholdEd25519WebAuthnPrfSecretSource = {
+  kind: 'webauthn_prf_first_credential';
+  credential: WebAuthnAuthenticationCredential;
+  secretSource: WebAuthnPrfFirstSecretSource;
+  prfFirstB64u?: never;
+};
+
+export type ThresholdEd25519ProvidedPrfSecretSource = {
+  kind: 'provided_prf_first_v1';
+  prfFirstB64u: string;
+  credential?: never;
+  secretSource?: never;
+};
+
+export type ThresholdEd25519LocalSecretSource =
+  | ThresholdEd25519WebAuthnPrfSecretSource
+  | ThresholdEd25519ProvidedPrfSecretSource;
 
 export type ThresholdEd25519SessionMintAuthorization =
   | {
       kind: 'app_session_jwt';
       appSessionJwt: string;
-      localPrfCredential: WebAuthnAuthenticationCredential;
+      localSecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
       thresholdEcdsaSessionJwt?: never;
-      localPrfFirstB64u?: never;
+      policySecretSource?: never;
       useAppSessionCookie?: never;
       webauthnAuthentication?: never;
+      localPrfCredential?: never;
+      localPrfFirstB64u?: never;
     }
   | {
       kind: 'app_session_cookie';
-      localPrfCredential: WebAuthnAuthenticationCredential;
+      localSecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
       appSessionJwt?: never;
       thresholdEcdsaSessionJwt?: never;
-      localPrfFirstB64u?: never;
+      policySecretSource?: never;
       useAppSessionCookie?: never;
       webauthnAuthentication?: never;
+      localPrfCredential?: never;
+      localPrfFirstB64u?: never;
     }
   | {
       kind: 'threshold_ecdsa_session_jwt';
       thresholdEcdsaSessionJwt: string;
-      localPrfFirstB64u: string;
+      localSecretSource: ThresholdEd25519ProvidedPrfSecretSource;
       appSessionJwt?: never;
       localPrfCredential?: never;
       useAppSessionCookie?: never;
       webauthnAuthentication?: never;
+      policySecretSource?: never;
+      localPrfFirstB64u?: never;
     }
   | {
       kind: 'threshold_session_policy_webauthn';
-      webauthnAuthentication: WebAuthnAuthenticationCredential;
+      policySecretSource: ThresholdEd25519WebAuthnPrfSecretSource;
       appSessionJwt?: never;
       thresholdEcdsaSessionJwt?: never;
-      localPrfFirstB64u?: never;
+      localSecretSource?: never;
       useAppSessionCookie?: never;
       localPrfCredential?: never;
+      webauthnAuthentication?: never;
+      localPrfFirstB64u?: never;
     };
 
-export function localPrfFirstForThresholdEd25519SessionMintAuthorization(args: {
-  auth: ThresholdEd25519SessionMintAuthorization;
-  prfFirstFromCredential: (credential: WebAuthnAuthenticationCredential) => string | null;
-}): string {
-  switch (args.auth.kind) {
+function requireNonEmptyEd25519SecretSourceString(value: unknown, field: string): string {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) {
+    throw new Error(`[threshold-ed25519] ${field} is required`);
+  }
+  return normalized;
+}
+
+function buildRequiredPrfAuthenticatorSuccess(args: {
+  credential: WebAuthnAuthenticationCredential;
+  rpId: string;
+}): RequiredPrfAuthenticatorSuccess {
+  const prfFirstB64u = requireNonEmptyEd25519SecretSourceString(
+    getPrfFirstB64uFromCredential(args.credential),
+    'prfFirstB64u',
+  );
+  return {
+    ok: true,
+    operation: 'get_passkey',
+    requirePrfFirst: true,
+    credential: args.credential,
+    credentialIdB64u: requireNonEmptyEd25519SecretSourceString(
+      args.credential.rawId || args.credential.id,
+      'credentialIdB64u',
+    ),
+    rawIdB64u: String(args.credential.rawId || '').trim(),
+    rpId: toRpId(args.rpId),
+    prf: {
+      kind: 'required',
+      prfFirstB64u,
+    },
+  };
+}
+
+export function buildThresholdEd25519WebAuthnPrfSecretSource(args: {
+  credential: WebAuthnAuthenticationCredential;
+  rpId: string;
+}): ThresholdEd25519WebAuthnPrfSecretSource {
+  return {
+    kind: 'webauthn_prf_first_credential',
+    credential: args.credential,
+    secretSource: buildWebAuthnPrfFirstSecretSource(
+      buildRequiredPrfAuthenticatorSuccess(args),
+    ),
+  };
+}
+
+export function buildThresholdEd25519ProvidedPrfSecretSource(args: {
+  prfFirstB64u: string;
+}): ThresholdEd25519ProvidedPrfSecretSource {
+  return {
+    kind: 'provided_prf_first_v1',
+    prfFirstB64u: requireNonEmptyEd25519SecretSourceString(
+      args.prfFirstB64u,
+      'prfFirstB64u',
+    ),
+  };
+}
+
+function localPrfFirstForThresholdEd25519SecretSource(
+  source: ThresholdEd25519LocalSecretSource,
+): string {
+  switch (source.kind) {
+    case 'webauthn_prf_first_credential':
+      return source.secretSource.prfFirstB64u;
+    case 'provided_prf_first_v1':
+      return source.prfFirstB64u;
+    default: {
+      const exhaustive: never = source;
+      return exhaustive;
+    }
+  }
+}
+
+export function localPrfFirstForThresholdEd25519SessionMintAuthorization(
+  auth: ThresholdEd25519SessionMintAuthorization,
+): string {
+  switch (auth.kind) {
     case 'app_session_jwt':
     case 'app_session_cookie':
-      return args.prfFirstFromCredential(args.auth.localPrfCredential) || '';
+      return localPrfFirstForThresholdEd25519SecretSource(auth.localSecretSource);
     case 'threshold_ecdsa_session_jwt':
-      return args.auth.localPrfFirstB64u;
+      return localPrfFirstForThresholdEd25519SecretSource(auth.localSecretSource);
     case 'threshold_session_policy_webauthn':
-      return args.prfFirstFromCredential(args.auth.webauthnAuthentication) || '';
+      return localPrfFirstForThresholdEd25519SecretSource(auth.policySecretSource);
     default: {
-      const exhaustive: never = args.auth;
+      const exhaustive: never = auth;
       return exhaustive;
     }
   }
@@ -112,7 +220,7 @@ export async function mintEd25519AuthSession(args: {
 
   const webauthn_authentication =
     args.auth.kind === 'threshold_session_policy_webauthn'
-      ? redactCredentialExtensionOutputs(args.auth.webauthnAuthentication)
+      ? redactCredentialExtensionOutputs(args.auth.policySecretSource.credential)
       : undefined;
 
   type ThresholdEd25519SessionMintResponseBody = Partial<{

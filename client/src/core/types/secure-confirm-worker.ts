@@ -95,7 +95,7 @@ export type WarmSessionRehydrateResult =
 
 export type ExportPrivateKeyScheme = 'ed25519' | 'secp256k1';
 export type ThresholdEd25519ExportArtifactKind = 'near-ed25519-seed-v1';
-export type ThresholdEcdsaExportArtifactKind = 'ecdsa-hss-secp256k1-key-v1';
+export type ThresholdEcdsaExportArtifactKind = 'ecdsa-hss-secp256k1-export';
 
 type ExportPrivateKeysWithUiWorkerPayloadBase = {
   nearAccountId: string;
@@ -113,7 +113,7 @@ export type ExportPrivateKeysWithUiWorkerPayload =
     })
   | (ExportPrivateKeysWithUiWorkerPayloadBase & {
       chainTarget: ThresholdEcdsaChainTarget;
-      artifactKind: 'ecdsa-hss-secp256k1-key-v1';
+      artifactKind: 'ecdsa-hss-secp256k1-export';
       publicKeyHex: string;
       privateKeyHex: string;
       ethereumAddress: string;

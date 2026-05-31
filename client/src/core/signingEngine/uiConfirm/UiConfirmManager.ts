@@ -94,6 +94,10 @@ import {
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type {
+  ThresholdEcdsaSessionStoreSource,
+  ThresholdEd25519SessionStoreSource,
+} from '../session/identity/laneIdentity';
 
 type PendingWorkerRequest = {
   id: string;
@@ -111,6 +115,55 @@ type PasskeySealedRecordAccountMetadata = {
   ecdsaRestore?: SigningSessionSealedStoreRecord['ecdsaRestore'];
   ed25519Restore?: SigningSessionSealedStoreRecord['ed25519Restore'];
 };
+
+type SigningSessionSealedAuthMethod = 'passkey' | 'email_otp';
+
+type WarmSessionSealAuthMethodInput =
+  | {
+      thresholdSessionId: string;
+      curve: 'ed25519';
+      chainTarget?: never;
+    }
+  | {
+      thresholdSessionId: string;
+      curve: 'ecdsa';
+      chainTarget: ThresholdEcdsaChainTarget;
+    };
+
+function assertNever(value: never): never {
+  throw new Error(`Unexpected warm-session seal auth source: ${String(value)}`);
+}
+
+function sealedAuthMethodForThresholdEd25519Source(
+  source: ThresholdEd25519SessionStoreSource,
+): SigningSessionSealedAuthMethod {
+  switch (source) {
+    case 'email_otp':
+      return 'email_otp';
+    case 'login':
+    case 'registration':
+    case 'manual-connect':
+    case 'bootstrap':
+      return 'passkey';
+    default:
+      return assertNever(source);
+  }
+}
+
+function sealedAuthMethodForThresholdEcdsaSource(
+  source: ThresholdEcdsaSessionStoreSource,
+): SigningSessionSealedAuthMethod {
+  switch (source) {
+    case 'email_otp':
+      return 'email_otp';
+    case 'login':
+    case 'registration':
+    case 'manual-bootstrap':
+      return 'passkey';
+    default:
+      return assertNever(source);
+  }
+}
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -415,6 +468,28 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       });
       return null;
     });
+  }
+
+  private resolveWarmSessionSealAuthMethod(
+    args: WarmSessionSealAuthMethodInput,
+  ): SigningSessionSealedAuthMethod {
+    if (args.curve === 'ed25519') {
+      const ed25519Record = getStoredThresholdEd25519SessionRecordByThresholdSessionId(
+        args.thresholdSessionId,
+      );
+      if (!ed25519Record) {
+        throw new Error('[UiConfirm] cannot resolve Ed25519 sealed refresh auth without session record');
+      }
+      return sealedAuthMethodForThresholdEd25519Source(ed25519Record.source);
+    }
+    const ecdsaRecord = getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget({
+      thresholdSessionId: args.thresholdSessionId,
+      chainTarget: args.chainTarget,
+    });
+    if (!ecdsaRecord) {
+      throw new Error('[UiConfirm] cannot resolve ECDSA sealed refresh auth without session record');
+    }
+    return sealedAuthMethodForThresholdEcdsaSource(ecdsaRecord.source);
   }
 
   private buildPasskeyDurableDeleteCommand(args: {
@@ -838,6 +913,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
               : {}),
             sessionKind: ecdsaRecord.thresholdSessionKind,
             keyHandle: ecdsaRecord.keyHandle,
+            ecdsaThresholdKeyId: ecdsaRecord.ecdsaThresholdKeyId,
             ethereumAddress,
             relayerKeyId: ecdsaRecord.relayerKeyId,
             clientVerifyingShareB64u: ecdsaRecord.clientVerifyingShareB64u,
@@ -1383,25 +1459,51 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     });
     const chainTarget = curve === 'ecdsa' ? recordMetadata.ecdsaRestore?.chainTarget : undefined;
     if (curve === 'ecdsa' && !chainTarget) {
+      const transportChainTargetKey = ecdsaTransportChainTarget
+        ? thresholdEcdsaChainTargetKey(ecdsaTransportChainTarget)
+        : 'missing';
       return {
         ok: false,
         code: 'invalid_args',
-        message: 'Missing concrete ECDSA chain target for signing-session seal persistence',
+        message: `Missing concrete ECDSA chain target for signing-session seal persistence (thresholdSessionId=${thresholdSessionId}, transportChainTarget=${transportChainTargetKey})`,
       };
+    }
+    let purpose: SigningSessionSealedRecordFilter;
+    let authMethod: SigningSessionSealedAuthMethod;
+    if (curve === 'ecdsa') {
+      if (!chainTarget) {
+        return {
+          ok: false,
+          code: 'invalid_args',
+          message: 'Missing concrete ECDSA chain target for signing-session seal persistence',
+        };
+      }
+      authMethod = this.resolveWarmSessionSealAuthMethod({
+        thresholdSessionId,
+        curve: 'ecdsa',
+        chainTarget,
+      });
+      purpose = { authMethod, curve: 'ecdsa', chainTarget };
+    } else {
+      authMethod = this.resolveWarmSessionSealAuthMethod({
+        thresholdSessionId,
+        curve: 'ed25519',
+      });
+      purpose = { authMethod, curve: 'ed25519' };
     }
     const singleFlightKey = makeWarmSessionSingleFlightKey({
       operation: 'persist',
       thresholdSessionId,
-      authMethod: 'passkey',
+      authMethod,
       curve,
       ...(chainTarget ? { chainTarget } : {}),
       walletSigningSessionId,
     });
     const inFlight = signingSessionSealPersistSingleFlight.get(singleFlightKey);
     if (inFlight) {
-      console.debug('[UiConfirm] joined in-flight passkey sealed refresh persistence', {
+      console.debug('[UiConfirm] joined in-flight sealed refresh persistence', {
         thresholdSessionId,
-        authMethod: 'passkey',
+        authMethod,
         curve,
         walletSigningSessionId,
       });
@@ -1409,10 +1511,15 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     }
 
     const task = (async (): Promise<WarmSessionSealAndPersistResult> => {
-      const existingRecord = await this.readPasskeySealedRecord(
-        thresholdSessionId,
-        curve,
-        chainTarget,
+      const existingRecord = await readExactSealedSession(thresholdSessionId, purpose).catch(
+        (error) => {
+          console.warn('[UiConfirm] failed to read sealed refresh record', {
+            thresholdSessionId,
+            purpose,
+            error: error instanceof Error ? error.message : String(error || 'unknown error'),
+          });
+          return null;
+        },
       );
       if (existingRecord) {
         const currentPolicy = await this.getWarmSessionStatus({ sessionId: thresholdSessionId }).catch(
@@ -1439,7 +1546,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             thresholdSessionId,
             sealedSecretB64u: existingRecord.sealedSecretB64u,
             curve: 'ecdsa',
-            authMethod: 'passkey',
+            authMethod,
             walletSigningSessionId,
             thresholdSessionIds: existingRecord.thresholdSessionIds,
             walletId,
@@ -1465,7 +1572,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             thresholdSessionId,
             sealedSecretB64u: existingRecord.sealedSecretB64u,
             curve: 'ed25519',
-            authMethod: 'passkey',
+            authMethod,
             walletSigningSessionId,
             thresholdSessionIds: existingRecord.thresholdSessionIds,
             walletId,
@@ -1558,13 +1665,13 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       if (curve === 'ecdsa') {
         const walletId = String(recordMetadata.walletId || '').trim();
         if (!walletId || !recordMetadata.ecdsaRestore) {
-          throw new Error('[SigningSessionSealedStore] missing ECDSA passkey seal metadata');
+          throw new Error('[SigningSessionSealedStore] missing ECDSA seal metadata');
         }
         await this.registerSigningSession({
           thresholdSessionId,
           sealedSecretB64u: sealed.sealedSecretB64u,
           curve: 'ecdsa',
-          authMethod: 'passkey',
+          authMethod,
           walletSigningSessionId,
           walletId,
           ecdsaRestore: recordMetadata.ecdsaRestore,
@@ -1582,13 +1689,13 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       } else {
         const walletId = String(recordMetadata.walletId || '').trim();
         if (!walletId || !recordMetadata.ed25519Restore) {
-          throw new Error('[SigningSessionSealedStore] missing Ed25519 passkey seal metadata');
+          throw new Error('[SigningSessionSealedStore] missing Ed25519 seal metadata');
         }
         await this.registerSigningSession({
           thresholdSessionId,
           sealedSecretB64u: sealed.sealedSecretB64u,
           curve: 'ed25519',
-          authMethod: 'passkey',
+          authMethod,
           walletSigningSessionId,
           walletId,
           ...(recordMetadata.signingRootId
@@ -1610,10 +1717,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
           updatedAtMs: Date.now(),
         });
       }
-      const persistedRecord = await this.readPasskeySealedRecord(
-        thresholdSessionId,
-        curve,
-        chainTarget,
+      const persistedRecord = await readExactSealedSession(thresholdSessionId, purpose).catch(
+        () => null,
       );
       if (!persistedRecord) {
         return {

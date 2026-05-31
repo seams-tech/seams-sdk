@@ -74,8 +74,8 @@ const ECDSA_CHAIN_TARGET = {
 const ECDSA_CONTEXT = {
   signingRootId: SIGNING_ROOT_ID,
   signingRootVersion: SIGNING_ROOT_VERSION,
-  walletSessionUserId: 'alice.near',
-  subjectId: 'alice-subject',
+  walletId: 'alice.near',
+  rpId: 'wallet.example.test',
   chainTarget: ECDSA_CHAIN_TARGET,
   ecdsaThresholdKeyId: 'ecdsa-alpha',
   keyPurpose: 'wallet',
@@ -120,8 +120,8 @@ async function roleLocalWalletFromShares(input: {
 }) {
   ensureHssClientSignerWasm();
   const context = {
-    walletSessionUserId: ECDSA_CONTEXT.walletSessionUserId,
-    subjectId: ECDSA_CONTEXT.subjectId,
+    walletId: ECDSA_CONTEXT.walletId,
+    rpId: ECDSA_CONTEXT.rpId,
     ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
     signingRootId: ECDSA_CONTEXT.signingRootId,
     signingRootVersion: ECDSA_CONTEXT.signingRootVersion,

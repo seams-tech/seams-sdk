@@ -36,7 +36,7 @@ const invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithSubjectId = {
   source: 'login',
   sessionBudgetUses: 1,
   // @ts-expect-error base-ECDSA provision readiness derives subject from shared key identity.
-  subjectId: 'wallet-subject',
+  subjectId: 'wallet',
 } satisfies EnsureWarmEcdsaProvisionPlanReadyArgs;
 void invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithSubjectId;
 

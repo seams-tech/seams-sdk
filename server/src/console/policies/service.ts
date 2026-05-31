@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import { ConsolePolicyError } from './errors';
 import {
   normalizePolicyScopeType as normalizeScopeType,
@@ -44,7 +45,10 @@ export interface ConsolePolicyService {
     ctx: ConsolePoliciesContext,
     policyId: string,
   ): Promise<ConsolePolicyVersion[] | null>;
-  createPolicy(ctx: ConsolePoliciesContext, request: CreateConsolePolicyRequest): Promise<ConsolePolicy>;
+  createPolicy(
+    ctx: ConsolePoliciesContext,
+    request: CreateConsolePolicyRequest,
+  ): Promise<ConsolePolicy>;
   updatePolicy(
     ctx: ConsolePoliciesContext,
     policyId: string,
@@ -54,10 +58,7 @@ export interface ConsolePolicyService {
     ctx: ConsolePoliciesContext,
     policyId: string,
   ): Promise<PublishConsolePolicyResult | null>;
-  deletePolicy(
-    ctx: ConsolePoliciesContext,
-    policyId: string,
-  ): Promise<DeleteConsolePolicyResult>;
+  deletePolicy(ctx: ConsolePoliciesContext, policyId: string): Promise<DeleteConsolePolicyResult>;
   simulatePolicy(
     ctx: ConsolePoliciesContext,
     policyId: string,
@@ -97,7 +98,7 @@ const DEFAULT_POLICY_DESCRIPTION = 'Default policy profile for this organization
 
 function makeId(prefix: string, now: Date): string {
   const ts = now.getTime().toString(36);
-  const rand = Math.random().toString(36).slice(2, 10);
+  const rand = secureRandomBase36(8, 'console IDs');
   return `${prefix}_${ts}_${rand}`;
 }
 
@@ -126,7 +127,9 @@ function clonePolicyVersion(version: ConsolePolicyVersion): ConsolePolicyVersion
 }
 
 function hasPublishedPolicyVersion(policy: ConsolePolicy | null | undefined): boolean {
-  return Boolean(policy && String(policy.publishedAt || '').trim() && Number(policy.version || 0) > 0);
+  return Boolean(
+    policy && String(policy.publishedAt || '').trim() && Number(policy.version || 0) > 0,
+  );
 }
 
 function generateUniquePolicyId(store: OrgPolicyStore, now: Date): string {
@@ -192,10 +195,9 @@ export function createInMemoryConsolePolicyService(
           ],
         ]),
         assignments: new Map([[defaultAssignment.id, defaultAssignment]]),
-        assignmentsByScope: new Map([[
-          scopeKey(defaultAssignment.scopeType, defaultAssignment.scopeId),
-          defaultAssignment.id,
-        ]]),
+        assignmentsByScope: new Map([
+          [scopeKey(defaultAssignment.scopeType, defaultAssignment.scopeId), defaultAssignment.id],
+        ]),
       };
       stores.set(ctx.orgId, store);
     }
@@ -239,7 +241,9 @@ export function createInMemoryConsolePolicyService(
   return {
     async listPolicies(ctx, request = {}): Promise<ConsolePolicy[]> {
       const store = ensureOrgStore(ctx);
-      const kind = String(request.kind || '').trim().toUpperCase();
+      const kind = String(request.kind || '')
+        .trim()
+        .toUpperCase();
       return Array.from(store.policies.values())
         .filter((policy) => {
           if (kind && policy.kind !== kind) return false;
@@ -284,11 +288,16 @@ export function createInMemoryConsolePolicyService(
       };
       store.policies.set(policy.id, policy);
       if (request.assignment) {
-        upsertAssignmentInStore(store, ctx, {
-          scopeType: request.assignment.scopeType,
-          scopeId: request.assignment.scopeId,
-          policyId: policy.id,
-        }, ts);
+        upsertAssignmentInStore(
+          store,
+          ctx,
+          {
+            scopeType: request.assignment.scopeType,
+            scopeId: request.assignment.scopeId,
+            policyId: policy.id,
+          },
+          ts,
+        );
       }
       return clonePolicy(policy);
     },
@@ -341,7 +350,9 @@ export function createInMemoryConsolePolicyService(
       current.publishedAt = current.updatedAt;
       store.policies.set(current.id, current);
       const nextVersions = [
-        ...(store.versions.get(current.id) || []).filter((entry) => entry.version !== current.version),
+        ...(store.versions.get(current.id) || []).filter(
+          (entry) => entry.version !== current.version,
+        ),
         {
           policyId: current.id,
           kind: current.kind,
@@ -426,7 +437,11 @@ export function createInMemoryConsolePolicyService(
       const store = ensureOrgStore(ctx);
       const policy = store.policies.get(request.policyId);
       if (!policy) {
-        throw new ConsolePolicyError('policy_not_found', 404, `Policy ${request.policyId} was not found`);
+        throw new ConsolePolicyError(
+          'policy_not_found',
+          404,
+          `Policy ${request.policyId} was not found`,
+        );
       }
       if (policy.kind !== 'TRANSACTION') {
         throw new ConsolePolicyError(
@@ -454,10 +469,7 @@ export function createInMemoryConsolePolicyService(
       };
     },
 
-    async resolvePoliciesForWallets(
-      ctx,
-      wallets,
-    ): Promise<Record<string, string | null>> {
+    async resolvePoliciesForWallets(ctx, wallets): Promise<Record<string, string | null>> {
       const store = ensureOrgStore(ctx);
       const assignmentsByScope = store.assignmentsByScope;
       const assignments = store.assignments;

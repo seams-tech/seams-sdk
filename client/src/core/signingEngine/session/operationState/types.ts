@@ -9,15 +9,33 @@ import type {
   EvmFamilyEcdsaKeyHandle,
   EvmFamilyEcdsaKeyIdentity,
 } from '../identity/evmFamilyEcdsaIdentity';
+import {
+  parseEmailOtpChallengeId,
+  parseThresholdEcdsaSessionId,
+  parseThresholdEd25519SessionId,
+  parseThresholdSessionId,
+  parseWalletSigningSessionId,
+  type DomainIdParseResult,
+} from '@shared/utils/domainIds';
+import type {
+  ThresholdEcdsaSessionId,
+  ThresholdEd25519SessionId,
+  ThresholdSessionId,
+  WalletSigningSessionId,
+  EmailOtpChallengeId,
+} from '@shared/utils/domainIds';
+
+export type {
+  EmailOtpChallengeId,
+  ThresholdEcdsaSessionId,
+  ThresholdEd25519SessionId,
+  ThresholdSessionId,
+  WalletSigningSessionId,
+} from '@shared/utils/domainIds';
 
 export type Brand<TValue, TBrand extends string> = TValue & { readonly __brand: TBrand };
 
-export type WalletSigningSessionId = Brand<string, 'WalletSigningSessionId'>;
-export type ThresholdEd25519SessionId = Brand<string, 'ThresholdEd25519SessionId'>;
-export type ThresholdEcdsaSessionId = Brand<string, 'ThresholdEcdsaSessionId'>;
-export type ThresholdSessionId = ThresholdEd25519SessionId | ThresholdEcdsaSessionId;
 export type BackingMaterialSessionId = Brand<string, 'BackingMaterialSessionId'>;
-export type EmailOtpChallengeId = Brand<string, 'EmailOtpChallengeId'>;
 export type SigningOperationId = Brand<string, 'SigningOperationId'>;
 export type SigningOperationFingerprint = Brand<string, 'SigningOperationFingerprint'>;
 
@@ -182,7 +200,7 @@ export type Ed25519WalletSigningSpendPlan = {
   lane: SelectedEd25519SigningSessionPlanningLane;
   thresholdSessionIds: readonly ThresholdEd25519SessionId[];
   backingMaterialSessionIds: readonly BackingMaterialSessionId[];
-  uses: 1;
+  uses: number;
   reason: SigningOperationIntent;
 };
 
@@ -195,7 +213,7 @@ export type EcdsaWalletSigningSpendPlan = {
   ecdsaKey: EvmFamilyEcdsaKeyIdentity;
   thresholdSessionIds: readonly ThresholdEcdsaSessionId[];
   backingMaterialSessionIds: readonly BackingMaterialSessionId[];
-  uses: 1;
+  uses: number;
   reason: SigningOperationIntent;
 };
 
@@ -288,21 +306,28 @@ function toRequiredBrandedString<TBrand extends string>(
   return normalized as Brand<string, TBrand>;
 }
 
+function requireDomainId<T>(result: DomainIdParseResult<T>, label: string): T {
+  if (!result.ok) {
+    throw new Error(`[SigningSession] ${result.error.message || `${label} is required`}`);
+  }
+  return result.value;
+}
+
 export const SigningSessionIds = {
   walletSigningSession(value: unknown): WalletSigningSessionId {
-    return toRequiredBrandedString(value, 'walletSigningSessionId');
+    return requireDomainId(parseWalletSigningSessionId(value), 'walletSigningSessionId');
   },
   thresholdEd25519Session(value: unknown): ThresholdEd25519SessionId {
-    return toRequiredBrandedString(value, 'thresholdEd25519SessionId');
+    return requireDomainId(parseThresholdEd25519SessionId(value), 'thresholdEd25519SessionId');
   },
   thresholdEcdsaSession(value: unknown): ThresholdEcdsaSessionId {
-    return toRequiredBrandedString(value, 'thresholdEcdsaSessionId');
+    return requireDomainId(parseThresholdEcdsaSessionId(value), 'thresholdEcdsaSessionId');
   },
   backingMaterialSession(value: unknown): BackingMaterialSessionId {
     return toRequiredBrandedString(value, 'backingMaterialSessionId');
   },
   emailOtpChallenge(value: unknown): EmailOtpChallengeId {
-    return toRequiredBrandedString(value, 'emailOtpChallengeId');
+    return requireDomainId(parseEmailOtpChallengeId(value), 'emailOtpChallengeId');
   },
   signingOperation(value: unknown): SigningOperationId {
     return toRequiredBrandedString(value, 'signingOperationId');
@@ -416,8 +441,9 @@ export function normalizeWalletSigningSpendPlan(
       '[SigningSession] wallet signing spend walletSigningSessionId does not match lane',
     );
   }
-  if (input.uses !== 1) {
-    throw new Error('[SigningSession] wallet signing spend uses must be 1');
+  const uses = Math.floor(Number(input.uses) || 0);
+  if (!Number.isFinite(uses) || uses <= 0) {
+    throw new Error('[SigningSession] wallet signing spend uses must be a positive integer');
   }
   if (input.reason !== SigningOperationIntent.TransactionSign) {
     throw new Error('[SigningSession] wallet signing spend reason is invalid');
@@ -448,7 +474,7 @@ export function normalizeWalletSigningSpendPlan(
     ...(ecdsaKey ? { ecdsaKey } : {}),
     thresholdSessionIds: uniqueBrandedStrings(
       input.thresholdSessionIds,
-      (value) => toRequiredBrandedString(value, 'thresholdSessionId') as ThresholdSessionId,
+      (value) => requireDomainId(parseThresholdSessionId(value), 'thresholdSessionId'),
       'thresholdSessionIds',
     ),
     backingMaterialSessionIds: uniqueBrandedStrings(
@@ -456,7 +482,7 @@ export function normalizeWalletSigningSpendPlan(
       SigningSessionIds.backingMaterialSession,
       'backingMaterialSessionIds',
     ),
-    uses: 1,
+    uses,
     reason: SigningOperationIntent.TransactionSign,
   } as WalletSigningSpendPlan;
 }

@@ -184,6 +184,7 @@ export async function deriveHostedNearAccountId(input: {
   authProvider: string;
   providerSubject?: string;
   verifiedEmail?: string;
+  walletIdDerivationNonce?: string;
   collisionCounter?: number;
 }): Promise<string> {
   const secret = requireNonEmpty('ACCOUNT_ID_DERIVATION_SECRET', input.accountIdDerivationSecret);
@@ -196,12 +197,14 @@ export async function deriveHostedNearAccountId(input: {
   const authProvider = requireNonEmpty('authProvider', input.authProvider);
   const providerSubject = toOptionalTrimmedString(input.providerSubject);
   const verifiedEmail = toOptionalTrimmedString(input.verifiedEmail);
+  const walletIdDerivationNonce = toOptionalTrimmedString(input.walletIdDerivationNonce);
   const identity = providerSubject || verifiedEmail;
   if (!identity) {
     throw new Error('Hosted account ID generation requires providerSubject or verifiedEmail');
   }
   const collisionCounter = Math.max(0, Math.floor(Number(input.collisionCounter) || 0));
   const contextParts = [DOMAIN, projectId, envId, authProvider, identity];
+  if (walletIdDerivationNonce) contextParts.push(`nonce:${walletIdDerivationNonce}`);
   if (collisionCounter > 0) contextParts.push(`collision:${collisionCounter}`);
 
   const seed = await hmacSha256(secret, contextParts.join('\0'));

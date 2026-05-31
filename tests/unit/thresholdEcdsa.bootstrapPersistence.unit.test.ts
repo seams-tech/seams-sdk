@@ -1,10 +1,26 @@
 import { expect, test } from '@playwright/test';
+import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
+import type { ActivateAccountSignerInput } from '@/core/indexedDB/accountSignerLifecycle';
+import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
+import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import {
   persistThresholdEcdsaBootstrapForWalletTarget,
   type ThresholdEcdsaBootstrapIndexedDbPort,
+  type ThresholdEcdsaBootstrapSignerAuth,
 } from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
-type UpsertCall = Parameters<ThresholdEcdsaBootstrapIndexedDbPort['upsertChainAccount']>[0];
+type UpsertProfileCall = Parameters<ThresholdEcdsaBootstrapIndexedDbPort['upsertProfile']>[0];
+
+const PASSKEY_SIGNER_AUTH: ThresholdEcdsaBootstrapSignerAuth = {
+  authMethod: SIGNER_AUTH_METHODS.passkey,
+  signerSource: SIGNER_SOURCES.passkeyRegistration,
+};
+
+const EMAIL_OTP_SIGNER_AUTH: ThresholdEcdsaBootstrapSignerAuth = {
+  authMethod: SIGNER_AUTH_METHODS.emailOtp,
+  signerSource: SIGNER_SOURCES.emailOtpRegistration,
+};
 
 const EVM_TARGET = {
   kind: 'evm',
@@ -19,154 +35,181 @@ const TEMPO_TARGET = {
   networkSlug: 'tempo-testnet',
 } as const;
 
-function createIndexedDbPort(calls: UpsertCall[]): ThresholdEcdsaBootstrapIndexedDbPort {
+function bootstrap(args: {
+  chainId: number | string;
+  ownerAddress: `0x${string}`;
+  keyHandle?: string;
+  ecdsaThresholdKeyId?: string;
+}): ThresholdEcdsaSessionBootstrapResult {
+  const keyHandle = args.keyHandle || 'key-handle-1';
+  const ecdsaThresholdKeyId = args.ecdsaThresholdKeyId || 'threshold-key-1';
   return {
-    clientDB: {
-      resolveProfileAccountContext: async () => ({
-        profileId: 'profile-1',
-        accountRef: {
-          chainIdKey: 'near:testnet',
-          accountAddress: 'alice.testnet',
-        },
-      }),
-      upsertProfile: async () => ({}),
-      setLastProfileStateForProfile: async () => undefined,
+    thresholdEcdsaKeyRef: {
+      type: 'threshold-ecdsa-secp256k1',
+      userId: 'alice.testnet',
+      chainTarget: EVM_TARGET,
+      relayerUrl: 'https://relay.example',
+      keyHandle,
+      ecdsaThresholdKeyId,
+      signingRootId: 'signing-root-1',
+      signingRootVersion: 'signing-root-v1',
+      thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
+      participantIds: [1, 2, 3],
+      thresholdSessionId: 'tehss_1',
+      walletSigningSessionId: 'wss_1',
     },
-    upsertChainAccount: async (input) => {
-      calls.push(input);
+    keygen: {
+      ok: true,
+      chainId: args.chainId,
+      ethereumAddress: args.ownerAddress,
+      keyHandle,
+      ecdsaThresholdKeyId,
+      rpId: 'localhost',
+      relayerKeyId: 'relayer-key-1',
+      relayerVerifyingShareB64u: 'relayer-share',
+      thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
+      participantIds: [1, 2, 3],
+    } as ThresholdEcdsaSessionBootstrapResult['keygen'],
+    session: {
+      ok: true,
+      sessionId: 'tehss_1',
+      walletSigningSessionId: 'wss_1',
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 3,
+    } as ThresholdEcdsaSessionBootstrapResult['session'],
+  };
+}
+
+function createIndexedDbPort(calls: {
+  profiles: UpsertProfileCall[];
+  signers: ActivateAccountSignerInput[];
+}): ThresholdEcdsaBootstrapIndexedDbPort {
+  return {
+    upsertProfile: async (input) => {
+      calls.profiles.push(input);
+      return {};
+    },
+    activateAccountSigner: async (input) => {
+      calls.signers.push(input);
       return {
-        profileId: String(input.profileId),
-        chainIdKey: String(input.chainIdKey),
-        accountAddress: String(input.accountAddress),
-        accountModel: String(input.accountModel) as any,
-        isPrimary: !!input.isPrimary,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      } as any;
+        signerSlot: input.preferredSlot || 1,
+        signer: {
+          profileId: input.account.profileId,
+          chainIdKey: input.account.chainIdKey,
+          accountAddress: input.account.accountAddress,
+          signerId: input.signer.signerId,
+          signerType: input.signer.signerType,
+          signerKind: input.signer.signerKind,
+          signerAuthMethod: input.signer.signerAuthMethod,
+          signerSource: input.signer.signerSource,
+          signerSlot: input.preferredSlot || 1,
+          status: 'active',
+          metadata: input.signer.metadata,
+          addedAt: Date.now(),
+          updatedAt: Date.now(),
+        } satisfies AccountSignerRecord,
+      };
     },
   };
 }
 
 test.describe('threshold ECDSA bootstrap persistence', () => {
-  test('persists threshold ECDSA owner-address rows', async () => {
-    const calls: UpsertCall[] = [];
+  test('persists threshold ECDSA signer identity rows', async () => {
+    const calls = { profiles: [] as UpsertProfileCall[], signers: [] as ActivateAccountSignerInput[] };
 
     await persistThresholdEcdsaBootstrapForWalletTarget({
       indexedDB: createIndexedDbPort(calls),
-      walletId: 'alice.testnet' as any,
+      walletId: toWalletId('alice.testnet'),
       chainTarget: EVM_TARGET,
-      bootstrap: {
-        keygen: {
-          chainId: 11155111,
-          ethereumAddress: `0x${'ab'.repeat(20)}`,
-        },
-      } as any,
+      bootstrap: bootstrap({
+        chainId: 11155111,
+        ownerAddress: `0x${'ab'.repeat(20)}`,
+      }),
+      signerAuth: PASSKEY_SIGNER_AUTH,
     });
 
-    expect(calls.length).toBe(1);
-
-    const primary = calls[0]!;
-    expect(primary.chainIdKey).toBe('evm:eip155:11155111');
-    expect(primary.accountAddress).toBe(`0x${'ab'.repeat(20)}`);
-    expect(primary.accountModel).toBe('threshold-ecdsa');
+    expect(calls.profiles).toEqual([
+      {
+        profileId: 'alice.testnet',
+      },
+    ]);
+    expect(calls.signers).toHaveLength(1);
+    expect(calls.signers[0]).toMatchObject({
+      account: {
+        profileId: 'alice.testnet',
+        chainIdKey: 'evm:eip155:11155111',
+        accountAddress: `0x${'ab'.repeat(20)}`,
+        accountModel: 'threshold-ecdsa',
+      },
+      signer: {
+        signerId: `0x${'ab'.repeat(20)}`,
+        signerKind: 'threshold-ecdsa',
+        signerAuthMethod: 'passkey',
+        signerSource: 'passkey_registration',
+      },
+    });
+    expect(calls.signers[0]?.signer.metadata).toMatchObject({
+      keyHandle: 'key-handle-1',
+      ecdsaThresholdKeyId: 'threshold-key-1',
+      thresholdOwnerAddress: `0x${'ab'.repeat(20)}`,
+      chainTarget: EVM_TARGET,
+      sharedEvmFamilyKey: {
+        walletId: 'alice.testnet',
+        keyHandle: 'key-handle-1',
+      },
+    });
   });
 
   test('uses requested chain target when bootstrap chain id is invalid', async () => {
-    const calls: UpsertCall[] = [];
+    const calls = { profiles: [] as UpsertProfileCall[], signers: [] as ActivateAccountSignerInput[] };
 
     await persistThresholdEcdsaBootstrapForWalletTarget({
       indexedDB: createIndexedDbPort(calls),
-      walletId: 'alice.testnet' as any,
+      walletId: toWalletId('alice.testnet'),
       chainTarget: EVM_TARGET,
-      bootstrap: {
-        keygen: {
-          chainId: 'invalid',
-          ethereumAddress: `0x${'ab'.repeat(20)}`,
-        },
-      } as any,
+      bootstrap: bootstrap({
+        chainId: 'invalid',
+        ownerAddress: `0x${'ab'.repeat(20)}`,
+      }),
+      signerAuth: PASSKEY_SIGNER_AUTH,
     });
 
-    expect(calls.length).toBe(1);
-    expect(calls[0]?.chainIdKey).toBe('evm:eip155:11155111');
+    expect(calls.signers[0]?.account.chainIdKey).toBe('evm:eip155:11155111');
   });
 
-  test('Email OTP bootstrap creates NEAR profile/account projection without a passkey signer', async () => {
-    const calls: UpsertCall[] = [];
-    const profileCalls: unknown[] = [];
-    const lastProfileSelections: unknown[] = [];
-    let hasNearProjection = false;
-    const port: ThresholdEcdsaBootstrapIndexedDbPort = {
-      clientDB: {
-        resolveProfileAccountContext: async () =>
-          hasNearProjection
-            ? {
-                profileId: 'near-profile:google-user.testnet',
-                accountRef: {
-                  chainIdKey: 'near:testnet',
-                  accountAddress: 'google-user.testnet',
-                },
-              }
-            : null,
-        upsertProfile: async (input) => {
-          profileCalls.push(input);
-          return {};
-        },
-        setLastProfileStateForProfile: async (profileId, signerSlot) => {
-          lastProfileSelections.push({ profileId, signerSlot });
-        },
-      },
-      upsertChainAccount: async (input) => {
-        calls.push(input);
-        if (input.chainIdKey === 'near:testnet' && input.accountAddress === 'google-user.testnet') {
-          hasNearProjection = true;
-        }
-        return {
-          profileId: String(input.profileId),
-          chainIdKey: String(input.chainIdKey),
-          accountAddress: String(input.accountAddress),
-          accountModel: String(input.accountModel) as any,
-          isPrimary: !!input.isPrimary,
-          createdAt: Date.now(),
-          updatedAt: Date.now(),
-        } as any;
-      },
-    };
+  test('Email OTP bootstrap writes wallet signer state without NEAR projection compatibility rows', async () => {
+    const calls = { profiles: [] as UpsertProfileCall[], signers: [] as ActivateAccountSignerInput[] };
 
     await persistThresholdEcdsaBootstrapForWalletTarget({
-      indexedDB: port,
-      walletId: 'google-user.testnet' as any,
+      indexedDB: createIndexedDbPort(calls),
+      walletId: toWalletId('google-user.testnet'),
       chainTarget: TEMPO_TARGET,
-      ensureEmailOtpNearAccountMapping: true,
-      bootstrap: {
-        keygen: {
-          chainId: 42431,
-          ethereumAddress: `0x${'34'.repeat(20)}`,
-        },
-      } as any,
+      bootstrap: bootstrap({
+        chainId: 42431,
+        ownerAddress: `0x${'34'.repeat(20)}`,
+      }),
+      signerAuth: EMAIL_OTP_SIGNER_AUTH,
     });
 
-    expect(profileCalls).toHaveLength(1);
-    expect(profileCalls[0]).toMatchObject({
-      profileId: 'near-profile:google-user.testnet',
-      defaultSignerSlot: 1,
-      preferences: {
-        useRelayer: false,
-        useNetwork: 'testnet',
+    expect(calls.profiles).toEqual([
+      {
+        profileId: 'google-user.testnet',
       },
-    });
-    expect((profileCalls[0] as any).passkeyCredential).toBeUndefined();
-    expect(calls[0]).toMatchObject({
-      profileId: 'near-profile:google-user.testnet',
-      chainIdKey: 'near:testnet',
-      accountAddress: 'google-user.testnet',
-      accountModel: 'near-native',
-    });
-    expect(lastProfileSelections).toEqual([
-      { profileId: 'near-profile:google-user.testnet', signerSlot: 1 },
     ]);
-    expect(calls.map((call) => call.chainIdKey)).toEqual([
-      'near:testnet',
-      'tempo:42431',
-    ]);
+    expect(calls.signers).toHaveLength(1);
+    expect(calls.signers[0]).toMatchObject({
+      account: {
+        profileId: 'google-user.testnet',
+        chainIdKey: 'tempo:42431',
+        accountAddress: `0x${'34'.repeat(20)}`,
+        accountModel: 'threshold-ecdsa',
+      },
+      signer: {
+        signerAuthMethod: 'email_otp',
+        signerSource: 'email_otp_registration',
+      },
+      selectAsActive: false,
+      mutation: { routeThroughOutbox: false },
+    });
   });
 });

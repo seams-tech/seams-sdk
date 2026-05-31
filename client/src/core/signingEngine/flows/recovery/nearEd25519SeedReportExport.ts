@@ -60,9 +60,9 @@ export async function exportThresholdEd25519SeedFromHssReport(
       expectedPublicKey: args.expectedPublicKey,
       workerCtx: deps.getSignerWorkerContext(),
     });
-    if (!artifactResult.success || !artifactResult.artifact) {
+    if (!artifactResult.ok) {
       throw new Error(
-        artifactResult.error || 'Failed to build single-key HSS Ed25519 seed export artifact',
+        artifactResult.message || 'Failed to build single-key HSS Ed25519 seed export artifact',
       );
     }
     emitKeyExportEvent(args.options.onEvent, {

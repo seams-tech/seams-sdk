@@ -2,8 +2,6 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  clientDb: '/sdk/esm/core/indexedDB/passkeyClientDB/manager.js',
-  accountKeyMaterialDb: '/sdk/esm/core/indexedDB/accountKeyMaterialDB/manager.js',
   unifiedDb: '/sdk/esm/core/indexedDB/index.js',
 } as const;
 
@@ -18,69 +16,75 @@ test.describe('local signer reconciliation', () => {
     const result = await page.evaluate(
       async ({ paths }) => {
         try {
-          const { PasskeyClientDBManager } = await import(paths.clientDb);
-          const { AccountKeyMaterialDBManager } = await import(paths.accountKeyMaterialDb);
-          const { UnifiedIndexedDBManager } = await import(paths.unifiedDb);
+          const { UnifiedIndexedDBManager, SeamsWalletDBManager, createSeamsTestWalletDbName } =
+            await import(paths.unifiedDb);
 
           const suffix =
             typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
               ? crypto.randomUUID()
               : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-          const clientDB = new PasskeyClientDBManager();
-          clientDB.setDbName(`PasskeyClientDB-localSignerReconcile-${suffix}`);
-          const accountKeyMaterialDB = new AccountKeyMaterialDBManager();
-          accountKeyMaterialDB.setDbName(
-            `PasskeyAccountKeyMaterial-localSignerReconcile-${suffix}`,
-          );
-          const indexedDB = new UnifiedIndexedDBManager({ clientDB, accountKeyMaterialDB });
+          const seamsWalletDB = new SeamsWalletDBManager();
+          seamsWalletDB.setDbName(createSeamsTestWalletDbName(`local-signer-reconcile-${suffix}`));
+          const indexedDB = new UnifiedIndexedDBManager({ seamsWalletDB });
           const profileId = 'profile-near:alice.testnet';
           const chainIdKey = 'near:testnet';
           const accountAddress = 'alice.testnet';
 
-          await clientDB.upsertProfile({
+          await indexedDB.upsertProfile({
             profileId,
             defaultSignerSlot: 1,
           });
-          await clientDB.upsertChainAccount({
+          await indexedDB.upsertChainAccount({
             profileId,
             chainIdKey,
             accountAddress,
             accountModel: 'near-native',
             isPrimary: true,
           });
-          await clientDB.upsertAccountSigner({
-            profileId,
-            chainIdKey,
-            accountAddress,
-            signerId: 'ed25519:missing-material',
-            signerSlot: 1,
-            signerType: 'threshold',
-            signerKind: 'threshold-ed25519',
-            signerAuthMethod: 'email_otp',
-            signerSource: 'email_otp_registration',
-            status: 'active',
+          await indexedDB.activateAccountSigner({
+            account: {
+              profileId,
+              chainIdKey,
+              accountAddress,
+              accountModel: 'near-native',
+            },
+            signer: {
+              signerId: 'ed25519:missing-material',
+              signerType: 'threshold',
+              signerKind: 'threshold-ed25519',
+              signerAuthMethod: 'email_otp',
+              signerSource: 'email_otp_registration',
+            },
+            activationPolicy: { mode: 'fail_if_occupied', signerSlot: 1 },
+            preferredSlot: 1,
             mutation: { routeThroughOutbox: false },
           });
-          await clientDB.upsertAccountSigner({
-            profileId,
-            chainIdKey,
-            accountAddress,
-            signerId: 'ed25519:stale-pending',
-            signerSlot: 2,
-            signerType: 'threshold',
-            signerKind: 'threshold-ed25519',
-            signerAuthMethod: 'email_otp',
-            signerSource: 'email_otp_registration',
-            status: 'pending',
+          await indexedDB.stageAccountSigner({
+            account: {
+              profileId,
+              chainIdKey,
+              accountAddress,
+              accountModel: 'near-native',
+            },
+            signer: {
+              signerId: 'ed25519:stale-pending',
+              signerSlot: 2,
+              signerType: 'threshold',
+              signerKind: 'threshold-ed25519',
+              signerAuthMethod: 'email_otp',
+              signerSource: 'email_otp_registration',
+            },
             mutation: { routeThroughOutbox: false },
           });
-          await accountKeyMaterialDB.storeKeyMaterial({
+          await indexedDB.storeKeyMaterial({
             profileId,
             signerSlot: 9,
             chainIdKey,
+            accountAddress,
             keyKind: 'threshold_share_v1',
             algorithm: 'ed25519',
             publicKey: 'ed25519:orphan',
+            signerId: 'ed25519:orphan',
             payload: { wrappedShare: 'ciphertext-b64u' },
             timestamp: Date.now(),
             schemaVersion: 1,

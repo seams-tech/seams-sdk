@@ -17,7 +17,9 @@ import {
   buildEcdsaReconnectMaterial,
   buildEcdsaSessionIdentity,
   buildEcdsaSessionProvisionPlan,
+  buildEmailOtpEcdsaProvisionSecretSource,
   buildEmailOtpEcdsaSessionProvision,
+  buildPasskeyEcdsaProvisionSecretSource,
   buildPasskeyEcdsaSessionProvision,
   buildThresholdSessionAuthEcdsaReconnect,
   type EcdsaSessionProvisionPlan,
@@ -55,6 +57,14 @@ const emailOtpAuthContext = {
   reason: 'sign',
   authMethod: 'email_otp',
 } satisfies ThresholdEcdsaEmailOtpAuthContext;
+const passkeyProvisionSecretSource = buildPasskeyEcdsaProvisionSecretSource({
+  clientRootShare32B64u: 'client-root',
+  webauthnAuthentication,
+});
+const emailOtpProvisionSecretSource = buildEmailOtpEcdsaProvisionSecretSource({
+  clientRootShare32B64u: 'client-root',
+  emailOtpAuthContext,
+});
 const reconnectKeyRef = {
   type: 'threshold-ecdsa-secp256k1',
   userId: 'alice.testnet',
@@ -65,6 +75,7 @@ const reconnectKeyRef = {
   signingRootId: 'signing-root-1',
   signingRootVersion: 'v1',
   backendBinding: {
+    materialKind: 'metadata_only',
     relayerKeyId: 'relayer-key-1',
     clientVerifyingShareB64u: 'share',
   },
@@ -109,8 +120,7 @@ void buildPasskeyEcdsaSessionProvision({
   sessionKind: 'jwt',
   sessionBudgetUses: 1,
   requestId: 'request-1',
-  clientRootShare32B64u: 'client-root',
-  webauthnAuthentication,
+  provisionSecretSource: passkeyProvisionSecretSource,
 });
 
 void buildPasskeyEcdsaSessionProvision({
@@ -121,8 +131,20 @@ void buildPasskeyEcdsaSessionProvision({
   sessionKind: 'jwt',
   sessionBudgetUses: 1,
   requestId: 'request-1',
+  provisionSecretSource: passkeyProvisionSecretSource,
+  // @ts-expect-error passkey provision root shares must be wrapped in provisionSecretSource
   clientRootShare32B64u: 'client-root',
-  webauthnAuthentication,
+});
+
+void buildPasskeyEcdsaSessionProvision({
+  key: exactKey,
+  chainTarget,
+  newSessionIdentity: identity,
+  signingKeyContext,
+  sessionKind: 'jwt',
+  sessionBudgetUses: 1,
+  requestId: 'request-1',
+  provisionSecretSource: passkeyProvisionSecretSource,
   // @ts-expect-error passkey provision must not accept threshold-session auth
   thresholdSessionAuth,
 });
@@ -137,8 +159,7 @@ void buildPasskeyEcdsaSessionProvision({
   sessionKind: 'jwt',
   sessionBudgetUses: 1,
   requestId: 'request-1',
-  clientRootShare32B64u: 'client-root',
-  webauthnAuthentication,
+  provisionSecretSource: passkeyProvisionSecretSource,
 });
 
 void buildThresholdSessionAuthEcdsaReconnect({
@@ -170,8 +191,7 @@ void buildEmailOtpEcdsaSessionProvision({
   signingKeyContext,
   sessionKind: 'jwt',
   sessionBudgetUses: 1,
-  emailOtpAuthContext,
-  clientRootShare32B64u: 'client-root',
+  provisionSecretSource: emailOtpProvisionSecretSource,
   // @ts-expect-error Email OTP provision must not accept WebAuthn auth
   webauthnAuthentication,
 });
@@ -185,8 +205,19 @@ void buildEmailOtpEcdsaSessionProvision({
   signingKeyContext,
   sessionKind: 'jwt',
   sessionBudgetUses: 1,
+  provisionSecretSource: emailOtpProvisionSecretSource,
+});
+
+void buildEmailOtpEcdsaSessionProvision({
+  key: exactKey,
+  chainTarget,
+  newSessionIdentity: identity,
+  signingKeyContext,
+  sessionKind: 'jwt',
+  sessionBudgetUses: 1,
+  provisionSecretSource: emailOtpProvisionSecretSource,
+  // @ts-expect-error Email OTP auth context must be wrapped in provisionSecretSource
   emailOtpAuthContext,
-  clientRootShare32B64u: 'client-root',
 });
 
 void buildEcdsaSessionProvisionPlan({
@@ -231,8 +262,7 @@ void buildEcdsaSessionProvisionPlan({
   sessionKind: 'jwt',
   sessionBudgetUses: 1,
   requestId: 'request-1',
-  clientRootShare32B64u: 'client-root',
-  webauthnAuthentication,
+  provisionSecretSource: passkeyProvisionSecretSource,
   reconnectMaterial: buildEcdsaReconnectMaterial({
     record: reconnectRecord,
   }),
@@ -247,7 +277,20 @@ void buildEcdsaSessionProvisionPlan({
   sessionKind: 'jwt',
   sessionBudgetUses: 1,
   requestId: 'request-1',
-  clientRootShare32B64u: 'client-root',
+  provisionSecretSource: passkeyProvisionSecretSource,
+});
+
+void buildEcdsaSessionProvisionPlan({
+  kind: 'passkey_ecdsa_session_provision',
+  key: exactKey,
+  chainTarget,
+  sessionIdentity: identity,
+  signingKeyContext,
+  sessionKind: 'jwt',
+  sessionBudgetUses: 1,
+  requestId: 'request-1',
+  provisionSecretSource: passkeyProvisionSecretSource,
+  // @ts-expect-error passkey planning must not accept top-level WebAuthn credentials
   webauthnAuthentication,
 });
 
@@ -261,8 +304,7 @@ void buildEcdsaSessionProvisionPlan({
   signingKeyContext,
   sessionKind: 'jwt',
   sessionBudgetUses: 1,
-  clientRootShare32B64u: 'client-root',
-  webauthnAuthentication,
+  provisionSecretSource: passkeyProvisionSecretSource,
 });
 
 export {};

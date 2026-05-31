@@ -186,8 +186,7 @@ function thresholdEcdsaSharedIdentityGuard(
   return {
     contextKey: [
       'evm-family',
-      record.walletSessionUserId,
-      record.subjectId,
+      record.walletId,
       record.rpId,
       record.signingRootId,
       ecdsaSigningRootVersion(record),

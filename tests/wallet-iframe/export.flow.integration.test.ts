@@ -10,7 +10,6 @@ import {
   nearAccountRefFromAccountId,
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletId,
-  toWalletSubjectId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';
@@ -19,7 +18,7 @@ const WAIT_FOR_SOURCE = `(${waitFor.toString()})`;
 const CAPTURE_OVERLAY_SOURCE = `(${captureOverlay.toString()})`;
 const EXPORT_FLOW_NEAR_ACCOUNT = nearAccountRefFromAccountId('export-flow.testnet');
 const ISOLATION_NEAR_ACCOUNT = nearAccountRefFromAccountId('isolation.testnet');
-const EXPORT_FLOW_SUBJECT_ID = toWalletSubjectId('export-flow.testnet');
+const EXPORT_FLOW_SUBJECT_ID = toWalletId('export-flow.testnet');
 const EXPORT_FLOW_EVM_TARGET = thresholdEcdsaChainTargetFromChainFamily({
   chain: 'evm',
   chainId: 11155111,

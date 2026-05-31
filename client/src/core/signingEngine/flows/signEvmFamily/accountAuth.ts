@@ -1,24 +1,29 @@
-import { buildNearAccountRefs } from '@/core/accountData/near/accountRefs';
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
-import {
-  resolveProfileAccountContextFromCandidates,
-  selectAccountSigner,
-} from '@/core/indexedDB/profileAccountProjection';
-import { toAccountId } from '@/core/types/accountIds';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
   resolveAccountAuthMetadataForSignerSource,
   type AccountAuthMetadata,
 } from '../../interfaces/accountAuthMetadata';
+import {
+  toWalletId,
+  type ThresholdEcdsaChainTarget,
+} from '../../interfaces/ecdsaChainTarget';
 
 export type EvmFamilyAccountMetadataDeps = {
   indexedDB: UnifiedIndexedDBManager;
 };
 
+function signerSourceFromAuthMethod(value: unknown): string {
+  if (value === SIGNER_AUTH_METHODS.emailOtp) return SIGNER_AUTH_METHODS.emailOtp;
+  if (value === SIGNER_AUTH_METHODS.passkey) return SIGNER_AUTH_METHODS.passkey;
+  return '';
+}
+
 export async function resolveEvmFamilyTransactionWalletAuth(args: {
   deps: EvmFamilyAccountMetadataDeps;
   walletId: string;
   senderSignatureAlgorithm: 'secp256k1' | 'webauthnP256';
+  chainTarget?: ThresholdEcdsaChainTarget;
   sessionSource?: string;
   isEmailOtpThresholdContext?: boolean;
 }): Promise<AccountAuthMetadata> {
@@ -26,47 +31,34 @@ export async function resolveEvmFamilyTransactionWalletAuth(args: {
     return resolveAccountAuthMetadataForSignerSource();
   }
 
-  const walletId = toAccountId(args.walletId);
-  const context = await resolveProfileAccountContextFromCandidates(
-    args.deps.indexedDB.clientDB,
-    buildNearAccountRefs(walletId),
-  ).catch(() => null);
-  if (context?.profileId) {
-    const [profile, activeSigners, lastProfileState] = await Promise.all([
-      args.deps.indexedDB.clientDB.getProfile(context.profileId).catch(() => null),
-      args.deps.indexedDB.clientDB
-        .listAccountSigners({
-          chainIdKey: context.accountRef.chainIdKey,
-          accountAddress: context.accountRef.accountAddress,
-          status: 'active',
+  const walletId = toWalletId(args.walletId);
+  const exactSigner = args.chainTarget
+    ? await args.deps.indexedDB
+        .getActiveWalletSignerForChainTarget({
+          walletId,
+          chainTarget: args.chainTarget,
         })
-        .catch(() => []),
-      args.deps.indexedDB.clientDB.getLastProfileState().catch(() => null),
-    ]);
-    if (profile && activeSigners.length) {
-      const activeSignerSlot =
-        lastProfileState?.profileId === context.profileId
-          ? Number(lastProfileState.activeSignerSlot)
-          : undefined;
-      const selectedSigner = selectAccountSigner({
-        profile,
-        activeSigners,
-        ...(typeof activeSignerSlot === 'number' &&
-        Number.isSafeInteger(activeSignerSlot) &&
-        activeSignerSlot >= 1
-          ? { signerSlot: activeSignerSlot }
-          : {}),
+    : null;
+  const exactSignerAuthMethod = signerSourceFromAuthMethod(exactSigner?.signerAuthMethod);
+  if (exactSignerAuthMethod) {
+    return resolveAccountAuthMetadataForSignerSource({
+      source: exactSignerAuthMethod,
+    });
+  }
+
+  if (!args.chainTarget) {
+    const activeSigners = await args.deps.indexedDB
+      .listActiveWalletSigners({ walletId, signerFamily: 'ecdsa' })
+      .catch(() => []);
+    const sources = new Set(
+      activeSigners
+        .map((signer) => signerSourceFromAuthMethod(signer.signerAuthMethod))
+        .filter(Boolean),
+    );
+    if (sources.size === 1) {
+      return resolveAccountAuthMetadataForSignerSource({
+        source: [...sources][0],
       });
-      if (selectedSigner?.signerAuthMethod === SIGNER_AUTH_METHODS.emailOtp) {
-        return resolveAccountAuthMetadataForSignerSource({
-          source: SIGNER_AUTH_METHODS.emailOtp,
-        });
-      }
-      if (selectedSigner?.signerAuthMethod === SIGNER_AUTH_METHODS.passkey) {
-        return resolveAccountAuthMetadataForSignerSource({
-          source: SIGNER_AUTH_METHODS.passkey,
-        });
-      }
     }
   }
 

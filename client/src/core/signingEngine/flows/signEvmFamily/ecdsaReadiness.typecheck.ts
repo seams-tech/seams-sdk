@@ -9,9 +9,9 @@ const rawPasskeyReconnectArgs: Parameters<typeof ensureEvmFamilyThresholdEcdsaRe
   ...readinessArgs,
   mode: 'planned_reconnect',
   reconnectPlan: {
-    // @ts-expect-error raw passkey payloads must be normalized into an ECDSA provision plan first
     sessionId: 'threshold-session-1',
     walletSigningSessionId: 'wallet-signing-session-1',
+    // @ts-expect-error raw passkey payloads must be normalized into an ECDSA provision plan first
     webauthnAuthentication,
   },
 };
@@ -28,9 +28,9 @@ const rawEmailOtpReconnectArgs: Parameters<typeof ensureEvmFamilyThresholdEcdsaR
   ...readinessArgs,
   mode: 'planned_reconnect',
   reconnectPlan: {
-    // @ts-expect-error raw Email OTP payloads must be normalized into an ECDSA provision plan first
     sessionId: 'threshold-session-1',
     walletSigningSessionId: 'wallet-signing-session-1',
+    // @ts-expect-error raw Email OTP payloads must be normalized into an ECDSA provision plan first
     emailOtpAuthContext: rawEmailOtpAuthContext,
   },
 };

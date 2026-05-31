@@ -40,6 +40,7 @@ export type PasskeyAuthMenuOtpPrompt = {
             description?: string;
             submitLabel?: string;
             helperText?: string;
+            codeDelivery?: 'sent' | 'reused';
           }
         | void
       >
@@ -51,6 +52,7 @@ export type PasskeyAuthMenuOtpPrompt = {
         description?: string;
         submitLabel?: string;
         helperText?: string;
+        codeDelivery?: 'sent' | 'reused';
       }
     | void;
   onResend?: () =>

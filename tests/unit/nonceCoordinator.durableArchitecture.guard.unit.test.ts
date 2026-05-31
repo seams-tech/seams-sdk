@@ -28,19 +28,22 @@ test.describe('nonce coordinator durable architecture guards', () => {
     expect(source).not.toContain('sameOriginLeaseStore');
   });
 
-  test('durable nonce leases live in the existing PasskeyClientDB schema', () => {
-    const schema = readRepoSource('client/src/core/indexedDB/passkeyClientDB/schema.ts');
+  test('durable nonce leases live in the canonical seams wallet schema', () => {
+    const schemaNames = readRepoSource('client/src/core/indexedDB/schemaNames.ts');
+    const repositories = readRepoSource(
+      'client/src/core/indexedDB/seamsWalletDB/repositories.ts',
+    );
     const managerAssembly = readRepoSource(
       'client/src/core/signingEngine/assembly/createManagers.ts',
     );
     const store = readRepoSource('client/src/core/indexedDB/nonceLaneCoordinationStore.ts');
 
-    expect(schema).toContain("nonceLaneLeasesStore: 'nonceLaneLeasesV1'");
-    expect(schema).toContain("nonceLaneLocksStore: 'nonceLaneLocksV1'");
-    const versionMatch = schema.match(/dbVersion:\s*(\d+)/);
-    expect(versionMatch?.[1]).toBeDefined();
-    expect(Number(versionMatch?.[1])).toBeGreaterThanOrEqual(32);
-    expect(schema).not.toContain("dbName: 'Nonce");
+    expect(schemaNames).toContain("nonceLaneLeases: 'nonce_lane_leases'");
+    expect(schemaNames).toContain("nonceLaneLocks: 'nonce_lane_locks'");
+    expect(repositories).toContain('SeamsWalletRepositories');
+    expect(repositories).toContain('readNonceLaneLeaseRecords');
+    expect(schemaNames).not.toContain('nonceLaneLeasesV1');
+    expect(schemaNames).not.toContain('nonceLaneLocksV1');
     expect(store).toContain('UnifiedIndexedDBManager');
     expect(store).not.toContain('indexedDB.open');
     expect(store).not.toContain('localStorage');

@@ -132,6 +132,24 @@ function makeService(): AuthService {
   });
 }
 
+async function seedCanonicalWallet(
+  service: AuthService,
+  walletId = 'alice.testnet',
+  rpId = 'localhost',
+): Promise<void> {
+  const walletStore = (service as any).getWalletStore();
+  const existing = await walletStore.getWallet({ walletId });
+  if (existing) return;
+  const nowMs = Date.now();
+  await walletStore.putSubject({
+    version: 'wallet_v1',
+    walletId,
+    rpId,
+    createdAtMs: nowMs,
+    updatedAtMs: nowMs,
+  });
+}
+
 function makeAppSessionAdapter(appSessionVersion: string) {
   return makeSessionAdapter({
     parse: async () => ({
@@ -193,7 +211,7 @@ function makeTokenBoundAppSessionAdapter(
       }
       if (
         claims.kind === 'threshold_ed25519_session_v1' ||
-        claims.kind === 'threshold_ecdsa_session_v1'
+        claims.kind === 'threshold_ecdsa_session_v2'
       ) {
         return {
           ok: true,
@@ -211,12 +229,14 @@ function makeTokenBoundAppSessionAdapter(
 
 function makeThresholdSessionClaims(overrides?: Record<string, unknown>): Record<string, unknown> {
   return {
-    kind: 'threshold_ecdsa_session_v1',
+    kind: 'threshold_ecdsa_session_v2',
     sub: 'alice.testnet',
     walletId: 'alice.testnet',
     sessionId: 'ecdsa-session-1',
     walletSigningSessionId: 'wallet-signing-session-1',
+    keyScope: 'evm-family',
     relayerKeyId: 'relayer-key-1',
+    keyHandle: 'ecdsa-key-handle-1',
     rpId: 'example.localhost',
     orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
     runtimePolicyScope: DEFAULT_RUNTIME_POLICY_SCOPE,
@@ -309,6 +329,7 @@ function makeSigningSessionStatusPolicy(args?: {
       curve: 'ecdsa' | 'ed25519';
       walletSigningSessionId: string;
     }) => {
+      args?.onStatusRead?.(`wallet-signing:${requestedWalletSigningSessionId}`);
       const walletStatus = statusById[`wallet-signing:${requestedWalletSigningSessionId}`] || null;
       return walletStatus?.kind === 'wallet_budget' ? walletStatus : null;
     },
@@ -369,10 +390,12 @@ function makeWebhookRecorder() {
 }
 
 async function enrollEmailOtpOverExpress(args: {
+  service: AuthService;
   baseUrl: string;
   authToken?: string;
   userId?: string;
 }): Promise<void> {
+  await seedCanonicalWallet(args.service);
   const authToken = args.authToken || 'app-session';
   const userId = args.userId || 'alice.testnet';
   const enrollChallenge = await fetchJson(
@@ -435,11 +458,13 @@ async function enrollEmailOtpOverExpress(args: {
 }
 
 async function enrollEmailOtpOverCloudflare(args: {
+  service: AuthService;
   handler: ReturnType<typeof createCloudflareRouter>;
   ctx: Awaited<ReturnType<typeof makeCfCtx>>['ctx'];
   authToken?: string;
   userId?: string;
 }): Promise<void> {
+  await seedCanonicalWallet(args.service);
   const authToken = args.authToken || 'app-session';
   const userId = args.userId || 'alice.testnet';
   const enrollChallenge = await callCf(args.handler, {
@@ -566,7 +591,7 @@ test.describe('Email OTP routes', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      await enrollEmailOtpOverExpress({ baseUrl: srv.baseUrl });
+      await enrollEmailOtpOverExpress({ service, baseUrl: srv.baseUrl });
       const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/recovery-challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
@@ -686,7 +711,7 @@ test.describe('Email OTP routes', () => {
       ),
     });
     const cf = makeCfCtx();
-    await enrollEmailOtpOverCloudflare({ handler, ctx: cf.ctx });
+    await enrollEmailOtpOverCloudflare({ service, handler, ctx: cf.ctx });
     const challenge = await callCf(handler, {
       method: 'POST',
       path: '/wallet/email-otp/recovery-challenge',
@@ -774,7 +799,7 @@ test.describe('Email OTP routes', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      await enrollEmailOtpOverExpress({ baseUrl: srv.baseUrl });
+      await enrollEmailOtpOverExpress({ service, baseUrl: srv.baseUrl });
       const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
@@ -910,7 +935,7 @@ test.describe('Email OTP routes', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      await enrollEmailOtpOverExpress({ baseUrl: srv.baseUrl });
+      await enrollEmailOtpOverExpress({ service, baseUrl: srv.baseUrl });
       const challenge = await fetchJson(
         `${srv.baseUrl}/wallet/email-otp/signing-session/challenge`,
         {
@@ -984,7 +1009,7 @@ test.describe('Email OTP routes', () => {
         operation: 'export_key',
         sourceIp: expect.any(String),
         appSessionVersion:
-          'signing-session:threshold_ecdsa_session_v1:wallet-signing-session-1:ecdsa-session-1',
+          'signing-session:threshold_ecdsa_session_v2:wallet-signing-session-1:ecdsa-session-1',
       });
       const issuedEvent = dispatched.find(
         (entry) => entry.eventType === 'wallet.email_otp.export_challenge_issued',
@@ -1039,6 +1064,7 @@ test.describe('Email OTP routes', () => {
     const srv = await startExpressRouter(router);
     try {
       await enrollEmailOtpOverExpress({
+        service,
         baseUrl: srv.baseUrl,
         authToken: 'google-app-session',
         userId: GOOGLE_EMAIL_OTP_USER_ID,
@@ -1208,7 +1234,7 @@ test.describe('Email OTP routes', () => {
     });
     const srv = await startExpressRouter(router);
     try {
-      await enrollEmailOtpOverExpress({ baseUrl: srv.baseUrl });
+      await enrollEmailOtpOverExpress({ service, baseUrl: srv.baseUrl });
       const appSessionAttempt = await fetchJson(
         `${srv.baseUrl}/wallet/email-otp/signing-session/challenge`,
         {
@@ -1343,7 +1369,6 @@ test.describe('Email OTP routes', () => {
       session: makeTokenBoundAppSessionAdapter({
         'app-session-before-refresh': {
           ...stableClaims,
-          googleEmailOtpRegistrationAttemptId: 'registration-attempt-before-refresh',
           googleEmailOtpResolutionMode: 'register_started',
           name: 'Alice Before Refresh',
           deviceId: 'device-before-refresh',
@@ -1353,7 +1378,6 @@ test.describe('Email OTP routes', () => {
         },
         'app-session-after-refresh': {
           ...stableClaims,
-          googleEmailOtpRegistrationAttemptId: 'registration-attempt-after-refresh',
           googleEmailOtpResolutionMode: 'existing_wallet',
           name: 'Alice After Refresh',
           deviceId: 'device-after-refresh',
@@ -1366,8 +1390,10 @@ test.describe('Email OTP routes', () => {
     const srv = await startExpressRouter(router);
     try {
       await enrollEmailOtpOverExpress({
+        service,
         baseUrl: srv.baseUrl,
         authToken: 'app-session-before-refresh',
+        userId: 'google:alice',
       });
       const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
         method: 'POST',
@@ -1500,6 +1526,7 @@ test.describe('Email OTP routes', () => {
     const srv = await startExpressRouter(router);
 
     try {
+      await seedCanonicalWallet(service);
       const enrollChallenge = await fetchJson(
         `${srv.baseUrl}/wallet/email-otp/registration/challenge`,
         {
@@ -1702,7 +1729,7 @@ test.describe('Email OTP routes', () => {
     const srv = await startExpressRouter(router);
 
     try {
-      await enrollEmailOtpOverExpress({ baseUrl: srv.baseUrl });
+      await enrollEmailOtpOverExpress({ service, baseUrl: srv.baseUrl });
 
       const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
         method: 'POST',
@@ -1789,7 +1816,7 @@ test.describe('Email OTP routes', () => {
     const srv = await startExpressRouter(router);
 
     try {
-      await enrollEmailOtpOverExpress({ baseUrl: srv.baseUrl });
+      await enrollEmailOtpOverExpress({ service, baseUrl: srv.baseUrl });
 
       const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
         method: 'POST',
@@ -1978,7 +2005,7 @@ test.describe('Email OTP routes', () => {
     const srv = await startExpressRouter(router);
 
     try {
-      await enrollEmailOtpOverExpress({ baseUrl: srv.baseUrl, authToken: 'app-session-enroll' });
+      await enrollEmailOtpOverExpress({ service, baseUrl: srv.baseUrl, authToken: 'app-session-enroll' });
 
       const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
         method: 'POST',
@@ -2052,7 +2079,7 @@ test.describe('Email OTP routes', () => {
     const srv = await startExpressRouter(router);
 
     try {
-      await enrollEmailOtpOverExpress({ baseUrl: srv.baseUrl });
+      await enrollEmailOtpOverExpress({ service, baseUrl: srv.baseUrl });
       const wrapped = makeWrappedCiphertext(encodePositiveBigIntB64u(31n));
       const unsealed = await fetchJson(`${srv.baseUrl}/wallet/email-otp/unseal`, {
         method: 'POST',
@@ -2080,6 +2107,7 @@ test.describe('Email OTP routes', () => {
     });
     const cf = makeCfCtx();
 
+    await seedCanonicalWallet(service);
     const enrollChallenge = await callCf(handler, {
       method: 'POST',
       path: '/wallet/email-otp/registration/challenge',
@@ -2270,7 +2298,7 @@ test.describe('Email OTP routes', () => {
     });
     const cf = makeCfCtx();
 
-    await enrollEmailOtpOverCloudflare({ handler, ctx: cf.ctx });
+    await enrollEmailOtpOverCloudflare({ service, handler, ctx: cf.ctx });
 
     const challenge = await callCf(handler, {
       method: 'POST',
@@ -2359,7 +2387,7 @@ test.describe('Email OTP routes', () => {
     });
     const cf = makeCfCtx();
 
-    await enrollEmailOtpOverCloudflare({ handler, ctx: cf.ctx });
+    await enrollEmailOtpOverCloudflare({ service, handler, ctx: cf.ctx });
 
     const challenge = await callCf(handler, {
       method: 'POST',
@@ -2558,6 +2586,7 @@ test.describe('Email OTP routes', () => {
     const cf = makeCfCtx();
 
     await enrollEmailOtpOverCloudflare({
+      service,
       handler,
       ctx: cf.ctx,
       authToken: 'app-session-enroll',
@@ -2627,7 +2656,7 @@ test.describe('Email OTP routes', () => {
     });
     const cf = makeCfCtx();
 
-    await enrollEmailOtpOverCloudflare({ handler, ctx: cf.ctx });
+    await enrollEmailOtpOverCloudflare({ service, handler, ctx: cf.ctx });
     const wrapped = makeWrappedCiphertext(encodePositiveBigIntB64u(37n));
     const unsealed = await callCf(handler, {
       method: 'POST',
@@ -2655,7 +2684,7 @@ test.describe('Email OTP routes', () => {
       }),
     );
     try {
-      await enrollEmailOtpOverExpress({ baseUrl: server.baseUrl });
+      await enrollEmailOtpOverExpress({ service, baseUrl: server.baseUrl });
       const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
       const current = await enrollmentStore.get('alice.testnet');
       expect(current).toBeTruthy();
@@ -2705,6 +2734,7 @@ test.describe('Email OTP routes', () => {
     );
     try {
       await enrollEmailOtpOverExpress({
+        service,
         baseUrl: server.baseUrl,
         userId: GOOGLE_EMAIL_OTP_USER_ID,
       });
@@ -2723,6 +2753,7 @@ test.describe('Email OTP routes', () => {
       });
 
       await enrollEmailOtpOverExpress({
+        service,
         baseUrl: server.baseUrl,
         userId: GOOGLE_EMAIL_OTP_USER_ID,
       });
@@ -2742,7 +2773,7 @@ test.describe('Email OTP routes', () => {
     });
     const cf = makeCfCtx();
 
-    await enrollEmailOtpOverCloudflare({ handler, ctx: cf.ctx });
+    await enrollEmailOtpOverCloudflare({ service, handler, ctx: cf.ctx });
     const enrollmentStore = (service as any).getEmailOtpWalletEnrollmentStore();
     const current = await enrollmentStore.get('alice.testnet');
     expect(current).toBeTruthy();
@@ -2785,6 +2816,7 @@ test.describe('Email OTP routes', () => {
     const cf = makeCfCtx();
 
     await enrollEmailOtpOverCloudflare({
+      service,
       handler,
       ctx: cf.ctx,
       userId: GOOGLE_EMAIL_OTP_USER_ID,
@@ -2804,6 +2836,7 @@ test.describe('Email OTP routes', () => {
     });
 
     await enrollEmailOtpOverCloudflare({
+      service,
       handler,
       ctx: cf.ctx,
       userId: GOOGLE_EMAIL_OTP_USER_ID,

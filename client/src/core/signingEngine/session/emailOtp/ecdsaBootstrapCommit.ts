@@ -1,4 +1,4 @@
-import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
+import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionStoreSource,
@@ -11,7 +11,6 @@ import {
   ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import { toAccountId } from '@/core/types/accountIds';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import { withThresholdEcdsaBootstrapQueue } from '../warmCapabilities/ecdsaBootstrapQueue';
 import {
@@ -132,13 +131,21 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
 
   return await withThresholdEcdsaBootstrapQueue(deps.queueByWallet, args.walletId, async () => {
     const canonicalBootstrap = canonicalizeWorkerProvisionedBootstrap(args.bootstrap);
-    const walletAccountId = toAccountId(args.walletId);
     await persistThresholdEcdsaBootstrapForWalletTarget({
       indexedDB: deps.indexedDB,
-      walletId: walletAccountId,
+      walletId: args.walletId,
       chainTarget: args.chainTarget,
       bootstrap: canonicalBootstrap,
-      ensureEmailOtpNearAccountMapping: args.source === SIGNER_AUTH_METHODS.emailOtp,
+      signerAuth:
+        args.source === 'email_otp'
+          ? {
+              authMethod: SIGNER_AUTH_METHODS.emailOtp,
+              signerSource: SIGNER_SOURCES.emailOtpRegistration,
+            }
+          : {
+              authMethod: SIGNER_AUTH_METHODS.passkey,
+              signerSource: SIGNER_SOURCES.passkeyRegistration,
+            },
     });
     if (args.source === 'email_otp') {
       upsertThresholdEcdsaSessionFromBootstrap(deps.ecdsaSessions, {

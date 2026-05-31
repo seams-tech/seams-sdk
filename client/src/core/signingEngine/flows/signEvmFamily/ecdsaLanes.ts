@@ -36,14 +36,13 @@ import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
-  type WalletSubjectId,
+  type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEcdsaSessionIdentity,
   tryBuildEcdsaSessionIdentity,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import {
-  deriveBaseEcdsaSubjectIdFromKey,
   type EvmFamilyEcdsaKeyIdentity,
   type ReadyEvmFamilyEcdsaMaterial,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
@@ -94,8 +93,8 @@ export function summarizeEvmFamilyEcdsaSessionRecord(
     signingRootVersion: recordSigning.signingRootVersion,
     remainingUses: record.remainingUses,
     expiresAtMs: record.expiresAtMs,
-    emailOtpRetention: record.emailOtpAuthContext?.retention,
-    emailOtpReason: record.emailOtpAuthContext?.reason,
+    emailOtpRetention: record.source === 'email_otp' ? record.emailOtpAuthContext.retention : null,
+    emailOtpReason: record.source === 'email_otp' ? record.emailOtpAuthContext.reason : null,
     thresholdSessionKind: record.thresholdSessionKind,
     hasThresholdSessionAuthToken: !!record.thresholdSessionAuthToken,
     hasRelayerKeyId: !!record.relayerKeyId,
@@ -211,7 +210,6 @@ export function requireResolvedEvmFamilyEcdsaSigningLane(args: {
   }
   if (
     !key ||
-    !deriveBaseEcdsaSubjectIdFromKey(key) ||
     String(key.walletId) !== String(lane.walletId) ||
     String(lane.keyHandle || '').trim() === ''
   ) {
@@ -386,12 +384,14 @@ export function buildEvmFamilyEcdsaSigningLaneContext(
       : buildEvmTransactionSigningLane;
 
   if (args.authMethod === SIGNER_AUTH_METHODS.emailOtp) {
+    const emailOtpAuthContext =
+      record?.source === 'email_otp' ? record.emailOtpAuthContext : null;
     const lane = buildLane({
       ...base,
       chainTarget: args.chainTarget,
       authMethod: SIGNER_AUTH_METHODS.emailOtp,
-      retention: record?.emailOtpAuthContext?.retention || 'session',
-      sessionOrigin: record?.emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
+      retention: emailOtpAuthContext?.retention || 'session',
+      sessionOrigin: emailOtpAuthContext?.reason === 'login' ? 'login' : 'per_operation',
     });
     return requireResolvedEvmFamilyEcdsaSigningLane({
       lane,
@@ -481,7 +481,6 @@ export function isEmailOtpThresholdEcdsaSigningContext(
   const record = args.record;
   return (
     record.source === SIGNER_AUTH_METHODS.emailOtp ||
-    record.emailOtpAuthContext?.authMethod === SIGNER_AUTH_METHODS.emailOtp ||
     record.clientAdditiveShareHandle?.kind === 'email_otp_worker_session'
   );
 }
@@ -508,15 +507,6 @@ export function emailOtpEcdsaAuthLaneFromRecord(
     curve: 'ecdsa',
     chainTarget: record.chainTarget,
   };
-}
-
-export function isSingleUseEmailOtpEcdsaRecord(
-  record: ThresholdEcdsaSessionRecord | null | undefined,
-): boolean {
-  return (
-    record?.source === SIGNER_AUTH_METHODS.emailOtp &&
-    record.emailOtpAuthContext?.retention === 'single_use'
-  );
 }
 
 function ecdsaMaterialSourceMatchesAuth(args: {

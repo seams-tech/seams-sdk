@@ -1,12 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { toAccountId } from '../../client/src/core/types/accountIds';
-import {
-  buildEcdsaMaterialStateForCandidate,
-} from '../../client/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState';
-import {
-  toWalletSubjectId,
-  type ThresholdEcdsaChainTarget,
-} from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import { buildEcdsaMaterialStateForCandidate } from '../../client/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState';
+import type { ThresholdEcdsaChainTarget } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaLaneCandidate } from '../../client/src/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionRecord } from '../../client/src/core/signingEngine/session/persistence/records';
 import {
@@ -37,7 +32,6 @@ function makeCandidate(): EcdsaLaneCandidate {
     walletId,
     key: buildEvmFamilyEcdsaKeyIdentity({
       walletId,
-      subjectId: toWalletSubjectId(walletId),
       rpId: 'example.localhost',
       ecdsaThresholdKeyId: 'ecdsa-key-1',
       signingRootId: 'root-1',

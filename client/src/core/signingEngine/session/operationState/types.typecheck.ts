@@ -75,6 +75,30 @@ const validEcdsaTransactionIntent: EvmFamilyEcdsaTransactionSigningIntent = {
 };
 void validEcdsaTransactionIntent;
 
+const validAuthNeutralEcdsaTransactionIntent: EvmFamilyEcdsaTransactionSigningIntent = {
+  walletId: ecdsaWalletId,
+  curve: 'ecdsa',
+  chain: 'evm',
+  chainTarget,
+  authSelectionPolicy: { kind: 'any' },
+  operationUsesNeeded: 1,
+};
+void validAuthNeutralEcdsaTransactionIntent;
+
+const invalidAuthNeutralEcdsaTransactionIntent: EvmFamilyEcdsaTransactionSigningIntent = {
+  walletId: ecdsaWalletId,
+  curve: 'ecdsa',
+  chain: 'evm',
+  chainTarget,
+  authSelectionPolicy: {
+    kind: 'any',
+    // @ts-expect-error auth-neutral selection cannot carry a concrete auth method.
+    authMethod: 'passkey',
+  },
+  operationUsesNeeded: 1,
+};
+void invalidAuthNeutralEcdsaTransactionIntent;
+
 const invalidEcdsaTransactionIntent: EvmFamilyEcdsaTransactionSigningIntent = {
   // @ts-expect-error ECDSA transaction intents require WalletId.
   walletId,

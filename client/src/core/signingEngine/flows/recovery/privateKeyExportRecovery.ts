@@ -5,7 +5,7 @@ import { getLastLoggedInSignerSlot } from '../../webauthnAuth/device/signerSlot'
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 type ExportScheme = 'ed25519' | 'secp256k1';
-type EcdsaHssExportArtifactKind = 'ecdsa-hss-secp256k1-key-v1';
+type EcdsaHssExportArtifactKind = 'ecdsa-hss-secp256k1-export';
 
 type ExportRecoveryErrorCode = 'SIGNER_EXPORT_WORKER_BOUNDARY_REQUIRED';
 type ExportRecoveryError = Error & { code: ExportRecoveryErrorCode };
@@ -85,7 +85,7 @@ export async function exportNearEd25519SeedArtifactWithUIWorkerDriven(
   }
 
   const resolvedTheme = args.options?.theme ?? deps.getTheme();
-  const signerSlot = await getLastLoggedInSignerSlot(accountId, deps.indexedDB.clientDB).catch(
+  const signerSlot = await getLastLoggedInSignerSlot(accountId, deps.indexedDB).catch(
     () => null as number | null,
   );
   if (signerSlot == null) {
@@ -170,7 +170,7 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
   }
   const requestExportPrivateKeysWithUi = deps.requestExportPrivateKeysWithUi;
   const resolvedTheme = args.options?.theme ?? deps.getTheme();
-  const signerSlot = await getLastLoggedInSignerSlot(accountId, deps.indexedDB.clientDB).catch(
+  const signerSlot = await getLastLoggedInSignerSlot(accountId, deps.indexedDB).catch(
     () => null as number | null,
   );
   if (signerSlot == null) {
@@ -181,7 +181,7 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
   const publicKeyHex = String(args.artifact.publicKeyHex || '').trim();
   const privateKeyHex = String(args.artifact.privateKeyHex || '').trim();
   const ethereumAddress = String(args.artifact.ethereumAddress || '').trim();
-  if (artifactKind !== 'ecdsa-hss-secp256k1-key-v1') {
+  if (artifactKind !== 'ecdsa-hss-secp256k1-export') {
     throw new Error('Missing or invalid ecdsa-hss export artifactKind');
   }
   if (!publicKeyHex || !privateKeyHex || !ethereumAddress) {

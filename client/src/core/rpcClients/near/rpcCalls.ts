@@ -18,6 +18,7 @@ import type { FinalExecutionOutcome } from '@near-js/types';
 import { TransactionContext } from '../../types/rpc';
 import { DEFAULT_WAIT_STATUS } from '../../types/rpc';
 import { errorMessage } from '@shared/utils/errors';
+import { secureRandomId } from '@shared/utils/secureRandomId';
 import { SENSITIVE_OPERATION_POLICIES } from '@shared/utils/signerDomain';
 import {
   joinNormalizedUrl,
@@ -495,10 +496,7 @@ export async function executeDeviceLinkingContractCalls({
       kind: 'transactionsWithActions',
       args: {
         nearAccount: nearAccountRefFromAccountId(device1AccountId),
-        sessionId:
-          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-            ? `link-device-${crypto.randomUUID()}`
-            : `link-device-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        sessionId: secureRandomId('link-device', 32, 'link device signing session IDs'),
         rpcCall: {
           nearRpcUrl: resolvePrimaryNearRpcUrl(
             context.signingEngine.seamsPasskeyConfigs.network.chains,

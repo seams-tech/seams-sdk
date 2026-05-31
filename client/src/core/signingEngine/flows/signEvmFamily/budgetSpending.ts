@@ -2,7 +2,7 @@ import { createSigningSessionBudgetFinalizer } from '../../session/budget/budget
 import { toAccountId } from '@/core/types/accountIds';
 import type {
   BudgetFinalizationSpend,
-  SigningSessionBudgetReservation,
+  SigningSessionBudgetReserveResult,
   SigningSessionBudgetStatusAuth,
   WalletBudgetSpend,
 } from '../../session/budget/budget';
@@ -48,6 +48,7 @@ function buildEvmFamilyBudgetFinalization(
     return {
       kind: 'zero_spend',
       operationId: args.operation.operationId,
+      operationFingerprint: args.operation.operationFingerprint,
       lane: args.finalizedSigningLane,
       reason: 'signing_failed',
       error: args.error,
@@ -96,6 +97,7 @@ function createEvmFamilyTransactionBudgetFinalizer(args: EvmFamilyWalletSigningS
   const resolvedIdentity = buildEcdsaSessionIdentity(selectedTransactionLane);
   return {
     finalizer: createSigningSessionBudgetFinalizer({
+      budgetMode: 'with_budget',
       signingSessionBudget: args.signingSessionCoordinator,
       budgetIdentity: args.admittedTransaction.budgetAdmission.budgetIdentity,
       finalization: buildEvmFamilyBudgetFinalization(args),
@@ -129,7 +131,7 @@ export async function recordSuccessfulEvmFamilyWalletSigningSessionSpend(
 
 export async function reserveEvmFamilyWalletSigningSessionBudget(
   args: EvmFamilyWalletSigningSessionBudgetArgs,
-): Promise<SigningSessionBudgetReservation | null> {
+): Promise<SigningSessionBudgetReserveResult> {
   const result = createEvmFamilyTransactionBudgetFinalizer(args);
   return await result.finalizer.reserve();
 }

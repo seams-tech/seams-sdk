@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type { NormalizedLogger } from '../../core/logger';
 import { getPostgresPool } from '../../storage/postgres';
 import {
@@ -16,10 +17,7 @@ import type {
   CreateConsoleSponsoredCallRecordRequest,
   ListConsoleSponsoredCallRecordsRequest,
 } from './types';
-import type {
-  ConsoleSponsoredCallContext,
-  ConsoleSponsoredCallService,
-} from './service';
+import type { ConsoleSponsoredCallContext, ConsoleSponsoredCallService } from './service';
 import { ConsoleSponsoredCallError } from './errors';
 
 type PgPool = Awaited<ReturnType<typeof getPostgresPool>>;
@@ -27,7 +25,9 @@ type Queryable = Pick<PgPool, 'query'>;
 type PgRow = Record<string, unknown>;
 
 const CONSOLE_SPONSORED_CALL_MIGRATION_LOCK_ID = 9452360123592;
-export const CONSOLE_SPONSORED_CALL_POSTGRES_RUNTIME = Symbol('consoleSponsoredCallPostgresRuntime');
+export const CONSOLE_SPONSORED_CALL_POSTGRES_RUNTIME = Symbol(
+  'consoleSponsoredCallPostgresRuntime',
+);
 
 export interface ConsoleSponsoredCallPostgresRuntime {
   pool: PgPool;
@@ -44,8 +44,9 @@ export function getConsoleSponsoredCallPostgresRuntime(
 ): ConsoleSponsoredCallPostgresRuntime | null {
   if (!service || typeof service !== 'object') return null;
   return (
-    (service as Partial<ConsoleSponsoredCallPostgresService>)[CONSOLE_SPONSORED_CALL_POSTGRES_RUNTIME] ||
-    null
+    (service as Partial<ConsoleSponsoredCallPostgresService>)[
+      CONSOLE_SPONSORED_CALL_POSTGRES_RUNTIME
+    ] || null
   );
 }
 
@@ -55,7 +56,7 @@ function nowMs(now: Date): number {
 
 function makeId(prefix: string, now: Date): string {
   const ts = now.getTime().toString(36);
-  const rand = Math.random().toString(36).slice(2, 10);
+  const rand = secureRandomBase36(8, 'console IDs');
   return `${prefix}_${ts}_${rand}`;
 }
 
@@ -77,19 +78,25 @@ function parseRecord(row: PgRow): ConsoleSponsoredCallRecord {
     orgId: String(row.org_id || ''),
     environmentId: String(row.environment_id || ''),
     apiKeyId: String(row.api_key_id || ''),
-    apiKeyKind: String(row.api_key_kind || 'publishable_key') as ConsoleSponsoredCallRecord['apiKeyKind'],
+    apiKeyKind: String(
+      row.api_key_kind || 'publishable_key',
+    ) as ConsoleSponsoredCallRecord['apiKeyKind'],
     route: String(row.route || ''),
     policyId: String(row.policy_id || ''),
     policyNameAtEvent: normalizeString(row.policy_name_at_event),
     templateId: normalizeString(row.template_id),
     chainFamily: String(row.chain_family || 'evm') as ConsoleSponsoredCallRecord['chainFamily'],
     intentKind: String(row.intent_kind || 'evm_call') as ConsoleSponsoredCallRecord['intentKind'],
-    executorKind: String(row.executor_kind || 'evm_eoa') as ConsoleSponsoredCallRecord['executorKind'],
+    executorKind: String(
+      row.executor_kind || 'evm_eoa',
+    ) as ConsoleSponsoredCallRecord['executorKind'],
     accountRef: String(row.account_ref || ''),
     targetRef: String(row.target_ref || ''),
     sponsorRef: String(row.sponsor_ref || ''),
     txOrExecutionRef: normalizeString(row.tx_or_execution_ref),
-    receiptStatus: String(row.receipt_status || 'rpc_rejected') as ConsoleSponsoredCallRecord['receiptStatus'],
+    receiptStatus: String(
+      row.receipt_status || 'rpc_rejected',
+    ) as ConsoleSponsoredCallRecord['receiptStatus'],
     feeUnit: String(row.fee_unit || 'wei') as ConsoleSponsoredCallRecord['feeUnit'],
     feeAmount: String(row.fee_amount || '0'),
     detailsJson: String(row.details_json || '{}'),
@@ -118,7 +125,9 @@ async function queryOne(q: Queryable, text: string, values: unknown[]): Promise<
 }
 
 function isUniqueViolation(error: unknown): boolean {
-  return Boolean(error && typeof error === 'object' && (error as { code?: unknown }).code === '23505');
+  return Boolean(
+    error && typeof error === 'object' && (error as { code?: unknown }).code === '23505',
+  );
 }
 
 const DEFAULT_LIST_LIMIT = 25;
@@ -137,12 +146,20 @@ function parseListCursor(cursor: string | undefined): { createdAtMs: number; id:
   if (!raw) return null;
   const separator = raw.indexOf(':');
   if (separator <= 0 || separator >= raw.length - 1) {
-    throw new ConsoleSponsoredCallError('invalid_query', 400, 'Invalid sponsored call cursor format');
+    throw new ConsoleSponsoredCallError(
+      'invalid_query',
+      400,
+      'Invalid sponsored call cursor format',
+    );
   }
   const createdAtMs = Number.parseInt(raw.slice(0, separator), 10);
   const id = raw.slice(separator + 1).trim();
   if (!Number.isFinite(createdAtMs) || !id) {
-    throw new ConsoleSponsoredCallError('invalid_query', 400, 'Invalid sponsored call cursor format');
+    throw new ConsoleSponsoredCallError(
+      'invalid_query',
+      400,
+      'Invalid sponsored call cursor format',
+    );
   }
   return { createdAtMs, id };
 }
@@ -212,10 +229,14 @@ export async function ensureConsoleSponsoredCallPostgresSchema(
       ALTER INDEX IF EXISTS console_sponsored_call_source_event_idx
       RENAME TO console_sponsored_call_idempotency_key_idx
     `);
-    await pool.query(`
+    await pool
+      .query(
+        `
       ALTER TABLE console_sponsored_call_records
       RENAME COLUMN source_event_id TO idempotency_key
-    `).catch(() => {});
+    `,
+      )
+      .catch(() => {});
     await pool.query(`
       CREATE TABLE IF NOT EXISTS console_sponsored_call_records (
         namespace TEXT NOT NULL,
@@ -403,7 +424,9 @@ export async function ensureConsoleSponsoredCallPostgresSchema(
       ],
     );
     const legacyColumns = new Set(
-      legacyColumnsResult.rows.map((row) => String((row as { column_name?: unknown }).column_name || '')),
+      legacyColumnsResult.rows.map((row) =>
+        String((row as { column_name?: unknown }).column_name || ''),
+      ),
     );
     if (legacyColumns.has('sponsorship_config_id')) {
       await pool.query(`
@@ -592,12 +615,15 @@ export async function createPostgresConsoleSponsoredCallService(
 
   const service: ConsoleSponsoredCallPostgresService = {
     async getOverviewSummary(ctx): Promise<ConsoleSponsoredCallOverviewSummary> {
-      return await withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, async (tx: Queryable) => {
-        const trailing30MinCreatedAtMs = now().getTime() - 30 * 24 * 60 * 60 * 1000;
-        const trailing90MinCreatedAtMs = now().getTime() - 90 * 24 * 60 * 60 * 1000;
-        const row = await queryOne(
-          tx,
-          `
+      return await withConsoleTenantContextTx(
+        pool,
+        { namespace, orgId: ctx.orgId },
+        async (tx: Queryable) => {
+          const trailing30MinCreatedAtMs = now().getTime() - 30 * 24 * 60 * 60 * 1000;
+          const trailing90MinCreatedAtMs = now().getTime() - 90 * 24 * 60 * 60 * 1000;
+          const row = await queryOne(
+            tx,
+            `
             SELECT
               COALESCE(COUNT(*) FILTER (WHERE charged AND created_at_ms >= $3), 0)::BIGINT AS trailing_30_count,
               COALESCE(SUM(CASE WHEN charged AND created_at_ms >= $3 THEN COALESCE(settled_spend_minor, 0) ELSE 0 END), 0)::BIGINT AS trailing_30_spend_minor,
@@ -608,87 +634,98 @@ export async function createPostgresConsoleSponsoredCallService(
               AND org_id = $2
               AND created_at_ms >= $4
           `,
-          [namespace, ctx.orgId, trailing30MinCreatedAtMs, trailing90MinCreatedAtMs],
-        );
-        return {
-          trailing30Days: {
-            lookbackDays: 30,
-            chargedExecutionCount: Math.max(0, toNumber(row?.trailing_30_count)),
-            chargedSettledSpendMinor: Math.max(0, toNumber(row?.trailing_30_spend_minor)),
-          },
-          trailing90Days: {
-            lookbackDays: 90,
-            chargedExecutionCount: Math.max(0, toNumber(row?.trailing_90_count)),
-            chargedSettledSpendMinor: Math.max(0, toNumber(row?.trailing_90_spend_minor)),
-          },
-        };
-      });
+            [namespace, ctx.orgId, trailing30MinCreatedAtMs, trailing90MinCreatedAtMs],
+          );
+          return {
+            trailing30Days: {
+              lookbackDays: 30,
+              chargedExecutionCount: Math.max(0, toNumber(row?.trailing_30_count)),
+              chargedSettledSpendMinor: Math.max(0, toNumber(row?.trailing_30_spend_minor)),
+            },
+            trailing90Days: {
+              lookbackDays: 90,
+              chargedExecutionCount: Math.max(0, toNumber(row?.trailing_90_count)),
+              chargedSettledSpendMinor: Math.max(0, toNumber(row?.trailing_90_spend_minor)),
+            },
+          };
+        },
+      );
     },
 
     async listRecords(ctx, request = {}): Promise<ConsoleSponsoredCallRecordPage> {
       const normalized = normalizeListRequest(request);
-      return await withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, async (tx: Queryable) => {
-        const values: unknown[] = [namespace, ctx.orgId];
-        const whereClauses = ['namespace = $1', 'org_id = $2'];
-        const minCreatedAtMs = now().getTime() - normalized.lookbackDays * 24 * 60 * 60 * 1000;
-        values.push(minCreatedAtMs);
-        whereClauses.push(`created_at_ms >= $${values.length}`);
-        if (normalized.environmentId) {
-          values.push(normalized.environmentId);
-          whereClauses.push(`environment_id = $${values.length}`);
-        }
-        if (normalized.policyId) {
-          values.push(normalized.policyId);
-          whereClauses.push(`policy_id = $${values.length}`);
-        }
-        if (normalized.chainFamily) {
-          values.push(normalized.chainFamily);
-          whereClauses.push(`chain_family = $${values.length}`);
-        }
-        if (normalized.receiptStatus) {
-          values.push(normalized.receiptStatus);
-          whereClauses.push(`receipt_status = $${values.length}`);
-        }
-        if (normalized.charged !== undefined) {
-          values.push(normalized.charged);
-          whereClauses.push(`charged = $${values.length}`);
-        }
-        if (normalized.cursor) {
-          values.push(normalized.cursor.createdAtMs, normalized.cursor.id);
-          whereClauses.push(
-            `(created_at_ms < $${values.length - 1} OR (created_at_ms = $${values.length - 1} AND id < $${values.length}))`,
-          );
-        }
-        values.push(normalized.limit + 1);
-        const result = await tx.query(
-          `
+      return await withConsoleTenantContextTx(
+        pool,
+        { namespace, orgId: ctx.orgId },
+        async (tx: Queryable) => {
+          const values: unknown[] = [namespace, ctx.orgId];
+          const whereClauses = ['namespace = $1', 'org_id = $2'];
+          const minCreatedAtMs = now().getTime() - normalized.lookbackDays * 24 * 60 * 60 * 1000;
+          values.push(minCreatedAtMs);
+          whereClauses.push(`created_at_ms >= $${values.length}`);
+          if (normalized.environmentId) {
+            values.push(normalized.environmentId);
+            whereClauses.push(`environment_id = $${values.length}`);
+          }
+          if (normalized.policyId) {
+            values.push(normalized.policyId);
+            whereClauses.push(`policy_id = $${values.length}`);
+          }
+          if (normalized.chainFamily) {
+            values.push(normalized.chainFamily);
+            whereClauses.push(`chain_family = $${values.length}`);
+          }
+          if (normalized.receiptStatus) {
+            values.push(normalized.receiptStatus);
+            whereClauses.push(`receipt_status = $${values.length}`);
+          }
+          if (normalized.charged !== undefined) {
+            values.push(normalized.charged);
+            whereClauses.push(`charged = $${values.length}`);
+          }
+          if (normalized.cursor) {
+            values.push(normalized.cursor.createdAtMs, normalized.cursor.id);
+            whereClauses.push(
+              `(created_at_ms < $${values.length - 1} OR (created_at_ms = $${values.length - 1} AND id < $${values.length}))`,
+            );
+          }
+          values.push(normalized.limit + 1);
+          const result = await tx.query(
+            `
             SELECT *
             FROM console_sponsored_call_records
             WHERE ${whereClauses.join(' AND ')}
             ORDER BY created_at_ms DESC, id DESC
             LIMIT $${values.length}
           `,
-          values,
-        );
-        const rows = (result.rows as PgRow[]).map(parseRecord);
-        const items = rows.slice(0, normalized.limit);
-        return {
-          items,
-          nextCursor:
-            rows.length > normalized.limit && items.length > 0
-              ? buildListCursor(items[items.length - 1]!)
-              : null,
-        };
-      });
+            values,
+          );
+          const rows = (result.rows as PgRow[]).map(parseRecord);
+          const items = rows.slice(0, normalized.limit);
+          return {
+            items,
+            nextCursor:
+              rows.length > normalized.limit && items.length > 0
+                ? buildListCursor(items[items.length - 1]!)
+                : null,
+          };
+        },
+      );
     },
 
-    async getRecordByIdempotencyKey(ctx, idempotencyKey): Promise<ConsoleSponsoredCallRecord | null> {
+    async getRecordByIdempotencyKey(
+      ctx,
+      idempotencyKey,
+    ): Promise<ConsoleSponsoredCallRecord | null> {
       const normalized = normalizeString(idempotencyKey);
       if (!normalized) return null;
-      return await withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, async (tx: Queryable) => {
-        const row = await queryOne(
-          tx,
-          `
+      return await withConsoleTenantContextTx(
+        pool,
+        { namespace, orgId: ctx.orgId },
+        async (tx: Queryable) => {
+          const row = await queryOne(
+            tx,
+            `
             SELECT *
             FROM console_sponsored_call_records
             WHERE namespace = $1
@@ -696,20 +733,24 @@ export async function createPostgresConsoleSponsoredCallService(
               AND idempotency_key = $3
             LIMIT 1
           `,
-          [namespace, ctx.orgId, normalized],
-        );
-        return row ? parseRecord(row) : null;
-      });
+            [namespace, ctx.orgId, normalized],
+          );
+          return row ? parseRecord(row) : null;
+        },
+      );
     },
 
     async createRecord(ctx, request): Promise<ConsoleSponsoredCallRecord> {
-      return await withConsoleTenantContextTx(pool, { namespace, orgId: ctx.orgId }, async (tx: Queryable) =>
-        createConsoleSponsoredCallRecordTx(tx, {
-          namespace,
-          ctx,
-          now,
-          request,
-        }),
+      return await withConsoleTenantContextTx(
+        pool,
+        { namespace, orgId: ctx.orgId },
+        async (tx: Queryable) =>
+          createConsoleSponsoredCallRecordTx(tx, {
+            namespace,
+            ctx,
+            now,
+            request,
+          }),
       );
     },
     [CONSOLE_SPONSORED_CALL_POSTGRES_RUNTIME]: runtime,

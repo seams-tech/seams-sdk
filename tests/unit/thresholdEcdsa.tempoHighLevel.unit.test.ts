@@ -348,11 +348,9 @@ async function exportEcdsaAddressWithExistingPasskey(
             };
       await existingPm.keys.exportKeypairWithUI({
         kind: 'ecdsa',
-        subjectId: input.accountId,
         chainTarget,
         walletSession: {
           walletId: input.accountId,
-          walletSessionUserId: input.accountId,
         },
         options: { variant: 'drawer' },
       });

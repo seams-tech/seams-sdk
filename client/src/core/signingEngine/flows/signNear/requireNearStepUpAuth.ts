@@ -51,7 +51,7 @@ export type NearPreparedStepUpAuth =
 export async function requireNearStepUpAuth(args: {
   signingAuthPlan: SigningAuthPlan;
   signingLane: NearTransactionSigningLane;
-  usesNeeded: number;
+  requiredSignatureUses: number;
   emailOtpSigning?: NearEmailOtpSigningHook;
   passkeyEd25519Reconnect?: NearPasskeyEd25519ReconnectHook;
 }): Promise<NearPreparedStepUpAuth> {
@@ -66,7 +66,7 @@ export async function requireNearStepUpAuth(args: {
   const prepared = await prepareStepUpAuth({
     operation: {
       kind: 'near_ed25519_step_up' as const,
-      usesNeeded: args.usesNeeded,
+      requiredSignatureUses: args.requiredSignatureUses,
     },
     selectedLane: { authMethod: args.signingLane.authMethod },
     policy: stepUpPolicyFromSigningAuthPlan(args.signingAuthPlan),
@@ -75,10 +75,16 @@ export async function requireNearStepUpAuth(args: {
         ? {
             emailOtp: {
               method: 'email_otp' as const,
-              prepareChallenge: async () => await args.emailOtpSigning!.prepare(),
+              prepareChallenge: async () =>
+                await args.emailOtpSigning!.prepare({
+                  requiredSignatureUses: args.requiredSignatureUses,
+                }),
               ...(args.emailOtpSigning.resend
                 ? {
-                    resendChallenge: async () => await args.emailOtpSigning!.resend!(),
+                    resendChallenge: async () =>
+                      await args.emailOtpSigning!.resend!({
+                        requiredSignatureUses: args.requiredSignatureUses,
+                      }),
                   }
                 : {}),
               complete: async ({ confirmation, prompt }) =>
@@ -105,7 +111,7 @@ export async function requireNearStepUpAuth(args: {
             throw new Error('[SigningEngine][near] passkey reconnect runner is unavailable');
           }
           plannedPasskeyReconnect = await args.passkeyEd25519Reconnect.prepare({
-            usesNeeded: args.usesNeeded,
+            requiredSignatureUses: args.requiredSignatureUses,
           });
           return {};
         },
@@ -125,7 +131,7 @@ export async function requireNearStepUpAuth(args: {
               credential: confirmation.credential,
               plannedPasskeyReconnect: requirePlannedPasskeyReconnect(plannedPasskeyReconnect),
             },
-            usesNeeded: args.usesNeeded,
+            requiredSignatureUses: args.requiredSignatureUses,
           });
         },
       },

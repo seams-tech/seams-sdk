@@ -1,3 +1,4 @@
+import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type { NormalizedLogger } from '../../core/logger';
 import { getPostgresPool } from '../../storage/postgres';
 import {
@@ -143,11 +144,11 @@ function parseOutboxEventRow(row: PgRow): ConsoleRuntimeSnapshotOutboxEvent {
 }
 
 function makeSnapshotId(now: Date): string {
-  return `runtime_snapshot_${now.getTime().toString(36)}_${Math.random().toString(16).slice(2, 10)}`;
+  return `runtime_snapshot_${now.getTime().toString(36)}_${secureRandomBase36(8, 'console IDs')}`;
 }
 
 function makeOutboxEventId(now: Date): string {
-  return `runtime_snapshot_event_${now.getTime().toString(36)}_${Math.random().toString(16).slice(2, 10)}`;
+  return `runtime_snapshot_event_${now.getTime().toString(36)}_${secureRandomBase36(8, 'console IDs')}`;
 }
 
 function readEffectiveAtMs(input: string | undefined, fallback: Date): number {
@@ -304,8 +305,7 @@ export interface PostgresConsoleRuntimeSnapshotOutboxDispatchResult {
   }>;
 }
 
-export interface PostgresConsoleRuntimeSnapshotRetentionCleanupOptions
-  extends PostgresConsoleRuntimeSnapshotSchemaOptions {
+export interface PostgresConsoleRuntimeSnapshotRetentionCleanupOptions extends PostgresConsoleRuntimeSnapshotSchemaOptions {
   namespace?: string;
   orgId: string;
   ensureSchema?: boolean;

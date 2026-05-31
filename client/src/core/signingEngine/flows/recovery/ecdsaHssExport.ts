@@ -1,22 +1,27 @@
 import { thresholdEcdsaHssRoleLocalExportShare } from '@/core/rpcClients/relayer/thresholdEcdsa';
-import { walletSubjectIdFromWalletProfile } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
   toEcdsaHssSigningRootId,
   toEcdsaHssSigningRootVersion,
   toEcdsaHssThresholdKeyId,
-  toWalletSessionUserId,
 } from '../../session/identity/emailOtpHssIdentity';
-import type { ReadyEcdsaSignerSession } from '../../session/identity/evmFamilyEcdsaIdentity';
+import {
+  toRpId,
+  type ReadyEcdsaSignerSession,
+} from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
+import { parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial } from '@/core/platform/ecdsaRoleLocalRecords';
 import { buildThresholdEcdsaHssRoleLocalExportArtifactWasm } from '../../threshold/crypto/hssClientSignerWasm';
+import { resolveThresholdEcdsaClientRootShare } from '../../threshold/ecdsa/clientSecretSource';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 
 const ECDSA_HSS_EXPORT_CONFIRMATION_DIGEST_VERSION =
-  'ecdsa-hss:role-local:product-export-confirmation:v1';
+  'ecdsa-hss:role-local:product-export-confirmation:v2';
 const ECDSA_HSS_EXPORT_AUTHORIZATION_DIGEST_VERSION =
-  'ecdsa-hss:role-local:product-export-authorization:v1';
+  'ecdsa-hss:role-local:product-export-authorization:v2';
 const ECDSA_HSS_EXPORT_AUTH_TTL_MS = 60_000;
 const ECDSA_HSS_KEY_PURPOSE = 'evm-signing';
 const ECDSA_HSS_KEY_VERSION = 'v1';
@@ -45,7 +50,7 @@ export async function exportEcdsaHssKeyWithThresholdSession(
     rpId: string;
     signerSession: ReadyEcdsaSignerSession;
     record: ThresholdEcdsaSessionRecord;
-    clientRootShare32B64u: string;
+    credential: WebAuthnAuthenticationCredential;
   },
 ): Promise<{
   publicKeyHex: string;
@@ -60,10 +65,7 @@ export async function exportEcdsaHssKeyWithThresholdSession(
       : '';
   const relayerUrl = String(signerTransport.relayerUrl || '').trim();
   const keyHandle = String(args.signerSession.publicFacts.keyHandle || '').trim();
-  const walletSessionUserId = toWalletSessionUserId(args.walletSessionUserId);
-  const subjectId = walletSubjectIdFromWalletProfile({
-    walletId: args.walletSessionUserId,
-  });
+  const walletId = toWalletId(args.walletSessionUserId);
   const sessionKind =
     signerTransportAuth.kind === 'cookie_threshold_session_auth' ? 'cookie' : 'jwt';
   if (!relayerUrl || !keyHandle || (!thresholdSessionAuthToken && sessionKind !== 'cookie')) {
@@ -72,9 +74,14 @@ export async function exportEcdsaHssKeyWithThresholdSession(
     );
   }
 
-  const roleLocalState = args.record.ecdsaHssRoleLocalClientState;
-  if (!roleLocalState) {
-    throw new Error('Threshold ECDSA export requires role-local HSS client state');
+  const roleLocalMaterial = parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(args.record);
+  const clientRoot = await resolveThresholdEcdsaClientRootShare({
+    kind: 'provided_webauthn_prf_credential',
+    credential: args.credential,
+    rpId: args.rpId,
+  });
+  if (!clientRoot.ok) {
+    throw new Error(clientRoot.message);
   }
   const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId(args.record.ecdsaThresholdKeyId);
   const signingRootId = toEcdsaHssSigningRootId(args.record.signingRootId);
@@ -91,20 +98,20 @@ export async function exportEcdsaHssKeyWithThresholdSession(
   }
 
   const publicIdentity = {
-    clientPublicKey33B64u: roleLocalState.clientPublicKey33B64u,
-    relayerPublicKey33B64u: roleLocalState.relayerPublicKey33B64u,
-    groupPublicKey33B64u: roleLocalState.groupPublicKey33B64u,
-    ethereumAddress: roleLocalState.ethereumAddress,
+    hssClientSharePublicKey33B64u:
+      roleLocalMaterial.readyRecord.publicFacts.hssClientSharePublicKey33B64u,
+    relayerPublicKey33B64u: roleLocalMaterial.readyRecord.publicFacts.relayerPublicKey33B64u,
+    groupPublicKey33B64u: roleLocalMaterial.readyRecord.publicFacts.groupPublicKey33B64u,
+    ethereumAddress: roleLocalMaterial.readyRecord.publicFacts.ethereumAddress,
   };
   const exportRequestNonce32B64u = randomB64u32();
   const confirmationDigest32B64u = await digestB64u({
     version: ECDSA_HSS_EXPORT_CONFIRMATION_DIGEST_VERSION,
-    walletSessionUserId,
+    walletId,
     rpId: args.rpId,
-    subjectId,
     ecdsaThresholdKeyId,
     relayerKeyId: signerTransport.relayerKeyId,
-    contextBinding32B64u: roleLocalState.contextBinding32B64u,
+    contextBinding32B64u: roleLocalMaterial.contextBinding32B64u,
     publicIdentity,
     clientDeviceId: String(args.signerSession.session.walletSigningSessionId),
     clientSessionId: String(args.signerSession.session.thresholdSessionId),
@@ -116,14 +123,13 @@ export async function exportEcdsaHssKeyWithThresholdSession(
     version: ECDSA_HSS_EXPORT_AUTHORIZATION_DIGEST_VERSION,
     operation: 'explicit_key_export',
     keyHandle,
-    walletSessionUserId,
+    walletId,
     rpId: args.rpId,
-    subjectId,
     ecdsaThresholdKeyId,
     relayerKeyId: signerTransport.relayerKeyId,
     signingRootId,
     signingRootVersion,
-    contextBinding32B64u: roleLocalState.contextBinding32B64u,
+    contextBinding32B64u: roleLocalMaterial.contextBinding32B64u,
     publicIdentity,
     exportRequestNonce32B64u,
     confirmationDigest32B64u,
@@ -139,12 +145,11 @@ export async function exportEcdsaHssKeyWithThresholdSession(
 
   const exportShare = await thresholdEcdsaHssRoleLocalExportShare(relayerUrl, {
     formatVersion: 'ecdsa-hss-role-local-export',
-    walletSessionUserId,
+    walletId,
     rpId: args.rpId,
-    subjectId,
     ecdsaThresholdKeyId,
     relayerKeyId: signerTransport.relayerKeyId,
-    contextBinding32B64u: roleLocalState.contextBinding32B64u,
+    contextBinding32B64u: roleLocalMaterial.contextBinding32B64u,
     publicIdentity,
     exportRequestNonce32B64u,
     confirmationDigest32B64u,
@@ -165,21 +170,25 @@ export async function exportEcdsaHssKeyWithThresholdSession(
     );
   }
 
-  return await buildThresholdEcdsaHssRoleLocalExportArtifactWasm({
-    context: {
-      walletSessionUserId,
-      subjectId,
-      ecdsaThresholdKeyId,
-      signingRootId,
-      signingRootVersion,
-      keyPurpose: ECDSA_HSS_KEY_PURPOSE,
-      keyVersion: ECDSA_HSS_KEY_VERSION,
-    },
-    clientRootShare32B64u: args.clientRootShare32B64u,
-    serverExportShare32B64u: exportShare.value.serverExportShare32B64u,
-    contextBinding32B64u: roleLocalState.contextBinding32B64u,
-    publicIdentity: exportShare.value.publicIdentity,
-    clientShareRetryCounter: roleLocalState.clientShareRetryCounter,
-    workerCtx: deps.getSignerWorkerContext(),
-  });
+  try {
+    return await buildThresholdEcdsaHssRoleLocalExportArtifactWasm({
+      context: {
+        walletId,
+        rpId: toRpId(args.rpId),
+        ecdsaThresholdKeyId,
+        signingRootId,
+        signingRootVersion,
+        keyPurpose: ECDSA_HSS_KEY_PURPOSE,
+        keyVersion: ECDSA_HSS_KEY_VERSION,
+      },
+      clientRootShare32: clientRoot.clientRootShare32,
+      serverExportShare32B64u: exportShare.value.serverExportShare32B64u,
+      contextBinding32B64u: roleLocalMaterial.contextBinding32B64u,
+      publicIdentity: exportShare.value.publicIdentity,
+      clientShareRetryCounter: roleLocalMaterial.clientShareRetryCounter,
+      workerCtx: deps.getSignerWorkerContext(),
+    });
+  } finally {
+    clientRoot.clientRootShare32.fill(0);
+  }
 }

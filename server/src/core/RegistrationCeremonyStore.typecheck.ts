@@ -1,11 +1,15 @@
 import {
+  addAuthMethodIntentGrantFromString,
   registrationIntentGrantFromString,
-  walletSubjectIdFromString,
+  walletIdFromString,
+  type AddAuthMethodIntentV1,
   type RegistrationIntentV1,
 } from '@shared/utils/registrationIntent';
 import type {
+  ConsumedAddAuthMethodIntent,
   ConsumedRegistrationIntent,
   FailedRegistrationIntent,
+  StoredAddAuthMethodIntent,
   StoredEcdsaRegistrationCompleted,
   StoredEcdsaRegistrationPrepared,
   StoredEcdsaRegistrationResponded,
@@ -14,6 +18,7 @@ import type {
   StoredEd25519RegistrationPrepared,
   StoredEd25519RegistrationResponded,
   StoredRegistrationIntent,
+  StoredWalletAddAuthMethodCeremony,
   StoredWalletRegistrationFailed,
   StoredWalletRegistrationCeremony,
 } from './RegistrationCeremonyStore';
@@ -22,11 +27,16 @@ import type {
   WalletRegistrationEcdsaPreparePayload,
   WalletRegistrationEcdsaWalletKey,
 } from './types';
+import type {
+  EcdsaHssClientSharePublicKey33B64u,
+  EcdsaRelayerHssPublicKey33B64u,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 
 const intent = {
   version: 'registration_intent_v1',
-  walletSubjectId: walletSubjectIdFromString('wallet_alice'),
+  walletId: walletIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
+  authMethod: { kind: 'passkey' },
   signerSelection: {
     mode: 'ed25519_only',
     ed25519: {
@@ -41,6 +51,16 @@ const intent = {
   },
   nonceB64u: 'nonce',
 } satisfies RegistrationIntentV1;
+
+const passkeyAuthority = {
+  kind: 'passkey',
+  walletId: intent.walletId,
+  rpId: intent.rpId,
+  credentialIdB64u: 'credential',
+  credentialPublicKeyB64u: 'public-key',
+  counter: 0,
+  registrationIntentDigestB64u: 'digest',
+} as const;
 
 const preparedSession = {
   contextBindingB64u: 'context',
@@ -62,6 +82,31 @@ const allocatedIntent = {
   expiresAtMs: 1,
 } satisfies StoredRegistrationIntent;
 void allocatedIntent;
+
+const addAuthMethodIntent = {
+  version: 'add_auth_method_intent_v1',
+  walletId: walletIdFromString('wallet_alice'),
+  rpId: 'wallet.example.test',
+  authMethod: { kind: 'passkey' },
+  nonceB64u: 'nonce',
+} satisfies AddAuthMethodIntentV1;
+
+const allocatedAddAuthMethodIntent = {
+  kind: 'add_auth_method_intent_allocated',
+  grant: addAuthMethodIntentGrantFromString('waig_123'),
+  intent: addAuthMethodIntent,
+  digestB64u: 'digest',
+  orgId: 'org',
+  expiresAtMs: 1,
+} satisfies StoredAddAuthMethodIntent;
+void allocatedAddAuthMethodIntent;
+
+const consumedAddAuthMethodIntent = {
+  ...allocatedAddAuthMethodIntent,
+  kind: 'add_auth_method_intent_consumed',
+  consumedAtMs: 2,
+} satisfies ConsumedAddAuthMethodIntent;
+void consumedAddAuthMethodIntent;
 
 const consumedIntent = {
   ...allocatedIntent,
@@ -109,7 +154,7 @@ const completedEd25519 = {
   ...respondedEd25519,
   kind: 'ed25519_completed',
   completedAtMs: 3,
-  walletSubjectId: intent.walletSubjectId,
+  walletId: intent.walletId,
 } satisfies StoredEd25519RegistrationCompleted;
 
 const failedRegistration = {
@@ -126,9 +171,8 @@ const ecdsaPrepare = {
   chainTargets: [ecdsaChainTarget],
   prepare: {
     formatVersion: 'ecdsa-hss-role-local',
-    walletSessionUserId: String(intent.walletSubjectId),
+    walletId: String(intent.walletId),
     rpId: intent.rpId,
-    subjectId: String(intent.walletSubjectId),
     ecdsaThresholdKeyId: 'ek_registration',
     signingRootId: 'project:env',
     signingRootVersion: 'default',
@@ -145,15 +189,15 @@ const ecdsaPrepare = {
 
 const ecdsaBootstrap = {
   formatVersion: 'ecdsa-hss-role-local',
-  walletSessionUserId: String(intent.walletSubjectId),
+  walletId: String(intent.walletId),
   rpId: intent.rpId,
-  subjectId: String(intent.walletSubjectId),
   ecdsaThresholdKeyId: 'ek_registration',
   relayerKeyId: 'rk_registration',
   contextBinding32B64u: 'context',
   publicIdentity: {
-    clientPublicKey33B64u: 'client-public',
-    relayerPublicKey33B64u: 'relayer-public',
+    hssClientSharePublicKey33B64u:
+      'client-public' as EcdsaHssClientSharePublicKey33B64u,
+    relayerPublicKey33B64u: 'relayer-public' as EcdsaRelayerHssPublicKey33B64u,
     groupPublicKey33B64u: 'group-public',
     ethereumAddress: '0x0000000000000000000000000000000000000001',
   },
@@ -175,9 +219,8 @@ const ecdsaBootstrap = {
 const ecdsaWalletKey = {
   keyScope: 'evm-family',
   chainTarget: ecdsaChainTarget,
-  walletSessionUserId: String(intent.walletSubjectId),
+  walletId: String(intent.walletId),
   rpId: intent.rpId,
-  subjectId: String(intent.walletSubjectId),
   keyHandle: 'key-handle',
   ecdsaThresholdKeyId: 'ek_registration',
   signingRootId: 'project:env',
@@ -210,7 +253,7 @@ const completedEcdsa = {
   kind: 'ecdsa_completed',
   responded: respondedEcdsa.responded,
   completedAtMs: 3,
-  walletSubjectId: intent.walletSubjectId,
+  walletId: intent.walletId,
   walletKeys: [ecdsaWalletKey],
 } satisfies StoredEcdsaRegistrationCompleted;
 
@@ -220,11 +263,7 @@ void ({
   digestB64u: 'digest',
   orgId: 'org',
   expiresAtMs: 1,
-  webauthn: {
-    credentialIdB64u: 'credential',
-    credentialPublicKeyB64u: 'public-key',
-    counter: 0,
-  },
+  authority: passkeyAuthority,
   signerState: preparedEd25519,
 } satisfies StoredWalletRegistrationCeremony);
 
@@ -234,11 +273,7 @@ void ({
   digestB64u: 'digest',
   orgId: 'org',
   expiresAtMs: 1,
-  webauthn: {
-    credentialIdB64u: 'credential',
-    credentialPublicKeyB64u: 'public-key',
-    counter: 0,
-  },
+  authority: passkeyAuthority,
   signerState: respondedEd25519,
 } satisfies StoredWalletRegistrationCeremony);
 
@@ -249,11 +284,7 @@ for (const signerState of [finalizingEd25519, completedEd25519, failedRegistrati
     digestB64u: 'digest',
     orgId: 'org',
     expiresAtMs: 1,
-    webauthn: {
-      credentialIdB64u: 'credential',
-      credentialPublicKeyB64u: 'public-key',
-      counter: 0,
-    },
+    authority: passkeyAuthority,
     signerState,
   } satisfies StoredWalletRegistrationCeremony);
 }
@@ -265,20 +296,35 @@ for (const signerState of [preparedEcdsa, respondedEcdsa, completedEcdsa]) {
     digestB64u: 'digest',
     orgId: 'org',
     expiresAtMs: 1,
-    webauthn: {
-      credentialIdB64u: 'credential',
-      credentialPublicKeyB64u: 'public-key',
-      counter: 0,
-    },
+    authority: passkeyAuthority,
     signerState,
   } satisfies StoredWalletRegistrationCeremony);
 }
+
+void ({
+  addAuthMethodCeremonyId: 'wauthc_123',
+  intent: addAuthMethodIntent,
+  digestB64u: 'digest',
+  orgId: 'org',
+  expiresAtMs: 1,
+  auth: {
+    kind: 'webauthn_assertion',
+    credentialIdB64u: 'credential',
+  },
+  authority: passkeyAuthority,
+} satisfies StoredWalletAddAuthMethodCeremony);
 
 void ({
   ...allocatedIntent,
   // @ts-expect-error allocated intents reject consumed timestamps
   consumedAtMs: 2,
 } satisfies StoredRegistrationIntent);
+
+void ({
+  ...allocatedAddAuthMethodIntent,
+  // @ts-expect-error allocated add-auth-method intents reject consumed timestamps
+  consumedAtMs: 2,
+} satisfies StoredAddAuthMethodIntent);
 
 void ({
   ...consumedIntent,
@@ -317,7 +363,7 @@ void ({
   ...respondedEd25519,
   kind: 'ed25519_completed',
   completedAtMs: 3,
-  // @ts-expect-error completed Ed25519 registration state requires walletSubjectId
+  // @ts-expect-error completed Ed25519 registration state requires walletId
 } satisfies StoredEd25519RegistrationCompleted);
 
 void ({
@@ -338,7 +384,7 @@ void ({
   ...respondedEcdsa,
   kind: 'ecdsa_completed',
   completedAtMs: 3,
-  walletSubjectId: intent.walletSubjectId,
+  walletId: intent.walletId,
   // @ts-expect-error completed ECDSA registration state requires complete wallet keys
 } satisfies StoredEcdsaRegistrationCompleted);
 
@@ -348,11 +394,7 @@ void ({
   digestB64u: 'digest',
   orgId: 'org',
   expiresAtMs: 1,
-  webauthn: {
-    credentialIdB64u: 'credential',
-    credentialPublicKeyB64u: 'public-key',
-    counter: 0,
-  },
+  authority: passkeyAuthority,
   signerState: {
     kind: 'ed25519_prepared',
     ceremonyHandle: 'hss-handle',
@@ -365,5 +407,24 @@ void ({
     },
   },
 } satisfies StoredWalletRegistrationCeremony);
+
+void ({
+  addAuthMethodCeremonyId: 'wauthc_123',
+  intent: addAuthMethodIntent,
+  digestB64u: 'digest',
+  orgId: 'org',
+  expiresAtMs: 1,
+  auth: {
+    kind: 'webauthn_assertion',
+    credentialIdB64u: 'credential',
+  },
+  // @ts-expect-error passkey add-auth-method ceremonies require a full authority branch
+  authority: {
+    kind: 'passkey',
+    walletId: intent.walletId,
+    rpId: intent.rpId,
+    credentialIdB64u: 'credential',
+  },
+} satisfies StoredWalletAddAuthMethodCeremony);
 
 export {};

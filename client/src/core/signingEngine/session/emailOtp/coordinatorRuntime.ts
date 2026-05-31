@@ -30,7 +30,6 @@ import { EmailOtpAppSessionJwtCache } from './appSessionJwtCache';
 import {
   type EmailOtpThresholdEd25519ProvisioningResult,
   type ReconstructEmailOtpEd25519SessionArgs,
-  type RegisterEmailOtpEd25519CapabilityArgs,
 } from './provisioning';
 import type { EmailOtpThresholdSessionCoordinatorDeps } from './ports';
 import { readEmailOtpPersistedSessionSnapshot } from './persistedSnapshot';
@@ -48,10 +47,11 @@ import {
 } from './ecdsaLifecycleRuntime';
 import {
   EmailOtpExportRecoveryRuntime,
+  type EmailOtpEd25519ExportArtifact,
   type EmailOtpEcdsaExportArtifact,
+  type ExportEd25519SeedWithAuthorizationArgs,
   type ExportEcdsaKeyWithAuthorizationArgs,
   type ExportEcdsaKeyWithFreshEmailOtpLaneArgs,
-  type RecoverEd25519ExportPrfFirstArgs,
   type RequestEmailOtpChallengeArgs,
 } from './exportRecoveryRuntime';
 import { EmailOtpEd25519Warmup } from './ed25519Warmup';
@@ -120,7 +120,6 @@ export class EmailOtpThresholdSessionRuntime {
       rememberAppSessionJwt: (request) => this.rememberAppSessionJwt(request),
       resolveAppSessionJwt: (request) => this.resolveAppSessionJwt(request),
       publicationPorts: () => this.sealedSessionRegistry.ecdsaPublicationPorts(),
-      provisionEd25519Capability: (request) => this.provisionEd25519Capability(request),
       reconstructEd25519Session: (request) => this.reconstructEd25519Session(request),
     });
     this.exportRecoveryRuntime = new EmailOtpExportRecoveryRuntime({
@@ -275,7 +274,7 @@ export class EmailOtpThresholdSessionRuntime {
     walletSession: WalletSessionRef;
     relayUrl: string;
   }): Promise<string> {
-    return await this.appSessionJwtCache.resolve(args);
+    return await this.appSessionJwtCache.resolveJwt(args);
   }
 
   isEd25519WarmupPending(args: { nearAccountId: AccountId }): boolean {
@@ -284,14 +283,6 @@ export class EmailOtpThresholdSessionRuntime {
 
   async waitForPendingEd25519Warmup(args: { nearAccountId: AccountId }): Promise<boolean> {
     return await this.ed25519Warmup.waitForPending(args);
-  }
-
-  scheduleEd25519CapabilityProvisioning(
-    args: RegisterEmailOtpEd25519CapabilityArgs,
-  ): void {
-    this.ed25519Warmup.scheduleProvisioning(args, {
-      provisionCapability: (request) => this.provisionEd25519Capability(request),
-    });
   }
 
   async requestTransactionSigningChallenge(
@@ -306,10 +297,10 @@ export class EmailOtpThresholdSessionRuntime {
     return await this.exportRecoveryRuntime.requestExportChallenge(args);
   }
 
-  async recoverEd25519ExportPrfFirst(
-    args: RecoverEd25519ExportPrfFirstArgs,
-  ): Promise<{ prfFirstB64u: string }> {
-    return await this.exportRecoveryRuntime.recoverEd25519ExportPrfFirst(args);
+  async exportEd25519SeedWithAuthorization(
+    args: ExportEd25519SeedWithAuthorizationArgs,
+  ): Promise<EmailOtpEd25519ExportArtifact> {
+    return await this.exportRecoveryRuntime.exportEd25519SeedWithAuthorization(args);
   }
 
   async exportEcdsaKeyWithAuthorization(
@@ -352,12 +343,6 @@ export class EmailOtpThresholdSessionRuntime {
     remainingUses?: number;
   }): Promise<{ sessionId: string; record?: ThresholdEd25519SessionRecord }> {
     return await this.ed25519Warmup.loginForSigning(args);
-  }
-
-  async provisionEd25519Capability(
-    args: RegisterEmailOtpEd25519CapabilityArgs,
-  ): Promise<EmailOtpThresholdEd25519ProvisioningResult> {
-    return await this.ed25519Warmup.provisionCapability(args);
   }
 
   async reconstructEd25519Session(

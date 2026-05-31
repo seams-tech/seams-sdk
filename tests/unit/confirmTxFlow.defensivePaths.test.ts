@@ -303,7 +303,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
     expect(String(result.response.error || '')).toContain('NEAR context unavailable');
   });
 
-  test('Registration flow: cancel releases reserved nonces', async ({ page }) => {
+  test('Registration flow: cancel does not reserve access-key nonces', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mod = await import(paths.handle);
@@ -417,8 +417,8 @@ test.describe('confirmTxFlow – defensive paths', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.reserved.length).toBeGreaterThan(0);
-    expect(result.released).toEqual(result.reserved);
+    expect(result.reserved).toEqual([]);
+    expect(result.released).toEqual([]);
     expect(result.response.confirmed).toBe(false);
   });
 

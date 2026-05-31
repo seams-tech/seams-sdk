@@ -1,8 +1,8 @@
 # Email OTP Architecture
 
 Status: active source of truth for Email OTP identity, privacy, secret
-ownership, worker runtime, resend behavior, sealed restore, signing, and key
-export.
+ownership, worker runtime, registration reroll behavior, resend behavior,
+sealed restore, signing, and key export.
 
 This document consolidates the previous split Email OTP docs and
 Email OTP-specific signing-session notes. Future refactors should edit this
@@ -26,10 +26,10 @@ Core rules:
 3. Status, snapshot, and wallet-session reads are side-effect-free.
 4. Transaction signing restores only the exact selected lane.
 5. Key export uses operation-specific authorization and exact export lanes.
-6. ECDSA identity uses `WalletSubjectId + ThresholdEcdsaChainTarget`, never a
-   NEAR account id as its principal.
+6. ECDSA identity uses wallet id plus `ThresholdEcdsaChainTarget`, never a NEAR
+   account id as its principal.
 7. HSS prepare/finalize uses `walletSessionUserId` for session/audit scope and
-   `subjectId` for ECDSA lane identity.
+   wallet id for ECDSA key identity.
 
 ## Implementation Status
 
@@ -57,11 +57,11 @@ Email OTP participates in two different identity planes.
 | --- | --- | --- |
 | Wallet/session scope | `walletId` or `walletSessionUserId` | Authenticated wallet session, audit scope, server policy scope |
 | NEAR account scope | `NearAccountRef` or `nearAccountId` | NEAR Ed25519 account identity |
-| ECDSA lane scope | `subjectId: WalletSubjectId` | Protocol-neutral threshold ECDSA principal |
+| ECDSA lane scope | `walletId` plus exact lane identity | Threshold ECDSA wallet principal |
 | ECDSA chain scope | `chainTarget: ThresholdEcdsaChainTarget` | Concrete EVM-family or Tempo target |
 
 Funds-safety invariant: EVM SIGNERS MUST ALL SHARE THE SAME ADDRESS for the
-same wallet, subject, RP, signing root, and key version. Email OTP and passkey
+same wallet, RP, signing root, and key version. Email OTP and passkey
 ECDSA flows must converge on the same EVM-family `ecdsaThresholdKeyId` and owner
 address. `chainTarget` scopes sessions, budgets, nonce lanes, sealed records,
 and signing requests.
@@ -70,7 +70,7 @@ ECDSA lane identity includes:
 
 ```ts
 type EcdsaLaneIdentity = {
-  subjectId: WalletSubjectId;
+  walletId: string;
   authMethod: 'email_otp' | 'passkey';
   curve: 'ecdsa';
   chainTarget: ThresholdEcdsaChainTarget;
@@ -135,6 +135,14 @@ Rules:
 6. Rotation is versioned with a new slug context, for example
    `near_account_slug_v2`.
 7. Verified email remains private account metadata.
+
+### Registration Rerolls
+
+Google Email OTP registration account-name rerolls reuse the active registration
+OTP challenge for the same provider subject, org, and app-session version. A
+reroll only selects a new candidate wallet id and registration attempt. The
+first code remains valid until it expires, and explicit resend remains the
+operation that delivers a new code.
 
 The durable identity mapping stores the relationship between verified identity
 and public account:
@@ -410,7 +418,7 @@ Valid resend context includes:
 4. operation, for example `wallet_unlock`, `transaction_sign`, `export_key`,
    `registration`, or `email_otp_device_recovery`.
 5. app-session binding.
-6. `subjectId` for ECDSA-authorizing challenges.
+6. wallet id for ECDSA-authorizing challenges.
 7. `chainTarget` for ECDSA-authorizing challenges.
 8. registration or operation attempt id where applicable.
 
@@ -431,7 +439,7 @@ Rules:
    rotate.
 
 The user-facing backup UI plan lives in
-[otp-recovery-codes-ui.md](otp-recovery-codes-ui.md).
+[refactor-55-otp-recovery-codes-ui.md](refactor-55-otp-recovery-codes-ui.md).
 
 ## Logging And Observability
 
@@ -442,7 +450,7 @@ The user-facing backup UI plan lives in
 4. Email OTP lifecycle audit payloads include wallet ids, challenge ids, policy
    decisions, and operation names.
 5. Session/audit fields should use `walletSessionUserId`.
-6. ECDSA lane fields should use `subjectId`.
+6. ECDSA lane fields should use exact lane identity and wallet id.
 
 ## Release Gates
 
@@ -461,7 +469,7 @@ Required validation:
    `clientAdditiveShare32B64u`, or equivalent signing share strings.
 8. Production code has no Email OTP email-derived NEAR account id generation.
 9. Production code has no main-thread Email OTP secret-bearing runtime path.
-10. Production code has no ECDSA path deriving `subjectId` from `nearAccountId`.
+10. Production code has no ECDSA path deriving signer identity from `nearAccountId`.
 
 ## Related Specs
 
@@ -472,6 +480,6 @@ Required validation:
 3. Threshold session token naming:
    [../signing-session-architecture/threshold-session-auth-token.md](../signing-session-architecture/threshold-session-auth-token.md).
 4. Email OTP recovery codes UI:
-   [otp-recovery-codes-ui.md](otp-recovery-codes-ui.md).
+   [refactor-55-otp-recovery-codes-ui.md](refactor-55-otp-recovery-codes-ui.md).
 5. Future Email OTP/passkey add-key product plan:
    [addkey-otp-passkey-accounts.md](addkey-otp-passkey-accounts.md).

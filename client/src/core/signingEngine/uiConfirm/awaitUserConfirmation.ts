@@ -15,6 +15,7 @@ import {
 import { isObject, isString, isBoolean } from '@shared/utils/validation';
 import { errorMessage, toError } from '@shared/utils/errors';
 import { normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
+import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
 import { TransactionContext } from '@/core/types/rpc';
 import { validateUserConfirmRequest } from './handlers/flows/adapters/request';
 
@@ -52,7 +53,7 @@ type ConfirmResponseEnvelope = {
  * 4) This resolves to a Rust-friendly `WorkerConfirmationResponse` (snake_case fields)
  *
  * API contract:
-   * - V2 objects only (no JSON strings / shorthand shapes).
+ * - V2 objects only (no JSON strings / shorthand shapes).
  * - The `requestId` is used to correlate responses when multiple confirmations are in-flight.
  */
 export function awaitUserConfirmationV2(
@@ -155,19 +156,7 @@ function isConfirmResponseEnvelope(msg: unknown): msg is ConfirmResponseEnvelope
 
 function createChannelToken(requestId: string): string {
   const seed = String(requestId || '').trim() || 'sc';
-  const randomPart = (() => {
-    try {
-      if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-        return crypto.randomUUID();
-      }
-      if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
-        const arr = new Uint32Array(2);
-        crypto.getRandomValues(arr);
-        return `${arr[0].toString(16)}${arr[1].toString(16)}`;
-      }
-    } catch {}
-    return `${Math.random().toString(16).slice(2)}${Date.now().toString(16)}`;
-  })();
+  const randomPart = secureRandomBase64Url(32, 'user confirmation channel tokens');
   return `${seed}:${randomPart}`;
 }
 

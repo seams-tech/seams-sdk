@@ -7,12 +7,8 @@ import {
   type ExportKeypairWithUIDeps,
   type SigningEngineExportKeypairWithUIInput,
 } from './exportKeypairOperation';
-import {
-  exportNearEd25519SeedArtifactWithUI as exportNearEd25519SeedArtifactWithUIValue,
-} from './privateKeyExportRecovery';
-import {
-  exportThresholdEd25519SeedFromHssReport as exportThresholdEd25519SeedFromHssReportValue,
-} from './nearEd25519SeedReportExport';
+import { exportNearEd25519SeedArtifactWithUI as exportNearEd25519SeedArtifactWithUIValue } from './privateKeyExportRecovery';
+import { exportThresholdEd25519SeedFromHssReport as exportThresholdEd25519SeedFromHssReportValue } from './nearEd25519SeedReportExport';
 import type { KeyExportEventCallback } from './keyExportFlow';
 
 export type RecoveryPublicDeps = {
@@ -92,36 +88,3 @@ export async function exportThresholdEd25519SeedFromHssReport(
 }
 
 export type { SigningEngineExportKeypairWithUIInput, KeyExportEventCallback };
-
-export function createRecoveryPublicApi(deps: RecoveryPublicDeps) {
-  return {
-    exportKeypairWithUI: (input: SigningEngineExportKeypairWithUIInput) =>
-      exportKeypairWithUI(deps, input),
-    exportNearEd25519SeedArtifactWithUI: (args: {
-      nearAccountId: AccountId;
-      seedB64u: string;
-      expectedPublicKey: string;
-      options: {
-        variant?: 'drawer' | 'modal';
-        theme?: 'dark' | 'light';
-      };
-    }) => exportNearEd25519SeedArtifactWithUI(deps, args),
-    exportThresholdEd25519SeedFromHssReport: (args: {
-      nearAccountId: AccountId;
-      preparedSession: Parameters<
-        typeof exportThresholdEd25519SeedFromHssReportValue
-      >[1]['preparedSession'];
-      finalizedReport: Parameters<
-        typeof exportThresholdEd25519SeedFromHssReportValue
-      >[1]['finalizedReport'];
-      expectedPublicKey: string;
-      options: {
-        variant?: 'drawer' | 'modal';
-        theme?: 'dark' | 'light';
-        onEvent?: KeyExportEventCallback;
-      };
-    }) => exportThresholdEd25519SeedFromHssReport(deps, args),
-  };
-}
-
-export type RecoveryPublicApi = ReturnType<typeof createRecoveryPublicApi>;

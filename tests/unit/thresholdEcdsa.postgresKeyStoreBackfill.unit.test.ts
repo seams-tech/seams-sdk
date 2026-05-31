@@ -27,10 +27,9 @@ async function makeRoleLocalKeyRecord(
   overrides: Partial<EcdsaHssRoleLocalKeyRecord> = {},
 ): Promise<EcdsaHssRoleLocalKeyRecord> {
   const base = {
-    version: 'threshold_ecdsa_hss_role_local',
+    version: 'threshold_ecdsa_hss_role_local_v2',
     ecdsaThresholdKeyId: 'threshold-key-current',
-    walletSessionUserId: 'alice.testnet',
-    subjectId: 'wallet-subject-alice',
+    walletId: 'alice.testnet',
     rpId: 'example.localhost',
     signingRootId: 'signing-root-current',
     signingRootVersion: 'default',
@@ -107,16 +106,15 @@ test.describe('threshold-ecdsa postgres key store schema validation', () => {
     const repairRecord = await makeRoleLocalKeyRecord({
       ecdsaThresholdKeyId: 'threshold-key-read-repair',
       relayerKeyId: 'relayer-key-read-repair',
-      walletSessionUserId: 'repair.alice.testnet',
-      subjectId: 'wallet-subject-repair-alice',
+      walletId: 'repair.alice.testnet',
       signingRootId: 'signing-root-read-repair',
     });
     const staleIndexedRow = {
       relayer_key_id: repairRecord.ecdsaThresholdKeyId,
       key_handle: repairRecord.keyHandle,
       threshold_key_id: 'stale-threshold-key',
-      wallet_session_user_id: repairRecord.walletSessionUserId,
-      subject_id: repairRecord.subjectId,
+      wallet_session_user_id: repairRecord.walletId,
+      subject_id: repairRecord.walletId,
       rp_id: repairRecord.rpId,
       signing_root_id: repairRecord.signingRootId,
       signing_root_version: repairRecord.signingRootVersion,
@@ -189,8 +187,7 @@ test.describe('threshold-ecdsa postgres key store schema validation', () => {
             )
           ) {
             createdPartialSharedIdentityIndex = true;
-            expect(normalized).toContain('wallet_session_user_id IS NOT NULL');
-            expect(normalized).toContain('subject_id IS NOT NULL');
+            expect(normalized).toContain('wallet_id IS NOT NULL');
             expect(normalized).toContain('rp_id IS NOT NULL');
             expect(normalized).toContain('signing_root_id IS NOT NULL');
             expect(normalized).toContain('signing_root_version IS NOT NULL');
@@ -223,16 +220,14 @@ test.describe('threshold-ecdsa postgres key store schema validation', () => {
             normalized.startsWith('SELECT relayer_key_id, record_json FROM threshold_ecdsa_keys')
           ) {
             checkedSharedIdentityColumns = true;
-            expect(normalized).toContain('wallet_session_user_id = $3');
-            expect(normalized).toContain('subject_id = $4');
-            expect(normalized).toContain('rp_id = $5');
-            expect(normalized).toContain('signing_root_id = $6');
-            expect(normalized).toContain('signing_root_version = $7');
+            expect(normalized).toContain('wallet_id = $3');
+            expect(normalized).toContain('rp_id = $4');
+            expect(normalized).toContain('signing_root_id = $5');
+            expect(normalized).toContain('signing_root_version = $6');
             expect(values).toEqual([
               namespace,
               record.ecdsaThresholdKeyId,
-              record.walletSessionUserId,
-              record.subjectId,
+              record.walletId,
               record.rpId,
               record.signingRootId,
               record.signingRootVersion,
@@ -241,10 +236,9 @@ test.describe('threshold-ecdsa postgres key store schema validation', () => {
           }
           if (
             normalized.startsWith('INSERT INTO threshold_ecdsa_keys') &&
-            normalized.includes('wallet_session_user_id') &&
-            normalized.includes('subject_id') &&
+            normalized.includes('wallet_id') &&
             normalized.includes('rp_id') &&
-            normalized.includes('VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)')
+            normalized.includes('VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)')
           ) {
             insertedDeclaredIdentityColumns = true;
             expect(values).toEqual([
@@ -252,8 +246,7 @@ test.describe('threshold-ecdsa postgres key store schema validation', () => {
               record.ecdsaThresholdKeyId,
               record.keyHandle,
               record.ecdsaThresholdKeyId,
-              record.walletSessionUserId,
-              record.subjectId,
+              record.walletId,
               record.rpId,
               record.signingRootId,
               record.signingRootVersion,
@@ -265,7 +258,7 @@ test.describe('threshold-ecdsa postgres key store schema validation', () => {
           }
           if (
             normalized.startsWith('UPDATE threshold_ecdsa_keys SET') &&
-            normalized.includes('public_key_b64u = $11') &&
+            normalized.includes('public_key_b64u = $10') &&
             normalized.includes('WHERE namespace = $1 AND relayer_key_id = $2')
           ) {
             repairedIndexedIdentity = true;
@@ -274,8 +267,7 @@ test.describe('threshold-ecdsa postgres key store schema validation', () => {
               repairRecord.ecdsaThresholdKeyId,
               repairRecord.keyHandle,
               repairRecord.ecdsaThresholdKeyId,
-              repairRecord.walletSessionUserId,
-              repairRecord.subjectId,
+              repairRecord.walletId,
               repairRecord.rpId,
               repairRecord.signingRootId,
               repairRecord.signingRootVersion,
@@ -286,7 +278,7 @@ test.describe('threshold-ecdsa postgres key store schema validation', () => {
           }
           if (
             normalized.startsWith('UPDATE threshold_ecdsa_keys SET') &&
-            normalized.includes('record_json = $12') &&
+            normalized.includes('record_json = $11') &&
             normalized.includes('WHERE namespace = $1 AND relayer_key_id = $2')
           ) {
             throw new Error('legacy key-handle derivation update should not run');

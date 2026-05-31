@@ -39,7 +39,6 @@ import { ConfirmationConfig, type ConfirmationBehavior } from '../types/signer-w
 import { cloneAuthenticatorOptions } from '../types/authenticatorOptions';
 import { toAccountId, type AccountId } from '../types/accountIds';
 import { configureIndexedDB, IndexedDBManager } from '../indexedDB';
-import { getNearThresholdKeyMaterial } from '../accountData/near/keyMaterial';
 import { ActionType } from '../types/actions';
 import type { PreferencesChangedPayload } from '../WalletIframe/shared/messages';
 import { __isWalletIframeHostMode } from '../WalletIframe/host-mode';
@@ -87,8 +86,9 @@ import {
   type WalletId,
   type WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { assertWalletRuntimePostconditions } from '../signingEngine/session/postconditions/runtimePostconditions';
+import { configuredEmailOtpEcdsaSnapshotChainTargets } from '../signingEngine/session/emailOtp/persistedSnapshot';
 import type { EmailOtpWorkerProgressEvent } from '../signingEngine/workerManager/workerTypes';
-import { getLastLoggedInSignerSlot } from '../signingEngine/webauthnAuth/device/signerSlot';
 import {
   parseThresholdRuntimePolicyScopeFromJwt,
 } from '../signingEngine/threshold/sessionPolicy';
@@ -105,8 +105,10 @@ import { DeviceLinkingDomain } from './near/linkDevice';
 import { NearSigner } from './near';
 import { TempoSigner } from './tempo';
 import { EvmSigner } from './evm';
-import { walletSubjectIdFromString } from '@shared/utils/registrationIntent';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { buildPasskeyNearWalletRegistrationSignerSelection } from './registrationSignerSelection';
+import { SIGNER_AUTH_METHODS, SIGNER_KINDS } from '@shared/utils/signerDomain';
+import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
 
 ///////////////////////////////////////
 // PASSKEY MANAGER
@@ -126,46 +128,162 @@ async function resolveEmailOtpEd25519SessionReconstruction(
   args: EmailOtpEcdsaCapabilityArgs,
 ): Promise<EmailOtpEd25519SessionReconstructionPlan> {
   const walletId = toAccountId(args.walletSession.walletId);
-  const signerSlot = await getLastLoggedInSignerSlot(walletId, IndexedDBManager.clientDB).catch(
-    () => 1,
-  );
-  const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
-    {
-      clientDB: IndexedDBManager.clientDB,
-      accountKeyMaterialDB: IndexedDBManager.accountKeyMaterialDB,
-    },
+  const keyIdentity = await resolveEmailOtpEd25519KeyIdentity(walletId);
+  const runtimePolicyScope =
+    args.runtimePolicyScope || parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt);
+  const diagnostic = {
     walletId,
-    signerSlot,
-  ).catch(() => null);
-  const participantIds = thresholdKeyMaterial?.participants
-    .map((participant) => Number(participant.id))
-    .filter((participantId) => Number.isSafeInteger(participantId) && participantId > 0);
-  const runtimePolicyScope = parseThresholdRuntimePolicyScopeFromJwt(args.appSessionJwt);
+    signerSlot: keyIdentity?.signerSlot || null,
+    keyIdentitySource: keyIdentity?.source || null,
+    hasRelayerKeyId: Boolean(keyIdentity?.ed25519Key.relayerKeyId),
+    hasKeyVersion: Boolean(keyIdentity?.ed25519Key.keyVersion),
+    participantCount: keyIdentity?.ed25519Key.participantIds.length || 0,
+    hasRuntimePolicyScope: Boolean(runtimePolicyScope),
+  };
 
-  if (
-    thresholdKeyMaterial?.relayerKeyId &&
-    thresholdKeyMaterial.keyVersion &&
-    participantIds?.length &&
-    runtimePolicyScope
-  ) {
+  if (keyIdentity) {
+    const ed25519Key = keyIdentity.ed25519Key;
+    if (!runtimePolicyScope) {
+      console.warn(
+        '[SeamsPasskey][email-otp] Ed25519 reconstruction deferred before unlock',
+        {
+          ...diagnostic,
+          reason: 'missing_runtime_policy_scope',
+        },
+      );
+      return {
+        kind: 'defer',
+        reason: 'missing_runtime_policy_scope',
+        ed25519Key,
+      };
+    }
     return {
       kind: 'reconstruct',
-      ed25519Key: {
-        relayerKeyId: thresholdKeyMaterial.relayerKeyId,
-        keyVersion: thresholdKeyMaterial.keyVersion,
-        participantIds,
-      },
+      ed25519Key,
       runtimePolicyScope,
     };
   }
 
+  console.warn(
+    '[SeamsPasskey][email-otp] Ed25519 reconstruction deferred before unlock',
+    {
+      ...diagnostic,
+      reason: 'missing_ed25519_key_identity',
+    },
+  );
   return {
     kind: 'defer',
-    reason:
-      thresholdKeyMaterial?.relayerKeyId && thresholdKeyMaterial.keyVersion && participantIds?.length
-        ? 'missing_runtime_policy_scope'
-        : 'missing_ed25519_key_identity',
+    reason: 'missing_ed25519_key_identity',
   };
+}
+
+type EmailOtpEd25519KeyIdentity = {
+  signerSlot: number;
+  source: 'wallet_profile_signer';
+  ed25519Key: {
+    relayerKeyId: string;
+    keyVersion: string;
+    participantIds: number[];
+  };
+};
+
+function normalizeParticipantIds(value: unknown): number[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((participant) =>
+      typeof participant === 'object' && participant !== null && 'id' in participant
+        ? Number((participant as { id?: unknown }).id)
+        : Number(participant),
+    )
+    .filter((participantId) => Number.isSafeInteger(participantId) && participantId > 0);
+}
+
+function participantIdsFromEmailOtpEd25519SignerMetadata(args: {
+  relayerKeyId: string;
+  metadata: Record<string, unknown>;
+}): number[] {
+  const participantIds = normalizeParticipantIds(args.metadata.participantIds);
+  if (participantIds.length) return participantIds;
+  return buildThresholdEd25519Participants2pV1({
+    relayerKeyId: args.relayerKeyId,
+    clientParticipantId: Number(args.metadata.clientParticipantId),
+    relayerParticipantId: Number(args.metadata.relayerParticipantId),
+    clientShareDerivation: 'prf_first_v1',
+  }).map((participant) => participant.id);
+}
+
+function emailOtpEd25519KeyIdentityFromSigner(
+  signer: Awaited<ReturnType<typeof IndexedDBManager.listAccountSigners>>[number],
+  source: EmailOtpEd25519KeyIdentity['source'],
+): EmailOtpEd25519KeyIdentity | null {
+  if (signer.signerKind !== SIGNER_KINDS.thresholdEd25519) return null;
+  if (signer.signerAuthMethod !== SIGNER_AUTH_METHODS.emailOtp) return null;
+  const metadata = signer.metadata || {};
+  const relayerKeyId = String(metadata.relayerKeyId || '').trim();
+  const keyVersion = String(metadata.keyVersion || '').trim();
+  const participantIds = participantIdsFromEmailOtpEd25519SignerMetadata({
+    relayerKeyId,
+    metadata,
+  });
+  if (!relayerKeyId || !keyVersion || !participantIds.length) return null;
+  return {
+    signerSlot: signer.signerSlot,
+    source,
+    ed25519Key: {
+      relayerKeyId,
+      keyVersion,
+      participantIds,
+    },
+  };
+}
+
+function findEmailOtpEd25519KeyIdentityFromSigners(
+  signers: Awaited<ReturnType<typeof IndexedDBManager.listAccountSigners>>,
+  source: EmailOtpEd25519KeyIdentity['source'],
+): EmailOtpEd25519KeyIdentity | null {
+  for (const signer of signers.slice().sort((left, right) => left.signerSlot - right.signerSlot)) {
+    const identity = emailOtpEd25519KeyIdentityFromSigner(signer, source);
+    if (identity) return identity;
+  }
+  return null;
+}
+
+function accountSignerDiagnosticSummary(
+  signers: Awaited<ReturnType<typeof IndexedDBManager.listAccountSigners>>,
+): Array<Record<string, unknown>> {
+  return signers.map((signer) => ({
+    signerSlot: signer.signerSlot,
+    signerKind: signer.signerKind,
+    signerAuthMethod: signer.signerAuthMethod,
+    chainIdKey: signer.chainIdKey,
+    accountAddress: signer.accountAddress,
+    hasRelayerKeyId: Boolean(String(signer.metadata?.relayerKeyId || '').trim()),
+    hasKeyVersion: Boolean(String(signer.metadata?.keyVersion || '').trim()),
+    hasParticipantIds: Array.isArray(signer.metadata?.participantIds),
+    hasClientParticipantId: signer.metadata?.clientParticipantId != null,
+    hasRelayerParticipantId: signer.metadata?.relayerParticipantId != null,
+  }));
+}
+
+async function resolveEmailOtpEd25519KeyIdentity(
+  walletId: AccountId,
+): Promise<EmailOtpEd25519KeyIdentity | null> {
+  const walletProfileSigners = await IndexedDBManager.listAccountSignersByProfile({
+    profileId: String(walletId),
+    status: 'active',
+  }).catch(() => []);
+  const walletProfileIdentity = findEmailOtpEd25519KeyIdentityFromSigners(
+    walletProfileSigners,
+    'wallet_profile_signer',
+  );
+  if (walletProfileIdentity) return walletProfileIdentity;
+
+  console.warn('[SeamsPasskey][email-otp] Ed25519 key identity lookup failed', {
+    walletId,
+    walletProfileSignerCount: walletProfileSigners.length,
+    walletProfileSigners: accountSignerDiagnosticSummary(walletProfileSigners),
+  });
+  return null;
 }
 
 /**
@@ -277,6 +395,7 @@ export class SeamsPasskey {
     this.registration = {
       addWalletSigner: async (args) => await this.addWalletSigner(args),
       registerWallet: async (args) => await this.registerWallet(args),
+      registerWithEmailOtp: async (args) => await this.registerWallet(args),
       registerPasskey: async (nearAccountId, options) =>
         await this.registerPasskey(nearAccountId, options),
       registerPasskeyInternal: async (nearAccountId, options, confirmationConfigOverride) =>
@@ -490,7 +609,8 @@ export class SeamsPasskey {
     }
     return await registerWalletWithUnifiedCeremony({
       context: this.getContext(),
-      walletSubject: args.walletSubject,
+      authMethod: args.authMethod,
+      wallet: args.wallet,
       rpId: args.rpId,
       signerSelection: args.signerSelection,
       options: args.options || {},
@@ -503,7 +623,7 @@ export class SeamsPasskey {
   ): Promise<RegistrationResult> {
     if (this.walletIframe.shouldUseWalletIframe()) {
       try {
-        const router = await this.walletIframe.requireRouter(String(args.walletSubjectId || ''));
+        const router = await this.walletIframe.requireRouter(String(args.walletId || ''));
         const res = await router.addWalletSigner(args);
         await args.options?.afterCall?.(true, res);
         return res;
@@ -516,7 +636,7 @@ export class SeamsPasskey {
     }
     return await addWalletSignerWithUnifiedCeremony({
       context: this.getContext(),
-      walletSubjectId: args.walletSubjectId,
+      walletId: args.walletId,
       rpId: args.rpId,
       signerSelection: args.signerSelection,
       options: args.options || {},
@@ -566,11 +686,12 @@ export class SeamsPasskey {
       throw new Error('Missing rpId for relay registration');
     }
     return await this.registerWallet({
-      walletSubject: {
+      wallet: {
         kind: 'provided',
-        walletSubjectId: walletSubjectIdFromString(String(accountId)),
+        walletId: walletIdFromString(String(accountId)),
       },
       rpId,
+      authMethod: { kind: 'passkey' },
       signerSelection: buildPasskeyNearWalletRegistrationSignerSelection({
         configs: this.configs,
         nearAccountId: String(accountId),
@@ -1344,6 +1465,22 @@ export class SeamsPasskey {
         ed25519ReconstructionMode: 'await',
         ed25519SessionReconstruction,
         onProgress: markWorkerProgress,
+      });
+      await this.signingEngine.initializeCurrentUser(toAccountId(walletId), this.nearClient)
+        .catch(() => undefined);
+      await assertWalletRuntimePostconditions({
+        source: 'wallet_unlock',
+        walletId,
+        authMethod: 'email_otp',
+        requiredTargets: [
+          { curve: 'ed25519' },
+          ...configuredEmailOtpEcdsaSnapshotChainTargets(this.configs).map((target) => ({
+            curve: 'ecdsa' as const,
+            chainTarget: target,
+          })),
+        ],
+        readPersistedAvailableSigningLanes: async (input) =>
+          await this.signingEngine.readPersistedAvailableSigningLanes(input),
       });
       emitIfWorkerProgressMissing({
         flowId,

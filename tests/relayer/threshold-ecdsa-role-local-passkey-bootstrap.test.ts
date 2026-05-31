@@ -1,9 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { createRelayRouter } from '@server/router/express-adaptor';
 import {
+  computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32B64u,
   computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u,
   computeEcdsaHssRoleLocalRelayerKeyId,
   computeEcdsaHssRoleLocalThresholdKeyId,
+  type EcdsaHssClientSharePublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { base64UrlEncode } from '@shared/utils/encoders';
 import { fetchJson, makeSessionAdapter, startExpressRouter } from './helpers';
@@ -43,27 +45,25 @@ function fakeWebAuthnAuthentication() {
 
 async function makeBootstrapBody(overrides?: Record<string, unknown>) {
   const ecdsaThresholdKeyId = await computeEcdsaHssRoleLocalThresholdKeyId({
-    walletSessionUserId: WALLET_SESSION_USER_ID,
+    walletId: WALLET_SESSION_USER_ID,
     rpId: RP_ID,
-    subjectId: SUBJECT_ID,
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
   });
   const relayerKeyId = await computeEcdsaHssRoleLocalRelayerKeyId({
-    walletSessionUserId: WALLET_SESSION_USER_ID,
+    walletId: WALLET_SESSION_USER_ID,
     rpId: RP_ID,
   });
   const body = {
     formatVersion: 'ecdsa-hss-role-local',
-    walletSessionUserId: WALLET_SESSION_USER_ID,
+    walletId: WALLET_SESSION_USER_ID,
     rpId: RP_ID,
-    subjectId: SUBJECT_ID,
     ecdsaThresholdKeyId,
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
     keyScope: 'evm-family',
     relayerKeyId,
-    clientPublicKey33B64u: b64u(
+    hssClientSharePublicKey33B64u: b64u(
       Uint8Array.from([0x02, ...Array.from({ length: 32 }, (_, index) => index)]),
     ),
     clientShareRetryCounter: 0,
@@ -98,6 +98,7 @@ async function startPasskeyBootstrapRoute(input: {
 }) {
   const verifyCalls: unknown[] = [];
   const bootstrapCalls: unknown[] = [];
+  const rootProofCalls: unknown[] = [];
   const service = {
     verifyWebAuthnAuthenticationLite: async (request: unknown) => {
       verifyCalls.push(request);
@@ -110,14 +111,13 @@ async function startPasskeyBootstrapRoute(input: {
         ok: true,
         value: {
           formatVersion: 'ecdsa-hss-role-local',
-          walletSessionUserId: WALLET_SESSION_USER_ID,
+          walletId: WALLET_SESSION_USER_ID,
           rpId: RP_ID,
-          subjectId: SUBJECT_ID,
           ecdsaThresholdKeyId: parsedRequest.ecdsaThresholdKeyId,
           relayerKeyId: parsedRequest.relayerKeyId,
           contextBinding32B64u: parsedRequest.contextBinding32B64u,
           publicIdentity: {
-            clientPublicKey33B64u: parsedRequest.clientPublicKey33B64u,
+            hssClientSharePublicKey33B64u: parsedRequest.hssClientSharePublicKey33B64u,
             relayerPublicKey33B64u: b64u(
               Uint8Array.from([0x03, ...Array.from({ length: 32 }, (_, index) => index + 2)]),
             ),
@@ -148,6 +148,10 @@ async function startPasskeyBootstrapRoute(input: {
         },
       };
     },
+    verifyEcdsaHssRoleLocalClientRootProofForExistingKey: async (request: unknown) => {
+      rootProofCalls.push(request);
+      return { ok: true, value: { keyHandle: 'ecdsa-hss-role-local-key-handle' } };
+    },
     readActiveEmailOtpEnrollment: async () => {
       throw new Error('Email OTP enrollment lookup should not run for this test');
     },
@@ -158,7 +162,7 @@ async function startPasskeyBootstrapRoute(input: {
     logger: null,
   });
   const server = await startExpressRouter(router);
-  return { server, verifyCalls, bootstrapCalls };
+  return { server, verifyCalls, bootstrapCalls, rootProofCalls };
 }
 
 test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
@@ -181,9 +185,8 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
         nearAccountId: WALLET_SESSION_USER_ID,
         rpId: RP_ID,
         expectedChallenge: await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
-          walletSessionUserId: WALLET_SESSION_USER_ID,
+          walletId: WALLET_SESSION_USER_ID,
           rpId: RP_ID,
-          subjectId: SUBJECT_ID,
           ecdsaThresholdKeyId: body.ecdsaThresholdKeyId as string,
           signingRootId: SIGNING_ROOT_ID,
           signingRootVersion: SIGNING_ROOT_VERSION,
@@ -268,10 +271,40 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
     }
   });
 
-  test('rejects Ed25519 threshold session auth for role-local ECDSA bootstrap', async () => {
-    const body = await makeBootstrapBody({
+  test('accepts Ed25519 threshold session auth with client-root proof for existing role-local ECDSA key', async () => {
+    const bodyWithoutProof = await makeBootstrapBody({
       passkeyBootstrapAuthorization: undefined,
     });
+    const body = {
+      ...bodyWithoutProof,
+      clientRootProof: {
+        version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v2',
+        clientRootPublicKey33B64u: b64u(
+          Uint8Array.from([0x03, ...Array.from({ length: 32 }, (_, index) => index + 9)]),
+        ),
+        digest32B64u: await computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32B64u({
+          walletId: String(bodyWithoutProof.walletId),
+          rpId: String(bodyWithoutProof.rpId),
+          ecdsaThresholdKeyId: String(bodyWithoutProof.ecdsaThresholdKeyId),
+          signingRootId: String(bodyWithoutProof.signingRootId),
+          signingRootVersion: String(bodyWithoutProof.signingRootVersion),
+          keyScope: 'evm-family',
+          relayerKeyId: String(bodyWithoutProof.relayerKeyId),
+          hssClientSharePublicKey33B64u: String(
+            bodyWithoutProof.hssClientSharePublicKey33B64u,
+          ) as EcdsaHssClientSharePublicKey33B64u,
+          clientShareRetryCounter: Number(bodyWithoutProof.clientShareRetryCounter),
+          contextBinding32B64u: String(bodyWithoutProof.contextBinding32B64u),
+          requestId: String(bodyWithoutProof.requestId),
+          sessionId: String(bodyWithoutProof.sessionId),
+          walletSigningSessionId: String(bodyWithoutProof.walletSigningSessionId),
+          ttlMs: Number(bodyWithoutProof.ttlMs),
+          remainingUses: Number(bodyWithoutProof.remainingUses),
+          participantIds: PARTICIPANT_IDS,
+        }),
+        signature65B64u: b64u(new Uint8Array(65).fill(9)),
+      },
+    };
     const harness = await startPasskeyBootstrapRoute({
       verifyResult: { success: true, verified: true },
       parseSession: async () => ({
@@ -300,11 +333,10 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
         body: JSON.stringify(body),
       });
 
-      expect(response.status).toBe(401);
-      expect(response.json?.ok).toBe(false);
-      expect(response.json?.message).toBe('First bootstrap requires client root proof');
+      expect(response.json?.ok).toBe(true);
       expect(harness.verifyCalls).toHaveLength(0);
-      expect(harness.bootstrapCalls).toHaveLength(0);
+      expect(harness.rootProofCalls).toHaveLength(1);
+      expect(harness.bootstrapCalls).toHaveLength(1);
     } finally {
       await harness.server.close();
     }
@@ -340,9 +372,8 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
         nearAccountId: WALLET_SESSION_USER_ID,
         rpId: RP_ID,
         expectedChallenge: await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
-          walletSessionUserId: WALLET_SESSION_USER_ID,
+          walletId: WALLET_SESSION_USER_ID,
           rpId: RP_ID,
-          subjectId: SUBJECT_ID,
           ecdsaThresholdKeyId: String(body.ecdsaThresholdKeyId),
           signingRootId: SIGNING_ROOT_ID,
           signingRootVersion: SIGNING_ROOT_VERSION,
@@ -366,9 +397,8 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
     const body = await makeBootstrapBody({
       signingRootVersion: mismatchedSigningRootVersion,
       ecdsaThresholdKeyId: await computeEcdsaHssRoleLocalThresholdKeyId({
-        walletSessionUserId: WALLET_SESSION_USER_ID,
+        walletId: WALLET_SESSION_USER_ID,
         rpId: RP_ID,
-        subjectId: SUBJECT_ID,
         signingRootId: SIGNING_ROOT_ID,
         signingRootVersion: mismatchedSigningRootVersion,
       }),
@@ -439,14 +469,14 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       verifyResult: { success: true, verified: true },
     });
     try {
-      for (const clientPublicKey33B64u of malformedPublicKeys) {
+      for (const hssClientSharePublicKey33B64u of malformedPublicKeys) {
         const response = await fetchJson(`${harness.server.baseUrl}/threshold-ecdsa/hss/bootstrap`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(await makeBootstrapBody({ clientPublicKey33B64u })),
+          body: JSON.stringify(await makeBootstrapBody({ hssClientSharePublicKey33B64u })),
         });
 
-        expect(response.json, clientPublicKey33B64u).toMatchObject({
+        expect(response.json, hssClientSharePublicKey33B64u).toMatchObject({
           ok: false,
           code: 'invalid_body',
         });

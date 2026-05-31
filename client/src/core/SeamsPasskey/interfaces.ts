@@ -7,7 +7,6 @@ import type {
 import type {
   NearAccountRef,
   ThresholdEcdsaChainTarget,
-  WalletId,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/sessionPolicy';
@@ -76,9 +75,10 @@ import type {
 } from '@shared/utils/emailOtpDomain';
 import type {
   AddSignerSelection,
-  RegisterWalletSubjectInput,
+  RegistrationAuthMethodInput,
+  RegisterWalletInput,
   RegistrationSignerSelection,
-  WalletSubjectId,
+  WalletId,
 } from '@shared/utils/registrationIntent';
 
 type PublicThresholdEcdsaSessionKeyRef = Omit<
@@ -107,12 +107,14 @@ export type SignTempoArgs = {
 
 export type RegisterNearWalletArgs = {
   nearAccountId: string;
+  authMethod?: RegistrationAuthMethodInput;
   options?: RegistrationHooksOptions;
 };
 
 export type RegisterEvmWalletArgs = {
   chainTargets: readonly ThresholdEcdsaChainTarget[];
   participantIds: readonly number[];
+  authMethod?: RegistrationAuthMethodInput;
   options?: RegistrationHooksOptions;
 };
 
@@ -202,7 +204,6 @@ export type BootstrapThresholdEcdsaSessionArgs = {
   remainingUses?: number;
   kind: 'reuse_warm_ecdsa_bootstrap';
   source?: 'login' | 'registration' | 'manual-bootstrap' | 'email_otp';
-  subjectId?: never;
   ecdsaThresholdKeyId?: never;
   participantIds?: never;
   sessionKind?: never;
@@ -217,6 +218,8 @@ export type EmailOtpChallengeResult = {
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
   emailHint?: string;
+  expiresAtMs?: number;
+  appSessionVersion?: string;
 };
 
 export type EmailOtpEnrollmentResult = {
@@ -265,7 +268,6 @@ export type GoogleEmailOtpSessionExchangeResult = {
 
 export type EmailOtpEcdsaCapabilityArgs = {
   walletSession: WalletSessionRef;
-  subjectId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   relayUrl?: string;
@@ -273,6 +275,7 @@ export type EmailOtpEcdsaCapabilityArgs = {
   otpCode: string;
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   registrationAttemptId?: string;
   onEvent?: (event: UnlockFlowEvent) => void;
 };
@@ -363,13 +366,21 @@ export interface AuthCapability {
 
 export interface RegistrationCapability {
   addWalletSigner(args: {
-    walletSubjectId: WalletSubjectId | string;
+    walletId: WalletId | string;
     rpId: string;
     signerSelection: AddSignerSelection;
     options?: RegistrationHooksOptions;
   }): Promise<RegistrationResult>;
   registerWallet(args: {
-    walletSubject: RegisterWalletSubjectInput;
+    authMethod: RegistrationAuthMethodInput;
+    wallet: RegisterWalletInput;
+    rpId: string;
+    signerSelection: RegistrationSignerSelection;
+    options?: RegistrationHooksOptions;
+  }): Promise<RegistrationResult>;
+  registerWithEmailOtp(args: {
+    authMethod: Extract<RegistrationAuthMethodInput, { kind: 'email_otp' }>;
+    wallet: RegisterWalletInput;
     rpId: string;
     signerSelection: RegistrationSignerSelection;
     options?: RegistrationHooksOptions;

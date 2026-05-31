@@ -138,12 +138,12 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: SeamsConfigsReadonly = {
     },
     sessionPersistenceMode: 'none',
     sessionSeal: {},
-      thresholdEcdsa: {
-        // Presign pool controls Cait Sith background presignature pool refill behavior.
-        // It is separate from threshold-ECDSA `provisioningDefaults`.
-        presignPool: DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY,
-        provisioningDefaults: DEFAULT_THRESHOLD_ECDSA_PROVISIONING_DEFAULTS,
-      },
+    thresholdEcdsa: {
+      // Presign pool controls Cait Sith background presignature pool refill behavior.
+      // It is separate from threshold-ECDSA `provisioningDefaults`.
+      presignPool: DEFAULT_THRESHOLD_ECDSA_PRESIGN_POOL_POLICY,
+      provisioningDefaults: DEFAULT_THRESHOLD_ECDSA_PROVISIONING_DEFAULTS,
+    },
   },
   // Configure iframeWallet in application code to point at your dedicated wallet origin when available.
   wallet: {
@@ -152,6 +152,7 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: SeamsConfigsReadonly = {
       origin: 'https://wallet.example.localhost',
       servicePath: '/wallet-service',
       sdkBasePath: '/sdk',
+      walletHostVariant: 'runtime',
       rpIdOverride: 'example.localhost',
     },
   },
@@ -163,7 +164,7 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: SeamsConfigsReadonly = {
         all_subdomains: true,
         multiple: undefined,
       },
-    } as AuthenticatorOptions
+    } as AuthenticatorOptions,
   },
   ui: {
     appearance: {

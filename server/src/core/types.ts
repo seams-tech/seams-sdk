@@ -8,16 +8,27 @@ import type { InitInput } from '../../../wasm/near_signer/pkg/wasm_signer_worker
 import type { Logger } from './logger';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type {
+  EcdsaClientRootPublicKey33B64u,
+  EcdsaHssClientSharePublicKey33B64u,
+  EcdsaRelayerHssPublicKey33B64u,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import type {
+  AddAuthMethodInput,
+  AddAuthMethodIntentGrant,
+  AddAuthMethodIntentV1,
   AddSignerIntentGrant,
   AddSignerIntentV1,
   AddSignerSelection,
-  RegisterWalletSubjectInput,
+  EmailOtpRegistrationProof,
+  RegistrationAuthMethodInput,
+  RegisterWalletInput,
   RegistrationIntentGrant,
   RegistrationIntentV1,
   RegistrationSignerSelection,
   ThresholdEcdsaAddSignerSpec,
   ThresholdEd25519AddSignerSpec,
-  WalletSubjectId,
+  WalletAuthMethodTarget,
+  WalletId,
 } from '@shared/utils/registrationIntent';
 import type {
   SigningRootSecretDecryptAdapter,
@@ -282,21 +293,26 @@ export interface ThresholdEd25519HssDerivedPublicKey {
 }
 
 export type {
+  AddAuthMethodInput,
+  AddAuthMethodIntentGrant,
+  AddAuthMethodIntentV1,
   AddSignerIntentGrant,
   AddSignerIntentV1,
   AddSignerSelection,
-  RegisterWalletSubjectInput,
+  EmailOtpRegistrationProof,
+  RegisterWalletInput,
   RegistrationIntentGrant,
   RegistrationIntentV1,
   RegistrationSignerSelection,
   ThresholdEcdsaAddSignerSpec,
   ThresholdEd25519AddSignerSpec,
-  WalletSubjectId,
+  WalletId,
 };
 
 export type CreateRegistrationIntentRequest = {
-  walletSubject: RegisterWalletSubjectInput;
+  wallet: RegisterWalletInput;
   rpId: string;
+  authMethod: RegistrationAuthMethodInput;
   signerSelection: RegistrationSignerSelection;
 };
 
@@ -315,7 +331,7 @@ export type CreateRegistrationIntentResponse =
     };
 
 export type CreateAddSignerIntentRequest = {
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   rpId: string;
   signerSelection: AddSignerSelection;
 };
@@ -334,9 +350,143 @@ export type CreateAddSignerIntentResponse =
       message: string;
     };
 
+export type CreateAddAuthMethodIntentRequest = {
+  walletId: WalletId;
+  rpId: string;
+  authMethod: AddAuthMethodInput;
+};
+
+export type CreateAddAuthMethodIntentResponse =
+  | {
+      ok: true;
+      intent: AddAuthMethodIntentV1;
+      addAuthMethodIntentDigestB64u: string;
+      addAuthMethodIntentGrant: AddAuthMethodIntentGrant;
+      expiresAtMs: number;
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
+export type AddAuthMethodAppSessionPolicy = {
+  permission: 'wallet_auth_method_provision';
+  walletId: WalletId;
+  authMethod: AddAuthMethodInput;
+  runtimePolicyScope?: RuntimePolicyScope;
+  expiresAtMs: number;
+};
+
+export type AddAuthMethodExistingAuth =
+  | {
+      kind: 'webauthn_assertion';
+      credential: WebAuthnAuthenticationCredential;
+      expectedChallengeDigestB64u: string;
+    }
+  | {
+      kind: 'app_session';
+      policy: AddAuthMethodAppSessionPolicy;
+    };
+
+export type AddAuthMethodAuthority =
+  | {
+      kind: 'passkey';
+      webauthnRegistration: unknown;
+      emailOtpRegistrationProof?: never;
+    }
+  | {
+      kind: 'email_otp';
+      emailOtpRegistrationProof: EmailOtpRegistrationProof;
+      webauthnRegistration?: never;
+    };
+
+export type WalletAddAuthMethodStartRequest = {
+  walletId: WalletId;
+  addAuthMethodIntentGrant: AddAuthMethodIntentGrant;
+  addAuthMethodIntentDigestB64u: string;
+  intent: AddAuthMethodIntentV1;
+  auth: AddAuthMethodExistingAuth;
+  authority: AddAuthMethodAuthority;
+};
+
+export type WalletAddAuthMethodStartResponse =
+  | {
+      ok: true;
+      addAuthMethodCeremonyId: string;
+      intent: AddAuthMethodIntentV1;
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
+export type WalletAddAuthMethodFinalizeRequest = {
+  addAuthMethodCeremonyId: string;
+};
+
+export type WalletAddAuthMethodFinalizeResponse =
+  | {
+      ok: true;
+      walletId: WalletId;
+      rpId: string;
+      authMethod: {
+        kind: 'passkey' | 'email_otp';
+        status: 'active' | 'revoked';
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
+export type RevokeAuthMethodAppSessionPolicy = {
+  permission: 'wallet_auth_method_revoke';
+  walletId: WalletId;
+  target: WalletAuthMethodTarget;
+  runtimePolicyScope?: RuntimePolicyScope;
+  expiresAtMs: number;
+};
+
+export type RevokeAuthMethodExistingAuth =
+  | {
+      kind: 'webauthn_assertion';
+      credential: WebAuthnAuthenticationCredential;
+      expectedChallengeDigestB64u: string;
+    }
+  | {
+      kind: 'app_session';
+      policy: RevokeAuthMethodAppSessionPolicy;
+    };
+
+export type WalletRevokeAuthMethodRequest = {
+  walletId: WalletId;
+  rpId: string;
+  auth: RevokeAuthMethodExistingAuth;
+  target: WalletAuthMethodTarget;
+};
+
+export type WalletRevokeAuthMethodResponse =
+  | {
+      ok: true;
+      walletId: WalletId;
+      rpId: string;
+      authMethod: {
+        kind: 'passkey' | 'email_otp';
+        status: 'revoked';
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
+
 export type AddSignerAppSessionPolicy = {
   permission: 'wallet_signer_provision';
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   signerSelection: AddSignerSelection;
   runtimePolicyScope?: RuntimePolicyScope;
   expiresAtMs: number;
@@ -354,7 +504,7 @@ export type AddSignerAuth =
     };
 
 export type WalletAddSignerStartRequest = {
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   addSignerIntentGrant: AddSignerIntentGrant;
   addSignerIntentDigestB64u: string;
   intent: AddSignerIntentV1;
@@ -422,7 +572,7 @@ export type WalletAddSignerFinalizeRequest = {
 export type WalletAddSignerFinalizeResponse =
   | {
       ok: true;
-      walletSubjectId: WalletSubjectId;
+      walletId: WalletId;
       rpId: string;
       ed25519?: {
         nearAccountId: string;
@@ -445,11 +595,26 @@ export type WalletAddSignerFinalizeResponse =
       message: string;
     };
 
-export type WalletRegistrationStartRequest = {
+type WalletRegistrationStartRequestBase = {
   registrationIntentGrant: RegistrationIntentGrant;
   registrationIntentDigestB64u: string;
   intent: RegistrationIntentV1;
-  webauthn_registration: unknown;
+};
+
+export type WalletRegistrationStartAuthority =
+  | {
+      kind: 'passkey';
+      webauthnRegistration: unknown;
+      emailOtpRegistrationProof?: never;
+    }
+  | {
+      kind: 'email_otp';
+      emailOtpRegistrationProof: EmailOtpRegistrationProof;
+      webauthnRegistration?: never;
+    };
+
+export type WalletRegistrationStartRequest = WalletRegistrationStartRequestBase & {
+  authority: WalletRegistrationStartAuthority;
 };
 
 export type WalletRegistrationEcdsaPreparePayload = {
@@ -457,9 +622,8 @@ export type WalletRegistrationEcdsaPreparePayload = {
   chainTargets: ThresholdEcdsaChainTarget[];
   prepare: {
     formatVersion: EcdsaHssRoleLocalFormatVersion;
-    walletSessionUserId: string;
+    walletId: string;
     rpId: string;
-    subjectId: string;
     ecdsaThresholdKeyId: EcdsaThresholdKeyId;
     signingRootId: string;
     signingRootVersion: string;
@@ -477,15 +641,14 @@ export type WalletRegistrationEcdsaPreparePayload = {
 
 export type WalletRegistrationEcdsaClientBootstrap = {
   formatVersion: EcdsaHssRoleLocalFormatVersion;
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
   signingRootVersion: string;
   keyScope: EcdsaHssKeyScope;
   relayerKeyId: string;
-  clientPublicKey33B64u: string;
+  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
   requestId: string;
@@ -502,9 +665,8 @@ export type WalletRegistrationEcdsaClientBootstrap = {
 export type WalletRegistrationEcdsaWalletKey = {
   keyScope: 'evm-family';
   chainTarget: ThresholdEcdsaChainTarget;
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   keyHandle: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
@@ -572,12 +734,19 @@ export type WalletRegistrationFinalizeRequest = {
   ecdsa?: {
     expectedKeyHandles?: string[];
   };
+  emailOtpEnrollment?: {
+    recoveryWrappedEnrollmentEscrows: unknown[];
+    enrollmentSealKeyVersion: string;
+    clientUnlockPublicKeyB64u: string;
+    unlockKeyVersion: string;
+    thresholdEcdsaClientVerifyingShareB64u: string;
+  };
 };
 
 export type WalletRegistrationFinalizeResponse =
   | {
       ok: true;
-      walletSubjectId: WalletSubjectId;
+      walletId: WalletId;
       rpId: string;
       ed25519?: {
         nearAccountId: string;
@@ -724,6 +893,7 @@ export type ThresholdEd25519HssFinalizeForRegistrationResponse =
       ok: true;
       publicKey: string;
       relayerKeyId: string;
+      finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
       accountProvisioning?: {
         mode: 'create_if_missing';
         status: 'created' | 'already_ready';
@@ -1378,7 +1548,7 @@ export type ThresholdEcdsaChainTarget =
 
 export interface EcdsaKeyFactsInventoryPolicy {
   permission: 'ecdsa_key_facts_inventory';
-  walletSubjectId: WalletSubjectId;
+  walletId: WalletId;
   chainTargets: ThresholdEcdsaChainTarget[];
   runtimePolicyScope?: RuntimePolicyScope;
   expiresAtMs: number;
@@ -1416,7 +1586,6 @@ export interface ThresholdEcdsaHssFinalizeResponse {
   chainId?: number;
   sessionId?: string;
   walletSigningSessionId?: string;
-  subjectId?: string;
   chainTarget?: ThresholdEcdsaChainTarget;
   expiresAtMs?: number;
   expiresAt?: string;
@@ -1458,8 +1627,8 @@ export type EcdsaHssRoleLocalExportFormatVersion = 'ecdsa-hss-role-local-export'
 export type EcdsaHssKeyScope = 'evm-family';
 
 export interface EcdsaHssPublicIdentity {
-  clientPublicKey33B64u: string;
-  relayerPublicKey33B64u: string;
+  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
+  relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
   groupPublicKey33B64u: string;
   ethereumAddress: string;
 }
@@ -1471,7 +1640,8 @@ export interface EcdsaHssCaitSithInput {
 }
 
 export interface EcdsaHssClientRootProof {
-  version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v1';
+  version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v2';
+  clientRootPublicKey33B64u: EcdsaClientRootPublicKey33B64u;
   digest32B64u: string;
   signature65B64u: string;
 }
@@ -1485,15 +1655,14 @@ export interface EcdsaHssPasskeyBootstrapAuthorization {
 
 interface EcdsaHssClientBootstrapRequestBase {
   formatVersion: EcdsaHssRoleLocalFormatVersion;
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   signingRootId: string;
   signingRootVersion: string;
   keyScope: EcdsaHssKeyScope;
   relayerKeyId: string;
-  clientPublicKey33B64u: string;
+  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
   requestId: string;
@@ -1522,9 +1691,8 @@ export type EcdsaHssClientBootstrapRequest =
 
 export interface EcdsaHssServerBootstrapResponse {
   formatVersion: EcdsaHssRoleLocalFormatVersion;
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   contextBinding32B64u: string;
@@ -1546,12 +1714,11 @@ export interface EcdsaHssServerBootstrapResponse {
 }
 
 export interface EcdsaHssRoleLocalKeyRecord {
-  version: 'threshold_ecdsa_hss_role_local';
+  version: 'threshold_ecdsa_hss_role_local_v2';
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   keyHandle: string;
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   signingRootId: string;
   signingRootVersion: string;
   keyScope: EcdsaHssKeyScope;
@@ -1570,9 +1737,8 @@ export interface EcdsaHssRoleLocalKeyRecord {
 
 export interface EcdsaHssExportShareRequest {
   formatVersion: EcdsaHssRoleLocalExportFormatVersion;
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   contextBinding32B64u: string;
@@ -1588,9 +1754,8 @@ export interface EcdsaHssExportShareRequest {
 
 export interface EcdsaHssExportShareResponse {
   formatVersion: EcdsaHssRoleLocalExportFormatVersion;
-  walletSessionUserId: string;
+  walletId: string;
   rpId: string;
-  subjectId: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   contextBinding32B64u: string;
@@ -1600,9 +1765,8 @@ export interface EcdsaHssExportShareResponse {
 }
 
 export type EcdsaSessionPolicy = {
-  version: 'threshold_session_v1';
-  walletSessionUserId: string;
-  subjectId: string;
+  version: 'threshold_session_policy_v2';
+  walletId: string;
   rpId: string;
   relayerKeyId: string;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -1618,9 +1782,8 @@ export type EcdsaSessionPolicy = {
 };
 
 export type ThresholdEcdsaBootstrapSessionPolicy = {
-  version: 'threshold_session_v1';
-  walletSessionUserId: string;
-  subjectId: string;
+  version: 'threshold_session_policy_v2';
+  walletId: string;
   rpId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle?: string;

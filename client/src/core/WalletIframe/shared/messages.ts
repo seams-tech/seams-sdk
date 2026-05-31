@@ -18,14 +18,16 @@ import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/sessionPolicy';
 import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '../../types/seams';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import type { WalletFlowEvent } from '../../types/sdkSentEvents';
 import type {
   AddSignerSelection,
-  RegisterWalletSubjectInput,
+  RegistrationAuthMethodInput,
+  RegisterWalletInput,
   RegistrationSignerSelection,
-  WalletSubjectId,
+  WalletId,
 } from '@shared/utils/registrationIntent';
 
 export type WalletProtocolVersion = '1.0.0';
@@ -134,7 +136,8 @@ export interface PMRegisterPayload {
 }
 
 export interface PMRegisterWalletPayload {
-  walletSubject: RegisterWalletSubjectInput;
+  authMethod: RegistrationAuthMethodInput;
+  wallet: RegisterWalletInput;
   rpId: string;
   signerSelection: RegistrationSignerSelection;
   confirmationConfig?: Partial<ConfirmationConfig>;
@@ -142,7 +145,7 @@ export interface PMRegisterWalletPayload {
 }
 
 export interface PMAddWalletSignerPayload {
-  walletSubjectId: WalletSubjectId | string;
+  walletId: WalletId | string;
   rpId: string;
   signerSelection: AddSignerSelection;
   confirmationConfig?: Partial<ConfirmationConfig>;
@@ -339,7 +342,6 @@ export interface PMEnrollEmailOtpPayload {
 
 export interface PMEmailOtpEcdsaCapabilityPayload {
   walletSession: WalletSessionRef;
-  subjectId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   relayUrl?: string;
@@ -347,6 +349,8 @@ export interface PMEmailOtpEcdsaCapabilityPayload {
   otpCode: string;
   shamirPrimeB64u?: string;
   appSessionJwt?: string;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  registrationAttemptId?: string;
 }
 
 export interface PMRefreshEmailOtpSigningSessionPayload {

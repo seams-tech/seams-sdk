@@ -73,7 +73,7 @@ Example ECDSA lane:
 
 ```ts
 type EcdsaTransactionLane = {
-  subjectId: WalletSubjectId;
+  walletId: string;
   authMethod: 'email_otp' | 'passkey';
   curve: 'ecdsa';
   chainTarget: ThresholdEcdsaChainTarget;
@@ -136,26 +136,25 @@ Signing-session identity is protocol-specific after the system boundary.
 | --- | --- | --- |
 | Wallet session | `walletId` or `walletSessionUserId` | Authenticated wallet/session and audit scope |
 | NEAR Ed25519 | `NearAccountRef` | NEAR account identity |
-| ECDSA principal | `WalletSubjectId` | Protocol-neutral threshold ECDSA subject |
+| ECDSA principal | `walletId` | Threshold ECDSA wallet principal |
 | ECDSA target | `ThresholdEcdsaChainTarget` | Concrete EVM-family or Tempo target |
 | Wallet signing session | `walletSigningSessionId` | Wallet-level budget and TTL id |
 | Threshold session | `thresholdSessionId` | Curve-specific signing session id |
 
 Funds-safety invariant: EVM SIGNERS MUST ALL SHARE THE SAME ADDRESS for the
-same wallet, subject, RP, signing root, and key version. `ThresholdEcdsaChainTarget`
+same wallet, RP, signing root, and key version. `ThresholdEcdsaChainTarget`
 selects a concrete lane/session/budget/nonce scope; it must not select a
 different persistent ECDSA key or displayed owner address.
 
-NEAR Ed25519 lanes carry a NEAR account reference. ECDSA lanes carry a
-protocol-neutral subject and concrete chain target. A NEAR account id may appear
-in NEAR account operations and diagnostic context; it is not the ECDSA
-principal.
+NEAR Ed25519 lanes carry a NEAR account reference. ECDSA lanes carry wallet id
+and concrete chain target. A NEAR account id may appear in NEAR account
+operations and diagnostic context; it is not the ECDSA principal.
 
 Canonical ECDSA lane identity includes:
 
 ```ts
 type EcdsaLaneIdentity = {
-  subjectId: WalletSubjectId;
+  walletId: string;
   authMethod: 'email_otp' | 'passkey';
   curve: 'ecdsa';
   chainTarget: ThresholdEcdsaChainTarget;
@@ -414,7 +413,7 @@ Rules:
 1. One user-approved signing request costs one use by default.
 2. One NEAR batched signing request is one use by default.
 3. One EVM, Tempo, or Arc signing request is one use for the selected
-   `WalletSubjectId + ThresholdEcdsaChainTarget`.
+   wallet id plus `ThresholdEcdsaChainTarget`.
 4. Key export is separate from transaction signing budget.
 5. Warm-session budget identity is captured before signing.
 6. Step-up-created budget identity is captured immediately after mint/reconnect
@@ -573,8 +572,8 @@ The completed implementation work closed these architecture gaps:
 7. Key export resolves exact lanes first.
 8. Snapshot ECDSA identity uses concrete `ThresholdEcdsaChainTarget`.
 9. Legacy collapsed ECDSA records are dropped rather than migrated.
-10. Public/internal ECDSA boundaries use `subjectId`.
-11. HSS prepare distinguishes `walletSessionUserId` from ECDSA `subjectId`.
+10. Public/internal ECDSA boundaries use wallet id and exact lane identity.
+11. HSS prepare binds ECDSA requests to wallet id and exact chain target.
 12. Duplicate exact Ed25519 export candidates are normalized by canonical lane
     identity.
 
@@ -593,7 +592,7 @@ Guard tests should reject:
 
 1. optional identity fields in executable transaction/export/budget types.
 2. internal ECDSA raw collapsed chain identity.
-3. production ECDSA paths deriving `subjectId` from `nearAccountId`.
+3. production ECDSA paths deriving signer identity from `nearAccountId`.
 4. `post_reauth_admission`, `reauth_required`, or callback admission across the
    signing boundary.
 5. `budgetIdentity?` in prepared executable operations.

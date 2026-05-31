@@ -99,7 +99,7 @@ import type {
 } from '../SeamsPasskey';
 import { executeEvmFamilyTransactionLifecycle } from '../SeamsPasskey/tempo/executeEvmFamilyTransaction';
 import { toAccountId } from '../types/accountIds';
-import { walletSubjectIdFromString } from '@shared/utils/registrationIntent';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { buildPasskeyNearWalletRegistrationSignerSelection } from '../SeamsPasskey/registrationSignerSelection';
 
 export class SeamsPasskeyIframe {
@@ -194,11 +194,12 @@ export class SeamsPasskeyIframe {
         const accountId = toAccountId(args.nearAccountId);
         const rpId = this.resolveRegistrationRpId('near.registerNearWallet');
         return await this.registerWallet({
-          walletSubject: {
+          wallet: {
             kind: 'provided',
-            walletSubjectId: walletSubjectIdFromString(String(accountId)),
+            walletId: walletIdFromString(String(accountId)),
           },
           rpId,
+          authMethod: args.authMethod || { kind: 'passkey' as const },
           signerSelection: buildPasskeyNearWalletRegistrationSignerSelection({
             configs: this.configs,
             nearAccountId: String(accountId),
@@ -240,20 +241,22 @@ export class SeamsPasskeyIframe {
       reportFinalized: async (args) => await this.reportTempoFinalizedDomain(args),
       reportDroppedOrReplaced: async (args) => await this.reportTempoDroppedOrReplacedDomain(args),
       reconcileNonceLane: async (args) => await this.reconcileTempoNonceLaneDomain(args),
-      bootstrapEcdsaSession: async (args) =>
-        await this.bootstrapEcdsaSessionDomain(args),
+      bootstrapEcdsaSession: async (args) => await this.bootstrapEcdsaSessionDomain(args),
     };
     this.evm = {
       registerEvmWallet: async (args) => {
         if (!args.chainTargets.length) {
-          throw new Error('[SeamsPasskey][evm] registerEvmWallet requires at least one chain target');
+          throw new Error(
+            '[SeamsPasskey][evm] registerEvmWallet requires at least one chain target',
+          );
         }
         if (!args.participantIds.length) {
           throw new Error('[SeamsPasskey][evm] registerEvmWallet requires participant ids');
         }
         return await this.registerWallet({
-          walletSubject: { kind: 'server_generated' },
+          wallet: { kind: 'server_generated' },
           rpId: this.resolveRegistrationRpId('evm.registerEvmWallet'),
+          authMethod: args.authMethod || { kind: 'passkey' as const },
           signerSelection: {
             mode: 'ecdsa_only',
             ecdsa: {
@@ -264,8 +267,7 @@ export class SeamsPasskeyIframe {
           options: args.options,
         });
       },
-      bootstrapEcdsaSession: async (args) =>
-        await this.bootstrapEcdsaSessionDomain(args),
+      bootstrapEcdsaSession: async (args) => await this.bootstrapEcdsaSessionDomain(args),
     };
     this.recovery = {
       getRecoveryEmails: async (accountId) => {
@@ -336,8 +338,7 @@ export class SeamsPasskeyIframe {
       },
     };
     this.keys = {
-      exportKeypairWithUI: async (input) =>
-        await this.exportKeypairWithUIDomain(input),
+      exportKeypairWithUI: async (input) => await this.exportKeypairWithUIDomain(input),
       exportThresholdEd25519SeedFromHssReport: async (args) =>
         await this.exportThresholdEd25519SeedFromHssReportDomain(args),
     };

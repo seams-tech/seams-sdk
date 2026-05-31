@@ -17,6 +17,7 @@ import {
   toColorTokenRecord,
   type IntRange,
 } from './configHelpers';
+import { normalizeWalletHostVariant } from '../WalletIframe/hostVariant';
 
 const THRESHOLD_ECDSA_PRESIGN_POOL_LIMITS = {
   targetDepth: { min: 1, max: 64 } satisfies IntRange,
@@ -246,6 +247,9 @@ export function buildConfigsFromDefaults(args: {
     toTrimmedString(overrides.iframeWallet?.sdkBasePath) ||
     toTrimmedString(defaults.wallet.iframe.sdkBasePath) ||
     '/sdk';
+  const walletHostVariant = normalizeWalletHostVariant(
+    overrides.iframeWallet?.walletHostVariant || defaults.wallet.iframe.walletHostVariant,
+  );
 
   if (!relayerUrl) {
     throw new Error('[configPresets] Missing required config: relayer.url');
@@ -342,6 +346,7 @@ export function buildConfigsFromDefaults(args: {
               origin: walletOrigin,
               servicePath: walletServicePath,
               sdkBasePath: walletSdkBasePath,
+              walletHostVariant,
               rpIdOverride: walletRpIdOverride,
             },
           }
@@ -351,6 +356,7 @@ export function buildConfigsFromDefaults(args: {
               ...(walletOrigin ? { origin: walletOrigin } : {}),
               servicePath: walletServicePath,
               sdkBasePath: walletSdkBasePath,
+              walletHostVariant,
               rpIdOverride: walletRpIdOverride,
             },
           },
