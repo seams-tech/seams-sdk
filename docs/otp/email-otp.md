@@ -439,7 +439,7 @@ Rules:
    rotate.
 
 The user-facing backup UI plan lives in
-[otp-recovery-codes-ui.md](otp-recovery-codes-ui.md).
+[refactor-55-otp-recovery-codes-ui.md](refactor-55-otp-recovery-codes-ui.md).
 
 ## Logging And Observability
 
@@ -480,6 +480,6 @@ Required validation:
 3. Threshold session token naming:
    [../signing-session-architecture/threshold-session-auth-token.md](../signing-session-architecture/threshold-session-auth-token.md).
 4. Email OTP recovery codes UI:
-   [otp-recovery-codes-ui.md](otp-recovery-codes-ui.md).
+   [refactor-55-otp-recovery-codes-ui.md](refactor-55-otp-recovery-codes-ui.md).
 5. Future Email OTP/passkey add-key product plan:
    [addkey-otp-passkey-accounts.md](addkey-otp-passkey-accounts.md).
