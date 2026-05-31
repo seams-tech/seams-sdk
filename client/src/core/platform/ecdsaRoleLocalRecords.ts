@@ -16,6 +16,7 @@ import {
   thresholdEcdsaRecordRpId,
   type ThresholdEcdsaSessionRecord,
 } from '../signingEngine/session/persistence/records';
+import type { ThresholdEcdsaHssRoleLocalClientState } from '../signingEngine/interfaces/signing';
 import type {
   EcdsaRoleLocalPublicFacts,
   EcdsaRoleLocalRecordParseResult,
@@ -208,25 +209,53 @@ function thresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
   if (!state) {
     throw new Error('[platform][ecdsa-role-local] session record is missing role-local state');
   }
-  const publicFacts: EcdsaRoleLocalPublicFacts = {
-    walletId: toWalletId(record.walletId),
-    rpId: toRpId(thresholdEcdsaRecordRpId(record)),
+  return buildEcdsaRoleLocalReadyRecordFromLegacyState({
+    walletId: record.walletId,
+    rpId: thresholdEcdsaRecordRpId(record),
     chainTarget: record.chainTarget,
-    keyHandle: requiredString(record.keyHandle, 'keyHandle'),
-    ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(record.ecdsaThresholdKeyId),
-    signingRootId: toEcdsaHssSigningRootId(record.signingRootId),
-    signingRootVersion: toEcdsaHssSigningRootVersion(record.signingRootVersion),
+    keyHandle: record.keyHandle,
+    ecdsaThresholdKeyId: record.ecdsaThresholdKeyId,
+    signingRootId: record.signingRootId,
+    signingRootVersion: record.signingRootVersion,
+    participantIds: record.participantIds,
+    state,
+  });
+}
+
+export function buildEcdsaRoleLocalReadyRecordFromLegacyState(args: {
+  walletId: unknown;
+  rpId: unknown;
+  chainTarget: unknown;
+  keyHandle: unknown;
+  ecdsaThresholdKeyId: unknown;
+  signingRootId: unknown;
+  signingRootVersion: unknown;
+  participantIds: unknown;
+  state: ThresholdEcdsaHssRoleLocalClientState;
+}): EcdsaRoleLocalReadyRecord {
+  const publicFacts: EcdsaRoleLocalPublicFacts = {
+    walletId: toWalletId(args.walletId),
+    rpId: toRpId(args.rpId),
+    chainTarget: thresholdEcdsaChainTargetFromRequest(
+      isRecord(args.chainTarget) ? args.chainTarget : {},
+    ),
+    keyHandle: requiredString(args.keyHandle, 'keyHandle'),
+    ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(args.ecdsaThresholdKeyId),
+    signingRootId: toEcdsaHssSigningRootId(args.signingRootId),
+    signingRootVersion: toEcdsaHssSigningRootVersion(args.signingRootVersion),
     clientParticipantId: 1,
     relayerParticipantId: 2,
-    participantIds: parseParticipantIds(record.participantIds),
-    hssClientSharePublicKey33B64u: parseHssClientSharePublicKey(state.clientPublicKey33B64u),
-    relayerPublicKey33B64u: parseRelayerHssPublicKey(state.relayerPublicKey33B64u),
-    groupPublicKey33B64u: parseGroupPublicKey(state.groupPublicKey33B64u),
-    ethereumAddress: parseEthereumAddress(state.ethereumAddress),
+    participantIds: parseParticipantIds(args.participantIds),
+    hssClientSharePublicKey33B64u: parseHssClientSharePublicKey(
+      args.state.clientPublicKey33B64u,
+    ),
+    relayerPublicKey33B64u: parseRelayerHssPublicKey(args.state.relayerPublicKey33B64u),
+    groupPublicKey33B64u: parseGroupPublicKey(args.state.groupPublicKey33B64u),
+    ethereumAddress: parseEthereumAddress(args.state.ethereumAddress),
   };
   return {
     kind: 'ecdsa_role_local_ready_record_v1',
-    stateBlob: roleLocalReadyStateBlobFromLegacy({ state, publicFacts }),
+    stateBlob: roleLocalReadyStateBlobFromLegacy({ state: args.state, publicFacts }),
     publicFacts,
   };
 }

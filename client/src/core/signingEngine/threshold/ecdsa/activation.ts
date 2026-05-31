@@ -27,6 +27,7 @@ import {
   deriveEvmFamilyKeyFingerprint,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ExistingEcdsaBootstrapKeyIntent } from '../../session/passkey/ecdsaBootstrap';
+import { buildEcdsaRoleLocalReadyRecordFromLegacyState } from '@/core/platform/ecdsaRoleLocalRecords';
 
 export type ThresholdEcdsaEvmChainTarget = EvmEip155ChainTarget;
 export type ThresholdEcdsaTempoChainTarget = TempoChainTarget;
@@ -415,6 +416,19 @@ export async function activateEcdsaSession(
         bootstrapOwnerAddress: bootstrap.ethereumAddress,
       })
     : String(bootstrap.ethereumAddress || '').trim();
+  const ecdsaRoleLocalReadyRecord = bootstrap.ecdsaHssRoleLocalClientState
+    ? buildEcdsaRoleLocalReadyRecordFromLegacyState({
+        walletId,
+        rpId: bootstrap.rpId,
+        chainTarget,
+        keyHandle,
+        ecdsaThresholdKeyId,
+        signingRootId,
+        signingRootVersion: signingRootVersion || 'default',
+        participantIds,
+        state: bootstrap.ecdsaHssRoleLocalClientState,
+      })
+    : undefined;
 
   const keygen: EcdsaKeygenSuccess = {
     ok: true,
@@ -464,6 +478,7 @@ export async function activateEcdsaSession(
       relayerKeyId,
       clientVerifyingShareB64u,
       ...(clientAdditiveShare32B64u ? { clientAdditiveShare32B64u } : {}),
+      ...(ecdsaRoleLocalReadyRecord ? { ecdsaRoleLocalReadyRecord } : {}),
       ...(bootstrap.ecdsaHssRoleLocalClientState
         ? { ecdsaHssRoleLocalClientState: bootstrap.ecdsaHssRoleLocalClientState }
         : {}),

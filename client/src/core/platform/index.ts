@@ -57,6 +57,7 @@ export {
   type BrowserPlatformRuntime,
 } from './browser/createBrowserPlatformRuntime';
 export {
+  buildEcdsaRoleLocalReadyRecordFromLegacyState,
   ecdsaRoleLocalReadyRecordMatchesInput,
   ecdsaRoleLocalReadyRecordStorageKey,
   parseEcdsaRoleLocalReadyRecord,

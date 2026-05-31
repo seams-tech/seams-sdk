@@ -36,6 +36,7 @@ import type {
   EcdsaHssRoleLocalPublicIdentity,
   ThresholdEcdsaHssRoleLocalBootstrapValue,
 } from './thresholdEcdsa';
+import { buildEcdsaRoleLocalReadyRecordFromLegacyState } from '@/core/platform/ecdsaRoleLocalRecords';
 
 function stripTrailingSlashes(url: string): string {
   return String(url || '').replace(/\/+$/, '');
@@ -578,6 +579,31 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
   const walletSigningSessionId = serverBootstrap.walletSigningSessionId;
   const remainingUses = serverBootstrap.remainingUses;
   const expiresAtMs = serverBootstrap.expiresAtMs;
+  const ecdsaHssRoleLocalClientState = {
+    kind: 'role_local_ready' as const,
+    artifactKind: 'ecdsa-hss-role-local-client-state' as const,
+    contextBinding32B64u: localBootstrap.contextBinding32B64u,
+    clientShare32B64u: localBootstrap.clientShare32B64u,
+    clientPublicKey33B64u: localBootstrap.clientPublicKey33B64u,
+    clientShareRetryCounter: localBootstrap.clientShareRetryCounter,
+    relayerPublicKey33B64u: serverBootstrap.publicIdentity.relayerPublicKey33B64u,
+    groupPublicKey33B64u: serverBootstrap.publicIdentity.groupPublicKey33B64u,
+    ethereumAddress,
+    clientCaitSithInput: localBootstrap.clientCaitSithInput,
+    createdAtMs: nowMs,
+    updatedAtMs: nowMs,
+  };
+  const ecdsaRoleLocalReadyRecord = buildEcdsaRoleLocalReadyRecordFromLegacyState({
+    walletId: args.walletId,
+    rpId,
+    chainTarget: args.chainTarget,
+    keyHandle,
+    ecdsaThresholdKeyId,
+    signingRootId,
+    signingRootVersion,
+    participantIds,
+    state: ecdsaHssRoleLocalClientState,
+  });
 
   const keyRef: ThresholdEcdsaSecp256k1KeyRef = {
     type: 'threshold-ecdsa-secp256k1',
@@ -592,20 +618,8 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
       relayerKeyId,
       clientVerifyingShareB64u: localBootstrap.clientPublicKey33B64u,
       clientAdditiveShare32B64u: localBootstrap.clientShare32B64u,
-      ecdsaHssRoleLocalClientState: {
-        kind: 'role_local_ready',
-        artifactKind: 'ecdsa-hss-role-local-client-state',
-        contextBinding32B64u: localBootstrap.contextBinding32B64u,
-        clientShare32B64u: localBootstrap.clientShare32B64u,
-        clientPublicKey33B64u: localBootstrap.clientPublicKey33B64u,
-        clientShareRetryCounter: localBootstrap.clientShareRetryCounter,
-        relayerPublicKey33B64u: serverBootstrap.publicIdentity.relayerPublicKey33B64u,
-        groupPublicKey33B64u: serverBootstrap.publicIdentity.groupPublicKey33B64u,
-        ethereumAddress,
-        clientCaitSithInput: localBootstrap.clientCaitSithInput,
-        createdAtMs: nowMs,
-        updatedAtMs: nowMs,
-      },
+      ecdsaRoleLocalReadyRecord,
+      ecdsaHssRoleLocalClientState,
     },
     participantIds,
     thresholdEcdsaPublicKeyB64u,

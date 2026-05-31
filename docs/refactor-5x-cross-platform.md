@@ -1862,6 +1862,9 @@ to a single PR where practical.
       only at the persistence boundary while this in-development data exists.
 - [x] Update EVM-family key-ref builders to consume the new opaque role-local
       state shape.
+- [x] Attach `EcdsaRoleLocalReadyRecord` from registration and activation
+      key-ref producers so downstream code can consume normalized role-local
+      state without reconstructing it.
 - [ ] Remove `clientAdditiveShare32B64u` from active core signing paths after
       the opaque state path is complete.
 

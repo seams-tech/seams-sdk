@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
 import { createBrowserPlatformRuntime } from '@/core/platform';
 import {
+  buildEcdsaRoleLocalReadyRecordFromLegacyState,
   ecdsaRoleLocalReadyRecordStorageKey,
   parseEcdsaRoleLocalReadyRecord,
   parseRawEcdsaRoleLocalRecord,
@@ -16,6 +17,7 @@ import {
   toEcdsaHssSigningRootVersion,
   toEcdsaHssThresholdKeyId,
 } from '@/core/signingEngine/session/identity/emailOtpHssIdentity';
+import type { ThresholdEcdsaHssRoleLocalClientState } from '@/core/signingEngine/interfaces/signing';
 
 function bytesB64u(length: number, fill: number): string {
   return base64UrlEncode(new Uint8Array(length).fill(fill));
@@ -39,6 +41,27 @@ const groupPublicKey33B64u = bytesB64u(33, 4);
 const share32B64u = bytesB64u(32, 5);
 const ownerAddress = '0x0000000000000000000000000000000000000001';
 
+function roleLocalState(): ThresholdEcdsaHssRoleLocalClientState {
+  return {
+    kind: 'role_local_ready',
+    artifactKind: 'ecdsa-hss-role-local-client-state',
+    contextBinding32B64u: share32B64u,
+    clientShare32B64u: bytesB64u(32, 6),
+    clientPublicKey33B64u,
+    clientShareRetryCounter: 0,
+    relayerPublicKey33B64u,
+    groupPublicKey33B64u,
+    ethereumAddress: ownerAddress,
+    clientCaitSithInput: {
+      participantId: 1,
+      mappedPrivateShare32B64u: bytesB64u(32, 7),
+      verifyingShare33B64u: clientPublicKey33B64u,
+    },
+    createdAtMs: 1,
+    updatedAtMs: 1,
+  };
+}
+
 function rawSessionRecord(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     walletId,
@@ -51,24 +74,7 @@ function rawSessionRecord(overrides: Record<string, unknown> = {}): Record<strin
     signingRootVersion,
     relayerKeyId: 'relayer-key',
     clientVerifyingShareB64u: clientPublicKey33B64u,
-    ecdsaHssRoleLocalClientState: {
-      kind: 'role_local_ready',
-      artifactKind: 'ecdsa-hss-role-local-client-state',
-      contextBinding32B64u: share32B64u,
-      clientShare32B64u: bytesB64u(32, 6),
-      clientPublicKey33B64u,
-      clientShareRetryCounter: 0,
-      relayerPublicKey33B64u,
-      groupPublicKey33B64u,
-      ethereumAddress: ownerAddress,
-      clientCaitSithInput: {
-        participantId: 1,
-        mappedPrivateShare32B64u: bytesB64u(32, 7),
-        verifyingShare33B64u: clientPublicKey33B64u,
-      },
-      createdAtMs: 1,
-      updatedAtMs: 1,
-    },
+    ecdsaHssRoleLocalClientState: roleLocalState(),
     participantIds: [1, 2],
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'tehss-session',
@@ -101,6 +107,22 @@ test.describe('ECDSA role-local record boundary parser', () => {
     expect(ready.publicFacts.keyHandle).toBe(keyHandle);
     expect(ready.publicFacts.hssClientSharePublicKey33B64u).toBe(clientPublicKey33B64u);
     expect(ready.stateBlob.kind).toBe('ecdsa_role_local_state_blob_v1');
+  });
+
+  test('builds normalized ready records from explicit legacy role-local state', () => {
+    const ready = buildEcdsaRoleLocalReadyRecordFromLegacyState({
+      walletId,
+      rpId,
+      chainTarget,
+      keyHandle,
+      ecdsaThresholdKeyId,
+      signingRootId,
+      signingRootVersion,
+      participantIds: [1, 2],
+      state: roleLocalState(),
+    });
+    expect(ready.publicFacts.walletId).toBe(walletId);
+    expect(ready.publicFacts.relayerPublicKey33B64u).toBe(relayerPublicKey33B64u);
   });
 
   test('returns parse results for ready records and legacy session records', () => {
