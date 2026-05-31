@@ -6,6 +6,7 @@ import {
   parseEcdsaRoleLocalReadyRecord,
   parseRawEcdsaRoleLocalRecord,
   parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial,
+  parseThresholdEcdsaSessionRecordAsRoleLocalWorkerExportMaterial,
   parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
 } from '@/core/platform/ecdsaRoleLocalRecords';
 import { thresholdEcdsaChainTargetFromChainFamily, toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -138,6 +139,14 @@ test.describe('ECDSA role-local record boundary parser', () => {
     expect(material.readyRecord.publicFacts.groupPublicKey33B64u).toBe(groupPublicKey33B64u);
     expect(material.contextBinding32B64u).toBe(share32B64u);
     expect(material.clientShareRetryCounter).toBe(0);
+  });
+
+  test('parses worker export material at the boundary for current browser worker calls', () => {
+    const material = parseThresholdEcdsaSessionRecordAsRoleLocalWorkerExportMaterial(
+      rawSessionRecord(),
+    );
+    expect(material.readyRecord.publicFacts.relayerPublicKey33B64u).toBe(relayerPublicKey33B64u);
+    expect(material.roleLocalState.clientPublicKey33B64u).toBe(clientPublicKey33B64u);
   });
 
   test('round-trips persisted ready records through the browser durable store', async () => {

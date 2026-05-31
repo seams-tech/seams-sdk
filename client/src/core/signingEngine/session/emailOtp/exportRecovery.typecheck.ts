@@ -6,6 +6,7 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import type { EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { VerifiedEcdsaPublicFacts } from '../identity/evmFamilyEcdsaIdentity';
+import type { EcdsaRoleLocalWorkerExportMaterial } from '@/core/platform/ecdsaRoleLocalRecords';
 import type {
   EmailOtpEcdsaAuthorizedExportStepUpInput,
   EmailOtpEcdsaFreshLoginExportStepUpInput,
@@ -15,9 +16,7 @@ declare const walletSession: WalletSessionRef;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const routePlan: EmailOtpRoutePlan;
 declare const record: ThresholdEcdsaSessionRecord;
-declare const roleLocalState: NonNullable<
-  ThresholdEcdsaSessionRecord['ecdsaHssRoleLocalClientState']
->;
+declare const roleLocalMaterial: EcdsaRoleLocalWorkerExportMaterial;
 declare const publicFacts: VerifiedEcdsaPublicFacts;
 declare const runtimePolicyScope: ThresholdRuntimePolicyScope;
 
@@ -33,12 +32,12 @@ const authorizedExport: EmailOtpEcdsaAuthorizedExportStepUpInput = {
   rpId: 'localhost',
   shamirPrimeB64u: 'prime',
   keyHandle: 'ehss-key-handle-1',
-  roleLocalState,
+  roleLocalMaterial,
 };
 void authorizedExport;
 
-// @ts-expect-error authorized ECDSA export requires role-local client state.
-const authorizedExportWithoutRoleLocalState: EmailOtpEcdsaAuthorizedExportStepUpInput = {
+// @ts-expect-error authorized ECDSA export requires role-local material.
+const authorizedExportWithoutRoleLocalMaterial: EmailOtpEcdsaAuthorizedExportStepUpInput = {
   mode: 'export_step_up',
   source: 'authorized_signing_session',
   walletSession,
@@ -51,7 +50,7 @@ const authorizedExportWithoutRoleLocalState: EmailOtpEcdsaAuthorizedExportStepUp
   shamirPrimeB64u: 'prime',
   keyHandle: 'ehss-key-handle-1',
 };
-void authorizedExportWithoutRoleLocalState;
+void authorizedExportWithoutRoleLocalMaterial;
 
 const freshExport: EmailOtpEcdsaFreshLoginExportStepUpInput = {
   mode: 'export_step_up',

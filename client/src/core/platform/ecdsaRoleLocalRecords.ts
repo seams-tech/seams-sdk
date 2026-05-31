@@ -38,6 +38,10 @@ export type EcdsaRoleLocalExportMaterial = {
   clientShareRetryCounter: number;
 };
 
+export type EcdsaRoleLocalWorkerExportMaterial = EcdsaRoleLocalExportMaterial & {
+  roleLocalState: RoleLocalLegacyState;
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
@@ -238,7 +242,14 @@ export function parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(
 export function parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
   input: unknown,
 ): EcdsaRoleLocalExportMaterial {
-  const record = parseRawThresholdEcdsaSessionRecord(input);
+  return thresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
+    parseRawThresholdEcdsaSessionRecord(input),
+  );
+}
+
+function thresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
+  record: ThresholdEcdsaSessionRecord,
+): EcdsaRoleLocalExportMaterial {
   const state = record.ecdsaHssRoleLocalClientState;
   if (!state) {
     throw new Error('[platform][ecdsa-role-local] session record is missing role-local state');
@@ -251,6 +262,20 @@ export function parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
       32,
     ),
     clientShareRetryCounter: Math.max(0, Math.floor(Number(state.clientShareRetryCounter))),
+  };
+}
+
+export function parseThresholdEcdsaSessionRecordAsRoleLocalWorkerExportMaterial(
+  input: unknown,
+): EcdsaRoleLocalWorkerExportMaterial {
+  const record = parseRawThresholdEcdsaSessionRecord(input);
+  const state = record.ecdsaHssRoleLocalClientState;
+  if (!state) {
+    throw new Error('[platform][ecdsa-role-local] session record is missing role-local state');
+  }
+  return {
+    ...thresholdEcdsaSessionRecordAsRoleLocalExportMaterial(record),
+    roleLocalState: state,
   };
 }
 

@@ -62,6 +62,7 @@ export {
   parseEcdsaRoleLocalReadyRecord,
   parseRawEcdsaRoleLocalRecord,
   parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial,
+  parseThresholdEcdsaSessionRecordAsRoleLocalWorkerExportMaterial,
   parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
   serializeEcdsaRoleLocalReadyRecord,
 } from './ecdsaRoleLocalRecords';

@@ -34,6 +34,10 @@ import {
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import type { RequestEmailOtpChallengeArgs } from './exportRecoveryRuntime';
 import type { RecoverEd25519ExportPrfFirstArgs } from './exportRecoveryRuntime';
+import {
+  parseThresholdEcdsaSessionRecordAsRoleLocalWorkerExportMaterial,
+  type EcdsaRoleLocalWorkerExportMaterial,
+} from '@/core/platform/ecdsaRoleLocalRecords';
 
 type EmailOtpEcdsaRouteChain = ThresholdEcdsaChainTarget['kind'];
 type EmailOtpRouteChain = 'near' | EmailOtpEcdsaRouteChain;
@@ -85,7 +89,7 @@ export type EmailOtpEcdsaAuthorizedExportStepUpInput = EmailOtpEcdsaExportBaseIn
   rpId: string;
   shamirPrimeB64u: string;
   keyHandle: string;
-  roleLocalState: NonNullable<ThresholdEcdsaSessionRecord['ecdsaHssRoleLocalClientState']>;
+  roleLocalMaterial: EcdsaRoleLocalWorkerExportMaterial;
 };
 
 type EmailOtpEcdsaFreshExportSubjectInput =
@@ -202,10 +206,9 @@ function resolveEmailOtpEcdsaAuthorizedExportStepUpInput(
     authLane?: EmailOtpAuthLane;
   },
 ): EmailOtpEcdsaAuthorizedExportStepUpInput {
-  const roleLocalState = args.record.ecdsaHssRoleLocalClientState;
-  if (!roleLocalState) {
-    throw new Error('Email OTP ECDSA export requires role-local HSS client state');
-  }
+  const roleLocalMaterial = parseThresholdEcdsaSessionRecordAsRoleLocalWorkerExportMaterial(
+    args.record,
+  );
   const providedAuthLane = args.authLane;
   const providedRouteAuth = providedAuthLane
     ? authLaneToRouteAuth(providedAuthLane)
@@ -235,7 +238,7 @@ function resolveEmailOtpEcdsaAuthorizedExportStepUpInput(
     record: args.record,
     rpId: requiredEmailOtpExportString(args.rpId, 'rpId'),
     keyHandle: String(toEvmFamilyEcdsaKeyHandle(args.record.keyHandle)),
-    roleLocalState,
+    roleLocalMaterial,
   };
 }
 
@@ -581,7 +584,7 @@ export async function exportEcdsaKeyWithAuthorization(
         signingRootId: record.signingRootId,
         signingRootVersion: record.signingRootVersion,
         relayerKeyId: record.relayerKeyId,
-        roleLocalState: exportInput.roleLocalState,
+        roleLocalState: exportInput.roleLocalMaterial.roleLocalState,
         thresholdSessionId: record.thresholdSessionId,
         walletSigningSessionId: record.walletSigningSessionId,
         thresholdExpiresAtMs: record.expiresAtMs,
