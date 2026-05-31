@@ -52,11 +52,9 @@ const platformLeakageAllowlist = new Set([
 
 const rawHssAllowlist = new Set([
   'client/src/core/signingEngine/flows/recovery/ecdsaHssExport.ts',
-  'client/src/core/signingEngine/flows/signEvmFamily/authPlanning.ts',
   'client/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.ts',
   'client/src/core/signingEngine/flows/signEvmFamily/signers/secp256k1.ts',
   'client/src/core/signingEngine/interfaces/signing.ts',
-  'client/src/core/signingEngine/session/emailOtp/persistedSnapshot.ts',
   'client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts',
   'client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.typecheck.ts',
   'client/src/core/signingEngine/session/passkey/ecdsaProvisioner.ts',

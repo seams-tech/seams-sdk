@@ -5,6 +5,7 @@ import {
 } from '@/core/signingEngine/stepUpConfirmation/types';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
+import { thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial } from '@/core/platform/ecdsaRoleLocalRecords';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEcdsaSigningBootstrapResult } from '../../interfaces/operationDeps';
 import type { WarmSessionStatusReader, WarmSessionStatusResult } from '../../uiConfirm/types';
@@ -151,8 +152,7 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
 
   const materialIsEmailOtp = isEmailOtpThresholdEcdsaSigningContext({ record });
   if (materialIsEmailOtp) {
-    const inlineClientAdditiveShare32B64u = String(record.clientAdditiveShare32B64u || '').trim();
-    if (inlineClientAdditiveShare32B64u) {
+    if (thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial(record)) {
       return buildBackingReadiness({
         expiresAtMs: record.expiresAtMs,
         remainingUses: record.remainingUses,

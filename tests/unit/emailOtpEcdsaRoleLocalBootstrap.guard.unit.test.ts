@@ -358,7 +358,9 @@ test.describe('Email OTP ECDSA role-local bootstrap guard', () => {
     expect(branchEnd).toBeGreaterThan(branchStart);
     const branch = source.slice(branchStart, branchEnd);
 
-    const inlineShareCheck = branch.indexOf('inlineClientAdditiveShare32B64u');
+    const inlineShareCheck = branch.indexOf(
+      'thresholdEcdsaRecordHasInlineRoleLocalSigningMaterial(record)',
+    );
     const inlinePolicyReturn = branch.indexOf('return buildBackingReadiness', inlineShareCheck);
     const workerSessionResolution = branch.indexOf('resolveEmailOtpEcdsaWorkerSessionId(record)');
     const workerStatusCheck = branch.indexOf('getEmailOtpWarmSessionStatus');
