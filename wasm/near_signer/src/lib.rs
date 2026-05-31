@@ -380,6 +380,16 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
                 "BuildThresholdEcdsaHssRoleLocalExportArtifact is handled by the HSS client runtime",
             ));
         }
+        WorkerRequestType::PrepareThresholdEcdsaHssRoleLocalClientBootstrap => {
+            return Err(JsValue::from_str(
+                "PrepareThresholdEcdsaHssRoleLocalClientBootstrap is handled by the HSS client runtime",
+            ));
+        }
+        WorkerRequestType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrap => {
+            return Err(JsValue::from_str(
+                "FinalizeThresholdEcdsaHssRoleLocalClientBootstrap is handled by the HSS client runtime",
+            ));
+        }
         WorkerRequestType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact => {
             #[cfg(feature = "hss-client-exports")]
             {
@@ -447,6 +457,12 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
         }
         WorkerRequestType::BuildThresholdEcdsaHssRoleLocalExportArtifact => {
             WorkerResponseType::BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess
+        }
+        WorkerRequestType::PrepareThresholdEcdsaHssRoleLocalClientBootstrap => {
+            WorkerResponseType::PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess
+        }
+        WorkerRequestType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrap => {
+            WorkerResponseType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess
         }
         WorkerRequestType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact => {
             WorkerResponseType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess

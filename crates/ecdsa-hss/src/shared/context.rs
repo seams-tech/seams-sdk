@@ -1,4 +1,4 @@
-use signer_core::error::{CoreResult, SignerCoreError};
+use crate::error::{EcdsaHssError, EcdsaHssResult};
 
 pub const ECDSA_HSS_CONTEXT_DOMAIN_TAG: &[u8] = b"ecdsa-hss:context:v2";
 pub const ECDSA_HSS_SCHEME_ID: &str = "ecdsa-hss-v2";
@@ -38,7 +38,7 @@ impl EcdsaHssStableKeyContext {
         }
     }
 
-    pub fn validate(&self) -> CoreResult<()> {
+    pub fn validate(&self) -> EcdsaHssResult<()> {
         validate_ascii_field("wallet_id", &self.wallet_id)?;
         validate_ascii_field("rp_id", &self.rp_id)?;
         validate_ascii_field("ecdsa_threshold_key_id", &self.ecdsa_threshold_key_id)?;
@@ -50,7 +50,7 @@ impl EcdsaHssStableKeyContext {
     }
 }
 
-pub fn encode_context(context: &EcdsaHssStableKeyContext) -> CoreResult<Vec<u8>> {
+pub fn encode_context(context: &EcdsaHssStableKeyContext) -> EcdsaHssResult<Vec<u8>> {
     context.validate()?;
 
     let mut out = Vec::with_capacity(
@@ -83,7 +83,7 @@ pub fn encode_context(context: &EcdsaHssStableKeyContext) -> CoreResult<Vec<u8>>
 
     out.push(
         u8::try_from(ECDSA_HSS_PARTICIPANT_IDS.len()).map_err(|_| {
-            SignerCoreError::invalid_length("participant_ids length exceeds u8 range")
+            EcdsaHssError::invalid_length("participant_ids length exceeds u8 range")
         })?,
     );
     for participant_id in ECDSA_HSS_PARTICIPANT_IDS {
@@ -93,33 +93,33 @@ pub fn encode_context(context: &EcdsaHssStableKeyContext) -> CoreResult<Vec<u8>>
     Ok(out)
 }
 
-fn validate_ascii_field<'a>(field_name: &str, value: &'a str) -> CoreResult<&'a str> {
+fn validate_ascii_field<'a>(field_name: &str, value: &'a str) -> EcdsaHssResult<&'a str> {
     if value.is_empty() {
-        return Err(SignerCoreError::invalid_input(format!(
+        return Err(EcdsaHssError::invalid_input(format!(
             "{field_name} must be non-empty"
         )));
     }
     if !value.is_ascii() {
-        return Err(SignerCoreError::invalid_input(format!(
+        return Err(EcdsaHssError::invalid_input(format!(
             "{field_name} must be ASCII-only"
         )));
     }
     if value.len() > usize::from(u16::MAX) {
-        return Err(SignerCoreError::invalid_length(format!(
+        return Err(EcdsaHssError::invalid_length(format!(
             "{field_name} exceeds u16 length encoding"
         )));
     }
     Ok(value)
 }
 
-fn encoded_string_len(value: &str) -> CoreResult<usize> {
+fn encoded_string_len(value: &str) -> EcdsaHssResult<usize> {
     Ok(validate_ascii_field("encoded string", value)?.len() + 2)
 }
 
-fn push_ascii_string(out: &mut Vec<u8>, value: &str) -> CoreResult<()> {
+fn push_ascii_string(out: &mut Vec<u8>, value: &str) -> EcdsaHssResult<()> {
     let value = validate_ascii_field("string field", value)?;
     let len = u16::try_from(value.len())
-        .map_err(|_| SignerCoreError::invalid_length("string field exceeds u16 length"))?;
+        .map_err(|_| EcdsaHssError::invalid_length("string field exceeds u16 length"))?;
     out.extend_from_slice(&len.to_be_bytes());
     out.extend_from_slice(value.as_bytes());
     Ok(())

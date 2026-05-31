@@ -18,4 +18,6 @@ pub mod secp256k1;
 pub mod tempo_tx;
 #[cfg(feature = "threshold-ecdsa")]
 pub mod threshold_ecdsa;
+#[cfg(feature = "threshold-ecdsa-hss")]
+pub mod threshold_ecdsa_hss;
 pub mod webauthn_p256;

@@ -406,7 +406,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "signer-core",
+ "sha3",
  "zeroize",
 ]
 
@@ -769,6 +769,7 @@ dependencies = [
  "js-sys",
  "serde",
  "sha2",
+ "signer-core",
  "signer-platform-web",
  "wasm-bindgen",
 ]
@@ -1180,6 +1181,7 @@ dependencies = [
  "base64ct",
  "bs58",
  "curve25519-dalek",
+ "ecdsa-hss",
  "ed25519-dalek",
  "hkdf",
  "k256",

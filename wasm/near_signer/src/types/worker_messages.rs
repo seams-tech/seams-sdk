@@ -32,6 +32,8 @@ pub enum WorkerRequestType {
     BuildThresholdEcdsaHssRoleLocalExportArtifact,
     BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact,
     DeriveThresholdEd25519HssClientOutputMask,
+    PrepareThresholdEcdsaHssRoleLocalClientBootstrap,
+    FinalizeThresholdEcdsaHssRoleLocalClientBootstrap,
 }
 
 impl From<u32> for WorkerRequestType {
@@ -54,6 +56,8 @@ impl From<u32> for WorkerRequestType {
             14 => WorkerRequestType::BuildThresholdEcdsaHssRoleLocalExportArtifact,
             15 => WorkerRequestType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact,
             16 => WorkerRequestType::DeriveThresholdEd25519HssClientOutputMask,
+            17 => WorkerRequestType::PrepareThresholdEcdsaHssRoleLocalClientBootstrap,
+            18 => WorkerRequestType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrap,
             _ => panic!("Invalid WorkerRequestType value: {}", value),
         }
     }
@@ -99,6 +103,12 @@ impl WorkerRequestType {
             }
             WorkerRequestType::DeriveThresholdEd25519HssClientOutputMask => {
                 "DERIVE_THRESHOLD_ED25519_HSS_CLIENT_OUTPUT_MASK"
+            }
+            WorkerRequestType::PrepareThresholdEcdsaHssRoleLocalClientBootstrap => {
+                "PREPARE_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP"
+            }
+            WorkerRequestType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrap => {
+                "FINALIZE_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP"
             }
         }
     }
@@ -146,6 +156,12 @@ pub fn worker_request_type_name(request_type: WorkerRequestType) -> &'static str
         }
         WorkerRequestType::DeriveThresholdEd25519HssClientOutputMask => {
             "DERIVE_THRESHOLD_ED25519_HSS_CLIENT_OUTPUT_MASK"
+        }
+        WorkerRequestType::PrepareThresholdEcdsaHssRoleLocalClientBootstrap => {
+            "PREPARE_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP"
+        }
+        WorkerRequestType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrap => {
+            "FINALIZE_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP"
         }
     }
 }
@@ -211,6 +227,10 @@ pub enum WorkerResponseType {
     BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFailure = 35,
     DeriveThresholdEd25519HssClientOutputMaskSuccess = 36,
     DeriveThresholdEd25519HssClientOutputMaskFailure = 37,
+    PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess = 38,
+    PrepareThresholdEcdsaHssRoleLocalClientBootstrapFailure = 39,
+    FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess = 40,
+    FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure = 41,
 }
 impl From<WorkerResponseType> for u32 {
     fn from(value: WorkerResponseType) -> Self {
@@ -263,6 +283,10 @@ impl From<u32> for WorkerResponseType {
             35 => WorkerResponseType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFailure,
             36 => WorkerResponseType::DeriveThresholdEd25519HssClientOutputMaskSuccess,
             37 => WorkerResponseType::DeriveThresholdEd25519HssClientOutputMaskFailure,
+            38 => WorkerResponseType::PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
+            39 => WorkerResponseType::PrepareThresholdEcdsaHssRoleLocalClientBootstrapFailure,
+            40 => WorkerResponseType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
+            41 => WorkerResponseType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure,
             _ => panic!("Invalid WorkerResponseType value: {}", value),
         }
     }
@@ -370,6 +394,18 @@ pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static 
         }
         WorkerResponseType::DeriveThresholdEd25519HssClientOutputMaskFailure => {
             "DERIVE_THRESHOLD_ED25519_HSS_CLIENT_OUTPUT_MASK_FAILURE"
+        }
+        WorkerResponseType::PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess => {
+            "PREPARE_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP_SUCCESS"
+        }
+        WorkerResponseType::PrepareThresholdEcdsaHssRoleLocalClientBootstrapFailure => {
+            "PREPARE_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP_FAILURE"
+        }
+        WorkerResponseType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess => {
+            "FINALIZE_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP_SUCCESS"
+        }
+        WorkerResponseType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure => {
+            "FINALIZE_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP_FAILURE"
         }
     }
 }

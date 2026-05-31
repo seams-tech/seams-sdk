@@ -19,6 +19,11 @@ use ed25519_hss::{
 };
 use js_sys::{Reflect, Uint8Array};
 use serde::{Deserialize, Serialize};
+use signer_core::threshold_ecdsa_hss::{
+    finalize_ecdsa_client_bootstrap, prepare_ecdsa_client_bootstrap,
+    FinalizeEcdsaClientBootstrapCommand, PrepareEcdsaClientBootstrapCommand,
+    RelayerPublicIdentityInput,
+};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -266,6 +271,138 @@ pub fn threshold_ecdsa_hss_role_local_client_bootstrap(args: JsValue) -> Result<
 }
 
 #[wasm_bindgen]
+pub fn threshold_ecdsa_hss_role_local_prepare_client_bootstrap(
+    args: JsValue,
+) -> Result<JsValue, JsValue> {
+    let context = ecdsa_canonical_context_from_js(&args)?;
+    let client_root_share32 = get_required_client_root_share32(&args)?;
+    let prepared = prepare_ecdsa_client_bootstrap(PrepareEcdsaClientBootstrapCommand {
+        context: context.clone(),
+        client_root_share32,
+    })
+    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    let out = object();
+    set_string(&out, "walletId", &context.wallet_id)?;
+    set_string(&out, "rpId", &context.rp_id)?;
+    set_string(&out, "ecdsaThresholdKeyId", &context.ecdsa_threshold_key_id)?;
+    set_string(&out, "signingRootId", &context.signing_root_id)?;
+    set_string(&out, "signingRootVersion", &context.signing_root_version)?;
+    set_string(&out, "keyPurpose", &context.key_purpose)?;
+    set_string(&out, "keyVersion", &context.key_version)?;
+    set_string(
+        &out,
+        "pendingStateBlobB64u",
+        &base64_url_encode(&prepared.pending_state_blob.state_blob),
+    )?;
+    set_string(
+        &out,
+        "contextBinding32B64u",
+        &base64_url_encode(&prepared.client_bootstrap.context_binding32),
+    )?;
+    set_string(
+        &out,
+        "hssClientSharePublicKey33B64u",
+        &base64_url_encode(&prepared.client_bootstrap.hss_client_share_public_key33),
+    )?;
+    set_string(
+        &out,
+        "clientVerifyingShareB64u",
+        &base64_url_encode(&prepared.public_facts.client_verifying_share33),
+    )?;
+    set_u32(
+        &out,
+        "clientShareRetryCounter",
+        prepared.client_bootstrap.client_share_retry_counter,
+    )?;
+    set_u32(
+        &out,
+        "participantId",
+        prepared.client_bootstrap.participant_id,
+    )?;
+    Ok(out.into())
+}
+
+#[wasm_bindgen]
+pub fn threshold_ecdsa_hss_role_local_finalize_client_bootstrap(
+    args: JsValue,
+) -> Result<JsValue, JsValue> {
+    let pending_state_blob = signer_core::threshold_ecdsa_hss::EcdsaRoleLocalPendingStateBlob {
+        state_blob: base64_url_decode(&get_required_string(&args, "pendingStateBlobB64u")?)
+            .map_err(|e| JsValue::from_str(&format!("Invalid pendingStateBlobB64u: {e}")))?,
+    };
+    let finalized = finalize_ecdsa_client_bootstrap(FinalizeEcdsaClientBootstrapCommand {
+        pending_state_blob,
+        relayer_public_identity: RelayerPublicIdentityInput {
+            relayer_key_id: get_required_string(&args, "relayerKeyId")?,
+            relayer_public_key33: decode_fixed_33(
+                &get_required_string(&args, "relayerPublicKey33B64u")?,
+                "relayerPublicKey33B64u",
+            )?,
+            group_public_key33: decode_fixed_33(
+                &get_required_string(&args, "groupPublicKey33B64u")?,
+                "groupPublicKey33B64u",
+            )?,
+            ethereum_address20: decode_ethereum_address20(&get_required_string(
+                &args,
+                "ethereumAddress",
+            )?)?,
+            relayer_share_retry_counter: get_optional_u32(&args, "relayerShareRetryCounter")?
+                .unwrap_or(0),
+        },
+    })
+    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    let out = object();
+    set_string(
+        &out,
+        "stateBlobB64u",
+        &base64_url_encode(&finalized.ready_state_blob.state_blob),
+    )?;
+    set_string(
+        &out,
+        "contextBinding32B64u",
+        &base64_url_encode(&finalized.public_facts.context_binding32),
+    )?;
+    set_string(
+        &out,
+        "hssClientSharePublicKey33B64u",
+        &base64_url_encode(&finalized.public_facts.hss_client_share_public_key33),
+    )?;
+    set_string(
+        &out,
+        "clientVerifyingShareB64u",
+        &base64_url_encode(&finalized.public_facts.client_verifying_share33),
+    )?;
+    set_string(
+        &out,
+        "relayerPublicKey33B64u",
+        &base64_url_encode(&finalized.public_facts.relayer_public_key33),
+    )?;
+    set_string(
+        &out,
+        "groupPublicKey33B64u",
+        &base64_url_encode(&finalized.public_facts.group_public_key33),
+    )?;
+    set_string(
+        &out,
+        "ethereumAddress",
+        &hex_prefixed(&finalized.public_facts.ethereum_address20),
+    )?;
+    set_u32(
+        &out,
+        "clientShareRetryCounter",
+        finalized.public_facts.client_share_retry_counter,
+    )?;
+    set_u32(
+        &out,
+        "relayerShareRetryCounter",
+        finalized.public_facts.relayer_share_retry_counter,
+    )?;
+    Ok(out.into())
+}
+
+#[wasm_bindgen]
 pub fn threshold_ecdsa_hss_role_local_export_artifact(args: JsValue) -> Result<JsValue, JsValue> {
     let context = ecdsa_canonical_context_from_js(&args)?;
     let y_client32_le = get_required_client_root_share32(&args)?;
@@ -411,6 +548,23 @@ fn decode_ethereum_address20(value: &str) -> Result<[u8; 20], JsValue> {
             .map_err(|_| JsValue::from_str("ethereumAddress must be hex"))?;
     }
     Ok(out)
+}
+
+fn get_optional_u32(args: &JsValue, field_name: &str) -> Result<Option<u32>, JsValue> {
+    let value = Reflect::get(args, &JsValue::from_str(field_name))
+        .map_err(|_| JsValue::from_str(&format!("Invalid args: missing {field_name}")))?;
+    if value.is_undefined() || value.is_null() {
+        return Ok(None);
+    }
+    let number = value
+        .as_f64()
+        .ok_or_else(|| JsValue::from_str(&format!("{field_name} must be a number")))?;
+    if !number.is_finite() || number < 0.0 || number.fract() != 0.0 || number > u32::MAX as f64 {
+        return Err(JsValue::from_str(&format!(
+            "{field_name} must be a u32 integer"
+        )));
+    }
+    Ok(Some(number as u32))
 }
 
 fn hex_prefixed(bytes: &[u8]) -> String {

@@ -1,11 +1,11 @@
+use ecdsa_hss::shared::secp256k1::{
+    add_secp256k1_public_keys_33, secp256k1_private_key_32_to_public_key_33,
+    secp256k1_public_key_33_to_ethereum_address_20,
+};
 use ecdsa_hss::{
     context_binding, derive_client_share, derive_relayer_share_for_client_public, encode_context,
     public_transcript_digest, reconstruct_export_key, EcdsaHssStableKeyContext,
     ServerEvalOperation,
-};
-use signer_core::secp256k1::{
-    add_secp256k1_public_keys_33, secp256k1_private_key_32_to_public_key_33,
-    secp256k1_public_key_33_to_ethereum_address_20,
 };
 
 fn context() -> EcdsaHssStableKeyContext {

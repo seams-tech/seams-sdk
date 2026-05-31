@@ -7,6 +7,8 @@ import {
 import initHssClientSigner, {
   threshold_ecdsa_hss_role_local_client_bootstrap,
   threshold_ecdsa_hss_role_local_export_artifact,
+  threshold_ecdsa_hss_role_local_finalize_client_bootstrap,
+  threshold_ecdsa_hss_role_local_prepare_client_bootstrap,
   derive_threshold_ed25519_hss_client_inputs,
   threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact,
   threshold_ed25519_hss_derive_client_output_mask,
@@ -158,6 +160,16 @@ async function handleHssClientMessage(data: unknown): Promise<{
       return {
         type: WorkerResponseType.BuildThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
         payload: threshold_ecdsa_hss_role_local_client_bootstrap(payload),
+      };
+    case WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap:
+      return {
+        type: WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
+        payload: threshold_ecdsa_hss_role_local_prepare_client_bootstrap(payload),
+      };
+    case WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap:
+      return {
+        type: WorkerResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
+        payload: threshold_ecdsa_hss_role_local_finalize_client_bootstrap(payload),
       };
     case WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact:
       return {
