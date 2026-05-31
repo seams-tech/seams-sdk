@@ -10,6 +10,7 @@ export type {
   EcdsaBootstrapSecretSource,
   EcdsaRoleLocalPendingStateBlob,
   EcdsaRoleLocalPublicFacts,
+  EcdsaRoleLocalRecordParseResult,
   EcdsaRoleLocalReadyRecord,
   EcdsaRoleLocalReadyStateBlob,
   EmailOtpWorkerIssuedSessionHandle,
@@ -59,6 +60,8 @@ export {
   ecdsaRoleLocalReadyRecordMatchesInput,
   ecdsaRoleLocalReadyRecordStorageKey,
   parseEcdsaRoleLocalReadyRecord,
+  parseRawEcdsaRoleLocalRecord,
+  parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial,
   parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
   serializeEcdsaRoleLocalReadyRecord,
 } from './ecdsaRoleLocalRecords';

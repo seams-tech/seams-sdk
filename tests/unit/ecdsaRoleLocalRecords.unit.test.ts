@@ -4,6 +4,7 @@ import { createBrowserPlatformRuntime } from '@/core/platform';
 import {
   ecdsaRoleLocalReadyRecordStorageKey,
   parseEcdsaRoleLocalReadyRecord,
+  parseRawEcdsaRoleLocalRecord,
   parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial,
   parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
 } from '@/core/platform/ecdsaRoleLocalRecords';
@@ -99,6 +100,29 @@ test.describe('ECDSA role-local record boundary parser', () => {
     expect(ready.publicFacts.keyHandle).toBe(keyHandle);
     expect(ready.publicFacts.hssClientSharePublicKey33B64u).toBe(clientPublicKey33B64u);
     expect(ready.stateBlob.kind).toBe('ecdsa_role_local_state_blob_v1');
+  });
+
+  test('returns parse results for ready records and legacy session records', () => {
+    const legacy = parseRawEcdsaRoleLocalRecord(rawSessionRecord());
+    expect(legacy).toMatchObject({
+      ok: true,
+      source: 'legacy_threshold_ecdsa_session_record',
+    });
+    if (!legacy.ok) throw new Error(legacy.message);
+
+    const ready = parseRawEcdsaRoleLocalRecord(legacy.record);
+    expect(ready).toMatchObject({
+      ok: true,
+      source: 'ready_record',
+    });
+  });
+
+  test('returns malformed parse results for invalid raw records', () => {
+    const result = parseRawEcdsaRoleLocalRecord({ kind: 'wrong' });
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'malformed_record',
+    });
   });
 
   test('rejects malformed raw records at the role-local boundary', () => {

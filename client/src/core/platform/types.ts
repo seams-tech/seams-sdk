@@ -102,6 +102,22 @@ export type EcdsaRoleLocalReadyRecord = {
   publicFacts: EcdsaRoleLocalPublicFacts;
 };
 
+export type EcdsaRoleLocalRecordParseResult =
+  | {
+      ok: true;
+      source: 'ready_record' | 'legacy_threshold_ecdsa_session_record';
+      record: EcdsaRoleLocalReadyRecord;
+      code?: never;
+      message?: never;
+    }
+  | {
+      ok: false;
+      code: 'malformed_record';
+      message: string;
+      source?: never;
+      record?: never;
+    };
+
 export type LoadEcdsaRoleLocalReadyRecordInput = {
   walletId: WalletId;
   rpId: RpId;

@@ -941,17 +941,17 @@ tables.
 
 Tasks:
 
-- [ ] Split ECDSA HSS role-local raw storage shapes from normalized internal
+- [x] Split ECDSA HSS role-local raw storage shapes from normalized internal
       records.
-- [ ] Move ECDSA role-local record parsing, version normalization, and cleanup
+- [x] Move ECDSA role-local record parsing, version normalization, and cleanup
       decisions into `client/src/core/signingEngine/session/persistence/records.ts`
       or a new neutral persistence module.
-- [ ] Keep IndexedDB schema, indexes, key ranges, and transactions inside
+- [x] Keep IndexedDB schema, indexes, key ranges, and transactions inside
       `client/src/core/indexedDB/*`.
 - [ ] Add strict internal unions for ECDSA role-local session records:
       ready passkey material, ready Email OTP material, reauth-required
       material, and invalid or cleanup-only raw records.
-- [ ] Keep Ed25519 record changes out of this phase unless a touched ECDSA
+- [x] Keep Ed25519 record changes out of this phase unless a touched ECDSA
       parser requires a shared helper.
 - [ ] Remove repeated ECDSA role-local compatibility parsing from core signing
       modules after the neutral parser exists.
@@ -1850,24 +1850,24 @@ to a single PR where practical.
 - [ ] Replace `ThresholdEcdsaHssRoleLocalClientState` raw share fields with an
       `EcdsaRoleLocalReadyStateBlob` envelope and required public identity
       fields.
-- [ ] Add `EcdsaRoleLocalPublicFacts`, `EcdsaRoleLocalReadyRecord`, and
+- [x] Add `EcdsaRoleLocalPublicFacts`, `EcdsaRoleLocalReadyRecord`, and
       `EcdsaRoleLocalRecordParseResult` to the neutral persistence module.
 - [ ] Ensure old raw role-local records are read only by the persistence boundary
       parser and all new writes use `ready_blob_v1`.
 - [ ] Update `ThresholdEcdsaBackendBinding` so signing material is represented
       by an opaque state blob or typed handle.
-- [ ] Scope persistence parser changes to ECDSA HSS role-local session records
+- [x] Scope persistence parser changes to ECDSA HSS role-local session records
       and key-ref builders. Keep unrelated IndexedDB records out of this phase.
-- [ ] Update persistence record parsers to normalize old ECDSA raw boundary data
+- [x] Update persistence record parsers to normalize old ECDSA raw boundary data
       only at the persistence boundary while this in-development data exists.
-- [ ] Update EVM-family key-ref builders to consume the new opaque role-local
+- [x] Update EVM-family key-ref builders to consume the new opaque role-local
       state shape.
 - [ ] Remove `clientAdditiveShare32B64u` from active core signing paths after
       the opaque state path is complete.
 
 ### Export And Recovery
 
-- [ ] Update ECDSA HSS export to consume the opaque role-local state blob.
+- [x] Update ECDSA HSS export to consume the role-local boundary parser.
 - [ ] Stop re-deriving export material from `clientRootShare32B64u` in the
       active export path.
 - [ ] Update passkey recovery export flow to collect a `ClientSecretSource`
@@ -1877,7 +1877,7 @@ to a single PR where practical.
 
 ### Tests And Verification
 
-- [ ] Update parser and guard tests that currently assert raw HSS fields.
+- [x] Update parser and guard tests that currently assert raw HSS fields.
 - [x] Add a runtime regression test where a client-root proof rejects when
       verified against an HSS client-share public key.
 - [x] Add a type fixture rejecting

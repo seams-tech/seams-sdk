@@ -12,6 +12,7 @@ import type {
   ThresholdEcdsaCanonicalExportArtifact,
   ThresholdEcdsaSecp256k1KeyRef,
 } from '../../interfaces/signing';
+import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '@/core/platform/ecdsaRoleLocalRecords';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from './laneIdentity';
 import {
@@ -1122,6 +1123,7 @@ export function buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord(args: {
 }): ThresholdEcdsaSecp256k1KeyRef {
   const record = args.record;
   const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({ record });
+  const ecdsaRoleLocalReadyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
   return {
     type: 'threshold-ecdsa-secp256k1',
     userId: String(record.walletId),
@@ -1142,6 +1144,7 @@ export function buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord(args: {
       ...(record.clientAdditiveShareHandle
         ? { clientAdditiveShareHandle: record.clientAdditiveShareHandle }
         : {}),
+      ecdsaRoleLocalReadyRecord,
       ...(record.ecdsaHssRoleLocalClientState
         ? { ecdsaHssRoleLocalClientState: record.ecdsaHssRoleLocalClientState }
         : {}),

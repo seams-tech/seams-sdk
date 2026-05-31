@@ -18,6 +18,7 @@ import {
 } from '../signingEngine/session/persistence/records';
 import type {
   EcdsaRoleLocalPublicFacts,
+  EcdsaRoleLocalRecordParseResult,
   EcdsaRoleLocalReadyRecord,
   EcdsaRoleLocalReadyStateBlob,
   LoadEcdsaRoleLocalReadyRecordInput,
@@ -251,6 +252,36 @@ export function parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(
     ),
     clientShareRetryCounter: Math.max(0, Math.floor(Number(state.clientShareRetryCounter))),
   };
+}
+
+export function parseRawEcdsaRoleLocalRecord(input: unknown): EcdsaRoleLocalRecordParseResult {
+  try {
+    return {
+      ok: true,
+      source: 'ready_record',
+      record: parseEcdsaRoleLocalReadyRecord(input),
+    };
+  } catch (readyRecordError) {
+    try {
+      return {
+        ok: true,
+        source: 'legacy_threshold_ecdsa_session_record',
+        record: parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(input),
+      };
+    } catch (legacyRecordError) {
+      let message = '[platform][ecdsa-role-local] malformed role-local record';
+      if (legacyRecordError instanceof Error) {
+        message = legacyRecordError.message;
+      } else if (readyRecordError instanceof Error) {
+        message = readyRecordError.message;
+      }
+      return {
+        ok: false,
+        code: 'malformed_record',
+        message,
+      };
+    }
+  }
 }
 
 export function serializeEcdsaRoleLocalPublicFacts(

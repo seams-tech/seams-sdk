@@ -3,6 +3,7 @@ import type {
   ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaThresholdKeyId } from '../session/identity/laneIdentity';
+import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
 
 export type ChainNamespace = 'near' | 'evm' | 'tempo';
 
@@ -67,6 +68,7 @@ export type ThresholdEcdsaBackendBinding = {
    * The handle is not secret material; callers must ask the worker for a one-time byte handoff.
    */
   clientAdditiveShareHandle?: ThresholdEcdsaClientAdditiveShareHandle;
+  ecdsaRoleLocalReadyRecord?: EcdsaRoleLocalReadyRecord;
   ecdsaHssRoleLocalClientState?: ThresholdEcdsaHssRoleLocalClientState;
 };
 
