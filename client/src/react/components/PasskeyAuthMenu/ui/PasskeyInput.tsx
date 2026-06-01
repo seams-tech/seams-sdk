@@ -3,7 +3,6 @@ import type { StoredAccountOption } from '@/react/types';
 import { AuthMenuMode } from '../authMenuTypes';
 import { AccountExistsBadge } from './AccountExistsBadge';
 import { usePostfixPosition } from './usePostfixPosition';
-import { ArrowRightAnim } from '../../ArrowRightAnim';
 
 export interface PasskeyInputProps {
   value: string;
@@ -26,6 +25,17 @@ type AccountOptionGroup = {
   label: 'Passkey' | 'Email OTP';
   accounts: StoredAccountOption[];
 };
+
+const AccountDropdownArrow: React.FC = () => (
+  <svg
+    className="w3a-account-dropdown-arrow"
+    viewBox="0 0 24 24"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <path d="M9.75 3h4.5v10.28l4.3-4.3 3.18 3.18L12 21.9l-9.73-9.74 3.18-3.18 4.3 4.3V3Z" />
+  </svg>
+);
 
 function groupAccountOptions(accountOptions?: StoredAccountOption[]): AccountOptionGroup[] {
   const uniqueAccounts = new Map<string, StoredAccountOption>();
@@ -200,7 +210,7 @@ export const PasskeyInput: React.FC<PasskeyInputProps> = ({
               onClick={() => setAccountMenuOpen((open) => !open)}
               disabled={waiting}
             >
-              <ArrowRightAnim size={16} className="w3a-account-trigger-arrow" />
+              <AccountDropdownArrow />
             </button>
             {accountMenuOpen ? (
               <div id={menuId} className="w3a-account-menu-popover" role="listbox">

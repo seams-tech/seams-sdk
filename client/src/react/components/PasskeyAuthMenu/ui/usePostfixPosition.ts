@@ -116,8 +116,10 @@ export function usePostfixPosition({
       width += letterSpacingPx * (transformed.length - 1);
     }
 
-    const left = padAndBorderLeftRef.current + width + 1 + gap; // +1 to avoid overlap
+    const left = padAndBorderLeftRef.current + width + 1 + gap;
+    const maxWidth = Math.max(0, input.clientWidth - left);
     postfix.style.left = `${left}px`;
+    postfix.style.maxWidth = `${maxWidth}px`;
     postfix.style.visibility = 'visible';
   }, [gap]);
 
