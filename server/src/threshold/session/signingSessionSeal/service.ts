@@ -220,12 +220,16 @@ function hasWalletSigningSessionBudgetClaim(auth: { claims: Record<string, unkno
 
 function parseCurveBoundWalletBudgetLookup(
   claims: Record<string, unknown>,
-): { curve: 'ecdsa' | 'ed25519'; walletSigningSessionId: string } | null {
+):
+  | { curve: 'ecdsa'; walletSigningSessionId: string; thresholdSessionId: string }
+  | { curve: 'ed25519'; walletSigningSessionId: string; thresholdSessionId: string }
+  | null {
   const ecdsaClaims = parseThresholdEcdsaSessionClaims(claims);
   if (ecdsaClaims) {
     return {
       curve: 'ecdsa',
       walletSigningSessionId: ecdsaClaims.walletSigningSessionId,
+      thresholdSessionId: ecdsaClaims.sessionId,
     };
   }
   const ed25519Claims = parseThresholdEd25519SessionClaims(claims);
@@ -233,6 +237,7 @@ function parseCurveBoundWalletBudgetLookup(
     return {
       curve: 'ed25519',
       walletSigningSessionId: ed25519Claims.walletSigningSessionId,
+      thresholdSessionId: ed25519Claims.sessionId,
     };
   }
   return null;

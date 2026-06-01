@@ -4918,6 +4918,43 @@ export class AuthService {
     };
   }
 
+  private async bootstrapEcdsaRegistrationHss(input: {
+    threshold: ThresholdSigningServiceType;
+    clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
+    walletId: WalletId;
+  }): Promise<EcdsaHssRouteResult<EcdsaHssServerBootstrapResponse>> {
+    const first = await input.threshold.ecdsaHssRoleLocalBootstrap(input.clientBootstrap);
+    if (first.ok || first.code !== 'identity_mismatch') return first;
+
+    const existingWallet = await this.getWalletStore().getWallet({ walletId: input.walletId });
+    if (existingWallet) return first;
+
+    const deleted = await input.threshold.deleteEcdsaHssRoleLocalKeyByBootstrapIdentity({
+      ecdsaThresholdKeyId: input.clientBootstrap.ecdsaThresholdKeyId,
+      signingRootId: input.clientBootstrap.signingRootId,
+      signingRootVersion: input.clientBootstrap.signingRootVersion,
+    });
+    if (!deleted.ok) return deleted;
+    return await input.threshold.ecdsaHssRoleLocalBootstrap(input.clientBootstrap);
+  }
+
+  private async verifyEcdsaRegistrationBootstrapPersisted(input: {
+    threshold: ThresholdSigningServiceType;
+    bootstrap: EcdsaHssServerBootstrapResponse;
+  }): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+    const verified = await input.threshold.verifyEcdsaHssRoleLocalBootstrapPersisted(
+      input.bootstrap,
+    );
+    if (!verified.ok) {
+      return {
+        ok: false,
+        code: verified.code,
+        message: verified.message,
+      };
+    }
+    return { ok: true };
+  }
+
   async startWalletRegistration(
     request: WalletRegistrationStartRequest,
   ): Promise<WalletRegistrationStartResponse> {
@@ -5262,7 +5299,11 @@ export class AuthService {
         if (!isMatchingEcdsaClientBootstrap(expected, actual)) {
           return { ok: false, code: 'invalid_body', message: 'ECDSA bootstrap identity mismatch' };
         }
-        const bootstrap = await threshold.ecdsaHssRoleLocalBootstrap(actual);
+        const bootstrap = await this.bootstrapEcdsaRegistrationHss({
+          threshold,
+          clientBootstrap: actual,
+          walletId: ceremony.intent.walletId,
+        });
         if (!bootstrap.ok) {
           return {
             ok: false,
@@ -5316,7 +5357,11 @@ export class AuthService {
           message: 'threshold signing is not configured on this server',
         };
       }
-      const bootstrap = await threshold.ecdsaHssRoleLocalBootstrap(actual);
+      const bootstrap = await this.bootstrapEcdsaRegistrationHss({
+        threshold,
+        clientBootstrap: actual,
+        walletId: ceremony.intent.walletId,
+      });
       if (!bootstrap.ok) {
         return {
           ok: false,
@@ -6062,6 +6107,11 @@ export class AuthService {
           message: 'ECDSA finalize expected key handle mismatch',
         };
       }
+      const verifiedEcdsaKey = await this.verifyEcdsaRegistrationBootstrapPersisted({
+        threshold,
+        bootstrap,
+      });
+      if (!verifiedEcdsaKey.ok) return verifiedEcdsaKey;
       const walletKeyResult = buildEcdsaWalletKeysFromBootstrap({
         bootstrap,
         chainTargets: ceremony.signerState.ecdsa.chainTargets,
@@ -6267,6 +6317,19 @@ export class AuthService {
           message: 'ECDSA finalize expected key handle mismatch',
         };
       }
+      const threshold = this.getThresholdSigningService();
+      if (!threshold) {
+        return {
+          ok: false,
+          code: 'not_configured',
+          message: 'threshold signing is not configured on this server',
+        };
+      }
+      const verifiedEcdsaKey = await this.verifyEcdsaRegistrationBootstrapPersisted({
+        threshold,
+        bootstrap,
+      });
+      if (!verifiedEcdsaKey.ok) return verifiedEcdsaKey;
       const walletKeyResult = buildEcdsaWalletKeysFromBootstrap({
         bootstrap,
         chainTargets: ceremony.signerState.chainTargets,

@@ -160,7 +160,7 @@ import {
 } from './schemes/schemeIds';
 import { createThresholdEd25519Frost2pSchemeModule } from './schemes/ed25519Frost2p';
 import { createThresholdSecp256k1Ecdsa2pSchemeModule } from './schemes/secp256k1Ecdsa2p';
-import { walletSigningBudgetSessionId } from './walletSigningBudget';
+import { signerBoundWalletSigningBudgetSessionId } from './walletSigningBudget';
 import { secureRandomIdFragment } from './secureRandomId';
 
 type ParseOk<T> = { ok: true; value: T };
@@ -376,6 +376,31 @@ function createEcdsaSigningRootMetadata(
     walletKeyVersion: THRESHOLD_ECDSA_HSS_KEY_VERSION_V1,
     derivationVersion: THRESHOLD_ECDSA_DERIVATION_VERSION_V1,
   };
+}
+
+function ecdsaHssRoleLocalRecordMatchesBootstrap(
+  record: EcdsaHssRoleLocalKeyRecord,
+  bootstrap: EcdsaHssServerBootstrapResponse,
+): boolean {
+  return (
+    record.walletId === bootstrap.walletId &&
+    record.rpId === bootstrap.rpId &&
+    record.ecdsaThresholdKeyId === bootstrap.ecdsaThresholdKeyId &&
+    record.keyHandle === bootstrap.keyHandle &&
+    record.signingRootId === bootstrap.signingRootId &&
+    record.signingRootVersion ===
+      canonicalEcdsaHssSigningRootVersion(bootstrap.signingRootVersion) &&
+    record.keyScope === 'evm-family' &&
+    record.relayerKeyId === bootstrap.relayerKeyId &&
+    record.contextBinding32B64u === bootstrap.contextBinding32B64u &&
+    record.clientPublicKey33B64u === bootstrap.publicIdentity.hssClientSharePublicKey33B64u &&
+    record.relayerPublicKey33B64u === bootstrap.publicIdentity.relayerPublicKey33B64u &&
+    record.groupPublicKey33B64u === bootstrap.publicIdentity.groupPublicKey33B64u &&
+    record.ethereumAddress.toLowerCase() === bootstrap.publicIdentity.ethereumAddress.toLowerCase() &&
+    record.groupPublicKey33B64u === bootstrap.thresholdEcdsaPublicKeyB64u &&
+    record.ethereumAddress.toLowerCase() === bootstrap.ethereumAddress.toLowerCase() &&
+    record.relayerPublicKey33B64u === bootstrap.relayerVerifyingShareB64u
+  );
 }
 
 function createEcdsaSigningRootReference(input: {
@@ -1766,12 +1791,26 @@ export class ThresholdSigningService {
     return record ? this.toThresholdEcdsaMpcSessionRecord(record) : null;
   }
 
-  private walletSigningBudgetSessionId(walletSigningSessionId: string): string {
-    return walletSigningBudgetSessionId(walletSigningSessionId);
+  private walletSigningBudgetSessionId(input: {
+    walletSigningSessionId: string;
+    binding: {
+      curve: 'ed25519' | 'ecdsa';
+      thresholdSessionId: string;
+    };
+  }): string {
+    return signerBoundWalletSigningBudgetSessionId({
+      walletSigningSessionId: input.walletSigningSessionId,
+      curve: input.binding.curve,
+      thresholdSessionId: input.binding.thresholdSessionId,
+    });
   }
 
   private async ensureWalletSigningSessionBudget(input: {
     walletSigningSessionId: string;
+    binding: {
+      curve: 'ed25519' | 'ecdsa';
+      thresholdSessionId: string;
+    };
     userId: string;
     rpId: string;
     participantIds: number[];
@@ -1782,7 +1821,21 @@ export class ThresholdSigningService {
     | { ok: true; expiresAtMs: number; participantIds: number[] }
     | { ok: false; code: string; message: string }
   > {
-    const sessionId = this.walletSigningBudgetSessionId(input.walletSigningSessionId);
+    const binding = {
+      curve: input.binding.curve,
+      thresholdSessionId: toOptionalTrimmedString(input.binding.thresholdSessionId) || '',
+    };
+    const sessionId = this.walletSigningBudgetSessionId({
+      walletSigningSessionId: input.walletSigningSessionId,
+      binding,
+    });
+    if (!binding.thresholdSessionId) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'wallet signing-session budget binding thresholdSessionId is required',
+      };
+    }
     if (!sessionId) {
       return {
         ok: false,
@@ -1816,7 +1869,18 @@ export class ThresholdSigningService {
           message: 'walletSigningSessionId already exists for a different participant set',
         };
       }
+      const existingBinding = existingSession.walletBudgetBinding;
+      const sameBinding =
+        existingBinding?.curve === binding.curve &&
+        existingBinding.thresholdSessionId === binding.thresholdSessionId;
       if (!input.refreshExisting) {
+        if (!sameBinding) {
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'walletSigningSessionId already exists for a different signing session',
+          };
+        }
         return {
           ok: true,
           expiresAtMs: existingSession.expiresAtMs,
@@ -1824,10 +1888,9 @@ export class ThresholdSigningService {
         };
       }
       const expiresAtMs = Date.now() + input.ttlMs;
-      // Reauth reuses the walletSigningSessionId so Ed25519 and ECDSA lanes
-      // stay under one wallet-level budget. The budget record itself must be
-      // refreshed here; otherwise the client stores fresh lane records while
-      // /authorize still consumes the exhausted server-side wallet budget.
+      // Reauth may reuse the walletSigningSessionId, while spendable budget is
+      // scoped to this signer binding. Refresh the bound record so the client
+      // and server agree on the newly minted threshold session budget.
       //
       // This is only enabled for mint paths that already proved fresh wallet
       // auth, such as Ed25519 passkey mint and ECDSA registration-bootstrap
@@ -1842,6 +1905,7 @@ export class ThresholdSigningService {
           userId: input.userId,
           rpId: input.rpId,
           participantIds: input.participantIds,
+          walletBudgetBinding: binding,
         },
         ttlMs: input.ttlMs,
         remainingUses: input.remainingUses,
@@ -1863,6 +1927,7 @@ export class ThresholdSigningService {
         userId: input.userId,
         rpId: input.rpId,
         participantIds: input.participantIds,
+        walletBudgetBinding: binding,
       },
       ttlMs: input.ttlMs,
       remainingUses: input.remainingUses,
@@ -1872,15 +1937,33 @@ export class ThresholdSigningService {
 
   private async consumeWalletOrCurveSessionUse(input: {
     walletSigningSessionId?: string;
+    curve: 'ed25519' | 'ecdsa';
     curveSessionId: string;
     curveStore: Ed25519AuthSessionStore;
     idempotencyKey?: string;
   }): Promise<ThresholdEd25519AuthConsumeUsesResult> {
-    const walletBudgetSessionId = this.walletSigningBudgetSessionId(
-      input.walletSigningSessionId || '',
-    );
+    const walletBudgetSessionId = this.walletSigningBudgetSessionId({
+      walletSigningSessionId: input.walletSigningSessionId || '',
+      binding: {
+        curve: input.curve,
+        thresholdSessionId: input.curveSessionId,
+      },
+    });
     const idempotencyKey = toOptionalTrimmedString(input.idempotencyKey);
     if (walletBudgetSessionId) {
+      const walletBudgetSession = await this.authSessionStore.getSession(walletBudgetSessionId);
+      const binding = walletBudgetSession?.walletBudgetBinding;
+      if (
+        !binding ||
+        binding.curve !== input.curve ||
+        binding.thresholdSessionId !== input.curveSessionId
+      ) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'wallet signing-session budget is not bound to this threshold session',
+        };
+      }
       if (idempotencyKey) {
         return await this.authSessionStore.consumeUseCountOnce(
           walletBudgetSessionId,
@@ -2270,6 +2353,7 @@ export class ThresholdSigningService {
         }
         const walletBudget = await this.ensureWalletSigningSessionBudget({
           walletSigningSessionId,
+          binding: { curve: 'ed25519', thresholdSessionId: sessionId },
           userId: nearAccountId,
           rpId,
           participantIds: existingSession.participantIds,
@@ -2316,6 +2400,7 @@ export class ThresholdSigningService {
       });
       const walletBudget = await this.ensureWalletSigningSessionBudget({
         walletSigningSessionId,
+        binding: { curve: 'ed25519', thresholdSessionId: sessionId },
         userId: nearAccountId,
         rpId,
         participantIds,
@@ -2664,6 +2749,7 @@ export class ThresholdSigningService {
       }
       const walletBudget = await this.ensureWalletSigningSessionBudget({
         walletSigningSessionId,
+        binding: { curve: 'ecdsa', thresholdSessionId: sessionId },
         userId: walletSessionUserId,
         rpId,
         participantIds: existingSession.participantIds,
@@ -2699,6 +2785,7 @@ export class ThresholdSigningService {
     });
     const walletBudget = await this.ensureWalletSigningSessionBudget({
       walletSigningSessionId,
+      binding: { curve: 'ecdsa', thresholdSessionId: sessionId },
       userId: walletSessionUserId,
       rpId,
       participantIds,
@@ -2717,6 +2804,69 @@ export class ThresholdSigningService {
       participantIds: walletBudget.participantIds,
       remainingUses,
     };
+  }
+
+  async deleteEcdsaHssRoleLocalKeyByBootstrapIdentity(input: {
+    ecdsaThresholdKeyId: unknown;
+    signingRootId: unknown;
+    signingRootVersion?: unknown;
+  }): Promise<EcdsaHssRouteResult<{ keyHandle: string }>> {
+    try {
+      const keyHandle = await deriveThresholdEcdsaHssKeyHandle({
+        ecdsaThresholdKeyId: input.ecdsaThresholdKeyId,
+        signingRootId: input.signingRootId,
+        signingRootVersion: input.signingRootVersion,
+      });
+      await this.ecdsaKeyStore.deleteByKeyHandle(keyHandle);
+      return { ok: true, value: { keyHandle } };
+    } catch (error) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to delete ECDSA HSS role-local key',
+      };
+    }
+  }
+
+  async verifyEcdsaHssRoleLocalBootstrapPersisted(
+    bootstrap: EcdsaHssServerBootstrapResponse,
+  ): Promise<EcdsaHssRouteResult<{ keyHandle: string }>> {
+    try {
+      const keyHandle = await deriveThresholdEcdsaHssKeyHandle({
+        ecdsaThresholdKeyId: bootstrap.ecdsaThresholdKeyId,
+        signingRootId: bootstrap.signingRootId,
+        signingRootVersion: bootstrap.signingRootVersion,
+      });
+      if (bootstrap.keyHandle !== keyHandle) {
+        return {
+          ok: false,
+          code: 'identity_mismatch',
+          message: 'ECDSA HSS bootstrap key handle does not match persisted key identity',
+        };
+      }
+      const record = await this.ecdsaKeyStore.getRoleLocalByKeyHandle(keyHandle);
+      if (!record) {
+        return {
+          ok: false,
+          code: 'not_found',
+          message: 'ECDSA HSS role-local key not found for registration finalize',
+        };
+      }
+      if (!ecdsaHssRoleLocalRecordMatchesBootstrap(record, bootstrap)) {
+        return {
+          ok: false,
+          code: 'identity_mismatch',
+          message: 'ECDSA HSS registration finalize does not match persisted key identity',
+        };
+      }
+      return { ok: true, value: { keyHandle } };
+    } catch (error) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to verify ECDSA HSS role-local key',
+      };
+    }
   }
 
   async ecdsaHssRoleLocalBootstrap(
@@ -3329,6 +3479,7 @@ export class ThresholdSigningService {
 
       const consumed = await this.consumeWalletOrCurveSessionUse({
         walletSigningSessionId: claims.walletSigningSessionId,
+        curve: 'ecdsa',
         curveSessionId: sessionId,
         curveStore: this.ecdsaAuthSessionStore,
         idempotencyKey: await this.thresholdEcdsaAuthorizationBudgetIdempotencyKey({
@@ -3602,6 +3753,7 @@ export class ThresholdSigningService {
       if (existingSession) {
         const walletBudget = await this.ensureWalletSigningSessionBudget({
           walletSigningSessionId,
+          binding: { curve: 'ed25519', thresholdSessionId: sessionId },
           userId: nearAccountId,
           rpId,
           participantIds: existingSession.participantIds,
@@ -3636,6 +3788,7 @@ export class ThresholdSigningService {
       });
       const walletBudget = await this.ensureWalletSigningSessionBudget({
         walletSigningSessionId,
+        binding: { curve: 'ed25519', thresholdSessionId: sessionId },
         userId: nearAccountId,
         rpId,
         participantIds,
@@ -4577,6 +4730,7 @@ export class ThresholdSigningService {
 
       const consumed = await this.consumeWalletOrCurveSessionUse({
         walletSigningSessionId: claims.walletSigningSessionId,
+        curve: 'ed25519',
         curveSessionId: sessionId,
         curveStore: this.authSessionStore,
         idempotencyKey: await this.thresholdEd25519AuthorizationBudgetIdempotencyKey({

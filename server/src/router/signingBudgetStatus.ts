@@ -140,6 +140,7 @@ function walletBudgetMatches(
     status &&
       status.kind === 'wallet_budget' &&
       status.curve === auth.curve &&
+      status.thresholdSessionId === auth.thresholdSessionId &&
       status.walletSigningSessionId === auth.walletSigningSessionId &&
       status.userId === auth.userId &&
       status.rpId === auth.rpId &&
@@ -332,6 +333,7 @@ async function parseCurveBoundWalletSigningBudgetStatus(args: {
   const walletBudgetStatus = await sessionPolicy.getWalletBudgetStatus({
     curve: args.auth.curve,
     walletSigningSessionId: args.auth.walletSigningSessionId,
+    thresholdSessionId: args.auth.thresholdSessionId,
   });
   if (!curveStatus || !walletBudgetStatus || !walletBudgetMatches(args.auth, walletBudgetStatus)) {
     return unauthorized('Threshold session is no longer active');

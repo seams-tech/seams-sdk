@@ -146,10 +146,12 @@ export type SigningSessionSealWalletBudgetStatusLookup =
   | {
       curve: 'ecdsa';
       walletSigningSessionId: string;
+      thresholdSessionId: string;
     }
   | {
       curve: 'ed25519';
       walletSigningSessionId: string;
+      thresholdSessionId: string;
     };
 
 export type SigningSessionSealConsumeUseResult =

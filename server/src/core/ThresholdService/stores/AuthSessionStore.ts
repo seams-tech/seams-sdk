@@ -24,12 +24,18 @@ import {
   createCloudflareDurableObjectThresholdEd25519Stores,
 } from './CloudflareDurableObjectStore';
 
+export type WalletSigningBudgetBinding = {
+  curve: 'ed25519' | 'ecdsa';
+  thresholdSessionId: string;
+};
+
 export type Ed25519AuthSessionRecord = {
   expiresAtMs: number;
   relayerKeyId: string;
   userId: string;
   rpId: string;
   participantIds: number[];
+  walletBudgetBinding?: WalletSigningBudgetBinding;
 } & Partial<ThresholdEcdsaSigningRootMetadata>;
 
 export type ThresholdEd25519AuthConsumeUsesResult =

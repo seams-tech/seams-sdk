@@ -795,7 +795,21 @@ export type ParsedEd25519AuthSessionRecord = {
   userId: string;
   rpId: string;
   participantIds: number[];
+  walletBudgetBinding?: {
+    curve: 'ed25519' | 'ecdsa';
+    thresholdSessionId: string;
+  };
 } & Partial<ParsedThresholdEcdsaSigningRootMetadata>;
+
+function parseWalletBudgetBinding(
+  raw: unknown,
+): ParsedEd25519AuthSessionRecord['walletBudgetBinding'] {
+  if (!isObject(raw)) return undefined;
+  const curve = toOptionalString(raw.curve);
+  const thresholdSessionId = toOptionalString(raw.thresholdSessionId);
+  if ((curve !== 'ed25519' && curve !== 'ecdsa') || !thresholdSessionId) return undefined;
+  return { curve, thresholdSessionId };
+}
 
 export function parseEd25519AuthSessionRecord(raw: unknown): ParsedEd25519AuthSessionRecord | null {
   if (!isObject(raw)) return null;
@@ -807,6 +821,7 @@ export function parseEd25519AuthSessionRecord(raw: unknown): ParsedEd25519AuthSe
     ...THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
   ];
   const signingRootMetadata = parseOptionalThresholdEcdsaSigningRootMetadataFields(raw);
+  const walletBudgetBinding = parseWalletBudgetBinding(raw.walletBudgetBinding);
   if (!signingRootMetadata.ok) return null;
   if (!isValidNumber(expiresAtMs)) return null;
   if (!relayerKeyId || !userId || !rpId) return null;
@@ -816,6 +831,7 @@ export function parseEd25519AuthSessionRecord(raw: unknown): ParsedEd25519AuthSe
     userId,
     rpId,
     participantIds,
+    ...(walletBudgetBinding ? { walletBudgetBinding } : {}),
     ...(signingRootMetadata.value ? signingRootMetadata.value : {}),
   };
 }

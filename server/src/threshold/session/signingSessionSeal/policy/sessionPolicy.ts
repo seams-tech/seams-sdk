@@ -1,5 +1,5 @@
 import type { Ed25519AuthSessionStore } from '../../../../core/ThresholdService/stores/AuthSessionStore';
-import { walletSigningBudgetSessionId } from '../../../../core/ThresholdService/walletSigningBudget';
+import { signerBoundWalletSigningBudgetSessionId } from '../../../../core/ThresholdService/walletSigningBudget';
 import type {
   SigningSessionSealCurve,
   SigningSessionSealConsumeUseResult,
@@ -82,15 +82,24 @@ function normalizeWalletBudgetStatus(
   input: {
     curve: SigningSessionSealCurve;
     walletSigningSessionId: string;
+    thresholdSessionId: string;
   },
   raw: Awaited<ReturnType<Ed25519AuthSessionStore['getSessionStatus']>>,
 ): SigningSessionSealWalletBudgetStatus | null {
   if (!raw) return null;
-  const thresholdSessionId = walletSigningBudgetSessionId(input.walletSigningSessionId);
+  const binding = raw.record.walletBudgetBinding;
+  if (
+    !binding ||
+    binding.curve !== input.curve ||
+    !binding.thresholdSessionId ||
+    binding.thresholdSessionId !== input.thresholdSessionId
+  ) {
+    return null;
+  }
   const normalized = normalizeSessionRecord(
     {
-      curve: input.curve,
-      thresholdSessionId,
+      curve: binding.curve,
+      thresholdSessionId: binding.thresholdSessionId,
     },
     raw.record,
   );
@@ -156,7 +165,7 @@ function normalizeWalletBudgetStatusAcrossStores(
   stores: readonly Ed25519AuthSessionStore[],
 ): Promise<SigningSessionSealWalletBudgetStatus | null> {
   return (async () => {
-    const thresholdSessionId = walletSigningBudgetSessionId(input.walletSigningSessionId);
+    const thresholdSessionId = signerBoundWalletSigningBudgetSessionId(input);
     for (const store of stores) {
       const normalized = normalizeWalletBudgetStatus(
         input,
