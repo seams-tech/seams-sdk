@@ -133,12 +133,12 @@ export type NearNonceLane = {
 
 export type NonceLane = EvmNonceLane | NearNonceLane;
 
-export type NonceOperationContext = SigningOperationContext & {
+export type PreparedNonceOperationContext = SigningOperationContext & {
   operationFingerprint: SigningOperationFingerprint;
   accountId: string;
-  walletSigningSessionId?: string;
-  chainFamily: 'near' | 'evm' | 'tempo';
 };
+
+export type NonceOperationContext = PreparedNonceOperationContext;
 
 export type NonceLease = {
   leaseId: string;

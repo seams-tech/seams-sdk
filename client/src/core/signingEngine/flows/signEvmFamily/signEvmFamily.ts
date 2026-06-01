@@ -1374,10 +1374,6 @@ async function signEvmFamilyAttempt(
   const nonceOperation: NonceOperationContext = {
     ...createTransactionSigningOperation(),
     accountId: walletId,
-    chainFamily: requestChain,
-    ...(preparedNonceSession?.signingLane.walletSigningSessionId
-      ? { walletSigningSessionId: String(preparedNonceSession.signingLane.walletSigningSessionId) }
-      : {}),
   };
   if (preparedNonceSession) {
     const nonceFingerprint = derivePreparedEvmFamilyKeyFingerprint(preparedNonceSession);

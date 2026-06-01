@@ -232,7 +232,6 @@ function createNearNonceOperationContext(args: {
     operationFingerprint: operationFingerprint as SigningOperationFingerprint,
     intent: SigningOperationIntent.TransactionSign,
     accountId: args.nearAccountId,
-    chainFamily: 'near',
   };
 }
 

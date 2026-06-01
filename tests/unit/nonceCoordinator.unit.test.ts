@@ -1290,7 +1290,7 @@ test.describe('NonceCoordinator', () => {
 
     const first = await coordinatorA.reserveNearContext({
       lane,
-      operation: { ...createOperation(), chainFamily: 'near' as const },
+      operation: createOperation(),
       count: 2,
       fetchContext: async () => ({
         nearPublicKeyStr: lane.publicKey,
@@ -1310,7 +1310,6 @@ test.describe('NonceCoordinator', () => {
       operation: {
         ...createOperation(),
         operationId: SigningSessionIds.signingOperation('op-near-durable-other-tab'),
-        chainFamily: 'near' as const,
       },
       count: 1,
       fetchContext: async () => ({
@@ -1650,7 +1649,6 @@ test.describe('NonceCoordinator', () => {
       operation: {
         ...operation,
         operationId: SigningSessionIds.signingOperation('op-clear-all-near'),
-        chainFamily: 'near' as const,
       },
       count: 1,
       fetchContext: async () => ({
