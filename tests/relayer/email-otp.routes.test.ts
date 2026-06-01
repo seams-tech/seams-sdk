@@ -1226,6 +1226,7 @@ test.describe('Email OTP routes', () => {
             ...(await exhaustedSessionStatus.getWalletBudgetStatus?.({
               curve: 'ecdsa',
               walletSigningSessionId: 'exhausted-wallet-signing-session',
+              thresholdSessionId: 'exhausted-ecdsa-session',
             }) as any),
             remainingUses: 0,
           },

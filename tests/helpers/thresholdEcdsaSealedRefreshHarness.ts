@@ -14,7 +14,7 @@ import {
   createSigningSessionSealRoutesOptions,
   createSigningSessionSealShamir3PassCipherAdapter,
 } from '@server/threshold/session/signingSessionSeal';
-import { walletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
+import { signerBoundWalletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
 import type { SessionAdapter } from '@server/router/relay';
 import {
   computeEcdsaHssRoleLocalRelayerKeyId,
@@ -23,8 +23,8 @@ import {
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import {
   initSync as initHssClientSignerWasmSync,
-  threshold_ecdsa_hss_role_local_client_bootstrap,
 } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
+import { preparePasskeyPrfEcdsaClientBootstrapForTest } from './thresholdEcdsaClientBootstrap';
 import { startExpressRouter } from '../relayer/helpers';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 import {
@@ -265,8 +265,18 @@ async function installThresholdRegistrationBootstrapMock(
           remainingUses,
         });
         await threshold.authSessionStore.putSession(
-          walletSigningBudgetSessionId(walletSigningSessionId),
-          sessionRecord,
+          signerBoundWalletSigningBudgetSessionId({
+            walletSigningSessionId,
+            curve: 'ed25519',
+            thresholdSessionId: sessionId,
+          }),
+          {
+            ...sessionRecord,
+            walletBudgetBinding: {
+              curve: 'ed25519',
+              thresholdSessionId: sessionId,
+            },
+          },
           {
             ttlMs,
             remainingUses,
@@ -295,11 +305,11 @@ async function installThresholdRegistrationBootstrapMock(
     }
 
     const thresholdEcdsa = payload?.threshold_ecdsa || null;
-    const thresholdEcdsaClientRootShare32B64u = String(
+    const thresholdEcdsaPasskeyPrfFirstB64u = String(
       thresholdEcdsa?.client_root_share32_b64u || '',
     ).trim();
     let thresholdEcdsaResponse: Record<string, unknown> | undefined;
-    if (thresholdEcdsaClientRootShare32B64u) {
+    if (thresholdEcdsaPasskeyPrfFirstB64u) {
       const policy = thresholdEcdsa?.session_policy || {};
       const sessionId = String(policy?.sessionId || policy?.session_id || `ecdsa-session-${nowMs}`);
       const walletSigningSessionId = String(
@@ -322,20 +332,16 @@ async function installThresholdRegistrationBootstrapMock(
         rpId,
       });
       ensureHssClientSignerWasm();
-      const clientBootstrap = threshold_ecdsa_hss_role_local_client_bootstrap({
-        walletId: accountId,
-        rpId,
-        ecdsaThresholdKeyId,
-        signingRootId: signingRootScope.signingRootId,
-        signingRootVersion,
-        keyPurpose: 'evm-signing',
-        keyVersion: 'v1',
-        clientRootShare32B64u: thresholdEcdsaClientRootShare32B64u,
-      }) as {
-        contextBinding32B64u: string;
-        clientPublicKey33B64u: string;
-        clientShareRetryCounter: number;
-      };
+      const clientBootstrap = preparePasskeyPrfEcdsaClientBootstrapForTest({
+        context: {
+          walletId: accountId,
+          rpId,
+          ecdsaThresholdKeyId,
+          signingRootId: signingRootScope.signingRootId,
+          signingRootVersion,
+        },
+        passkeyPrfFirstB64u: thresholdEcdsaPasskeyPrfFirstB64u,
+      });
       const bootstrapResult = await threshold.ecdsaHssRoleLocalBootstrap!({
         formatVersion: 'ecdsa-hss-role-local',
         walletId: accountId,
@@ -345,7 +351,7 @@ async function installThresholdRegistrationBootstrapMock(
         signingRootVersion,
         keyScope: 'evm-family',
         relayerKeyId,
-        clientPublicKey33B64u: clientBootstrap.clientPublicKey33B64u,
+        hssClientSharePublicKey33B64u: clientBootstrap.hssClientSharePublicKey33B64u,
         clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
         contextBinding32B64u: clientBootstrap.contextBinding32B64u,
         requestId: `threshold-ecdsa-registration-${nowMs}`,

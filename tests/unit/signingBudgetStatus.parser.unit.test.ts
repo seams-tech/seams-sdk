@@ -81,9 +81,10 @@ function makeEcdsaClaims(overrides: Record<string, unknown> = {}): Record<string
   return {
     sub: 'wallet-ecdsa',
     walletId: 'wallet-ecdsa',
-    kind: 'threshold_ecdsa_session_v1',
+    kind: 'threshold_ecdsa_session_v2',
     sessionId: 'threshold-session-ecdsa',
     walletSigningSessionId: 'wallet-signing-session-ecdsa',
+    keyScope: 'evm-family',
     subjectId: 'wallet-ecdsa',
     chainTarget: {
       kind: 'evm',
@@ -135,7 +136,7 @@ test.describe('signing budget status parser', () => {
         ],
         walletBudgetStatus: makeWalletBudgetStatus({
           curve: 'ecdsa',
-          thresholdSessionId: 'wallet-signing:wallet-signing-session-ecdsa',
+          thresholdSessionId: 'threshold-session-ecdsa',
           walletSigningSessionId: 'wallet-signing-session-ecdsa',
           userId: 'wallet-ecdsa',
           rpId: 'example.localhost',
@@ -153,6 +154,43 @@ test.describe('signing budget status parser', () => {
       kind: 'ecdsa_wallet_budget_status',
       keyHandle: 'ehss-key-1',
     });
+  });
+
+  test('rejects claims when wallet budget belongs to another threshold session', async () => {
+    const result = await parseWalletSigningBudgetStatusRequest({
+      headers: { Authorization: 'Bearer ecdsa-token' },
+      session: makeSession(makeEcdsaClaims()),
+      sessionPolicy: makePolicy({
+        thresholdStatuses: [
+          makeThresholdStatus({
+            curve: 'ecdsa',
+            thresholdSessionId: 'threshold-session-ecdsa',
+            userId: 'wallet-ecdsa',
+            rpId: 'example.localhost',
+            relayerKeyId: 'ecdsa-relayer-1',
+            participantIds: [1, 2],
+            expiresAtMs: Date.now() + 60_000,
+            remainingUses: 5,
+          }),
+        ],
+        walletBudgetStatus: makeWalletBudgetStatus({
+          curve: 'ecdsa',
+          thresholdSessionId: 'threshold-session-near',
+          walletSigningSessionId: 'wallet-signing-session-ecdsa',
+          userId: 'wallet-ecdsa',
+          rpId: 'example.localhost',
+          relayerKeyId: 'ecdsa-relayer-1',
+          participantIds: [1, 2],
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 3,
+        }),
+      }),
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.status).toBe(401);
+    expect(result.body.code).toBe('unauthorized');
   });
 
   test('rejects ECDSA claims when curve-bound auth identity is incomplete', async () => {

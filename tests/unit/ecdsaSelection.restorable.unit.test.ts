@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { base64UrlEncode } from '@shared/utils/base64';
 import { toAccountId } from '@/core/types/accountIds';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { resolveEvmFamilyEcdsaSigningSelection } from '@/core/signingEngine/flows/signEvmFamily/ecdsaSelection';
@@ -7,6 +8,7 @@ import type { EvmFamilyEcdsaSigningSelectionDeps } from '@/core/signingEngine/fl
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import {
   buildEvmFamilyEcdsaKeyIdentity,
+  buildVerifiedEcdsaPublicFacts,
   toEvmFamilyEcdsaKeyHandle,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { buildReauthAnchorIdentity } from '@/core/signingEngine/session/operationState/transactionState';
@@ -17,6 +19,15 @@ import {
 import { exactSigningLaneIdentity } from '@/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import { buildFreshStepUpRequired } from '@/core/signingEngine/session/operationState/stepUpFreshness';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
+import {
+  buildEcdsaRoleLocalEmailOtpAuthMethod,
+  buildEcdsaRoleLocalPasskeyAuthMethod,
+  buildEcdsaRoleLocalPublicFacts,
+  buildEcdsaRoleLocalReadyRecord,
+} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+
+type EmailOtpEcdsaSessionRecord = Extract<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>;
+type PasskeyEcdsaSessionRecord = Exclude<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>;
 
 type DirectEcdsaLaneCandidate = Extract<
   EcdsaLaneCandidate,
@@ -40,6 +51,10 @@ const tempoChainTarget = {
 
 const walletId = toWalletId('restorable.testnet');
 const validThresholdEcdsaPublicKeyB64u = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const validRelayerEcdsaPublicKeyB64u = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const contextBinding32B64u = base64UrlEncode(new Uint8Array(32).fill(8));
+const stateBlobB64u = base64UrlEncode(new Uint8Array(64).fill(9));
+const passkeyCredentialIdB64u = 'restorable-passkey-credential';
 
 function candidate(state: EcdsaLaneCandidate['state']): DirectEcdsaLaneCandidate {
   return {
@@ -157,8 +172,7 @@ function reauthAnchorForCandidate(input: EcdsaLaneCandidate) {
     freshness,
     sourceState: {
       kind: 'reauth_anchor_source_state',
-      availabilitySource:
-        input.source === 'unknown' ? 'durable_sealed_record' : input.source,
+      availabilitySource: input.source === 'unknown' ? 'durable_sealed_record' : input.source,
       storeSource: input.authMethod === 'email_otp' ? 'email_otp' : 'login',
       retention: input.authMethod === 'email_otp' ? 'single_use' : 'session',
       remainingUses: input.remainingUses,
@@ -173,7 +187,10 @@ function selectionDeps(): EvmFamilyEcdsaSigningSelectionDeps {
     throw new Error('missing exact material');
   };
   return {
-    indexedDB: {} as EvmFamilyEcdsaSigningSelectionDeps['indexedDB'],
+    indexedDB: {
+      getActiveWalletSignerForChainTarget: async () => null,
+      listActiveWalletSigners: async () => [],
+    } as unknown as EvmFamilyEcdsaSigningSelectionDeps['indexedDB'],
     getEmailOtpThresholdEcdsaSessionRecordForSigning: missing,
     getPasskeyThresholdEcdsaSessionRecordForSigning: missing,
     listThresholdEcdsaSessionRecordsForSigning: () => [],
@@ -182,10 +199,52 @@ function selectionDeps(): EvmFamilyEcdsaSigningSelectionDeps {
   };
 }
 
+function roleLocalReadyRecordForCandidate(
+  input: EcdsaLaneCandidate,
+  materialChainTarget: typeof chainTarget | typeof tempoChainTarget,
+) {
+  const publicFacts = buildEcdsaRoleLocalPublicFacts({
+    walletId: input.walletId,
+    rpId: input.key.rpId,
+    chainTarget: materialChainTarget,
+    keyHandle: input.keyHandle,
+    ecdsaThresholdKeyId: input.key.ecdsaThresholdKeyId,
+    signingRootId: input.key.signingRootId,
+    signingRootVersion: input.key.signingRootVersion,
+    clientParticipantId: 1,
+    relayerParticipantId: 2,
+    participantIds: [1, 2],
+    contextBinding32B64u,
+    hssClientSharePublicKey33B64u: validThresholdEcdsaPublicKeyB64u,
+    relayerPublicKey33B64u: validRelayerEcdsaPublicKeyB64u,
+    groupPublicKey33B64u: validThresholdEcdsaPublicKeyB64u,
+    ethereumAddress: input.key.thresholdOwnerAddress,
+  });
+  return buildEcdsaRoleLocalReadyRecord({
+    stateBlob: {
+      kind: 'ecdsa_role_local_state_blob_v1',
+      curve: 'secp256k1',
+      encoding: 'base64url',
+      producer: 'signer_core',
+      stateBlobB64u,
+    },
+    publicFacts,
+    authMethod:
+      input.authMethod === 'email_otp'
+        ? buildEcdsaRoleLocalEmailOtpAuthMethod({
+            authSubjectId: `google:${String(input.walletId)}`,
+          })
+        : buildEcdsaRoleLocalPasskeyAuthMethod({
+            credentialIdB64u: passkeyCredentialIdB64u,
+            rpId: input.key.rpId,
+          }),
+  });
+}
+
 function recordForChainTarget(
   input: EcdsaLaneCandidate,
   materialChainTarget: typeof chainTarget | typeof tempoChainTarget,
-): ThresholdEcdsaSessionRecord {
+): PasskeyEcdsaSessionRecord {
   return {
     walletId: input.walletId,
     authMetadata: { rpId: input.key.rpId },
@@ -197,10 +256,16 @@ function recordForChainTarget(
     signingRootId: input.key.signingRootId,
     signingRootVersion: input.key.signingRootVersion,
     relayerKeyId: 'rk-restorable',
-    clientVerifyingShareB64u: 'client-verifying-share',
-    clientAdditiveShare32B64u: 'client-share',
+    clientVerifyingShareB64u: validThresholdEcdsaPublicKeyB64u,
+    ecdsaRoleLocalReadyRecord: roleLocalReadyRecordForCandidate(input, materialChainTarget),
     participantIds: [1, 2],
     ethereumAddress: `0x${'aa'.repeat(20)}`,
+    verifiedPublicFacts: buildVerifiedEcdsaPublicFacts({
+      keyHandle: input.keyHandle,
+      publicKeyB64u: validThresholdEcdsaPublicKeyB64u,
+      participantIds: [1, 2],
+      thresholdOwnerAddress: `0x${'aa'.repeat(20)}`,
+    }),
     thresholdSessionKind: 'jwt',
     thresholdSessionId: input.thresholdSessionId,
     walletSigningSessionId: input.walletSigningSessionId,
@@ -208,6 +273,7 @@ function recordForChainTarget(
     expiresAtMs: Date.now() + 60_000,
     remainingUses: input.state === 'exhausted' ? 0 : 1,
     thresholdEcdsaPublicKeyB64u: validThresholdEcdsaPublicKeyB64u,
+    relayerVerifyingShareB64u: validRelayerEcdsaPublicKeyB64u,
     updatedAtMs: Date.now(),
     source: 'registration',
   };
@@ -216,9 +282,10 @@ function recordForChainTarget(
 function emailOtpRecordForChainTarget(
   input: EcdsaLaneCandidate,
   materialChainTarget: typeof chainTarget | typeof tempoChainTarget,
-): ThresholdEcdsaSessionRecord {
+): EmailOtpEcdsaSessionRecord {
+  const workerOwnedRecord = recordForChainTarget(input, materialChainTarget);
   return {
-    ...recordForChainTarget(input, materialChainTarget),
+    ...workerOwnedRecord,
     source: 'email_otp',
     emailOtpAuthContext: {
       policy: 'session',
@@ -410,6 +477,8 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.kind).toBe('ready');
     if (selection.kind !== 'ready') return;
     expect(selection.authMethod).toBe('email_otp');
+    expect(selection.material.record.source).toBe('email_otp');
+    if (selection.material.record.source !== 'email_otp') return;
     expect(selection.material.record.emailOtpAuthContext.retention).toBe('single_use');
     expect(selection.material.record.remainingUses).toBe(1);
   });
@@ -461,11 +530,8 @@ test.describe('ECDSA restorable lane selection', () => {
   test('uses Email OTP source material for shared EVM lanes even when exact target has public identity only', async () => {
     const input = emailOtpSharedEvmCandidateFromTempo();
     const tempoSourceRecord = emailOtpRecordForChainTarget(input, tempoChainTarget);
-    const {
-      clientAdditiveShare32B64u: _inlineShare,
-      clientAdditiveShareHandle: _workerShare,
-      ...arcPublicOnlyRecord
-    } = emailOtpRecordForChainTarget(input, chainTarget);
+    const { clientAdditiveShareHandle: _workerShare, ...arcPublicOnlyRecord } =
+      emailOtpRecordForChainTarget(input, chainTarget);
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
       getThresholdEcdsaSessionRecordByKey: () => arcPublicOnlyRecord,
@@ -542,17 +608,13 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.diagnostics.selectedPasskeyMaterial).toEqual({ present: false });
   });
 
-  test('routes exhausted shared Tempo Email OTP lanes with public identity only to OTP reauth', async () => {
+  test('keeps exhausted shared Tempo Email OTP lanes backed by registration material available for reauth signing', async () => {
     const input: EcdsaLaneCandidate = {
       ...emailOtpSharedTempoCandidate(),
       state: 'exhausted',
       remainingUses: 0,
     };
-    const {
-      clientAdditiveShare32B64u: _clientAdditiveShare32B64u,
-      clientAdditiveShareHandle: _clientAdditiveShareHandle,
-      ...emailOtpRecord
-    } = {
+    const { clientAdditiveShareHandle: _clientAdditiveShareHandle, ...emailOtpRecord } = {
       ...emailOtpRecordForChainTarget(input, chainTarget),
       remainingUses: 1,
     };
@@ -585,15 +647,15 @@ test.describe('ECDSA restorable lane selection', () => {
     expect(selection.authMethod).toBe('email_otp');
     expect(selection.reason).toBe('exhausted');
     expect(selection.material).toMatchObject({
-      kind: 'reauth_required',
-      reason: 'missing_worker_share',
+      kind: 'ready_to_sign',
+      authMethod: 'email_otp',
     });
     expect(selection.diagnostics.exactCandidateMaterial).toMatchObject({
       present: true,
-      kind: 'reauth_required',
+      kind: 'ready_to_sign',
       hasRecord: true,
       publicIdentityPresent: true,
-      signerMaterialPresent: false,
+      signerMaterialPresent: true,
     });
     expect(selection.reauthAuthority).toEqual({
       kind: 'email_otp_signing_session',

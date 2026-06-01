@@ -37,9 +37,19 @@ test.describe('signing budget policy', () => {
   test('defaults post-exhaustion step-up to a single-use budget', () => {
     const policy = resolvePostExhaustionStepUpBudgetPolicy({
       operationId: SigningSessionIds.signingOperation('tx-step-up-1'),
+      requiredSignatureUses: 1,
     });
     expect(policy.kind).toBe('single_operation_step_up_budget_policy');
     expect(resolveSigningBudgetPolicyRemainingUses(policy)).toBe(1);
+  });
+
+  test('scales single-operation step-up budget to the operation signature count', () => {
+    const policy = resolvePostExhaustionStepUpBudgetPolicy({
+      operationId: SigningSessionIds.signingOperation('near-batched-tx-step-up'),
+      requiredSignatureUses: 2,
+    });
+    expect(policy.kind).toBe('single_operation_step_up_budget_policy');
+    expect(resolveSigningBudgetPolicyRemainingUses(policy)).toBe(2);
   });
 
   test('normalizes unlock overrides through wallet-unlock policy parsing', () => {

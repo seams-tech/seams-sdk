@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { buildEd25519SessionPolicy } from '@/core/signingEngine/threshold/sessionPolicy';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '@server/core/ThresholdService/schemes/schemeIds';
-import { walletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
+import { signerBoundWalletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
 import {
   createThresholdSigningServiceForUnitTests,
   deriveThresholdEd25519VerifyingShareForUnitTests,
@@ -79,7 +79,7 @@ test('threshold-ed25519 passkey session mint verifies the client runtime-scoped 
   expect(result.code).not.toBe('invalid_assertion');
 });
 
-test('threshold-ed25519 passkey reauth refreshes an exhausted wallet signing-session budget', async () => {
+test('threshold-ed25519 passkey reauth mints a signer-bound wallet budget for the new session', async () => {
   const nearAccountId = 'alice.testnet';
   const rpId = 'localhost';
   const relayerKeyId = 'ed25519:wallet-budget-refresh-relayer';
@@ -138,23 +138,39 @@ test('threshold-ed25519 passkey reauth refreshes an exhausted wallet signing-ses
     expect(result.ok).toBe(true);
   }
 
-  const walletBudgetSessionId = walletSigningBudgetSessionId(walletSigningSessionId);
-  await mintSession('tsess-wallet-budget-refresh-1', 2);
-  expect(await authSessionStore.consumeUseCount(walletBudgetSessionId)).toMatchObject({
+  const firstSessionId = 'tsess-wallet-budget-refresh-1';
+  const secondSessionId = 'tsess-wallet-budget-refresh-2';
+  const firstWalletBudgetSessionId = signerBoundWalletSigningBudgetSessionId({
+    walletSigningSessionId,
+    curve: 'ed25519',
+    thresholdSessionId: firstSessionId,
+  });
+  const secondWalletBudgetSessionId = signerBoundWalletSigningBudgetSessionId({
+    walletSigningSessionId,
+    curve: 'ed25519',
+    thresholdSessionId: secondSessionId,
+  });
+
+  await mintSession(firstSessionId, 2);
+  expect(await authSessionStore.consumeUseCount(firstWalletBudgetSessionId)).toMatchObject({
     ok: true,
     remainingUses: 1,
   });
-  expect(await authSessionStore.consumeUseCount(walletBudgetSessionId)).toMatchObject({
+  expect(await authSessionStore.consumeUseCount(firstWalletBudgetSessionId)).toMatchObject({
     ok: true,
     remainingUses: 0,
   });
-  expect(await authSessionStore.consumeUseCount(walletBudgetSessionId)).toMatchObject({
+  expect(await authSessionStore.consumeUseCount(firstWalletBudgetSessionId)).toMatchObject({
     ok: false,
     code: 'unauthorized',
   });
 
-  await mintSession('tsess-wallet-budget-refresh-2', 3);
-  expect(await authSessionStore.consumeUseCount(walletBudgetSessionId)).toMatchObject({
+  await mintSession(secondSessionId, 3);
+  expect(await authSessionStore.consumeUseCount(firstWalletBudgetSessionId)).toMatchObject({
+    ok: false,
+    code: 'unauthorized',
+  });
+  expect(await authSessionStore.consumeUseCount(secondWalletBudgetSessionId)).toMatchObject({
     ok: true,
     remainingUses: 2,
   });

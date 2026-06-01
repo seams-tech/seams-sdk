@@ -4,7 +4,7 @@ import type {
   Ed25519AuthSessionStore,
   ThresholdEd25519AuthConsumeUsesResult,
 } from '../../server/src/core/ThresholdService/stores/AuthSessionStore';
-import { walletSigningBudgetSessionId } from '../../server/src/core/ThresholdService/walletSigningBudget';
+import { signerBoundWalletSigningBudgetSessionId } from '../../server/src/core/ThresholdService/walletSigningBudget';
 import { createSigningSessionSealPolicyFromThresholdAuthSessionStores } from '../../server/src/threshold/session/signingSessionSeal/policy/sessionPolicy';
 
 function makeStatus(input: {
@@ -14,6 +14,10 @@ function makeStatus(input: {
   participantIds: number[];
   expiresAtMs: number;
   remainingUses: number;
+  walletBudgetBinding?: {
+    curve: 'ed25519' | 'ecdsa';
+    thresholdSessionId: string;
+  };
 }): Ed25519AuthSessionStatus {
   return {
     record: {
@@ -22,6 +26,7 @@ function makeStatus(input: {
       relayerKeyId: input.relayerKeyId,
       participantIds: input.participantIds,
       expiresAtMs: input.expiresAtMs,
+      ...(input.walletBudgetBinding ? { walletBudgetBinding: input.walletBudgetBinding } : {}),
     },
     expiresAtMs: input.expiresAtMs,
     remainingUses: input.remainingUses,
@@ -199,16 +204,25 @@ test.describe('signing session seal session policy', () => {
 
   test('looks up wallet budget status from the shared wallet budget store', async () => {
     const budgetSessionId = 'budget-session';
-    const walletBudgetThresholdSessionId = walletSigningBudgetSessionId(budgetSessionId);
+    const walletBudgetThresholdSessionId = 'threshold-ed25519-budget-session';
+    const walletBudgetStoreSessionId = signerBoundWalletSigningBudgetSessionId({
+      walletSigningSessionId: budgetSessionId,
+      curve: 'ed25519',
+      thresholdSessionId: walletBudgetThresholdSessionId,
+    });
     const walletBudgetStore = makeStore({
       sessions: {
-        [walletBudgetThresholdSessionId]: makeStatus({
+        [walletBudgetStoreSessionId]: makeStatus({
           userId: 'alice',
           rpId: 'rp-wallet-budget.example',
           relayerKeyId: 'relayer-wallet-budget',
           participantIds: [5, 6],
           expiresAtMs: 333_000,
           remainingUses: 2,
+          walletBudgetBinding: {
+            curve: 'ed25519',
+            thresholdSessionId: walletBudgetThresholdSessionId,
+          },
         }),
       },
     });
@@ -248,6 +262,7 @@ test.describe('signing session seal session policy', () => {
       policy.getWalletBudgetStatus?.({
         curve: 'ed25519',
         walletSigningSessionId: budgetSessionId,
+        thresholdSessionId: walletBudgetThresholdSessionId,
       }),
     ).resolves.toEqual({
       kind: 'wallet_budget',
@@ -266,19 +281,88 @@ test.describe('signing session seal session policy', () => {
       policy.getWalletBudgetStatus?.({
         curve: 'ecdsa',
         walletSigningSessionId: budgetSessionId,
+        thresholdSessionId: walletBudgetThresholdSessionId,
       }),
-    ).resolves.toEqual({
-      kind: 'wallet_budget',
-      curve: 'ecdsa',
-      thresholdSessionId: walletBudgetThresholdSessionId,
-      walletSigningSessionId: budgetSessionId,
-      userId: 'alice',
-      expiresAtMs: 333_000,
-      remainingUses: 2,
-      relayerKeyId: 'relayer-wallet-budget',
-      rpId: 'rp-wallet-budget.example',
-      participantIds: [5, 6],
+    ).resolves.toBeNull();
+  });
+
+  test('keeps signer-bound wallet budgets independent under one wallet signing session id', async () => {
+    const walletSigningSessionId = 'shared-wallet-session';
+    const ed25519ThresholdSessionId = 'threshold-ed25519-shared-wallet';
+    const ecdsaThresholdSessionId = 'threshold-ecdsa-shared-wallet';
+    const ed25519BudgetSessionId = signerBoundWalletSigningBudgetSessionId({
+      walletSigningSessionId,
+      curve: 'ed25519',
+      thresholdSessionId: ed25519ThresholdSessionId,
     });
+    const ecdsaBudgetSessionId = signerBoundWalletSigningBudgetSessionId({
+      walletSigningSessionId,
+      curve: 'ecdsa',
+      thresholdSessionId: ecdsaThresholdSessionId,
+    });
+    const walletBudgetStore = makeStore({
+      sessions: {
+        [ed25519BudgetSessionId]: makeStatus({
+          userId: 'alice',
+          rpId: 'rp-wallet-budget.example',
+          relayerKeyId: 'relayer-wallet-budget',
+          participantIds: [1, 2],
+          expiresAtMs: 333_000,
+          remainingUses: 2,
+          walletBudgetBinding: {
+            curve: 'ed25519',
+            thresholdSessionId: ed25519ThresholdSessionId,
+          },
+        }),
+        [ecdsaBudgetSessionId]: makeStatus({
+          userId: 'alice',
+          rpId: 'rp-wallet-budget.example',
+          relayerKeyId: 'relayer-wallet-budget',
+          participantIds: [1, 2],
+          expiresAtMs: 444_000,
+          remainingUses: 3,
+          walletBudgetBinding: {
+            curve: 'ecdsa',
+            thresholdSessionId: ecdsaThresholdSessionId,
+          },
+        }),
+      },
+    });
+    const policy = createSigningSessionSealPolicyFromThresholdAuthSessionStores({
+      ed25519Stores: [],
+      ecdsaStores: [],
+      walletBudgetStores: [walletBudgetStore],
+    });
+
+    await expect(
+      policy.getWalletBudgetStatus?.({
+        curve: 'ed25519',
+        walletSigningSessionId,
+        thresholdSessionId: ed25519ThresholdSessionId,
+      }),
+    ).resolves.toMatchObject({
+      curve: 'ed25519',
+      thresholdSessionId: ed25519ThresholdSessionId,
+      remainingUses: 2,
+    });
+    await expect(
+      policy.getWalletBudgetStatus?.({
+        curve: 'ecdsa',
+        walletSigningSessionId,
+        thresholdSessionId: ecdsaThresholdSessionId,
+      }),
+    ).resolves.toMatchObject({
+      curve: 'ecdsa',
+      thresholdSessionId: ecdsaThresholdSessionId,
+      remainingUses: 3,
+    });
+    await expect(
+      policy.getWalletBudgetStatus?.({
+        curve: 'ecdsa',
+        walletSigningSessionId,
+        thresholdSessionId: ed25519ThresholdSessionId,
+      }),
+    ).resolves.toBeNull();
   });
 
   test('consumes use counts only within the requested curve family', async () => {

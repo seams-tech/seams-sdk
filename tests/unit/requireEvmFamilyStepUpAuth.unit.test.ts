@@ -30,6 +30,7 @@ test.describe('requireEvmFamilyStepUpAuth', () => {
       thresholdEcdsaStepUp,
       hasThresholdEcdsaRequest: true,
       needsWebAuthn: false,
+      requiredSignatureUses: 1,
       explicitAuthErrorLabel: 'EVM',
     });
 
@@ -65,6 +66,7 @@ test.describe('requireEvmFamilyStepUpAuth', () => {
       thresholdEcdsaStepUp,
       hasThresholdEcdsaRequest: true,
       needsWebAuthn: false,
+      requiredSignatureUses: 1,
       explicitAuthErrorLabel: 'EVM',
     });
 
@@ -108,6 +110,7 @@ test.describe('requireEvmFamilyStepUpAuth', () => {
       thresholdEcdsaStepUp,
       hasThresholdEcdsaRequest: true,
       needsWebAuthn: true,
+      requiredSignatureUses: 1,
       explicitAuthErrorLabel: 'EVM',
     });
 

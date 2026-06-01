@@ -10,6 +10,7 @@ import {
   type RegistrationAuthMethodInput,
   type RegistrationSignerSelection,
 } from '@shared/utils/registrationIntent';
+import type { EcdsaHssClientSharePublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { base58Encode, base64UrlEncode } from '@shared/utils/encoders';
 import {
   EMAIL_OTP_RECOVERY_KEY_COUNT,
@@ -39,6 +40,9 @@ function secp256k1BasePointB64u(): string {
   const hex = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798';
   return base64UrlEncode(Uint8Array.from(Buffer.from(hex, 'hex')));
 }
+
+const ECDSA_HSS_CLIENT_SHARE_PUBLIC_KEY_B64U =
+  secp256k1BasePointB64u() as EcdsaHssClientSharePublicKey33B64u;
 
 function emailOtpEnrollmentMaterial(walletId: string, authSubjectId: string) {
   const publicKey = secp256k1BasePointB64u();
@@ -330,7 +334,7 @@ function ecdsaServerBootstrapValue(input: {
     relayerKeyId: input.request.relayerKeyId,
     contextBinding32B64u: input.request.contextBinding32B64u,
     publicIdentity: {
-      clientPublicKey33B64u: input.request.clientPublicKey33B64u,
+      hssClientSharePublicKey33B64u: input.request.hssClientSharePublicKey33B64u,
       relayerPublicKey33B64u: 'relayer-public-key',
       groupPublicKey33B64u: 'group-public-key',
       ethereumAddress: input.ownerAddress,
@@ -1038,6 +1042,10 @@ test.describe('registration intent allocation', () => {
           }),
         };
       },
+      verifyEcdsaHssRoleLocalBootstrapPersisted: async () => ({
+        ok: true,
+        value: { keyHandle: 'ehss-combined-key-alice' },
+      }),
       getSchemeModule: () => ({
         schemeId: 'threshold-ed25519-frost-2p-v1',
         registration: {
@@ -1108,7 +1116,7 @@ test.describe('registration intent allocation', () => {
         projectId: RUNTIME_POLICY_SCOPE.projectId,
         orgId: RUNTIME_POLICY_SCOPE.orgId,
       },
-      clientPublicKey33B64u: 'client-public-key',
+      hssClientSharePublicKey33B64u: ECDSA_HSS_CLIENT_SHARE_PUBLIC_KEY_B64U,
       clientShareRetryCounter: 0,
       contextBinding32B64u: 'context-binding',
     };
@@ -1218,6 +1226,10 @@ test.describe('registration intent allocation', () => {
           }),
         };
       },
+      verifyEcdsaHssRoleLocalBootstrapPersisted: async () => ({
+        ok: true,
+        value: { keyHandle: 'ehss-key-alice' },
+      }),
     });
 
     const allocated = await allocateIntent(service, ECDSA_SIGNER_SELECTION);
@@ -1252,7 +1264,7 @@ test.describe('registration intent allocation', () => {
 
     const clientBootstrap = {
       ...started.ecdsa.prepare,
-      clientPublicKey33B64u: 'client-public-key',
+      hssClientSharePublicKey33B64u: ECDSA_HSS_CLIENT_SHARE_PUBLIC_KEY_B64U,
       clientShareRetryCounter: 0,
       contextBinding32B64u: 'context-binding',
     };
@@ -1315,6 +1327,162 @@ test.describe('registration intent allocation', () => {
     expect(accountCreationCalls).toBe(0);
   });
 
+  test('replaces a stale uncommitted ECDSA registration key before bootstrap retry', async () => {
+    const service = makeService();
+    (service as any).verifyRegistrationCredentialForIntent = async () => ({
+      ok: true,
+      credential: {
+        credentialIdB64u: 'credential-id',
+        credentialPublicKeyB64u: 'credential-public-key',
+        counter: 0,
+      },
+    });
+
+    let bootstrapCalls = 0;
+    let deletedIdentity: Record<string, unknown> | null = null;
+    (service as any).getThresholdSigningService = () => ({
+      ecdsaHssRoleLocalBootstrap: async (request: Record<string, unknown>) => {
+        bootstrapCalls += 1;
+        if (bootstrapCalls === 1) {
+          return {
+            ok: false,
+            code: 'identity_mismatch',
+            message: 'ECDSA HSS key identity mismatch',
+          };
+        }
+        return {
+          ok: true,
+          value: ecdsaServerBootstrapValue({
+            request,
+            keyHandle: 'ehss-key-retry-alice',
+            ownerAddress: '0x1111111111111111111111111111111111111111',
+          }),
+        };
+      },
+      deleteEcdsaHssRoleLocalKeyByBootstrapIdentity: async (identity: Record<string, unknown>) => {
+        deletedIdentity = identity;
+        return { ok: true, value: { keyHandle: 'ehss-key-retry-alice' } };
+      },
+    });
+
+    const allocated = await allocateIntent(service, ECDSA_SIGNER_SELECTION);
+    expect(allocated.ok).toBe(true);
+    if (!allocated.ok) throw new Error(allocated.message);
+
+    const started = await service.startWalletRegistration({
+      registrationIntentGrant: allocated.registrationIntentGrant,
+      registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
+      intent: allocated.intent,
+      authority: {
+        kind: 'passkey',
+        webauthnRegistration: {
+          response: {
+            clientDataJSON: clientDataJsonB64u({
+              challenge: allocated.registrationIntentDigestB64u,
+            }),
+          },
+        },
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok || !started.ecdsa) throw new Error('ECDSA start failed');
+
+    const clientBootstrap = {
+      ...started.ecdsa.prepare,
+      hssClientSharePublicKey33B64u: ECDSA_HSS_CLIENT_SHARE_PUBLIC_KEY_B64U,
+      clientShareRetryCounter: 0,
+      contextBinding32B64u: 'context-binding',
+    };
+    const responded = await service.respondWalletRegistrationHss({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ecdsa: { clientBootstrap },
+    });
+
+    expect(responded).toMatchObject({
+      ok: true,
+      ecdsa: { bootstrap: { keyHandle: 'ehss-key-retry-alice' } },
+    });
+    expect(bootstrapCalls).toBe(2);
+    expect(deletedIdentity).toMatchObject({
+      ecdsaThresholdKeyId: clientBootstrap.ecdsaThresholdKeyId,
+      signingRootId: clientBootstrap.signingRootId,
+      signingRootVersion: clientBootstrap.signingRootVersion,
+    });
+  });
+
+  test('keeps an existing wallet ECDSA key on registration identity mismatch', async () => {
+    const service = makeService();
+    (service as any).verifyRegistrationCredentialForIntent = async () => ({
+      ok: true,
+      credential: {
+        credentialIdB64u: 'credential-id',
+        credentialPublicKeyB64u: 'credential-public-key',
+        counter: 0,
+      },
+    });
+    (service as any).getWalletStore = () => ({
+      getWallet: async () => ({
+        version: 'wallet_v1',
+        walletId: 'wallet_alice',
+        rpId: 'wallet.example.test',
+        createdAtMs: 1,
+        updatedAtMs: 1,
+      }),
+    });
+    let deleteCalls = 0;
+    (service as any).getThresholdSigningService = () => ({
+      ecdsaHssRoleLocalBootstrap: async () => ({
+        ok: false,
+        code: 'identity_mismatch',
+        message: 'ECDSA HSS key identity mismatch',
+      }),
+      deleteEcdsaHssRoleLocalKeyByBootstrapIdentity: async () => {
+        deleteCalls += 1;
+        return { ok: true, value: { keyHandle: 'ehss-key-existing-wallet' } };
+      },
+    });
+
+    const allocated = await allocateIntent(service, ECDSA_SIGNER_SELECTION);
+    expect(allocated.ok).toBe(true);
+    if (!allocated.ok) throw new Error(allocated.message);
+
+    const started = await service.startWalletRegistration({
+      registrationIntentGrant: allocated.registrationIntentGrant,
+      registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
+      intent: allocated.intent,
+      authority: {
+        kind: 'passkey',
+        webauthnRegistration: {
+          response: {
+            clientDataJSON: clientDataJsonB64u({
+              challenge: allocated.registrationIntentDigestB64u,
+            }),
+          },
+        },
+      },
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok || !started.ecdsa) throw new Error('ECDSA start failed');
+
+    const responded = await service.respondWalletRegistrationHss({
+      registrationCeremonyId: started.registrationCeremonyId,
+      ecdsa: {
+        clientBootstrap: {
+          ...started.ecdsa.prepare,
+          hssClientSharePublicKey33B64u: ECDSA_HSS_CLIENT_SHARE_PUBLIC_KEY_B64U,
+          clientShareRetryCounter: 0,
+          contextBinding32B64u: 'context-binding',
+        },
+      },
+    });
+
+    expect(responded).toMatchObject({
+      ok: false,
+      code: 'identity_mismatch',
+    });
+    expect(deleteCalls).toBe(0);
+  });
+
   test('rejects ECDSA-only registration finalize when bootstrap key facts are incomplete', async () => {
     const service = makeService();
     (service as any).verifyRegistrationCredentialForIntent = async () => ({
@@ -1365,6 +1533,11 @@ test.describe('registration intent allocation', () => {
           ownerAddress: '0x1111111111111111111111111111111111111111',
         }),
       }),
+      verifyEcdsaHssRoleLocalBootstrapPersisted: async () => ({
+        ok: false,
+        code: 'identity_mismatch',
+        message: 'ECDSA HSS registration finalize does not match persisted key identity',
+      }),
     });
 
     const allocated = await allocateIntent(service, ECDSA_SIGNER_SELECTION);
@@ -1394,7 +1567,7 @@ test.describe('registration intent allocation', () => {
       ecdsa: {
         clientBootstrap: {
           ...started.ecdsa.prepare,
-          clientPublicKey33B64u: 'client-public-key',
+          hssClientSharePublicKey33B64u: ECDSA_HSS_CLIENT_SHARE_PUBLIC_KEY_B64U,
           clientShareRetryCounter: 0,
           contextBinding32B64u: 'context-binding',
         },
@@ -1411,8 +1584,7 @@ test.describe('registration intent allocation', () => {
       }),
     ).resolves.toMatchObject({
       ok: false,
-      code: 'incomplete_ecdsa_wallet_key',
-      message: expect.stringContaining('keyHandle'),
+      code: 'identity_mismatch',
     });
     expect(authenticatorWrites).toBe(0);
     expect(credentialBindingWrites).toBe(0);
@@ -2286,7 +2458,7 @@ test.describe('registration intent allocation', () => {
 
     const clientBootstrap = {
       ...started.ecdsa.prepare,
-      clientPublicKey33B64u: 'client-public-key',
+      hssClientSharePublicKey33B64u: ECDSA_HSS_CLIENT_SHARE_PUBLIC_KEY_B64U,
       clientShareRetryCounter: 0,
       contextBinding32B64u: 'context-binding',
     };
@@ -2387,7 +2559,7 @@ test.describe('registration intent allocation', () => {
       ecdsa: {
         clientBootstrap: {
           ...started.ecdsa.prepare,
-          clientPublicKey33B64u: 'client-public-key',
+          hssClientSharePublicKey33B64u: ECDSA_HSS_CLIENT_SHARE_PUBLIC_KEY_B64U,
           clientShareRetryCounter: 0,
           contextBinding32B64u: 'context-binding',
         },

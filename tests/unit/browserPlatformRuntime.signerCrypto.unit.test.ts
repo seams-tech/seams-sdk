@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
+import { base64UrlEncode } from '@shared/utils/base64';
 import {
   createBrowserPlatformRuntime,
   parseEmailOtpWorkerIssuedSessionHandle,
@@ -297,19 +297,9 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
             request.payload as WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest;
           capturedPreparePayloads.push(payload);
           expect(payload).toMatchObject({
-            walletId: prepareInput.context.walletId,
-            rpId: prepareInput.context.rpId,
-            ecdsaThresholdKeyId: prepareInput.context.ecdsaThresholdKeyId,
-            signingRootId: prepareInput.context.signingRootId,
-            signingRootVersion: prepareInput.context.signingRootVersion,
-            keyPurpose: 'evm-signing',
-            keyVersion: 'v1',
-          });
-          expect(payload.clientRootShare32B64u).toBeTruthy();
-          expect(base64UrlDecode(String(payload.clientRootShare32B64u))).toHaveLength(32);
-          return {
-            type: WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
-            payload: {
+            kind: 'prepare_ecdsa_client_bootstrap_v1',
+            algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
+            context: {
               walletId: prepareInput.context.walletId,
               rpId: prepareInput.context.rpId,
               ecdsaThresholdKeyId: prepareInput.context.ecdsaThresholdKeyId,
@@ -317,12 +307,39 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
               signingRootVersion: prepareInput.context.signingRootVersion,
               keyPurpose: 'evm-signing',
               keyVersion: 'v1',
-              pendingStateBlobB64u,
-              contextBinding32B64u: shareA,
-              hssClientSharePublicKey33B64u: publicKeyA,
-              clientVerifyingShareB64u: publicKeyA,
-              clientShareRetryCounter: 7,
-              participantId: 1,
+            },
+            participants: {
+              clientParticipantId: 1,
+              relayerParticipantId: 2,
+              participantIds: [1, 2],
+            },
+            secretSource: {
+              kind: 'webauthn_prf_first',
+              prfFirstB64u: requiredPrfSuccess.prf.prfFirstB64u,
+              rpId: 'localhost',
+              credentialIdB64u: 'credential',
+            },
+          });
+          return {
+            type: WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
+            payload: {
+              pendingStateBlob: {
+                kind: 'ecdsa_role_local_pending_state_blob_v1',
+                curve: 'secp256k1',
+                encoding: 'base64url',
+                producer: 'signer_core',
+                stateBlobB64u: pendingStateBlobB64u,
+              },
+              clientBootstrap: {
+                contextBinding32B64u: shareA,
+                hssClientSharePublicKey33B64u: publicKeyA,
+                clientShareRetryCounter: 7,
+                participantId: 1,
+              },
+              publicFacts: {
+                hssClientSharePublicKey33B64u: publicKeyA,
+                clientVerifyingShareB64u: publicKeyA,
+              },
             },
           } as any;
         }
@@ -333,25 +350,39 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
           request.payload as WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest;
         capturedFinalizePayloads.push(payload);
         expect(payload).toMatchObject({
-          pendingStateBlobB64u,
-          relayerKeyId: 'relayer',
-          relayerPublicKey33B64u: publicKeyB,
-          groupPublicKey33B64u: publicKeyC,
-          ethereumAddress: '0x0000000000000000000000000000000000000001',
-          relayerShareRetryCounter: 0,
+          kind: 'finalize_ecdsa_client_bootstrap_v1',
+          pendingStateBlob: {
+            kind: 'ecdsa_role_local_pending_state_blob_v1',
+            curve: 'secp256k1',
+            encoding: 'base64url',
+            producer: 'signer_core',
+            stateBlobB64u: pendingStateBlobB64u,
+          },
+          relayerPublicIdentity: {
+            relayerKeyId: 'relayer',
+            relayerPublicKey33B64u: publicKeyB,
+            groupPublicKey33B64u: publicKeyC,
+            ethereumAddress: '0x0000000000000000000000000000000000000001',
+          },
         });
         return {
           type: WorkerResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
           payload: {
-            stateBlobB64u: readyStateBlobB64u,
-            contextBinding32B64u: shareA,
-            hssClientSharePublicKey33B64u: publicKeyA,
-            clientVerifyingShareB64u: publicKeyA,
-            relayerPublicKey33B64u: publicKeyB,
-            groupPublicKey33B64u: publicKeyC,
-            ethereumAddress: '0x0000000000000000000000000000000000000001',
-            clientShareRetryCounter: 7,
-            relayerShareRetryCounter: 0,
+            stateBlob: {
+              kind: 'ecdsa_role_local_state_blob_v1',
+              curve: 'secp256k1',
+              encoding: 'base64url',
+              producer: 'signer_core',
+              stateBlobB64u: readyStateBlobB64u,
+            },
+            publicFacts: {
+              contextBinding32B64u: shareA,
+              hssClientSharePublicKey33B64u: publicKeyA,
+              clientVerifyingShareB64u: publicKeyA,
+              relayerPublicKey33B64u: publicKeyB,
+              groupPublicKey33B64u: publicKeyC,
+              ethereumAddress: '0x0000000000000000000000000000000000000001',
+            },
           },
         } as any;
       },
@@ -390,6 +421,7 @@ test.describe('browser SignerCryptoPort ECDSA bootstrap', () => {
       ok: true,
       value: {
         publicFacts: {
+          contextBinding32B64u: shareA,
           hssClientSharePublicKey33B64u: publicKeyA,
           clientVerifyingShareB64u: publicKeyA,
           relayerPublicKey33B64u: publicKeyB,

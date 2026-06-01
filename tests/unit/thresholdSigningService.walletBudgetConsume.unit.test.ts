@@ -1,9 +1,14 @@
 import { expect, test } from '@playwright/test';
-import { walletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
+import { signerBoundWalletSigningBudgetSessionId } from '@server/core/ThresholdService/walletSigningBudget';
 import { createThresholdSigningServiceForUnitTests } from '../helpers/thresholdEd25519TestUtils';
 
 const WALLET_SIGNING_SESSION_ID = 'ws-server-budget-atomic';
-const WALLET_BUDGET_SESSION_ID = walletSigningBudgetSessionId(WALLET_SIGNING_SESSION_ID);
+const CURVE_SESSION_ID = 'curve-session-bound';
+const WALLET_BUDGET_SESSION_ID = signerBoundWalletSigningBudgetSessionId({
+  walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+  curve: 'ed25519',
+  thresholdSessionId: CURVE_SESSION_ID,
+});
 
 test.describe('ThresholdSigningService wallet budget consume', () => {
   test('Ed25519 authorization budget key is scoped to confirmed payload, not each digest', async () => {
@@ -58,6 +63,10 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
         userId: 'budget-fail-closed.testnet',
         rpId: 'localhost',
         participantIds: [1, 2],
+        walletBudgetBinding: {
+          curve: 'ed25519',
+          thresholdSessionId: CURVE_SESSION_ID,
+        },
       },
       { ttlMs: 60_000, remainingUses: 1 },
     );
@@ -66,6 +75,7 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
       svc as unknown as {
         consumeWalletOrCurveSessionUse(input: {
           walletSigningSessionId?: string;
+          curve: 'ed25519' | 'ecdsa';
           curveSessionId: string;
           curveStore: typeof authSessionStore;
           idempotencyKey?: string;
@@ -73,7 +83,8 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
       }
     ).consumeWalletOrCurveSessionUse({
       walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
-      curveSessionId: 'curve-session-unused',
+      curve: 'ed25519',
+      curveSessionId: CURVE_SESSION_ID,
       curveStore: authSessionStore,
     });
 
@@ -101,6 +112,10 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
         userId: 'budget-idempotent.testnet',
         rpId: 'localhost',
         participantIds: [1, 2],
+        walletBudgetBinding: {
+          curve: 'ed25519',
+          thresholdSessionId: CURVE_SESSION_ID,
+        },
       },
       { ttlMs: 60_000, remainingUses: 1 },
     );
@@ -109,6 +124,7 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
         svc as unknown as {
           consumeWalletOrCurveSessionUse(input: {
             walletSigningSessionId?: string;
+            curve: 'ed25519' | 'ecdsa';
             curveSessionId: string;
             curveStore: typeof authSessionStore;
             idempotencyKey?: string;
@@ -116,7 +132,8 @@ test.describe('ThresholdSigningService wallet budget consume', () => {
         }
       ).consumeWalletOrCurveSessionUse({
         walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
-        curveSessionId: 'curve-session-unused',
+        curve: 'ed25519',
+        curveSessionId: CURVE_SESSION_ID,
         curveStore: authSessionStore,
         idempotencyKey,
       });

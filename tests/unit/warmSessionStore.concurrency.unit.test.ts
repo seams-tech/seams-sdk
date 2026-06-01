@@ -150,14 +150,14 @@ test.describe('WarmSessionStore concurrency', () => {
       chain: 'evm',
       usesNeeded: 1,
       sessionBudgetUses: 1,
-      clientRootShare32B64u: 'concurrent-client-root-share',
+      passkeyPrfFirstB64u: 'concurrent-client-root-share',
     });
     const readyPromiseB = store.ensureEcdsaCapabilityReady({
       nearAccountId: 'concurrent-ready.testnet',
       chain: 'evm',
       usesNeeded: 1,
       sessionBudgetUses: 1,
-      clientRootShare32B64u: 'concurrent-client-root-share',
+      passkeyPrfFirstB64u: 'concurrent-client-root-share',
     });
 
     await new Promise((resolve) => setTimeout(resolve, 0));

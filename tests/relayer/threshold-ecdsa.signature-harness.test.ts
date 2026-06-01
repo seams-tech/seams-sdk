@@ -12,18 +12,19 @@ import { AuthService } from '@server/core/AuthService';
 import { createThresholdSigningService } from '@server/core/ThresholdService';
 import type { ThresholdStoreConfigInput } from '@server/core/types';
 import { makeSessionAdapter, fetchJson, startExpressRouter } from './helpers';
+import { createFixtureSigningRootShareResolverForUnitTests } from '../helpers/thresholdEd25519TestUtils';
 import {
-  createFixtureSigningRootShareResolverForUnitTests,
-} from '../helpers/thresholdEd25519TestUtils';
-import {
+  map_additive_share_to_threshold_signatures_share_2p,
   ThresholdEcdsaPresignSession,
   threshold_ecdsa_compute_signature_share,
 } from '../../wasm/eth_signer/pkg/eth_signer.js';
 import {
+  build_ecdsa_role_local_export_artifact_v1,
   initSync as initHssClientSignerWasmSync,
-  threshold_ecdsa_hss_role_local_client_bootstrap,
-  threshold_ecdsa_hss_role_local_export_artifact,
+  open_ecdsa_role_local_signing_share_v1,
+  threshold_ecdsa_hss_role_local_finalize_client_bootstrap,
 } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
+import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
 
 const HSS_CLIENT_SIGNER_WASM_URL = new URL(
   '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
@@ -36,12 +37,14 @@ const TEST_RUNTIME_SCOPE = {
   signingRootVersion: 'v1',
 } as const;
 const TEST_SIGNING_ROOT_ID = `${TEST_RUNTIME_SCOPE.projectId}:${TEST_RUNTIME_SCOPE.envId}`;
-const KEY_PURPOSE = 'evm-signing';
-const KEY_VERSION = 'v1';
-const EXPORT_CONFIRMATION_DIGEST_VERSION =
-  'ecdsa-hss:role-local:product-export-confirmation:v2';
-const EXPORT_AUTHORIZATION_DIGEST_VERSION =
-  'ecdsa-hss:role-local:product-export-authorization:v2';
+const TEST_ECDSA_CHAIN_TARGET = {
+  kind: 'evm',
+  namespace: 'eip155',
+  chainId: 1,
+  networkSlug: 'ethereum',
+} as const;
+const EXPORT_CONFIRMATION_DIGEST_VERSION = 'ecdsa-hss:role-local:product-export-confirmation:v2';
+const EXPORT_AUTHORIZATION_DIGEST_VERSION = 'ecdsa-hss:role-local:product-export-authorization:v2';
 let hssClientSignerWasmInitialized = false;
 
 function ensureHssClientSignerWasm(): void {
@@ -167,22 +170,17 @@ async function stagedBootstrapThresholdEcdsa(args: {
   const remainingUses = args.remainingUses ?? 3;
 
   ensureHssClientSignerWasm();
-  const clientBootstrap = threshold_ecdsa_hss_role_local_client_bootstrap({
-    walletId: args.userId,
-    rpId: args.rpId,
-    ecdsaThresholdKeyId,
-    signingRootId,
-    signingRootVersion,
-    keyPurpose: KEY_PURPOSE,
-    keyVersion: KEY_VERSION,
+  const preparedClientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
+    context: {
+      walletId: args.userId,
+      rpId: args.rpId,
+      chainTarget: TEST_ECDSA_CHAIN_TARGET,
+      ecdsaThresholdKeyId,
+      signingRootId,
+      signingRootVersion,
+    },
     clientRootShare32B64u: args.clientRootShare32B64u,
-  }) as {
-    contextBinding32B64u: string;
-    clientPublicKey33B64u: string;
-    clientShareRetryCounter: number;
-    mappedPrivateShare32B64u: string;
-    verifyingShare33B64u: string;
-  };
+  });
 
   const bootstrap = await fetchJson(`${args.baseUrl}/threshold-ecdsa/hss/bootstrap`, {
     method: 'POST',
@@ -196,9 +194,9 @@ async function stagedBootstrapThresholdEcdsa(args: {
       signingRootVersion,
       keyScope: 'evm-family',
       relayerKeyId,
-      clientPublicKey33B64u: clientBootstrap.clientPublicKey33B64u,
-      clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
-      contextBinding32B64u: clientBootstrap.contextBinding32B64u,
+      hssClientSharePublicKey33B64u: preparedClientBootstrap.hssClientSharePublicKey33B64u,
+      clientShareRetryCounter: preparedClientBootstrap.clientShareRetryCounter,
+      contextBinding32B64u: preparedClientBootstrap.contextBinding32B64u,
       requestId: `bootstrap-request-${Date.now()}`,
       sessionId: args.sessionId,
       walletSigningSessionId,
@@ -215,6 +213,28 @@ async function stagedBootstrapThresholdEcdsa(args: {
 
   if (bootstrap.status !== 200 || bootstrap.json?.ok !== true) return bootstrap;
   const value = (bootstrap.json.value || {}) as Record<string, unknown>;
+  const publicIdentity = value.publicIdentity as Record<string, unknown>;
+  const readyClientBootstrap = threshold_ecdsa_hss_role_local_finalize_client_bootstrap({
+    pendingStateBlobB64u: preparedClientBootstrap.pendingStateBlobB64u,
+    relayerKeyId: String(value.relayerKeyId || relayerKeyId),
+    relayerPublicKey33B64u: String(publicIdentity.relayerPublicKey33B64u || ''),
+    groupPublicKey33B64u: String(publicIdentity.groupPublicKey33B64u || ''),
+    ethereumAddress: String(publicIdentity.ethereumAddress || ''),
+  }) as {
+    stateBlobB64u: string;
+    clientVerifyingShareB64u: string;
+    clientShareRetryCounter: number;
+  };
+  const openedClientSigningShare = open_ecdsa_role_local_signing_share_v1({
+    stateBlobB64u: readyClientBootstrap.stateBlobB64u,
+  }) as {
+    signingShare32B64u: string;
+  };
+  const clientBootstrap = {
+    ...preparedClientBootstrap,
+    ...readyClientBootstrap,
+    clientAdditiveShare32B64u: openedClientSigningShare.signingShare32B64u,
+  };
   const jwt = await args.session.signJwt(args.userId, {
     kind: 'threshold_ecdsa_session_v2',
     walletId: args.userId,
@@ -225,7 +245,9 @@ async function stagedBootstrapThresholdEcdsa(args: {
     relayerKeyId: String(value.relayerKeyId || relayerKeyId),
     rpId: args.rpId,
     thresholdExpiresAtMs: Number(value.expiresAtMs || Date.now() + ttlMs),
-    participantIds: Array.isArray(value.participantIds) ? value.participantIds : args.participantIds,
+    participantIds: Array.isArray(value.participantIds)
+      ? value.participantIds
+      : args.participantIds,
     runtimePolicyScope: TEST_RUNTIME_SCOPE,
   });
 
@@ -235,7 +257,7 @@ async function stagedBootstrapThresholdEcdsa(args: {
       ok: true,
       ...value,
       jwt,
-      clientVerifyingShareB64u: clientBootstrap.verifyingShare33B64u,
+      clientVerifyingShareB64u: clientBootstrap.clientVerifyingShareB64u,
       clientBootstrap,
     },
   };
@@ -246,13 +268,15 @@ async function stagedExplicitExportThresholdEcdsa(args: {
   userId: string;
   rpId: string;
   ecdsaThresholdKeyId: string;
-  clientRootShare32B64u: string;
   jwt: string;
   bootstrapJson: Record<string, unknown>;
 }) {
   const exportRequest = await buildRoleLocalExportShareRequest(args);
   const publicIdentity = args.bootstrapJson.publicIdentity as Record<string, unknown>;
   const clientBootstrap = args.bootstrapJson.clientBootstrap as {
+    stateBlobB64u: string;
+    contextBinding32B64u: string;
+    hssClientSharePublicKey33B64u: string;
     clientShareRetryCounter: number;
   };
   const exportedShare = await fetchJson(`${args.baseUrl}/threshold-ecdsa/hss/export/share`, {
@@ -266,25 +290,57 @@ async function stagedExplicitExportThresholdEcdsa(args: {
 
   if (exportedShare.status !== 200 || exportedShare.json?.ok !== true) return exportedShare;
   const exportValue = (exportedShare.json.value || {}) as Record<string, unknown>;
-  const artifact = threshold_ecdsa_hss_role_local_export_artifact({
-    walletId: args.userId,
-    rpId: args.rpId,
-    ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
-    signingRootId: String(args.bootstrapJson.signingRootId || TEST_SIGNING_ROOT_ID),
-    signingRootVersion: String(
-      args.bootstrapJson.signingRootVersion || TEST_RUNTIME_SCOPE.signingRootVersion,
+  const signingRootId = String(args.bootstrapJson.signingRootId || TEST_SIGNING_ROOT_ID);
+  const signingRootVersion = String(
+    args.bootstrapJson.signingRootVersion || TEST_RUNTIME_SCOPE.signingRootVersion,
+  );
+  const artifact = JSON.parse(
+    build_ecdsa_role_local_export_artifact_v1(
+      JSON.stringify({
+        kind: 'build_ecdsa_role_local_export_artifact_v1',
+        algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
+        stateBlob: {
+          kind: 'ecdsa_role_local_state_blob_v1',
+          curve: 'secp256k1',
+          encoding: 'base64url',
+          producer: 'signer_core',
+          stateBlobB64u: String(clientBootstrap.stateBlobB64u || ''),
+        },
+        publicFacts: {
+          walletId: args.userId,
+          rpId: args.rpId,
+          chainTarget: TEST_ECDSA_CHAIN_TARGET,
+          keyHandle: String(args.bootstrapJson.keyHandle || ''),
+          ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
+          signingRootId,
+          signingRootVersion,
+          clientParticipantId: 1,
+          relayerParticipantId: 2,
+          participantIds: Array.isArray(args.bootstrapJson.participantIds)
+            ? args.bootstrapJson.participantIds
+            : [1, 2],
+          contextBinding32B64u: String(
+            args.bootstrapJson.contextBinding32B64u || clientBootstrap.contextBinding32B64u || '',
+          ),
+          hssClientSharePublicKey33B64u: String(
+            publicIdentity.hssClientSharePublicKey33B64u ||
+              clientBootstrap.hssClientSharePublicKey33B64u ||
+              '',
+          ),
+          relayerPublicKey33B64u: String(publicIdentity.relayerPublicKey33B64u || ''),
+          groupPublicKey33B64u: String(publicIdentity.groupPublicKey33B64u || ''),
+          ethereumAddress: String(publicIdentity.ethereumAddress || ''),
+        },
+        authorization: {
+          kind: 'passkey_export_authorized',
+          walletId: args.userId,
+          rpId: args.rpId,
+          credentialIdB64u: base64UrlEncode(new Uint8Array([1])),
+        },
+        serverExportShare32B64u: String(exportValue.serverExportShare32B64u || ''),
+      }),
     ),
-    keyPurpose: KEY_PURPOSE,
-    keyVersion: KEY_VERSION,
-    clientRootShare32B64u: args.clientRootShare32B64u,
-    serverExportShare32B64u: String(exportValue.serverExportShare32B64u || ''),
-    contextBinding32B64u: String(args.bootstrapJson.contextBinding32B64u || ''),
-    clientPublicKey33B64u: String(publicIdentity.hssClientSharePublicKey33B64u || ''),
-    relayerPublicKey33B64u: String(publicIdentity.relayerPublicKey33B64u || ''),
-    groupPublicKey33B64u: String(publicIdentity.groupPublicKey33B64u || ''),
-    ethereumAddress: String(publicIdentity.ethereumAddress || ''),
-    clientShareRetryCounter: Number(clientBootstrap.clientShareRetryCounter || 0),
-  }) as {
+  ) as {
     publicKeyHex: string;
     privateKeyHex: string;
     ethereumAddress: string;
@@ -511,10 +567,10 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(jwt).toBeTruthy();
 
       const clientBootstrap = bootstrap.json?.clientBootstrap as {
-        mappedPrivateShare32B64u: string;
-        verifyingShare33B64u: string;
+        clientAdditiveShare32B64u: string;
+        clientVerifyingShareB64u: string;
       };
-      expect(clientBootstrap.verifyingShare33B64u).toBe(clientVerifyingShareB64u);
+      expect(clientBootstrap.clientVerifyingShareB64u).toBe(clientVerifyingShareB64u);
 
       const authorized = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/authorize`, {
         method: 'POST',
@@ -553,8 +609,12 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(presignSessionId).toBeTruthy();
 
       const groupPublicKey33 = base64UrlDecode(thresholdEcdsaPublicKeyB64u);
-      const clientThresholdSigningShare32 = base64UrlDecode(
-        clientBootstrap.mappedPrivateShare32B64u,
+      const clientAdditiveShare32 = base64UrlDecode(
+        clientBootstrap.clientAdditiveShare32B64u,
+      );
+      const clientThresholdSigningShare32 = map_additive_share_to_threshold_signatures_share_2p(
+        clientAdditiveShare32,
+        clientParticipantId,
       );
       const localPresignSession = new ThresholdEcdsaPresignSession(
         new Uint32Array(participantIds),
@@ -1023,7 +1083,6 @@ test.describe('threshold-ecdsa harness signature verification', () => {
         userId,
         rpId,
         ecdsaThresholdKeyId,
-        clientRootShare32B64u,
         jwt,
         bootstrapJson: bootstrap.json || {},
       });
@@ -1230,7 +1289,6 @@ test.describe('threshold-ecdsa harness signature verification', () => {
         userId,
         rpId,
         ecdsaThresholdKeyId,
-        clientRootShare32B64u,
         jwt: resumedJwt,
         bootstrapJson: resumedBootstrap.json || {},
       });

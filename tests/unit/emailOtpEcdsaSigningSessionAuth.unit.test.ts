@@ -104,6 +104,21 @@ function reauthAnchorForLane(
   };
 }
 
+function emptyEmailOtpEcdsaSigningBootstrapResult(): EmailOtpEcdsaSigningBootstrapResult {
+  return {
+    bootstrap: {} as EmailOtpEcdsaSigningBootstrapResult['bootstrap'],
+    warmCapability: {
+      capability: 'ecdsa',
+      record: null,
+      key: null,
+      lane: null,
+      auth: null,
+      prfClaim: null,
+      state: 'missing',
+    },
+  };
+}
+
 test('Email OTP ECDSA bridge uses reauth-anchor authority when hot material is missing', async () => {
   const walletId = toAccountId('otp-refresh.testnet');
   const ecdsaWalletId = toWalletId(walletId);
@@ -179,7 +194,7 @@ test('Email OTP ECDSA bridge uses reauth-anchor authority when hot material is m
       if (!receivedAuthLane) throw new Error('missing login auth lane');
       expect(chainTarget).toEqual(sourceChainTarget);
       loginCalls.push(receivedAuthLane);
-      return { clientRootShare32B64u: 'client-root-share' } as EmailOtpEcdsaSigningBootstrapResult;
+      return emptyEmailOtpEcdsaSigningBootstrapResult();
     },
   });
 
@@ -259,7 +274,7 @@ test('EVM-family signing deps preserve one-use Email OTP step-up budget', async 
         remainingUses?: number;
       }) => {
         forwardedRemainingUses.push(remainingUses);
-        return { clientRootShare32B64u: 'client-root-share' };
+        return emptyEmailOtpEcdsaSigningBootstrapResult();
       },
     } as never,
     signingSessionCoordinator: {} as never,

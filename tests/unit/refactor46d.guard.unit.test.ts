@@ -243,8 +243,8 @@ test.describe('Refactor 46d hardening guards', () => {
       ),
     );
 
-    expect(portSource).toContain("kind: 'ecdsa_client_root_share'");
-    expect(portSource).toContain('clientRootShare32B64u: string');
+    expect(portSource).toContain("kind: 'ecdsa_prf_first'");
+    expect(portSource).toContain('passkeyPrfFirstB64u: string');
     expect(portSource).toContain("kind: 'fresh_webauthn'");
     expect(portSource).toContain("kind: 'session_reconnect'");
     expect(portSource).toContain('restoredThresholdSessionId');
@@ -252,7 +252,7 @@ test.describe('Refactor 46d hardening guards', () => {
     expect(bootstrapSource).toContain('passkeyEcdsaPersistenceSource');
     expect(bootstrapSource).toContain("authMethod: 'passkey'");
     expect(bootstrapSource).toContain("curve: 'ecdsa'");
-    expect(bootstrapSource).toContain("kind: 'ecdsa_client_root_share'");
+    expect(bootstrapSource).toContain("kind: 'ecdsa_prf_first'");
   });
 
   test('Email OTP unlock validates every configured ECDSA target', () => {

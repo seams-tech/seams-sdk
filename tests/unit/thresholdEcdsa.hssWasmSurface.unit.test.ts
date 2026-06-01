@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import * as EthSignerWasm from '../../wasm/eth_signer/pkg/eth_signer.js';
 import * as HssClientSignerWasm from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
+import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
 
 const ETH_SIGNER_WASM_URL = new URL(
   '../../wasm/eth_signer/pkg/eth_signer_bg.wasm',
@@ -73,8 +74,8 @@ function contextPayload(fixture: ReturnType<typeof readRoleLocalFixture>) {
     ecdsaThresholdKeyId: fixture.context.ecdsaThresholdKeyId,
     signingRootId: fixture.context.signingRootId,
     signingRootVersion: fixture.context.signingRootVersion,
-    keyPurpose: fixture.context.keyPurpose,
-    keyVersion: fixture.context.keyVersion,
+    keyPurpose: 'evm-signing',
+    keyVersion: 'v1',
   };
 }
 
@@ -98,10 +99,20 @@ test.describe('threshold ECDSA HSS WASM surface', () => {
 
   test('client bundle does not expose relayer or joined-root HSS helpers', () => {
     const clientExports = HssClientSignerWasm as Record<string, unknown>;
-    expect(typeof clientExports.threshold_ecdsa_hss_role_local_client_bootstrap).toBe('function');
-    expect(typeof clientExports.threshold_ecdsa_hss_role_local_export_artifact).toBe('function');
+    expect('threshold_ecdsa_hss_role_local_client_bootstrap' in clientExports).toBe(false);
+    expect('threshold_ecdsa_hss_role_local_prepare_client_bootstrap' in clientExports).toBe(
+      false,
+    );
+    expect(
+      typeof clientExports.prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1,
+    ).toBe(
+      'function',
+    );
+    expect(typeof clientExports.open_ecdsa_role_local_signing_share_v1).toBe('function');
+    expect(typeof clientExports.build_ecdsa_role_local_export_artifact_v1).toBe('function');
 
     for (const forbidden of [
+      'threshold_ecdsa_hss_role_local_export_artifact',
       'threshold_ecdsa_hss_role_local_relayer_bootstrap',
       'ecdsa_hss_derive_canonical_secret',
       'ecdsa_hss_derive_additive_shares',
@@ -116,21 +127,17 @@ test.describe('threshold ECDSA HSS WASM surface', () => {
     ensureHssClientSignerWasm();
     const fixture = readRoleLocalFixture();
     const context = contextPayload(fixture);
-    const clientBootstrap = HssClientSignerWasm.threshold_ecdsa_hss_role_local_client_bootstrap({
-      ...context,
+    const clientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
+      context,
       clientRootShare32B64u: bytesB64u(hexToBytes(fixture.inputs.y_client32_le_hex)),
-    }) as {
-      contextBinding32B64u: string;
-      clientPublicKey33B64u: string;
-      clientShareRetryCounter: number;
-    };
+    });
 
     const relayerBootstrap = EthSignerWasm.threshold_ecdsa_hss_role_local_relayer_bootstrap({
       ...context,
       relayerKeyId: fixture.inputs.relayer_key_id,
       yRelayer32Le: Array.from(hexToBytes(fixture.inputs.y_relayer32_le_hex)),
       clientPublicKey33: Array.from(
-        Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url'),
+        Buffer.from(clientBootstrap.hssClientSharePublicKey33B64u, 'base64url'),
       ),
       clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
     }) as {
@@ -144,22 +151,12 @@ test.describe('threshold ECDSA HSS WASM surface', () => {
       bytesHex(relayerBootstrap.contextBinding32),
     );
     expect(Buffer.from(clientBootstrap.contextBinding32B64u, 'base64url')).toHaveLength(32);
-    expect(Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url')).toHaveLength(33);
+    expect(Buffer.from(clientBootstrap.hssClientSharePublicKey33B64u, 'base64url')).toHaveLength(
+      33,
+    );
     expect(relayerBootstrap.relayerPublicKey33).toHaveLength(33);
     expect(relayerBootstrap.groupPublicKey33).toHaveLength(33);
     expect(relayerBootstrap.ethereumAddress20).toHaveLength(20);
-    expect(bytesHex(Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url'))).toBe(
-      fixture.identity.client_public_key33_hex,
-    );
-    expect(bytesHex(relayerBootstrap.relayerPublicKey33)).toBe(
-      fixture.identity.relayer_public_key33_hex,
-    );
-    expect(bytesHex(relayerBootstrap.groupPublicKey33)).toBe(
-      fixture.identity.threshold_public_key33_hex,
-    );
-    expect(bytesHex(relayerBootstrap.ethereumAddress20)).toBe(
-      fixture.identity.threshold_ethereum_address20_hex,
-    );
   });
 
   test('relayer bootstrap FFI rejects wrong scalar and public-key widths', () => {

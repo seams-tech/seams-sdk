@@ -9,8 +9,18 @@ import {
   makeSessionAdapter,
   startExpressRouter,
 } from './helpers';
+import type {
+  EcdsaHssClientSharePublicKey33B64u,
+  EcdsaRelayerHssPublicKey33B64u,
+} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 
 const THRESHOLD_ED25519_TEST_KEY_VERSION = 'threshold-ed25519-v1';
+const ECDSA_CLIENT_PUBLIC_KEY_B64U =
+  'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' as EcdsaHssClientSharePublicKey33B64u;
+const ECDSA_RELAYER_PUBLIC_KEY_B64U =
+  'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' as EcdsaRelayerHssPublicKey33B64u;
+const ECDSA_GROUP_PUBLIC_KEY_B64U = 'AgEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE';
+const ECDSA_CONTEXT_BINDING_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 function makeThresholdEd25519PrepareRequest() {
   return {
@@ -103,20 +113,20 @@ function makeLinkDeviceEcdsaRespondService() {
           rpId: 'wallet.example.test',
           ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
           relayerKeyId: 'rk-evm',
-          contextBinding32B64u: 'context-binding',
+          contextBinding32B64u: ECDSA_CONTEXT_BINDING_B64U,
           publicIdentity: {
-            clientPublicKey33B64u: 'client-public',
-            relayerPublicKey33B64u: 'relayer-public',
-            groupPublicKey33B64u: 'group-public',
+            hssClientSharePublicKey33B64u: ECDSA_CLIENT_PUBLIC_KEY_B64U,
+            relayerPublicKey33B64u: ECDSA_RELAYER_PUBLIC_KEY_B64U,
+            groupPublicKey33B64u: ECDSA_GROUP_PUBLIC_KEY_B64U,
             ethereumAddress: `0x${'11'.repeat(20)}`,
           },
           publicTranscriptDigest32B64u: 'transcript-digest',
           keyHandle: 'key-handle-link-device',
           signingRootId: 'project:env',
           signingRootVersion: 'v1',
-          thresholdEcdsaPublicKeyB64u: 'group-public',
+          thresholdEcdsaPublicKeyB64u: ECDSA_GROUP_PUBLIC_KEY_B64U,
           ethereumAddress: `0x${'11'.repeat(20)}`,
-          relayerVerifyingShareB64u: 'relayer-public',
+          relayerVerifyingShareB64u: ECDSA_RELAYER_PUBLIC_KEY_B64U,
           participantIds: [1, 2],
           sessionId: 'tehss-link-device-1',
           walletSigningSessionId: 'wallet-signing-session-1',
@@ -139,10 +149,10 @@ function makeLinkDeviceEcdsaRespondService() {
             ecdsaThresholdKeyId: 'ehss-link-device-prepare-1',
             signingRootId: 'project:env',
             signingRootVersion: 'v1',
-            thresholdEcdsaPublicKeyB64u: 'group-public',
+            thresholdEcdsaPublicKeyB64u: ECDSA_GROUP_PUBLIC_KEY_B64U,
             thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
             relayerKeyId: 'rk-evm',
-            relayerVerifyingShareB64u: 'relayer-public',
+            relayerVerifyingShareB64u: ECDSA_RELAYER_PUBLIC_KEY_B64U,
             participantIds: [1, 2],
           },
         ],
@@ -161,9 +171,9 @@ function makeEcdsaClientBootstrap() {
     signingRootVersion: 'v1',
     keyScope: 'evm-family',
     relayerKeyId: 'rk-evm',
-    clientPublicKey33B64u: 'client-public',
+    hssClientSharePublicKey33B64u: ECDSA_CLIENT_PUBLIC_KEY_B64U,
     clientShareRetryCounter: 0,
-    contextBinding32B64u: 'context-binding',
+    contextBinding32B64u: ECDSA_CONTEXT_BINDING_B64U,
     requestId: 'link-device-ecdsa-request-1',
     sessionId: 'tehss-link-device-1',
     walletSigningSessionId: 'wallet-signing-session-1',

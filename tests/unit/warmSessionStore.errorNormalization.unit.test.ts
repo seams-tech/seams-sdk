@@ -138,9 +138,9 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       store.ensureEcdsaCapabilityReady({
         nearAccountId: 'reconnect-error.testnet',
         chain: 'evm',
-        usesNeeded: 1,
+        requiredSignatureUses: 1,
         sessionBudgetUses: 1,
-        clientRootShare32B64u: 'reconnect-error-client-root-share',
+        passkeyPrfFirstB64u: 'reconnect-error-client-root-share',
       }),
     ).rejects.toThrow('[WarmSessionStore] threshold ECDSA warm capability is not ready after reconnect');
   });
@@ -248,7 +248,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       resolveNearThresholdSigningAuthForTest({
         warmSessionReader: store,
         nearAccount: { kind: 'named', accountId: 'auth-unavailable.testnet' as any },
-        usesNeeded: 1,
+        requiredSignatureUses: 1,
         operationLabel: 'unit-test',
       }),
     ).rejects.toThrow(THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR);
@@ -278,7 +278,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       resolveNearThresholdSigningAuthForTest({
         warmSessionReader: store,
         nearAccount: { kind: 'named', accountId: 'status-unavailable.testnet' as any },
-        usesNeeded: 1,
+        requiredSignatureUses: 1,
         operationLabel: 'unit-test',
       }),
     ).rejects.toThrow(`${THRESHOLD_SESSION_STATUS_UNAVAILABLE_ERROR} (worker_error)`);
@@ -318,7 +318,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
       warmSessionReader: store,
       signingSessionCoordinator,
       nearAccount: { kind: 'named', accountId: 'wallet-budget-exhausted-ed25519.testnet' as any },
-      usesNeeded: 1,
+      requiredSignatureUses: 1,
       operationLabel: 'unit-test',
     });
 

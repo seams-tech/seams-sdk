@@ -22,10 +22,10 @@ import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const unusedNoPromptReconnectDeps: Pick<
   NoPromptWarmSessionDeps,
-  'claimEcdsaClientRootShare' | 'reconnectWithThresholdSessionAuth'
+  'claimEcdsaPasskeyPrfFirst' | 'reconnectWithThresholdSessionAuth'
 > = {
-  claimEcdsaClientRootShare: async () => {
-    throw new Error('claimEcdsaClientRootShare should not be called');
+  claimEcdsaPasskeyPrfFirst: async () => {
+    throw new Error('claimEcdsaPasskeyPrfFirst should not be called');
   },
   reconnectWithThresholdSessionAuth: async () => {
     throw new Error('reconnectWithThresholdSessionAuth should not be called');
@@ -110,7 +110,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     });
   });
 
-  test('no-prompt reuse reconnects restored passkey ECDSA material without prompt ports', async () => {
+  test('no-prompt reuse restores passkey ECDSA material without prompt ports', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
@@ -159,7 +159,6 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
             source: 'login',
             bootstrap: restoredBootstrap,
           });
-          delete record.clientAdditiveShare32B64u;
           fixture.claimsBySessionId[record.thresholdSessionId] = {
             state: 'warm',
             remainingUses: 3,
@@ -175,10 +174,10 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
             truncated: 0,
           };
         },
-        claimEcdsaClientRootShare: async (args) => {
+        claimEcdsaPasskeyPrfFirst: async (args) => {
           claimCalls += 1;
           expect(args).toMatchObject({
-            kind: 'claim_no_prompt_ecdsa_client_root_share',
+            kind: 'claim_no_prompt_ecdsa_prf_first',
             walletId,
             walletSigningSessionId:
               restoredBootstrap.thresholdEcdsaKeyRef.walletSigningSessionId,
@@ -207,7 +206,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
             routeAuth: {
               kind: 'threshold_session',
             },
-            clientRootShare32B64u: 'restored-prf-first',
+            passkeyPrfFirstB64u: 'restored-prf-first',
           });
           return reconnectedBootstrap;
         },
@@ -222,15 +221,15 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     );
 
     expect(restoreCalls).toBe(1);
-    expect(claimCalls).toBe(1);
-    expect(reconnectCalls).toBe(1);
+    expect(claimCalls).toBe(0);
+    expect(reconnectCalls).toBe(0);
     expect(result).toMatchObject({
       ok: true,
       source: 'sealed_restore',
       bootstrap: {
         thresholdEcdsaKeyRef: {
           ecdsaThresholdKeyId: 'ek-no-prompt-reconnect',
-          thresholdSessionId: 'no-prompt-reconnect-refreshed-session',
+          thresholdSessionId: 'no-prompt-reconnect-restored-session',
         },
       },
     });
@@ -409,7 +408,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       sessionBudgetUses: 1,
       thresholdSessionId: staleRecord.thresholdSessionId,
       walletSigningSessionId: staleRecord.walletSigningSessionId,
-      clientRootShare32B64u: 'reconnect-client-root-share',
+      passkeyPrfFirstB64u: 'reconnect-passkey-prf-first',
     });
 
     expect(provisionCalls).toBe(1);
@@ -427,7 +426,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
     });
   });
 
-  test('uses exact identity for threshold-session reconnect after source-agnostic sealed restore', async () => {
+  test('uses exact identity for source-agnostic sealed restore', async () => {
     const ecdsaStore = createThresholdEcdsaStoreFixture();
     resetWarmSessionFixtureState(ecdsaStore);
 
@@ -444,17 +443,7 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       source: 'login',
       bootstrap: restoredBootstrap,
     });
-    delete restoredRecord.clientAdditiveShare32B64u;
-    const originalBackendBinding = restoredBootstrap.thresholdEcdsaKeyRef.backendBinding;
-    if (!originalBackendBinding) {
-      throw new Error('expected restored ECDSA key ref backend binding');
-    }
-    const { clientAdditiveShare32B64u: _clientAdditiveShare32B64u, ...backendBinding } =
-      originalBackendBinding;
-    const restoredKeyRef = {
-      ...restoredBootstrap.thresholdEcdsaKeyRef,
-      backendBinding,
-    };
+    const restoredKeyRef = restoredBootstrap.thresholdEcdsaKeyRef;
     const fixture = createWarmSessionUiConfirmFixture({
       claimsBySessionId: {
         [restoredRecord.thresholdSessionId]: {
@@ -522,14 +511,11 @@ test.describe('WarmSessionStore ECDSA reconnect and reuse', () => {
       plan,
     });
 
-    expect(ready.reconnected).toBe(true);
-    expect(capturedRequest).toMatchObject({
-      kind: 'threshold_session_auth_reconnect',
-      walletKey: { walletId: 'restored-source.testnet' },
-      lanePolicy: {
-        thresholdSessionId: restoredRecord.thresholdSessionId,
-        walletSigningSessionId: restoredRecord.walletSigningSessionId,
-      },
+    expect(ready.reconnected).toBe(false);
+    expect(capturedRequest).toBe(null);
+    expect(ready.record).toMatchObject({
+      thresholdSessionId: restoredRecord.thresholdSessionId,
+      walletSigningSessionId: restoredRecord.walletSigningSessionId,
     });
   });
 });

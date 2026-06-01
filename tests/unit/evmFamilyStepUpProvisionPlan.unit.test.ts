@@ -17,9 +17,13 @@ import {
   buildEvmFamilyPasskeyEcdsaProvisionPlan,
   buildEvmFamilyWarmSessionReconnectPlan,
 } from '../../client/src/core/signingEngine/flows/signEvmFamily/provisionPlan';
-import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst } from '../../client/src/core/signingEngine/session/passkey/ecdsaClientRoot';
 import { SigningAuthPlanKind } from '../../client/src/core/signingEngine/stepUpConfirmation/types';
 import type { WebAuthnAuthenticationCredential } from '../../client/src/core/types/webauthn';
+import {
+  buildEcdsaRoleLocalPasskeyAuthMethod,
+  buildEcdsaRoleLocalPublicFacts,
+  buildEcdsaRoleLocalReadyRecord,
+} from '../../client/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 
 const CHAIN_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'evm',
@@ -53,6 +57,7 @@ const TEST_WEBAUTHN_CREDENTIAL = {
   },
 } satisfies WebAuthnAuthenticationCredential;
 const THRESHOLD_OWNER_ADDRESS = `0x${'11'.repeat(20)}` as const;
+const TEST_PASSKEY_CREDENTIAL_ID_B64U = TEST_WEBAUTHN_CREDENTIAL.rawId;
 
 function makeThresholdSessionAuthToken(args: {
   thresholdSessionId: string;
@@ -68,36 +73,48 @@ function makeThresholdSessionAuthToken(args: {
 }
 
 function makeRecord(): ThresholdEcdsaSessionRecord {
+  const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-step-up');
   return {
     walletId: toAccountId('alice.testnet'),
     authMetadata: { rpId: 'example.localhost' },
     chainTarget: CHAIN_TARGET,
     relayerUrl: 'https://relayer.test',
-    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-step-up'),
+    keyHandle,
     ecdsaThresholdKeyId: 'ecdsa-key-1',
     signingRootId: 'root-1',
     signingRootVersion: 'v1',
     relayerKeyId: 'relayer-key-1',
     clientVerifyingShareB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-    clientAdditiveShare32B64u: VALID_ECDSA_SHARE32_B64U,
-    ecdsaHssRoleLocalClientState: {
-      kind: 'role_local_ready',
-      artifactKind: 'ecdsa-hss-role-local-client-state',
-      contextBinding32B64u: VALID_ECDSA_SHARE32_B64U,
-      clientShare32B64u: VALID_ECDSA_SHARE32_B64U,
-      clientPublicKey33B64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-      clientShareRetryCounter: 0,
-      relayerPublicKey33B64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
-      groupPublicKey33B64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-      ethereumAddress: THRESHOLD_OWNER_ADDRESS,
-      clientCaitSithInput: {
-        participantId: 1,
-        mappedPrivateShare32B64u: VALID_ECDSA_SHARE32_B64U,
-        verifyingShare33B64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+    ecdsaRoleLocalReadyRecord: buildEcdsaRoleLocalReadyRecord({
+      stateBlob: {
+        kind: 'ecdsa_role_local_state_blob_v1',
+        curve: 'secp256k1',
+        encoding: 'base64url',
+        producer: 'signer_core',
+        stateBlobB64u: VALID_ECDSA_SHARE32_B64U,
       },
-      createdAtMs: 1_800_000_000_000,
-      updatedAtMs: 1_800_000_000_000,
-    },
+      publicFacts: buildEcdsaRoleLocalPublicFacts({
+        walletId: toWalletId('alice.testnet'),
+        rpId: 'example.localhost',
+        chainTarget: CHAIN_TARGET,
+        keyHandle,
+        ecdsaThresholdKeyId: 'ecdsa-key-1',
+        signingRootId: 'root-1',
+        signingRootVersion: 'v1',
+        clientParticipantId: 1,
+        relayerParticipantId: 2,
+        participantIds: [1, 2],
+        contextBinding32B64u: VALID_ECDSA_SHARE32_B64U,
+        hssClientSharePublicKey33B64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+        relayerPublicKey33B64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
+        groupPublicKey33B64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+        ethereumAddress: THRESHOLD_OWNER_ADDRESS,
+      }),
+      authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
+        credentialIdB64u: TEST_PASSKEY_CREDENTIAL_ID_B64U,
+        rpId: 'example.localhost',
+      }),
+    }),
     participantIds: [1, 2],
     ethereumAddress: THRESHOLD_OWNER_ADDRESS,
     thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
@@ -111,13 +128,7 @@ function makeRecord(): ThresholdEcdsaSessionRecord {
     expiresAtMs: 1_900_000_000_000,
     remainingUses: 2,
     updatedAtMs: 1_800_000_000_000,
-    source: 'email_otp',
-    emailOtpAuthContext: {
-      policy: 'session',
-      retention: 'session',
-      reason: 'sign',
-      authMethod: 'email_otp',
-    },
+    source: 'login',
   };
 }
 
@@ -149,7 +160,6 @@ test.describe('EVM-family step-up provision-plan builders', () => {
     const record: ThresholdEcdsaSessionRecord = {
       ...makeRecord(),
       source: 'login',
-      emailOtpAuthContext: undefined,
     };
     const material = makeReadyMaterial({
       record,
@@ -178,23 +188,19 @@ test.describe('EVM-family step-up provision-plan builders', () => {
       material,
       sessionBudgetUses: 1,
     });
-    const expectedClientRootShare32B64u =
-      await derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst(TEST_PRF_FIRST_B64U);
-
     expect(plan.kind).toBe('passkey_ecdsa_session_provision');
     expect(plan.newSessionIdentity).toEqual({
       thresholdSessionId: 'threshold-session-2',
       walletSigningSessionId: 'wallet-session-2',
     });
     expect(plan.requestId).toBe('request-1');
-    expect(plan.provisionSecretSource.clientRootShare32B64u).toBe(expectedClientRootShare32B64u);
+    expect(plan.provisionSecretSource.passkeyPrfFirstB64u).toBe(TEST_PRF_FIRST_B64U);
   });
 
   test('buildEvmFamilyWarmSessionReconnectPlan returns a threshold-session reconnect branch', () => {
     const record: ThresholdEcdsaSessionRecord = {
       ...makeRecord(),
       source: 'login' as const,
-      emailOtpAuthContext: undefined,
     };
     const material = makeReadyMaterial({
       record,

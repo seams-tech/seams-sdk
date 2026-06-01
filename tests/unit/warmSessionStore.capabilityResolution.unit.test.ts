@@ -111,20 +111,21 @@ test.describe('WarmSessionStore capability resolution', () => {
         ecdsaThresholdKeyId: 'ek-email-otp',
         sessionId: 'ecdsa-email-otp-session',
         sessionAuthToken: 'jwt:ecdsa-email-otp-session',
+        roleLocalAuthMethod: 'email_otp',
+        emailOtpAuthSubjectId: 'email-otp-auth-state.testnet',
       }),
     });
 
-    const store = createWarmSessionTestServices({
-      touchConfirm: createWarmSessionStatusReader({
-        [evmRecord.thresholdSessionId]: {
-          state: 'warm',
-          remainingUses: evmRecord.remainingUses || 1,
-          expiresAtMs: evmRecord.expiresAtMs || Date.now() + 60_000,
-        },
-      }),
-    });
+    const store = createWarmSessionTestServices();
 
     const warmSession = await store.getWarmSession('email-otp-auth-state.testnet');
+    expect(warmSession.capabilities.ecdsa.evm.state).toBe('ready');
+    expect(warmSession.capabilities.ecdsa.evm.prfClaim).toMatchObject({
+      state: 'warm',
+      sessionId: evmRecord.thresholdSessionId,
+      remainingUses: evmRecord.remainingUses,
+      expiresAtMs: evmRecord.expiresAtMs,
+    });
     expect(warmSession.capabilities.ecdsa.evm.emailOtpAuthContext).toEqual({
       policy: 'per_operation',
       retention: 'single_use',

@@ -92,54 +92,52 @@ function guardAllowlist(entries: readonly GuardAllowlistEntry[]): ReadonlySet<st
 const platformLeakageAllowlist = guardAllowlist([
   {
     file: 'client/src/core/signingEngine/flows/signEvmFamily/events.ts',
-    ownerPhase: 'Phase 5',
+    ownerPhase: 'Phase 9',
     deletionTrigger:
-      'EVM-family signing flow is routed through use-case services and browser-only diagnostics move behind a port.',
-    reason: 'current flow-level event diagnostics read browser globals',
+      'legacy EVM-family flow compatibility path is deleted after use-case routing owns signing diagnostics.',
+    reason: 'legacy flow-level event diagnostics read browser globals until compatibility deletion',
   },
   {
     file: 'client/src/core/signingEngine/flows/signEvmFamily/accountAuth.ts',
-    ownerPhase: 'Phase 5',
-    deletionTrigger: 'EVM-family auth flow receives browser capabilities through narrow ports.',
-    reason: 'current flow-level auth helper still touches browser capability checks',
+    ownerPhase: 'Phase 9',
+    deletionTrigger:
+      'legacy EVM-family auth compatibility path is deleted after use-case routing owns auth ports.',
+    reason: 'legacy flow-level auth helper still touches browser capability checks',
   },
   {
     file: 'client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
-    ownerPhase: 'Phase 5',
-    deletionTrigger: 'EVM-family signing flow is replaced by use-case service orchestration.',
-    reason: 'current public flow still performs browser diagnostics and runtime checks',
+    ownerPhase: 'Phase 9',
+    deletionTrigger:
+      'legacy EVM-family signing compatibility path is deleted after use-case service orchestration owns the public flow.',
+    reason: 'legacy public flow still performs browser diagnostics and runtime checks',
   },
   {
     file: 'client/src/core/signingEngine/flows/signEvmFamily/signers/webauthnP256.ts',
-    ownerPhase: 'Phase 5',
+    ownerPhase: 'Phase 9',
     deletionTrigger:
-      'WebAuthn P-256 signing is accessed through AuthenticatorPort or a signer adapter.',
-    reason: 'current signer helper performs direct WebAuthn calls',
+      'legacy WebAuthn P-256 signer compatibility path is deleted after AuthenticatorPort or a signer adapter owns P-256 signing.',
+    reason: 'legacy signer helper performs direct WebAuthn calls',
   },
   {
     file: 'client/src/core/signingEngine/flows/signEvmFamily/webauthnP256KeyRef.ts',
-    ownerPhase: 'Phase 5',
-    deletionTrigger: 'WebAuthn key-ref lookup is parsed at the browser adapter boundary.',
-    reason: 'current key-ref helper reads browser credential state',
+    ownerPhase: 'Phase 9',
+    deletionTrigger:
+      'legacy WebAuthn key-ref compatibility path is deleted after browser adapter boundary parsing owns key-ref lookup.',
+    reason: 'legacy key-ref helper reads browser credential state',
   },
   {
     file: 'client/src/core/signingEngine/interfaces/operationDeps.ts',
-    ownerPhase: 'Phase 5',
-    deletionTrigger: 'operation deps are decomposed into narrow use-case ports.',
-    reason: 'current shared dependency type still exposes browser runtime dependencies',
+    ownerPhase: 'Phase 9',
+    deletionTrigger:
+      'legacy operation-deps aggregate is deleted after all public flows route through narrow use-case ports.',
+    reason: 'legacy shared dependency type still exposes browser runtime dependencies',
   },
   {
     file: 'client/src/core/signingEngine/interfaces/runtime.ts',
-    ownerPhase: 'Phase 5',
-    deletionTrigger: 'legacy runtime aggregate is replaced by assembly-owned narrow ports.',
-    reason: 'current runtime type is the migration source for platform adapter extraction',
-  },
-  {
-    file: 'client/src/core/signingEngine/interfaces/signing.ts',
-    ownerPhase: 'Phase 6',
+    ownerPhase: 'Phase 9',
     deletionTrigger:
-      'ECDSA signing schemas are generated from signer-core and raw HSS fields leave TypeScript domain types.',
-    reason: 'current signing interfaces expose legacy browser signer material',
+      'legacy runtime aggregate is deleted after assembly-owned narrow ports cover remaining public flows.',
+    reason: 'legacy runtime type is the migration source for platform adapter extraction',
   },
   {
     file: 'client/src/core/signingEngine/session/availability/availableSigningLanes.ts',
@@ -162,15 +160,9 @@ const platformLeakageAllowlist = guardAllowlist([
   },
   {
     file: 'client/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
-    ownerPhase: 'Phase 6',
-    deletionTrigger: 'passkey ECDSA bootstrap moves onto signer-core command wrappers.',
-    reason: 'current passkey bootstrap derives browser PRF-backed ECDSA material directly',
-  },
-  {
-    file: 'client/src/core/signingEngine/session/passkey/ecdsaClientRoot.ts',
-    ownerPhase: 'Phase 6',
-    deletionTrigger: 'client-root derivation is isolated behind the browser signer crypto adapter.',
-    reason: 'current helper derives ECDSA client-root material with browser crypto',
+    ownerPhase: 'Phase 8',
+    deletionTrigger: 'activation use case owns ECDSA bootstrap without browser storage or prompt deps.',
+    reason: 'current activation bridge still receives browser storage and prompt ports',
   },
   {
     file: 'client/src/core/signingEngine/session/userPreferences.ts',
@@ -180,95 +172,7 @@ const platformLeakageAllowlist = guardAllowlist([
   },
 ]);
 
-const rawHssAllowlist = guardAllowlist([
-  {
-    file: 'client/src/core/signingEngine/SigningEngine.ts',
-    ownerPhase: 'Phase 5',
-    deletionTrigger:
-      'SigningEngine delegates ECDSA provisioning to ProvisionEcdsaUseCase and narrow signer ports.',
-    reason: 'current assembly still prepares ECDSA bootstrap facts inline',
-  },
-  {
-    file: 'client/src/core/signingEngine/flows/recovery/ecdsaHssExport.ts',
-    ownerPhase: 'Phase 7',
-    deletionTrigger: 'ECDSA export moves onto ready blobs and signer-core export commands.',
-    reason: 'current export boundary still consumes legacy HSS material',
-  },
-  {
-    file: 'client/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState.ts',
-    ownerPhase: 'Phase 4',
-    deletionTrigger:
-      'ECDSA material state reads normalized ready records from the persistence parser.',
-    reason: 'current material state bridges legacy signing-session records',
-  },
-  {
-    file: 'client/src/core/signingEngine/flows/signEvmFamily/signers/secp256k1.ts',
-    ownerPhase: 'Phase 8',
-    deletionTrigger:
-      'EVM signing session activation consumes ready records and signer command outputs.',
-    reason: 'current signer path reads legacy backend client-share material',
-  },
-  {
-    file: 'client/src/core/signingEngine/interfaces/signing.ts',
-    ownerPhase: 'Phase 6',
-    deletionTrigger: 'signer-core command schemas replace hand-written HSS field interfaces.',
-    reason: 'current signing interfaces define legacy HSS field shapes',
-  },
-  {
-    file: 'client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts',
-    ownerPhase: 'Phase 3',
-    deletionTrigger: 'ECDSA public facts use branded signer-core-owned public key domains.',
-    reason: 'current identity helper validates legacy HSS public key strings',
-  },
-  {
-    file: 'client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.typecheck.ts',
-    ownerPhase: 'Phase 3',
-    deletionTrigger: 'type fixtures move to the branded public-facts contract.',
-    reason: 'current type fixture covers legacy HSS identity fields',
-  },
-  {
-    file: 'client/src/core/signingEngine/session/passkey/ecdsaProvisioner.ts',
-    ownerPhase: 'Phase 5',
-    deletionTrigger: 'passkey ECDSA provisioning moves to ProvisionEcdsaUseCase.',
-    reason: 'current provisioner still bridges raw bootstrap shares into signing-session state',
-  },
-  {
-    file: 'client/src/core/signingEngine/session/persistence/records.ts',
-    ownerPhase: 'Phase 4',
-    deletionTrigger: 'ECDSA role-local records move to the canonical persistence parser.',
-    reason: 'current persistence boundary parses legacy raw HSS records',
-  },
-  {
-    file: 'client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts',
-    ownerPhase: 'Phase 6',
-    deletionTrigger: 'signer-core ECDSA bootstrap command replaces helper-level HSS worker output.',
-    reason: 'current browser signer crypto helper owns legacy HSS worker result parsing',
-  },
-  {
-    file: 'client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.typecheck.ts',
-    ownerPhase: 'Phase 6',
-    deletionTrigger: 'type fixtures move to generated signer-core command wrappers.',
-    reason: 'current type fixture covers legacy HSS worker output',
-  },
-  {
-    file: 'client/src/core/signingEngine/threshold/ecdsa/activation.ts',
-    ownerPhase: 'Phase 8',
-    deletionTrigger: 'activation use case consumes normalized ECDSA ready records.',
-    reason: 'current activation path still references legacy HSS public facts',
-  },
-  {
-    file: 'client/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
-    ownerPhase: 'Phase 6',
-    deletionTrigger: 'ECDSA bootstrap internals move into signer-core command modules.',
-    reason: 'current bootstrap session consumes helper-level HSS bootstrap output',
-  },
-  {
-    file: 'client/src/core/signingEngine/threshold/ecdsa/keygen.ts',
-    ownerPhase: 'Phase 6',
-    deletionTrigger: 'ECDSA keygen consumes signer-core public facts and opaque ready blobs.',
-    reason: 'current keygen path still maps legacy HSS public fields',
-  },
-]);
+const rawHssAllowlist = guardAllowlist([]);
 
 const platformLeakagePatterns = [
   /\bIndexedDBManager\b/,
@@ -291,6 +195,11 @@ const rawHssPatterns = [
   /\bclientPublicKey33B64u\b/,
 ];
 
+const rawClientRootSharePatterns = [
+  /\bclientRootShare32\b/,
+  /\bclientRootShare32B64u\b/,
+];
+
 const secretSourceCastAllowlist = new Set(['client/src/core/platform/types.typecheck.ts']);
 
 const secretSourceCastPatterns = [
@@ -309,59 +218,55 @@ function isPlatformRuntimeAssemblyFile(file: string): boolean {
   );
 }
 
-const rawDbRecordBoundaryAllowlist = guardAllowlist([
-  {
-    file: 'client/src/core/signingEngine/session/persistence/records.ts',
-    ownerPhase: 'Phase 4',
-    deletionTrigger:
-      'ECDSA role-local raw record parsing moves to client/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords.ts.',
-    reason: 'current persistence parser accepts live raw ECDSA role-local records',
-  },
-]);
+const rawDbRecordBoundaryAllowlist = guardAllowlist([]);
 
 const rawDbRecordPatterns = [
   /\bEcdsaRoleLocalBoundaryRecord\b/,
-  /\bEcdsaRoleLocalSessionRecordState\b/,
-  /\bEcdsaRoleLocalRecordParseResult\b/,
-  /\bparseRawEcdsaRoleLocalRecord\b/,
   /\becdsa_role_local_ready_record_v1\b/,
   /\blegacy_raw_role_local_v1\b/,
   /\bcurrent_unbranched_ready_record_v1\b/,
 ];
 
-const hssClientWorkerConstructionAllowlist = guardAllowlist([
-  {
-    file: 'client/src/core/signingEngine/SigningEngine.ts',
-    ownerPhase: 'Phase 5',
-    deletionTrigger:
-      'SigningEngine calls ProvisionEcdsaUseCase instead of the hss-client worker helper directly.',
-    reason: 'current assembly prepares passkey ECDSA bootstrap via the legacy helper',
-  },
-  {
-    file: 'client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts',
-    ownerPhase: 'Phase 6',
-    deletionTrigger: 'browser signer crypto adapter calls generated signer-core command bindings.',
-    reason: 'current helper constructs the hss-client bootstrap worker request',
-  },
-  {
-    file: 'client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.typecheck.ts',
-    ownerPhase: 'Phase 6',
-    deletionTrigger: 'type fixtures move to generated signer-core command wrappers.',
-    reason: 'current fixture exercises the legacy hss-client bootstrap helper',
-  },
-  {
-    file: 'client/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
-    ownerPhase: 'Phase 6',
-    deletionTrigger:
-      'ECDSA bootstrap session consumes signer-core command wrappers and opaque blobs.',
-    reason: 'current bootstrap session consumes legacy hss-client bootstrap output',
-  },
-]);
+const hssClientWorkerConstructionAllowlist = guardAllowlist([]);
 
 const hssClientWorkerConstructionPatterns = [
   /\bWorkerRequestType\.BuildThresholdEcdsaHssRoleLocalClientBootstrap\b/,
   /\bbuildThresholdEcdsaHssRoleLocalClientBootstrapWasm\b/,
   /\bThresholdEcdsaHssRoleLocalClientBootstrap\b/,
+];
+
+const signerCommandSchemaAllowlist = guardAllowlist([
+  {
+    file: 'client/src/core/platform/generated/signerCoreCommands.ts',
+    ownerPhase: 'Phase 2',
+    deletionTrigger: 'generated signer-core command schemas move to a new canonical path.',
+    reason: 'this is the committed Rust-generated command schema file',
+  },
+  {
+    file: 'client/src/core/platform/signerCoreCommandAdapters.ts',
+    ownerPhase: 'Phase 2',
+    deletionTrigger: 'schema wrapper ownership moves to a new canonical adapter module.',
+    reason: 'this module is the only TypeScript wrapper layer for generated command schemas',
+  },
+  {
+    file: 'client/src/core/platform/signerCoreCommandAdapters.typecheck.ts',
+    ownerPhase: 'Phase 2',
+    deletionTrigger: 'wrapper/generated parity fixtures move with the schema wrapper module.',
+    reason: 'type fixtures intentionally reference generated command schema names',
+  },
+]);
+
+const signerCommandSchemaRoots = [
+  'client/src/core/platform',
+  'client/src/core/signingEngine/threshold',
+  'client/src/core/signingEngine/workerManager',
+];
+
+const handWrittenSignerCommandSchemaPatterns = [
+  /\b(?:export\s+)?type\s+PrepareEcdsaClientBootstrapCommand\b/,
+  /\b(?:export\s+)?interface\s+PrepareEcdsaClientBootstrapCommand\b/,
+  /\b(?:export\s+)?type\s+FinalizeEcdsaClientBootstrapCommand\b/,
+  /\b(?:export\s+)?interface\s+FinalizeEcdsaClientBootstrapCommand\b/,
 ];
 
 test.describe('refactor 5x cross-platform guards', () => {
@@ -385,6 +290,19 @@ test.describe('refactor 5x cross-platform guards', () => {
       if (rawHssAllowlist.has(file)) continue;
       const source = readRepoFile(file);
       for (const pattern of rawHssPatterns) {
+        if (pattern.test(source)) {
+          violations.push(`${file}: ${pattern}`);
+        }
+      }
+    }
+    expect(violations, violations.join('\n')).toEqual([]);
+  });
+
+  test('keeps passkey ECDSA PRF material from being modeled as client-root shares', () => {
+    const violations: string[] = [];
+    for (const file of listTypeScriptFilesInRoots(activeCoreSigningRoots)) {
+      const source = readRepoFile(file);
+      for (const pattern of rawClientRootSharePatterns) {
         if (pattern.test(source)) {
           violations.push(`${file}: ${pattern}`);
         }
@@ -419,10 +337,22 @@ test.describe('refactor 5x cross-platform guards', () => {
     expect(violations, violations.join('\n')).toEqual([]);
   });
 
+  test('keeps use-case services from depending on PlatformRuntime', () => {
+    const violations: string[] = [];
+    for (const file of listTypeScriptFiles('client/src/core/signingEngine/useCases')) {
+      const source = readRepoFile(file);
+      if (/\bPlatformRuntime\b/.test(source) || /\bcreateBrowserPlatformRuntime\b/.test(source)) {
+        violations.push(file);
+      }
+    }
+    expect(violations, violations.join('\n')).toEqual([]);
+  });
+
   test('keeps raw ECDSA role-local record shapes inside persistence boundaries', () => {
     const violations: string[] = [];
     for (const file of listTypeScriptFilesInRoots([
       ...activeCoreSigningRoots,
+      'client/src/core/platform',
       'client/src/core/SeamsPasskey',
     ])) {
       if (rawDbRecordBoundaryAllowlist.has(file)) continue;
@@ -436,12 +366,69 @@ test.describe('refactor 5x cross-platform guards', () => {
     expect(violations, violations.join('\n')).toEqual([]);
   });
 
+  test('keeps the ECDSA role-local parser on the canonical persistence path', () => {
+    const temporaryReexport = 'client/src/core/platform/ecdsaRoleLocalRecords.ts';
+    const violations: string[] = [];
+    if (fs.existsSync(path.join(repoRoot, temporaryReexport))) {
+      violations.push(`${temporaryReexport}: temporary re-export still exists`);
+    }
+    for (const file of listTypeScriptFilesInRoots(['client/src/core'])) {
+      const source = readRepoFile(file);
+      if (/platform\/ecdsaRoleLocalRecords/.test(source)) {
+        violations.push(`${file}: imports temporary platform parser re-export`);
+      }
+    }
+    expect(violations, violations.join('\n')).toEqual([]);
+  });
+
   test('keeps hss-client bootstrap worker construction behind signer adapters', () => {
     const violations: string[] = [];
     for (const file of listTypeScriptFilesInRoots(activeCoreSigningRoots)) {
       if (hssClientWorkerConstructionAllowlist.has(file)) continue;
       const source = readRepoFile(file);
       for (const pattern of hssClientWorkerConstructionPatterns) {
+        if (pattern.test(source)) {
+          violations.push(`${file}: ${pattern}`);
+        }
+      }
+    }
+    expect(violations, violations.join('\n')).toEqual([]);
+  });
+
+  test('keeps the legacy root-share ECDSA prepare FFI out of production surfaces', () => {
+    const emailOtpWorkerSource = readRepoFile(
+      'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
+    );
+    const clientDts = readRepoFile('wasm/hss_client_signer/pkg/hss_client_signer.d.ts');
+
+    expect(emailOtpWorkerSource).not.toContain(
+      'threshold_ecdsa_hss_role_local_prepare_client_bootstrap',
+    );
+    expect(clientDts).not.toContain('threshold_ecdsa_hss_role_local_prepare_client_bootstrap');
+    expect(emailOtpWorkerSource).toContain(
+      'prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1',
+    );
+    expect(clientDts).toContain(
+      'prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1',
+    );
+  });
+
+  test('keeps signer-core command schemas generated from Rust', () => {
+    const source = readRepoFile('client/src/core/platform/generated/signerCoreCommands.ts');
+
+    expect(source).toContain('generated by `pnpm generate:signer-core-types`');
+    expect(source).toContain('export type PrepareEcdsaClientBootstrapCommand');
+    expect(source).toContain('export type FinalizeEcdsaClientBootstrapCommand');
+    expect(source).toContain('export type PrepareEcdsaClientBootstrapErrorCode');
+    expect(source).toContain('export type FinalizeEcdsaClientBootstrapErrorCode');
+  });
+
+  test('rejects hand-written signer-core command schema copies', () => {
+    const violations: string[] = [];
+    for (const file of listTypeScriptFilesInRoots(signerCommandSchemaRoots)) {
+      if (signerCommandSchemaAllowlist.has(file)) continue;
+      const source = readRepoFile(file);
+      for (const pattern of handWrittenSignerCommandSchemaPatterns) {
         if (pattern.test(source)) {
           violations.push(`${file}: ${pattern}`);
         }

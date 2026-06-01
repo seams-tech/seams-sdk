@@ -470,13 +470,15 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             },
           });
 
+          const capturedReconstructCall = reconstructCall as Record<string, unknown> | null;
+          const capturedHydratedRecord = hydratedRecord as Record<string, unknown> | null;
           return {
-            reconstructOperation: reconstructCall?.operation || null,
-            reconstructRelayerKeyId: reconstructCall?.relayerKeyId || null,
-            reconstructProjection: reconstructCall?.outputProjection || null,
-            hydratedSource: hydratedRecord?.source || null,
-            hydratedXClientBaseB64u: hydratedRecord?.xClientBaseB64u || null,
-            hydratedSessionId: hydratedRecord?.thresholdSessionId || null,
+            reconstructOperation: capturedReconstructCall?.operation || null,
+            reconstructRelayerKeyId: capturedReconstructCall?.relayerKeyId || null,
+            reconstructProjection: capturedReconstructCall?.outputProjection || null,
+            hydratedSource: capturedHydratedRecord?.source || null,
+            hydratedXClientBaseB64u: capturedHydratedRecord?.xClientBaseB64u || null,
+            hydratedSessionId: capturedHydratedRecord?.thresholdSessionId || null,
           };
         } finally {
           clientDb.resolveProfileAccountContext = originalResolveProfileAccountContext;

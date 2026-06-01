@@ -273,8 +273,6 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         await import('/sdk/esm/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u.js');
       const credentialExtensionsMod =
         await import('/sdk/esm/core/signingEngine/webauthnAuth/credentials/credentialExtensions.js');
-      const ecdsaClientRootMod =
-        await import('/sdk/esm/core/signingEngine/session/passkey/ecdsaClientRoot.js');
       const identityMod =
         await import('/sdk/esm/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.js');
       const { IndexedDBManager } = indexedDbMod as any;
@@ -282,8 +280,6 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
       const { getStoredThresholdEd25519SessionRecordForAccount } = recordsMod as any;
       const { collectAuthenticationCredentialForChallengeB64u } = webauthnCredentialMod as any;
       const { getPrfFirstB64uFromCredential } = credentialExtensionsMod as any;
-      const { derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst } =
-        ecdsaClientRootMod as any;
       const { buildEvmFamilyEcdsaKeyIdentity, buildEvmFamilyEcdsaSessionLanePolicy } =
         identityMod as any;
       const context = input.pm.getContext();
@@ -390,19 +386,12 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         localPrfCredential,
       });
       const walletSigningSessionId = String(connectedEd25519?.walletSigningSessionId || '').trim();
-      const thresholdEcdsaPrfFirstB64u = String(
-        connectedEd25519?.ecdsaHssClientRootShare32B64u ||
+      const passkeyPrfFirstB64u = String(
+        connectedEd25519?.ecdsaHssPasskeyPrfFirstB64u ||
           getPrfFirstB64uFromCredential(localPrfCredential) ||
           '',
       ).trim();
-      const clientRootShare32B64u = thresholdEcdsaPrfFirstB64u
-        ? String(
-            await derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst(
-              thresholdEcdsaPrfFirstB64u,
-            ),
-          ).trim()
-        : '';
-      if (!connectedEd25519?.ok || !walletSigningSessionId || !clientRootShare32B64u) {
+      if (!connectedEd25519?.ok || !walletSigningSessionId || !passkeyPrfFirstB64u) {
         throw new Error(
           String(
             connectedEd25519?.message ||
@@ -522,7 +511,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         participantIds,
         sessionKind: 'jwt' as const,
         sessionIdentity,
-        clientRootShare32B64u,
+        passkeyPrfFirstB64u: passkeyPrfFirstB64u,
         ...authMaterial,
         ttlMs: input.ttlMs,
         remainingUses: input.remainingUses,
@@ -593,8 +582,6 @@ export async function runThresholdEcdsaTempoFlow(
       await import('/sdk/esm/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u.js');
     const credentialExtensionsMod =
       await import('/sdk/esm/core/signingEngine/webauthnAuth/credentials/credentialExtensions.js');
-    const ecdsaClientRootMod =
-      await import('/sdk/esm/core/signingEngine/session/passkey/ecdsaClientRoot.js');
     const identityMod =
       await import('/sdk/esm/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.js');
 
@@ -604,8 +591,6 @@ export async function runThresholdEcdsaTempoFlow(
     const { getStoredThresholdEd25519SessionRecordForAccount } = recordsMod as any;
     const { collectAuthenticationCredentialForChallengeB64u } = webauthnCredentialMod as any;
     const { getPrfFirstB64uFromCredential } = credentialExtensionsMod as any;
-    const { derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst } =
-      ecdsaClientRootMod as any;
     const { buildEvmFamilyEcdsaKeyIdentity, buildEvmFamilyEcdsaSessionLanePolicy } =
       identityMod as any;
 
@@ -817,19 +802,12 @@ export async function runThresholdEcdsaTempoFlow(
         localPrfCredential,
       });
       const walletSigningSessionId = String(connectedEd25519?.walletSigningSessionId || '').trim();
-      const thresholdEcdsaPrfFirstB64u = String(
-        connectedEd25519?.ecdsaHssClientRootShare32B64u ||
+      const passkeyPrfFirstB64u = String(
+        connectedEd25519?.ecdsaHssPasskeyPrfFirstB64u ||
           getPrfFirstB64uFromCredential(localPrfCredential) ||
           '',
       ).trim();
-      const clientRootShare32B64u = thresholdEcdsaPrfFirstB64u
-        ? String(
-            await derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst(
-              thresholdEcdsaPrfFirstB64u,
-            ),
-          ).trim()
-        : '';
-      if (!connectedEd25519?.ok || !walletSigningSessionId || !clientRootShare32B64u) {
+      if (!connectedEd25519?.ok || !walletSigningSessionId || !passkeyPrfFirstB64u) {
         return {
           ok: false,
           accountId,
@@ -1006,7 +984,7 @@ export async function runThresholdEcdsaTempoFlow(
             participantIds,
             sessionKind: 'jwt' as const,
             sessionIdentity,
-            clientRootShare32B64u,
+            passkeyPrfFirstB64u: passkeyPrfFirstB64u,
             webauthnAuthentication: localPrfCredential,
             ttlMs,
             remainingUses,

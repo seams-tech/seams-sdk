@@ -22,10 +22,12 @@ import {
   secp256k1PrivateKey32ToPublicKey33,
 } from '../../server/src/core/ThresholdService/ethSignerWasm';
 import {
+  build_ecdsa_role_local_export_artifact_v1,
+  threshold_ecdsa_hss_role_local_finalize_client_bootstrap,
   initSync as initHssClientSignerWasmSync,
-  threshold_ecdsa_hss_role_local_client_bootstrap,
-  threshold_ecdsa_hss_role_local_export_artifact,
 } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
+import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
+import type { EcdsaHssClientSharePublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import type {
   SigningRootSecretShareId,
   SealedSigningRootSecretShare,
@@ -117,6 +119,10 @@ function hexToBytesPrefixed(hex: string): Uint8Array {
   return hexToBytes(hex.replace(/^0x/i, ''));
 }
 
+function toHssClientSharePublicKey33B64uForTest(value: string): EcdsaHssClientSharePublicKey33B64u {
+  return value as EcdsaHssClientSharePublicKey33B64u;
+}
+
 async function roleLocalWalletFromShares(input: {
   yClient32Le: Uint8Array;
   yRelayer32Le: Uint8Array;
@@ -131,32 +137,71 @@ async function roleLocalWalletFromShares(input: {
     keyPurpose: ROLE_LOCAL_KEY_PURPOSE,
     keyVersion: ROLE_LOCAL_KEY_VERSION,
   };
-  const clientBootstrap = threshold_ecdsa_hss_role_local_client_bootstrap({
-    ...context,
+  const clientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
+    context: {
+      walletId: context.walletId,
+      rpId: context.rpId,
+      chainTarget: ECDSA_CONTEXT.chainTarget,
+      ecdsaThresholdKeyId: context.ecdsaThresholdKeyId,
+      signingRootId: context.signingRootId,
+      signingRootVersion: context.signingRootVersion,
+    },
     clientRootShare32B64u: bytesB64u(input.yClient32Le),
-  }) as {
-    contextBinding32B64u: string;
-    clientPublicKey33B64u: string;
-    clientShareRetryCounter: number;
-  };
+  });
+  const relayerKeyId = 'ehss-relayer-signing-root-test';
   const relayerBootstrap = await roleLocalThresholdEcdsaHssRelayerBootstrap({
     ...context,
-    relayerKeyId: 'ehss-relayer-signing-root-test',
+    relayerKeyId,
     yRelayer32Le: input.yRelayer32Le,
-    clientPublicKey33: Buffer.from(clientBootstrap.clientPublicKey33B64u, 'base64url'),
+    clientPublicKey33: Buffer.from(clientBootstrap.hssClientSharePublicKey33B64u, 'base64url'),
     clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
   });
-  const exportArtifact = threshold_ecdsa_hss_role_local_export_artifact({
-    ...context,
-    clientRootShare32: input.yClient32Le,
-    serverExportShare32B64u: bytesB64u(relayerBootstrap.relayerShare32),
-    contextBinding32B64u: clientBootstrap.contextBinding32B64u,
-    clientPublicKey33B64u: clientBootstrap.clientPublicKey33B64u,
+  const readyBootstrap = threshold_ecdsa_hss_role_local_finalize_client_bootstrap({
+    pendingStateBlobB64u: clientBootstrap.pendingStateBlobB64u,
+    relayerKeyId,
     relayerPublicKey33B64u: bytesB64u(relayerBootstrap.relayerPublicKey33),
     groupPublicKey33B64u: bytesB64u(relayerBootstrap.groupPublicKey33),
     ethereumAddress: `0x${bytesToHex(relayerBootstrap.ethereumAddress20)}`,
-    clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
-  }) as { publicKeyHex: string; ethereumAddress: string };
+  }) as { stateBlobB64u: string };
+  const exportArtifact = JSON.parse(
+    build_ecdsa_role_local_export_artifact_v1(
+      JSON.stringify({
+        kind: 'build_ecdsa_role_local_export_artifact_v1',
+        algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
+        stateBlob: {
+          kind: 'ecdsa_role_local_state_blob_v1',
+          curve: 'secp256k1',
+          encoding: 'base64url',
+          producer: 'signer_core',
+          stateBlobB64u: readyBootstrap.stateBlobB64u,
+        },
+        publicFacts: {
+          walletId: ECDSA_CONTEXT.walletId,
+          rpId: ECDSA_CONTEXT.rpId,
+          chainTarget: ECDSA_CONTEXT.chainTarget,
+          keyHandle: 'signing-root-resolver-test-key',
+          ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
+          signingRootId: ECDSA_CONTEXT.signingRootId,
+          signingRootVersion: ECDSA_CONTEXT.signingRootVersion,
+          clientParticipantId: 1,
+          relayerParticipantId: 2,
+          participantIds: [1, 2],
+          contextBinding32B64u: clientBootstrap.contextBinding32B64u,
+          hssClientSharePublicKey33B64u: clientBootstrap.hssClientSharePublicKey33B64u,
+          relayerPublicKey33B64u: bytesB64u(relayerBootstrap.relayerPublicKey33),
+          groupPublicKey33B64u: bytesB64u(relayerBootstrap.groupPublicKey33),
+          ethereumAddress: `0x${bytesToHex(relayerBootstrap.ethereumAddress20)}`,
+        },
+        authorization: {
+          kind: 'passkey_export_authorized',
+          walletId: ECDSA_CONTEXT.walletId,
+          rpId: ECDSA_CONTEXT.rpId,
+          credentialIdB64u: bytesB64u(new Uint8Array([1])),
+        },
+        serverExportShare32B64u: bytesB64u(relayerBootstrap.relayerShare32),
+      }),
+    ),
+  ) as { publicKeyHex: string; ethereumAddress: string };
 
   return {
     groupPublicKey33: relayerBootstrap.groupPublicKey33,
@@ -199,20 +244,17 @@ async function roleLocalBootstrapWithClientShare(args: {
   ensureHssClientSignerWasm();
   const signingRootId = args.signingRootId || SIGNING_ROOT_ID;
   const signingRootVersion = args.signingRootVersion || SIGNING_ROOT_VERSION;
-  const clientBootstrap = threshold_ecdsa_hss_role_local_client_bootstrap({
-    walletId: ECDSA_CONTEXT.walletId,
-    rpId: ECDSA_CONTEXT.rpId,
-    ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
-    signingRootId,
-    signingRootVersion,
-    keyPurpose: ROLE_LOCAL_KEY_PURPOSE,
-    keyVersion: ROLE_LOCAL_KEY_VERSION,
+  const clientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
+    context: {
+      walletId: ECDSA_CONTEXT.walletId,
+      rpId: ECDSA_CONTEXT.rpId,
+      chainTarget: ECDSA_CONTEXT.chainTarget,
+      ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
+      signingRootId,
+      signingRootVersion,
+    },
     clientRootShare32B64u: args.clientRootShare32B64u,
-  }) as {
-    contextBinding32B64u: string;
-    clientPublicKey33B64u: string;
-    clientShareRetryCounter: number;
-  };
+  });
 
   return await args.service.ecdsaHssRoleLocalBootstrap({
     formatVersion: 'ecdsa-hss-role-local',
@@ -223,7 +265,9 @@ async function roleLocalBootstrapWithClientShare(args: {
     signingRootVersion,
     keyScope: 'evm-family',
     relayerKeyId: 'ehss-relayer-signing-root-test',
-    clientPublicKey33B64u: clientBootstrap.clientPublicKey33B64u,
+    hssClientSharePublicKey33B64u: toHssClientSharePublicKey33B64uForTest(
+      clientBootstrap.hssClientSharePublicKey33B64u,
+    ),
     clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
     contextBinding32B64u: clientBootstrap.contextBinding32B64u,
     requestId: `request:${args.sessionId}`,

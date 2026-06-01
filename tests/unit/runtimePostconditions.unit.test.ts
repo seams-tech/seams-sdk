@@ -16,7 +16,9 @@ import {
   type RuntimePostconditionAuthMethod,
 } from '@/core/signingEngine/session/postconditions/runtimePostconditions';
 import {
+  buildPasskeyEcdsaAuthBinding,
   buildEvmFamilyEcdsaKeyIdentity,
+  buildResolvedEvmFamilyEcdsaKey,
   buildVerifiedEcdsaPublicFacts,
   type EvmFamilyEcdsaKeyHandle,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
@@ -90,9 +92,9 @@ function ecdsaLane(
     participantIds: key.participantIds,
     thresholdOwnerAddress: key.thresholdOwnerAddress,
   });
-  return {
+  const laneBase = {
     authMethod,
-    curve: 'ecdsa',
+    curve: 'ecdsa' as const,
     chainTarget,
     state: options.state ?? 'ready',
     walletSigningSessionId: `wss-ecdsa-${suffix}`,
@@ -103,6 +105,21 @@ function ecdsaLane(
     source: options.source ?? 'runtime_session_record',
     key,
     publicFacts,
+  };
+  if (authMethod === 'passkey') {
+    return {
+      ...laneBase,
+      authMethod: 'passkey',
+      resolvedKey: buildResolvedEvmFamilyEcdsaKey({
+        walletId: WALLET_ID,
+        publicFacts,
+        authBinding: buildPasskeyEcdsaAuthBinding({ rpId: 'localhost' }),
+      }),
+    };
+  }
+  return {
+    ...laneBase,
+    authMethod: 'email_otp',
   };
 }
 

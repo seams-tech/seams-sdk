@@ -155,6 +155,22 @@ test.describe('passkey-confirm export flow worker', () => {
               );
               return;
             }
+            if (promptNumber === 2) {
+              self.dispatchEvent(
+                new MessageEvent('message', {
+                  data: {
+                    type: 'USER_PASSKEY_CONFIRM_RESPONSE',
+                    requestId: message.requestId,
+                    channelToken: message.channelToken,
+                    data: {
+                      requestId: message.data?.requestId,
+                      confirmed: true,
+                    },
+                  },
+                }),
+              );
+              return;
+            }
 
             self.dispatchEvent(
               new MessageEvent('message', {
@@ -216,6 +232,7 @@ test.describe('passkey-confirm export flow worker', () => {
             promptCount: prompts.length,
             firstPromptType: prompts[0]?.data?.type || '',
             secondPromptType: prompts[1]?.data?.type || '',
+            thirdPromptType: prompts[2]?.data?.type || '',
             response: workerResponse,
           };
         } finally {
@@ -225,9 +242,10 @@ test.describe('passkey-confirm export flow worker', () => {
       { workerPath: WORKER_PATH },
     );
 
-    expect(result.promptCount).toBe(2);
+    expect(result.promptCount).toBe(3);
     expect(result.firstPromptType).toBe('decryptPrivateKeyWithPrf');
     expect(result.secondPromptType).toBe('showSecurePrivateKeyUi');
+    expect(result.thirdPromptType).toBe('showSecurePrivateKeyUi');
     expect(result.response).toMatchObject({
       id: 'export-op-2',
       success: true,
@@ -363,6 +381,22 @@ test.describe('passkey-confirm export flow worker', () => {
                           prf: { results: { first: prfFirst, second: prfSecond } },
                         },
                       },
+                    },
+                  },
+                }),
+              );
+              return;
+            }
+            if (promptNumber === 2) {
+              self.dispatchEvent(
+                new MessageEvent('message', {
+                  data: {
+                    type: 'USER_PASSKEY_CONFIRM_RESPONSE',
+                    requestId: message.requestId,
+                    channelToken: message.channelToken,
+                    data: {
+                      requestId: message.data?.requestId,
+                      confirmed: true,
                     },
                   },
                 }),
@@ -516,6 +550,7 @@ test.describe('passkey-confirm export flow worker', () => {
 
           return {
             promptCount: prompts.length,
+            promptTypes: prompts.map((entry) => String(entry?.data?.type || '')),
             response: workerResponse,
           };
         } finally {
@@ -529,7 +564,12 @@ test.describe('passkey-confirm export flow worker', () => {
       },
     );
 
-    expect(result.promptCount).toBe(1);
+    expect(result.promptCount).toBe(3);
+    expect(result.promptTypes).toEqual([
+      'decryptPrivateKeyWithPrf',
+      'showSecurePrivateKeyUi',
+      'showSecurePrivateKeyUi',
+    ]);
     expect(result.response).toMatchObject({
       id: 'export-op-near-mismatch',
       success: false,
@@ -551,6 +591,7 @@ test.describe('passkey-confirm export flow worker', () => {
         const prompts: any[] = [];
         const responses: any[] = [];
         let finalPromptKeys: any[] = [];
+        const showPayloads: any[] = [];
 
         (self as any).postMessage = (message: any) => {
           if (message?.type === 'PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD') {
@@ -586,6 +627,7 @@ test.describe('passkey-confirm export flow worker', () => {
             }
 
             if (promptType === 'showSecurePrivateKeyUi') {
+              showPayloads.push(structuredClone(message.data.payload));
               finalPromptKeys = Array.isArray(message?.data?.payload?.keys)
                 ? structuredClone(message.data.payload.keys)
                 : [];
@@ -645,6 +687,7 @@ test.describe('passkey-confirm export flow worker', () => {
           return {
             promptCount: prompts.length,
             promptTypes: prompts.map((entry) => String(entry?.data?.type || '')),
+            showPayloads,
             finalPromptKeys,
             response: workerResponse,
           };
@@ -659,8 +702,21 @@ test.describe('passkey-confirm export flow worker', () => {
       },
     );
 
-    expect(result.promptCount).toBe(2);
-    expect(result.promptTypes).toEqual(['decryptPrivateKeyWithPrf', 'showSecurePrivateKeyUi']);
+    expect(result.promptCount).toBe(3);
+    expect(result.promptTypes).toEqual([
+      'decryptPrivateKeyWithPrf',
+      'showSecurePrivateKeyUi',
+      'showSecurePrivateKeyUi',
+    ]);
+    expect(result.showPayloads[0]).toMatchObject({
+      loading: true,
+      publicKey: expectedPublicKey,
+    });
+    expect(result.showPayloads[1]).toMatchObject({
+      loading: false,
+      publicKey: expectedPublicKey,
+    });
+    expect(result.showPayloads[0]?.viewerSessionId).toBe(result.showPayloads[1]?.viewerSessionId);
     expect(result.finalPromptKeys).toHaveLength(1);
     expect(result.finalPromptKeys[0]).toMatchObject({
       scheme: 'ed25519',
@@ -692,6 +748,7 @@ test.describe('passkey-confirm export flow worker', () => {
         const responses: any[] = [];
         let firstPromptCredential: any = 'unset';
         let finalPromptKeys: any[] = [];
+        const showPayloads: any[] = [];
 
         (self as any).postMessage = (message: any) => {
           if (message?.type === 'PROMPT_USER_CONFIRM_IN_JS_MAIN_THREAD') {
@@ -716,6 +773,7 @@ test.describe('passkey-confirm export flow worker', () => {
 
             if (promptType === 'showSecurePrivateKeyUi') {
               firstPromptCredential = prompts[0]?.data?.credential;
+              showPayloads.push(structuredClone(message.data.payload));
               finalPromptKeys = Array.isArray(message?.data?.payload?.keys)
                 ? structuredClone(message.data.payload.keys)
                 : [];
@@ -784,6 +842,7 @@ test.describe('passkey-confirm export flow worker', () => {
             promptCount: prompts.length,
             promptTypes: prompts.map((entry) => String(entry?.data?.type || '')),
             firstPromptCredential,
+            showPayloads,
             finalPromptKeys,
             response: workerResponse,
           };
@@ -799,9 +858,22 @@ test.describe('passkey-confirm export flow worker', () => {
       },
     );
 
-    expect(result.promptCount).toBe(2);
-    expect(result.promptTypes).toEqual(['decryptPrivateKeyWithPrf', 'showSecurePrivateKeyUi']);
+    expect(result.promptCount).toBe(3);
+    expect(result.promptTypes).toEqual([
+      'decryptPrivateKeyWithPrf',
+      'showSecurePrivateKeyUi',
+      'showSecurePrivateKeyUi',
+    ]);
     expect(result.firstPromptCredential).toBeUndefined();
+    expect(result.showPayloads[0]).toMatchObject({
+      loading: true,
+      publicKey: publicKeyHex,
+    });
+    expect(result.showPayloads[1]).toMatchObject({
+      loading: false,
+      publicKey: publicKeyHex,
+    });
+    expect(result.showPayloads[0]?.viewerSessionId).toBe(result.showPayloads[1]?.viewerSessionId);
     expect(result.finalPromptKeys).toHaveLength(1);
     expect(result.finalPromptKeys[0]).toMatchObject({
       scheme: 'secp256k1',

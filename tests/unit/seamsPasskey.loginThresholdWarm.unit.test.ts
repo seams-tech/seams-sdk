@@ -293,7 +293,7 @@ function createBaseContext(args?: {
         jwt: 'jwt-ed25519',
         remainingUses: 3,
         expiresAtMs: now + 60_000,
-        ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
+        ecdsaHssPasskeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
       }),
       listThresholdEcdsaSessionRecordsForWalletTarget: (args: Record<string, unknown>) => [
         canonicalEcdsaRecord({
@@ -521,7 +521,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             jwt: 'jwt-ed25519',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
-            ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
+            ecdsaHssPasskeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
           };
         },
       },
@@ -616,7 +616,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(sharedKey?.ecdsaThresholdKeyId).toBe(ECDSA_THRESHOLD_KEY_ID);
     expect(lanePolicy?.chainTarget).toEqual(EVM_CHAIN_TARGET);
     expect('chainTarget' in ((bootstrapArgs || {}) as Record<string, unknown>)).toBe(false);
-    expect(bootstrapArgs?.['clientRootShare32B64u']).toBe(ECDSA_CLIENT_ROOT_SHARE32_B64U);
+    expect(bootstrapArgs?.['passkeyPrfFirstB64u']).toBe(ECDSA_PRF_FIRST_B64U);
     expect(prefillCalls).toBe(0);
   });
 
@@ -648,7 +648,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             jwt: 'jwt-ed25519',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
-            ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
+            ecdsaHssPasskeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
           };
         },
         clearVolatileWarmSigningMaterial: async () => {
@@ -693,7 +693,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             jwt: 'jwt-ed25519-fresh',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
-            ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
+            ecdsaHssPasskeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
           };
         },
         clearVolatileWarmSigningMaterial: async () => {
@@ -1099,7 +1099,7 @@ test.describe('unlock threshold warm-session requirements', () => {
                 jwt: 'app-jwt-first-bootstrap',
               });
             }
-            expect(args.clientRootShare32B64u).toBe(ECDSA_CLIENT_ROOT_SHARE32_B64U);
+            expect(args.passkeyPrfFirstB64u).toBe(ECDSA_PRF_FIRST_B64U);
             expect(args.runtimeScopeBootstrap).toEqual({
               environmentId: 'proj_local:dev',
               publishableKey: 'pk_test_local',
@@ -1144,7 +1144,6 @@ test.describe('unlock threshold warm-session requirements', () => {
               expiresAtMs: Date.now() + 60_000,
               clientVerifyingShareB64u: 'AQ',
             },
-            clientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
             passkeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
           };
         },
@@ -1224,7 +1223,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             jwt: 'jwt-ed25519-local-first-bootstrap',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
-            ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
+            ecdsaHssPasskeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
           };
         },
         bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
@@ -1291,7 +1290,6 @@ test.describe('unlock threshold warm-session requirements', () => {
               expiresAtMs: Date.now() + 60_000,
               clientVerifyingShareB64u: 'AQ',
             },
-            clientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
             passkeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
           };
         },
@@ -1807,7 +1805,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             jwt: 'jwt-ed25519-fresh',
             remainingUses: 3,
             expiresAtMs: now + 60_000,
-            ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
+            ecdsaHssPasskeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
           };
         },
         getWarmThresholdEd25519SessionStatus: async () => ({
@@ -2044,7 +2042,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             jwt: 'jwt-ed25519',
             remainingUses: Number(args.remainingUses),
             expiresAtMs: Date.now() + 60_000,
-            ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
+            ecdsaHssPasskeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
           };
         },
         bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
@@ -2121,7 +2119,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             jwt: 'jwt-ed25519',
             remainingUses: Number(args.remainingUses),
             expiresAtMs: Date.now() + 60_000,
-            ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
+            ecdsaHssPasskeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
           };
         },
         bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
@@ -2402,7 +2400,7 @@ test.describe('unlock threshold warm-session requirements', () => {
 
     expect(result.success).toBe(false);
     expect(String(result.error || '')).toContain(
-      'threshold ECDSA warm-up missing clientRootShare32B64u',
+      'threshold ECDSA warm-up missing passkey PRF.first',
     );
     expect(bootstrapCalls).toBe(0);
   });
@@ -2430,7 +2428,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             jwt: 'jwt-ed25519',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
-            ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
+            ecdsaHssPasskeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
           };
         },
       },
@@ -2590,7 +2588,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               expiresAtMs: Date.now() + 60_000,
               clientVerifyingShareB64u: 'AQ',
             },
-            clientRootShare32B64u: ECDSA_CLIENT_ROOT_SHARE32_B64U,
+            passkeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
           };
         },
       },
@@ -2611,7 +2609,13 @@ test.describe('unlock threshold warm-session requirements', () => {
     expect(credentialPrompts).toBe(0);
     expect(connectCalls).toBe(0);
     expect(bootstrapArgs).toHaveLength(2);
-    expect(bootstrapArgs.every((args) => args.kind === 'passkey_fresh_ecdsa_bootstrap')).toBe(true);
+    expect(
+      bootstrapArgs.every(
+        (args) =>
+          args.kind === 'passkey_fresh_ecdsa_bootstrap' ||
+          args.kind === 'threshold_session_auth_reconnect_ecdsa_bootstrap',
+      ),
+    ).toBe(true);
     const walletSigningSessionIds = bootstrapArgs.map((args) =>
       String(bootstrapLanePolicy(args).walletSigningSessionId || ''),
     );
@@ -2621,7 +2625,13 @@ test.describe('unlock threshold warm-session requirements', () => {
         walletSigningSessionId.startsWith('wallet-ecdsa-login-'),
       ),
     ).toBe(true);
-    expect(bootstrapArgs.every((args) => args.clientRootShare32B64u === undefined)).toBe(true);
+    expect(
+      bootstrapArgs.every((args) =>
+        args.kind === 'threshold_session_auth_reconnect_ecdsa_bootstrap'
+          ? args.passkeyPrfFirstB64u === ECDSA_PRF_FIRST_B64U
+          : args.passkeyPrfFirstB64u === undefined,
+      ),
+    ).toBe(true);
     expect(bootstrapArgs.every((args) => args.webauthnAuthentication === undefined)).toBe(true);
   });
 
@@ -2668,7 +2678,7 @@ test.describe('unlock threshold warm-session requirements', () => {
             jwt: 'jwt-ed25519',
             remainingUses: 3,
             expiresAtMs: Date.now() + 60_000,
-            ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
+            ecdsaHssPasskeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
           };
         },
       },
@@ -2919,7 +2929,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               jwt: 'jwt-ed25519',
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
-              ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
+              ecdsaHssPasskeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
             };
           },
         },
@@ -3065,7 +3075,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       const lanePolicy = bootstrapLanePolicy(bootstrap || {});
       expect(String(lanePolicy.thresholdSessionId || '')).toMatch(/^threshold-ecdsa-login-/);
       expect(lanePolicy.walletSigningSessionId).toBe(WALLET_SIGNING_SESSION_ID);
-      expect(bootstrap?.clientRootShare32B64u).toBe(ECDSA_CLIENT_ROOT_SHARE32_B64U);
+      expect(bootstrap?.passkeyPrfFirstB64u).toBe(ECDSA_PRF_FIRST_B64U);
       expect(bootstrapEcdsaThresholdKeyId(bootstrap || {})).toBe(EVM_ECDSA_THRESHOLD_KEY_ID);
     } finally {
       globalThis.fetch = originalFetch;
@@ -3318,7 +3328,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
               remainingUses: 3,
               expiresAtMs: Date.now() + 60_000,
-              ecdsaHssClientRootShare32B64u: ECDSA_PRF_FIRST_B64U,
+              ecdsaHssPasskeyPrfFirstB64u: ECDSA_PRF_FIRST_B64U,
             };
           },
           bootstrapEcdsaSession: async (args: Record<string, unknown>) => {
@@ -3405,7 +3415,7 @@ test.describe('unlock threshold warm-session requirements', () => {
       ).toBe(true);
       expect(
         capturedBootstrapArgs.every(
-          (args) => args.clientRootShare32B64u === ECDSA_CLIENT_ROOT_SHARE32_B64U,
+          (args) => args.passkeyPrfFirstB64u === 'prf-first-cookie-warm',
         ),
       ).toBe(true);
     } finally {

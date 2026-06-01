@@ -189,7 +189,7 @@ test.describe('WarmSessionStore transitions and persistence assertions', () => {
       chain: 'evm',
       usesNeeded: 1,
       sessionBudgetUses: 1,
-      clientRootShare32B64u: 'transition-client-root-share',
+      passkeyPrfFirstB64u: 'transition-client-root-share',
     });
 
     expect(transitions.map((event) => event.type)).toEqual(['ecdsa_capability_reconnected']);

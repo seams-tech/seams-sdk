@@ -13,10 +13,7 @@ import type {
 } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import type { ThresholdEcdsaActivationRequest } from '@/core/signingEngine/session/passkey/ecdsaSessionProvision';
-import type {
-  ThresholdEcdsaHssRoleLocalClientState,
-  ThresholdEcdsaSecp256k1KeyRef,
-} from '@/core/signingEngine/interfaces/signing';
+import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { WarmSessionSealAndPersistPayload } from '@/core/types/secure-confirm-worker';
 import {
@@ -37,9 +34,7 @@ import type {
   ThresholdEcdsaSessionStoreSource,
 } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/types';
-import {
-  createWarmSessionCapabilityReader,
-} from '@/core/signingEngine/session/warmCapabilities/capabilityReader';
+import { createWarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/capabilityReader';
 import { createClearVolatileWarmSessionMaterialCommand } from '@/core/signingEngine/session/warmCapabilities/volatileWarmMaterialCommands';
 import { parseVolatileWarmSessionId } from '@/core/signingEngine/session/warmCapabilities/volatileWarmSessionId';
 import {
@@ -47,6 +42,7 @@ import {
   buildEcdsaSessionProvisionPlan,
   buildEcdsaSessionIdentity,
   buildEcdsaSigningKeyContextFromRecord,
+  buildPasskeyEcdsaProvisionSecretSource,
   type EcdsaSessionProvisionPlan,
 } from '@/core/signingEngine/session/warmCapabilities/ecdsaProvisionPlan';
 import {
@@ -55,7 +51,7 @@ import {
   normalizeParticipantIds,
   toOptionalNonEmptyString,
   tryReuseReadyWarmEcdsaBootstrap,
-} from '@/core/signingEngine/session/passkey/ecdsaProvisioner';
+} from '@/core/signingEngine/useCases/provisionEcdsaSession';
 import {
   buildEvmFamilyEcdsaKeyIdentityFromRecord,
   buildEvmFamilyEcdsaSessionLanePolicy,
@@ -66,9 +62,7 @@ import {
   applyWarmSessionEcdsaPostSignPolicy,
   assertWarmSessionEcdsaOperationAllowed,
 } from '@/core/signingEngine/session/operationState/warmSessionPolicyAdapter';
-import {
-  createWarmSessionStatusReader as createCoreWarmSessionStatusReader,
-} from '@/core/signingEngine/session/warmCapabilities/statusReader';
+import { createWarmSessionStatusReader as createCoreWarmSessionStatusReader } from '@/core/signingEngine/session/warmCapabilities/statusReader';
 import { claimWarmSessionPrfFirst } from '@/core/signingEngine/session/passkey/prfClaim';
 import { ensureEcdsaPrfSealPersisted } from '@/core/signingEngine/session/passkey/runtime';
 import type {
@@ -82,6 +76,12 @@ import {
   type ThresholdEcdsaChainTarget,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  buildEcdsaRoleLocalEmailOtpAuthMethod,
+  buildEcdsaRoleLocalPasskeyAuthMethod,
+  buildEcdsaRoleLocalPublicFacts,
+  buildEcdsaRoleLocalReadyRecord,
+} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 
 function testEcdsaChainId(chain: ThresholdEcdsaActivationChain): number {
   return chain === 'tempo' ? 42431 : 11155111;
@@ -189,7 +189,9 @@ export function seedEd25519WarmSessionRecord(
     thresholdSessionId: args.thresholdSessionId,
     walletSigningSessionId:
       args.walletSigningSessionId || `wsess-${String(args.thresholdSessionId).trim()}`,
-    ...(args.thresholdSessionAuthToken ? { thresholdSessionAuthToken: args.thresholdSessionAuthToken } : {}),
+    ...(args.thresholdSessionAuthToken
+      ? { thresholdSessionAuthToken: args.thresholdSessionAuthToken }
+      : {}),
     expiresAtMs: args.expiresAtMs ?? Date.now() + 120_000,
     remainingUses: args.remainingUses ?? 7,
     ...(emailOtpAuthContext ? { emailOtpAuthContext } : {}),
@@ -214,17 +216,17 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   relayerUrl?: string;
   relayerKeyId?: string;
   clientVerifyingShareB64u?: string;
-  clientAdditiveShare32B64u?: string;
+  passkeyCredentialIdB64u?: string;
   participantIds?: number[];
   ethereumAddress?: string;
   walletSigningSessionId?: string;
   signingRootId?: string;
   signingRootVersion?: string;
+  roleLocalAuthMethod?: 'passkey' | 'email_otp';
+  emailOtpAuthSubjectId?: string;
 }): ThresholdEcdsaSessionBootstrapResult {
   const chainLabel = args.chain;
-  const ecdsaThresholdKeyId = String(
-    args.ecdsaThresholdKeyId || 'ek-shared-1',
-  ).trim();
+  const ecdsaThresholdKeyId = String(args.ecdsaThresholdKeyId || 'ek-shared-1').trim();
   const keyHandle = String(args.keyHandle || `ehss-key-${ecdsaThresholdKeyId}`).trim();
   const sessionId = String(args.sessionId || `sess-${chainLabel}-1`).trim();
   const sessionKind = args.sessionKind || 'jwt';
@@ -234,39 +236,54 @@ export function createThresholdEcdsaBootstrapFixture(args: {
   const clientVerifyingShareB64u = String(
     args.clientVerifyingShareB64u || VALID_ECDSA_PUBLIC_KEY_B64U,
   ).trim();
-  const clientAdditiveShare32B64u = String(
-    args.clientAdditiveShare32B64u || VALID_ECDSA_SHARE32_B64U,
+  const passkeyCredentialIdB64u = String(
+    args.passkeyCredentialIdB64u || `passkey-credential-${ecdsaThresholdKeyId}`,
   ).trim();
   const participantIds = args.participantIds || [1, 2];
   const ethereumAddress = args.ethereumAddress || `0x${'11'.repeat(20)}`;
-  const walletSigningSessionId = String(
-    args.walletSigningSessionId || `wsess-${sessionId}`,
-  ).trim();
+  const walletSigningSessionId = String(args.walletSigningSessionId || `wsess-${sessionId}`).trim();
   const signingRootId = String(args.signingRootId || 'sr-test:dev').trim();
   const signingRootVersion = String(args.signingRootVersion || 'default').trim();
-  const nowMs = Date.now();
   const chainTarget = thresholdEcdsaChainTargetFromChainFamily({
     chain: args.chain,
     chainId: testEcdsaChainId(args.chain),
   });
-  const ecdsaHssRoleLocalClientState: ThresholdEcdsaHssRoleLocalClientState = {
-    kind: 'role_local_ready',
-    artifactKind: 'ecdsa-hss-role-local-client-state',
-    contextBinding32B64u: VALID_ECDSA_SHARE32_B64U,
-    clientShare32B64u: clientAdditiveShare32B64u,
-    clientPublicKey33B64u: clientVerifyingShareB64u,
-    clientShareRetryCounter: 0,
-    relayerPublicKey33B64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
-    groupPublicKey33B64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-    ethereumAddress,
-    clientCaitSithInput: {
-      participantId: 1,
-      mappedPrivateShare32B64u: VALID_ECDSA_SHARE32_B64U,
-      verifyingShare33B64u: clientVerifyingShareB64u,
+  const roleLocalAuthMethod =
+    args.roleLocalAuthMethod === 'email_otp'
+      ? buildEcdsaRoleLocalEmailOtpAuthMethod({
+          authSubjectId: args.emailOtpAuthSubjectId || `google:${args.nearAccountId}`,
+        })
+      : buildEcdsaRoleLocalPasskeyAuthMethod({
+          credentialIdB64u: passkeyCredentialIdB64u,
+          rpId,
+        });
+  const ecdsaRoleLocalReadyRecord = buildEcdsaRoleLocalReadyRecord({
+    stateBlob: {
+      kind: 'ecdsa_role_local_state_blob_v1',
+      curve: 'secp256k1',
+      encoding: 'base64url',
+      producer: 'signer_core',
+      stateBlobB64u: VALID_ECDSA_SHARE32_B64U,
     },
-    createdAtMs: nowMs,
-    updatedAtMs: nowMs,
-  };
+    publicFacts: buildEcdsaRoleLocalPublicFacts({
+      walletId: toWalletId(args.nearAccountId),
+      rpId,
+      chainTarget,
+      keyHandle,
+      ecdsaThresholdKeyId,
+      signingRootId,
+      signingRootVersion,
+      clientParticipantId: 1,
+      relayerParticipantId: 2,
+      participantIds,
+      contextBinding32B64u: VALID_ECDSA_SHARE32_B64U,
+      hssClientSharePublicKey33B64u: clientVerifyingShareB64u,
+      relayerPublicKey33B64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
+      groupPublicKey33B64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+      ethereumAddress,
+    }),
+    authMethod: roleLocalAuthMethod,
+  });
   const sessionAuthToken =
     sessionKind === 'jwt'
       ? toFixtureThresholdSessionAuthToken(
@@ -295,10 +312,11 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       signingRootVersion,
       participantIds: [...participantIds],
       backendBinding: {
+        materialKind: 'role_local_ready_state_blob',
         relayerKeyId,
         clientVerifyingShareB64u,
-        clientAdditiveShare32B64u,
-        ecdsaHssRoleLocalClientState,
+        stateBlob: ecdsaRoleLocalReadyRecord.stateBlob,
+        ecdsaRoleLocalReadyRecord,
       },
       thresholdSessionKind: sessionKind,
       thresholdSessionId: sessionId,
@@ -308,6 +326,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
       relayerVerifyingShareB64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
     },
+    passkeyCredentialIdB64u,
     keygen: {
       ok: true,
       rpId,
@@ -378,9 +397,10 @@ export function seedEcdsaWarmSessionRecord(
     };
   },
 ) {
+  const source = args.source || 'login';
   const emailOtpAuthContext =
     args.emailOtpAuthContext ||
-    (args.source === 'email_otp'
+    (source === 'email_otp'
       ? ({
           policy: 'session',
           retention: 'session',
@@ -388,24 +408,50 @@ export function seedEcdsaWarmSessionRecord(
           authMethod: 'email_otp',
         } satisfies ThresholdEcdsaEmailOtpAuthContext)
       : undefined);
-  return upsertThresholdEcdsaSessionFromBootstrap(deps, {
+  const bootstrap =
+    args.bootstrap ||
+    (source === 'email_otp'
+      ? createThresholdEcdsaBootstrapFixture({
+          nearAccountId: args.nearAccountId,
+          chain: args.chain,
+          roleLocalAuthMethod: 'email_otp',
+          emailOtpAuthSubjectId: emailOtpAuthContext?.authSubjectId || args.nearAccountId,
+        })
+      : createThresholdEcdsaBootstrapFixture({
+          nearAccountId: args.nearAccountId,
+          chain: args.chain,
+        }));
+  const baseArgs = {
     walletId: args.nearAccountId,
-    chainTarget: args.bootstrap?.thresholdEcdsaKeyRef.chainTarget || testEcdsaChainTarget(args.chain),
-    bootstrap:
-      args.bootstrap ||
-      createThresholdEcdsaBootstrapFixture({
-        nearAccountId: args.nearAccountId,
-        chain: args.chain,
-      }),
-    source: args.source || 'login',
-    ...(emailOtpAuthContext ? { emailOtpAuthContext } : {}),
+    chainTarget: bootstrap.thresholdEcdsaKeyRef.chainTarget || testEcdsaChainTarget(args.chain),
+    bootstrap,
     ...(args.signingSessionSeal ? { signingSessionSeal: args.signingSessionSeal } : {}),
-  });
+  };
+  return source === 'email_otp'
+    ? upsertThresholdEcdsaSessionFromBootstrap(deps, {
+        ...baseArgs,
+        source: 'email_otp',
+        emailOtpAuthContext:
+          emailOtpAuthContext ||
+          ({
+            policy: 'session',
+            retention: 'session',
+            reason: 'login',
+            authMethod: 'email_otp',
+          } satisfies ThresholdEcdsaEmailOtpAuthContext),
+      })
+    : upsertThresholdEcdsaSessionFromBootstrap(deps, {
+        ...baseArgs,
+        source,
+      });
 }
 
 export function createWarmSessionStatusReader(
   claimsBySessionId: Record<string, WarmClaimFixture>,
-): Pick<WarmSessionStatusReader & WarmSessionStatusBatchReader, 'getWarmSessionStatus' | 'getWarmSessionStatuses'> {
+): Pick<
+  WarmSessionStatusReader & WarmSessionStatusBatchReader,
+  'getWarmSessionStatus' | 'getWarmSessionStatuses'
+> {
   const getWarmSessionStatus: WarmSessionStatusReader['getWarmSessionStatus'] = async ({
     sessionId,
   }) => {
@@ -479,12 +525,8 @@ export function createWarmSessionUiConfirmFixture(args: {
   const readStatus = createWarmSessionStatusReader(args.claimsBySessionId).getWarmSessionStatus;
 
   const touchConfirm: Pick<
-    WarmSessionStatusReader &
-      WarmSessionMaterialClaimer &
-      WarmSessionSealPersister,
-    | 'getWarmSessionStatus'
-    | 'claimWarmSessionMaterial'
-    | 'sealAndPersistWarmSessionMaterial'
+    WarmSessionStatusReader & WarmSessionMaterialClaimer & WarmSessionSealPersister,
+    'getWarmSessionStatus' | 'claimWarmSessionMaterial' | 'sealAndPersistWarmSessionMaterial'
   > = {
     getWarmSessionStatus: readStatus,
     claimWarmSessionMaterial: async ({ sessionId, uses }) => {
@@ -636,7 +678,9 @@ function resolveTestEcdsaBootstrapArgs(args: {
     chain: ThresholdEcdsaActivationChain;
     source?: ThresholdEcdsaSessionStoreSource;
   };
-  warmSession: Awaited<ReturnType<ReturnType<typeof createWarmSessionCapabilityReader>['getWarmSession']>>;
+  warmSession: Awaited<
+    ReturnType<ReturnType<typeof createWarmSessionCapabilityReader>['getWarmSession']>
+  >;
 }): EcdsaBootstrapRequest {
   const chainTarget = testEcdsaChainTarget(args.request.chain);
   const { primary, secondary } = getPrimaryAndSecondaryEcdsaCapabilities({
@@ -722,7 +766,7 @@ function resolveTestEcdsaBootstrapArgs(args: {
         kind: 'threshold_session',
         jwt: thresholdSessionAuthToken,
       },
-      clientRootShare32B64u: 'reconnect-client-root-share',
+      passkeyPrfFirstB64u: 'reconnect-client-root-share',
     };
   }
   if (sessionId && walletSigningSessionId) {
@@ -828,12 +872,11 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
       (async () => {
         throw new Error('provisionThresholdEcdsaSession test dependency is required');
       });
-    const requiresClaim =
-      args.kind === 'passkey_cookie_reconnect_ecdsa_bootstrap';
+    const requiresClaim = args.kind === 'passkey_cookie_reconnect_ecdsa_bootstrap';
     if (!requiresClaim) {
       return await provisionThresholdEcdsaSession(args);
     }
-    const clientRootShare32B64u = await claimPrfFirstByThresholdSessionId({
+    const passkeyPrfFirstB64u = await claimPrfFirstByThresholdSessionId({
       thresholdSessionId: args.lanePolicy.thresholdSessionId,
       errorContext: 'threshold-ecdsa restored-session bootstrap',
       uses: 1,
@@ -841,7 +884,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
     return await provisionThresholdEcdsaSession({
       ...args,
       kind: 'passkey_fresh_ecdsa_bootstrap',
-      clientRootShare32B64u,
+      passkeyPrfFirstB64u,
     });
   };
 
@@ -849,17 +892,13 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
     getWarmSession,
     resolveEd25519RecordByThresholdSessionId:
       capabilityReader.resolveEd25519RecordByThresholdSessionId,
-    resolveEcdsaRecordByThresholdSessionId:
-      capabilityReader.resolveEcdsaRecordByThresholdSessionId,
-    resolveEd25519AuthByThresholdSessionId:
-      capabilityReader.resolveEd25519AuthByThresholdSessionId,
+    resolveEcdsaRecordByThresholdSessionId: capabilityReader.resolveEcdsaRecordByThresholdSessionId,
+    resolveEd25519AuthByThresholdSessionId: capabilityReader.resolveEd25519AuthByThresholdSessionId,
     resolveEcdsaAuthByThresholdSessionId: capabilityReader.resolveEcdsaAuthByThresholdSessionId,
-    resolveEmailOtpSigningSessionAuthLane:
-      capabilityReader.resolveEmailOtpSigningSessionAuthLane,
+    resolveEmailOtpSigningSessionAuthLane: capabilityReader.resolveEmailOtpSigningSessionAuthLane,
     getEd25519CapabilityByThresholdSessionId:
       capabilityReader.getEd25519CapabilityByThresholdSessionId,
-    getEcdsaCapabilityByThresholdSessionId:
-      capabilityReader.getEcdsaCapabilityByThresholdSessionId,
+    getEcdsaCapabilityByThresholdSessionId: capabilityReader.getEcdsaCapabilityByThresholdSessionId,
     resolveEcdsaSealTransportByThresholdSessionId:
       capabilityReader.resolveEcdsaSealTransportByThresholdSessionId,
     provisionEd25519Capability: (args: ProvisionWarmEd25519CapabilityArgs) =>
@@ -946,16 +985,13 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
           (args.plan as EcdsaSessionProvisionPlan | undefined) ||
           (async () => {
             const identity = buildEcdsaSessionIdentity({
-              thresholdSessionId:
-                exactThresholdSessionId ||
-                record.thresholdSessionId,
+              thresholdSessionId: exactThresholdSessionId || record.thresholdSessionId,
               walletSigningSessionId:
-                String(args.walletSigningSessionId || '') ||
-                record.walletSigningSessionId,
+                String(args.walletSigningSessionId || '') || record.walletSigningSessionId,
             });
             const signingKeyContext = buildEcdsaSigningKeyContextFromRecord(record);
             const sessionBudgetUses = Number(args.sessionBudgetUses || 1);
-            if (args.clientRootShare32B64u) {
+            if (args.passkeyPrfFirstB64u) {
               return buildEcdsaSessionProvisionPlan({
                 kind: 'passkey_ecdsa_session_provision',
                 key: buildEvmFamilyEcdsaKeyIdentityFromRecord({
@@ -968,27 +1004,29 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
                 sessionBudgetUses,
                 requestId: 'test-request-id',
                 sessionKind: record.thresholdSessionKind || 'jwt',
-                clientRootShare32B64u: String(args.clientRootShare32B64u || ''),
-                webauthnAuthentication: {
-                  id: 'test-credential',
-                  rawId: 'test-raw-id',
-                  type: 'public-key',
-                  authenticatorAttachment: 'platform',
-                  response: {
-                    clientDataJSON: 'test-client-data',
-                    authenticatorData: 'test-authenticator-data',
-                    signature: 'test-signature',
-                    userHandle: undefined,
-                  },
-                  clientExtensionResults: {
-                    prf: {
-                      results: {
-                        first: String(args.clientRootShare32B64u || ''),
-                        second: undefined,
+                provisionSecretSource: buildPasskeyEcdsaProvisionSecretSource({
+                  passkeyPrfFirstB64u: String(args.passkeyPrfFirstB64u || ''),
+                  webauthnAuthentication: {
+                    id: 'test-credential',
+                    rawId: 'test-raw-id',
+                    type: 'public-key',
+                    authenticatorAttachment: 'platform',
+                    response: {
+                      clientDataJSON: 'test-client-data',
+                      authenticatorData: 'test-authenticator-data',
+                      signature: 'test-signature',
+                      userHandle: undefined,
+                    },
+                    clientExtensionResults: {
+                      prf: {
+                        results: {
+                          first: String(args.passkeyPrfFirstB64u || ''),
+                          second: undefined,
+                        },
                       },
                     },
                   },
-                },
+                }),
                 ...(record.runtimePolicyScope
                   ? { runtimePolicyScope: record.runtimePolicyScope }
                   : {}),
@@ -1010,8 +1048,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
             getWarmSession,
             listThresholdEcdsaRecordsForWalletTarget:
               deps.listThresholdEcdsaRecordsForWalletTarget || (() => []),
-            canProvisionEcdsaCapability:
-              typeof deps.provisionThresholdEcdsaSession === 'function',
+            canProvisionEcdsaCapability: typeof deps.provisionThresholdEcdsaSession === 'function',
             provisionThresholdEcdsaSession:
               deps.provisionThresholdEcdsaSession ||
               (async () => {
@@ -1050,8 +1087,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
         walletId: toWalletId(args.walletId),
       }),
     getEd25519SigningSessionStatus: statusReader.getEd25519SigningSessionStatus,
-    getEd25519SigningSessionStatusForSession:
-      statusReader.getEd25519SigningSessionStatusForSession,
+    getEd25519SigningSessionStatusForSession: statusReader.getEd25519SigningSessionStatusForSession,
     getEcdsaSigningSessionStatus: (args: {
       walletId: AccountId | string;
       chainTarget: ThresholdEcdsaChainTarget;
@@ -1095,8 +1131,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
       applyWarmSessionEcdsaPostSignPolicy(
         {
           getWarmSession,
-          resolveExactEcdsaRecord: (recordArgs) =>
-            statusReader.resolveExactEcdsaRecord(recordArgs),
+          resolveExactEcdsaRecord: (recordArgs) => statusReader.resolveExactEcdsaRecord(recordArgs),
           consumeSingleUseEmailOtpEcdsaLane: deps.consumeSingleUseEmailOtpEcdsaLane,
           clearEcdsaEphemeralMaterial,
         },
@@ -1118,8 +1153,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
       assertWarmSessionEcdsaOperationAllowed(
         {
           getWarmSession,
-          resolveExactEcdsaRecord: (recordArgs) =>
-            statusReader.resolveExactEcdsaRecord(recordArgs),
+          resolveExactEcdsaRecord: (recordArgs) => statusReader.resolveExactEcdsaRecord(recordArgs),
         },
         {
           walletId: toWalletId(args.walletId),

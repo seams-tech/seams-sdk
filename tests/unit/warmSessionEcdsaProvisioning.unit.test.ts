@@ -6,7 +6,7 @@ import {
   getPrimaryAndSecondaryEcdsaCapabilities,
   normalizeParticipantIds,
   toOptionalNonEmptyString,
-} from '@/core/signingEngine/session/passkey/ecdsaProvisioner';
+} from '@/core/signingEngine/useCases/provisionEcdsaSession';
 import { selectedEcdsaLane } from '@/core/signingEngine/session/identity/laneIdentity';
 import type { WarmSessionEnvelope } from '@/core/signingEngine/session/warmCapabilities/types';
 import {
@@ -86,7 +86,7 @@ function createEnvelope(): WarmSessionEnvelope {
           auth: {
             capability: 'ecdsa',
             record: evmRecord,
-            thresholdSessionAuthToken: evmRecord.thresholdSessionAuthToken,
+            thresholdSessionAuthToken: evmRecord.thresholdSessionAuthToken || 'jwt.evm.session',
             thresholdSessionAuthTokenSource: 'ecdsa',
           },
           prfClaim: {
@@ -113,7 +113,7 @@ function createEnvelope(): WarmSessionEnvelope {
           auth: {
             capability: 'ecdsa',
             record: tempoRecord,
-            thresholdSessionAuthToken: tempoRecord.thresholdSessionAuthToken,
+            thresholdSessionAuthToken: tempoRecord.thresholdSessionAuthToken || 'jwt.tempo.session',
             thresholdSessionAuthTokenSource: 'ecdsa',
           },
           prfClaim: {

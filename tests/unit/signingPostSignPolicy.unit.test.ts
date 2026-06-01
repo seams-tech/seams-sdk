@@ -12,6 +12,12 @@ import {
 import { toAccountId } from '@/core/types/accountIds';
 import type { ConsumeSingleUseEmailOtpEcdsaLaneCommand } from '@/core/signingEngine/session/persistence/records';
 import { toEvmFamilyEcdsaKeyHandle } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import {
+  buildEcdsaRoleLocalEmailOtpAuthMethod,
+  buildEcdsaRoleLocalPasskeyAuthMethod,
+  buildEcdsaRoleLocalPublicFacts,
+  buildEcdsaRoleLocalReadyRecord,
+} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 
 const NEAR_ACCOUNT_ID = toAccountId('alice.testnet');
 const EVM_CHAIN_TARGET: ThresholdEcdsaChainTarget = {
@@ -25,6 +31,50 @@ const TEMPO_CHAIN_TARGET: ThresholdEcdsaChainTarget = {
   chainId: 1,
   networkSlug: 'tempo-mainnet',
 };
+const VALID_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const VALID_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const VALID_CONTEXT_BINDING_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const POST_SIGN_PASSKEY_CREDENTIAL_ID = 'post-sign-passkey-credential';
+
+function roleLocalReadyRecordForPostSign(args: {
+  chainTarget: ThresholdEcdsaChainTarget;
+  source: 'email_otp' | 'login';
+}) {
+  const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-post-sign');
+  return buildEcdsaRoleLocalReadyRecord({
+    stateBlob: {
+      kind: 'ecdsa_role_local_state_blob_v1',
+      curve: 'secp256k1',
+      encoding: 'base64url',
+      producer: 'signer_core',
+      stateBlobB64u: VALID_CONTEXT_BINDING_B64U,
+    },
+    publicFacts: buildEcdsaRoleLocalPublicFacts({
+      walletId: NEAR_ACCOUNT_ID,
+      rpId: 'localhost',
+      chainTarget: args.chainTarget,
+      keyHandle,
+      ecdsaThresholdKeyId: 'ecdsa-key-1',
+      signingRootId: 'signing-root',
+      signingRootVersion: 'v1',
+      clientParticipantId: 1,
+      relayerParticipantId: 2,
+      participantIds: [1, 2],
+      contextBinding32B64u: VALID_CONTEXT_BINDING_B64U,
+      hssClientSharePublicKey33B64u: VALID_PUBLIC_KEY_B64U,
+      relayerPublicKey33B64u: VALID_RELAYER_PUBLIC_KEY_B64U,
+      groupPublicKey33B64u: VALID_PUBLIC_KEY_B64U,
+      ethereumAddress: '0x1111111111111111111111111111111111111111',
+    }),
+    authMethod:
+      args.source === 'email_otp'
+        ? buildEcdsaRoleLocalEmailOtpAuthMethod({ authSubjectId: String(NEAR_ACCOUNT_ID) })
+        : buildEcdsaRoleLocalPasskeyAuthMethod({
+            credentialIdB64u: POST_SIGN_PASSKEY_CREDENTIAL_ID,
+            rpId: 'localhost',
+          }),
+  });
+}
 
 function ecdsaRecord(args: {
   thresholdSessionId: string;
@@ -33,36 +83,45 @@ function ecdsaRecord(args: {
   retention?: 'session' | 'single_use';
   consumedAtMs?: number;
 }): ThresholdEcdsaSessionRecord {
-  return {
+  const source = args.source || 'email_otp';
+  const chainTarget = args.chainTarget || EVM_CHAIN_TARGET;
+  const common = {
     walletId: NEAR_ACCOUNT_ID,
     authMetadata: { rpId: 'localhost' },
-    chainTarget: args.chainTarget || EVM_CHAIN_TARGET,
+    chainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-post-sign'),
     ecdsaThresholdKeyId: 'ecdsa-key-1',
     signingRootId: 'signing-root',
     signingRootVersion: 'v1',
     relayerKeyId: 'relayer-key-1',
-    clientVerifyingShareB64u: 'client-verifying-share',
+    clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
+    ecdsaRoleLocalReadyRecord: roleLocalReadyRecordForPostSign({ chainTarget, source }),
     participantIds: [1, 2],
-    thresholdSessionKind: 'jwt',
+    thresholdSessionKind: 'jwt' as const,
     thresholdSessionId: args.thresholdSessionId,
     walletSigningSessionId: `wallet-${args.thresholdSessionId}`,
     expiresAtMs: Date.now() + 60_000,
     remainingUses: 1,
     ethereumAddress: '0x1111111111111111111111111111111111111111',
     updatedAtMs: Date.now(),
-    source: args.source || 'email_otp',
-    emailOtpAuthContext:
-      args.source === 'login'
-        ? undefined
-        : {
-            authMethod: 'email_otp',
-            policy: 'per_operation',
-            reason: 'sign',
-            retention: args.retention || 'single_use',
-            ...(args.consumedAtMs ? { consumedAtMs: args.consumedAtMs } : {}),
-          },
+  };
+  if (source === 'login') {
+    return {
+      ...common,
+      source: 'login',
+    };
+  }
+  return {
+    ...common,
+    source: 'email_otp',
+    emailOtpAuthContext: {
+      authMethod: 'email_otp',
+      policy: 'per_operation',
+      reason: 'sign',
+      retention: args.retention || 'single_use',
+      ...(args.consumedAtMs ? { consumedAtMs: args.consumedAtMs } : {}),
+    },
   };
 }
 

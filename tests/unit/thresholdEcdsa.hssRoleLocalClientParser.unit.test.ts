@@ -3,10 +3,15 @@ import {
   thresholdEcdsaHssRoleLocalBootstrap,
   type ThresholdEcdsaHssRoleLocalBootstrapRequest,
 } from '../../client/src/core/rpcClients/relayer/thresholdEcdsa';
+import type { EcdsaHssClientSharePublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import {
   toEcdsaHssThresholdKeyId,
 } from '../../client/src/core/signingEngine/session/identity/emailOtpHssIdentity';
 import { toWalletId } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
+
+function toHssClientSharePublicKey33B64uForTest(value: string): EcdsaHssClientSharePublicKey33B64u {
+  return value as EcdsaHssClientSharePublicKey33B64u;
+}
 
 const BOOTSTRAP_ARGS = {
   formatVersion: 'ecdsa-hss-role-local' as const,
@@ -17,7 +22,8 @@ const BOOTSTRAP_ARGS = {
   signingRootVersion: 'default',
   keyScope: 'evm-family' as const,
   relayerKeyId: 'relayer-key',
-  clientPublicKey33B64u: 'client-public-key',
+  hssClientSharePublicKey33B64u:
+    toHssClientSharePublicKey33B64uForTest('client-public-key'),
   clientShareRetryCounter: 0,
   contextBinding32B64u: 'context-binding',
   requestId: 'request-id',
@@ -37,7 +43,7 @@ function bootstrapValue(overrides?: Record<string, unknown>): Record<string, unk
     relayerKeyId: 'relayer-key',
     contextBinding32B64u: 'context-binding',
     publicIdentity: {
-      clientPublicKey33B64u: 'client-public-key',
+      hssClientSharePublicKey33B64u: 'client-public-key',
       relayerPublicKey33B64u: 'relayer-public-key',
       groupPublicKey33B64u: 'group-public-key',
       ethereumAddress: '0x1111111111111111111111111111111111111111',
@@ -60,6 +66,49 @@ function bootstrapValue(overrides?: Record<string, unknown>): Record<string, unk
 }
 
 test.describe('threshold ECDSA HSS role-local client parser', () => {
+  test('sends publishable-key authorization for runtime-environment passkey bootstrap', async () => {
+    const originalFetch = globalThis.fetch;
+    let capturedInit: RequestInit | undefined;
+    try {
+      globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedInit = init;
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            value: bootstrapValue(),
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }) as typeof fetch;
+
+      const result = await thresholdEcdsaHssRoleLocalBootstrap('https://relay.example.test', {
+        ...BOOTSTRAP_ARGS,
+        passkeyBootstrapAuthorization: {
+          kind: 'passkey_bootstrap',
+          webauthn_authentication: {
+            id: 'credential-id',
+            rawId: 'credential-id',
+            type: 'public-key',
+            response: {
+              clientDataJSON: 'client-data-json',
+              authenticatorData: 'authenticator-data',
+              signature: 'signature',
+            },
+          },
+          runtimeEnvironmentId: 'env-test',
+          runtimeEnvironmentPublishableKey: 'pk_test_runtime',
+        },
+      });
+
+      expect(result).toMatchObject({ ok: true });
+      expect((capturedInit?.headers as Record<string, string> | undefined)?.Authorization).toBe(
+        'Bearer pk_test_runtime',
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test('rejects relayer secret fields in non-export bootstrap responses', async () => {
     const originalFetch = globalThis.fetch;
     const forbiddenFields = [

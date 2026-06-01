@@ -6,6 +6,7 @@ import {
   upsertStoredThresholdEd25519SessionRecord,
 } from '../../client/src/core/signingEngine/session/persistence/records';
 import { reconnectPasskeyEd25519CapabilityForSigning } from '../../client/src/core/signingEngine/session/passkey/ed25519Recovery';
+import { buildThresholdEd25519WebAuthnPrfSecretSource } from '../../client/src/core/signingEngine/threshold/ed25519/authSession';
 
 const ACCOUNT_ID = 'ed25519-reconnect-race.testnet';
 const RP_ID = 'localhost';
@@ -97,7 +98,10 @@ test.describe('passkey Ed25519 reconnect recovery', () => {
     const result = await reconnectPasskeyEd25519CapabilityForSigning({
       nearAccountId: ACCOUNT_ID,
       record: oldRecord,
-      localPrfCredential: TEST_WEBAUTHN_CREDENTIAL as any,
+      policySecretSource: buildThresholdEd25519WebAuthnPrfSecretSource({
+        credential: TEST_WEBAUTHN_CREDENTIAL as any,
+        rpId: RP_ID,
+      }),
       remainingUses: 1,
       sessionId: plannedSessionId,
       walletSigningSessionId: plannedWalletSigningSessionId,

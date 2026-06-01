@@ -129,8 +129,8 @@ test.describe('Email OTP operation split guard', () => {
     const authResolver = accountAuthSource.indexOf(
       'export async function resolveEvmFamilyTransactionWalletAuth',
     );
-    const profileLookup = accountAuthSource.indexOf(
-      'resolveProfileAccountContextFromCandidates',
+    const exactSignerAuthLookup = accountAuthSource.indexOf(
+      'getActiveWalletSignerForChainTarget',
       authResolver,
     );
     const ed25519Fallback = accountAuthSource.indexOf(
@@ -176,7 +176,7 @@ test.describe('Email OTP operation split guard', () => {
     expect(selectionModule).toContain('buildEcdsaMaterialStateForCandidate');
     expect(selectionSource).not.toContain('genericRecord');
     expect(selectionSource).not.toContain('genericKeyRef');
-    expect(profileLookup).toBeGreaterThan(authResolver);
+    expect(exactSignerAuthLookup).toBeGreaterThan(authResolver);
     expect(ed25519Fallback).toBe(-1);
     expect(source).toContain('prepareEvmFamilyEcdsaSigningSession({');
     expect(selectionResolver).toBeGreaterThanOrEqual(0);
@@ -260,7 +260,7 @@ test.describe('Email OTP operation split guard', () => {
     );
   });
 
-  test('EVM-family ECDSA signing restores durable sealed sessions before lane selection', () => {
+  test('EVM-family ECDSA signing restores durable sealed sessions after selected lane material check', () => {
     const evmSigning = readRepoFile('client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts');
     const preparedSigning = readRepoFile(
       'client/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
@@ -274,7 +274,7 @@ test.describe('Email OTP operation split guard', () => {
       preparedStart,
     );
     const selectionCall = preparedSigning.indexOf(
-      'const selection = await resolveEvmFamilyEcdsaSigningSelection',
+      'await resolveEvmFamilyEcdsaSigningSelection({',
       preparedStart,
     );
 
@@ -288,11 +288,11 @@ test.describe('Email OTP operation split guard', () => {
       'restorePersistedEmailOtpSessionsForRead',
     );
     expect(evmSigning).toContain('prepareEvmFamilyEcdsaSigningSession({');
-    expect(restoreCall).toBeGreaterThan(preparedStart);
-    expect(selectionCall).toBeGreaterThan(restoreCall);
+    expect(selectionCall).toBeGreaterThan(preparedStart);
+    expect(restoreCall).toBeGreaterThan(selectionCall);
     const prepareBeforeSelection = preparedSigning.slice(preparedStart, selectionCall);
     expect(prepareBeforeSelection).toContain('const selectedLane = selectTransactionLane({');
-    expect(prepareBeforeSelection).toContain('authMethod,');
+    expect(prepareBeforeSelection).toContain('const authMethod = transactionLane.authMethod;');
     expect(prepareBeforeSelection).toContain(
       'walletSigningSessionId: laneCandidate.walletSigningSessionId',
     );
@@ -300,6 +300,9 @@ test.describe('Email OTP operation split guard', () => {
       'thresholdSessionId: laneCandidate.thresholdSessionId',
     );
     expect(prepareBeforeSelection).not.toContain("(['email_otp', 'passkey'] as const)");
+    const selectionBeforeRestore = preparedSigning.slice(selectionCall, restoreCall);
+    expect(selectionBeforeRestore).toContain('const shouldRestoreAvailableLane =');
+    expect(selectionBeforeRestore).toContain("selection.kind === 'missing_material'");
   });
 
   test('EVM-family exhausted ECDSA lanes defer ready-material requirements until reauth', () => {

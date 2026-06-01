@@ -33,6 +33,11 @@ import {
   type ReadySecp256k1Signer,
   type ReadySecp256k1SigningMaterial,
 } from '../../client/src/core/signingEngine/flows/signEvmFamily/signers/secp256k1';
+import {
+  buildEcdsaRoleLocalPasskeyAuthMethod,
+  buildEcdsaRoleLocalPublicFacts,
+  buildEcdsaRoleLocalReadyRecord,
+} from '../../client/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 
 const WALLET_ID = 'alice.testnet';
 const SUBJECT_ID = toWalletId(WALLET_ID);
@@ -44,6 +49,8 @@ const THRESHOLD_SESSION_ID = 'threshold-session-1';
 const WALLET_SIGNING_SESSION_ID = 'wallet-signing-session-1';
 const EXPIRES_AT_MS = 1_900_000_000_000;
 const VALID_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const VALID_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const VALID_CONTEXT_BINDING_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 
 const EVM_TARGET = {
   kind: 'evm',
@@ -51,6 +58,37 @@ const EVM_TARGET = {
   chainId: 5042002,
   networkSlug: 'arc-testnet',
 } as const;
+
+const ROLE_LOCAL_READY_RECORD = buildEcdsaRoleLocalReadyRecord({
+  stateBlob: {
+    kind: 'ecdsa_role_local_state_blob_v1',
+    curve: 'secp256k1',
+    encoding: 'base64url',
+    producer: 'signer_core',
+    stateBlobB64u: VALID_CONTEXT_BINDING_B64U,
+  },
+  publicFacts: buildEcdsaRoleLocalPublicFacts({
+    walletId: SUBJECT_ID,
+    rpId: RP_ID,
+    chainTarget: EVM_TARGET,
+    keyHandle: 'key-handle-ready-flow',
+    ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+    signingRootId: SIGNING_ROOT_ID,
+    signingRootVersion: SIGNING_ROOT_VERSION,
+    clientParticipantId: 1,
+    relayerParticipantId: 2,
+    participantIds: [1, 2],
+    contextBinding32B64u: VALID_CONTEXT_BINDING_B64U,
+    hssClientSharePublicKey33B64u: VALID_PUBLIC_KEY_B64U,
+    relayerPublicKey33B64u: VALID_RELAYER_PUBLIC_KEY_B64U,
+    groupPublicKey33B64u: VALID_PUBLIC_KEY_B64U,
+    ethereumAddress: '0x1111111111111111111111111111111111111111',
+  }),
+  authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
+    credentialIdB64u: 'key-handle-ready-flow',
+    rpId: RP_ID,
+  }),
+});
 
 async function orchestrateSigningConfirmation(
   params: OrchestrateIntentDigestSigningConfirmationParams,
@@ -90,13 +128,16 @@ function makeThresholdKeyRef(
     userId: WALLET_ID,
     chainTarget: EVM_TARGET,
     relayerUrl: 'https://relayer.test',
+    keyHandle: 'key-handle-ready-flow',
     ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
     backendBinding: {
+      materialKind: 'role_local_ready_state_blob',
       relayerKeyId: 'relayer-key',
       clientVerifyingShareB64u: 'client-verifying-share',
-      clientAdditiveShare32B64u: 'client-share',
+      stateBlob: ROLE_LOCAL_READY_RECORD.stateBlob,
+      ecdsaRoleLocalReadyRecord: ROLE_LOCAL_READY_RECORD,
     },
     participantIds: [1, 2],
     thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
@@ -109,10 +150,7 @@ function makeThresholdKeyRef(
   return {
     ...base,
     ...overrides,
-    backendBinding: {
-      ...base.backendBinding!,
-      ...(overrides.backendBinding || {}),
-    },
+    backendBinding: overrides.backendBinding ?? base.backendBinding,
   };
 }
 

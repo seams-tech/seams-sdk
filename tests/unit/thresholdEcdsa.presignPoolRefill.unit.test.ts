@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/encoders';
+import { WorkerRequestType, WorkerResponseType } from '@/core/types/signer-worker';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import {
   clearAllThresholdEcdsaClientPresignatures,
@@ -21,6 +22,11 @@ import {
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  buildEcdsaRoleLocalPasskeyAuthMethod,
+  buildEcdsaRoleLocalPublicFacts,
+  buildEcdsaRoleLocalReadyRecord,
+} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 
 const RELAYER_URL = 'https://relay.example';
 const ECDSA_KEY_HANDLE = 'ehss-key-presign-test';
@@ -73,6 +79,37 @@ const PRESIGN_BIG_R_B64U = base64UrlEncode(PRESIGN_BIG_R_33);
 const SIGNATURE_65_B64U = base64UrlEncode(SIGNATURE_65);
 const ENTROPY_B64U = base64UrlEncode(ENTROPY_32);
 
+const ROLE_LOCAL_READY_RECORD = buildEcdsaRoleLocalReadyRecord({
+  stateBlob: {
+    kind: 'ecdsa_role_local_state_blob_v1',
+    curve: 'secp256k1',
+    encoding: 'base64url',
+    producer: 'signer_core',
+    stateBlobB64u: BACKEND_CLIENT_ADDITIVE_SHARE_32_B64U,
+  },
+  publicFacts: buildEcdsaRoleLocalPublicFacts({
+    walletId: USER_SUBJECT_ID,
+    rpId: RP_ID,
+    chainTarget: EVM_CHAIN_TARGET,
+    keyHandle: ECDSA_KEY_HANDLE,
+    ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
+    signingRootId: 'proj_local:dev',
+    signingRootVersion: 'default',
+    clientParticipantId: 1,
+    relayerParticipantId: 2,
+    participantIds: PARTICIPANT_IDS,
+    contextBinding32B64u: BACKEND_CLIENT_ADDITIVE_SHARE_32_B64U,
+    hssClientSharePublicKey33B64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
+    relayerPublicKey33B64u: GROUP_PUBLIC_KEY_B64U,
+    groupPublicKey33B64u: GROUP_PUBLIC_KEY_B64U,
+    ethereumAddress: ETHEREUM_ADDRESS,
+  }),
+  authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
+    credentialIdB64u: ECDSA_KEY_HANDLE,
+    rpId: RP_ID,
+  }),
+});
+
 function makeDigestSignRequest(): Extract<SignRequest, { kind: 'digest' }> & {
   algorithm: 'secp256k1';
 } {
@@ -96,10 +133,11 @@ function makeThresholdEcdsaKeyRef(
     ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
     signingRootId: 'proj_local:dev',
     backendBinding: {
-      materialKind: 'inline_role_local_ready',
+      materialKind: 'role_local_ready_state_blob',
       relayerKeyId: BACKEND_RELAYER_KEY_ID,
       clientVerifyingShareB64u: BACKEND_CLIENT_VERIFYING_SHARE_B64U,
-      clientAdditiveShare32B64u: BACKEND_CLIENT_ADDITIVE_SHARE_32_B64U,
+      stateBlob: ROLE_LOCAL_READY_RECORD.stateBlob,
+      ecdsaRoleLocalReadyRecord: ROLE_LOCAL_READY_RECORD,
     },
     participantIds: PARTICIPANT_IDS,
     thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_B64U,
@@ -111,16 +149,11 @@ function makeThresholdEcdsaKeyRef(
   return {
     ...base,
     ...overrides,
-    backendBinding: {
-      ...base.backendBinding!,
-      ...(overrides.backendBinding || {}),
-    },
+    backendBinding: overrides.backendBinding ?? base.backendBinding,
   };
 }
 
-async function makeReadySecp256k1Material(
-  overrides: Partial<ThresholdEcdsaSecp256k1KeyRef> = {},
-) {
+async function makeReadySecp256k1Material(overrides: Partial<ThresholdEcdsaSecp256k1KeyRef> = {}) {
   return await buildReadySecp256k1SigningMaterialFromKeyRef({
     keyRef: makeThresholdEcdsaKeyRef(overrides),
     requestLabel: 'evm',
@@ -190,6 +223,14 @@ function makeWorkerCtx(args: {
       }
       if (type === 'thresholdEcdsaComputeSignatureShare') {
         return args.clientSignatureShare32.slice().buffer as any;
+      }
+      if (type === String(WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare)) {
+        return {
+          type: WorkerResponseType.OpenThresholdEcdsaHssRoleLocalSigningShareSuccess,
+          payload: {
+            signingShare32B64u: base64UrlEncode(args.clientSigningShare32),
+          },
+        } as any;
       }
       throw new Error(`Unexpected worker operation in test: ${type}`);
     },

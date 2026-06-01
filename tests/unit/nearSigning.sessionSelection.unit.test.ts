@@ -2147,7 +2147,7 @@ test.describe('near signing session selection', () => {
       warmSessionReader,
       nearAccount: { kind: 'named', accountId: nearAccountId as any },
       operationLabel: 'transaction signing',
-      usesNeeded: 1,
+      requiredSignatureUses: 1,
     });
     const coordinator = new SigningSessionCoordinator({
       getStatus: async () => ({
@@ -2230,7 +2230,7 @@ test.describe('near signing session selection', () => {
         warmSessionReader,
         nearAccount: { kind: 'named', accountId: nearAccountId as any },
         operationLabel: 'NEP-413 signing',
-        usesNeeded: 1,
+        requiredSignatureUses: 1,
       });
       const signingSessionPlan = planSigningSession({
         lane: context.coordinatorInput.lane,

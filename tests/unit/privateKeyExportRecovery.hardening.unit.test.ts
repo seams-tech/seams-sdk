@@ -82,16 +82,14 @@ test.describe('private key export recovery hardening', () => {
           await mod.exportNearEd25519SeedArtifactWithUI(
             {
               indexedDB: {
-                clientDB: {
-                  resolveProfileAccountContext: async () => ({
-                    profileId: 'profile-1',
-                    accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
-                  }),
-                  getLastProfileState: async () => ({
-                    profileId: 'profile-1',
-                    activeSignerSlot: 7,
-                  }),
-                },
+                resolveProfileAccountContext: async () => ({
+                  profileId: 'profile-1',
+                  accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
+                }),
+                getLastProfileState: async () => ({
+                  profileId: 'profile-1',
+                  activeSignerSlot: 7,
+                }),
               } as any,
               relayerUrl: 'https://relay.example.test',
               getRpId: () => 'wallet.example.test',
@@ -147,16 +145,14 @@ test.describe('private key export recovery hardening', () => {
         const exportResult = await mod.exportNearEd25519SeedArtifactWithUI(
           {
             indexedDB: {
-              clientDB: {
-                resolveProfileAccountContext: async () => ({
-                  profileId: 'profile-1',
-                  accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
-                }),
-                getLastProfileState: async () => ({
-                  profileId: 'profile-1',
-                  activeSignerSlot: 3,
-                }),
-              },
+              resolveProfileAccountContext: async () => ({
+                profileId: 'profile-1',
+                accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
+              }),
+              getLastProfileState: async () => ({
+                profileId: 'profile-1',
+                activeSignerSlot: 3,
+              }),
             } as any,
             relayerUrl: 'https://relay.example.test',
             getRpId: () => 'wallet.example.test',

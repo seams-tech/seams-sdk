@@ -8,9 +8,10 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(label: string) {
   const claims = {
     sub: `budget-curve-collision-${label}.testnet`,
     walletId: `budget-curve-collision-${label}.testnet`,
-    kind: 'threshold_ecdsa_session_v1',
+    kind: 'threshold_ecdsa_session_v2',
     sessionId: `threshold-login-curve-collision-${label}`,
     walletSigningSessionId: `wsess-curve-collision-${label}`,
+    keyScope: 'evm-family',
     subjectId: `budget-curve-collision-${label}.testnet`,
     chainTarget: {
       kind: 'evm',
@@ -81,7 +82,7 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(label: string) {
       remainingUses: 3,
     }),
     walletBudgetStatus: makeWalletBudgetStatus({
-      thresholdSessionId: `wallet-signing:${claims.walletSigningSessionId}`,
+      thresholdSessionId: claims.sessionId,
       walletSigningSessionId: claims.walletSigningSessionId,
       relayerKeyId: claims.relayerKeyId,
       remainingUses: 2,

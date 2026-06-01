@@ -1,9 +1,15 @@
 import { expect, test } from '@playwright/test';
+import { base64UrlEncode } from '@shared/utils/base64';
 import { toAccountId } from '../../client/src/core/types/accountIds';
 import { buildEcdsaMaterialStateForCandidate } from '../../client/src/core/signingEngine/flows/signEvmFamily/ecdsaMaterialState';
 import type { ThresholdEcdsaChainTarget } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaLaneCandidate } from '../../client/src/core/signingEngine/session/identity/laneIdentity';
 import type { ThresholdEcdsaSessionRecord } from '../../client/src/core/signingEngine/session/persistence/records';
+import {
+  buildEcdsaRoleLocalPasskeyAuthMethod,
+  buildEcdsaRoleLocalPublicFacts,
+  buildEcdsaRoleLocalReadyRecord,
+} from '../../client/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import {
   buildEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
@@ -17,6 +23,9 @@ const EVM_CHAIN_TARGET: ThresholdEcdsaChainTarget = {
 };
 
 const VALID_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const VALID_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const CONTEXT_BINDING_32_B64U = base64UrlEncode(new Uint8Array(32).fill(8));
+const STATE_BLOB_B64U = base64UrlEncode(new Uint8Array(64).fill(9));
 const OWNER_ADDRESS = `0x${'aa'.repeat(20)}`;
 
 const TEMPO_CHAIN_TARGET: ThresholdEcdsaChainTarget = {
@@ -54,8 +63,41 @@ function makeCandidate(): EcdsaLaneCandidate {
   };
 }
 
+function makeRoleLocalReadyRecord() {
+  return buildEcdsaRoleLocalReadyRecord({
+    stateBlob: {
+      kind: 'ecdsa_role_local_state_blob_v1',
+      curve: 'secp256k1',
+      encoding: 'base64url',
+      producer: 'signer_core',
+      stateBlobB64u: STATE_BLOB_B64U,
+    },
+    publicFacts: buildEcdsaRoleLocalPublicFacts({
+      walletId: toAccountId('alice.testnet'),
+      rpId: 'example.localhost',
+      chainTarget: EVM_CHAIN_TARGET,
+      keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
+      ecdsaThresholdKeyId: 'ecdsa-key-1',
+      signingRootId: 'root-1',
+      signingRootVersion: 'v1',
+      clientParticipantId: 1,
+      relayerParticipantId: 2,
+      participantIds: [1, 2],
+      contextBinding32B64u: CONTEXT_BINDING_32_B64U,
+      hssClientSharePublicKey33B64u: VALID_PUBLIC_KEY_B64U,
+      relayerPublicKey33B64u: VALID_RELAYER_PUBLIC_KEY_B64U,
+      groupPublicKey33B64u: VALID_PUBLIC_KEY_B64U,
+      ethereumAddress: OWNER_ADDRESS,
+    }),
+    authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
+      credentialIdB64u: toEvmFamilyEcdsaKeyHandle('key-handle-1'),
+      rpId: 'example.localhost',
+    }),
+  });
+}
+
 function makeRecord(
-  overrides: Partial<ThresholdEcdsaSessionRecord> = {},
+  overrides: Partial<Exclude<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>> = {},
 ): ThresholdEcdsaSessionRecord {
   return {
     walletId: toAccountId('alice.testnet'),
@@ -66,6 +108,7 @@ function makeRecord(
     signingRootVersion: 'v1',
     relayerKeyId: 'relayer-key-1',
     clientVerifyingShareB64u: 'client-verifying-share',
+    ecdsaRoleLocalReadyRecord: makeRoleLocalReadyRecord(),
     participantIds: [1, 2],
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'threshold-session-1',
@@ -99,7 +142,7 @@ test.describe('ecdsa material state', () => {
     );
   });
 
-  test('distinguishes public identity from ready signer material', () => {
+  test('treats ready-state blob records as ready signer material', () => {
     const state = buildEcdsaMaterialStateForCandidate({
       candidate: makeCandidate(),
       record: makeRecord(),
@@ -109,18 +152,16 @@ test.describe('ecdsa material state', () => {
       materialChainTarget: EVM_CHAIN_TARGET,
     });
 
-    expect(state.kind).toBe('reauth_required');
-    if (state.kind !== 'reauth_required') return;
-    expect(state.reason).toBe('missing_inline_share');
+    expect(state.kind).toBe('ready_to_sign');
+    if (state.kind !== 'ready_to_sign') return;
+    expect(state.signerSession.clientShare.kind).toBe('role_local_ready_state_blob');
     expect(state.publicFacts.thresholdOwnerAddress).toBe(OWNER_ADDRESS);
   });
 
   test('ready material carries a signer session', () => {
     const state = buildEcdsaMaterialStateForCandidate({
       candidate: makeCandidate(),
-      record: makeRecord({
-        clientAdditiveShare32B64u: 'client-share',
-      }),
+      record: makeRecord(),
       authMethod: 'passkey',
       source: 'login',
       chainTarget: EVM_CHAIN_TARGET,
@@ -129,7 +170,7 @@ test.describe('ecdsa material state', () => {
 
     expect(state.kind).toBe('ready_to_sign');
     if (state.kind !== 'ready_to_sign') return;
-    expect(state.signerSession.clientShare.kind).toBe('inline_client_share');
+    expect(state.signerSession.clientShare.kind).toBe('role_local_ready_state_blob');
     expect(state.publicFacts.thresholdOwnerAddress).toBe(OWNER_ADDRESS);
   });
 });

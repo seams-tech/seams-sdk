@@ -1137,7 +1137,7 @@ test.describe('AuthService Email OTP policy', () => {
       await challengeWriter.put({
         version: 'email_otp_challenge_v1',
         challengeId: 'challenge-pg',
-        userId: USER_ID,
+        challengeSubjectId: USER_ID,
         walletId: WALLET_ID,
         orgId: ORG_ID,
         otpChannel: 'email_otp',

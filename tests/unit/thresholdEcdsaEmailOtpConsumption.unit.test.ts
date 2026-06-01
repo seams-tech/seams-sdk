@@ -16,6 +16,11 @@ import {
   buildVerifiedEcdsaPublicFacts,
   toEvmFamilyEcdsaKeyHandle,
 } from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import {
+  buildEcdsaRoleLocalEmailOtpAuthMethod,
+  buildEcdsaRoleLocalPublicFacts,
+  buildEcdsaRoleLocalReadyRecord,
+} from '../../client/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 
 const WALLET_ID = toAccountId('alice.testnet');
 const EVM_TARGET: EvmEip155ChainTarget = {
@@ -31,6 +36,8 @@ const SECOND_EVM_TARGET: EvmEip155ChainTarget = {
   networkSlug: 'ethereum',
 };
 const VALID_PUBLIC_KEY_B64U = 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const VALID_RELAYER_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const VALID_STATE_BLOB_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';
 
 function createStore(nowRef: { value: number } | number): ThresholdEcdsaSessionStoreDeps {
@@ -53,17 +60,48 @@ function ecdsaEmailOtpRecord(args: {
     `key-handle-${args.ecdsaThresholdKeyId || 'ecdsa-key-1'}`,
   );
   const participantIds = [1, 2];
+  const ecdsaThresholdKeyId = args.ecdsaThresholdKeyId || 'ecdsa-key-1';
+  const chainTarget = args.chainTarget || EVM_TARGET;
   return {
     walletId: WALLET_ID,
     authMetadata: { rpId: 'localhost' },
-    chainTarget: args.chainTarget || EVM_TARGET,
+    chainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle,
-    ecdsaThresholdKeyId: args.ecdsaThresholdKeyId || 'ecdsa-key-1',
+    ecdsaThresholdKeyId,
     signingRootId: 'signing-root',
     signingRootVersion: 'v1',
     relayerKeyId: 'relayer-key-1',
     clientVerifyingShareB64u: 'client-verifying-share',
+    ecdsaRoleLocalReadyRecord: buildEcdsaRoleLocalReadyRecord({
+      stateBlob: {
+        kind: 'ecdsa_role_local_state_blob_v1',
+        curve: 'secp256k1',
+        encoding: 'base64url',
+        producer: 'signer_core',
+        stateBlobB64u: VALID_STATE_BLOB_B64U,
+      },
+      publicFacts: buildEcdsaRoleLocalPublicFacts({
+        walletId: WALLET_ID,
+        rpId: 'localhost',
+        chainTarget,
+        keyHandle,
+        ecdsaThresholdKeyId,
+        signingRootId: 'signing-root',
+        signingRootVersion: 'v1',
+        clientParticipantId: 1,
+        relayerParticipantId: 2,
+        participantIds,
+        contextBinding32B64u: VALID_STATE_BLOB_B64U,
+        hssClientSharePublicKey33B64u: VALID_PUBLIC_KEY_B64U,
+        relayerPublicKey33B64u: VALID_RELAYER_PUBLIC_KEY_B64U,
+        groupPublicKey33B64u: VALID_PUBLIC_KEY_B64U,
+        ethereumAddress: OWNER_ADDRESS,
+      }),
+      authMethod: buildEcdsaRoleLocalEmailOtpAuthMethod({
+        authSubjectId: 'google:alice',
+      }),
+    }),
     participantIds,
     thresholdSessionKind: 'jwt',
     thresholdSessionId: args.thresholdSessionId,
@@ -152,10 +190,12 @@ test.describe('Threshold ECDSA Email OTP consumption', () => {
       source: 'email_otp',
     });
     const recordsBySession = new Map(records.map((record) => [record.thresholdSessionId, record]));
+    const consumedRecord = recordsBySession.get('threshold-session-a');
+    if (!consumedRecord || consumedRecord.source !== 'email_otp') {
+      throw new Error('expected consumed Email OTP ECDSA record');
+    }
     expect(recordsBySession.get('threshold-session-a')?.remainingUses).toBe(0);
-    expect(recordsBySession.get('threshold-session-a')?.emailOtpAuthContext?.consumedAtMs).toBe(
-      1_800_000_001_000,
-    );
+    expect(consumedRecord.emailOtpAuthContext.consumedAtMs).toBe(1_800_000_001_000);
     expect(recordsBySession.get('threshold-session-a')?.updatedAtMs).toBe(1_800_000_001_000);
     expect(recordsBySession.get('threshold-session-b')?.remainingUses).toBe(1);
     expect(recordsBySession.get('threshold-session-b')?.updatedAtMs).toBe(1_800_000_000_000);

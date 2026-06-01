@@ -26,9 +26,15 @@ import {
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
+  buildVerifiedEcdsaPublicFacts,
   deriveEvmFamilyEcdsaKeyHandle,
   toEvmFamilyEcdsaKeyHandle,
 } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import {
+  buildEcdsaRoleLocalEmailOtpAuthMethod,
+  buildEcdsaRoleLocalPublicFacts,
+  buildEcdsaRoleLocalReadyRecord,
+} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import type { EmailOtpEd25519SessionReconstructionPlan } from '@/core/signingEngine/session/emailOtp/provisioning';
 import { computeEcdsaHssRoleLocalThresholdKeyId } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 
@@ -73,6 +79,47 @@ const DEFER_ED25519_RECONSTRUCTION_FOR_ECDSA = {
 
 function jsonB64u(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+}
+
+function makeEmailOtpRoleLocalReadyRecord(args: {
+  walletId: string;
+  rpId: string;
+  chainTarget: ReturnType<typeof thresholdEcdsaChainTargetFromChainFamily>;
+  keyHandle: string;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  ethereumAddress: `0x${string}`;
+}) {
+  return buildEcdsaRoleLocalReadyRecord({
+    stateBlob: {
+      kind: 'ecdsa_role_local_state_blob_v1',
+      curve: 'secp256k1',
+      encoding: 'base64url',
+      producer: 'signer_core',
+      stateBlobB64u: VALID_ECDSA_PRIVATE_SHARE_B64U,
+    },
+    publicFacts: buildEcdsaRoleLocalPublicFacts({
+      walletId: toWalletId(args.walletId),
+      rpId: args.rpId,
+      chainTarget: args.chainTarget,
+      keyHandle: args.keyHandle,
+      ecdsaThresholdKeyId: args.ecdsaThresholdKeyId,
+      signingRootId: args.signingRootId,
+      signingRootVersion: args.signingRootVersion,
+      clientParticipantId: 1,
+      relayerParticipantId: 2,
+      participantIds: [1, 2],
+      contextBinding32B64u: VALID_ECDSA_CONTEXT_BINDING_B64U,
+      hssClientSharePublicKey33B64u: VALID_ECDSA_CLIENT_PUBLIC_KEY_B64U,
+      relayerPublicKey33B64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
+      groupPublicKey33B64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+      ethereumAddress: args.ethereumAddress,
+    }),
+    authMethod: buildEcdsaRoleLocalEmailOtpAuthMethod({
+      authSubjectId: args.walletId,
+    }),
+  });
 }
 
 function appSessionJwt(expSeconds = Math.floor(Date.now() / 1000) + 3600): string {
@@ -1530,19 +1577,28 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         signingRootVersion: 'root-v1',
         relayerKeyId: 'relayer-key',
         clientVerifyingShareB64u: 'client-verifying-share',
+        ecdsaRoleLocalReadyRecord: makeEmailOtpRoleLocalReadyRecord({
+          walletId: 'alice.testnet',
+          rpId: 'localhost',
+          chainTarget: TEMPO_CHAIN_TARGET,
+          keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
+          ecdsaThresholdKeyId: 'ecdsa-key',
+          signingRootId: 'signing-root',
+          signingRootVersion: 'root-v1',
+          ethereumAddress: '0x'.padEnd(42, 'a') as `0x${string}`,
+        }),
         clientAdditiveShareHandle: {
           kind: 'email_otp_worker_session',
           sessionId: 'exhausted-threshold-session',
         },
         participantIds: [1, 3],
-        thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
-        verifiedPublicFacts: {
-          kind: 'verified_ecdsa_public_facts',
-          keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-transaction'),
-          publicKeyB64u: 'threshold-public-key',
+        thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
+        verifiedPublicFacts: buildVerifiedEcdsaPublicFacts({
+          keyHandle: toEvmFamilyEcdsaKeyHandle(keyHandle),
+          publicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
           participantIds: [1, 3],
           thresholdOwnerAddress: '0x'.padEnd(42, 'a'),
-        },
+        }),
         ethereumAddress: '0x'.padEnd(42, 'a'),
         thresholdSessionKind: 'jwt',
         thresholdSessionId: 'exhausted-threshold-session',
@@ -1607,6 +1663,8 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
       chainId: 42431,
       networkSlug: 'tempo-testnet',
     });
+    const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-transaction');
+    const thresholdOwnerAddress = '0x'.padEnd(42, 'a') as `0x${string}`;
 
     const artifact = await coordinator.exportEcdsaKeyWithAuthorization({
       walletSession: {
@@ -1622,44 +1680,35 @@ test.describe('EmailOtpThresholdSessionCoordinator', () => {
         authMetadata: { rpId: 'localhost' },
         chainTarget: tempoChainTarget,
         relayerUrl: 'https://relay.example',
-        keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-transaction'),
+        keyHandle,
         ecdsaThresholdKeyId: 'ecdsa-key' as any,
         signingRootId: 'signing-root',
         signingRootVersion: 'root-v1',
         relayerKeyId: 'relayer-key',
         clientVerifyingShareB64u: 'client-verifying-share',
-        ecdsaHssRoleLocalClientState: {
-          kind: 'role_local_ready',
-          artifactKind: 'ecdsa-hss-role-local-client-state',
-          contextBinding32B64u: VALID_ECDSA_CONTEXT_BINDING_B64U,
-          clientShare32B64u: VALID_ECDSA_PRIVATE_SHARE_B64U,
-          clientPublicKey33B64u: VALID_ECDSA_CLIENT_PUBLIC_KEY_B64U,
-          clientShareRetryCounter: 0,
-          relayerPublicKey33B64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
-          groupPublicKey33B64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-          ethereumAddress: '0x'.padEnd(42, 'a'),
-          clientCaitSithInput: {
-            participantId: 1,
-            mappedPrivateShare32B64u: VALID_ECDSA_PRIVATE_SHARE_B64U,
-            verifyingShare33B64u: VALID_ECDSA_CLIENT_PUBLIC_KEY_B64U,
-          },
-          createdAtMs: Date.now(),
-          updatedAtMs: Date.now(),
-        },
+        ecdsaRoleLocalReadyRecord: makeEmailOtpRoleLocalReadyRecord({
+          walletId: 'alice.testnet',
+          rpId: 'localhost',
+          chainTarget: tempoChainTarget,
+          keyHandle,
+          ecdsaThresholdKeyId: 'ecdsa-key',
+          signingRootId: 'signing-root',
+          signingRootVersion: 'root-v1',
+          ethereumAddress: thresholdOwnerAddress,
+        }),
         clientAdditiveShareHandle: {
           kind: 'email_otp_worker_session',
           sessionId: 'transaction-ecdsa-session',
         },
         participantIds: [1, 2],
         thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
-        verifiedPublicFacts: {
-          kind: 'verified_ecdsa_public_facts',
-          keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-transaction'),
+        verifiedPublicFacts: buildVerifiedEcdsaPublicFacts({
+          keyHandle,
           publicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
           participantIds: [1, 2],
-          thresholdOwnerAddress: '0x'.padEnd(42, 'a'),
-        },
-        ethereumAddress: '0x'.padEnd(42, 'a'),
+          thresholdOwnerAddress,
+        }),
+        ethereumAddress: thresholdOwnerAddress,
         thresholdSessionKind: 'jwt',
         thresholdSessionId: 'transaction-ecdsa-session',
         walletSigningSessionId: 'transaction-wallet-signing-session',

@@ -77,8 +77,8 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
   });
 
   test('authorization bootstrap rejects raw exact-session identity without shared key policy', async () => {
-    const clientRootShare32 = Uint8Array.from(Array.from({ length: 32 }, (_, index) => index + 1));
-    const clientRootShare32B64u = base64UrlEncode(clientRootShare32);
+    const passkeyPrfFirst32 = Uint8Array.from(Array.from({ length: 32 }, (_, index) => index + 1));
+    const passkeyPrfFirstB64u = base64UrlEncode(passkeyPrfFirst32);
     const appSessionJwt = jwtWithPayload({ kind: 'app_session_v1', sub: 'alice.testnet' });
 
     const result = await bootstrapEcdsaSession({
@@ -93,7 +93,9 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
       sessionId: 'ecdsa-session-1',
       walletSigningSessionId: 'wallet-session-1',
       bootstrapAuth: { kind: 'app_session', jwt: appSessionJwt },
-      clientRootShare32B64u,
+      authKind: 'passkey_prf_b64u',
+      passkeyPrfFirstB64u,
+      passkeyCredentialIdB64u: 'credential-id',
       workerCtx: {
         requestWorkerOperation: async () => {
           throw new Error('raw exact-session bootstrap should fail before worker use');
@@ -110,8 +112,8 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
     const requests: string[] = [];
     const bootstrapBodies: Array<Record<string, unknown>> = [];
     const originalFetch = globalThis.fetch;
-    const clientRootShare32 = Uint8Array.from(Array.from({ length: 32 }, (_, index) => index + 1));
-    const clientRootShare32B64u = base64UrlEncode(clientRootShare32);
+    const passkeyPrfFirst32 = Uint8Array.from(Array.from({ length: 32 }, (_, index) => index + 1));
+    const passkeyPrfFirstB64u = base64UrlEncode(passkeyPrfFirst32);
     const appSessionJwt = jwtWithPayload({ kind: 'app_session_v1', sub: 'alice.testnet' });
 
     globalThis.fetch = async (input, init) => {
@@ -151,41 +153,59 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
           environmentId: 'env-test',
           publishableKey: 'pk_test_should_not_be_spent',
         },
-        clientRootShare32B64u,
+        authKind: 'passkey_prf_b64u',
+        passkeyPrfFirstB64u,
+        passkeyCredentialIdB64u: 'credential-id',
         workerCtx: {
           requestWorkerOperation: async ({ kind, request }: any) => {
             if (
               kind === 'hssClient' &&
-              request.type === WorkerRequestType.BuildThresholdEcdsaHssRoleLocalClientBootstrap
+              request.type === WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap
             ) {
-              return {
-                type: WorkerResponseType.BuildThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
-                payload: {
-                  walletId: 'alice.testnet',
+              expect(request.payload).toMatchObject({
+                kind: 'prepare_ecdsa_client_bootstrap_v1',
+                algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
+                secretSource: {
+                  kind: 'webauthn_prf_first',
+                  prfFirstB64u: passkeyPrfFirstB64u,
                   rpId: 'wallet.example.test',
-                  ecdsaThresholdKeyId: TEST_KEY_IDENTITY.ecdsaThresholdKeyId,
-                  signingRootId: TEST_KEY_IDENTITY.signingRootId,
-                  signingRootVersion: TEST_KEY_IDENTITY.signingRootVersion,
-                  keyPurpose: 'evm-signing',
-                  keyVersion: 'v1',
-                  contextBinding32B64u: base64UrlEncode(new Uint8Array(32).fill(7)),
-                  clientShare32B64u: clientRootShare32B64u,
-                  clientPublicKey33B64u: base64UrlEncode(
-                    Uint8Array.from([2, ...Array.from({ length: 32 }, () => 8)]),
-                  ),
-                  mappedPrivateShare32B64u: clientRootShare32B64u,
-                  verifyingShare33B64u: base64UrlEncode(
-                    Uint8Array.from([2, ...Array.from({ length: 32 }, () => 9)]),
-                  ),
-                  clientShareRetryCounter: 0,
+                },
+              });
+              return {
+                type: WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
+                payload: {
+                  pendingStateBlob: {
+                    kind: 'ecdsa_role_local_pending_state_blob_v1',
+                    curve: 'secp256k1',
+                    encoding: 'base64url',
+                    producer: 'signer_core',
+                    stateBlobB64u: base64UrlEncode(new Uint8Array(96).fill(6)),
+                  },
+                  clientBootstrap: {
+                    contextBinding32B64u: base64UrlEncode(new Uint8Array(32).fill(7)),
+                    hssClientSharePublicKey33B64u: base64UrlEncode(
+                      Uint8Array.from([2, ...Array.from({ length: 32 }, () => 8)]),
+                    ),
+                    clientShareRetryCounter: 0,
+                    participantId: 1,
+                  },
+                  publicFacts: {
+                    hssClientSharePublicKey33B64u: base64UrlEncode(
+                      Uint8Array.from([2, ...Array.from({ length: 32 }, () => 8)]),
+                    ),
+                    clientVerifyingShareB64u: base64UrlEncode(
+                      Uint8Array.from([2, ...Array.from({ length: 32 }, () => 8)]),
+                    ),
+                  },
                 },
               };
             }
-            if (kind === 'ethSigner' && request.type === 'signSecp256k1Recoverable') {
-              return new Uint8Array(65).fill(10).buffer;
-            }
             if (kind === 'ethSigner' && request.type === 'secp256k1PrivateKey32ToPublicKey33') {
-              return Uint8Array.from([2, ...Array.from({ length: 32 }, () => 11)]).buffer;
+              const publicKey33 = Uint8Array.from([2, ...Array.from({ length: 32 }, () => 9)]);
+              return publicKey33.buffer;
+            }
+            if (kind === 'ethSigner' && request.type === 'signSecp256k1Recoverable') {
+              return new Uint8Array(65).fill(11).buffer;
             }
             throw new Error(`unexpected worker request ${kind}:${String(request.type)}`);
           },
@@ -196,9 +216,6 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
       expect(bootstrapBodies).toHaveLength(1);
       expect(bootstrapBodies[0]?.clientRootProof).toMatchObject({
         version: 'ecdsa-hss:role-local:first-bootstrap-root-proof:v2',
-        clientRootPublicKey33B64u: base64UrlEncode(
-          Uint8Array.from([2, ...Array.from({ length: 32 }, () => 11)]),
-        ),
       });
       expect(bootstrapBodies[0]?.passkeyBootstrapAuthorization).toBeUndefined();
     } finally {
