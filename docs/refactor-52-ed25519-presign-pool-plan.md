@@ -1,6 +1,6 @@
 # Ed25519 Presign Pool and One-RTT Dispatch Plan
 
-Date updated: May 24, 2026
+Date updated: June 1, 2026
 
 ## Goal
 
@@ -38,13 +38,27 @@ intentional depleted-pool fallback.
   `mpcSessionId`.
 - **Budget consume point:** final one-RTT sign route, because it is the first
   digest-specific operation in the presign path.
+- **Budget idempotency:** finalize consumes budget exactly once per canonical
+  signing operation. The consume key is derived from the operation id,
+  operation fingerprint, wallet signing session, and digest.
 - **Presign refill:** SDK-triggered after login/unlock/session warmup and after
   successful signing.
 - **Nonce ownership:** client nonce secrets remain client-worker-local; relayer
   nonce secrets remain server-side.
+- **Client presign durability:** presigns are in-memory worker state only. A
+  page reload, worker restart, logout, account switch, threshold-session change,
+  or wallet-signing-session change burns local entries and leaves any matching
+  server entries to TTL cleanup.
 - **Server dispatch:** NEAR transaction signing uses finalize-and-dispatch by
-  default. Signature-only finalize remains available for non-transaction flows
-  such as NEP-413 and delegate signing.
+  default after the server parses and validates the unsigned transaction against
+  the authenticated session, expected signer account, expected access key,
+  network/RPC policy, relayer key, digest, and presign scope. Signature-only
+  finalize remains available for non-transaction flows such as NEP-413 and
+  delegate signing.
+- **Contract ownership:** new request, response, record, and worker-message
+  shapes must use the existing boundary-parser/generated-schema pattern. Manual
+  TypeScript sketches in this plan are contract intent, not implementation
+  shortcuts.
 - **Route cleanup:** keep `/threshold-ed25519/sign/init` and
   `/threshold-ed25519/sign/finalize` as the depleted-pool fallback. Remove only
   temporary migration shims, duplicate helper code, and experimental branches.
@@ -115,16 +129,22 @@ User signing:
 RTT 1: POST /threshold-ed25519/sign/finalize-and-dispatch
   client -> server:
     threshold-session auth
+    operation id and canonical operation fingerprint
     presignId
     relayerKeyId
     nearAccountId
+    nearNetworkId
+    expected signer public key
     unsigned transaction bytes or digest-only request
     client signature share
 
   server:
-    validates auth and budget
-    recomputes digest from unsigned transaction bytes when dispatching
+    validates auth and budget availability
+    validates the operation fingerprint
+    parses unsigned transaction bytes when dispatching
+    validates signer account, access key, network/RPC policy, and digest
     atomically consumes presignId
+    consumes budget exactly once
     computes relayer signature share
     aggregates final Ed25519 signature
     verifies final signature
@@ -160,6 +180,12 @@ The new implementation should refactor shared logic rather than duplicate it:
 
 ## Route Contracts
 
+The TypeScript shapes below describe the intended wire contract. Implementation
+must parse and normalize them at the request/worker boundary into branded or
+otherwise narrow internal domain types for account ids, public keys, digests,
+operation ids, fingerprints, relayer keys, and network/RPC policy ids. Core
+logic should not accept these raw strings directly.
+
 ### Auth Rules
 
 `/threshold-ed25519/presign/refill`:
@@ -173,8 +199,10 @@ The new implementation should refactor shared logic rather than duplicate it:
 
 - route class: threshold-session route
 - auth: existing threshold-session JWT bearer or cookie auth
-- budget: consumes one signing use after request validation and before returning
-  a final signature or dispatching
+- budget: consumes one signing use exactly once after request validation and
+  before returning a final signature or dispatching. The idempotency key is the
+  tuple `(operationId, operationFingerprint, walletSigningSessionId,
+  signingDigestB64u)`.
 - purpose: complete one message-dependent signature from one presign
 
 `/threshold-ed25519/sign/init` and `/threshold-ed25519/sign/finalize`:
@@ -192,6 +220,8 @@ type ThresholdEd25519PresignRefillRequest = {
   kind: 'threshold_ed25519_presign_refill_v1';
   relayerKeyId: string;
   nearAccountId: string;
+  nearNetworkId: string;
+  expectedSignerPublicKey: string;
   participantIds: readonly number[];
   clientPresigns: readonly ThresholdEd25519ClientPresignOffer[];
   requestTag: 'background_presign_pool_refill' | 'foreground_presign_pool_refill';
@@ -230,6 +260,8 @@ type ThresholdEd25519PresignPair = {
   clientPresignId: string;
   relayerCommitments: ThresholdEd25519Commitments;
   relayerVerifyingShareB64u: string;
+  signerPublicKey: string;
+  nearNetworkId: string;
   participantIds: readonly number[];
   expiresAtMs: number;
 };
@@ -249,8 +281,11 @@ Server behavior:
 
 - parse and normalize the request at the route boundary
 - validate threshold-session auth
-- verify `nearAccountId`, `relayerKeyId`, participant ids, wallet signing
-  session, RP/runtime scope, and active key scope
+- verify `nearAccountId`, `nearNetworkId`, `expectedSignerPublicKey`,
+  `relayerKeyId`, participant ids, wallet signing session, RP/runtime scope,
+  and active key scope against the authenticated threshold session
+- enforce per-wallet-signing-session and global outstanding-presign caps before
+  accepting offers
 - cap accepted count, initially `1..8`
 - for each accepted client offer:
   - create relayer nonces and commitments with the existing
@@ -276,20 +311,33 @@ type ThresholdEd25519FinalizeAndDispatchRequest =
   | ThresholdEd25519FinalizeSignatureOnlyRequest
   | ThresholdEd25519FinalizeAndDispatchNearTxRequest;
 
+type ThresholdEd25519SigningOperation = {
+  kind: 'threshold_ed25519_signing_operation_v1';
+  operationId: string;
+  operationFingerprint: string;
+  purpose: 'near_transaction' | 'nep413_message' | 'delegate_action';
+};
+
 type ThresholdEd25519FinalizeSignatureOnlyRequest = {
   kind: 'threshold_ed25519_finalize_signature_only_v1';
+  operation: ThresholdEd25519SigningOperation;
   presignId: string;
   relayerKeyId: string;
   nearAccountId: string;
+  nearNetworkId: string;
+  expectedSignerPublicKey: string;
   signingDigestB64u: string;
   clientSignatureShareB64u: string;
 };
 
 type ThresholdEd25519FinalizeAndDispatchNearTxRequest = {
   kind: 'threshold_ed25519_finalize_and_dispatch_near_tx_v1';
+  operation: ThresholdEd25519SigningOperation;
   presignId: string;
   relayerKeyId: string;
   nearAccountId: string;
+  nearNetworkId: string;
+  expectedSignerPublicKey: string;
   unsignedTransactionBorshB64u: string;
   signingDigestB64u: string;
   clientSignatureShareB64u: string;
@@ -306,12 +354,18 @@ type ThresholdEd25519FinalizeAndDispatchResponse =
   | {
       ok: true;
       kind: 'threshold_ed25519_signature_only_result_v1';
+      operationId: string;
+      budgetState: 'consumed' | 'already_consumed';
+      remainingSigningUses: number;
       signatureB64u: string;
       signerPublicKey: string;
     }
   | {
       ok: true;
       kind: 'threshold_ed25519_dispatched_near_tx_result_v1';
+      operationId: string;
+      budgetState: 'consumed' | 'already_consumed';
+      remainingSigningUses: number;
       signatureB64u: string;
       signerPublicKey: string;
       signedTransactionBorshB64u: string;
@@ -320,8 +374,20 @@ type ThresholdEd25519FinalizeAndDispatchResponse =
     }
   | {
       ok: false;
+      kind: 'threshold_ed25519_finalize_rejected_without_operation_v1';
+      code: 'invalid_body' | 'unauthorized' | 'internal';
+      message: string;
+      budgetState: 'not_consumed';
+      presignConsumed: false;
+      dispatchState: 'not_attempted';
+    }
+  | {
+      ok: false;
+      kind: 'threshold_ed25519_finalize_rejected_for_operation_v1';
       code: ThresholdEd25519FinalizeAndDispatchErrorCode;
       message: string;
+      operationId: string;
+      budgetState: 'not_consumed' | 'consumed' | 'already_consumed';
       presignConsumed: boolean;
       dispatchState: 'not_attempted' | 'attempted' | 'unknown';
     };
@@ -332,10 +398,16 @@ type ThresholdEd25519FinalizeAndDispatchErrorCode =
   | 'forbidden'
   | 'expired'
   | 'wrong_scope'
+  | 'operation_fingerprint_mismatch'
+  | 'budget_exhausted'
+  | 'budget_operation_conflict'
   | 'presign_unavailable'
   | 'presign_expired'
   | 'presign_consumed'
   | 'digest_mismatch'
+  | 'transaction_scope_mismatch'
+  | 'transaction_signer_key_mismatch'
+  | 'transaction_network_mismatch'
   | 'invalid_signature_share'
   | 'signature_verification_failed'
   | 'dispatch_failed'
@@ -344,12 +416,25 @@ type ThresholdEd25519FinalizeAndDispatchErrorCode =
 
 Server behavior:
 
-- validate threshold-session auth and signing budget
-- validate account, relayer key, participant ids, session scope, and runtime
-  scope against the presign record
-- for NEAR dispatch mode, recompute the canonical signing digest from
-  `unsignedTransactionBorshB64u` and compare it to `signingDigestB64u`
-- atomically consume `presignId`
+- parse and normalize the request at the route boundary
+- validate threshold-session auth and signing budget availability
+- validate the operation id and canonical operation fingerprint against the
+  request kind, digest, signer account, network id, relayer key, and transaction
+  bytes or signature-only payload
+- check the operation budget idempotency state before presign consume. If the
+  operation was already consumed and no durable cached result can be returned,
+  return `budget_operation_conflict` without consuming another presign.
+- validate account, network id, expected signer public key, relayer key,
+  participant ids, session scope, wallet signing session, and runtime scope
+  against the presign record
+- for NEAR dispatch mode, parse `unsignedTransactionBorshB64u`, validate signer
+  account, receiver/action policy, signer access key/public key, nonce/network
+  expectations, configured RPC policy, and recompute the canonical signing
+  digest before comparing it to `signingDigestB64u`
+- atomically consume `presignId` only when the stored presign scope matches the
+  authenticated request scope
+- consume the signing budget with an exactly-once operation key after presign
+  consume and before producing relayer signature material
 - compute relayer signature share from stored relayer nonces and stored
   commitments
 - aggregate the client and relayer shares into a final Ed25519 signature
@@ -358,9 +443,38 @@ Server behavior:
   configured server NEAR RPC target
 - return the final signature plus dispatch result
 
+Finalize outcome rules:
+
+- invalid body, auth failure, wrong scope, operation fingerprint mismatch,
+  digest mismatch, transaction-scope mismatch, duplicate consumed operation
+  without cached result, and presign unavailable return before budget consume
+  and before presign consume
+- budget exhaustion or budget operation conflict after presign consume returns
+  `budgetState: 'not_consumed'`, `presignConsumed: true`, and
+  `dispatchState: 'not_attempted'`
+- invalid client signature share after presign consume returns
+  `budgetState: 'consumed'`, `presignConsumed: true`, and
+  `dispatchState: 'not_attempted'`
+- final signature success with signature-only mode returns
+  `budgetState: 'consumed'`, `presignConsumed: true`, and remaining budget
+- dispatch success returns the final signature, signed transaction bytes,
+  transaction hash, RPC result, and remaining budget
+- dispatch failure after a signed transaction is built returns
+  `budgetState: 'consumed'`, `presignConsumed: true`, and
+  `dispatchState: 'attempted'`
+- ambiguous network failures after dispatch submission return
+  `budgetState: 'consumed'`, `presignConsumed: true`, and
+  `dispatchState: 'unknown'`
+- duplicate operation retries never decrement budget twice. They may return a
+  cached prior result when a durable result exists; otherwise they return
+  `budget_operation_conflict` with `budgetState: 'already_consumed'`, the
+  original operation id, and no automatic re-dispatch.
+
 Client behavior:
 
 - reserve a ready local presign entry before computing a client signature share
+- include a stable operation id and operation fingerprint generated by the
+  signing request owner before choosing presign or fallback
 - build the signing package from stored client commitments, relayer commitments,
   participant ids, and digest
 - compute `clientSignatureShareB64u`
@@ -391,6 +505,8 @@ type Ed25519ClientPresignEntry =
       clientCommitments: ThresholdEd25519Commitments;
       relayerCommitments: ThresholdEd25519Commitments;
       relayerVerifyingShareB64u: string;
+      nearNetworkId: string;
+      signerPublicKey: string;
       participantIds: readonly number[];
       expiresAtMs: number;
     }
@@ -423,7 +539,11 @@ type Ed25519PresignRefillState =
 ```
 
 The TypeScript pool tracks lifecycle and worker handles. The actual client nonce
-secrets stay inside the near signer worker.
+secrets stay inside the near signer worker. The pool is in-memory only. Worker
+restart, page reload, logout, account switch, threshold-session change, wallet
+signing session change, relayer key change, participant change, or base/share
+change clears the pool and burns local handles. Server-side presign records
+whose client handles are lost expire through TTL cleanup.
 
 ### Server Presign Record
 
@@ -435,8 +555,12 @@ type ThresholdEd25519PresignRecord = {
   walletSigningSessionId: string;
   relayerKeyId: string;
   nearAccountId: string;
+  nearNetworkId: string;
+  signerPublicKey: string;
+  rpcPolicyId: string;
   rpId: string;
-  runtimePolicyScope: ThresholdRuntimePolicyScope | null;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  protocolVersion: 'ed25519_frost_2p_presign_v1';
   participantIds: readonly number[];
   groupPublicKey: string;
   clientCommitments: ThresholdEd25519Commitments;
@@ -449,16 +573,21 @@ type ThresholdEd25519PresignRecord = {
 Storage rules:
 
 - `putPresign(id, record, ttlMs)` stores one presign record
-- `takePresign(id)` is atomic get-and-delete
+- `takePresignForFinalize(id, expectedScope)` atomically validates the stored
+  scope and deletes the record only on an exact scope match
 - TTL default is 120 seconds
 - expired entries are unusable and may be garbage-collected lazily
 - duplicate consume returns `presign_unavailable` or `presign_consumed`
+- wrong-scope attempts do not consume the presign or signing budget
 - logs may include `presignId` prefixes or hashes, never nonce material or
   signature shares
 
 ## Fallback Policy
 
 Fallback is chosen before a client signature share for a presign is sent.
+The signing request owner must create one stable operation id and canonical
+operation fingerprint before this decision. Both one-RTT presign signing and
+two-RTT fallback use the same operation identity.
 
 ```text
 if ready presign entry exists:
@@ -477,25 +606,32 @@ Automatic fallback after sending a presigned client signature share is limited:
   ambiguous signing result and avoid automatic re-dispatch
 - if the server explicitly returns `presign_unavailable` before consume with
   `dispatchState: 'not_attempted'`, the SDK may retry with a fresh two-RTT
-  signature only when the caller's signing operation idempotency policy permits
-  it
+  signature only when the operation fingerprint is unchanged and the caller's
+  signing operation idempotency policy permits it
+- if the server returns `budget_operation_conflict`, `dispatchState:
+  'attempted'`, or `dispatchState: 'unknown'`, the SDK surfaces the result to
+  the caller and does not retry automatically
 
 This avoids accidental duplicate transaction dispatch after network failures.
 
 ## Security Invariants
 
 - FROST nonces are single-use.
-- A presign entry binds one account, one threshold session, one wallet signing
-  session, one relayer key, one participant set, one RP/runtime scope, and one
+- A presign entry binds one account, one NEAR network, one expected signer
+  public key, one threshold session, one wallet signing session, one relayer
+  key, one participant set, one RP/runtime scope, one RPC policy, and one group
   public key.
 - `presignId` is unguessable and server-generated.
+- Finalize binds one operation id and one canonical operation fingerprint to one
+  digest and one presign consume.
 - Client nonce secrets never leave the near signer worker.
 - Server nonce secrets never leave the server-side signing service.
 - Finalize burns server presign state atomically before relayer share output can
   be reused.
 - The client burns local nonce state once a presigned finalize request is sent.
-- Dispatch mode recomputes the NEAR signing digest from unsigned transaction
-  bytes.
+- Dispatch mode parses the unsigned NEAR transaction, validates signer account,
+  signer access key, network/RPC policy, and allowed transaction scope, then
+  recomputes the NEAR signing digest from unsigned transaction bytes.
 - The server verifies the final Ed25519 signature before returning or
   dispatching.
 - Metrics and logs never include nonce secrets, signing shares, raw client share
@@ -548,11 +684,23 @@ This avoids accidental duplicate transaction dispatch after network failures.
   - add error-code unions
 - `server/src/core/ThresholdService/stores/SessionStore.ts`
   - add `ThresholdEd25519PresignRecord`
-  - add `putPresign` and `takePresign`
+  - add `putPresign` and `takePresignForFinalize`
   - implement the presign methods for the existing Ed25519 in-memory,
     Redis/Upstash REST, Postgres, and Cloudflare Durable Object store variants
+- `server/src/core/ThresholdService/stores/AuthSessionStore.ts`
+  - reuse or extend `consumeUseCountOnce` so finalize-and-dispatch can consume
+    signing budget exactly once per operation fingerprint
+- `server/src/core/ThresholdService/walletSigningBudget.ts`
+  - add the budget projection returned by finalize success and budget-related
+    failures
 - `server/src/core/ThresholdService/validation.ts`
   - parse and validate presign records and route requests
+  - parse operation id/fingerprint, NEAR network id, signer public key, and
+    dispatch policy into narrow internal types
+- `server/src/core/ThresholdService/nearTransactionDispatch.ts`
+  - new or existing-owner helper for unsigned NEAR transaction parsing, signer
+    account/key validation, digest recomputation, signed transaction encoding,
+    RPC dispatch, and dispatch outcome classification
 - `server/src/core/ThresholdService/postgresRecords.ts`
   - add current-shape parser for persisted presign records in the shared
     Ed25519 session table
@@ -572,8 +720,8 @@ This avoids accidental duplicate transaction dispatch after network failures.
 - `server/src/router/cloudflare/routes/thresholdEd25519.ts`
   - add Cloudflare routes
 - `server/src/router/cloudflare/durableObjects/thresholdStore.ts`
-  - add atomic `takePresign` support for Durable Object-backed Ed25519 session
-    storage
+  - add atomic `takePresignForFinalize` support for Durable Object-backed
+    Ed25519 session storage
 
 ### Client TypeScript
 
@@ -588,6 +736,12 @@ This avoids accidental duplicate transaction dispatch after network failures.
     scheduling, and fallback decisions
   - calls the near signer worker to refill/status/clear the Rust-owned pool
   - does not store nonce secrets
+- `client/src/core/signingEngine/session/planning/operationFingerprint.ts`
+  - ensure NEAR transaction, NEP-413, and delegate signing fingerprints can be
+    reused by presign finalize and depleted-pool fallback
+- `client/src/core/signingEngine/session/planning/operationIdBinding.ts`
+  - keep caller-provided operation ids bound to one fingerprint across presign
+    and fallback attempts
 - `client/src/core/signingEngine/flows/signNear/signTransactions.ts`
   - schedule presign refill after warm session readiness
   - choose one-RTT path on pool hit
@@ -619,6 +773,11 @@ This avoids accidental duplicate transaction dispatch after network failures.
     fallback
 - `tests/unit/thresholdEd25519.presignPool.unit.test.ts`
   - new pool lifecycle/type tests
+- `tests/unit/thresholdEd25519.presignStore.unit.test.ts`
+  - atomic consume, wrong-scope non-consume, TTL, and concurrent finalize tests
+- `tests/unit/thresholdEd25519.finalizeAndDispatch.unit.test.ts`
+  - operation fingerprint, budget exactly-once, dispatch-state, and retry
+    outcome tests
 - `tests/unit/signingEngine.*.guard.unit.test.ts`
   - type/static guard updates for new domain state
 - `docs/auth-gating-routes.md`
@@ -633,9 +792,15 @@ This avoids accidental duplicate transaction dispatch after network failures.
 ### Phase 0: Baseline And Static Contracts
 
 - Capture current warm Ed25519 signing route count and latency.
-- Add request/response/domain type sketches in `server/src/core/types.ts` and
-  client type fixtures.
+- Add request/response/domain type sketches and boundary parsers for route
+  bodies, worker messages, presign records, operation identity, dispatch
+  requests, and budget projections.
+- Reuse existing signing-operation id/fingerprint types for presign and
+  fallback paths.
 - Add static tests that reject invalid presign lifecycle branches.
+- Add static tests that reject missing operation fingerprint, missing signer
+  public key, nullable runtime scope, invalid dispatch-state combinations, and
+  direct raw-shape construction in core helpers.
 
 Validation:
 
@@ -661,23 +826,47 @@ Validation:
 ### Phase 2: Server Presign Store
 
 - Add `ThresholdEd25519PresignRecord`.
-- Add `putPresign` and atomic `takePresign`.
+- Add `putPresign` and atomic `takePresignForFinalize`.
 - Implement storage variants used by local tests and Cloudflare/serverless
   deployments.
-- Add race tests for double consume.
+- Enforce per-wallet-signing-session and global outstanding-presign caps.
+- Add race tests for double consume, wrong-scope non-consume, TTL expiry,
+  refill-cap enforcement, and concurrent finalize pressure.
 
 Validation:
 
 - store unit tests
 - route tests still pass with existing signing path
 
-### Phase 3: Presign Refill Route
+### Phase 3: Signature-Only Finalize Route
+
+- Add the boundary parser and service method for signature-only one-RTT
+  finalize.
+- Seed presign records directly in tests instead of depending on the refill
+  route.
+- Validate operation id/fingerprint, auth scope, presign scope, digest, signer
+  public key, participant ids, relayer key, wallet signing session, and runtime
+  policy before signature output.
+- Consume presign and budget in the specified order.
+- Aggregate and verify the final Ed25519 signature on the server.
+- Return budget projection and explicit dispatch state.
+
+Validation:
+
+- signature-only route success
+- operation fingerprint mismatch rejects
+- digest mismatch rejects
+- wrong scope rejects without presign or budget consume
+- replay/double consume rejects
+- budget exactly-once and budget conflict tests
+- invalid signature share burns consumed presign and does not dispatch
+
+### Phase 4: Presign Refill Route
 
 - Add route definitions and Express/Cloudflare handlers.
 - Add service method that validates threshold-session auth, creates relayer
   commitments, stores presigns, and returns accepted pairs.
-- Add client/worker refill call that produces client offers and marks accepted
-  entries ready.
+- Reuse the same relayer presign creation helper used by two-RTT sign init.
 
 Validation:
 
@@ -685,8 +874,9 @@ Validation:
 - wrong account/session/relayer/participant tests
 - malformed commitments test
 - no budget decrement on refill
+- capacity and per-session cap tests
 
-### Phase 4: Client Presign Pool
+### Phase 5: Client Presign Pool And Fallback Selector
 
 - Implement pool depth policy:
   - default `targetDepth = 2`
@@ -699,9 +889,15 @@ Validation:
   - relayer key change
   - participant id change
   - client base/share change
+- Implement worker-local in-memory durability rules:
+  - clear on worker restart or page reload
+  - clear on logout or account switch
+  - clear on threshold-session or wallet-signing-session change
 - Implement fallback selector:
   - pool hit -> one-RTT
   - pool miss -> schedule refill and use two-RTT
+- Keep one stable operation id and fingerprint across presign and fallback
+  attempts.
 
 Validation:
 
@@ -709,26 +905,19 @@ Validation:
 - stale generation tests
 - concurrent refill suppression tests
 - local nonce burn/zeroization tests
+- operation id/fingerprint binding tests
 
-### Phase 5: Finalize-And-Dispatch Route
+### Phase 6: NEAR Finalize-And-Dispatch And Default Signing Path
 
 - Add route definitions and Express/Cloudflare handlers.
-- Add service method that consumes presign, computes relayer share, aggregates,
-  verifies, and dispatches.
-- Add digest recomputation from unsigned NEAR transaction bytes.
-- Add signature-only branch for non-dispatch signing flows.
-
-Validation:
-
-- signature-only route success
-- dispatch route success
-- digest mismatch rejects
-- wrong scope rejects
-- replay/double consume rejects
-- ambiguous dispatch state is represented in the response
-
-### Phase 6: Switch Default Signing Behavior
-
+- Add service method that parses and validates unsigned NEAR transaction bytes,
+  consumes presign and budget, computes relayer share, aggregates, verifies,
+  signs, and dispatches.
+- Validate signer account, expected signer public key/access key, network id,
+  configured RPC policy, nonce expectations, relayer key, operation fingerprint,
+  and digest.
+- Wire the Phase 3 signature-only branch into NEP-413 and delegate signing
+  flows when a ready presign entry exists.
 - Update warm Ed25519 transaction signing:
   - attempt one-RTT finalize-and-dispatch when a ready presign entry exists
   - fallback to current two-RTT sign path when the pool is depleted/refilling
@@ -743,25 +932,30 @@ Validation:
 
 Validation:
 
+- dispatch route success
+- transaction signer/account/key/network mismatch rejects
+- ambiguous dispatch state is represented in the response
 - active-path tests
 - warm-session login/unlock tests
 - Email OTP warm-session tests
 - transaction signing tests with pool hit and pool miss
 
-### Phase 7: Cleanup And Hardening
+### Phase 7: Cleanup, Hardening, And Benchmarks
 
 - Remove temporary duplicate helper paths introduced during implementation.
 - Keep the two-RTT routes as the depleted-pool fallback.
 - Share helper code between presign refill and two-RTT sign init.
 - Share helper code between finalize-and-dispatch and two-RTT sign finalize.
 - Update docs and benchmark tables.
-- Add load tests for concurrent consumes and refill pressure.
+- Add load tests for end-to-end pool hit/miss/refill behavior and serverless
+  double-consume pressure.
 
 Validation:
 
 - `pnpm -C tests test:threshold-ed25519:active-path`
 - targeted route/unit tests
 - load-test scenario for pool hit/miss/refill
+- benchmark comparison against the Phase 0 baseline
 
 ## Benchmark Plan
 
@@ -774,6 +968,9 @@ Measure these scenarios before and after:
 - concurrent sign attempts with one ready presign
 - expired presign cleanup
 - cross-worker/serverless double-consume race
+- duplicate operation retry with the same fingerprint
+- duplicate operation id with a different fingerprint
+- server dispatch failure and ambiguous RPC result classification
 
 Metrics:
 
@@ -784,7 +981,9 @@ Metrics:
 - pool hit ratio
 - pool miss fallback latency
 - presign consume replay failures
+- budget exactly-once replay outcomes
 - dispatch success/failure latency
+- ambiguous dispatch count
 
 Expected result:
 
@@ -795,15 +994,19 @@ Expected result:
 
 ## Todo
 
-- [ ] Add static request/response and lifecycle type fixtures.
+- [ ] Add boundary parsers and static fixtures for request/response, lifecycle,
+      operation identity, dispatch state, and presign records.
 - [ ] Add Rust server-side Ed25519 aggregate/finalize helper.
-- [ ] Add server presign record and atomic store methods.
+- [ ] Add server presign record, cap policy, and atomic
+      `takePresignForFinalize` store methods.
+- [ ] Add signature-only `/threshold-ed25519/sign/finalize-and-dispatch`.
+- [ ] Add finalize budget exactly-once and retry outcome tests.
 - [ ] Add `/threshold-ed25519/presign/refill`.
 - [ ] Add worker-local client nonce handle pool.
 - [ ] Add TypeScript Ed25519 presign pool lifecycle module.
-- [ ] Add `/threshold-ed25519/sign/finalize-and-dispatch`.
+- [ ] Add NEAR transaction parser/validator/dispatcher for server dispatch.
 - [ ] Switch transaction signing default to one-RTT pool-hit path.
 - [ ] Keep two-RTT signing as depleted-pool fallback.
 - [ ] Add pool hit/miss/refill metrics.
-- [ ] Add benchmarks and load tests.
+- [ ] Add concurrency, retry, dispatch-state, benchmark, and load tests.
 - [ ] Update route auth and SDK docs.
