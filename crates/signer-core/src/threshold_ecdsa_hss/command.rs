@@ -2,13 +2,19 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::error::{CoreResult, SignerCoreError};
 use ecdsa_hss::{
-    compose_public_identity_from_public_keys, derive_client_share, ClientRoleShare, EcdsaHssError,
-    EcdsaHssErrorCode, EcdsaHssStableKeyContext,
+    compose_public_identity_from_public_keys, derive_client_share, encode_context,
+    reconstruct_export_key, ClientRoleShare, EcdsaHssError, EcdsaHssErrorCode,
+    EcdsaHssStableKeyContext,
 };
+use hkdf::Hkdf;
+use sha2::Sha256;
 
 const PENDING_BLOB_MAGIC: &[u8; 8] = b"EHSSP1\0\0";
 const READY_BLOB_MAGIC: &[u8; 8] = b"EHSSR1\0\0";
 const ECDSA_HSS_CLIENT_PARTICIPANT_ID: u32 = 1;
+const PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_INFO_V1: &[u8] =
+    b"seams/passkey/threshold-ecdsa-client-root/v1";
+const PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_SALT_V1: [u8; 32] = [0u8; 32];
 
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct EcdsaRoleLocalPendingStateBlob {
@@ -83,6 +89,31 @@ pub struct FinalizeEcdsaClientBootstrapOutput {
 }
 
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+pub struct EcdsaRoleLocalExportPublicFacts {
+    #[zeroize(skip)]
+    pub context: EcdsaHssStableKeyContext,
+    pub context_binding32: [u8; 32],
+    pub hss_client_share_public_key33: [u8; 33],
+    pub relayer_public_key33: [u8; 33],
+    pub group_public_key33: [u8; 33],
+    pub ethereum_address20: [u8; 20],
+}
+
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+pub struct BuildEcdsaRoleLocalExportArtifactCommand {
+    pub ready_state_blob: EcdsaRoleLocalReadyStateBlob,
+    pub public_facts: EcdsaRoleLocalExportPublicFacts,
+    pub server_export_share32: [u8; 32],
+}
+
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+pub struct BuildEcdsaRoleLocalExportArtifactOutput {
+    pub public_key33: [u8; 33],
+    pub private_key32: [u8; 32],
+    pub ethereum_address20: [u8; 20],
+}
+
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 struct PendingState {
     #[zeroize(skip)]
     context: EcdsaHssStableKeyContext,
@@ -93,12 +124,30 @@ struct PendingState {
     mapped_client_share32: [u8; 32],
 }
 
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+struct ReadyState {
+    #[zeroize(skip)]
+    context: EcdsaHssStableKeyContext,
+    #[zeroize(skip)]
+    relayer_key_id: String,
+    context_binding32: [u8; 32],
+    client_share_retry_counter: u32,
+    x_client32: [u8; 32],
+    hss_client_share_public_key33: [u8; 33],
+    mapped_client_share32: [u8; 32],
+    relayer_share_retry_counter: u32,
+    relayer_public_key33: [u8; 33],
+    group_public_key33: [u8; 33],
+    ethereum_address20: [u8; 20],
+}
+
 pub fn prepare_ecdsa_client_bootstrap(
-    input: PrepareEcdsaClientBootstrapCommand,
+    mut input: PrepareEcdsaClientBootstrapCommand,
 ) -> CoreResult<PrepareEcdsaClientBootstrapOutput> {
     input.context.validate().map_err(map_ecdsa_hss_error)?;
-    let client_share = derive_client_share(&input.context, input.client_root_share32)
-        .map_err(map_ecdsa_hss_error)?;
+    let client_share_result = derive_client_share(&input.context, input.client_root_share32);
+    input.client_root_share32.zeroize();
+    let client_share = client_share_result.map_err(map_ecdsa_hss_error)?;
     let pending_state = pending_state_from_client_share(input.context, &client_share);
     let pending_state_blob = EcdsaRoleLocalPendingStateBlob {
         state_blob: serialize_pending_state(&pending_state)?,
@@ -121,6 +170,21 @@ pub fn prepare_ecdsa_client_bootstrap(
         client_bootstrap,
         public_facts,
     })
+}
+
+pub fn derive_passkey_threshold_ecdsa_client_root_share32_from_prf_first(
+    prf_first32: &[u8; 32],
+) -> CoreResult<[u8; 32]> {
+    let hkdf = Hkdf::<Sha256>::new(
+        Some(&PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_SALT_V1),
+        prf_first32,
+    );
+    let mut out = [0u8; 32];
+    hkdf.expand(PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_INFO_V1, &mut out)
+        .map_err(|_| {
+            SignerCoreError::hkdf_error("failed to derive passkey threshold ECDSA client root")
+        })?;
+    Ok(out)
 }
 
 pub fn finalize_ecdsa_client_bootstrap(
@@ -176,6 +240,62 @@ pub fn finalize_ecdsa_client_bootstrap(
     Ok(FinalizeEcdsaClientBootstrapOutput {
         ready_state_blob,
         public_facts,
+    })
+}
+
+pub fn extract_client_signing_share32_from_ready_state_blob(
+    ready_state_blob: &EcdsaRoleLocalReadyStateBlob,
+) -> CoreResult<[u8; 32]> {
+    Ok(parse_ready_state(&ready_state_blob.state_blob)?.x_client32)
+}
+
+pub fn build_ecdsa_role_local_export_artifact(
+    mut input: BuildEcdsaRoleLocalExportArtifactCommand,
+) -> CoreResult<BuildEcdsaRoleLocalExportArtifactOutput> {
+    let ready_state = parse_ready_state(&input.ready_state_blob.state_blob)?;
+    validate_ready_state_against_export_public_facts(&ready_state, &input.public_facts)?;
+
+    let identity = compose_public_identity_from_public_keys(
+        &ready_state.context,
+        &ready_state.hss_client_share_public_key33,
+        ready_state.client_share_retry_counter,
+        &ready_state.relayer_public_key33,
+        ready_state.relayer_share_retry_counter,
+    )
+    .map_err(map_ecdsa_hss_error)?;
+    if identity.context_binding32 != ready_state.context_binding32 {
+        return Err(SignerCoreError::invalid_input(
+            "ready state context binding does not match encoded context",
+        ));
+    }
+    if identity.threshold_public_key33 != ready_state.group_public_key33 {
+        return Err(SignerCoreError::invalid_input(
+            "ready state group public key does not match client and relayer keys",
+        ));
+    }
+    if identity.threshold_ethereum_address20 != ready_state.ethereum_address20 {
+        return Err(SignerCoreError::invalid_input(
+            "ready state ethereum address does not match group public key",
+        ));
+    }
+
+    let client_share = ClientRoleShare {
+        context_bytes: encode_context(&ready_state.context).map_err(map_ecdsa_hss_error)?,
+        context_binding32: ready_state.context_binding32,
+        retry_counter: ready_state.client_share_retry_counter,
+        x_client32: ready_state.x_client32,
+        client_public_key33: ready_state.hss_client_share_public_key33,
+        mapped_client_share32: ready_state.mapped_client_share32,
+    };
+    let private_key32_result =
+        reconstruct_export_key(&client_share, &input.server_export_share32, &identity);
+    input.server_export_share32.zeroize();
+    let private_key32 = private_key32_result.map_err(map_ecdsa_hss_error)?;
+
+    Ok(BuildEcdsaRoleLocalExportArtifactOutput {
+        public_key33: identity.threshold_public_key33,
+        private_key32,
+        ethereum_address20: identity.threshold_ethereum_address20,
     })
 }
 
@@ -245,6 +365,75 @@ fn parse_pending_state(bytes: &[u8]) -> CoreResult<PendingState> {
         hss_client_share_public_key33,
         mapped_client_share32,
     })
+}
+
+fn parse_ready_state(bytes: &[u8]) -> CoreResult<ReadyState> {
+    let mut cursor = BlobCursor::new(bytes);
+    cursor.expect_magic(READY_BLOB_MAGIC)?;
+    let context = cursor.read_context()?;
+    let relayer_key_id = cursor.read_string("relayer_key_id")?;
+    let context_binding32 = cursor.read_array::<32>("context_binding32")?;
+    let client_share_retry_counter = cursor.read_u32("client_share_retry_counter")?;
+    let x_client32 = cursor.read_array::<32>("x_client32")?;
+    let hss_client_share_public_key33 = cursor.read_array::<33>("hss_client_share_public_key33")?;
+    let mapped_client_share32 = cursor.read_array::<32>("mapped_client_share32")?;
+    let relayer_share_retry_counter = cursor.read_u32("relayer_share_retry_counter")?;
+    let relayer_public_key33 = cursor.read_array::<33>("relayer_public_key33")?;
+    let group_public_key33 = cursor.read_array::<33>("group_public_key33")?;
+    let ethereum_address20 = cursor.read_array::<20>("ethereum_address20")?;
+    cursor.expect_end()?;
+
+    Ok(ReadyState {
+        context,
+        relayer_key_id,
+        context_binding32,
+        client_share_retry_counter,
+        x_client32,
+        hss_client_share_public_key33,
+        mapped_client_share32,
+        relayer_share_retry_counter,
+        relayer_public_key33,
+        group_public_key33,
+        ethereum_address20,
+    })
+}
+
+fn validate_ready_state_against_export_public_facts(
+    state: &ReadyState,
+    facts: &EcdsaRoleLocalExportPublicFacts,
+) -> CoreResult<()> {
+    facts.context.validate().map_err(map_ecdsa_hss_error)?;
+    if state.context != facts.context {
+        return Err(SignerCoreError::invalid_input(
+            "ready state context does not match export public facts",
+        ));
+    }
+    if state.context_binding32 != facts.context_binding32 {
+        return Err(SignerCoreError::invalid_input(
+            "ready state context binding does not match export public facts",
+        ));
+    }
+    if state.hss_client_share_public_key33 != facts.hss_client_share_public_key33 {
+        return Err(SignerCoreError::invalid_input(
+            "ready state client public key does not match export public facts",
+        ));
+    }
+    if state.relayer_public_key33 != facts.relayer_public_key33 {
+        return Err(SignerCoreError::invalid_input(
+            "ready state relayer public key does not match export public facts",
+        ));
+    }
+    if state.group_public_key33 != facts.group_public_key33 {
+        return Err(SignerCoreError::invalid_input(
+            "ready state group public key does not match export public facts",
+        ));
+    }
+    if state.ethereum_address20 != facts.ethereum_address20 {
+        return Err(SignerCoreError::invalid_input(
+            "ready state ethereum address does not match export public facts",
+        ));
+    }
+    Ok(())
 }
 
 fn write_context(out: &mut Vec<u8>, context: &EcdsaHssStableKeyContext) -> CoreResult<()> {
@@ -462,5 +651,146 @@ mod tests {
             Err(err) => err,
         };
         assert!(err.message.contains("group public key"));
+    }
+
+    #[test]
+    fn extracts_client_additive_signing_share_from_ready_blob() {
+        let root_share32 = [0x11u8; 32];
+        let prepared = prepare_ecdsa_client_bootstrap(PrepareEcdsaClientBootstrapCommand {
+            context: context(),
+            client_root_share32: root_share32,
+        })
+        .expect("prepare");
+        let expected_share32 = parse_pending_state(&prepared.pending_state_blob.state_blob)
+            .expect("pending state")
+            .x_client32;
+        let (_relayer_share, identity) = derive_relayer_share_for_client_public(
+            &context(),
+            [0x22u8; 32],
+            &prepared.client_bootstrap.hss_client_share_public_key33,
+            prepared.client_bootstrap.client_share_retry_counter,
+        )
+        .expect("relayer identity");
+
+        let finalized = finalize_ecdsa_client_bootstrap(FinalizeEcdsaClientBootstrapCommand {
+            pending_state_blob: prepared.pending_state_blob,
+            relayer_public_identity: RelayerPublicIdentityInput {
+                relayer_key_id: "relayer-key".to_owned(),
+                relayer_public_key33: identity.relayer_public_key33,
+                group_public_key33: identity.threshold_public_key33,
+                ethereum_address20: identity.threshold_ethereum_address20,
+                relayer_share_retry_counter: identity.relayer_share_retry_counter,
+            },
+        })
+        .expect("finalize");
+
+        let extracted =
+            extract_client_signing_share32_from_ready_state_blob(&finalized.ready_state_blob)
+                .expect("extract");
+        assert_eq!(extracted, expected_share32);
+    }
+
+    #[test]
+    fn export_artifact_reconstructs_from_ready_blob() {
+        let prepared = prepare_ecdsa_client_bootstrap(PrepareEcdsaClientBootstrapCommand {
+            context: context(),
+            client_root_share32: [0x11u8; 32],
+        })
+        .expect("prepare");
+        let (relayer_share, identity) = derive_relayer_share_for_client_public(
+            &context(),
+            [0x22u8; 32],
+            &prepared.client_bootstrap.hss_client_share_public_key33,
+            prepared.client_bootstrap.client_share_retry_counter,
+        )
+        .expect("relayer identity");
+
+        let finalized = finalize_ecdsa_client_bootstrap(FinalizeEcdsaClientBootstrapCommand {
+            pending_state_blob: prepared.pending_state_blob,
+            relayer_public_identity: RelayerPublicIdentityInput {
+                relayer_key_id: "relayer-key".to_owned(),
+                relayer_public_key33: identity.relayer_public_key33,
+                group_public_key33: identity.threshold_public_key33,
+                ethereum_address20: identity.threshold_ethereum_address20,
+                relayer_share_retry_counter: identity.relayer_share_retry_counter,
+            },
+        })
+        .expect("finalize");
+
+        let artifact =
+            build_ecdsa_role_local_export_artifact(BuildEcdsaRoleLocalExportArtifactCommand {
+                ready_state_blob: finalized.ready_state_blob,
+                public_facts: EcdsaRoleLocalExportPublicFacts {
+                    context: context(),
+                    context_binding32: finalized.public_facts.context_binding32,
+                    hss_client_share_public_key33: finalized
+                        .public_facts
+                        .hss_client_share_public_key33,
+                    relayer_public_key33: finalized.public_facts.relayer_public_key33,
+                    group_public_key33: finalized.public_facts.group_public_key33,
+                    ethereum_address20: finalized.public_facts.ethereum_address20,
+                },
+                server_export_share32: relayer_share.x_relayer32,
+            })
+            .expect("export artifact");
+
+        assert_eq!(artifact.public_key33, identity.threshold_public_key33);
+        assert_eq!(
+            artifact.ethereum_address20,
+            identity.threshold_ethereum_address20
+        );
+        assert_ne!(artifact.private_key32, [0u8; 32]);
+    }
+
+    #[test]
+    fn export_artifact_rejects_public_fact_mismatch() {
+        let prepared = prepare_ecdsa_client_bootstrap(PrepareEcdsaClientBootstrapCommand {
+            context: context(),
+            client_root_share32: [0x11u8; 32],
+        })
+        .expect("prepare");
+        let (relayer_share, identity) = derive_relayer_share_for_client_public(
+            &context(),
+            [0x22u8; 32],
+            &prepared.client_bootstrap.hss_client_share_public_key33,
+            prepared.client_bootstrap.client_share_retry_counter,
+        )
+        .expect("relayer identity");
+
+        let finalized = finalize_ecdsa_client_bootstrap(FinalizeEcdsaClientBootstrapCommand {
+            pending_state_blob: prepared.pending_state_blob,
+            relayer_public_identity: RelayerPublicIdentityInput {
+                relayer_key_id: "relayer-key".to_owned(),
+                relayer_public_key33: identity.relayer_public_key33,
+                group_public_key33: identity.threshold_public_key33,
+                ethereum_address20: identity.threshold_ethereum_address20,
+                relayer_share_retry_counter: identity.relayer_share_retry_counter,
+            },
+        })
+        .expect("finalize");
+        let mut wrong_public_key = finalized.public_facts.group_public_key33;
+        wrong_public_key[1] ^= 0x01;
+
+        let result =
+            build_ecdsa_role_local_export_artifact(BuildEcdsaRoleLocalExportArtifactCommand {
+                ready_state_blob: finalized.ready_state_blob,
+                public_facts: EcdsaRoleLocalExportPublicFacts {
+                    context: context(),
+                    context_binding32: finalized.public_facts.context_binding32,
+                    hss_client_share_public_key33: finalized
+                        .public_facts
+                        .hss_client_share_public_key33,
+                    relayer_public_key33: finalized.public_facts.relayer_public_key33,
+                    group_public_key33: wrong_public_key,
+                    ethereum_address20: finalized.public_facts.ethereum_address20,
+                },
+                server_export_share32: relayer_share.x_relayer32,
+            });
+        let error = match result {
+            Ok(_) => panic!("mismatch should reject"),
+            Err(error) => error,
+        };
+
+        assert!(error.message.contains("group public key"));
     }
 }

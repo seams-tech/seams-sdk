@@ -1,0 +1,90 @@
+{
+  "fixtureVersion": "native_readiness_ecdsa_bootstrap_v1",
+  "warning": "Deterministic test-only secret material. Do not use outside tests.",
+  "prepareCommand": {
+    "kind": "prepare_ecdsa_client_bootstrap_v1",
+    "algorithm": "ecdsa_hss_secp256k1_role_local_v1",
+    "context": {
+      "walletId": "wallet.testnet",
+      "rpId": "localhost",
+      "chainTarget": {
+        "kind": "evm",
+        "namespace": "eip155",
+        "chainId": 5042002,
+        "networkSlug": "arc-testnet"
+      },
+      "ecdsaThresholdKeyId": "ehss-key",
+      "signingRootId": "root-id",
+      "signingRootVersion": "root-v1",
+      "keyPurpose": "evm-signing",
+      "keyVersion": "v1"
+    },
+    "participants": {
+      "clientParticipantId": 1,
+      "relayerParticipantId": 2,
+      "participantIds": [
+        1,
+        2
+      ]
+    },
+    "secretSource": {
+      "kind": "webauthn_prf_first",
+      "prfFirstB64u": "MzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzMzM",
+      "rpId": "localhost",
+      "credentialIdB64u": "Y3JlZGVudGlhbA"
+    }
+  },
+  "relayerRootShare32B64u": "REREREREREREREREREREREREREREREREREREREREREQ",
+  "expectedPrepareOutput": {
+    "pendingStateBlob": {
+      "kind": "ecdsa_role_local_pending_state_blob_v1",
+      "curve": "secp256k1",
+      "encoding": "base64url",
+      "producer": "signer_core",
+      "stateBlobB64u": "RUhTU1AxAAAADndhbGxldC50ZXN0bmV0AAlsb2NhbGhvc3QACGVoc3Mta2V5AAdyb290LWlkAAdyb290LXYxAAtldm0tc2lnbmluZwACdjFRh5WnERrQIItIMJG4VWrGppqDdx0S4O81LFlUAFUq8wAAAADWNw4_7LPbLInmD2mA9cwO0jtqWXb1UgM871U1T33bywOfnvvUwo240LTsCU9qJImemqCRkajL1b6sIY_ZVWcgGkdnr2qkO_O5g0yvzdWnRATwvnjIfPxwq776cbxv1J6Z"
+    },
+    "clientBootstrap": {
+      "contextBinding32B64u": "UYeVpxEa0CCLSDCRuFVqxqaag3cdEuDvNSxZVABVKvM",
+      "hssClientSharePublicKey33B64u": "A5-e-9TCjbjQtOwJT2okiZ6aoJGRqMvVvqwhj9lVZyAa",
+      "clientShareRetryCounter": 0,
+      "participantId": 1
+    },
+    "publicFacts": {
+      "hssClientSharePublicKey33B64u": "A5-e-9TCjbjQtOwJT2okiZ6aoJGRqMvVvqwhj9lVZyAa",
+      "clientVerifyingShareB64u": "A5-e-9TCjbjQtOwJT2okiZ6aoJGRqMvVvqwhj9lVZyAa"
+    }
+  },
+  "finalizeCommand": {
+    "kind": "finalize_ecdsa_client_bootstrap_v1",
+    "pendingStateBlob": {
+      "kind": "ecdsa_role_local_pending_state_blob_v1",
+      "curve": "secp256k1",
+      "encoding": "base64url",
+      "producer": "signer_core",
+      "stateBlobB64u": "RUhTU1AxAAAADndhbGxldC50ZXN0bmV0AAlsb2NhbGhvc3QACGVoc3Mta2V5AAdyb290LWlkAAdyb290LXYxAAtldm0tc2lnbmluZwACdjFRh5WnERrQIItIMJG4VWrGppqDdx0S4O81LFlUAFUq8wAAAADWNw4_7LPbLInmD2mA9cwO0jtqWXb1UgM871U1T33bywOfnvvUwo240LTsCU9qJImemqCRkajL1b6sIY_ZVWcgGkdnr2qkO_O5g0yvzdWnRATwvnjIfPxwq776cbxv1J6Z"
+    },
+    "relayerPublicIdentity": {
+      "relayerKeyId": "relayer-key",
+      "relayerPublicKey33B64u": "A-4fAbBQQaMc0jQMbg9QA8DEBwsGB1tOcQPlGye1Y7UR",
+      "groupPublicKey33B64u": "Auh1R9RuiOoMx8htXi6I-Qxygt8QtoxoFpaltGz_3vQo",
+      "ethereumAddress": "0x29c21e53116585c318552c8be55b7f7b38de39b9"
+    }
+  },
+  "expectedFinalizeOutput": {
+    "stateBlob": {
+      "kind": "ecdsa_role_local_state_blob_v1",
+      "curve": "secp256k1",
+      "encoding": "base64url",
+      "producer": "signer_core",
+      "stateBlobB64u": "RUhTU1IxAAAADndhbGxldC50ZXN0bmV0AAlsb2NhbGhvc3QACGVoc3Mta2V5AAdyb290LWlkAAdyb290LXYxAAtldm0tc2lnbmluZwACdjEAC3JlbGF5ZXIta2V5UYeVpxEa0CCLSDCRuFVqxqaag3cdEuDvNSxZVABVKvMAAAAA1jcOP-yz2yyJ5g9pgPXMDtI7all29VIDPO9VNU9928sDn5771MKNuNC07AlPaiSJnpqgkZGoy9W-rCGP2VVnIBpHZ69qpDvzuYNMr83Vp0QE8L54yHz8cKu--nG8b9SemQAAAAAD7h8BsFBBoxzSNAxuD1ADwMQHCwYHW05xA-UbJ7VjtREC6HVH1G6I6gzHyG1eLoj5DHKC3xC2jGgWlqW0bP_e9Cgpwh5TEWWFwxhVLIvlW397ON45uQ"
+    },
+    "publicFacts": {
+      "contextBinding32B64u": "UYeVpxEa0CCLSDCRuFVqxqaag3cdEuDvNSxZVABVKvM",
+      "hssClientSharePublicKey33B64u": "A5-e-9TCjbjQtOwJT2okiZ6aoJGRqMvVvqwhj9lVZyAa",
+      "clientVerifyingShareB64u": "A5-e-9TCjbjQtOwJT2okiZ6aoJGRqMvVvqwhj9lVZyAa",
+      "relayerPublicKey33B64u": "A-4fAbBQQaMc0jQMbg9QA8DEBwsGB1tOcQPlGye1Y7UR",
+      "groupPublicKey33B64u": "Auh1R9RuiOoMx8htXi6I-Qxygt8QtoxoFpaltGz_3vQo",
+      "ethereumAddress": "0x29c21e53116585c318552c8be55b7f7b38de39b9"
+    }
+  }
+}
