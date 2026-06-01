@@ -124,7 +124,7 @@ export type ReadyEd25519Lane = {
   readyRecord?: never;
 };
 
-export type ReadyEcdsaLane = {
+export type EcdsaUseCaseReadyLane = {
   kind: 'ecdsa_ready_lane_v1';
   walletId: WalletId;
   rpId: RpId;
@@ -163,14 +163,14 @@ export type UseCaseWalletSessionReadiness =
       kind: 'ready';
       walletId: WalletId;
       ed25519: NonEmptyReadonlyArray<ReadyEd25519Lane>;
-      ecdsa: readonly ReadyEcdsaLane[];
+      ecdsa: readonly EcdsaUseCaseReadyLane[];
       reauthRequired?: never;
     }
   | {
       kind: 'partial';
       walletId: WalletId;
       ed25519: readonly ReadyEd25519Lane[];
-      ecdsa: readonly ReadyEcdsaLane[];
+      ecdsa: readonly EcdsaUseCaseReadyLane[];
       reauthRequired: NonEmptyReadonlyArray<ReauthRequiredLane>;
     }
   | {
@@ -197,7 +197,7 @@ export type WalletSignerWrite =
     }
   | {
       kind: 'ecdsa_wallet_signer_write_v1';
-      lane: ReadyEcdsaLane;
+      lane: EcdsaUseCaseReadyLane;
       ed25519?: never;
     };
 
@@ -257,7 +257,7 @@ export type RegisterWalletInput = {
 
 export type RegistrationReadyLanes = {
   ed25519: ReadyEd25519Lane;
-  ecdsa: readonly ReadyEcdsaLane[];
+  ecdsa: readonly EcdsaUseCaseReadyLane[];
 };
 
 export type RegisterWalletSuccess = {
@@ -367,8 +367,8 @@ export type UnlockWalletSuccess = {
   ok: true;
   walletId: WalletId;
   readiness: UseCaseWalletSessionReadiness;
-  restored: readonly (ReadyEd25519Lane | ReadyEcdsaLane)[];
-  provisioned: readonly ReadyEcdsaLane[];
+  restored: readonly (ReadyEd25519Lane | EcdsaUseCaseReadyLane)[];
+  provisioned: readonly EcdsaUseCaseReadyLane[];
   sealedWrites: NonEmptyReadonlyArray<SigningSessionSealWriteInput>;
   code?: never;
   message?: never;
@@ -412,15 +412,15 @@ export type UnlockWalletLifecycleState =
       kind: 'provisioning_missing_ecdsa';
       walletId: WalletId;
       rpId: RpId;
-      restored: readonly (ReadyEd25519Lane | ReadyEcdsaLane)[];
+      restored: readonly (ReadyEd25519Lane | EcdsaUseCaseReadyLane)[];
       ecdsaTargets: EcdsaTargetSelection;
       idempotencyKey: IdempotencyKey;
     }
   | {
       kind: 'sealing_sessions';
       walletId: WalletId;
-      restored: readonly (ReadyEd25519Lane | ReadyEcdsaLane)[];
-      provisioned: readonly ReadyEcdsaLane[];
+      restored: readonly (ReadyEd25519Lane | EcdsaUseCaseReadyLane)[];
+      provisioned: readonly EcdsaUseCaseReadyLane[];
       idempotencyKey: IdempotencyKey;
     }
   | {
@@ -606,7 +606,7 @@ type SignEvmFamilySuccessBase = {
   ok: true;
   walletId: WalletId;
   usedAuth: 'warm_session' | 'same_method_step_up';
-  signerLane: ReadyEcdsaLane;
+  signerLane: EcdsaUseCaseReadyLane;
   budgetSpend: WarmSessionBudgetSpend;
   code?: never;
   message?: never;
@@ -659,17 +659,17 @@ export type SignEvmFamilyLifecycleState =
   | {
       kind: 'activating_same_method_session';
       input: SignEvmFamilyInput;
-      staleLane: ReadyEcdsaLane | ReauthRequiredLane;
+      staleLane: EcdsaUseCaseReadyLane | ReauthRequiredLane;
     }
   | {
       kind: 'reserving_budget';
       input: SignEvmFamilyInput;
-      lane: ReadyEcdsaLane;
+      lane: EcdsaUseCaseReadyLane;
     }
   | {
       kind: 'signing';
       input: SignEvmFamilyInput;
-      lane: ReadyEcdsaLane;
+      lane: EcdsaUseCaseReadyLane;
       budgetSpend: WarmSessionBudgetSpend;
     }
   | {
@@ -931,7 +931,7 @@ export type ExportKeysLifecycleState =
   | {
       kind: 'building_artifacts';
       input: ExportKeysInput;
-      material: NonEmptyReadonlyArray<ReadyEd25519Lane | ReadyEcdsaLane>;
+      material: NonEmptyReadonlyArray<ReadyEd25519Lane | EcdsaUseCaseReadyLane>;
     }
   | {
       kind: 'opening_viewer';
@@ -997,7 +997,7 @@ export type RestorePersistedSessionsSuccess = {
   ok: true;
   walletId: WalletId;
   readiness: UseCaseWalletSessionReadiness;
-  restored: readonly (ReadyEd25519Lane | ReadyEcdsaLane)[];
+  restored: readonly (ReadyEd25519Lane | EcdsaUseCaseReadyLane)[];
   reauthRequired: readonly ReauthRequiredLane[];
   cleanup: readonly RestorePersistedSessionCleanup[];
   code?: never;
@@ -1027,7 +1027,7 @@ export type RestorePersistedSessionsLifecycleState =
   | {
       kind: 'classifying_material';
       input: RestorePersistedSessionsInput;
-      material: readonly (ReadyEd25519Lane | ReadyEcdsaLane | ReauthRequiredLane)[];
+      material: readonly (ReadyEd25519Lane | EcdsaUseCaseReadyLane | ReauthRequiredLane)[];
     }
   | {
       kind: 'cleaning_stale_records';

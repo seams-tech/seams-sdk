@@ -83,6 +83,7 @@ test.describe('WarmSessionStore caller-facing error normalization', () => {
           remainingUses: Number(record.remainingUses || 1),
         }),
         source: 'manual-bootstrap',
+        passkeyCredentialIdB64u: 'passkey-credential-test',
       }),
     ).rejects.toThrow(
       'Missing warm PRF material for threshold-ecdsa restored-session bootstrap (missing)',

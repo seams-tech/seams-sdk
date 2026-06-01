@@ -17,6 +17,7 @@ const targetTopLevelFolders = [
   'workers',
   'nonce',
   'webauthnAuth',
+  'useCases',
 ] as const;
 const targetContractFolders = [
   'assembly',
@@ -26,6 +27,7 @@ const targetContractFolders = [
   'uiConfirm',
   'workers',
   'webauthnAuth',
+  'useCases',
 ] as const;
 
 const signingEngineAllowedImportPrefixes = [
@@ -55,6 +57,7 @@ const signingEngineAllowedImportPrefixes = [
   './uiConfirm/',
   './webauthnAuth/',
   './workerManager/',
+  './useCases/',
 ] as const;
 
 const currentTopLevelImportContract: Record<string, readonly string[]> = {
@@ -70,6 +73,7 @@ const currentTopLevelImportContract: Record<string, readonly string[]> = {
     'uiConfirm',
     'webauthnAuth',
     'workerManager',
+    'useCases',
   ],
   'index.ts': ['SigningEngine.ts', 'stepUpConfirmation', 'interfaces'],
   webauthnAuth: [],
@@ -99,6 +103,7 @@ const currentTopLevelImportContract: Record<string, readonly string[]> = {
     'uiConfirm',
     'webauthnAuth',
     'workerManager',
+    'useCases',
   ],
   session: [
     'stepUpConfirmation',
@@ -107,6 +112,7 @@ const currentTopLevelImportContract: Record<string, readonly string[]> = {
     'uiConfirm',
     'webauthnAuth',
     'workerManager',
+    'useCases',
   ],
   threshold: ['chains', 'interfaces', 'session', 'webauthnAuth', 'workerManager'],
   uiConfirm: [
@@ -129,6 +135,7 @@ const currentTopLevelImportContract: Record<string, readonly string[]> = {
     'uiConfirm',
     'webauthnAuth',
   ],
+  useCases: ['chains', 'interfaces', 'session', 'threshold'],
   workers: [],
 } as const;
 
@@ -1552,6 +1559,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
         'webauthnAuth',
         'interfaces',
         'nonce',
+        'useCases',
       ],
       flows: [
         'flows',
@@ -1565,6 +1573,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
         'uiConfirm',
         'webauthnAuth',
         'workerManager',
+        'useCases',
       ],
       chains: ['workers', 'workerManager', 'session', 'signers', 'interfaces'],
       stepUpConfirmation: ['interfaces', 'webauthnAuth'],
@@ -1579,6 +1588,7 @@ test.describe('Refactor 33 signing-engine guardrails', () => {
         'workerManager',
       ],
       webauthnAuth: [],
+      useCases: ['chains', 'interfaces', 'session', 'threshold'],
       workers: [],
     };
 

@@ -74,6 +74,7 @@ import {
   secp256k1PrivateKey32ToPublicKey33Wasm,
   signSecp256k1RecoverableWasm,
 } from '../../chains/evm/ethSignerWasm';
+import { deriveWebCryptoHkdfSha256Bits256 } from '@/core/platform/webCryptoHkdf';
 
 const PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_INFO_V1 =
   'seams/passkey/threshold-ecdsa-client-root/v1';
@@ -350,12 +351,9 @@ function passkeyBootstrapSecretSourceResolutionFromCredential(args: {
   });
 }
 
-async function derivePasskeyThresholdEcdsaClientRootShare32(args: {
+async function derivePasskeyThresholdEcdsaClientRootSigningKey32(args: {
   prfFirstB64u: string;
 }): Promise<Uint8Array> {
-  if (!globalThis.crypto?.subtle) {
-    throw new Error('threshold-ecdsa passkey client root proof requires WebCrypto HKDF');
-  }
   const prfFirst32 = base64UrlDecode(args.prfFirstB64u);
   const salt32 = new Uint8Array(32);
   if (prfFirst32.length !== 32) {
@@ -363,20 +361,12 @@ async function derivePasskeyThresholdEcdsaClientRootShare32(args: {
     throw new Error('threshold-ecdsa passkey PRF.first must be 32 bytes');
   }
   try {
-    const hkdfKey = await globalThis.crypto.subtle.importKey('raw', prfFirst32, 'HKDF', false, [
-      'deriveBits',
-    ]);
-    const bits = await globalThis.crypto.subtle.deriveBits(
-      {
-        name: 'HKDF',
-        hash: 'SHA-256',
-        salt: salt32,
-        info: new TextEncoder().encode(PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_INFO_V1),
-      },
-      hkdfKey,
-      256,
-    );
-    return new Uint8Array(bits);
+    return await deriveWebCryptoHkdfSha256Bits256({
+      ikm32: prfFirst32,
+      salt: salt32,
+      info: new TextEncoder().encode(PASSKEY_THRESHOLD_ECDSA_CLIENT_ROOT_INFO_V1),
+      unavailableMessage: 'threshold-ecdsa passkey client root proof requires WebCrypto HKDF',
+    });
   } finally {
     prfFirst32.fill(0);
     salt32.fill(0);
@@ -392,17 +382,17 @@ async function buildEcdsaClientRootProof(args: {
     args.bootstrapRequest,
   );
   const digest32 = base64UrlDecode(digest32B64u);
-  const clientRootShare32 = await derivePasskeyThresholdEcdsaClientRootShare32({
+  const clientRootSigningKey32 = await derivePasskeyThresholdEcdsaClientRootSigningKey32({
     prfFirstB64u: args.passkeyPrfFirstB64u,
   });
   try {
     const clientRootPublicKey33 = await secp256k1PrivateKey32ToPublicKey33Wasm({
-      privateKey32: clientRootShare32,
+      privateKey32: clientRootSigningKey32,
       workerCtx: args.workerCtx,
     });
     const signature65 = await signSecp256k1RecoverableWasm({
       digest32,
-      privateKey32: clientRootShare32,
+      privateKey32: clientRootSigningKey32,
       workerCtx: args.workerCtx,
     });
     return {
@@ -415,7 +405,7 @@ async function buildEcdsaClientRootProof(args: {
     };
   } finally {
     digest32.fill(0);
-    clientRootShare32.fill(0);
+    clientRootSigningKey32.fill(0);
   }
 }
 

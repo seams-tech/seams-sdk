@@ -99,6 +99,22 @@ export function testEcdsaChainTarget(
     chainId: testEcdsaChainId(chain),
   });
 }
+
+function requirePasskeyCredentialIdForFixture(record: ThresholdEcdsaSessionRecord): string {
+  const authMethod = record.ecdsaRoleLocalReadyRecord.authMethod;
+  switch (authMethod.kind) {
+    case 'passkey':
+      return authMethod.credentialIdB64u;
+    case 'email_otp':
+      throw new Error('test passkey reconnect fixture requires passkey ECDSA auth material');
+    default:
+      return assertNever(authMethod);
+  }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unexpected fixture branch: ${String(value)}`);
+}
 import type { WarmSessionTransitionEvent } from '@/core/signingEngine/session/warmCapabilities/transitions';
 
 type SessionStorageMock = {
@@ -334,6 +350,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
       clientVerifyingShareB64u,
       relayerKeyId,
       participantIds: [...participantIds],
+      chainId: testEcdsaChainId(args.chain),
       ethereumAddress,
       thresholdEcdsaPublicKeyB64u: VALID_ECDSA_PUBLIC_KEY_B64U,
       relayerVerifyingShareB64u: VALID_ECDSA_RELAYER_PUBLIC_KEY_B64U,
@@ -748,6 +765,9 @@ function resolveTestEcdsaBootstrapArgs(args: {
       throw new Error('test threshold-session reconnect requires a reusable ECDSA record');
     }
     const readModel = thresholdEcdsaSessionRecordReadModel(reusableWarmCapability.record);
+    const passkeyCredentialIdB64u = requirePasskeyCredentialIdForFixture(
+      reusableWarmCapability.record,
+    );
     return {
       kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap',
       source: targetBaseArgs.source,
@@ -767,6 +787,7 @@ function resolveTestEcdsaBootstrapArgs(args: {
         jwt: thresholdSessionAuthToken,
       },
       passkeyPrfFirstB64u: 'reconnect-client-root-share',
+      passkeyCredentialIdB64u,
     };
   }
   if (sessionId && walletSigningSessionId) {
@@ -774,6 +795,9 @@ function resolveTestEcdsaBootstrapArgs(args: {
       throw new Error('test cookie reconnect requires a reusable ECDSA record');
     }
     const readModel = thresholdEcdsaSessionRecordReadModel(reusableWarmCapability.record);
+    const passkeyCredentialIdB64u = requirePasskeyCredentialIdForFixture(
+      reusableWarmCapability.record,
+    );
     return {
       kind: 'passkey_cookie_reconnect_ecdsa_bootstrap',
       source: targetBaseArgs.source,
@@ -788,6 +812,7 @@ function resolveTestEcdsaBootstrapArgs(args: {
         ttlMs: Math.max(1, readModel.lane.expiresAtMs - Date.now()),
         remainingUses: readModel.lane.remainingUses,
       }),
+      passkeyCredentialIdB64u,
     };
   }
   return reuseBaseArgs;

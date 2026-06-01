@@ -328,6 +328,7 @@ function makeSigningSessionStatusPolicy(args?: {
     }: {
       curve: 'ecdsa' | 'ed25519';
       walletSigningSessionId: string;
+      thresholdSessionId: string;
     }) => {
       args?.onStatusRead?.(`wallet-signing:${requestedWalletSigningSessionId}`);
       const walletStatus = statusById[`wallet-signing:${requestedWalletSigningSessionId}`] || null;

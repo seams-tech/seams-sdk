@@ -144,12 +144,12 @@ test.describe('Email OTP operation split guard', () => {
       'export async function resolveEvmFamilyEcdsaSigningSelection',
     );
     const selectionSource = selectionModule.slice(selectionModuleResolver);
-    const preparedAccountAuthResolution = preparedSigningSource.indexOf(
-      'const accountAuth = await resolveEvmFamilyTransactionWalletAuth',
+    const preparedIntentResolution = preparedSigningSource.indexOf(
+      'const transactionIntent: TransactionSigningIntent = buildEvmFamilyTransactionSigningIntent',
     );
     const snapshotCandidateSelection = preparedSigningSource.indexOf(
       'const selectedLane = selectTransactionLane({',
-      preparedAccountAuthResolution,
+      preparedIntentResolution,
     );
     const exactLaneSelection = selectionModule.indexOf(
       'const lane = signingLaneFromExactLaneCandidate(args.laneCandidate);',
@@ -180,8 +180,8 @@ test.describe('Email OTP operation split guard', () => {
     expect(ed25519Fallback).toBe(-1);
     expect(source).toContain('prepareEvmFamilyEcdsaSigningSession({');
     expect(selectionResolver).toBeGreaterThanOrEqual(0);
-    expect(preparedAccountAuthResolution).toBeGreaterThanOrEqual(0);
-    expect(snapshotCandidateSelection).toBeGreaterThan(preparedAccountAuthResolution);
+    expect(preparedIntentResolution).toBeGreaterThanOrEqual(0);
+    expect(snapshotCandidateSelection).toBeGreaterThan(preparedIntentResolution);
     expect(exactLaneSelection).toBeGreaterThan(selectionModuleResolver);
     expect(emailOtpCandidate).toBeGreaterThan(exactLaneSelection);
   });

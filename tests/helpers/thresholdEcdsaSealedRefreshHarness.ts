@@ -139,6 +139,10 @@ async function installThresholdRegistrationBootstrapMock(
           userId: string;
           rpId: string;
           participantIds: number[];
+          walletBudgetBinding?: {
+            curve: 'ed25519' | 'ecdsa';
+            thresholdSessionId: string;
+          };
         },
         opts: { ttlMs: number; remainingUses: number },
       ) => Promise<void>;

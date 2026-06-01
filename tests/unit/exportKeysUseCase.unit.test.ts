@@ -23,7 +23,7 @@ import type {
   ExportKeyArtifact,
   ExportKeysAuthorization,
   ExportKeysInput,
-  ReadyEcdsaLane,
+  EcdsaUseCaseReadyLane,
   ReadyEd25519Lane,
   UnixTimeMs,
   WarmSessionRemainingUses,
@@ -67,7 +67,7 @@ const walletSigningSessionId = asBrand<WalletSigningSessionId>('wallet-session')
 const expiresAtMs = asBrand<UnixTimeMs>(1_900_000_000_000);
 const remainingUses = asBrand<WarmSessionRemainingUses>(8);
 
-function readyEcdsaLane(): ReadyEcdsaLane {
+function readyEcdsaLane(): EcdsaUseCaseReadyLane {
   const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId,
     rpId,

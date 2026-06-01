@@ -7,6 +7,7 @@ import {
 import { createEvmFamilySigningDeps } from './ports/evmFamily';
 import { createNearSigningDeps } from './ports/near';
 import {
+  createRegistrationAccountLifecycleDeps,
   createThresholdEd25519LifecycleDeps,
   createThresholdSessionActivationDeps,
 } from './ports/registration';
@@ -65,12 +66,10 @@ export function createSigningEnginePorts(
       getEmailOtpWarmSessionStatus,
     }),
     privateKeyExportRecoveryDeps: createPrivateKeyExportRecoveryDeps(args, runtimeDeps),
-    registrationAccountLifecycleDeps: {
+    registrationAccountLifecycleDeps: createRegistrationAccountLifecycleDeps({
+      createArgs: args,
       indexedDB,
-      userPreferencesManager: args.userPreferencesManager,
-      nonceCoordinator: args.nonceCoordinator,
-      extractCosePublicKey: args.extractCosePublicKey,
-    },
+    }),
     registrationSessionDeps: {
       touchConfirm: args.touchConfirm,
       touchIdPrompt: args.touchIdPrompt,

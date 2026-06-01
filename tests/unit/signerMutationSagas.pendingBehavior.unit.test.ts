@@ -70,7 +70,7 @@ test.describe('signer mutation saga pending behavior', () => {
 
           await indexedDB.upsertChainAccount({
             profileId: context.profileId,
-            chainIdKey: 'evm:11155111',
+            chainIdKey: 'evm:eip155:11155111',
             accountAddress: `0x${'11'.repeat(20)}`,
             accountModel: 'threshold-ecdsa',
             isPrimary: true,
@@ -79,7 +79,7 @@ test.describe('signer mutation saga pending behavior', () => {
           await indexedDB.stageAccountSigner({
             account: {
               profileId: context.profileId,
-              chainIdKey: 'evm:11155111',
+              chainIdKey: 'evm:eip155:11155111',
               accountAddress: `0x${'11'.repeat(20)}`,
               accountModel: 'threshold-ecdsa',
             },
@@ -90,13 +90,24 @@ test.describe('signer mutation saga pending behavior', () => {
               signerKind: 'threshold-ecdsa',
               signerAuthMethod: 'passkey',
               signerSource: 'passkey_registration',
+              metadata: {
+                keyHandle: 'add-key-handle-undeployed',
+                ecdsaThresholdKeyId: 'ecdsa-key-undeployed',
+                thresholdOwnerAddress: `0x${'11'.repeat(20)}`,
+                chainTarget: {
+                  kind: 'evm',
+                  namespace: 'eip155',
+                  chainId: 11155111,
+                  networkSlug: 'sepolia',
+                },
+              },
             },
             mutation: { routeThroughOutbox: true },
           });
           await indexedDB.storeKeyMaterial({
             profileId: context.profileId,
             signerSlot: 2,
-            chainIdKey: 'evm:11155111',
+            chainIdKey: 'evm:eip155:11155111',
             accountAddress: `0x${'11'.repeat(20)}`,
             keyKind: 'threshold_share_v1',
             algorithm: 'webauthn-p256',
@@ -112,7 +123,7 @@ test.describe('signer mutation saga pending behavior', () => {
           const before = await indexedDB.listSignerOperations();
           const summary = await indexedDB.repairSignerMutationSagas();
           const signer = await indexedDB.getAccountSigner({
-            chainIdKey: 'evm:11155111',
+            chainIdKey: 'evm:eip155:11155111',
             accountAddress: `0x${'11'.repeat(20)}`,
             signerId: `0x${'aa'.repeat(20)}`,
           });
@@ -209,7 +220,7 @@ test.describe('signer mutation saga pending behavior', () => {
 
           await indexedDB.upsertChainAccount({
             profileId: context.profileId,
-            chainIdKey: 'evm:11155111',
+            chainIdKey: 'evm:eip155:11155111',
             accountAddress: `0x${'22'.repeat(20)}`,
             accountModel: 'threshold-ecdsa',
             isPrimary: true,
@@ -218,7 +229,7 @@ test.describe('signer mutation saga pending behavior', () => {
           await indexedDB.stageAccountSigner({
             account: {
               profileId: context.profileId,
-              chainIdKey: 'evm:11155111',
+              chainIdKey: 'evm:eip155:11155111',
               accountAddress: `0x${'22'.repeat(20)}`,
               accountModel: 'threshold-ecdsa',
             },
@@ -229,13 +240,24 @@ test.describe('signer mutation saga pending behavior', () => {
               signerKind: 'threshold-ecdsa',
               signerAuthMethod: 'passkey',
               signerSource: 'passkey_registration',
+              metadata: {
+                keyHandle: 'add-key-handle-deployed',
+                ecdsaThresholdKeyId: 'ecdsa-key-deployed',
+                thresholdOwnerAddress: `0x${'22'.repeat(20)}`,
+                chainTarget: {
+                  kind: 'evm',
+                  namespace: 'eip155',
+                  chainId: 11155111,
+                  networkSlug: 'sepolia',
+                },
+              },
             },
             mutation: { routeThroughOutbox: true },
           });
           await indexedDB.storeKeyMaterial({
             profileId: context.profileId,
             signerSlot: 2,
-            chainIdKey: 'evm:11155111',
+            chainIdKey: 'evm:eip155:11155111',
             accountAddress: `0x${'22'.repeat(20)}`,
             keyKind: 'threshold_share_v1',
             algorithm: 'webauthn-p256',
@@ -257,7 +279,7 @@ test.describe('signer mutation saga pending behavior', () => {
             },
           });
           const signer = await indexedDB.getAccountSigner({
-            chainIdKey: 'evm:11155111',
+            chainIdKey: 'evm:eip155:11155111',
             accountAddress: `0x${'22'.repeat(20)}`,
             signerId: `0x${'bb'.repeat(20)}`,
           });
@@ -355,7 +377,7 @@ test.describe('signer mutation saga pending behavior', () => {
 
           await indexedDB.upsertChainAccount({
             profileId: context.profileId,
-            chainIdKey: 'evm:11155111',
+            chainIdKey: 'evm:eip155:11155111',
             accountAddress: `0x${'33'.repeat(20)}`,
             accountModel: 'threshold-ecdsa',
             isPrimary: true,
@@ -364,7 +386,7 @@ test.describe('signer mutation saga pending behavior', () => {
           await indexedDB.stageAccountSigner({
             account: {
               profileId: context.profileId,
-              chainIdKey: 'evm:11155111',
+              chainIdKey: 'evm:eip155:11155111',
               accountAddress: `0x${'33'.repeat(20)}`,
               accountModel: 'threshold-ecdsa',
             },
@@ -375,13 +397,24 @@ test.describe('signer mutation saga pending behavior', () => {
               signerKind: 'threshold-ecdsa',
               signerAuthMethod: 'passkey',
               signerSource: 'passkey_registration',
+              metadata: {
+                keyHandle: 'add-key-handle-validated',
+                ecdsaThresholdKeyId: 'ecdsa-key-validated',
+                thresholdOwnerAddress: `0x${'33'.repeat(20)}`,
+                chainTarget: {
+                  kind: 'evm',
+                  namespace: 'eip155',
+                  chainId: 11155111,
+                  networkSlug: 'sepolia',
+                },
+              },
             },
             mutation: { routeThroughOutbox: true },
           });
           await indexedDB.storeKeyMaterial({
             profileId: context.profileId,
             signerSlot: 2,
-            chainIdKey: 'evm:11155111',
+            chainIdKey: 'evm:eip155:11155111',
             accountAddress: `0x${'33'.repeat(20)}`,
             keyKind: 'threshold_share_v1',
             algorithm: 'webauthn-p256',
@@ -411,7 +444,7 @@ test.describe('signer mutation saga pending behavior', () => {
             },
           });
           const signer = await indexedDB.getAccountSigner({
-            chainIdKey: 'evm:11155111',
+            chainIdKey: 'evm:eip155:11155111',
             accountAddress: `0x${'33'.repeat(20)}`,
             signerId: `0x${'cc'.repeat(20)}`,
           });
@@ -507,7 +540,7 @@ test.describe('signer mutation saga pending behavior', () => {
 
           await indexedDB.upsertChainAccount({
             profileId: context.profileId,
-            chainIdKey: 'evm:11155111',
+            chainIdKey: 'evm:eip155:11155111',
             accountAddress: `0x${'44'.repeat(20)}`,
             accountModel: 'threshold-ecdsa',
             isPrimary: true,
@@ -516,7 +549,7 @@ test.describe('signer mutation saga pending behavior', () => {
           await indexedDB.activateAccountSigner({
             account: {
               profileId: context.profileId,
-              chainIdKey: 'evm:11155111',
+              chainIdKey: 'evm:eip155:11155111',
               accountAddress: `0x${'44'.repeat(20)}`,
               accountModel: 'threshold-ecdsa',
             },
@@ -528,7 +561,14 @@ test.describe('signer mutation saga pending behavior', () => {
             signerSource: 'passkey_registration',
             metadata: {
               keyHandle: 'revoke-key-handle',
-              chainTarget: { namespace: 'evm', chainId: 11155111 },
+              ecdsaThresholdKeyId: 'ecdsa-key-revoke',
+              thresholdOwnerAddress: `0x${'44'.repeat(20)}`,
+              chainTarget: {
+                kind: 'evm',
+                namespace: 'eip155',
+                chainId: 11155111,
+                networkSlug: 'sepolia',
+              },
             },
           },
             activationPolicy: { mode: 'fail_if_occupied', signerSlot: 2 },
@@ -538,7 +578,7 @@ test.describe('signer mutation saga pending behavior', () => {
           await indexedDB.storeKeyMaterial({
             profileId: context.profileId,
             signerSlot: 2,
-            chainIdKey: 'evm:11155111',
+            chainIdKey: 'evm:eip155:11155111',
             accountAddress: `0x${'44'.repeat(20)}`,
             keyKind: 'threshold_share_v1',
             algorithm: 'webauthn-p256',
@@ -551,7 +591,7 @@ test.describe('signer mutation saga pending behavior', () => {
             schemaVersion: 1,
           });
           await indexedDB.setAccountSignerStatus({
-            chainIdKey: 'evm:11155111',
+            chainIdKey: 'evm:eip155:11155111',
             accountAddress: `0x${'44'.repeat(20)}`,
             signerId: `0x${'dd'.repeat(20)}`,
             status: 'revoked',
@@ -576,13 +616,13 @@ test.describe('signer mutation saga pending behavior', () => {
             },
           });
           const signer = await indexedDB.getAccountSigner({
-            chainIdKey: 'evm:11155111',
+            chainIdKey: 'evm:eip155:11155111',
             accountAddress: `0x${'44'.repeat(20)}`,
             signerId: `0x${'dd'.repeat(20)}`,
           });
           const keys = (await indexedDB.listKeyMaterialByProfile(
             context.profileId,
-            'evm:11155111',
+            'evm:eip155:11155111',
           )).filter((record: any) => record.signerSlot === 2);
           const after = await indexedDB.listSignerOperations({
             statuses: ['queued', 'submitted', 'failed', 'confirmed', 'dead-letter'],

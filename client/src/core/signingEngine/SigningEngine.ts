@@ -191,6 +191,7 @@ import {
 } from './assembly/ports/warmSigning';
 import { createStepUpRuntime } from './assembly/ports/stepUpRuntime';
 import { createRecoveryPublicDeps } from './assembly/ports/recovery';
+import { createSessionPublicDeps } from './assembly/ports/session';
 import * as warmCapabilitiesPublic from './session/warmCapabilities/public';
 import type { WarmCapabilitiesPublicDeps } from './session/warmCapabilities/public';
 import * as passkeyPublic from './session/passkey/public';
@@ -358,34 +359,12 @@ export class SigningEngine {
       recordsByLane: this.thresholdEcdsaSessionByLane,
       exportArtifactsByLane: this.thresholdEcdsaExportArtifactByLane,
     });
-    const sessionRestore: SessionPublicDeps['restore'] = {
-      emailOtp: (restoreArgs) =>
-        this.emailOtpSessions.restorePersistedSessionsForWallet(restoreArgs),
-    };
-    if (this.touchConfirm.restorePersistedSessionsForWallet) {
-      sessionRestore.passkey = (restoreArgs) =>
-        this.touchConfirm.restorePersistedSessionsForWallet!(restoreArgs);
-    }
-    this.sessionPublicDeps = {
-      availableLanes: {
-        ecdsaSessions: this.warmSigning.ecdsaSessions,
-        statusReader: this.touchConfirm,
-        getEmailOtpWarmSessionStatus: (sessionId) =>
-          this.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
-        getWalletSigningBudgetStatus: (statusArgs) =>
-          readTrustedWalletSigningBudgetStatusOperation(
-            {
-              ecdsaSessions: this.warmSigning.ecdsaSessions,
-            },
-            statusArgs,
-          ),
-      },
-      ecdsaSessions: this.warmSigning.ecdsaSessions,
-      signingSessionSeal: this.seamsPasskeyConfigs.signing.sessionSeal,
-      getConfiguredEcdsaChainTargets: () =>
-        configuredThresholdEcdsaChainTargets(this.seamsPasskeyConfigs.network.chains),
-      restore: sessionRestore,
-    };
+    this.sessionPublicDeps = createSessionPublicDeps({
+      seamsPasskeyConfigs: this.seamsPasskeyConfigs,
+      touchConfirm: this.touchConfirm,
+      emailOtpSessions: this.emailOtpSessions,
+      warmSigning: this.warmSigning,
+    });
     this.emailOtpPublicDeps = {
       ecdsaSessions: this.warmSigning.ecdsaSessions,
       relayerUrl: this.seamsPasskeyConfigs.network.relayer?.url || '',

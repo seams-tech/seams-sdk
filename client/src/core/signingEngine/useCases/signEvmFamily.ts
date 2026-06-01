@@ -1,7 +1,7 @@
 import { thresholdEcdsaChainTargetsEqual } from '../interfaces/ecdsaChainTarget';
 import {
   useCaseFailure,
-  type ReadyEcdsaLane,
+  type EcdsaUseCaseReadyLane,
   type ReauthRequiredLane,
   type SignEvmFamilyFailureCode,
   type SignEvmFamilyInput,
@@ -17,9 +17,9 @@ export type SignEvmFamilyFailure = UseCaseFailure<SignEvmFamilyFailureCode>;
 export type SignEvmFamilyLaneResolution =
   | {
       ok: true;
-      lane: ReadyEcdsaLane;
+      lane: EcdsaUseCaseReadyLane;
       usedAuth: SignEvmFamilySuccess['usedAuth'];
-      staleLane?: ReadyEcdsaLane | ReauthRequiredLane;
+      staleLane?: EcdsaUseCaseReadyLane | ReauthRequiredLane;
       code?: never;
       message?: never;
       retryable?: never;
@@ -61,13 +61,13 @@ export type SignEvmFamilyDeps = {
   budget: {
     reserve(input: {
       input: SignEvmFamilyInput;
-      lane: ReadyEcdsaLane;
+      lane: EcdsaUseCaseReadyLane;
     }): Promise<SignEvmFamilyBudgetResult>;
   };
   signer: {
     sign(input: {
       input: SignEvmFamilyInput;
-      lane: ReadyEcdsaLane;
+      lane: EcdsaUseCaseReadyLane;
       budgetSpend: WarmSessionBudgetSpend;
       usedAuth: SignEvmFamilySuccess['usedAuth'];
     }): Promise<SignEvmFamilySigningResult>;
@@ -143,7 +143,7 @@ function validateInputBranch(input: SignEvmFamilyInput): SignEvmFamilyFailure | 
 
 function validateResolvedLane(args: {
   input: SignEvmFamilyInput;
-  lane: ReadyEcdsaLane;
+  lane: EcdsaUseCaseReadyLane;
 }): SignEvmFamilyFailure | null {
   if (
     String(args.lane.walletId) !== String(args.input.walletId) ||

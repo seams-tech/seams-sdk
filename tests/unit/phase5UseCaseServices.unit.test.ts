@@ -45,7 +45,7 @@ import type {
   EcdsaRelayerKeyId,
   IdempotencyKey,
   NearTransactionDigest,
-  ReadyEcdsaLane,
+  EcdsaUseCaseReadyLane,
   ReadyEd25519Lane,
   RestoreAttemptId,
   SigningSessionActivationPasskeyAuth,
@@ -160,7 +160,7 @@ function readyEd25519Lane(): ReadyEd25519Lane {
   };
 }
 
-function readyEcdsaLane(chainTarget = evmTarget): ReadyEcdsaLane {
+function readyEcdsaLane(chainTarget = evmTarget): EcdsaUseCaseReadyLane {
   return {
     kind: 'ecdsa_ready_lane_v1',
     walletId,

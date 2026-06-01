@@ -2,7 +2,7 @@ import type { ThresholdEcdsaChainTarget } from '../interfaces/ecdsaChainTarget';
 import {
   useCaseFailure,
   type NonEmptyReadonlyArray,
-  type ReadyEcdsaLane,
+  type EcdsaUseCaseReadyLane,
   type ReadyEd25519Lane,
   type ReauthRequiredLane,
   type SigningSessionSealWriteInput,
@@ -29,7 +29,7 @@ export type UnlockWalletAuthResult =
 export type UnlockWalletRestoreResult =
   | {
       ok: true;
-      restored: readonly (ReadyEd25519Lane | ReadyEcdsaLane)[];
+      restored: readonly (ReadyEd25519Lane | EcdsaUseCaseReadyLane)[];
       reauthRequired: readonly ReauthRequiredLane[];
       missingEcdsaTargets: readonly ThresholdEcdsaChainTarget[];
       sealWrites: readonly SigningSessionSealWriteInput[];
@@ -47,7 +47,7 @@ export type UnlockWalletRestoreResult =
 export type UnlockWalletProvisionMissingEcdsaResult =
   | {
       ok: true;
-      provisioned: readonly ReadyEcdsaLane[];
+      provisioned: readonly EcdsaUseCaseReadyLane[];
       sealWrites: readonly SigningSessionSealWriteInput[];
       code?: never;
       message?: never;
@@ -70,8 +70,8 @@ export type UnlockWalletSealWriteResult =
 
 export type UnlockWalletReadinessInput = {
   input: UnlockWalletInput;
-  restored: readonly (ReadyEd25519Lane | ReadyEcdsaLane)[];
-  provisioned: readonly ReadyEcdsaLane[];
+  restored: readonly (ReadyEd25519Lane | EcdsaUseCaseReadyLane)[];
+  provisioned: readonly EcdsaUseCaseReadyLane[];
   reauthRequired: readonly ReauthRequiredLane[];
 };
 
@@ -86,7 +86,7 @@ export type UnlockWalletDeps = {
     provisionMissing(input: {
       input: UnlockWalletInput;
       missingTargets: NonEmptyReadonlyArray<ThresholdEcdsaChainTarget>;
-      restored: readonly (ReadyEd25519Lane | ReadyEcdsaLane)[];
+      restored: readonly (ReadyEd25519Lane | EcdsaUseCaseReadyLane)[];
     }): Promise<UnlockWalletProvisionMissingEcdsaResult>;
   };
   sealWriter: {
@@ -176,7 +176,7 @@ export async function unlockWallet(
   const restored = await deps.sessionRestorer.restore(input);
   if (!restored.ok) return emitFailure(deps, restored);
 
-  let provisioned: readonly ReadyEcdsaLane[] = [];
+  let provisioned: readonly EcdsaUseCaseReadyLane[] = [];
   let provisionSealWrites: readonly SigningSessionSealWriteInput[] = [];
   const missingTargets = toNonEmptyReadonlyArray(restored.missingEcdsaTargets);
   if (missingTargets) {

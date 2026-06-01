@@ -44,7 +44,7 @@ const modeCases = [
     signerSelection: {
       mode: 'ecdsa_only',
       ecdsa: {
-        chainTargets: [{ chain: 'tempo', chainId: 978 }],
+        chainTargets: [{ kind: 'tempo', chainId: 978, networkSlug: 'tempo-testnet' }],
         participantIds: [1, 2],
       },
     },
@@ -63,7 +63,7 @@ const modeCases = [
         createNearAccount: true,
       },
       ecdsa: {
-        chainTargets: [{ chain: 'tempo', chainId: 978 }],
+        chainTargets: [{ kind: 'tempo', chainId: 978, networkSlug: 'tempo-testnet' }],
         participantIds: [1, 2],
       },
     },

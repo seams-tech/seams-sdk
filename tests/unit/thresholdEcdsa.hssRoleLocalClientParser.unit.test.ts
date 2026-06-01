@@ -89,10 +89,15 @@ test.describe('threshold ECDSA HSS role-local client parser', () => {
             id: 'credential-id',
             rawId: 'credential-id',
             type: 'public-key',
+            authenticatorAttachment: undefined,
             response: {
               clientDataJSON: 'client-data-json',
               authenticatorData: 'authenticator-data',
               signature: 'signature',
+              userHandle: undefined,
+            },
+            clientExtensionResults: {
+              prf: { results: { first: undefined, second: undefined } },
             },
           },
           runtimeEnvironmentId: 'env-test',

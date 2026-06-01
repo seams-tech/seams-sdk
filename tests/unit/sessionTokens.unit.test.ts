@@ -14,9 +14,12 @@ function jwtWithPayload(payload: Record<string, unknown>): string {
 test.describe('session JWT kind helpers', () => {
   test('rejects threshold-session auth tokens at app-session boundaries', () => {
     const jwt = jwtWithPayload({
-      kind: 'threshold_ecdsa_session_v1',
+      kind: 'threshold_ecdsa_session_v2',
       sub: 'alice.testnet',
       walletId: 'alice.testnet',
+      walletSigningSessionId: 'wallet-session-1',
+      keyHandle: 'key-handle-1',
+      ecdsaThresholdKeyId: 'ecdsa-key-1',
     });
 
     expect(() => requireAppSessionJwt(jwt)).toThrow('must be an app-session JWT');
@@ -60,9 +63,12 @@ test.describe('session JWT kind helpers', () => {
 
   test('builds discriminated route auth from JWT kind', () => {
     const thresholdAuthToken = jwtWithPayload({
-      kind: 'threshold_ecdsa_session_v1',
+      kind: 'threshold_ecdsa_session_v2',
       sub: 'alice.testnet',
       walletId: 'alice.testnet',
+      walletSigningSessionId: 'wallet-session-1',
+      keyHandle: 'key-handle-1',
+      ecdsaThresholdKeyId: 'ecdsa-key-1',
     });
     const appJwt = jwtWithPayload({ kind: 'app_session_v1', sub: 'alice.testnet' });
 

@@ -24,13 +24,11 @@ test.describe('privateKeyExportRecovery method binding', () => {
     const result = await exportNearEd25519SeedArtifactWithUI(
       {
         indexedDB: {
-          clientDB: {
-            resolveProfileAccountContext: async () => ({
-              profileId: 'profile-1',
-              accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
-            }),
-            getLastProfileState: async () => ({ profileId: 'profile-1', activeSignerSlot: 9 }),
-          },
+          resolveProfileAccountContext: async () => ({
+            profileId: 'profile-1',
+            accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
+          }),
+          getLastProfileState: async () => ({ profileId: 'profile-1', activeSignerSlot: 9 }),
         } as any,
         requestExportPrivateKeysWithUi: requestExportPrivateKeysWithUi as any,
         getTheme: () => 'dark',
@@ -80,13 +78,11 @@ test.describe('privateKeyExportRecovery method binding', () => {
     const result = await exportEcdsaHssThresholdKeyArtifactWithUI(
       {
         indexedDB: {
-          clientDB: {
-            resolveProfileAccountContext: async () => ({
-              profileId: 'profile-1',
-              accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
-            }),
-            getLastProfileState: async () => ({ profileId: 'profile-1', activeSignerSlot: 4 }),
-          },
+          resolveProfileAccountContext: async () => ({
+            profileId: 'profile-1',
+            accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
+          }),
+          getLastProfileState: async () => ({ profileId: 'profile-1', activeSignerSlot: 4 }),
         } as any,
         requestExportPrivateKeysWithUi: requestExportPrivateKeysWithUi as any,
         getTheme: () => 'light',
@@ -140,13 +136,11 @@ test.describe('privateKeyExportRecovery method binding', () => {
       exportEcdsaHssThresholdKeyArtifactWithUI(
         {
           indexedDB: {
-            clientDB: {
-              resolveProfileAccountContext: async () => ({
-                profileId: 'profile-1',
-                accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
-              }),
-              getLastProfileState: async () => ({ profileId: 'profile-1', activeSignerSlot: 4 }),
-            },
+            resolveProfileAccountContext: async () => ({
+              profileId: 'profile-1',
+              accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
+            }),
+            getLastProfileState: async () => ({ profileId: 'profile-1', activeSignerSlot: 4 }),
           } as any,
           requestExportPrivateKeysWithUi: (async () => {
             requestExportCallCount += 1;

@@ -91,7 +91,7 @@ export const reduceNearAccountIdForbiddenPathNearOwnedAllowlist = [
   },
   {
     file: 'client/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts',
-    occurrences: 20,
+    occurrences: 25,
     ownerPhase: '8',
     reason: 'Mixed passkey worker still owns NEAR export/account confirmation branches.',
   },

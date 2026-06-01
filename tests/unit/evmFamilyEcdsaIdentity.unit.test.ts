@@ -166,9 +166,11 @@ function makeEmailOtpRecord(
   const base = makeRecord({
     keyHandle: keyHandleForRecord,
     chainTarget,
-    thresholdSessionId: overrides.thresholdSessionId,
-    walletSigningSessionId: overrides.walletSigningSessionId,
-    thresholdEcdsaPublicKeyB64u: overrides.thresholdEcdsaPublicKeyB64u,
+    thresholdSessionId: overrides.thresholdSessionId ?? 'threshold-session-email-otp',
+    walletSigningSessionId:
+      overrides.walletSigningSessionId ?? 'wallet-signing-session-email-otp',
+    thresholdEcdsaPublicKeyB64u:
+      overrides.thresholdEcdsaPublicKeyB64u ?? VALID_PUBLIC_KEY_B64U,
   });
   return {
     ...base,
@@ -935,6 +937,7 @@ test.describe('EVM-family ECDSA identity', () => {
       retention: 'session',
       reason: 'login',
       authMethod: 'email_otp',
+      authSubjectId: 'google:alice',
     } as const;
     upsertStoredThresholdEcdsaSessionRecord(
       deps,

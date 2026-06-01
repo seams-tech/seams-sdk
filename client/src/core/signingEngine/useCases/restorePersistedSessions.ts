@@ -1,7 +1,7 @@
 import {
   useCaseFailure,
   type NonEmptyReadonlyArray,
-  type ReadyEcdsaLane,
+  type EcdsaUseCaseReadyLane,
   type ReadyEd25519Lane,
   type ReauthRequiredLane,
   type RestorePersistedSessionCleanup,
@@ -18,7 +18,7 @@ export type RestorePersistedSessionsFailure = UseCaseFailure<RestorePersistedSes
 
 export type RestorePersistedSessionMaterial =
   | ReadyEd25519Lane
-  | ReadyEcdsaLane
+  | EcdsaUseCaseReadyLane
   | ReauthRequiredLane;
 
 export type RestorePersistedSessionsReadResult =
@@ -41,7 +41,7 @@ export type RestorePersistedSessionsClassificationResult =
   | {
       ok: true;
       readiness: UseCaseWalletSessionReadiness;
-      restored: readonly (ReadyEd25519Lane | ReadyEcdsaLane)[];
+      restored: readonly (ReadyEd25519Lane | EcdsaUseCaseReadyLane)[];
       reauthRequired: readonly ReauthRequiredLane[];
       cleanup: readonly RestorePersistedSessionCleanup[];
       code?: never;

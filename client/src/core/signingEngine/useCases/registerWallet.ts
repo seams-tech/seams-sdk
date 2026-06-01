@@ -1,7 +1,7 @@
 import {
   useCaseFailure,
   type NonEmptyReadonlyArray,
-  type ReadyEcdsaLane,
+  type EcdsaUseCaseReadyLane,
   type ReadyEd25519Lane,
   type ReadyWalletSessionReadiness,
   type RegisterWalletFailureCode,
@@ -51,7 +51,7 @@ export type RegisterWalletEd25519ProvisionResult =
 export type RegisterWalletEcdsaProvisionResult =
   | {
       ok: true;
-      lanes: readonly ReadyEcdsaLane[];
+      lanes: readonly EcdsaUseCaseReadyLane[];
       sealWrites: readonly SigningSessionSealWriteInput[];
       walletSignerWrites: readonly Extract<
         WalletSignerWrite,

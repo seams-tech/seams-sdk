@@ -286,7 +286,7 @@ test.describe('Refactor 46d hardening guards', () => {
   test('EVM-family signing prep does not hardcode passkey auth selection', () => {
     const source = readSource(EVM_FAMILY_PREPARED_SIGNING_URL);
     expect(source).toContain("authSelectionPolicy: { kind: 'any' }");
-    expect(source).toContain('authMethod: primaryAuthMethod');
+    expect(source).toContain('authMethod: candidateAuthMethod');
     expect(source).not.toContain("authSelectionPolicy: { kind: 'account_class', authMethod: 'passkey' }");
     expect(source).not.toContain("authSelectionPolicy: { kind: 'explicit', authMethod: 'passkey' }");
   });

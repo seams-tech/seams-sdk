@@ -17,7 +17,7 @@ import type {
   SigningSessionSealWriteInput,
   UnlockWalletAuth,
   UseCaseWalletSessionReadiness,
-  ReadyEcdsaLane,
+  EcdsaUseCaseReadyLane,
   ReadyEd25519Lane,
   NearTransactionDigest,
   UnixTimeMs,
@@ -82,7 +82,7 @@ declare const emailOtpEcdsaWorkerHandle: Extract<
 >;
 declare const readyRecord: EcdsaRoleLocalReadyRecord;
 declare const readyEd25519Lane: ReadyEd25519Lane;
-declare const readyEcdsaLane: ReadyEcdsaLane;
+declare const readyEcdsaLane: EcdsaUseCaseReadyLane;
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const evmChainTarget: EvmEip155ChainTarget;
 declare const tempoChainTarget: TempoChainTarget;
@@ -148,7 +148,7 @@ const ecdsaLaneMissingTarget = {
   chainTarget: undefined,
 };
 // @ts-expect-error ready ECDSA lanes require an exact chain target
-ecdsaLaneMissingTarget satisfies ReadyEcdsaLane;
+ecdsaLaneMissingTarget satisfies EcdsaUseCaseReadyLane;
 
 const passkeyUnlockWithOtp = {
   kind: 'passkey_unlock',

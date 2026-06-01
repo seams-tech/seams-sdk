@@ -103,7 +103,9 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
       },
     });
 
-    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error('expected exact-session bootstrap to reject incomplete identity');
+    }
     expect(result.code).toBe('invalid_args');
     expect(result.message).toContain('shared key identity and lane policy');
   });

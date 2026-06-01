@@ -150,7 +150,7 @@ function readReadyEd25519Lane(args: {
   };
 }
 
-function readReadyEcdsaLane(args: {
+function readEcdsaUseCaseReadyLane(args: {
   lanes: AvailableSigningLanes;
   chainTarget: ThresholdEcdsaChainTarget;
   authMethod: RuntimePostconditionAuthMethod;
@@ -223,7 +223,7 @@ export async function readWalletRuntimePostconditions(args: {
       ed25519 = readyLane;
       continue;
     }
-    const readyLane = readReadyEcdsaLane({
+    const readyLane = readEcdsaUseCaseReadyLane({
       lanes,
       chainTarget: target.chainTarget,
       authMethod: args.authMethod,

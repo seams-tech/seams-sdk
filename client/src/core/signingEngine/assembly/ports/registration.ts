@@ -1,6 +1,7 @@
 import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import type { ThresholdEd25519LifecycleDeps } from '../../threshold/ed25519/hssLifecycle';
 import type { ThresholdSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
+import type { RegistrationAccountLifecycleDeps } from '../../interfaces/operationDeps';
 import { generateSessionId as generateSessionIdValue } from '../../session/passkey/prfCache';
 import type { CreateSigningEnginePortsArgs } from './shared';
 
@@ -29,5 +30,17 @@ export function createThresholdSessionActivationDeps(args: {
     persistThresholdEcdsaBootstrapForWalletTarget:
       args.createArgs.persistThresholdEcdsaBootstrapForWalletTarget,
     upsertThresholdEcdsaSessionFromBootstrap: args.createArgs.upsertThresholdEcdsaSessionFromBootstrap,
+  };
+}
+
+export function createRegistrationAccountLifecycleDeps(args: {
+  createArgs: CreateSigningEnginePortsArgs;
+  indexedDB: UnifiedIndexedDBManager;
+}): RegistrationAccountLifecycleDeps {
+  return {
+    indexedDB: args.indexedDB,
+    userPreferencesManager: args.createArgs.userPreferencesManager,
+    nonceCoordinator: args.createArgs.nonceCoordinator,
+    extractCosePublicKey: args.createArgs.extractCosePublicKey,
   };
 }

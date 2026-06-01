@@ -10,7 +10,7 @@ import {
   type ExportKeysResult,
   type ExportKeysSuccess,
   type NonEmptyReadonlyArray,
-  type ReadyEcdsaLane,
+  type EcdsaUseCaseReadyLane,
   type ReadyEd25519Lane,
   type UseCaseFailure,
 } from './lifecycle';
@@ -24,7 +24,7 @@ export type ExportKeysMaterial =
     }
   | {
       request: Extract<ExportKeyRequest, { kind: 'ecdsa_secp256k1' }>;
-      lane: ReadyEcdsaLane;
+      lane: EcdsaUseCaseReadyLane;
     };
 
 type ExportKeysResolvedMaterialResult =
@@ -50,7 +50,7 @@ type ExportKeysArtifactsResult =
 export type ExportKeysMaterialLoadResult =
   | {
       ok: true;
-      material: NonEmptyReadonlyArray<ReadyEd25519Lane | ReadyEcdsaLane>;
+      material: NonEmptyReadonlyArray<ReadyEd25519Lane | EcdsaUseCaseReadyLane>;
       code?: never;
       message?: never;
       retryable?: never;
@@ -110,7 +110,7 @@ export type ExportKeysDeps = {
     buildEcdsa(input: {
       input: ExportKeysInput;
       request: Extract<ExportKeyRequest, { kind: 'ecdsa_secp256k1' }>;
-      lane: ReadyEcdsaLane;
+      lane: EcdsaUseCaseReadyLane;
       authorization: ExportKeysAuthorization;
     }): Promise<ExportKeysArtifactBuildResult>;
   };
@@ -278,7 +278,7 @@ function validateAuthorization(args: {
   return null;
 }
 
-function isReadyStateEnvelopeValid(lane: ReadyEcdsaLane): boolean {
+function isReadyStateEnvelopeValid(lane: EcdsaUseCaseReadyLane): boolean {
   const blob = lane.readyRecord.stateBlob;
   return (
     blob.kind === 'ecdsa_role_local_state_blob_v1' &&
@@ -292,7 +292,7 @@ function isReadyStateEnvelopeValid(lane: ReadyEcdsaLane): boolean {
 function findMaterialForRequest(args: {
   input: ExportKeysInput;
   request: ExportKeyRequest;
-  material: NonEmptyReadonlyArray<ReadyEd25519Lane | ReadyEcdsaLane>;
+  material: NonEmptyReadonlyArray<ReadyEd25519Lane | EcdsaUseCaseReadyLane>;
 }): ExportKeysMaterial | ExportKeysFailure {
   const request = args.request;
   switch (request.kind) {
@@ -315,7 +315,7 @@ function findMaterialForRequest(args: {
     }
     case 'ecdsa_secp256k1': {
       const lane = args.material.find(
-        (candidate): candidate is ReadyEcdsaLane =>
+        (candidate): candidate is EcdsaUseCaseReadyLane =>
           candidate.kind === 'ecdsa_ready_lane_v1' &&
           String(candidate.walletId) === String(args.input.walletId) &&
           String(candidate.rpId) === String(args.input.rpId) &&
@@ -352,7 +352,7 @@ function findMaterialForRequest(args: {
 
 function resolveMaterial(args: {
   input: ExportKeysInput;
-  material: NonEmptyReadonlyArray<ReadyEd25519Lane | ReadyEcdsaLane>;
+  material: NonEmptyReadonlyArray<ReadyEd25519Lane | EcdsaUseCaseReadyLane>;
 }): ExportKeysResolvedMaterialResult {
   const resolved: ExportKeysMaterial[] = [];
   for (const request of args.input.requestedKeys) {

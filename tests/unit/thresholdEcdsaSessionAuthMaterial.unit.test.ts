@@ -6,6 +6,8 @@ const IMPORT_PATHS = {
     '/sdk/esm/core/signingEngine/session/persistence/records.js',
   warmSessionCapabilityReader:
     '/sdk/esm/core/signingEngine/session/warmCapabilities/capabilityReader.js',
+  ecdsaRoleLocalRecords:
+    '/sdk/esm/core/signingEngine/session/persistence/ecdsaRoleLocalRecords.js',
 } as const;
 
 test.describe('threshold ECDSA warm-session auth material', () => {
@@ -20,6 +22,7 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
       async ({ paths }) => {
         const storeMod = await import(paths.thresholdSessionStore);
         const capabilityReaderMod = await import(paths.warmSessionCapabilityReader);
+        const ecdsaRoleLocalMod = await import(paths.ecdsaRoleLocalRecords);
         const deps = {
           recordsByLane: new Map<string, unknown>(),
           exportArtifactsByLane: new Map<string, unknown>(),
@@ -27,7 +30,7 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
         const now = Date.now();
 
         const upsertEcdsaRecord = (args: {
-          nearAccountId: string;
+          walletId: string;
           thresholdSessionId: string;
           thresholdSessionKind: 'jwt' | 'cookie';
           thresholdSessionAuthToken?: string;
@@ -38,50 +41,63 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
             networkSlug: 'tempo-42431',
           };
           const walletSigningSessionId = `wallet-${args.thresholdSessionId}`;
-          const ecdsaThresholdKeyId = `ek-${args.nearAccountId}`;
-          storeMod.upsertThresholdEcdsaSessionFromBootstrap(deps, {
-            nearAccountId: args.nearAccountId,
-            chainTarget,
-            source: 'login',
-            bootstrap: {
-              thresholdEcdsaKeyRef: {
-                type: 'threshold-ecdsa-secp256k1',
-                userId: args.nearAccountId,
-                subjectId: args.nearAccountId,
-                chainTarget,
-                relayerUrl: 'https://relay.example',
-                ecdsaThresholdKeyId,
-                signingRootId: 'proj-a:env-a',
-                signingRootVersion: 'default',
-                participantIds: [1, 2],
-                backendBinding: {
-                  relayerKeyId: `rk-${args.thresholdSessionId}`,
-                  clientVerifyingShareB64u: `cvs-${args.thresholdSessionId}`,
-                },
-                thresholdSessionKind: args.thresholdSessionKind,
-                thresholdSessionId: args.thresholdSessionId,
-                walletSigningSessionId,
-                ...(args.thresholdSessionAuthToken
-                  ? { thresholdSessionAuthToken: args.thresholdSessionAuthToken }
-                  : {}),
-              },
-              keygen: {
-                ok: true,
-                keygenSessionId: `kg-${args.thresholdSessionId}`,
-                rpId: 'example.localhost',
-                clientVerifyingShareB64u: `cvs-${args.thresholdSessionId}`,
-                relayerKeyId: `rk-${args.thresholdSessionId}`,
-                participantIds: [1, 2],
-              },
-              session: {
-                ok: true,
-                sessionId: args.thresholdSessionId,
-                walletSigningSessionId,
-                expiresAtMs: now + 120_000,
-                remainingUses: 9,
-                ...(args.thresholdSessionAuthToken ? { jwt: args.thresholdSessionAuthToken } : {}),
-              },
+          const ecdsaThresholdKeyId = `ek-${args.walletId}`;
+          const keyHandle = `key-handle-${args.thresholdSessionId}`;
+          const ecdsaRoleLocalReadyRecord = ecdsaRoleLocalMod.buildEcdsaRoleLocalReadyRecord({
+            stateBlob: {
+              kind: 'ecdsa_role_local_state_blob_v1',
+              curve: 'secp256k1',
+              encoding: 'base64url',
+              producer: 'signer_core',
+              stateBlobB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
             },
+            publicFacts: ecdsaRoleLocalMod.buildEcdsaRoleLocalPublicFacts({
+              walletId: args.walletId,
+              rpId: 'example.localhost',
+              chainTarget,
+              keyHandle,
+              ecdsaThresholdKeyId,
+              signingRootId: 'proj-a:env-a',
+              signingRootVersion: 'default',
+              clientParticipantId: 1,
+              relayerParticipantId: 2,
+              participantIds: [1, 2],
+              contextBinding32B64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+              hssClientSharePublicKey33B64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+              relayerPublicKey33B64u: 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+              groupPublicKey33B64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+              ethereumAddress: `0x${'11'.repeat(20)}`,
+            }),
+            authMethod: ecdsaRoleLocalMod.buildEcdsaRoleLocalPasskeyAuthMethod({
+              credentialIdB64u: `credential-${args.thresholdSessionId}`,
+              rpId: 'example.localhost',
+            }),
+          });
+          storeMod.upsertStoredThresholdEcdsaSessionRecord(deps, {
+            walletId: args.walletId,
+            rpId: 'example.localhost',
+            relayerUrl: 'https://relay.example',
+            chainTarget,
+            keyHandle,
+            ecdsaThresholdKeyId,
+            signingRootId: 'proj-a:env-a',
+            signingRootVersion: 'default',
+            relayerKeyId: `rk-${args.thresholdSessionId}`,
+            clientVerifyingShareB64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            ecdsaRoleLocalReadyRecord,
+            participantIds: [1, 2],
+            thresholdSessionKind: args.thresholdSessionKind,
+            thresholdSessionId: args.thresholdSessionId,
+            walletSigningSessionId,
+            ...(args.thresholdSessionAuthToken
+              ? { thresholdSessionAuthToken: args.thresholdSessionAuthToken }
+              : {}),
+            expiresAtMs: now + 120_000,
+            remainingUses: 9,
+            thresholdEcdsaPublicKeyB64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            ethereumAddress: `0x${'11'.repeat(20)}`,
+            updatedAtMs: now,
+            source: 'login',
           });
         };
 
@@ -104,18 +120,18 @@ test('resolves JWT only from explicit canonical ECDSA ownership', async ({
         });
 
         upsertEcdsaRecord({
-          nearAccountId: 'primary.testnet',
+          walletId: 'primary.testnet',
           thresholdSessionId: 'sess-ecdsa-jwt',
           thresholdSessionKind: 'jwt',
           thresholdSessionAuthToken: 'jwt-ecdsa-primary',
         });
         upsertEcdsaRecord({
-          nearAccountId: 'fallback.testnet',
+          walletId: 'fallback.testnet',
           thresholdSessionId: 'sess-ecdsa-cookie',
           thresholdSessionKind: 'cookie',
         });
         upsertEcdsaRecord({
-          nearAccountId: 'nofallback.testnet',
+          walletId: 'nofallback.testnet',
           thresholdSessionId: 'sess-ecdsa-cookie-no-fallback',
           thresholdSessionKind: 'cookie',
         });

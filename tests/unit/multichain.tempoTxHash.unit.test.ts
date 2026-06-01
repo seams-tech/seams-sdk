@@ -14,14 +14,17 @@ test.describe('TempoTransaction sender hash', () => {
     const res = await page.evaluate(
       async ({ paths }) => {
         const { computeTempoSenderHashWasm } = await import(paths.tempoSignerWasm);
-        const { requestWorkerOperation } = await import(paths.signerGateway);
+        const { getWorkerTransport } = await import(paths.signerGateway);
         const hex = (bytes: Uint8Array) =>
           `0x${Array.from(bytes)
             .map((b) => b.toString(16).padStart(2, '0'))
             .join('')}`;
         const workerCtx = {
           requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>
-            await requestWorkerOperation({ kind: kind as any, request: request as any }),
+            await getWorkerTransport().requestOperation({
+              kind: kind as any,
+              request: request as any,
+            }),
         };
 
         const mkTx = (feeToken: string) => ({
@@ -55,14 +58,17 @@ test.describe('TempoTransaction sender hash', () => {
     const res = await page.evaluate(
       async ({ paths }) => {
         const { computeTempoSenderHashWasm } = await import(paths.tempoSignerWasm);
-        const { requestWorkerOperation } = await import(paths.signerGateway);
+        const { getWorkerTransport } = await import(paths.signerGateway);
         const hex = (bytes: Uint8Array) =>
           `0x${Array.from(bytes)
             .map((b) => b.toString(16).padStart(2, '0'))
             .join('')}`;
         const workerCtx = {
           requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>
-            await requestWorkerOperation({ kind: kind as any, request: request as any }),
+            await getWorkerTransport().requestOperation({
+              kind: kind as any,
+              request: request as any,
+            }),
         };
 
         const mkTx = (feeToken: string) => ({

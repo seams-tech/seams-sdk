@@ -36,6 +36,29 @@ const EXISTING_PASSKEY_CREDENTIAL_ID = base64UrlEncode(
 );
 const NEW_PASSKEY_CREDENTIAL_ID = base64UrlEncode(new TextEncoder().encode('new-credential-id'));
 
+function verifiedEmailOtpRegistrationChallengeProof(args: {
+  challengeId: string;
+  walletId: string;
+  appSessionVersion: string;
+}) {
+  return {
+    kind: 'direct_proof_email',
+    providerSubject: EMAIL_OTP_PROVIDER_SUBJECT,
+    challengeSubjectId: EMAIL_OTP_PROVIDER_SUBJECT,
+    challengeEmail: EMAIL_OTP_EMAIL,
+    challengeId: args.challengeId,
+    originalWalletId: args.walletId,
+    finalWalletId: args.walletId,
+    orgId: ORG_ID,
+    appSessionVersion: args.appSessionVersion,
+    purpose: {
+      kind: 'registration',
+      action: 'wallet_email_otp_registration',
+      operation: 'registration',
+    },
+  };
+}
+
 function secp256k1BasePointB64u(): string {
   const hex = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798';
   return base64UrlEncode(Uint8Array.from(Buffer.from(hex, 'hex')));
@@ -599,12 +622,18 @@ test.describe('registration intent allocation', () => {
       challengeVerification = request;
       return {
         ok: true,
+        intent: 'registration',
         challengeId: request.challengeId,
         challengeSubjectId: request.challengeSubjectId,
         walletId: request.walletId,
         orgId: request.orgId,
         email: EMAIL_OTP_EMAIL,
         otpChannel: 'email_otp',
+        registrationChallengeProof: verifiedEmailOtpRegistrationChallengeProof({
+          challengeId: String(request.challengeId),
+          walletId: String(request.walletId),
+          appSessionVersion: String(request.appSessionVersion),
+        }),
       };
     };
     (service as any).getThresholdSigningService = () => ({
@@ -649,9 +678,8 @@ test.describe('registration intent allocation', () => {
     });
     expect(challengeVerification).toMatchObject({
       challengeSubjectId: EMAIL_OTP_PROVIDER_SUBJECT,
-      registrationRerollProof: {
+      registrationChallengeProof: {
         providerSubject: EMAIL_OTP_PROVIDER_SUBJECT,
-        proofEmail: EMAIL_OTP_EMAIL,
       },
       walletId: 'wallet_alice',
       orgId: ORG_ID,
@@ -684,12 +712,18 @@ test.describe('registration intent allocation', () => {
     const service = makeService();
     (service as any).verifyEmailOtpChallengeCode = async () => ({
       ok: true,
+      intent: 'registration',
       challengeId: 'email-otp-challenge-1',
       challengeSubjectId: EMAIL_OTP_PROVIDER_SUBJECT,
       walletId: 'wallet_alice',
       orgId: ORG_ID,
       email: EMAIL_OTP_EMAIL,
       otpChannel: 'email_otp',
+      registrationChallengeProof: verifiedEmailOtpRegistrationChallengeProof({
+        challengeId: 'email-otp-challenge-1',
+        walletId: 'wallet_alice',
+        appSessionVersion: 'email-otp-registration-v1',
+      }),
     });
     let authenticatorWrites = 0;
     let credentialBindingWrites = 0;
@@ -1803,12 +1837,18 @@ test.describe('registration intent allocation', () => {
       verifyRequest = request;
       return {
         ok: true,
+        intent: 'registration',
         challengeId: 'challenge-email-1',
         challengeSubjectId: EMAIL_OTP_PROVIDER_SUBJECT,
         walletId: 'wallet_alice',
         orgId: ORG_ID,
         email: EMAIL_OTP_EMAIL,
         otpChannel: 'email_otp',
+        registrationChallengeProof: verifiedEmailOtpRegistrationChallengeProof({
+          challengeId: 'challenge-email-1',
+          walletId: 'wallet_alice',
+          appSessionVersion: 'v1',
+        }),
       };
     };
 

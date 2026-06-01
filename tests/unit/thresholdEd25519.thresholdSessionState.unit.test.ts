@@ -8,6 +8,8 @@ const IMPORT_PATHS = {
     '/sdk/esm/core/signingEngine/session/warmCapabilities/capabilityReader.js',
   thresholdSessionStore:
     '/sdk/esm/core/signingEngine/session/persistence/records.js',
+  ecdsaRoleLocalRecords:
+    '/sdk/esm/core/signingEngine/session/persistence/ecdsaRoleLocalRecords.js',
 } as const;
 
 test.describe('threshold Ed25519 threshold-session state', () => {
@@ -15,7 +17,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
     await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
   });
 
-  test('publishing a fresh Ed25519 runtime lane replaces stale account runtime lanes', async ({
+  test('publishing a fresh Ed25519 runtime lane keeps stale exact lanes out of active listing', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -130,8 +132,8 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           remainingUses: 1,
         },
       ],
-      oldPasskeyLanePresent: false,
-      oldOtpLanePresent: false,
+      oldPasskeyLanePresent: true,
+      oldOtpLanePresent: true,
       freshOtpLanePresent: true,
     });
   });
@@ -205,6 +207,7 @@ test.describe('threshold Ed25519 threshold-session state', () => {
         const helperMod = await import(paths.thresholdSessionAuth);
         const capabilityReaderMod = await import(paths.warmSessionCapabilityReader);
         const storeMod = await import(paths.thresholdSessionStore);
+        const ecdsaRoleLocalMod = await import(paths.ecdsaRoleLocalRecords);
         const ecdsaStoreDeps = {
           recordsByLane: new Map(),
           exportArtifactsByLane: new Map(),
@@ -229,50 +232,69 @@ test.describe('threshold Ed25519 threshold-session state', () => {
           source: 'login',
         });
 
-        storeMod.upsertThresholdEcdsaSessionFromBootstrap(ecdsaStoreDeps, {
-          nearAccountId: 'alice.testnet',
+        const chainTarget = {
+          kind: 'evm',
+          namespace: 'eip155',
+          chainId: 5042002,
+          networkSlug: 'arc-testnet',
+        };
+        const ecdsaRoleLocalReadyRecord = ecdsaRoleLocalMod.buildEcdsaRoleLocalReadyRecord({
+          stateBlob: {
+            kind: 'ecdsa_role_local_state_blob_v1',
+            curve: 'secp256k1',
+            encoding: 'base64url',
+            producer: 'signer_core',
+            stateBlobB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+          },
+          publicFacts: ecdsaRoleLocalMod.buildEcdsaRoleLocalPublicFacts({
+            walletId: 'alice.testnet',
+            rpId: 'example.localhost',
+            chainTarget,
+            keyHandle: 'key-handle-ecdsa',
+            ecdsaThresholdKeyId: 'ecdsa-key-id',
+            signingRootId: 'proj-a:env-a',
+            signingRootVersion: 'default',
+            clientParticipantId: 1,
+            relayerParticipantId: 2,
+            participantIds: [1, 2],
+            contextBinding32B64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            hssClientSharePublicKey33B64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            relayerPublicKey33B64u: 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            groupPublicKey33B64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+            ethereumAddress: `0x${'11'.repeat(20)}`,
+          }),
+          authMethod: ecdsaRoleLocalMod.buildEcdsaRoleLocalPasskeyAuthMethod({
+            credentialIdB64u: 'credential-ecdsa',
+            rpId: 'example.localhost',
+          }),
+        });
+        storeMod.upsertStoredThresholdEcdsaSessionRecord(ecdsaStoreDeps, {
+          walletId: 'alice.testnet',
+          rpId: 'example.localhost',
+          relayerUrl: 'https://relay.example',
           chainTarget: {
             kind: 'evm',
             namespace: 'eip155',
             chainId: 5042002,
             networkSlug: 'arc-testnet',
           },
-          bootstrap: {
-            thresholdEcdsaKeyRef: {
-              type: 'threshold-ecdsa-secp256k1',
-              userId: 'alice.testnet',
-              subjectId: 'alice.testnet',
-              relayerUrl: 'https://relay.example',
-              ecdsaThresholdKeyId: 'ecdsa-key-id',
-              signingRootId: 'proj-a:env-a',
-              signingRootVersion: 'default',
-              backendBinding: {
-                relayerKeyId: 'rk-ecdsa',
-                clientVerifyingShareB64u: 'client-verifying-share',
-              },
-              participantIds: [1, 2],
-              thresholdSessionKind: 'jwt',
-              thresholdSessionId: 'shared-session-id',
-              walletSigningSessionId: 'shared-wallet-session',
-              thresholdSessionAuthToken: 'jwt-ecdsa',
-            } as any,
-            keygen: {
-              ok: true,
-              ecdsaThresholdKeyId: 'ecdsa-key-id',
-              relayerKeyId: 'rk-ecdsa',
-              clientVerifyingShareB64u: 'client-verifying-share',
-              participantIds: [1, 2],
-            } as any,
-            session: {
-              ok: true,
-              sessionId: 'shared-session-id',
-              walletSigningSessionId: 'shared-wallet-session',
-              jwt: 'jwt-ecdsa',
-              expiresAtMs: Date.now() + 60_000,
-              remainingUses: 3,
-              clientVerifyingShareB64u: 'client-verifying-share',
-            } as any,
-          },
+          keyHandle: 'key-handle-ecdsa',
+          ecdsaThresholdKeyId: 'ecdsa-key-id',
+          signingRootId: 'proj-a:env-a',
+          signingRootVersion: 'default',
+          relayerKeyId: 'rk-ecdsa',
+          clientVerifyingShareB64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+          ecdsaRoleLocalReadyRecord,
+          participantIds: [1, 2],
+          thresholdSessionKind: 'jwt',
+          thresholdSessionId: 'shared-session-id',
+          walletSigningSessionId: 'shared-wallet-session',
+          thresholdSessionAuthToken: 'jwt-ecdsa',
+          expiresAtMs: Date.now() + 60_000,
+          remainingUses: 3,
+          thresholdEcdsaPublicKeyB64u: 'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+          ethereumAddress: `0x${'11'.repeat(20)}`,
+          updatedAtMs: Date.now(),
           source: 'login',
         });
 

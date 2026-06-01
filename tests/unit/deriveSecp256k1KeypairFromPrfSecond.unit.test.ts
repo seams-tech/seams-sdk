@@ -18,10 +18,13 @@ test.describe('deriveSecp256k1KeypairFromPrfSecondWasm', () => {
     const result = await page.evaluate(
       async ({ paths, prfSecondB64u }) => {
         const { deriveSecp256k1KeypairFromPrfSecondWasm } = await import(paths.ethSignerWasm);
-        const { requestWorkerOperation } = await import(paths.signerGateway);
+        const { getWorkerTransport } = await import(paths.signerGateway);
         const workerCtx = {
           requestWorkerOperation: async ({ kind, request }: { kind: string; request: unknown }) =>
-            await requestWorkerOperation({ kind: kind as any, request: request as any }),
+            await getWorkerTransport().requestOperation({
+              kind: kind as any,
+              request: request as any,
+            }),
         };
 
         const first = await deriveSecp256k1KeypairFromPrfSecondWasm({
