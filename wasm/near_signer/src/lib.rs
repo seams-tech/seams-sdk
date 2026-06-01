@@ -370,9 +370,9 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
                 ));
             }
         }
-        WorkerRequestType::BuildThresholdEcdsaHssRoleLocalClientBootstrap => {
+        WorkerRequestType::OpenThresholdEcdsaHssRoleLocalSigningShare => {
             return Err(JsValue::from_str(
-                "BuildThresholdEcdsaHssRoleLocalClientBootstrap is handled by the HSS client runtime",
+                "OpenThresholdEcdsaHssRoleLocalSigningShare is handled by the HSS client runtime",
             ));
         }
         WorkerRequestType::BuildThresholdEcdsaHssRoleLocalExportArtifact => {
@@ -452,8 +452,8 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
         WorkerRequestType::BuildThresholdEd25519SeedExportArtifact => {
             WorkerResponseType::BuildThresholdEd25519SeedExportArtifactSuccess
         }
-        WorkerRequestType::BuildThresholdEcdsaHssRoleLocalClientBootstrap => {
-            WorkerResponseType::BuildThresholdEcdsaHssRoleLocalClientBootstrapSuccess
+        WorkerRequestType::OpenThresholdEcdsaHssRoleLocalSigningShare => {
+            WorkerResponseType::OpenThresholdEcdsaHssRoleLocalSigningShareSuccess
         }
         WorkerRequestType::BuildThresholdEcdsaHssRoleLocalExportArtifact => {
             WorkerResponseType::BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess

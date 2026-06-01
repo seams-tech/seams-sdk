@@ -1,3 +1,4 @@
+use ecdsa_hss::{EcdsaHssError, EcdsaHssErrorCode};
 use serde::Serialize;
 use signer_platform_web::error::{SignerCoreError, SignerCoreErrorCode};
 use wasm_bindgen::prelude::JsValue;
@@ -38,6 +39,17 @@ fn core_code_name(code: SignerCoreErrorCode) -> &'static str {
     }
 }
 
+fn map_ecdsa_hss_code_to_core_code(code: EcdsaHssErrorCode) -> SignerCoreErrorCode {
+    match code {
+        EcdsaHssErrorCode::InvalidInput => SignerCoreErrorCode::InvalidInput,
+        EcdsaHssErrorCode::InvalidLength => SignerCoreErrorCode::InvalidLength,
+        EcdsaHssErrorCode::DecodeError => SignerCoreErrorCode::DecodeError,
+        EcdsaHssErrorCode::CryptoError => SignerCoreErrorCode::CryptoError,
+        EcdsaHssErrorCode::Utf8Error => SignerCoreErrorCode::Utf8Error,
+        EcdsaHssErrorCode::Internal => SignerCoreErrorCode::Internal,
+    }
+}
+
 fn js_error_with_codes(code: &str, core_code: &str, message: String) -> JsValue {
     let wire = SignerWorkerErrorWire {
         code: code.to_string(),
@@ -52,6 +64,15 @@ pub fn js_core_err(err: SignerCoreError) -> JsValue {
     js_error_with_codes(
         map_core_code_to_host_code(err.code),
         core_code_name(err.code),
+        err.message,
+    )
+}
+
+pub fn js_ecdsa_hss_err(err: EcdsaHssError) -> JsValue {
+    let core_code = map_ecdsa_hss_code_to_core_code(err.code);
+    js_error_with_codes(
+        map_core_code_to_host_code(core_code),
+        core_code_name(core_code),
         err.message,
     )
 }

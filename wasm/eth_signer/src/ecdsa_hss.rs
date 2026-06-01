@@ -1,11 +1,11 @@
 use ecdsa_hss::{
-    derive_relayer_share_for_client_public, public_transcript_digest,
-    EcdsaHssStableKeyContext, ServerEvalOperation,
+    derive_relayer_share_for_client_public, public_transcript_digest, EcdsaHssStableKeyContext,
+    ServerEvalOperation,
 };
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::JsValue;
 
-use crate::errors::{js_core_err, js_invalid_input_err};
+use crate::errors::{js_ecdsa_hss_err, js_invalid_input_err};
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -60,10 +60,10 @@ pub fn threshold_ecdsa_hss_role_local_relayer_bootstrap(
         &client_public_key33,
         parsed.client_share_retry_counter,
     )
-    .map_err(js_core_err)?;
+    .map_err(js_ecdsa_hss_err)?;
     let public_transcript_digest32 =
         public_transcript_digest(ServerEvalOperation::SessionBootstrap, &identity)
-            .map_err(js_core_err)?;
+            .map_err(js_ecdsa_hss_err)?;
     serde_wasm_bindgen::to_value(&EcdsaHssRoleLocalRelayerBootstrapResultJs {
         context_binding32: identity.context_binding32.to_vec(),
         relayer_share32: relayer_share.x_relayer32.to_vec(),

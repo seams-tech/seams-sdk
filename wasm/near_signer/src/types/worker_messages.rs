@@ -28,7 +28,7 @@ pub enum WorkerRequestType {
     OpenThresholdEd25519HssClientOutput,
     OpenThresholdEd25519HssSeedOutput,
     BuildThresholdEd25519SeedExportArtifact,
-    BuildThresholdEcdsaHssRoleLocalClientBootstrap,
+    OpenThresholdEcdsaHssRoleLocalSigningShare,
     BuildThresholdEcdsaHssRoleLocalExportArtifact,
     BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact,
     DeriveThresholdEd25519HssClientOutputMask,
@@ -52,7 +52,7 @@ impl From<u32> for WorkerRequestType {
             10 => WorkerRequestType::OpenThresholdEd25519HssClientOutput,
             11 => WorkerRequestType::OpenThresholdEd25519HssSeedOutput,
             12 => WorkerRequestType::BuildThresholdEd25519SeedExportArtifact,
-            13 => WorkerRequestType::BuildThresholdEcdsaHssRoleLocalClientBootstrap,
+            13 => WorkerRequestType::OpenThresholdEcdsaHssRoleLocalSigningShare,
             14 => WorkerRequestType::BuildThresholdEcdsaHssRoleLocalExportArtifact,
             15 => WorkerRequestType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact,
             16 => WorkerRequestType::DeriveThresholdEd25519HssClientOutputMask,
@@ -92,8 +92,8 @@ impl WorkerRequestType {
             WorkerRequestType::BuildThresholdEd25519SeedExportArtifact => {
                 "BUILD_THRESHOLD_ED25519_SEED_EXPORT_ARTIFACT"
             }
-            WorkerRequestType::BuildThresholdEcdsaHssRoleLocalClientBootstrap => {
-                "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP"
+            WorkerRequestType::OpenThresholdEcdsaHssRoleLocalSigningShare => {
+                "OPEN_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_SIGNING_SHARE"
             }
             WorkerRequestType::BuildThresholdEcdsaHssRoleLocalExportArtifact => {
                 "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_EXPORT_ARTIFACT"
@@ -145,8 +145,8 @@ pub fn worker_request_type_name(request_type: WorkerRequestType) -> &'static str
         WorkerRequestType::BuildThresholdEd25519SeedExportArtifact => {
             "BUILD_THRESHOLD_ED25519_SEED_EXPORT_ARTIFACT"
         }
-        WorkerRequestType::BuildThresholdEcdsaHssRoleLocalClientBootstrap => {
-            "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP"
+        WorkerRequestType::OpenThresholdEcdsaHssRoleLocalSigningShare => {
+            "OPEN_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_SIGNING_SHARE"
         }
         WorkerRequestType::BuildThresholdEcdsaHssRoleLocalExportArtifact => {
             "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_EXPORT_ARTIFACT"
@@ -219,8 +219,8 @@ pub enum WorkerResponseType {
     OpenThresholdEd25519HssSeedOutputFailure = 27,
     BuildThresholdEd25519SeedExportArtifactSuccess = 28,
     BuildThresholdEd25519SeedExportArtifactFailure = 29,
-    BuildThresholdEcdsaHssRoleLocalClientBootstrapSuccess = 30,
-    BuildThresholdEcdsaHssRoleLocalClientBootstrapFailure = 31,
+    OpenThresholdEcdsaHssRoleLocalSigningShareSuccess = 30,
+    OpenThresholdEcdsaHssRoleLocalSigningShareFailure = 31,
     BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess = 32,
     BuildThresholdEcdsaHssRoleLocalExportArtifactFailure = 33,
     BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess = 34,
@@ -275,8 +275,8 @@ impl From<u32> for WorkerResponseType {
             27 => WorkerResponseType::OpenThresholdEd25519HssSeedOutputFailure,
             28 => WorkerResponseType::BuildThresholdEd25519SeedExportArtifactSuccess,
             29 => WorkerResponseType::BuildThresholdEd25519SeedExportArtifactFailure,
-            30 => WorkerResponseType::BuildThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
-            31 => WorkerResponseType::BuildThresholdEcdsaHssRoleLocalClientBootstrapFailure,
+            30 => WorkerResponseType::OpenThresholdEcdsaHssRoleLocalSigningShareSuccess,
+            31 => WorkerResponseType::OpenThresholdEcdsaHssRoleLocalSigningShareFailure,
             32 => WorkerResponseType::BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess,
             33 => WorkerResponseType::BuildThresholdEcdsaHssRoleLocalExportArtifactFailure,
             34 => WorkerResponseType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess,
@@ -371,11 +371,11 @@ pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static 
         WorkerResponseType::BuildThresholdEd25519SeedExportArtifactFailure => {
             "BUILD_THRESHOLD_ED25519_SEED_EXPORT_ARTIFACT_FAILURE"
         }
-        WorkerResponseType::BuildThresholdEcdsaHssRoleLocalClientBootstrapSuccess => {
-            "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP_SUCCESS"
+        WorkerResponseType::OpenThresholdEcdsaHssRoleLocalSigningShareSuccess => {
+            "OPEN_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_SIGNING_SHARE_SUCCESS"
         }
-        WorkerResponseType::BuildThresholdEcdsaHssRoleLocalClientBootstrapFailure => {
-            "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP_FAILURE"
+        WorkerResponseType::OpenThresholdEcdsaHssRoleLocalSigningShareFailure => {
+            "OPEN_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_SIGNING_SHARE_FAILURE"
         }
         WorkerResponseType::BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess => {
             "BUILD_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_EXPORT_ARTIFACT_SUCCESS"
