@@ -1,4 +1,7 @@
-import type { ReserveNonceInput } from '@/core/rpcClients/evm/nonceBackend';
+import {
+  reserveNonceInputFromBoundary,
+  type ReserveNonceInput,
+} from '@/core/rpcClients/evm/nonceBackend';
 import {
   evmNonceLeaseToManagedReservation,
   evmReserveNonceInputToLane,
@@ -25,7 +28,7 @@ export async function resolveManagedEvmNonceReservationInput(args: {
   const sender = await resolveManagedNonceSender({
     senderIdentity: args.senderIdentity,
   });
-  return {
+  return reserveNonceInputFromBoundary({
     chain: 'evm',
     networkKey: resolveNonceNetworkKey({
       configs: args.deps.seamsPasskeyConfigs,
@@ -34,7 +37,7 @@ export async function resolveManagedEvmNonceReservationInput(args: {
     chainId: args.request.tx.chainId,
     sender,
     walletId: args.walletId,
-  };
+  });
 }
 
 export async function reserveManagedEvmNonceForRequest(args: {
@@ -55,8 +58,8 @@ export async function reserveManagedEvmNonceForRequest(args: {
     throw mapToRetryableNonceStateError({
       error,
       chain: 'evm',
-      networkKey: reservationInput.networkKey,
-      chainId: reservationInput.chainId,
+      networkKey: reservationInput.chainTarget.networkSlug,
+      chainId: reservationInput.chainTarget.chainId,
     });
   }
   return {

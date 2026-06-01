@@ -213,11 +213,13 @@ export async function sendTransaction({
       await context.signingEngine.getNonceCoordinator().markBroadcastAccepted({
         leaseId: nonceLease.leaseId,
         operationId: nonceLease.operationId,
+        operationFingerprint: nonceLease.operationFingerprint,
         ...(txId ? { txHash: txId } : {}),
       });
       await context.signingEngine.getNonceCoordinator().markFinalized({
         leaseId: nonceLease.leaseId,
         operationId: nonceLease.operationId,
+        operationFingerprint: nonceLease.operationFingerprint,
         ...(txId ? { txHash: txId } : {}),
       });
     }
@@ -249,6 +251,7 @@ export async function sendTransaction({
         await context.signingEngine.getNonceCoordinator().markBroadcastRejected({
           leaseId: nonceLease.leaseId,
           operationId: nonceLease.operationId,
+          operationFingerprint: nonceLease.operationFingerprint,
           error: e,
         });
       }

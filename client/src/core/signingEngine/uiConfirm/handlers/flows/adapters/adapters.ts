@@ -253,6 +253,7 @@ export async function releaseReservedNonces(
       ctx.nonceCoordinator.release({
         leaseId: nonceLease.leaseId,
         operationId: nonceLease.operationId,
+        operationFingerprint: nonceLease.operationFingerprint,
         reason: 'cancelled',
       }),
     ),

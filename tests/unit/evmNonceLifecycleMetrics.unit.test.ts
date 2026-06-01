@@ -43,7 +43,7 @@ test.describe('evm nonce lifecycle metrics', () => {
               },
             } as any,
             {
-              nearAccountId: 'alice.testnet',
+              walletId: 'alice.testnet',
               txHash: `0x${'ab'.repeat(32)}` as `0x${string}`,
               signedResult: {
                 chain: 'evm',
@@ -118,7 +118,7 @@ test.describe('evm nonce lifecycle metrics', () => {
               },
             } as any,
             {
-              nearAccountId: 'alice.testnet',
+              walletId: 'alice.testnet',
               signedResult: {
                 chain: 'evm',
                 kind: 'eip1559',

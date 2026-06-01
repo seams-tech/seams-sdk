@@ -313,26 +313,36 @@ type NonceCoordinator = {
 
   markSigned(input: NonceLifecycleInput & { signedTxHash?: string }): Promise<void>;
 
-  markBroadcastAccepted(input: NonceLifecycleInput & {
-    txHash?: string;
-  }): Promise<void>;
+  markBroadcastAccepted(
+    input: NonceLifecycleInput & {
+      txHash?: string;
+    },
+  ): Promise<void>;
 
-  markBroadcastRejected(input: NonceLifecycleInput & {
-    error?: unknown;
-  }): Promise<void>;
+  markBroadcastRejected(
+    input: NonceLifecycleInput & {
+      error?: unknown;
+    },
+  ): Promise<void>;
 
-  markFinalized(input: NonceLifecycleInput & {
-    txHash?: string;
-  }): Promise<void>;
+  markFinalized(
+    input: NonceLifecycleInput & {
+      txHash?: string;
+    },
+  ): Promise<void>;
 
-  markDroppedOrReplaced(input: NonceLifecycleInput & {
-    reason: 'dropped' | 'replaced';
-    txHash?: string;
-  }): Promise<void>;
+  markDroppedOrReplaced(
+    input: NonceLifecycleInput & {
+      reason: 'dropped' | 'replaced';
+      txHash?: string;
+    },
+  ): Promise<void>;
 
-  release(input: NonceLifecycleInput & {
-    reason: 'cancelled' | 'auth_failed' | 'signing_failed' | 'nonce_failed';
-  }): Promise<void>;
+  release(
+    input: NonceLifecycleInput & {
+      reason: 'cancelled' | 'auth_failed' | 'signing_failed' | 'nonce_failed';
+    },
+  ): Promise<void>;
 
   expireLeases(input?: { accountId?: string }): Promise<NonceLease[]>;
   recoverDurableLeases(input?: { accountId?: string }): Promise<void>;
@@ -864,7 +874,7 @@ The storage invariant for this phase is strict:
    - No raw key-string format is authoritative in this spec.
    - Phase 10 replaces delimiter-sensitive key construction with a helper such
      as `nonceLaneKey({ family: 'near', fields: { networkKey, accountId,
-     publicKey } })`, where each field is encoded or length-prefixed before
+publicKey } })`, where each field is encoded or length-prefixed before
      joining or hashing.
 3. [x] Persist NEAR per-transaction child leases for batch reservations.
    - One NEAR confirmation flow may reserve a batch.
@@ -1059,7 +1069,7 @@ are internal unless explicitly re-exported by that facade.
 
 ### Phase 9 TODO
 
-1. [ ] Move public nonce types and high-impact `as const` objects into
+1. [x] Move public nonce types and high-impact `as const` objects into
        `nonceTypes.ts`.
    - Include lease states, durable lease states, trace event names,
      dropped/replaced reasons, release reasons, degradation reasons, fallback
@@ -1068,13 +1078,13 @@ are internal unless explicitly re-exported by that facade.
      the nonce package boundary.
    - Do not make `nonceTypes.ts` the default public import target for app or
      transaction code unless it is re-exported through the nonce facade.
-2. [ ] Move the lease reducer and active-state predicates into
+2. [x] Move the lease reducer and active-state predicates into
        `nonceLeaseState.ts`.
    - Include `reduceNonceLeaseState`.
    - Include predicates such as in-flight, active EVM lease, active NEAR lease,
      and active durable coordination record.
    - Keep illegal transitions fail-closed.
-3. [ ] Move lane key, lease id, batch id, managed-reservation conversion, and
+3. [x] Move lane key, lease id, batch id, managed-reservation conversion, and
        lane normalization helpers into `nonceLaneKeys.ts`.
    - Include EVM `ReserveNonceInput` to lane conversion.
    - Include lease-to-managed-reservation conversion.
@@ -1088,6 +1098,11 @@ are internal unless explicitly re-exported by that facade.
    - Treat `evmNonceLane.ts` as reducer/port helpers that receive state and
      ports from the coordinator.
    - Do not let transaction flows import EVM lane helpers directly.
+   - [x] EVM lane state construction, blocked-lane detection, and blocked-lane
+         error construction now live in `evmNonceLane.ts`.
+   - [ ] Reserve, release, broadcast accepted, finalized, dropped/replaced,
+         reconcile, and chain refresh orchestration still close over coordinator
+         state and should be extracted only as state/port helpers.
 5. [ ] Move NEAR lane behavior into `nearNonceLane.ts`.
    - Include access-key context fetch/prefetch, batch reservation,
      release/finalize cleanup, startup recovery pruning, and active-key state
@@ -1098,12 +1113,21 @@ are internal unless explicitly re-exported by that facade.
      ports from the coordinator.
    - Keep delegate and NEP-413 confirmation paths out of transaction nonce
      reservation APIs.
+   - [x] NEAR lane state construction, reserved-nonce pruning, and
+         missing-access-key detection now live in `nearNonceLane.ts`.
+   - [ ] Access-key context fetch/prefetch, batch reservation, finalize cleanup,
+         and startup recovery pruning still close over coordinator state and should
+         be extracted only as state/port helpers.
 6. [ ] Move diagnostics, metrics, degradation warnings, and dropped/replaced
        alert helpers into `nonceDiagnostics.ts`.
    - Keep emitted trace names and diagnostic shape stable.
    - Keep normal implementation details out of user-facing diagnostics; surface
      only degraded safety properties.
-7. [ ] Add or update static guards so transaction flows still cannot bypass
+   - [x] Outcome metric normalization and lease-state count construction now
+         live in `nonceDiagnostics.ts`.
+   - [ ] Redacted diagnostics assembly, degradation warnings, and
+         dropped/replaced alert windows still live in the coordinator.
+7. [x] Add or update static guards so transaction flows still cannot bypass
        `NonceCoordinator`.
    - Guards should reject transaction-flow imports of durable nonce storage,
      EVM/NEAR lane helper internals, or direct nonce lease mutation helpers.
@@ -1140,7 +1164,7 @@ boundaries, where they are normalized before nonce code runs.
 
 Prioritize the hardening in two tracks before the rest of the cleanup:
 
-1. [ ] Fingerprint-bind every lease lifecycle transition.
+1. [x] Fingerprint-bind every lease lifecycle transition.
    - Make this the first implementation change because it closes the highest-risk
      reuse gap while preserving the current lane shape.
    - Add `operationFingerprint` to `NonceLeaseRef`, `markSigned`,
@@ -1156,7 +1180,7 @@ Prioritize the hardening in two tracks before the rest of the cleanup:
      release.
    - Add a boundary test that a signed result missing `operationFingerprint` fails
      before it can mutate a lease.
-2. [ ] Require signed state before broadcast lifecycle.
+2. [x] Require signed state before broadcast lifecycle.
    - After all signing flows pass the fingerprinted lease ref, remove
      `Reserved -> BroadcastAccepted` and `Reserved -> BroadcastRejected` from the
      reducer.
@@ -1167,20 +1191,23 @@ Prioritize the hardening in two tracks before the rest of the cleanup:
 3. [ ] Normalize EVM-family nonce identity at request boundaries.
    - Introduce a boundary parser/builder that converts SDK, iframe, config, and
      RPC request shapes into `{ subjectId: WalletId; chainTarget:
-     ThresholdEcdsaChainTarget; sender; nonceKey? }`.
+ThresholdEcdsaChainTarget; sender; nonceKey? }`.
    - Make `ReserveNonceInput`, `ManagedNonceReservationSnapshot`,
      `ManagedNonceReservation`, and lifecycle adapter inputs carry concrete
      `chainTarget` plus `subjectId`.
    - Keep raw `chain: 'evm' | 'tempo'` in SDK/iframe/config request parsers and
      RPC routing only.
-4. [ ] Replace internal EVM-family lane identity.
+   - [x] Nonce coordinator internals now normalize EVM-family lane identity to
+         `chainTarget` plus `subjectId`; public request and snapshot types still need
+         the Phase 10 TODO 6 cleanup.
+4. [x] Replace internal EVM-family lane identity.
    - Change `EvmNonceLane` to store `chainTarget: ThresholdEcdsaChainTarget` and
      `subjectId: WalletId`.
    - Use `thresholdEcdsaChainTargetKey(...)` plus the subject id in every EVM
      nonce lane key, durable record, diagnostic lane summary, metric base, and
      backend fetch adapter.
    - Preserve NEAR lane identity as NEAR account id + public key.
-5. [ ] Make lane keys collision-safe.
+5. [x] Make lane keys collision-safe.
    - Add one helper that length-prefixes or encodes each component before joining.
    - Use it for both EVM-family and NEAR lane keys, lease ids, durable lock keys,
      and account/subject indexes.
@@ -1194,10 +1221,19 @@ Prioritize the hardening in two tracks before the rest of the cleanup:
    - Add guard coverage forbidding collapsed `chain` authority, optional ECDSA
      `accountId`, and lifecycle transitions without `operationFingerprint` inside
      nonce internals.
+   - [x] Static guards now reject direct app/transaction imports of split nonce
+         internals, raw colon-joined nonce lane keys, raw internal EVM-family chain
+         branches outside the normalization boundary, and forbidden nonce imports of
+         restore/lane-resolution/budget mutation code.
+   - [x] Durable record migration from pre-encoded lane keys to encoded lane
+     keys now stays at the persistence boundary.
+   - [x] Malformed durable records are removed during recovery with a
+     `malformed_durable_record` degraded diagnostic instead of being orphaned
+     silently.
 
 ### Phase 10 TODO
 
-1. [ ] Fingerprint-bind every lease lifecycle transition.
+1. [x] Fingerprint-bind every lease lifecycle transition.
    - Add `operationFingerprint` to `NonceLeaseRef`.
    - Add `operationFingerprint` to `markSigned`, broadcast lifecycle, finalized,
      dropped/replaced, release, and reconcile-by-lease inputs.
@@ -1209,17 +1245,20 @@ Prioritize the hardening in two tracks before the rest of the cleanup:
      transition.
    - Add signed-result boundary coverage that fails when `managedNonce` is missing
      `operationFingerprint`.
-2. [ ] Make broadcast lifecycle transitions require a signed lease.
+   - Managed nonce reservation and snapshot types require lease metadata,
+     including `operationFingerprint`; only the boundary parser accepts raw
+     partial snapshot input and fails closed on missing metadata.
+2. [x] Make broadcast lifecycle transitions require a signed lease.
    - Remove `Reserved -> BroadcastAccepted` and `Reserved -> BroadcastRejected`
      from the reducer once all signing flows call `markSigned` immediately after
      threshold signature creation.
    - Add reducer tests that prove reserved leases cannot enter broadcast states.
-3. [ ] Replace EVM-family nonce lane identity with concrete
+3. [x] Replace EVM-family nonce lane identity with concrete
        `ThresholdEcdsaChainTarget`.
    - Use `thresholdEcdsaChainTargetKey(...)` or an equivalent canonical helper
      for equality and lane key material.
    - Keep raw `chain: 'evm' | 'tempo'` only at request/config boundaries.
-4. [ ] Replace ECDSA nonce `accountId` / `nearAccountId` authority with
+4. [x] Replace ECDSA nonce `accountId` / `nearAccountId` authority with
        `WalletId`.
    - Keep NEAR account ids where they are actually NEAR access-key lane
      identity.
@@ -1236,12 +1275,12 @@ Prioritize the hardening in two tracks before the rest of the cleanup:
    - Normalize raw chain inputs into concrete targets at request boundaries
      before nonce internals.
    - Keep durable records redacted and free of transaction payloads or secrets.
-7. [ ] Use one collision-safe nonce lane key helper for EVM-family and NEAR
+7. [x] Use one collision-safe nonce lane key helper for EVM-family and NEAR
        lanes.
    - The helper must encode or length-prefix every component before joining.
    - Static guards should reject raw `parts.join(':')` style lane keys in nonce
      internals.
-8. [ ] Add static guards forbidding internal raw collapsed chain strings in
+8. [x] Add static guards forbidding internal raw collapsed chain strings in
        nonce code.
    - Internal nonce code should not branch on raw `chain === 'evm'` or
      `chain === 'tempo'` except at normalization boundaries.
@@ -1252,10 +1291,38 @@ Prioritize the hardening in two tracks before the rest of the cleanup:
    - Internal nonce lane state, snapshots, metrics, durable records, and backend
      inputs must not carry collapsed `evm` / `tempo` authority after this phase.
 10. [ ] Add migration and boundary tests.
-   - Existing durable lease records should be either upgraded to the concrete
-     lane identity or fail closed with a clear degraded/recovery diagnostic.
-   - Existing request-boundary flows for Tempo, Arc EVM, and generic EVM should
-     still reserve distinct lanes after normalization.
+    - Existing durable lease records should be either upgraded to the concrete
+      lane identity or fail closed with a clear degraded/recovery diagnostic.
+    - Existing request-boundary flows for Tempo, Arc EVM, and generic EVM should
+      still reserve distinct lanes after normalization.
+    - [x] Added durable boundary coverage for legacy EVM lane-key reads and
+      startup recovery migration to encoded lane keys.
+    - [x] Added durable recovery coverage for malformed EVM records that removes
+      the record and emits a degraded diagnostic.
+
+### Remaining High-Impact Tasks
+
+1. [ ] Finish public EVM-family nonce identity normalization.
+   - `ReserveNonceInput`, `ManagedNonceReservationSnapshot`,
+     `ManagedNonceReservation`, lifecycle adapter event data, backend fetch
+     inputs, and nonce metrics should carry `chainTarget` plus `subjectId` as
+     first-class identity.
+   - Raw `chain`, `networkKey`, `chainId`, and `walletId` fields should be
+     accepted only at SDK/iframe/config/request parsing boundaries, then
+     normalized before nonce internals or managed snapshot persistence.
+2. [x] Add durable lane-key migration coverage.
+   - Recovery should upgrade pre-encoded durable lane keys to the encoded helper
+     when all concrete identity fields are present.
+   - Ambiguous or incomplete durable records should fail closed with a degraded
+     recovery diagnostic and must not affect another lane.
+3. [ ] Replace `NonceOperationContext` with an explicit prepared nonce operation
+       identity.
+   - Remove `walletSigningSessionId?: string` and raw `chainFamily` from nonce
+     internals after transaction flows pass only prepared operation identity.
+4. [ ] Complete the Phase 9 helper extraction for stateful lane behavior.
+   - Move EVM reserve/release/broadcast/finalize/drop/reconcile/refresh helpers
+     and NEAR fetch/reserve/finalize/recovery helpers behind state-and-port
+     function inputs while keeping ownership in `createNonceCoordinator()`.
 
 ## Acceptance Checks
 

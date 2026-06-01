@@ -8,14 +8,25 @@ import {
   reduceNonceLeaseState,
   type EvmNonceLane,
   type NearNonceLane,
+  type NonceCoordinator,
   type NonceLaneCoordinationRecord,
   type NonceLaneCoordinationStore,
+  type NonceLease,
 } from '@/core/signingEngine/nonce/NonceCoordinator';
 import {
   SigningOperationIntent,
   SigningSessionIds,
 } from '@/core/signingEngine/session/operationState/types';
-import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  thresholdEcdsaChainTargetKey,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  encodeNonceKeyParts,
+  legacyNonceLaneKeys,
+  nonceLaneKey,
+} from '@/core/signingEngine/nonce/nonceLaneKeys';
 
 const TEST_SENDER = `0x${'22'.repeat(20)}` as const;
 
@@ -67,12 +78,14 @@ function createOperation() {
 function createLane(): EvmNonceLane {
   return {
     family: 'evm',
-    chain: 'tempo',
-    networkKey: 'tempo:42431',
-    chainId: 42_431,
+    chainTarget: thresholdEcdsaChainTargetFromChainFamily({
+      chain: 'tempo',
+      chainId: 42_431,
+      networkSlug: 'tempo:42431',
+    }),
+    subjectId: toWalletId('nonce-coordinator.testnet'),
     sender: TEST_SENDER,
     nonceKey: 3n,
-    accountId: 'nonce-coordinator.testnet',
   };
 }
 
@@ -85,9 +98,10 @@ function createNearLane(): NearNonceLane {
   };
 }
 
-function createMemoryNonceLaneCoordinationStore(
-  initial?: NonceLaneCoordinationRecord[],
-): { store: NonceLaneCoordinationStore; records: Map<string, NonceLaneCoordinationRecord> } {
+function createMemoryNonceLaneCoordinationStore(initial?: NonceLaneCoordinationRecord[]): {
+  store: NonceLaneCoordinationStore;
+  records: Map<string, NonceLaneCoordinationRecord>;
+} {
   const records = new Map<string, NonceLaneCoordinationRecord>();
   for (const record of initial || []) {
     records.set(`${record.laneKey}:${record.leaseId}`, { ...record });
@@ -141,24 +155,19 @@ function createEvmCoordinationRecord(
   return {
     v: 1,
     leaseId: 'durable-lease-1',
-    laneKey: [
+    laneKey: encodeNonceKeyParts([
       'evm',
-      lane.chain,
-      lane.networkKey,
-      String(lane.chainId),
+      thresholdEcdsaChainTargetKey(lane.chainTarget),
+      String(lane.subjectId),
       lane.sender.toLowerCase(),
       String(lane.nonceKey),
-    ].join(':'),
+    ]),
     family: 'evm',
-    chainTarget: thresholdEcdsaChainTargetFromChainFamily({
-      chain: lane.chain,
-      chainId: lane.chainId,
-      networkSlug: lane.networkKey,
-    }),
-    networkKey: lane.networkKey,
+    chainTarget: lane.chainTarget,
+    networkKey: thresholdEcdsaChainTargetKey(lane.chainTarget),
     sender: lane.sender,
     nonceKey: String(lane.nonceKey),
-    accountId: lane.accountId,
+    accountId: lane.subjectId,
     nonce: '7',
     state: 'broadcast_accepted',
     operationId: String(createOperation().operationId),
@@ -173,9 +182,13 @@ function createEvmCoordinationRecord(
 test.describe('NonceCoordinator', () => {
   test('enforces nonce lease transition order', () => {
     expect(reduceNonceLeaseState('reserved', 'mark_signed')).toBe('signed');
-    expect(reduceNonceLeaseState('signed', 'broadcast_accepted')).toBe(
-      'broadcast_accepted',
+    expect(() => reduceNonceLeaseState('reserved', 'broadcast_accepted')).toThrow(
+      'illegal nonce lease transition',
     );
+    expect(() => reduceNonceLeaseState('reserved', 'broadcast_rejected')).toThrow(
+      'illegal nonce lease transition',
+    );
+    expect(reduceNonceLeaseState('signed', 'broadcast_accepted')).toBe('broadcast_accepted');
     expect(reduceNonceLeaseState('broadcast_accepted', 'finalize')).toBe('finalized');
     expect(() => reduceNonceLeaseState('signed', 'release')).toThrow(
       'illegal nonce lease transition',
@@ -207,9 +220,12 @@ test.describe('NonceCoordinator', () => {
     expect(calls[0]).toMatchObject({
       fn: 'fetchChainNonce',
       input: {
-        chain: 'tempo',
-        networkKey: 'tempo:42431',
-        chainId: 42_431,
+        chainTarget: expect.objectContaining({
+          kind: 'tempo',
+          chainId: 42_431,
+          networkSlug: 'tempo:42431',
+        }),
+        subjectId: 'nonce-coordinator.testnet',
         sender: TEST_SENDER,
         nonceKey: 3n,
       },
@@ -219,6 +235,7 @@ test.describe('NonceCoordinator', () => {
       coordinator.release({
         leaseId: lease.leaseId,
         operationId: SigningSessionIds.signingOperation('op-other'),
+        operationFingerprint: operation.operationFingerprint,
         reason: 'cancelled',
       }),
     ).rejects.toThrow('operation mismatch');
@@ -226,9 +243,406 @@ test.describe('NonceCoordinator', () => {
     await coordinator.release({
       leaseId: lease.leaseId,
       operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
       reason: 'cancelled',
     });
     expect(calls).toHaveLength(1);
+  });
+
+  test('rejects illegal broadcast lifecycle calls before durable or in-flight side effects', async () => {
+    const cases: Array<{
+      name: string;
+      run: (
+        coordinator: NonceCoordinator,
+        lease: NonceLease,
+        operation: ReturnType<typeof createOperation>,
+      ) => Promise<void>;
+    }> = [
+      {
+        name: 'broadcast accepted',
+        run: async (coordinator, lease, operation) => {
+          await coordinator.markBroadcastAccepted({
+            leaseId: lease.leaseId,
+            operationId: operation.operationId,
+            operationFingerprint: operation.operationFingerprint,
+            txHash: `0x${'aa'.repeat(32)}`,
+          });
+        },
+      },
+      {
+        name: 'broadcast rejected',
+        run: async (coordinator, lease, operation) => {
+          await coordinator.markBroadcastRejected({
+            leaseId: lease.leaseId,
+            operationId: operation.operationId,
+            operationFingerprint: operation.operationFingerprint,
+            error: new Error('broadcast failed'),
+          });
+        },
+      },
+      {
+        name: 'finalized',
+        run: async (coordinator, lease, operation) => {
+          await coordinator.markFinalized({
+            leaseId: lease.leaseId,
+            operationId: operation.operationId,
+            operationFingerprint: operation.operationFingerprint,
+            txHash: `0x${'bb'.repeat(32)}`,
+          });
+        },
+      },
+      {
+        name: 'dropped',
+        run: async (coordinator, lease, operation) => {
+          await coordinator.markDroppedOrReplaced({
+            leaseId: lease.leaseId,
+            operationId: operation.operationId,
+            operationFingerprint: operation.operationFingerprint,
+            reason: 'dropped',
+          });
+        },
+      },
+      {
+        name: 'replaced',
+        run: async (coordinator, lease, operation) => {
+          await coordinator.markDroppedOrReplaced({
+            leaseId: lease.leaseId,
+            operationId: operation.operationId,
+            operationFingerprint: operation.operationFingerprint,
+            reason: 'replaced',
+            txHash: `0x${'cc'.repeat(32)}`,
+          });
+        },
+      },
+    ];
+
+    for (const scenario of cases) {
+      const calls: unknown[] = [];
+      const traces: unknown[] = [];
+      const { store, records } = createMemoryNonceLaneCoordinationStore();
+      const coordinator = createNonceCoordinator({
+        evmNonceBackend: createFakeEvmNonceBackend(calls),
+        nonceLaneCoordinationStore: store,
+        now: () => 1_000,
+        onTrace: (event) => traces.push(event),
+      });
+      const operation = createOperation();
+      const lane = createLane();
+      const lease = await coordinator.reserve({ lane, operation });
+
+      await expect(scenario.run(coordinator, lease, operation), scenario.name).rejects.toThrow(
+        'illegal nonce lease transition',
+      );
+
+      expect(Array.from(records.values()), scenario.name).toHaveLength(1);
+      expect(Array.from(records.values())[0], scenario.name).toMatchObject({
+        leaseId: lease.leaseId,
+        state: 'reserved',
+      });
+      expect(
+        traces.some((event) =>
+          String((event as { event?: unknown }).event || '').includes('broadcast_accepted'),
+        ),
+        scenario.name,
+      ).toBe(false);
+      const status = await coordinator.reconcile({ lane });
+      expect(status.unresolvedInFlightNonces, scenario.name).toEqual([]);
+    }
+  });
+
+  test('rejects signed and broadcast release attempts before durable or backend side effects', async () => {
+    for (const state of ['signed', 'broadcast_accepted'] as const) {
+      const calls: unknown[] = [];
+      const { store, records } = createMemoryNonceLaneCoordinationStore();
+      const lane = createLane();
+      const coordinator = createNonceCoordinator({
+        evmNonceBackend: createFakeEvmNonceBackend(calls),
+        nonceLaneCoordinationStore: store,
+        now: () => 1_000,
+      });
+      const operation = {
+        ...createOperation(),
+        operationId: SigningSessionIds.signingOperation(`op-evm-release-${state}`),
+      };
+      const lease = await coordinator.reserve({ lane, operation });
+
+      await coordinator.markSigned({
+        leaseId: lease.leaseId,
+        operationId: operation.operationId,
+        operationFingerprint: operation.operationFingerprint,
+      });
+      if (state === 'broadcast_accepted') {
+        await coordinator.markBroadcastAccepted({
+          leaseId: lease.leaseId,
+          operationId: operation.operationId,
+          operationFingerprint: operation.operationFingerprint,
+          txHash: `0x${'ab'.repeat(32)}`,
+        });
+      }
+      const durableRecordsBeforeRelease = Array.from(records.values());
+
+      await expect(
+        coordinator.release({
+          leaseId: lease.leaseId,
+          operationId: operation.operationId,
+          operationFingerprint: operation.operationFingerprint,
+          reason: 'signing_failed',
+        }),
+        `EVM ${state}`,
+      ).rejects.toThrow('illegal nonce lease transition');
+
+      expect(Array.from(records.values()), `EVM durable ${state}`).toEqual(
+        durableRecordsBeforeRelease,
+      );
+      const evmStatus = await coordinator.reconcile({ lane });
+      expect(evmStatus.unresolvedInFlightNonces, `EVM in-flight ${state}`).toEqual(
+        state === 'broadcast_accepted' ? [7n] : [],
+      );
+    }
+
+    for (const state of ['signed', 'broadcast_accepted'] as const) {
+      const calls: unknown[] = [];
+      const { store, records } = createMemoryNonceLaneCoordinationStore();
+      const lane = createNearLane();
+      const coordinator = createNonceCoordinator({
+        evmNonceBackend: createFakeEvmNonceBackend(calls),
+        nonceLaneCoordinationStore: store,
+        now: () => 1_000,
+      });
+      const operation = {
+        ...createOperation(),
+        chainFamily: 'near' as const,
+        operationId: SigningSessionIds.signingOperation(`op-near-release-${state}`),
+      };
+      const { leases } = await coordinator.reserveNearContext({
+        lane,
+        operation,
+        count: 1,
+        fetchContext: async () => ({
+          nearPublicKeyStr: lane.publicKey,
+          accessKeyInfo: {
+            nonce: 30n,
+            permission: 'FullAccess',
+            block_height: 1,
+            block_hash: 'test-access-key-block',
+          },
+          nextNonce: '31',
+          txBlockHeight: '2000',
+          txBlockHash: 'h2000',
+        }),
+      });
+      const lease = leases[0]!;
+
+      await coordinator.markSigned({
+        leaseId: lease.leaseId,
+        operationId: operation.operationId,
+        operationFingerprint: operation.operationFingerprint,
+      });
+      if (state === 'broadcast_accepted') {
+        await coordinator.markBroadcastAccepted({
+          leaseId: lease.leaseId,
+          operationId: operation.operationId,
+          operationFingerprint: operation.operationFingerprint,
+          txHash: 'near-release-regression',
+        });
+      }
+      const durableRecordsBeforeRelease = Array.from(records.values());
+      const nearDiagnosticsBeforeRelease = coordinator.getDiagnostics().near;
+
+      await expect(
+        coordinator.release({
+          leaseId: lease.leaseId,
+          operationId: operation.operationId,
+          operationFingerprint: operation.operationFingerprint,
+          reason: 'signing_failed',
+        }),
+        `NEAR ${state}`,
+      ).rejects.toThrow('illegal nonce lease transition');
+
+      expect(Array.from(records.values()), `NEAR durable ${state}`).toEqual(
+        durableRecordsBeforeRelease,
+      );
+      expect(coordinator.getDiagnostics().near, `NEAR reserved nonces ${state}`).toEqual(
+        nearDiagnosticsBeforeRelease,
+      );
+    }
+  });
+
+  test('EVM reservation expires only leases for the lane subject', async () => {
+    const now = { value: 1_000 };
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend([]),
+      now: () => now.value,
+      leaseTtlMs: 5,
+    });
+    const firstLane: EvmNonceLane = {
+      ...createLane(),
+      subjectId: toWalletId('wallet-a.testnet'),
+    };
+    const secondLane: EvmNonceLane = {
+      ...createLane(),
+      subjectId: toWalletId('wallet-b.testnet'),
+    };
+    await coordinator.reserve({
+      lane: firstLane,
+      operation: {
+        ...createOperation(),
+        accountId: 'wallet-a.testnet',
+      },
+    });
+
+    now.value = 2_000;
+    await coordinator.reserve({
+      lane: secondLane,
+      operation: {
+        ...createOperation(),
+        accountId: 'wallet-a.testnet',
+        operationId: SigningSessionIds.signingOperation('op-wallet-b'),
+      },
+    });
+
+    expect(coordinator.getDiagnostics({ accountId: 'wallet-a.testnet' })).toMatchObject({
+      leaseCount: 1,
+      leasesByState: {
+        reserved: 1,
+        expired: 0,
+      },
+    });
+  });
+
+  test('rejects lifecycle transitions with mismatched operation fingerprints', async () => {
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend([]),
+      now: () => 1_000,
+    });
+    const operation = createOperation();
+    const wrongFingerprint = SigningSessionIds.signingOperationFingerprint('sha256:wrong');
+
+    const releaseLease = await coordinator.reserve({
+      lane: createLane(),
+      operation,
+    });
+    await expect(
+      coordinator.release({
+        leaseId: releaseLease.leaseId,
+        operationId: operation.operationId,
+        operationFingerprint: wrongFingerprint,
+        reason: 'cancelled',
+      }),
+    ).rejects.toThrow('operation fingerprint mismatch');
+    await coordinator.release({
+      leaseId: releaseLease.leaseId,
+      operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
+      reason: 'cancelled',
+    });
+
+    const signedLease = await coordinator.reserve({
+      lane: createLane(),
+      operation: {
+        ...operation,
+        operationId: SigningSessionIds.signingOperation('op-fingerprint-signed'),
+      },
+    });
+    const signedOperation = {
+      ...operation,
+      operationId: signedLease.operationId,
+    };
+    await expect(
+      coordinator.markSigned({
+        leaseId: signedLease.leaseId,
+        operationId: signedOperation.operationId,
+        operationFingerprint: wrongFingerprint,
+      }),
+    ).rejects.toThrow('operation fingerprint mismatch');
+    await coordinator.markSigned({
+      leaseId: signedLease.leaseId,
+      operationId: signedOperation.operationId,
+      operationFingerprint: signedOperation.operationFingerprint,
+    });
+
+    await expect(
+      coordinator.markBroadcastAccepted({
+        leaseId: signedLease.leaseId,
+        operationId: signedOperation.operationId,
+        operationFingerprint: wrongFingerprint,
+      }),
+    ).rejects.toThrow('operation fingerprint mismatch');
+    await coordinator.markBroadcastAccepted({
+      leaseId: signedLease.leaseId,
+      operationId: signedOperation.operationId,
+      operationFingerprint: signedOperation.operationFingerprint,
+      txHash: `0x${'11'.repeat(32)}`,
+    });
+
+    await expect(
+      coordinator.markFinalized({
+        leaseId: signedLease.leaseId,
+        operationId: signedOperation.operationId,
+        operationFingerprint: wrongFingerprint,
+      }),
+    ).rejects.toThrow('operation fingerprint mismatch');
+    await coordinator.markFinalized({
+      leaseId: signedLease.leaseId,
+      operationId: signedOperation.operationId,
+      operationFingerprint: signedOperation.operationFingerprint,
+      txHash: `0x${'11'.repeat(32)}`,
+    });
+
+    const rejectedOperation = {
+      ...operation,
+      operationId: SigningSessionIds.signingOperation('op-fingerprint-rejected'),
+    };
+    const rejectedLease = await coordinator.reserve({
+      lane: createLane(),
+      operation: rejectedOperation,
+    });
+    await coordinator.markSigned({
+      leaseId: rejectedLease.leaseId,
+      operationId: rejectedOperation.operationId,
+      operationFingerprint: rejectedOperation.operationFingerprint,
+    });
+    await expect(
+      coordinator.markBroadcastRejected({
+        leaseId: rejectedLease.leaseId,
+        operationId: rejectedOperation.operationId,
+        operationFingerprint: wrongFingerprint,
+      }),
+    ).rejects.toThrow('operation fingerprint mismatch');
+    await coordinator.markBroadcastRejected({
+      leaseId: rejectedLease.leaseId,
+      operationId: rejectedOperation.operationId,
+      operationFingerprint: rejectedOperation.operationFingerprint,
+      error: new Error('broadcast failed'),
+    });
+
+    const droppedOperation = {
+      ...operation,
+      operationId: SigningSessionIds.signingOperation('op-fingerprint-dropped'),
+    };
+    const droppedLease = await coordinator.reserve({
+      lane: createLane(),
+      operation: droppedOperation,
+    });
+    await coordinator.markSigned({
+      leaseId: droppedLease.leaseId,
+      operationId: droppedOperation.operationId,
+      operationFingerprint: droppedOperation.operationFingerprint,
+    });
+    await coordinator.markBroadcastAccepted({
+      leaseId: droppedLease.leaseId,
+      operationId: droppedOperation.operationId,
+      operationFingerprint: droppedOperation.operationFingerprint,
+      txHash: `0x${'22'.repeat(32)}`,
+    });
+    await expect(
+      coordinator.markDroppedOrReplaced({
+        leaseId: droppedLease.leaseId,
+        operationId: droppedOperation.operationId,
+        operationFingerprint: wrongFingerprint,
+        reason: 'dropped',
+      }),
+    ).rejects.toThrow('operation fingerprint mismatch');
   });
 
   test('carries lease metadata through managed nonce snapshots', async () => {
@@ -244,13 +658,11 @@ test.describe('NonceCoordinator', () => {
     });
     const reservation = evmNonceLeaseToManagedReservation(lease);
     const parsed = fromManagedNonceReservationSnapshot({
-      chain: reservation.chain,
-      networkKey: reservation.networkKey,
-      chainId: reservation.chainId,
+      chainTarget: reservation.chainTarget,
+      subjectId: reservation.subjectId,
       sender: reservation.sender,
       nonceKey: reservation.nonceKey?.toString(),
       nonce: reservation.nonce.toString(),
-      walletId: reservation.walletId,
       leaseId: reservation.leaseId,
       operationId: reservation.operationId,
       operationFingerprint: reservation.operationFingerprint,
@@ -259,7 +671,8 @@ test.describe('NonceCoordinator', () => {
     });
 
     expect(parsed).toMatchObject({
-      chain: 'tempo',
+      chainTarget: expect.objectContaining({ kind: 'tempo', chainId: 42_431 }),
+      subjectId: 'nonce-coordinator.testnet',
       nonce: 7n,
       leaseId: lease.leaseId,
       operationId: String(operation.operationId),
@@ -294,7 +707,7 @@ test.describe('NonceCoordinator', () => {
       expiresAtMs: 12_000,
       txIndex: 0,
     });
-    expect(lease.batchId).toContain('nonce-batch-v1:near:');
+    expect(lease.batchId).toContain('nonce-batch-v1:4:near|');
     expect(leases.map((entry) => String(entry.nonce))).toEqual(['31', '32', '33']);
     expect(calls).toEqual([
       {
@@ -309,6 +722,7 @@ test.describe('NonceCoordinator', () => {
       await coordinator.release({
         leaseId: nonceLease.leaseId,
         operationId: operation.operationId,
+        operationFingerprint: operation.operationFingerprint,
         reason: 'cancelled',
       });
     }
@@ -387,12 +801,14 @@ test.describe('NonceCoordinator', () => {
       coordinator.markSigned({
         leaseId: lease.leaseId,
         operationId: SigningSessionIds.signingOperation('op-other'),
+        operationFingerprint: operation.operationFingerprint,
       }),
     ).rejects.toThrow('operation mismatch');
 
     await coordinator.markSigned({
       leaseId: lease.leaseId,
       operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
     });
 
     expect(traces).toContainEqual(
@@ -406,6 +822,7 @@ test.describe('NonceCoordinator', () => {
       coordinator.release({
         leaseId: lease.leaseId,
         operationId: operation.operationId,
+        operationFingerprint: operation.operationFingerprint,
         reason: 'signing_failed',
       }),
     ).rejects.toThrow('illegal nonce lease transition');
@@ -444,15 +861,18 @@ test.describe('NonceCoordinator', () => {
     await coordinator.markSigned({
       leaseId: lease.leaseId,
       operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
     });
     await coordinator.markBroadcastAccepted({
       leaseId: lease.leaseId,
       operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
       txHash: 'near-tx-hash',
     });
     await coordinator.markFinalized({
       leaseId: lease.leaseId,
       operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
       txHash: 'near-tx-hash',
     });
 
@@ -520,6 +940,7 @@ test.describe('NonceCoordinator', () => {
     await coordinator.markSigned({
       leaseId: lease.leaseId,
       operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
       signedTxHash: 'signed-tx-hash',
     });
     expect(coordinator.getDiagnostics().leasesByState.signed).toBe(1);
@@ -538,8 +959,10 @@ test.describe('NonceCoordinator', () => {
       expect.objectContaining({
         fn: 'fetchChainNonce',
         input: expect.objectContaining({
-          chain: 'tempo',
-          networkKey: 'tempo:42431',
+          chainTarget: expect.objectContaining({
+            kind: 'tempo',
+            networkSlug: 'tempo:42431',
+          }),
         }),
       }),
     ]);
@@ -607,7 +1030,7 @@ test.describe('NonceCoordinator', () => {
     ]);
 
     expect(lockKeys).toHaveLength(3);
-    expect(lockKeys.every((key) => key.startsWith('nonce-coordinator:evm:tempo:'))).toBe(true);
+    expect(lockKeys.every((key) => key.startsWith('nonce-coordinator:3:evm|'))).toBe(true);
     expect(maxActiveLocks).toBe(1);
     expect(leases.map((lease) => String(lease.nonce))).toEqual(['7', '8', '9']);
     expect(calls).toHaveLength(1);
@@ -739,6 +1162,90 @@ test.describe('NonceCoordinator', () => {
     expect(lease.nonce.toString()).toBe('7');
     expect(Array.from(records.values())).toHaveLength(1);
     expect(Array.from(records.values())[0]?.leaseId).toBe(lease.leaseId);
+  });
+
+  test('reads legacy durable EVM lane keys before assigning a candidate nonce', async () => {
+    const calls: unknown[] = [];
+    const lane = createLane();
+    const legacyRecord = createEvmCoordinationRecord({
+      laneKey: legacyNonceLaneKeys(lane)[0],
+      nonce: '7',
+      state: 'reserved',
+      expiresAtMs: 10_000,
+    });
+    const { store } = createMemoryNonceLaneCoordinationStore([legacyRecord]);
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(calls, 7n),
+      nonceLaneCoordinationStore: store,
+      now: () => 2_000,
+    });
+
+    const lease = await coordinator.reserve({
+      lane,
+      operation: createOperation(),
+    });
+
+    expect(String(lease.nonce)).toBe('8');
+  });
+
+  test('migrates legacy durable EVM lane keys during startup recovery', async () => {
+    const lane = createLane();
+    const legacyRecord = createEvmCoordinationRecord({
+      laneKey: legacyNonceLaneKeys(lane)[0],
+      nonce: '7',
+      state: 'broadcast_accepted',
+      expiresAtMs: 10_000,
+    });
+    const { store, records } = createMemoryNonceLaneCoordinationStore([legacyRecord]);
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend([], 7n),
+      nonceLaneCoordinationStore: store,
+      now: () => 2_000,
+    });
+
+    await coordinator.recoverDurableLeases();
+
+    expect(
+      Array.from(records.values()).some((record) => record.laneKey === legacyRecord.laneKey),
+    ).toBe(false);
+    expect(
+      Array.from(records.values()).some((record) => record.laneKey === nonceLaneKey(lane)),
+    ).toBe(true);
+  });
+
+  test('removes malformed durable EVM records and emits a degraded recovery diagnostic', async () => {
+    const malformedRecord = {
+      ...createEvmCoordinationRecord({
+        leaseId: 'malformed-durable-lease',
+        laneKey: 'legacy-malformed-lane',
+      }),
+      chainTarget: undefined,
+    } as unknown as NonceLaneCoordinationRecord;
+    const traces: unknown[] = [];
+    const { store, records } = createMemoryNonceLaneCoordinationStore([malformedRecord]);
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend([]),
+      nonceLaneCoordinationStore: store,
+      now: () => 2_000,
+      onTrace: (event) => traces.push(event),
+    });
+
+    await coordinator.recoverDurableLeases();
+
+    expect(records.size).toBe(0);
+    expect(
+      traces.some(
+        (event) =>
+          (event as { degradation?: { reason?: unknown } }).degradation?.reason ===
+          'malformed_durable_record',
+      ),
+    ).toBe(true);
+    expect(coordinator.getDiagnostics().coordinationWarnings).toContainEqual(
+      expect.objectContaining({
+        reason: 'malformed_durable_record',
+        accountId: 'nonce-coordinator.testnet',
+      }),
+    );
   });
 
   test('startup recovery clears finalized EVM durable broadcast leases', async () => {
@@ -921,15 +1428,21 @@ test.describe('NonceCoordinator', () => {
           operationId: SigningSessionIds.signingOperation(`op-dropped-alert-${index}`),
         };
         const lease = await coordinator.reserve({ lane, operation });
-        await coordinator.markSigned({ leaseId: lease.leaseId, operationId: operation.operationId });
+        await coordinator.markSigned({
+          leaseId: lease.leaseId,
+          operationId: operation.operationId,
+          operationFingerprint: operation.operationFingerprint,
+        });
         await coordinator.markBroadcastAccepted({
           leaseId: lease.leaseId,
           operationId: operation.operationId,
+          operationFingerprint: operation.operationFingerprint,
           txHash: `0x${String(index + 1).padStart(64, '0')}`,
         });
         await coordinator.markDroppedOrReplaced({
           leaseId: lease.leaseId,
           operationId: operation.operationId,
+          operationFingerprint: operation.operationFingerprint,
           reason: 'dropped',
         });
       }
@@ -1019,6 +1532,7 @@ test.describe('NonceCoordinator', () => {
     await coordinator.markSigned({
       leaseId: lease.leaseId,
       operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
     });
     nowMs = 1_090;
 
@@ -1064,6 +1578,7 @@ test.describe('NonceCoordinator', () => {
     await coordinator.release({
       leaseId: releaseLease.leaseId,
       operationId: releaseOperation.operationId,
+      operationFingerprint: releaseOperation.operationFingerprint,
       reason: 'cancelled',
     });
 
@@ -1078,15 +1593,18 @@ test.describe('NonceCoordinator', () => {
     await coordinator.markSigned({
       leaseId: droppedLease.leaseId,
       operationId: droppedOperation.operationId,
+      operationFingerprint: droppedOperation.operationFingerprint,
     });
     await coordinator.markBroadcastAccepted({
       leaseId: droppedLease.leaseId,
       operationId: droppedOperation.operationId,
+      operationFingerprint: droppedOperation.operationFingerprint,
       txHash: `0x${'33'.repeat(32)}`,
     });
     await coordinator.markDroppedOrReplaced({
       leaseId: droppedLease.leaseId,
       operationId: droppedOperation.operationId,
+      operationFingerprint: droppedOperation.operationFingerprint,
       reason: 'dropped',
     });
     await coordinator.reconcile({ lane });
@@ -1168,6 +1686,7 @@ test.describe('NonceCoordinator', () => {
       coordinator.release({
         leaseId: evmLease.leaseId,
         operationId: operation.operationId,
+        operationFingerprint: operation.operationFingerprint,
         reason: 'cancelled',
       }),
     ).rejects.toThrow('nonce lease not found');

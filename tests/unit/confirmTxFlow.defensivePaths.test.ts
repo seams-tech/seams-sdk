@@ -13,6 +13,36 @@ test.describe('confirmTxFlow – defensive paths', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page);
     await page.evaluate((nonceCoordinatorPath) => {
+      const installIndexedDbClientForwarder = (
+        methodName: string,
+        fallback?: (...args: unknown[]) => unknown,
+      ) => {
+        if (Object.prototype.hasOwnProperty.call(Object.prototype, methodName)) return;
+        Object.defineProperty(Object.prototype, methodName, {
+          configurable: true,
+          value: function (...args: unknown[]) {
+            const clientDB = (this as { clientDB?: Record<string, unknown> })?.clientDB;
+            const method = clientDB?.[methodName];
+            if (typeof method === 'function') {
+              return method.apply(clientDB, args);
+            }
+            if (fallback) return fallback.apply(this, args);
+            throw new Error(`test indexedDB mock missing ${methodName}`);
+          },
+        });
+      };
+      installIndexedDbClientForwarder('resolveProfileAccountContext');
+      installIndexedDbClientForwarder('listProfileAuthenticators');
+      installIndexedDbClientForwarder('selectProfileAuthenticatorsForPrompt');
+      installIndexedDbClientForwarder('listAccountSigners', async (args: any) => [
+        {
+          signerAuthMethod: 'passkey',
+          metadata: {
+            walletId: String(args?.accountAddress || 'test-wallet'),
+            passkeyCredentialRawId: 'test-passkey',
+          },
+        },
+      ]);
       (globalThis as any).__attachTestNonceCoordinator = async (ctx: any) => {
         const nonceCoordinatorMod = await import(nonceCoordinatorPath);
         const nearContextFixture = ctx.nearContextFixture || (ctx.nearContextFixture = {});
@@ -154,7 +184,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
                 profileId: `legacy-near:${String(accountAddress)}`,
                 accountRef: { chainIdKey, accountAddress },
               }),
-              listProfileAuthenticators: async () => [],
+              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
@@ -358,7 +388,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
                 profileId: `legacy-near:${String(accountAddress)}`,
                 accountRef: { chainIdKey, accountAddress },
               }),
-              listProfileAuthenticators: async () => [],
+              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
@@ -483,7 +513,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
                 profileId: `legacy-near:${String(accountAddress)}`,
                 accountRef: { chainIdKey, accountAddress },
               }),
-              listProfileAuthenticators: async () => [],
+              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
@@ -594,7 +624,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
                 profileId: `legacy-near:${String(accountAddress)}`,
                 accountRef: { chainIdKey, accountAddress },
               }),
-              listProfileAuthenticators: async () => [],
+              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
@@ -750,7 +780,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
                 profileId: `legacy-near:${String(accountAddress)}`,
                 accountRef: { chainIdKey, accountAddress },
               }),
-              listProfileAuthenticators: async () => [],
+              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
@@ -864,7 +894,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
                 profileId: `legacy-near:${String(accountAddress)}`,
                 accountRef: { chainIdKey, accountAddress },
               }),
-              listProfileAuthenticators: async () => [],
+              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
@@ -985,7 +1015,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
                 profileId: `legacy-near:${String(accountAddress)}`,
                 accountRef: { chainIdKey, accountAddress },
               }),
-              listProfileAuthenticators: async () => [],
+              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,
@@ -1085,7 +1115,7 @@ test.describe('confirmTxFlow – defensive paths', () => {
                 profileId: `legacy-near:${String(accountAddress)}`,
                 accountRef: { chainIdKey, accountAddress },
               }),
-              listProfileAuthenticators: async () => [],
+              listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
                 wrongPasskeyError: undefined,

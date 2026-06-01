@@ -73,6 +73,7 @@ test.describe('NonceCoordinator NEAR context ownership', () => {
     await coordinator.release({
       leaseId: first.leases[1]!.leaseId,
       operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
       reason: 'cancelled',
     });
 
@@ -158,15 +159,18 @@ test.describe('NonceCoordinator NEAR context ownership', () => {
     await coordinator.markSigned({
       leaseId: lease.leaseId,
       operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
     });
     await coordinator.markBroadcastAccepted({
       leaseId: lease.leaseId,
       operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
       txHash: 'near-tx-hash',
     });
     await coordinator.markFinalized({
       leaseId: lease.leaseId,
       operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
       txHash: 'near-tx-hash',
     });
 

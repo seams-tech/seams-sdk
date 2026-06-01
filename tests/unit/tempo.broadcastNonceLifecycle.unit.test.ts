@@ -104,6 +104,7 @@ test.describe('tempo broadcast nonce lifecycle', () => {
         input: {
           leaseId: 'nonce-lease-test',
           operationId: 'operation-test',
+          operationFingerprint: 'sha256:test',
           txHash: `0x${'ab'.repeat(32)}`,
         },
       },
@@ -134,10 +135,25 @@ test.describe('tempo broadcast nonce lifecycle', () => {
           managedNonce: managedNonce({
             leaseId: undefined,
             operationId: undefined,
+            operationFingerprint: undefined,
           }),
         }),
       }),
-    ).rejects.toThrow('managedNonce lease metadata is required');
+    ).rejects.toThrow('invalid managed nonce snapshot: leaseId');
+  });
+
+  test('fails closed when managed nonce operation fingerprint is missing', async () => {
+    await expect(
+      reportTempoBroadcastAccepted(createDeps([]), {
+        walletId: 'alice.testnet',
+        txHash: `0x${'ab'.repeat(32)}` as `0x${string}`,
+        signedResult: evmSignedResult({
+          managedNonce: managedNonce({
+            operationFingerprint: undefined,
+          }),
+        }),
+      }),
+    ).rejects.toThrow('invalid managed nonce snapshot: operationFingerprint');
   });
 
   test('marks managed nonce lease rejected on broadcast failure', async () => {
@@ -155,6 +171,7 @@ test.describe('tempo broadcast nonce lifecycle', () => {
         input: {
           leaseId: 'nonce-lease-test',
           operationId: 'operation-test',
+          operationFingerprint: 'sha256:test',
           error: { message: 'execution reverted' },
         },
       },
@@ -184,6 +201,7 @@ test.describe('tempo broadcast nonce lifecycle', () => {
         input: {
           leaseId: 'nonce-lease-test',
           operationId: 'operation-test',
+          operationFingerprint: 'sha256:test',
           txHash: `0x${'aa'.repeat(32)}`,
         },
       },
@@ -211,6 +229,7 @@ test.describe('tempo broadcast nonce lifecycle', () => {
         input: {
           leaseId: 'nonce-lease-test',
           operationId: 'operation-test',
+          operationFingerprint: 'sha256:test',
           reason: 'dropped',
           txHash: `0x${'cc'.repeat(32)}`,
         },
@@ -241,6 +260,7 @@ test.describe('tempo broadcast nonce lifecycle', () => {
         input: {
           leaseId: 'nonce-lease-test',
           operationId: 'operation-test',
+          operationFingerprint: 'sha256:test',
           reason: 'replaced',
           txHash: `0x${'ee'.repeat(32)}`,
         },

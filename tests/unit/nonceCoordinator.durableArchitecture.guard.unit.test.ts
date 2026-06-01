@@ -30,9 +30,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
 
   test('durable nonce leases live in the canonical seams wallet schema', () => {
     const schemaNames = readRepoSource('client/src/core/indexedDB/schemaNames.ts');
-    const repositories = readRepoSource(
-      'client/src/core/indexedDB/seamsWalletDB/repositories.ts',
-    );
+    const repositories = readRepoSource('client/src/core/indexedDB/seamsWalletDB/repositories.ts');
     const managerAssembly = readRepoSource(
       'client/src/core/signingEngine/assembly/createManagers.ts',
     );
@@ -69,6 +67,84 @@ test.describe('nonce coordinator durable architecture guards', () => {
     }
   });
 
+  test('app and transaction code import nonce helpers only through the coordinator facade', () => {
+    const splitImplementationModules = [
+      'evmNonceLane',
+      'nearNonceLane',
+      'nonceDiagnostics',
+      'nonceLaneKeys',
+      'nonceLeaseState',
+      'nonceTypes',
+      'nonceUtils',
+    ];
+    const allowedCallers = new Set(['client/src/core/signingEngine/nonce/NonceCoordinator.ts']);
+    const offenders = listSourceFiles('client/src')
+      .filter((relativePath) => !relativePath.startsWith('client/src/core/signingEngine/nonce/'))
+      .filter((relativePath) => !allowedCallers.has(relativePath))
+      .filter((relativePath) => {
+        const source = readRepoSource(relativePath);
+        return splitImplementationModules.some(
+          (moduleName) =>
+            source.includes(`/nonce/${moduleName}`) ||
+            source.includes(`./${moduleName}`) ||
+            source.includes(`../nonce/${moduleName}`),
+        );
+      });
+
+    expect(offenders).toEqual([]);
+  });
+
+  test('nonce internals do not import signing-session restore, lane resolution, or budget mutation', () => {
+    const forbiddenImports = [
+      'session/restoreCoordinator',
+      'session/availableSigningLanes',
+      'session/budget/budget',
+      'session/budget/BudgetCoordinator',
+      'session/identity/laneResolution',
+      'sealedSessionStore',
+      'restoreCoordinator',
+      'availableSigningLanes',
+      'WalletSigningBudget',
+      'consumeWalletSigningSession',
+    ];
+    const offenders = listSourceFiles('client/src/core/signingEngine/nonce').filter(
+      (relativePath) => {
+        const source = readRepoSource(relativePath);
+        return forbiddenImports.some((forbiddenImport) => source.includes(forbiddenImport));
+      },
+    );
+
+    expect(offenders).toEqual([]);
+  });
+
+  test('nonce internals use encoded lane keys and keep raw EVM-family chain strings at boundaries', () => {
+    const rawLaneKeyOffenders = listSourceFiles('client/src/core/signingEngine/nonce').filter(
+      (relativePath) => {
+        const source = readRepoSource(relativePath);
+        return source.includes(".join(':')") || source.includes('.join(":")');
+      },
+    );
+    expect(rawLaneKeyOffenders).toEqual([]);
+
+    const rawChainBranchOffenders = listSourceFiles('client/src/core/signingEngine/nonce')
+      .filter(
+        (relativePath) =>
+          relativePath !== 'client/src/core/signingEngine/nonce/nonceLaneKeys.ts' &&
+          relativePath !== 'client/src/core/signingEngine/nonce/nonceTypes.ts',
+      )
+      .filter((relativePath) => {
+        const source = readRepoSource(relativePath);
+        return (
+          source.includes("chain === 'evm'") ||
+          source.includes("chain === 'tempo'") ||
+          source.includes("chain: 'evm'") ||
+          source.includes("chain: 'tempo'")
+        );
+      });
+
+    expect(rawChainBranchOffenders).toEqual([]);
+  });
+
   test('startup recovery cannot spend budget or rebroadcast raw signed transactions', () => {
     const source = readRepoSource('client/src/core/signingEngine/nonce/NonceCoordinator.ts');
     const recoveryStart = source.indexOf('const recoverDurableLeases = async');
@@ -91,6 +167,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
       'client/src/core/signingEngine/assembly/createManagers.ts',
       'client/src/core/SeamsPasskey/login.ts',
       'client/src/core/signingEngine/nonce/NonceCoordinator.ts',
+      'client/src/core/signingEngine/nonce/nonceTypes.ts',
     ]);
     const callers = listSourceFiles('client/src')
       .filter((relativePath) => readRepoSource(relativePath).includes('recoverDurableLeases('))

@@ -1051,6 +1051,7 @@ async function releaseNearNonceLeases(
       ctx.nonceCoordinator.release({
         leaseId: nonceLease.leaseId,
         operationId: nonceLease.operationId,
+        operationFingerprint: nonceLease.operationFingerprint,
         reason,
       }),
     ),
@@ -1067,6 +1068,7 @@ async function markNearNonceLeasesSigned(
       ctx.nonceCoordinator.markSigned({
         leaseId: nonceLease.leaseId,
         operationId: nonceLease.operationId,
+        operationFingerprint: nonceLease.operationFingerprint,
       }),
     ),
   );

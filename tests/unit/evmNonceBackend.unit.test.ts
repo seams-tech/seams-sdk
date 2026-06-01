@@ -40,13 +40,13 @@ test.describe('EvmNonceBackend', () => {
           },
         });
 
-        const nonce = await backend.fetchChainNonce({
+        const nonce = await backend.fetchChainNonce(mod.reserveNonceInputFromBoundary({
           chain: 'evm',
           networkKey: 'ethereum-sepolia',
           chainId: 11155111,
           sender: sender as `0x${string}`,
-          nearAccountId: 'alice.testnet',
-        });
+          walletId: 'alice.testnet',
+        }));
 
         return {
           nonce: nonce.toString(),
@@ -101,19 +101,21 @@ test.describe('EvmNonceBackend', () => {
           },
         });
 
-        await backend.fetchChainNonce({
+        await backend.fetchChainNonce(mod.reserveNonceInputFromBoundary({
           chain: 'tempo',
           networkKey: 'tempo-testnet',
           chainId: 42431,
           sender: sender as `0x${string}`,
           nonceKey: 0n,
-        });
-        await backend.fetchChainNonce({
+          walletId: 'alice.testnet',
+        }));
+        await backend.fetchChainNonce(mod.reserveNonceInputFromBoundary({
           chain: 'evm',
           networkKey: 'ethereum-sepolia',
           chainId: 42431,
           sender: sender as `0x${string}`,
-        });
+          walletId: 'alice.testnet',
+        }));
 
         return urls;
       },
@@ -146,14 +148,14 @@ test.describe('EvmNonceBackend', () => {
             }),
         });
 
-        const nonce = await backend.fetchChainNonce({
+        const nonce = await backend.fetchChainNonce(mod.reserveNonceInputFromBoundary({
           chain: 'tempo',
           networkKey: ' Tempo-Testnet ' as any,
           chainId: 42431,
           sender: sender.toUpperCase() as `0x${string}`,
           nonceKey: '7' as any,
-          nearAccountId: ' alice.testnet ',
-        });
+          walletId: 'alice.testnet',
+        }));
 
         return {
           nonce: nonce.toString(),
@@ -170,6 +172,7 @@ test.describe('EvmNonceBackend', () => {
       moduleKeys: [
         'createEvmNonceBackend',
         'fromManagedNonceReservationSnapshot',
+        'reserveNonceInputFromBoundary',
         'toManagedNonceReservationSnapshot',
       ],
     });
@@ -186,6 +189,7 @@ test.describe('EvmNonceBackend', () => {
             chainId: 11155111,
             sender,
             nonce: '1',
+            walletId: 'alice.testnet',
           });
           return 'unexpected success';
         } catch (error: unknown) {

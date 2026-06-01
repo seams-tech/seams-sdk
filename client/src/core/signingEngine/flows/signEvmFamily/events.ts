@@ -12,12 +12,12 @@ export function toNonceLifecycleMetricBase(
 ): Omit<Parameters<typeof emitNonceLifecycleMetric>[0], 'metric'> {
   const base = {
     chainTarget: thresholdEcdsaChainTargetFromChainFamily({
-      chain: reservation.chain,
-      chainId: reservation.chainId,
-      networkSlug: reservation.networkKey,
+      chain: reservation.chainTarget.kind,
+      chainId: reservation.chainTarget.kindTarget.chainId,
+      networkSlug: reservation.chainTarget.kindTarget.networkSlug,
     }),
-    networkKey: reservation.networkKey,
-    chainId: reservation.chainId,
+    networkKey: reservation.chainTarget.kindTarget.networkSlug,
+    chainId: reservation.chainTarget.kindTarget.chainId,
     sender: reservation.sender,
     nonce: reservation.nonce.toString(),
     ...(reservation.walletId ? { walletId: reservation.walletId } : {}),

@@ -317,7 +317,8 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     if (!nonceReservation) return;
     const leaseId = String(nonceReservation.leaseId || '').trim();
     const operationId = String(nonceReservation.operationId || '').trim();
-    if (!leaseId || !operationId) {
+    const operationFingerprint = String(nonceReservation.operationFingerprint || '').trim();
+    if (!leaseId || !operationId || !operationFingerprint) {
       throw new Error(
         `[chains] managed ${config.nonceErrorLabel} nonce reservation is missing lease metadata`,
       );
@@ -325,6 +326,7 @@ export async function signEvmFamilyWithUiConfirm<TRequest, TResult extends objec
     await input.ctx.nonceCoordinator.markSigned({
       leaseId,
       operationId,
+      operationFingerprint,
     });
   };
 

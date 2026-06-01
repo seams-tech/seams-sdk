@@ -1,37 +1,63 @@
 import { chainFamilyFromNetwork } from '@/core/config/chains';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  thresholdEcdsaChainTargetFromRequest,
+  type ThresholdEcdsaChainTarget,
+  toWalletId,
+  type WalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SeamsChainConfig } from '@/core/types/seams';
 
 export type EvmNonceChain = 'evm' | 'tempo';
 
 export type ReserveNonceInput = {
+  chainTarget: ThresholdEcdsaChainTarget;
+  subjectId: WalletId;
+  sender: `0x${string}`;
+  nonceKey?: bigint;
+};
+
+export type ReserveNonceBoundaryInput = {
   chain: EvmNonceChain;
   networkKey: string;
   chainId: number;
   sender: `0x${string}`;
   nonceKey?: bigint;
-  walletId?: string;
+  walletId: string;
 };
 
 export type ManagedNonceReservationSnapshot = {
-  chain: EvmNonceChain;
-  networkKey: string;
-  chainId: number;
+  chainTarget: ThresholdEcdsaChainTarget;
+  subjectId: WalletId;
   sender: `0x${string}`;
   nonceKey?: string;
   nonce: string;
-  walletId?: string;
-  leaseId?: string;
-  operationId?: string;
-  operationFingerprint?: string;
+  leaseId: string;
+  operationId: string;
+  operationFingerprint: string;
   reservedAtMs?: number;
   expiresAtMs?: number;
 };
 
-export type ManagedNonceReservation = ReserveNonceInput & {
-  nonce: bigint;
+export type ManagedNonceReservationSnapshotInput = Omit<
+  ManagedNonceReservationSnapshot,
+  'leaseId' | 'operationId' | 'operationFingerprint' | 'subjectId'
+> & {
   leaseId?: string;
   operationId?: string;
   operationFingerprint?: string;
+  subjectId?: string;
+  chain?: EvmNonceChain;
+  networkKey?: string;
+  chainId?: number;
+  walletId?: string;
+};
+
+export type ManagedNonceReservation = ReserveNonceInput & {
+  nonce: bigint;
+  leaseId: string;
+  operationId: string;
+  operationFingerprint: string;
   reservedAtMs?: number;
   expiresAtMs?: number;
 };
@@ -63,31 +89,27 @@ type ChainWithChainId = Extract<SeamsChainConfig, { chainId: number }>;
 export function toManagedNonceReservationSnapshot(
   input: ManagedNonceReservation,
 ): ManagedNonceReservationSnapshot {
-  const walletId = normalizeAccountId(input.walletId);
+  const subjectId = toWalletId(input.subjectId);
+  const leaseId = normalizeRequiredString(input.leaseId, 'leaseId');
+  const operationId = normalizeRequiredString(input.operationId, 'operationId');
+  const operationFingerprint = normalizeRequiredString(
+    input.operationFingerprint,
+    'operationFingerprint',
+  );
   const snapshot: ManagedNonceReservationSnapshot = {
-    chain: input.chain,
-    networkKey: String(input.networkKey || '').trim(),
-    chainId: input.chainId,
+    chainTarget: input.chainTarget,
+    subjectId,
     sender: normalizeSender(input.sender),
     nonce: normalizeBigint(input.nonce, 'nonce').toString(),
+    leaseId,
+    operationId,
+    operationFingerprint,
   };
 
   if (input.nonceKey != null) {
     snapshot.nonceKey = normalizeBigint(input.nonceKey, 'nonceKey').toString();
   }
 
-  if (walletId) {
-    snapshot.walletId = walletId;
-  }
-  if (typeof input.leaseId === 'string' && input.leaseId.trim()) {
-    snapshot.leaseId = input.leaseId.trim();
-  }
-  if (typeof input.operationId === 'string' && input.operationId.trim()) {
-    snapshot.operationId = input.operationId.trim();
-  }
-  if (typeof input.operationFingerprint === 'string' && input.operationFingerprint.trim()) {
-    snapshot.operationFingerprint = input.operationFingerprint.trim();
-  }
   if (Number.isSafeInteger(input.reservedAtMs)) {
     snapshot.reservedAtMs = input.reservedAtMs;
   }
@@ -99,47 +121,50 @@ export function toManagedNonceReservationSnapshot(
 }
 
 export function fromManagedNonceReservationSnapshot(
-  snapshot: ManagedNonceReservationSnapshot,
+  snapshot: ManagedNonceReservationSnapshotInput,
 ): ManagedNonceReservation {
   if (!snapshot || typeof snapshot !== 'object') {
     throw new Error('[evmNonceBackend] invalid managed nonce snapshot: object');
   }
-  const chain = snapshot.chain;
-  if (chain !== 'evm' && chain !== 'tempo') {
-    throw new Error('[evmNonceBackend] invalid managed nonce snapshot: chain');
-  }
-  const networkKey = String(snapshot.networkKey || '').trim();
-  if (!networkKey) {
-    throw new Error('[evmNonceBackend] invalid managed nonce snapshot: networkKey');
-  }
-  const chainId = snapshot.chainId;
-  if (!Number.isSafeInteger(chainId) || chainId <= 0) {
-    throw new Error('[evmNonceBackend] invalid managed nonce snapshot: chainId');
-  }
+  const chainTarget = parseManagedNonceSnapshotChainTarget(snapshot);
+  const subjectId = toWalletId(snapshot.subjectId ?? snapshot.walletId);
   const sender = normalizeSender(snapshot.sender);
   const nonce = normalizeBigint(snapshot.nonce, 'nonce');
   const parsedNonceKey =
     snapshot.nonceKey == null ? undefined : normalizeBigint(snapshot.nonceKey, 'nonceKey');
-  const walletId = normalizeAccountId(snapshot.walletId);
-  const leaseId = normalizeOptionalString(snapshot.leaseId);
-  const operationId = normalizeOptionalString(snapshot.operationId);
-  const operationFingerprint = normalizeOptionalString(snapshot.operationFingerprint);
+  const leaseId = normalizeRequiredString(snapshot.leaseId, 'leaseId');
+  const operationId = normalizeRequiredString(snapshot.operationId, 'operationId');
+  const operationFingerprint = normalizeRequiredString(
+    snapshot.operationFingerprint,
+    'operationFingerprint',
+  );
   const reservedAtMs = normalizeOptionalSafeInteger(snapshot.reservedAtMs);
   const expiresAtMs = normalizeOptionalSafeInteger(snapshot.expiresAtMs);
 
   return {
-    chain,
-    networkKey,
-    chainId,
+    chainTarget,
+    subjectId,
     sender,
     ...(parsedNonceKey != null ? { nonceKey: parsedNonceKey } : {}),
-    ...(walletId ? { walletId } : {}),
     nonce,
-    ...(leaseId ? { leaseId } : {}),
-    ...(operationId ? { operationId } : {}),
-    ...(operationFingerprint ? { operationFingerprint } : {}),
+    leaseId,
+    operationId,
+    operationFingerprint,
     ...(reservedAtMs != null ? { reservedAtMs } : {}),
     ...(expiresAtMs != null ? { expiresAtMs } : {}),
+  };
+}
+
+export function reserveNonceInputFromBoundary(input: ReserveNonceBoundaryInput): ReserveNonceInput {
+  return {
+    chainTarget: thresholdEcdsaChainTargetFromChainFamily({
+      chain: input.chain,
+      chainId: input.chainId,
+      networkSlug: input.networkKey,
+    }),
+    subjectId: toWalletId(input.walletId),
+    sender: normalizeSender(input.sender),
+    ...(input.nonceKey != null ? { nonceKey: normalizeBigint(input.nonceKey, 'nonceKey') } : {}),
   };
 }
 
@@ -223,8 +248,9 @@ function resolveRpcUrlForInput(
   chains: readonly SeamsChainConfig[],
   input: ReserveNonceInput,
 ): string {
-  const targetChainId = input.chainId;
-  const networkKey = String(input.networkKey || '')
+  const requestedChain = input.chainTarget.kind;
+  const targetChainId = input.chainTarget.chainId;
+  const networkKey = String(input.chainTarget.networkSlug || '')
     .trim()
     .toLowerCase();
   const byChainId = (source: readonly SeamsChainConfig[]): SeamsChainConfig[] =>
@@ -250,42 +276,44 @@ function resolveRpcUrlForInput(
     const only = networkMatches[0];
     assertChainSupportsRequestedRoute({
       chain: only,
-      requestedChain: input.chain,
-      networkKey: input.networkKey,
+      requestedChain,
+      networkKey: input.chainTarget.networkSlug,
       chainId: targetChainId,
     });
     assertConfiguredChainIdMatchesInput({
       chain: only,
       chainId: targetChainId,
-      networkKey: input.networkKey,
+      networkKey: input.chainTarget.networkSlug,
     });
     return mustTrimmedRpcUrl(only.rpcUrl, only.network);
   }
   if (networkMatches.length > 1) {
     const chainIdMatched = byChainId(networkMatches).filter((chain) =>
-      isChainCompatibleWithRequestChain(chain, input.chain),
+      isChainCompatibleWithRequestChain(chain, requestedChain),
     );
     if (chainIdMatched.length === 1) {
       const only = chainIdMatched[0];
       return mustTrimmedRpcUrl(only.rpcUrl, only.network);
     }
     throw new Error(
-      `[evmNonceBackend] ambiguous networkKey mapping for ${input.networkKey} (chainId=${String(input.chainId)})`,
+      `[evmNonceBackend] ambiguous networkKey mapping for ${input.chainTarget.networkSlug} (chainId=${String(targetChainId)})`,
     );
   }
 
   const chainIdMatches = byChainId(supportedChains);
   const compatibleMatches = chainIdMatches.filter((chain) =>
-    isChainCompatibleWithRequestChain(chain, input.chain),
+    isChainCompatibleWithRequestChain(chain, requestedChain),
   );
   if (compatibleMatches.length === 1) {
     const only = compatibleMatches[0];
     return mustTrimmedRpcUrl(only.rpcUrl, only.network);
   }
   if (compatibleMatches.length > 1) {
-    const candidates = compatibleMatches.map((chain) => String(chain.network || '').trim()).join(', ');
+    const candidates = compatibleMatches
+      .map((chain) => String(chain.network || '').trim())
+      .join(', ');
     throw new Error(
-      `[evmNonceBackend] ambiguous chainId routing for ${input.chain} chainId=${String(input.chainId)} across [${candidates}]`,
+      `[evmNonceBackend] ambiguous chainId routing for ${requestedChain} chainId=${String(targetChainId)} across [${candidates}]`,
     );
   }
   if (chainIdMatches.length > 0) {
@@ -293,12 +321,12 @@ function resolveRpcUrlForInput(
       new Set(chainIdMatches.map((chain) => chainFamilyFromNetwork(chain.network))),
     );
     throw new Error(
-      `[evmNonceBackend] chainId=${String(input.chainId)} is configured for [${families.join(', ')}] but is incompatible with ${input.chain} routing`,
+      `[evmNonceBackend] chainId=${String(targetChainId)} is configured for [${families.join(', ')}] but is incompatible with ${requestedChain} routing`,
     );
   }
 
   throw new Error(
-    `[evmNonceBackend] unable to resolve RPC URL for ${input.chain} ${input.networkKey} (chainId=${String(input.chainId)})`,
+    `[evmNonceBackend] unable to resolve RPC URL for ${requestedChain} ${input.chainTarget.networkSlug} (chainId=${String(targetChainId)})`,
   );
 }
 
@@ -378,20 +406,20 @@ function mustTrimmedRpcUrl(rpcUrl: string, network: string): string {
 }
 
 function normalizeInput(input: ReserveNonceInput): NormalizedInput {
-  const chain = input.chain;
+  const chain = input.chainTarget.kind;
   if (chain !== 'evm' && chain !== 'tempo') {
-    throw new Error(`[evmNonceBackend] invalid chain '${String(input.chain)}'`);
+    throw new Error(`[evmNonceBackend] invalid chain '${String(chain)}'`);
   }
-  const networkKey = String(input.networkKey || '')
+  const networkKey = String(input.chainTarget.networkSlug || '')
     .trim()
     .toLowerCase();
   if (!networkKey) {
     throw new Error('[evmNonceBackend] networkKey is required');
   }
-  const chainId = input.chainId;
+  const chainId = input.chainTarget.chainId;
   const sender = normalizeAddress(input.sender, 'sender');
   const nonceKey = chain === 'tempo' ? normalizeBigint(input.nonceKey, 'nonceKey') : 0n;
-  const walletId = normalizeAccountId(input.walletId);
+  const walletId = String(toWalletId(input.subjectId));
 
   return {
     chain,
@@ -399,8 +427,33 @@ function normalizeInput(input: ReserveNonceInput): NormalizedInput {
     chainId,
     sender,
     nonceKey,
-    ...(walletId ? { walletId } : {}),
+    walletId,
   };
+}
+
+function parseManagedNonceSnapshotChainTarget(
+  snapshot: ManagedNonceReservationSnapshotInput,
+): ThresholdEcdsaChainTarget {
+  if (snapshot.chainTarget) {
+    return thresholdEcdsaChainTargetFromRequest(snapshot.chainTarget);
+  }
+  const chain = snapshot.chain;
+  if (chain !== 'evm' && chain !== 'tempo') {
+    throw new Error('[evmNonceBackend] invalid managed nonce snapshot: chain');
+  }
+  const networkKey = String(snapshot.networkKey || '').trim();
+  if (!networkKey) {
+    throw new Error('[evmNonceBackend] invalid managed nonce snapshot: networkKey');
+  }
+  const chainId = snapshot.chainId;
+  if (!Number.isSafeInteger(chainId) || chainId <= 0) {
+    throw new Error('[evmNonceBackend] invalid managed nonce snapshot: chainId');
+  }
+  return thresholdEcdsaChainTargetFromChainFamily({
+    chain,
+    chainId,
+    networkSlug: networkKey,
+  });
 }
 
 function normalizeAddress(value: unknown, label: string): `0x${string}` {
@@ -434,9 +487,12 @@ function normalizeAccountId(value: unknown): string | undefined {
   return normalized || undefined;
 }
 
-function normalizeOptionalString(value: unknown): string | undefined {
+function normalizeRequiredString(value: unknown, label: string): string {
   const normalized = String(value || '').trim();
-  return normalized || undefined;
+  if (!normalized) {
+    throw new Error(`[evmNonceBackend] invalid managed nonce snapshot: ${label}`);
+  }
+  return normalized;
 }
 
 function normalizeOptionalSafeInteger(value: unknown): number | undefined {
