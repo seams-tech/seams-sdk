@@ -47,10 +47,8 @@ function toEvmFamilyManagedNonceReservationFromSignedResult(args: {
     const parsed = fromManagedNonceReservationSnapshot(
       snapshot as Parameters<typeof fromManagedNonceReservationSnapshot>[0],
     );
-    return {
-      ...parsed,
-      ...(String(parsed.subjectId || '').trim() ? {} : { subjectId: args.walletId }),
-    };
+    void args.walletId;
+    return parsed;
   } catch (error: unknown) {
     throw new Error(
       `[SigningEngine][evm-family] invalid managedNonce: ${
@@ -86,7 +84,7 @@ export async function reportEvmFamilyBroadcastAccepted(
 ): Promise<void> {
   const reservation = toEvmFamilyManagedNonceReservationFromSignedResult({
     signedResult: args.signedResult,
-    subjectId: args.walletId,
+    walletId: args.walletId,
   });
 
   emitEvmFamilyBroadcastEvent(args.onEvent, {
@@ -95,8 +93,8 @@ export async function reportEvmFamilyBroadcastAccepted(
     message: 'Marking managed nonce lane as in-flight',
     data: {
       chain: reservation.chainTarget.kind,
-      networkKey: reservation.chainTarget.kindTarget.networkSlug,
-      chainId: reservation.chainTarget.kindTarget.chainId.toString(),
+      networkKey: reservation.chainTarget.networkSlug,
+      chainId: reservation.chainTarget.chainId.toString(),
       nonce: reservation.nonce.toString(),
     },
   });
@@ -120,8 +118,8 @@ export async function reportEvmFamilyBroadcastAccepted(
     message: 'Managed nonce lane marked in-flight',
     data: {
       chain: reservation.chainTarget.kind,
-      networkKey: reservation.chainTarget.kindTarget.networkSlug,
-      chainId: reservation.chainTarget.kindTarget.chainId.toString(),
+      networkKey: reservation.chainTarget.networkSlug,
+      chainId: reservation.chainTarget.chainId.toString(),
       nonce: reservation.nonce.toString(),
       ...(txHash ? { txHash } : {}),
     },
@@ -134,7 +132,7 @@ export async function reportEvmFamilyBroadcastRejected(
 ): Promise<void> {
   const reservation = toEvmFamilyManagedNonceReservationFromSignedResult({
     signedResult: args.signedResult,
-    subjectId: args.walletId,
+    walletId: args.walletId,
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     phase: SigningEventPhase.STEP_12_BROADCAST_REJECTED,
@@ -142,8 +140,8 @@ export async function reportEvmFamilyBroadcastRejected(
     message: 'Marking managed nonce reservation rejected',
     data: {
       chain: reservation.chainTarget.kind,
-      networkKey: reservation.chainTarget.kindTarget.networkSlug,
-      chainId: reservation.chainTarget.kindTarget.chainId.toString(),
+      networkKey: reservation.chainTarget.networkSlug,
+      chainId: reservation.chainTarget.chainId.toString(),
       nonce: reservation.nonce.toString(),
     },
   });
@@ -154,8 +152,8 @@ export async function reportEvmFamilyBroadcastRejected(
   const mappedError = mapToRetryableNonceStateError({
     error: args.error,
     chain: reservation.chainTarget.kind,
-    networkKey: reservation.chainTarget.kindTarget.networkSlug,
-    chainId: reservation.chainTarget.kindTarget.chainId,
+    networkKey: reservation.chainTarget.networkSlug,
+    chainId: reservation.chainTarget.chainId,
   });
   emitEvmFamilyNonceLifecycleMetric({
     metric: 'broadcast_rejected',
@@ -168,8 +166,8 @@ export async function reportEvmFamilyBroadcastRejected(
     message: 'Managed nonce reservation marked rejected',
     data: {
       chain: reservation.chainTarget.kind,
-      networkKey: reservation.chainTarget.kindTarget.networkSlug,
-      chainId: reservation.chainTarget.kindTarget.chainId.toString(),
+      networkKey: reservation.chainTarget.networkSlug,
+      chainId: reservation.chainTarget.chainId.toString(),
       nonce: reservation.nonce.toString(),
     },
   });
@@ -186,8 +184,8 @@ export async function reportEvmFamilyBroadcastRejected(
     message: 'Reconciling managed nonce lane after broadcast error',
     data: {
       chain: reservation.chainTarget.kind,
-      networkKey: reservation.chainTarget.kindTarget.networkSlug,
-      chainId: reservation.chainTarget.kindTarget.chainId.toString(),
+      networkKey: reservation.chainTarget.networkSlug,
+      chainId: reservation.chainTarget.chainId.toString(),
       nonce: reservation.nonce.toString(),
       errorCode: extractErrorCode(mappedError),
     },
@@ -201,8 +199,8 @@ export async function reportEvmFamilyBroadcastRejected(
     message: 'Managed nonce lane reconciled',
     data: {
       chain: reservation.chainTarget.kind,
-      networkKey: reservation.chainTarget.kindTarget.networkSlug,
-      chainId: reservation.chainTarget.kindTarget.chainId.toString(),
+      networkKey: reservation.chainTarget.networkSlug,
+      chainId: reservation.chainTarget.chainId.toString(),
       ...(laneStatus ? { laneStatus: formatNonceLaneStatus(laneStatus) } : {}),
     },
   });
@@ -221,7 +219,7 @@ export async function reportEvmFamilyFinalized(
   void args.receiptStatus;
   const reservation = toEvmFamilyManagedNonceReservationFromSignedResult({
     signedResult: args.signedResult,
-    subjectId: args.walletId,
+    walletId: args.walletId,
   });
   const txHash =
     args.txHash ||
@@ -245,7 +243,7 @@ export async function reportEvmFamilyDroppedOrReplaced(
 ): Promise<void> {
   const reservation = toEvmFamilyManagedNonceReservationFromSignedResult({
     signedResult: args.signedResult,
-    subjectId: args.walletId,
+    walletId: args.walletId,
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     phase:
@@ -259,8 +257,8 @@ export async function reportEvmFamilyDroppedOrReplaced(
         : 'Marking managed nonce lane dropped',
     data: {
       chain: reservation.chainTarget.kind,
-      networkKey: reservation.chainTarget.kindTarget.networkSlug,
-      chainId: reservation.chainTarget.kindTarget.chainId.toString(),
+      networkKey: reservation.chainTarget.networkSlug,
+      chainId: reservation.chainTarget.chainId.toString(),
       nonce: reservation.nonce.toString(),
       reason: args.reason,
       ...(args.txHash ? { txHash: args.txHash } : {}),
@@ -288,8 +286,8 @@ export async function reportEvmFamilyDroppedOrReplaced(
         : 'Managed nonce lane marked dropped',
     data: {
       chain: reservation.chainTarget.kind,
-      networkKey: reservation.chainTarget.kindTarget.networkSlug,
-      chainId: reservation.chainTarget.kindTarget.chainId.toString(),
+      networkKey: reservation.chainTarget.networkSlug,
+      chainId: reservation.chainTarget.chainId.toString(),
       nonce: reservation.nonce.toString(),
       reason: args.reason,
       ...(args.txHash ? { txHash: args.txHash } : {}),
@@ -303,7 +301,7 @@ export async function reconcileEvmFamilyNonceLane(
 ): Promise<EvmFamilyNonceLaneStatus> {
   const reservation = toEvmFamilyManagedNonceReservationFromSignedResult({
     signedResult: args.signedResult,
-    subjectId: args.walletId,
+    walletId: args.walletId,
   });
   emitEvmFamilyBroadcastEvent(args.onEvent, {
     phase: SigningEventPhase.STEP_13_NONCE_RECONCILE_STARTED,
@@ -311,8 +309,8 @@ export async function reconcileEvmFamilyNonceLane(
     message: 'Reconciling managed nonce lane',
     data: {
       chain: reservation.chainTarget.kind,
-      networkKey: reservation.chainTarget.kindTarget.networkSlug,
-      chainId: reservation.chainTarget.kindTarget.chainId.toString(),
+      networkKey: reservation.chainTarget.networkSlug,
+      chainId: reservation.chainTarget.chainId.toString(),
     },
   });
   const laneStatus = await deps.nonceCoordinator.reconcile({
@@ -330,8 +328,8 @@ export async function reconcileEvmFamilyNonceLane(
     message: 'Managed nonce lane reconciled',
     data: {
       chain: reservation.chainTarget.kind,
-      networkKey: reservation.chainTarget.kindTarget.networkSlug,
-      chainId: reservation.chainTarget.kindTarget.chainId.toString(),
+      networkKey: reservation.chainTarget.networkSlug,
+      chainId: reservation.chainTarget.chainId.toString(),
       laneStatus: formatted,
     },
   });
@@ -343,8 +341,8 @@ export async function reconcileEvmFamilyNonceLane(
     });
     throw createEvmFamilySigningNonceLaneBlockedError({
       chain: reservation.chainTarget.kind,
-      networkKey: reservation.chainTarget.kindTarget.networkSlug,
-      chainId: reservation.chainTarget.kindTarget.chainId,
+      networkKey: reservation.chainTarget.networkSlug,
+      chainId: reservation.chainTarget.chainId,
       blockedNonce: String(formatted.blockedNonce || 'unknown'),
     });
   }

@@ -647,9 +647,9 @@ export async function executeEvmFamilyTransactionLifecycle(args: {
         ...(signedResult?.managedNonce
           ? {
               managedNonce: {
-                chain: signedResult.managedNonce.chain,
-                networkKey: signedResult.managedNonce.networkKey,
-                chainId: signedResult.managedNonce.chainId,
+                chain: signedResult.managedNonce.chainTarget.kind,
+                networkKey: signedResult.managedNonce.chainTarget.networkSlug,
+                chainId: signedResult.managedNonce.chainTarget.chainId,
                 sender: signedResult.managedNonce.sender,
                 nonce: signedResult.managedNonce.nonce.toString(),
                 ...(signedResult.managedNonce.nonceKey != null

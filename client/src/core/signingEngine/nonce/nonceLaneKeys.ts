@@ -1,8 +1,12 @@
 import type {
+  EvmNonceChain,
   ManagedNonceReservation,
   ReserveNonceInput,
 } from '@/core/rpcClients/evm/nonceBackend';
-import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetKey,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import type {
   SigningOperationFingerprint,

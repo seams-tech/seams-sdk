@@ -73,7 +73,16 @@ export type NonceLaneStatus = {
   blockedNonce?: bigint;
 };
 
-export type FetchChainNoncePort = (input: ReserveNonceInput) => Promise<bigint>;
+export type EvmNonceBackendFetchInput = {
+  chain: EvmNonceChain;
+  networkKey: string;
+  chainId: number;
+  sender: `0x${string}`;
+  nonceKey: bigint;
+  walletId: string;
+};
+
+export type FetchChainNoncePort = (input: EvmNonceBackendFetchInput) => Promise<bigint>;
 
 export type CreateEvmNonceBackendWithFetcherArgs = {
   fetchChainNonce: FetchChainNoncePort;
@@ -168,15 +177,6 @@ export function reserveNonceInputFromBoundary(input: ReserveNonceBoundaryInput):
   };
 }
 
-type NormalizedInput = {
-  chain: EvmNonceChain;
-  networkKey: string;
-  chainId: number;
-  sender: `0x${string}`;
-  nonceKey: bigint;
-  walletId?: string;
-};
-
 const DEFAULT_RPC_TIMEOUT_MS = 15_000;
 
 export function createEvmNonceBackendWithFetcher(
@@ -204,7 +204,7 @@ export function createEvmNonceBackend(args: CreateEvmNonceBackendArgs): EvmNonce
 
 async function fetchChainNonceFromRpc(args: {
   chains: readonly SeamsChainConfig[];
-  input: ReserveNonceInput;
+  input: EvmNonceBackendFetchInput;
   fetchImpl: typeof fetch;
 }): Promise<bigint> {
   const rpcUrl = resolveRpcUrlForInput(args.chains, args.input);
@@ -246,11 +246,11 @@ async function fetchChainNonceFromRpc(args: {
 
 function resolveRpcUrlForInput(
   chains: readonly SeamsChainConfig[],
-  input: ReserveNonceInput,
+  input: EvmNonceBackendFetchInput,
 ): string {
-  const requestedChain = input.chainTarget.kind;
-  const targetChainId = input.chainTarget.chainId;
-  const networkKey = String(input.chainTarget.networkSlug || '')
+  const requestedChain = input.chain;
+  const targetChainId = input.chainId;
+  const networkKey = String(input.networkKey || '')
     .trim()
     .toLowerCase();
   const byChainId = (source: readonly SeamsChainConfig[]): SeamsChainConfig[] =>
@@ -277,13 +277,13 @@ function resolveRpcUrlForInput(
     assertChainSupportsRequestedRoute({
       chain: only,
       requestedChain,
-      networkKey: input.chainTarget.networkSlug,
+      networkKey: input.networkKey,
       chainId: targetChainId,
     });
     assertConfiguredChainIdMatchesInput({
       chain: only,
       chainId: targetChainId,
-      networkKey: input.chainTarget.networkSlug,
+      networkKey: input.networkKey,
     });
     return mustTrimmedRpcUrl(only.rpcUrl, only.network);
   }
@@ -296,7 +296,7 @@ function resolveRpcUrlForInput(
       return mustTrimmedRpcUrl(only.rpcUrl, only.network);
     }
     throw new Error(
-      `[evmNonceBackend] ambiguous networkKey mapping for ${input.chainTarget.networkSlug} (chainId=${String(targetChainId)})`,
+      `[evmNonceBackend] ambiguous networkKey mapping for ${input.networkKey} (chainId=${String(targetChainId)})`,
     );
   }
 
@@ -326,7 +326,7 @@ function resolveRpcUrlForInput(
   }
 
   throw new Error(
-    `[evmNonceBackend] unable to resolve RPC URL for ${requestedChain} ${input.chainTarget.networkSlug} (chainId=${String(targetChainId)})`,
+    `[evmNonceBackend] unable to resolve RPC URL for ${requestedChain} ${input.networkKey} (chainId=${String(targetChainId)})`,
   );
 }
 
@@ -405,7 +405,7 @@ function mustTrimmedRpcUrl(rpcUrl: string, network: string): string {
   return trimmed;
 }
 
-function normalizeInput(input: ReserveNonceInput): NormalizedInput {
+function normalizeInput(input: ReserveNonceInput): EvmNonceBackendFetchInput {
   const chain = input.chainTarget.kind;
   if (chain !== 'evm' && chain !== 'tempo') {
     throw new Error(`[evmNonceBackend] invalid chain '${String(chain)}'`);
@@ -446,7 +446,7 @@ function parseManagedNonceSnapshotChainTarget(
     throw new Error('[evmNonceBackend] invalid managed nonce snapshot: networkKey');
   }
   const chainId = snapshot.chainId;
-  if (!Number.isSafeInteger(chainId) || chainId <= 0) {
+  if (typeof chainId !== 'number' || !Number.isSafeInteger(chainId) || chainId <= 0) {
     throw new Error('[evmNonceBackend] invalid managed nonce snapshot: chainId');
   }
   return thresholdEcdsaChainTargetFromChainFamily({
