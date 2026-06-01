@@ -1188,7 +1188,7 @@ Prioritize the hardening in two tracks before the rest of the cleanup:
      transaction flow.
    - Add reducer and integration tests proving a reserved lease cannot enter any
      broadcast state.
-3. [ ] Normalize EVM-family nonce identity at request boundaries.
+3. [x] Normalize EVM-family nonce identity at request boundaries.
    - Introduce a boundary parser/builder that converts SDK, iframe, config, and
      RPC request shapes into `{ subjectId: WalletId; chainTarget:
 ThresholdEcdsaChainTarget; sender; nonceKey? }`.
@@ -1198,8 +1198,11 @@ ThresholdEcdsaChainTarget; sender; nonceKey? }`.
    - Keep raw `chain: 'evm' | 'tempo'` in SDK/iframe/config request parsers and
      RPC routing only.
    - [x] Nonce coordinator internals now normalize EVM-family lane identity to
-         `chainTarget` plus `subjectId`; public request and snapshot types still need
-         the Phase 10 TODO 6 cleanup.
+         `chainTarget` plus `subjectId`.
+   - [x] `ReserveNonceInput`, `ManagedNonceReservationSnapshot`, and
+         `ManagedNonceReservation` now carry concrete `chainTarget` plus
+         `subjectId`; raw `chain` / `networkKey` / `walletId` is accepted by the
+         explicit boundary parser only.
 4. [x] Replace internal EVM-family lane identity.
    - Change `EvmNonceLane` to store `chainTarget: ThresholdEcdsaChainTarget` and
      `subjectId: WalletId`.
@@ -1213,7 +1216,7 @@ ThresholdEcdsaChainTarget; sender; nonceKey? }`.
      and account/subject indexes.
    - Add a guard rejecting raw `parts.join(':')` lane-key construction in nonce
      internals.
-6. [ ] Add migration and guard coverage.
+6. [x] Add migration and guard coverage.
    - Durable records with current raw chain fields should upgrade to concrete
      identity when all required fields are present.
    - Incomplete or ambiguous durable records should fail closed with a degraded
@@ -1230,6 +1233,10 @@ ThresholdEcdsaChainTarget; sender; nonceKey? }`.
    - [x] Malformed durable records are removed during recovery with a
      `malformed_durable_record` degraded diagnostic instead of being orphaned
      silently.
+   - [x] Static guards now reject nonce operation context regressions to raw
+     `chainFamily` or optional `walletSigningSessionId`, and reject public EVM
+     nonce reservation/snapshot regressions away from `chainTarget` plus
+     `subjectId`.
 
 ### Phase 10 TODO
 
@@ -1264,12 +1271,12 @@ ThresholdEcdsaChainTarget; sender; nonceKey? }`.
      identity.
    - Do not use account-primary or collapsed account strings as ECDSA nonce
      authority.
-5. [ ] Replace `NonceOperationContext` with explicit prepared lifecycle state.
+5. [x] Replace `NonceOperationContext` with explicit prepared lifecycle state.
    - Use the discriminated `budgetSession` context from the Operation Identity
      section.
    - Remove `walletSigningSessionId?: string` and
      `chainFamily: 'near' | 'evm' | 'tempo'` from nonce internals.
-6. [ ] Update `ManagedNonceReservationSnapshot`, `ReserveNonceInput`, lifecycle
+6. [x] Update `ManagedNonceReservationSnapshot`, `ReserveNonceInput`, lifecycle
        adapter args, backend reserve inputs, durable lease records, and nonce
        metrics to carry concrete chain target and subject identity.
    - Normalize raw chain inputs into concrete targets at request boundaries
@@ -1286,11 +1293,11 @@ ThresholdEcdsaChainTarget; sender; nonceKey? }`.
      `chain === 'tempo'` except at normalization boundaries.
    - Managed nonce snapshots, metrics, and durable lease code should use
      concrete chain-target fields after normalization.
-9. [ ] Delete collapsed-chain support from nonce internals.
+9. [x] Delete collapsed-chain support from nonce internals.
    - Boundary normalization may still accept raw SDK/iframe/config inputs.
    - Internal nonce lane state, snapshots, metrics, durable records, and backend
      inputs must not carry collapsed `evm` / `tempo` authority after this phase.
-10. [ ] Add migration and boundary tests.
+10. [x] Add migration and boundary tests.
     - Existing durable lease records should be either upgraded to the concrete
       lane identity or fail closed with a clear degraded/recovery diagnostic.
     - Existing request-boundary flows for Tempo, Arc EVM, and generic EVM should
@@ -1299,10 +1306,13 @@ ThresholdEcdsaChainTarget; sender; nonceKey? }`.
       startup recovery migration to encoded lane keys.
     - [x] Added durable recovery coverage for malformed EVM records that removes
       the record and emits a degraded diagnostic.
+    - [x] Added static boundary coverage that keeps raw request identity in the
+      EVM nonce boundary parser and concrete identity in managed snapshots,
+      reservation inputs, and nonce internals.
 
 ### Remaining High-Impact Tasks
 
-1. [ ] Finish public EVM-family nonce identity normalization.
+1. [x] Finish public EVM-family nonce identity normalization.
    - `ReserveNonceInput`, `ManagedNonceReservationSnapshot`,
      `ManagedNonceReservation`, lifecycle adapter event data, backend fetch
      inputs, and nonce metrics should carry `chainTarget` plus `subjectId` as
@@ -1315,7 +1325,7 @@ ThresholdEcdsaChainTarget; sender; nonceKey? }`.
      when all concrete identity fields are present.
    - Ambiguous or incomplete durable records should fail closed with a degraded
      recovery diagnostic and must not affect another lane.
-3. [ ] Replace `NonceOperationContext` with an explicit prepared nonce operation
+3. [x] Replace `NonceOperationContext` with an explicit prepared nonce operation
        identity.
    - Remove `walletSigningSessionId?: string` and raw `chainFamily` from nonce
      internals after transaction flows pass only prepared operation identity.

@@ -5,7 +5,7 @@ import {
 import {
   evmNonceLeaseToManagedReservation,
   evmReserveNonceInputToLane,
-  type NonceOperationContext,
+  type PreparedNonceOperationContext,
 } from '../../nonce/NonceCoordinator';
 import type { TempoSigningRequest } from '../../chains/tempo/types';
 import { mapToRetryableNonceStateError } from './errors';
@@ -27,7 +27,7 @@ export async function reserveManagedTempoNonceForRequest(args: {
   deps: TempoManagedNonceDeps;
   walletId: string;
   request: TempoSigningRequest;
-  operation: NonceOperationContext;
+  operation: PreparedNonceOperationContext;
   senderIdentity: EvmFamilyManagedNonceSenderIdentity;
 }): Promise<{ request: TempoSigningRequest; reservation: EvmFamilyManagedNonceReservation }> {
   const sender = await resolveManagedNonceSender({

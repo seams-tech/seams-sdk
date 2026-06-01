@@ -39,7 +39,7 @@ import {
 } from '@/core/signingEngine/session/operationState/types';
 import type {
   NonceLease,
-  NonceOperationContext,
+  PreparedNonceOperationContext,
 } from '@/core/signingEngine/nonce/NonceCoordinator';
 
 export async function fetchNearContext(
@@ -192,7 +192,7 @@ async function reserveNearTransactionContext(
       nearAccountId: args.nearAccountId,
       nearPublicKeyStr,
     }),
-    operation: createNearNonceOperationContext({
+    operation: createNearPreparedNonceOperationContext({
       nearAccountId: args.nearAccountId,
       operationId: args.operationId,
       operationFingerprint: args.operationFingerprint,
@@ -215,11 +215,11 @@ function createNearNonceLane(
   };
 }
 
-function createNearNonceOperationContext(args: {
+function createNearPreparedNonceOperationContext(args: {
   nearAccountId: string;
   operationId?: string;
   operationFingerprint?: string;
-}): NonceOperationContext {
+}): PreparedNonceOperationContext {
   const randomId = secureRandomBase64Url(32, 'NEAR touch confirmation nonce operation IDs');
   const operationId = SigningSessionIds.signingOperation(
     args.operationId || `near-touch-confirm:${randomId}`,

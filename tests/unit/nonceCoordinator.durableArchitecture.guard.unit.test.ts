@@ -145,6 +145,43 @@ test.describe('nonce coordinator durable architecture guards', () => {
     expect(rawChainBranchOffenders).toEqual([]);
   });
 
+  test('nonce operation and EVM reservation types use prepared concrete identity', () => {
+    const nonceTypes = readRepoSource('client/src/core/signingEngine/nonce/nonceTypes.ts');
+    const nonceBackend = readRepoSource('client/src/core/rpcClients/evm/nonceBackend.ts');
+
+    const preparedOperationStart = nonceTypes.indexOf('export type PreparedNonceOperationContext');
+    const preparedOperationEnd = nonceTypes.indexOf(
+      'export type NonceLease',
+      preparedOperationStart,
+    );
+    expect(preparedOperationStart).toBeGreaterThanOrEqual(0);
+    expect(preparedOperationEnd).toBeGreaterThan(preparedOperationStart);
+    const preparedOperationSource = nonceTypes.slice(preparedOperationStart, preparedOperationEnd);
+    expect(preparedOperationSource).not.toContain('walletSigningSessionId');
+    expect(preparedOperationSource).not.toContain('chainFamily');
+    expect(nonceTypes).not.toContain('export type NonceOperationContext');
+
+    const reserveInputStart = nonceBackend.indexOf('export type ReserveNonceInput');
+    const reserveInputEnd = nonceBackend.indexOf('export type ReserveNonceBoundaryInput');
+    expect(reserveInputStart).toBeGreaterThanOrEqual(0);
+    expect(reserveInputEnd).toBeGreaterThan(reserveInputStart);
+    const reserveInputSource = nonceBackend.slice(reserveInputStart, reserveInputEnd);
+    expect(reserveInputSource).toContain('chainTarget: ThresholdEcdsaChainTarget');
+    expect(reserveInputSource).toContain('subjectId: WalletId');
+    expect(reserveInputSource).not.toContain('chain: EvmNonceChain');
+    expect(reserveInputSource).not.toContain('walletId');
+
+    const snapshotStart = nonceBackend.indexOf('export type ManagedNonceReservationSnapshot =');
+    const snapshotEnd = nonceBackend.indexOf('export type ManagedNonceReservationSnapshotInput');
+    expect(snapshotStart).toBeGreaterThanOrEqual(0);
+    expect(snapshotEnd).toBeGreaterThan(snapshotStart);
+    const snapshotSource = nonceBackend.slice(snapshotStart, snapshotEnd);
+    expect(snapshotSource).toContain('chainTarget: ThresholdEcdsaChainTarget');
+    expect(snapshotSource).toContain('subjectId: WalletId');
+    expect(snapshotSource).not.toContain('chain: EvmNonceChain');
+    expect(snapshotSource).not.toContain('walletId');
+  });
+
   test('startup recovery cannot spend budget or rebroadcast raw signed transactions', () => {
     const source = readRepoSource('client/src/core/signingEngine/nonce/NonceCoordinator.ts');
     const recoveryStart = source.indexOf('const recoverDurableLeases = async');

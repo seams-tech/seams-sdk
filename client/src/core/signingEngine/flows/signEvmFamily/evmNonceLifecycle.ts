@@ -5,7 +5,7 @@ import {
 import {
   evmNonceLeaseToManagedReservation,
   evmReserveNonceInputToLane,
-  type NonceOperationContext,
+  type PreparedNonceOperationContext,
 } from '../../nonce/NonceCoordinator';
 import type { EvmSigningRequest } from '../../chains/evm/types';
 import { mapToRetryableNonceStateError } from './errors';
@@ -44,7 +44,7 @@ export async function reserveManagedEvmNonceForRequest(args: {
   deps: EvmFamilyNonceLifecycleDeps;
   request: EvmSigningRequest;
   reservationInput: ReserveNonceInput;
-  operation: NonceOperationContext;
+  operation: PreparedNonceOperationContext;
 }): Promise<{ request: EvmSigningRequest; reservation: EvmFamilyManagedNonceReservation }> {
   const reservationInput = args.reservationInput;
   let reservation: EvmFamilyManagedNonceReservation;

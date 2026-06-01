@@ -3,7 +3,7 @@ import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
-import type { NonceCoordinator, NonceOperationContext } from '../../nonce/NonceCoordinator';
+import type { NonceCoordinator, PreparedNonceOperationContext } from '../../nonce/NonceCoordinator';
 import type { EvmSigningRequest } from '../../chains/evm/types';
 import type { EvmSignedResult } from '../../chains/evm/evmAdapter';
 import type { TempoSigningRequest } from '../../chains/tempo/types';
@@ -1371,7 +1371,7 @@ async function signEvmFamilyAttempt(
     });
   };
   const preparedNonceSession = getPreparedEcdsaSigningSessionIfEcdsa();
-  const nonceOperation: NonceOperationContext = {
+  const nonceOperation: PreparedNonceOperationContext = {
     ...createTransactionSigningOperation(),
     accountId: walletId,
   };

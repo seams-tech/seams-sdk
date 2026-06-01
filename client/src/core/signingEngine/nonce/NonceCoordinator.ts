@@ -37,7 +37,7 @@ export type {
   NonceLaneCoordinationRecord,
   NonceLaneCoordinationStore,
   NonceLease,
-  NonceOperationContext,
+  PreparedNonceOperationContext,
 } from './nonceTypes';
 import {
   EvmNonceOutcomeReason,
@@ -60,7 +60,7 @@ import {
   type NonceLane,
   type NonceLaneCoordinationRecord,
   type NonceLease,
-  type NonceOperationContext,
+  type PreparedNonceOperationContext,
 } from './nonceTypes';
 import {
   isActiveCoordinationLeaseRecord,
@@ -512,7 +512,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
 
   const reserveEvmNonceLeaseUnlocked = async (input: {
     lane: EvmNonceLane;
-    operation: NonceOperationContext;
+    operation: PreparedNonceOperationContext;
   }): Promise<NonceLease> => {
     await expireDueLeases({ accountId: nonceLaneSubjectId(input.lane) });
     const laneKey = nonceLaneKey(input.lane);
@@ -1260,7 +1260,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
 
   const reserveNearNonceBatchUnlocked = async (input: {
     lane: NearNonceLane;
-    operation: NonceOperationContext;
+    operation: PreparedNonceOperationContext;
     count: number;
   }): Promise<NonceLease[]> => {
     await expireDueLeases({ accountId: input.operation.accountId });

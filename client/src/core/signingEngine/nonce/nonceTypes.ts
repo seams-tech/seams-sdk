@@ -138,8 +138,6 @@ export type PreparedNonceOperationContext = SigningOperationContext & {
   accountId: string;
 };
 
-export type NonceOperationContext = PreparedNonceOperationContext;
-
 export type NonceLease = {
   leaseId: string;
   lane: NonceLane;
@@ -312,15 +310,18 @@ export type NonceCoordinatorDiagnostics = {
 };
 
 export type NonceCoordinator = {
-  reserve(input: { lane: NonceLane; operation: NonceOperationContext }): Promise<NonceLease>;
+  reserve(input: {
+    lane: NonceLane;
+    operation: PreparedNonceOperationContext;
+  }): Promise<NonceLease>;
   reserveBatch(input: {
     lane: NearNonceLane;
-    operation: NonceOperationContext;
+    operation: PreparedNonceOperationContext;
     count: number;
   }): Promise<NonceLease[]>;
   reserveNearContext(input: {
     lane: NearNonceLane;
-    operation: NonceOperationContext;
+    operation: PreparedNonceOperationContext;
     count: number;
     fetchContext?: () => Promise<TransactionContext>;
     nearClient?: NearClient;

@@ -11,7 +11,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
 import type { EvmFamilyThresholdEcdsaStepUp } from './requireEvmFamilyStepUpAuth';
 import {
   evmReserveNonceInputToLane,
-  type NonceOperationContext,
+  type PreparedNonceOperationContext,
 } from '../../nonce/NonceCoordinator';
 import { mapToRetryableNonceStateError } from './errors';
 import {
@@ -78,7 +78,7 @@ type EvmFamilyTransactionSigningExecutorArgs<TRequest extends EvmFamilyTransacti
     retryWithFreshEmailOtpAuth: (
       error: unknown,
     ) => Promise<TempoSignedResult | EvmSignedResult | null>;
-    nonceOperation: NonceOperationContext;
+    nonceOperation: PreparedNonceOperationContext;
   };
 
 type EvmFamilyTransactionSigningConfig<TRequest extends EvmFamilyTransactionSigningRequest> = {
@@ -88,7 +88,7 @@ type EvmFamilyTransactionSigningConfig<TRequest extends EvmFamilyTransactionSign
     deps: EvmFamilyTransactionExecutorDeps;
     walletId: string;
     request: TRequest;
-    nonceOperation: NonceOperationContext;
+    nonceOperation: PreparedNonceOperationContext;
   }) => Promise<{
     request: TRequest;
     reservation: EvmFamilyManagedNonceReservation;
@@ -220,7 +220,7 @@ export async function executeEvmFamilyTransactionSigning(args: {
   retryWithFreshEmailOtpAuth: (
     error: unknown,
   ) => Promise<TempoSignedResult | EvmSignedResult | null>;
-  nonceOperation: NonceOperationContext;
+  nonceOperation: PreparedNonceOperationContext;
 }): Promise<TempoSignedResult | EvmSignedResult> {
   if (args.chainTarget.kind === 'evm' || args.request.kind === 'eip1559') {
     let reservationInputPromise: ReturnType<typeof resolveManagedEvmNonceReservationInput> | null =

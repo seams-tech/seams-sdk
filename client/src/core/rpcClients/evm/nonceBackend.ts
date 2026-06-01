@@ -41,8 +41,9 @@ export type ManagedNonceReservationSnapshot = {
 
 export type ManagedNonceReservationSnapshotInput = Omit<
   ManagedNonceReservationSnapshot,
-  'leaseId' | 'operationId' | 'operationFingerprint' | 'subjectId'
+  'chainTarget' | 'leaseId' | 'operationId' | 'operationFingerprint' | 'subjectId'
 > & {
+  chainTarget?: ThresholdEcdsaChainTarget;
   leaseId?: string;
   operationId?: string;
   operationFingerprint?: string;
@@ -165,7 +166,7 @@ export function fromManagedNonceReservationSnapshot(
 }
 
 export function reserveNonceInputFromBoundary(input: ReserveNonceBoundaryInput): ReserveNonceInput {
-  return {
+  const reservationInput: ReserveNonceInput = {
     chainTarget: thresholdEcdsaChainTargetFromChainFamily({
       chain: input.chain,
       chainId: input.chainId,
@@ -173,8 +174,11 @@ export function reserveNonceInputFromBoundary(input: ReserveNonceBoundaryInput):
     }),
     subjectId: toWalletId(input.walletId),
     sender: normalizeSender(input.sender),
-    ...(input.nonceKey != null ? { nonceKey: normalizeBigint(input.nonceKey, 'nonceKey') } : {}),
   };
+  if (input.nonceKey != null) {
+    reservationInput.nonceKey = normalizeBigint(input.nonceKey, 'nonceKey');
+  }
+  return reservationInput;
 }
 
 const DEFAULT_RPC_TIMEOUT_MS = 15_000;
