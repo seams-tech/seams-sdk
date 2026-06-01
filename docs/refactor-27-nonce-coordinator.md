@@ -1136,44 +1136,106 @@ state machine. Internally, nonce lanes should use concrete
 `evm`/`tempo` strings should survive only at SDK, iframe, config, and RPC request
 boundaries, where they are normalized before nonce code runs.
 
+### Phase 10 Recommended Order
+
+Prioritize the hardening in two tracks before the rest of the cleanup:
+
+1. [ ] Fingerprint-bind every lease lifecycle transition.
+   - Make this the first implementation change because it closes the highest-risk
+     reuse gap while preserving the current lane shape.
+   - Add `operationFingerprint` to `NonceLeaseRef`, `markSigned`,
+     `markBroadcastAccepted`, `markBroadcastRejected`, `markFinalized`,
+     `markDroppedOrReplaced`, and `release`.
+   - Update `nonceLeaseToRef(...)`, managed nonce snapshot parsing, and lifecycle
+     adapters so the stored fingerprint is carried from signed results into every
+     transition.
+   - Change `readLease(...)` and `assertOperationMatches(...)` to require and
+     compare both `operationId` and `operationFingerprint`.
+   - Add tests that same-operation-id/different-fingerprint calls fail for
+     `markSigned`, broadcast accepted/rejected, finalized, dropped/replaced, and
+     release.
+   - Add a boundary test that a signed result missing `operationFingerprint` fails
+     before it can mutate a lease.
+2. [ ] Require signed state before broadcast lifecycle.
+   - After all signing flows pass the fingerprinted lease ref, remove
+     `Reserved -> BroadcastAccepted` and `Reserved -> BroadcastRejected` from the
+     reducer.
+   - Keep `markSigned` immediately after threshold signature creation in the
+     transaction flow.
+   - Add reducer and integration tests proving a reserved lease cannot enter any
+     broadcast state.
+3. [ ] Normalize EVM-family nonce identity at request boundaries.
+   - Introduce a boundary parser/builder that converts SDK, iframe, config, and
+     RPC request shapes into `{ subjectId: WalletId; chainTarget:
+     ThresholdEcdsaChainTarget; sender; nonceKey? }`.
+   - Make `ReserveNonceInput`, `ManagedNonceReservationSnapshot`,
+     `ManagedNonceReservation`, and lifecycle adapter inputs carry concrete
+     `chainTarget` plus `subjectId`.
+   - Keep raw `chain: 'evm' | 'tempo'` in SDK/iframe/config request parsers and
+     RPC routing only.
+4. [ ] Replace internal EVM-family lane identity.
+   - Change `EvmNonceLane` to store `chainTarget: ThresholdEcdsaChainTarget` and
+     `subjectId: WalletId`.
+   - Use `thresholdEcdsaChainTargetKey(...)` plus the subject id in every EVM
+     nonce lane key, durable record, diagnostic lane summary, metric base, and
+     backend fetch adapter.
+   - Preserve NEAR lane identity as NEAR account id + public key.
+5. [ ] Make lane keys collision-safe.
+   - Add one helper that length-prefixes or encodes each component before joining.
+   - Use it for both EVM-family and NEAR lane keys, lease ids, durable lock keys,
+     and account/subject indexes.
+   - Add a guard rejecting raw `parts.join(':')` lane-key construction in nonce
+     internals.
+6. [ ] Add migration and guard coverage.
+   - Durable records with current raw chain fields should upgrade to concrete
+     identity when all required fields are present.
+   - Incomplete or ambiguous durable records should fail closed with a degraded
+     recovery diagnostic and must never mutate another lane.
+   - Add guard coverage forbidding collapsed `chain` authority, optional ECDSA
+     `accountId`, and lifecycle transitions without `operationFingerprint` inside
+     nonce internals.
+
 ### Phase 10 TODO
 
-1. [ ] Replace EVM-family nonce lane identity with concrete
+1. [ ] Fingerprint-bind every lease lifecycle transition.
+   - Add `operationFingerprint` to `NonceLeaseRef`.
+   - Add `operationFingerprint` to `markSigned`, broadcast lifecycle, finalized,
+     dropped/replaced, release, and reconcile-by-lease inputs.
+   - `assertOperationMatches(...)` must compare both `operationId` and
+     `operationFingerprint` and fail closed on either mismatch.
+   - Managed nonce snapshots and lifecycle adapters must propagate the stored
+     fingerprint from signed results into every transition.
+   - Add same-operation-id/different-fingerprint regression tests for every
+     transition.
+   - Add signed-result boundary coverage that fails when `managedNonce` is missing
+     `operationFingerprint`.
+2. [ ] Make broadcast lifecycle transitions require a signed lease.
+   - Remove `Reserved -> BroadcastAccepted` and `Reserved -> BroadcastRejected`
+     from the reducer once all signing flows call `markSigned` immediately after
+     threshold signature creation.
+   - Add reducer tests that prove reserved leases cannot enter broadcast states.
+3. [ ] Replace EVM-family nonce lane identity with concrete
        `ThresholdEcdsaChainTarget`.
    - Use `thresholdEcdsaChainTargetKey(...)` or an equivalent canonical helper
      for equality and lane key material.
    - Keep raw `chain: 'evm' | 'tempo'` only at request/config boundaries.
-2. [ ] Replace ECDSA nonce `accountId` / `nearAccountId` authority with
+4. [ ] Replace ECDSA nonce `accountId` / `nearAccountId` authority with
        `WalletId`.
    - Keep NEAR account ids where they are actually NEAR access-key lane
      identity.
    - Do not use account-primary or collapsed account strings as ECDSA nonce
      authority.
-3. [ ] Replace `NonceOperationContext` with explicit prepared lifecycle state.
+5. [ ] Replace `NonceOperationContext` with explicit prepared lifecycle state.
    - Use the discriminated `budgetSession` context from the Operation Identity
      section.
    - Remove `walletSigningSessionId?: string` and
      `chainFamily: 'near' | 'evm' | 'tempo'` from nonce internals.
-4. [ ] Update `ManagedNonceReservationSnapshot`, `ReserveNonceInput`, lifecycle
+6. [ ] Update `ManagedNonceReservationSnapshot`, `ReserveNonceInput`, lifecycle
        adapter args, backend reserve inputs, durable lease records, and nonce
        metrics to carry concrete chain target and subject identity.
    - Normalize raw chain inputs into concrete targets at request boundaries
      before nonce internals.
    - Keep durable records redacted and free of transaction payloads or secrets.
-5. [ ] Require `operationFingerprint` on `NonceLeaseRef` and every lifecycle
-       transition.
-   - `markSigned`, broadcast lifecycle, finalized, dropped/replaced, release,
-     and reconcile-by-lease paths must verify both `operationId` and
-     `operationFingerprint`.
-   - `assertOperationMatches(...)` must compare both fields and fail closed on
-     either mismatch.
-   - This completes the documented fingerprint-binding invariant instead of
-     enforcing it only before lease creation.
-6. [ ] Make broadcast lifecycle transitions require a signed lease.
-   - Remove `Reserved -> BroadcastAccepted` and `Reserved -> BroadcastRejected`
-     from the reducer once all signing flows call `markSigned` immediately after
-     threshold signature creation.
-   - Add reducer tests that prove reserved leases cannot enter broadcast states.
 7. [ ] Use one collision-safe nonce lane key helper for EVM-family and NEAR
        lanes.
    - The helper must encode or length-prefix every component before joining.

@@ -1,16 +1,16 @@
 # Refactor 51: Correct Cross-Platform Architecture
 
 Date created: 2026-05-31
-Status: draft plan
+Status: accepted canonical plan; implementation complete through Phase 10
 Owner: SDK architecture
 
 ## Purpose
 
 This plan defines the long-term architecture for cross-platform SDK readiness.
-It supersedes `docs/refactor-50-cross-platform.md` once accepted. The original
-plan remains useful as implementation history and live codebase context. This V2
-plan starts from the desired architecture and then defines a migration path that
-preserves current browser behavior while moving toward that architecture.
+It supersedes `docs/refactor-50-cross-platform.md`. The original plan remains
+useful as implementation history and live codebase context. This V2 plan starts
+from the desired architecture and then defines a migration path that preserves
+current browser behavior while moving toward that architecture.
 
 The priority is long-term correctness, narrow domain contracts, and portable
 cryptographic boundaries. Short-term compatibility is allowed only at explicit
@@ -1155,6 +1155,58 @@ type WalletRegistrationRelayerClient = {
     input: RegisterWalletRouteInput,
   ): Promise<RelayerResult<RegisterWalletRouteOutput, RegisterWalletRouteFailureCode>>;
 };
+
+type EcdsaBootstrapRouteAuth =
+  | { kind: 'app_session'; jwt: string; token?: never }
+  | { kind: 'threshold_session'; jwt: string; token?: never }
+  | { kind: 'cookie'; jwt?: never; token?: never }
+  | { kind: 'bootstrap_grant'; token: string; jwt?: never }
+  | { kind: 'publishable_key'; token: string; jwt?: never };
+
+type BootstrapEcdsaSessionRouteInput = {
+  kind: 'bootstrap_ecdsa_session_route_v1';
+  walletId: WalletId;
+  rpId: RpId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  keyScope: 'evm-family';
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  signingRootId: SigningRootId;
+  signingRootVersion: SigningRootVersion;
+  relayerKeyId: RelayerKeyId;
+  requestId: string;
+  sessionId: string;
+  walletSigningSessionId: string;
+  ttlMs: number;
+  remainingUses: number;
+  sessionKind: 'jwt' | 'cookie';
+  participantIds: readonly [1, 2];
+  auth: EcdsaBootstrapRouteAuth;
+  clientBootstrap: EcdsaClientBootstrapFacts;
+  preparePublicFacts: EcdsaPreparePublicFacts;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+};
+
+type BootstrapEcdsaSessionRouteOutput = {
+  kind: 'bootstrap_ecdsa_session_route_output_v1';
+  walletId: WalletId;
+  rpId: RpId;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  signingRootId: SigningRootId;
+  signingRootVersion: SigningRootVersion;
+  keyHandle: string;
+  relayerPublicIdentity: EcdsaRelayerPublicIdentity;
+  participantIds: readonly [1, 2];
+  sessionId: string;
+  walletSigningSessionId: string;
+  expiresAtMs: number;
+  remainingUses: number;
+  thresholdSessionAuthToken: string;
+};
+
+type BootstrapEcdsaSessionRouteFailureCode =
+  | 'unavailable'
+  | 'request_rejected'
+  | 'malformed_response';
 ```
 
 Before implementation, each `*RouteInput`, `*RouteOutput`, and
@@ -1170,7 +1222,8 @@ TypeScript command types are generated from Rust schemas with `ts-rs`.
 
 Required implementation:
 
-- Add `ts-rs` as a `crates/signer-core` dev-dependency.
+- Add `ts-rs` as an optional `crates/signer-core` dependency behind the
+  `typescript-bindings` feature.
 - Add `#[derive(TS)]` to signer command input, output, and error enums.
 - Add `crates/signer-core/src/commands/mod.rs` and export it from
   `crates/signer-core/src/lib.rs` behind the feature set used by the command.
@@ -1280,6 +1333,31 @@ Rust `V1` suffix only if `ts-rs` already emits the version in the `kind` field.
 Otherwise the generated names keep the `V1` suffix. The phase that first
 generates each command must record the chosen generated names in this section
 before implementing call-site migration.
+
+Phase 2 generated bootstrap schema names:
+
+| Area                                     | Phase 2 choice                                                                                                                                                                                                                                        |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rust schema module                       | `crates/signer-core/src/commands/ecdsa_bootstrap.rs`                                                                                                                                                                                                  |
+| Rust prepare command                     | `PrepareEcdsaClientBootstrapCommandV1`                                                                                                                                                                                                                |
+| Rust prepare output                      | `PrepareEcdsaClientBootstrapOutputV1`                                                                                                                                                                                                                 |
+| Rust prepare error enum                  | `PrepareEcdsaClientBootstrapErrorCodeV1`                                                                                                                                                                                                              |
+| Rust finalize command                    | `FinalizeEcdsaClientBootstrapCommandV1`                                                                                                                                                                                                               |
+| Rust finalize output                     | `FinalizeEcdsaClientBootstrapOutputV1`                                                                                                                                                                                                                |
+| Rust finalize error enum                 | `FinalizeEcdsaClientBootstrapErrorCodeV1`                                                                                                                                                                                                             |
+| Generated TypeScript prepare command     | `PrepareEcdsaClientBootstrapCommand`                                                                                                                                                                                                                  |
+| Generated TypeScript prepare output      | `PrepareEcdsaClientBootstrapOutput`                                                                                                                                                                                                                   |
+| Generated TypeScript prepare error enum  | `PrepareEcdsaClientBootstrapErrorCode`                                                                                                                                                                                                                |
+| Generated TypeScript finalize command    | `FinalizeEcdsaClientBootstrapCommand`                                                                                                                                                                                                                 |
+| Generated TypeScript finalize output     | `FinalizeEcdsaClientBootstrapOutput`                                                                                                                                                                                                                  |
+| Generated TypeScript finalize error enum | `FinalizeEcdsaClientBootstrapErrorCode`                                                                                                                                                                                                               |
+| TypeScript wrapper aliases               | `GeneratedPrepareEcdsaClientBootstrapCommand`, `GeneratedPrepareEcdsaClientBootstrapOutput`, `GeneratedFinalizeEcdsaClientBootstrapCommand`, `GeneratedFinalizeEcdsaClientBootstrapOutput` in `client/src/core/platform/signerCoreCommandAdapters.ts` |
+| Current browser WASM prepare binding     | `prepare_ecdsa_client_bootstrap_v1`; Email OTP worker-internal resolved-root adapter `prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1`                                                                                                |
+| Current browser WASM finalize binding    | `threshold_ecdsa_hss_role_local_finalize_client_bootstrap`                                                                                                                                                                                            |
+
+Regenerate committed schemas with `pnpm generate:signer-core-types`. The drift
+test compares the committed file with Rust output when run without
+`UPDATE_SIGNER_CORE_TYPES=1`.
 
 Generated TypeScript types are adapter-facing raw command schemas. They are not
 core-facing domain types. `client/src/core/platform/types.ts` owns branded
@@ -1580,8 +1658,8 @@ Use-case result rules:
   branches.
 - Failure branches include `code`, `message`, and `retryable`.
 - Failure branches that wrap a port or relayer failure include `source` with one
-  of `authenticator`, `signer_crypto`, `storage`, `relayer`, `http`, `clock`,
-  `random`, or `domain`.
+  of `authenticator`, `email_otp`, `signer_crypto`, `storage`, `relayer`,
+  `http`, `budget`, `presign_pool`, `clock`, `random`, or `domain`.
 - Use cases do not throw for recoverable failures.
 - Use cases throw only for programmer errors that cannot be represented as a
   valid input branch.
@@ -1619,12 +1697,28 @@ type ProvisionEcdsaInput = {
   walletId: WalletId;
   rpId: RpId;
   chainTarget: ThresholdEcdsaChainTarget;
+  keyHandle: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  signingRootId: EcdsaSigningRootId;
-  signingRootVersion: EcdsaSigningRootVersion;
+  signingRootId: SigningRootId;
+  signingRootVersion: SigningRootVersion;
+  participantIds: readonly [1, 2];
   authMethod:
     | { kind: 'passkey'; credentialIdB64u: CredentialIdB64u; challengeB64u: string }
-    | { kind: 'email_otp'; handle: EmailOtpWorkerIssuedSessionHandle };
+    | {
+        kind: 'email_otp';
+        handle: Extract<EmailOtpWorkerIssuedSessionHandle, { action: 'threshold_ecdsa_bootstrap' }>;
+      };
+  route: {
+    relayerKeyId: RelayerKeyId;
+    requestId: string;
+    sessionId: string;
+    walletSigningSessionId: string;
+    ttlMs: number;
+    remainingUses: number;
+    sessionKind: 'jwt' | 'cookie';
+    auth: EcdsaBootstrapRouteAuth;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  };
 };
 
 type ProvisionEcdsaResult =
@@ -1638,6 +1732,7 @@ type ProvisionEcdsaResult =
         | 'relayer_failed'
         | 'storage_failed'
         | 'invalid_state';
+      source: UseCaseFailureSource;
       message: string;
       retryable: boolean;
     };
@@ -1647,6 +1742,8 @@ Implementation rules:
 
 - Check durable storage for an existing matching ready record before preparing a
   new bootstrap.
+- `keyHandle` is required because the storage lookup is keyed before any relayer
+  call can return a new bootstrap response.
 - Build the durable-storage `authMethod` lookup branch from
   `ProvisionEcdsaInput.authMethod` before any load or persist call.
 - Build `WebAuthnPrfFirstSecretSource` only from an authenticator result with
@@ -1777,20 +1874,33 @@ Rules:
 File: `client/src/core/signingEngine/useCases/activateSigningSession.ts`
 
 ```ts
+type SigningSessionActivationPasskeyAuth = {
+  kind: 'passkey';
+  walletId: WalletId;
+  rpId: RpId;
+  credentialIdB64u: CredentialIdB64u;
+};
+
+type SigningSessionActivationEmailOtpEd25519Auth = {
+  kind: 'email_otp';
+  walletId: WalletId;
+  rpId: RpId;
+  authSubjectId: EmailOtpAuthSubjectId;
+  workerHandle: Extract<EmailOtpWorkerIssuedSessionHandle, { action: 'threshold_ed25519_session' }>;
+};
+
+type SigningSessionActivationEmailOtpEcdsaAuth = {
+  kind: 'email_otp';
+  walletId: WalletId;
+  rpId: RpId;
+  authSubjectId: EmailOtpAuthSubjectId;
+  workerHandle: Extract<EmailOtpWorkerIssuedSessionHandle, { action: 'threshold_ecdsa_bootstrap' }>;
+};
+
 type SigningSessionActivationAuth =
-  | {
-      kind: 'passkey';
-      walletId: WalletId;
-      rpId: RpId;
-      credentialIdB64u: CredentialIdB64u;
-    }
-  | {
-      kind: 'email_otp';
-      walletId: WalletId;
-      rpId: RpId;
-      authSubjectId: EmailOtpAuthSubjectId;
-      workerHandle: EmailOtpWorkerIssuedSessionHandle;
-    };
+  | SigningSessionActivationPasskeyAuth
+  | SigningSessionActivationEmailOtpEd25519Auth
+  | SigningSessionActivationEmailOtpEcdsaAuth;
 
 type SigningSessionActivationMaterial =
   | {
@@ -1809,28 +1919,28 @@ type SigningSessionActivationMaterial =
 type SigningSessionSealWriteInput =
   | {
       kind: 'passkey_ed25519_seal_write_v1';
-      auth: Extract<SigningSessionActivationAuth, { kind: 'passkey' }>;
+      auth: SigningSessionActivationPasskeyAuth;
       material: Extract<SigningSessionActivationMaterial, { kind: 'ed25519_session' }>;
       expiresAtMs: number;
       remainingUses: number;
     }
   | {
       kind: 'passkey_ecdsa_seal_write_v1';
-      auth: Extract<SigningSessionActivationAuth, { kind: 'passkey' }>;
+      auth: SigningSessionActivationPasskeyAuth;
       material: Extract<SigningSessionActivationMaterial, { kind: 'ecdsa_session' }>;
       expiresAtMs: number;
       remainingUses: number;
     }
   | {
       kind: 'email_otp_ed25519_seal_write_v1';
-      auth: Extract<SigningSessionActivationAuth, { kind: 'email_otp' }>;
+      auth: SigningSessionActivationEmailOtpEd25519Auth;
       material: Extract<SigningSessionActivationMaterial, { kind: 'ed25519_session' }>;
       expiresAtMs: number;
       remainingUses: number;
     }
   | {
       kind: 'email_otp_ecdsa_seal_write_v1';
-      auth: Extract<SigningSessionActivationAuth, { kind: 'email_otp' }>;
+      auth: SigningSessionActivationEmailOtpEcdsaAuth;
       material: Extract<SigningSessionActivationMaterial, { kind: 'ecdsa_session' }>;
       expiresAtMs: number;
       remainingUses: number;
@@ -3012,7 +3122,7 @@ Required suites:
 3. `DurableRecordStore` conformance:
    - load missing record
    - load valid ready record
-   - load current unbranched ready record through compatibility lookup
+   - reject deleted current unbranched ready-record shapes
    - keep same-wallet same-chain passkey and Email OTP ready records separated
    - reject malformed raw record
    - cleanup malformed record
@@ -3048,15 +3158,11 @@ Required fixtures:
 - malformed ready blob
 - relayer public identity that matches client-share key and must fail
 - relayer public identity that differs and must pass
-- current unbranched ready record that normalizes with a passkey auth-method lookup
-- current unbranched ready record that normalizes with an Email OTP auth-method lookup
-- current unbranched ready record whose public facts mismatch the lookup and must
-  return cleanup
-- current unbranched passkey and Email OTP records with the same wallet, chain,
-  and key facts to prove storage-key separation
+- deleted current unbranched ready record that must be rejected after Phase 9
+- branch-specific passkey and Email OTP records with the same wallet, chain, and
+  key facts to prove storage-key separation
 - TypeScript-owned ready blob payloads scheduled for data reset in Phase 6
-- legacy raw ECDSA record that normalizes during Phase 4 through Phase 8
-- legacy raw ECDSA record scheduled for deletion in Phase 9
+- deleted legacy raw ECDSA record that must be rejected after Phase 9
 
 ## Guard Tests
 
@@ -3218,35 +3324,41 @@ Parallelization:
 
 Tasks:
 
-- [ ] Refresh `docs/refactor-50-cross-platform-inventory.md` into the required
+- [x] Refresh `docs/refactor-50-cross-platform-inventory.md` into the required
       inventory format from the Regression Prevention section.
-- [ ] Inventory every affected public workflow:
+- [x] Inventory every affected public workflow:
       registration, passkey unlock, Email OTP unlock, reconnect restore, warm-session
       restore, NEAR signing, NEP-413 signing, delegate signing, EVM signing, Tempo
       signing, ECDSA export, Ed25519 export, recovery, and malformed-record cleanup.
-- [ ] Map every affected workflow to the relevant rows in
+- [x] Map every affected workflow to the relevant rows in
       `docs/intended-behaviours.md`.
-- [ ] Inventory every affected implementation surface:
+- [x] Inventory every affected implementation surface:
       public SDK entrypoints, use-case candidates, platform ports, storage records,
       worker messages, relayer routes, Rust command structs, WASM bindings, opaque
       blob envelopes, parser modules, lifecycle unions, and guard tests.
-- [ ] Add spec-closure rows for every missing contract listed in the Spec Closure
+- [x] Add spec-closure rows for every missing contract listed in the Spec Closure
       Before Implementation section.
-- [ ] Inventory current ECDSA compatibility data explicitly:
+- [x] Inventory current ECDSA compatibility data explicitly:
       `ecdsa_role_local_ready_record_v1`, legacy raw role-local rows, and every known
       TypeScript-owned ECDSA blob payload kind.
-- [ ] Classify each inventoried item as `move`, `wrap`, `replace`, `delete`, or
+- [x] Classify each inventoried item as `move`, `wrap`, `replace`, `delete`, or
       `leave`.
-- [ ] Assign a V2 owner phase and target owner to every item classified as `move`,
+- [x] Assign a V2 owner phase and target owner to every item classified as `move`,
       `wrap`, `replace`, or `delete`.
-- [ ] Link current test coverage to every critical behavior baseline.
-- [ ] Link current evidence from `docs/intended-behaviours.md` Validation Mapping
+- [x] Link current test coverage to every critical behavior baseline.
+- [x] Link current evidence from `docs/intended-behaviours.md` Validation Mapping
       to every touched intended-behavior row.
-- [ ] Add missing regression-test tasks for any baseline that lacks coverage.
-- [ ] Populate the compatibility register with every known live compatibility branch
+- [x] Add missing regression-test tasks for any baseline that lacks coverage.
+- [x] Populate the compatibility register with every known live compatibility branch
       found during inventory.
-- [ ] Record exact validation commands for the baseline tests that will be used by
+- [x] Record exact validation commands for the baseline tests that will be used by
       later phases.
+
+Status note, 2026-06-01: `docs/refactor-50-cross-platform-inventory.md` has
+been refreshed into the Refactor 51 inventory format and accepted as the Phase
+-1 regression baseline. It now covers public workflows, implementation
+surfaces, spec-closure ownership, compatibility data, intended-behavior
+evidence, and exact baseline validation commands.
 
 Acceptance:
 
@@ -3285,12 +3397,17 @@ Parallelization:
 
 Tasks:
 
-- [ ] Confirm Phase -1 inventory and regression baseline have been accepted.
-- [ ] Mark `docs/refactor-51-cross-platform-2.md` as accepted.
-- [ ] Update `docs/refactor-50-cross-platform.md` to point to Refactor 51 as the canonical
+- [x] Confirm Phase -1 inventory and regression baseline have been accepted.
+- [x] Mark `docs/refactor-51-cross-platform-2.md` as accepted.
+- [x] Update `docs/refactor-50-cross-platform.md` to point to Refactor 51 as the canonical
       architecture plan.
-- [ ] Keep the old plan as historical implementation context.
-- [ ] Add a checklist in V2 for current open compatibility branches.
+- [x] Keep the old plan as historical implementation context.
+- [x] Add a checklist in V2 for current open compatibility branches.
+
+Status note, 2026-06-01: Refactor 51 is accepted as the canonical
+cross-platform architecture plan. Refactor 50 remains historical implementation
+context, and the compatibility register is retained in this document with no
+active compatibility branches.
 
 Acceptance:
 
@@ -3314,12 +3431,12 @@ Parallelization:
 
 Tasks:
 
-- [ ] Add guard rejecting direct `PlatformRuntime` imports or parameters outside
+- [x] Add guard rejecting direct `PlatformRuntime` imports or parameters outside
       assembly and adapter setup.
-- [ ] Add guard rejecting raw DB record imports outside persistence boundary parsers.
-- [ ] Extend raw HSS field guard to cover every active core signing/session/export
+- [x] Add guard rejecting raw DB record imports outside persistence boundary parsers.
+- [x] Extend raw HSS field guard to cover every active core signing/session/export
       module.
-- [ ] Add guard rejecting direct hss-client worker request construction outside the
+- [x] Add guard rejecting direct hss-client worker request construction outside the
       browser signer crypto adapter, worker implementation files, and tests.
 
 Acceptance:
@@ -3343,23 +3460,23 @@ Parallelization:
 
 Tasks:
 
-- [ ] Add `ts-rs` to `crates/signer-core` dev-dependencies.
-- [ ] Add `TS` derives for
+- [x] Add `ts-rs` to `crates/signer-core` behind `typescript-bindings`.
+- [x] Add `TS` derives for
       `PrepareEcdsaClientBootstrapCommand` and
       `FinalizeEcdsaClientBootstrapCommand`.
-- [ ] Define exact Rust struct, enum, generated TypeScript export, and WASM
+- [x] Define exact Rust struct, enum, generated TypeScript export, and WASM
       binding names for every signer-core command touched in this phase.
-- [ ] Generate `client/src/core/platform/generated/signerCoreCommands.ts`.
-- [ ] Replace hand-written TypeScript command schemas with branded wrappers around
+- [x] Generate `client/src/core/platform/generated/signerCoreCommands.ts`.
+- [x] Replace hand-written TypeScript command schemas with branded wrappers around
       the generated command schemas.
-- [ ] Add generated-to-branded and branded-to-generated bootstrap schema wrapper
+- [x] Add generated-to-branded and branded-to-generated bootstrap schema wrapper
       functions named in the Rust Command Schema Ownership section.
-- [ ] Add type fixtures that prove wrapper/generated command parity in both
+- [x] Add type fixtures that prove wrapper/generated command parity in both
       directions.
-- [ ] Add a guard rejecting new hand-written command schema copies.
-- [ ] Add a schema drift test.
-- [ ] Document how to regenerate schemas.
-- [ ] Add `generate:signer-core-types`.
+- [x] Add a guard rejecting new hand-written command schema copies.
+- [x] Add a schema drift test.
+- [x] Document how to regenerate schemas.
+- [x] Add `generate:signer-core-types`.
 
 Acceptance:
 
@@ -3377,7 +3494,7 @@ Validation:
 
 - `cargo test --manifest-path crates/signer-core/Cargo.toml --features secp256k1,threshold-ecdsa`
 - `pnpm -C sdk exec tsc -p tsconfig.build.json --noEmit`
-- `cargo test --manifest-path crates/signer-core/Cargo.toml --features secp256k1,threshold-ecdsa --test export_typescript_schemas`
+- `cargo test --manifest-path crates/signer-core/Cargo.toml --features threshold-ecdsa,typescript-bindings --test export_typescript_schemas`
 
 ### Phase 3: Define Domain Records And Lifecycle Unions
 
@@ -3391,27 +3508,27 @@ Parallelization:
 
 Tasks:
 
-- [ ] Define exact `EcdsaRoleLocalReadyRecord` branches.
-- [ ] Define exact malformed/cleanup boundary record result.
-- [ ] Add `authMethod` to ECDSA role-local load, persist, cleanup, and storage-key
+- [x] Define exact `EcdsaRoleLocalReadyRecord` branches.
+- [x] Define exact malformed/cleanup boundary record result.
+- [x] Add `authMethod` to ECDSA role-local load, persist, cleanup, and storage-key
       domain inputs.
-- [ ] Add current unbranched ready-record compatibility types that are visible only
+- [x] Add current unbranched ready-record compatibility types that are visible only
       to the persistence boundary parser.
-- [ ] Define lifecycle unions for ECDSA provisioning, signing-session activation,
+- [x] Define lifecycle unions for ECDSA provisioning, signing-session activation,
       registration, wallet unlock, EVM/Tempo signing, NEAR signing, export/recovery,
       persisted session restore, and signing-session activation.
-- [ ] Add allowed-transition tables for every lifecycle union before moving code
+- [x] Add allowed-transition tables for every lifecycle union before moving code
       onto the union.
-- [ ] Define exact shared domain types referenced by the lifecycle unions,
+- [x] Define exact shared domain types referenced by the lifecycle unions,
       including `EcdsaClientBootstrapFacts`, `EcdsaPreparePublicFacts`,
       `EcdsaRelayerPublicIdentity`, and all lifecycle failure-code unions.
-- [ ] Replace `ThresholdEcdsaHssRoleLocalClientState` raw-share fields with an
+- [x] Replace `ThresholdEcdsaHssRoleLocalClientState` raw-share fields with an
       `EcdsaRoleLocalReadyStateBlob` envelope plus required public identity fields.
-- [ ] Define `ThresholdEcdsaBackendBinding` branches so signing material is
+- [x] Define `ThresholdEcdsaBackendBinding` branches so signing material is
       represented by an opaque state blob or typed handle.
-- [ ] Add `EcdsaRoleLocalMaterialState`.
-- [ ] Add parser result types matching this document.
-- [ ] Add type fixtures rejecting invalid branch combinations.
+- [x] Add `EcdsaRoleLocalMaterialState`.
+- [x] Add parser result types matching this document.
+- [x] Add type fixtures rejecting invalid branch combinations.
 
 Acceptance:
 
@@ -3441,25 +3558,25 @@ Parallelization:
 
 Tasks:
 
-- [ ] Move raw ECDSA role-local storage parsing into one boundary module.
-- [ ] Move the current parser from `client/src/core/platform/ecdsaRoleLocalRecords.ts`
+- [x] Move raw ECDSA role-local storage parsing into one boundary module.
+- [x] Move the current parser from `client/src/core/platform/ecdsaRoleLocalRecords.ts`
       to the canonical persistence parser path.
-- [ ] Normalize existing ready blob rows into `EcdsaRoleLocalReadyRecord`.
-- [ ] Normalize current unbranched `ecdsa_role_local_ready_record_v1` rows into
+- [x] Normalize existing ready blob rows into `EcdsaRoleLocalReadyRecord`.
+- [x] Normalize current unbranched `ecdsa_role_local_ready_record_v1` rows into
       branch-specific ready records using `lookup.authMethod`.
-- [ ] Normalize legacy raw rows only inside that parser.
-- [ ] Add cleanup decisions for malformed rows.
-- [ ] Make new writes produce ready domain envelopes only.
-- [ ] Ensure new ready domain envelopes never write `clientShare32B64u`,
+- [x] Normalize legacy raw rows only inside that parser.
+- [x] Add cleanup decisions for malformed rows.
+- [x] Make new writes produce ready domain envelopes only.
+- [x] Ensure new ready domain envelopes never write `clientShare32B64u`,
       `clientAdditiveShare32B64u`, `mappedPrivateShare32B64u`, or
       `verifyingShare33B64u` as production-readable fields.
-- [ ] Make new ready-record storage keys include auth-method identity.
-- [ ] Use the existing `thresholdEcdsaChainTargetKey(...)` function for new ECDSA
+- [x] Make new ready-record storage keys include auth-method identity.
+- [x] Use the existing `thresholdEcdsaChainTargetKey(...)` function for new ECDSA
       ready-record storage keys.
-- [ ] Define and test the exact persisted wire shape for branch-specific ECDSA
+- [x] Define and test the exact persisted wire shape for branch-specific ECDSA
       ready records.
-- [ ] Update key-ref builders to consume normalized public facts.
-- [ ] Add deletion-trigger comments for legacy, current-unbranched, and temporary
+- [x] Update key-ref builders to consume normalized public facts.
+- [x] Add deletion-trigger comments for legacy, current-unbranched, and temporary
       parser re-export branches.
 
 Acceptance:
@@ -3503,21 +3620,21 @@ Parallelization:
 
 Tasks:
 
-- [ ] Merge `ProvisionEcdsaUseCase` as the first production-routed service.
-- [ ] Allow other service subtracks to define contracts, lifecycle tests, and
+- [x] Merge `ProvisionEcdsaUseCase` as the first production-routed service.
+- [x] Allow other service subtracks to define contracts, lifecycle tests, and
       fake-backed implementations in parallel before their production routing PRs.
-- [ ] Define exact `Deps`, `Input`, `Result`, failure-code union, idempotency
+- [x] Define exact `Deps`, `Input`, `Result`, failure-code union, idempotency
       policy, retry policy, persistence writes, relayer calls, and baseline tests for
       every use case moved in this phase.
-- [ ] Define exact typed relayer client contracts used by every moved use case.
-- [ ] Define exact `HttpTransport` and `AuthenticatorPort` result shapes before
+- [x] Define exact typed relayer client contracts used by every moved use case.
+- [x] Define exact `HttpTransport` and `AuthenticatorPort` result shapes before
       injecting those ports into a moved use case.
-- [ ] Pass only `AuthenticatorPort`, `SignerCryptoPort`, `DurableRecordStore`,
+- [x] Pass only `AuthenticatorPort`, `SignerCryptoPort`, `DurableRecordStore`,
       relayer client, and clock dependencies required by the use case.
-- [ ] Move ECDSA bootstrap/provisioning orchestration into the service.
-- [ ] Keep the public SDK API unchanged.
-- [ ] Add service-level lifecycle tests.
-- [ ] Add a guard that rejects `PlatformRuntime` in use-case modules.
+- [x] Move ECDSA bootstrap/provisioning orchestration into the service.
+- [x] Keep the public SDK API unchanged.
+- [x] Add service-level lifecycle tests.
+- [x] Add a guard that rejects `PlatformRuntime` in use-case modules.
 
 Acceptance:
 
@@ -3560,9 +3677,9 @@ Parallelization:
 
 Tasks:
 
-- [ ] Reconcile the Refactor 50 prepare/finalize command implementation in
+- [x] Reconcile the Refactor 50 prepare/finalize command implementation in
       `crates/signer-core` with generated schemas and the final V2 command contract.
-- [ ] Reconcile the Refactor 50 browser WASM prepare/finalize exports in
+- [x] Reconcile the Refactor 50 browser WASM prepare/finalize exports in
       `wasm/hss_client_signer` with generated schemas and the final V2 command
       contract.
 - [x] Preserve command vs invocation failure taxonomy in the browser
@@ -3573,26 +3690,41 @@ Tasks:
 - [x] Route browser `SignerCryptoPort.prepareEcdsaClientBootstrap` and
       `finalizeEcdsaClientBootstrap` through the coarse hss-client prepare/finalize
       worker commands.
-- [ ] Replace remaining direct `hssClient` worker request/result contract usage
+- [x] Replace remaining direct `hssClient` worker request/result contract usage
       for ECDSA bootstrap with coarse prepare/finalize commands.
-- [ ] Replace `buildThresholdEcdsaHssRoleLocalClientBootstrapWasm(...)` with
+- [x] Replace `buildThresholdEcdsaHssRoleLocalClientBootstrapWasm(...)` with
       `prepareEcdsaClientBootstrap(...)` and `finalizeEcdsaClientBootstrap(...)`
       wrappers.
-- [ ] Update wallet registration bootstrap and threshold ECDSA session bootstrap
+- [x] Update wallet registration bootstrap and threshold ECDSA session bootstrap
       flows to send prepare output to the relayer, finalize with relayer public
       identity, then persist ready opaque state and public facts.
-- [ ] Update the Email OTP worker ECDSA bootstrap path to call the same coarse
+- [x] Update the Email OTP worker ECDSA bootstrap path to call the same coarse
       signer-core command shape.
-- [ ] Stop returning `clientShare32B64u`, `mappedPrivateShare32B64u`, and
+- [x] Follow-up: delete the residual legacy
+      `threshold_ecdsa_hss_role_local_prepare_client_bootstrap` bridge after the
+      Email OTP worker owns handle resolution.
+  - Add a versioned worker-internal resolved-root command for the Email OTP
+    boundary.
+  - Keep raw Email OTP root bytes confined to the worker boundary before calling
+    signer-core bootstrap logic.
+  - Add guards that reject the legacy prepare symbol in production WASM and
+    TypeScript surfaces.
+- [x] Stop returning `clientShare32B64u`, `mappedPrivateShare32B64u`, and
       `verifyingShare33B64u` to TypeScript from active bootstrap paths.
-- [ ] Replace TypeScript helper-level crypto assembly in production paths.
-- [ ] Execute the ECDSA role-local data reset for TypeScript-owned blob payloads
+- [x] Replace TypeScript helper-level crypto assembly in production paths.
+- [x] Execute the ECDSA role-local data reset for TypeScript-owned blob payloads
       before enabling signer-core commands in production paths.
-- [ ] Keep old helper path only in parity tests until deletion.
-- [ ] Add parity fixtures for current browser PRF and Email OTP worker-session inputs.
-- [ ] Update generated signer-core command schemas.
-- [ ] Remove production TypeScript decoding of signer-core ECDSA state blobs.
-- [ ] Record before/after browser JS, WASM, and lazy-flow asset sizes.
+- [x] Keep old helper path only in parity tests until deletion.
+- [x] Add parity fixtures for current browser PRF and Email OTP worker-session inputs.
+- [x] Update generated signer-core command schemas.
+- [x] Remove production TypeScript decoding of signer-core ECDSA state blobs.
+- [x] Record before/after browser JS, WASM, and lazy-flow asset sizes.
+
+Phase 6 size checkpoint after cutover:
+
+- `pnpm check:bundle-size`
+- Wallet host boot path: 29.5 KiB raw / 9.9 KiB gzip.
+- Worker/WASM total: 10.19 MiB raw / 3.22 MiB gzip.
 
 Acceptance:
 
@@ -3629,15 +3761,15 @@ Parallelization:
 
 Tasks:
 
-- [ ] Implement export command using `EcdsaRoleLocalReadyStateBlob`.
-- [ ] Define exact `ExportKeysResult`, `ExportKeyArtifact`, authorization
+- [x] Implement export command using `EcdsaRoleLocalReadyStateBlob`.
+- [x] Define exact `ExportKeysResult`, `ExportKeyArtifact`, authorization
       branches, export-viewer handoff, and all-or-nothing failure behavior before
       moving production export call sites.
-- [ ] Update export/recovery flows to consume normalized ready records.
-- [ ] Delete export paths that rederive from root-share bytes.
-- [ ] Add export precondition lifecycle union.
-- [ ] Add signer-core export command schema and generated TypeScript binding.
-- [ ] Add export generated-to-branded and branded-to-generated schema wrapper
+- [x] Update export/recovery flows to consume normalized ready records.
+- [x] Delete export paths that rederive from root-share bytes.
+- [x] Add export precondition lifecycle union.
+- [x] Add signer-core export command schema and generated TypeScript binding.
+- [x] Add export generated-to-branded and branded-to-generated schema wrapper
       functions named in the Rust Command Schema Ownership section.
 
 Acceptance:
@@ -3671,16 +3803,16 @@ Parallelization:
 
 Tasks:
 
-- [ ] Create `ActivateSigningSessionUseCase`.
-- [ ] Define exact `SigningSessionActivationAuth`,
+- [x] Create `ActivateSigningSessionUseCase`.
+- [x] Define exact `SigningSessionActivationAuth`,
       `SigningSessionActivationMaterial`, `SigningSessionSealWriteInput`,
       `ActivateSigningSessionInput`, and `ActivateSigningSessionResult` types before
       moving activation call sites.
-- [ ] Move warm-session restore and activation branches to discriminated lifecycle
+- [x] Move warm-session restore and activation branches to discriminated lifecycle
       state.
-- [ ] Require exact auth/session branch inputs.
-- [ ] Use normalized ECDSA ready records.
-- [ ] Add activation lifecycle transition table before implementation.
+- [x] Require exact auth/session branch inputs.
+- [x] Use normalized ECDSA ready records.
+- [x] Add activation lifecycle transition table before implementation.
 
 Acceptance:
 
@@ -3718,22 +3850,39 @@ Parallelization:
 
 Tasks:
 
-- [ ] Execute or confirm the in-development data reset.
-- [ ] Delete `legacy_raw_role_local_v1` parser branch.
-- [ ] Delete `current_unbranched_ready_record_v1` parser branch.
-- [ ] Delete known TypeScript-owned ECDSA state-blob payload allowlists.
-- [ ] Delete the temporary `client/src/core/platform/ecdsaRoleLocalRecords.ts`
+- [x] Execute or confirm the in-development data reset.
+- [x] Delete `legacy_raw_role_local_v1` parser branch.
+- [x] Delete `current_unbranched_ready_record_v1` parser branch.
+- [x] Delete known TypeScript-owned ECDSA state-blob payload allowlists.
+- [x] Delete the temporary `client/src/core/platform/ecdsaRoleLocalRecords.ts`
       parser re-export.
-- [ ] Delete allowlisted raw HSS fields in production TypeScript.
-- [ ] Delete old worker helper contracts that expose private/share fields,
+- [x] Delete allowlisted raw HSS fields in production TypeScript.
+- [x] Delete old worker helper contracts that expose private/share fields,
       including `BuildThresholdEcdsaHssRoleLocalClientBootstrap`,
       `threshold_ecdsa_hss_role_local_client_bootstrap`, and
       `buildThresholdEcdsaHssRoleLocalClientBootstrapWasm(...)`.
-- [ ] Delete remaining production references to `clientShare32B64u`,
+- [x] Delete remaining production references to `clientShare32B64u`,
       `clientAdditiveShare32B64u`, `mappedPrivateShare32B64u`, and
       `verifyingShare33B64u` outside approved parity fixtures.
-- [ ] Tighten guards to reject all deleted symbols outside parity fixtures.
-- [ ] Remove compatibility register rows only after the corresponding deletion commit.
+- [x] Tighten guards to reject all deleted symbols outside parity fixtures.
+- [x] Remove compatibility register rows only after the corresponding deletion commit.
+
+Status note, 2026-05-31: the legacy raw parser branch, current unbranched
+ready-record branch, TypeScript-owned state-blob payload allowlists, and
+temporary platform parser re-export are deleted. Canonical session records now
+require `ecdsaRoleLocalReadyRecord` and reject persisted
+`ecdsaHssRoleLocalClientState`.
+
+Status note, 2026-06-01: ready-state blob key refs now remain signable by
+opening signing material through the HSS client worker, and the old
+single-call ECDSA HSS bootstrap worker/export surface is deleted from
+production bindings. Guard and fixture coverage now assert the deleted helper
+stays absent and use the prepare/finalize/open ready-state path instead.
+
+Status note, 2026-06-01: the Phase 6 data reset is confirmed, production
+TypeScript no longer references the deleted raw role-local HSS share fields,
+the raw HSS guard allowlist is empty, and the compatibility register has no
+remaining production compatibility rows for ECDSA role-local state.
 
 Acceptance:
 
@@ -3760,13 +3909,20 @@ Parallelization:
 - Final review waits for major browser cutovers from Phase 6 and Phase 8.
 - Native adapter requirements can be assigned by target platform.
 
+Status:
+
+- Phase 10 implementation artifacts are recorded in
+  `docs/refactor-51-native-readiness.md`.
+- Final native readiness acceptance is complete for the Refactor 51 scope after
+  Phase 9 compatibility deletion and data reset cleanup.
+
 Tasks:
 
-- [ ] Verify signer-core command schemas cover future native adapter needs.
-- [ ] Add vector replay fixtures for native bindings.
-- [ ] Define future iOS adapter conformance requirements.
-- [ ] Define future Linux/embedded adapter conformance requirements.
-- [ ] Record remaining platform-specific gaps.
+- [x] Verify signer-core command schemas cover future native adapter needs.
+- [x] Add vector replay fixtures for native bindings.
+- [x] Define future iOS adapter conformance requirements.
+- [x] Define future Linux/embedded adapter conformance requirements.
+- [x] Record remaining platform-specific gaps.
 
 Acceptance:
 
@@ -3786,12 +3942,7 @@ Maintain this table while implementing.
 
 | Compatibility path                                                                                                        | Parser/module                                | Owner phase | Deletion trigger                                                                          | Guard                                |
 | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- | ----------- | ----------------------------------------------------------------------------------------- | ------------------------------------ |
-| Legacy ECDSA raw role-local record                                                                                        | `parseRawEcdsaRoleLocalRecord`               | Phase 4     | ECDSA role-local data reset                                                               | raw HSS field guard                  |
-| Current unbranched ECDSA ready record `ecdsa_role_local_ready_record_v1`                                                  | `parseRawEcdsaRoleLocalRecord`               | Phase 4     | ECDSA role-local data reset                                                               | raw DB record guard and parser tests |
-| TypeScript-owned ECDSA state blob payloads inside `producer: signer_core` envelopes                                       | persistence boundary parser and parity tests | Phase 6     | signer-core command production cutover after ECDSA role-local data reset                  | state-blob decode guard              |
-| Temporary `client/src/core/platform/ecdsaRoleLocalRecords.ts` parser re-export                                            | platform index                               | Phase 4     | all production imports use canonical persistence parser path                              | raw DB record import guard           |
-| Old hss-client bootstrap helper response with `clientShare32B64u`, `mappedPrivateShare32B64u`, and `verifyingShare33B64u` | parity tests only after Phase 6              | Phase 6     | signer-core command parity passes and production call sites use prepare/finalize wrappers | worker transport guard               |
-| Raw Email OTP root-share bytes in core                                                                                    | none after Phase 5                           | Phase 5     | secret-source service migration                                                           | secret-source raw root-share guard   |
+| _No active compatibility branches._                                                                                        |                                              |             |                                                                                           |                                      |
 
 Add a row before adding any new compatibility branch.
 

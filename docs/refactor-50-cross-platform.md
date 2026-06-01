@@ -294,9 +294,10 @@ capability column and acceptance criteria before implementing code.
 
 ### Contract Hardening Rules
 
-- `docs/refactor-50-cross-platform.md` is the canonical contract until the code
-  is fully updated. `client/src/core/platform/types.ts` must be tightened to
-  match the contract before new core call sites consume a port.
+- `docs/refactor-51-cross-platform-2.md` is the canonical architecture plan.
+  This Refactor 50 document is retained as historical implementation context.
+  `client/src/core/platform/types.ts` should be checked against Refactor 51
+  before new core call sites consume a port.
 - Every port method used by core code must have exact input, success, command
   failure, invocation failure, and unsupported-branch shapes.
 - Port contracts use required identity, auth, session, protocol, and lifecycle
