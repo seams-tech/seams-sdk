@@ -42,6 +42,75 @@ const SIGN_TEMPO_SESSION_LOSS_SCRIPT = String.raw`
         };
       };
 `;
+const FAILED_UNLOCK_WITH_ACTIVE_EMAIL_OTP_SESSION_SCRIPT = String.raw`
+      const accountId = 'crisp-plain-29ph888gzw.w3a-relayer.testnet';
+      const postResult = (requestId, result) => {
+        pendingRequests.delete(requestId);
+        adoptedPort.postMessage({
+          type: 'PM_RESULT',
+          requestId,
+          payload: { ok: true, result },
+        });
+      };
+      const activeEmailOtpSession = {
+        login: {
+          isLoggedIn: true,
+          nearAccountId: accountId,
+          publicKey: null,
+          userData: null,
+          authMethod: 'email_otp',
+        },
+        signingSession: {
+          status: 'active',
+          sessionId: 'email-otp-session-1',
+          authMethod: 'email_otp',
+          retention: 'session',
+        },
+        authMethod: 'email_otp',
+        retention: 'session',
+      };
+      const originalAdoptPort = adoptPort;
+      adoptPort = function patchedAdoptPort(port) {
+        originalAdoptPort(port);
+        if (!adoptedPort) return;
+        const originalHandler = adoptedPort.onmessage;
+        adoptedPort.onmessage = (event) => {
+          originalHandler?.(event);
+          const data = event.data || {};
+          if (!data || typeof data !== 'object' || typeof data.requestId !== 'string') return;
+          const requestId = data.requestId;
+          if (data.type === 'PM_GET_WALLET_SESSION') {
+            postResult(requestId, activeEmailOtpSession);
+            return;
+          }
+          if (data.type === 'PM_UNLOCK') {
+            adoptedPort.postMessage({
+              type: 'PROGRESS',
+              requestId,
+              payload: {
+                version: 2,
+                flow: 'unlock',
+                step: 99,
+                phase: 'unlock.failed',
+                status: 'failed',
+                message: 'No authenticators found for account ' + accountId + '. Please register an account.',
+                flowId: 'unlock:test:' + requestId,
+                requestId,
+                accountId,
+                authMethod: 'passkey',
+                error: {
+                  message: 'No authenticators found for account ' + accountId + '. Please register an account.',
+                },
+              },
+            });
+            postResult(requestId, {
+              success: false,
+              error: 'No authenticators found for account ' + accountId + '. Please register an account.',
+            });
+          }
+        };
+      };
+`;
 
 test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
   test.beforeEach(async ({ page }) => {
@@ -287,5 +356,67 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
     expect(result.outcome.message).toContain('Threshold signing session is not ready');
     expect(result.outcome.message).toContain('Refresh the signing session');
     expect(result.outcome.message).not.toContain('missing canonical threshold ECDSA session');
+  });
+
+  test('failed passkey unlock does not publish stale Email OTP login status', async ({ page }) => {
+    await page.unroute(WALLET_SERVICE_ROUTE).catch(() => {});
+    await registerWalletServiceRoute(
+      page,
+      buildWalletServiceHtml({
+        extraScript: FAILED_UNLOCK_WITH_ACTIVE_EMAIL_OTP_SESSION_SCRIPT,
+      }),
+      WALLET_SERVICE_ROUTE,
+    );
+
+    const routerPath = SDK_ESM_PATHS.walletIframeRouter;
+    const result = await page.evaluate(
+      async ({ walletOrigin, routerPath }) => {
+        try {
+          const mod = await import(routerPath);
+          const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
+
+          const accountId = 'crisp-plain-29ph888gzw.w3a-relayer.testnet';
+          const router = new WalletIframeRouter({
+            walletOrigin,
+            servicePath: '/wallet-service',
+            connectTimeoutMs: 3000,
+            requestTimeoutMs: 1000,
+            debug: true,
+            sdkBasePath: '/sdk',
+          });
+          await router.init();
+
+          const statuses: Array<{ isLoggedIn: boolean; walletId: string | null }> = [];
+          router.onLoginStatusChanged((status) => statuses.push(status));
+
+          const unlockResult = await router.unlock({
+            nearAccountId: accountId,
+            options: {},
+          });
+
+          return {
+            success: true as const,
+            unlockResult,
+            statuses,
+          };
+        } catch (error: unknown) {
+          return {
+            success: false as const,
+            error: String((error as { message?: unknown })?.message || error || ''),
+          };
+        }
+      },
+      { walletOrigin: WALLET_ORIGIN, routerPath },
+    );
+
+    if (!result.success) {
+      if (handleInfrastructureErrors(result)) return;
+      expect(result.success).toBe(true);
+      return;
+    }
+
+    expect(result.unlockResult.success).toBe(false);
+    expect(result.unlockResult.error).toContain('No authenticators found');
+    expect(result.statuses).toEqual([]);
   });
 });
