@@ -401,6 +401,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
           ? {
               onRerollAccount: async () => {
                 toast.loading('Generating another wallet name...', { id: 'google-sso' });
+                const previousOtpFlow = otpFlow;
                 const nextExchange = await seams.auth.exchangeGoogleEmailOtpSession({
                   idToken,
                   accountMode: 'register',
@@ -422,9 +423,19 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
                 runtimePolicyScope = nextExchange.session.runtimePolicyScope;
                 googleResolution = nextExchange.session.googleEmailOtpResolution;
                 otpFlow = googleResolution?.mode === 'register_started' ? 'enroll' : 'login';
-                toast.success('New wallet name selected. Use the email code already sent.', {
-                  id: 'google-sso',
-                });
+                const canReuseChallengeForRegistrationReroll =
+                  otpFlow === 'enroll' &&
+                  (previousOtpFlow === 'enroll' || previousOtpFlow === 'login') &&
+                  Boolean(String(challengeState.challenge.challengeId || '').trim());
+                if (!canReuseChallengeForRegistrationReroll) {
+                  challengeState = await requestCurrentOtpChallenge();
+                }
+                toast.success(
+                  canReuseChallengeForRegistrationReroll
+                    ? 'New wallet name selected. Use the email code already sent.'
+                    : 'New wallet flow selected. Email code sent.',
+                  { id: 'google-sso' },
+                );
                 const nextPromptCopy = buildOtpPromptCopy();
                 return {
                   username: walletId,
@@ -434,7 +445,9 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
                   description: nextPromptCopy.description,
                   submitLabel: nextPromptCopy.submitLabel,
                   helperText: nextPromptCopy.helperText,
-                  codeDelivery: 'reused' as const,
+                  codeDelivery: canReuseChallengeForRegistrationReroll
+                    ? ('reused' as const)
+                    : ('sent' as const),
                 };
               },
             }
