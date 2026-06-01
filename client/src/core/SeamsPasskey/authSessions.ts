@@ -61,6 +61,12 @@ export async function unlockDomain(
           signingSession: options?.signingSession,
         },
       });
+      if (!result.success) {
+        const unlockError = new Error(result.error || 'Login failed');
+        await options?.onError?.(unlockError);
+        await options?.afterCall?.(false, undefined, unlockError);
+        return result;
+      }
       // Best-effort warm-up after successful unlock (non-blocking).
       void (async () => {
         try {

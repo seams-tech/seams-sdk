@@ -488,6 +488,12 @@ export class SeamsPasskeyIframe {
           signingSession: options?.signingSession,
         }, // Progress events flow back to parent
       });
+      if (!res.success) {
+        const unlockError = new Error(res.error || 'Login failed');
+        await options?.onError?.(unlockError);
+        await options?.afterCall?.(false, undefined, unlockError);
+        return res;
+      }
       await options?.afterCall?.(true, res);
       return res;
     } catch (err: unknown) {

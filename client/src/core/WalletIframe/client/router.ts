@@ -1011,9 +1011,12 @@ export class WalletIframeRouter {
         },
         options: { onProgress: this.wrapOnEvent(payload.options?.onEvent, isUnlockFlowEvent) },
       });
-      const { login: st } = await this.getWalletSession(payload.nearAccountId);
-      this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
-      return res?.result;
+      const result = res.result;
+      if (result.success) {
+        const { login: st } = await this.getWalletSession(payload.nearAccountId);
+        this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
+      }
+      return result;
     } finally {
       this.hideFrameForActivation();
     }
