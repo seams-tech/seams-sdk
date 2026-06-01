@@ -209,6 +209,7 @@ export interface ShowSecurePrivateKeyUiPayload {
   variant?: 'drawer' | 'modal';
   theme?: 'dark' | 'light';
   loading?: boolean;
+  errorMessage?: string;
   onLifecycle?: (event: 'opened' | 'closed') => void;
 }
 

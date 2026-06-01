@@ -64,8 +64,8 @@ void ({
     credentialIdB64u: 'credential',
   },
   passkeyPrfSealMaterial: {
-    kind: 'ecdsa_client_root_share',
-    clientRootShare32B64u: 'client-root-share',
+    kind: 'ecdsa_prf_first',
+    passkeyPrfFirstB64u: 'passkey-prf-first',
     transport: {
       curve: 'ecdsa',
       chainTarget,
@@ -86,8 +86,8 @@ void ({
     restoredThresholdSessionId: thresholdSessionId,
   },
   passkeyPrfSealMaterial: {
-    kind: 'ecdsa_client_root_share',
-    clientRootShare32B64u: 'client-root-share',
+    kind: 'ecdsa_prf_first',
+    passkeyPrfFirstB64u: 'passkey-prf-first',
     transport: {
       curve: 'ecdsa',
       chainTarget,
@@ -125,8 +125,8 @@ const emailOtpEcdsaWithPasskeyMaterial: EmailOtpEcdsaReadyPersistInput = {
   },
   // @ts-expect-error Email OTP persistence cannot carry passkey PRF seal material.
   passkeyPrfSealMaterial: {
-    kind: 'ecdsa_client_root_share',
-    clientRootShare32B64u: 'client-root-share',
+    kind: 'ecdsa_prf_first',
+    passkeyPrfFirstB64u: 'passkey-prf-first',
     transport: {
       curve: 'ecdsa',
       chainTarget,
@@ -164,8 +164,8 @@ const passkeyEcdsaWithEmailOtpContext: PasskeyEcdsaReadyPersistInput = {
     credentialIdB64u: 'credential',
   },
   passkeyPrfSealMaterial: {
-    kind: 'ecdsa_client_root_share',
-    clientRootShare32B64u: 'client-root-share',
+    kind: 'ecdsa_prf_first',
+    passkeyPrfFirstB64u: 'passkey-prf-first',
     transport: {
       curve: 'ecdsa',
       chainTarget,
@@ -191,8 +191,8 @@ const passkeyReconnectWithCredentialId: PasskeyEcdsaReadyPersistInput = {
     credentialIdB64u: 'credential',
   },
   passkeyPrfSealMaterial: {
-    kind: 'ecdsa_client_root_share',
-    clientRootShare32B64u: 'client-root-share',
+    kind: 'ecdsa_prf_first',
+    passkeyPrfFirstB64u: 'passkey-prf-first',
     transport: {
       curve: 'ecdsa',
       chainTarget,

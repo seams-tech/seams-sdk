@@ -142,6 +142,11 @@ function isCancellationLikeError(error: unknown): boolean {
   );
 }
 
+function messageFromError(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return message.trim() || fallback;
+}
+
 function coerceTheme(value: unknown): 'dark' | 'light' | undefined {
   return value === 'dark' || value === 'light' ? value : undefined;
 }
@@ -167,6 +172,12 @@ function parseExportWorkerTarget(payload: Record<string, unknown>): ExportWorker
 
 function secp256k1LabelForExportTarget(chainTarget: ThresholdEcdsaChainTarget): string {
   return chainTarget.kind === 'tempo' ? 'Tempo secp256k1' : 'EVM secp256k1';
+}
+
+function labelForExportTarget(target: ExportWorkerTarget): string {
+  return target.kind === 'near'
+    ? 'NEAR private key'
+    : secp256k1LabelForExportTarget(target.chainTarget);
 }
 
 function parseExportRequestPayload(value: unknown): ExportPrivateKeysWithUiWorkerPayload | null {
@@ -545,11 +556,23 @@ async function runExportPrivateKeysWithUi(
   const exportOperation = 'Export Private Key';
   const exportPublicKey =
     nearSeedPayload?.expectedPublicKey || ecdsaHssExportPayload?.publicKeyHex || '';
+  const loadingKeys: ExportPrivateKeyDisplayEntry[] = exportPublicKey
+    ? [
+        {
+          scheme: exportScheme,
+          label: labelForExportTarget(exportTarget),
+          publicKey: exportPublicKey,
+          privateKey: '',
+        },
+      ]
+    : [];
   const requestId = toSessionId('export-keys');
+  const viewerSessionId = `${requestId}-viewer`;
   const intentDigest = `export-keys:${nearAccountId}:${payload.signerSlot}`;
 
   let prfSecondB64u = '';
   const exportKeys: ExportPrivateKeyDisplayEntry[] = [];
+  let loadingViewerOpened = false;
   try {
     const decision = await awaitUserConfirmationV2({
       requestId,
@@ -588,6 +611,38 @@ async function runExportPrivateKeysWithUi(
       }
       prfSecondB64u = requirePrfB64uFromCredential(credential, 'second');
     }
+
+    const loadingDecision = await awaitUserConfirmationV2({
+      requestId: `${requestId}-show-loading`,
+      type: UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
+      summary: {
+        operation: exportOperation,
+        accountId: nearAccountId,
+        publicKey: exportPublicKey || '(threshold export key)',
+        warning: 'Preparing your private key export.',
+      },
+      payload: {
+        nearAccountId,
+        viewerSessionId,
+        publicKey: exportPublicKey,
+        keys: loadingKeys,
+        variant: payload.variant,
+        theme: payload.theme,
+        loading: true,
+      },
+      intentDigest,
+    } satisfies UserConfirmRequest);
+
+    if (!loadingDecision.confirmed) {
+      return {
+        ok: false,
+        cancelled: true,
+        accountId: nearAccountId,
+        exportedSchemes: [],
+        error: loadingDecision.error || 'User cancelled export viewer',
+      };
+    }
+    loadingViewerOpened = true;
 
     if (exportScheme === 'ed25519') {
       if (!nearSeedPayload) {
@@ -635,24 +690,23 @@ async function runExportPrivateKeysWithUi(
 
     const first = exportKeys[0]!;
     const showDecision = await awaitUserConfirmationV2({
-      requestId: `${requestId}-show`,
+      requestId: `${requestId}-show-ready`,
       type: UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
       summary: {
         operation: exportOperation,
         accountId: nearAccountId,
         publicKey: first.publicKey,
-        warning:
-          exportScheme === 'ed25519'
-            ? 'Anyone with your private key can fully control your account. Never share it.'
-            : 'Anyone with your private key can fully control your account. Never share it.',
+        warning: 'Anyone with your private key can fully control your account. Never share it.',
       },
       payload: {
         nearAccountId,
+        viewerSessionId,
         publicKey: first.publicKey,
         privateKey: first.privateKey,
         keys: exportKeys,
         variant: payload.variant,
         theme: payload.theme,
+        loading: false,
       },
       intentDigest,
     } satisfies UserConfirmRequest);
@@ -682,6 +736,30 @@ async function runExportPrivateKeysWithUi(
         error:
           error instanceof Error ? error.message : String(error || 'User cancelled export request'),
       };
+    }
+    if (loadingViewerOpened) {
+      const message = messageFromError(error, 'Failed to prepare export keys');
+      await awaitUserConfirmationV2({
+        requestId: `${requestId}-show-error`,
+        type: UserConfirmationType.SHOW_SECURE_PRIVATE_KEY_UI,
+        summary: {
+          operation: exportOperation,
+          accountId: nearAccountId,
+          publicKey: exportPublicKey || '(threshold export key)',
+          warning: 'Private key export failed.',
+        },
+        payload: {
+          nearAccountId,
+          viewerSessionId,
+          publicKey: exportPublicKey,
+          keys: loadingKeys,
+          variant: payload.variant,
+          theme: payload.theme,
+          loading: false,
+          errorMessage: message,
+        },
+        intentDigest,
+      } satisfies UserConfirmRequest).catch(() => undefined);
     }
     throw error;
   } finally {

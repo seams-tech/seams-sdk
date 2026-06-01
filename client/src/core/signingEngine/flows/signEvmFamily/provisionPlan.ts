@@ -1,4 +1,4 @@
-import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential } from '../../session/passkey/ecdsaClientRoot';
+import { getPrfFirstB64uFromCredential } from '../../webauthnAuth/credentials/credentialExtensions';
 import {
   type ThresholdEcdsaSessionRecord,
 } from '../../session/persistence/records';
@@ -62,10 +62,14 @@ export async function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
       '[SigningEngine][ecdsa] passkey ECDSA provision requires planned reconnect identity',
     );
   }
-  const clientRootShare32B64u =
-    await derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential(
-      args.authorization.credential,
+  const passkeyPrfFirstB64u = String(
+    getPrfFirstB64uFromCredential(args.authorization.credential) || '',
+  ).trim();
+  if (!passkeyPrfFirstB64u) {
+    throw new Error(
+      '[SigningEngine][ecdsa] passkey ECDSA provision requires PRF.first from WebAuthn',
     );
+  }
   const baseArgs = {
     key: args.material.lane.key,
     chainTarget: args.material.lane.chainTarget,
@@ -80,7 +84,7 @@ export async function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
     sessionBudgetUses: args.sessionBudgetUses,
     requestId: args.authorization.plannedPasskeyReconnect.webauthnChallenge.requestId,
     provisionSecretSource: buildPasskeyEcdsaProvisionSecretSource({
-      clientRootShare32B64u,
+      passkeyPrfFirstB64u,
       webauthnAuthentication: args.authorization.credential,
     }),
   };

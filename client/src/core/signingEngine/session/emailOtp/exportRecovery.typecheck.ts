@@ -6,7 +6,7 @@ import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold
 import type { EmailOtpRoutePlan } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { VerifiedEcdsaPublicFacts } from '../identity/evmFamilyEcdsaIdentity';
-import type { EcdsaRoleLocalWorkerExportMaterial } from '@/core/platform/ecdsaRoleLocalRecords';
+import type { EcdsaRoleLocalWorkerExportMaterial } from '../persistence/ecdsaRoleLocalRecords';
 import type {
   EmailOtpEcdsaAuthorizedExportStepUpInput,
   EmailOtpEcdsaFreshLoginExportStepUpInput,

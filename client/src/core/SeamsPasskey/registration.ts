@@ -20,13 +20,17 @@ import {
   prepareThresholdEd25519RegistrationHssClientRequest,
   persistRegisteredThresholdEd25519Session,
 } from './thresholdWarmSessionBootstrap';
-import type { SigningEnginePublic } from '../signingEngine/SigningEngine';
+import type {
+  PasskeyWalletRegistrationEcdsaPreparedClientBootstrap,
+  SigningEnginePublic,
+  WalletRegistrationEcdsaPreparedClientBootstrap,
+} from '../signingEngine/SigningEngine';
 import { type ConfirmationConfig } from '../types/signer-worker';
 import { toAccountId, type AccountId } from '../types/accountIds';
 import { getUserFriendlyErrorMessage } from '@shared/utils/errors';
 import { checkNearAccountExistsBestEffort } from '../rpcClients/near/rpcCalls';
 import { redactCredentialExtensionOutputs } from '../signingEngine/webauthnAuth/credentials/credentialExtensions';
-import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential } from '../signingEngine/session/passkey/ecdsaClientRoot';
+import { getPrfFirstB64uFromCredential } from '../signingEngine/webauthnAuth/credentials/credentialExtensions';
 import { normalizeRegistrationCredential } from '../signingEngine/webauthnAuth/credentials/helpers';
 import { IndexedDBManager } from '../indexedDB';
 import type { WebAuthnRegistrationCredential } from '../types/webauthn';
@@ -71,6 +75,26 @@ import { assertWalletRuntimePostconditions } from '../signingEngine/session/post
 // Registration forces a visible, clickable confirmation for cross-origin safety.
 
 type EmitRegistrationEventInput = Omit<CreateRegistrationFlowEventInput, 'accountId' | 'flowId'>;
+
+function requirePasskeyEcdsaPreparedClientBootstrap(
+  prepared: WalletRegistrationEcdsaPreparedClientBootstrap,
+): PasskeyWalletRegistrationEcdsaPreparedClientBootstrap {
+  if (prepared.materialSource !== 'passkey_prf_first') {
+    throw new Error('Passkey ECDSA persistence requires passkey-prepared material');
+  }
+  return prepared;
+}
+
+function passkeyEcdsaCredentialIdFromPrepared(
+  prepared: WalletRegistrationEcdsaPreparedClientBootstrap,
+): string {
+  const passkeyPrepared = requirePasskeyEcdsaPreparedClientBootstrap(prepared);
+  const credentialIdB64u = passkeyPrepared.credentialIdB64u.trim();
+  if (!credentialIdB64u) {
+    throw new Error('Passkey ECDSA persistence requires a credential id');
+  }
+  return credentialIdB64u;
+}
 
 function emitRegistrationEvent(
   onEvent: RegistrationHooksOptions['onEvent'] | undefined,
@@ -249,7 +273,7 @@ async function registerEcdsaWalletOnly(args: {
 
     const walletId = intentResponse.intent.walletId;
     const eventAccountId = String(walletId) as AccountId;
-    let clientRootShare32B64u = '';
+    let passkeyPrfFirstB64u = '';
     let emailOtpClientRootShareHandle:
       | Awaited<
           ReturnType<SigningEnginePublic['prepareEmailOtpRegistrationEnrollmentMaterialInternal']>
@@ -299,7 +323,7 @@ async function registerEcdsaWalletOnly(args: {
         options,
         confirmationConfigOverride: confirmationConfig,
       });
-      clientRootShare32B64u = passkeyAuthority.ecdsaClientRootShare32B64u;
+      passkeyPrfFirstB64u = passkeyAuthority.prfFirstB64u;
       startAuthority = {
         kind: 'passkey',
         webauthnRegistration: passkeyAuthority.webauthnRegistration,
@@ -356,6 +380,7 @@ async function registerEcdsaWalletOnly(args: {
       throw new Error('Wallet registration start did not return ECDSA HSS material');
     }
     const ecdsaPrepare = startedCeremony.ecdsa.prepare;
+    const ecdsaChainTarget = startedCeremony.ecdsa.chainTargets[0];
     const preparedClientBootstrap =
       args.authMethod.kind === 'email_otp'
         ? await (async () => {
@@ -366,12 +391,17 @@ async function registerEcdsaWalletOnly(args: {
               {
                 prepare: ecdsaPrepare,
                 clientRootShareHandle: emailOtpClientRootShareHandle,
+                chainTarget: ecdsaChainTarget,
               },
             );
           })()
         : await context.signingEngine.prepareWalletRegistrationEcdsaPreparedClientBootstrap({
             prepare: ecdsaPrepare,
-            clientRootShare32B64u,
+            chainTarget: ecdsaChainTarget,
+            passkeyPrfFirstB64u,
+            credentialIdB64u: String(
+              passkeyAuthority?.credential.rawId || passkeyAuthority?.credential.id || '',
+            ).trim(),
           });
     const responded = await respondWalletRegistrationHss({
       relayerUrl,
@@ -382,7 +412,7 @@ async function registerEcdsaWalletOnly(args: {
       throw new Error('Wallet registration HSS respond did not return ECDSA bootstrap material');
     }
     const ecdsaBootstrap = parseWalletRegistrationEcdsaHssRespond({
-      localBootstrap: preparedClientBootstrap.localClientBootstrap,
+      clientBootstrap: preparedClientBootstrap.clientBootstrap,
       serverBootstrap: responded.ecdsa.bootstrap,
     });
     const finalized = await finalizeWalletRegistration({
@@ -423,7 +453,10 @@ async function registerEcdsaWalletOnly(args: {
                 providerSubject: emailOtpProviderSubject,
               }),
             }
-          : { kind: 'passkey' },
+          : {
+              kind: 'passkey',
+              credentialIdB64u: passkeyEcdsaCredentialIdFromPrepared(preparedClientBootstrap),
+            },
     });
     if (args.authMethod.kind === 'passkey') {
       if (!passkeyAuthority) {
@@ -626,7 +659,7 @@ export async function registerWallet(args: {
     }
 
     let ed25519PrfFirstB64u = '';
-    let ecdsaClientRootShare32B64u = '';
+    let ecdsaPasskeyPrfFirstB64u = '';
     let emailOtpClientRootShareHandle:
       | Awaited<
           ReturnType<SigningEnginePublic['prepareEmailOtpRegistrationEnrollmentMaterialInternal']>
@@ -677,7 +710,7 @@ export async function registerWallet(args: {
         confirmationConfigOverride: confirmationConfig,
       });
       ed25519PrfFirstB64u = passkeyAuthority.prfFirstB64u;
-      ecdsaClientRootShare32B64u = passkeyAuthority.ecdsaClientRootShare32B64u;
+      ecdsaPasskeyPrfFirstB64u = passkeyAuthority.prfFirstB64u;
       startAuthority = {
         kind: 'passkey',
         webauthnRegistration: passkeyAuthority.webauthnRegistration,
@@ -760,8 +793,9 @@ export async function registerWallet(args: {
       throw new Error('Wallet registration start did not return ECDSA HSS material');
     }
     const ecdsaPrepare = startedCeremony.ecdsa?.prepare;
+    const ecdsaChainTarget = startedCeremony.ecdsa?.chainTargets[0];
     const ecdsaPreparedClientBootstrapPromise =
-      ecdsaSelection && ecdsaPrepare
+      ecdsaSelection && ecdsaPrepare && ecdsaChainTarget
         ? (async () =>
             args.authMethod.kind === 'email_otp'
               ? await (async () => {
@@ -774,12 +808,17 @@ export async function registerWallet(args: {
                     {
                       prepare: ecdsaPrepare,
                       clientRootShareHandle: emailOtpClientRootShareHandle,
+                      chainTarget: ecdsaChainTarget,
                     },
                   );
                 })()
               : await context.signingEngine.prepareWalletRegistrationEcdsaPreparedClientBootstrap({
                   prepare: ecdsaPrepare,
-                  clientRootShare32B64u: ecdsaClientRootShare32B64u,
+                  chainTarget: ecdsaChainTarget,
+                  passkeyPrfFirstB64u: ecdsaPasskeyPrfFirstB64u,
+                  credentialIdB64u: String(
+                    passkeyAuthority?.credential.rawId || passkeyAuthority?.credential.id || '',
+                  ).trim(),
                 }))()
         : Promise.resolve(null);
 
@@ -813,7 +852,7 @@ export async function registerWallet(args: {
     const ecdsaBootstrap =
       ecdsaPreparedClientBootstrap && responded.ecdsa?.bootstrap
         ? parseWalletRegistrationEcdsaHssRespond({
-            localBootstrap: ecdsaPreparedClientBootstrap.localClientBootstrap,
+            clientBootstrap: ecdsaPreparedClientBootstrap.clientBootstrap,
             serverBootstrap: responded.ecdsa.bootstrap,
           })
         : null;
@@ -996,7 +1035,12 @@ export async function registerWallet(args: {
                   providerSubject: emailOtpProviderSubject,
                 }),
               }
-            : { kind: 'passkey' },
+            : {
+                kind: 'passkey',
+                credentialIdB64u: passkeyEcdsaCredentialIdFromPrepared(
+                  ecdsaPreparedClientBootstrap,
+                ),
+              },
       });
       if (args.authMethod.kind === 'passkey') {
         await context.signingEngine.storeWalletEcdsaSignerRecords({
@@ -1009,6 +1053,11 @@ export async function registerWallet(args: {
           walletKeys: ecdsaWalletKeys,
         });
       }
+    }
+    try {
+      await context.signingEngine.initializeCurrentUser(nearAccountId, context.nearClient);
+    } catch (initErr) {
+      console.warn('Failed to initialize current user after wallet registration:', initErr);
     }
     await assertImmediateRegistrationSigningLanes({
       signingEngine: context.signingEngine,
@@ -1041,12 +1090,6 @@ export async function registerWallet(args: {
         nearAccountId,
         signerSlot,
       }).catch(() => undefined);
-    }
-
-    try {
-      await context.signingEngine.initializeCurrentUser(nearAccountId, context.nearClient);
-    } catch (initErr) {
-      console.warn('Failed to initialize current user after wallet registration:', initErr);
     }
 
     emitRegistrationEvent(onEvent, nearAccountId, {
@@ -1366,8 +1409,12 @@ export async function addWalletSigner(args: {
       return result;
     }
 
-    const clientRootShare32B64u =
-      await derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential(webauthnAuthentication);
+    const passkeyPrfFirstB64u = String(
+      getPrfFirstB64uFromCredential(webauthnAuthentication) || '',
+    ).trim();
+    if (!passkeyPrfFirstB64u) {
+      throw new Error('Wallet add-signer ECDSA bootstrap requires passkey PRF.first');
+    }
 
     const startedCeremony = await startWalletAddSigner({
       relayerUrl,
@@ -1387,7 +1434,11 @@ export async function addWalletSigner(args: {
     const preparedClientBootstrap =
       await context.signingEngine.prepareWalletRegistrationEcdsaPreparedClientBootstrap({
         prepare: startedCeremony.ecdsa.prepare,
-        clientRootShare32B64u,
+        chainTarget: startedCeremony.ecdsa.chainTargets[0],
+        passkeyPrfFirstB64u,
+        credentialIdB64u: String(
+          webauthnAuthentication.rawId || webauthnAuthentication.id || '',
+        ).trim(),
       });
     const responded = await respondWalletAddSignerHss({
       relayerUrl,
@@ -1399,7 +1450,7 @@ export async function addWalletSigner(args: {
       throw new Error('Wallet add-signer HSS respond did not return ECDSA bootstrap material');
     }
     const ecdsaBootstrap = parseWalletRegistrationEcdsaHssRespond({
-      localBootstrap: preparedClientBootstrap.localClientBootstrap,
+      clientBootstrap: preparedClientBootstrap.clientBootstrap,
       serverBootstrap: responded.ecdsa.bootstrap,
     });
     const finalized = await finalizeWalletAddSigner({
@@ -1425,7 +1476,10 @@ export async function addWalletSigner(args: {
       preparedClientBootstrap,
       bootstrap: ecdsaBootstrap,
       walletKeys,
-      auth: { kind: 'passkey' },
+      auth: {
+        kind: 'passkey',
+        credentialIdB64u: passkeyEcdsaCredentialIdFromPrepared(preparedClientBootstrap),
+      },
     });
     await context.signingEngine.storeWalletEcdsaSignerRecords({
       walletId,

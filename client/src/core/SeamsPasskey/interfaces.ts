@@ -210,7 +210,7 @@ export type BootstrapThresholdEcdsaSessionArgs = {
   sessionIdentity?: never;
   routeAuth?: never;
   webauthnAuthentication?: never;
-  clientRootShare32B64u?: never;
+  passkeyPrfFirstB64u?: never;
   emailOtpAuthContext?: never;
 };
 

@@ -1,5 +1,6 @@
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
+import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import {
   thresholdEcdsaChainTargetKey,
@@ -7,6 +8,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
+import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '../persistence/ecdsaRoleLocalRecords';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import {
   resolveThresholdEcdsaKeyIdFromRecord,
@@ -49,18 +51,21 @@ export type VerifiedEcdsaThresholdSessionAuth = {
   ed25519RelayerKeyId?: never;
 };
 
+export type PasskeyPrfFirstB64u = string & { readonly __brand: 'PasskeyPrfFirstB64u' };
+
 export type PasskeyEcdsaProvisionSecretSource = {
-  kind: 'webauthn_prf_first_client_root_share_v1';
-  clientRootShare32B64u: string;
+  kind: 'webauthn_prf_first_v1';
+  passkeyPrfFirstB64u: PasskeyPrfFirstB64u;
   webauthnAuthentication: WebAuthnAuthenticationCredential;
   emailOtpAuthContext?: never;
 };
 
 export type EmailOtpEcdsaProvisionSecretSource = {
-  kind: 'email_otp_worker_client_root_share_v1';
-  clientRootShare32B64u: string;
+  kind: 'email_otp_worker_session_v1';
+  workerHandle: Extract<EmailOtpWorkerIssuedSessionHandle, { action: 'threshold_ecdsa_bootstrap' }>;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
   webauthnAuthentication?: never;
+  passkeyPrfFirstB64u?: never;
 };
 
 export type PasskeyEcdsaSessionProvision = {
@@ -78,7 +83,7 @@ export type PasskeyEcdsaSessionProvision = {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   thresholdSessionAuth?: never;
   emailOtpAuthContext?: never;
-  clientRootShare32B64u?: never;
+  passkeyPrfFirstB64u?: never;
   webauthnAuthentication?: never;
 };
 
@@ -92,8 +97,9 @@ export type ThresholdSessionAuthEcdsaReconnect = {
 
   // Branch-specific fields.
   thresholdSessionAuth: VerifiedEcdsaThresholdSessionAuth;
+  passkeyCredentialIdB64u: string;
   webauthnAuthentication?: never;
-  clientRootShare32B64u?: never;
+  passkeyPrfFirstB64u?: never;
   emailOtpAuthContext?: never;
 };
 
@@ -106,9 +112,10 @@ export type CookieEcdsaReconnect = {
   sessionBudgetUses: number;
 
   // Branch-specific fields.
+  passkeyCredentialIdB64u: string;
   thresholdSessionAuth?: never;
   webauthnAuthentication?: never;
-  clientRootShare32B64u?: never;
+  passkeyPrfFirstB64u?: never;
   emailOtpAuthContext?: never;
 };
 
@@ -125,7 +132,7 @@ export type EmailOtpEcdsaSessionProvision = {
   provisionSecretSource: EmailOtpEcdsaProvisionSecretSource;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   emailOtpAuthContext?: never;
-  clientRootShare32B64u?: never;
+  passkeyPrfFirstB64u?: never;
   webauthnAuthentication?: never;
   thresholdSessionAuth?: never;
 };
@@ -155,7 +162,7 @@ type BuildPasskeyEcdsaSessionProvisionPlanArgs = {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   emailOtpAuthContext?: never;
   reconnectMaterial?: never;
-  clientRootShare32B64u?: never;
+  passkeyPrfFirstB64u?: never;
   webauthnAuthentication?: never;
 };
 
@@ -170,7 +177,7 @@ type BuildEmailOtpEcdsaSessionProvisionPlanArgs = {
   provisionSecretSource: EmailOtpEcdsaProvisionSecretSource;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   emailOtpAuthContext?: never;
-  clientRootShare32B64u?: never;
+  passkeyPrfFirstB64u?: never;
   webauthnAuthentication?: never;
   reconnectMaterial?: never;
 };
@@ -184,7 +191,7 @@ type BuildReconnectEcdsaSessionProvisionPlanArgs = {
   signingKeyContext?: never;
   sessionKind?: never;
   runtimePolicyScope?: never;
-  clientRootShare32B64u?: never;
+  passkeyPrfFirstB64u?: never;
   webauthnAuthentication?: never;
   emailOtpAuthContext?: never;
 };
@@ -208,6 +215,10 @@ function requireNonEmptyString(value: unknown, field: string): string {
   return normalized;
 }
 
+function toPasskeyPrfFirstB64u(value: unknown): PasskeyPrfFirstB64u {
+  return requireNonEmptyString(value, 'passkeyPrfFirstB64u') as PasskeyPrfFirstB64u;
+}
+
 function requirePositiveInteger(value: unknown, field: string): number {
   const normalized = Math.floor(Number(value) || 0);
   if (normalized <= 0) {
@@ -216,10 +227,7 @@ function requirePositiveInteger(value: unknown, field: string): number {
   return normalized;
 }
 
-function requireParticipantIds(
-  value: unknown,
-  field: string,
-): readonly number[] {
+function requireParticipantIds(value: unknown, field: string): readonly number[] {
   const normalized = normalizeThresholdEd25519ParticipantIds(value);
   if (!normalized?.length) {
     throw new Error(`[SigningEngine][ecdsa] ${field} is required`);
@@ -228,29 +236,23 @@ function requireParticipantIds(
 }
 
 export function buildPasskeyEcdsaProvisionSecretSource(args: {
-  clientRootShare32B64u: string;
+  passkeyPrfFirstB64u: string;
   webauthnAuthentication: WebAuthnAuthenticationCredential;
 }): PasskeyEcdsaProvisionSecretSource {
   return {
-    kind: 'webauthn_prf_first_client_root_share_v1',
-    clientRootShare32B64u: requireNonEmptyString(
-      args.clientRootShare32B64u,
-      'clientRootShare32B64u',
-    ),
+    kind: 'webauthn_prf_first_v1',
+    passkeyPrfFirstB64u: toPasskeyPrfFirstB64u(args.passkeyPrfFirstB64u),
     webauthnAuthentication: args.webauthnAuthentication,
   };
 }
 
 export function buildEmailOtpEcdsaProvisionSecretSource(args: {
-  clientRootShare32B64u: string;
+  workerHandle: Extract<EmailOtpWorkerIssuedSessionHandle, { action: 'threshold_ecdsa_bootstrap' }>;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
 }): EmailOtpEcdsaProvisionSecretSource {
   return {
-    kind: 'email_otp_worker_client_root_share_v1',
-    clientRootShare32B64u: requireNonEmptyString(
-      args.clientRootShare32B64u,
-      'clientRootShare32B64u',
-    ),
+    kind: 'email_otp_worker_session_v1',
+    workerHandle: args.workerHandle,
     emailOtpAuthContext: args.emailOtpAuthContext,
   };
 }
@@ -347,10 +349,7 @@ function verifyEcdsaThresholdSessionAuth(args: {
     throw new Error('[SigningEngine][ecdsa] threshold session auth token is invalid');
   }
   const claimIdentity = tryBuildEcdsaSessionIdentityFromClaims(claims);
-  if (
-    !claimIdentity ||
-    !ecdsaSessionIdentitiesEqual(claimIdentity, args.identity)
-  ) {
+  if (!claimIdentity || !ecdsaSessionIdentitiesEqual(claimIdentity, args.identity)) {
     throw new Error(
       '[SigningEngine][ecdsa] threshold session auth token does not match planned reconnect identity',
     );
@@ -373,9 +372,7 @@ function selectReconnectThresholdSessionAuthToken(args: {
   identity: EcdsaSessionIdentity;
   record: ThresholdEcdsaSessionRecord;
 }): string | null {
-  const candidates = [
-    String(args.record.thresholdSessionAuthToken || '').trim(),
-  ].filter(Boolean);
+  const candidates = [String(args.record.thresholdSessionAuthToken || '').trim()].filter(Boolean);
   for (const token of candidates) {
     const claims = decodeJwtPayloadRecord(token);
     if (!claims) continue;
@@ -385,6 +382,14 @@ function selectReconnectThresholdSessionAuthToken(args: {
     }
   }
   return candidates[0] || null;
+}
+
+function passkeyCredentialIdB64uFromReconnectRecord(record: ThresholdEcdsaSessionRecord): string {
+  const readyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
+  if (readyRecord.authMethod.kind !== 'passkey') {
+    throw new Error('[SigningEngine][ecdsa] passkey reconnect requires passkey ready record');
+  }
+  return requireNonEmptyString(readyRecord.authMethod.credentialIdB64u, 'passkeyCredentialIdB64u');
 }
 
 export function buildPasskeyEcdsaSessionProvision(args: {
@@ -437,6 +442,7 @@ export function buildThresholdSessionAuthEcdsaReconnect(args: {
   }
   const signingKeyContext = buildEcdsaSigningKeyContextFromRecord(record);
   const sessionKind = normalizeThresholdSessionKind(record.thresholdSessionKind);
+  const passkeyCredentialIdB64u = passkeyCredentialIdB64uFromReconnectRecord(record);
   if (sessionKind === 'cookie') {
     return {
       kind: 'cookie_ecdsa_reconnect',
@@ -445,6 +451,7 @@ export function buildThresholdSessionAuthEcdsaReconnect(args: {
       signingKeyContext,
       sessionKind: 'cookie',
       sessionBudgetUses: requirePositiveInteger(args.sessionBudgetUses, 'sessionBudgetUses'),
+      passkeyCredentialIdB64u,
     } satisfies CookieEcdsaReconnect;
   }
   const thresholdSessionAuthToken = selectReconnectThresholdSessionAuthToken({
@@ -464,6 +471,7 @@ export function buildThresholdSessionAuthEcdsaReconnect(args: {
     sessionBudgetUses: requirePositiveInteger(args.sessionBudgetUses, 'sessionBudgetUses'),
 
     // Branch-specific fields.
+    passkeyCredentialIdB64u,
     thresholdSessionAuth: verifyEcdsaThresholdSessionAuth({
       identity: args.existingSessionIdentity,
       signingKeyContext,

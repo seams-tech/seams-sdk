@@ -36,12 +36,21 @@ export type ThresholdEcdsaHssRoleLocalClientRootProof = {
   signature65B64u: string;
 };
 
-export type ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization = {
-  kind: 'passkey_bootstrap';
-  webauthn_authentication: WebAuthnAuthenticationCredential;
-  runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  runtimeEnvironmentId?: string;
-};
+export type ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization =
+  | {
+      kind: 'passkey_bootstrap';
+      webauthn_authentication: WebAuthnAuthenticationCredential;
+      runtimePolicyScope: ThresholdRuntimePolicyScope;
+      runtimeEnvironmentId?: never;
+      runtimeEnvironmentPublishableKey?: never;
+    }
+  | {
+      kind: 'passkey_bootstrap';
+      webauthn_authentication: WebAuthnAuthenticationCredential;
+      runtimeEnvironmentId: string;
+      runtimeEnvironmentPublishableKey: string;
+      runtimePolicyScope?: never;
+    };
 
 export type ThresholdEcdsaHssRoleLocalBootstrapRequest = {
   formatVersion: 'ecdsa-hss-role-local';
@@ -100,6 +109,20 @@ type ThresholdEcdsaHssRoleLocalBootstrapBodyBase = {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 };
 
+type ThresholdEcdsaHssRoleLocalBootstrapBodyPasskeyAuthorization =
+  | {
+      kind: 'passkey_bootstrap';
+      webauthn_authentication: WebAuthnAuthenticationCredential;
+      runtimePolicyScope: ThresholdRuntimePolicyScope;
+      runtimeEnvironmentId?: never;
+    }
+  | {
+      kind: 'passkey_bootstrap';
+      webauthn_authentication: WebAuthnAuthenticationCredential;
+      runtimeEnvironmentId: string;
+      runtimePolicyScope?: never;
+    };
+
 type ThresholdEcdsaHssRoleLocalBootstrapBody = {
   formatVersion: 'ecdsa-hss-role-local';
   walletId: string;
@@ -126,7 +149,7 @@ type ThresholdEcdsaHssRoleLocalBootstrapBody = {
     }
   | {
       clientRootProof?: never;
-      passkeyBootstrapAuthorization: ThresholdEcdsaHssRoleLocalPasskeyBootstrapAuthorization;
+      passkeyBootstrapAuthorization: ThresholdEcdsaHssRoleLocalBootstrapBodyPasskeyAuthorization;
     }
   | {
       clientRootProof?: never;
@@ -262,25 +285,37 @@ function requireRecord(value: unknown, field: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-const NON_EXPORT_BOOTSTRAP_RESPONSE_FORBIDDEN_FIELDS = [
-  'clientShare32B64u',
-  'relayerShare32B64u',
-  'serverExportShare32B64u',
-  'relayerRootShare32B64u',
-  'relayerBackendInputB64u',
-  'mappedPrivateShare32B64u',
-  'relayerMappedPrivateShare32B64u',
-  'canonicalPrivateKeyHex',
-  'privateKeyHex',
-] as const;
+const NON_EXPORT_BOOTSTRAP_RESPONSE_FIELDS = new Set([
+  'formatVersion',
+  'walletId',
+  'rpId',
+  'ecdsaThresholdKeyId',
+  'relayerKeyId',
+  'contextBinding32B64u',
+  'publicIdentity',
+  'publicTranscriptDigest32B64u',
+  'keyHandle',
+  'signingRootId',
+  'signingRootVersion',
+  'thresholdEcdsaPublicKeyB64u',
+  'ethereumAddress',
+  'relayerVerifyingShareB64u',
+  'participantIds',
+  'sessionId',
+  'walletSigningSessionId',
+  'expiresAtMs',
+  'expiresAt',
+  'remainingUses',
+  'jwt',
+]);
 
-function rejectForbiddenFields(
+function rejectUnexpectedFields(
   record: Record<string, unknown>,
-  fields: readonly string[],
+  fields: ReadonlySet<string>,
   label: string,
 ): void {
-  const field = fields.find((candidate) => record[candidate] !== undefined);
-  if (field) throw new Error(`${label} contains forbidden field ${field}`);
+  const field = Object.keys(record).find((candidate) => !fields.has(candidate));
+  if (field) throw new Error(`${label} contains unexpected field ${field}`);
 }
 
 function parseEcdsaHssRoleLocalPublicIdentity(
@@ -313,7 +348,7 @@ function parseThresholdEcdsaHssRoleLocalBootstrapValue(
   value: unknown,
 ): ThresholdEcdsaHssRoleLocalBootstrapValue {
   const record = requireRecord(value, 'value');
-  rejectForbiddenFields(record, NON_EXPORT_BOOTSTRAP_RESPONSE_FORBIDDEN_FIELDS, 'value');
+  rejectUnexpectedFields(record, NON_EXPORT_BOOTSTRAP_RESPONSE_FIELDS, 'value');
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: toWalletId(record.walletId),
@@ -390,12 +425,15 @@ function resolveBearerToken(auth?: ThresholdEcdsaHssRouteAuth): string {
 function buildRelayRequestInit(args: {
   auth?: ThresholdEcdsaHssRouteAuth;
   sessionKind?: 'jwt' | 'cookie';
+  publishableKeyAuth?: string;
   body: unknown;
 }): RequestInit {
   const sessionKind = normalizeJwtCookieSessionKind(args.sessionKind);
   const bearerToken = resolveBearerToken(args.auth);
+  const publishableKeyAuth = String(args.publishableKeyAuth || '').trim();
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (bearerToken) headers.Authorization = `Bearer ${bearerToken}`;
+  else if (publishableKeyAuth) headers.Authorization = `Bearer ${publishableKeyAuth}`;
   return {
     method: 'POST',
     headers,
@@ -449,6 +487,29 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
       participantIds: requireParticipantIds(args.participantIds),
       ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
     };
+    const bodyPasskeyAuthorization = ():
+      | ThresholdEcdsaHssRoleLocalBootstrapBodyPasskeyAuthorization
+      | null => {
+      const authorization = args.passkeyBootstrapAuthorization;
+      if (!authorization) return null;
+      const runtimePolicyScope = authorization.runtimePolicyScope;
+      if (runtimePolicyScope) {
+        return {
+          kind: 'passkey_bootstrap',
+          webauthn_authentication: authorization.webauthn_authentication,
+          runtimePolicyScope,
+        };
+      }
+      return {
+        kind: 'passkey_bootstrap',
+        webauthn_authentication: authorization.webauthn_authentication,
+        runtimeEnvironmentId: requireNonEmptyString(
+          authorization.runtimeEnvironmentId,
+          'passkeyBootstrapAuthorization.runtimeEnvironmentId',
+        ),
+      };
+    };
+    const passkeyAuthorizationBody = bodyPasskeyAuthorization();
     const body: ThresholdEcdsaHssRoleLocalBootstrapBody = args.clientRootProof
       ? {
           ...bodyBase,
@@ -468,25 +529,10 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
             ),
           },
         }
-      : args.passkeyBootstrapAuthorization
+      : passkeyAuthorizationBody
         ? {
             ...bodyBase,
-            passkeyBootstrapAuthorization: {
-              kind: 'passkey_bootstrap',
-              webauthn_authentication:
-                args.passkeyBootstrapAuthorization.webauthn_authentication,
-              ...(args.passkeyBootstrapAuthorization.runtimePolicyScope
-                ? { runtimePolicyScope: args.passkeyBootstrapAuthorization.runtimePolicyScope }
-                : {}),
-              ...(args.passkeyBootstrapAuthorization.runtimeEnvironmentId
-                ? {
-                    runtimeEnvironmentId: requireNonEmptyString(
-                      args.passkeyBootstrapAuthorization.runtimeEnvironmentId,
-                      'passkeyBootstrapAuthorization.runtimeEnvironmentId',
-                    ),
-                  }
-                : {}),
-            },
+            passkeyBootstrapAuthorization: passkeyAuthorizationBody,
           }
         : bodyBase;
     const response = await fetch(
@@ -494,6 +540,11 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
       buildRelayRequestInit({
         auth: args.auth,
         sessionKind: args.sessionKind,
+        publishableKeyAuth:
+          args.passkeyBootstrapAuthorization &&
+          'runtimeEnvironmentPublishableKey' in args.passkeyBootstrapAuthorization
+            ? args.passkeyBootstrapAuthorization.runtimeEnvironmentPublishableKey
+            : undefined,
         body,
       }),
     );

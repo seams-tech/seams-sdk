@@ -13,11 +13,14 @@ import type {
   ThresholdEcdsaCanonicalExportArtifact,
   ThresholdEcdsaSecp256k1KeyRef,
 } from '../../interfaces/signing';
+import type {
+  EcdsaRoleLocalReadyRecord,
+  EcdsaRoleLocalReadyStateBlob,
+} from '@/core/platform/types';
 import {
-  parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial,
   parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
   thresholdEcdsaRecordHasRoleLocalSigningMaterial,
-} from '@/core/platform/ecdsaRoleLocalRecords';
+} from '../persistence/ecdsaRoleLocalRecords';
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from './laneIdentity';
 import {
@@ -245,21 +248,21 @@ export type EmailOtpWorkerShareHandle = {
   };
 };
 
-export type ThresholdEcdsaInlineClientShare = {
-  kind: 'inline_client_share';
-  clientAdditiveShare32B64u: string;
-  handle?: never;
-};
-
 export type ThresholdEcdsaEmailOtpWorkerShare = {
   kind: 'email_otp_worker_share';
   handle: EmailOtpWorkerShareHandle;
-  clientAdditiveShare32B64u?: never;
+};
+
+export type ThresholdEcdsaReadyStateBlobShare = {
+  kind: 'role_local_ready_state_blob';
+  stateBlob: EcdsaRoleLocalReadyStateBlob;
+  ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
+  handle?: never;
 };
 
 export type ThresholdEcdsaSignerClientShare =
-  | ThresholdEcdsaInlineClientShare
-  | ThresholdEcdsaEmailOtpWorkerShare;
+  | ThresholdEcdsaEmailOtpWorkerShare
+  | ThresholdEcdsaReadyStateBlobShare;
 
 export type ReadyEcdsaSignerSession = {
   kind: 'ready_ecdsa_signer_session';
@@ -272,7 +275,6 @@ export type ReadyEcdsaSignerSession = {
   participantIds?: never;
   thresholdEcdsaPublicKeyB64u?: never;
   thresholdSessionAuthToken?: never;
-  clientAdditiveShare32B64u?: never;
   clientAdditiveShareHandle?: never;
 };
 
@@ -1025,13 +1027,11 @@ function buildThresholdEcdsaSignerClientShare(args: {
           session: args.session,
         }),
       };
-    case 'inline_role_local_ready':
+    case 'role_local_ready_state_blob':
       return {
-        kind: 'inline_client_share',
-        clientAdditiveShare32B64u: requiredString(
-          args.backendBinding.clientAdditiveShare32B64u,
-          'clientAdditiveShare32B64u',
-        ),
+        kind: 'role_local_ready_state_blob',
+        stateBlob: args.backendBinding.stateBlob,
+        ecdsaRoleLocalReadyRecord: args.backendBinding.ecdsaRoleLocalReadyRecord,
       };
     case 'metadata_only':
       throw new Error('[evm-family-ecdsa] ready ECDSA signer session requires signing material');
@@ -1144,15 +1144,6 @@ export function buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord(args: {
   const record = args.record;
   const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({ record });
   const ecdsaRoleLocalReadyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
-  const inlineSigningMaterial = record.clientAdditiveShareHandle
-    ? null
-    : (() => {
-        try {
-          return parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial(record);
-        } catch {
-          return null;
-        }
-      })();
   const backendBinding = record.clientAdditiveShareHandle
     ? {
         materialKind: 'email_otp_worker_handle' as const,
@@ -1160,26 +1151,14 @@ export function buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord(args: {
         clientVerifyingShareB64u: record.clientVerifyingShareB64u,
         clientAdditiveShareHandle: record.clientAdditiveShareHandle,
         ecdsaRoleLocalReadyRecord,
-        ...(record.ecdsaHssRoleLocalClientState
-          ? { ecdsaHssRoleLocalClientState: record.ecdsaHssRoleLocalClientState }
-          : {}),
       }
-    : inlineSigningMaterial
-      ? {
-          materialKind: 'inline_role_local_ready' as const,
-          relayerKeyId: record.relayerKeyId,
-          clientVerifyingShareB64u: record.clientVerifyingShareB64u,
-          clientAdditiveShare32B64u: inlineSigningMaterial.clientAdditiveShare32B64u,
-          ecdsaRoleLocalReadyRecord,
-          ...(record.ecdsaHssRoleLocalClientState
-            ? { ecdsaHssRoleLocalClientState: record.ecdsaHssRoleLocalClientState }
-            : {}),
-        }
-      : {
-          materialKind: 'metadata_only' as const,
-          relayerKeyId: record.relayerKeyId,
-          clientVerifyingShareB64u: record.clientVerifyingShareB64u,
-        };
+    : {
+        materialKind: 'role_local_ready_state_blob' as const,
+        relayerKeyId: record.relayerKeyId,
+        clientVerifyingShareB64u: record.clientVerifyingShareB64u,
+        stateBlob: ecdsaRoleLocalReadyRecord.stateBlob,
+        ecdsaRoleLocalReadyRecord,
+      };
   return {
     type: 'threshold-ecdsa-secp256k1',
     userId: String(record.walletId),

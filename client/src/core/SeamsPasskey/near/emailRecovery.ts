@@ -17,9 +17,9 @@ import type { PasskeyManagerContext } from '../index';
 import type { WalletIframeCoordinator } from '../walletIframeCoordinator';
 import { normalizeRegistrationCredential } from '../../signingEngine/webauthnAuth/credentials/helpers';
 import {
+  getPrfFirstB64uFromCredential,
   redactCredentialExtensionOutputs,
 } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
-import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential } from '../../signingEngine/session/passkey/ecdsaClientRoot';
 import { EmailRecoveryPendingStore } from '../../../utils/emailRecovery';
 import { errorMessage } from '@shared/utils/errors';
 import { coerceSignerSlot } from '@shared/utils/signerSlot';
@@ -412,8 +412,14 @@ export class EmailRecoveryDomain {
       if (ecdsaProvisionTargets.length === 0) {
         throw new Error('Email recovery requires at least one configured ECDSA provision target');
       }
-      const clientRootShare32B64u =
-        await derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential(credential);
+      const primaryEcdsaProvisionTarget = ecdsaProvisionTargets[0];
+      if (!primaryEcdsaProvisionTarget) {
+        throw new Error('Email recovery requires an ECDSA provision target');
+      }
+      const passkeyPrfFirstB64u = String(getPrfFirstB64uFromCredential(credential) || '').trim();
+      if (!passkeyPrfFirstB64u) {
+        throw new Error('Email recovery ECDSA bootstrap requires passkey PRF.first');
+      }
       const credentialForRelay = redactCredentialExtensionOutputs(
         normalizeRegistrationCredential(credential),
       );
@@ -456,7 +462,9 @@ export class EmailRecoveryDomain {
       const clientBootstrap: WalletRegistrationEcdsaClientBootstrap =
         await context.signingEngine.prepareWalletRegistrationEcdsaClientBootstrap({
           prepare: ecdsaPrepare,
-          clientRootShare32B64u,
+          chainTarget: primaryEcdsaProvisionTarget.chainTarget,
+          passkeyPrfFirstB64u,
+          credentialIdB64u: String(credential.rawId || credential.id || '').trim(),
         });
       const ecdsaResp = await fetch(joinNormalizedUrl(relayerUrl, '/email-recovery/ecdsa/respond'), {
         method: 'POST',

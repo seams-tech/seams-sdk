@@ -1,11 +1,8 @@
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
-import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '@/core/platform/ecdsaRoleLocalRecords';
-import type {
-  VolatileWarmMaterialPort,
-  WarmSessionStatusResult,
-} from '../../uiConfirm/types';
+import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../persistence/ecdsaRoleLocalRecords';
+import type { VolatileWarmMaterialPort, WarmSessionStatusResult } from '../../uiConfirm/types';
 import {
   clearStoredThresholdEd25519SessionRecordForAccount,
   listStoredThresholdEcdsaSessionRecordsForWallet,
@@ -272,15 +269,74 @@ export function resolveEmailOtpEcdsaWorkerSessionId(
   return null;
 }
 
-function ecdsaRecordHasInlineEmailOtpMaterial(record: ThresholdEcdsaSessionRecord): boolean {
+function buildEmailOtpEcdsaDiscoveredLaneForRecord(args: {
+  record: ThresholdEcdsaSessionRecord;
+  chain: 'tempo' | 'evm';
+  chainTarget: ThresholdEcdsaChainTarget;
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
+}): DiscoveredSigningSessionLane | null {
   const roleLocalState = classifyThresholdEcdsaSessionRecordRoleLocalState({
-    record,
+    record: args.record,
     nowMs: Date.now(),
   });
-  return (
-    roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
-    roleLocalState.inlineSigningMaterial.kind === 'inline_client_share'
-  );
+  switch (roleLocalState.kind) {
+    case 'ready_email_otp_role_local_material_v1':
+      switch (roleLocalState.inlineSigningMaterial.kind) {
+        case 'email_otp_worker_share': {
+          const workerSessionId = resolveEmailOtpEcdsaWorkerSessionId(args.record);
+          if (!workerSessionId) return null;
+          return {
+            curve: 'ecdsa',
+            chain: args.chain,
+            chainTarget: args.chainTarget,
+            source: 'email_otp',
+            thresholdSessionId: args.thresholdSessionId,
+            walletSigningSessionId: args.walletSigningSessionId,
+            backingMaterialSessionId: workerSessionId,
+            backing: 'email_otp_worker',
+            record: args.record,
+          };
+        }
+        case 'role_local_ready_state_blob':
+          return {
+            curve: 'ecdsa',
+            chain: args.chain,
+            chainTarget: args.chainTarget,
+            source: 'email_otp',
+            thresholdSessionId: args.thresholdSessionId,
+            walletSigningSessionId: args.walletSigningSessionId,
+            backingMaterialSessionId: args.thresholdSessionId,
+            backing: 'record_policy',
+            record: args.record,
+          };
+      }
+      roleLocalState.inlineSigningMaterial satisfies never;
+      return null;
+    case 'reauth_required_role_local_material_v1':
+      if (
+        roleLocalState.authMethod.kind === 'email_otp' &&
+        (roleLocalState.reason === 'expired' || roleLocalState.reason === 'exhausted')
+      ) {
+        return {
+          curve: 'ecdsa',
+          chain: args.chain,
+          chainTarget: args.chainTarget,
+          source: 'email_otp',
+          thresholdSessionId: args.thresholdSessionId,
+          walletSigningSessionId: args.walletSigningSessionId,
+          backingMaterialSessionId: args.thresholdSessionId,
+          backing: 'record_policy',
+          record: args.record,
+        };
+      }
+      return null;
+    case 'ready_passkey_role_local_material_v1':
+    case 'cleanup_only_raw_role_local_record_v1':
+      return null;
+  }
+  roleLocalState satisfies never;
+  return null;
 }
 
 function addLane(
@@ -305,32 +361,13 @@ export function buildDiscoveredLaneForRecord(
     const chainTarget = record.chainTarget;
     const walletSigningSessionId = resolveWalletSigningSessionId(record);
     if (source === 'email_otp') {
-      const emailOtpWorkerSessionId = resolveEmailOtpEcdsaWorkerSessionId(record);
-      if (emailOtpWorkerSessionId) {
-        return {
-          curve: 'ecdsa',
-          chain,
-          chainTarget,
-          source,
-          thresholdSessionId,
-          walletSigningSessionId,
-          backingMaterialSessionId: emailOtpWorkerSessionId,
-          backing: 'email_otp_worker',
-          record,
-        };
-      }
-      if (!ecdsaRecordHasInlineEmailOtpMaterial(record)) return null;
-      return {
-        curve: 'ecdsa',
+      return buildEmailOtpEcdsaDiscoveredLaneForRecord({
+        record,
         chain,
         chainTarget,
-        source,
         thresholdSessionId,
         walletSigningSessionId,
-        backingMaterialSessionId: thresholdSessionId,
-        backing: 'record_policy',
-        record,
-      };
+      });
     }
     return {
       curve: 'ecdsa',
@@ -480,7 +517,9 @@ export function walletScopedClaimsForLanes(args: {
     if (applicableOverride) {
       const overrideClaim = claimFromWalletSigningSessionStatusOverride(applicableOverride);
       const overrideEntries = entries.filter((entry) =>
-        applicableOverride.thresholdSessionIds.has(normalizeNonEmpty(entry.lane.thresholdSessionId)),
+        applicableOverride.thresholdSessionIds.has(
+          normalizeNonEmpty(entry.lane.thresholdSessionId),
+        ),
       );
       const rawEntries = entries.filter(
         (entry) =>
@@ -724,10 +763,7 @@ export async function readDirectSigningSessionStatusForTargets(args: {
   if (!walletSigningSessionId) return null;
   const targetSessionIds = Array.from(
     new Set(
-      [
-        ...(args.targetBackingMaterialSessionIds || []),
-        ...(args.targetThresholdSessionIds || []),
-      ]
+      [...(args.targetBackingMaterialSessionIds || []), ...(args.targetThresholdSessionIds || [])]
         .map(normalizeNonEmpty)
         .filter(Boolean),
     ),
@@ -875,9 +911,7 @@ function statusWithTrustedBudgetProjection(args: {
   trustedStatus: SigningSessionStatus;
 }): SigningSessionStatus {
   const projectionVersion = String(args.trustedStatus.projectionVersion || '').trim();
-  return projectionVersion
-    ? { ...args.consumedStatus, projectionVersion }
-    : args.consumedStatus;
+  return projectionVersion ? { ...args.consumedStatus, projectionVersion } : args.consumedStatus;
 }
 
 export async function consumeWalletSigningSessionUse(args: {

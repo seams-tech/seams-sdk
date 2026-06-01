@@ -1,6 +1,7 @@
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type {
   ThresholdEcdsaBackendBinding,
+  ThresholdEcdsaHssRoleLocalClientState,
   ThresholdEcdsaSecp256k1KeyRef,
 } from '../../interfaces/signing';
 import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
@@ -489,13 +490,6 @@ const invalidSignerSessionWithRawToken: ReadyEcdsaSignerSession = {
 };
 void invalidSignerSessionWithRawToken;
 
-const invalidSignerSessionWithInlineShare: ReadyEcdsaSignerSession = {
-  ...signerSession,
-  // @ts-expect-error signer sessions carry client share inside clientShare.
-  clientAdditiveShare32B64u: 'client-share',
-};
-void invalidSignerSessionWithInlineShare;
-
 // @ts-expect-error signer sessions require transport material.
 const signerSessionMissingTransport: ReadyEcdsaSignerSession = {
   kind: 'ready_ecdsa_signer_session',
@@ -525,48 +519,19 @@ void invalidSignerSessionWithExportArtifact;
 
 declare const roleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
 
-const validInlineBackendBinding = {
-  materialKind: 'inline_role_local_ready',
-  relayerKeyId: 'relayer-key',
-  clientVerifyingShareB64u: 'client-verifying-share',
-  clientAdditiveShare32B64u: 'client-share',
-  ecdsaRoleLocalReadyRecord: roleLocalReadyRecord,
-} satisfies ThresholdEcdsaBackendBinding;
-void validInlineBackendBinding;
-
-const invalidInlineBackendBindingWithWorkerHandle = {
-  materialKind: 'inline_role_local_ready',
-  relayerKeyId: 'relayer-key',
-  clientVerifyingShareB64u: 'client-verifying-share',
-  clientAdditiveShare32B64u: 'client-share',
-  ecdsaRoleLocalReadyRecord: roleLocalReadyRecord,
-  clientAdditiveShareHandle: {
-    kind: 'email_otp_worker_session' as const,
-    sessionId: 'worker-session',
-  },
-};
-// @ts-expect-error inline backend bindings reject Email OTP worker handles.
-void (invalidInlineBackendBindingWithWorkerHandle satisfies ThresholdEcdsaBackendBinding);
-
-const invalidWorkerBackendBindingWithInlineShare = {
-  materialKind: 'email_otp_worker_handle',
-  relayerKeyId: 'relayer-key',
-  clientVerifyingShareB64u: 'client-verifying-share',
-  clientAdditiveShareHandle: {
-    kind: 'email_otp_worker_session' as const,
-    sessionId: 'worker-session',
-  },
-  ecdsaRoleLocalReadyRecord: roleLocalReadyRecord,
-  clientAdditiveShare32B64u: 'client-share',
-};
-// @ts-expect-error Email OTP worker backend bindings reject inline share bytes.
-void (invalidWorkerBackendBindingWithInlineShare satisfies ThresholdEcdsaBackendBinding);
+const validOpaqueRoleLocalClientState = {
+  kind: 'role_local_ready',
+  artifactKind: 'ecdsa-hss-role-local-client-state',
+  stateBlob: roleLocalReadyRecord.stateBlob,
+  publicFacts: roleLocalReadyRecord.publicFacts,
+} satisfies ThresholdEcdsaHssRoleLocalClientState;
+void validOpaqueRoleLocalClientState;
 
 const invalidMetadataBackendBindingWithMaterial = {
   materialKind: 'metadata_only',
   relayerKeyId: 'relayer-key',
   clientVerifyingShareB64u: 'client-verifying-share',
-  clientAdditiveShare32B64u: 'client-share',
+  stateBlob: roleLocalReadyRecord.stateBlob,
 };
 // @ts-expect-error metadata-only backend bindings reject signing material.
 void (invalidMetadataBackendBindingWithMaterial satisfies ThresholdEcdsaBackendBinding);

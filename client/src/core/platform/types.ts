@@ -1,4 +1,7 @@
-import type { WebAuthnAuthenticationCredential, WebAuthnRegistrationCredential } from '../types/webauthn';
+import type {
+  WebAuthnAuthenticationCredential,
+  WebAuthnRegistrationCredential,
+} from '../types/webauthn';
 import {
   thresholdEcdsaChainTargetFromRequest,
   toWalletId,
@@ -17,6 +20,18 @@ import type {
   EcdsaHssClientSharePublicKey33B64u,
   EcdsaRelayerHssPublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import type {
+  BuildEcdsaRoleLocalExportArtifactCommand as GeneratedBuildEcdsaRoleLocalExportArtifactCommand,
+  BuildEcdsaRoleLocalExportArtifactErrorCode as GeneratedBuildEcdsaRoleLocalExportArtifactErrorCode,
+  BuildEcdsaRoleLocalExportArtifactOutput as GeneratedBuildEcdsaRoleLocalExportArtifactOutput,
+  FinalizeEcdsaClientBootstrapCommand as GeneratedFinalizeEcdsaClientBootstrapCommand,
+  FinalizeEcdsaClientBootstrapErrorCode as GeneratedFinalizeEcdsaClientBootstrapErrorCode,
+  FinalizeEcdsaClientBootstrapOutput as GeneratedFinalizeEcdsaClientBootstrapOutput,
+  PrepareEcdsaClientBootstrapCommand as GeneratedPrepareEcdsaClientBootstrapCommand,
+  PrepareEcdsaClientBootstrapErrorCode as GeneratedPrepareEcdsaClientBootstrapErrorCode,
+  PrepareEcdsaClientBootstrapOutput as GeneratedPrepareEcdsaClientBootstrapOutput,
+} from './generated/signerCoreCommands';
+import type { ThresholdRuntimePolicyScope } from '../signingEngine/threshold/sessionPolicy';
 
 export type PlatformKind = 'browser' | 'ios' | 'linux_embedded';
 
@@ -63,6 +78,12 @@ export type SignerCryptoResult<Ok, CommandCode extends string> =
       value?: never;
     };
 
+export type CredentialIdB64u = string & { readonly __brand: 'CredentialIdB64u' };
+export type EcdsaGroupPublicKey33B64u = string & {
+  readonly __brand: 'EcdsaGroupPublicKey33B64u';
+};
+export type RelayerKeyId = string & { readonly __brand: 'RelayerKeyId' };
+
 export type EcdsaRoleLocalPendingStateBlob = {
   kind: 'ecdsa_role_local_pending_state_blob_v1';
   curve: 'secp256k1';
@@ -90,55 +111,102 @@ export type EcdsaRoleLocalPublicFacts = {
   clientParticipantId: 1;
   relayerParticipantId: 2;
   participantIds: readonly [1, 2];
+  contextBinding32B64u: string;
   hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
   relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
-  groupPublicKey33B64u: string;
+  groupPublicKey33B64u: EcdsaGroupPublicKey33B64u;
   ethereumAddress: `0x${string}`;
 };
 
-export type EcdsaRoleLocalReadyRecord = {
-  kind: 'ecdsa_role_local_ready_record_v1';
-  stateBlob: EcdsaRoleLocalReadyStateBlob;
-  publicFacts: EcdsaRoleLocalPublicFacts;
-};
+export type EcdsaRoleLocalAuthMethod =
+  | {
+      kind: 'passkey';
+      credentialIdB64u: CredentialIdB64u;
+      rpId: RpId;
+      authSubjectId?: never;
+    }
+  | {
+      kind: 'email_otp';
+      authSubjectId: EmailOtpAuthSubjectId;
+      credentialIdB64u?: never;
+      rpId?: never;
+    };
 
-export type EcdsaRoleLocalInlineClientShare = {
-  kind: 'inline_client_share';
-  clientAdditiveShare32B64u: string;
-  workerSessionId?: never;
-};
+export type EcdsaRoleLocalReadyRecord =
+  | {
+      kind: 'ecdsa_role_local_ready_passkey_v1';
+      stateBlob: EcdsaRoleLocalReadyStateBlob;
+      publicFacts: EcdsaRoleLocalPublicFacts;
+      authMethod: Extract<EcdsaRoleLocalAuthMethod, { kind: 'passkey' }>;
+    }
+  | {
+      kind: 'ecdsa_role_local_ready_email_otp_v1';
+      stateBlob: EcdsaRoleLocalReadyStateBlob;
+      publicFacts: EcdsaRoleLocalPublicFacts;
+      authMethod: Extract<EcdsaRoleLocalAuthMethod, { kind: 'email_otp' }>;
+    };
+
+export type EcdsaRoleLocalMaterialState =
+  | {
+      kind: 'ready';
+      record: EcdsaRoleLocalReadyRecord;
+      reauth?: never;
+      cleanup?: never;
+    }
+  | {
+      kind: 'reauth_required';
+      walletId: WalletId;
+      rpId: RpId;
+      chainTarget: ThresholdEcdsaChainTarget;
+      keyHandle: string;
+      authMethod: EcdsaRoleLocalAuthMethod;
+      reason: 'missing_session' | 'expired_session' | 'sealed_session_unavailable';
+      record?: never;
+      cleanup?: never;
+    }
+  | {
+      kind: 'invalid_cleanup_required';
+      cleanup: CleanupMalformedEcdsaRoleLocalRecordInput;
+      reason: string;
+      record?: never;
+      reauth?: never;
+    };
 
 export type EcdsaRoleLocalEmailOtpWorkerShare = {
   kind: 'email_otp_worker_share';
   workerSessionId: string;
-  clientAdditiveShare32B64u?: never;
+};
+
+export type EcdsaRoleLocalReadyStateBlobSigningMaterial = {
+  kind: 'role_local_ready_state_blob';
+  stateBlob: EcdsaRoleLocalReadyStateBlob;
+  workerSessionId?: never;
 };
 
 export type EcdsaRoleLocalSessionRecordState =
   | {
       kind: 'ready_passkey_role_local_material_v1';
-      authMethod: 'passkey';
-      readyRecord: EcdsaRoleLocalReadyRecord;
-      inlineSigningMaterial: EcdsaRoleLocalInlineClientShare;
+      authMethod: Extract<EcdsaRoleLocalAuthMethod, { kind: 'passkey' }>;
+      readyRecord: Extract<EcdsaRoleLocalReadyRecord, { authMethod: { kind: 'passkey' } }>;
+      inlineSigningMaterial: EcdsaRoleLocalReadyStateBlobSigningMaterial;
       reauth?: never;
       cleanup?: never;
     }
   | {
       kind: 'ready_email_otp_role_local_material_v1';
-      authMethod: 'email_otp';
-      readyRecord: EcdsaRoleLocalReadyRecord;
+      authMethod: Extract<EcdsaRoleLocalAuthMethod, { kind: 'email_otp' }>;
+      readyRecord: Extract<EcdsaRoleLocalReadyRecord, { authMethod: { kind: 'email_otp' } }>;
       inlineSigningMaterial:
-        | EcdsaRoleLocalInlineClientShare
-        | EcdsaRoleLocalEmailOtpWorkerShare;
+        | EcdsaRoleLocalEmailOtpWorkerShare
+        | EcdsaRoleLocalReadyStateBlobSigningMaterial;
       reauth?: never;
       cleanup?: never;
     }
   | {
       kind: 'reauth_required_role_local_material_v1';
-      authMethod: 'passkey' | 'email_otp';
+      authMethod: EcdsaRoleLocalAuthMethod;
       readyRecord: EcdsaRoleLocalReadyRecord;
       reason:
-        | 'missing_inline_share'
         | 'missing_worker_share'
         | 'expired'
         | 'exhausted'
@@ -159,17 +227,19 @@ export type EcdsaRoleLocalSessionRecordState =
 export type EcdsaRoleLocalRecordParseResult =
   | {
       ok: true;
-      source: 'ready_record' | 'legacy_threshold_ecdsa_session_record';
-      record: EcdsaRoleLocalReadyRecord;
+      source: 'ready_record';
+      state: Extract<EcdsaRoleLocalMaterialState, { kind: 'ready' | 'reauth_required' }>;
       code?: never;
       message?: never;
+      cleanup?: never;
     }
   | {
       ok: false;
       code: 'malformed_record';
       message: string;
+      cleanup: CleanupMalformedEcdsaRoleLocalRecordInput;
       source?: never;
-      record?: never;
+      state?: never;
     };
 
 export type LoadEcdsaRoleLocalReadyRecordInput = {
@@ -181,35 +251,44 @@ export type LoadEcdsaRoleLocalReadyRecordInput = {
   signingRootId: SigningRootId;
   signingRootVersion: SigningRootVersion;
   participantIds: readonly [1, 2];
+  authMethod: EcdsaRoleLocalAuthMethod;
 };
 
 export type LoadEcdsaRoleLocalReadyRecordResult = PlatformResult<
-  EcdsaRoleLocalReadyRecord | null,
-  'unavailable' | 'malformed_record'
+  | { kind: 'found'; record: EcdsaRoleLocalReadyRecord }
+  | { kind: 'not_found'; record?: never }
+  | {
+      kind: 'reauth_required';
+      state: Extract<EcdsaRoleLocalMaterialState, { kind: 'reauth_required' }>;
+      record?: never;
+    }
+  | {
+      kind: 'malformed';
+      cleanup: CleanupMalformedEcdsaRoleLocalRecordInput;
+      message: string;
+      record?: never;
+    },
+  'unavailable'
 >;
 
 export type PersistEcdsaRoleLocalReadyRecordInput = {
   record: EcdsaRoleLocalReadyRecord;
+  storageKeyFacts: LoadEcdsaRoleLocalReadyRecordInput;
 };
 
 export type PersistEcdsaRoleLocalReadyRecordResult = PlatformResult<
-  void,
+  { kind: 'persisted' },
   'unavailable' | 'invalid_record'
 >;
 
-export type CleanupMalformedEcdsaRoleLocalRecordInput = {
-  walletId: WalletId;
-  rpId: RpId;
-  chainTarget: ThresholdEcdsaChainTarget;
-  keyHandle: string;
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
-  signingRootId: SigningRootId;
-  signingRootVersion: SigningRootVersion;
-  participantIds: readonly [1, 2];
+export type CleanupMalformedEcdsaRoleLocalRecordInput = LoadEcdsaRoleLocalReadyRecordInput & {
   reason: string;
 };
 
-export type CleanupMalformedEcdsaRoleLocalRecordResult = PlatformResult<void, 'unavailable'>;
+export type CleanupMalformedEcdsaRoleLocalRecordResult = PlatformResult<
+  { kind: 'deleted' } | { kind: 'not_found' },
+  'unavailable'
+>;
 
 export type DurableRecordStore = {
   kind: 'durable_record_store';
@@ -226,8 +305,13 @@ export type DurableRecordStore = {
 
 export type SecureSecretStore = {
   kind: 'secure_secret_store';
-  seal(input: { purpose: string; secretB64u: string }): Promise<PlatformResult<{ handle: string }, 'unavailable'>>;
-  unseal(input: { handle: string }): Promise<PlatformResult<{ secretB64u: string }, 'unavailable' | 'not_found'>>;
+  seal(input: {
+    purpose: string;
+    secretB64u: string;
+  }): Promise<PlatformResult<{ handle: string }, 'unavailable'>>;
+  unseal(input: {
+    handle: string;
+  }): Promise<PlatformResult<{ secretB64u: string }, 'unavailable' | 'not_found'>>;
   delete(input: { handle: string }): Promise<PlatformResult<void, 'unavailable'>>;
 };
 
@@ -247,10 +331,10 @@ export type WebAuthnPrfFirstSecretSource = ClientSecretSourceBrand<'webauthn_prf
 
 export type SecureEnclaveWrappedSecretSource =
   ClientSecretSourceBrand<'secure_enclave_wrapped_secret'> & {
-  kind: 'secure_enclave_wrapped_secret';
-  keyId: string;
-  accessGroup: string;
-};
+    kind: 'secure_enclave_wrapped_secret';
+    keyId: string;
+    accessGroup: string;
+  };
 
 export type Fido2HmacSecretSource = ClientSecretSourceBrand<'fido2_hmac_secret'> & {
   kind: 'fido2_hmac_secret';
@@ -335,9 +419,21 @@ function requirePlatformObject(value: unknown, field: string): Record<string, un
 export function buildWebAuthnPrfFirstSecretSource(
   input: RequiredPrfAuthenticatorSuccess,
 ): WebAuthnPrfFirstSecretSource {
+  return buildWebAuthnPrfFirstSecretSourceFromParts({
+    prfFirstB64u: input.prf.prfFirstB64u,
+    rpId: input.rpId,
+    credentialIdB64u: input.credentialIdB64u,
+  });
+}
+
+export function buildWebAuthnPrfFirstSecretSourceFromParts(input: {
+  prfFirstB64u: string;
+  rpId: RpId;
+  credentialIdB64u: string;
+}): WebAuthnPrfFirstSecretSource {
   return {
     kind: 'webauthn_prf_first',
-    prfFirstB64u: requirePlatformString(input.prf.prfFirstB64u, 'prfFirstB64u'),
+    prfFirstB64u: requirePlatformString(input.prfFirstB64u, 'prfFirstB64u'),
     rpId: input.rpId,
     credentialIdB64u: requirePlatformString(input.credentialIdB64u, 'credentialIdB64u'),
     [clientSecretSourceBrand]: 'webauthn_prf_first',
@@ -379,11 +475,17 @@ export function parseEmailOtpWorkerIssuedSessionHandle(
   input: unknown,
 ): EmailOtpWorkerIssuedSessionHandle {
   const payload = requirePlatformObject(input, 'email OTP worker-issued session handle');
-  const kind = requirePlatformString(String(payload.kind || ''), 'email OTP worker-issued handle kind');
+  const kind = requirePlatformString(
+    String(payload.kind || ''),
+    'email OTP worker-issued handle kind',
+  );
   if (kind !== 'email_otp_worker_session_handle_v1') {
     throw new Error(`[platform] unsupported email OTP worker-issued handle kind: ${kind}`);
   }
-  const action = requirePlatformString(String(payload.action || ''), 'email OTP worker-issued handle action');
+  const action = requirePlatformString(
+    String(payload.action || ''),
+    'email OTP worker-issued handle action',
+  );
   const operation = requirePlatformString(
     String(payload.operation || ''),
     'email OTP worker-issued handle operation',
@@ -400,7 +502,10 @@ export function parseEmailOtpWorkerIssuedSessionHandle(
   }
   const normalizedOperation: EmailOtpWorkerIssuedSessionHandleInput['operation'] = operation;
   const base = {
-    sessionId: requirePlatformString(String(payload.sessionId || ''), 'email OTP worker-issued handle sessionId'),
+    sessionId: requirePlatformString(
+      String(payload.sessionId || ''),
+      'email OTP worker-issued handle sessionId',
+    ),
     walletId: toWalletId(payload.walletId),
     rpId: toRpId(payload.rpId),
     authSubjectId: toEmailOtpAuthSubjectId(payload.authSubjectId),
@@ -437,6 +542,10 @@ export function buildEmailOtpWorkerSessionSecretSource(
     handle,
     [clientSecretSourceBrand]: 'email_otp_worker_session',
   };
+}
+
+export function buildRelayerKeyId(input: unknown): RelayerKeyId {
+  return requirePlatformString(String(input || ''), 'relayerKeyId') as RelayerKeyId;
 }
 
 export function buildSecureEnclaveWrappedSecretSource(input: {
@@ -586,8 +695,8 @@ export type AuthenticatorPort = {
 };
 
 export type PrepareEcdsaClientBootstrapInput = {
-  kind: 'prepare_ecdsa_client_bootstrap_v1';
-  algorithm: 'ecdsa_hss_secp256k1_role_local_v1';
+  kind: GeneratedPrepareEcdsaClientBootstrapCommand['kind'];
+  algorithm: GeneratedPrepareEcdsaClientBootstrapCommand['algorithm'];
   context: {
     walletId: WalletId;
     rpId: RpId;
@@ -595,8 +704,8 @@ export type PrepareEcdsaClientBootstrapInput = {
     ecdsaThresholdKeyId: EcdsaThresholdKeyId;
     signingRootId: SigningRootId;
     signingRootVersion: SigningRootVersion;
-    keyPurpose: 'evm-signing';
-    keyVersion: 'v1';
+    keyPurpose: GeneratedPrepareEcdsaClientBootstrapCommand['context']['keyPurpose'];
+    keyVersion: GeneratedPrepareEcdsaClientBootstrapCommand['context']['keyVersion'];
   };
   participants: {
     clientParticipantId: 1;
@@ -606,22 +715,131 @@ export type PrepareEcdsaClientBootstrapInput = {
   secretSource: EcdsaBootstrapSecretSource;
 };
 
+export type EcdsaClientBootstrapFacts = {
+  contextBinding32B64u: GeneratedPrepareEcdsaClientBootstrapOutput['clientBootstrap']['contextBinding32B64u'];
+  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
+  clientShareRetryCounter: GeneratedPrepareEcdsaClientBootstrapOutput['clientBootstrap']['clientShareRetryCounter'];
+  participantId: 1;
+};
+
+export type EcdsaPreparePublicFacts = {
+  hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
+  clientVerifyingShareB64u: GeneratedPrepareEcdsaClientBootstrapOutput['publicFacts']['clientVerifyingShareB64u'];
+};
+
+export type EcdsaRelayerPublicIdentity = {
+  relayerKeyId: RelayerKeyId;
+  relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
+  groupPublicKey33B64u: EcdsaGroupPublicKey33B64u;
+  ethereumAddress: `0x${string}`;
+};
+
+export type EcdsaProvisioningFailureCode =
+  | 'authenticator_failed'
+  | 'signer_crypto_command_failed'
+  | 'signer_crypto_invocation_failed'
+  | 'relayer_failed'
+  | 'storage_failed'
+  | 'invalid_state';
+
+export type RelayerResult<Ok, Code extends string> =
+  | {
+      ok: true;
+      value: Ok;
+      code?: never;
+      message?: never;
+      retryable?: never;
+      status?: never;
+    }
+  | {
+      ok: false;
+      code: Code;
+      message: string;
+      retryable: boolean;
+      status?: number;
+      value?: never;
+    };
+
+export type EcdsaBootstrapRouteAuth =
+  | {
+      kind: 'app_session';
+      jwt: string;
+      token?: never;
+    }
+  | {
+      kind: 'threshold_session';
+      jwt: string;
+      token?: never;
+    }
+  | {
+      kind: 'cookie';
+      jwt?: never;
+      token?: never;
+    }
+  | {
+      kind: 'bootstrap_grant';
+      token: string;
+      jwt?: never;
+    }
+  | {
+      kind: 'publishable_key';
+      token: string;
+      jwt?: never;
+    };
+
+export type BootstrapEcdsaSessionRouteInput = {
+  kind: 'bootstrap_ecdsa_session_route_v1';
+  walletId: WalletId;
+  rpId: RpId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  keyScope: 'evm-family';
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  signingRootId: SigningRootId;
+  signingRootVersion: SigningRootVersion;
+  relayerKeyId: RelayerKeyId;
+  requestId: string;
+  sessionId: string;
+  walletSigningSessionId: string;
+  ttlMs: number;
+  remainingUses: number;
+  sessionKind: 'jwt' | 'cookie';
+  participantIds: readonly [1, 2];
+  auth: EcdsaBootstrapRouteAuth;
+  clientBootstrap: EcdsaClientBootstrapFacts;
+  preparePublicFacts: EcdsaPreparePublicFacts;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
+};
+
+export type BootstrapEcdsaSessionRouteOutput = {
+  kind: 'bootstrap_ecdsa_session_route_output_v1';
+  walletId: WalletId;
+  rpId: RpId;
+  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+  signingRootId: SigningRootId;
+  signingRootVersion: SigningRootVersion;
+  keyHandle: string;
+  relayerPublicIdentity: EcdsaRelayerPublicIdentity;
+  participantIds: readonly [1, 2];
+  sessionId: string;
+  walletSigningSessionId: string;
+  expiresAtMs: number;
+  remainingUses: number;
+  thresholdSessionAuthToken: string;
+};
+
+export type BootstrapEcdsaSessionRouteFailureCode =
+  | 'unavailable'
+  | 'request_rejected'
+  | 'malformed_response';
+
 export type PrepareEcdsaClientBootstrapOutput = {
   pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
-  clientBootstrap: {
-    contextBinding32B64u: string;
-    hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
-    clientShareRetryCounter: number;
-    participantId: 1;
-  };
-  publicFacts: {
-    hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
-    clientVerifyingShareB64u: string;
-  };
+  clientBootstrap: EcdsaClientBootstrapFacts;
+  publicFacts: EcdsaPreparePublicFacts;
 };
 
 export type FinalizeEcdsaClientBootstrapInput = {
-  kind: 'finalize_ecdsa_client_bootstrap_v1';
+  kind: GeneratedFinalizeEcdsaClientBootstrapCommand['kind'];
   pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
   relayerPublicIdentity: {
     relayerKeyId: string;
@@ -634,36 +852,129 @@ export type FinalizeEcdsaClientBootstrapInput = {
 export type FinalizeEcdsaClientBootstrapOutput = {
   stateBlob: EcdsaRoleLocalReadyStateBlob;
   publicFacts: {
+    contextBinding32B64u: GeneratedFinalizeEcdsaClientBootstrapOutput['publicFacts']['contextBinding32B64u'];
     hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
-    clientVerifyingShareB64u: string;
+    clientVerifyingShareB64u: GeneratedFinalizeEcdsaClientBootstrapOutput['publicFacts']['clientVerifyingShareB64u'];
     relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
-    groupPublicKey33B64u: string;
+    groupPublicKey33B64u: GeneratedFinalizeEcdsaClientBootstrapOutput['publicFacts']['groupPublicKey33B64u'];
     ethereumAddress: `0x${string}`;
   };
 };
 
-export type PrepareEcdsaClientBootstrapErrorCode =
-  | 'unsupported_secret_source'
-  | 'invalid_secret_source'
-  | 'invalid_context'
-  | 'invalid_threshold_parameters'
-  | 'invalid_public_material'
-  | 'crypto_failure';
+export type PrepareEcdsaClientBootstrapErrorCode = GeneratedPrepareEcdsaClientBootstrapErrorCode;
 
-export type FinalizeEcdsaClientBootstrapErrorCode =
-  | 'invalid_pending_state'
-  | 'invalid_relayer_public_identity'
-  | 'public_identity_mismatch'
-  | 'crypto_failure';
+export type FinalizeEcdsaClientBootstrapErrorCode = GeneratedFinalizeEcdsaClientBootstrapErrorCode;
+
+export type BuildEcdsaRoleLocalExportArtifactAuthorization =
+  | {
+      kind: 'passkey_export_authorized';
+      walletId: WalletId;
+      rpId: RpId;
+      credentialIdB64u: CredentialIdB64u;
+      authSubjectId?: never;
+    }
+  | {
+      kind: 'email_otp_export_authorized';
+      walletId: WalletId;
+      rpId: RpId;
+      authSubjectId: EmailOtpAuthSubjectId;
+      credentialIdB64u?: never;
+    };
+
+export type BuildEcdsaRoleLocalExportArtifactInput = {
+  kind: GeneratedBuildEcdsaRoleLocalExportArtifactCommand['kind'];
+  algorithm: GeneratedBuildEcdsaRoleLocalExportArtifactCommand['algorithm'];
+  stateBlob: EcdsaRoleLocalReadyStateBlob;
+  publicFacts: EcdsaRoleLocalPublicFacts;
+  authorization: BuildEcdsaRoleLocalExportArtifactAuthorization;
+  serverExportShare32B64u: GeneratedBuildEcdsaRoleLocalExportArtifactCommand['serverExportShare32B64u'];
+};
+
+export type BuildEcdsaRoleLocalExportArtifactOutput = {
+  publicKeyHex: GeneratedBuildEcdsaRoleLocalExportArtifactOutput['publicKeyHex'];
+  privateKeyHex: GeneratedBuildEcdsaRoleLocalExportArtifactOutput['privateKeyHex'];
+  ethereumAddress: `0x${string}`;
+};
+
+export type BuildEcdsaRoleLocalExportArtifactErrorCode =
+  GeneratedBuildEcdsaRoleLocalExportArtifactErrorCode;
+
+export type EcdsaRelayerClient = {
+  bootstrapEcdsaSession(
+    input: BootstrapEcdsaSessionRouteInput,
+  ): Promise<
+    RelayerResult<BootstrapEcdsaSessionRouteOutput, BootstrapEcdsaSessionRouteFailureCode>
+  >;
+};
+
+export type EcdsaProvisioningState =
+  | {
+      kind: 'needs_secret_source';
+      walletId: WalletId;
+      rpId: RpId;
+      chainTarget: ThresholdEcdsaChainTarget;
+      ecdsaThresholdKeyId: EcdsaThresholdKeyId;
+      signingRootId: SigningRootId;
+      signingRootVersion: SigningRootVersion;
+      authMethod: EcdsaRoleLocalAuthMethod;
+    }
+  | {
+      kind: 'preparing_client_bootstrap';
+      input: PrepareEcdsaClientBootstrapInput;
+      storageKeyFacts: LoadEcdsaRoleLocalReadyRecordInput;
+    }
+  | {
+      kind: 'awaiting_relayer_identity';
+      pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
+      clientBootstrap: EcdsaClientBootstrapFacts;
+      preparePublicFacts: EcdsaPreparePublicFacts;
+      storageKeyFacts: LoadEcdsaRoleLocalReadyRecordInput;
+    }
+  | {
+      kind: 'finalizing_ready_state';
+      pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
+      relayerPublicIdentity: EcdsaRelayerPublicIdentity;
+      storageKeyFacts: LoadEcdsaRoleLocalReadyRecordInput;
+    }
+  | {
+      kind: 'persisting_ready_record';
+      record: EcdsaRoleLocalReadyRecord;
+      storageKeyFacts: LoadEcdsaRoleLocalReadyRecordInput;
+    }
+  | {
+      kind: 'ready';
+      record: EcdsaRoleLocalReadyRecord;
+      storageKeyFacts?: never;
+    }
+  | {
+      kind: 'failed';
+      code: EcdsaProvisioningFailureCode;
+      message: string;
+      retryable: boolean;
+      record?: never;
+      storageKeyFacts?: never;
+    };
 
 export type SignerCryptoPort = {
   kind: 'signer_crypto';
   prepareEcdsaClientBootstrap(
     input: PrepareEcdsaClientBootstrapInput,
-  ): Promise<SignerCryptoResult<PrepareEcdsaClientBootstrapOutput, PrepareEcdsaClientBootstrapErrorCode>>;
+  ): Promise<
+    SignerCryptoResult<PrepareEcdsaClientBootstrapOutput, PrepareEcdsaClientBootstrapErrorCode>
+  >;
   finalizeEcdsaClientBootstrap(
     input: FinalizeEcdsaClientBootstrapInput,
-  ): Promise<SignerCryptoResult<FinalizeEcdsaClientBootstrapOutput, FinalizeEcdsaClientBootstrapErrorCode>>;
+  ): Promise<
+    SignerCryptoResult<FinalizeEcdsaClientBootstrapOutput, FinalizeEcdsaClientBootstrapErrorCode>
+  >;
+  buildEcdsaRoleLocalExportArtifact(
+    input: BuildEcdsaRoleLocalExportArtifactInput,
+  ): Promise<
+    SignerCryptoResult<
+      BuildEcdsaRoleLocalExportArtifactOutput,
+      BuildEcdsaRoleLocalExportArtifactErrorCode
+    >
+  >;
 };
 
 export type HttpTransport = {

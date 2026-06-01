@@ -19,29 +19,34 @@ export async function keygenEcdsa(args: {
   userId: string;
   chainTarget: ThresholdEcdsaChainTarget;
   workerCtx: WorkerOperationContext;
-}): Promise<{
-  ok: boolean;
-  keygenSessionId?: string;
-  rpId?: string;
-  keyHandle?: string;
-  ecdsaThresholdKeyId?: string;
-  clientVerifyingShareB64u?: string;
-  clientAdditiveShare32B64u?: string;
-  thresholdEcdsaPublicKeyB64u?: string;
-  ethereumAddress?: string;
-  relayerKeyId?: string;
-  relayerVerifyingShareB64u?: string;
-  participantIds?: number[];
-  chainId?: number;
-  code?: string;
-  message?: string;
-}> {
+}): Promise<
+  | {
+      ok: true;
+      keygenSessionId?: string;
+      rpId?: string;
+      keyHandle?: string;
+      ecdsaThresholdKeyId?: string;
+      clientVerifyingShareB64u?: string;
+      thresholdEcdsaPublicKeyB64u?: string;
+      ethereumAddress?: string;
+      relayerKeyId?: string;
+      relayerVerifyingShareB64u?: string;
+      participantIds?: number[];
+      chainId: number;
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    }
+> {
   const bootstrap = await bootstrapEcdsaSession({
     indexedDB: args.indexedDB,
     touchIdPrompt: args.touchIdPrompt,
     relayerUrl: args.relayerUrl,
     userId: String(args.userId || '').trim(),
     chainTarget: args.chainTarget,
+    authKind: 'passkey_prompt',
     workerCtx: args.workerCtx,
   });
   if (!bootstrap.ok) return bootstrap;
@@ -52,14 +57,11 @@ export async function keygenEcdsa(args: {
     keyHandle: bootstrap.keyHandle,
     ecdsaThresholdKeyId: bootstrap.ecdsaThresholdKeyId,
     clientVerifyingShareB64u: bootstrap.clientVerifyingShareB64u,
-    clientAdditiveShare32B64u: bootstrap.clientAdditiveShare32B64u,
     thresholdEcdsaPublicKeyB64u: bootstrap.thresholdEcdsaPublicKeyB64u,
     ethereumAddress: bootstrap.ethereumAddress,
     relayerKeyId: bootstrap.relayerKeyId,
     relayerVerifyingShareB64u: bootstrap.relayerVerifyingShareB64u,
     participantIds: bootstrap.participantIds,
-    ...(typeof bootstrap.chainId === 'number' ? { chainId: bootstrap.chainId } : {}),
-    ...(bootstrap.code ? { code: bootstrap.code } : {}),
-    ...(bootstrap.message ? { message: bootstrap.message } : {}),
+    chainId: bootstrap.chainId,
   };
 }

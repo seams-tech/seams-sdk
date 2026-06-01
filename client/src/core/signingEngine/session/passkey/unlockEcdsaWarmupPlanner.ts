@@ -103,6 +103,7 @@ export type ConfiguredTargetThresholdEcdsaWarmKey = {
   targetKey: string;
   keyHandle: string;
   key?: EvmFamilyEcdsaKeyIdentity;
+  passkeyCredentialIdB64u?: string;
 };
 
 export type CanonicalThresholdEcdsaWarmSessionContext = {
@@ -308,16 +309,19 @@ export function configuredTargetThresholdEcdsaWarmKey(args: {
   chainTarget: ThresholdEcdsaChainTarget;
   keyHandle: string;
   key?: EvmFamilyEcdsaKeyIdentity;
+  passkeyCredentialIdB64u?: string;
 }): ConfiguredTargetThresholdEcdsaWarmKey {
   const keyHandle = String(args.keyHandle || '').trim();
   if (!keyHandle) {
     throw new Error('[login] configured-target ECDSA warm key requires keyHandle');
   }
+  const passkeyCredentialIdB64u = String(args.passkeyCredentialIdB64u || '').trim();
   return {
     chainTarget: args.chainTarget,
     targetKey: thresholdEcdsaChainTargetKey(args.chainTarget),
     keyHandle,
     ...(args.key ? { key: args.key } : {}),
+    ...(passkeyCredentialIdB64u ? { passkeyCredentialIdB64u } : {}),
   };
 }
 

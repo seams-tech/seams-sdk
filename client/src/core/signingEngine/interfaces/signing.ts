@@ -1,9 +1,11 @@
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
-import type {
-  ThresholdEcdsaChainTarget,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaThresholdKeyId } from '../session/identity/laneIdentity';
-import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
+import type {
+  EcdsaRoleLocalPublicFacts,
+  EcdsaRoleLocalReadyRecord,
+  EcdsaRoleLocalReadyStateBlob,
+} from '@/core/platform/types';
 
 export type ChainNamespace = 'near' | 'evm' | 'tempo';
 
@@ -31,20 +33,8 @@ export type ThresholdEcdsaClientAdditiveShareHandle = {
 export type ThresholdEcdsaHssRoleLocalClientState = {
   kind: 'role_local_ready';
   artifactKind: 'ecdsa-hss-role-local-client-state';
-  contextBinding32B64u: string;
-  clientShare32B64u: string;
-  clientPublicKey33B64u: string;
-  clientShareRetryCounter: number;
-  relayerPublicKey33B64u: string;
-  groupPublicKey33B64u: string;
-  ethereumAddress: string;
-  clientCaitSithInput: {
-    participantId: 1;
-    mappedPrivateShare32B64u: string;
-    verifyingShare33B64u: string;
-  };
-  createdAtMs: number;
-  updatedAtMs: number;
+  stateBlob: EcdsaRoleLocalReadyStateBlob;
+  publicFacts: EcdsaRoleLocalPublicFacts;
 };
 
 export type ThresholdEcdsaBackendBindingCommon = {
@@ -60,52 +50,38 @@ export type ThresholdEcdsaBackendBindingCommon = {
   clientVerifyingShareB64u: string;
 };
 
-export type ThresholdEcdsaInlineRoleLocalBackendBinding =
-  ThresholdEcdsaBackendBindingCommon & {
-    materialKind: 'inline_role_local_ready';
-    /**
-     * Canonical client additive share for current browser signing.
-     * This remains an internal signer binding, not a public identity field.
-     */
-    clientAdditiveShare32B64u: string;
-    ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
-    /**
-     * In-development browser compatibility field. New consumers should use
-     * ecdsaRoleLocalReadyRecord and platform signer-crypto handles.
-     */
-    ecdsaHssRoleLocalClientState?: ThresholdEcdsaHssRoleLocalClientState;
-    clientAdditiveShareHandle?: never;
-  };
+export type ThresholdEcdsaEmailOtpWorkerBackendBinding = ThresholdEcdsaBackendBindingCommon & {
+  materialKind: 'email_otp_worker_handle';
+  /**
+   * Opaque handle for Email OTP-derived signing material owned by the Email OTP worker.
+   * The handle is not secret material; callers must ask the worker for a one-time byte handoff.
+   */
+  clientAdditiveShareHandle: ThresholdEcdsaClientAdditiveShareHandle;
+  ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
+  stateBlob?: never;
+  ecdsaHssRoleLocalClientState?: never;
+};
 
-export type ThresholdEcdsaEmailOtpWorkerBackendBinding =
+export type ThresholdEcdsaRoleLocalReadyStateBlobBackendBinding =
   ThresholdEcdsaBackendBindingCommon & {
-    materialKind: 'email_otp_worker_handle';
-    /**
-     * Opaque handle for Email OTP-derived signing material owned by the Email OTP worker.
-     * The handle is not secret material; callers must ask the worker for a one-time byte handoff.
-     */
-    clientAdditiveShareHandle: ThresholdEcdsaClientAdditiveShareHandle;
+    materialKind: 'role_local_ready_state_blob';
+    stateBlob: EcdsaRoleLocalReadyStateBlob;
     ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
-    /**
-     * In-development browser compatibility field. New consumers should use
-     * ecdsaRoleLocalReadyRecord and worker-owned material handles.
-     */
-    ecdsaHssRoleLocalClientState?: ThresholdEcdsaHssRoleLocalClientState;
-    clientAdditiveShare32B64u?: never;
-  };
-
-export type ThresholdEcdsaMetadataOnlyBackendBinding =
-  ThresholdEcdsaBackendBindingCommon & {
-    materialKind: 'metadata_only';
-    clientAdditiveShare32B64u?: never;
     clientAdditiveShareHandle?: never;
-    ecdsaRoleLocalReadyRecord?: never;
     ecdsaHssRoleLocalClientState?: never;
   };
 
+export type ThresholdEcdsaMetadataOnlyBackendBinding = ThresholdEcdsaBackendBindingCommon & {
+  materialKind: 'metadata_only';
+  stateBlob?: never;
+  clientAdditiveShareHandle?: never;
+  ecdsaRoleLocalReadyRecord?: never;
+  ecdsaHssRoleLocalClientState?: never;
+};
+
 export type ThresholdEcdsaBackendBinding =
-  | ThresholdEcdsaInlineRoleLocalBackendBinding
   | ThresholdEcdsaEmailOtpWorkerBackendBinding
+  | ThresholdEcdsaRoleLocalReadyStateBlobBackendBinding
   | ThresholdEcdsaMetadataOnlyBackendBinding;
 
 export type KeyRef =
@@ -158,7 +134,7 @@ export type SignRequest =
       label?: string;
       /**
        * Optional serialized WebAuthn credential collected by touchConfirm.
-       * When present, engines must not call `navigator.credentials.get`.
+       * When present, engines must use it instead of collecting another credential.
        */
       credential?: WebAuthnAuthenticationCredential;
     };

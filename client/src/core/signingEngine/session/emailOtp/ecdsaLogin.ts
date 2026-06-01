@@ -427,6 +427,10 @@ export async function loginWithEmailOtpEcdsaCapability(
     ),
     DEV_DEFAULT_UNLOCK_REMAINING_USES,
   );
+  const requestedStepUpSignatureUses = Math.max(
+    1,
+    Math.floor(Number(configuredRemainingUses) || 1),
+  );
   const unlockBudgetPolicy =
     resolveWalletUnlockBudgetPolicyFromRequestedUses({
       requestedRemainingUses,
@@ -441,6 +445,7 @@ export async function loginWithEmailOtpEcdsaCapability(
     operationId: normalizeStepUpOperationId(
       args.operation || WALLET_EMAIL_OTP_TRANSACTION_SIGN_OPERATION,
     ),
+    requiredSignatureUses: requestedStepUpSignatureUses,
   });
   const remainingUses =
     emailOtpAuthRetention === 'single_use'

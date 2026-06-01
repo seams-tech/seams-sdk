@@ -7,8 +7,6 @@ import {
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { ThresholdEcdsaHssRoleLocalClientState } from '../interfaces/signing';
-import type { ThresholdEcdsaHssRoleLocalClientBootstrap } from '../threshold/crypto/hssClientSignerWasm';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
@@ -17,6 +15,12 @@ import type {
   WalletRegistrationEcdsaClientBootstrap,
   WalletRegistrationEcdsaPrepareContext,
 } from '@/core/rpcClients/relayer/walletRegistration';
+import type { EcdsaPreparePublicFacts, EcdsaRoleLocalPendingStateBlob } from '@/core/platform';
+import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
+import type {
+  GeneratedPrepareEcdsaClientBootstrapCommand,
+  GeneratedPrepareEcdsaClientBootstrapOutput,
+} from '@/core/platform/signerCoreCommandAdapters';
 
 /**
  * Control messages exchanged between worker shims and the main thread.
@@ -361,11 +365,19 @@ export interface EmailOtpWorkerOperationMap {
     payload: {
       prepare: WalletRegistrationEcdsaPrepareContext;
       clientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
+      chainTarget: ThresholdEcdsaChainTarget;
     };
     result: {
       clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
-      localClientBootstrap: ThresholdEcdsaHssRoleLocalClientBootstrap;
+      pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
+      preparePublicFacts: EcdsaPreparePublicFacts;
     };
+  };
+  prepareEcdsaClientBootstrapFromEmailOtpHandle: {
+    payload: {
+      command: GeneratedPrepareEcdsaClientBootstrapCommand;
+    };
+    result: GeneratedPrepareEcdsaClientBootstrapOutput;
   };
   verifyEmailOtpCode: {
     payload: {
@@ -607,7 +619,7 @@ export interface EmailOtpWorkerOperationMap {
       signingRootId: string;
       signingRootVersion?: string;
       relayerKeyId: string;
-      roleLocalState: ThresholdEcdsaHssRoleLocalClientState;
+      readyRecord: EcdsaRoleLocalReadyRecord;
       thresholdSessionId: string;
       walletSigningSessionId: string;
       thresholdExpiresAtMs: number;
@@ -703,7 +715,7 @@ export type HssWorkerOperationType =
   | typeof WorkerRequestType.OpenThresholdEd25519HssClientOutput
   | typeof WorkerRequestType.OpenThresholdEd25519HssSeedOutput
   | typeof WorkerRequestType.BuildThresholdEd25519SeedExportArtifact
-  | typeof WorkerRequestType.BuildThresholdEcdsaHssRoleLocalClientBootstrap
+  | typeof WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare
   | typeof WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap
   | typeof WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap
   | typeof WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact;

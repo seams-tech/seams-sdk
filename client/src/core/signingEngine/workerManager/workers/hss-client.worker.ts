@@ -5,10 +5,10 @@ import {
   WorkerResponseType,
 } from '@/core/types/signer-worker';
 import initHssClientSigner, {
-  threshold_ecdsa_hss_role_local_client_bootstrap,
-  threshold_ecdsa_hss_role_local_export_artifact,
-  threshold_ecdsa_hss_role_local_finalize_client_bootstrap,
-  threshold_ecdsa_hss_role_local_prepare_client_bootstrap,
+  build_ecdsa_role_local_export_artifact_v1,
+  finalize_ecdsa_client_bootstrap_v1,
+  open_ecdsa_role_local_signing_share_v1,
+  prepare_ecdsa_client_bootstrap_v1,
   derive_threshold_ed25519_hss_client_inputs,
   threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact,
   threshold_ed25519_hss_derive_client_output_mask,
@@ -156,25 +156,25 @@ async function handleHssClientMessage(data: unknown): Promise<{
         type: WorkerResponseType.BuildThresholdEd25519SeedExportArtifactSuccess,
         payload: threshold_ed25519_seed_export_artifact_from_seed(payload),
       };
-    case WorkerRequestType.BuildThresholdEcdsaHssRoleLocalClientBootstrap:
+    case WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare:
       return {
-        type: WorkerResponseType.BuildThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
-        payload: threshold_ecdsa_hss_role_local_client_bootstrap(payload),
+        type: WorkerResponseType.OpenThresholdEcdsaHssRoleLocalSigningShareSuccess,
+        payload: open_ecdsa_role_local_signing_share_v1(payload),
       };
     case WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap:
       return {
         type: WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
-        payload: threshold_ecdsa_hss_role_local_prepare_client_bootstrap(payload),
+        payload: JSON.parse(prepare_ecdsa_client_bootstrap_v1(JSON.stringify(payload))),
       };
     case WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap:
       return {
         type: WorkerResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
-        payload: threshold_ecdsa_hss_role_local_finalize_client_bootstrap(payload),
+        payload: JSON.parse(finalize_ecdsa_client_bootstrap_v1(JSON.stringify(payload))),
       };
     case WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact:
       return {
         type: WorkerResponseType.BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess,
-        payload: threshold_ecdsa_hss_role_local_export_artifact(payload),
+        payload: JSON.parse(build_ecdsa_role_local_export_artifact_v1(JSON.stringify(payload))),
       };
     default:
       throw new Error(`Unsupported HSS client request type: ${requestType}`);

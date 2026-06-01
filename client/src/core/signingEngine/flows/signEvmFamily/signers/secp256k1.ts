@@ -9,7 +9,6 @@ import type {
   ThresholdEcdsaPresignPoolPolicy,
   ThresholdEcdsaPresignPoolPolicyInput,
 } from '@/core/types/seams';
-import { base64UrlDecode } from '@shared/utils/base64';
 import { authorizeEcdsaWithSession } from '../../../threshold/ecdsa/authorize';
 import {
   clearThresholdEcdsaClientPresignaturesForLane,
@@ -18,6 +17,7 @@ import {
   scheduleThresholdEcdsaClientPresignaturePoolRefill,
   signThresholdEcdsaDigestWithPool,
 } from '../../../threshold/ecdsa/presignPool';
+import { openEcdsaRoleLocalSigningShareWasm } from '../../../threshold/crypto/hssClientSignerWasm';
 import type { ThresholdEcdsaClientPresignatureRefillScheduleResult } from '../../../threshold/ecdsa/presignPool';
 import { createWarmSessionCapabilityReader } from '../../../session/warmCapabilities/capabilityReader';
 import {
@@ -119,7 +119,7 @@ function readySignerSessionEmailOtpWorkerShareChain(
   signerSession: ReadyEcdsaSignerSession,
 ): EcdsaSessionChain | null {
   switch (signerSession.clientShare.kind) {
-    case 'inline_client_share':
+    case 'role_local_ready_state_blob':
       return null;
     case 'email_otp_worker_share':
       return signerSession.clientShare.handle.laneIdentity.chainTarget.kind;
@@ -523,21 +523,14 @@ export class Secp256k1Engine {
           remainingUses: claimedShare.remainingUses,
           expiresAtMs: claimedShare.expiresAtMs,
         });
-      } else {
-        try {
-          clientSigningShare32 = base64UrlDecode(
-            signerSession.clientShare.clientAdditiveShare32B64u,
-          );
-        } catch {
-          throw new Error(
-            '[multichain] backend clientAdditiveShare32B64u must be valid base64url; reconnect threshold session',
-          );
-        }
-        if (clientSigningShare32.length !== 32) {
-          throw new Error(
-            '[multichain] backend clientAdditiveShare32B64u must decode to 32 bytes; reconnect threshold session',
-          );
-        }
+      } else if (signerSession.clientShare.kind === 'role_local_ready_state_blob') {
+        clientSigningShare32 = await openEcdsaRoleLocalSigningShareWasm({
+          stateBlob: signerSession.clientShare.stateBlob,
+          workerCtx: this.workerCtx,
+        });
+      }
+      if (!clientSigningShare32) {
+        throw new Error('[multichain] threshold-ecdsa signer session is missing signing material');
       }
 
       const refillBaseArgs = {

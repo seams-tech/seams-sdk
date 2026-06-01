@@ -11,6 +11,14 @@ export { WorkerRequestType, WorkerResponseType }; // Export the WASM enums direc
 import type { StripFree } from './index.js';
 import type { TransactionContext } from './rpc.js';
 import type { ActionArgsWasm } from './actions.js';
+import type {
+  BuildEcdsaRoleLocalExportArtifactCommand as GeneratedBuildEcdsaRoleLocalExportArtifactCommand,
+  BuildEcdsaRoleLocalExportArtifactOutput as GeneratedBuildEcdsaRoleLocalExportArtifactOutput,
+  FinalizeEcdsaClientBootstrapCommand as GeneratedFinalizeEcdsaClientBootstrapCommand,
+  FinalizeEcdsaClientBootstrapOutput as GeneratedFinalizeEcdsaClientBootstrapOutput,
+  PrepareEcdsaClientBootstrapCommand as GeneratedPrepareEcdsaClientBootstrapCommand,
+  PrepareEcdsaClientBootstrapOutput as GeneratedPrepareEcdsaClientBootstrapOutput,
+} from '../platform/generated/signerCoreCommands.js';
 
 export type WasmTransaction = wasmModule.WasmTransaction;
 export type WasmSignature = wasmModule.WasmSignature;
@@ -196,91 +204,24 @@ export interface WasmBuildThresholdEd25519SeedExportArtifactResult {
   publicKey: string;
   privateKey: string;
 }
-export interface WasmBuildThresholdEcdsaHssRoleLocalClientBootstrapRequest {
-  walletId: string;
-  rpId: string;
-  ecdsaThresholdKeyId: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  keyPurpose: string;
-  keyVersion: string;
-  clientRootShare32?: Uint8Array;
-  clientRootShare32B64u?: string;
+export interface WasmOpenThresholdEcdsaHssRoleLocalSigningShareRequest {
+  stateBlobB64u: string;
 }
-export interface WasmBuildThresholdEcdsaHssRoleLocalClientBootstrapResult {
-  walletId: string;
-  rpId: string;
-  ecdsaThresholdKeyId: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  keyPurpose: string;
-  keyVersion: string;
-  contextBinding32B64u: string;
-  clientShare32B64u: string;
-  clientPublicKey33B64u: string;
-  clientShareRetryCounter: number;
-  mappedPrivateShare32B64u: string;
-  verifyingShare33B64u: string;
+export interface WasmOpenThresholdEcdsaHssRoleLocalSigningShareResult {
+  signingShare32B64u: string;
 }
 export type WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest =
-  WasmBuildThresholdEcdsaHssRoleLocalClientBootstrapRequest;
-export interface WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapResult {
-  walletId: string;
-  rpId: string;
-  ecdsaThresholdKeyId: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  keyPurpose: string;
-  keyVersion: string;
-  pendingStateBlobB64u: string;
-  contextBinding32B64u: string;
-  hssClientSharePublicKey33B64u: string;
-  clientVerifyingShareB64u: string;
-  clientShareRetryCounter: number;
-  participantId: 1;
-}
-export interface WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest {
-  pendingStateBlobB64u: string;
-  relayerKeyId: string;
-  relayerPublicKey33B64u: string;
-  groupPublicKey33B64u: string;
-  ethereumAddress: string;
-  relayerShareRetryCounter?: number;
-}
-export interface WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapResult {
-  stateBlobB64u: string;
-  contextBinding32B64u: string;
-  hssClientSharePublicKey33B64u: string;
-  clientVerifyingShareB64u: string;
-  relayerPublicKey33B64u: string;
-  groupPublicKey33B64u: string;
-  ethereumAddress: string;
-  clientShareRetryCounter: number;
-  relayerShareRetryCounter: number;
-}
-export interface WasmBuildThresholdEcdsaHssRoleLocalExportArtifactRequest {
-  walletId: string;
-  rpId: string;
-  ecdsaThresholdKeyId: string;
-  signingRootId: string;
-  signingRootVersion: string;
-  keyPurpose: string;
-  keyVersion: string;
-  clientRootShare32?: Uint8Array;
-  clientRootShare32B64u?: string;
-  serverExportShare32B64u: string;
-  contextBinding32B64u: string;
-  clientPublicKey33B64u: string;
-  relayerPublicKey33B64u: string;
-  groupPublicKey33B64u: string;
-  ethereumAddress: string;
-  clientShareRetryCounter: number;
-}
-export interface WasmBuildThresholdEcdsaHssRoleLocalExportArtifactResult {
-  publicKeyHex: string;
-  privateKeyHex: string;
-  ethereumAddress: string;
-}
+  GeneratedPrepareEcdsaClientBootstrapCommand;
+export type WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapResult =
+  GeneratedPrepareEcdsaClientBootstrapOutput;
+export type WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest =
+  GeneratedFinalizeEcdsaClientBootstrapCommand;
+export type WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapResult =
+  GeneratedFinalizeEcdsaClientBootstrapOutput;
+export type WasmBuildThresholdEcdsaHssRoleLocalExportArtifactRequest =
+  GeneratedBuildEcdsaRoleLocalExportArtifactCommand;
+export type WasmBuildThresholdEcdsaHssRoleLocalExportArtifactResult =
+  GeneratedBuildEcdsaRoleLocalExportArtifactOutput;
 export interface WasmSignTransactionsWithActionsRequest {
   rpcCall: RpcCallPayload;
   sessionId: string;
@@ -348,7 +289,6 @@ export type WasmRequestPayload =
   | WasmOpenThresholdEd25519HssClientOutputRequest
   | WasmOpenThresholdEd25519HssSeedOutputRequest
   | WasmBuildThresholdEd25519SeedExportArtifactRequest
-  | WasmBuildThresholdEcdsaHssRoleLocalClientBootstrapRequest
   | WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest
   | WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest
   | WasmBuildThresholdEcdsaHssRoleLocalExportArtifactRequest
@@ -418,10 +358,10 @@ export interface WorkerRequestTypeMap {
     request: WasmBuildThresholdEd25519SeedExportArtifactRequest;
     result: WasmBuildThresholdEd25519SeedExportArtifactResult;
   };
-  [WorkerRequestType.BuildThresholdEcdsaHssRoleLocalClientBootstrap]: {
-    type: WorkerRequestType.BuildThresholdEcdsaHssRoleLocalClientBootstrap;
-    request: WasmBuildThresholdEcdsaHssRoleLocalClientBootstrapRequest;
-    result: WasmBuildThresholdEcdsaHssRoleLocalClientBootstrapResult;
+  [WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare]: {
+    type: WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare;
+    request: WasmOpenThresholdEcdsaHssRoleLocalSigningShareRequest;
+    result: WasmOpenThresholdEcdsaHssRoleLocalSigningShareResult;
   };
   [WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap]: {
     type: WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap;
@@ -654,7 +594,7 @@ export interface RequestResponseMap {
   [WorkerRequestType.OpenThresholdEd25519HssClientOutput]: WasmOpenThresholdEd25519HssClientOutputResult;
   [WorkerRequestType.OpenThresholdEd25519HssSeedOutput]: WasmOpenThresholdEd25519HssSeedOutputResult;
   [WorkerRequestType.BuildThresholdEd25519SeedExportArtifact]: WasmBuildThresholdEd25519SeedExportArtifactResult;
-  [WorkerRequestType.BuildThresholdEcdsaHssRoleLocalClientBootstrap]: WasmBuildThresholdEcdsaHssRoleLocalClientBootstrapResult;
+  [WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare]: WasmOpenThresholdEcdsaHssRoleLocalSigningShareResult;
   [WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap]: WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapResult;
   [WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap]: WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapResult;
   [WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact]: WasmBuildThresholdEcdsaHssRoleLocalExportArtifactResult;
@@ -752,7 +692,6 @@ export function isWorkerSuccess<T extends RequestTypeKey>(
     response.type === WorkerResponseType.OpenThresholdEd25519HssClientOutputSuccess ||
     response.type === WorkerResponseType.OpenThresholdEd25519HssSeedOutputSuccess ||
     response.type === WorkerResponseType.BuildThresholdEd25519SeedExportArtifactSuccess ||
-    response.type === WorkerResponseType.BuildThresholdEcdsaHssRoleLocalClientBootstrapSuccess ||
     response.type === WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess ||
     response.type === WorkerResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess ||
     response.type === WorkerResponseType.BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess ||
@@ -778,7 +717,6 @@ export function isWorkerError<T extends RequestTypeKey>(
     response.type === WorkerResponseType.OpenThresholdEd25519HssClientOutputFailure ||
     response.type === WorkerResponseType.OpenThresholdEd25519HssSeedOutputFailure ||
     response.type === WorkerResponseType.BuildThresholdEd25519SeedExportArtifactFailure ||
-    response.type === WorkerResponseType.BuildThresholdEcdsaHssRoleLocalClientBootstrapFailure ||
     response.type === WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapFailure ||
     response.type === WorkerResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure ||
     response.type === WorkerResponseType.BuildThresholdEcdsaHssRoleLocalExportArtifactFailure ||

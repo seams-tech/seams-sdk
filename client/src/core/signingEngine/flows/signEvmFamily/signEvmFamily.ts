@@ -111,6 +111,7 @@ import {
 import {
   isEmailOtpSigningAuthPlan,
   isPasskeySigningAuthPlan,
+  isWarmSessionSigningAuthPlan,
 } from '../../stepUpConfirmation/types';
 import type { EvmFamilyThresholdEcdsaStepUp } from './requireEvmFamilyStepUpAuth';
 import type { SelectedEcdsaLane } from '../../session/identity/laneIdentity';
@@ -928,6 +929,64 @@ async function signEvmFamilyAttempt(
           senderSignatureAlgorithm: args.request.senderSignatureAlgorithm,
         });
   const { signingAuthPlan, signingSessionPlan, emailOtpSigning } = authPlanningResult;
+  if (
+    args.request.senderSignatureAlgorithm === 'secp256k1' &&
+    preparedEcdsaSigningSession &&
+    signingSessionPlan?.kind === SigningSessionPlanKind.WarmSession &&
+    isWarmSessionSigningAuthPlan(signingAuthPlan) &&
+    preparedEcdsaSigningSession.material.kind === 'ready_to_sign' &&
+    preparedEcdsaSigningSession.budget.kind !== 'BudgetAdmitted'
+  ) {
+    try {
+      const admittedWarmSession = await admitPreparedEcdsaTransactionBudget(
+        preparedEcdsaSigningSession,
+        preparedEcdsaSigningSession.budgetStatusAuth,
+      );
+      if (admittedWarmSession.budget.kind === 'BudgetAdmitted') {
+        preparedEcdsaSigningSession = admittedWarmSession;
+        ecdsaSigningLane = admittedWarmSession.signingLane;
+        selectedEcdsaAuthMethod = admittedWarmSession.authMethod;
+        thresholdEcdsaRecord = getEcdsaMaterialRecord(admittedWarmSession.material);
+        emitSigningSessionFlowTrace('evm-family', {
+          stage: 'ecdsa_attempt.warm_session_budget_admitted',
+          accountId: walletId,
+          chain: args.request.chain,
+          chainTarget: requestChainTarget,
+          lane: summarizeEvmFamilyEcdsaLane(admittedWarmSession.signingLane),
+          authMethod: admittedWarmSession.authMethod,
+          budgetKind: admittedWarmSession.budget.kind,
+        });
+      }
+    } catch (error: unknown) {
+      emitSigningSessionFlowFailure('evm-family', {
+        stage: 'ecdsa_attempt.warm_session_budget_admission_failed',
+        accountId: walletId,
+        chain: args.request.chain,
+        chainTarget: requestChainTarget,
+        lane: summarizeEvmFamilyEcdsaLane(preparedEcdsaSigningSession.signingLane),
+        authMethod: preparedEcdsaSigningSession.authMethod,
+        error: error instanceof Error ? error.message : String(error || 'unknown error'),
+      });
+      if (
+        preparedEcdsaSigningSession.authMethod === SIGNER_AUTH_METHODS.emailOtp &&
+        resolvedAccountAuth.primaryAuthMethod === SIGNER_AUTH_METHODS.emailOtp &&
+        !attempt.retryingFreshAuth
+      ) {
+        emitEvmFamilyFreshAuthRetryEvent({
+          walletId,
+          chain: args.request.chain,
+          accountAuth: resolvedAccountAuth,
+          onEvent: args.onEvent,
+        });
+        return await signEvmFamilyAttempt(deps, args, {
+          forceFreshAuth: true,
+          operationIds,
+          retryingFreshAuth: true,
+          signingSessionCoordinator,
+        });
+      }
+    }
+  }
   const emailOtpSigningForFlow = emailOtpSigning
     ? {
         ...emailOtpSigning,

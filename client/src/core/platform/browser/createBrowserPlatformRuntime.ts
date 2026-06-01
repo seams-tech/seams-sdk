@@ -5,10 +5,10 @@ import {
   PASSKEY_PRF_SECOND_SALT_V1,
 } from '@shared/utils/signingSessionSeal';
 import { errorMessage } from '@shared/utils/errors';
-import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst } from '../../signingEngine/session/passkey/ecdsaClientRoot';
 import {
-  finalizeThresholdEcdsaHssRoleLocalClientBootstrapWasm,
-  prepareThresholdEcdsaHssRoleLocalClientBootstrapWasm,
+  finalizeEcdsaClientBootstrapCommandWasm,
+  prepareEcdsaClientBootstrapCommandWasm,
+  buildEcdsaRoleLocalExportArtifactCommandWasm,
 } from '../../signingEngine/threshold/crypto/hssClientSignerWasm';
 import type { WorkerOperationContext } from '../../signingEngine/workerManager/executeWorkerOperation';
 import {
@@ -31,16 +31,25 @@ import {
   parseEcdsaRoleLocalReadyRecord,
   parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
   serializeEcdsaRoleLocalReadyRecord,
-} from '../ecdsaRoleLocalRecords';
+} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+import {
+  parseGeneratedFinalizeEcdsaClientBootstrapOutput,
+  parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput,
+  parseGeneratedPrepareEcdsaClientBootstrapOutput,
+  toGeneratedBuildEcdsaRoleLocalExportArtifactCommand,
+  toGeneratedFinalizeEcdsaClientBootstrapCommand,
+  toGeneratedPrepareEcdsaClientBootstrapCommand,
+} from '../signerCoreCommandAdapters';
+import { assertNeverPlatform } from '../types';
 import type {
   AuthenticatorOperation,
   AuthenticatorResult,
   AuthenticatorPort,
+  BuildEcdsaRoleLocalExportArtifactErrorCode,
+  BuildEcdsaRoleLocalExportArtifactOutput,
   ClockPort,
   CleanupMalformedEcdsaRoleLocalRecordResult,
   DurableRecordStore,
-  EcdsaRoleLocalPendingStateBlob,
-  EcdsaRoleLocalReadyStateBlob,
   FinalizeEcdsaClientBootstrapErrorCode,
   FinalizeEcdsaClientBootstrapOutput,
   HttpTransport,
@@ -56,10 +65,7 @@ import type {
   SignerCryptoInvocationErrorCode,
   SignerCryptoResult,
 } from '../types';
-import type {
-  EcdsaHssClientSharePublicKey33B64u,
-  EcdsaRelayerHssPublicKey33B64u,
-} from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import type { EcdsaRelayerHssPublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 
 type BrowserPlatformRuntimeDeps = {
   indexedDB?: typeof IndexedDBManager;
@@ -139,11 +145,6 @@ function requireBase64UrlBytes(value: string, field: string, byteLength: number)
   return normalized;
 }
 
-function parseHssClientSharePublicKey33B64u(value: string): EcdsaHssClientSharePublicKey33B64u {
-  const normalized = requireBase64UrlBytes(value, 'ECDSA HSS client-share public key', 33);
-  return normalized as EcdsaHssClientSharePublicKey33B64u;
-}
-
 function parsePublicKey33B64u(value: string, field: string): string {
   return requireBase64UrlBytes(value, field, 33);
 }
@@ -216,6 +217,22 @@ function mapFinalizeEcdsaCommandError(
   return signerCryptoCommandFailure('invalid_pending_state', message);
 }
 
+function mapBuildEcdsaRoleLocalExportCommandError(
+  error: unknown,
+): SignerCryptoCommandFailure<BuildEcdsaRoleLocalExportArtifactErrorCode> {
+  const message = errorMessage(error);
+  if (/authorization|authorized|credential|authSubject/i.test(message)) {
+    return signerCryptoCommandFailure('export_not_authorized', message);
+  }
+  if (/public facts|public key|public identity|ethereum address|context binding|context/i.test(message)) {
+    return signerCryptoCommandFailure('invalid_public_identity', message);
+  }
+  if (/ready state|state blob|stateBlob|blob magic|trailing bytes|decode/i.test(message)) {
+    return signerCryptoCommandFailure('invalid_ready_state', message);
+  }
+  return signerCryptoCommandFailure('crypto_failure', message);
+}
+
 function parseRelayerPublicIdentity(input: unknown): BrowserRelayerPublicIdentity {
   if (!isRecord(input)) {
     throw new Error('ECDSA relayer public identity must be an object');
@@ -248,14 +265,20 @@ function createBrowserDurableRecordStore(
           const parsed = parseEcdsaRoleLocalReadyRecord(stored);
           if (!ecdsaRoleLocalReadyRecordMatchesInput({ record: parsed, input })) {
             return {
-              ok: false,
-              code: 'malformed_record',
-              message: 'Stored ECDSA role-local record identity does not match lookup input',
+              ok: true,
+              value: {
+                kind: 'malformed',
+                cleanup: {
+                  ...input,
+                  reason: 'Stored ECDSA role-local record identity does not match lookup input',
+                },
+                message: 'Stored ECDSA role-local record identity does not match lookup input',
+              },
             };
           }
-          return { ok: true, value: parsed };
+          return { ok: true, value: { kind: 'found', record: parsed } };
         }
-        if (!ecdsaSessionStore) return { ok: true, value: null };
+        if (!ecdsaSessionStore) return { ok: true, value: { kind: 'not_found' } };
         const candidates = listThresholdEcdsaSessionRecordsForWalletTarget(ecdsaSessionStore, {
           walletId: input.walletId,
           chainTarget: input.chainTarget,
@@ -268,26 +291,40 @@ function createBrowserDurableRecordStore(
             continue;
           }
           if (ecdsaRoleLocalReadyRecordMatchesInput({ record: parsed, input })) {
-            return { ok: true, value: parsed };
+            return { ok: true, value: { kind: 'found', record: parsed } };
           }
         }
-        return { ok: true, value: null };
+        return { ok: true, value: { kind: 'not_found' } };
       } catch (error) {
+        const message = errorMessage(error);
         return {
-          ok: false,
-          code: 'malformed_record',
-          message: errorMessage(error),
+          ok: true,
+          value: {
+            kind: 'malformed',
+            cleanup: {
+              ...input,
+              reason: message,
+            },
+            message,
+          },
         };
       }
     },
     async persistEcdsaRoleLocalReadyRecord(input): Promise<PersistEcdsaRoleLocalReadyRecordResult> {
       try {
         const record = parseEcdsaRoleLocalReadyRecord(input.record);
+        if (!ecdsaRoleLocalReadyRecordMatchesInput({ record, input: input.storageKeyFacts })) {
+          return {
+            ok: false,
+            code: 'invalid_record',
+            message: 'ECDSA role-local ready record identity does not match storageKeyFacts',
+          };
+        }
         await indexedDB.setAppState(
-          ecdsaRoleLocalReadyRecordStorageKey(record.publicFacts),
+          ecdsaRoleLocalReadyRecordStorageKey(input.storageKeyFacts),
           serializeEcdsaRoleLocalReadyRecord(record),
         );
-        return { ok: true, value: undefined };
+        return { ok: true, value: { kind: 'persisted' } };
       } catch (error) {
         return {
           ok: false,
@@ -308,7 +345,7 @@ function createBrowserDurableRecordStore(
             keyHandle: input.keyHandle,
           });
         }
-        return { ok: true, value: undefined };
+        return { ok: true, value: { kind: 'deleted' } };
       } catch (error) {
         return {
           ok: false,
@@ -372,6 +409,11 @@ function requiredPrfFailure(): AuthenticatorResult {
   };
 }
 
+function requiredPrfSerializationFailure(error: unknown): AuthenticatorResult | null {
+  if (/Missing PRF/i.test(errorMessage(error))) return requiredPrfFailure();
+  return null;
+}
+
 function isPublicKeyCredential(value: Credential | null): value is PublicKeyCredential {
   return Boolean(
     value &&
@@ -420,7 +462,16 @@ function createBrowserAuthenticatorPort(
                 message: 'Passkey creation returned an invalid credential',
               };
             }
-            const serialized = serializeRegistrationCredentialWithPRF({ credential });
+            let serialized: ReturnType<typeof serializeRegistrationCredentialWithPRF>;
+            try {
+              serialized = serializeRegistrationCredentialWithPRF({ credential });
+            } catch (error) {
+              if (operation.requirePrfFirst) {
+                const prfFailure = requiredPrfSerializationFailure(error);
+                if (prfFailure) return prfFailure;
+              }
+              throw error;
+            }
             const prfFirstB64u = getPrfFirstB64uFromCredential(serialized);
             if (operation.requirePrfFirst && !prfFirstB64u) return requiredPrfFailure();
             if (operation.requirePrfFirst) {
@@ -471,7 +522,16 @@ function createBrowserAuthenticatorPort(
                 message: 'Passkey assertion returned an invalid credential',
               };
             }
-            const serialized = serializeAuthenticationCredentialWithPRF({ credential });
+            let serialized: ReturnType<typeof serializeAuthenticationCredentialWithPRF>;
+            try {
+              serialized = serializeAuthenticationCredentialWithPRF({ credential });
+            } catch (error) {
+              if (operation.requirePrfFirst) {
+                const prfFailure = requiredPrfSerializationFailure(error);
+                if (prfFailure) return prfFailure;
+              }
+              throw error;
+            }
             const prfFirstB64u = getPrfFirstB64uFromCredential(serialized);
             if (operation.requirePrfFirst && !prfFirstB64u) return requiredPrfFailure();
             if (operation.requirePrfFirst) {
@@ -524,60 +584,44 @@ function createBrowserSignerCryptoPort(
           'ECDSA client bootstrap worker context is unavailable',
         );
       }
-      if (input.secretSource.kind !== 'webauthn_prf_first') {
-        return signerCryptoCommandFailure(
-          'unsupported_secret_source',
-          `Browser ECDSA bootstrap does not support ${input.secretSource.kind} yet`,
-        );
-      }
       try {
-        const clientRootShare32B64u =
-          await derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst(
-            input.secretSource.prfFirstB64u,
-          );
-        const prepared = await prepareThresholdEcdsaHssRoleLocalClientBootstrapWasm({
-          context: {
-            walletId: input.context.walletId,
-            rpId: input.context.rpId,
-            ecdsaThresholdKeyId: input.context.ecdsaThresholdKeyId,
-            signingRootId: input.context.signingRootId,
-            signingRootVersion: input.context.signingRootVersion,
-            keyPurpose: input.context.keyPurpose,
-            keyVersion: input.context.keyVersion,
-          },
-          clientRootShare32B64u,
+        const generatedCommand = toGeneratedPrepareEcdsaClientBootstrapCommand(input);
+        switch (generatedCommand.secretSource.kind) {
+          case 'email_otp_worker_session': {
+            const generatedOutput = await workerCtx.requestWorkerOperation({
+              kind: 'emailOtp',
+              request: {
+                type: 'prepareEcdsaClientBootstrapFromEmailOtpHandle',
+                timeoutMs: 60_000,
+                payload: { command: generatedCommand },
+              },
+            });
+            return {
+              ok: true,
+              value: parseGeneratedPrepareEcdsaClientBootstrapOutput(generatedOutput),
+            };
+          }
+          case 'webauthn_prf_first':
+            break;
+          default:
+            return assertNeverPlatform(generatedCommand.secretSource);
+        }
+        const generatedOutput = await prepareEcdsaClientBootstrapCommandWasm({
+          command: generatedCommand,
           workerCtx,
         });
-        const hssClientSharePublicKey33B64u = parseHssClientSharePublicKey33B64u(
-          prepared.hssClientSharePublicKey33B64u,
-        );
-        const pendingStateBlob: EcdsaRoleLocalPendingStateBlob = {
-          kind: 'ecdsa_role_local_pending_state_blob_v1',
-          curve: 'secp256k1',
-          encoding: 'base64url',
-          producer: 'signer_core',
-          stateBlobB64u: prepared.pendingStateBlobB64u,
-        };
         return {
           ok: true,
-          value: {
-            pendingStateBlob,
-            clientBootstrap: {
-              contextBinding32B64u: prepared.contextBinding32B64u,
-              hssClientSharePublicKey33B64u,
-              clientShareRetryCounter: prepared.clientShareRetryCounter,
-              participantId: prepared.participantId,
-            },
-            publicFacts: {
-              hssClientSharePublicKey33B64u,
-              clientVerifyingShareB64u: prepared.clientVerifyingShareB64u,
-            },
-          },
+          value: parseGeneratedPrepareEcdsaClientBootstrapOutput(generatedOutput),
         };
       } catch (error) {
+        const message = errorMessage(error);
+        if (message.includes('unsupported ECDSA bootstrap secret source')) {
+          return signerCryptoCommandFailure('unsupported_secret_source', message);
+        }
         return (
           mapSignerCryptoInvocationError(error) ||
-          signerCryptoCommandFailure('crypto_failure', errorMessage(error))
+          signerCryptoCommandFailure('crypto_failure', message)
         );
       }
     },
@@ -610,47 +654,59 @@ function createBrowserSignerCryptoPort(
         );
       }
       try {
-        const finalized = await finalizeThresholdEcdsaHssRoleLocalClientBootstrapWasm({
-          pendingStateBlobB64u: input.pendingStateBlob.stateBlobB64u,
-          relayerKeyId: relayerPublicIdentity.relayerKeyId,
-          relayerPublicKey33B64u: relayerPublicIdentity.relayerPublicKey33B64u,
-          groupPublicKey33B64u: relayerPublicIdentity.groupPublicKey33B64u,
-          ethereumAddress: relayerPublicIdentity.ethereumAddress,
-          relayerShareRetryCounter: 0,
+        const generatedCommand = toGeneratedFinalizeEcdsaClientBootstrapCommand(input);
+        const generatedOutput = await finalizeEcdsaClientBootstrapCommandWasm({
+          command: generatedCommand,
           workerCtx,
         });
-        const stateBlob: EcdsaRoleLocalReadyStateBlob = {
-          kind: 'ecdsa_role_local_state_blob_v1',
-          curve: 'secp256k1',
-          encoding: 'base64url',
-          producer: 'signer_core',
-          stateBlobB64u: finalized.stateBlobB64u,
-        };
         return {
           ok: true,
-          value: {
-            stateBlob,
-            publicFacts: {
-              hssClientSharePublicKey33B64u: parseHssClientSharePublicKey33B64u(
-                finalized.hssClientSharePublicKey33B64u,
-              ),
-              clientVerifyingShareB64u: parsePublicKey33B64u(
-                finalized.clientVerifyingShareB64u,
-                'clientVerifyingShareB64u',
-              ),
-              relayerPublicKey33B64u: parseRelayerHssPublicKey33B64u(
-                finalized.relayerPublicKey33B64u,
-              ),
-              groupPublicKey33B64u: parsePublicKey33B64u(
-                finalized.groupPublicKey33B64u,
-                'groupPublicKey33B64u',
-              ),
-              ethereumAddress: finalized.ethereumAddress,
-            },
-          },
+          value: parseGeneratedFinalizeEcdsaClientBootstrapOutput(generatedOutput),
         };
       } catch (error) {
         return mapSignerCryptoInvocationError(error) || mapFinalizeEcdsaCommandError(error);
+      }
+    },
+    async buildEcdsaRoleLocalExportArtifact(
+      input,
+    ): Promise<
+      SignerCryptoResult<
+        BuildEcdsaRoleLocalExportArtifactOutput,
+        BuildEcdsaRoleLocalExportArtifactErrorCode
+      >
+    > {
+      if (
+        input.stateBlob.kind !== 'ecdsa_role_local_state_blob_v1' ||
+        input.stateBlob.curve !== 'secp256k1' ||
+        input.stateBlob.encoding !== 'base64url' ||
+        input.stateBlob.producer !== 'signer_core'
+      ) {
+        return signerCryptoCommandFailure(
+          'invalid_ready_state',
+          'ECDSA role-local ready blob envelope is invalid',
+        );
+      }
+      if (!workerCtx) {
+        return signerCryptoInvocationFailure(
+          'unavailable',
+          'ECDSA role-local export worker context is unavailable',
+        );
+      }
+      try {
+        const generatedCommand = toGeneratedBuildEcdsaRoleLocalExportArtifactCommand(input);
+        const generatedOutput = await buildEcdsaRoleLocalExportArtifactCommandWasm({
+          command: generatedCommand,
+          workerCtx,
+        });
+        return {
+          ok: true,
+          value: parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput(generatedOutput),
+        };
+      } catch (error) {
+        return (
+          mapSignerCryptoInvocationError(error) ||
+          mapBuildEcdsaRoleLocalExportCommandError(error)
+        );
       }
     },
   };

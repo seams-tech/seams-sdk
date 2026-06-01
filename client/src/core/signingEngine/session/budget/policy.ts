@@ -31,7 +31,7 @@ export type WalletUnlockBudgetPolicy = {
 
 export type SingleOperationStepUpBudgetPolicy = {
   kind: 'single_operation_step_up_budget_policy';
-  allowance: { kind: 'single_operation_allowance'; remainingUses: 1 };
+  allowance: { kind: 'single_operation_allowance'; remainingUses: PositiveRemainingUses };
   scope: 'single_operation_step_up';
   operationId: SigningOperationId;
 };
@@ -104,10 +104,17 @@ export function resolveWalletUnlockBudgetPolicyFromRequestedUses(args: {
 
 export function buildSingleOperationStepUpBudgetPolicy(args: {
   operationId: SigningOperationId;
+  requiredSignatureUses: unknown;
 }): SingleOperationStepUpBudgetPolicy {
   return {
     kind: 'single_operation_step_up_budget_policy',
-    allowance: { kind: 'single_operation_allowance', remainingUses: 1 },
+    allowance: {
+      kind: 'single_operation_allowance',
+      remainingUses: parsePositiveRemainingUses(
+        args.requiredSignatureUses,
+        'requiredSignatureUses',
+      ),
+    },
     scope: 'single_operation_step_up',
     operationId: args.operationId,
   };
@@ -115,9 +122,11 @@ export function buildSingleOperationStepUpBudgetPolicy(args: {
 
 export function resolvePostExhaustionStepUpBudgetPolicy(args: {
   operationId: SigningOperationId;
+  requiredSignatureUses: unknown;
 }): SingleOperationStepUpBudgetPolicy {
   return buildSingleOperationStepUpBudgetPolicy({
     operationId: args.operationId,
+    requiredSignatureUses: args.requiredSignatureUses,
   });
 }
 

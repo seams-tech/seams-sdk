@@ -1,16 +1,13 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
-import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '@/core/platform/ecdsaRoleLocalRecords';
+import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../persistence/ecdsaRoleLocalRecords';
 import type { WarmSessionStatusResult } from '../../uiConfirm/types';
 import {
   ThresholdEcdsaSessionRecord,
   ThresholdEd25519SessionRecord,
   thresholdEcdsaSessionRecordReadModel,
 } from '../persistence/records';
-import {
-  selectedEcdsaLane,
-  type ThresholdEcdsaSessionStoreSource,
-} from '../identity/laneIdentity';
+import { selectedEcdsaLane, type ThresholdEcdsaSessionStoreSource } from '../identity/laneIdentity';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
@@ -37,10 +34,7 @@ import {
   toWarmSessionClaimFromStatusResult,
   type WarmSessionReadPortsInput,
 } from './readModel';
-import {
-  buildEcdsaSessionIdentity,
-  tryBuildEcdsaSessionIdentity,
-} from './ecdsaProvisionPlan';
+import { buildEcdsaSessionIdentity, tryBuildEcdsaSessionIdentity } from './ecdsaProvisionPlan';
 import type {
   ThresholdWarmSessionStatusReader,
   WarmEcdsaRecordBackedSigningSessionStatus,
@@ -129,7 +123,9 @@ export function createWarmSessionStatusReader(
     getEmailOtpWarmSessionStatus: deps.getEmailOtpWarmSessionStatus,
   };
 
-  function buildLanesForRecords(records: Array<ThresholdEcdsaSessionRecord | null>): DiscoveredSigningSessionLane[] {
+  function buildLanesForRecords(
+    records: Array<ThresholdEcdsaSessionRecord | null>,
+  ): DiscoveredSigningSessionLane[] {
     return records
       .map((record) => (record ? buildDiscoveredLaneForRecord(record) : null))
       .filter((lane): lane is DiscoveredSigningSessionLane => lane !== null);
@@ -145,28 +141,47 @@ export function createWarmSessionStatusReader(
         record,
         nowMs: Date.now(),
       });
-      if (
-        roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
-        roleLocalState.inlineSigningMaterial.kind === 'inline_client_share'
-      ) {
-        return warmClaimFromRecordPolicy({
-          sessionId: identity.thresholdSessionId,
-          remainingUses: record.remainingUses,
-          expiresAtMs: record.expiresAtMs,
-        });
+      switch (roleLocalState.kind) {
+        case 'ready_email_otp_role_local_material_v1':
+          switch (roleLocalState.inlineSigningMaterial.kind) {
+            case 'email_otp_worker_share': {
+              const status = await deps
+                .getEmailOtpWarmSessionStatus(roleLocalState.inlineSigningMaterial.workerSessionId)
+                .catch(() => null);
+              return status
+                ? toWarmSessionClaimFromStatusResult({
+                    sessionId: identity.thresholdSessionId,
+                    status,
+                  })
+                : null;
+            }
+            case 'role_local_ready_state_blob':
+              return warmClaimFromRecordPolicy({
+                sessionId: identity.thresholdSessionId,
+                remainingUses: record.remainingUses,
+                expiresAtMs: record.expiresAtMs,
+              });
+          }
+          roleLocalState.inlineSigningMaterial satisfies never;
+          return null;
+        case 'reauth_required_role_local_material_v1':
+          if (
+            roleLocalState.authMethod.kind === 'email_otp' &&
+            (roleLocalState.reason === 'expired' || roleLocalState.reason === 'exhausted')
+          ) {
+            return warmClaimFromRecordPolicy({
+              sessionId: identity.thresholdSessionId,
+              remainingUses: record.remainingUses,
+              expiresAtMs: record.expiresAtMs,
+            });
+          }
+          return null;
+        case 'ready_passkey_role_local_material_v1':
+        case 'cleanup_only_raw_role_local_record_v1':
+          return null;
       }
-      if (
-        roleLocalState.kind !== 'ready_email_otp_role_local_material_v1' ||
-        roleLocalState.inlineSigningMaterial.kind !== 'email_otp_worker_share'
-      ) {
-        return null;
-      }
-      const status = await deps
-        .getEmailOtpWarmSessionStatus(roleLocalState.inlineSigningMaterial.workerSessionId)
-        .catch(() => null);
-      return status
-        ? toWarmSessionClaimFromStatusResult({ sessionId: identity.thresholdSessionId, status })
-        : null;
+      roleLocalState satisfies never;
+      return null;
     }
     return await readWarmSessionClaim(touchConfirm, identity.thresholdSessionId);
   }
@@ -190,8 +205,7 @@ export function createWarmSessionStatusReader(
       ed25519Claim:
         walletScopedClaims.get(String(records.ed25519?.thresholdSessionId || '').trim()) || null,
       evmClaim:
-        walletScopedClaims.get(thresholdSessionIdFromEcdsaRecord(records.ecdsa.evm) || '') ||
-        null,
+        walletScopedClaims.get(thresholdSessionIdFromEcdsaRecord(records.ecdsa.evm) || '') || null,
       tempoClaim:
         walletScopedClaims.get(thresholdSessionIdFromEcdsaRecord(records.ecdsa.tempo) || '') ||
         null,
@@ -241,7 +255,10 @@ export function createWarmSessionStatusReader(
       thresholdSessionId,
       chainTarget: args.chainTarget,
     });
-    if (directRecord && String(directRecord.walletId || '').trim() === String(args.walletId || '').trim()) {
+    if (
+      directRecord &&
+      String(directRecord.walletId || '').trim() === String(args.walletId || '').trim()
+    ) {
       return directRecord;
     }
 
@@ -253,7 +270,7 @@ export function createWarmSessionStatusReader(
       indexedRecord &&
       indexedRecord.chainTarget &&
       thresholdEcdsaChainTargetsEqual(indexedRecord.chainTarget, args.chainTarget) &&
-        String(indexedRecord.walletId || '').trim() === String(args.walletId || '').trim()
+      String(indexedRecord.walletId || '').trim() === String(args.walletId || '').trim()
     ) {
       return indexedRecord;
     }

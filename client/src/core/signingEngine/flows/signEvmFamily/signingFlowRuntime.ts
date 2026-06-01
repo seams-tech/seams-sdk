@@ -150,6 +150,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
   );
   const postExhaustionStepUpBudgetPolicy = resolvePostExhaustionStepUpBudgetPolicy({
     operationId: resolveEvmFamilyStepUpOperationId(args.signingOperation),
+    requiredSignatureUses: 1,
   });
   const postExhaustionStepUpSessionBudgetUses = resolveSigningBudgetPolicyRemainingUses(
     postExhaustionStepUpBudgetPolicy,

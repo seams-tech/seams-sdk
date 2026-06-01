@@ -1,7 +1,7 @@
 import { toAccountId } from '@/core/types/accountIds';
 import type { AccountId } from '@/core/types/accountIds';
 import type { SigningSessionStatus } from '@/core/types/seams';
-import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '@/core/platform/ecdsaRoleLocalRecords';
+import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../persistence/ecdsaRoleLocalRecords';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -236,10 +236,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
               : { remainingUses: runtimeLane.remainingUses }),
             ...(runtimeLane.expiresAtMs == null ? {} : { expiresAtMs: runtimeLane.expiresAtMs }),
             ...(runtimeLane.updatedAtMs == null ? {} : { updatedAtMs: runtimeLane.updatedAtMs }),
-          } satisfies Omit<
-            AvailableSigningLanesRuntimeEcdsaRecord,
-            'authMethod' | 'resolvedKey'
-          >;
+          } satisfies Omit<AvailableSigningLanesRuntimeEcdsaRecord, 'authMethod' | 'resolvedKey'>;
           await pushRuntimeEcdsaRecord(
             records,
             seen,
@@ -319,23 +316,25 @@ export async function readPersistedAvailableSigningLanesForTargets(
               });
               if (
                 roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
-                roleLocalState.inlineSigningMaterial.kind === 'inline_client_share'
+                roleLocalState.inlineSigningMaterial.kind === 'email_otp_worker_share'
+              ) {
+                const status = await deps
+                  .getEmailOtpWarmSessionStatus(
+                    roleLocalState.inlineSigningMaterial.workerSessionId,
+                  )
+                  .catch(() => null);
+                localClaim = status
+                  ? warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status })
+                  : null;
+              } else if (
+                roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
+                roleLocalState.inlineSigningMaterial.kind === 'role_local_ready_state_blob'
               ) {
                 localClaim = runtimeRecordPolicyClaim({
                   sessionId,
                   remainingUses: ecdsaRecord.remainingUses,
                   expiresAtMs: ecdsaRecord.expiresAtMs,
                 });
-              } else if (
-                roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
-                roleLocalState.inlineSigningMaterial.kind === 'email_otp_worker_share'
-              ) {
-                const status = await deps
-                  .getEmailOtpWarmSessionStatus(roleLocalState.inlineSigningMaterial.workerSessionId)
-                  .catch(() => null);
-                localClaim = status
-                  ? warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status })
-                  : null;
               } else {
                 localClaim = null;
               }
@@ -388,9 +387,7 @@ export async function readPersistedAvailableSigningLanesForTargets(
                   expiresAtMs: ed25519Record.expiresAtMs,
                 });
               } else {
-                const status = await deps
-                  .getEmailOtpWarmSessionStatus(sessionId)
-                  .catch(() => null);
+                const status = await deps.getEmailOtpWarmSessionStatus(sessionId).catch(() => null);
                 localClaim = status
                   ? warmStatusToAvailableSigningLanesRuntimeClaim({ sessionId, status })
                   : null;

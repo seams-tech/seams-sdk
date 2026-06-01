@@ -5,7 +5,7 @@ import {
 } from '@/core/signingEngine/stepUpConfirmation/types';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
-import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '@/core/platform/ecdsaRoleLocalRecords';
+import { classifyThresholdEcdsaSessionRecordRoleLocalState } from '../../session/persistence/ecdsaRoleLocalRecords';
 import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEcdsaSigningBootstrapResult } from '../../interfaces/operationDeps';
 import type { WarmSessionStatusReader, WarmSessionStatusResult } from '../../uiConfirm/types';
@@ -37,10 +37,7 @@ import {
   createEmailOtpEcdsaTransactionSigningBridge,
   type EvmFamilyEmailOtpTransactionSigningBridge,
 } from './emailOtpSigningSession';
-import {
-  getEcdsaMaterialRecord,
-  type EcdsaMaterialState,
-} from './ecdsaMaterialState';
+import { getEcdsaMaterialRecord, type EcdsaMaterialState } from './ecdsaMaterialState';
 import type {
   ReadyEvmFamilyEcdsaSigningSelection,
   ReauthRequiredEvmFamilyEcdsaSigningSelection,
@@ -157,7 +154,7 @@ export async function resolveEvmFamilyEcdsaPlannerReadiness(args: {
     });
     if (
       roleLocalState.kind === 'ready_email_otp_role_local_material_v1' &&
-      roleLocalState.inlineSigningMaterial.kind === 'inline_client_share'
+      roleLocalState.inlineSigningMaterial.kind === 'role_local_ready_state_blob'
     ) {
       return buildBackingReadiness({
         expiresAtMs: record.expiresAtMs,
@@ -277,10 +274,9 @@ export async function resolveEvmFamilyTransactionStepUp(
   const preparedSelection = preparedEcdsaMetadata?.selection;
   const preparedMaterial = preparedEcdsaMetadata?.material;
   const laneWarmRecord = preparedMaterial ? getEcdsaMaterialRecord(preparedMaterial) : undefined;
-  const preparedSigningRootId =
-    laneWarmRecord?.runtimePolicyScope
-      ? signingRootScopeFromRuntimePolicyScope(laneWarmRecord.runtimePolicyScope).signingRootId
-      : undefined;
+  const preparedSigningRootId = laneWarmRecord?.runtimePolicyScope
+    ? signingRootScopeFromRuntimePolicyScope(laneWarmRecord.runtimePolicyScope).signingRootId
+    : undefined;
   const confirmedEmailOtpDeps = args.confirmedDeps;
   const emailOtpReauthRecord =
     args.senderSignatureAlgorithm === 'secp256k1' &&

@@ -1,7 +1,4 @@
-import type {
-  ThresholdIndexedDbPort,
-  ThresholdWebAuthnPromptPort,
-} from '../crypto/webauthn';
+import type { ThresholdIndexedDbPort, ThresholdWebAuthnPromptPort } from '../crypto/webauthn';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import { bootstrapEcdsaSession } from './bootstrapSession';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -51,6 +48,7 @@ export async function connectEcdsaSession(args: {
     sessionId: args.sessionId,
     ttlMs: args.ttlMs,
     remainingUses: args.remainingUses,
+    authKind: 'passkey_prompt',
     workerCtx: args.workerCtx,
   });
   if (!bootstrap.ok) {

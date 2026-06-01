@@ -1,4 +1,8 @@
-import { thresholdEcdsaChainTargetFromChainFamily, toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  toWalletId,
+} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import {
@@ -33,7 +37,12 @@ const sessionIdentity = buildEcdsaSessionIdentity({
   walletSigningSessionId: 'wallet-signing-session-1',
 });
 const runtimePolicy = { kind: 'default_policy' } as const;
+const passkeyCredentialIdB64u = 'passkey-credential-id';
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
+declare const emailOtpWorkerSessionHandle: Extract<
+  EmailOtpWorkerIssuedSessionHandle,
+  { action: 'threshold_ecdsa_bootstrap' }
+>;
 
 const thresholdSessionAuth = {
   kind: 'threshold_session',
@@ -123,7 +132,7 @@ void buildPasskeyRegistrationEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  clientRootShare32B64u: 'client-root',
+  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
 });
 
@@ -131,7 +140,7 @@ void buildPasskeyReconnectEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  clientRootShare32B64u: 'client-root',
+  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
 });
 
@@ -139,7 +148,7 @@ void buildEmailOtpSessionBootstrapEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  clientRootShare32B64u: 'client-root',
+  emailOtpWorkerSessionHandle,
   emailOtpAuthContext: emailOtpSessionAuthContext,
 });
 
@@ -147,7 +156,7 @@ void buildEmailOtpPerOperationReauthEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  clientRootShare32B64u: 'client-root',
+  emailOtpWorkerSessionHandle,
   emailOtpAuthContext: emailOtpSingleUseAuthContext,
 });
 
@@ -156,20 +165,22 @@ void buildThresholdSessionReconnectEcdsaActivation({
   sessionIdentity,
   sessionKind: 'jwt',
   thresholdSessionAuth,
-  clientRootShare32B64u: 'client-root',
+  passkeyPrfFirstB64u: 'client-root',
+  passkeyCredentialIdB64u,
 });
 
 void buildCookieReconnectEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'cookie',
+  passkeyCredentialIdB64u,
 });
 
 void buildEcdsaExportActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  clientRootShare32B64u: 'client-root',
+  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
 });
 
@@ -178,7 +189,7 @@ void buildPasskeyRegistrationEcdsaActivation({
   ...broadActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  clientRootShare32B64u: 'client-root',
+  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
 });
 
@@ -186,7 +197,7 @@ void buildPasskeyReconnectEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  clientRootShare32B64u: 'client-root',
+  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
   // @ts-expect-error passkey activation must not accept threshold-session auth
   thresholdSessionAuth,
@@ -196,7 +207,7 @@ void buildPasskeyReconnectEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  clientRootShare32B64u: 'client-root',
+  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
   // @ts-expect-error exact activation derives walletId from key
   walletId,
@@ -206,7 +217,7 @@ void buildEmailOtpSessionBootstrapEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  clientRootShare32B64u: 'client-root',
+  emailOtpWorkerSessionHandle,
   // @ts-expect-error session Email OTP bootstrap must use session-retained auth
   emailOtpAuthContext: emailOtpSingleUseAuthContext,
 });
@@ -215,7 +226,7 @@ void buildEmailOtpPerOperationReauthEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  clientRootShare32B64u: 'client-root',
+  emailOtpWorkerSessionHandle,
   // @ts-expect-error per-operation Email OTP reauth must use single-use auth
   emailOtpAuthContext: emailOtpSessionAuthContext,
 });
@@ -224,7 +235,7 @@ void buildEmailOtpSessionBootstrapEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  clientRootShare32B64u: 'client-root',
+  emailOtpWorkerSessionHandle,
   emailOtpAuthContext,
   // @ts-expect-error Email OTP builder must not accept WebAuthn auth
   webauthnAuthentication,
@@ -234,8 +245,9 @@ void buildCookieReconnectEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'cookie',
+  passkeyCredentialIdB64u,
   // @ts-expect-error cookie reconnect must not accept fresh client root share material
-  clientRootShare32B64u: 'client-root',
+  passkeyPrfFirstB64u: 'client-root',
 });
 
 void buildThresholdSessionReconnectEcdsaActivation({
@@ -244,7 +256,8 @@ void buildThresholdSessionReconnectEcdsaActivation({
   // @ts-expect-error threshold-session-auth reconnect must stay on jwt sessionKind
   sessionKind: 'cookie',
   thresholdSessionAuth,
-  clientRootShare32B64u: 'client-root',
+  passkeyPrfFirstB64u: 'client-root',
+  passkeyCredentialIdB64u,
 });
 
 // @ts-expect-error exact activation key requires a lane policy
@@ -257,7 +270,7 @@ void buildPasskeyReconnectEcdsaActivation({
   walletKey,
   sessionIdentity,
   sessionKind: 'jwt',
-  clientRootShare32B64u: 'client-root',
+  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
 });
 
@@ -271,7 +284,7 @@ void buildPasskeyReconnectEcdsaActivation({
   lanePolicy,
   sessionIdentity,
   sessionKind: 'jwt',
-  clientRootShare32B64u: 'client-root',
+  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
 });
 
@@ -279,7 +292,7 @@ void buildPasskeyReconnectEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  clientRootShare32B64u: 'client-root',
+  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
   // @ts-expect-error exact activation requires walletKey; separate key identity projection is rejected.
   key,
@@ -289,7 +302,7 @@ void buildPasskeyReconnectEcdsaActivation({
   ...exactActivationCommon,
   sessionIdentity,
   sessionKind: 'jwt',
-  clientRootShare32B64u: 'client-root',
+  passkeyPrfFirstB64u: 'client-root',
   webauthnAuthentication,
   // @ts-expect-error exact activation requires walletKey; separate keyHandle projection is rejected.
   keyHandle: toEvmFamilyEcdsaKeyHandle('ehss-key-1'),
@@ -301,7 +314,7 @@ const validPasskeyLifecycleCommand = {
     ...exactActivationCommon,
     sessionIdentity,
     sessionKind: 'jwt',
-    clientRootShare32B64u: 'client-root',
+    passkeyPrfFirstB64u: 'client-root',
     webauthnAuthentication,
   }),
 } satisfies EcdsaBootstrapLifecycleCommand;
@@ -315,7 +328,7 @@ const invalidLifecycleCommandWithBroadIdentity = {
     ...broadActivationCommon,
     sessionIdentity,
     sessionKind: 'jwt',
-    clientRootShare32B64u: 'client-root',
+    passkeyPrfFirstB64u: 'client-root',
     webauthnAuthentication,
   },
 } satisfies EcdsaBootstrapLifecycleCommand;

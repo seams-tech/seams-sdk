@@ -12,9 +12,12 @@ import {
   type ReadyEcdsaSignerSession,
 } from '../../session/identity/evmFamilyEcdsaIdentity';
 import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
-import { parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial } from '@/core/platform/ecdsaRoleLocalRecords';
-import { buildThresholdEcdsaHssRoleLocalExportArtifactWasm } from '../../threshold/crypto/hssClientSignerWasm';
-import { resolveThresholdEcdsaClientRootShare } from '../../threshold/ecdsa/clientSecretSource';
+import { parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial } from '../../session/persistence/ecdsaRoleLocalRecords';
+import { buildEcdsaRoleLocalExportArtifactCommandWasm } from '../../threshold/crypto/hssClientSignerWasm';
+import {
+  parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput,
+  toGeneratedBuildEcdsaRoleLocalExportArtifactCommand,
+} from '@/core/platform/signerCoreCommandAdapters';
 import { alphabetizeStringify, sha256BytesUtf8 } from '@shared/utils/digests';
 import { base64UrlEncode } from '@shared/utils/encoders';
 
@@ -23,8 +26,6 @@ const ECDSA_HSS_EXPORT_CONFIRMATION_DIGEST_VERSION =
 const ECDSA_HSS_EXPORT_AUTHORIZATION_DIGEST_VERSION =
   'ecdsa-hss:role-local:product-export-authorization:v2';
 const ECDSA_HSS_EXPORT_AUTH_TTL_MS = 60_000;
-const ECDSA_HSS_KEY_PURPOSE = 'evm-signing';
-const ECDSA_HSS_KEY_VERSION = 'v1';
 const ECDSA_HSS_SIGNING_ROOT_VERSION_DEFAULT = 'default';
 
 export type EcdsaHssExplicitExportDeps = {
@@ -75,13 +76,13 @@ export async function exportEcdsaHssKeyWithThresholdSession(
   }
 
   const roleLocalMaterial = parseThresholdEcdsaSessionRecordAsRoleLocalExportMaterial(args.record);
-  const clientRoot = await resolveThresholdEcdsaClientRootShare({
-    kind: 'provided_webauthn_prf_credential',
-    credential: args.credential,
-    rpId: args.rpId,
-  });
-  if (!clientRoot.ok) {
-    throw new Error(clientRoot.message);
+  const readyRecord = roleLocalMaterial.readyRecord;
+  if (readyRecord.authMethod.kind !== 'passkey') {
+    throw new Error('[SigningEngine][ecdsa-export] passkey export requires passkey ready material');
+  }
+  const authorizedCredentialId = String(args.credential.rawId || args.credential.id || '').trim();
+  if (authorizedCredentialId && authorizedCredentialId !== readyRecord.authMethod.credentialIdB64u) {
+    throw new Error('[SigningEngine][ecdsa-export] passkey export authorization credential mismatch');
   }
   const ecdsaThresholdKeyId = toEcdsaHssThresholdKeyId(args.record.ecdsaThresholdKeyId);
   const signingRootId = toEcdsaHssSigningRootId(args.record.signingRootId);
@@ -99,10 +100,10 @@ export async function exportEcdsaHssKeyWithThresholdSession(
 
   const publicIdentity = {
     hssClientSharePublicKey33B64u:
-      roleLocalMaterial.readyRecord.publicFacts.hssClientSharePublicKey33B64u,
-    relayerPublicKey33B64u: roleLocalMaterial.readyRecord.publicFacts.relayerPublicKey33B64u,
-    groupPublicKey33B64u: roleLocalMaterial.readyRecord.publicFacts.groupPublicKey33B64u,
-    ethereumAddress: roleLocalMaterial.readyRecord.publicFacts.ethereumAddress,
+      readyRecord.publicFacts.hssClientSharePublicKey33B64u,
+    relayerPublicKey33B64u: readyRecord.publicFacts.relayerPublicKey33B64u,
+    groupPublicKey33B64u: readyRecord.publicFacts.groupPublicKey33B64u,
+    ethereumAddress: readyRecord.publicFacts.ethereumAddress,
   };
   const exportRequestNonce32B64u = randomB64u32();
   const confirmationDigest32B64u = await digestB64u({
@@ -169,26 +170,30 @@ export async function exportEcdsaHssKeyWithThresholdSession(
       exportShare.error || exportShare.message || 'Threshold explicit export share request failed',
     );
   }
-
-  try {
-    return await buildThresholdEcdsaHssRoleLocalExportArtifactWasm({
-      context: {
-        walletId,
-        rpId: toRpId(args.rpId),
-        ecdsaThresholdKeyId,
-        signingRootId,
-        signingRootVersion,
-        keyPurpose: ECDSA_HSS_KEY_PURPOSE,
-        keyVersion: ECDSA_HSS_KEY_VERSION,
-      },
-      clientRootShare32: clientRoot.clientRootShare32,
-      serverExportShare32B64u: exportShare.value.serverExportShare32B64u,
-      contextBinding32B64u: roleLocalMaterial.contextBinding32B64u,
-      publicIdentity: exportShare.value.publicIdentity,
-      clientShareRetryCounter: roleLocalMaterial.clientShareRetryCounter,
-      workerCtx: deps.getSignerWorkerContext(),
-    });
-  } finally {
-    clientRoot.clientRootShare32.fill(0);
+  if (
+    exportShare.value.contextBinding32B64u !== roleLocalMaterial.contextBinding32B64u ||
+    exportShare.value.publicIdentity.groupPublicKey33B64u !== publicIdentity.groupPublicKey33B64u ||
+    exportShare.value.publicIdentity.ethereumAddress !== publicIdentity.ethereumAddress
+  ) {
+    throw new Error('[SigningEngine][ecdsa-export] relayer export share identity mismatch');
   }
+
+  const generatedCommand = toGeneratedBuildEcdsaRoleLocalExportArtifactCommand({
+    kind: 'build_ecdsa_role_local_export_artifact_v1',
+    algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
+    stateBlob: readyRecord.stateBlob,
+    publicFacts: readyRecord.publicFacts,
+    authorization: {
+      kind: 'passkey_export_authorized',
+      walletId,
+      rpId: toRpId(args.rpId),
+      credentialIdB64u: readyRecord.authMethod.credentialIdB64u,
+    },
+    serverExportShare32B64u: exportShare.value.serverExportShare32B64u,
+  });
+  const generatedOutput = await buildEcdsaRoleLocalExportArtifactCommandWasm({
+    command: generatedCommand,
+    workerCtx: deps.getSignerWorkerContext(),
+  });
+  return parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput(generatedOutput);
 }

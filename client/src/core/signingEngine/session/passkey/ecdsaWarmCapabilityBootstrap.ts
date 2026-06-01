@@ -11,6 +11,7 @@ import {
   listThresholdEcdsaSessionRecordsForWalletTarget,
   type ThresholdEcdsaSessionStoreDeps,
 } from '../persistence/records';
+import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '../persistence/ecdsaRoleLocalRecords';
 import {
   ecdsaBootstrapChainTarget,
   ecdsaBootstrapWalletId,
@@ -21,7 +22,7 @@ import { ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap } from '../w
 import {
   getPrimaryAndSecondaryEcdsaCapabilities,
   tryReuseReadyWarmEcdsaBootstrap,
-} from './ecdsaProvisioner';
+} from '../../useCases/provisionEcdsaSession';
 import { claimWarmSessionPrfFirst } from './prfClaim';
 import {
   provisionThresholdEcdsaSessionFromBootstrapArgs,
@@ -30,12 +31,15 @@ import {
 import type { WarmSessionCapabilityReader } from '../warmCapabilities/types';
 import { buildEvmFamilyEcdsaSessionLanePolicy } from '../identity/evmFamilyEcdsaIdentity';
 
-type NoPromptEcdsaClientRootShareClaim = {
-  kind: 'claim_no_prompt_ecdsa_client_root_share';
+type NoPromptEcdsaPasskeyPrfFirstClaim = {
+  kind: 'claim_no_prompt_ecdsa_prf_first';
   walletId: ReturnType<typeof toAccountId>;
   walletSigningSessionId: string;
   thresholdSessionId: string;
-  chainTarget: Extract<EcdsaBootstrapRequest, { kind: 'reuse_warm_ecdsa_bootstrap' }>['chainTarget'];
+  chainTarget: Extract<
+    EcdsaBootstrapRequest,
+    { kind: 'reuse_warm_ecdsa_bootstrap' }
+  >['chainTarget'];
   uses: 1;
 };
 
@@ -53,11 +57,12 @@ export type NoPromptWarmSessionDeps = {
   restorePersistedSessionsForWallet: NonNullable<
     DurableSealedSessionPort['restorePersistedSessionsForWallet']
   >;
-  claimEcdsaClientRootShare: (
-    args: NoPromptEcdsaClientRootShareClaim,
-  ) => Promise<string>;
+  claimEcdsaPasskeyPrfFirst: (args: NoPromptEcdsaPasskeyPrfFirstClaim) => Promise<string>;
   reconnectWithThresholdSessionAuth: (
-    request: Extract<EcdsaBootstrapRequest, { kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap' }>,
+    request: Extract<
+      EcdsaBootstrapRequest,
+      { kind: 'threshold_session_auth_reconnect_ecdsa_bootstrap' }
+    >,
   ) => Promise<ThresholdEcdsaSessionBootstrapResult>;
   ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
   prompt?: never;
@@ -91,7 +96,7 @@ export type ReuseWarmEcdsaBootstrapFailure = {
   errorMessage?: string;
   promptAllowed?: never;
   webauthnAuthentication?: never;
-  clientRootShare32B64u?: never;
+  passkeyPrfFirstB64u?: never;
 };
 
 export type ReuseWarmEcdsaBootstrapResult =
@@ -109,7 +114,7 @@ export type BootstrapWarmEcdsaCapabilityResult =
       failure: ReuseWarmEcdsaBootstrapFailure;
       promptAllowed?: never;
       webauthnAuthentication?: never;
-      clientRootShare32B64u?: never;
+      passkeyPrfFirstB64u?: never;
     };
 
 function createProvisionThresholdEcdsaSessionDeps(
@@ -137,7 +142,7 @@ function createNoPromptWarmSessionDeps(
   return {
     getWarmSession: (walletId) => deps.capabilityReader.getWarmSession(walletId),
     restorePersistedSessionsForWallet: restorePersistedSessionsForWallet.bind(deps.touchConfirm),
-    claimEcdsaClientRootShare: (args) =>
+    claimEcdsaPasskeyPrfFirst: (args) =>
       claimWarmSessionPrfFirst({
         touchConfirm: deps.touchConfirm,
         thresholdSessionId: args.thresholdSessionId,
@@ -210,7 +215,7 @@ async function bootstrapPasskeyCookieReconnect(
   walletId: ReturnType<typeof toAccountId>,
   request: Extract<EcdsaBootstrapRequest, { kind: 'passkey_cookie_reconnect_ecdsa_bootstrap' }>,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
-  const clientRootShare32B64u = await claimWarmSessionPrfFirst({
+  const passkeyPrfFirstB64u = await claimWarmSessionPrfFirst({
     touchConfirm: deps.touchConfirm,
     thresholdSessionId: request.lanePolicy.thresholdSessionId,
     errorContext: 'threshold-ecdsa restored-session bootstrap',
@@ -239,7 +244,8 @@ async function bootstrapPasskeyCookieReconnect(
     relayerUrl: request.relayerUrl,
     operationIntent: request.operationIntent,
     runtimeScopeBootstrap: request.runtimeScopeBootstrap,
-    clientRootShare32B64u,
+    passkeyPrfFirstB64u,
+    passkeyCredentialIdB64u: request.passkeyCredentialIdB64u,
   });
 }
 
@@ -300,8 +306,10 @@ async function tryNoPromptThresholdSessionAuthReconnect(args: {
   if (!record || !auth?.thresholdSessionAuthToken) return null;
 
   const readModel = thresholdEcdsaSessionRecordReadModel(record);
-  const clientRootShare32B64u = await args.deps.claimEcdsaClientRootShare({
-    kind: 'claim_no_prompt_ecdsa_client_root_share',
+  const readyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
+  if (readyRecord.authMethod.kind !== 'passkey') return null;
+  const passkeyPrfFirstB64u = await args.deps.claimEcdsaPasskeyPrfFirst({
+    kind: 'claim_no_prompt_ecdsa_prf_first',
     walletId: args.walletId,
     walletSigningSessionId: record.walletSigningSessionId,
     thresholdSessionId: record.thresholdSessionId,
@@ -342,7 +350,8 @@ async function tryNoPromptThresholdSessionAuthReconnect(args: {
       kind: 'threshold_session',
       jwt: auth.thresholdSessionAuthToken,
     },
-    clientRootShare32B64u,
+    passkeyPrfFirstB64u,
+    passkeyCredentialIdB64u: readyRecord.authMethod.credentialIdB64u,
   });
 }
 

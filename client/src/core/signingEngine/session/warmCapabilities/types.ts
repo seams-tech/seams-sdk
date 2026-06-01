@@ -464,7 +464,7 @@ export type ProvisionWarmEd25519CapabilitySuccessResult = {
   remainingUses: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   jwt: string;
-  ecdsaHssClientRootShare32B64u?: string;
+  ecdsaHssPasskeyPrfFirstB64u?: string;
 };
 
 export type ProvisionWarmEd25519CapabilityFailureResult = {

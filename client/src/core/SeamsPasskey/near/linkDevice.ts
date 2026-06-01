@@ -24,8 +24,10 @@ import { restoreLocalLoginState } from '../restoreLocalLoginState';
 import { linkDeviceWithScannedQRData as linkDeviceWithScannedQRDataDevice1 } from '../scanDevice';
 import { DEVICE_LINKING_CONFIG } from '../../../config';
 import { normalizeRegistrationCredential } from '../../signingEngine/webauthnAuth/credentials/helpers';
-import { redactCredentialExtensionOutputs } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
-import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential } from '../../signingEngine/session/passkey/ecdsaClientRoot';
+import {
+  getPrfFirstB64uFromCredential,
+  redactCredentialExtensionOutputs,
+} from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
 import { DEFAULT_WAIT_STATUS } from '../../types/rpc';
 import { ActionType, type ActionArgsWasm } from '../../types/actions';
 import type { WebAuthnRegistrationCredential } from '../../types/webauthn';
@@ -506,11 +508,12 @@ export class LinkDeviceFlow {
       chains: this.context.configs.network.chains,
     });
     const shouldPrepareEcdsa = Boolean(this.session?.sessionId && ecdsaProvisionTargets.length > 0);
-    const clientRootShare32B64u = shouldPrepareEcdsa
-      ? await derivePasskeyThresholdEcdsaClientRootShare32B64uFromCredential(credential)
+    const primaryEcdsaProvisionTarget = shouldPrepareEcdsa ? ecdsaProvisionTargets[0] : null;
+    const passkeyPrfFirstB64u = shouldPrepareEcdsa
+      ? String(getPrfFirstB64uFromCredential(credential) || '').trim()
       : '';
-    if (shouldPrepareEcdsa && !clientRootShare32B64u) {
-      throw new Error('Failed to derive Link Device ECDSA client root share from passkey');
+    if (shouldPrepareEcdsa && (!primaryEcdsaProvisionTarget || !passkeyPrfFirstB64u)) {
+      throw new Error('Link Device ECDSA bootstrap requires passkey PRF.first');
     }
     const credentialForRelay = redactCredentialExtensionOutputs(
       normalizeRegistrationCredential(credential),
@@ -678,10 +681,15 @@ export class LinkDeviceFlow {
         : undefined,
     });
     if (ecdsaPrepare && this.session?.sessionId) {
+      if (!primaryEcdsaProvisionTarget) {
+        throw new Error('link-device/prepare did not resolve an ECDSA chain target');
+      }
       const clientBootstrap: WalletRegistrationEcdsaClientBootstrap =
         await this.context.signingEngine.prepareWalletRegistrationEcdsaClientBootstrap({
           prepare: ecdsaPrepare,
-          clientRootShare32B64u,
+          chainTarget: primaryEcdsaProvisionTarget.chainTarget,
+          passkeyPrfFirstB64u,
+          credentialIdB64u: String(credential.rawId || credential.id || '').trim(),
         });
       const ecdsaResp = await fetch(joinNormalizedUrl(relayerUrl, '/link-device/ecdsa/respond'), {
         method: 'POST',

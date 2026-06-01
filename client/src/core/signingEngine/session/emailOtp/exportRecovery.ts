@@ -37,7 +37,7 @@ import type { ExportEd25519SeedWithAuthorizationArgs } from './exportRecoveryRun
 import {
   parseThresholdEcdsaSessionRecordAsRoleLocalWorkerExportMaterial,
   type EcdsaRoleLocalWorkerExportMaterial,
-} from '@/core/platform/ecdsaRoleLocalRecords';
+} from '../persistence/ecdsaRoleLocalRecords';
 
 type EmailOtpEcdsaRouteChain = ThresholdEcdsaChainTarget['kind'];
 type EmailOtpRouteChain = 'near' | EmailOtpEcdsaRouteChain;
@@ -598,7 +598,7 @@ export async function exportEcdsaKeyWithAuthorization(
         signingRootId: record.signingRootId,
         signingRootVersion: record.signingRootVersion,
         relayerKeyId: record.relayerKeyId,
-        roleLocalState: exportInput.roleLocalMaterial.roleLocalState,
+        readyRecord: exportInput.roleLocalMaterial.readyRecord,
         thresholdSessionId: record.thresholdSessionId,
         walletSigningSessionId: record.walletSigningSessionId,
         thresholdExpiresAtMs: record.expiresAtMs,

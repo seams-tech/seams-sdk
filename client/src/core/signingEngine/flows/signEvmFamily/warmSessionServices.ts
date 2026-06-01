@@ -10,7 +10,7 @@ import type {
   WarmSessionStatusResult,
 } from '../../uiConfirm/types';
 import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
-import { ensureWarmEcdsaCapabilityReady } from '../../session/passkey/ecdsaProvisioner';
+import { ensureWarmEcdsaCapabilityReady } from '../../useCases/provisionEcdsaSession';
 import {
   applyWarmSessionEcdsaPostSignPolicy,
   assertWarmSessionEcdsaOperationAllowed,

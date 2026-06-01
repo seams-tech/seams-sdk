@@ -66,6 +66,7 @@ async function mountExportViewer(
     guidance: payload.guidance,
     tokens: sanitizeThemeTokens(ctx.getAppearanceTokens?.()),
     loading: payload.loading === true,
+    errorMessage: payload.errorMessage,
     onLifecycle: payload.onLifecycle,
   };
   await upsertExportViewerHost(hostArgs);

@@ -1,7 +1,5 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
-import {
-  parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial,
-} from '@/core/platform/ecdsaRoleLocalRecords';
+import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '../../session/persistence/ecdsaRoleLocalRecords';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../interfaces/signing';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
@@ -33,12 +31,9 @@ import {
 } from '../../session/passkey/ecdsaWarmCapabilityBootstrap';
 import { provisionThresholdEd25519Session } from '../../session/passkey/ed25519SessionProvision';
 import { clearVolatileWarmSigningMaterial } from '../../session/warmCapabilities/clearVolatileWarmSigningMaterial';
-import {
-  cacheSigningSessionPrfFirst,
-} from '../../session/passkey/prfCache';
-import {
-  claimEmailOtpEcdsaSigningShare32,
-} from '../../session/emailOtp/workerRequests';
+import { cacheSigningSessionPrfFirst } from '../../session/passkey/prfCache';
+import { claimEmailOtpEcdsaSigningShare32 } from '../../session/emailOtp/workerRequests';
+import { openEcdsaRoleLocalSigningShareWasm } from '../../threshold/crypto/hssClientSignerWasm';
 import type { ThresholdSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
 import type { SigningEnginePorts } from './shared';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
@@ -219,8 +214,11 @@ export function createWarmCapabilitiesPublicDeps(args: {
           sessionId: emailOtpWorkerShareSessionId,
         });
       }
-      return parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial(record)
-        .clientSigningShare32;
+      const readyRecord = parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(record);
+      return await openEcdsaRoleLocalSigningShareWasm({
+        stateBlob: readyRecord.stateBlob,
+        workerCtx: args.thresholdSessionActivationDeps.getSignerWorkerContext(),
+      });
     },
   };
 }

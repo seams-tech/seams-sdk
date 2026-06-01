@@ -285,6 +285,7 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
           .map((entry) => String(entry || '').trim())
           .filter((entry) => entry.length > 0)
       : [];
+    const errorMessage = String(this.errorMessage || '').trim();
     return html`
       ${this.showCloseButton
         ? html`<button
@@ -298,6 +299,7 @@ export class ExportPrivateKeyViewer extends LitElementWithProps {
         : null}
       <div class="content">
         <h2 class="title">Exported Keys</h2>
+        ${errorMessage ? html`<div class="error-banner">${errorMessage}</div>` : null}
         <div class="fields">
           ${showAccountId
             ? html`

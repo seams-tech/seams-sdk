@@ -208,13 +208,15 @@ function resolveTransactionStepUpSessionUses(args: {
   operationId: SigningOperationId;
   requiredSignatureUses: number;
 }): number {
+  const requiredSignatureUses = Math.max(
+    1,
+    Math.floor(Number(args.requiredSignatureUses) || 1),
+  );
   const budgetPolicy = resolvePostExhaustionStepUpBudgetPolicy({
     operationId: normalizeStepUpOperationId(args.operationId),
+    requiredSignatureUses,
   });
-  return Math.max(
-    Math.max(1, Math.floor(Number(args.requiredSignatureUses) || 1)),
-    resolveSigningBudgetPolicyRemainingUses(budgetPolicy),
-  );
+  return Math.max(requiredSignatureUses, resolveSigningBudgetPolicyRemainingUses(budgetPolicy));
 }
 
 export async function signNear<TRequest extends NearSignIntentRequest>(

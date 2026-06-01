@@ -388,6 +388,23 @@ type PreparedEvmFamilyEcdsaMetadata = {
   availableLanesGeneration: number;
 };
 
+function budgetStatusAuthFromReadyEcdsaMaterial(
+  material: ReadyEcdsaMaterial,
+): SigningSessionBudgetStatusAuth | null {
+  const signerSession = material.signerSession;
+  const relayerUrl = String(signerSession.transport.relayerUrl || '').trim();
+  const thresholdSessionId = String(signerSession.session.thresholdSessionId || '').trim();
+  if (!relayerUrl || !thresholdSessionId) return null;
+  if (signerSession.transport.auth.kind !== 'jwt_threshold_session_auth') {
+    return { relayerUrl, thresholdSessionId };
+  }
+  return {
+    relayerUrl,
+    thresholdSessionId,
+    thresholdSessionAuthToken: signerSession.transport.auth.thresholdSessionAuthToken,
+  };
+}
+
 function assertPreparedMaterialBindingMatchesOperation(args: {
   metadata: PreparedEvmFamilyEcdsaMetadata;
   preparedOperation: PreparedThresholdSigningOperation<
@@ -473,7 +490,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
     operation: args.signingOperation,
     forceFreshAuth: args.forceFreshAuth === true,
     missingWhenExpiresAtMissing: true,
-    prepareBudgetIdentity: true,
+    prepareBudgetIdentity: false,
     onPlannerTrace: (event) => emitSigningPlannerDecisionTrace('evm-family', event),
     lifecycleAdapter: {
       prepare: async (input) => {
@@ -515,30 +532,11 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             availableLanes: candidateAvailableLanes,
             signingTarget: args.signingTarget,
           });
-        const walletAuthInputs =
-          candidateAuthMethod === 'email_otp'
-            ? {
-                sessionSource: 'email_otp',
-                isEmailOtpThresholdContext: true,
-              }
-            : candidateAuthMethod === 'passkey'
-              ? {
-                  sessionSource: 'passkey',
-                  isEmailOtpThresholdContext: false,
-                }
-              : {};
-        const accountAuth = await resolveEvmFamilyTransactionWalletAuth({
-          deps: args.deps,
-          walletId,
-          senderSignatureAlgorithm: 'secp256k1',
-          chainTarget: args.signingTarget,
-          ...walletAuthInputs,
-        });
-        const primaryAuthMethod =
-          accountAuth.primaryAuthMethod === 'email_otp' ? 'email_otp' : 'passkey';
         const transactionIntent: TransactionSigningIntent = buildEvmFamilyTransactionSigningIntent({
           walletId,
-          authSelectionPolicy: { kind: 'account_class', authMethod: primaryAuthMethod },
+          authSelectionPolicy: candidateAuthMethod
+            ? { kind: 'account_class', authMethod: candidateAuthMethod }
+            : { kind: 'any' },
           operationUsesNeeded: 1,
           signingTarget: args.signingTarget,
         });
@@ -552,7 +550,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           accountId: walletId,
           chain,
           chainTarget,
-          primaryAuthMethod,
+          primaryAuthMethod: selectedLane.ok ? selectedLane.candidate.authMethod : candidateAuthMethod,
           selectionOk: selectedLane.ok,
           ...(selectedLane.ok
             ? {
@@ -573,7 +571,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
               accountId: walletId,
               chain,
               chainTarget,
-              primaryAuthMethod,
+              primaryAuthMethod: candidateAuthMethod,
               failure: selectedLane.failure,
             });
             throw new Error(
@@ -603,7 +601,7 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
             chain,
             chainTarget,
             targetKey: thresholdEcdsaChainTargetKey(chainTarget),
-            primaryAuthMethod,
+            primaryAuthMethod: candidateAuthMethod,
             candidateCount: ecdsaAvailableLaneCandidatesForTarget(
               candidateAvailableLanes,
               chainTarget,
@@ -900,6 +898,8 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           preparedTransaction.transactionOperation,
           'budget_identity_not_prepared',
         );
+  const budgetStatusAuth =
+    material.kind === 'ready_to_sign' ? budgetStatusAuthFromReadyEcdsaMaterial(material) : null;
   return {
     accountAuth: metadata.accountAuth,
     authMethod: metadata.authMethod,
@@ -911,5 +911,6 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
     preparedOperation,
     transactionOperation: preparedTransaction.transactionOperation,
     budget,
+    ...(budgetStatusAuth ? { budgetStatusAuth } : {}),
   };
 }

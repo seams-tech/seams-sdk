@@ -202,8 +202,12 @@ function readReadyEvmFamilyEcdsaMaterialForExportLane(args: {
     },
   });
   if (materialResolution.kind !== 'ready') {
+    const reason =
+      materialResolution.reason.kind === 'stale_or_unrestorable_material'
+        ? `${materialResolution.reason.kind}:${materialResolution.reason.reason}`
+        : materialResolution.reason.kind;
     throw new Error(
-      `[SigningEngine][ecdsa-export] ready export material rejected: ${materialResolution.reason.kind}`,
+      `[SigningEngine][ecdsa-export] ready export material rejected: ${reason}`,
     );
   }
   return materialResolution.material;

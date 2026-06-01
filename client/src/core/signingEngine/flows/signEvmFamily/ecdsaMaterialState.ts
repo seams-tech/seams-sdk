@@ -44,21 +44,18 @@ export type FutureEpochMs = number & { readonly __brand: 'FutureEpochMs' };
 
 export type EvmFamilySharedEcdsaSignerMaterial =
   | {
-      kind: 'inline';
-      clientAdditiveShare32B64u: string;
-      workerSessionId?: never;
+      kind: 'worker_handle';
+      workerSessionId: string;
       sourceChainTarget?: never;
     }
   | {
-      kind: 'worker_handle';
-      workerSessionId: string;
-      clientAdditiveShare32B64u?: never;
+      kind: 'role_local_ready_state_blob';
+      workerSessionId?: never;
       sourceChainTarget?: never;
     }
   | {
       kind: 'source_chain_material';
       sourceChainTarget: ThresholdEcdsaChainTarget;
-      clientAdditiveShare32B64u?: never;
       workerSessionId?: never;
     };
 
@@ -563,15 +560,14 @@ function sharedSignerMaterial(args: {
     };
   }
   switch (args.signerSession.clientShare.kind) {
-    case 'inline_client_share':
-      return {
-        kind: 'inline',
-        clientAdditiveShare32B64u: args.signerSession.clientShare.clientAdditiveShare32B64u,
-      };
     case 'email_otp_worker_share':
       return {
         kind: 'worker_handle',
         workerSessionId: args.signerSession.clientShare.handle.sessionId,
+      };
+    case 'role_local_ready_state_blob':
+      return {
+        kind: 'role_local_ready_state_blob',
       };
   }
 }

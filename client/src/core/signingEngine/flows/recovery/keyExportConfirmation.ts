@@ -67,6 +67,34 @@ type ExportPrivateKeyDisplayEntry = {
   address?: string;
 };
 
+type ThresholdEcdsaExportViewerBaseArgs = {
+  nearAccountId: AccountId;
+  chainTarget: ThresholdEcdsaChainTarget;
+  publicKeyHex: string;
+  variant?: 'drawer' | 'modal';
+  theme?: 'dark' | 'light';
+  flowId: string;
+  onEvent?: KeyExportEventCallback;
+};
+
+type ThresholdEcdsaExportViewerLoadingArgs = ThresholdEcdsaExportViewerBaseArgs & {
+  state: 'loading';
+  viewerSessionId: string;
+  privateKeyHex?: never;
+  ethereumAddress?: never;
+};
+
+type ThresholdEcdsaExportViewerReadyArgs = ThresholdEcdsaExportViewerBaseArgs & {
+  state: 'ready';
+  privateKeyHex: string;
+  ethereumAddress: string;
+  viewerSessionId?: string;
+};
+
+type ThresholdEcdsaExportViewerArgs =
+  | ThresholdEcdsaExportViewerLoadingArgs
+  | ThresholdEcdsaExportViewerReadyArgs;
+
 const decryptPrivateKeyWithPrfType = 'decryptPrivateKeyWithPrf' as UiConfirmRequest['type'];
 const showSecurePrivateKeyUiType = 'showSecurePrivateKeyUi' as UiConfirmRequest['type'];
 
@@ -362,29 +390,29 @@ export async function requestThresholdEcdsaExportAuthorization(
 
 export async function showThresholdEcdsaExportViewer(
   deps: KeyExportConfirmationDeps,
-  args: {
-    nearAccountId: AccountId;
-    chainTarget: ThresholdEcdsaChainTarget;
-    publicKeyHex: string;
-    privateKeyHex: string;
-    ethereumAddress: string;
-    variant?: 'drawer' | 'modal';
-    theme?: 'dark' | 'light';
-    flowId: string;
-    onEvent?: KeyExportEventCallback;
-  },
+  args: ThresholdEcdsaExportViewerArgs,
 ): Promise<void> {
   const chain = args.chainTarget.kind;
   const label = chain === 'tempo' ? 'Tempo private key' : 'EVM private key';
-  const keys: ExportPrivateKeyDisplayEntry[] = [
-    {
-      scheme: 'secp256k1',
-      label,
-      publicKey: args.publicKeyHex,
-      privateKey: args.privateKeyHex,
-      address: args.ethereumAddress,
-    },
-  ];
+  const isLoading = args.state === 'loading';
+  const keys: ExportPrivateKeyDisplayEntry[] = isLoading
+    ? [
+        {
+          scheme: 'secp256k1',
+          label,
+          publicKey: args.publicKeyHex,
+          privateKey: '',
+        },
+      ]
+    : [
+        {
+          scheme: 'secp256k1',
+          label,
+          publicKey: args.publicKeyHex,
+          privateKey: args.privateKeyHex,
+          address: args.ethereumAddress,
+        },
+      ];
   await deps.touchConfirm.requestUserConfirmation({
     requestId: createExportUiRequestId('export-threshold-ecdsa-view'),
     type: showSecurePrivateKeyUiType,
@@ -396,10 +424,12 @@ export async function showThresholdEcdsaExportViewer(
     },
     payload: {
       nearAccountId: args.nearAccountId,
+      viewerSessionId: args.viewerSessionId,
       publicKey: args.publicKeyHex,
       keys,
       variant: args.variant,
       theme: args.theme ?? deps.theme ?? 'dark',
+      loading: isLoading,
       onLifecycle: (event) => {
         emitKeyExportEvent(args.onEvent, {
           phase:
@@ -413,7 +443,7 @@ export async function showThresholdEcdsaExportViewer(
             kind: 'key_export_viewer',
             overlay: event === 'opened' ? 'show' : 'hide',
           },
-          data: { chain, curve: 'ecdsa' },
+          data: { chain, curve: 'ecdsa', loading: isLoading },
         });
         if (event === 'closed') {
           emitKeyExportEvent(args.onEvent, {

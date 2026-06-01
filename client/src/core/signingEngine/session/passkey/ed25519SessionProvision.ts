@@ -76,7 +76,7 @@ export async function provisionThresholdEd25519Session(
   const expiresAtMs = Number(connected.expiresAtMs);
   const remainingUses = Number(connected.remainingUses);
   const jwt = String(connected.jwt || '').trim();
-  const prfFirstB64u = String(connected.ecdsaHssClientRootShare32B64u || '').trim();
+  const prfFirstB64u = String(connected.ecdsaHssPasskeyPrfFirstB64u || '').trim();
   if (
     !resolvedSessionId ||
     !walletSigningSessionId ||
@@ -168,8 +168,8 @@ export async function provisionThresholdEd25519Session(
     remainingUses,
     ...(connected.runtimePolicyScope ? { runtimePolicyScope: connected.runtimePolicyScope } : {}),
     jwt,
-    ...(connected.ecdsaHssClientRootShare32B64u
-      ? { ecdsaHssClientRootShare32B64u: connected.ecdsaHssClientRootShare32B64u }
+    ...(connected.ecdsaHssPasskeyPrfFirstB64u
+      ? { ecdsaHssPasskeyPrfFirstB64u: connected.ecdsaHssPasskeyPrfFirstB64u }
       : {}),
   };
 }

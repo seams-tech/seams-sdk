@@ -1,24 +1,24 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
+import { thresholdEcdsaRecordHasRoleLocalSigningMaterial } from '../session/persistence/ecdsaRoleLocalRecords';
 import {
-  parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial,
-  thresholdEcdsaRecordHasRoleLocalSigningMaterial,
-} from '@/core/platform/ecdsaRoleLocalRecords';
-import { thresholdEcdsaRecordRpId, type ThresholdEcdsaSessionRecord } from '../persistence/records';
+  thresholdEcdsaRecordRpId,
+  type ThresholdEcdsaSessionRecord,
+} from '../session/persistence/records';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionStoreSource,
-} from '../identity/laneIdentity';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
-import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
+} from '../session/identity/laneIdentity';
+import type { ThresholdEcdsaSecp256k1KeyRef } from '../interfaces/signing';
+import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
 import {
   DEFAULT_THRESHOLD_SESSION_POLICY,
   type ThresholdRuntimePolicyScope,
-} from '../../threshold/sessionPolicy';
-import type { SigningOperationIntent } from '../operationState/types';
+} from '../threshold/sessionPolicy';
+import type { SigningOperationIntent } from '../session/operationState/types';
 import {
   ecdsaPostSignPolicySessionFromRecord,
   formatEmailOtpSensitiveOperationError,
-} from '../operationState/postSignPolicy';
+} from '../session/operationState/postSignPolicy';
 import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
@@ -29,7 +29,7 @@ import {
   emitWarmSessionTransition,
   summarizeWarmSessionTransition,
   type WarmSessionTransitionEvent,
-} from '../warmCapabilities/transitions';
+} from '../session/warmCapabilities/transitions';
 import {
   buildEmailOtpEcdsaProvisionSecretSource,
   buildEcdsaSessionIdentity,
@@ -39,30 +39,30 @@ import {
   getEcdsaSessionProvisionIdentity,
   tryBuildEcdsaSessionIdentity,
   type EcdsaSessionProvisionPlan,
-} from '../warmCapabilities/ecdsaProvisionPlan';
-import { hasSufficientWarmClaim } from '../warmCapabilities/readModel';
+} from '../session/warmCapabilities/ecdsaProvisionPlan';
+import { hasSufficientWarmClaim } from '../session/warmCapabilities/readModel';
 import type {
   WarmSessionEcdsaCapabilityState,
   WarmSessionEnvelope,
-} from '../warmCapabilities/types';
+} from '../session/warmCapabilities/types';
 import type {
   EnsureWarmEcdsaProvisionPlanReadyArgs,
   EnsureWarmEcdsaCapabilityReadyResult,
-} from '../warmCapabilities/types';
+} from '../session/warmCapabilities/types';
 import type {
   ThresholdEcdsaActivationPolicy,
   ThresholdEcdsaActivationRequest,
   ThresholdEcdsaActivationRuntimeScopeBootstrap,
-} from './ecdsaSessionProvision';
+} from '../session/passkey/ecdsaSessionProvision';
 import {
   buildCookieReconnectEcdsaActivation,
   buildEmailOtpPerOperationReauthEcdsaActivation,
   buildEmailOtpSessionBootstrapEcdsaActivation,
   buildPasskeyReconnectEcdsaActivation,
   buildThresholdSessionReconnectEcdsaActivation,
-} from './ecdsaSessionProvision';
-import { claimPasskeyEcdsaPrfFirst } from './ecdsaRecovery';
-import type { PasskeyWarmSessionRecoveryPorts } from './prfClaim';
+} from '../session/passkey/ecdsaSessionProvision';
+import { claimPasskeyEcdsaPrfFirst } from '../session/passkey/ecdsaRecovery';
+import type { PasskeyWarmSessionRecoveryPorts } from '../session/passkey/prfClaim';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaWalletKey,
@@ -71,8 +71,8 @@ import {
   resolveThresholdSigningRootBindingFromRecord,
   type EvmFamilyEcdsaWalletKey,
   type EvmFamilyEcdsaSessionLanePolicy,
-} from '../identity/evmFamilyEcdsaIdentity';
-import { buildThresholdEcdsaSecp256k1KeyRefFromRecord } from '../identity/thresholdEcdsaSignerAdapter';
+} from '../session/identity/evmFamilyEcdsaIdentity';
+import { buildThresholdEcdsaSecp256k1KeyRefFromRecord } from '../session/identity/thresholdEcdsaSignerAdapter';
 
 export type WarmSessionEcdsaProvisionerDeps = {
   getWarmSession: (walletId: WalletId) => Promise<WarmSessionEnvelope>;
@@ -126,7 +126,7 @@ type EcdsaProvisionActivationCommon = {
 
 type PasskeyEcdsaActivation = EcdsaProvisionActivationCommon & {
   kind: 'passkey_ecdsa_activation';
-  clientRootShare32B64u: string;
+  passkeyPrfFirstB64u: string;
   webauthnAuthentication: Extract<
     EcdsaSessionProvisionPlan,
     { kind: 'passkey_ecdsa_session_provision' }
@@ -136,7 +136,10 @@ type PasskeyEcdsaActivation = EcdsaProvisionActivationCommon & {
 
 type EmailOtpEcdsaActivation = EcdsaProvisionActivationCommon & {
   kind: 'email_otp_ecdsa_activation';
-  clientRootShare32B64u: string;
+  emailOtpWorkerSessionHandle: Extract<
+    EcdsaSessionProvisionPlan,
+    { kind: 'email_otp_ecdsa_session_provision' }
+  >['provisionSecretSource']['workerHandle'];
   emailOtpAuthContext: Extract<
     EcdsaSessionProvisionPlan,
     { kind: 'email_otp_ecdsa_session_provision' }
@@ -147,6 +150,7 @@ type EmailOtpEcdsaActivation = EcdsaProvisionActivationCommon & {
 type CookieEcdsaActivation = EcdsaProvisionActivationCommon & {
   kind: 'cookie_reconnect';
   sessionKind: 'cookie';
+  passkeyCredentialIdB64u: string;
   plan: Extract<EcdsaSessionProvisionPlan, { kind: 'cookie_ecdsa_reconnect' }>;
 };
 
@@ -157,6 +161,7 @@ type ThresholdSessionAuthEcdsaActivation = EcdsaProvisionActivationCommon & {
     EcdsaSessionProvisionPlan,
     { kind: 'threshold_session_auth_ecdsa_reconnect' }
   >['thresholdSessionAuth'];
+  passkeyCredentialIdB64u: string;
   plan: Extract<EcdsaSessionProvisionPlan, { kind: 'threshold_session_auth_ecdsa_reconnect' }>;
 };
 
@@ -426,7 +431,7 @@ function buildPasskeyEcdsaActivation(args: {
     sessionKind: args.plan.sessionKind,
     sessionBudgetUses: args.plan.sessionBudgetUses,
     runtimePolicy: args.runtimePolicy,
-    clientRootShare32B64u: args.plan.provisionSecretSource.clientRootShare32B64u,
+    passkeyPrfFirstB64u: args.plan.provisionSecretSource.passkeyPrfFirstB64u,
     webauthnAuthentication: args.plan.provisionSecretSource.webauthnAuthentication,
     plan: args.plan,
   };
@@ -465,7 +470,7 @@ function buildEmailOtpEcdsaActivation(args: {
     sessionKind: args.plan.sessionKind,
     sessionBudgetUses: args.plan.sessionBudgetUses,
     runtimePolicy: args.runtimePolicy,
-    clientRootShare32B64u: args.plan.provisionSecretSource.clientRootShare32B64u,
+    emailOtpWorkerSessionHandle: args.plan.provisionSecretSource.workerHandle,
     emailOtpAuthContext: args.plan.provisionSecretSource.emailOtpAuthContext,
     plan: args.plan,
   };
@@ -505,6 +510,7 @@ function buildThresholdSessionAuthEcdsaActivation(args: {
     sessionBudgetUses: args.plan.sessionBudgetUses,
     runtimePolicy: args.runtimePolicy,
     thresholdSessionAuth: args.plan.thresholdSessionAuth,
+    passkeyCredentialIdB64u: args.plan.passkeyCredentialIdB64u,
     plan: args.plan,
   };
   if (args.options.runtimeScopeBootstrap) {
@@ -542,6 +548,7 @@ function buildCookieEcdsaActivation(args: {
     sessionKind: 'cookie',
     sessionBudgetUses: args.plan.sessionBudgetUses,
     runtimePolicy: args.runtimePolicy,
+    passkeyCredentialIdB64u: args.plan.passkeyCredentialIdB64u,
     plan: args.plan,
   };
   if (args.options.runtimeScopeBootstrap) {
@@ -596,7 +603,7 @@ async function provisionPasskeyEcdsaSession(
       ? { runtimeScopeBootstrap: activation.runtimeScopeBootstrap }
       : {}),
     ...(activation.operationIntent ? { operationIntent: activation.operationIntent } : {}),
-    clientRootShare32B64u: plan.provisionSecretSource.clientRootShare32B64u,
+    passkeyPrfFirstB64u: plan.provisionSecretSource.passkeyPrfFirstB64u,
     webauthnAuthentication: plan.provisionSecretSource.webauthnAuthentication,
   };
   return await deps.provisionThresholdEcdsaSession(
@@ -612,7 +619,7 @@ async function provisionPasskeyEcdsaSession(
         ? { runtimeScopeBootstrap: baseArgs.runtimeScopeBootstrap }
         : {}),
       ...(baseArgs.operationIntent ? { operationIntent: baseArgs.operationIntent } : {}),
-      clientRootShare32B64u: baseArgs.clientRootShare32B64u,
+      passkeyPrfFirstB64u: baseArgs.passkeyPrfFirstB64u,
       webauthnAuthentication: baseArgs.webauthnAuthentication,
       walletKey: activation.walletKey,
       lanePolicy: activation.lanePolicy,
@@ -625,7 +632,7 @@ async function reconnectThresholdSessionAuthEcdsaSession(
   activation: ThresholdSessionAuthEcdsaActivation,
 ): Promise<ThresholdEcdsaSessionBootstrapResult> {
   const plan = activation.plan;
-  const clientRootShare32B64u = await claimPasskeyEcdsaPrfFirst({
+  const passkeyPrfFirstB64u = await claimPasskeyEcdsaPrfFirst({
     touchConfirm: deps.touchConfirm,
     walletId: activation.walletId,
     walletSigningSessionId: plan.existingSessionIdentity.walletSigningSessionId,
@@ -645,7 +652,8 @@ async function reconnectThresholdSessionAuthEcdsaSession(
       ? { runtimeScopeBootstrap: activation.runtimeScopeBootstrap }
       : {}),
     ...(activation.operationIntent ? { operationIntent: activation.operationIntent } : {}),
-    clientRootShare32B64u,
+    passkeyPrfFirstB64u,
+    passkeyCredentialIdB64u: plan.passkeyCredentialIdB64u,
     thresholdSessionAuth: plan.thresholdSessionAuth,
   };
   return await deps.provisionThresholdEcdsaSession(
@@ -660,7 +668,8 @@ async function reconnectThresholdSessionAuthEcdsaSession(
         ? { runtimeScopeBootstrap: baseArgs.runtimeScopeBootstrap }
         : {}),
       ...(baseArgs.operationIntent ? { operationIntent: baseArgs.operationIntent } : {}),
-      clientRootShare32B64u: baseArgs.clientRootShare32B64u,
+      passkeyPrfFirstB64u: baseArgs.passkeyPrfFirstB64u,
+      passkeyCredentialIdB64u: baseArgs.passkeyCredentialIdB64u,
       thresholdSessionAuth: baseArgs.thresholdSessionAuth,
       walletKey: activation.walletKey,
       lanePolicy: activation.lanePolicy,
@@ -693,6 +702,7 @@ async function reconnectCookieEcdsaSession(
       sessionKind: baseArgs.sessionKind,
       sessionBudgetUses: baseArgs.sessionBudgetUses,
       runtimePolicy: baseArgs.runtimePolicy,
+      passkeyCredentialIdB64u: plan.passkeyCredentialIdB64u,
       ...(baseArgs.runtimeScopeBootstrap
         ? { runtimeScopeBootstrap: baseArgs.runtimeScopeBootstrap }
         : {}),
@@ -719,7 +729,7 @@ async function provisionEmailOtpEcdsaSession(
       ? { runtimeScopeBootstrap: activation.runtimeScopeBootstrap }
       : {}),
     ...(activation.operationIntent ? { operationIntent: activation.operationIntent } : {}),
-    clientRootShare32B64u: plan.provisionSecretSource.clientRootShare32B64u,
+    emailOtpWorkerSessionHandle: plan.provisionSecretSource.workerHandle,
   };
   if (plan.provisionSecretSource.emailOtpAuthContext.retention === 'single_use') {
     const emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext & {
@@ -748,7 +758,7 @@ async function provisionEmailOtpEcdsaSession(
           ? { runtimeScopeBootstrap: baseArgs.runtimeScopeBootstrap }
           : {}),
         ...(baseArgs.operationIntent ? { operationIntent: baseArgs.operationIntent } : {}),
-        clientRootShare32B64u: baseArgs.clientRootShare32B64u,
+        emailOtpWorkerSessionHandle: baseArgs.emailOtpWorkerSessionHandle,
         walletKey: activation.walletKey,
         lanePolicy: activation.lanePolicy,
         emailOtpAuthContext,
@@ -781,7 +791,7 @@ async function provisionEmailOtpEcdsaSession(
         ? { runtimeScopeBootstrap: baseArgs.runtimeScopeBootstrap }
         : {}),
       ...(baseArgs.operationIntent ? { operationIntent: baseArgs.operationIntent } : {}),
-      clientRootShare32B64u: baseArgs.clientRootShare32B64u,
+      emailOtpWorkerSessionHandle: baseArgs.emailOtpWorkerSessionHandle,
       walletKey: activation.walletKey,
       lanePolicy: activation.lanePolicy,
       emailOtpAuthContext,
@@ -899,7 +909,10 @@ export async function ensureWarmEcdsaCapabilityReady(
   const chainId = chainTarget.chainId;
   const warmSession = await deps.getWarmSession(exactWalletId);
   const plannedRecord = args.record;
-  if (!thresholdEcdsaChainTargetsEqual(plannedRecord.chainTarget, chainTarget)) {
+  if (
+    provisionPlanRequiresExistingRecordIdentity(args.plan) &&
+    !thresholdEcdsaChainTargetsEqual(plannedRecord.chainTarget, chainTarget)
+  ) {
     throw new Error(
       '[WarmSessionStore] ECDSA readiness record chain target does not match request',
     );
@@ -1089,8 +1102,7 @@ export async function ensureWarmEcdsaCapabilityReady(
               sessionKind: args.plan.sessionKind,
               sessionBudgetUses: args.plan.sessionBudgetUses,
               provisionSecretSource: buildEmailOtpEcdsaProvisionSecretSource({
-                clientRootShare32B64u:
-                  args.plan.provisionSecretSource.clientRootShare32B64u,
+                workerHandle: args.plan.provisionSecretSource.workerHandle,
                 emailOtpAuthContext: inheritedEmailOtpRecord.emailOtpAuthContext,
               }),
               ...(args.plan.runtimePolicyScope
@@ -1351,14 +1363,7 @@ export function buildReusableEcdsaBootstrapResult(args: {
   if (!clientVerifyingShareB64u || !relayerKeyId || !identity) {
     return null;
   }
-  let inlineSigningMaterial: ReturnType<
-    typeof parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial
-  >;
-  try {
-    inlineSigningMaterial = parseThresholdEcdsaSessionRecordAsInlineRoleLocalSigningMaterial(
-      record,
-    );
-  } catch {
+  if (!thresholdEcdsaRecordHasRoleLocalSigningMaterial(record)) {
     return null;
   }
   const ecdsaThresholdKeyId = String(resolveThresholdEcdsaKeyIdFromRecord({ record }) || '').trim();
@@ -1385,11 +1390,11 @@ export function buildReusableEcdsaBootstrapResult(args: {
       ecdsaThresholdKeyId,
       relayerKeyId,
       clientVerifyingShareB64u,
-      clientAdditiveShare32B64u: inlineSigningMaterial.clientAdditiveShare32B64u,
       participantIds: record.participantIds,
       thresholdEcdsaPublicKeyB64u: record.thresholdEcdsaPublicKeyB64u,
       ethereumAddress: record.ethereumAddress,
       relayerVerifyingShareB64u: record.relayerVerifyingShareB64u,
+      chainId: record.chainTarget.chainId,
     },
     session: {
       ok: true,

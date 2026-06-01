@@ -1,4 +1,7 @@
-import { thresholdEcdsaChainTargetFromChainFamily, toWalletId } from '../signingEngine/interfaces/ecdsaChainTarget';
+import {
+  thresholdEcdsaChainTargetFromChainFamily,
+  toWalletId,
+} from '../signingEngine/interfaces/ecdsaChainTarget';
 import { toRpId } from '../signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   toEcdsaHssSigningRootId,
@@ -6,6 +9,10 @@ import {
   toEcdsaHssThresholdKeyId,
   toEmailOtpAuthSubjectId,
 } from '../signingEngine/session/identity/emailOtpHssIdentity';
+import {
+  buildEcdsaRoleLocalEmailOtpAuthMethod,
+  buildEcdsaRoleLocalPasskeyAuthMethod,
+} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import {
   buildEmailOtpWorkerIssuedSessionHandle,
   buildEmailOtpWorkerSessionSecretSource,
@@ -16,11 +23,15 @@ import {
 import type {
   AuthenticatorResult,
   ClientSecretSource,
+  EcdsaProvisioningState,
   EcdsaRoleLocalPendingStateBlob,
+  EcdsaRoleLocalPublicFacts,
   EcdsaRoleLocalReadyRecord,
   EcdsaRoleLocalReadyStateBlob,
   EcdsaRoleLocalSessionRecordState,
   EmailOtpWorkerIssuedSessionHandle,
+  LoadEcdsaRoleLocalReadyRecordInput,
+  PersistEcdsaRoleLocalReadyRecordInput,
   PlatformResult,
   PlatformRuntime,
   PrepareEcdsaClientBootstrapInput,
@@ -46,7 +57,12 @@ declare const hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
 declare const relayerPublicKey33B64u: EcdsaRelayerHssPublicKey33B64u;
 declare const pendingBlob: EcdsaRoleLocalPendingStateBlob;
 declare const readyBlob: EcdsaRoleLocalReadyStateBlob;
+declare const publicFacts: EcdsaRoleLocalPublicFacts;
 declare const readyRecord: EcdsaRoleLocalReadyRecord;
+declare const passkeyReadyRecord: Extract<
+  EcdsaRoleLocalReadyRecord,
+  { kind: 'ecdsa_role_local_ready_passkey_v1' }
+>;
 declare const requiredPrfAuthenticatorSuccess: RequiredPrfAuthenticatorSuccess;
 
 const emailOtpWorkerIssuedSessionHandleFromBuilder = buildEmailOtpWorkerIssuedSessionHandle({
@@ -91,6 +107,19 @@ runtime.signerCrypto.finalizeEcdsaClientBootstrap({
     ethereumAddress: '0x0000000000000000000000000000000000000001',
   },
 });
+runtime.signerCrypto.buildEcdsaRoleLocalExportArtifact({
+  kind: 'build_ecdsa_role_local_export_artifact_v1',
+  algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
+  stateBlob: readyBlob,
+  publicFacts,
+  authorization: {
+    kind: 'passkey_export_authorized',
+    walletId: publicFacts.walletId,
+    rpId: publicFacts.rpId,
+    credentialIdB64u: passkeyReadyRecord.authMethod.credentialIdB64u,
+  },
+  serverExportShare32B64u: 'server-share',
+});
 
 if (platformResult.ok) {
   platformResult.value.value;
@@ -112,7 +141,11 @@ if (signerResult.ok) {
 } else if (signerResult.failure === 'command') {
   signerResult.code satisfies 'invalid_context';
 } else {
-  signerResult.code satisfies 'unavailable' | 'worker_transport_failure' | 'native_binding_failure' | 'timeout';
+  signerResult.code satisfies
+    | 'unavailable'
+    | 'worker_transport_failure'
+    | 'native_binding_failure'
+    | 'timeout';
 }
 
 switch (secretSource.kind) {
@@ -302,21 +335,27 @@ declare function useReadyBlob(blob: EcdsaRoleLocalReadyStateBlob): void;
 useReadyBlob(pendingBlob);
 useReadyBlob(readyBlob);
 
-const passkeyReadyRoleLocalState = {
+const passkeyReadyBlobRoleLocalState = {
   kind: 'ready_passkey_role_local_material_v1',
-  authMethod: 'passkey',
-  readyRecord,
+  authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
+    credentialIdB64u: 'credential',
+    rpId: toRpId('wallet.example'),
+  }),
+  readyRecord: passkeyReadyRecord,
   inlineSigningMaterial: {
-    kind: 'inline_client_share',
-    clientAdditiveShare32B64u: 'share',
+    kind: 'role_local_ready_state_blob',
+    stateBlob: readyBlob,
   },
 } satisfies EcdsaRoleLocalSessionRecordState;
-void passkeyReadyRoleLocalState;
+void passkeyReadyBlobRoleLocalState;
 
 const passkeyWorkerRoleLocalState = {
   kind: 'ready_passkey_role_local_material_v1',
-  authMethod: 'passkey',
-  readyRecord,
+  authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
+    credentialIdB64u: 'credential',
+    rpId: toRpId('wallet.example'),
+  }),
+  readyRecord: passkeyReadyRecord,
   inlineSigningMaterial: {
     kind: 'email_otp_worker_share',
     workerSessionId: 'otp-session',
@@ -325,18 +364,114 @@ const passkeyWorkerRoleLocalState = {
 // @ts-expect-error passkey-ready role-local state cannot carry Email OTP worker material
 passkeyWorkerRoleLocalState satisfies EcdsaRoleLocalSessionRecordState;
 
-const reauthWithInlineRoleLocalState = {
+const reauthWithReadyBlobRoleLocalState = {
   kind: 'reauth_required_role_local_material_v1',
-  authMethod: 'email_otp',
+  authMethod: buildEcdsaRoleLocalEmailOtpAuthMethod({
+    authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
+  }),
   readyRecord,
   reason: 'expired',
   inlineSigningMaterial: {
-    kind: 'inline_client_share',
-    clientAdditiveShare32B64u: 'share',
+    kind: 'role_local_ready_state_blob',
+    stateBlob: readyRecord.stateBlob,
   },
 };
 // @ts-expect-error reauth-required role-local state cannot carry ready signing material
-reauthWithInlineRoleLocalState satisfies EcdsaRoleLocalSessionRecordState;
+reauthWithReadyBlobRoleLocalState satisfies EcdsaRoleLocalSessionRecordState;
+
+const passkeyReadyRecordLiteral = {
+  kind: 'ecdsa_role_local_ready_passkey_v1',
+  stateBlob: readyBlob,
+  publicFacts,
+  authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
+    credentialIdB64u: 'credential',
+    rpId: toRpId('wallet.example'),
+  }),
+} satisfies EcdsaRoleLocalReadyRecord;
+void passkeyReadyRecordLiteral;
+
+const readyRecordWithPendingBlob = {
+  kind: 'ecdsa_role_local_ready_passkey_v1',
+  stateBlob: pendingBlob,
+  publicFacts,
+  authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
+    credentialIdB64u: 'credential',
+    rpId: toRpId('wallet.example'),
+  }),
+};
+// @ts-expect-error ready ECDSA records require ready state blobs
+readyRecordWithPendingBlob satisfies EcdsaRoleLocalReadyRecord;
+
+const mixedAuthReadyRecord = {
+  kind: 'ecdsa_role_local_ready_passkey_v1',
+  stateBlob: readyBlob,
+  publicFacts,
+  authMethod: buildEcdsaRoleLocalEmailOtpAuthMethod({
+    authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
+  }),
+};
+// @ts-expect-error passkey ready-record branches reject Email OTP auth methods
+mixedAuthReadyRecord satisfies EcdsaRoleLocalReadyRecord;
+
+const broadSpreadMixedReadyRecord = {
+  ...passkeyReadyRecordLiteral,
+  authMethod: buildEcdsaRoleLocalEmailOtpAuthMethod({
+    authSubjectId: toEmailOtpAuthSubjectId('google:alice'),
+  }),
+};
+// @ts-expect-error broad spreads cannot mix ready-record branch and auth method
+broadSpreadMixedReadyRecord satisfies EcdsaRoleLocalReadyRecord;
+
+const validEcdsaLoadInput = {
+  walletId: toWalletId('wallet_alice'),
+  rpId: toRpId('wallet.example'),
+  chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
+  keyHandle: 'key-handle',
+  ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ehss-key'),
+  signingRootId: toEcdsaHssSigningRootId('root'),
+  signingRootVersion: toEcdsaHssSigningRootVersion('v1'),
+  participantIds: [1, 2],
+  authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
+    credentialIdB64u: 'credential',
+    rpId: toRpId('wallet.example'),
+  }),
+} satisfies LoadEcdsaRoleLocalReadyRecordInput;
+void validEcdsaLoadInput;
+
+const ecdsaLoadInputWithoutAuth = {
+  walletId: toWalletId('wallet_alice'),
+  rpId: toRpId('wallet.example'),
+  chainTarget: thresholdEcdsaChainTargetFromChainFamily({ chain: 'tempo', chainId: 42431 }),
+  keyHandle: 'key-handle',
+  ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId('ehss-key'),
+  signingRootId: toEcdsaHssSigningRootId('root'),
+  signingRootVersion: toEcdsaHssSigningRootVersion('v1'),
+  participantIds: [1, 2],
+};
+// @ts-expect-error ECDSA role-local lookups require branch-specific authMethod
+ecdsaLoadInputWithoutAuth satisfies LoadEcdsaRoleLocalReadyRecordInput;
+
+const ecdsaPersistWithoutStorageKeyFacts = {
+  record: passkeyReadyRecordLiteral,
+};
+// @ts-expect-error ECDSA ready-record persistence requires explicit storageKeyFacts
+ecdsaPersistWithoutStorageKeyFacts satisfies PersistEcdsaRoleLocalReadyRecordInput;
+
+const provisioningReady = {
+  kind: 'ready',
+  record: passkeyReadyRecordLiteral,
+} satisfies EcdsaProvisioningState;
+void provisioningReady;
+
+const provisioningFailedWithRecord = {
+  kind: 'failed',
+  code: 'invalid_state',
+  message: 'failed',
+  retryable: false,
+  record: passkeyReadyRecordLiteral,
+};
+// @ts-expect-error failed provisioning states cannot carry ready records
+provisioningFailedWithRecord satisfies EcdsaProvisioningState;
 
 const incompletePlatformRuntime = {
   kind: 'browser',

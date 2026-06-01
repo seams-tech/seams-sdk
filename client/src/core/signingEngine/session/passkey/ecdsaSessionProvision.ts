@@ -1,4 +1,5 @@
 import type { ThresholdSessionSealTransportAuthMaterial } from '../persistence/records';
+import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
@@ -52,6 +53,11 @@ export type ThresholdEcdsaActivationRuntimeScopeBootstrap = {
   publishableKey: string;
 };
 
+type EmailOtpEcdsaBootstrapWorkerHandle = Extract<
+  EmailOtpWorkerIssuedSessionHandle,
+  { action: 'threshold_ecdsa_bootstrap' }
+>;
+
 type ThresholdEcdsaActivationRequestSharedFields = {
   relayerUrl: string;
   source: ThresholdEcdsaSessionStoreSource;
@@ -82,7 +88,7 @@ export type ThresholdEcdsaPasskeyActivationRequest = ThresholdEcdsaActivationReq
   sessionIdentity: EcdsaSessionIdentity;
   sessionKind: ThresholdSessionKind;
   requestId: string;
-  clientRootShare32B64u: string;
+  passkeyPrfFirstB64u: string;
   webauthnAuthentication: WebAuthnAuthenticationCredential;
   thresholdSessionAuth?: never;
   emailOtpAuthContext?: never;
@@ -92,8 +98,9 @@ export type ThresholdEcdsaEmailOtpActivationRequest = ThresholdEcdsaActivationRe
   kind: 'email_otp_ecdsa_activation';
   sessionIdentity: EcdsaSessionIdentity;
   sessionKind: ThresholdSessionKind;
-  clientRootShare32B64u: string;
+  emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+  passkeyPrfFirstB64u?: never;
   webauthnAuthentication?: never;
   thresholdSessionAuth?: never;
 };
@@ -104,7 +111,8 @@ export type ThresholdEcdsaThresholdSessionAuthReconnectRequest =
     sessionIdentity: EcdsaSessionIdentity;
     sessionKind: 'jwt';
     thresholdSessionAuth: VerifiedEcdsaThresholdSessionAuth;
-    clientRootShare32B64u: string;
+    passkeyPrfFirstB64u: string;
+    passkeyCredentialIdB64u: string;
     webauthnAuthentication?: never;
     emailOtpAuthContext?: never;
   };
@@ -113,9 +121,10 @@ export type ThresholdEcdsaCookieReconnectRequest = ThresholdEcdsaActivationReque
   kind: 'cookie_reconnect';
   sessionIdentity: EcdsaSessionIdentity;
   sessionKind: 'cookie';
+  passkeyCredentialIdB64u: string;
   thresholdSessionAuth?: never;
   webauthnAuthentication?: never;
-  clientRootShare32B64u?: never;
+  passkeyPrfFirstB64u?: never;
   emailOtpAuthContext?: never;
 };
 
@@ -131,7 +140,7 @@ type BuildPasskeyEcdsaActivationArgs = BuildThresholdEcdsaActivationRequestCommo
   sessionIdentity: EcdsaSessionIdentity;
   sessionKind: ThresholdSessionKind;
   requestId: string;
-  clientRootShare32B64u: string;
+  passkeyPrfFirstB64u: string;
   webauthnAuthentication: WebAuthnAuthenticationCredential;
   thresholdSessionAuth?: never;
   emailOtpAuthContext?: never;
@@ -141,8 +150,9 @@ type BuildEmailOtpSessionBootstrapEcdsaActivationArgs =
   BuildThresholdEcdsaActivationRequestCommon & {
     sessionIdentity: EcdsaSessionIdentity;
     sessionKind: ThresholdSessionKind;
-    clientRootShare32B64u: string;
+    emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext & { retention: 'session' };
+    passkeyPrfFirstB64u?: never;
     webauthnAuthentication?: never;
     thresholdSessionAuth?: never;
   };
@@ -151,8 +161,9 @@ type BuildEmailOtpPerOperationReauthEcdsaActivationArgs =
   BuildThresholdEcdsaActivationRequestCommon & {
     sessionIdentity: EcdsaSessionIdentity;
     sessionKind: ThresholdSessionKind;
-    clientRootShare32B64u: string;
+    emailOtpWorkerSessionHandle: EmailOtpEcdsaBootstrapWorkerHandle;
     emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext & { retention: 'single_use' };
+    passkeyPrfFirstB64u?: never;
     webauthnAuthentication?: never;
     thresholdSessionAuth?: never;
   };
@@ -162,7 +173,8 @@ type BuildThresholdSessionReconnectEcdsaActivationArgs =
     sessionIdentity: EcdsaSessionIdentity;
     sessionKind: 'jwt';
     thresholdSessionAuth: VerifiedEcdsaThresholdSessionAuth;
-    clientRootShare32B64u: string;
+    passkeyPrfFirstB64u: string;
+    passkeyCredentialIdB64u: string;
     webauthnAuthentication?: never;
     emailOtpAuthContext?: never;
   };
@@ -170,9 +182,10 @@ type BuildThresholdSessionReconnectEcdsaActivationArgs =
 type BuildCookieReconnectEcdsaActivationArgs = BuildThresholdEcdsaActivationRequestCommon & {
   sessionIdentity: EcdsaSessionIdentity;
   sessionKind: 'cookie';
+  passkeyCredentialIdB64u: string;
   thresholdSessionAuth?: never;
   webauthnAuthentication?: never;
-  clientRootShare32B64u?: never;
+  passkeyPrfFirstB64u?: never;
   emailOtpAuthContext?: never;
 };
 
@@ -206,7 +219,7 @@ function buildPasskeyEcdsaActivationRequest(
     sessionBudgetUses: args.sessionBudgetUses,
     requestId: args.requestId,
     runtimePolicy: args.runtimePolicy,
-    clientRootShare32B64u: args.clientRootShare32B64u,
+    passkeyPrfFirstB64u: args.passkeyPrfFirstB64u,
     webauthnAuthentication: args.webauthnAuthentication,
   };
   return applyOptionalActivationFields(request, args);
@@ -239,7 +252,7 @@ function buildEmailOtpEcdsaActivationRequest(
     sessionKind: args.sessionKind,
     sessionBudgetUses: args.sessionBudgetUses,
     runtimePolicy: args.runtimePolicy,
-    clientRootShare32B64u: args.clientRootShare32B64u,
+    emailOtpWorkerSessionHandle: args.emailOtpWorkerSessionHandle,
     emailOtpAuthContext: args.emailOtpAuthContext,
   };
   return applyOptionalActivationFields(request, args);
@@ -270,7 +283,8 @@ export function buildThresholdSessionReconnectEcdsaActivation(
     sessionKind: 'jwt',
     sessionBudgetUses: args.sessionBudgetUses,
     runtimePolicy: args.runtimePolicy,
-    clientRootShare32B64u: args.clientRootShare32B64u,
+    passkeyPrfFirstB64u: args.passkeyPrfFirstB64u,
+    passkeyCredentialIdB64u: args.passkeyCredentialIdB64u,
     thresholdSessionAuth: args.thresholdSessionAuth,
   };
   return applyOptionalActivationFields(request, args);
@@ -289,6 +303,7 @@ export function buildCookieReconnectEcdsaActivation(
     sessionKind: 'cookie',
     sessionBudgetUses: args.sessionBudgetUses,
     runtimePolicy: args.runtimePolicy,
+    passkeyCredentialIdB64u: args.passkeyCredentialIdB64u,
   };
   return applyOptionalActivationFields(request, args);
 }
@@ -384,7 +399,7 @@ function toBootstrapEcdsaSessionRequest(
           source: command.request.source,
           relayerUrl: command.request.relayerUrl,
           requestId: command.request.requestId,
-          clientRootShare32B64u: command.request.clientRootShare32B64u,
+          passkeyPrfFirstB64u: command.request.passkeyPrfFirstB64u,
           webauthnAuthentication: command.request.webauthnAuthentication,
         },
         command.request,
@@ -398,7 +413,7 @@ function toBootstrapEcdsaSessionRequest(
           lanePolicy: command.request.lanePolicy,
           source: 'email_otp',
           relayerUrl: command.request.relayerUrl,
-          clientRootShare32B64u: command.request.clientRootShare32B64u,
+          emailOtpWorkerSessionHandle: command.request.emailOtpWorkerSessionHandle,
           emailOtpAuthContext: command.request.emailOtpAuthContext,
         },
         command.request,
@@ -412,7 +427,8 @@ function toBootstrapEcdsaSessionRequest(
           keyHandle: command.request.walletKey.keyHandle,
           key: evmFamilyEcdsaWalletKeyToIdentity(command.request.walletKey),
           lanePolicy: command.request.lanePolicy,
-          clientRootShare32B64u: command.request.clientRootShare32B64u,
+          passkeyPrfFirstB64u: command.request.passkeyPrfFirstB64u,
+          passkeyCredentialIdB64u: command.request.passkeyCredentialIdB64u,
           routeAuth: {
             kind: 'threshold_session',
             jwt: command.request.thresholdSessionAuth.thresholdSessionAuthToken,
@@ -427,6 +443,7 @@ function toBootstrapEcdsaSessionRequest(
           keyHandle: command.request.walletKey.keyHandle,
           key: evmFamilyEcdsaWalletKeyToIdentity(command.request.walletKey),
           lanePolicy: command.request.lanePolicy,
+          passkeyCredentialIdB64u: command.request.passkeyCredentialIdB64u,
           source: command.request.source,
           relayerUrl: command.request.relayerUrl,
         },

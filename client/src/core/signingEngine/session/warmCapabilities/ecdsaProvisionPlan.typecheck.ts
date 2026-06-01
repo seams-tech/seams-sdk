@@ -1,8 +1,10 @@
 import {
   thresholdEcdsaChainTargetFromChainFamily,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import { toAccountId } from '@/core/types/accountIds';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
+import type { EcdsaRoleLocalReadyRecord } from '@/core/platform/types';
 import type { WebAuthnAuthenticationCredential } from '@/core/types/webauthn';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '../identity/laneIdentity';
 import {
@@ -23,6 +25,7 @@ import {
   buildPasskeyEcdsaSessionProvision,
   buildThresholdSessionAuthEcdsaReconnect,
   type EcdsaSessionProvisionPlan,
+  type PasskeyEcdsaProvisionSecretSource,
   type VerifiedEcdsaThresholdSessionAuth,
 } from './ecdsaProvisionPlan';
 
@@ -42,6 +45,11 @@ const signingKeyContext = {
 };
 const keyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-1');
 declare const webauthnAuthentication: WebAuthnAuthenticationCredential;
+declare const emailOtpWorkerHandle: Extract<
+  EmailOtpWorkerIssuedSessionHandle,
+  { action: 'threshold_ecdsa_bootstrap' }
+>;
+declare const roleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
 const thresholdSessionAuth = {
   kind: 'threshold_session',
   curve: 'ecdsa',
@@ -58,11 +66,18 @@ const emailOtpAuthContext = {
   authMethod: 'email_otp',
 } satisfies ThresholdEcdsaEmailOtpAuthContext;
 const passkeyProvisionSecretSource = buildPasskeyEcdsaProvisionSecretSource({
-  clientRootShare32B64u: 'client-root',
+  passkeyPrfFirstB64u: 'prf-first',
   webauthnAuthentication,
 });
+const invalidUnbrandedPasskeyProvisionSecretSource: PasskeyEcdsaProvisionSecretSource = {
+  kind: 'webauthn_prf_first_v1',
+  // @ts-expect-error PRF.first must be normalized by buildPasskeyEcdsaProvisionSecretSource.
+  passkeyPrfFirstB64u: 'prf-first',
+  webauthnAuthentication,
+};
+void invalidUnbrandedPasskeyProvisionSecretSource;
 const emailOtpProvisionSecretSource = buildEmailOtpEcdsaProvisionSecretSource({
-  clientRootShare32B64u: 'client-root',
+  workerHandle: emailOtpWorkerHandle,
   emailOtpAuthContext,
 });
 const reconnectKeyRef = {
@@ -96,6 +111,7 @@ const reconnectRecord = {
   signingRootVersion: 'v1',
   relayerKeyId: 'relayer-key-1',
   clientVerifyingShareB64u: 'share',
+  ecdsaRoleLocalReadyRecord: roleLocalReadyRecord,
   participantIds: [1, 2],
   thresholdSessionKind: 'jwt',
   thresholdSessionAuthToken: 'jwt-token',
@@ -132,8 +148,8 @@ void buildPasskeyEcdsaSessionProvision({
   sessionBudgetUses: 1,
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
-  // @ts-expect-error passkey provision root shares must be wrapped in provisionSecretSource
-  clientRootShare32B64u: 'client-root',
+  // @ts-expect-error passkey provision PRF.first must be wrapped in provisionSecretSource
+  passkeyPrfFirstB64u: 'prf-first',
 });
 
 void buildPasskeyEcdsaSessionProvision({

@@ -28,8 +28,8 @@ export type EmailOtpWarmSessionMaterial =
     };
 
 export type PasskeyEcdsaWarmSessionMaterial = {
-  kind: 'ecdsa_client_root_share';
-  clientRootShare32B64u: string;
+  kind: 'ecdsa_prf_first';
+  passkeyPrfFirstB64u: string;
   transport: WarmSessionSealTransportInput;
 };
 

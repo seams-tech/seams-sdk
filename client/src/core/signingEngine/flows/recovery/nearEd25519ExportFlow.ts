@@ -347,11 +347,11 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
               ...(request.authLane ? { authLane: request.authLane } : {}),
             }),
         },
-    {
-      kind: 'near_account_export_auth',
-      nearAccountId,
-      chain: 'near',
-      publicKey: expectedPublicKey,
+        {
+          kind: 'near_account_export_auth',
+          nearAccountId,
+          chain: 'near',
+          publicKey: expectedPublicKey,
           curve: 'ed25519',
           authLane: exportSigningSessionAuthLane,
         },
@@ -361,6 +361,19 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
         nearAccountId,
         onEvent: args.onEvent,
       });
+      await showNearEd25519ExportViewer(
+        { touchConfirm: deps.touchConfirm, theme: deps.theme },
+        {
+          nearAccountId,
+          expectedPublicKey,
+          variant: args.options.variant,
+          theme: args.options.theme,
+          loading: true,
+          viewerSessionId,
+          flowId: args.flowId,
+          onEvent: args.onEvent,
+        },
+      );
       const artifact = await deps.emailOtpSessions.exportEd25519SeedWithAuthorization({
         nearAccountId,
         challengeId: authorization.challengeId,
@@ -380,6 +393,12 @@ export async function tryExportNearEd25519SingleKeyHssWithAuthorization(
         nearAccountId,
         onEvent: args.onEvent,
       });
+      if (!isExportViewerSessionOpen(viewerSessionId)) {
+        return {
+          accountId: nearAccountId,
+          exportedSchemes: ['ed25519'],
+        };
+      }
       await showNearEd25519ExportViewer(
         { touchConfirm: deps.touchConfirm, theme: deps.theme },
         {

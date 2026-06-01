@@ -29,14 +29,19 @@ import type {
   ThresholdEd25519HssPreparedSessionEnvelope,
   ThresholdEd25519HssServerVisibleClientRequestEnvelope,
   ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
-  ThresholdEcdsaHssRoleLocalClientBootstrap,
 } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type {
   EcdsaHssRoleLocalPublicIdentity,
   ThresholdEcdsaHssRoleLocalBootstrapValue,
 } from './thresholdEcdsa';
-import { buildEcdsaRoleLocalReadyRecordFromLegacyState } from '@/core/platform/ecdsaRoleLocalRecords';
+import {
+  buildEcdsaRoleLocalEmailOtpAuthMethod,
+  buildEcdsaRoleLocalPasskeyAuthMethod,
+  buildEcdsaRoleLocalPublicFacts,
+  buildEcdsaRoleLocalReadyRecord,
+} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+import type { EcdsaRoleLocalReadyStateBlob } from '@/core/platform';
 
 function stripTrailingSlashes(url: string): string {
   return String(url || '').replace(/\/+$/, '');
@@ -357,8 +362,6 @@ type WalletRegistrationStartAuthority =
       webauthnRegistration?: never;
     };
 
-export type WalletRegistrationEcdsaLocalClientBootstrap = ThresholdEcdsaHssRoleLocalClientBootstrap;
-
 export type WalletRegistrationEcdsaHssRespondBootstrap = {
   walletId: string;
   rpId: string;
@@ -417,19 +420,19 @@ function requireMatchingParticipantIds(args: {
 }
 
 export function parseWalletRegistrationEcdsaHssRespond(args: {
-  localBootstrap: WalletRegistrationEcdsaLocalClientBootstrap;
+  clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
   serverBootstrap: ThresholdEcdsaHssRoleLocalBootstrapValue;
 }): WalletRegistrationEcdsaHssRespondBootstrap {
-  const localBootstrap = args.localBootstrap;
+  const clientBootstrap = args.clientBootstrap;
   const serverBootstrap = args.serverBootstrap;
   requireMatchingString({
     field: 'hssClientSharePublicKey33B64u',
-    expected: localBootstrap.clientPublicKey33B64u,
+    expected: clientBootstrap.hssClientSharePublicKey33B64u,
     actual: serverBootstrap.publicIdentity.hssClientSharePublicKey33B64u,
   });
   const contextBinding32B64u = requireMatchingString({
     field: 'contextBinding32B64u',
-    expected: localBootstrap.contextBinding32B64u,
+    expected: clientBootstrap.contextBinding32B64u,
     actual: serverBootstrap.contextBinding32B64u,
   });
 
@@ -440,7 +443,9 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
   const keyHandle = String(serverBootstrap.keyHandle || '').trim();
   const signingRootId = String(serverBootstrap.signingRootId || '').trim();
   const signingRootVersion = String(serverBootstrap.signingRootVersion || '').trim();
-  const thresholdEcdsaPublicKeyB64u = String(serverBootstrap.thresholdEcdsaPublicKeyB64u || '').trim();
+  const thresholdEcdsaPublicKeyB64u = String(
+    serverBootstrap.thresholdEcdsaPublicKeyB64u || '',
+  ).trim();
   const ethereumAddress = String(serverBootstrap.ethereumAddress || '').trim();
   const relayerKeyId = String(serverBootstrap.relayerKeyId || '').trim();
   const relayerVerifyingShareB64u = String(serverBootstrap.relayerVerifyingShareB64u || '').trim();
@@ -501,12 +506,14 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
   relayerUrl: string;
   chainTarget: ThresholdEcdsaChainTarget;
   keygenSessionId: string;
-  localBootstrap: WalletRegistrationEcdsaLocalClientBootstrap;
+  readyStateBlob: EcdsaRoleLocalReadyStateBlob;
+  clientVerifyingShareB64u: string;
   serverBootstrap: WalletRegistrationEcdsaHssRespondBootstrap;
   walletKey: WalletRegistrationEcdsaWalletKey;
-  nowMs?: number;
+  authMethod:
+    | { kind: 'passkey'; credentialIdB64u: string }
+    | { kind: 'email_otp'; authSubjectId?: string };
 }): ThresholdEcdsaSessionBootstrapResult {
-  const localBootstrap = args.localBootstrap;
   const serverBootstrap = args.serverBootstrap;
   requireMatchingString({
     field: 'walletId',
@@ -573,27 +580,12 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
     expected: args.walletKey.participantIds,
     actual: serverBootstrap.participantIds,
   });
-  const nowMs = Number.isSafeInteger(args.nowMs) ? args.nowMs! : Date.now();
   const thresholdSessionAuthToken = serverBootstrap.thresholdSessionAuthToken;
   const thresholdSessionId = serverBootstrap.thresholdSessionId;
   const walletSigningSessionId = serverBootstrap.walletSigningSessionId;
   const remainingUses = serverBootstrap.remainingUses;
   const expiresAtMs = serverBootstrap.expiresAtMs;
-  const ecdsaHssRoleLocalClientState = {
-    kind: 'role_local_ready' as const,
-    artifactKind: 'ecdsa-hss-role-local-client-state' as const,
-    contextBinding32B64u: localBootstrap.contextBinding32B64u,
-    clientShare32B64u: localBootstrap.clientShare32B64u,
-    clientPublicKey33B64u: localBootstrap.clientPublicKey33B64u,
-    clientShareRetryCounter: localBootstrap.clientShareRetryCounter,
-    relayerPublicKey33B64u: serverBootstrap.publicIdentity.relayerPublicKey33B64u,
-    groupPublicKey33B64u: serverBootstrap.publicIdentity.groupPublicKey33B64u,
-    ethereumAddress,
-    clientCaitSithInput: localBootstrap.clientCaitSithInput,
-    createdAtMs: nowMs,
-    updatedAtMs: nowMs,
-  };
-  const ecdsaRoleLocalReadyRecord = buildEcdsaRoleLocalReadyRecordFromLegacyState({
+  const publicFacts = buildEcdsaRoleLocalPublicFacts({
     walletId: args.walletId,
     rpId,
     chainTarget: args.chainTarget,
@@ -602,7 +594,26 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
     signingRootId,
     signingRootVersion,
     participantIds,
-    state: ecdsaHssRoleLocalClientState,
+    clientParticipantId: 1,
+    relayerParticipantId: 2,
+    contextBinding32B64u: serverBootstrap.contextBinding32B64u,
+    hssClientSharePublicKey33B64u: args.clientVerifyingShareB64u,
+    relayerPublicKey33B64u: serverBootstrap.publicIdentity.relayerPublicKey33B64u,
+    groupPublicKey33B64u: serverBootstrap.publicIdentity.groupPublicKey33B64u,
+    ethereumAddress,
+  });
+  const ecdsaRoleLocalReadyRecord = buildEcdsaRoleLocalReadyRecord({
+    stateBlob: args.readyStateBlob,
+    publicFacts,
+    authMethod:
+      args.authMethod.kind === 'email_otp'
+        ? buildEcdsaRoleLocalEmailOtpAuthMethod({
+            authSubjectId: args.authMethod.authSubjectId,
+          })
+        : buildEcdsaRoleLocalPasskeyAuthMethod({
+            credentialIdB64u: args.authMethod.credentialIdB64u,
+            rpId,
+          }),
   });
 
   const keyRef: ThresholdEcdsaSecp256k1KeyRef = {
@@ -615,12 +626,11 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
     signingRootId,
     ...(signingRootVersion ? { signingRootVersion } : {}),
     backendBinding: {
-      materialKind: 'inline_role_local_ready',
+      materialKind: 'role_local_ready_state_blob',
       relayerKeyId,
-      clientVerifyingShareB64u: localBootstrap.clientPublicKey33B64u,
-      clientAdditiveShare32B64u: localBootstrap.clientShare32B64u,
+      clientVerifyingShareB64u: args.clientVerifyingShareB64u,
+      stateBlob: args.readyStateBlob,
       ecdsaRoleLocalReadyRecord,
-      ecdsaHssRoleLocalClientState,
     },
     participantIds,
     thresholdEcdsaPublicKeyB64u,
@@ -633,22 +643,22 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
   };
   return {
     thresholdEcdsaKeyRef: keyRef,
+    ...(args.authMethod.kind === 'passkey'
+      ? { passkeyCredentialIdB64u: args.authMethod.credentialIdB64u }
+      : {}),
     keygen: {
       ok: true,
       keygenSessionId: args.keygenSessionId,
       rpId,
       keyHandle,
       ecdsaThresholdKeyId,
-      clientVerifyingShareB64u: localBootstrap.clientPublicKey33B64u,
-      clientAdditiveShare32B64u: localBootstrap.clientShare32B64u,
+      clientVerifyingShareB64u: args.clientVerifyingShareB64u,
       thresholdEcdsaPublicKeyB64u,
       ethereumAddress,
       relayerKeyId,
       relayerVerifyingShareB64u,
       participantIds,
-      ...(typeof args.chainTarget.chainId === 'number'
-        ? { chainId: args.chainTarget.chainId }
-        : {}),
+      chainId: args.chainTarget.chainId,
     },
     session: {
       ok: true,
@@ -736,12 +746,14 @@ function walletRegistrationStartAuthorityBody(
   }
 }
 
-export async function startWalletRegistration(args: {
-  relayerUrl: string;
-  registrationIntentGrant: RegistrationIntentGrant;
-  registrationIntentDigestB64u: string;
-  intent: RegistrationIntentV1;
-} & WalletRegistrationStartAuthority): Promise<WalletRegistrationStartResponse> {
+export async function startWalletRegistration(
+  args: {
+    relayerUrl: string;
+    registrationIntentGrant: RegistrationIntentGrant;
+    registrationIntentDigestB64u: string;
+    intent: RegistrationIntentV1;
+  } & WalletRegistrationStartAuthority,
+): Promise<WalletRegistrationStartResponse> {
   const body = {
     registrationIntentGrant: args.registrationIntentGrant,
     registrationIntentDigestB64u: args.registrationIntentDigestB64u,
@@ -847,7 +859,9 @@ function addAuthMethodAuthBody(auth: AddAuthMethodAuth): unknown {
   }
 }
 
-function addAuthMethodAuthorityBody(authority: WalletAddAuthMethodAuthority): Record<string, unknown> {
+function addAuthMethodAuthorityBody(
+  authority: WalletAddAuthMethodAuthority,
+): Record<string, unknown> {
   switch (authority.kind) {
     case 'passkey':
       return { webauthnRegistration: authority.webauthnRegistration };

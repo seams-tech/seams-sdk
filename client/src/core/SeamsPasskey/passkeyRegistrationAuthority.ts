@@ -7,14 +7,12 @@ import {
   getPrfFirstB64uFromCredential,
   redactCredentialExtensionOutputs,
 } from '../signingEngine/threshold/crypto/webauthn';
-import { derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst } from '../signingEngine/session/passkey/ecdsaClientRoot';
 
 export type PasskeyRegistrationAuthorityMaterial = {
   kind: 'passkey';
   credential: WebAuthnRegistrationCredential;
   webauthnRegistration: WebAuthnRegistrationCredential;
   prfFirstB64u: string;
-  ecdsaClientRootShare32B64u: string;
 };
 
 export function requirePasskeyPrfFirstB64u(credential: unknown): string {
@@ -54,7 +52,5 @@ export async function collectPasskeyRegistrationAuthority(args: {
     credential,
     webauthnRegistration,
     prfFirstB64u,
-    ecdsaClientRootShare32B64u:
-      await derivePasskeyThresholdEcdsaClientRootShare32B64uFromPrfFirst(prfFirstB64u),
   };
 }

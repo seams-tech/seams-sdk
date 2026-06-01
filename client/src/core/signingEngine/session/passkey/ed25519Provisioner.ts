@@ -4,7 +4,7 @@ import {
   summarizeWarmSessionTransition,
   type WarmSessionTransitionEvent,
 } from '../warmCapabilities/transitions';
-import { toOptionalNonEmptyString } from './ecdsaProvisioner';
+import { toOptionalNonEmptyString } from '../../useCases/provisionEcdsaSession';
 import type { WarmSessionEnvelope } from '../warmCapabilities/types';
 import type {
   ProvisionWarmEd25519CapabilityArgs,

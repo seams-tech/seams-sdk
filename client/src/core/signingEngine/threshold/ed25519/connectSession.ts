@@ -54,7 +54,7 @@ export async function connectEd25519Session(args: {
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   jwt?: string;
-  ecdsaHssClientRootShare32B64u?: string;
+  ecdsaHssPasskeyPrfFirstB64u?: string;
   code?: string;
   message?: string;
 }> {
@@ -141,6 +141,6 @@ export async function connectEd25519Session(args: {
     remainingUses,
     ...(mintedRuntimePolicyScope ? { runtimePolicyScope: mintedRuntimePolicyScope } : {}),
     jwt: minted.jwt,
-    ecdsaHssClientRootShare32B64u: prfFirstB64u,
+    ecdsaHssPasskeyPrfFirstB64u: prfFirstB64u,
   };
 }

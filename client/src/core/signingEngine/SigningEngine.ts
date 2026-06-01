@@ -1,5 +1,11 @@
 import { IndexedDBManager } from '@/core/indexedDB';
-import { createBrowserPlatformRuntime, type BrowserPlatformRuntime } from '@/core/platform';
+import {
+  buildWebAuthnPrfFirstSecretSourceFromParts,
+  createBrowserPlatformRuntime,
+  type BrowserPlatformRuntime,
+  type EcdsaPreparePublicFacts,
+  type EcdsaRoleLocalPendingStateBlob,
+} from '@/core/platform';
 import type {
   ClientAuthenticatorData,
   ClientUserData,
@@ -145,6 +151,7 @@ import * as emailOtpPublic from './flows/signEvmFamily/emailOtpPublic';
 import { initializeSigningEngineRuntime } from './assembly/createSigningEngineRuntime';
 import { createManagerAssembly } from './assembly/createManagers';
 import { verifySealedRefreshStartupParity } from '../rpcClients/relayer/sealedRefreshCapabilities';
+import { createThresholdEcdsaRelayerClient } from '../rpcClients/relayer/ecdsaUseCaseClient';
 import type { ThresholdEcdsaHssRouteAuth } from '../rpcClients/relayer/thresholdEcdsa';
 import type {
   WalletRegistrationEcdsaClientBootstrap,
@@ -189,14 +196,16 @@ import type { WarmCapabilitiesPublicDeps } from './session/warmCapabilities/publ
 import * as passkeyPublic from './session/passkey/public';
 import type { ConnectEd25519SessionArgs, PasskeyPublicDeps } from './session/passkey/public';
 import {
-  buildThresholdEcdsaHssRoleLocalClientBootstrapWasm,
-  type ThresholdEcdsaHssRoleLocalClientBootstrap,
-} from './threshold/crypto/hssClientSignerWasm';
-import {
   toEcdsaHssSigningRootId,
   toEcdsaHssSigningRootVersion,
   toEcdsaHssThresholdKeyId,
 } from './session/identity/emailOtpHssIdentity';
+import {
+  createProvisionEcdsaUseCase,
+  type ProvisionEcdsaInput,
+  type ProvisionEcdsaResult,
+  type ProvisionEcdsaUseCase,
+} from './useCases/provisionEcdsa';
 
 export type { ThresholdEcdsaSessionBootstrapResult } from './threshold/ecdsa/activation';
 export type { EmailOtpBootstrapRecovery } from './stepUpConfirmation/otpPrompt/bootstrapRecovery';
@@ -204,17 +213,20 @@ export type { NearSignIntentRequest, NearSignIntentResult } from './flows/signNe
 export type { ThresholdEcdsaLoginPrefillResult } from './session/warmCapabilities/ecdsaLoginPrefill';
 
 export type PasskeyWalletRegistrationEcdsaPreparedClientBootstrap = {
-  materialSource: 'passkey_client_root_share';
+  materialSource: 'passkey_prf_first';
   clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
-  localClientBootstrap: ThresholdEcdsaHssRoleLocalClientBootstrap;
-  clientRootShare32B64u: string;
+  pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
+  preparePublicFacts: EcdsaPreparePublicFacts;
+  passkeyPrfFirstB64u: string;
+  credentialIdB64u: string;
 };
 
 export type EmailOtpWalletRegistrationEcdsaPreparedClientBootstrap = {
   materialSource: 'email_otp_worker_handle';
   clientBootstrap: WalletRegistrationEcdsaClientBootstrap;
-  localClientBootstrap: ThresholdEcdsaHssRoleLocalClientBootstrap;
-  clientRootShare32B64u?: never;
+  pendingStateBlob: EcdsaRoleLocalPendingStateBlob;
+  preparePublicFacts: EcdsaPreparePublicFacts;
+  passkeyPrfFirstB64u?: never;
 };
 
 export type WalletRegistrationEcdsaPreparedClientBootstrap =
@@ -228,6 +240,7 @@ export type BootstrapLoginEcdsaSessionFromRestoredEd25519Args = {
   keyHandle: EvmFamilyEcdsaKeyHandle;
   key: EvmFamilyEcdsaKeyIdentity;
   lanePolicy: EvmFamilyEcdsaSessionLanePolicy;
+  passkeyCredentialIdB64u: string;
   ttlMs: number;
   remainingUses: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
@@ -274,6 +287,7 @@ export class SigningEngine {
   private readonly sealedRefreshStartupParityPromise: Promise<void>;
   private sealedRefreshStartupParityError: Error | null = null;
   private readonly platformRuntime: BrowserPlatformRuntime;
+  private readonly provisionEcdsaUseCase: ProvisionEcdsaUseCase;
   private readonly enginePorts: ReturnType<typeof createSigningEnginePorts>;
 
   readonly seamsPasskeyConfigs: SeamsConfigsReadonly;
@@ -309,6 +323,15 @@ export class SigningEngine {
         recordsByLane: this.thresholdEcdsaSessionByLane,
         exportArtifactsByLane: this.thresholdEcdsaExportArtifactByLane,
       },
+    });
+    this.provisionEcdsaUseCase = createProvisionEcdsaUseCase({
+      authenticator: this.platformRuntime.authenticator,
+      signerCrypto: this.platformRuntime.signerCrypto,
+      storage: this.platformRuntime.storage,
+      relayer: createThresholdEcdsaRelayerClient({
+        relayerUrl: this.seamsPasskeyConfigs.network.relayer?.url || '',
+      }),
+      clock: this.platformRuntime.clock,
     });
     const stepUpRuntime = createStepUpRuntime({
       seamsPasskeyConfigs: this.seamsPasskeyConfigs,
@@ -760,10 +783,7 @@ export class SigningEngine {
   storeWalletEd25519RegistrationData(
     args: StoreWalletEd25519RegistrationInput,
   ): Promise<StoredRegistrationData> {
-    return registrationPublic.storeWalletEd25519RegistrationData(
-      this.registrationPublicDeps,
-      args,
-    );
+    return registrationPublic.storeWalletEd25519RegistrationData(this.registrationPublicDeps, args);
   }
 
   storeWalletEmailOtpEd25519RegistrationData(
@@ -778,19 +798,13 @@ export class SigningEngine {
   storeWalletEd25519SignerRecord(
     args: StoreWalletEd25519SignerRecordInput,
   ): Promise<StoredRegistrationData> {
-    return registrationPublic.storeWalletEd25519SignerRecord(
-      this.registrationPublicDeps,
-      args,
-    );
+    return registrationPublic.storeWalletEd25519SignerRecord(this.registrationPublicDeps, args);
   }
 
   storeWalletEcdsaSignerRecords(
     args: StoreWalletEcdsaSignerRecordsInput,
   ): Promise<StoreWalletEcdsaSignerRecordsResult> {
-    return registrationPublic.storeWalletEcdsaSignerRecords(
-      this.registrationPublicDeps,
-      args,
-    );
+    return registrationPublic.storeWalletEcdsaSignerRecords(this.registrationPublicDeps, args);
   }
 
   storeWalletEmailOtpEcdsaSignerRecords(
@@ -805,10 +819,7 @@ export class SigningEngine {
   storeWalletEcdsaRegistrationData(
     args: StoreWalletEcdsaRegistrationInput,
   ): Promise<StoreWalletEcdsaSignerRecordsResult> {
-    return registrationPublic.storeWalletEcdsaRegistrationData(
-      this.registrationPublicDeps,
-      args,
-    );
+    return registrationPublic.storeWalletEcdsaRegistrationData(this.registrationPublicDeps, args);
   }
 
   storeWalletEmailOtpEcdsaRegistrationData(
@@ -847,63 +858,85 @@ export class SigningEngine {
 
   async prepareWalletRegistrationEcdsaPreparedClientBootstrap(args: {
     prepare: WalletRegistrationEcdsaPrepareContext;
-    clientRootShare32B64u: string;
+    chainTarget: ThresholdEcdsaChainTarget;
+    passkeyPrfFirstB64u: string;
+    credentialIdB64u: string;
   }): Promise<WalletRegistrationEcdsaPreparedClientBootstrap> {
-    const clientBootstrap = await buildThresholdEcdsaHssRoleLocalClientBootstrapWasm({
+    const prepared = await this.platformRuntime.signerCrypto.prepareEcdsaClientBootstrap({
+      kind: 'prepare_ecdsa_client_bootstrap_v1',
+      algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
       context: {
         walletId: toWalletId(args.prepare.walletId),
         rpId: toRpId(args.prepare.rpId),
+        chainTarget: args.chainTarget,
         ecdsaThresholdKeyId: toEcdsaHssThresholdKeyId(args.prepare.ecdsaThresholdKeyId),
         signingRootId: toEcdsaHssSigningRootId(args.prepare.signingRootId),
         signingRootVersion: toEcdsaHssSigningRootVersion(args.prepare.signingRootVersion),
         keyPurpose: 'evm-signing',
         keyVersion: 'v1',
       },
-      clientRootShare32B64u: args.clientRootShare32B64u,
-      workerCtx: this.enginePorts.thresholdSessionActivationDeps.getSignerWorkerContext(),
+      participants: {
+        clientParticipantId: 1,
+        relayerParticipantId: 2,
+        participantIds: [1, 2],
+      },
+      secretSource: buildWebAuthnPrfFirstSecretSourceFromParts({
+        prfFirstB64u: args.passkeyPrfFirstB64u,
+        rpId: toRpId(args.prepare.rpId),
+        credentialIdB64u: args.credentialIdB64u,
+      }),
     });
+    if (!prepared.ok) {
+      throw new Error(prepared.message);
+    }
     const serverVisibleClientBootstrap: WalletRegistrationEcdsaClientBootstrap = {
       ...args.prepare,
-      hssClientSharePublicKey33B64u: clientBootstrap.clientPublicKey33B64u,
-      clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
-      contextBinding32B64u: clientBootstrap.contextBinding32B64u,
+      hssClientSharePublicKey33B64u: prepared.value.clientBootstrap.hssClientSharePublicKey33B64u,
+      clientShareRetryCounter: prepared.value.clientBootstrap.clientShareRetryCounter,
+      contextBinding32B64u: prepared.value.clientBootstrap.contextBinding32B64u,
     };
     return {
-      materialSource: 'passkey_client_root_share',
+      materialSource: 'passkey_prf_first',
       clientBootstrap: serverVisibleClientBootstrap,
-      localClientBootstrap: clientBootstrap,
-      clientRootShare32B64u: args.clientRootShare32B64u,
+      pendingStateBlob: prepared.value.pendingStateBlob,
+      preparePublicFacts: prepared.value.publicFacts,
+      passkeyPrfFirstB64u: args.passkeyPrfFirstB64u,
+      credentialIdB64u: args.credentialIdB64u,
     };
   }
 
   async prepareWalletRegistrationEcdsaPreparedClientBootstrapFromEmailOtpHandle(args: {
     prepare: WalletRegistrationEcdsaPrepareContext;
     clientRootShareHandle: EmailOtpWalletRegistrationEcdsaPrepareHandlePayload;
+    chainTarget: ThresholdEcdsaChainTarget;
   }): Promise<EmailOtpWalletRegistrationEcdsaPreparedClientBootstrap> {
-    const result =
-      await this.enginePorts.thresholdSessionActivationDeps
-        .getSignerWorkerContext()
-        .requestWorkerOperation({
-          kind: 'emailOtp',
-          request: {
-            type: 'prepareWalletRegistrationEcdsaPreparedClientBootstrapFromEmailOtpHandle',
-            timeoutMs: 60_000,
-            payload: {
-              prepare: args.prepare,
-              clientRootShareHandle: args.clientRootShareHandle,
-            },
+    const result = await this.enginePorts.thresholdSessionActivationDeps
+      .getSignerWorkerContext()
+      .requestWorkerOperation({
+        kind: 'emailOtp',
+        request: {
+          type: 'prepareWalletRegistrationEcdsaPreparedClientBootstrapFromEmailOtpHandle',
+          timeoutMs: 60_000,
+          payload: {
+            prepare: args.prepare,
+            clientRootShareHandle: args.clientRootShareHandle,
+            chainTarget: args.chainTarget,
           },
-        });
+        },
+      });
     return {
       materialSource: 'email_otp_worker_handle',
       clientBootstrap: result.clientBootstrap,
-      localClientBootstrap: result.localClientBootstrap,
+      pendingStateBlob: result.pendingStateBlob,
+      preparePublicFacts: result.preparePublicFacts,
     };
   }
 
   async prepareWalletRegistrationEcdsaClientBootstrap(args: {
     prepare: WalletRegistrationEcdsaPrepareContext;
-    clientRootShare32B64u: string;
+    chainTarget: ThresholdEcdsaChainTarget;
+    passkeyPrfFirstB64u: string;
+    credentialIdB64u: string;
   }): Promise<WalletRegistrationEcdsaClientBootstrap> {
     return (await this.prepareWalletRegistrationEcdsaPreparedClientBootstrap(args)).clientBootstrap;
   }
@@ -915,9 +948,22 @@ export class SigningEngine {
     bootstrap: WalletRegistrationEcdsaHssRespondBootstrap;
     walletKeys: readonly WalletRegistrationEcdsaWalletKey[];
     auth:
-      | { kind: 'passkey' }
+      | { kind: 'passkey'; credentialIdB64u: string }
       | { kind: 'email_otp'; emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext };
   }): Promise<void> {
+    const finalized = await this.platformRuntime.signerCrypto.finalizeEcdsaClientBootstrap({
+      kind: 'finalize_ecdsa_client_bootstrap_v1',
+      pendingStateBlob: args.preparedClientBootstrap.pendingStateBlob,
+      relayerPublicIdentity: {
+        relayerKeyId: args.bootstrap.relayerKeyId,
+        relayerPublicKey33B64u: args.bootstrap.publicIdentity.relayerPublicKey33B64u,
+        groupPublicKey33B64u: args.bootstrap.publicIdentity.groupPublicKey33B64u,
+        ethereumAddress: args.bootstrap.publicIdentity.ethereumAddress as `0x${string}`,
+      },
+    });
+    if (!finalized.ok) {
+      throw new Error(finalized.message);
+    }
     const sessionBootstraps = args.walletKeys.map((walletKey) => ({
       walletKey,
       bootstrap: buildWalletRegistrationEcdsaSessionBootstrap({
@@ -925,9 +971,17 @@ export class SigningEngine {
         relayerUrl: args.relayerUrl,
         chainTarget: walletKey.chainTarget,
         keygenSessionId: args.preparedClientBootstrap.clientBootstrap.requestId,
-        localBootstrap: args.preparedClientBootstrap.localClientBootstrap,
+        readyStateBlob: finalized.value.stateBlob,
+        clientVerifyingShareB64u: finalized.value.publicFacts.hssClientSharePublicKey33B64u,
         serverBootstrap: args.bootstrap,
         walletKey,
+        authMethod:
+          args.auth.kind === 'email_otp'
+            ? {
+                kind: 'email_otp',
+                authSubjectId: args.auth.emailOtpAuthContext.authSubjectId,
+              }
+            : { kind: 'passkey', credentialIdB64u: args.auth.credentialIdB64u },
       }),
     }));
     for (const { walletKey, bootstrap } of sessionBootstraps) {
@@ -963,8 +1017,8 @@ export class SigningEngine {
         });
       }
       if (args.auth.kind === 'passkey') {
-        if (args.preparedClientBootstrap.materialSource !== 'passkey_client_root_share') {
-          throw new Error('Passkey ECDSA registration persistence requires passkey root material');
+        if (args.preparedClientBootstrap.materialSource !== 'passkey_prf_first') {
+          throw new Error('Passkey ECDSA registration persistence requires passkey PRF material');
         }
         const thresholdSessionId = String(bootstrap.session.sessionId || '').trim();
         const walletSigningSessionId = String(
@@ -1001,7 +1055,7 @@ export class SigningEngine {
         }
         await this.enginePorts.thresholdSessionActivationDeps.touchConfirm.putWarmSessionMaterial({
           sessionId: thresholdSessionId,
-          prfFirstB64u: args.preparedClientBootstrap.clientRootShare32B64u,
+          prfFirstB64u: args.preparedClientBootstrap.passkeyPrfFirstB64u,
           expiresAtMs: Number(bootstrap.session.expiresAtMs),
           remainingUses: Number(bootstrap.session.remainingUses),
           transport,
@@ -1096,6 +1150,10 @@ export class SigningEngine {
     return await passkeyPublic.bootstrapEcdsaSession(this.passkeyPublicDeps, args);
   }
 
+  async provisionEcdsa(args: ProvisionEcdsaInput): Promise<ProvisionEcdsaResult> {
+    return await this.provisionEcdsaUseCase.provision(args);
+  }
+
   async bootstrapLoginEcdsaSessionFromRestoredEd25519(
     args: BootstrapLoginEcdsaSessionFromRestoredEd25519Args,
   ): Promise<ThresholdEcdsaSessionBootstrapResult> {
@@ -1140,7 +1198,7 @@ export class SigningEngine {
       routeAuth = { kind: 'threshold_session', jwt };
     }
 
-    const clientRootShare32B64u = await claimWarmSessionPrfFirst({
+    const passkeyPrfFirstB64u = await claimWarmSessionPrfFirst({
       touchConfirm: this.touchConfirm,
       thresholdSessionId: restoredEd25519.thresholdSessionId,
       errorContext: 'restored Ed25519 login session ECDSA bootstrap',
@@ -1157,7 +1215,8 @@ export class SigningEngine {
       keyHandle: args.keyHandle,
       key: args.key,
       lanePolicy: args.lanePolicy,
-      clientRootShare32B64u,
+      passkeyPrfFirstB64u,
+      passkeyCredentialIdB64u: args.passkeyCredentialIdB64u,
       routeAuth,
       ...(args.runtimeScopeBootstrap ? { runtimeScopeBootstrap: args.runtimeScopeBootstrap } : {}),
     });
@@ -1564,7 +1623,4 @@ const signingEnginePublicMembers = [
   'buildThresholdEd25519SeedExportArtifactFromHssReport',
 ] as const satisfies readonly (keyof SigningEngine)[];
 
-export type SigningEnginePublic = Pick<
-  SigningEngine,
-  (typeof signingEnginePublicMembers)[number]
->;
+export type SigningEnginePublic = Pick<SigningEngine, (typeof signingEnginePublicMembers)[number]>;

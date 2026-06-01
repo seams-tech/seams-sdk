@@ -18,10 +18,14 @@ void buildWalletUnlockBudgetPolicy({
 
 void buildSingleOperationStepUpBudgetPolicy({
   operationId,
+  requiredSignatureUses: 1,
 });
 
 // @ts-expect-error single-operation step-up requires operationId
 void buildSingleOperationStepUpBudgetPolicy({});
+
+// @ts-expect-error single-operation step-up requires the operation signature count
+void buildSingleOperationStepUpBudgetPolicy({ operationId });
 
 // @ts-expect-error wallet unlock policy must not accept operation-scoped fields
 void buildWalletUnlockBudgetPolicy({ operationId });
