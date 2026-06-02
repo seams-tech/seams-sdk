@@ -2,6 +2,7 @@ import type { NearClient } from '../rpcClients/near/NearClient';
 import { validateNearAccountId } from '@shared/utils/validation';
 import type {
   CreateRegistrationFlowEventInput,
+  RegistrationFlowEvent,
   RegistrationHooksOptions,
 } from '../types/sdkSentEvents';
 import type { RegistrationResult, SeamsConfigsReadonly } from '../types/seams';
@@ -76,6 +77,19 @@ import { assertWalletRuntimePostconditions } from '../signingEngine/session/post
 
 type EmitRegistrationEventInput = Omit<CreateRegistrationFlowEventInput, 'accountId' | 'flowId'>;
 
+export function createRegistrationLifecycleEvent(input: {
+  nearAccountId: AccountId;
+  event: EmitRegistrationEventInput;
+}): RegistrationFlowEvent {
+  const authMethod = input.event.authMethod || 'passkey';
+  return createRegistrationFlowEvent({
+    ...input.event,
+    flowId: `registration:${authMethod}:${input.nearAccountId}`,
+    accountId: String(input.nearAccountId),
+    authMethod,
+  });
+}
+
 function requirePasskeyEcdsaPreparedClientBootstrap(
   prepared: WalletRegistrationEcdsaPreparedClientBootstrap,
 ): PasskeyWalletRegistrationEcdsaPreparedClientBootstrap {
@@ -101,15 +115,7 @@ function emitRegistrationEvent(
   nearAccountId: AccountId,
   event: EmitRegistrationEventInput,
 ): void {
-  const authMethod = event.authMethod || 'passkey';
-  onEvent?.(
-    createRegistrationFlowEvent({
-      ...event,
-      flowId: `registration:${authMethod}:${nearAccountId}`,
-      accountId: String(nearAccountId),
-      authMethod,
-    }),
-  );
+  onEvent?.(createRegistrationLifecycleEvent({ nearAccountId, event }));
 }
 
 /**

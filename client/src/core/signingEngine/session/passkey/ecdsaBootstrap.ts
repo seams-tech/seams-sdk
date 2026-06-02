@@ -378,7 +378,7 @@ function passkeyEcdsaBootstrapCredential(
     : null;
 }
 
-function passkeyEcdsaPersistenceSource(args: {
+export function resolvePasskeyEcdsaBootstrapPersistenceSource(args: {
   request: EcdsaBootstrapRequest;
   thresholdSessionId: ReturnType<typeof SigningSessionIds.thresholdEcdsaSession>;
 }): PasskeyEcdsaReadyPersistInput['persistenceSource'] | null {
@@ -685,7 +685,7 @@ export async function bootstrapEcdsaSessionValue(
     });
   }
   const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession(activation.session.sessionId);
-  const passkeyPersistenceSource = passkeyEcdsaPersistenceSource({
+  const passkeyPersistenceSource = resolvePasskeyEcdsaBootstrapPersistenceSource({
     request: normalizedRequest,
     thresholdSessionId,
   });

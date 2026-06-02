@@ -77,7 +77,7 @@ function normalizeSixDigitOtpCode(value: unknown): string {
   return code;
 }
 
-function assertPasskeyWebAuthnRoute(args: {
+export function assertPasskeyCredentialLookupAllowed(args: {
   stage: 'transaction_prompt' | 'intent_digest_prompt';
   nearAccountId: string;
   requestId: string;
@@ -471,7 +471,7 @@ export async function handleTransactionSigningFlow(
     }
 
     // 5) Collect authentication credential.
-    assertPasskeyWebAuthnRoute({
+    assertPasskeyCredentialLookupAllowed({
       stage: 'transaction_prompt',
       nearAccountId,
       requestId: request.requestId,
@@ -710,7 +710,7 @@ export async function handleIntentDigestSigningFlow(
       });
     }
 
-    assertPasskeyWebAuthnRoute({
+    assertPasskeyCredentialLookupAllowed({
       stage: 'intent_digest_prompt',
       nearAccountId,
       requestId: request.requestId,

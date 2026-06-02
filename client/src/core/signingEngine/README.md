@@ -1,7 +1,7 @@
 # Signing Architecture (`client/src/core/signingEngine`)
 
 This folder is the SDK signing runtime for NEAR, EVM, and Tempo flows. The
-Refactor 33 layout is organized by call direction: public engine methods enter a
+current layout is organized by call direction: public engine methods enter a
 single operation module, operation modules call state/session/confirmation/
 chain/threshold/worker modules, and child modules do not call back into
 flows or `SigningEngine`.

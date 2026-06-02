@@ -268,7 +268,6 @@ export function createWorkerResourceWarmupDepsFactory(
     nearClient: args.nearClient,
     nonceCoordinator: args.nonceCoordinator,
     prewarmWorkers: args.signerWorkerManager.prewarmWorkers.bind(args.signerWorkerManager),
-    initializeUiConfirm: args.touchConfirm.initialize.bind(args.touchConfirm),
     prewarmUiConfirmUi: prewarmTxConfirmerUi,
     initializeCurrentUser: args.initializeCurrentUser,
   });

@@ -28,11 +28,9 @@ import {
   resolveFreshEmailOtpEcdsaExportMaterialForLane,
   type EcdsaExportSessionStoreDeps,
   type ExactEcdsaExportLane,
-  type FreshEmailOtpEcdsaExportMaterialRouteAuthReady,
 } from '../../client/src/core/signingEngine/flows/recovery/ecdsaExportMaterial';
 import { exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth } from '../../client/src/core/signingEngine/flows/recovery/ecdsaExportFlow';
 import type { ThresholdEcdsaCanonicalExportArtifact } from '../../client/src/core/signingEngine/interfaces/signing';
-import { toAuthorizingWalletSigningSessionId } from '../../client/src/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 
 const WALLET_ID = toAccountId('alice.testnet');
 const RP_ID = 'localhost';
@@ -52,6 +50,14 @@ const EVM_TARGET: ThresholdEcdsaChainTarget = {
 };
 type EmailOtpEcdsaSessionRecord = Extract<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>;
 type PasskeyEcdsaSessionRecord = Exclude<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>;
+type EmailOtpExportRecordFixtureInput = {
+  ecdsaThresholdKeyId?: EmailOtpEcdsaSessionRecord['ecdsaThresholdKeyId'];
+  thresholdSessionAuthToken?: EmailOtpEcdsaSessionRecord['thresholdSessionAuthToken'];
+  thresholdSessionKind?: EmailOtpEcdsaSessionRecord['thresholdSessionKind'];
+  thresholdSessionId?: EmailOtpEcdsaSessionRecord['thresholdSessionId'];
+  walletSigningSessionId?: EmailOtpEcdsaSessionRecord['walletSigningSessionId'];
+  thresholdEcdsaPublicKeyB64u?: EmailOtpEcdsaSessionRecord['thresholdEcdsaPublicKeyB64u'];
+};
 
 function makeReadyRecordForExport(record: {
   walletId: ThresholdEcdsaSessionRecord['walletId'];
@@ -101,23 +107,27 @@ function makeReadyRecordForExport(record: {
   });
 }
 
-function makeRecord(
-  overrides: Partial<EmailOtpEcdsaSessionRecord> = {},
-): EmailOtpEcdsaSessionRecord {
-  const emailOtpAuthContext =
-    overrides.emailOtpAuthContext ??
-    ({
-      policy: 'per_operation',
-      retention: 'single_use',
-      reason: 'sign',
-      authMethod: 'email_otp',
-      authSubjectId: 'google:alice',
-    } satisfies ThresholdEcdsaEmailOtpAuthContext);
+function makeRecord(input: EmailOtpExportRecordFixtureInput = {}): EmailOtpEcdsaSessionRecord {
+  const emailOtpAuthContext = {
+    policy: 'per_operation',
+    retention: 'single_use',
+    reason: 'sign',
+    authMethod: 'email_otp',
+    authSubjectId: 'google:alice',
+  } satisfies ThresholdEcdsaEmailOtpAuthContext;
+  const thresholdEcdsaPublicKeyB64u =
+    'thresholdEcdsaPublicKeyB64u' in input
+      ? input.thresholdEcdsaPublicKeyB64u
+      : PUBLIC_KEY_B64U;
+  const thresholdSessionAuthToken =
+    'thresholdSessionAuthToken' in input
+      ? input.thresholdSessionAuthToken
+      : 'threshold-auth-token';
   const record = {
     walletId: WALLET_ID,
     chainTarget: EVM_TARGET,
     relayerUrl: 'https://relay.localhost',
-    ecdsaThresholdKeyId: 'ehss-export-key',
+    ecdsaThresholdKeyId: input.ecdsaThresholdKeyId ?? 'ehss-export-key',
     signingRootId: 'project-export:env-export',
     signingRootVersion: 'default',
     relayerKeyId: 'relayer-key',
@@ -127,13 +137,13 @@ function makeRecord(
       sessionId: 'email-otp-worker-session-1',
     },
     participantIds: [1, 2],
-    thresholdSessionKind: 'jwt' as const,
-    thresholdSessionId: 'threshold-session-1',
-    walletSigningSessionId: 'wallet-signing-session-1',
-    thresholdSessionAuthToken: 'threshold-auth-token',
+    thresholdSessionKind: input.thresholdSessionKind ?? 'jwt',
+    thresholdSessionId: input.thresholdSessionId ?? 'threshold-session-1',
+    walletSigningSessionId: input.walletSigningSessionId ?? 'wallet-signing-session-1',
+    thresholdSessionAuthToken,
     expiresAtMs: 1_900_000_000_000,
     remainingUses: 1,
-    thresholdEcdsaPublicKeyB64u: PUBLIC_KEY_B64U,
+    thresholdEcdsaPublicKeyB64u,
     ethereumAddress: OWNER_ADDRESS,
     emailOtpAuthContext,
     runtimePolicyScope: {
@@ -143,54 +153,49 @@ function makeRecord(
       signingRootVersion: 'default',
     },
     updatedAtMs: 1_800_000_000_000,
-    ...overrides,
     source: 'email_otp' as const,
-    keyHandle: overrides.keyHandle ?? toEvmFamilyEcdsaKeyHandle('key-handle-export'),
-    authMetadata: overrides.authMetadata ?? { rpId: RP_ID },
+    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-export'),
+    authMetadata: { rpId: RP_ID },
   };
   return {
     ...record,
-    ecdsaRoleLocalReadyRecord:
-      overrides.ecdsaRoleLocalReadyRecord ?? makeReadyRecordForExport(record),
+    ecdsaRoleLocalReadyRecord: makeReadyRecordForExport(record),
   };
 }
 
-function makePasskeyRecord(
-  overrides: Partial<PasskeyEcdsaSessionRecord> = {},
-): PasskeyEcdsaSessionRecord {
+function makePasskeyRecord(): PasskeyEcdsaSessionRecord {
   const record = {
     walletId: WALLET_ID,
     chainTarget: EVM_TARGET,
     relayerUrl: 'https://relay.localhost',
-    ecdsaThresholdKeyId: overrides.ecdsaThresholdKeyId ?? 'ehss-export-key',
-    signingRootId: overrides.signingRootId ?? 'project-export:env-export',
-    signingRootVersion: overrides.signingRootVersion ?? 'default',
-    relayerKeyId: overrides.relayerKeyId ?? 'relayer-key',
-    clientVerifyingShareB64u: overrides.clientVerifyingShareB64u ?? 'client-verifying-share',
-    participantIds: overrides.participantIds ?? [1, 2],
-    thresholdSessionKind: overrides.thresholdSessionKind ?? 'jwt',
-    thresholdSessionId: overrides.thresholdSessionId ?? 'threshold-session-1',
-    walletSigningSessionId: overrides.walletSigningSessionId ?? 'wallet-signing-session-1',
-    thresholdSessionAuthToken: overrides.thresholdSessionAuthToken ?? 'threshold-auth-token',
-    expiresAtMs: overrides.expiresAtMs ?? 1_900_000_000_000,
-    remainingUses: overrides.remainingUses ?? 1,
-    thresholdEcdsaPublicKeyB64u: overrides.thresholdEcdsaPublicKeyB64u ?? PUBLIC_KEY_B64U,
-    ethereumAddress: overrides.ethereumAddress ?? OWNER_ADDRESS,
-    runtimePolicyScope: overrides.runtimePolicyScope ?? {
+    ecdsaThresholdKeyId: 'ehss-export-key',
+    signingRootId: 'project-export:env-export',
+    signingRootVersion: 'default',
+    relayerKeyId: 'relayer-key',
+    clientVerifyingShareB64u: 'client-verifying-share',
+    participantIds: [1, 2],
+    thresholdSessionKind: 'jwt' as const,
+    thresholdSessionId: 'threshold-session-1',
+    walletSigningSessionId: 'wallet-signing-session-1',
+    thresholdSessionAuthToken: 'threshold-auth-token',
+    expiresAtMs: 1_900_000_000_000,
+    remainingUses: 1,
+    thresholdEcdsaPublicKeyB64u: PUBLIC_KEY_B64U,
+    ethereumAddress: OWNER_ADDRESS,
+    runtimePolicyScope: {
       orgId: 'org-export',
       projectId: 'project-export',
       envId: 'env-export',
       signingRootVersion: 'default',
     },
-    updatedAtMs: overrides.updatedAtMs ?? 1_800_000_000_000,
+    updatedAtMs: 1_800_000_000_000,
     source: 'registration' as const,
-    keyHandle: overrides.keyHandle ?? toEvmFamilyEcdsaKeyHandle('key-handle-export'),
-    authMetadata: overrides.authMetadata ?? { rpId: RP_ID },
+    keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-export'),
+    authMetadata: { rpId: RP_ID },
   };
   return {
     ...record,
-    ecdsaRoleLocalReadyRecord:
-      overrides.ecdsaRoleLocalReadyRecord ?? makeReadyRecordForExport(record),
+    ecdsaRoleLocalReadyRecord: makeReadyRecordForExport(record),
   };
 }
 
@@ -302,25 +307,15 @@ test.describe('ECDSA export material', () => {
   test('fresh Email OTP route-auth export requests challenge with signing-session lane', async () => {
     const record = makeRecord();
     const exportLane = await exactExportLane(record);
-    const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({ record });
-    const authLane = {
-      kind: 'signing_session' as const,
-      jwt: record.thresholdSessionAuthToken || 'threshold-auth-token',
-      thresholdSessionId: record.thresholdSessionId,
-      authorizingWalletSigningSessionId: toAuthorizingWalletSigningSessionId(
-        record.walletSigningSessionId,
-      ),
-      curve: 'ecdsa' as const,
-      chainTarget: record.chainTarget,
-    };
-    const material: FreshEmailOtpEcdsaExportMaterialRouteAuthReady = {
-      kind: 'fresh_email_otp_route_auth_ready',
-      chainTarget: record.chainTarget,
-      publicFacts,
-      runtimePolicyScope: record.runtimePolicyScope!,
-      record,
-      authLane,
-    };
+    const material = await resolveFreshEmailOtpEcdsaExportMaterialForLane(
+      depsForRecord(record),
+      exportLane,
+    );
+    expect(material.kind).toBe('fresh_email_otp_route_auth_ready');
+    if (material.kind !== 'fresh_email_otp_route_auth_ready') {
+      throw new Error(`expected route-auth-ready fresh material, got ${material.kind}`);
+    }
+    const { authLane } = material;
     const challengeRequests: unknown[] = [];
     const exportRequests: unknown[] = [];
     const confirmationRequests: unknown[] = [];

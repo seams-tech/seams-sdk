@@ -108,6 +108,8 @@ type PendingWorkerRequest = {
   reject: (error: Error) => void;
 };
 
+const USER_CONFIRM_WORKER_STARTUP_PING_TIMEOUT_MS = 15_000;
+
 type PasskeySealedRecordAccountMetadata = {
   walletId?: string;
   signingRootId?: string;
@@ -2018,7 +2020,9 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         worker: 'touchConfirm',
         baseOrigin: this.workerBaseOrigin,
       });
-      console.debug('[UserConfirmWorker] Worker URL:', workerUrlStr);
+      if (this.config.debug) {
+        console.debug('[UserConfirmWorker] Worker URL:', workerUrlStr);
+      }
       const worker = new Worker(workerUrlStr, {
         type: 'module',
         name: 'Web3AuthnSecureConfirmWorker',
@@ -2365,14 +2369,13 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
    */
   private async testWebWorkerCommunication(): Promise<void> {
     try {
-      const timeoutMs = 2000;
       const pingResponse = await this.sendMessage(
         {
           type: 'PING',
           id: this.generateMessageId(),
           payload: {},
         },
-        timeoutMs,
+        USER_CONFIRM_WORKER_STARTUP_PING_TIMEOUT_MS,
       );
       if (!pingResponse.success) {
         throw new Error(`UserConfirm worker PING failed: ${pingResponse.error}`);

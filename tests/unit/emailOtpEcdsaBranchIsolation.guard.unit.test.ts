@@ -1,0 +1,99 @@
+import { expect, test } from '@playwright/test';
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const EMAIL_OTP_ECDSA_SOURCE_URLS = [
+  '../../client/src/core/signingEngine/session/emailOtp/ecdsaEnrollment.ts',
+  '../../client/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts',
+  '../../client/src/core/signingEngine/session/emailOtp/ecdsaPublication.ts',
+  '../../client/src/core/signingEngine/session/emailOtp/exportRecovery.ts',
+  '../../client/src/core/signingEngine/session/emailOtp/workerRequests.ts',
+  '../../client/src/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit.ts',
+].map((relativePath) => new URL(relativePath, import.meta.url));
+
+const TEMPORARY_DIAGNOSTIC_STRINGS = [
+  'unlock completed without Ed25519 session reconstruction',
+  'unlock reconstructed Ed25519 signing session',
+  '[Registration][postcondition] Ed25519 lane missing after registration',
+  '[Registration][postcondition] ECDSA lane missing after registration',
+] as const;
+
+function readSource(url: URL): string {
+  return readFileSync(url, 'utf8');
+}
+
+function listSourceFiles(relativeDir: string): string[] {
+  const absoluteDir = path.join(repoRoot, relativeDir);
+  return readdirSync(absoluteDir, { withFileTypes: true }).flatMap((entry) => {
+    const relativePath = path.join(relativeDir, entry.name);
+    if (entry.isDirectory()) return listSourceFiles(relativePath);
+    return /\.(ts|tsx)$/.test(entry.name) ? [relativePath] : [];
+  });
+}
+
+test.describe('Email OTP ECDSA branch isolation guards', () => {
+  test('domain identity brands have one central source of truth', () => {
+    const centralBrandNames = [
+      'WalletId',
+      'ProviderSubject',
+      'ChallengeSubjectId',
+      'EmailOtpChallengeId',
+      'EmailOtpRegistrationAttemptId',
+      'OrgId',
+      'AppSessionVersion',
+      'WalletSigningSessionId',
+      'ThresholdEd25519SessionId',
+      'ThresholdEcdsaSessionId',
+    ];
+    const duplicateBrandDeclaration = new RegExp(
+      `export\\s+type\\s+(?:${centralBrandNames.join('|')})\\s*=`,
+    );
+    const duplicateBrandFiles = ['client/src', 'server/src', 'shared/src']
+      .flatMap(listSourceFiles)
+      .filter((relativePath) => relativePath !== 'shared/src/utils/domainIds.ts')
+      .filter((relativePath) =>
+        duplicateBrandDeclaration.test(readFileSync(path.join(repoRoot, relativePath), 'utf8')),
+      );
+
+    expect(duplicateBrandFiles).toEqual([]);
+  });
+
+  test('Email OTP ECDSA runtime stays out of passkey PRF seal persistence', () => {
+    for (const url of EMAIL_OTP_ECDSA_SOURCE_URLS) {
+      const source = readSource(url);
+      expect(source, url.pathname).not.toContain('ensureEcdsaPrfSealPersisted');
+      expect(source, url.pathname).not.toContain('sealAndPersistWarmSessionMaterial');
+      expect(source, url.pathname).not.toContain('touchConfirm.putWarmSessionMaterial');
+      expect(source, url.pathname).not.toContain("from '../passkey/runtime'");
+      expect(source, url.pathname).not.toContain("from './runtime'");
+    }
+  });
+
+  test('wallet-subject vocabulary is isolated to migration and delete-only boundaries', () => {
+    const allowedFiles = new Set([
+      'client/src/core/indexedDB/seamsWalletDB/schema.ts',
+      'server/src/storage/postgres.ts',
+    ]);
+    const offenders = ['client/src', 'server/src', 'shared/src']
+      .flatMap(listSourceFiles)
+      .filter((relativePath) => !allowedFiles.has(relativePath))
+      .filter((relativePath) => /walletSubject|wallet_subject/.test(readFileSync(path.join(repoRoot, relativePath), 'utf8')));
+
+    expect(offenders).toEqual([]);
+  });
+
+  test('temporary registration and unlock diagnostics stay out of runtime source', () => {
+    const offenders = ['client/src', 'server/src', 'shared/src']
+      .flatMap(listSourceFiles)
+      .flatMap((relativePath) => {
+        const source = readFileSync(path.join(repoRoot, relativePath), 'utf8');
+        return TEMPORARY_DIAGNOSTIC_STRINGS.filter((needle) => source.includes(needle)).map(
+          (needle) => ({ relativePath, needle }),
+        );
+      });
+
+    expect(offenders).toEqual([]);
+  });
+});

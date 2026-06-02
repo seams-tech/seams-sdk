@@ -157,10 +157,7 @@ function makeReadyMaterial(args: {
 
 test.describe('EVM-family step-up provision-plan builders', () => {
   test('buildEvmFamilyPasskeyEcdsaProvisionPlan returns a passkey provision branch', async () => {
-    const record: ThresholdEcdsaSessionRecord = {
-      ...makeRecord(),
-      source: 'login',
-    };
+    const record = makeRecord();
     const material = makeReadyMaterial({
       record,
       authMethod: 'passkey',
@@ -198,10 +195,7 @@ test.describe('EVM-family step-up provision-plan builders', () => {
   });
 
   test('buildEvmFamilyWarmSessionReconnectPlan returns a threshold-session reconnect branch', () => {
-    const record: ThresholdEcdsaSessionRecord = {
-      ...makeRecord(),
-      source: 'login' as const,
-    };
+    const record = makeRecord();
     const material = makeReadyMaterial({
       record,
       authMethod: 'passkey',

@@ -78,7 +78,7 @@ test.describe('UserConfirm – warm signing', () => {
                 chainIdKey: string;
                 accountAddress: string;
               }) => ({
-                profileId: `legacy-near:${String(accountAddress)}`,
+                profileId: `near-profile:${String(accountAddress)}`,
                 accountRef: { chainIdKey, accountAddress },
               }),
               listProfileAuthenticators: async () => [],

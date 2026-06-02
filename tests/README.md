@@ -100,14 +100,24 @@ test('register → login', async ({ passkey }) => {
   - `pnpm test` → `pnpm -C tests test` (full suite)
   - `pnpm test:lite` → `pnpm -C tests test:lite` (lite suite; excludes the heavier wallet-iframe sticky-behavior coverage)
   - `pnpm test:inline` → line reporter
-  - `pnpm test:unit`, `pnpm test:wallet-iframe`, `pnpm test:lit-components`
+  - `pnpm test:unit`, `pnpm test:source-guards`, `pnpm test:integration:signing`
+  - `pnpm test:wallet-iframe`, `pnpm test:lit-components`
   - `pnpm show-report` to open Playwright HTML report
+
+Test profiles:
+
+- `test:unit` runs unit behavior tests from `tests/unit` and excludes source
+  guards, source-script tests, WASM replay, worker-router, full SDK iframe, and
+  high-level transaction lifecycle suites.
+- `test:source-guards` runs architecture guards and source/script checks.
+- `test:integration:signing` runs browser/WASM-heavy signing lifecycle suites
+  that are intentionally outside the unit closeout gate.
 
 - Direct Playwright subset examples:
 
 ```bash
 pnpm -C tests exec playwright test **/e2e/**/*.test.ts
-pnpm -C tests exec playwright test **/unit/**/*.test.ts
+pnpm -C tests exec playwright test -c playwright.unit.config.ts
 ```
 
 Chromium only; `workers=1` to avoid relay/faucet rate limits.
@@ -123,7 +133,7 @@ Threshold ECDSA lane-key queue matrix (Refactor 22):
 ```bash
 (pnpm -C sdk run build:prepare) \
   && pnpm -C tests exec playwright test ./unit/thresholdEcdsa.commitQueue.unit.test.ts --reporter=line \
-  && pnpm -C tests exec playwright test ./unit/thresholdEcdsa.tempoHighLevel.unit.test.ts --reporter=line \
+  && pnpm -C tests exec playwright test ./unit/thresholdEcdsa.tempoHighLevel.integration.test.ts --reporter=line \
   && pnpm -C tests exec playwright test ./e2e/thresholdEcdsa.sealedRefresh.walletIframe.test.ts -g "same-tab refresh reuses sealed PRF session without extra TouchID prompt" --reporter=line \
   && pnpm -C tests exec playwright test ./unit/reportTempoBroadcastFailure.unit.test.ts ./unit/evmSigning.noncePrefetch.unit.test.ts --reporter=line
 ```

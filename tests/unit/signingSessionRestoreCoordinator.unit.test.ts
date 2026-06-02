@@ -90,6 +90,71 @@ function makeSealedRecord(args: {
   };
 }
 
+function makeEd25519RecordWithEcdsaCompanion(args: {
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
+  ecdsaThresholdSessionId: string;
+}): SigningSessionSealedStoreRecord {
+  return {
+    ...makeSealedRecord({
+      curve: 'ed25519',
+      thresholdSessionId: args.thresholdSessionId,
+      walletSigningSessionId: args.walletSigningSessionId,
+    }),
+    subjectId: 'restore.testnet',
+    signingRootId: 'root-restore',
+    signingRootVersion: 'v1',
+    thresholdSessionIds: {
+      ecdsa: args.ecdsaThresholdSessionId,
+      ed25519: args.thresholdSessionId,
+    },
+    ecdsaRestore: {
+      chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
+      rpId: 'example.com',
+      sessionKind: 'jwt',
+      thresholdSessionAuthToken: 'jwt-restore',
+      keyHandle: 'key-handle-restore',
+      ecdsaThresholdKeyId: 'ecdsa-key-restore',
+      ethereumAddress: `0x${'33'.repeat(20)}`,
+      relayerKeyId: 'relayer-key-restore',
+      clientVerifyingShareB64u: 'client-verifying-share-restore',
+      thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
+      participantIds: [1, 2],
+    },
+  };
+}
+
+function makeEcdsaRecordWithEd25519Companion(args: {
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
+  ed25519ThresholdSessionId: string;
+}): SigningSessionSealedStoreRecord {
+  return {
+    ...makeSealedRecord({
+      authMethod: 'email_otp',
+      curve: 'ecdsa',
+      thresholdSessionId: args.thresholdSessionId,
+      walletSigningSessionId: args.walletSigningSessionId,
+      thresholdSessionIds: {
+        ecdsa: args.thresholdSessionId,
+        ed25519: args.ed25519ThresholdSessionId,
+      },
+    }),
+    ed25519Restore: {
+      rpId: 'example.com',
+      relayerKeyId: 'relayer-key-restore',
+      participantIds: [1, 2],
+      sessionKind: 'jwt',
+      thresholdSessionAuthToken: 'jwt-ed25519-companion',
+      runtimePolicyScope: {
+        mode: 'single_domain',
+        parentOrigin: 'https://wallet.example.localhost',
+      },
+      xClientBaseB64u: 'x-client-base-restore',
+    },
+  };
+}
+
 test.describe('restorePersistedSessionForSigningCommand', () => {
   test('caches exact-purpose durable-record absence', async () => {
     const cache = createSigningSessionRestoreCache();
@@ -378,33 +443,11 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
   test('restores Ed25519 intent from an ECDSA-primary companion sealed record', async () => {
     let restoreCalls = 0;
     let restoredRecord: SealedRecoveryRecord | null = null;
-    const companionRecord: SigningSessionSealedStoreRecord = {
-      ...makeSealedRecord({
-        curve: 'ed25519',
-        thresholdSessionId: 'tsess-ed25519-companion',
-        walletSigningSessionId: 'wsess-companion',
-      }),
-      subjectId: 'restore.testnet',
-      signingRootId: 'root-restore',
-      signingRootVersion: 'v1',
-      thresholdSessionIds: {
-        ecdsa: 'tsess-ecdsa-companion',
-        ed25519: 'tsess-ed25519-companion',
-      },
-      ecdsaRestore: {
-        chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
-        rpId: 'example.com',
-        sessionKind: 'jwt' as const,
-        thresholdSessionAuthToken: 'jwt-restore',
-        keyHandle: 'key-handle-restore',
-        ecdsaThresholdKeyId: 'ecdsa-key-restore',
-        ethereumAddress: `0x${'33'.repeat(20)}`,
-        relayerKeyId: 'relayer-key-restore',
-        clientVerifyingShareB64u: 'client-verifying-share-restore',
-        thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
-        participantIds: [1, 2],
-      },
-    };
+    const companionRecord = makeEd25519RecordWithEcdsaCompanion({
+      thresholdSessionId: 'tsess-ed25519-companion',
+      walletSigningSessionId: 'wsess-companion',
+      ecdsaThresholdSessionId: 'tsess-ecdsa-companion',
+    });
 
     const result = await restorePersistedSessionForSigningCommand(
       {
@@ -440,33 +483,11 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
   });
 
   test('passes Ed25519 purpose through to the restore port for an ECDSA-primary companion record', async () => {
-    const companionRecord: SigningSessionSealedStoreRecord = {
-      ...makeSealedRecord({
-        curve: 'ed25519',
-        thresholdSessionId: 'tsess-ed25519-purpose',
-        walletSigningSessionId: 'wsess-companion-purpose',
-      }),
-      subjectId: 'restore.testnet',
-      signingRootId: 'root-restore',
-      signingRootVersion: 'v1',
-      thresholdSessionIds: {
-        ecdsa: 'tsess-ecdsa-primary',
-        ed25519: 'tsess-ed25519-purpose',
-      },
-      ecdsaRestore: {
-        chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
-        rpId: 'example.com',
-        sessionKind: 'jwt' as const,
-        thresholdSessionAuthToken: 'jwt-restore',
-        keyHandle: 'key-handle-restore',
-        ecdsaThresholdKeyId: 'ecdsa-key-restore',
-        ethereumAddress: `0x${'33'.repeat(20)}`,
-        relayerKeyId: 'relayer-key-restore',
-        clientVerifyingShareB64u: 'client-verifying-share-restore',
-        thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
-        participantIds: [1, 2],
-      },
-    };
+    const companionRecord = makeEd25519RecordWithEcdsaCompanion({
+      thresholdSessionId: 'tsess-ed25519-purpose',
+      walletSigningSessionId: 'wsess-companion-purpose',
+      ecdsaThresholdSessionId: 'tsess-ecdsa-primary',
+    });
     const restoredPurposes: unknown[] = [];
 
     const result = await restorePersistedSessionForSigningCommand(
@@ -507,31 +528,11 @@ test.describe('restorePersistedSessionForSigningCommand', () => {
     let restoreCalls = 0;
     let restoredPurpose: unknown = null;
     let restoredRecord: SealedRecoveryRecord | null = null;
-    const baseEcdsaPrimaryRecord = makeSealedRecord({
-      authMethod: 'email_otp',
-      curve: 'ecdsa',
+    const ecdsaPrimaryRecord = makeEcdsaRecordWithEd25519Companion({
       thresholdSessionId: 'tsess-ecdsa-primary',
       walletSigningSessionId: 'wsess-ecdsa-primary',
-      thresholdSessionIds: {
-        ecdsa: 'tsess-ecdsa-primary',
-        ed25519: 'tsess-ed25519-companion',
-      },
+      ed25519ThresholdSessionId: 'tsess-ed25519-companion',
     });
-    const ecdsaPrimaryRecord: SigningSessionSealedStoreRecord = {
-      ...baseEcdsaPrimaryRecord,
-      ed25519Restore: {
-        rpId: 'example.com',
-        relayerKeyId: 'relayer-key-restore',
-        participantIds: [1, 2],
-        sessionKind: 'jwt',
-        thresholdSessionAuthToken: 'jwt-ed25519-companion',
-        runtimePolicyScope: {
-          mode: 'single_domain',
-          parentOrigin: 'https://wallet.example.localhost',
-        },
-        xClientBaseB64u: 'x-client-base-restore',
-      },
-    };
 
     const result = await restorePersistedSessionForSigningCommand(
       {
@@ -738,34 +739,11 @@ test.describe('restorePersistedSessionsForWalletCommand', () => {
   });
 
   test('emits separate account restore work items for a multi-curve sealed record', async () => {
-    const companionRecord: SigningSessionSealedStoreRecord = {
-      ...makeSealedRecord({
-        authMethod: 'email_otp',
-        curve: 'ed25519',
-        thresholdSessionId: 'tsess-ed25519-account',
-        walletSigningSessionId: 'wsess-account-companion',
-      }),
-      subjectId: 'restore.testnet',
-      signingRootId: 'root-restore',
-      signingRootVersion: 'v1',
-      thresholdSessionIds: {
-        ecdsa: 'tsess-ecdsa-account',
-        ed25519: 'tsess-ed25519-account',
-      },
-      ecdsaRestore: {
-        chainTarget: TEST_ECDSA_CHAIN_TARGETS.tempo,
-        rpId: 'example.com',
-        sessionKind: 'jwt' as const,
-        thresholdSessionAuthToken: 'jwt-restore',
-        keyHandle: 'key-handle-restore',
-        ecdsaThresholdKeyId: 'ecdsa-key-restore',
-        ethereumAddress: `0x${'33'.repeat(20)}`,
-        relayerKeyId: 'relayer-key-restore',
-        clientVerifyingShareB64u: 'client-verifying-share-restore',
-        thresholdEcdsaPublicKeyB64u: 'threshold-public-key-restore',
-        participantIds: [1, 2],
-      },
-    };
+    const companionRecord = makeEd25519RecordWithEcdsaCompanion({
+      thresholdSessionId: 'tsess-ed25519-account',
+      walletSigningSessionId: 'wsess-account-companion',
+      ecdsaThresholdSessionId: 'tsess-ecdsa-account',
+    });
     const restoredPurposes: unknown[] = [];
 
     const result = await restorePersistedSessionsForWalletCommand(

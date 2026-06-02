@@ -85,7 +85,7 @@ import {
 import { resolveEvmFamilyTransactionWalletAuth } from './accountAuth';
 import type { EvmFamilySigningTarget } from './types';
 
-function buildEvmFamilyTransactionSigningIntent(args: {
+export function buildEvmFamilyTransactionSigningIntent(args: {
   walletId: WalletId;
   signingTarget: EvmFamilySigningTarget;
   authSelectionPolicy: TransactionAuthSelectionPolicy;
@@ -107,7 +107,15 @@ function buildEvmFamilyTransactionSigningIntent(args: {
         ...base,
         chain: 'evm',
         chainTarget: args.signingTarget,
-      };
+    };
+}
+
+export function resolveEvmFamilyTransactionAuthSelectionPolicy(args: {
+  candidateAuthMethod?: EvmFamilyEcdsaAuthMethod;
+}): TransactionAuthSelectionPolicy {
+  return args.candidateAuthMethod
+    ? { kind: 'account_class', authMethod: args.candidateAuthMethod }
+    : { kind: 'any' };
 }
 
 function isRuntimeBackedEcdsaAvailableLane(
@@ -534,9 +542,9 @@ export async function prepareEvmFamilyEcdsaSigningSession(args: {
           });
         const transactionIntent: TransactionSigningIntent = buildEvmFamilyTransactionSigningIntent({
           walletId,
-          authSelectionPolicy: candidateAuthMethod
-            ? { kind: 'account_class', authMethod: candidateAuthMethod }
-            : { kind: 'any' },
+          authSelectionPolicy: resolveEvmFamilyTransactionAuthSelectionPolicy({
+            candidateAuthMethod,
+          }),
           operationUsesNeeded: 1,
           signingTarget: args.signingTarget,
         });

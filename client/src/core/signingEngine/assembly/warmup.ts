@@ -11,7 +11,6 @@ export type WorkerResourceWarmupDeps = {
   nearClient: NearClient;
   nonceCoordinator: Pick<NonceCoordinator, 'prefetchNearContext'>;
   prewarmWorkers: () => Promise<void>;
-  initializeUiConfirm: () => Promise<void>;
   prewarmUiConfirmUi: () => Promise<void>;
   initializeCurrentUser: (nearAccountId: AccountId, nearClient?: NearClient) => Promise<void>;
 };
@@ -62,7 +61,6 @@ export async function warmCriticalResources(
   const warmupTasks: Promise<unknown>[] = [deps.prewarmUiConfirmUi().catch(() => null)];
   if (shouldPrewarmBrowserWorkers(deps)) {
     warmupTasks.push(deps.prewarmWorkers().catch(() => null));
-    warmupTasks.push(deps.initializeUiConfirm().catch(() => null));
   }
   await Promise.all(warmupTasks);
 }

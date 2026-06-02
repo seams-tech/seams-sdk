@@ -444,10 +444,10 @@ async function withMockedMostRecentProjection<T>(
   }) =>
     accountRef.chainIdKey === 'near:testnet' &&
     String(accountRef.accountAddress || '').trim() === 'alice.testnet'
-      ? { profileId: 'legacy-near:alice.testnet', accountRef }
+      ? { profileId: 'near-profile:alice.testnet', accountRef }
       : null;
   keyMaterialPort.getKeyMaterial = async () => ({
-    profileId: 'legacy-near:alice.testnet',
+    profileId: 'near-profile:alice.testnet',
     signerSlot: 1,
     chainIdKey: 'near:testnet',
     keyKind: 'threshold_share_v1',

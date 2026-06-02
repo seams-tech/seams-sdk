@@ -14,6 +14,16 @@ test.describe('confirmTxFlow – success paths', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page);
     await page.evaluate((nonceCoordinatorPath) => {
+      (globalThis as any).__buildTestNearProfileAccountContext = ({
+        chainIdKey,
+        accountAddress,
+      }: {
+        chainIdKey: string;
+        accountAddress: string;
+      }) => ({
+        profileId: `near-profile:${String(accountAddress)}`,
+        accountRef: { chainIdKey, accountAddress },
+      });
       const installIndexedDbClientForwarder = (
         methodName: string,
         fallback?: (...args: unknown[]) => unknown,
@@ -175,10 +185,7 @@ test.describe('confirmTxFlow – success paths', () => {
               }: {
                 chainIdKey: string;
                 accountAddress: string;
-              }) => ({
-                profileId: `legacy-near:${String(accountAddress)}`,
-                accountRef: { chainIdKey, accountAddress },
-              }),
+              }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
               listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
@@ -308,10 +315,7 @@ test.describe('confirmTxFlow – success paths', () => {
                 }: {
                   chainIdKey: string;
                   accountAddress: string;
-                }) => ({
-                  profileId: `legacy-near:${String(accountAddress)}`,
-                  accountRef: { chainIdKey, accountAddress },
-                }),
+                }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
                 listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
                 selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                   authenticatorsForPrompt: authenticators,
@@ -449,10 +453,7 @@ test.describe('confirmTxFlow – success paths', () => {
               }: {
                 chainIdKey: string;
                 accountAddress: string;
-              }) => ({
-                profileId: `legacy-near:${String(accountAddress)}`,
-                accountRef: { chainIdKey, accountAddress },
-              }),
+              }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
               listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
@@ -578,10 +579,7 @@ test.describe('confirmTxFlow – success paths', () => {
               }: {
                 chainIdKey: string;
                 accountAddress: string;
-              }) => ({
-                profileId: `legacy-near:${String(accountAddress)}`,
-                accountRef: { chainIdKey, accountAddress },
-              }),
+              }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
               listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,
@@ -724,10 +722,7 @@ test.describe('confirmTxFlow – success paths', () => {
               }: {
                 chainIdKey: string;
                 accountAddress: string;
-              }) => ({
-                profileId: `legacy-near:${String(accountAddress)}`,
-                accountRef: { chainIdKey, accountAddress },
-              }),
+              }) => (globalThis as any).__buildTestNearProfileAccountContext({ chainIdKey, accountAddress }),
               listProfileAuthenticators: async () => [{ credentialId: 'test-passkey', transports: [] }],
               selectProfileAuthenticatorsForPrompt: async ({ authenticators }: any) => ({
                 authenticatorsForPrompt: authenticators,

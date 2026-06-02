@@ -70,6 +70,7 @@ import type {
   ProvisionWarmEd25519CapabilityArgs,
   ProvisionWarmEd25519CapabilityResult,
 } from '@/core/signingEngine/session/warmCapabilities/types';
+import type { SensitiveOperationPolicy } from '@shared/utils';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletId,
@@ -672,23 +673,6 @@ type WarmSessionTestServicesDeps = {
   onTransition?: (event: WarmSessionTransitionEvent) => void | Promise<void>;
 };
 
-const emptyThresholdEcdsaStoreDeps = (): ThresholdEcdsaSessionStoreDeps => ({
-  recordsByLane: new Map(),
-  exportArtifactsByLane: new Map(),
-});
-
-function listThresholdEcdsaSessionRecordsForSubjectTestOnly(
-  deps: ThresholdEcdsaSessionStoreDeps,
-  args: { subjectId: WalletId },
-): ThresholdEcdsaSessionRecord[] {
-  return [...deps.recordsByLane.values()]
-    .filter((record) => toWalletId(record.walletId) === args.subjectId)
-    .sort(
-      (left, right) =>
-        Math.floor(Number(right.updatedAtMs) || 0) - Math.floor(Number(left.updatedAtMs) || 0),
-    );
-}
-
 function resolveTestEcdsaBootstrapArgs(args: {
   request: {
     nearAccountId: AccountId | string;
@@ -967,9 +951,14 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
       chain: ThresholdEcdsaActivationChain;
       source?: ThresholdEcdsaSessionStoreSource;
       usesNeeded?: number;
+      requiredSignatureUses?: number;
+      thresholdSessionId?: string;
+      walletSigningSessionId?: string;
+      sessionBudgetUses?: number;
+      passkeyPrfFirstB64u?: string;
+      runtimeScopeBootstrap?: { environmentId: string; publishableKey: string };
       keyRef?: ThresholdEcdsaSecp256k1KeyRef;
       plan?: EcdsaSessionProvisionPlan;
-      [key: string]: unknown;
     }) =>
       (async () => {
         const chainTarget = testEcdsaChainTarget(args.chain);
@@ -1007,7 +996,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
           throw new Error('test ECDSA provision requires session record material');
         }
         const resolvedPlan =
-          (args.plan as EcdsaSessionProvisionPlan | undefined) ||
+          args.plan ||
           (async () => {
             const identity = buildEcdsaSessionIdentity({
               thresholdSessionId: exactThresholdSessionId || record.thresholdSessionId,
@@ -1090,10 +1079,8 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
           {
             walletId,
             source: args.source || record.source,
-            usesNeeded: args.usesNeeded,
-            runtimeScopeBootstrap: args.runtimeScopeBootstrap as
-              | { environmentId: string; publishableKey: string }
-              | undefined,
+            usesNeeded: args.usesNeeded ?? args.requiredSignatureUses,
+            runtimeScopeBootstrap: args.runtimeScopeBootstrap,
             chainTarget,
             record,
             plan: await resolvedPlan,
@@ -1108,8 +1095,10 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
       usesNeeded?: number;
     }) =>
       statusReader.assertEcdsaSigningSessionReady({
-        ...args,
         walletId: toWalletId(args.walletId),
+        chainTarget: args.chainTarget,
+        thresholdSessionId: args.thresholdSessionId,
+        usesNeeded: args.usesNeeded,
       }),
     getEd25519SigningSessionStatus: statusReader.getEd25519SigningSessionStatus,
     getEd25519SigningSessionStatusForSession: statusReader.getEd25519SigningSessionStatusForSession,
@@ -1119,16 +1108,17 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
       thresholdSessionId: string;
     }) =>
       statusReader.getEcdsaSigningSessionStatus({
-        ...args,
         walletId: toWalletId(args.walletId),
+        chainTarget: args.chainTarget,
+        thresholdSessionId: args.thresholdSessionId,
       }),
     listEcdsaSigningSessionStatuses: (args: {
       walletId: AccountId | string;
       chainTarget: ThresholdEcdsaChainTarget;
     }) =>
       statusReader.listEcdsaSigningSessionStatuses({
-        ...args,
         walletId: toWalletId(args.walletId),
+        chainTarget: args.chainTarget,
       }),
     claimPrfFirstByThresholdSessionId,
     ensureEcdsaPrfSealPersistedByThresholdSessionId: (args: {
@@ -1173,7 +1163,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
       thresholdSessionId?: string;
       operationLabel: string;
       source?: ThresholdEcdsaSessionStoreSource;
-      [key: string]: unknown;
+      sensitivePolicy?: SensitiveOperationPolicy;
     }) =>
       assertWarmSessionEcdsaOperationAllowed(
         {
@@ -1186,9 +1176,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
           operationLabel: args.operationLabel,
           thresholdSessionId: args.thresholdSessionId || '',
           source: args.source || 'login',
-          sensitivePolicy: args.sensitivePolicy as
-            | import('@shared/utils').SensitiveOperationPolicy
-            | undefined,
+          sensitivePolicy: args.sensitivePolicy,
         },
       ),
   };

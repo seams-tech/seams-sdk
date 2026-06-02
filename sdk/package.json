@@ -149,6 +149,8 @@
     "test:inline": "pnpm -C ../tests test:inline",
     "test:e2e": "pnpm -C ../tests test:e2e",
     "test:unit": "pnpm -C ../tests test:unit",
+    "test:source-guards": "pnpm -C ../tests test:source-guards",
+    "test:integration:signing": "pnpm -C ../tests test:integration:signing",
     "test:threshold-core": "pnpm -C ../tests test:threshold-core",
     "smoke:eth-signer:node-runtime": "node ./scripts/smoke/smoke-eth-signer-node-runtime.mjs",
     "smoke:eth-signer:workers-runtime": "node ./scripts/smoke/smoke-eth-signer-workers-runtime.mjs",

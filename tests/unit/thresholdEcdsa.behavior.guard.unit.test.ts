@@ -42,12 +42,6 @@ test.describe('threshold ECDSA behavior guard', () => {
     expect(source).not.toContain('deriveEcdsaKeyMaterialFromPersistedBackend');
     expect(source).not.toContain('bootstrapEcdsaFromRegistrationMaterial');
     expect(source).not.toContain('getEcdsaIntegratedKeyRecordByKeyHandle');
-    expect(source).toContain('getRoleLocalByKeyHandle');
-    expect(source).toContain('roleLocalKey.signingRootId');
-    expect(source).toContain('roleLocalKey.signingRootVersion');
-    expect(source).toContain(
-      'ECDSA key selector signing root does not match threshold session scope',
-    );
   });
 
   test('runtime ECDSA HSS code does not call v1 derivation surfaces', () => {

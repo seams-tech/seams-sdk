@@ -81,6 +81,25 @@ function directRegistrationChallengeProof(input: {
   };
 }
 
+function googleAttemptEnrollmentVerificationRequest(input: {
+  providerSubject: string;
+  walletId: string;
+  challengeId: string;
+  registrationAttemptId: string;
+}) {
+  return {
+    providerSubject: input.providerSubject,
+    walletId: input.walletId,
+    orgId: ORG_ID,
+    challengeId: input.challengeId,
+    otpCode: '123456',
+    otpChannel: 'email_otp',
+    sessionHash: 'registration-intent-digest',
+    appSessionVersion: 'google-app-session-v1',
+    googleEmailOtpRegistrationAttemptId: input.registrationAttemptId,
+  };
+}
+
 test.describe('hosted Google Email OTP account privacy', () => {
   test('registration fails closed on non-HMAC-readable email-derived wallet mappings', async () => {
     const service = makeService();
@@ -567,6 +586,98 @@ test.describe('hosted Google Email OTP account privacy', () => {
     ).resolves.toMatchObject({
       ok: false,
       code: 'invalid_body',
+    });
+  });
+
+  test('Email OTP enrollment rejects missing Google registration attempts at proof boundary', async () => {
+    const service = makeService();
+
+    await expect(
+      service.verifyEmailOtpEnrollment(
+        googleAttemptEnrollmentVerificationRequest({
+          providerSubject: 'google:subject-missing-registration-attempt',
+          walletId: 'missing-attempt-wallet.w3a-relayer.testnet',
+          challengeId: 'challenge-missing-registration-attempt',
+          registrationAttemptId: 'missing-registration-attempt',
+        }),
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'registration_attempt_missing',
+    });
+  });
+
+  test('Email OTP enrollment rejects expired Google registration attempts at proof boundary', async () => {
+    const service = makeService();
+    const attemptStore = (service as any).getEmailOtpRegistrationAttemptStore();
+    const providerSubject = 'google:subject-expired-registration-attempt';
+    const walletId = 'expired-attempt-wallet.w3a-relayer.testnet';
+    const registrationAttemptId = 'expired-registration-attempt';
+    await attemptStore.put({
+      version: 'google_email_otp_registration_attempt_v1',
+      attemptId: registrationAttemptId,
+      providerSubject,
+      email: 'expired-attempt@example.com',
+      walletId,
+      authProvider: 'google_oidc',
+      accountIdSlugVersion: 'hmac_readable_v1',
+      walletIdDerivationNonce: 'expiredNonceA0123456789',
+      collisionCounter: 0,
+      state: 'started',
+      createdAtMs: Date.now() - 60_000,
+      updatedAtMs: Date.now() - 60_000,
+      expiresAtMs: Date.now() - 1,
+    });
+
+    await expect(
+      service.verifyEmailOtpEnrollment(
+        googleAttemptEnrollmentVerificationRequest({
+          providerSubject,
+          walletId,
+          challengeId: 'challenge-expired-registration-attempt',
+          registrationAttemptId,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'registration_attempt_expired',
+    });
+  });
+
+  test('Email OTP enrollment rejects Google registration attempt wallet drift', async () => {
+    const service = makeService();
+    const attemptStore = (service as any).getEmailOtpRegistrationAttemptStore();
+    const providerSubject = 'google:subject-wallet-drift-registration-attempt';
+    const registrationAttemptId = 'wallet-drift-registration-attempt';
+    await attemptStore.put({
+      version: 'google_email_otp_registration_attempt_v1',
+      attemptId: registrationAttemptId,
+      providerSubject,
+      email: 'wallet-drift@example.com',
+      walletId: 'attempt-wallet.w3a-relayer.testnet',
+      authProvider: 'google_oidc',
+      accountIdSlugVersion: 'hmac_readable_v1',
+      walletIdDerivationNonce: 'walletDriftNonceA0123456789',
+      collisionCounter: 0,
+      state: 'started',
+      createdAtMs: Date.now(),
+      updatedAtMs: Date.now(),
+      expiresAtMs: Date.now() + 30 * 60 * 1000,
+    });
+
+    await expect(
+      service.verifyEmailOtpEnrollment(
+        googleAttemptEnrollmentVerificationRequest({
+          providerSubject,
+          walletId: 'request-wallet.w3a-relayer.testnet',
+          challengeId: 'challenge-wallet-drift-registration-attempt',
+          registrationAttemptId,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'wallet_identity_mismatch',
+      message: 'registrationAttemptId does not match walletId',
     });
   });
 

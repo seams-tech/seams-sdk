@@ -44,7 +44,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         }) =>
           accountRef.chainIdKey === 'near:testnet' &&
           String(accountRef.accountAddress || '').trim() === nearAccountId
-            ? { profileId: `legacy-near:${nearAccountId}`, accountRef }
+            ? { profileId: `near-profile:${nearAccountId}`, accountRef }
             : null;
         clientDb.getMostRecentNearAccountProjection = async () => null;
         clientDb.resolveNearAccountProfileContinuity = async () => ({ chainAccounts: [] });
@@ -209,7 +209,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         }) =>
           accountRef.chainIdKey === 'near:testnet' &&
           String(accountRef.accountAddress || '').trim() === nearAccountId
-            ? { profileId: `legacy-near:${nearAccountId}`, accountRef }
+            ? { profileId: `near-profile:${nearAccountId}`, accountRef }
             : null;
         clientDb.getMostRecentNearAccountProjection = async () => null;
         clientDb.resolveNearAccountProfileContinuity = async () => ({ chainAccounts: [] });
@@ -374,7 +374,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         }) =>
           accountRef.chainIdKey === 'near:testnet' &&
           String(accountRef.accountAddress || '').trim() === nearAccountId
-            ? { profileId: `legacy-near:${nearAccountId}`, accountRef }
+            ? { profileId: `near-profile:${nearAccountId}`, accountRef }
             : null;
         clientDb.getMostRecentNearAccountProjection = async () => null;
         clientDb.resolveNearAccountProfileContinuity = async () => ({ chainAccounts: [] });

@@ -308,6 +308,12 @@ export function buildCookieReconnectEcdsaActivation(
   return applyOptionalActivationFields(request, args);
 }
 
+export function shouldEnsurePasskeyEcdsaSealAfterProvision(
+  request: EcdsaBootstrapRequest,
+): boolean {
+  return request.kind !== 'email_otp_ecdsa_bootstrap';
+}
+
 export function buildEcdsaExportActivation(
   args: BuildPasskeyEcdsaActivationArgs,
 ): ThresholdEcdsaPasskeyActivationRequest {
@@ -465,7 +471,7 @@ export async function provisionThresholdEcdsaSessionFromBootstrapArgs(
     const thresholdSessionId = String(
       bootstrap.thresholdEcdsaKeyRef.thresholdSessionId || '',
     ).trim();
-    if (thresholdSessionId && request.kind !== 'email_otp_ecdsa_bootstrap') {
+    if (thresholdSessionId && shouldEnsurePasskeyEcdsaSealAfterProvision(request)) {
       await ensureEcdsaPrfSealPersisted({
         touchConfirm: deps.touchConfirm,
         chainTarget,

@@ -251,8 +251,7 @@ function recordForChainTarget(
     chainTarget: materialChainTarget,
     relayerUrl: 'https://relay.example',
     keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-restorable'),
-    ecdsaThresholdKeyId: input.key
-      .ecdsaThresholdKeyId as ThresholdEcdsaSessionRecord['ecdsaThresholdKeyId'],
+    ecdsaThresholdKeyId: input.key.ecdsaThresholdKeyId,
     signingRootId: input.key.signingRootId,
     signingRootVersion: input.key.signingRootVersion,
     relayerKeyId: 'rk-restorable',
@@ -282,14 +281,18 @@ function recordForChainTarget(
 function emailOtpRecordForChainTarget(
   input: EcdsaLaneCandidate,
   materialChainTarget: typeof chainTarget | typeof tempoChainTarget,
+  options: {
+    retention?: EmailOtpEcdsaSessionRecord['emailOtpAuthContext']['retention'];
+    remainingUses?: EmailOtpEcdsaSessionRecord['remainingUses'];
+  } = {},
 ): EmailOtpEcdsaSessionRecord {
   const workerOwnedRecord = recordForChainTarget(input, materialChainTarget);
   return {
     ...workerOwnedRecord,
     source: 'email_otp',
     emailOtpAuthContext: {
-      policy: 'session',
-      retention: 'session',
+      policy: options.retention === 'single_use' ? 'per_operation' : 'session',
+      retention: options.retention ?? 'session',
       reason: 'login',
       authMethod: 'email_otp',
     },
@@ -297,6 +300,7 @@ function emailOtpRecordForChainTarget(
       kind: 'email_otp_worker_session',
       sessionId: 'email-otp-worker-session',
     },
+    remainingUses: options.remainingUses ?? workerOwnedRecord.remainingUses,
   };
 }
 
@@ -448,16 +452,10 @@ test.describe('ECDSA restorable lane selection', () => {
 
   test('uses single-use Email OTP exact material while the record still has signing budget', async () => {
     const input = emailOtpCandidate('ready');
-    const emailOtpRecord: ThresholdEcdsaSessionRecord = {
-      ...emailOtpRecordForChainTarget(input, input.chainTarget),
-      emailOtpAuthContext: {
-        policy: 'per_operation',
-        retention: 'single_use',
-        reason: 'login',
-        authMethod: 'email_otp',
-      },
+    const emailOtpRecord = emailOtpRecordForChainTarget(input, input.chainTarget, {
+      retention: 'single_use',
       remainingUses: 1,
-    };
+    });
     const deps: EvmFamilyEcdsaSigningSelectionDeps = {
       ...selectionDeps(),
       getThresholdEcdsaSessionRecordByKey: () => emailOtpRecord,

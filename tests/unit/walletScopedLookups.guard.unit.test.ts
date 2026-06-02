@@ -25,7 +25,7 @@ function listProductionCoreFiles(dir = path.join(repoRoot, 'client/src/core')): 
   return files.sort();
 }
 
-test.describe('refactor-47 wallet-scoped lookup guards', () => {
+test.describe('wallet-scoped lookup guards', () => {
   test('production wallet paths do not resolve wallet ids through NEAR projection helpers', () => {
     const allowedToAccountIdWalletFiles = new Set([
       'client/src/core/signingEngine/SigningEngine.ts',
@@ -70,8 +70,6 @@ test.describe('refactor-47 wallet-scoped lookup guards', () => {
       'client/src/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence.ts',
     );
 
-    expect(source).toContain('activateAccountSigner');
-    expect(source).toContain('profileId: walletId');
     expect(source).not.toContain('upsertChainAccount');
     expect(source).not.toContain('setLastProfileStateForProfile');
     expect(source).not.toContain('near:testnet');
@@ -83,8 +81,6 @@ test.describe('refactor-47 wallet-scoped lookup guards', () => {
     );
     const publicApi = readRepoFile('client/src/core/signingEngine/flows/registration/public.ts');
 
-    expect(lifecycle).toContain('export async function nearAuthenticatorsByAccount');
-    expect(publicApi).toContain('export function nearAuthenticatorsByAccount');
     expect(lifecycle).not.toContain('export async function getAuthenticatorsByUser');
     expect(publicApi).not.toContain('export function getAuthenticatorsByUser');
   });

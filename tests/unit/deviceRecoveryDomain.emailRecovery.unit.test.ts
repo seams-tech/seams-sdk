@@ -373,7 +373,7 @@ test.describe('EmailRecoveryDomain', () => {
       }) =>
         accountRef.chainIdKey === 'near:testnet' &&
         String(accountRef.accountAddress || '').trim() === 'alice.testnet'
-          ? { profileId: 'legacy-near:alice.testnet', accountRef }
+          ? { profileId: 'near-profile:alice.testnet', accountRef }
           : null;
       keyMaterialPort.storeKeyMaterial = async (input: any) => {
         thresholdMaterialWrites.push({

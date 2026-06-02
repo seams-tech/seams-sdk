@@ -15,11 +15,19 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
+import {
+  buildEcdsaRoleLocalPasskeyAuthMethod,
+  buildEcdsaRoleLocalPublicFacts,
+  buildEcdsaRoleLocalReadyRecord,
+} from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 
 const WALLET_ID = toAccountId('alice.testnet');
 const RP_ID = 'wallet.example.test';
 const OWNER_ADDRESS = `0x${'ab'.repeat(20)}`;
 const PUBLIC_KEY_33_B64U = Buffer.from([2, ...Array(32).fill(7)]).toString('base64url');
+const RELAYER_PUBLIC_KEY_33_B64U = Buffer.from([3, ...Array(32).fill(9)]).toString('base64url');
+const CONTEXT_BINDING_32_B64U = Buffer.from(new Uint8Array(32).fill(6)).toString('base64url');
+const STATE_BLOB_B64U = Buffer.from(new Uint8Array(96).fill(8)).toString('base64url');
 
 const EVM_TARGET = {
   kind: 'evm',
@@ -127,6 +135,36 @@ function localSessionRecordFor(active: ActiveEcdsaSignerRecord): ThresholdEcdsaS
     signingRootVersion: 'default',
     relayerKeyId: 'rk-1',
     clientVerifyingShareB64u: 'client-share',
+    ecdsaRoleLocalReadyRecord: buildEcdsaRoleLocalReadyRecord({
+      stateBlob: {
+        kind: 'ecdsa_role_local_state_blob_v1',
+        curve: 'secp256k1',
+        encoding: 'base64url',
+        producer: 'signer_core',
+        stateBlobB64u: STATE_BLOB_B64U,
+      },
+      publicFacts: buildEcdsaRoleLocalPublicFacts({
+        walletId: WALLET_ID,
+        rpId: RP_ID,
+        chainTarget: active.chainTarget,
+        keyHandle: active.walletKey.keyHandle,
+        ecdsaThresholdKeyId: 'ehss-shared',
+        signingRootId: 'project:dev',
+        signingRootVersion: 'default',
+        clientParticipantId: 1,
+        relayerParticipantId: 2,
+        participantIds: [1, 2],
+        contextBinding32B64u: CONTEXT_BINDING_32_B64U,
+        hssClientSharePublicKey33B64u: PUBLIC_KEY_33_B64U,
+        relayerPublicKey33B64u: RELAYER_PUBLIC_KEY_33_B64U,
+        groupPublicKey33B64u: PUBLIC_KEY_33_B64U,
+        ethereumAddress: OWNER_ADDRESS,
+      }),
+      authMethod: buildEcdsaRoleLocalPasskeyAuthMethod({
+        credentialIdB64u: active.walletKey.keyHandle,
+        rpId: RP_ID,
+      }),
+    }),
     participantIds: [1, 2],
     thresholdSessionKind: 'jwt',
     thresholdSessionId: 'threshold-session-1',
@@ -137,7 +175,7 @@ function localSessionRecordFor(active: ActiveEcdsaSignerRecord): ThresholdEcdsaS
     ethereumAddress: OWNER_ADDRESS,
     updatedAtMs: Date.now(),
     source: 'login',
-  } as ThresholdEcdsaSessionRecord;
+  };
 }
 
 test.describe('unlock ECDSA warm-up planner', () => {

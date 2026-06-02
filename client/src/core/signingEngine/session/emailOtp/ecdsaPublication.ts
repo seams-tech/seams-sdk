@@ -72,6 +72,28 @@ export function emailOtpEcdsaPublicationChainTargets(args: {
   return targets;
 }
 
+export function buildEmailOtpEcdsaReadyPersistInput(args: {
+  walletId: WalletId;
+  primaryChain: ThresholdEcdsaChainTarget;
+  walletSigningSessionId: string;
+  thresholdSessionId: string;
+  emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+}): EmailOtpEcdsaReadyPersistInput {
+  return {
+    authMethod: 'email_otp',
+    curve: 'ecdsa',
+    walletId: args.walletId,
+    chainTarget: args.primaryChain,
+    walletSigningSessionId: SigningSessionIds.walletSigningSession(args.walletSigningSessionId),
+    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(args.thresholdSessionId),
+    emailOtpAuthContext: args.emailOtpAuthContext,
+    material: {
+      kind: 'worker_handle',
+      workerSessionId: args.thresholdSessionId,
+    },
+  };
+}
+
 export async function commitEmailOtpEcdsaPublicationBootstraps(
   args: {
     walletId: WalletId;
@@ -166,19 +188,13 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
   if (!thresholdSessionId || !walletSigningSessionId || !relayerUrl || !shamirPrimeB64u) {
     throw new Error('Email OTP sealed refresh is missing threshold-session persistence metadata');
   }
-  const readyPersistenceInput: EmailOtpEcdsaReadyPersistInput = {
-    authMethod: 'email_otp',
-    curve: 'ecdsa',
+  const readyPersistenceInput = buildEmailOtpEcdsaReadyPersistInput({
     walletId: args.walletId,
-    chainTarget: args.primaryChain,
-    walletSigningSessionId: SigningSessionIds.walletSigningSession(walletSigningSessionId),
-    thresholdSessionId: SigningSessionIds.thresholdEcdsaSession(thresholdSessionId),
+    primaryChain: args.primaryChain,
+    walletSigningSessionId,
+    thresholdSessionId,
     emailOtpAuthContext: args.emailOtpAuthContext,
-    material: {
-      kind: 'worker_handle',
-      workerSessionId: thresholdSessionId,
-    },
-  };
+  });
 
   const thresholdSessionAuthToken = String(
     session?.jwt || keyRef.thresholdSessionAuthToken || '',

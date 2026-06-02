@@ -58,6 +58,35 @@ const OTHER_VALID_PUBLIC_KEY_B64U = 'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 const VALID_SHARE_32_B64U = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 type PasskeyEcdsaSessionRecord = Exclude<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>;
 type EmailOtpEcdsaSessionRecord = Extract<ThresholdEcdsaSessionRecord, { source: 'email_otp' }>;
+type PasskeyRecordFixtureInput = {
+  walletId?: PasskeyEcdsaSessionRecord['walletId'];
+  chainTarget?: PasskeyEcdsaSessionRecord['chainTarget'];
+  keyHandle?: PasskeyEcdsaSessionRecord['keyHandle'];
+  ecdsaThresholdKeyId?: PasskeyEcdsaSessionRecord['ecdsaThresholdKeyId'];
+  signingRootId?: PasskeyEcdsaSessionRecord['signingRootId'];
+  signingRootVersion?: PasskeyEcdsaSessionRecord['signingRootVersion'];
+  participantIds?: PasskeyEcdsaSessionRecord['participantIds'];
+  thresholdSessionId?: PasskeyEcdsaSessionRecord['thresholdSessionId'];
+  walletSigningSessionId?: PasskeyEcdsaSessionRecord['walletSigningSessionId'];
+  remainingUses?: PasskeyEcdsaSessionRecord['remainingUses'];
+  thresholdEcdsaPublicKeyB64u?: PasskeyEcdsaSessionRecord['thresholdEcdsaPublicKeyB64u'];
+  ethereumAddress?: PasskeyEcdsaSessionRecord['ethereumAddress'];
+  runtimePolicyScope?: PasskeyEcdsaSessionRecord['runtimePolicyScope'];
+};
+type EmailOtpRecordFixtureInput = {
+  keyHandle?: EmailOtpEcdsaSessionRecord['keyHandle'];
+  chainTarget?: EmailOtpEcdsaSessionRecord['chainTarget'];
+  thresholdSessionId?: EmailOtpEcdsaSessionRecord['thresholdSessionId'];
+  walletSigningSessionId?: EmailOtpEcdsaSessionRecord['walletSigningSessionId'];
+};
+type KeyRefFixtureInput = {
+  backendBinding?: ThresholdEcdsaSecp256k1KeyRef['backendBinding'];
+  participantIds?: ThresholdEcdsaSecp256k1KeyRef['participantIds'];
+  thresholdEcdsaPublicKeyB64u?: ThresholdEcdsaSecp256k1KeyRef['thresholdEcdsaPublicKeyB64u'];
+  ethereumAddress?: ThresholdEcdsaSecp256k1KeyRef['ethereumAddress'];
+  thresholdSessionKind?: ThresholdEcdsaSecp256k1KeyRef['thresholdSessionKind'];
+  thresholdSessionAuthToken?: ThresholdEcdsaSecp256k1KeyRef['thresholdSessionAuthToken'];
+};
 
 const EVM_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'evm',
@@ -113,89 +142,79 @@ function makeRoleLocalReadyRecord(args: {
   });
 }
 
-function makeRecord(
-  overrides: Partial<PasskeyEcdsaSessionRecord> = {},
-): PasskeyEcdsaSessionRecord {
-  const keyHandleForRecord =
-    overrides.keyHandle ?? toEvmFamilyEcdsaKeyHandle('key-handle-shared');
-  return {
-    walletId: WALLET_ID,
-    chainTarget: EVM_TARGET,
+function makeRecord(input: PasskeyRecordFixtureInput = {}): PasskeyEcdsaSessionRecord {
+  const keyHandleForRecord = input.keyHandle ?? toEvmFamilyEcdsaKeyHandle('key-handle-shared');
+  const record = {
+    walletId: input.walletId ?? WALLET_ID,
+    chainTarget: input.chainTarget ?? EVM_TARGET,
     relayerUrl: 'https://relay.localhost',
-    ecdsaThresholdKeyId: 'ehss-shared-key',
-    signingRootId: 'project:dev',
-    signingRootVersion: 'default',
+    ecdsaThresholdKeyId: input.ecdsaThresholdKeyId ?? 'ehss-shared-key',
+    signingRootId: 'signingRootId' in input ? input.signingRootId : 'project:dev',
+    signingRootVersion: input.signingRootVersion ?? 'default',
     relayerKeyId: 'relayer-key',
     clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
     ecdsaRoleLocalReadyRecord: makeRoleLocalReadyRecord({
       keyHandle: keyHandleForRecord,
-      chainTarget: overrides.chainTarget ?? EVM_TARGET,
+      chainTarget: input.chainTarget ?? EVM_TARGET,
     }),
-    participantIds: [2, 1],
+    participantIds: input.participantIds ?? [2, 1],
     thresholdSessionKind: 'jwt',
-    thresholdSessionId: 'threshold-session-1',
-    walletSigningSessionId: 'wallet-signing-session-1',
+    thresholdSessionId: input.thresholdSessionId ?? 'threshold-session-1',
+    walletSigningSessionId: input.walletSigningSessionId ?? 'wallet-signing-session-1',
     thresholdSessionAuthToken: 'threshold-auth-token',
     expiresAtMs: 1_900_000_000_000,
-    remainingUses: 3,
-    thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
-    ethereumAddress: OWNER_ADDRESS,
+    remainingUses: input.remainingUses ?? 3,
+    thresholdEcdsaPublicKeyB64u:
+      'thresholdEcdsaPublicKeyB64u' in input
+        ? input.thresholdEcdsaPublicKeyB64u
+        : VALID_PUBLIC_KEY_B64U,
+    ethereumAddress: input.ethereumAddress ?? OWNER_ADDRESS,
     updatedAtMs: 1_800_000_000_000,
     source: 'login',
-    ...overrides,
     keyHandle: keyHandleForRecord,
-    authMetadata: overrides.authMetadata ?? { rpId: RP_ID },
+    authMetadata: { rpId: RP_ID },
   };
+  if ('runtimePolicyScope' in input) {
+    return { ...record, runtimePolicyScope: input.runtimePolicyScope };
+  }
+  return record;
 }
 
-function makeEmailOtpRecord(
-  overrides: Partial<EmailOtpEcdsaSessionRecord> = {},
-): EmailOtpEcdsaSessionRecord {
-  const keyHandleForRecord =
-    overrides.keyHandle ?? toEvmFamilyEcdsaKeyHandle('key-handle-email-otp');
-  const chainTarget = overrides.chainTarget ?? EVM_TARGET;
-  const emailOtpAuthContext =
-    overrides.emailOtpAuthContext ??
-    ({
-      retention: 'session',
-      reason: 'login',
-      policy: 'session',
-      authMethod: 'email_otp',
-      authSubjectId: 'google:alice',
-    } as const);
+function makeEmailOtpRecord(input: EmailOtpRecordFixtureInput = {}): EmailOtpEcdsaSessionRecord {
+  const keyHandleForRecord = input.keyHandle ?? toEvmFamilyEcdsaKeyHandle('key-handle-email-otp');
+  const chainTarget = input.chainTarget ?? EVM_TARGET;
+  const emailOtpAuthContext = {
+    retention: 'session',
+    reason: 'login',
+    policy: 'session',
+    authMethod: 'email_otp',
+    authSubjectId: 'google:alice',
+  } as const;
   const base = makeRecord({
     keyHandle: keyHandleForRecord,
     chainTarget,
-    thresholdSessionId: overrides.thresholdSessionId ?? 'threshold-session-email-otp',
-    walletSigningSessionId:
-      overrides.walletSigningSessionId ?? 'wallet-signing-session-email-otp',
-    thresholdEcdsaPublicKeyB64u:
-      overrides.thresholdEcdsaPublicKeyB64u ?? VALID_PUBLIC_KEY_B64U,
+    thresholdSessionId: input.thresholdSessionId ?? 'threshold-session-email-otp',
+    walletSigningSessionId: input.walletSigningSessionId ?? 'wallet-signing-session-email-otp',
   });
   return {
     ...base,
-    ...overrides,
     source: 'email_otp',
     emailOtpAuthContext,
-    clientAdditiveShareHandle: overrides.clientAdditiveShareHandle ?? {
+    clientAdditiveShareHandle: {
       kind: 'email_otp_worker_session',
       sessionId: 'email-otp-worker-share-1',
     },
-    ecdsaRoleLocalReadyRecord:
-      overrides.ecdsaRoleLocalReadyRecord ??
-      makeRoleLocalReadyRecord({
-        keyHandle: keyHandleForRecord,
-        chainTarget,
-        authMethod: buildEcdsaRoleLocalEmailOtpAuthMethod({
-          authSubjectId: emailOtpAuthContext.authSubjectId,
-        }),
+    ecdsaRoleLocalReadyRecord: makeRoleLocalReadyRecord({
+      keyHandle: keyHandleForRecord,
+      chainTarget,
+      authMethod: buildEcdsaRoleLocalEmailOtpAuthMethod({
+        authSubjectId: emailOtpAuthContext.authSubjectId,
       }),
+    }),
   };
 }
 
-function makeKeyRef(
-  overrides: Partial<ThresholdEcdsaSecp256k1KeyRef> = {},
-): ThresholdEcdsaSecp256k1KeyRef {
+function makeKeyRef(input: KeyRefFixtureInput = {}): ThresholdEcdsaSecp256k1KeyRef {
   return {
     type: 'threshold-ecdsa-secp256k1',
     userId: WALLET_ID,
@@ -205,22 +224,31 @@ function makeKeyRef(
     ecdsaThresholdKeyId: 'ehss-shared-key',
     signingRootId: 'project:dev',
     signingRootVersion: 'default',
-    backendBinding: {
-      materialKind: 'role_local_ready_state_blob',
-      relayerKeyId: 'relayer-key',
-      clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
-      stateBlob: parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(makeRecord()).stateBlob,
-      ecdsaRoleLocalReadyRecord:
-        parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(makeRecord()),
-    },
-    participantIds: [1, 2],
-    thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
-    ethereumAddress: OWNER_ADDRESS,
-    thresholdSessionKind: 'jwt',
-    thresholdSessionAuthToken: 'threshold-auth-token',
     thresholdSessionId: 'threshold-session-1',
     walletSigningSessionId: 'wallet-signing-session-1',
-    ...overrides,
+    backendBinding:
+      'backendBinding' in input
+        ? input.backendBinding
+        : {
+            materialKind: 'role_local_ready_state_blob',
+            relayerKeyId: 'relayer-key',
+            clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
+            stateBlob: parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(makeRecord())
+              .stateBlob,
+            ecdsaRoleLocalReadyRecord:
+              parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord(makeRecord()),
+          },
+    participantIds: input.participantIds ?? [1, 2],
+    thresholdEcdsaPublicKeyB64u:
+      'thresholdEcdsaPublicKeyB64u' in input
+        ? input.thresholdEcdsaPublicKeyB64u
+        : VALID_PUBLIC_KEY_B64U,
+    ethereumAddress: input.ethereumAddress ?? OWNER_ADDRESS,
+    thresholdSessionKind: input.thresholdSessionKind ?? 'jwt',
+    thresholdSessionAuthToken:
+      'thresholdSessionAuthToken' in input
+        ? input.thresholdSessionAuthToken
+        : 'threshold-auth-token',
   };
 }
 
@@ -264,7 +292,7 @@ test.describe('EVM-family ECDSA identity', () => {
 
   test('derives public-facts fingerprint without session or chain identity', async () => {
     const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({
-      record: makeRecord({ thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U }),
+      record: makeRecord(),
     });
     const evmFingerprint = deriveEvmFamilyKeyFingerprintFromPublicFacts({
       walletId: WALLET_ID,
@@ -312,10 +340,10 @@ test.describe('EVM-family ECDSA identity', () => {
 
   test('builds verified public facts from runtime records and key refs', async () => {
     const recordFacts = await toVerifiedEcdsaPublicFactsFromRecord({
-      record: makeRecord({ thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U }),
+      record: makeRecord(),
     });
     const keyRefFacts = await toVerifiedEcdsaPublicFactsFromKeyRef({
-      keyRef: makeKeyRef({ thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U }),
+      keyRef: makeKeyRef(),
     });
 
     expect(recordFacts).toEqual(keyRefFacts);
@@ -330,7 +358,7 @@ test.describe('EVM-family ECDSA identity', () => {
 
   test('builds resolved ECDSA key facade with branch-specific auth bindings', async () => {
     const publicFacts = await toVerifiedEcdsaPublicFactsFromRecord({
-      record: makeRecord({ thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U }),
+      record: makeRecord(),
     });
     const passkeyKey = buildResolvedEvmFamilyEcdsaKey({
       walletId: WALLET_ID,
@@ -370,9 +398,7 @@ test.describe('EVM-family ECDSA identity', () => {
   });
 
   test('builds ready signer session material with transport auth and ready-state blob', async () => {
-    const keyRef = makeKeyRef({
-      thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
-    });
+    const keyRef = makeKeyRef();
     const publicFacts = await toVerifiedEcdsaPublicFactsFromKeyRef({ keyRef });
     const signerSession = buildReadyEcdsaSignerSession({
       keyRef,
@@ -406,7 +432,6 @@ test.describe('EVM-family ECDSA identity', () => {
   test('builds ready signer session material from a role-local ready-state blob', async () => {
     const readyRecord = makeRoleLocalReadyRecord();
     const keyRef = makeKeyRef({
-      thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
       backendBinding: {
         materialKind: 'role_local_ready_state_blob',
         relayerKeyId: 'relayer-key',
@@ -448,9 +473,7 @@ test.describe('EVM-family ECDSA identity', () => {
   });
 
   test('builds ready signer sessions from validated ready material', async () => {
-    const record = makeRecord({
-      thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
-    });
+    const record = makeRecord();
     const resolution = resolveReadyEvmFamilyEcdsaMaterial({
       record,
       rpId: RP_ID,
@@ -486,9 +509,7 @@ test.describe('EVM-family ECDSA identity', () => {
   });
 
   test('builds key refs with normalized role-local ready records', () => {
-    const record = makeRecord({
-      thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
-    });
+    const record = makeRecord();
     const keyRef = buildThresholdEcdsaSecp256k1KeyRefFromSessionRecord({ record });
     expect(keyRef.backendBinding?.ecdsaRoleLocalReadyRecord?.kind).toBe(
       'ecdsa_role_local_ready_passkey_v1',
@@ -499,22 +520,7 @@ test.describe('EVM-family ECDSA identity', () => {
   });
 
   test('treats Email OTP registration ECDSA records with worker share as ready', async () => {
-    const emailOtpAuthMethod = buildEcdsaRoleLocalEmailOtpAuthMethod({
-      authSubjectId: 'google:alice',
-    });
-    const record = makeEmailOtpRecord({
-      emailOtpAuthContext: {
-        retention: 'session',
-        reason: 'login',
-        policy: 'session',
-        authMethod: 'email_otp',
-        authSubjectId: 'google:alice',
-      },
-      ecdsaRoleLocalReadyRecord: makeRoleLocalReadyRecord({
-        authMethod: emailOtpAuthMethod,
-      }),
-      thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
-    });
+    const record = makeEmailOtpRecord();
 
     const resolution = resolveReadyEvmFamilyEcdsaMaterial({
       record,
@@ -540,9 +546,7 @@ test.describe('EVM-family ECDSA identity', () => {
   });
 
   test('ready-material public facts come from the validated session record', async () => {
-    const record = makeRecord({
-      thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
-    });
+    const record = makeRecord();
     const resolution = resolveReadyEvmFamilyEcdsaMaterial({
       record,
       rpId: RP_ID,
@@ -573,7 +577,6 @@ test.describe('EVM-family ECDSA identity', () => {
 
   test('builds Email OTP worker share handles with exact lane identity', async () => {
     const keyRef = makeKeyRef({
-      thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
       thresholdSessionKind: 'cookie',
       thresholdSessionAuthToken: undefined,
       backendBinding: {
@@ -616,7 +619,6 @@ test.describe('EVM-family ECDSA identity', () => {
 
   test('rejects incomplete ready signer session material', async () => {
     const keyRef = makeKeyRef({
-      thresholdEcdsaPublicKeyB64u: VALID_PUBLIC_KEY_B64U,
       backendBinding: {
         materialKind: 'metadata_only',
         relayerKeyId: 'relayer-key',
@@ -932,20 +934,12 @@ test.describe('EVM-family ECDSA identity', () => {
       now: () => 1_800_000_000_000,
     };
     const sharedKeyHandle = toEvmFamilyEcdsaKeyHandle('key-handle-clear-shared');
-    const emailOtpAuthContext = {
-      policy: 'session',
-      retention: 'session',
-      reason: 'login',
-      authMethod: 'email_otp',
-      authSubjectId: 'google:alice',
-    } as const;
     upsertStoredThresholdEcdsaSessionRecord(
       deps,
       makeEmailOtpRecord({
         keyHandle: sharedKeyHandle,
         thresholdSessionId: 'threshold-session-clear-shared-a',
         walletSigningSessionId: 'wallet-session-clear-shared-a',
-        emailOtpAuthContext,
       }),
     );
     upsertStoredThresholdEcdsaSessionRecord(
@@ -955,7 +949,6 @@ test.describe('EVM-family ECDSA identity', () => {
         chainTarget: TEMPO_TARGET,
         thresholdSessionId: 'threshold-session-clear-shared-b',
         walletSigningSessionId: 'wallet-session-clear-shared-b',
-        emailOtpAuthContext,
       }),
     );
     upsertStoredThresholdEcdsaSessionRecord(
@@ -964,7 +957,6 @@ test.describe('EVM-family ECDSA identity', () => {
         keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-clear-other'),
         thresholdSessionId: 'threshold-session-clear-other',
         walletSigningSessionId: 'wallet-session-clear-other',
-        emailOtpAuthContext,
       }),
     );
 
@@ -1094,11 +1086,8 @@ test.describe('EVM-family ECDSA identity', () => {
     const record = makeRecord();
     const key = buildEvmFamilyEcdsaKeyIdentityFromRecord({ record, rpId: RP_ID });
     const otherWallet = toAccountId('mallory.testnet');
-    const otherWalletRecord = {
-      walletId: otherWallet,
-    } satisfies Partial<ThresholdEcdsaSessionRecord>;
     const otherWalletKey = buildEvmFamilyEcdsaKeyIdentityFromRecord({
-      record: makeRecord(otherWalletRecord),
+      record: makeRecord({ walletId: otherWallet }),
       rpId: RP_ID,
     });
     upsertStoredThresholdEcdsaSessionRecord(deps, record);
