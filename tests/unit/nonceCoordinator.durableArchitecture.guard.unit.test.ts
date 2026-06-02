@@ -201,6 +201,30 @@ test.describe('nonce coordinator durable architecture guards', () => {
     expect(parserCallers).toEqual([]);
   });
 
+  test('nonce branch helpers use concrete lease variants instead of lane intersections', () => {
+    const nonceModules = [
+      'client/src/core/signingEngine/nonce/NonceCoordinator.ts',
+      'client/src/core/signingEngine/nonce/evmNonceLane.ts',
+      'client/src/core/signingEngine/nonce/nearNonceLane.ts',
+    ];
+
+    for (const relativePath of nonceModules) {
+      const source = readRepoSource(relativePath);
+      expect(source, relativePath).not.toContain('NonceLease & { lane: EvmNonceLane');
+      expect(source, relativePath).not.toContain('NonceLease & { lane: NearNonceLane');
+      expect(source, relativePath).not.toContain('as NonceLease & { lane');
+    }
+  });
+
+  test('durable nonce parser accepts persisted decimal strings instead of in-memory bigint values', () => {
+    const parser = readRepoSource(
+      'client/src/core/signingEngine/nonce/nonceCoordinationRecordBoundary.ts',
+    );
+
+    expect(parser).toContain("typeof value !== 'string'");
+    expect(parser).not.toContain("typeof value === 'bigint'");
+  });
+
   test('nonce operation and EVM reservation types use prepared concrete identity', () => {
     const nonceTypes = readRepoSource('client/src/core/signingEngine/nonce/nonceTypes.ts');
     const nonceBackend = readRepoSource('client/src/core/rpcClients/evm/nonceBackend.ts');

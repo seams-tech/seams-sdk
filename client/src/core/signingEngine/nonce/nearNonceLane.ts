@@ -8,7 +8,7 @@ import {
   NearNonceReconcileReason,
   NonceDurableLeaseState,
   type NearNonceLane,
-  type NonceLease,
+  type NearNonceLease,
 } from './nonceTypes';
 import { nonceLaneKey } from './nonceLaneKeys';
 import { maxBigint, normalizeBigint, normalizeRequiredString } from './nonceUtils';
@@ -163,24 +163,22 @@ export function releaseAllNearNoncesFromState(state: NearNonceLaneState): void {
 }
 
 export async function markNearBroadcastAcceptedState(input: {
-  lease: NonceLease & { lane: NearNonceLane };
+  lease: NearNonceLease;
   state: NearNonceLaneState;
-  txHash?: string;
+  txHash: string;
   nowMs: number;
   persistCoordinationLease: (
-    lease: NonceLease,
+    lease: NearNonceLease,
     state: typeof NonceDurableLeaseState.BroadcastAccepted,
   ) => Promise<void>;
 }): Promise<void> {
-  const nonce = normalizeBigint(input.lease.nonce, 'nonce');
-  if (input.txHash) {
-    input.state.inFlight.set(nonce.toString(), {
-      nonce,
-      txHash: input.txHash,
-      acceptedAtMs: input.nowMs,
-      updatedAtMs: input.nowMs,
-    });
-  }
+  const nonce = BigInt(input.lease.nonce);
+  input.state.inFlight.set(nonce.toString(), {
+    nonce,
+    txHash: input.txHash,
+    acceptedAtMs: input.nowMs,
+    updatedAtMs: input.nowMs,
+  });
   await input.persistCoordinationLease(input.lease, NonceDurableLeaseState.BroadcastAccepted);
 }
 
@@ -189,10 +187,10 @@ export async function reconcileNearLaneState(input: {
   state: NearNonceLaneState;
   nearClient: NearClient;
   now: () => number;
-  activeLeases: Iterable<NonceLease & { lane: NearNonceLane }>;
-  removeCoordinationLease: (lease: NonceLease) => Promise<void>;
+  activeLeases: Iterable<NearNonceLease>;
+  removeCoordinationLease: (lease: NearNonceLease) => Promise<void>;
   transitionLease: (input: {
-    lease: NonceLease;
+    lease: NearNonceLease;
     transition: 'finalize' | 'drop';
     reason: string;
     txHash?: string;
@@ -216,7 +214,7 @@ export async function reconcileNearLaneState(input: {
   const unresolvedInFlightNonces: bigint[] = [];
 
   for (const lease of input.activeLeases) {
-    const leaseNonce = normalizeBigint(lease.nonce, 'nonce');
+    const leaseNonce = BigInt(lease.nonce);
     const inFlight = input.state.inFlight.get(leaseNonce.toString());
     if (leaseNonce > chainNonce) {
       if (inFlight) unresolvedInFlightNonces.push(leaseNonce);

@@ -130,7 +130,6 @@ import {
   type NonceOutcomeMetricEvent,
 } from './nonceDiagnostics';
 import {
-  normalizeBigint,
   normalizePositiveInteger,
   normalizeRequiredString,
 } from './nonceUtils';
@@ -315,10 +314,10 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     const active = new Set<string>();
     for (const lease of leases.values()) {
       if (input?.excludeLeaseId && lease.leaseId === input.excludeLeaseId) continue;
-      if (lease.lane.family !== 'evm') continue;
+      if (!isEvmNonceLease(lease)) continue;
       if (nonceLaneKey(lease.lane) !== laneKey) continue;
       if (!isActiveEvmLeaseState(lease.state)) continue;
-      const nonce = normalizeBigint(lease.nonce, 'nonce');
+      const nonce = lease.nonce;
       if (input?.chainNextNonce != null && nonce < input.chainNextNonce) continue;
       active.add(nonce.toString());
     }
@@ -339,10 +338,10 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     const active = new Set<string>();
     for (const lease of leases.values()) {
       if (input?.excludeLeaseId && lease.leaseId === input.excludeLeaseId) continue;
-      if (lease.lane.family !== 'near') continue;
+      if (!isNearNonceLease(lease)) continue;
       if (nonceLaneKey(lease.lane) !== laneKey) continue;
       if (!isActiveNearLeaseState(lease.state)) continue;
-      const nonce = normalizeBigint(lease.nonce, 'nonce');
+      const nonce = BigInt(lease.nonce);
       if (input?.chainNextNonce != null && nonce < input.chainNextNonce) continue;
       active.add(nonce.toString());
     }
@@ -460,7 +459,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     lane: EvmNonceLane;
     operation: PreparedNonceOperationContext;
   }): Promise<NonceLease> => {
-    await expireDueLeases({ accountId: nonceLaneSubjectId(input.lane) });
+    await expireDueLeasesForLockedLane(input.lane);
     const laneKey = nonceLaneKey(input.lane);
     const state = getOrCreateEvmState(laneKey);
     indexEvmLaneByAccount(input.lane, laneKey);
@@ -514,9 +513,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     return { ...lease };
   };
 
-  const releaseEvmNonceReservation = async (
-    lease: NonceLease & { lane: EvmNonceLane },
-  ): Promise<void> => {
+  const releaseEvmNonceReservation = async (lease: EvmNonceLease): Promise<void> => {
     const laneKey = nonceLaneKey(lease.lane);
     await releaseEvmNonceReservationState({
       lease,
@@ -527,7 +524,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
   };
 
   const markEvmBroadcastAccepted = async (
-    lease: NonceLease & { lane: EvmNonceLane },
+    lease: EvmNonceLease,
     txHash?: string,
   ): Promise<void> => {
     const laneKey = nonceLaneKey(lease.lane);
@@ -542,7 +539,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     });
   };
 
-  const markEvmFinalized = async (lease: NonceLease & { lane: EvmNonceLane }): Promise<void> => {
+  const markEvmFinalized = async (lease: EvmNonceLease): Promise<void> => {
     const laneKey = nonceLaneKey(lease.lane);
     const state = getOrCreateEvmState(laneKey);
     await markEvmFinalizedState({
@@ -554,7 +551,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
   };
 
   const markEvmDroppedOrReplaced = async (
-    lease: NonceLease & { lane: EvmNonceLane },
+    lease: EvmNonceLease,
     input: { reason: EvmNonceOutcomeReason; txHash?: string },
   ): Promise<void> => {
     const laneKey = nonceLaneKey(lease.lane);
@@ -684,7 +681,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       nearClient: requireNearClient(),
       now,
       activeLeases: Array.from(leases.values()).filter(
-        (lease): lease is NonceLease & { lane: NearNonceLane } =>
+        (lease): lease is NearNonceLease =>
           lease.lane.family === 'near' &&
           nonceLaneKey(lease.lane) === laneKey &&
           lease.state === NonceLeaseState.BroadcastAccepted,
@@ -706,8 +703,8 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
   };
 
   const releaseBackendReservation = async (lease: NonceLease): Promise<void> => {
-    if (lease.lane.family === 'evm') {
-      await releaseEvmNonceReservation(lease as NonceLease & { lane: EvmNonceLane });
+    if (isEvmNonceLease(lease)) {
+      await releaseEvmNonceReservation(lease);
       return;
     }
     releaseNearNonce(String(lease.nonce));
@@ -789,29 +786,51 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     return await runLocal();
   };
 
-  const expireDueLeases = async (input?: { accountId?: string }): Promise<NonceLease[]> => {
+  const expireLeaseLocked = async (lease: NonceLease, nowMs: number): Promise<NonceLease | null> => {
+    if (lease.expiresAtMs > nowMs) return null;
+    if (lease.state !== NonceLeaseState.Reserved && lease.state !== NonceLeaseState.Signed) {
+      return null;
+    }
+    const expiringFromState = lease.state;
+    if (lease.state === NonceLeaseState.Signed) {
+      await reconcileAfterSignedLeaseExpiry(lease);
+    } else {
+      await releaseBackendReservation(lease);
+    }
+    transitionLease({
+      lease,
+      transition: 'expire',
+      event: NonceCoordinatorTraceEventName.LeaseExpired,
+      reason:
+        expiringFromState === NonceLeaseState.Signed
+          ? 'signed_lease_ttl_elapsed'
+          : 'lease_ttl_elapsed',
+    });
+    return { ...lease };
+  };
+
+  const expireDueLeasesForLockedLane = async (lane: NonceLane): Promise<NonceLease[]> => {
     const nowMs = now();
-    const accountId = input?.accountId ? String(input.accountId).trim() : '';
+    const laneKey = nonceLaneKey(lane);
     const expired: NonceLease[] = [];
     for (const lease of Array.from(leases.values())) {
+      if (nonceLaneKey(lease.lane) !== laneKey) continue;
+      const expiredLease = await expireLeaseLocked(lease, nowMs);
+      if (expiredLease) expired.push(expiredLease);
+    }
+    return expired;
+  };
+
+  const expireDueLeasesForAccount = async (input?: { accountId?: string }): Promise<NonceLease[]> => {
+    const accountId = input?.accountId ? String(input.accountId).trim() : '';
+    const laneByKey = new Map<string, NonceLane>();
+    for (const lease of Array.from(leases.values())) {
       if (accountId && nonceLaneSubjectId(lease.lane) !== accountId) continue;
-      if (lease.expiresAtMs > nowMs) continue;
-      if (lease.state !== NonceLeaseState.Reserved && lease.state !== NonceLeaseState.Signed) {
-        continue;
-      }
-      if (lease.state === NonceLeaseState.Signed) {
-        await reconcileAfterSignedLeaseExpiry(lease);
-      } else {
-        await releaseBackendReservation(lease);
-      }
-      transitionLease({
-        lease,
-        transition: 'expire',
-        event: NonceCoordinatorTraceEventName.LeaseExpired,
-        reason:
-          lease.state === NonceLeaseState.Signed ? 'signed_lease_ttl_elapsed' : 'lease_ttl_elapsed',
-      });
-      expired.push({ ...lease });
+      laneByKey.set(nonceLaneKey(lease.lane), lease.lane);
+    }
+    const expired: NonceLease[] = [];
+    for (const lane of laneByKey.values()) {
+      expired.push(...(await withLaneLock(lane, async () => expireDueLeasesForLockedLane(lane))));
     }
     return expired;
   };
@@ -928,7 +947,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     operation: PreparedNonceOperationContext;
     count: number;
   }): Promise<NonceLease[]> => {
-    await expireDueLeases({ accountId: input.operation.accountId });
+    await expireDueLeasesForLockedLane(input.lane);
     const count = Math.max(1, Math.floor(Number(input.count || 1)));
     const nonces = await reserveNearNonces(input.lane, count);
     if (nonces.length !== count) {
@@ -1022,7 +1041,6 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
 
     async reserveNearContext(input) {
       return await withLaneLock(input.lane, async () => {
-        await expireDueLeases({ accountId: input.operation.accountId });
         initializeNearAccessKey({
           accountId: input.lane.accountId,
           publicKey: input.lane.publicKey,
@@ -1122,19 +1140,24 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       return await withLaneLock(lease.lane, async () => {
         const lockedLease = readLease(operationInput);
         preflightLeaseTransition(lockedLease, 'broadcast_accepted');
-        if (lockedLease.lane.family === 'evm') {
+        if (isEvmNonceLease(lockedLease)) {
           await markEvmBroadcastAccepted(
-            lockedLease as NonceLease & { lane: EvmNonceLane },
+            lockedLease,
             input.txHash ? String(input.txHash) : undefined,
           );
-        } else {
+        } else if (isNearNonceLease(lockedLease)) {
+          if (!input.txHash) {
+            throw new Error('[NonceCoordinator] NEAR broadcast acceptance requires txHash');
+          }
           await markNearBroadcastAcceptedState({
-            lease: lockedLease as NonceLease & { lane: NearNonceLane },
+            lease: lockedLease,
             state: nearState,
-            txHash: input.txHash ? String(input.txHash) : undefined,
+            txHash: String(input.txHash),
             nowMs: now(),
             persistCoordinationLease,
           });
+        } else {
+          assertNever(lockedLease);
         }
         transitionLease({
           lease: lockedLease,
@@ -1167,15 +1190,17 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       return await withLaneLock(lease.lane, async () => {
         const lockedLease = readLease(operationInput);
         preflightLeaseTransition(lockedLease, 'finalize');
-        if (lockedLease.lane.family === 'evm') {
-          await markEvmFinalized(lockedLease as NonceLease & { lane: EvmNonceLane });
-        } else {
+        if (isEvmNonceLease(lockedLease)) {
+          await markEvmFinalized(lockedLease);
+        } else if (isNearNonceLease(lockedLease)) {
           if (deps.nearClient) {
             await updateNearNonceFromBlockchain(deps.nearClient, String(lockedLease.nonce));
           } else {
             await releaseBackendReservation(lockedLease);
           }
           await removeCoordinationLease(lockedLease);
+        } else {
+          assertNever(lockedLease);
         }
         transitionLease({
           lease: lockedLease,
@@ -1235,7 +1260,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     },
 
     async expireLeases(input) {
-      return await expireDueLeases(input);
+      return await expireDueLeasesForAccount(input);
     },
 
     async recoverDurableLeases(input) {

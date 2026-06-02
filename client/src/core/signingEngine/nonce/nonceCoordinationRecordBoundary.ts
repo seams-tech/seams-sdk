@@ -280,7 +280,6 @@ function rawString(value: unknown): string {
 }
 
 function parseDecimalBigint(value: unknown): bigint | null {
-  if (typeof value === 'bigint') return value >= 0n ? value : null;
   if (typeof value !== 'string' || !/^\d+$/.test(value)) return null;
   return BigInt(value);
 }

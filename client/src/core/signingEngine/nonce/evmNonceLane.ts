@@ -3,10 +3,10 @@ import {
   EvmNonceOutcomeReason,
   NonceDurableLeaseState,
   type EvmNonceLane,
-  type NonceLease,
+  type EvmNonceLease,
 } from './nonceTypes';
 import { nonceLaneNetworkKey } from './nonceLaneKeys';
-import { maxBigint, minBigint, normalizeBigint } from './nonceUtils';
+import { maxBigint, minBigint } from './nonceUtils';
 
 export type EvmNonceLaneState = {
   chainNonce: bigint | null;
@@ -139,9 +139,9 @@ export async function shouldRefreshEvmLane(input: {
 }
 
 export async function releaseEvmNonceReservationState(input: {
-  lease: NonceLease & { lane: EvmNonceLane };
+  lease: EvmNonceLease;
   state?: EvmNonceLaneState;
-  removeCoordinationLease: (lease: NonceLease) => Promise<void>;
+  removeCoordinationLease: (lease: EvmNonceLease) => Promise<void>;
   readActiveLeaseNonces: (input?: {
     excludeLeaseId?: string;
     lane?: EvmNonceLane;
@@ -149,7 +149,7 @@ export async function releaseEvmNonceReservationState(input: {
 }): Promise<void> {
   await input.removeCoordinationLease(input.lease);
   if (!input.state) return;
-  const nonce = normalizeBigint(input.lease.nonce, 'nonce');
+  const nonce = input.lease.nonce;
   input.state.inFlight.delete(nonce.toString());
   const hasOtherActiveLease =
     (
@@ -164,18 +164,18 @@ export async function releaseEvmNonceReservationState(input: {
 }
 
 export async function markEvmBroadcastAcceptedState(input: {
-  lease: NonceLease & { lane: EvmNonceLane };
+  lease: EvmNonceLease;
   state: EvmNonceLaneState;
   txHash?: string;
   nowMs: number;
   staleInFlightThresholdMs: number;
   persistCoordinationLease: (
-    lease: NonceLease,
+    lease: EvmNonceLease,
     state: typeof NonceDurableLeaseState.BroadcastAccepted,
     expiresAtMs: number,
   ) => Promise<void>;
 }): Promise<void> {
-  const nonce = normalizeBigint(input.lease.nonce, 'nonce');
+  const nonce = input.lease.nonce;
   input.state.inFlight.set(nonce.toString(), {
     nonce,
     ...(input.txHash ? { txHash: input.txHash as `0x${string}` } : {}),
@@ -195,12 +195,12 @@ export async function markEvmBroadcastAcceptedState(input: {
 }
 
 export async function markEvmFinalizedState(input: {
-  lease: NonceLease & { lane: EvmNonceLane };
+  lease: EvmNonceLease;
   state: EvmNonceLaneState;
   nowMs: number;
-  removeCoordinationLease: (lease: NonceLease) => Promise<void>;
+  removeCoordinationLease: (lease: EvmNonceLease) => Promise<void>;
 }): Promise<void> {
-  const nonce = normalizeBigint(input.lease.nonce, 'nonce');
+  const nonce = input.lease.nonce;
   input.state.inFlight.delete(nonce.toString());
   const minNext = nonce + 1n;
   input.state.chainNonce =
@@ -213,13 +213,13 @@ export async function markEvmFinalizedState(input: {
 }
 
 export async function markEvmDroppedOrReplacedState(input: {
-  lease: NonceLease & { lane: EvmNonceLane };
+  lease: EvmNonceLease;
   state: EvmNonceLaneState;
   outcome: { reason: EvmNonceOutcomeReason; txHash?: string };
   nowMs: number;
-  removeCoordinationLease: (lease: NonceLease) => Promise<void>;
+  removeCoordinationLease: (lease: EvmNonceLease) => Promise<void>;
 }): Promise<void> {
-  const nonce = normalizeBigint(input.lease.nonce, 'nonce');
+  const nonce = input.lease.nonce;
   if (input.outcome.reason === EvmNonceOutcomeReason.Dropped) {
     input.state.inFlight.delete(nonce.toString());
     if (input.state.chainNonce == null || input.state.chainNonce <= nonce) {

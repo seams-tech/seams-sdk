@@ -1454,6 +1454,44 @@ worker, and RPC boundaries.
      1412, `nonceCoordinationRecordBoundary.ts` 295, `nonceLaneKeys.ts` 158,
      `nonceLaneCoordinationStore.ts` 106.
 
+## Phase 13. Close Strict-Lane Expiry And Boundary Escape Hatches
+
+The post-Phase-12 audit found a few places where strict types were present but
+the behavior still leaned on broader account identity or runtime validation.
+This phase finishes the hardening pass by making expiry lane-locked, requiring
+reconcilable NEAR broadcast identity, and preventing raw durable bigint values
+from crossing the persistence boundary.
+
+### Phase 13 TODO
+
+1. [x] Make reserve-time expiry lane-local.
+   - EVM reserve expires only the locked lane before assigning a nonce.
+   - NEAR reserve and `reserveNearContext()` expire by concrete lane identity,
+     not broad operation `accountId`.
+   - Public `expireLeases({ accountId })` remains account-scoped, but it
+     enumerates matching lanes and takes each lane lock before mutating state.
+2. [x] Require NEAR tx hashes before broadcast acceptance.
+   - NEAR `markBroadcastAccepted()` rejects missing `txHash` before durable or
+     in-flight side effects.
+   - NEAR dropped/finalized reconciliation always has a tx hash for outcome
+     lookup.
+3. [x] Remove branch-helper intersection types.
+   - EVM helper functions accept `EvmNonceLease`.
+   - NEAR helper functions accept `NearNonceLease`.
+   - Guard tests reject `NonceLease & { lane: ... }` helper signatures and casts.
+4. [x] Keep durable bigint parsing raw-string only.
+   - IndexedDB rows serialize nonce fields to decimal strings.
+   - Raw durable parsing rejects in-memory bigint values as malformed boundary
+     input.
+   - Coordinator hot paths rely on typed leases and parsed durable records.
+5. [x] Add focused regression coverage.
+   - Same-subject, different-lane EVM reserve does not expire another lane.
+   - Account-scoped expiry locks each concrete lane before mutation.
+   - NEAR reserve expiry uses lane identity despite mismatched operation
+     account context.
+   - Missing NEAR tx hash causes no durable, in-flight, or reserved-nonce side
+     effects.
+
 ### Remaining High-Impact Tasks
 
 1. [x] Finish public EVM-family nonce identity normalization.
