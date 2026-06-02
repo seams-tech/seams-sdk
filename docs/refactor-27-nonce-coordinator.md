@@ -2,11 +2,10 @@
 
 Date created: 2026-04-26
 
-Status: active nonce plan. EVM-family nonce identity must follow the concrete
-ECDSA lane model from
-[signing-session-architecture/](signing-session-architecture/): protocol-neutral
-`WalletId` plus concrete `ThresholdEcdsaChainTarget`. NEAR nonce lanes
-remain access-key scoped by NEAR account and public key.
+Status: complete. EVM-family nonce identity follows the concrete ECDSA lane
+model from [signing-session-architecture/](signing-session-architecture/):
+protocol-neutral `WalletId` plus concrete `ThresholdEcdsaChainTarget`. NEAR
+nonce lanes remain access-key scoped by NEAR account and public key.
 
 ## Objective
 
@@ -488,34 +487,32 @@ leases with those budget reservations, but it must not decrement or refill
          lease release through the coordinator.
    - [x] Add the paired wallet-session budget reservation assertions for
          signing-session-backed transaction paths.
-3. [ ] Add tests that a signature-created-but-broadcast-failed operation consumes
+3. [x] Add tests that a signature-created-but-broadcast-failed operation consumes
        budget exactly once and reconciles nonce state.
-   - Legacy signing-session budget finalizer tests were deleted during the
-     concrete ECDSA lane-identity cleanup. Replace them with concrete
-     `WalletId + ThresholdEcdsaChainTarget` budget/nonce tests rather
-     than restoring collapsed `chainFamily` fixtures.
-4. [ ] Add tests that two in-flight wallet-session reservations exhaust local
+   - `tests/unit/signingSessionBudgetFinalizer.unit.test.ts` now covers a
+     concrete Tempo signed operation whose broadcast fails: budget finalization
+     dedupes repeated success recording and the nonce lane releases/reuses the
+     rejected nonce.
+4. [x] Add tests that two in-flight wallet-session reservations exhaust local
        availability for the third transaction.
-   - Legacy signing-session budget tests were deleted because they depended on
-     `SigningLaneContext` fixtures. Re-add this coverage only after budget state
-     carries concrete ECDSA lane identity.
-5. [ ] Add trace assertions that every transaction operation emits one
+   - Covered with concrete Tempo `WalletId + ThresholdEcdsaChainTarget` budget
+     reservations sharing one wallet signing session and projection.
+5. [x] Add trace assertions that every transaction operation emits one
        `operationId`, one budget reservation, and one nonce lease id.
-   - Replace the deleted legacy finalizer trace tests with concrete
-     lane-identity trace tests tied to the same `operationId` and operation
-     fingerprint.
+   - Covered by a paired budget/nonce trace test tied to the same
+     `operationId` and `operationFingerprint`.
 
 ### Phase 1. Define Coordinator Types And State Machine
 
 1. [x] Add `NonceLane`, `NonceOperationContext`, `NonceLease`, and
        `NonceCoordinator` types.
-   - [ ] Phase 10 replaces the current broad `NonceOperationContext` with the
+   - [x] Phase 10 replaces the current broad `NonceOperationContext` with the
          discriminated prepared budget/session context above.
 2. [x] Implement a pure transition reducer for nonce lease states.
 3. [x] Make illegal transitions fail closed with typed errors.
-4. [ ] Bind every transition to `operationId` and operation fingerprint.
+4. [x] Bind every transition to `operationId` and operation fingerprint.
    - [x] Lease creation stores both `operationId` and `operationFingerprint`.
-   - [ ] Lifecycle transition inputs still need `operationFingerprint`, and
+   - [x] Lifecycle transition inputs now require `operationFingerprint`, and
          `assertOperationMatches(...)` must verify both fields. This is tracked
          in Phase 10.
 5. [x] Add redacted trace events for reserve, release, signed, accepted,
@@ -551,7 +548,7 @@ Remaining TODO:
 4. [x] Validate current-boundary managed nonce snapshots strictly; accept only
        `evm` and `tempo` while the boundary still carries collapsed chain
        strings.
-   - [ ] Phase 10 migrates snapshots to concrete `chainTarget` plus `subjectId`.
+   - [x] Phase 10 migrates snapshots to concrete `chainTarget` plus `subjectId`.
          Raw `evm` / `tempo` strings are accepted only at request boundaries
          after that migration.
 5. [x] Treat missing managed nonce metadata as an invariant failure in managed
@@ -583,12 +580,12 @@ Remaining TODO:
        lane lock.
 2. [x] Route NEAR signing cleanup through coordinator release/signed/finalized
        transitions for signed transactions carrying coordinator lease metadata.
-3. [ ] Add NEAR dropped/replaced reconciliation once a chain-specific detector is
+3. [x] Add NEAR dropped/replaced reconciliation once a chain-specific detector is
        available.
-   - Status: blocked on a NEAR-specific detector. The coordinator already owns
-     NEAR release, signed, finalized, expiry, and startup-recovery paths; there
-     is not yet an equivalent to EVM pending-pool dropped/replaced detection for
-     NEAR transaction hashes.
+   - NEAR broadcast-accepted leases now retain their transaction hash in lane
+     state. Reconcile refreshes the access-key nonce, checks `txStatus`, finalizes
+     found hashes, and marks advanced missing hashes dropped with
+     `near_nonce_advanced_hash_missing`.
 
 ### Phase 4. Wire Transaction Signing Through One Boundary
 
@@ -1089,7 +1086,7 @@ are internal unless explicitly re-exported by that facade.
    - Include EVM `ReserveNonceInput` to lane conversion.
    - Include lease-to-managed-reservation conversion.
    - Keep operation-id and operation-fingerprint binding unchanged.
-4. [ ] Move EVM-family lane behavior into `evmNonceLane.ts`.
+4. [x] Move EVM-family lane behavior into `evmNonceLane.ts`.
    - Include reserve, release, broadcast accepted, finalized,
      dropped/replaced, reconcile, blocked-lane detection, and chain refresh
      helpers.
@@ -1100,10 +1097,10 @@ are internal unless explicitly re-exported by that facade.
    - Do not let transaction flows import EVM lane helpers directly.
    - [x] EVM lane state construction, blocked-lane detection, and blocked-lane
          error construction now live in `evmNonceLane.ts`.
-   - [ ] Reserve, release, broadcast accepted, finalized, dropped/replaced,
-         reconcile, and chain refresh orchestration still close over coordinator
-         state and should be extracted only as state/port helpers.
-5. [ ] Move NEAR lane behavior into `nearNonceLane.ts`.
+   - [x] Reserve, release, broadcast accepted, finalized, dropped/replaced,
+         reconcile, and chain refresh now live in `evmNonceLane.ts` as
+         state/port helpers.
+5. [x] Move NEAR lane behavior into `nearNonceLane.ts`.
    - Include access-key context fetch/prefetch, batch reservation,
      release/finalize cleanup, startup recovery pruning, and active-key state
      helpers.
@@ -1115,18 +1112,19 @@ are internal unless explicitly re-exported by that facade.
      reservation APIs.
    - [x] NEAR lane state construction, reserved-nonce pruning, and
          missing-access-key detection now live in `nearNonceLane.ts`.
-   - [ ] Access-key context fetch/prefetch, batch reservation, finalize cleanup,
-         and startup recovery pruning still close over coordinator state and should
-         be extracted only as state/port helpers.
-6. [ ] Move diagnostics, metrics, degradation warnings, and dropped/replaced
+   - [x] Access-key context fetch/prefetch, batch reservation, release cleanup,
+         blockchain nonce refresh, and active-key state helpers now live in
+         `nearNonceLane.ts` as state/port helpers.
+6. [x] Move diagnostics, metrics, degradation warnings, and dropped/replaced
        alert helpers into `nonceDiagnostics.ts`.
    - Keep emitted trace names and diagnostic shape stable.
    - Keep normal implementation details out of user-facing diagnostics; surface
      only degraded safety properties.
    - [x] Outcome metric normalization and lease-state count construction now
          live in `nonceDiagnostics.ts`.
-   - [ ] Redacted diagnostics assembly, degradation warnings, and
-         dropped/replaced alert windows still live in the coordinator.
+   - [x] Redacted diagnostics assembly, degradation warning dedupe, and
+         dropped/replaced alert window construction now live in
+         `nonceDiagnostics.ts`.
 7. [x] Add or update static guards so transaction flows still cannot bypass
        `NonceCoordinator`.
    - Guards should reject transaction-flow imports of durable nonce storage,
@@ -1310,6 +1308,152 @@ ThresholdEcdsaChainTarget; sender; nonceKey? }`.
       EVM nonce boundary parser and concrete identity in managed snapshots,
       reservation inputs, and nonce internals.
 
+## Phase 11. Tighten Nonce Boundary Types And Slim Lane-Key Helpers
+
+Phase 10 moved nonce identity to concrete chain targets, wallet ids, and
+operation fingerprints. The next cleanup is to tighten the internal types so
+nonce hot paths do less runtime validation, allocate less compatibility glue,
+and carry less code. `nonceLaneKeys.ts` should be a small pure helper module for
+already-normalized domain objects; persistence and request parsing should own
+the runtime validation.
+
+Goal: make invalid nonce identity states unrepresentable inside the coordinator,
+reduce repeated string/bigint normalization, improve lane-key and lifecycle
+hot-path performance, and delete code whose only job is compensating for loose
+internal typings.
+
+### Phase 11 TODO
+
+1. [x] Split pure lane-key helpers from boundary parsers.
+   - Keep `nonceLaneKey`, `nearNonceLaneKey`, `evmLaneToReserveNonceInput`,
+     `evmReserveNonceInputToLane`, `evmManagedReservationToLane`,
+     `evmNonceLeaseToManagedReservation`, `nonceLeaseToRef`,
+     `createNonceLeaseId`, and `createNonceBatchId` pure.
+   - Move `nonceLaneFromCoordinationRecord` into a persistence-boundary parser
+     module such as `nonceCoordinationRecordBoundary.ts`.
+   - Delete `legacyNonceLaneKeys` once durable migration support is removed so
+     current lane-key generation has no legacy compatibility path.
+2. [x] Remove runtime string/bigint normalization from pure lane-key helpers.
+   - `nonceLaneKey(lane: NonceLane)` should assume a valid `NonceLane`.
+   - `nonceLaneNetworkKey` and `nonceLaneSubjectId` should reject
+     `undefined` at the type level.
+   - `nonceLeaseToRef` should map already-valid lease fields without
+     re-normalizing operation identity.
+   - Avoid repeated `String(...).trim()`, bigint parsing, lowercasing, and
+     optional checks on coordinator hot paths once boundary parsers have built
+     precise domain values.
+3. [x] Strengthen durable record boundaries.
+   - Introduce a raw persistence shape for DB reads if needed, then parse it
+     into a precise `NonceLaneCoordinationRecord`.
+   - Current EVM durable records should require concrete `chainTarget`,
+     subject identity, and sender after boundary parsing.
+   - Current NEAR durable records should require `networkKey`, `accountId`, and
+     `publicKey` after boundary parsing.
+   - Malformed or pre-migration rows should be handled only by the boundary
+     parser/recovery path.
+4. [x] Narrow lifecycle operation identity types.
+   - Internal helpers should require `SigningOperationId` and
+     `SigningOperationFingerprint`, not `string | branded`.
+   - Public/request-facing coordinator methods may accept raw strings only long
+     enough to parse them into branded operation identity before calling core
+     helpers.
+   - Prefer branch-specific builders over broad object spreads when constructing
+     nonce leases, durable records, and managed nonce refs.
+5. [x] Add static guards for boundary-only normalization.
+   - Guard that `nonceLaneKeys.ts` does not import `normalizeRequiredString`,
+     `normalizeBigint`, or raw persistence parsing helpers.
+   - Guard that legacy lane-key support is absent from nonce internals.
+   - Guard that transaction flows import nonce helpers only from the nonce
+     facade, not the new boundary parser module.
+6. [x] Delete obsolete compatibility after durable migration support is no
+       longer needed.
+   - Remove legacy lane-key generation and pre-Phase-10 record support once the
+     supported migration window closes.
+   - Keep request-boundary normalization for SDK/iframe/config inputs.
+   - Legacy lane-key lookup and startup migration have been removed. Durable
+     lane-key mismatches now fail closed with degraded diagnostics.
+7. [x] Measure and reduce code bloat after the type split.
+   - Compare line counts for `nonceLaneKeys.ts`, `NonceCoordinator.ts`, and the
+     new boundary parser before and after the cleanup.
+   - Prefer deleting repeated validation branches over moving them into wrappers.
+   - Keep any remaining runtime checks only where they protect raw persistence,
+     request, or worker data.
+   - Current line counts after the split: `nonceLaneKeys.ts` 158,
+     `NonceCoordinator.ts` 1333, `nonceCoordinationRecordBoundary.ts` 231.
+
+## Phase 12. Move Durable Nonce Records To Compile-Time Strict Domain Types
+
+Phase 11 removed compatibility paths and isolated durable parsing. The next pass
+should reduce runtime checks further by making parsed durable coordination data a
+strict internal domain object. Raw persistence values should exist only in the
+IndexedDB/parser boundary; coordinator hot paths should consume typed values and
+builders whose signatures make invalid branch combinations unrepresentable.
+
+Goal: parse and validate raw durable rows once at the persistence boundary, then
+use compile-time strict nonce record, lane, lease, and operation types inside the
+coordinator. Runtime validation should remain only at persistence, request,
+worker, and RPC boundaries.
+
+### Phase 12 TODO
+
+1. [x] Split raw persistence rows from parsed durable domain records.
+   - Keep `RawNonceLaneCoordinationRecord = Record<string, unknown>` only in the
+     IndexedDB/durable parser boundary.
+   - Introduce a parsed internal result such as
+     `ParsedNonceCoordinationRecord` carrying the strict durable record, lane,
+     canonical lane key, and parsed nonce.
+   - Make normal coordinator recovery consume parsed records, not raw record
+     fields.
+2. [x] Move durable nonce fields from stringly types to internal parsed types.
+   - Internal durable records should carry `nonce: bigint`.
+   - EVM durable records should carry `nonceKey?: bigint`.
+   - EVM durable records should carry a concrete sender/address type rather than
+     a raw string.
+   - IndexedDB serialization/deserialization owns string conversion.
+3. [x] Delete downstream durable-field re-normalization.
+   - Remove `nonceLaneFromCoordinationRecord()` once the parser returns `lane`.
+   - Remove coordinator-side `normalizeBigint(record.nonce, ...)` on parsed
+     durable records.
+   - Keep bigint parsing only in request/persistence/RPC/worker boundary code.
+4. [x] Replace runtime family checks with branch-specific builders.
+   - Add `buildEvmCoordinationRecord(...)` accepting `EvmNonceLease`.
+   - Add `buildNearCoordinationRecord(...)` accepting `NearNonceLease`.
+   - Use strict function signatures instead of broad `NonceLease` plus internal
+     family checks.
+   - Avoid object-spread construction for domain records; use explicit field
+     assignment and `if` blocks for truly optional fields.
+5. [x] Tighten coordinator helper inputs to the narrowest valid branch.
+   - Prefer `EvmNonceLease` and `NearNonceLease` over `NonceLease` when the
+     caller already knows the lane family.
+   - Prefer parsed durable record branch types over broad
+     `NonceLaneCoordinationRecord` in recovery helpers.
+   - Keep public coordinator method inputs stable unless they are raw boundary
+     adapters.
+6. [x] Add type-level fixtures for invalid nonce states.
+   - `@ts-expect-error`: EVM durable record without `chainTarget`.
+   - `@ts-expect-error`: internal durable record with string `nonce`.
+   - `@ts-expect-error`: NEAR durable record with `nonceKey`.
+   - `@ts-expect-error`: EVM lease with string nonce.
+   - `@ts-expect-error`: NEAR lease with bigint nonce.
+7. [x] Keep malformed durable cleanup observable without widening core types.
+   - Recovery should receive parse failures from the persistence boundary so it
+     can remove malformed rows and emit degraded diagnostics.
+   - Do not pass raw durable rows into coordinator hot paths.
+   - Normal reads may expose only parsed domain records.
+8. [x] Tighten budget/nonce regression assertions.
+   - Broadcast-failed tests should assert `uses === 1`, wallet signing-session
+     identity, concrete ECDSA lane identity, finalization outcome
+     `broadcast_failed`, and nonce release/reuse.
+   - Keep the tests on concrete `WalletId + ThresholdEcdsaChainTarget`
+     fixtures.
+9. [x] Re-measure code size after strict durable typing.
+   - Compare `NonceCoordinator.ts`, `nonceCoordinationRecordBoundary.ts`,
+     `nonceLaneKeys.ts`, and durable store adapter line counts.
+   - Prefer deleting repeated parsing branches over moving them into wrappers.
+   - Current line counts after strict durable typing: `NonceCoordinator.ts`
+     1412, `nonceCoordinationRecordBoundary.ts` 295, `nonceLaneKeys.ts` 158,
+     `nonceLaneCoordinationStore.ts` 106.
+
 ### Remaining High-Impact Tasks
 
 1. [x] Finish public EVM-family nonce identity normalization.
@@ -1320,43 +1464,53 @@ ThresholdEcdsaChainTarget; sender; nonceKey? }`.
    - Raw `chain`, `networkKey`, `chainId`, and `walletId` fields should be
      accepted only at SDK/iframe/config/request parsing boundaries, then
      normalized before nonce internals or managed snapshot persistence.
-2. [x] Add durable lane-key migration coverage.
-   - Recovery should upgrade pre-encoded durable lane keys to the encoded helper
-     when all concrete identity fields are present.
-   - Ambiguous or incomplete durable records should fail closed with a degraded
-     recovery diagnostic and must not affect another lane.
+2. [x] Add durable lane-key boundary coverage.
+   - Recovery now removes non-canonical durable lane keys with degraded
+     diagnostics instead of migrating pre-Phase-10 compatibility records.
+   - Ambiguous, incomplete, or mismatched durable records must fail closed and
+     must not affect another lane.
 3. [x] Replace `NonceOperationContext` with an explicit prepared nonce operation
        identity.
    - Remove `walletSigningSessionId?: string` and raw `chainFamily` from nonce
      internals after transaction flows pass only prepared operation identity.
-4. [ ] Complete the Phase 9 helper extraction for stateful lane behavior.
+4. [x] Complete the Phase 9 helper extraction for stateful lane behavior.
    - Move EVM reserve/release/broadcast/finalize/drop/reconcile/refresh helpers
      and NEAR fetch/reserve/finalize/recovery helpers behind state-and-port
      function inputs while keeping ownership in `createNonceCoordinator()`.
+5. [x] Tighten nonce boundary types and slim `nonceLaneKeys.ts`.
+   - Separate persistence/request boundary parsing from pure lane-key helpers.
+   - Remove internal runtime normalization once callers pass precise domain
+     types.
+   - Improve hot-path performance by avoiding repeated normalization on already
+     typed lanes, leases, and operation identities.
+   - Reduce code bloat by deleting validation branches that become impossible
+     under stricter internal types.
+   - Legacy durable compatibility is removed from nonce internals; persistence
+     boundary parsing remains for current durable records.
 
 ## Acceptance Checks
 
-1. A cancelled transaction cannot leak a nonce reservation indefinitely.
-2. A malformed managed nonce snapshot cannot clean up the wrong chain lane.
-3. NEAR, Tempo, Arc EVM, and generic EVM all use one nonce lifecycle model.
-4. Two concurrent transactions with two remaining wallet-session uses make the
-   third transaction require fresh auth.
-5. A transaction that produced a threshold signature consumes budget exactly once
-   regardless of broadcast/finality result.
-6. A transaction that did not produce a threshold signature never consumes
-   wallet-session budget.
-7. Stuck "Checking transaction status" states have a traceable nonce-lane reason
-   and an explicit reconcile path.
-8. Old nonce-manager ownership paths are removed instead of kept as parallel
-   legacy systems.
-9. Nonce reservation cannot happen before a prepared operation identity exists,
-   and nonce code cannot trigger signing-session restore, available-lane reads,
-   signing-lane selection, or wallet-budget mutation.
-10. Every nonce lifecycle transition verifies both `operationId` and
-    `operationFingerprint`.
-11. EVM-family nonce identity uses concrete `ThresholdEcdsaChainTarget` and
-    `WalletId` internally; raw `evm`/`tempo` strings appear only at
-    normalization boundaries.
+1. [x] A cancelled transaction cannot leak a nonce reservation indefinitely.
+2. [x] A malformed managed nonce snapshot cannot clean up the wrong chain lane.
+3. [x] NEAR, Tempo, Arc EVM, and generic EVM all use one nonce lifecycle model.
+4. [x] Two concurrent transactions with two remaining wallet-session uses make
+       the third transaction require fresh auth.
+5. [x] A transaction that produced a threshold signature consumes budget exactly
+       once regardless of broadcast/finality result.
+6. [x] A transaction that did not produce a threshold signature never consumes
+       wallet-session budget.
+7. [x] Stuck "Checking transaction status" states have a traceable nonce-lane
+       reason and an explicit reconcile path.
+8. [x] Old nonce-manager ownership paths are removed instead of kept as parallel
+       legacy systems.
+9. [x] Nonce reservation cannot happen before a prepared operation identity
+       exists, and nonce code cannot trigger signing-session restore,
+       available-lane reads, signing-lane selection, or wallet-budget mutation.
+10. [x] Every nonce lifecycle transition verifies both `operationId` and
+        `operationFingerprint`.
+11. [x] EVM-family nonce identity uses concrete `ThresholdEcdsaChainTarget` and
+        `WalletId` internally; raw `evm`/`tempo` strings appear only at
+        normalization boundaries.
 
 ## Related Docs
 

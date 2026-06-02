@@ -3,6 +3,8 @@ import type { EvmNonceBackend } from '@/core/rpcClients/evm/nonceBackend';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import {
   createNonceCoordinator,
+  NearNonceReconcileReason,
+  NonceCoordinatorTraceEventName,
   type NearNonceLane,
 } from '@/core/signingEngine/nonce/NonceCoordinator';
 import {
@@ -182,6 +184,135 @@ test.describe('NonceCoordinator NEAR context ownership', () => {
     });
     expect(String(next.leases[0]!.nonce)).toBe('42');
     expect(calls).toContain('viewAccessKey:41');
+  });
+
+  test('reconciles advanced NEAR nonce with missing tx hash as dropped', async () => {
+    let chainNonce = 40;
+    const events: Array<{ event: string; reason?: string; txHash?: string }> = [];
+    const nearClient = {
+      viewAccessKey: async () => ({
+        nonce: chainNonce,
+        permission: 'FullAccess',
+        block_height: 1,
+        block_hash: 'test-access-key-block',
+      }),
+      viewBlock: async () => ({ header: { height: 100, hash: 'test-block' } }),
+      txStatus: async () => {
+        throw new Error('Unknown transaction');
+      },
+    } as unknown as NearClient;
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(),
+      nearClient,
+      onTrace: (event) =>
+        events.push({
+          event: event.event,
+          reason: event.reason,
+          txHash: event.txHash,
+        }),
+    });
+    const lane = createNearLane();
+    const operation = createNearOperation();
+    const reservation = await coordinator.reserveNearContext({
+      lane,
+      operation,
+      count: 1,
+      nearClient,
+    });
+    const lease = reservation.leases[0]!;
+
+    await coordinator.markSigned({
+      leaseId: lease.leaseId,
+      operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
+    });
+    await coordinator.markBroadcastAccepted({
+      leaseId: lease.leaseId,
+      operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
+      txHash: 'near-missing-hash',
+    });
+    chainNonce = 41;
+
+    const status = await coordinator.reconcile({ lane });
+
+    expect(status).toEqual({
+      chainNextNonce: 42n,
+      unresolvedInFlightNonces: [],
+      blocked: false,
+    });
+    expect(events).toContainEqual({
+      event: NonceCoordinatorTraceEventName.LeaseDropped,
+      reason: NearNonceReconcileReason.NonceAdvancedHashMissing,
+      txHash: 'near-missing-hash',
+    });
+    const next = await coordinator.reserveNearContext({
+      lane,
+      operation: createNearOperation(),
+      count: 1,
+      nearClient,
+    });
+    expect(String(next.leases[0]!.nonce)).toBe('42');
+  });
+
+  test('reconciles advanced NEAR nonce with found tx hash as finalized', async () => {
+    let chainNonce = 40;
+    const events: Array<{ event: string; reason?: string; txHash?: string }> = [];
+    const nearClient = {
+      viewAccessKey: async () => ({
+        nonce: chainNonce,
+        permission: 'FullAccess',
+        block_height: 1,
+        block_hash: 'test-access-key-block',
+      }),
+      viewBlock: async () => ({ header: { height: 100, hash: 'test-block' } }),
+      txStatus: async () => ({ status: { SuccessValue: '' } }),
+    } as unknown as NearClient;
+    const coordinator = createNonceCoordinator({
+      evmNonceBackend: createFakeEvmNonceBackend(),
+      nearClient,
+      onTrace: (event) =>
+        events.push({
+          event: event.event,
+          reason: event.reason,
+          txHash: event.txHash,
+        }),
+    });
+    const lane = createNearLane();
+    const operation = createNearOperation();
+    const reservation = await coordinator.reserveNearContext({
+      lane,
+      operation,
+      count: 1,
+      nearClient,
+    });
+    const lease = reservation.leases[0]!;
+
+    await coordinator.markSigned({
+      leaseId: lease.leaseId,
+      operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
+    });
+    await coordinator.markBroadcastAccepted({
+      leaseId: lease.leaseId,
+      operationId: operation.operationId,
+      operationFingerprint: operation.operationFingerprint,
+      txHash: 'near-finalized-hash',
+    });
+    chainNonce = 41;
+
+    const status = await coordinator.reconcile({ lane });
+
+    expect(status).toEqual({
+      chainNextNonce: 42n,
+      unresolvedInFlightNonces: [],
+      blocked: false,
+    });
+    expect(events).toContainEqual({
+      event: NonceCoordinatorTraceEventName.LeaseFinalized,
+      reason: 'near_tx_status_finalized',
+      txHash: 'near-finalized-hash',
+    });
   });
 
   test('fails closed when callers reserve a NEAR batch without a context', async () => {

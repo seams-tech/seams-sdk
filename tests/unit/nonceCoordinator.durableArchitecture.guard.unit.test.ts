@@ -129,6 +129,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
     const rawChainBranchOffenders = listSourceFiles('client/src/core/signingEngine/nonce')
       .filter(
         (relativePath) =>
+          !relativePath.endsWith('.typecheck.ts') &&
           relativePath !== 'client/src/core/signingEngine/nonce/nonceLaneKeys.ts' &&
           relativePath !== 'client/src/core/signingEngine/nonce/nonceTypes.ts',
       )
@@ -143,6 +144,61 @@ test.describe('nonce coordinator durable architecture guards', () => {
       });
 
     expect(rawChainBranchOffenders).toEqual([]);
+  });
+
+  test('nonce lane-key helpers stay pure and leave durable parsing at boundaries', () => {
+    const laneKeys = readRepoSource('client/src/core/signingEngine/nonce/nonceLaneKeys.ts');
+
+    expect(laneKeys).not.toContain('normalizeRequiredString');
+    expect(laneKeys).not.toContain('normalizeBigint');
+    expect(laneKeys).not.toContain('NonceLaneCoordinationRecord');
+    expect(laneKeys).not.toContain('nonceLaneFromCoordinationRecord');
+    expect(laneKeys).not.toContain('legacyNonceLaneKeys');
+  });
+
+  test('legacy nonce lane-key support is removed from nonce internals', () => {
+    const sourceOffenders = listSourceFiles('client/src/core/signingEngine/nonce').filter(
+      (relativePath) => readRepoSource(relativePath).includes('legacyNonceLaneKeys'),
+    );
+
+    expect(sourceOffenders).toEqual([]);
+  });
+
+  test('transaction flows do not import nonce durable boundary parsers', () => {
+    const transactionFiles = [
+      'client/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/signEvmWithUiConfirm.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/signTempoWithUiConfirm.ts',
+      'client/src/core/signingEngine/flows/signNear/signTransactions.ts',
+      'client/src/core/signingEngine/flows/signNear/signNear.ts',
+    ];
+
+    for (const relativePath of transactionFiles) {
+      const source = readRepoSource(relativePath);
+      expect(source, relativePath).not.toContain('nonceCoordinationRecordBoundary');
+      expect(source, relativePath).not.toContain('parseNonceLaneCoordinationRecord');
+      expect(source, relativePath).not.toContain('legacyNonceLaneKeys');
+    }
+  });
+
+  test('raw durable nonce parsing stays at the persistence boundary', () => {
+    const allowedParserCallers = new Set([
+      'client/src/core/indexedDB/nonceLaneCoordinationStore.ts',
+      'client/src/core/signingEngine/nonce/nonceCoordinationRecordBoundary.ts',
+    ]);
+    const parserCallers = listSourceFiles('client/src')
+      .filter((relativePath) => !relativePath.endsWith('.typecheck.ts'))
+      .filter((relativePath) => {
+        const source = readRepoSource(relativePath);
+        return (
+          source.includes('nonceCoordinationRecordBoundary') ||
+          source.includes('parseNonceLaneCoordinationRecord') ||
+          source.includes('RawNonceLaneCoordinationRecord')
+        );
+      })
+      .filter((relativePath) => !allowedParserCallers.has(relativePath));
+
+    expect(parserCallers).toEqual([]);
   });
 
   test('nonce operation and EVM reservation types use prepared concrete identity', () => {

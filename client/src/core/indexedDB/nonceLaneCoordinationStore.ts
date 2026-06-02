@@ -1,14 +1,16 @@
 import type { UnifiedIndexedDBManager } from './unifiedIndexedDBManager';
-import { NonceDurableLeaseState } from '../signingEngine/nonce/NonceCoordinator';
 import type {
-  NonceLaneCoordinationRecord,
   NonceLaneCoordinationStore,
 } from '../signingEngine/nonce/NonceCoordinator';
-import { thresholdEcdsaChainTargetFromRequest } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { parseNonceLaneCoordinationRecord } from '../signingEngine/nonce/nonceCoordinationRecordBoundary';
 
 type IndexedDBNonceLaneCoordinationStoreDeps = {
   indexedDB: UnifiedIndexedDBManager;
 };
+
+type IndexedDBNonceLaneLeaseRecord = Parameters<
+  UnifiedIndexedDBManager['upsertNonceLaneLeaseRecord']
+>[0];
 
 export function createIndexedDBNonceLaneCoordinationStore(
   deps: IndexedDBNonceLaneCoordinationStoreDeps,
@@ -16,19 +18,67 @@ export function createIndexedDBNonceLaneCoordinationStore(
   return {
     readLane: async (laneKey) =>
       (await deps.indexedDB.readNonceLaneLeaseRecords(laneKey)).flatMap((record) => {
-        const parsed = toNonceLaneCoordinationRecord(record);
-        return parsed ? [parsed] : [];
+        const parsed = parseNonceLaneCoordinationRecord(record);
+        return parsed.ok ? [parsed.parsed] : [];
       }),
     readAll: async (input) =>
       (await deps.indexedDB.listNonceLaneLeaseRecords(input)).flatMap((record) => {
-        const parsed = toNonceLaneCoordinationRecord(record);
-        return parsed ? [parsed] : [];
+        const parsed = parseNonceLaneCoordinationRecord(record);
+        return parsed.ok ? [parsed.parsed] : [];
       }),
+    readAllForRecovery: async (input) =>
+      (await deps.indexedDB.listNonceLaneLeaseRecords(input)).map((record) =>
+        parseNonceLaneCoordinationRecord(record),
+      ),
     upsert: async (record) => {
-      await deps.indexedDB.upsertNonceLaneLeaseRecord({
-        ...record,
+      if (record.family === 'evm') {
+        const serialized: Extract<IndexedDBNonceLaneLeaseRecord, { family: 'evm' }> = {
+          v: 1,
+          laneKey: record.laneKey,
+          leaseId: record.leaseId,
+          networkKey: record.networkKey,
+          nonce: record.nonce.toString(),
+          state: record.state,
+          operationId: record.operationId,
+          operationFingerprint: record.operationFingerprint,
+          reservedAtMs: record.reservedAtMs,
+          expiresAtMs: record.expiresAtMs,
+          updatedAtMs: record.updatedAtMs,
+          family: 'evm',
+          chainTarget: record.chainTarget,
+          accountId: record.accountId,
+          sender: record.sender,
+        };
+        if (record.runtimeId) serialized.runtimeId = record.runtimeId;
+        if (record.fencingToken) serialized.fencingToken = record.fencingToken;
+        if (record.batchId) serialized.batchId = record.batchId;
+        if (Number.isSafeInteger(record.txIndex)) serialized.txIndex = record.txIndex;
+        if (record.nonceKey != null) serialized.nonceKey = record.nonceKey.toString();
+        await deps.indexedDB.upsertNonceLaneLeaseRecord(serialized);
+        return;
+      }
+
+      const serialized: Extract<IndexedDBNonceLaneLeaseRecord, { family: 'near' }> = {
         v: 1,
-      });
+        laneKey: record.laneKey,
+        leaseId: record.leaseId,
+        networkKey: record.networkKey,
+        nonce: record.nonce.toString(),
+        state: record.state,
+        operationId: record.operationId,
+        operationFingerprint: record.operationFingerprint,
+        reservedAtMs: record.reservedAtMs,
+        expiresAtMs: record.expiresAtMs,
+        updatedAtMs: record.updatedAtMs,
+        family: 'near',
+        accountId: record.accountId,
+        publicKey: record.publicKey,
+      };
+      if (record.runtimeId) serialized.runtimeId = record.runtimeId;
+      if (record.fencingToken) serialized.fencingToken = record.fencingToken;
+      if (record.batchId) serialized.batchId = record.batchId;
+      if (Number.isSafeInteger(record.txIndex)) serialized.txIndex = record.txIndex;
+      await deps.indexedDB.upsertNonceLaneLeaseRecord(serialized);
     },
     remove: async (input) => {
       await deps.indexedDB.removeNonceLaneLeaseRecord({ leaseId: input.leaseId });
@@ -53,107 +103,4 @@ export function createIndexedDBNonceLaneCoordinationStore(
         task,
       ),
   };
-}
-
-function toNonceLaneCoordinationRecord(value: unknown): NonceLaneCoordinationRecord | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const obj = value as Record<string, unknown>;
-  if (Number(obj.v) !== 1) return null;
-  const leaseId = normalizeString(obj.leaseId);
-  const laneKey = normalizeString(obj.laneKey);
-  const family = normalizeString(obj.family);
-  const networkKey = normalizeString(obj.networkKey);
-  const nonce = normalizeString(obj.nonce);
-  const state = normalizeString(obj.state);
-  const operationId = normalizeString(obj.operationId);
-  const operationFingerprint = normalizeString(obj.operationFingerprint);
-  const reservedAtMs = normalizeInteger(obj.reservedAtMs);
-  const expiresAtMs = normalizeInteger(obj.expiresAtMs);
-  const updatedAtMs = normalizeInteger(obj.updatedAtMs);
-  if (
-    !leaseId ||
-    !laneKey ||
-    (family !== 'evm' && family !== 'near') ||
-    !networkKey ||
-    !/^\d+$/.test(nonce) ||
-    (state !== NonceDurableLeaseState.Reserved &&
-      state !== NonceDurableLeaseState.Signed &&
-      state !== NonceDurableLeaseState.BroadcastAccepted) ||
-    !operationId ||
-    !operationFingerprint ||
-    reservedAtMs == null ||
-    expiresAtMs == null ||
-    updatedAtMs == null
-  ) {
-    return null;
-  }
-
-  let chainTarget = null;
-  if (family === 'evm') {
-    try {
-      chainTarget = thresholdEcdsaChainTargetFromRequest(
-        obj.chainTarget && typeof obj.chainTarget === 'object' && !Array.isArray(obj.chainTarget)
-          ? (obj.chainTarget as Record<string, unknown>)
-          : {},
-      );
-    } catch {
-      chainTarget = null;
-    }
-  }
-  const sender = normalizeString(obj.sender);
-  const nonceKey = normalizeString(obj.nonceKey);
-  const accountId = normalizeString(obj.accountId);
-  const publicKey = normalizeString(obj.publicKey);
-  const runtimeId = normalizeString(obj.runtimeId);
-  const fencingToken = normalizeString(obj.fencingToken);
-  const batchId = normalizeString(obj.batchId);
-  const txIndex = normalizeInteger(obj.txIndex);
-
-  if (family === 'evm') {
-    if (!chainTarget || !sender) return null;
-  }
-  if (family === 'near' && (!accountId || !publicKey)) return null;
-
-  const base = {
-    v: 1 as const,
-    leaseId,
-    laneKey,
-    networkKey,
-    nonce,
-    state,
-    operationId,
-    operationFingerprint,
-    reservedAtMs,
-    expiresAtMs,
-    updatedAtMs,
-    ...(runtimeId ? { runtimeId } : {}),
-    ...(fencingToken ? { fencingToken } : {}),
-    ...(batchId ? { batchId } : {}),
-    ...(txIndex != null ? { txIndex } : {}),
-  };
-  if (family === 'evm') {
-    return {
-      ...base,
-      family: 'evm',
-      chainTarget: chainTarget!,
-      sender,
-      ...(nonceKey ? { nonceKey } : {}),
-      ...(accountId ? { accountId } : {}),
-    };
-  }
-  return {
-    ...base,
-    family: 'near',
-    accountId,
-    publicKey,
-  };
-}
-
-function normalizeString(value: unknown): string {
-  return typeof value === 'string' ? value.trim() : '';
-}
-
-function normalizeInteger(value: unknown): number | null {
-  const parsed = Math.floor(Number(value));
-  return Number.isSafeInteger(parsed) ? parsed : null;
 }

@@ -9,6 +9,7 @@ import type {
   SigningSessionBudget,
   SigningSessionPreparedBudgetIdentity,
   SigningSessionBudgetSuccessInput,
+  SigningSessionBudgetConsumer,
   SigningSessionBudgetTraceEvent,
   UnreservedBudgetFinalizationSpend,
   ZeroBudgetFinalizationSpend,
@@ -19,6 +20,12 @@ import {
   walletBudgetOwnerId,
 } from '../../client/src/core/signingEngine/session/budget/budget';
 import { createSigningSessionBudgetFinalizer } from '../../client/src/core/signingEngine/session/budget/budgetFinalizer';
+import {
+  createNonceCoordinator,
+  NonceCoordinatorTraceEventName,
+  type EvmNonceLane,
+  type NonceCoordinatorTraceEvent,
+} from '../../client/src/core/signingEngine/nonce/NonceCoordinator';
 import {
   SigningOperationIntent,
   SigningSessionIds,
@@ -33,6 +40,7 @@ import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
 } from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { toWalletId } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
 
 type ReservedSuccessInput = Extract<SigningSessionBudgetSuccessInput, { kind: 'reserved_success' }>;
 type UnreservedSuccessInput = Extract<
@@ -126,6 +134,19 @@ function makeTempoSpend(args?: {
     backingMaterialSessionIds: [],
     uses: 1,
     reason: SigningOperationIntent.TransactionSign,
+  };
+}
+
+function makeTempoNonceLane(spend: WalletSigningSpendPlan): EvmNonceLane {
+  if (spend.lane.curve !== 'ecdsa') {
+    throw new Error('expected ECDSA spend');
+  }
+  return {
+    family: 'evm',
+    chainTarget: spend.lane.chainTarget,
+    subjectId: toWalletId(spend.walletId),
+    sender: `0x${'33'.repeat(20)}`,
+    nonceKey: 1n,
   };
 }
 
@@ -354,6 +375,259 @@ test.describe('signing session budget finalizer', () => {
 });
 
 test.describe('budget coordinator reserved success handling', () => {
+  test('records a broadcast-failed signed operation once and releases the nonce lane', async () => {
+    const consumeUseCalls: Parameters<SigningSessionBudgetConsumer>[0][] = [];
+    const budgetEvents: SigningSessionBudgetTraceEvent[] = [];
+    const nonceEvents: NonceCoordinatorTraceEvent[] = [];
+    const budget = new BudgetCoordinator({
+      async readStatus() {
+        return {
+          sessionId: 'tempo-wallet-session-broadcast-failed',
+          status: 'active',
+          projectionVersion: 'projection-1',
+          remainingUses: 1,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+      async consumeUse(args) {
+        consumeUseCalls.push(args);
+        return {
+          sessionId: args.walletSigningSessionId,
+          status: 'exhausted',
+          projectionVersion: 'projection-2',
+          remainingUses: 0,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+      onTrace(event) {
+        budgetEvents.push(event);
+      },
+    });
+    const nonceCoordinator = createNonceCoordinator({
+      evmNonceBackend: {
+        fetchChainNonce: async () => 7n,
+      },
+      onTrace(event) {
+        nonceEvents.push(event);
+      },
+    });
+    const spend = makeTempoSpend({
+      operationId: 'tempo-broadcast-failed-operation',
+      operationFingerprint: 'tempo-broadcast-failed-fingerprint',
+      walletSigningSessionId: 'tempo-wallet-session-broadcast-failed',
+      thresholdSessionId: 'tempo-threshold-session-broadcast-failed',
+    });
+    if (spend.lane.curve !== 'ecdsa') {
+      throw new Error('expected ECDSA Tempo spend');
+    }
+    const reserved = withSuccessCommand({
+      kind: 'reserved_success',
+      spend,
+      expectedBudgetProjectionVersion: 'projection-1',
+    });
+    const broadcastFailedFinalization = {
+      ...reserved,
+      finalizationCommand: {
+        ...reserved.finalizationCommand,
+        outcome: 'broadcast_failed' as const,
+      },
+    };
+
+    await budget.reserve({
+      spend,
+      expectedBudgetProjectionVersion: reserved.expectedBudgetProjectionVersion,
+    });
+    const nonceLease = await nonceCoordinator.reserve({
+      lane: makeTempoNonceLane(spend),
+      operation: {
+        operationId: spend.operationId,
+        operationFingerprint: spend.operationFingerprint!,
+        intent: SigningOperationIntent.TransactionSign,
+        accountId: String(spend.walletId),
+      },
+    });
+    await nonceCoordinator.markSigned({
+      leaseId: nonceLease.leaseId,
+      operationId: spend.operationId,
+      operationFingerprint: spend.operationFingerprint!,
+      signedTxHash: `0x${'44'.repeat(32)}`,
+    });
+    await nonceCoordinator.markBroadcastRejected({
+      leaseId: nonceLease.leaseId,
+      operationId: spend.operationId,
+      operationFingerprint: spend.operationFingerprint!,
+      error: new Error('broadcast failed after signature'),
+    });
+
+    const first = await budget.recordSuccess(broadcastFailedFinalization);
+    const second = await budget.recordSuccess(broadcastFailedFinalization);
+    const reusedNonceLease = await nonceCoordinator.reserve({
+      lane: makeTempoNonceLane(spend),
+      operation: {
+        operationId: SigningSessionIds.signingOperation('tempo-broadcast-failed-retry'),
+        operationFingerprint: SigningSessionIds.signingOperationFingerprint(
+          'tempo-broadcast-failed-retry-fingerprint',
+        ),
+        intent: SigningOperationIntent.TransactionSign,
+        accountId: String(spend.walletId),
+      },
+    });
+
+    expect(consumeUseCalls).toHaveLength(1);
+    expect(consumeUseCalls[0]).toMatchObject({
+      walletSigningSessionId: 'tempo-wallet-session-broadcast-failed',
+      uses: 1,
+      reason: SigningOperationIntent.TransactionSign,
+      budgetStatusCheck: {
+        kind: 'ecdsa_lane_budget_status_check',
+        walletSigningSessionId: 'tempo-wallet-session-broadcast-failed',
+        thresholdSessionId: 'tempo-threshold-session-broadcast-failed',
+        chainTarget: {
+          kind: 'tempo',
+          chainId: 42431,
+          networkSlug: 'tempo-moderato',
+        },
+        key: spend.lane.key,
+      },
+    });
+    expect(broadcastFailedFinalization.finalizationCommand.outcome).toBe('broadcast_failed');
+    expect(first.kind).toBe('finalized');
+    expect(second.kind).toBe('already_finalized');
+    expect(reusedNonceLease.nonce).toBe(nonceLease.nonce);
+    expect(
+      budgetEvents.filter((event) => event.event === 'wallet_signing_budget_spend_succeeded'),
+    ).toHaveLength(1);
+    expect(
+      nonceEvents.filter((event) => event.event === NonceCoordinatorTraceEventName.LeaseSigned),
+    ).toHaveLength(1);
+    expect(
+      nonceEvents.filter(
+        (event) => event.event === NonceCoordinatorTraceEventName.LeaseBroadcastRejected,
+      ),
+    ).toHaveLength(1);
+  });
+
+  test('exhausts local wallet-session availability after two in-flight reservations', async () => {
+    const coordinator = new BudgetCoordinator({
+      async readStatus() {
+        return {
+          sessionId: 'tempo-wallet-session-inflight',
+          status: 'active',
+          projectionVersion: 'projection-1',
+          remainingUses: 2,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+      async consumeUse() {
+        throw new Error('consumeUse should not run');
+      },
+    });
+    const firstSpend = makeTempoSpend({
+      operationId: 'tempo-inflight-1',
+      operationFingerprint: 'tempo-inflight-fingerprint-1',
+      walletSigningSessionId: 'tempo-wallet-session-inflight',
+      thresholdSessionId: 'tempo-threshold-session-inflight',
+    });
+    const secondSpend = makeTempoSpend({
+      operationId: 'tempo-inflight-2',
+      operationFingerprint: 'tempo-inflight-fingerprint-2',
+      walletSigningSessionId: 'tempo-wallet-session-inflight',
+      thresholdSessionId: 'tempo-threshold-session-inflight',
+    });
+    const thirdSpend = makeTempoSpend({
+      operationId: 'tempo-inflight-3',
+      operationFingerprint: 'tempo-inflight-fingerprint-3',
+      walletSigningSessionId: 'tempo-wallet-session-inflight',
+      thresholdSessionId: 'tempo-threshold-session-inflight',
+    });
+
+    await expect(
+      coordinator.reserve({
+        spend: firstSpend,
+        expectedBudgetProjectionVersion: 'projection-1',
+      }),
+    ).resolves.toMatchObject({ kind: 'reserved', operationId: firstSpend.operationId });
+    await expect(
+      coordinator.reserve({
+        spend: secondSpend,
+        expectedBudgetProjectionVersion: 'projection-1',
+      }),
+    ).resolves.toMatchObject({ kind: 'reserved', operationId: secondSpend.operationId });
+    await expect(
+      coordinator.reserve({
+        spend: thirdSpend,
+        expectedBudgetProjectionVersion: 'projection-1',
+      }),
+    ).rejects.toThrow('[SigningSessionBudget] wallet signing-session budget is reserved by in-flight operations');
+  });
+
+  test('emits one budget reservation and one nonce lease for a transaction operation', async () => {
+    const budgetEvents: SigningSessionBudgetTraceEvent[] = [];
+    const nonceEvents: NonceCoordinatorTraceEvent[] = [];
+    const budget = new BudgetCoordinator({
+      async readStatus() {
+        return {
+          sessionId: 'tempo-wallet-session-trace',
+          status: 'active',
+          projectionVersion: 'projection-1',
+          remainingUses: 1,
+          expiresAtMs: 1_900_000_000_000,
+        };
+      },
+      async consumeUse() {
+        throw new Error('consumeUse should not run');
+      },
+      onTrace(event) {
+        budgetEvents.push(event);
+      },
+    });
+    const nonceCoordinator = createNonceCoordinator({
+      evmNonceBackend: {
+        fetchChainNonce: async () => 12n,
+      },
+      onTrace(event) {
+        nonceEvents.push(event);
+      },
+    });
+    const spend = makeTempoSpend({
+      operationId: 'tempo-trace-operation',
+      operationFingerprint: 'tempo-trace-fingerprint',
+      walletSigningSessionId: 'tempo-wallet-session-trace',
+      thresholdSessionId: 'tempo-threshold-session-trace',
+    });
+
+    await budget.reserve({
+      spend,
+      expectedBudgetProjectionVersion: 'projection-1',
+    });
+    const lease = await nonceCoordinator.reserve({
+      lane: makeTempoNonceLane(spend),
+      operation: {
+        operationId: spend.operationId,
+        operationFingerprint: spend.operationFingerprint!,
+        intent: SigningOperationIntent.TransactionSign,
+        accountId: String(spend.walletId),
+      },
+    });
+
+    const budgetReservations = budgetEvents.filter(
+      (event) => event.event === 'wallet_signing_budget_reservation_succeeded',
+    );
+    const nonceReservations = nonceEvents.filter(
+      (event) => event.event === NonceCoordinatorTraceEventName.LeaseReserved,
+    );
+    expect(budgetReservations).toHaveLength(1);
+    expect(nonceReservations).toHaveLength(1);
+    expect(budgetReservations[0]).toMatchObject({
+      operationId: spend.operationId,
+    });
+    expect(nonceReservations[0]?.lease).toMatchObject({
+      leaseId: lease.leaseId,
+      operationId: spend.operationId,
+      operationFingerprint: spend.operationFingerprint,
+    });
+  });
+
   test('keeps concurrent NEAR and Tempo reservations separate by operation and lane identity', async () => {
     const readStatusCalls: string[] = [];
     const consumeCalls: string[] = [];

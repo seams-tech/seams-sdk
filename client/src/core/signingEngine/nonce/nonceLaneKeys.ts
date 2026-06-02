@@ -5,7 +5,6 @@ import type {
 } from '@/core/rpcClients/evm/nonceBackend';
 import {
   thresholdEcdsaChainTargetKey,
-  toWalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import type {
@@ -15,12 +14,11 @@ import type {
 import type { NonceLeaseRef } from '../interfaces/nonceLease';
 import type {
   EvmNonceLane,
+  EvmNonceLease,
   NearNonceLane,
   NonceLane,
-  NonceLaneCoordinationRecord,
   NonceLease,
 } from './nonceTypes';
-import { normalizeBigint, normalizeRequiredString } from './nonceUtils';
 
 export function evmReserveNonceInputToLane(input: ReserveNonceInput): EvmNonceLane {
   return {
@@ -36,7 +34,7 @@ export function evmNonceLeaseToManagedReservation(lease: NonceLease): ManagedNon
   assertEvmLease(lease);
   return {
     ...evmLaneToReserveNonceInput(lease.lane),
-    nonce: normalizeBigint(lease.nonce, 'nonce'),
+    nonce: lease.nonce,
     leaseId: lease.leaseId,
     operationId: String(lease.operationId),
     operationFingerprint: String(lease.operationFingerprint),
@@ -69,17 +67,13 @@ export function evmLaneToReserveNonceInput(lane: EvmNonceLane): ReserveNonceInpu
   };
 }
 
-export function nonceLaneNetworkKey(lane: NonceLane | undefined): string {
-  if (!lane) return '';
-  if (lane.family === 'near') return normalizeRequiredString(lane.networkKey, 'networkKey');
+export function nonceLaneNetworkKey(lane: NonceLane): string {
+  if (lane.family === 'near') return lane.networkKey;
   return thresholdEcdsaChainTargetKey(lane.chainTarget);
 }
 
-export function nonceLaneSubjectId(lane: NonceLane | undefined): string {
-  if (!lane) return '';
-  return lane.family === 'near'
-    ? normalizeRequiredString(lane.accountId, 'accountId')
-    : String(lane.subjectId);
+export function nonceLaneSubjectId(lane: NonceLane): string {
+  return lane.family === 'near' ? lane.accountId : lane.subjectId;
 }
 
 export function nonceLaneKey(lane: NonceLane): string {
@@ -89,54 +83,19 @@ export function nonceLaneKey(lane: NonceLane): string {
   return encodeNonceKeyParts([
     'evm',
     thresholdEcdsaChainTargetKey(lane.chainTarget),
-    normalizeRequiredString(lane.subjectId, 'subjectId'),
-    normalizeRequiredString(lane.sender, 'sender').toLowerCase(),
+    lane.subjectId,
+    lane.sender.toLowerCase(),
     lane.nonceKey != null ? String(lane.nonceKey) : '',
   ]);
 }
 
-export function legacyNonceLaneKeys(lane: NonceLane): string[] {
-  if (lane.family === 'near') {
-    return [
-      encodeLegacyPersistenceLaneKey([
-        'near',
-        normalizeRequiredString(lane.networkKey, 'networkKey'),
-        normalizeRequiredString(lane.accountId, 'accountId'),
-        normalizeRequiredString(lane.publicKey, 'publicKey'),
-      ]),
-    ];
-  }
-  return [
-    encodeLegacyPersistenceLaneKey([
-      'evm',
-      thresholdEcdsaChainTargetKey(lane.chainTarget),
-      normalizeRequiredString(lane.subjectId, 'subjectId'),
-      normalizeRequiredString(lane.sender, 'sender').toLowerCase(),
-      lane.nonceKey != null ? String(lane.nonceKey) : '',
-    ]),
-    encodeLegacyPersistenceLaneKey([
-      'evm',
-      lane.chainTarget.kind,
-      lane.chainTarget.networkSlug,
-      String(lane.chainTarget.chainId),
-      normalizeRequiredString(lane.sender, 'sender').toLowerCase(),
-      lane.nonceKey != null ? String(lane.nonceKey) : '',
-    ]),
-  ];
-}
-
 export function nearNonceLaneKey(lane: NearNonceLane): string {
-  return encodeNonceKeyParts([
-    'near',
-    normalizeRequiredString(lane.networkKey, 'networkKey'),
-    normalizeRequiredString(lane.accountId, 'accountId'),
-    normalizeRequiredString(lane.publicKey, 'publicKey'),
-  ]);
+  return encodeNonceKeyParts(['near', lane.networkKey, lane.accountId, lane.publicKey]);
 }
 
 export function assertEvmLease(
   lease: NonceLease,
-): asserts lease is NonceLease & { lane: EvmNonceLane } {
+): asserts lease is EvmNonceLease {
   if (lease.lane.family !== 'evm') {
     throw new Error('[NonceCoordinator] expected an EVM-family nonce lease');
   }
@@ -144,13 +103,13 @@ export function assertEvmLease(
 
 export function assertOperationMatches(
   lease: NonceLease,
-  operationId: SigningOperationId | string,
-  operationFingerprint: SigningOperationFingerprint | string,
+  operationId: SigningOperationId,
+  operationFingerprint: SigningOperationFingerprint,
 ): void {
-  if (String(lease.operationId) !== String(operationId || '')) {
+  if (lease.operationId !== operationId) {
     throw new Error('[NonceCoordinator] nonce lease operation mismatch');
   }
-  if (String(lease.operationFingerprint) !== String(operationFingerprint || '')) {
+  if (lease.operationFingerprint !== operationFingerprint) {
     throw new Error('[NonceCoordinator] nonce lease operation fingerprint mismatch');
   }
 }
@@ -185,48 +144,13 @@ export function createNonceBatchId(args: {
   ])}`;
 }
 
-export function encodeNonceKeyParts(parts: readonly unknown[]): string {
+export function encodeNonceKeyParts(parts: readonly (string | number | bigint)[]): string {
   return parts
     .map((part) => {
       const value = String(part);
       return `${value.length}:${value}`;
     })
     .join('|');
-}
-
-function encodeLegacyPersistenceLaneKey(parts: readonly unknown[]): string {
-  let key = '';
-  for (const part of parts) {
-    key = key ? `${key}:${String(part)}` : String(part);
-  }
-  return key;
-}
-
-export function nonceLaneFromCoordinationRecord(
-  record: NonceLaneCoordinationRecord,
-): NonceLane | null {
-  if (record.family === 'evm') {
-    if (!record.chainTarget || !record.sender || !record.accountId) {
-      return null;
-    }
-    return {
-      family: 'evm',
-      chainTarget: record.chainTarget,
-      subjectId: toWalletId(record.accountId),
-      sender: normalizeRequiredString(record.sender, 'sender').toLowerCase() as `0x${string}`,
-      ...(record.nonceKey ? { nonceKey: normalizeBigint(record.nonceKey, 'nonceKey') } : {}),
-    };
-  }
-  if (record.family === 'near') {
-    if (!record.accountId || !record.publicKey) return null;
-    return {
-      family: 'near',
-      networkKey: normalizeRequiredString(record.networkKey, 'networkKey'),
-      accountId: record.accountId,
-      publicKey: record.publicKey,
-    };
-  }
-  return null;
 }
 
 export function createRuntimeId(): string {

@@ -1,13 +1,12 @@
 import type { NonceLaneStatus } from '@/core/rpcClients/evm/nonceBackend';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { TransactionContext } from '@/core/types/rpc';
-import type { AccessKeyView, BlockResult } from '@near-js/types';
-import { errorMessage } from '@shared/utils/errors';
-import { isObject, isString } from '@shared/utils/validation';
+import { isObject } from '@shared/utils/validation';
 import type {
   SigningOperationFingerprint,
   SigningOperationId,
 } from '../session/operationState/types';
+import { SigningSessionIds } from '../session/operationState/types';
 export type { NonceLeaseRef } from '../interfaces/nonceLease';
 export {
   EvmNonceOutcomeReason,
@@ -37,6 +36,7 @@ export type {
   NonceLaneCoordinationRecord,
   NonceLaneCoordinationStore,
   NonceLease,
+  ParsedNonceLaneCoordinationRecord,
   PreparedNonceOperationContext,
 } from './nonceTypes';
 import {
@@ -49,8 +49,6 @@ import {
   type EvmNonceLane,
   type NearNonceLane,
   type NonceCoordinator,
-  type NonceCoordinatorAggregateMetrics,
-  type NonceCoordinatorAlert,
   type NonceCoordinatorDegradation,
   type NonceCoordinatorDeps,
   type NonceCoordinatorDiagnostics,
@@ -58,7 +56,10 @@ import {
   type NonceCoordinatorSameOriginLockPort,
   type NonceCoordinatorTraceEvent,
   type NonceLane,
-  type NonceLaneCoordinationRecord,
+  type NonceLaneCoordinationStore,
+  type EvmNonceLease,
+  type NearNonceLease,
+  type ParsedNonceLaneCoordinationRecord,
   type NonceLease,
   type PreparedNonceOperationContext,
 } from './nonceTypes';
@@ -66,7 +67,6 @@ import {
   isActiveCoordinationLeaseRecord,
   isActiveEvmLeaseState,
   isActiveNearLeaseState,
-  isInFlightNonceLeaseState,
   reduceNonceLeaseState,
   type NonceLeaseTransition,
 } from './nonceLeaseState';
@@ -81,8 +81,6 @@ import {
   evmManagedReservationToLane,
   evmNonceLeaseToManagedReservation,
   evmReserveNonceInputToLane,
-  legacyNonceLaneKeys,
-  nonceLaneFromCoordinationRecord,
   nonceLaneKey,
   nonceLaneNetworkKey,
   nonceLaneSubjectId,
@@ -96,26 +94,42 @@ export {
 } from './nonceLaneKeys';
 import {
   createEvmNonceLaneBlockedError,
-  createEvmNonceLaneState,
+  getOrCreateEvmNonceLaneState,
+  indexEvmNonceLaneBySubject,
+  markEvmBroadcastAcceptedState,
+  markEvmDroppedOrReplacedState,
+  markEvmFinalizedState,
+  reconcileEvmLaneState,
   readBlockedEvmInFlight,
-  type EvmInFlightNonceRecord,
+  refreshEvmLaneFromChainLocked as refreshEvmLaneFromChainState,
+  releaseEvmNonceReservationState,
+  shouldRefreshEvmLane as shouldRefreshEvmLaneState,
   type EvmNonceLaneState,
 } from './evmNonceLane';
 import {
-  computeLastReservedNonce,
+  clearNearAccessKeyState as clearNearAccessKeyLaneState,
+  clearNearPrefetchTimer,
   createNearNonceLaneState,
-  isMissingNearAccessKeyError,
-  pruneReservedNearNonces,
+  fetchNearFreshDataForState,
+  initializeNearAccessKeyState,
+  isAccessKeyViewLike,
+  markNearBroadcastAcceptedState,
+  reconcileNearLaneState,
+  releaseAllNearNoncesFromState,
+  releaseNearNonceFromState,
+  reserveNearNoncesFromState,
+  shouldPrefetchNearContext,
+  updateNearNonceFromBlockchainState,
 } from './nearNonceLane';
 import {
   appendOutcomeMetricEvent,
-  createEmptyLeaseStateCounts,
-  readOutcomeMetrics,
+  createNonceCoordinatorDiagnostics,
+  recordCoordinationDegradationOnce,
+  recordDroppedReplacedAlertWindow,
+  type DroppedReplacedAlertWindow,
   type NonceOutcomeMetricEvent,
 } from './nonceDiagnostics';
 import {
-  maxBigint,
-  minBigint,
   normalizeBigint,
   normalizePositiveInteger,
   normalizeRequiredString,
@@ -132,12 +146,6 @@ const DEFAULT_DURABLE_LOCK_WAIT_TIMEOUT_MS = 3_000;
 const NEAR_NONCE_FRESHNESS_THRESHOLD_MS = 5_000;
 const NEAR_BLOCK_FRESHNESS_THRESHOLD_MS = 20_000;
 const NEAR_PREFETCH_DEBOUNCE_MS = 400;
-
-type DroppedReplacedAlertWindow = {
-  count: number;
-  firstSeenAtMs: number;
-  lastSeenAtMs: number;
-};
 
 export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordinator {
   const leases = new Map<string, NonceLease>();
@@ -192,34 +200,36 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       laneFamily?: NonceLane['family'];
     },
   ): void => {
-    const lane = input?.lane;
-    const fallback = input?.fallback || NonceCoordinatorFallback.InRuntimeLock;
-    const networkKey = lane ? nonceLaneNetworkKey(lane) : String(input?.networkKey || '').trim();
-    const accountId = lane ? nonceLaneSubjectId(lane) : String(input?.accountId || '').trim();
-    const laneFamily = lane?.family || input?.laneFamily;
-    const key = [reason, laneFamily || '', networkKey, accountId, fallback].join('|');
-    if (observedCoordinationDegradations.has(key)) return;
-    const degradation: NonceCoordinatorDegradation = {
+    const degradationEvent = recordCoordinationDegradationOnce({
+      observed: observedCoordinationDegradations,
       reason,
-      ...(laneFamily ? { laneFamily } : {}),
-      ...(networkKey ? { networkKey } : {}),
-      ...(accountId ? { accountId } : {}),
-      fallback,
-    };
-    observedCoordinationDegradations.set(key, degradation);
+      ...input,
+    });
+    if (!degradationEvent) return;
     emit({
       event: NonceCoordinatorTraceEventName.CoordinationDegraded,
-      ...(lane ? { lane } : {}),
-      degradation,
+      ...degradationEvent,
     });
-    console.warn('[NonceCoordinator] nonce coordination degraded', degradation);
+    console.warn('[NonceCoordinator] nonce coordination degraded', degradationEvent.degradation);
   };
 
-  const readLease = (input: {
+  type NonceLeaseOperationInput = {
+    leaseId: string;
+    operationId: SigningOperationId;
+    operationFingerprint: SigningOperationFingerprint;
+  };
+
+  const normalizeLeaseOperationInput = (input: {
     leaseId: string;
     operationId: SigningOperationId | string;
     operationFingerprint: SigningOperationFingerprint | string;
-  }): NonceLease => {
+  }): NonceLeaseOperationInput => ({
+    leaseId: normalizeRequiredString(input.leaseId, 'leaseId'),
+    operationId: SigningSessionIds.signingOperation(input.operationId),
+    operationFingerprint: SigningSessionIds.signingOperationFingerprint(input.operationFingerprint),
+  });
+
+  const readLease = (input: NonceLeaseOperationInput): NonceLease => {
     const leaseId = normalizeRequiredString(input.leaseId, 'leaseId');
     const lease = leases.get(leaseId);
     if (!lease) {
@@ -262,28 +272,17 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
   };
 
   const getOrCreateEvmState = (laneKey: string): EvmNonceLaneState => {
-    const existing = evmStates.get(laneKey);
-    if (existing) return existing;
-    const created = createEvmNonceLaneState();
-    evmStates.set(laneKey, created);
-    return created;
+    return getOrCreateEvmNonceLaneState(evmStates, laneKey);
   };
 
   const indexEvmLaneByAccount = (lane: EvmNonceLane, laneKey: string): void => {
-    const accountId = String(lane.subjectId || '').trim();
-    if (!accountId) return;
-    const keys = evmAccountLaneKeys.get(accountId);
-    if (!keys) {
-      evmAccountLaneKeys.set(accountId, new Set<string>([laneKey]));
-      return;
-    }
-    keys.add(laneKey);
+    indexEvmNonceLaneBySubject({ accountLaneKeys: evmAccountLaneKeys, lane, laneKey });
   };
 
   const readCoordinationLaneRecords = async (
     laneKey: string,
     lane?: NonceLane,
-  ): Promise<NonceLaneCoordinationRecord[]> => {
+  ): Promise<ParsedNonceLaneCoordinationRecord[]> => {
     if (!nonceLaneCoordinationStore) {
       if (shouldWarnOnMissingCoordinationStore) {
         emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.IndexedDBUnavailable, {
@@ -300,18 +299,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       });
     }
     try {
-      const records = await nonceLaneCoordinationStore.readLane(laneKey);
-      if (!lane) return records;
-      const seenLeaseIds = new Set(records.map((record) => record.leaseId));
-      for (const legacyLaneKey of legacyNonceLaneKeys(lane)) {
-        if (legacyLaneKey === laneKey) continue;
-        for (const legacyRecord of await nonceLaneCoordinationStore.readLane(legacyLaneKey)) {
-          if (seenLeaseIds.has(legacyRecord.leaseId)) continue;
-          records.push(legacyRecord);
-          seenLeaseIds.add(legacyRecord.leaseId);
-        }
-      }
-      return records;
+      return await nonceLaneCoordinationStore.readLane(laneKey);
     } catch {
       emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.DurableStoreError, {
         lane,
@@ -334,13 +322,12 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       if (input?.chainNextNonce != null && nonce < input.chainNextNonce) continue;
       active.add(nonce.toString());
     }
-    for (const record of await readCoordinationLaneRecords(laneKey, input?.lane)) {
-      if (record.family !== 'evm') continue;
-      if (input?.excludeLeaseId && record.leaseId === input.excludeLeaseId) continue;
-      if (!isActiveCoordinationLeaseRecord(record, now())) continue;
-      const nonce = normalizeBigint(record.nonce, 'nonce');
-      if (input?.chainNextNonce != null && nonce < input.chainNextNonce) continue;
-      active.add(nonce.toString());
+    for (const parsed of await readCoordinationLaneRecords(laneKey, input?.lane)) {
+      if (parsed.record.family !== 'evm') continue;
+      if (input?.excludeLeaseId && parsed.record.leaseId === input.excludeLeaseId) continue;
+      if (!isActiveCoordinationLeaseRecord(parsed.record, now())) continue;
+      if (input?.chainNextNonce != null && parsed.nonce < input.chainNextNonce) continue;
+      active.add(parsed.nonce.toString());
     }
     return active;
   };
@@ -359,23 +346,23 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       if (input?.chainNextNonce != null && nonce < input.chainNextNonce) continue;
       active.add(nonce.toString());
     }
-    for (const record of await readCoordinationLaneRecords(laneKey, input?.lane)) {
-      if (record.family !== 'near') continue;
-      if (input?.excludeLeaseId && record.leaseId === input.excludeLeaseId) continue;
-      if (!isActiveCoordinationLeaseRecord(record, now())) continue;
-      const nonce = normalizeBigint(record.nonce, 'nonce');
-      if (input?.chainNextNonce != null && nonce < input.chainNextNonce) continue;
-      active.add(nonce.toString());
+    for (const parsed of await readCoordinationLaneRecords(laneKey, input?.lane)) {
+      if (parsed.record.family !== 'near') continue;
+      if (input?.excludeLeaseId && parsed.record.leaseId === input.excludeLeaseId) continue;
+      if (!isActiveCoordinationLeaseRecord(parsed.record, now())) continue;
+      if (input?.chainNextNonce != null && parsed.nonce < input.chainNextNonce) continue;
+      active.add(parsed.nonce.toString());
     }
     return active;
   };
 
   const persistCoordinationLease = async (
     lease: NonceLease,
-    state: NonceLaneCoordinationRecord['state'],
+    state: ParsedNonceLaneCoordinationRecord['record']['state'],
     expiresAtMs = lease.expiresAtMs,
   ): Promise<void> => {
-    if (!nonceLaneCoordinationStore) {
+    const coordinationStore = nonceLaneCoordinationStore;
+    if (!coordinationStore) {
       if (shouldWarnOnMissingCoordinationStore) {
         emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.IndexedDBUnavailable, {
           lane: lease.lane,
@@ -383,44 +370,45 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       }
       return;
     }
-    const laneKey = nonceLaneKey(lease.lane);
-    const baseRecord = {
-      v: 1,
-      laneKey,
-      leaseId: lease.leaseId,
-      networkKey: nonceLaneNetworkKey(lease.lane),
-      nonce: String(lease.nonce),
-      state,
-      operationId: String(lease.operationId),
-      operationFingerprint: String(lease.operationFingerprint),
-      reservedAtMs: lease.reservedAtMs,
-      expiresAtMs,
-      updatedAtMs: now(),
-      ...(nonceLaneSubjectId(lease.lane) ? { accountId: nonceLaneSubjectId(lease.lane) } : {}),
-      runtimeId,
-      ...(lease.batchId ? { batchId: lease.batchId } : {}),
-      ...(Number.isSafeInteger(lease.txIndex) ? { txIndex: lease.txIndex } : {}),
-    } as const;
-    const record: NonceLaneCoordinationRecord =
-      lease.lane.family === 'evm'
-        ? {
-            ...baseRecord,
-            family: 'evm',
-            chainTarget: lease.lane.chainTarget,
-            sender: lease.lane.sender,
-            ...(lease.lane.nonceKey != null ? { nonceKey: lease.lane.nonceKey.toString() } : {}),
-          }
-        : {
-            ...baseRecord,
-            family: 'near',
-            accountId: lease.lane.accountId,
-            publicKey: lease.lane.publicKey,
-          };
+    if (isEvmNonceLease(lease)) {
+      await persistCoordinationRecord(
+        coordinationStore,
+        buildEvmCoordinationRecord({
+          lease,
+          state,
+          expiresAtMs,
+          updatedAtMs: now(),
+          runtimeId,
+        }),
+        lease.lane,
+      );
+    } else if (isNearNonceLease(lease)) {
+      await persistCoordinationRecord(
+        coordinationStore,
+        buildNearCoordinationRecord({
+          lease,
+          state,
+          expiresAtMs,
+          updatedAtMs: now(),
+          runtimeId,
+        }),
+        lease.lane,
+      );
+    } else {
+      assertNever(lease);
+    }
+  };
+
+  const persistCoordinationRecord = async (
+    coordinationStore: NonceLaneCoordinationStore,
+    record: ParsedNonceLaneCoordinationRecord['record'],
+    lane: NonceLane,
+  ): Promise<void> => {
     try {
-      await nonceLaneCoordinationStore.upsert(record);
+      await coordinationStore.upsert(record);
     } catch {
       emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.DurableStoreError, {
-        lane: lease.lane,
+        lane,
       });
     }
   };
@@ -443,71 +431,29 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     lane: EvmNonceLane,
     state: EvmNonceLaneState,
   ): Promise<bigint> => {
-    if (state.inflightRefresh) {
-      return await state.inflightRefresh;
-    }
     const laneKey = nonceLaneKey(lane);
-    const refreshTask = (async (): Promise<bigint> => {
-      const chainNextNonceRaw = await deps.evmNonceBackend.fetchChainNonce(
-        evmLaneToReserveNonceInput(lane),
-      );
-      const chainNextNonce = chainNextNonceRaw >= 0n ? chainNextNonceRaw : 0n;
-      const activeLeaseNonces = await readActiveEvmLeaseNonces(laneKey, {
-        chainNextNonce,
-        lane,
-      });
-
-      let highestActiveLease = 0n;
-      for (const nonce of activeLeaseNonces) {
-        const value = BigInt(nonce);
-        if (value > highestActiveLease) highestActiveLease = value;
-      }
-
-      let highestInFlight = 0n;
-      const prunedInFlight = new Map<string, EvmInFlightNonceRecord>();
-      for (const [key, record] of state.inFlight.entries()) {
-        if (record.nonce < chainNextNonce) continue;
-        prunedInFlight.set(key, record);
-        if (record.nonce > highestInFlight) highestInFlight = record.nonce;
-      }
-      state.inFlight = prunedInFlight;
-
-      const hasOutstandingLocalNonce = activeLeaseNonces.size > 0 || prunedInFlight.size > 0;
-      const nextFromCurrent = hasOutstandingLocalNonce ? state.nextCandidate || 0n : 0n;
-      const nextFromActiveLease = highestActiveLease > 0n ? highestActiveLease + 1n : 0n;
-      const nextFromInFlight = highestInFlight > 0n ? highestInFlight + 1n : 0n;
-      state.nextCandidate = maxBigint(
-        0n,
-        chainNextNonce,
-        nextFromCurrent,
-        nextFromActiveLease,
-        nextFromInFlight,
-      );
-      state.chainNonce = chainNextNonce;
-      state.lastRefreshMs = now();
-      return chainNextNonce;
-    })();
-
-    state.inflightRefresh = refreshTask;
-    try {
-      return await refreshTask;
-    } finally {
-      if (state.inflightRefresh === refreshTask) {
-        state.inflightRefresh = null;
-      }
-    }
+    return await refreshEvmLaneFromChainState({
+      lane,
+      state,
+      nowMs: now(),
+      fetchChainNonce: async (targetLane) =>
+        await deps.evmNonceBackend.fetchChainNonce(evmLaneToReserveNonceInput(targetLane)),
+      readActiveLeaseNonces: async (input) => await readActiveEvmLeaseNonces(laneKey, input),
+    });
   };
 
-  const shouldRefreshEvmLane = async (
+  const shouldRefreshEvmLaneLocked = async (
     laneKey: string,
     state: EvmNonceLaneState,
     lane: EvmNonceLane,
   ): Promise<boolean> => {
-    if (state.nextCandidate == null) return true;
-    if (state.lastRefreshMs == null) return true;
-    if (state.inFlight.size > 0) return true;
-    if ((await readActiveEvmLeaseNonces(laneKey, { lane })).size > 0) return false;
-    return now() - state.lastRefreshMs >= evmRefreshTtlMs;
+    return await shouldRefreshEvmLaneState({
+      state,
+      lane,
+      nowMs: now(),
+      refreshTtlMs: evmRefreshTtlMs,
+      readActiveLeaseNonces: async (input) => await readActiveEvmLeaseNonces(laneKey, input),
+    });
   };
 
   const reserveEvmNonceLeaseUnlocked = async (input: {
@@ -518,7 +464,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     const laneKey = nonceLaneKey(input.lane);
     const state = getOrCreateEvmState(laneKey);
     indexEvmLaneByAccount(input.lane, laneKey);
-    if (await shouldRefreshEvmLane(laneKey, state, input.lane)) {
+    if (await shouldRefreshEvmLaneLocked(laneKey, state, input.lane)) {
       await refreshEvmLaneFromChainLocked(input.lane, state);
     }
     const blocked = readBlockedEvmInFlight({
@@ -572,21 +518,12 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     lease: NonceLease & { lane: EvmNonceLane },
   ): Promise<void> => {
     const laneKey = nonceLaneKey(lease.lane);
-    const state = evmStates.get(laneKey);
-    await removeCoordinationLease(lease);
-    if (!state) return;
-    const nonce = normalizeBigint(lease.nonce, 'nonce');
-    state.inFlight.delete(nonce.toString());
-    const hasOtherActiveLease =
-      (
-        await readActiveEvmLeaseNonces(laneKey, {
-          excludeLeaseId: lease.leaseId,
-          lane: lease.lane,
-        })
-      ).size > 0;
-    if (!hasOtherActiveLease && state.inFlight.size === 0) {
-      state.lastRefreshMs = null;
-    }
+    await releaseEvmNonceReservationState({
+      lease,
+      state: evmStates.get(laneKey),
+      removeCoordinationLease,
+      readActiveLeaseNonces: async (input) => await readActiveEvmLeaseNonces(laneKey, input),
+    });
   };
 
   const markEvmBroadcastAccepted = async (
@@ -595,38 +532,25 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
   ): Promise<void> => {
     const laneKey = nonceLaneKey(lease.lane);
     const state = getOrCreateEvmState(laneKey);
-    const nonce = normalizeBigint(lease.nonce, 'nonce');
-    const atMs = now();
-    state.inFlight.set(nonce.toString(), {
-      nonce,
-      ...(txHash ? { txHash: txHash as `0x${string}` } : {}),
-      status: 'accepted',
-      acceptedAtMs: atMs,
-      updatedAtMs: atMs,
-    });
-    const minNext = nonce + 1n;
-    if (state.nextCandidate == null || state.nextCandidate < minNext) {
-      state.nextCandidate = minNext;
-    }
-    await persistCoordinationLease(
+    await markEvmBroadcastAcceptedState({
       lease,
-      NonceDurableLeaseState.BroadcastAccepted,
-      atMs + evmStaleInFlightThresholdMs,
-    );
+      state,
+      ...(txHash ? { txHash } : {}),
+      nowMs: now(),
+      staleInFlightThresholdMs: evmStaleInFlightThresholdMs,
+      persistCoordinationLease,
+    });
   };
 
   const markEvmFinalized = async (lease: NonceLease & { lane: EvmNonceLane }): Promise<void> => {
     const laneKey = nonceLaneKey(lease.lane);
     const state = getOrCreateEvmState(laneKey);
-    const nonce = normalizeBigint(lease.nonce, 'nonce');
-    state.inFlight.delete(nonce.toString());
-    const minNext = nonce + 1n;
-    state.chainNonce = state.chainNonce == null ? minNext : maxBigint(state.chainNonce, minNext);
-    if (state.nextCandidate == null || state.nextCandidate < minNext) {
-      state.nextCandidate = minNext;
-    }
-    state.lastRefreshMs = now();
-    await removeCoordinationLease(lease);
+    await markEvmFinalizedState({
+      lease,
+      state,
+      nowMs: now(),
+      removeCoordinationLease,
+    });
   };
 
   const markEvmDroppedOrReplaced = async (
@@ -635,127 +559,52 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
   ): Promise<void> => {
     const laneKey = nonceLaneKey(lease.lane);
     const state = getOrCreateEvmState(laneKey);
-    const nonce = normalizeBigint(lease.nonce, 'nonce');
-    if (input.reason === EvmNonceOutcomeReason.Dropped) {
-      state.inFlight.delete(nonce.toString());
-      if (state.chainNonce == null || state.chainNonce <= nonce) {
-        state.nextCandidate =
-          state.nextCandidate == null ? nonce : minBigint(state.nextCandidate, nonce);
-      }
-    } else {
-      const previous = state.inFlight.get(nonce.toString());
-      state.inFlight.set(nonce.toString(), {
-        nonce,
-        ...(input.txHash
-          ? { txHash: input.txHash as `0x${string}` }
-          : previous?.txHash
-            ? { txHash: previous.txHash }
-            : {}),
-        status: 'replaced',
-        acceptedAtMs: previous?.acceptedAtMs ?? now(),
-        updatedAtMs: now(),
-      });
-    }
-    state.lastRefreshMs = null;
-    await removeCoordinationLease(lease);
+    await markEvmDroppedOrReplacedState({
+      lease,
+      state,
+      outcome: input,
+      nowMs: now(),
+      removeCoordinationLease,
+    });
   };
 
   const reconcileEvmLaneLocked = async (lane: EvmNonceLane): Promise<NonceLaneStatus> => {
     const laneKey = nonceLaneKey(lane);
     const state = getOrCreateEvmState(laneKey);
     indexEvmLaneByAccount(lane, laneKey);
-    const chainNextNonce = await refreshEvmLaneFromChainLocked(lane, state);
-    const unresolvedInFlightNonces = Array.from(state.inFlight.values())
-      .map((entry) => entry.nonce)
-      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
-    const blockedState = readBlockedEvmInFlight({
+    return await reconcileEvmLaneState({
+      lane,
       state,
       nowMs: now(),
       staleInFlightThresholdMs: evmStaleInFlightThresholdMs,
+      refreshFromChain: refreshEvmLaneFromChainLocked,
     });
-    return {
-      chainNextNonce,
-      unresolvedInFlightNonces,
-      blocked: !!blockedState,
-      ...(blockedState ? { blockedNonce: blockedState.blockedNonce } : {}),
-    };
   };
 
   const recordDroppedReplacedAlert = (args: {
     lane: EvmNonceLane;
     reason: EvmNonceOutcomeReason;
   }): void => {
-    const atMs = now();
-    const key = [nonceLaneKey(args.lane), args.reason].join('|');
-    const existing = droppedReplacedAlerts.get(key);
-    const windowState =
-      existing && atMs - existing.firstSeenAtMs <= droppedReplacedAlertWindowMs
-        ? {
-            count: existing.count + 1,
-            firstSeenAtMs: existing.firstSeenAtMs,
-            lastSeenAtMs: atMs,
-          }
-        : {
-            count: 1,
-            firstSeenAtMs: atMs,
-            lastSeenAtMs: atMs,
-          };
-    droppedReplacedAlerts.set(key, windowState);
-    if (windowState.count < droppedReplacedAlertThreshold) return;
-
-    const alert: NonceCoordinatorAlert = {
-      kind: 'repeated_dropped_or_replaced',
-      severity: 'warning',
+    const result = recordDroppedReplacedAlertWindow({
+      alerts: droppedReplacedAlerts,
       lane: args.lane,
       reason: args.reason,
-      count: windowState.count,
-      windowMs: droppedReplacedAlertWindowMs,
-      firstSeenAtMs: windowState.firstSeenAtMs,
-      lastSeenAtMs: windowState.lastSeenAtMs,
-    };
-    emit({ event: NonceCoordinatorTraceEventName.LaneAlert, lane: args.lane, alert });
-    console.warn('[NonceCoordinator] repeated EVM-family dropped/replaced nonce outcomes', {
-      chainTarget: args.lane.chainTarget,
-      networkKey: nonceLaneNetworkKey(args.lane),
-      chainId: args.lane.chainTarget.chainId,
-      sender: args.lane.sender,
-      nonceKey: args.lane.nonceKey?.toString(),
-      subjectId: args.lane.subjectId,
-      reason: args.reason,
-      count: windowState.count,
+      nowMs: now(),
+      threshold: droppedReplacedAlertThreshold,
       windowMs: droppedReplacedAlertWindowMs,
     });
+    if (!result) return;
+    emit({ event: NonceCoordinatorTraceEventName.LaneAlert, lane: args.lane, alert: result.alert });
+    console.warn(
+      '[NonceCoordinator] repeated EVM-family dropped/replaced nonce outcomes',
+      result.warning,
+    );
   };
 
   const nearState = createNearNonceLaneState();
 
-  const clearNearRefreshTimer = (): void => {
-    if (!nearState.refreshTimer) return;
-    clearTimeout(nearState.refreshTimer);
-    nearState.refreshTimer = null;
-  };
-
-  const clearNearPrefetchTimer = (): void => {
-    if (!nearState.prefetchTimer) return;
-    clearTimeout(nearState.prefetchTimer);
-    nearState.prefetchTimer = null;
-  };
-
-  const clearNearTransactionContext = (): void => {
-    nearState.transactionContext = null;
-    nearState.lastNonceUpdate = null;
-    nearState.lastBlockHeightUpdate = null;
-    nearState.inflightFetch = null;
-    nearState.reservedNonces.clear();
-    nearState.lastReservedNonce = null;
-    clearNearRefreshTimer();
-    clearNearPrefetchTimer();
-  };
-
   const clearNearAccessKeyState = (): void => {
-    nearState.accountId = null;
-    nearState.publicKey = null;
-    clearNearTransactionContext();
+    clearNearAccessKeyLaneState(nearState);
   };
 
   const requireNearClient = (nearClient?: NearClient): NearClient => {
@@ -767,193 +616,38 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
   };
 
   const initializeNearAccessKey = (input: { accountId: string; publicKey: string }): void => {
-    const accountId = normalizeRequiredString(input.accountId, 'accountId');
-    const publicKey = normalizeRequiredString(input.publicKey, 'publicKey');
-    // Idempotence here is load-bearing: repeated setup for the same NEAR
-    // access key must not clear reservations while concurrent signing requests
-    // are queued behind the coordinator lane lock.
-    if (nearState.accountId === accountId && nearState.publicKey === publicKey) {
-      return;
-    }
-    nearState.accountId = accountId;
-    nearState.publicKey = publicKey;
-    clearNearTransactionContext();
+    initializeNearAccessKeyState({ state: nearState, ...input });
   };
 
   const reserveNearNonces = async (lane: NearNonceLane, countInput: number): Promise<string[]> => {
-    if (!nearState.transactionContext) {
-      throw new Error('NEAR transaction context not available - call fetchNearContext() first');
-    }
-    const count = Math.max(0, Math.floor(Number(countInput || 0)));
-    if (count <= 0) return [];
-
-    const laneKey = nonceLaneKey(lane);
-    const activeDurableNonces = await readActiveNearLeaseNonces(laneKey, { lane });
-    let highestDurable = 0n;
-    for (const nonce of activeDurableNonces) {
-      const value = BigInt(nonce);
-      if (value > highestDurable) highestDurable = value;
-    }
-    const start = maxBigint(
-      nearState.lastReservedNonce ? BigInt(nearState.lastReservedNonce) + 1n : 0n,
-      BigInt(nearState.transactionContext.nextNonce),
-      highestDurable > 0n ? highestDurable + 1n : 0n,
-    );
-    const planned: string[] = [];
-    let candidateValue = start;
-    for (let index = 0; index < count; index += 1) {
-      while (
-        nearState.reservedNonces.has(candidateValue.toString()) ||
-        activeDurableNonces.has(candidateValue.toString())
-      ) {
-        candidateValue += 1n;
-      }
-      const candidate = candidateValue.toString();
-      planned.push(candidate);
-      candidateValue += 1n;
-    }
-    for (const nonce of planned) {
-      nearState.reservedNonces.add(nonce);
-    }
-    nearState.lastReservedNonce = planned[planned.length - 1] || nearState.lastReservedNonce;
-    return planned;
+    return await reserveNearNoncesFromState({
+      state: nearState,
+      lane,
+      countInput,
+      readActiveLeaseNonces: readActiveNearLeaseNonces,
+    });
   };
 
   const releaseNearNonce = (nonce: string): void => {
-    if (!nearState.reservedNonces.delete(String(nonce))) return;
-    nearState.lastReservedNonce = computeLastReservedNonce(nearState.reservedNonces);
+    releaseNearNonceFromState(nearState, nonce);
   };
 
   const releaseAllNearNonces = (): void => {
-    nearState.reservedNonces.clear();
-    nearState.lastReservedNonce = null;
+    releaseAllNearNoncesFromState(nearState);
   };
 
   const fetchNearFreshData = async (
     nearClient: NearClient,
     force = false,
   ): Promise<TransactionContext> => {
-    if (!nearState.accountId || !nearState.publicKey) {
-      throw new Error('[NonceCoordinator] NEAR access key is not initialized');
-    }
-    if (nearState.inflightFetch && !force) {
-      return nearState.inflightFetch;
-    }
-
-    const capturedAccountId = nearState.accountId;
-    const capturedPublicKey = nearState.publicKey;
-    const requestId = ++nearState.inflightId;
-    const fetchPromise = (async () => {
-      try {
-        const nowMs = now();
-        const isNonceStale =
-          force ||
-          !nearState.lastNonceUpdate ||
-          nowMs - nearState.lastNonceUpdate >= NEAR_NONCE_FRESHNESS_THRESHOLD_MS;
-        const isBlockStale =
-          force ||
-          !nearState.lastBlockHeightUpdate ||
-          nowMs - nearState.lastBlockHeightUpdate >= NEAR_BLOCK_FRESHNESS_THRESHOLD_MS;
-
-        let accessKeyInfo = nearState.transactionContext?.accessKeyInfo;
-        let txBlockHeight = nearState.transactionContext?.txBlockHeight;
-        let txBlockHash = nearState.transactionContext?.txBlockHash;
-        const fetchAccessKey = isNonceStale || !accessKeyInfo;
-        const fetchBlock = isBlockStale || !txBlockHeight || !txBlockHash;
-
-        let maybeAccessKey: unknown = accessKeyInfo ?? null;
-        let maybeBlock: unknown = null;
-        let accessKeyError: unknown = null;
-        let blockError: unknown = null;
-        const tasks: Promise<void>[] = [];
-
-        if (fetchAccessKey) {
-          tasks.push(
-            (async () => {
-              try {
-                maybeAccessKey = await nearClient.viewAccessKey(
-                  capturedAccountId,
-                  capturedPublicKey,
-                );
-              } catch (error: unknown) {
-                const message = errorMessage(error);
-                if (isMissingNearAccessKeyError(message)) {
-                  maybeAccessKey = null;
-                  return;
-                }
-                accessKeyError = error;
-              }
-            })(),
-          );
-        }
-
-        if (fetchBlock) {
-          tasks.push(
-            (async () => {
-              try {
-                maybeBlock = await nearClient.viewBlock({ finality: 'final' });
-              } catch (error: unknown) {
-                blockError = error;
-              }
-            })(),
-          );
-        }
-
-        if (tasks.length > 0) {
-          await Promise.all(tasks);
-        }
-        if (accessKeyError) throw accessKeyError;
-        if (blockError) throw blockError;
-
-        if (fetchAccessKey) {
-          accessKeyInfo = isAccessKeyViewLike(maybeAccessKey)
-            ? normalizeAccessKeyView(maybeAccessKey)
-            : nearState.transactionContext?.accessKeyInfo || makePlaceholderAccessKey();
-        }
-        if (fetchBlock) {
-          if (!isBlockResultLike(maybeBlock)) {
-            throw new Error('[NonceCoordinator] failed to fetch NEAR block info');
-          }
-          txBlockHeight = String(maybeBlock.header.height);
-          txBlockHash = maybeBlock.header.hash;
-        }
-
-        const nextCandidate = maxBigint(
-          accessKeyInfo?.nonce !== undefined ? BigInt(accessKeyInfo.nonce) + 1n : 0n,
-          nearState.transactionContext?.nextNonce
-            ? BigInt(nearState.transactionContext.nextNonce)
-            : 0n,
-          nearState.lastReservedNonce ? BigInt(nearState.lastReservedNonce) + 1n : 0n,
-          1n,
-        );
-        const transactionContext: TransactionContext = {
-          nearPublicKeyStr: capturedPublicKey,
-          accessKeyInfo: accessKeyInfo!,
-          nextNonce: nextCandidate.toString(),
-          txBlockHeight: txBlockHeight!,
-          txBlockHash: txBlockHash!,
-        };
-
-        if (
-          capturedAccountId === nearState.accountId &&
-          capturedPublicKey === nearState.publicKey &&
-          requestId === nearState.inflightId
-        ) {
-          nearState.transactionContext = transactionContext;
-          const commitMs = now();
-          if (fetchAccessKey) nearState.lastNonceUpdate = commitMs;
-          if (fetchBlock) nearState.lastBlockHeightUpdate = commitMs;
-        }
-        return transactionContext;
-      } finally {
-        if (requestId === nearState.inflightId) {
-          nearState.inflightFetch = null;
-        }
-      }
-    })();
-
-    nearState.inflightFetch = fetchPromise;
-    return fetchPromise;
+    return await fetchNearFreshDataForState({
+      state: nearState,
+      nearClient,
+      force,
+      now,
+      nonceFreshnessThresholdMs: NEAR_NONCE_FRESHNESS_THRESHOLD_MS,
+      blockFreshnessThresholdMs: NEAR_BLOCK_FRESHNESS_THRESHOLD_MS,
+    });
   };
 
   const fetchNearContextForLane = async (input: {
@@ -974,74 +668,41 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     nearClient: NearClient,
     actualNonce: string,
   ): Promise<void> => {
-    if (!nearState.accountId || !nearState.publicKey) {
-      throw new Error('[NonceCoordinator] NEAR access key is not initialized');
-    }
-    try {
-      const accessKeyInfoRaw = await nearClient.viewAccessKey(
-        nearState.accountId,
-        nearState.publicKey,
-      );
-      if (!isAccessKeyViewLike(accessKeyInfoRaw)) {
-        throw new Error(`Access key not found or invalid for account ${nearState.accountId}`);
-      }
-      const accessKeyInfo = normalizeAccessKeyView(accessKeyInfoRaw);
-      const chainNonce = BigInt(accessKeyInfo.nonce);
-      const actual = BigInt(actualNonce);
-      const candidateNext = maxBigint(
-        chainNonce + 1n,
-        actual + 1n,
-        nearState.transactionContext?.nextNonce
-          ? BigInt(nearState.transactionContext.nextNonce)
-          : 0n,
-        nearState.lastReservedNonce ? BigInt(nearState.lastReservedNonce) + 1n : 0n,
-      );
+    await updateNearNonceFromBlockchainState({
+      state: nearState,
+      nearClient,
+      actualNonce,
+      now,
+    });
+  };
 
-      if (nearState.transactionContext) {
-        nearState.transactionContext = {
-          ...nearState.transactionContext,
-          accessKeyInfo,
-          nextNonce: candidateNext.toString(),
-        };
-      } else {
-        nearState.transactionContext = {
-          nearPublicKeyStr: nearState.publicKey,
-          accessKeyInfo,
-          nextNonce: candidateNext.toString(),
-          txBlockHeight: '0',
-          txBlockHash: '',
-        };
-      }
-      nearState.lastNonceUpdate = now();
-      releaseNearNonce(actualNonce);
-      if (nearState.reservedNonces.size > 0) {
-        const pruned = pruneReservedNearNonces(chainNonce, nearState.reservedNonces);
-        nearState.reservedNonces = pruned.set;
-        nearState.lastReservedNonce = pruned.lastReserved;
-      }
-    } catch (error: unknown) {
-      const message = errorMessage(error);
-      if (isMissingNearAccessKeyError(message)) {
-        const actual = BigInt(actualNonce);
-        const candidateNext = maxBigint(
-          actual + 1n,
-          nearState.transactionContext?.nextNonce
-            ? BigInt(nearState.transactionContext.nextNonce)
-            : 0n,
-          nearState.lastReservedNonce ? BigInt(nearState.lastReservedNonce) + 1n : 0n,
-        );
-        nearState.transactionContext = {
-          ...(nearState.transactionContext || {
-            nearPublicKeyStr: nearState.publicKey,
-            accessKeyInfo: makePlaceholderAccessKey(),
-            txBlockHeight: '0',
-            txBlockHash: '',
-          }),
-          nextNonce: candidateNext.toString(),
-        };
-        nearState.lastNonceUpdate = now();
-      }
-    }
+  const reconcileNearLaneLocked = async (lane: NearNonceLane): Promise<NonceLaneStatus> => {
+    const laneKey = nonceLaneKey(lane);
+    return await reconcileNearLaneState({
+      lane,
+      state: nearState,
+      nearClient: requireNearClient(),
+      now,
+      activeLeases: Array.from(leases.values()).filter(
+        (lease): lease is NonceLease & { lane: NearNonceLane } =>
+          lease.lane.family === 'near' &&
+          nonceLaneKey(lease.lane) === laneKey &&
+          lease.state === NonceLeaseState.BroadcastAccepted,
+      ),
+      removeCoordinationLease,
+      transitionLease: ({ lease, transition, reason, txHash }) => {
+        transitionLease({
+          lease,
+          transition,
+          event:
+            transition === 'finalize'
+              ? NonceCoordinatorTraceEventName.LeaseFinalized
+              : NonceCoordinatorTraceEventName.LeaseDropped,
+          reason,
+          ...(txHash ? { txHash } : {}),
+        });
+      },
+    });
   };
 
   const releaseBackendReservation = async (lease: NonceLease): Promise<void> => {
@@ -1162,41 +823,45 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
       }
       return;
     }
-    let records: NonceLaneCoordinationRecord[] = [];
+    let readResults: Awaited<ReturnType<NonceLaneCoordinationStore['readAllForRecovery']>> = [];
     try {
-      records = await nonceLaneCoordinationStore.readAll(input);
+      readResults = await nonceLaneCoordinationStore.readAllForRecovery(input);
     } catch {
       emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.DurableStoreError);
       return;
     }
 
-    for (let record of records) {
-      const lane = nonceLaneFromCoordinationRecord(record);
-      if (!lane) {
-        await nonceLaneCoordinationStore.remove({
-          laneKey: record.laneKey,
-          leaseId: record.leaseId,
-        });
-        emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.MalformedDurableRecord, {
-          accountId: record.accountId,
-          networkKey: record.networkKey,
-          laneFamily: record.family,
-          fallback: NonceCoordinatorFallback.None,
+    for (const readResult of readResults) {
+      if (!readResult.ok) {
+        if (readResult.leaseId) {
+          await nonceLaneCoordinationStore.remove({
+            laneKey: readResult.laneKey,
+            leaseId: readResult.leaseId,
+          });
+        }
+        emitCoordinationDegradedOnce(readResult.degradation.reason, {
+          accountId: readResult.degradation.accountId,
+          networkKey: readResult.degradation.networkKey,
+          laneFamily: readResult.degradation.laneFamily,
+          fallback: readResult.degradation.fallback,
         });
         continue;
       }
+      const { record, lane, canonicalLaneKey, nonce: recordNonce } = readResult.parsed;
       await withLaneLock(lane, async () => {
-        const canonicalLaneKey = nonceLaneKey(lane);
         if (record.laneKey !== canonicalLaneKey) {
-          const migratedRecord = { ...record, laneKey: canonicalLaneKey, updatedAtMs: now() };
-          await nonceLaneCoordinationStore.upsert(migratedRecord);
           await nonceLaneCoordinationStore.remove({
             laneKey: record.laneKey,
             leaseId: record.leaseId,
           });
-          record = migratedRecord;
+          emitCoordinationDegradedOnce(NonceCoordinatorDegradationReason.MalformedDurableRecord, {
+            accountId: record.accountId,
+            networkKey: record.networkKey,
+            laneFamily: record.family,
+            fallback: NonceCoordinatorFallback.None,
+          });
+          return;
         }
-        const recordNonce = normalizeBigint(record.nonce, 'nonce');
         const isExpired = record.expiresAtMs <= now();
         if (isExpired && record.state !== NonceDurableLeaseState.BroadcastAccepted) {
           await nonceLaneCoordinationStore.remove({
@@ -1218,7 +883,7 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
           const evmLane = lane as EvmNonceLane;
           const state = getOrCreateEvmState(record.laneKey);
           if (record.state === NonceDurableLeaseState.BroadcastAccepted) {
-            state.inFlight.set(record.nonce, {
+            state.inFlight.set(record.nonce.toString(), {
               nonce: recordNonce,
               status: 'accepted',
               acceptedAtMs: record.reservedAtMs,
@@ -1243,8 +908,8 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
         if (record.family === 'near' && deps.nearClient) {
           try {
             const accessKey = await deps.nearClient.viewAccessKey(
-              record.accountId || '',
-              record.publicKey || '',
+              record.accountId,
+              record.publicKey,
             );
             if (isAccessKeyViewLike(accessKey) && BigInt(accessKey.nonce) >= recordNonce) {
               await nonceLaneCoordinationStore.remove({
@@ -1306,103 +971,19 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     input?: NonceCoordinatorDiagnosticsOptions,
   ): NonceCoordinatorDiagnostics => {
     const accountId = input?.accountId ? String(input.accountId).trim() : '';
-    const atMs = now();
-    const leasesByState = createEmptyLeaseStateCounts();
-    const lanes = new Map<
-      string,
-      {
-        lane: NonceLane;
-        leaseCount: number;
-        states: Partial<Record<NonceLeaseState, number>>;
-      }
-    >();
-    const staleInFlightLaneKeys = new Set<string>();
-    let leaseCount = 0;
-    let oldestLeaseAgeMs = 0;
-    let oldestInFlightLeaseAgeMs = 0;
-    let staleInFlightLeaseCount = 0;
-
-    for (const lease of leases.values()) {
-      if (accountId && nonceLaneSubjectId(lease.lane) !== accountId) continue;
-      leaseCount += 1;
-      leasesByState[lease.state] += 1;
-      const laneKey = nonceLaneKey(lease.lane);
-      const leaseAgeMs = Math.max(0, atMs - lease.reservedAtMs);
-      oldestLeaseAgeMs = Math.max(oldestLeaseAgeMs, leaseAgeMs);
-      if (isInFlightNonceLeaseState(lease.state)) {
-        oldestInFlightLeaseAgeMs = Math.max(oldestInFlightLeaseAgeMs, leaseAgeMs);
-        if (lease.expiresAtMs <= atMs) {
-          staleInFlightLeaseCount += 1;
-          staleInFlightLaneKeys.add(laneKey);
-        }
-      }
-      const existing =
-        lanes.get(laneKey) ||
-        ({
-          lane: lease.lane,
-          leaseCount: 0,
-          states: {},
-        } satisfies {
-          lane: NonceLane;
-          leaseCount: number;
-          states: Partial<Record<NonceLeaseState, number>>;
-        });
-      existing.leaseCount += 1;
-      existing.states[lease.state] = (existing.states[lease.state] || 0) + 1;
-      lanes.set(laneKey, existing);
-    }
-
-    const metrics: NonceCoordinatorAggregateMetrics = {
-      atMs,
-      ...(accountId ? { accountId } : {}),
-      leaseCount,
-      laneCount: lanes.size,
-      oldestLeaseAgeMs,
-      oldestInFlightLeaseAgeMs,
-      staleInFlightLeaseCount,
-      staleInFlightLaneCount: staleInFlightLaneKeys.size,
-      reservedLeaseCount: leasesByState[NonceLeaseState.Reserved],
-      signedLeaseCount: leasesByState[NonceLeaseState.Signed],
-      broadcastAcceptedLeaseCount: leasesByState[NonceLeaseState.BroadcastAccepted],
-      droppedLeaseCount: leasesByState[NonceLeaseState.Dropped],
-      replacedLeaseCount: leasesByState[NonceLeaseState.Replaced],
-      reconciledLeaseCount: leasesByState[NonceLeaseState.Reconciled],
-      releasedLeaseCount: leasesByState[NonceLeaseState.Released],
-      outcomes: readOutcomeMetrics(outcomeMetricEvents, accountId),
-    };
-
-    const diagnostics = {
-      leaseCount,
-      leasesByState,
-      laneCount: lanes.size,
-      metrics,
-      coordinationWarnings: Array.from(observedCoordinationDegradations.values()).filter(
-        (degradation) =>
-          !accountId || !degradation.accountId || degradation.accountId === accountId,
-      ),
-      lanes: Array.from(lanes.values()).map((entry) => ({
-        family: entry.lane.family,
-        ...(nonceLaneSubjectId(entry.lane) ? { accountId: nonceLaneSubjectId(entry.lane) } : {}),
-        networkKey: nonceLaneNetworkKey(entry.lane),
-        ...(entry.lane.family === 'evm'
-          ? { chain: entry.lane.chainTarget.kind, chainId: entry.lane.chainTarget.chainId }
-          : {}),
-        leaseCount: entry.leaseCount,
-        states: { ...entry.states },
-      })),
-      near: {
-        ...(nearState.accountId ? { activeAccountId: nearState.accountId } : {}),
-        ...(nearState.publicKey ? { activePublicKey: nearState.publicKey } : {}),
-        hasContext: !!nearState.transactionContext,
-        reservedNonceCount: nearState.reservedNonces.size,
-        ...(nearState.lastReservedNonce ? { lastReservedNonce: nearState.lastReservedNonce } : {}),
-      },
-    };
+    const diagnostics = createNonceCoordinatorDiagnostics({
+      options: input,
+      leases: leases.values(),
+      nearState,
+      observedCoordinationDegradations: observedCoordinationDegradations.values(),
+      outcomeMetricEvents,
+      nowMs: now(),
+    });
 
     if (input?.emitMetrics) {
       emit({
         event: NonceCoordinatorTraceEventName.Metrics,
-        metrics,
+        metrics: diagnostics.metrics,
         ...(accountId ? { accountId } : {}),
       });
     }
@@ -1491,17 +1072,20 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
         });
       }
       if (!nearState.accountId || !nearState.publicKey) return;
-      clearNearPrefetchTimer();
+      clearNearPrefetchTimer(nearState);
       const nearClient = requireNearClient(input?.nearClient);
       nearState.prefetchTimer = setTimeout(() => {
         nearState.prefetchTimer = null;
         if (nearState.inflightFetch) return;
-        const nowMs = now();
-        const blockStale =
-          !nearState.lastBlockHeightUpdate ||
-          nowMs - nearState.lastBlockHeightUpdate >= NEAR_BLOCK_FRESHNESS_THRESHOLD_MS;
-        const missingContext = !nearState.transactionContext;
-        if (!blockStale && !missingContext) return;
+        if (
+          !shouldPrefetchNearContext({
+            state: nearState,
+            nowMs: now(),
+            blockFreshnessThresholdMs: NEAR_BLOCK_FRESHNESS_THRESHOLD_MS,
+          })
+        ) {
+          return;
+        }
         void fetchNearFreshData(nearClient).catch(() => undefined);
       }, NEAR_PREFETCH_DEBOUNCE_MS);
     },
@@ -1516,9 +1100,10 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     },
 
     async markSigned(input) {
-      const lease = readLease(input);
+      const operationInput = normalizeLeaseOperationInput(input);
+      const lease = readLease(operationInput);
       return await withLaneLock(lease.lane, async () => {
-        const lockedLease = readLease(input);
+        const lockedLease = readLease(operationInput);
         const expiresAtMs = now() + signedLeaseTtlMs;
         transitionLease({
           lease: lockedLease,
@@ -1532,9 +1117,10 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     },
 
     async markBroadcastAccepted(input) {
-      const lease = readLease(input);
+      const operationInput = normalizeLeaseOperationInput(input);
+      const lease = readLease(operationInput);
       return await withLaneLock(lease.lane, async () => {
-        const lockedLease = readLease(input);
+        const lockedLease = readLease(operationInput);
         preflightLeaseTransition(lockedLease, 'broadcast_accepted');
         if (lockedLease.lane.family === 'evm') {
           await markEvmBroadcastAccepted(
@@ -1542,7 +1128,13 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
             input.txHash ? String(input.txHash) : undefined,
           );
         } else {
-          await persistCoordinationLease(lockedLease, NonceDurableLeaseState.BroadcastAccepted);
+          await markNearBroadcastAcceptedState({
+            lease: lockedLease as NonceLease & { lane: NearNonceLane },
+            state: nearState,
+            txHash: input.txHash ? String(input.txHash) : undefined,
+            nowMs: now(),
+            persistCoordinationLease,
+          });
         }
         transitionLease({
           lease: lockedLease,
@@ -1554,9 +1146,10 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     },
 
     async markBroadcastRejected(input) {
-      const lease = readLease(input);
+      const operationInput = normalizeLeaseOperationInput(input);
+      const lease = readLease(operationInput);
       return await withLaneLock(lease.lane, async () => {
-        const lockedLease = readLease(input);
+        const lockedLease = readLease(operationInput);
         preflightLeaseTransition(lockedLease, 'broadcast_rejected');
         await releaseBackendReservation(lockedLease);
         transitionLease({
@@ -1569,9 +1162,10 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     },
 
     async markFinalized(input) {
-      const lease = readLease(input);
+      const operationInput = normalizeLeaseOperationInput(input);
+      const lease = readLease(operationInput);
       return await withLaneLock(lease.lane, async () => {
-        const lockedLease = readLease(input);
+        const lockedLease = readLease(operationInput);
         preflightLeaseTransition(lockedLease, 'finalize');
         if (lockedLease.lane.family === 'evm') {
           await markEvmFinalized(lockedLease as NonceLease & { lane: EvmNonceLane });
@@ -1593,10 +1187,11 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     },
 
     async markDroppedOrReplaced(input) {
-      const lease = readLease(input);
+      const operationInput = normalizeLeaseOperationInput(input);
+      const lease = readLease(operationInput);
       assertEvmLease(lease);
       return await withLaneLock(lease.lane, async () => {
-        const lockedLease = readLease(input);
+        const lockedLease = readLease(operationInput);
         assertEvmLease(lockedLease);
         preflightLeaseTransition(
           lockedLease,
@@ -1624,9 +1219,10 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     },
 
     async release(input) {
-      const lease = readLease(input);
+      const operationInput = normalizeLeaseOperationInput(input);
+      const lease = readLease(operationInput);
       return await withLaneLock(lease.lane, async () => {
-        const lockedLease = readLease(input);
+        const lockedLease = readLease(operationInput);
         preflightLeaseTransition(lockedLease, 'release');
         await releaseBackendReservation(lockedLease);
         transitionLease({
@@ -1647,13 +1243,12 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
     },
 
     async reconcile(input) {
-      if (input.lane.family !== 'evm') {
-        throw new Error('[NonceCoordinator] NEAR nonce reconciliation is not wired yet');
-      }
-      const evmLane = input.lane;
-      return await withLaneLock(evmLane, async () => {
-        const status = await reconcileEvmLaneLocked(evmLane);
-        emit({ event: NonceCoordinatorTraceEventName.LaneReconciled, lane: evmLane });
+      return await withLaneLock(input.lane, async () => {
+        const status =
+          input.lane.family === 'evm'
+            ? await reconcileEvmLaneLocked(input.lane)
+            : await reconcileNearLaneLocked(input.lane);
+        emit({ event: NonceCoordinatorTraceEventName.LaneReconciled, lane: input.lane });
         return status;
       });
     },
@@ -1709,46 +1304,90 @@ export function createNonceCoordinator(deps: NonceCoordinatorDeps): NonceCoordin
   };
 }
 
-function isAccessKeyViewLike(value: unknown): value is AccessKeyView {
-  if (!isObject(value)) return false;
-  try {
-    normalizeBigint((value as { nonce?: unknown }).nonce, 'near access-key nonce');
-    return true;
-  } catch {
-    return false;
+type BuildCoordinationRecordArgs<TLease extends EvmNonceLease | NearNonceLease> = {
+  lease: TLease;
+  state: ParsedNonceLaneCoordinationRecord['record']['state'];
+  expiresAtMs: number;
+  updatedAtMs: number;
+  runtimeId: string;
+};
+
+function isEvmNonceLease(lease: NonceLease): lease is EvmNonceLease {
+  return lease.lane.family === 'evm';
+}
+
+function isNearNonceLease(lease: NonceLease): lease is NearNonceLease {
+  return lease.lane.family === 'near';
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unexpected nonce lease variant: ${String(value)}`);
+}
+
+function buildEvmCoordinationRecord(
+  args: BuildCoordinationRecordArgs<EvmNonceLease>,
+): Extract<ParsedNonceLaneCoordinationRecord['record'], { family: 'evm' }> {
+  const lease = args.lease;
+  const record: Extract<ParsedNonceLaneCoordinationRecord['record'], { family: 'evm' }> = {
+    v: 1,
+    laneKey: nonceLaneKey(lease.lane),
+    leaseId: lease.leaseId,
+    networkKey: nonceLaneNetworkKey(lease.lane),
+    nonce: lease.nonce,
+    state: args.state,
+    operationId: String(lease.operationId),
+    operationFingerprint: String(lease.operationFingerprint),
+    reservedAtMs: lease.reservedAtMs,
+    expiresAtMs: args.expiresAtMs,
+    updatedAtMs: args.updatedAtMs,
+    runtimeId: args.runtimeId,
+    family: 'evm',
+    chainTarget: lease.lane.chainTarget,
+    accountId: lease.lane.subjectId,
+    sender: lease.lane.sender,
+  };
+  if (lease.lane.nonceKey != null) {
+    record.nonceKey = lease.lane.nonceKey;
   }
+  addLeaseRecordMetadata(record, lease);
+  return record;
 }
 
-function normalizeAccessKeyView(value: AccessKeyView): AccessKeyView {
-  const permission = (value as { permission?: unknown }).permission;
-  return {
-    ...value,
-    nonce: normalizeBigint((value as { nonce?: unknown }).nonce, 'near access-key nonce'),
-    permission:
-      permission === 'FullAccess' || isObject(permission)
-        ? (permission as AccessKeyView['permission'])
-        : 'FullAccess',
-    block_hash: String((value as { block_hash?: unknown }).block_hash || ''),
-    block_height: Number((value as { block_height?: unknown }).block_height || 0),
+function buildNearCoordinationRecord(
+  args: BuildCoordinationRecordArgs<NearNonceLease>,
+): Extract<ParsedNonceLaneCoordinationRecord['record'], { family: 'near' }> {
+  const lease = args.lease;
+  const record: Extract<ParsedNonceLaneCoordinationRecord['record'], { family: 'near' }> = {
+    v: 1,
+    laneKey: nonceLaneKey(lease.lane),
+    leaseId: lease.leaseId,
+    networkKey: nonceLaneNetworkKey(lease.lane),
+    nonce: BigInt(lease.nonce),
+    state: args.state,
+    operationId: String(lease.operationId),
+    operationFingerprint: String(lease.operationFingerprint),
+    reservedAtMs: lease.reservedAtMs,
+    expiresAtMs: args.expiresAtMs,
+    updatedAtMs: args.updatedAtMs,
+    runtimeId: args.runtimeId,
+    family: 'near',
+    accountId: lease.lane.accountId,
+    publicKey: lease.lane.publicKey,
   };
+  addLeaseRecordMetadata(record, lease);
+  return record;
 }
 
-function isBlockResultLike(value: unknown): value is BlockResult {
-  if (!isObject(value)) return false;
-  const header = (value as { header?: unknown }).header;
-  if (!isObject(header)) return false;
-  const height = (header as { height?: unknown }).height;
-  const hash = (header as { hash?: unknown }).hash;
-  return (typeof height === 'number' || typeof height === 'bigint') && isString(hash);
-}
-
-function makePlaceholderAccessKey(): AccessKeyView {
-  return {
-    nonce: 0n,
-    permission: 'FullAccess',
-    block_hash: '',
-    block_height: 0,
-  };
+function addLeaseRecordMetadata(
+  record: ParsedNonceLaneCoordinationRecord['record'],
+  lease: EvmNonceLease | NearNonceLease,
+): void {
+  if (lease.batchId) {
+    record.batchId = lease.batchId;
+  }
+  if (Number.isSafeInteger(lease.txIndex)) {
+    record.txIndex = lease.txIndex;
+  }
 }
 
 function createDefaultSameOriginLock(): NonceCoordinatorSameOriginLockPort | null {

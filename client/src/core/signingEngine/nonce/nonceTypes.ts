@@ -138,18 +138,28 @@ export type PreparedNonceOperationContext = SigningOperationContext & {
   accountId: string;
 };
 
-export type NonceLease = {
+type NonceLeaseBase = {
   leaseId: string;
-  lane: NonceLane;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
-  nonce: bigint | string;
   state: NonceLeaseState;
   reservedAtMs: number;
   expiresAtMs: number;
   batchId?: string;
   txIndex?: number;
 };
+
+export type EvmNonceLease = NonceLeaseBase & {
+  lane: EvmNonceLane;
+  nonce: bigint;
+};
+
+export type NearNonceLease = NonceLeaseBase & {
+  lane: NearNonceLane;
+  nonce: string;
+};
+
+export type NonceLease = EvmNonceLease | NearNonceLease;
 
 export type NonceCoordinatorTraceEvent = {
   event: NonceCoordinatorTraceEventName;
@@ -185,14 +195,13 @@ type NonceLaneCoordinationRecordBase = {
   laneKey: string;
   leaseId: string;
   networkKey: string;
-  nonce: string;
+  nonce: bigint;
   state: NonceDurableLeaseState;
   operationId: string;
   operationFingerprint: string;
   reservedAtMs: number;
   expiresAtMs: number;
   updatedAtMs: number;
-  accountId?: string;
   runtimeId?: string;
   fencingToken?: string;
   batchId?: string;
@@ -203,8 +212,9 @@ export type NonceLaneCoordinationRecord =
   | (NonceLaneCoordinationRecordBase & {
       family: 'evm';
       chainTarget: ThresholdEcdsaChainTarget;
-      sender: `0x${string}` | string;
-      nonceKey?: string;
+      accountId: WalletId;
+      sender: `0x${string}`;
+      nonceKey?: bigint;
     })
   | (NonceLaneCoordinationRecordBase & {
       family: 'near';
@@ -212,9 +222,35 @@ export type NonceLaneCoordinationRecord =
       publicKey: string;
     });
 
+export type ParsedNonceLaneCoordinationRecord =
+  | {
+      record: Extract<NonceLaneCoordinationRecord, { family: 'evm' }>;
+      lane: EvmNonceLane;
+      canonicalLaneKey: string;
+      nonce: bigint;
+    }
+  | {
+      record: Extract<NonceLaneCoordinationRecord, { family: 'near' }>;
+      lane: NearNonceLane;
+      canonicalLaneKey: string;
+      nonce: bigint;
+    };
+
+export type NonceLaneCoordinationReadFailure = {
+  ok: false;
+  degradation: NonceCoordinatorDegradation;
+  laneKey: string;
+  leaseId: string;
+};
+
+export type NonceLaneCoordinationReadResult =
+  | { ok: true; parsed: ParsedNonceLaneCoordinationRecord }
+  | NonceLaneCoordinationReadFailure;
+
 export type NonceLaneCoordinationStore = {
-  readLane(laneKey: string): Promise<NonceLaneCoordinationRecord[]>;
-  readAll(input?: { accountId?: string }): Promise<NonceLaneCoordinationRecord[]>;
+  readLane(laneKey: string): Promise<ParsedNonceLaneCoordinationRecord[]>;
+  readAll(input?: { accountId?: string }): Promise<ParsedNonceLaneCoordinationRecord[]>;
+  readAllForRecovery(input?: { accountId?: string }): Promise<NonceLaneCoordinationReadResult[]>;
   upsert(record: NonceLaneCoordinationRecord): Promise<void>;
   remove(input: { laneKey: string; leaseId: string }): Promise<void>;
   clearForAccount(accountId: string): Promise<void>;
