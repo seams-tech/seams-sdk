@@ -1073,6 +1073,37 @@ Expected result:
 - cold or depleted-pool signing remains close to current latency for that sign
 - refill makes subsequent signs return to the one-RTT path
 
+Recorded local smoke benchmark:
+
+Source: `docs/benchmarks/threshold-load.md`, generated
+`2026-06-03T05:06:38.283Z`, run id `20260603-050635Z`.
+
+| Path | Route shape | Sign p50 | Sign p95 | Mean sign | Throughput |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 2-RTT steady | `/authorize` + `/sign/init` + `/sign/finalize` | 10.56 ms | 17.82 ms | 12.04 ms | 235.76 signs/sec |
+| 1-RTT presign pool hit | `/sign/finalize-and-dispatch` | 10.27 ms | 14.91 ms | 10.93 ms | 260.19 signs/sec |
+| Depleted-pool fallback | `/authorize` + `/sign/init` + `/sign/finalize` | 10.73 ms | 18.70 ms | 12.39 ms | 230.72 signs/sec |
+
+Local result interpretation:
+
+- 1-RTT pool hit reduced p95 by `2.91 ms` (`16.3%`) and mean by
+  `1.11 ms` (`9.2%`) against the 2-RTT steady baseline.
+- 1-RTT pool hit reduced p95 by `3.79 ms` (`20.3%`) and mean by
+  `1.46 ms` (`11.8%`) against depleted-pool fallback.
+- Throughput improved by `10.4%` against the 2-RTT steady baseline and
+  `12.8%` against depleted-pool fallback.
+
+Deployed-latency expectation:
+
+- The localhost benchmark mostly measures route and process overhead. It does
+  not include meaningful client-to-relayer network RTT.
+- The product win is deleting one client-server-client leg from the signing
+  path. A defensible deployed estimate is roughly `50-150 ms` saved for users
+  near the edge/region, `150-300 ms` for normal cross-region paths, and
+  `300-500+ ms` for mobile, congested, or far-region paths.
+- Future deployed or latency-injected benchmarks should report this separately
+  from localhost route overhead.
+
 ## Todo
 
 - [x] Add boundary parsers and static fixtures for request/response, lifecycle,

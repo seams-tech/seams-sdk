@@ -15,8 +15,9 @@ turns that readiness into a concrete SDK shape:
 - remove browser IndexedDB assumptions from shared signing assembly;
 - add distinct web, iOS, and embedded facade boundaries;
 - keep wallet iframe routing out of native packages;
-- preserve the current `seams.sh` relying-party identity across web and iOS
-  passkeys through native Associated Domains.
+- record the production `seams.sh` relying-party identity across web and iOS
+  passkeys through native Associated Domains without hardcoding it into local
+  development defaults.
 
 The intent is a breaking cleanup. No `SeamsPasskey` compatibility alias, legacy
 flag, or dual facade should remain after the rename phase completes.
@@ -173,25 +174,44 @@ Use `SigningRuntime` for the platform-neutral composition root. It owns:
 
 ## RP ID And iOS Passkey Contract
 
-The current web wallet uses `seams.sh` as the relying-party identity. Native iOS
-must keep that same relying-party identifier for passkey interoperability with
-the web wallet.
+The production web wallet currently uses `seams.sh` as the relying-party
+identity. Native iOS must use that same relying-party identifier for production
+passkey interoperability with the web wallet, but the SDK must keep the current
+localhost RP IDs for local development defaults. `seams.sh` is a deployment
+contract, not a hardcoded SDK default.
 
 Facts to encode in implementation docs and tests:
 
 - iOS native passkeys use a domain string as the relying-party identifier.
 - The app must prove authority for that domain through the Associated Domains
   entitlement and an `apple-app-site-association` file.
-- The iOS app must use `webcredentials:seams.sh`.
+- The production iOS app must use `webcredentials:seams.sh`.
 - `https://seams.sh/.well-known/apple-app-site-association` must contain the
   app identifier under the `webcredentials` service.
 - The iOS `AuthenticatorPort` uses `ASAuthorizationPlatformPublicKeyCredentialProvider`
   with `relyingPartyIdentifier: "seams.sh"`.
 - The server verifies the same WebAuthn artifacts as the web path: challenge,
   credential id, signature, `rawClientDataJSON`, authenticator data, expected
-  origin policy, and `rpIdHash` for `seams.sh`.
+  origin policy, and `rpIdHash` for the configured RP ID.
 - A `WKWebView` or `ASWebAuthenticationSession` path is an integration fallback.
   Native `AuthenticationServices` is the SDK happy path.
+
+WebAuthn origin policy:
+
+- Every server route that verifies passkey assertions or registrations must pass
+  an expected origin or typed native-origin policy into the WebAuthn verifier.
+  Letting the verifier default to the origin contained in `clientDataJSON` is a
+  boundary gap for managed, wallet-origin, and native-sensitive flows.
+- Browser and wallet-iframe routes should use the normalized request origin or
+  the wallet-origin override already bound into the request.
+- Native iOS routes should use a typed `ios_associated_domain` policy that binds
+  the configured RP ID, Team ID, bundle ID, AASA app identifier, and expected
+  native `clientDataJSON.origin` shape. The first native adapter spike must
+  record the exact iOS origin string observed from `AuthenticationServices`
+  before enabling production native verification.
+- Route tests should fail if a passkey verifier call omits expected-origin or
+  native-origin policy in registration, add-signer, session exchange, threshold
+  ECDSA bootstrap, threshold Ed25519 session, and future native-auth routes.
 
 External references:
 
@@ -201,6 +221,8 @@ External references:
   https://developer.apple.com/documentation/Xcode/supporting-associated-domains
 - Apple passkey sample:
   https://developer.apple.com/documentation/authenticationservices/connecting_to_a_service_with_passkeys
+- WebAuthn RP ID and mobile app association:
+  https://web.dev/articles/webauthn-rp-id
 - WebAuthn Permissions Policy and RP ID rules:
   https://w3c.github.io/webauthn/
 
@@ -271,7 +293,7 @@ Use this layout unless a phase updates this table first.
 | Platform-neutral runtime | `client/src/core/runtime/` |
 | Runtime assembly entry | `client/src/core/runtime/createSigningRuntime.ts` |
 | Runtime dependency types | `client/src/core/runtime/types.ts` |
-| Browser runtime assembly | `client/src/core/runtime/browser/createBrowserSigningRuntime.ts` |
+| Browser runtime assembly | `client/src/web/SeamsWeb/assembly/createBrowserSigningRuntime.ts` |
 | Runtime config types | `client/src/core/runtime/config.ts` |
 | Web config types | `client/src/web/SeamsWeb/config.ts` |
 | Platform ports | `client/src/core/platform/ports.ts` |
@@ -318,14 +340,18 @@ Tasks:
   assembly.
 - [ ] Add a guard that rejects `client/src/core/WalletIframe/**` imports from
   future native or embedded package roots.
+- [ ] Use the existing source-guard allow-list pattern for expected current
+  violations: every allow-list row must include an owner and reason, and the
+  inventory must record the owner phase and deletion trigger.
 
 Acceptance:
 
 - Inventory exists and includes all known current coupling points.
 - Inventory identifies which cleanups are deletion-only, rename-only, or
   behavior-preserving extraction work.
-- New guards fail against the current tree when run in strict mode or are staged
-  with explicit TODO owner rows until the corresponding phase.
+- New guards fail for unlisted violations. Expected current violations are
+  listed with owner and reason fields, and the inventory records their owner
+  phase and deletion trigger.
 
 Validation:
 
@@ -349,6 +375,11 @@ Tasks:
 - [ ] Rename `SeamsPasskeyIframe` to `SeamsWebIframe`.
 - [ ] Update `client/src/index.ts`, `client/src/react/index.ts`, `sdk/package.json`
   export descriptions, docs, README snippets, tests, and error prefixes.
+- [ ] Move `sdk/package.json` `./react/provider` to `SeamsWebProvider` in this
+  phase because package consumers hit this export immediately after the rename.
+- [ ] Delete stale `sdk/package.json` `./components/modal` and
+  `./components/embedded` WebAuthn manager exports unless current web-owned
+  component paths replace them.
 - [ ] Delete all compatibility aliases and old symbol re-exports.
 - [ ] Delete passkey-manager naming in comments, provider examples, type names, and
   package descriptions unless the text refers to passkey authentication as a
@@ -385,7 +416,6 @@ Target contract:
 type SigningRuntimeDeps = {
   platformRuntime: PlatformRuntime;
   relayers: SigningRuntimeRelayerClients;
-  stores: SigningRuntimeStores;
   ui: SigningRuntimeUiPorts;
   config: SigningRuntimeConfig;
 };
@@ -396,6 +426,10 @@ function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime;
 Rules:
 
 - `SigningRuntime` receives `PlatformRuntime`.
+- `PlatformRuntime.storage` is the only low-level durable storage entrypoint on
+  the runtime dependency aggregate. Domain-specific store adapters may be built
+  in platform/web assembly and passed through named service dependencies, but
+  `SigningRuntimeDeps` must not contain a second generic `stores` bag.
 - Browser code calls `createBrowserPlatformRuntime(...)` only in browser
   assembly.
 - Use-case services receive only narrow dependencies.
@@ -417,9 +451,9 @@ Tasks:
   services, such as registration, auth/session, near signing, EVM-family
   signing, recovery/export, preferences, and diagnostics.
 - [ ] Move `createBrowserPlatformRuntime(...)` construction into
-  `createBrowserSigningRuntime(...)`.
-- [ ] Move in-memory ECDSA session/export artifact maps into runtime stores or
-  explicit runtime state ports.
+  `client/src/web/SeamsWeb/assembly/createBrowserSigningRuntime.ts`.
+- [ ] Move in-memory ECDSA session/export artifact maps into explicit runtime
+  state ports.
 - [ ] Delete `SigningEngine` public methods as soon as an equivalent runtime service
   owns the operation.
 
@@ -457,7 +491,7 @@ Tasks:
   receive store ports instead of deriving IndexedDB from `PlatformRuntime`.
 - [ ] Convert sealed-session, nonce, user-preference, registration, and recovery
   storage dependencies into typed ports as each path is touched.
-- [ ] Define `SigningRuntimeStores` with required branch-specific ports for:
+- [ ] Define domain store port groups with required branch-specific ports for:
   - [ ] wallet profile and signer records;
   - [ ] ECDSA role-local ready records;
   - [ ] sealed signing-session records;
@@ -528,7 +562,7 @@ Validation:
 Goals:
 
 - make the iOS platform path explicit without shipping a full iOS SDK yet;
-- record how `seams.sh` passkeys are shared between web and iOS.
+- record how production `seams.sh` passkeys are shared between web and iOS.
 
 Tasks:
 
@@ -543,8 +577,13 @@ Tasks:
   - [ ] native signer-core binding requirements.
 - [ ] Add `refactor51bRpIdContract.unit.test.ts` for config/domain constants that
   must stay stable in the repo.
-- [ ] Add server-side verification notes for expected iOS/native origins if current
-  WebAuthn verification distinguishes browser origins from native app origins.
+- [ ] Add server-side verification notes for expected browser and iOS/native
+  origins, including the route-level requirement to pass expected-origin or
+  native-origin policy into every WebAuthn verification call.
+- [ ] Add route tests that fail when passkey verifier calls omit expected-origin
+  or native-origin policy for registration, add-signer, session exchange,
+  threshold ECDSA bootstrap, threshold Ed25519 session, and future native-auth
+  routes.
 - [ ] Add a native replay fixture task for every signer-core command the iOS adapter
   will call.
 
@@ -552,10 +591,13 @@ Acceptance:
 
 - The plan for iOS passkey interoperability is implementable without a web
   iframe.
-- `seams.sh` is the documented canonical RP ID for web/iOS interop unless a
-  future plan explicitly changes it.
+- `seams.sh` is the documented production RP ID for web/iOS interop unless a
+  future plan explicitly changes it, while local defaults keep the current
+  localhost RP IDs.
 - iOS unsupported PRF behavior returns a typed failure before signer-core sees an
   invalid secret source.
+- Server verification docs and tests require an expected-origin or native-origin
+  policy for every passkey verification route.
 
 Validation:
 
@@ -610,6 +652,9 @@ Tasks:
     dependencies.
   - [ ] reserve future `./ios` and `./embedded` entries for packages or generated
     bindings that do not bundle browser code.
+- [ ] Move or delete the direct `./WalletIframe/client/html` export during Phase
+  4. If it remains public for web hosts, rename it under a web-owned export path
+  and guard it from platform-neutral, iOS, and embedded roots.
 - [ ] Update type declarations and build checks to prevent native packages from
   pulling browser chunks.
 - [ ] Add bundle inspection tests for native-target package entries once they exist.
@@ -691,6 +736,8 @@ Add or update guards for:
 - no `getBrowserPlatformIndexedDB(...)` outside browser assembly;
 - no `WalletIframeRouter` in iOS or embedded files;
 - no `WKWebView` as the primary iOS authenticator implementation;
+- no passkey verifier route call without expected-origin or typed native-origin
+  policy after Phase 5;
 - no `SigningEngine` public wrapper after Phase 8;
 - no `client/src/core/platform/types.ts` implementation body after Phase 8 if it
   has become a barrel export;
@@ -720,13 +767,15 @@ Before merging any phase:
   groups with clear ownership?
 - Are any auth, identity, session, signing, restore, export, or lifecycle fields
   optional in core contracts?
-- Do iOS passkey paths use `seams.sh` as a domain RP ID through Associated
-  Domains?
+- Do production iOS passkey paths use the configured `seams.sh` domain RP ID
+  through Associated Domains while local development keeps localhost defaults?
 - Does native PRF or secure-secret behavior normalize once at the platform
   boundary?
 - Are unsupported platform capabilities typed failures?
 - Do conformance tests cover each port touched by the phase?
 - Are stale `SeamsPasskey` docs, tests, comments, and errors deleted?
+- Do guard allow-list entries include owner and reason fields, and did the phase
+  remove entries that became obsolete?
 
 ## Final Target State
 
@@ -742,8 +791,8 @@ Before merging any phase:
 - Package exports expose web, React, server, and platform-neutral roots with
   clear boundaries.
 - Browser direct mode and wallet iframe mode remain fully supported.
-- iOS uses native `AuthenticationServices` with `seams.sh` as the RP ID through
-  Associated Domains.
+- Production iOS uses native `AuthenticationServices` with `seams.sh` as the RP
+  ID through Associated Domains, while local development keeps localhost RP IDs.
 - Embedded uses Rust/native platform capabilities and never handles iframe
   abstractions.
 - The source guards make these boundaries mechanically enforceable.
