@@ -120,6 +120,7 @@ import {
   withThresholdEd25519CommitQueue,
   type ThresholdEd25519CommitQueueByKey,
 } from './threshold/ed25519/commitQueue';
+import { clearAllThresholdEd25519ClientPresigns } from './threshold/ed25519/presignPool';
 import * as recoveryPublic from './flows/recovery/public';
 import type {
   RecoveryPublicDeps,
@@ -1297,6 +1298,7 @@ export class SigningEngine {
 
   clearAllThresholdEcdsaSessionRecords(): void {
     sessionPublic.clearAllThresholdEcdsaSessionRecords(this.sessionPublicDeps);
+    clearAllThresholdEd25519ClientPresigns();
   }
 
   persistThresholdEcdsaBootstrapForWalletTarget(args: {
@@ -1514,6 +1516,7 @@ export class SigningEngine {
     this.nonceCoordinator.clearAll();
     clearThresholdEcdsaCommitQueue(this.thresholdEcdsaCommitQueueByKey);
     clearThresholdEd25519CommitQueue(this.thresholdEd25519CommitQueueByKey);
+    clearAllThresholdEd25519ClientPresigns();
     sessionPublic.clearAllThresholdEcdsaSessionRecords(this.sessionPublicDeps);
   }
 }

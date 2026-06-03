@@ -26,7 +26,10 @@ import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '../../../core/Threshold
 import {
   parseAppSessionClaims,
   parseThresholdEcdsaSessionClaims,
+  parseThresholdEd25519FinalizeAndDispatchRequest,
+  parseThresholdEd25519PresignRefillRequest,
 } from '../../../core/ThresholdService/validation';
+import { resolveRequestOriginRateLimitKeyFromFetchHeaders } from '../../relayApiKeyAuth';
 
 function isEmailOtpRegistrationHssRequest(body: Record<string, unknown>): boolean {
   return (
@@ -56,7 +59,11 @@ async function resolveEmailOtpRegistrationHssAuth(args: {
   if (!parsed.ok) return { ok: false, code: 'unauthorized', message: 'Missing app session' };
   const appSessionClaims = parseAppSessionClaims(parsed.claims);
   if (!appSessionClaims) {
-    return { ok: false, code: 'unauthorized', message: 'Email OTP registration requires app session auth' };
+    return {
+      ok: false,
+      code: 'unauthorized',
+      message: 'Email OTP registration requires app session auth',
+    };
   }
   if (appSessionClaims.exp !== undefined && appSessionClaims.exp * 1000 <= Date.now()) {
     return { ok: false, code: 'unauthorized', message: 'App session is expired' };
@@ -153,8 +160,10 @@ export async function handleThresholdEd25519(
     pathname !== '/threshold-ed25519/hss/prepare' &&
     pathname !== '/threshold-ed25519/hss/finalize' &&
     pathname !== '/threshold-ed25519/hss/respond' &&
+    pathname !== '/threshold-ed25519/presign/refill' &&
     pathname !== '/threshold-ed25519/sign/init' &&
     pathname !== '/threshold-ed25519/sign/finalize' &&
+    pathname !== '/threshold-ed25519/sign/finalize-and-dispatch' &&
     pathname !== '/threshold-ed25519/internal/cosign/init' &&
     pathname !== '/threshold-ed25519/internal/cosign/finalize'
   ) {
@@ -251,7 +260,7 @@ export async function handleThresholdEd25519(
         route: pathname,
         status,
         ok: result.ok,
-        ...(result.code ? { code: result.code } : {}),
+        ...('code' in result && result.code ? { code: result.code } : {}),
       });
       if (!result.ok) return json(result, { status });
 
@@ -466,7 +475,8 @@ export async function handleThresholdEd25519(
           orgId: auth.runtimePolicyScope.orgId,
           request: b as any,
         });
-        if (!finalized.ok) return json(finalized, { status: thresholdEd25519StatusCode(finalized) });
+        if (!finalized.ok)
+          return json(finalized, { status: thresholdEd25519StatusCode(finalized) });
         const nearAccountId = String(b.new_account_id || '').trim();
         const rpId = String(b.rp_id || '').trim();
         const publicKey = String(finalized.publicKey || '').trim();
@@ -623,7 +633,41 @@ export async function handleThresholdEd25519(
         route: pathname,
         status: thresholdEd25519StatusCode(result),
         ok: result.ok,
-        ...(result.code ? { code: result.code } : {}),
+        ...('code' in result && result.code ? { code: result.code } : {}),
+      });
+      return json(result, { status: thresholdEd25519StatusCode(result) });
+    }
+    case '/threshold-ed25519/presign/refill': {
+      const b = (body || {}) as Record<string, unknown>;
+      ctx.logger.info('[threshold-ed25519] request', {
+        route: pathname,
+        method: ctx.method,
+        relayerKeyId: typeof b.relayerKeyId === 'string' ? b.relayerKeyId : undefined,
+        nearAccountId: typeof b.nearAccountId === 'string' ? b.nearAccountId : undefined,
+        nearNetworkId: typeof b.nearNetworkId === 'string' ? b.nearNetworkId : undefined,
+        clientPresignCount: Array.isArray(b.clientPresigns) ? b.clientPresigns.length : undefined,
+        requestTag: typeof b.requestTag === 'string' ? b.requestTag : undefined,
+      });
+      const validated = await validateThresholdEd25519SessionTokenInputs({
+        body,
+        headers: Object.fromEntries(ctx.request.headers.entries()),
+        session: ctx.opts.session,
+      });
+      if (!validated.ok) return json(validated, { status: thresholdEd25519StatusCode(validated) });
+      const parsed = parseThresholdEd25519PresignRefillRequest(validated.body);
+      if (!parsed.ok) return json(parsed, { status: thresholdEd25519StatusCode(parsed) });
+      const result = await ed25519.presign.refill({
+        claims: validated.claims,
+        request: parsed.value,
+        requestOriginRateLimitKey: resolveRequestOriginRateLimitKeyFromFetchHeaders(
+          ctx.request.headers,
+        ),
+      });
+      ctx.logger.info('[threshold-ed25519] response', {
+        route: pathname,
+        status: thresholdEd25519StatusCode(result),
+        ok: result.ok,
+        ...('code' in result && result.code ? { code: result.code } : {}),
       });
       return json(result, { status: thresholdEd25519StatusCode(result) });
     }
@@ -644,6 +688,54 @@ export async function handleThresholdEd25519(
         status: thresholdEd25519StatusCode(result),
         ok: result.ok,
         ...(result.code ? { code: result.code } : {}),
+      });
+      return json(result, { status: thresholdEd25519StatusCode(result) });
+    }
+    case '/threshold-ed25519/sign/finalize-and-dispatch': {
+      const b = (body || {}) as Record<string, unknown>;
+      const operation =
+        b.operation && typeof b.operation === 'object' && !Array.isArray(b.operation)
+          ? (b.operation as Record<string, unknown>)
+          : {};
+      const intent =
+        b.intent && typeof b.intent === 'object' && !Array.isArray(b.intent)
+          ? (b.intent as Record<string, unknown>)
+          : {};
+      ctx.logger.info('[threshold-ed25519] request', {
+        route: pathname,
+        method: ctx.method,
+        kind: typeof b.kind === 'string' ? b.kind : undefined,
+        operationId: typeof operation.operationId === 'string' ? operation.operationId : undefined,
+        presignId: typeof b.presignId === 'string' ? b.presignId : undefined,
+        relayerKeyId: typeof b.relayerKeyId === 'string' ? b.relayerKeyId : undefined,
+        nearAccountId: typeof b.nearAccountId === 'string' ? b.nearAccountId : undefined,
+        nearNetworkId: typeof b.nearNetworkId === 'string' ? b.nearNetworkId : undefined,
+        intentKind: typeof intent.kind === 'string' ? intent.kind : undefined,
+        transactionCount: Array.isArray(b.transactions) ? b.transactions.length : undefined,
+        signingDigestB64u_len:
+          typeof b.signingDigestB64u === 'string' ? b.signingDigestB64u.length : undefined,
+        clientSignatureShareB64u_len:
+          typeof b.clientSignatureShareB64u === 'string'
+            ? b.clientSignatureShareB64u.length
+            : undefined,
+      });
+      const validated = await validateThresholdEd25519SessionTokenInputs({
+        body,
+        headers: Object.fromEntries(ctx.request.headers.entries()),
+        session: ctx.opts.session,
+      });
+      if (!validated.ok) return json(validated, { status: thresholdEd25519StatusCode(validated) });
+      const parsed = parseThresholdEd25519FinalizeAndDispatchRequest(validated.body);
+      if (!parsed.ok) return json(parsed, { status: thresholdEd25519StatusCode(parsed) });
+      const result = await ed25519.presign.finalizeAndDispatch({
+        claims: validated.claims,
+        request: parsed.value,
+      });
+      ctx.logger.info('[threshold-ed25519] response', {
+        route: pathname,
+        status: thresholdEd25519StatusCode(result),
+        ok: result.ok,
+        ...('code' in result && result.code ? { code: result.code } : {}),
       });
       return json(result, { status: thresholdEd25519StatusCode(result) });
     }

@@ -5,12 +5,16 @@ This module runs actor-based threshold load scenarios against the active path.
 Current scope:
 
 - threshold-ed25519 warm-session local 2-party signing
+- threshold-ed25519 presign pool hit, depleted-pool fallback, refill,
+  refill-pressure, concurrent-finalize, and duplicate-consume pressure smoke paths
 - named smoke, medium, and scale scenario groups for the active local path
 - real relay routes:
   - `/threshold-ed25519/session`
   - `/threshold-ed25519/authorize`
   - `/threshold-ed25519/sign/init`
   - `/threshold-ed25519/sign/finalize`
+  - `/threshold-ed25519/presign/refill`
+  - `/threshold-ed25519/sign/finalize-and-dispatch`
 - machine-readable and markdown summaries per run
 
 Current non-goals:
@@ -55,6 +59,12 @@ Each scenario supports an override environment variable.
 
 - `BENCH_CMD_ED25519_LOCAL_STEADY_SMOKE`
 - `BENCH_CMD_ED25519_LOCAL_BURST_SMOKE`
+- `BENCH_CMD_ED25519_LOCAL_PRESIGN_POOL_HIT_SMOKE`
+- `BENCH_CMD_ED25519_LOCAL_PRESIGN_POOL_MISS_SMOKE`
+- `BENCH_CMD_ED25519_LOCAL_PRESIGN_REFILL_SMOKE`
+- `BENCH_CMD_ED25519_LOCAL_PRESIGN_REFILL_PRESSURE_SMOKE`
+- `BENCH_CMD_ED25519_LOCAL_PRESIGN_CONCURRENT_FINALIZE_SMOKE`
+- `BENCH_CMD_ED25519_LOCAL_PRESIGN_DOUBLE_CONSUME_SMOKE`
 - `BENCH_CMD_ED25519_LOCAL_STEADY_50`
 - `BENCH_CMD_ED25519_LOCAL_BURST_50`
 - `BENCH_CMD_ED25519_LOCAL_STEADY_100`

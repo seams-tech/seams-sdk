@@ -16,6 +16,54 @@ export const SCENARIOS = [
       'pnpm exec tsx --tsconfig ./client/tsconfig.json ./benchmarks/threshold-load/src/scenario-harness.ts --scenario ed25519_local_burst --wallets 8 --signs-per-wallet 1 --max-concurrency 8 --profile burst',
   },
   {
+    id: 'ed25519_local_presign_pool_hit_smoke',
+    description: 'Threshold Ed25519 local presign pool-hit finalize-and-dispatch smoke profile',
+    groups: ['ed25519', 'smoke', 'presign'],
+    commandEnv: 'BENCH_CMD_ED25519_LOCAL_PRESIGN_POOL_HIT_SMOKE',
+    defaultCommand:
+      'pnpm exec tsx --tsconfig ./client/tsconfig.json ./benchmarks/threshold-load/src/scenario-harness.ts --scenario ed25519_local_presign_pool_hit --wallets 6 --signs-per-wallet 2 --max-concurrency 3 --profile steady',
+  },
+  {
+    id: 'ed25519_local_presign_pool_miss_smoke',
+    description: 'Threshold Ed25519 local depleted-pool two-RTT fallback smoke profile',
+    groups: ['ed25519', 'smoke', 'presign'],
+    commandEnv: 'BENCH_CMD_ED25519_LOCAL_PRESIGN_POOL_MISS_SMOKE',
+    defaultCommand:
+      'pnpm exec tsx --tsconfig ./client/tsconfig.json ./benchmarks/threshold-load/src/scenario-harness.ts --scenario ed25519_local_presign_pool_miss --wallets 6 --signs-per-wallet 2 --max-concurrency 3 --profile steady',
+  },
+  {
+    id: 'ed25519_local_presign_refill_smoke',
+    description: 'Threshold Ed25519 local presign refill smoke profile',
+    groups: ['ed25519', 'smoke', 'presign'],
+    commandEnv: 'BENCH_CMD_ED25519_LOCAL_PRESIGN_REFILL_SMOKE',
+    defaultCommand:
+      'pnpm exec tsx --tsconfig ./client/tsconfig.json ./benchmarks/threshold-load/src/scenario-harness.ts --scenario ed25519_local_presign_refill --wallets 6 --signs-per-wallet 2 --max-concurrency 3 --profile steady',
+  },
+  {
+    id: 'ed25519_local_presign_refill_pressure_smoke',
+    description: 'Threshold Ed25519 local authenticated presign refill pressure smoke profile',
+    groups: ['ed25519', 'smoke', 'presign', 'pressure'],
+    commandEnv: 'BENCH_CMD_ED25519_LOCAL_PRESIGN_REFILL_PRESSURE_SMOKE',
+    defaultCommand:
+      'pnpm exec tsx --tsconfig ./client/tsconfig.json ./benchmarks/threshold-load/src/scenario-harness.ts --scenario ed25519_local_presign_refill_pressure --wallets 8 --signs-per-wallet 3 --max-concurrency 12 --profile steady',
+  },
+  {
+    id: 'ed25519_local_presign_concurrent_finalize_smoke',
+    description: 'Threshold Ed25519 local presign concurrent finalize pressure smoke profile',
+    groups: ['ed25519', 'smoke', 'presign', 'pressure'],
+    commandEnv: 'BENCH_CMD_ED25519_LOCAL_PRESIGN_CONCURRENT_FINALIZE_SMOKE',
+    defaultCommand:
+      'pnpm exec tsx --tsconfig ./client/tsconfig.json ./benchmarks/threshold-load/src/scenario-harness.ts --scenario ed25519_local_presign_concurrent_finalize --wallets 8 --signs-per-wallet 2 --max-concurrency 16 --profile steady',
+  },
+  {
+    id: 'ed25519_local_presign_double_consume_smoke',
+    description: 'Threshold Ed25519 local presign serverless double-consume pressure smoke profile',
+    groups: ['ed25519', 'smoke', 'presign'],
+    commandEnv: 'BENCH_CMD_ED25519_LOCAL_PRESIGN_DOUBLE_CONSUME_SMOKE',
+    defaultCommand:
+      'pnpm exec tsx --tsconfig ./client/tsconfig.json ./benchmarks/threshold-load/src/scenario-harness.ts --scenario ed25519_local_presign_double_consume --wallets 4 --signs-per-wallet 1 --max-concurrency 4 --profile steady',
+  },
+  {
     id: 'ed25519_local_steady_50',
     description: 'Threshold Ed25519 local warm-session medium steady-state profile (50 wallets)',
     groups: ['ed25519', 'medium'],

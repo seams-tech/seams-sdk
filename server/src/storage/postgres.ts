@@ -687,8 +687,17 @@ export async function ensurePostgresSchema(input: {
         expires_at_ms BIGINT NOT NULL,
         remaining_uses INTEGER,
         PRIMARY KEY (namespace, kind, session_id),
-        CHECK (kind IN ('mpc', 'signing', 'coordinator', 'auth'))
+        CHECK (kind IN ('mpc', 'signing', 'coordinator', 'auth', 'presign', 'presign_rate'))
       )
+    `);
+    await pool.query(`
+      ALTER TABLE threshold_ed25519_sessions
+      DROP CONSTRAINT IF EXISTS threshold_ed25519_sessions_kind_check
+    `);
+    await pool.query(`
+      ALTER TABLE threshold_ed25519_sessions
+      ADD CONSTRAINT threshold_ed25519_sessions_kind_check
+      CHECK (kind IN ('mpc', 'signing', 'coordinator', 'auth', 'presign', 'presign_rate'))
     `);
     await pool.query(`
       CREATE INDEX IF NOT EXISTS threshold_ed25519_sessions_expires_idx

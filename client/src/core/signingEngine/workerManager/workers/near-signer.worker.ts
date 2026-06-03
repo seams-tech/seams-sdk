@@ -34,14 +34,23 @@
  */
 
 import {
+  NearSignerWorkerCustomRequestType,
   type SignerWorkerRequestType,
   WasmRequestPayload,
 } from '@/core/types/signer-worker';
 // Import WASM binary directly
 import init, {
   handle_signer_message,
+  threshold_ed25519_client_presign_create,
+  threshold_ed25519_client_presign_sign,
+  threshold_ed25519_build_near_tx_unsigned_borsh,
+  threshold_ed25519_compute_delegate_signing_digest,
+  threshold_ed25519_compute_nep413_signing_digest,
+  threshold_ed25519_decode_signed_near_tx_borsh,
+  threshold_ed25519_finalize_delegate_from_signature,
 } from '../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
+import { base64UrlEncode } from '@shared/utils/encoders';
 import { errorMessage } from '@shared/utils/errors';
 import { WorkerControlMessage } from '../workerTypes';
 
@@ -62,6 +71,7 @@ const wasmUrl = resolveWasmUrl('wasm_signer_worker_bg.wasm', 'Signer Worker');
 let wasmInitPromise: Promise<void> | null = null;
 let messageQueue: Promise<void> = Promise.resolve();
 let activeRequestId: string | null = null;
+const thresholdEd25519ClientPresignNonceByHandle = new Map<string, string>();
 
 /**
  * Function called by WASM to send progress messages
@@ -175,11 +185,14 @@ async function processWorkerMessage(event: MessageEvent): Promise<void> {
 
   try {
     const startedAt = Date.now();
-    const requestType = Number((event.data as { type?: unknown })?.type);
+    const requestType = (event.data as { type?: unknown })?.type;
     // Guardrail: raw PRF fields must never traverse into signer payloads
     assertNoPrfSecretsInSignerPayload(event.data);
     await initializeWasm();
-    const response = await handle_signer_message(event.data);
+    const response =
+      typeof requestType === 'string'
+        ? handleCustomNearSignerRequest(requestType, (event.data as { payload?: unknown }).payload)
+        : await handle_signer_message(event.data);
     self.postMessage({
       id: requestId,
       ok: true,
@@ -206,7 +219,7 @@ async function processWorkerMessage(event: MessageEvent): Promise<void> {
 type SignerWorkerRpcRequest = {
   id: string;
   type: SignerWorkerRequestType;
-  payload: WasmRequestPayload;
+  payload: WasmRequestPayload | unknown;
 };
 
 self.onmessage = async (event: MessageEvent<SignerWorkerRpcRequest>): Promise<void> => {
@@ -217,8 +230,8 @@ self.onmessage = async (event: MessageEvent<SignerWorkerRpcRequest>): Promise<vo
   }
   const eventType = event.data?.type;
 
-  if (typeof eventType !== 'number') {
-    console.warn('[signer-worker]: Ignoring message with invalid non-numeric type:', eventType);
+  if (typeof eventType !== 'number' && typeof eventType !== 'string') {
+    console.warn('[signer-worker]: Ignoring message with invalid type:', eventType);
     return;
   }
 
@@ -227,6 +240,174 @@ self.onmessage = async (event: MessageEvent<SignerWorkerRpcRequest>): Promise<vo
   messageQueue = messageQueue.catch(() => undefined).then(() => processWorkerMessage(event));
   await messageQueue;
 };
+
+function handleCustomNearSignerRequest(type: string, payload: unknown): unknown {
+  switch (type) {
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignCreate:
+      return createOpaqueClientPresignHandle(threshold_ed25519_client_presign_create(payload));
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignSign:
+      return signWithOpaqueClientPresignHandle(payload);
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignBurn:
+      return burnOpaqueClientPresignHandle(payload);
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519ComputeNep413SigningDigest:
+      return {
+        signingDigestB64u: base64UrlEncode(
+          threshold_ed25519_compute_nep413_signing_digest(payload),
+        ),
+      };
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519ComputeDelegateSigningDigest:
+      return {
+        signingDigestB64u: base64UrlEncode(
+          threshold_ed25519_compute_delegate_signing_digest(payload),
+        ),
+      };
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519FinalizeDelegateFromSignature:
+      return requireSignedDelegateOutput(
+        threshold_ed25519_finalize_delegate_from_signature(payload),
+      );
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519BuildNearTxUnsignedBorsh:
+      return requireNearTxUnsignedBorshOutput(
+        threshold_ed25519_build_near_tx_unsigned_borsh(payload),
+      );
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519DecodeSignedNearTxBorsh:
+      return requireSignedNearTxOutput(threshold_ed25519_decode_signed_near_tx_borsh(payload));
+    default:
+      throw new Error(`Unsupported near signer custom request type: ${type}`);
+  }
+}
+
+function createOpaqueClientPresignHandle(output: unknown): {
+  clientNonceHandleB64u: string;
+  clientVerifyingShareB64u: string;
+  clientCommitments: { hiding: string; binding: string };
+} {
+  const parsed = requireClientPresignCreateOutput(output);
+  const handle = createOpaquePresignHandle();
+  thresholdEd25519ClientPresignNonceByHandle.set(handle, parsed.clientNonceHandleB64u);
+  return {
+    ...parsed,
+    clientNonceHandleB64u: handle,
+  };
+}
+
+function signWithOpaqueClientPresignHandle(payload: unknown): { clientSignatureShareB64u: string } {
+  const parsed = payload as { clientNonceHandleB64u?: unknown };
+  const handle = String(parsed?.clientNonceHandleB64u || '').trim();
+  const nonceBytesB64u = thresholdEd25519ClientPresignNonceByHandle.get(handle);
+  if (!handle || !nonceBytesB64u) {
+    throw new Error('threshold-ed25519 client presign handle is not available');
+  }
+  thresholdEd25519ClientPresignNonceByHandle.delete(handle);
+  return requireClientPresignSignOutput(
+    threshold_ed25519_client_presign_sign({
+      ...(payload as Record<string, unknown>),
+      clientNonceHandleB64u: nonceBytesB64u,
+    }),
+  );
+}
+
+function burnOpaqueClientPresignHandle(payload: unknown): { burned: true } {
+  const parsed = payload as { clientNonceHandleB64u?: unknown };
+  const handle = String(parsed?.clientNonceHandleB64u || '').trim();
+  if (handle) {
+    thresholdEd25519ClientPresignNonceByHandle.delete(handle);
+  }
+  return { burned: true };
+}
+
+function createOpaquePresignHandle(): string {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi && typeof cryptoApi.randomUUID === 'function') {
+    return `ed25519-client-presign:${cryptoApi.randomUUID()}`;
+  }
+  if (!cryptoApi || typeof cryptoApi.getRandomValues !== 'function') {
+    throw new Error('secure randomness is unavailable for threshold-ed25519 presign handle');
+  }
+  const bytes = new Uint8Array(16);
+  cryptoApi.getRandomValues(bytes);
+  return `ed25519-client-presign:${base64UrlEncode(bytes)}`;
+}
+
+function requireClientPresignCreateOutput(output: unknown): {
+  clientNonceHandleB64u: string;
+  clientVerifyingShareB64u: string;
+  clientCommitments: { hiding: string; binding: string };
+} {
+  const parsed = output as {
+    clientNonceHandleB64u?: unknown;
+    clientVerifyingShareB64u?: unknown;
+    clientCommitments?: { hiding?: unknown; binding?: unknown };
+  };
+  const clientNonceHandleB64u = String(parsed?.clientNonceHandleB64u || '').trim();
+  const clientVerifyingShareB64u = String(parsed?.clientVerifyingShareB64u || '').trim();
+  const hiding = String(parsed?.clientCommitments?.hiding || '').trim();
+  const binding = String(parsed?.clientCommitments?.binding || '').trim();
+  if (!clientNonceHandleB64u || !clientVerifyingShareB64u || !hiding || !binding) {
+    throw new Error('threshold_ed25519_client_presign_create returned invalid output');
+  }
+  return {
+    clientNonceHandleB64u,
+    clientVerifyingShareB64u,
+    clientCommitments: { hiding, binding },
+  };
+}
+
+function requireClientPresignSignOutput(output: unknown): { clientSignatureShareB64u: string } {
+  const clientSignatureShareB64u = String(
+    (output as { clientSignatureShareB64u?: unknown })?.clientSignatureShareB64u || '',
+  ).trim();
+  if (!clientSignatureShareB64u) {
+    throw new Error('threshold_ed25519_client_presign_sign returned invalid output');
+  }
+  return { clientSignatureShareB64u };
+}
+
+function requireSignedDelegateOutput(output: unknown): unknown {
+  const parsed = output as { delegateAction?: unknown; signature?: unknown; borshBytes?: unknown };
+  if (!parsed?.delegateAction || !parsed.signature || !parsed.borshBytes) {
+    throw new Error('threshold_ed25519_finalize_delegate_from_signature returned invalid output');
+  }
+  return output;
+}
+
+function requireNearTxUnsignedBorshOutput(output: unknown): {
+  unsignedTransactionBorshB64u: string;
+  signingDigestB64u: string;
+}[] {
+  if (!Array.isArray(output)) {
+    throw new Error('threshold_ed25519_build_near_tx_unsigned_borsh returned invalid output');
+  }
+  return output.map((item) => {
+    const parsed = item as {
+      unsignedTransactionBorshB64u?: unknown;
+      signingDigestB64u?: unknown;
+    };
+    const unsignedTransactionBorshB64u = String(
+      parsed?.unsignedTransactionBorshB64u || '',
+    ).trim();
+    const signingDigestB64u = String(parsed?.signingDigestB64u || '').trim();
+    if (!unsignedTransactionBorshB64u || !signingDigestB64u) {
+      throw new Error('threshold_ed25519_build_near_tx_unsigned_borsh returned invalid item');
+    }
+    return { unsignedTransactionBorshB64u, signingDigestB64u };
+  });
+}
+
+function requireSignedNearTxOutput(output: unknown): unknown {
+  const parsed = output as {
+    signedTransaction?: { transaction?: unknown; signature?: unknown; borshBytes?: unknown };
+    transactionHash?: unknown;
+  };
+  if (
+    !parsed?.signedTransaction?.transaction ||
+    !parsed.signedTransaction.signature ||
+    !parsed.signedTransaction.borshBytes ||
+    !String(parsed.transactionHash || '').trim()
+  ) {
+    throw new Error('threshold_ed25519_decode_signed_near_tx_borsh returned invalid output');
+  }
+  return output;
+}
 
 function assertNoPrfSecretsInSignerPayload(data: unknown): void {
   const payload =

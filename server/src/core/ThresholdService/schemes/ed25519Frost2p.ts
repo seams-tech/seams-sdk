@@ -23,6 +23,7 @@ export type ThresholdEd25519Frost2pSchemeModuleDeps = {
     request: ThresholdEd25519AuthorizeWithSessionRequest;
   }): Promise<ThresholdEd25519AuthorizeResponse>;
   protocol: ThresholdEd25519Frost2pSchemeModule['protocol'];
+  presign: ThresholdEd25519Frost2pSchemeModule['presign'];
 };
 
 export function createThresholdEd25519Frost2pSchemeModule(
@@ -36,6 +37,7 @@ export function createThresholdEd25519Frost2pSchemeModule(
     },
     session: deps.session,
     authorize: deps.authorize,
+    presign: deps.presign,
     protocol: deps.protocol,
   };
 }

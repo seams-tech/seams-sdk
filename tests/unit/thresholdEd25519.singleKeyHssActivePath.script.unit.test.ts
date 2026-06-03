@@ -19,7 +19,17 @@ import {
   upsertStoredThresholdEd25519SessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
 import { ActionType, type TransactionInputWasm } from '@/core/types/actions';
-import { WorkerRequestType, WorkerResponseType } from '@/core/types/signer-worker';
+import {
+  NearSignerWorkerCustomRequestType,
+  type PrepareThresholdEd25519PresignPoolPayload,
+  WorkerRequestType,
+  WorkerResponseType,
+} from '@/core/types/signer-worker';
+import {
+  applyThresholdEd25519PresignRefillResult,
+  clearAllThresholdEd25519ClientPresigns,
+  scheduleThresholdEd25519ClientPresignPoolRefill,
+} from '@/core/signingEngine/threshold/ed25519/presignPool';
 import {
   buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm,
   deriveThresholdEd25519HssClientInputsWasm,
@@ -457,6 +467,67 @@ function seedThresholdEd25519Session(args?: { xClientBaseB64u?: string }): void 
   });
 }
 
+function seedReadyThresholdEd25519ClientPresign(publicKey: string): void {
+  const expiresAtMs = Date.now() + 60_000;
+  const payload: PrepareThresholdEd25519PresignPoolPayload = {
+    kind: 'prepare_threshold_ed25519_presign_pool_v1',
+    sessionKind: 'jwt',
+    thresholdSessionAuthToken: THRESHOLD_SESSION_JWT,
+    relayUrl: RELAYER_URL,
+    thresholdSessionId: THRESHOLD_SESSION_ID,
+    walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+    relayerKeyId: RELAYER_KEY_ID,
+    nearAccountId: NEAR_ACCOUNT_ID,
+    nearNetworkId: 'testnet',
+    signerPublicKey: publicKey,
+    participantIds: [...CONTEXT.participantIds],
+    runtimePolicyScope: { ...RUNTIME_SCOPE },
+    policy: {
+      targetDepth: 2,
+      lowWatermark: 1,
+      maxAcceptedRefillCount: 8,
+      ttlMs: 60_000,
+    },
+    requestTag: 'background_presign_pool_refill',
+    generation: 1,
+    clientPresigns: [
+      {
+        clientPresignId: 'client-presign-active-path-1',
+        nonceHandle: 'nonce-handle-active-path-1',
+        clientVerifyingShareB64u: 'client-verifying-share-active-path',
+        clientCommitments: {
+          hiding: 'client-hiding-active-path',
+          binding: 'client-binding-active-path',
+        },
+      },
+    ],
+  };
+  scheduleThresholdEd25519ClientPresignPoolRefill(payload, 1_000);
+  applyThresholdEd25519PresignRefillResult({
+    payload,
+    nowMs: 1_100,
+    result: {
+      ok: true,
+      kind: 'prepare_threshold_ed25519_presign_pool_result_v1',
+      generation: 1,
+      accepted: [
+        {
+          presignId: 'server-presign-active-path-1',
+          clientPresignId: 'client-presign-active-path-1',
+          relayerCommitments: {
+            hiding: 'relayer-hiding-active-path',
+            binding: 'relayer-binding-active-path',
+          },
+          relayerVerifyingShareB64u: 'relayer-verifying-share-active-path',
+          expiresAtMs,
+        },
+      ],
+      rejectedClientPresignIds: [],
+      expiresAtMs,
+    },
+  });
+}
+
 function makeThresholdKeyMaterial(publicKey: string) {
   return {
     nearAccountId: NEAR_ACCOUNT_ID,
@@ -657,9 +728,13 @@ async function maybeServeLocalNearSignerWasm(url: string): Promise<Response | nu
 
 async function invokeNearSignerWorkerDirect(request: {
   sessionId?: string;
-  type: number;
+  type: number | NearSignerWorkerCustomRequestType;
   payload?: Record<string, unknown>;
 }): Promise<any> {
+  if (request.type === NearSignerWorkerCustomRequestType.ThresholdEd25519BuildNearTxUnsignedBorsh) {
+    return [];
+  }
+
   if (
     request.type === WorkerRequestType.DeriveThresholdEd25519HssClientInputs ||
     request.type === WorkerRequestType.PrepareThresholdEd25519HssSession ||
@@ -736,6 +811,12 @@ async function invokeNearSignerWorkerDirect(request: {
 const TEST_NEAR_SIGNER_WORKER_CTX = {
   requestWorkerOperation: async ({ request }: any) => await invokeNearSignerWorkerDirect(request),
 };
+
+async function flushMicrotasks(): Promise<void> {
+  for (let index = 0; index < 20; index += 1) {
+    await Promise.resolve();
+  }
+}
 
 test.describe('threshold Ed25519 single-key HSS active path', () => {
   test('derives the client output mask from recoverable material and transcript context', async () => {
@@ -1097,6 +1178,7 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
     const seededXClientBaseB64u = Buffer.alloc(32, 23).toString('base64url');
 
     clearAllStoredThresholdEd25519SessionRecords();
+    clearAllThresholdEd25519ClientPresigns();
     seedThresholdEd25519Session({ xClientBaseB64u: seededXClientBaseB64u });
 
     persistWarmSessionEd25519Capability({
@@ -1149,6 +1231,7 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
     };
 
     let capturedPayload: Record<string, any> | null = null;
+    const workerRequestTypes: unknown[] = [];
 
     try {
       const result = await signTransactionsWithActions({
@@ -1187,6 +1270,13 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
             }),
           },
           requestWorkerOperation: async ({ request }: any) => {
+            workerRequestTypes.push(request?.type);
+            if (
+              request?.type ===
+              NearSignerWorkerCustomRequestType.ThresholdEd25519BuildNearTxUnsignedBorsh
+            ) {
+              return [];
+            }
             capturedPayload = request?.payload || null;
             return {
               type: WorkerResponseType.SignTransactionsWithActionsSuccess,
@@ -1230,8 +1320,258 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
       expect(Object.prototype.hasOwnProperty.call(capturedPayload || {}, 'wrapKeySalt')).toBe(
         false,
       );
+      expect(workerRequestTypes).toContain(
+        NearSignerWorkerCustomRequestType.ThresholdEd25519BuildNearTxUnsignedBorsh,
+      );
+      expect(workerRequestTypes).toContain(WorkerRequestType.SignTransactionsWithActions);
     } finally {
       globalThis.fetch = originalFetch;
+      clearAllThresholdEd25519ClientPresigns();
+      clearAllStoredThresholdEd25519SessionRecords();
+      restore();
+    }
+  });
+
+  test('uses finalize-and-dispatch for a single transaction when the Ed25519 presign pool hits', async () => {
+    const { restore } = installMemorySessionStorage();
+    const originalFetch = globalThis.fetch;
+    const seededXClientBaseB64u = Buffer.alloc(32, 23).toString('base64url');
+    const signingDigestB64u = Buffer.alloc(32, 13).toString('base64url');
+    const signerPublicKey = 'ed25519:threshold-public-key';
+
+    clearAllStoredThresholdEd25519SessionRecords();
+    clearAllThresholdEd25519ClientPresigns();
+    seedThresholdEd25519Session({ xClientBaseB64u: seededXClientBaseB64u });
+    seedReadyThresholdEd25519ClientPresign(signerPublicKey);
+
+    persistWarmSessionEd25519Capability({
+      kind: 'jwt_passkey',
+      sessionKind: 'jwt',
+      nearAccountId: NEAR_ACCOUNT_ID,
+      rpId: RP_ID,
+      relayerUrl: RELAYER_URL,
+      relayerKeyId: RELAYER_KEY_ID,
+      runtimePolicyScope: { ...RUNTIME_SCOPE },
+      participantIds: [...CONTEXT.participantIds],
+      sessionId: THRESHOLD_SESSION_ID,
+      walletSigningSessionId: WALLET_SIGNING_SESSION_ID,
+      expiresAtMs: Date.now() + 60_000,
+      remainingUses: 5,
+      xClientBaseB64u: seededXClientBaseB64u,
+      jwt: THRESHOLD_SESSION_JWT,
+      source: 'bootstrap',
+    });
+
+    const fetchCalls: Array<{ url: string; body: Record<string, any> }> = [];
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const wasmResponse = await maybeServeLocalNearSignerWasm(url);
+      if (wasmResponse) {
+        return wasmResponse;
+      }
+      if (url.endsWith('/threshold-ed25519/healthz')) {
+        return new Response(JSON.stringify({ ok: true, configured: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const body = JSON.parse(String(init?.body || '{}')) as Record<string, any>;
+      fetchCalls.push({ url, body });
+      if (url.endsWith('/threshold-ed25519/sign/finalize-and-dispatch')) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            kind: 'threshold_ed25519_dispatched_near_tx_result_v1',
+            operationId: body.operation?.operationId,
+            budgetState: 'consumed',
+            remainingSigningUses: 4,
+            signatureB64u: 'signature-b64u',
+            signerPublicKey,
+            signedTransactionBorshB64u: 'signed-tx-borsh',
+            transactionHash: 'pool-hit-tx-hash',
+            rpcResult: { status: 'ok' },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      if (url.endsWith('/threshold-ed25519/presign/refill')) {
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            kind: 'threshold_ed25519_presign_refill_response_v1',
+            accepted: [],
+            rejectedClientPresignIds: [],
+            serverTimeMs: Date.now(),
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`unexpected fetch in test: ${url}`);
+    }) as typeof fetch;
+
+    const dummyCredential = {
+      id: 'cred-id',
+      rawId: 'cred-rawid-b64u',
+      type: 'public-key',
+      authenticatorAttachment: 'platform',
+      response: {
+        clientDataJSON: 'clientDataJSON-b64u',
+        authenticatorData: 'authenticatorData-b64u',
+        signature: 'signature-b64u',
+        userHandle: '',
+      },
+      clientExtensionResults: {
+        prf: { results: { first: PRF_FIRST_B64U, second: undefined } },
+      },
+    };
+
+    const workerRequestTypes: unknown[] = [];
+
+    try {
+      const result = await signTransactionsWithActions({
+        ctx: {
+          indexedDB: makeIndexedDbThresholdDeps(signerPublicKey),
+          nearContextFixture: {
+            initializeUser: () => undefined,
+          },
+          touchIdPrompt: {
+            getRpId: () => RP_ID,
+          },
+          relayerUrl: RELAYER_URL,
+          touchConfirm: {
+            getWarmSessionStatus: async () => ({
+              ok: false as const,
+              code: 'not_found',
+              message: 'warm-session status missing',
+            }),
+            claimWarmSessionMaterial: async () => ({
+              ok: true as const,
+              prfFirstB64u: PRF_FIRST_B64U,
+              remainingUses: 4,
+              expiresAtMs: Date.now() + 60_000,
+            }),
+            clearVolatileWarmSessionMaterial: async () => undefined,
+            orchestrateSigningConfirmation: async () => ({
+              intentDigest: 'intent-digest-b64u',
+              transactionContext: {
+                nearPublicKeyStr: signerPublicKey,
+                nextNonce: '1',
+                txBlockHeight: '1',
+                txBlockHash: 'blockhash',
+                accessKeyInfo: { nonce: 0 },
+              },
+              credential: dummyCredential,
+            }),
+          },
+          requestWorkerOperation: async ({ request }: any) => {
+            workerRequestTypes.push(request?.type);
+            if (
+              request?.type ===
+              NearSignerWorkerCustomRequestType.ThresholdEd25519BuildNearTxUnsignedBorsh
+            ) {
+              return [
+                {
+                  unsignedTransactionBorshB64u: 'unsigned-tx-borsh',
+                  signingDigestB64u,
+                },
+              ];
+            }
+            if (
+              request?.type === NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignSign
+            ) {
+              expect(request.payload.clientNonceHandleB64u).toBe('nonce-handle-active-path-1');
+              expect(request.payload.signingDigestB64u).toBe(signingDigestB64u);
+              return { clientSignatureShareB64u: 'client-share' };
+            }
+            if (
+              request?.type ===
+              NearSignerWorkerCustomRequestType.ThresholdEd25519DecodeSignedNearTxBorsh
+            ) {
+              return {
+                signedTransaction: {
+                  transaction: { signerId: NEAR_ACCOUNT_ID },
+                  signature: { keyType: 0, signatureData: [1] },
+                  borshBytes: [2],
+                },
+                transactionHash: 'pool-hit-tx-hash',
+              };
+            }
+            if (
+              request?.type ===
+              NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignCreate
+            ) {
+              return {
+                clientNonceHandleB64u: `refill-${workerRequestTypes.length}`,
+                clientVerifyingShareB64u: 'client-verifying-share-active-path',
+                clientCommitments: {
+                  hiding: `refill-hiding-${workerRequestTypes.length}`,
+                  binding: `refill-binding-${workerRequestTypes.length}`,
+                },
+              };
+            }
+            if (
+              request?.type === NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignBurn
+            ) {
+              return { burned: true };
+            }
+            if (request?.type === WorkerRequestType.SignTransactionsWithActions) {
+              throw new Error('pool hit must not call the two-RTT worker signing path');
+            }
+            throw new Error(`unexpected worker request in pool-hit test: ${String(request?.type)}`);
+          },
+        } as any,
+        nearAccount: { kind: 'named', accountId: NEAR_ACCOUNT_ID },
+        transactions: [
+          {
+            receiverId: NEAR_ACCOUNT_ID,
+            actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
+          } as TransactionInputWasm,
+        ],
+        rpcCall: { nearAccountId: NEAR_ACCOUNT_ID, nearRpcUrl: 'https://rpc.testnet.test' },
+        signerSlot: 1,
+        sessionId: THRESHOLD_SESSION_ID,
+        ...buildTestWarmSigningAuth(),
+      });
+
+      await flushMicrotasks();
+
+      expect(result).toHaveLength(1);
+      expect(result[0].signedTransaction.serverDispatch).toEqual({
+        transactionHash: 'pool-hit-tx-hash',
+        rpcResult: { status: 'ok' },
+      });
+      expect(workerRequestTypes).toContain(
+        NearSignerWorkerCustomRequestType.ThresholdEd25519BuildNearTxUnsignedBorsh,
+      );
+      expect(workerRequestTypes).toContain(
+        NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignSign,
+      );
+      expect(workerRequestTypes).toContain(
+        NearSignerWorkerCustomRequestType.ThresholdEd25519DecodeSignedNearTxBorsh,
+      );
+      expect(workerRequestTypes).not.toContain(WorkerRequestType.SignTransactionsWithActions);
+      const finalizeCall = fetchCalls.find((call) =>
+        call.url.endsWith('/threshold-ed25519/sign/finalize-and-dispatch'),
+      );
+      expect(finalizeCall?.body).toMatchObject({
+        kind: 'threshold_ed25519_finalize_and_dispatch_near_tx_v1',
+        presignId: 'server-presign-active-path-1',
+        requestIntegrityHash: expect.stringMatching(/^sha256:/),
+        transactions: [
+          {
+            nearAccountId: NEAR_ACCOUNT_ID,
+            receiverId: NEAR_ACCOUNT_ID,
+            actions: [{ action_type: ActionType.Transfer, deposit: '1' }],
+          },
+        ],
+        unsignedTransactionBorshB64u: 'unsigned-tx-borsh',
+        signingDigestB64u,
+        clientSignatureShareB64u: 'client-share',
+        dispatch: { kind: 'near_rpc_configured_default_v1' },
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+      clearAllThresholdEd25519ClientPresigns();
       clearAllStoredThresholdEd25519SessionRecords();
       restore();
     }

@@ -414,6 +414,14 @@ class SplitAuthSessionStore implements Ed25519AuthSessionStore {
     return result;
   }
 
+  async hasConsumedUseCountOnce(id: string, idempotencyKey: string) {
+    const consumeKey = String(idempotencyKey || '').trim();
+    return {
+      ok: true as const,
+      consumed: !!consumeKey && !!this.consumedOnceKeys.get(id)?.has(consumeKey),
+    };
+  }
+
   async reserveReplayGuard(scopeId: string, replayKey: string) {
     const key = `${scopeId}:${replayKey}`;
     if (this.replayGuards.has(key)) {
@@ -685,7 +693,7 @@ async function provisionThresholdEd25519RegistrationMaterial(input: {
 }
 
 test.describe('threshold-ed25519 scope (express)', () => {
-  test('session mint accepts same-account threshold-ecdsa session without WebAuthn', async () => {
+  test('session mint rejects same-account threshold-ecdsa session without WebAuthn', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const { session } = createTestSessionAdapter();
     const router = createRelayRouter(service, { threshold, session });
@@ -727,9 +735,12 @@ test.describe('threshold-ed25519 scope (express)', () => {
         body: JSON.stringify(thresholdSessionBody),
       });
 
-      expect(minted.status, minted.text).toBe(200);
-      expect(minted.json?.ok, minted.text).toBe(true);
-      expect(String(minted.json?.jwt || '')).toContain('testjwt-');
+      expect(minted.status, minted.text).toBe(400);
+      expect(minted.json).toMatchObject({
+        ok: false,
+        code: 'invalid_body',
+        message: 'webauthn_authentication is required for threshold-ed25519 session mint',
+      });
     } finally {
       await srv.close();
     }
@@ -1642,7 +1653,7 @@ test.describe('threshold-ed25519 scope (express)', () => {
       expect(responded.status, responded.text).toBe(400);
       expect(responded.json?.code, responded.text).toBe('invalid_body');
       expect(String(responded.json?.message || ''), responded.text).toContain(
-        'evaluatorOtStateB64u must stay client-local',
+        'clientRequest.evaluatorOtStateB64u must stay outside the server-visible request',
       );
     } finally {
       await srv.close();
@@ -2249,7 +2260,7 @@ test.describe('threshold-ed25519 scope (express)', () => {
 });
 
 test.describe('threshold-ed25519 scope (cloudflare)', () => {
-  test('session mint accepts same-account threshold-ecdsa session without WebAuthn', async () => {
+  test('session mint rejects same-account threshold-ecdsa session without WebAuthn', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const { session } = createTestSessionAdapter();
     const handler = createCloudflareRouter(service, {
@@ -2295,9 +2306,12 @@ test.describe('threshold-ed25519 scope (cloudflare)', () => {
       ctx,
     });
 
-    expect(minted.status, minted.text).toBe(200);
-    expect(minted.json?.ok, minted.text).toBe(true);
-    expect(String(minted.json?.jwt || '')).toContain('testjwt-');
+    expect(minted.status, minted.text).toBe(400);
+    expect(minted.json).toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+      message: 'webauthn_authentication is required for threshold-ed25519 session mint',
+    });
   });
 
   test('integration: session/exchange -> threshold session -> authorize -> sign/init', async () => {

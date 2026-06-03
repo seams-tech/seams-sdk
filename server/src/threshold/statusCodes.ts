@@ -32,6 +32,8 @@ export function thresholdStatusCode(result: ThresholdRouteResult): number {
       return 500;
     case 'unauthorized':
       return 401;
+    case 'rate_limited':
+      return 429;
     default:
       return 400;
   }

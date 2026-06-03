@@ -14,8 +14,6 @@ import type {
 } from '../types';
 import {
   threshold_ed25519_add_points_b64u,
-  threshold_ed25519_round1_commit,
-  threshold_ed25519_round2_sign,
   threshold_ed25519_round2_sign_cosigner,
 } from '../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import { ensureRelayerKeyIsActiveAccessKey } from './validation';
@@ -43,6 +41,11 @@ import {
   multiplyEd25519ScalarB64uByScalarBytesLE32,
   normalizeCosignerIds,
 } from './cosigners';
+import { createThresholdEd25519RelayerPresignMaterial } from './ed25519PresignRound1';
+import {
+  createThresholdEd25519RelayerSignatureShare,
+  expectThresholdEd25519Round2SignWasmOutput,
+} from './ed25519PresignRound2';
 
 type ParseOk<T> = { ok: true; value: T };
 type ParseErr = { ok: false; code: string; message: string };
@@ -250,39 +253,6 @@ type ResolveRelayerKeyMaterialFn = (input: {
     }
   | { ok: false; code: string; message: string }
 >;
-
-type ThresholdEd25519Round1CommitWasmOutput = {
-  relayerNoncesB64u: string;
-  relayerCommitments: ThresholdEd25519Commitments;
-};
-
-function expectThresholdEd25519Round1CommitWasmOutput(
-  out: unknown,
-): ThresholdEd25519Round1CommitWasmOutput {
-  const parsed = out as ThresholdEd25519Round1CommitWasmOutput;
-  if (
-    !parsed?.relayerNoncesB64u ||
-    !parsed?.relayerCommitments?.hiding ||
-    !parsed?.relayerCommitments?.binding
-  ) {
-    throw new Error('threshold-ed25519 /sign/init: invalid relayer commitments');
-  }
-  return parsed;
-}
-
-type ThresholdEd25519Round2SignWasmOutput = {
-  relayerSignatureShareB64u: string;
-};
-
-function expectThresholdEd25519Round2SignWasmOutput(
-  out: unknown,
-): ThresholdEd25519Round2SignWasmOutput {
-  const parsed = out as ThresholdEd25519Round2SignWasmOutput;
-  if (!parsed?.relayerSignatureShareB64u) {
-    throw new Error('threshold-ed25519 /sign/finalize: missing relayerSignatureShareB64u');
-  }
-  return parsed;
-}
 
 function sumEd25519PointsB64u(pointsB64u: string[], label: string): string {
   if (!pointsB64u.length) throw new Error(`${label}: empty point list`);
@@ -852,9 +822,7 @@ export class ThresholdEd25519SigningHandlers {
       if (!participantIdsRes.ok) return participantIdsRes;
 
       await this.ensureSignerWasm();
-      const commit = expectThresholdEd25519Round1CommitWasmOutput(
-        threshold_ed25519_round1_commit(cosignerShareB64u),
-      );
+      const commit = createThresholdEd25519RelayerPresignMaterial(cosignerShareB64u);
 
       const ttlMs = 60_000;
       const expiresAtMs = Date.now() + ttlMs;
@@ -1094,9 +1062,7 @@ export class ThresholdEd25519SigningHandlers {
     }
 
     await this.ensureSignerWasm();
-    const commit = expectThresholdEd25519Round1CommitWasmOutput(
-      threshold_ed25519_round1_commit(key.relayerSigningShareB64u),
-    );
+    const commit = createThresholdEd25519RelayerPresignMaterial(key.relayerSigningShareB64u);
 
     const signingSessionId = this.createThresholdEd25519SigningSessionId();
     const ttlMs = 60_000;
@@ -1222,18 +1188,16 @@ export class ThresholdEd25519SigningHandlers {
         message: 'signingSessionId missing commitment transcript',
       };
     }
-    const out = expectThresholdEd25519Round2SignWasmOutput(
-      threshold_ed25519_round2_sign({
-        clientParticipantId: this.clientParticipantId,
-        relayerParticipantId: this.relayerParticipantId,
-        relayerSigningShareB64u: key.relayerSigningShareB64u,
-        relayerNoncesB64u: sess.relayerNoncesB64u,
-        groupPublicKey: key.publicKey,
-        signingDigestB64u: sess.signingDigestB64u,
-        clientCommitments,
-        relayerCommitments,
-      }),
-    );
+    const out = createThresholdEd25519RelayerSignatureShare({
+      clientParticipantId: this.clientParticipantId,
+      relayerParticipantId: this.relayerParticipantId,
+      relayerSigningShareB64u: key.relayerSigningShareB64u,
+      relayerNoncesB64u: sess.relayerNoncesB64u,
+      groupPublicKey: key.publicKey,
+      signingDigestB64u: sess.signingDigestB64u,
+      clientCommitments,
+      relayerCommitments,
+    });
 
     return { ok: true, relayerSignatureShareB64u: out.relayerSignatureShareB64u };
   }

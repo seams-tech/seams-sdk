@@ -1,8 +1,24 @@
 import {
   type NearWorkerProgressEvent,
+  NearSignerWorkerCustomRequestType,
+  type ThresholdEd25519ClientPresignCreateRequest,
+  type ThresholdEd25519ClientPresignCreateResult,
+  type ThresholdEd25519ClientPresignBurnRequest,
+  type ThresholdEd25519ClientPresignBurnResult,
+  type ThresholdEd25519ClientPresignSignRequest,
+  type ThresholdEd25519ClientPresignSignResult,
+  type ThresholdEd25519ComputeNep413SigningDigestRequest,
+  type ThresholdEd25519ComputeSigningDigestResult,
+  type ThresholdEd25519FinalizeDelegateFromSignatureRequest,
+  type ThresholdEd25519BuildNearTxUnsignedBorshRequest,
+  type ThresholdEd25519NearTxUnsignedBorsh,
+  type ThresholdEd25519DecodeSignedNearTxBorshRequest,
+  type ThresholdEd25519DecodeSignedNearTxBorshResult,
   type WorkerRequestTypeMap,
   type WorkerResponseForRequest,
   WorkerRequestType,
+  type DelegatePayload,
+  type WasmSignedDelegate,
 } from '@/core/types/signer-worker';
 import type { MultichainWorkerKind } from '@/core/walletRuntimePaths/multichainWorkers';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/activation';
@@ -21,6 +37,11 @@ import type {
   GeneratedPrepareEcdsaClientBootstrapCommand,
   GeneratedPrepareEcdsaClientBootstrapOutput,
 } from '@/core/platform/signerCoreCommandAdapters';
+import type {
+  ClearThresholdEd25519PresignPoolWorkerContract,
+  GetThresholdEd25519PresignPoolStatusWorkerContract,
+  PrepareThresholdEd25519PresignPoolWorkerContract,
+} from '../threshold/ed25519/presignPool';
 
 /**
  * Control messages exchanged between worker shims and the main thread.
@@ -683,11 +704,55 @@ export type WithOptionalSessionId<T> = T extends { sessionId: string }
   ? Omit<T, 'sessionId'> & { sessionId?: string }
   : T;
 
-export type NearSignerWorkerOperationMap = {
+export type NearSignerWorkerWasmOperationMap = {
   [T in keyof WorkerRequestTypeMap]: {
     payload: WithOptionalSessionId<WorkerRequestTypeMap[T]['request']>;
     result: WorkerResponseForRequest<T>;
   };
+};
+
+export type NearSignerWorkerCustomOperationMap = {
+  [NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignCreate]: {
+    payload: ThresholdEd25519ClientPresignCreateRequest;
+    result: ThresholdEd25519ClientPresignCreateResult;
+  };
+  [NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignSign]: {
+    payload: ThresholdEd25519ClientPresignSignRequest;
+    result: ThresholdEd25519ClientPresignSignResult;
+  };
+  [NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignBurn]: {
+    payload: ThresholdEd25519ClientPresignBurnRequest;
+    result: ThresholdEd25519ClientPresignBurnResult;
+  };
+  [NearSignerWorkerCustomRequestType.ThresholdEd25519ComputeNep413SigningDigest]: {
+    payload: ThresholdEd25519ComputeNep413SigningDigestRequest;
+    result: ThresholdEd25519ComputeSigningDigestResult;
+  };
+  [NearSignerWorkerCustomRequestType.ThresholdEd25519ComputeDelegateSigningDigest]: {
+    payload: { delegate: DelegatePayload };
+    result: ThresholdEd25519ComputeSigningDigestResult;
+  };
+  [NearSignerWorkerCustomRequestType.ThresholdEd25519FinalizeDelegateFromSignature]: {
+    payload: ThresholdEd25519FinalizeDelegateFromSignatureRequest;
+    result: WasmSignedDelegate;
+  };
+  [NearSignerWorkerCustomRequestType.ThresholdEd25519BuildNearTxUnsignedBorsh]: {
+    payload: ThresholdEd25519BuildNearTxUnsignedBorshRequest;
+    result: readonly ThresholdEd25519NearTxUnsignedBorsh[];
+  };
+  [NearSignerWorkerCustomRequestType.ThresholdEd25519DecodeSignedNearTxBorsh]: {
+    payload: ThresholdEd25519DecodeSignedNearTxBorshRequest;
+    result: ThresholdEd25519DecodeSignedNearTxBorshResult;
+  };
+};
+
+export type NearSignerWorkerOperationMap =
+  NearSignerWorkerWasmOperationMap & NearSignerWorkerCustomOperationMap;
+
+export type NearSignerWorkerPresignPoolOperationMap = {
+  prepareThresholdEd25519PresignPool: PrepareThresholdEd25519PresignPoolWorkerContract;
+  getThresholdEd25519PresignPoolStatus: GetThresholdEd25519PresignPoolStatusWorkerContract;
+  clearThresholdEd25519PresignPool: ClearThresholdEd25519PresignPoolWorkerContract;
 };
 
 export type NearWorkerOperationType = keyof NearSignerWorkerOperationMap;

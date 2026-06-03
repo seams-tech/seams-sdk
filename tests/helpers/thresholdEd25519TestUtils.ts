@@ -132,7 +132,7 @@ export function createThresholdSigningServiceForUnitTests(input: {
     keyVersion?: string;
     recoveryExportCapable?: boolean;
   } | null;
-  accessKeysOnChain?: string[] | null;
+  accessKeysOnChain?: Array<string | { publicKey: string; nonce: number | string }> | null;
   verifyWebAuthnAuthenticationLite?:
     | ((request: {
         nearAccountId: string;
@@ -142,6 +142,9 @@ export function createThresholdSigningServiceForUnitTests(input: {
       }) => Promise<{ success: boolean; verified: boolean; code?: string; message?: string }>)
     | null;
   authSessionStore?: Ed25519AuthSessionStore | null;
+  dispatchNearTransaction?: ((request: {
+    signedTransactionBorshB64u: string;
+  }) => Promise<{ rpcResult: unknown }>) | null;
 }): {
   svc: ThresholdSigningService;
   sessionStore: ReturnType<typeof createThresholdEd25519SessionStore>;
@@ -256,11 +259,19 @@ export function createThresholdSigningServiceForUnitTests(input: {
     verifyWebAuthnAuthenticationLite,
     viewAccessKeyList: async () =>
       ({
-        keys: (accessKeysOnChain || []).map((publicKey) => ({
-          public_key: publicKey,
-          access_key: { nonce: 0, permission: 'FullAccess' as const },
+        keys: (accessKeysOnChain || []).map((entry) => ({
+          public_key: typeof entry === 'string' ? entry : entry.publicKey,
+          access_key: {
+            nonce: typeof entry === 'string' ? 0 : entry.nonce,
+            permission: 'FullAccess' as const,
+          },
         })),
       }) as any,
+    dispatchNearTransaction:
+      input.dispatchNearTransaction ||
+      (async () => {
+        throw new Error('dispatchNearTransaction was not provided for this unit test');
+      }),
   });
 
   return { svc, sessionStore, authSessionStore };

@@ -1,0 +1,271 @@
+import { expect, test } from '@playwright/test';
+import { createThresholdEd25519SessionStore } from '../../server/src/core/ThresholdService/stores/SessionStore';
+import type {
+  ThresholdEd25519PresignExpectedScope,
+  ThresholdEd25519PresignRecord,
+} from '../../server/src/core/ThresholdService/stores/SessionStore';
+import type { NormalizedLogger } from '../../server/src/core/logger';
+
+const noopLogger: NormalizedLogger = {
+  debug: () => {},
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+};
+
+const runtimePolicyScope = {
+  orgId: 'org-presign',
+  projectId: 'project-presign',
+  envId: 'test',
+  signingRootVersion: 'root-v1',
+};
+
+function createStore() {
+  return createThresholdEd25519SessionStore({
+    config: { kind: 'in-memory' },
+    logger: noopLogger,
+    isNode: true,
+  });
+}
+
+function createPresignRecord(): ThresholdEd25519PresignRecord {
+  return {
+    kind: 'threshold_ed25519_presign_record_v1',
+    expiresAtMs: Date.now() + 60_000,
+    thresholdSessionId: 'threshold-session',
+    walletSigningSessionId: 'wallet-signing-session',
+    relayerKeyId: 'relayer-key',
+    nearAccountId: 'alice.testnet',
+    nearNetworkId: 'testnet',
+    signerPublicKey: 'ed25519-public-key',
+    rpcPolicyId: 'ed25519-presign-finalize',
+    rpId: 'example.localhost',
+    runtimePolicyScope,
+    protocolVersion: 'ed25519_frost_2p_presign_v1',
+    participantIds: [1, 2],
+    groupPublicKey: 'group-public-key',
+    clientVerifyingShareB64u: 'client-verifying-share',
+    clientCommitments: { hiding: 'client-hiding', binding: 'client-binding' },
+    relayerCommitments: { hiding: 'relayer-hiding', binding: 'relayer-binding' },
+    relayerVerifyingShareB64u: 'relayer-verifying-share',
+    relayerNoncesB64u: 'relayer-nonces',
+  };
+}
+
+function createPresignRecordForWalletSession(
+  walletSigningSessionId: string,
+): ThresholdEd25519PresignRecord {
+  return { ...createPresignRecord(), walletSigningSessionId };
+}
+
+function expectedScopeForRecord(
+  record: ThresholdEd25519PresignRecord,
+): ThresholdEd25519PresignExpectedScope {
+  return {
+    thresholdSessionId: record.thresholdSessionId,
+    walletSigningSessionId: record.walletSigningSessionId,
+    relayerKeyId: record.relayerKeyId,
+    nearAccountId: record.nearAccountId,
+    nearNetworkId: record.nearNetworkId,
+    signerPublicKey: record.signerPublicKey,
+    rpcPolicyId: record.rpcPolicyId,
+    rpId: record.rpId,
+    runtimePolicyScope: record.runtimePolicyScope,
+    participantIds: record.participantIds,
+    groupPublicKey: record.groupPublicKey,
+  };
+}
+
+test.describe('threshold Ed25519 presign session store', () => {
+  test('atomically consumes a matching presign once', async () => {
+    const store = createStore();
+    const record = createPresignRecord();
+    const expectedScope = expectedScopeForRecord(record);
+
+    await store.putPresign('presign-1', record, 60_000);
+
+    const taken = await store.takePresignForFinalize('presign-1', expectedScope);
+    expect(taken).toMatchObject({ ok: true });
+    if (!taken.ok) throw new Error(`expected presign consume, got ${taken.code}`);
+    expect(taken.record.thresholdSessionId).toBe(record.thresholdSessionId);
+
+    await expect(store.takePresignForFinalize('presign-1', expectedScope)).resolves.toEqual({
+      ok: false,
+      code: 'not_found',
+    });
+  });
+
+  test('preserves the record when finalize scope does not match', async () => {
+    const store = createStore();
+    const record = createPresignRecord();
+    const expectedScope = expectedScopeForRecord(record);
+
+    await store.putPresign('presign-2', record, 60_000);
+
+    await expect(
+      store.takePresignForFinalize('presign-2', {
+        ...expectedScope,
+        signerPublicKey: 'other-ed25519-public-key',
+      }),
+    ).resolves.toEqual({ ok: false, code: 'scope_mismatch' });
+
+    const taken = await store.takePresignForFinalize('presign-2', expectedScope);
+    expect(taken).toMatchObject({ ok: true });
+  });
+
+  test('expires unused presigns by store ttl', async () => {
+    const store = createStore();
+    const record = createPresignRecord();
+
+    await store.putPresign('presign-3', record, 1);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    await expect(
+      store.takePresignForFinalize('presign-3', expectedScopeForRecord(record)),
+    ).resolves.toEqual({ ok: false, code: 'expired' });
+  });
+
+  test('enforces per-wallet-signing-session outstanding presign capacity', async () => {
+    const store = createStore();
+    const record = createPresignRecord();
+
+    await expect(
+      store.putPresignWithCapacity('presign-4a', record, 60_000, {
+        walletSigningSessionMax: 1,
+        globalMax: 10,
+      }),
+    ).resolves.toEqual({ ok: true });
+
+    await expect(
+      store.putPresignWithCapacity('presign-4b', record, 60_000, {
+        walletSigningSessionMax: 1,
+        globalMax: 10,
+      }),
+    ).resolves.toEqual({ ok: false, code: 'capacity_exceeded' });
+
+    await store.takePresignForFinalize('presign-4a', expectedScopeForRecord(record));
+
+    await expect(
+      store.putPresignWithCapacity('presign-4c', record, 60_000, {
+        walletSigningSessionMax: 1,
+        globalMax: 10,
+      }),
+    ).resolves.toEqual({ ok: true });
+  });
+
+  test('enforces global outstanding presign capacity across wallet sessions', async () => {
+    const store = createStore();
+    const first = createPresignRecordForWalletSession('wallet-signing-session-a');
+    const second = createPresignRecordForWalletSession('wallet-signing-session-b');
+
+    await expect(
+      store.putPresignWithCapacity('presign-5a', first, 60_000, {
+        walletSigningSessionMax: 2,
+        globalMax: 1,
+      }),
+    ).resolves.toEqual({ ok: true });
+
+    await expect(
+      store.putPresignWithCapacity('presign-5b', second, 60_000, {
+        walletSigningSessionMax: 2,
+        globalMax: 1,
+      }),
+    ).resolves.toEqual({ ok: false, code: 'capacity_exceeded' });
+  });
+
+  test('prunes expired presigns before capacity checks', async () => {
+    const store = createStore();
+    const record = createPresignRecord();
+
+    await expect(
+      store.putPresignWithCapacity('presign-6a', record, 1, {
+        walletSigningSessionMax: 1,
+        globalMax: 1,
+      }),
+    ).resolves.toEqual({ ok: true });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    await expect(
+      store.putPresignWithCapacity('presign-6b', record, 60_000, {
+        walletSigningSessionMax: 1,
+        globalMax: 1,
+      }),
+    ).resolves.toEqual({ ok: true });
+  });
+
+  test('reports outstanding capacity before refill creates nonce material', async () => {
+    const store = createStore();
+    const record = createPresignRecord();
+
+    await expect(
+      store.checkPresignCapacity(record.walletSigningSessionId, {
+        walletSigningSessionMax: 1,
+        globalMax: 1,
+      }),
+    ).resolves.toEqual({ ok: true });
+
+    await store.putPresignWithCapacity('presign-preflight-full', record, 60_000, {
+      walletSigningSessionMax: 1,
+      globalMax: 1,
+    });
+
+    await expect(
+      store.checkPresignCapacity(record.walletSigningSessionId, {
+        walletSigningSessionMax: 1,
+        globalMax: 1,
+      }),
+    ).resolves.toEqual({ ok: false, code: 'capacity_exceeded' });
+
+    await store.takePresignForFinalize('presign-preflight-full', expectedScopeForRecord(record));
+
+    await expect(
+      store.checkPresignCapacity(record.walletSigningSessionId, {
+        walletSigningSessionMax: 1,
+        globalMax: 1,
+      }),
+    ).resolves.toEqual({ ok: true });
+  });
+
+  test('keeps presign refill rate counters separate from presign pruning', async () => {
+    const store = createStore();
+    const record = createPresignRecord();
+    const bucket = {
+      kind: 'wallet_signing_session' as const,
+      key: record.walletSigningSessionId,
+    };
+    const policy = { windowMs: 60_000, maxCost: 2 };
+
+    await expect(store.consumePresignRefillRateLimit(bucket, policy, 1)).resolves.toEqual({
+      ok: true,
+    });
+    await expect(
+      store.checkPresignCapacity(record.walletSigningSessionId, {
+        walletSigningSessionMax: 1,
+        globalMax: 1,
+      }),
+    ).resolves.toEqual({ ok: true });
+    await expect(store.consumePresignRefillRateLimit(bucket, policy, 2)).resolves.toEqual({
+      ok: false,
+      code: 'rate_limited',
+    });
+  });
+
+  test('allows only one concurrent finalize consume for a presign', async () => {
+    const store = createStore();
+    const record = createPresignRecord();
+    const expectedScope = expectedScopeForRecord(record);
+
+    await store.putPresignWithCapacity('presign-7', record, 60_000, {
+      walletSigningSessionMax: 2,
+      globalMax: 2,
+    });
+
+    const results = await Promise.all([
+      store.takePresignForFinalize('presign-7', expectedScope),
+      store.takePresignForFinalize('presign-7', expectedScope),
+    ]);
+
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.filter((result) => !result.ok)).toEqual([{ ok: false, code: 'not_found' }]);
+  });
+});

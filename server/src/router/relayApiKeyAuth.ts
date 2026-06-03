@@ -212,3 +212,22 @@ export function resolveSourceIpFromFetchHeaders(headers: HeaderBag): string | nu
   const realIp = readHeader(headers, 'x-real-ip');
   return normalizeSourceIp(cfConnecting || forwarded || realIp);
 }
+
+export function resolveRequestOriginRateLimitKeyFromExpressRequest(input: {
+  headers: Record<string, unknown>;
+  ip?: string | null;
+}): string {
+  const sourceIp = resolveSourceIpFromExpressRequest(input);
+  if (sourceIp) return `ip:${sourceIp}`;
+  const origin = readHeader(input.headers, 'origin');
+  if (origin) return `origin:${origin}`;
+  return 'origin:unknown-express';
+}
+
+export function resolveRequestOriginRateLimitKeyFromFetchHeaders(headers: HeaderBag): string {
+  const sourceIp = resolveSourceIpFromFetchHeaders(headers);
+  if (sourceIp) return `ip:${sourceIp}`;
+  const origin = readHeader(headers, 'origin');
+  if (origin) return `origin:${origin}`;
+  return 'origin:unknown-fetch';
+}

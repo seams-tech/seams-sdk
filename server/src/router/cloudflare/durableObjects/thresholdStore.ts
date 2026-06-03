@@ -12,6 +12,7 @@ import {
   type SigningRootRecord,
   type SigningRootRecordResult,
 } from '../../../core/ThresholdService/signingRootRecords';
+import { parseThresholdEd25519PresignRecord } from '../../../core/ThresholdService/validation';
 
 type DurableObjectStorageLike = {
   get(key: string): Promise<unknown>;
@@ -56,6 +57,7 @@ type DoReq =
   | { op: 'getdel'; key: string }
   | { op: 'authConsumeUseCount'; key: string }
   | { op: 'authConsumeUseCountOnce'; key: string; idempotencyKey: string }
+  | { op: 'authHasConsumedUseCountOnce'; key: string; idempotencyKey: string }
   | { op: 'authReserveReplayGuard'; key: string; expiresAtMs: number }
   | { op: 'ecdsaPresignPut'; listKey: string; value: unknown }
   | { op: 'ecdsaPresignReserve'; listKey: string; reservedKeyPrefix: string; ttlMs?: number }
@@ -73,6 +75,36 @@ type DoReq =
       expectedVersion: number;
       value: unknown;
       ttlMs?: number;
+    }
+  | {
+      op: 'ed25519PresignCheckCapacity';
+      capacity: unknown;
+      walletIndexKey: string;
+      globalIndexKey: string;
+    }
+  | {
+      op: 'ed25519PresignConsumeRateLimit';
+      key: string;
+      cost: unknown;
+      policy: unknown;
+    }
+  | {
+      op: 'ed25519PresignPutWithCapacity';
+      key: string;
+      presignId: string;
+      value: unknown;
+      ttlMs?: number;
+      capacity: unknown;
+      walletIndexKey: string;
+      globalIndexKey: string;
+    }
+  | {
+      op: 'ed25519PresignTake';
+      key: string;
+      presignId: string;
+      expectedScope: unknown;
+      walletIndexKey: string;
+      globalIndexKey: string;
     }
   | { op: 'signingRootPut'; record: unknown }
   | { op: 'signingRootGet'; signingRootId: string; signingRootVersion: string }
@@ -95,6 +127,18 @@ type AuthEntry = {
 type PresignSessionRecord = {
   expiresAtMs: number;
   version: number;
+};
+
+type Ed25519PresignIndexEntry = {
+  presignId: string;
+  key: string;
+  expiresAtMs: number;
+};
+
+type Ed25519PresignRateLimitEntry = {
+  kind: 'threshold_ed25519_presign_refill_rate_limit_v1';
+  count: number;
+  expiresAtMs: number;
 };
 
 const ECDSA_SHARED_IDENTITY_CONFLICT_MESSAGE =
@@ -323,6 +367,85 @@ function parsePresignSessionRecord(raw: unknown): PresignSessionRecord | null {
   if (typeof expiresAtMs !== 'number' || !Number.isFinite(expiresAtMs)) return null;
   if (typeof version !== 'number' || !Number.isFinite(version)) return null;
   return { expiresAtMs, version };
+}
+
+function parsePositiveInteger(value: unknown): number | null {
+  const parsed = Math.floor(Number(value));
+  if (!Number.isSafeInteger(parsed) || parsed < 1) return null;
+  return parsed;
+}
+
+function parseEd25519PresignRateLimitEntry(
+  raw: unknown,
+  nowMs: number,
+): Ed25519PresignRateLimitEntry | null {
+  if (!isPlainObject(raw)) return null;
+  if (raw.kind !== 'threshold_ed25519_presign_refill_rate_limit_v1') return null;
+  const count = Number(raw.count);
+  const expiresAtMs = Number(raw.expiresAtMs);
+  if (!Number.isFinite(count) || count < 0) return null;
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) return null;
+  return { kind: 'threshold_ed25519_presign_refill_rate_limit_v1', count, expiresAtMs };
+}
+
+function parseEd25519PresignIndex(raw: unknown, nowMs: number): Ed25519PresignIndexEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Ed25519PresignIndexEntry[] = [];
+  for (const item of raw) {
+    if (!isPlainObject(item)) continue;
+    const presignId = toKey(item.presignId);
+    const key = toKey(item.key);
+    const expiresAtMs = Number(item.expiresAtMs);
+    if (!presignId || !key || !Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) continue;
+    out.push({ presignId, key, expiresAtMs });
+  }
+  return out;
+}
+
+function withoutEd25519PresignIndexEntry(
+  entries: readonly Ed25519PresignIndexEntry[],
+  presignId: string,
+): Ed25519PresignIndexEntry[] {
+  return entries.filter((entry) => entry.presignId !== presignId);
+}
+
+function scopeString(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+function scopeParticipantIdsMatch(left: unknown, right: unknown): boolean {
+  if (!Array.isArray(left) || !Array.isArray(right)) return false;
+  return (
+    left.length === right.length &&
+    left.every((id, index) => Number(id) === Number((right as unknown[])[index]))
+  );
+}
+
+function scopeRuntimePolicyMatches(left: unknown, right: unknown): boolean {
+  if (!isPlainObject(left) || !isPlainObject(right)) return false;
+  return (
+    scopeString(left.orgId) === scopeString(right.orgId) &&
+    scopeString(left.projectId) === scopeString(right.projectId) &&
+    scopeString(left.envId) === scopeString(right.envId) &&
+    scopeString(left.signingRootVersion) === scopeString(right.signingRootVersion)
+  );
+}
+
+function ed25519PresignRecordMatchesExpectedScope(record: unknown, expected: unknown): boolean {
+  if (!isPlainObject(record) || !isPlainObject(expected)) return false;
+  return (
+    scopeString(record.thresholdSessionId) === scopeString(expected.thresholdSessionId) &&
+    scopeString(record.walletSigningSessionId) === scopeString(expected.walletSigningSessionId) &&
+    scopeString(record.relayerKeyId) === scopeString(expected.relayerKeyId) &&
+    scopeString(record.nearAccountId) === scopeString(expected.nearAccountId) &&
+    scopeString(record.nearNetworkId) === scopeString(expected.nearNetworkId) &&
+    scopeString(record.signerPublicKey) === scopeString(expected.signerPublicKey) &&
+    scopeString(record.rpcPolicyId) === scopeString(expected.rpcPolicyId) &&
+    scopeString(record.rpId) === scopeString(expected.rpId) &&
+    scopeString(record.groupPublicKey) === scopeString(expected.groupPublicKey) &&
+    scopeRuntimePolicyMatches(record.runtimePolicyScope, expected.runtimePolicyScope) &&
+    scopeParticipantIdsMatch(record.participantIds, expected.participantIds)
+  );
 }
 
 async function withTxn<T>(
@@ -586,6 +709,29 @@ export class ThresholdStoreDurableObject {
       return json(res);
     }
 
+    if (op === 'authHasConsumedUseCountOnce') {
+      const key = toKey((req as { key?: unknown }).key);
+      const idempotencyKey = toKey((req as { idempotencyKey?: unknown }).idempotencyKey);
+      if (!key) return json(err('invalid_body', 'Missing key'));
+      if (!idempotencyKey) return json(err('invalid_body', 'Missing idempotencyKey'));
+
+      const res: DoResp<unknown> = await withTxn(this.state, async (store) => {
+        const raw = await store.get(key);
+        const entry = parseAuthEntry(raw);
+        if (!entry) return err('unauthorized', 'threshold session expired or invalid');
+
+        if (Date.now() > entry.expiresAtMs) {
+          await store.delete(key);
+          return err('unauthorized', 'threshold session expired');
+        }
+
+        const consumedIdempotencyKeys = entry.consumedIdempotencyKeys || {};
+        return ok({ consumed: consumedIdempotencyKeys[idempotencyKey] === true });
+      });
+
+      return json(res);
+    }
+
     if (op === 'authReserveReplayGuard') {
       const key = toKey((req as { key?: unknown }).key);
       const expiresAtMs = Number((req as { expiresAtMs?: unknown }).expiresAtMs);
@@ -746,6 +892,191 @@ export class ThresholdStoreDurableObject {
         if (existing.version !== expectedVersion) return { status: 'version_mismatch' };
         await store.put(key, value, ttlSeconds ? { expirationTtl: ttlSeconds } : undefined);
         return { status: 'ok', record: value };
+      });
+
+      return json(ok(result));
+    }
+
+    if (op === 'ed25519PresignCheckCapacity') {
+      const walletIndexKey = toKey((req as { walletIndexKey?: unknown }).walletIndexKey);
+      const globalIndexKey = toKey((req as { globalIndexKey?: unknown }).globalIndexKey);
+      const capacity = (req as { capacity?: unknown }).capacity;
+      const walletMax = isPlainObject(capacity)
+        ? parsePositiveInteger(capacity.walletSigningSessionMax)
+        : null;
+      const globalMax = isPlainObject(capacity)
+        ? parsePositiveInteger(capacity.globalMax)
+        : null;
+      if (!walletIndexKey) return json(err('invalid_body', 'Missing walletIndexKey'));
+      if (!globalIndexKey) return json(err('invalid_body', 'Missing globalIndexKey'));
+      if (!walletMax || !globalMax) return json(err('invalid_body', 'Invalid capacity'));
+
+      const result = await withTxn(this.state, async (store) => {
+        const nowMs = Date.now();
+        const walletIndex = parseEd25519PresignIndex(await store.get(walletIndexKey), nowMs);
+        const globalIndex = parseEd25519PresignIndex(await store.get(globalIndexKey), nowMs);
+        await store.put(walletIndexKey, walletIndex);
+        await store.put(globalIndexKey, globalIndex);
+        return walletIndex.length >= walletMax || globalIndex.length >= globalMax
+          ? { ok: false as const, code: 'capacity_exceeded' as const }
+          : { ok: true as const };
+      });
+
+      return json(ok(result));
+    }
+
+    if (op === 'ed25519PresignConsumeRateLimit') {
+      const key = toKey((req as { key?: unknown }).key);
+      const cost = parsePositiveInteger((req as { cost?: unknown }).cost);
+      const policy = (req as { policy?: unknown }).policy;
+      const windowMs = isPlainObject(policy) ? parsePositiveInteger(policy.windowMs) : null;
+      const maxCost = isPlainObject(policy) ? parsePositiveInteger(policy.maxCost) : null;
+      if (!key) return json(err('invalid_body', 'Missing key'));
+      if (!cost) return json(err('invalid_body', 'Invalid cost'));
+      if (!windowMs || !maxCost) return json(err('invalid_body', 'Invalid rate limit policy'));
+
+      const result = await withTxn(this.state, async (store) => {
+        const nowMs = Date.now();
+        const existing = parseEd25519PresignRateLimitEntry(await store.get(key), nowMs);
+        const nextCount = (existing?.count ?? 0) + cost;
+        if (nextCount > maxCost) return { ok: false as const, code: 'rate_limited' as const };
+        const expiresAtMs = existing?.expiresAtMs ?? nowMs + windowMs;
+        const ttl = toTtlSeconds(expiresAtMs - nowMs);
+        await store.put(
+          key,
+          {
+            kind: 'threshold_ed25519_presign_refill_rate_limit_v1',
+            count: nextCount,
+            expiresAtMs,
+          } satisfies Ed25519PresignRateLimitEntry,
+          ttl ? { expirationTtl: ttl } : undefined,
+        );
+        return { ok: true as const };
+      });
+
+      return json(ok(result));
+    }
+
+    if (op === 'ed25519PresignPutWithCapacity') {
+      const key = toKey((req as { key?: unknown }).key);
+      const presignId = toKey((req as { presignId?: unknown }).presignId);
+      const walletIndexKey = toKey((req as { walletIndexKey?: unknown }).walletIndexKey);
+      const globalIndexKey = toKey((req as { globalIndexKey?: unknown }).globalIndexKey);
+      const ttlSeconds = toTtlSeconds((req as { ttlMs?: unknown }).ttlMs);
+      const parsed = parseThresholdEd25519PresignRecord((req as { value?: unknown }).value);
+      const capacity = (req as { capacity?: unknown }).capacity;
+      const walletMax = isPlainObject(capacity)
+        ? parsePositiveInteger(capacity.walletSigningSessionMax)
+        : null;
+      const globalMax = isPlainObject(capacity)
+        ? parsePositiveInteger(capacity.globalMax)
+        : null;
+      if (!key) return json(err('invalid_body', 'Missing key'));
+      if (!presignId) return json(err('invalid_body', 'Missing presignId'));
+      if (!walletIndexKey) return json(err('invalid_body', 'Missing walletIndexKey'));
+      if (!globalIndexKey) return json(err('invalid_body', 'Missing globalIndexKey'));
+      if (!parsed) return json(err('invalid_body', 'Invalid Ed25519 presign record'));
+      if (!walletMax || !globalMax) return json(err('invalid_body', 'Invalid capacity'));
+
+      const result = await withTxn(this.state, async (store) => {
+        const nowMs = Date.now();
+        const walletIndex = parseEd25519PresignIndex(await store.get(walletIndexKey), nowMs);
+        const globalIndex = parseEd25519PresignIndex(await store.get(globalIndexKey), nowMs);
+        const existing = await store.get(key);
+        if (existing === null || existing === undefined) {
+          if (walletIndex.length >= walletMax || globalIndex.length >= globalMax) {
+            await store.put(walletIndexKey, walletIndex);
+            await store.put(globalIndexKey, globalIndex);
+            return { ok: false as const, code: 'capacity_exceeded' };
+          }
+        }
+        const entry: Ed25519PresignIndexEntry = { presignId, key, expiresAtMs: parsed.expiresAtMs };
+        const nextWalletIndex = [...withoutEd25519PresignIndexEntry(walletIndex, presignId), entry];
+        const nextGlobalIndex = [...withoutEd25519PresignIndexEntry(globalIndex, presignId), entry];
+        await store.put(key, parsed, ttlSeconds ? { expirationTtl: ttlSeconds } : undefined);
+        await store.put(walletIndexKey, nextWalletIndex, ttlSeconds ? { expirationTtl: ttlSeconds } : undefined);
+        await store.put(globalIndexKey, nextGlobalIndex, ttlSeconds ? { expirationTtl: ttlSeconds } : undefined);
+        return { ok: true as const };
+      });
+
+      return json(ok(result));
+    }
+
+    if (op === 'ed25519PresignTake') {
+      const key = toKey((req as { key?: unknown }).key);
+      const presignId = toKey((req as { presignId?: unknown }).presignId);
+      const walletIndexKey = toKey((req as { walletIndexKey?: unknown }).walletIndexKey);
+      const globalIndexKey = toKey((req as { globalIndexKey?: unknown }).globalIndexKey);
+      const expectedScope = (req as { expectedScope?: unknown }).expectedScope;
+      if (!key) return json(err('invalid_body', 'Missing key'));
+      if (!presignId) return json(err('invalid_body', 'Missing presignId'));
+      if (!walletIndexKey) return json(err('invalid_body', 'Missing walletIndexKey'));
+      if (!globalIndexKey) return json(err('invalid_body', 'Missing globalIndexKey'));
+      if (!isPlainObject(expectedScope)) return json(err('invalid_body', 'Invalid expectedScope'));
+
+      const result = await withTxn(this.state, async (store) => {
+        const raw = await store.get(key);
+        if (raw === null || raw === undefined) return { ok: false as const, code: 'not_found' };
+
+        const parsed = parseThresholdEd25519PresignRecord(raw);
+        if (!parsed) {
+          await store.delete(key);
+          const nowMs = Date.now();
+          await store.put(
+            walletIndexKey,
+            withoutEd25519PresignIndexEntry(
+              parseEd25519PresignIndex(await store.get(walletIndexKey), nowMs),
+              presignId,
+            ),
+          );
+          await store.put(
+            globalIndexKey,
+            withoutEd25519PresignIndexEntry(
+              parseEd25519PresignIndex(await store.get(globalIndexKey), nowMs),
+              presignId,
+            ),
+          );
+          return { ok: false as const, code: 'invalid_record' };
+        }
+        if (parsed.expiresAtMs <= Date.now()) {
+          await store.delete(key);
+          const nowMs = Date.now();
+          await store.put(
+            walletIndexKey,
+            withoutEd25519PresignIndexEntry(
+              parseEd25519PresignIndex(await store.get(walletIndexKey), nowMs),
+              presignId,
+            ),
+          );
+          await store.put(
+            globalIndexKey,
+            withoutEd25519PresignIndexEntry(
+              parseEd25519PresignIndex(await store.get(globalIndexKey), nowMs),
+              presignId,
+            ),
+          );
+          return { ok: false as const, code: 'expired' };
+        }
+        if (!ed25519PresignRecordMatchesExpectedScope(parsed, expectedScope)) {
+          return { ok: false as const, code: 'scope_mismatch' };
+        }
+        await store.delete(key);
+        const nowMs = Date.now();
+        await store.put(
+          walletIndexKey,
+          withoutEd25519PresignIndexEntry(
+            parseEd25519PresignIndex(await store.get(walletIndexKey), nowMs),
+            presignId,
+          ),
+        );
+        await store.put(
+          globalIndexKey,
+          withoutEd25519PresignIndexEntry(
+            parseEd25519PresignIndex(await store.get(globalIndexKey), nowMs),
+            presignId,
+          ),
+        );
+        return { ok: true as const, record: parsed };
       });
 
       return json(ok(result));

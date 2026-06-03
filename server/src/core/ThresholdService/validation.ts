@@ -13,6 +13,10 @@ import {
   THRESHOLD_ED25519_2P_PARTICIPANT_IDS,
   normalizeThresholdEd25519ParticipantIds,
 } from '@shared/threshold/participants';
+import {
+  parseThresholdEd25519NearAction,
+  type ThresholdEd25519NearAction,
+} from '@shared/threshold/ed25519OperationFingerprint';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { normalizeRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
@@ -22,6 +26,11 @@ import type {
   EcdsaHssExportShareRequest,
   EcdsaHssPublicIdentity,
   EcdsaHssRoleLocalKeyRecord,
+  ThresholdEd25519CommitmentsWire,
+  ThresholdEd25519FinalizeAndDispatchRequest,
+  ThresholdEd25519FinalizeSignatureOnlyIntent,
+  ThresholdEd25519PresignRefillRequest,
+  ThresholdEd25519SigningOperation,
 } from '../types';
 
 export type ThresholdValidationOk = { ok: true };
@@ -70,9 +79,7 @@ function parseEcdsaHssClientRootProof(
   value: unknown,
 ): EcdsaHssRoleLocalFirstBootstrapRootProof | null {
   if (!isObject(value)) return null;
-  if (
-    toOptionalString(value.version) !== ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION
-  ) {
+  if (toOptionalString(value.version) !== ECDSA_HSS_ROLE_LOCAL_FIRST_BOOTSTRAP_ROOT_PROOF_VERSION) {
     return null;
   }
   const clientRootPublicKey33B64u = parseSec1CompressedPublicKey33B64u(
@@ -361,9 +368,7 @@ export function parseEcdsaHssClientBootstrapRequest(
   const passkeyBootstrapAuthorization =
     raw.passkeyBootstrapAuthorization === undefined
       ? null
-      : parseEcdsaHssPasskeyBootstrapAuthorization(
-          raw.passkeyBootstrapAuthorization,
-        );
+      : parseEcdsaHssPasskeyBootstrapAuthorization(raw.passkeyBootstrapAuthorization);
   if (
     !walletId ||
     !rpId ||
@@ -382,11 +387,9 @@ export function parseEcdsaHssClientBootstrapRequest(
     !participantIds ||
     (runtimePolicyScopeRaw !== undefined && !runtimePolicyScope) ||
     (raw.clientRootProof !== undefined && !clientRootProof) ||
-    (raw.passkeyBootstrapAuthorization !== undefined &&
-      !passkeyBootstrapAuthorization) ||
-    [raw.clientRootProof, raw.passkeyBootstrapAuthorization].filter(
-      (value) => value !== undefined,
-    ).length > 1
+    (raw.passkeyBootstrapAuthorization !== undefined && !passkeyBootstrapAuthorization) ||
+    [raw.clientRootProof, raw.passkeyBootstrapAuthorization].filter((value) => value !== undefined)
+      .length > 1
   ) {
     return null;
   }
@@ -419,9 +422,7 @@ export function parseEcdsaHssClientBootstrapRequest(
   return base;
 }
 
-export function parseEcdsaHssExportShareRequest(
-  raw: unknown,
-): EcdsaHssExportShareRequest | null {
+export function parseEcdsaHssExportShareRequest(raw: unknown): EcdsaHssExportShareRequest | null {
   if (!isObject(raw)) return null;
   if (hasForbiddenFields(raw, ECDSA_HSS_EXPORT_REQUEST_FORBIDDEN_FIELDS)) return null;
   if (toOptionalString(raw.formatVersion) !== 'ecdsa-hss-role-local-export') return null;
@@ -474,9 +475,7 @@ export function parseEcdsaHssExportShareRequest(
   };
 }
 
-export function parseEcdsaHssRoleLocalKeyRecord(
-  raw: unknown,
-): EcdsaHssRoleLocalKeyRecord | null {
+export function parseEcdsaHssRoleLocalKeyRecord(raw: unknown): EcdsaHssRoleLocalKeyRecord | null {
   if (!isObject(raw)) return null;
   if (hasForbiddenFields(raw, ECDSA_HSS_V1_CONTEXT_FORBIDDEN_FIELDS)) return null;
   if (toOptionalString(raw.version) !== 'threshold_ecdsa_hss_role_local_v2') return null;
@@ -494,9 +493,7 @@ export function parseEcdsaHssRoleLocalKeyRecord(
   const clientPublicKey33B64u = parseSec1CompressedPublicKey33B64u(raw.clientPublicKey33B64u);
   const groupPublicKey33B64u = parseSec1CompressedPublicKey33B64u(raw.groupPublicKey33B64u);
   const ethereumAddress = toOptionalString(raw.ethereumAddress);
-  const relayerCaitSithInput = isObject(raw.relayerCaitSithInput)
-    ? raw.relayerCaitSithInput
-    : null;
+  const relayerCaitSithInput = isObject(raw.relayerCaitSithInput) ? raw.relayerCaitSithInput : null;
   const relayerMappedPrivateShare32B64u = parseB64uFixed(
     relayerCaitSithInput?.mappedPrivateShare32B64u,
     32,
@@ -1114,7 +1111,10 @@ export function parseThresholdEd25519SessionClaims(
   if (runtimePolicyScopeRaw !== undefined) {
     const runtimePolicyScope = parseRuntimePolicyScope(runtimePolicyScopeRaw);
     if (!runtimePolicyScope) {
-      console.warn('[threshold-ecdsa-e2e] app session runtimePolicyScope parse failed', runtimePolicyScopeRaw);
+      console.warn(
+        '[threshold-ecdsa-e2e] app session runtimePolicyScope parse failed',
+        runtimePolicyScopeRaw,
+      );
       return null;
     }
     out.runtimePolicyScope = runtimePolicyScope;
@@ -1142,6 +1142,368 @@ export function parseThresholdEd25519SessionClaims(
   }
 
   return out;
+}
+
+export type ParsedThresholdEd25519PresignRecord = {
+  kind: 'threshold_ed25519_presign_record_v1';
+  expiresAtMs: number;
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
+  relayerKeyId: string;
+  nearAccountId: string;
+  nearNetworkId: string;
+  signerPublicKey: string;
+  rpcPolicyId: string;
+  rpId: string;
+  runtimePolicyScope: RuntimePolicyScope;
+  protocolVersion: 'ed25519_frost_2p_presign_v1';
+  participantIds: number[];
+  groupPublicKey: string;
+  clientVerifyingShareB64u: string;
+  clientCommitments: ParsedThresholdEd25519Commitments;
+  relayerCommitments: ParsedThresholdEd25519Commitments;
+  relayerVerifyingShareB64u: string;
+  relayerNoncesB64u: string;
+};
+
+export function parseThresholdEd25519PresignRecord(
+  raw: unknown,
+): ParsedThresholdEd25519PresignRecord | null {
+  if (!isObject(raw)) return null;
+  const kind = toOptionalString(raw.kind);
+  const expiresAtMs = raw.expiresAtMs;
+  const thresholdSessionId = toOptionalString(raw.thresholdSessionId);
+  const walletSigningSessionId = toOptionalString(raw.walletSigningSessionId);
+  const relayerKeyId = toOptionalString(raw.relayerKeyId);
+  const nearAccountId = toOptionalString(raw.nearAccountId);
+  const nearNetworkId = toOptionalString(raw.nearNetworkId);
+  const signerPublicKey = toOptionalString(raw.signerPublicKey);
+  const rpcPolicyId = toOptionalString(raw.rpcPolicyId);
+  const rpId = toOptionalString(raw.rpId);
+  const runtimePolicyScope = parseRuntimePolicyScope(raw.runtimePolicyScope);
+  const protocolVersion = toOptionalString(raw.protocolVersion);
+  const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds);
+  const groupPublicKey = toOptionalString(raw.groupPublicKey);
+  const clientVerifyingShareB64u = toOptionalString(raw.clientVerifyingShareB64u);
+  const clientCommitments = parseThresholdEd25519Commitments(raw.clientCommitments);
+  const relayerCommitments = parseThresholdEd25519Commitments(raw.relayerCommitments);
+  const relayerVerifyingShareB64u = toOptionalString(raw.relayerVerifyingShareB64u);
+  const relayerNoncesB64u = toOptionalString(raw.relayerNoncesB64u);
+
+  if (
+    kind !== 'threshold_ed25519_presign_record_v1' ||
+    !isValidNumber(expiresAtMs) ||
+    !thresholdSessionId ||
+    !walletSigningSessionId ||
+    !relayerKeyId ||
+    !nearAccountId ||
+    !nearNetworkId ||
+    !signerPublicKey ||
+    !rpcPolicyId ||
+    !rpId ||
+    !runtimePolicyScope ||
+    protocolVersion !== 'ed25519_frost_2p_presign_v1' ||
+    !participantIds ||
+    participantIds.length < 2 ||
+    !groupPublicKey ||
+    !clientVerifyingShareB64u ||
+    !clientCommitments ||
+    !relayerCommitments ||
+    !relayerVerifyingShareB64u ||
+    !relayerNoncesB64u
+  ) {
+    return null;
+  }
+
+  return {
+    kind,
+    expiresAtMs,
+    thresholdSessionId,
+    walletSigningSessionId,
+    relayerKeyId,
+    nearAccountId,
+    nearNetworkId,
+    signerPublicKey,
+    rpcPolicyId,
+    rpId,
+    runtimePolicyScope,
+    protocolVersion,
+    participantIds,
+    groupPublicKey,
+    clientVerifyingShareB64u,
+    clientCommitments,
+    relayerCommitments,
+    relayerVerifyingShareB64u,
+    relayerNoncesB64u,
+  };
+}
+
+export type ThresholdEd25519RouteParseResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; code: 'invalid_body'; message: string };
+
+function parseRequiredThresholdEd25519String(value: unknown, fieldName: string): string {
+  const text = toOptionalString(value);
+  if (!text) throw new Error(`${fieldName} is required`);
+  return text;
+}
+
+function parseThresholdEd25519RequestCommitments(
+  raw: unknown,
+  fieldName: string,
+): ThresholdEd25519CommitmentsWire {
+  const commitments = parseThresholdEd25519Commitments(raw);
+  if (!commitments) throw new Error(`${fieldName}{hiding,binding} are required`);
+  return commitments;
+}
+
+function parseThresholdEd25519SigningOperation(raw: unknown): ThresholdEd25519SigningOperation {
+  if (!isObject(raw)) throw new Error('operation is required');
+  const kind = toOptionalString(raw.kind);
+  if (kind !== 'threshold_ed25519_signing_operation_v1') {
+    throw new Error('operation.kind must be threshold_ed25519_signing_operation_v1');
+  }
+  const purpose = toOptionalString(raw.purpose);
+  if (
+    purpose !== 'near_transaction' &&
+    purpose !== 'nep413_message' &&
+    purpose !== 'delegate_action'
+  ) {
+    throw new Error('operation.purpose is invalid');
+  }
+  return {
+    kind,
+    operationId: parseRequiredThresholdEd25519String(raw.operationId, 'operation.operationId'),
+    operationFingerprint: parseRequiredThresholdEd25519String(
+      raw.operationFingerprint,
+      'operation.operationFingerprint',
+    ),
+    purpose,
+  };
+}
+
+function parseThresholdEd25519FinalizeSignatureOnlyIntent(
+  raw: unknown,
+): ThresholdEd25519FinalizeSignatureOnlyIntent {
+  if (!isObject(raw)) throw new Error('intent must be an object');
+  const kind = toOptionalString(raw.kind);
+  if (kind === 'nep413_message_v1') {
+    const message = parseRequiredThresholdEd25519String(raw.message, 'intent.message');
+    const recipient = parseRequiredThresholdEd25519String(raw.recipient, 'intent.recipient');
+    const nonce = parseRequiredThresholdEd25519String(raw.nonce, 'intent.nonce');
+    const state = toOptionalString(raw.state);
+    return {
+      kind,
+      message,
+      recipient,
+      nonce,
+      ...(state ? { state } : {}),
+    };
+  }
+  if (kind === 'near_delegate_action_v1') {
+    if (!isObject(raw.delegate)) throw new Error('intent.delegate must be an object');
+    const actions = parseThresholdEd25519NearActions(
+      raw.delegate.actions,
+      'intent.delegate.actions',
+    );
+    return {
+      kind,
+      delegate: {
+        senderId: parseRequiredThresholdEd25519String(
+          raw.delegate.senderId,
+          'intent.delegate.senderId',
+        ),
+        receiverId: parseRequiredThresholdEd25519String(
+          raw.delegate.receiverId,
+          'intent.delegate.receiverId',
+        ),
+        actions,
+        nonce: parseRequiredThresholdEd25519String(raw.delegate.nonce, 'intent.delegate.nonce'),
+        maxBlockHeight: parseRequiredThresholdEd25519String(
+          raw.delegate.maxBlockHeight,
+          'intent.delegate.maxBlockHeight',
+        ),
+        publicKey: parseRequiredThresholdEd25519String(
+          raw.delegate.publicKey,
+          'intent.delegate.publicKey',
+        ),
+      },
+    };
+  }
+  throw new Error('intent.kind is invalid');
+}
+
+export function parseThresholdEd25519PresignRefillRequest(
+  raw: unknown,
+): ThresholdEd25519RouteParseResult<ThresholdEd25519PresignRefillRequest> {
+  try {
+    if (!isObject(raw)) throw new Error('request body must be an object');
+    const kind = toOptionalString(raw.kind);
+    if (kind !== 'threshold_ed25519_presign_refill_v1') {
+      throw new Error('kind must be threshold_ed25519_presign_refill_v1');
+    }
+    const requestTag = toOptionalString(raw.requestTag);
+    if (
+      requestTag !== 'background_presign_pool_refill' &&
+      requestTag !== 'foreground_presign_pool_refill'
+    ) {
+      throw new Error('requestTag is invalid');
+    }
+    const participantIds = normalizeThresholdEd25519ParticipantIds(raw.participantIds);
+    if (!participantIds || participantIds.length < 2) {
+      throw new Error('participantIds must contain at least two signer ids');
+    }
+    if (!Array.isArray(raw.clientPresigns) || raw.clientPresigns.length === 0) {
+      throw new Error('clientPresigns must be a non-empty array');
+    }
+    const clientPresigns = raw.clientPresigns.map((entry, index) => {
+      if (!isObject(entry)) throw new Error(`clientPresigns[${index}] must be an object`);
+      return {
+        clientPresignId: parseRequiredThresholdEd25519String(
+          entry.clientPresignId,
+          `clientPresigns[${index}].clientPresignId`,
+        ),
+        clientVerifyingShareB64u: parseRequiredThresholdEd25519String(
+          entry.clientVerifyingShareB64u,
+          `clientPresigns[${index}].clientVerifyingShareB64u`,
+        ),
+        clientCommitments: parseThresholdEd25519RequestCommitments(
+          entry.clientCommitments,
+          `clientPresigns[${index}].clientCommitments`,
+        ),
+      };
+    });
+    return {
+      ok: true,
+      value: {
+        kind,
+        relayerKeyId: parseRequiredThresholdEd25519String(raw.relayerKeyId, 'relayerKeyId'),
+        nearAccountId: parseRequiredThresholdEd25519String(raw.nearAccountId, 'nearAccountId'),
+        nearNetworkId: parseRequiredThresholdEd25519String(raw.nearNetworkId, 'nearNetworkId'),
+        expectedSignerPublicKey: parseRequiredThresholdEd25519String(
+          raw.expectedSignerPublicKey,
+          'expectedSignerPublicKey',
+        ),
+        participantIds,
+        clientPresigns,
+        requestTag,
+      },
+    };
+  } catch (e: unknown) {
+    const message =
+      e && typeof e === 'object' && 'message' in e
+        ? String((e as { message?: unknown }).message || 'Invalid request body')
+        : String(e || 'Invalid request body');
+    return { ok: false, code: 'invalid_body', message };
+  }
+}
+
+function parseThresholdEd25519NearTransactionIntents(raw: unknown): Array<{
+  nearAccountId: string;
+  receiverId: string;
+  actions: readonly ThresholdEd25519NearAction[];
+}> {
+  if (!Array.isArray(raw)) throw new Error('transactions must be an array');
+  if (raw.length < 1) throw new Error('transactions must not be empty');
+  return raw.map((entry, index) => {
+    if (!isObject(entry)) throw new Error(`transactions[${index}] must be an object`);
+    return {
+      nearAccountId: parseRequiredThresholdEd25519String(
+        entry.nearAccountId,
+        `transactions[${index}].nearAccountId`,
+      ),
+      receiverId: parseRequiredThresholdEd25519String(
+        entry.receiverId,
+        `transactions[${index}].receiverId`,
+      ),
+      actions: parseThresholdEd25519NearActions(
+        entry.actions,
+        `transactions[${index}].actions`,
+      ),
+    };
+  });
+}
+
+function parseThresholdEd25519NearActions(
+  raw: unknown,
+  label: string,
+): readonly ThresholdEd25519NearAction[] {
+  if (!Array.isArray(raw)) throw new Error(`${label} must be an array`);
+  return raw.map((action, index) => parseThresholdEd25519NearAction(action, `${label}[${index}]`));
+}
+
+export function parseThresholdEd25519FinalizeAndDispatchRequest(
+  raw: unknown,
+): ThresholdEd25519RouteParseResult<ThresholdEd25519FinalizeAndDispatchRequest> {
+  try {
+    if (!isObject(raw)) throw new Error('request body must be an object');
+    const kind = toOptionalString(raw.kind);
+    if (
+      kind !== 'threshold_ed25519_finalize_signature_only_v1' &&
+      kind !== 'threshold_ed25519_finalize_and_dispatch_near_tx_v1'
+    ) {
+      throw new Error('kind is invalid');
+    }
+    const operation = parseThresholdEd25519SigningOperation(raw.operation);
+    const common = {
+      operation,
+      requestIntegrityHash: parseRequiredThresholdEd25519String(
+        raw.requestIntegrityHash,
+        'requestIntegrityHash',
+      ),
+      presignId: parseRequiredThresholdEd25519String(raw.presignId, 'presignId'),
+      relayerKeyId: parseRequiredThresholdEd25519String(raw.relayerKeyId, 'relayerKeyId'),
+      nearAccountId: parseRequiredThresholdEd25519String(raw.nearAccountId, 'nearAccountId'),
+      nearNetworkId: parseRequiredThresholdEd25519String(raw.nearNetworkId, 'nearNetworkId'),
+      expectedSignerPublicKey: parseRequiredThresholdEd25519String(
+        raw.expectedSignerPublicKey,
+        'expectedSignerPublicKey',
+      ),
+      clientSignatureShareB64u: parseRequiredThresholdEd25519String(
+        raw.clientSignatureShareB64u,
+        'clientSignatureShareB64u',
+      ),
+    };
+    if (kind === 'threshold_ed25519_finalize_signature_only_v1') {
+      return {
+        ok: true,
+        value: {
+          kind,
+          ...common,
+          intent: parseThresholdEd25519FinalizeSignatureOnlyIntent(raw.intent),
+        },
+      };
+    }
+    const signingDigestB64u = parseB64uFixed(raw.signingDigestB64u, 32);
+    if (!signingDigestB64u) throw new Error('signingDigestB64u must be 32 bytes');
+    if (
+      !isObject(raw.dispatch) ||
+      toOptionalString(raw.dispatch.kind) !== 'near_rpc_configured_default_v1'
+    ) {
+      throw new Error('dispatch.kind must be near_rpc_configured_default_v1');
+    }
+    const transactions = parseThresholdEd25519NearTransactionIntents(raw.transactions);
+    return {
+      ok: true,
+      value: {
+        kind,
+        ...common,
+        transactions,
+        unsignedTransactionBorshB64u: parseRequiredThresholdEd25519String(
+          raw.unsignedTransactionBorshB64u,
+          'unsignedTransactionBorshB64u',
+        ),
+        signingDigestB64u,
+        dispatch: { kind: 'near_rpc_configured_default_v1' },
+      },
+    };
+  } catch (e: unknown) {
+    const message =
+      e && typeof e === 'object' && 'message' in e
+        ? String((e as { message?: unknown }).message || 'Invalid request body')
+        : String(e || 'Invalid request body');
+    return { ok: false, code: 'invalid_body', message };
+  }
 }
 
 export type AppSessionClaims = {
@@ -1529,7 +1891,7 @@ type NearTxAuthorizeSigningPayload = {
   txSigningRequests: Array<{
     nearAccountId: string;
     receiverId: string;
-    actions: unknown[];
+    actions: ThresholdEd25519NearAction[];
   }>;
   transactionContext: {
     nearPublicKeyStr: string;
@@ -1544,7 +1906,7 @@ type Nep461DelegateAuthorizeSigningPayload = {
   delegate: {
     senderId: string;
     receiverId: string;
-    actions: unknown[];
+    actions: ThresholdEd25519NearAction[];
     nonce: string;
     maxBlockHeight: string;
     publicKey: string;

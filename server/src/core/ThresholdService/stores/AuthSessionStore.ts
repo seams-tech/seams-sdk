@@ -42,6 +42,10 @@ export type ThresholdEd25519AuthConsumeUsesResult =
   | { ok: true; remainingUses: number }
   | { ok: false; code: string; message: string };
 
+export type ThresholdEd25519AuthConsumedUseResult =
+  | { ok: true; consumed: boolean }
+  | { ok: false; code: string; message: string };
+
 export type ThresholdAuthReplayGuardResult =
   | { ok: true }
   | { ok: false; code: string; message: string };
@@ -74,6 +78,10 @@ export interface Ed25519AuthSessionStore {
     id: string,
     idempotencyKey: string,
   ): Promise<ThresholdEd25519AuthConsumeUsesResult>;
+  hasConsumedUseCountOnce(
+    id: string,
+    idempotencyKey: string,
+  ): Promise<ThresholdEd25519AuthConsumedUseResult>;
   reserveReplayGuard(
     scopeId: string,
     replayKey: string,
@@ -188,6 +196,23 @@ class InMemoryEd25519AuthSessionStore implements Ed25519AuthSessionStore {
     return { ok: true, remainingUses: entry.remainingUses };
   }
 
+  async hasConsumedUseCountOnce(
+    id: string,
+    idempotencyKey: string,
+  ): Promise<ThresholdEd25519AuthConsumedUseResult> {
+    const key = this.key(id);
+    const entry = this.map.get(key);
+    if (!entry) {
+      return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
+    }
+    if (Date.now() > entry.expiresAtMs) {
+      this.map.delete(key);
+      return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
+    }
+    const consumeKey = String(idempotencyKey || '').trim();
+    return { ok: true, consumed: !!consumeKey && entry.consumedIdempotencyKeys.has(consumeKey) };
+  }
+
   async reserveReplayGuard(
     scopeId: string,
     replayKey: string,
@@ -269,6 +294,19 @@ function parseRedisConsumeOnceResult(raw: unknown): ThresholdEd25519AuthConsumeU
   }
   return { ok: false, code: 'internal', message: 'Redis consume-once returned invalid response' };
 }
+
+function parseRedisConsumedUseResult(raw: unknown): ThresholdEd25519AuthConsumedUseResult {
+  const value = typeof raw === 'number' ? raw : Number(String(raw ?? '').trim());
+  if (!Number.isFinite(value)) {
+    return { ok: false, code: 'internal', message: 'Redis consumed-use check returned invalid response' };
+  }
+  return { ok: true, consumed: value > 0 };
+}
+
+const CONSUME_ONCE_EXISTS_LUA = `
+local marker_key = KEYS[1]
+return redis.call('EXISTS', marker_key)
+`;
 
 const CONSUME_ONCE_LUA = `
 local uses_key = KEYS[1]
@@ -410,6 +448,29 @@ class UpstashRedisRestEd25519AuthSessionStore implements Ed25519AuthSessionStore
     }
   }
 
+  async hasConsumedUseCountOnce(
+    id: string,
+    idempotencyKey: string,
+  ): Promise<ThresholdEd25519AuthConsumedUseResult> {
+    const consumeKey = normalizeConsumeOnceKey(idempotencyKey);
+    if (!consumeKey) return { ok: true, consumed: false };
+    try {
+      const raw = await this.client.eval(
+        CONSUME_ONCE_EXISTS_LUA,
+        [this.consumeOnceKey(id, consumeKey)],
+        [],
+      );
+      return parseRedisConsumedUseResult(raw);
+    } catch (e: unknown) {
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Failed to check consumed threshold session operation',
+      );
+      return { ok: false, code: 'internal', message: msg };
+    }
+  }
+
   async reserveReplayGuard(
     scopeId: string,
     replayKey: string,
@@ -540,6 +601,28 @@ class RedisTcpEd25519AuthSessionStore implements Ed25519AuthSessionStore {
         e && typeof e === 'object' && 'message' in e
           ? (e as { message?: unknown }).message
           : e || 'Failed to consume threshold session',
+      );
+      return { ok: false, code: 'internal', message: msg };
+    }
+  }
+
+  async hasConsumedUseCountOnce(
+    id: string,
+    idempotencyKey: string,
+  ): Promise<ThresholdEd25519AuthConsumedUseResult> {
+    const consumeKey = normalizeConsumeOnceKey(idempotencyKey);
+    if (!consumeKey) return { ok: true, consumed: false };
+    try {
+      const resp = await this.client.send(['EXISTS', this.consumeOnceKey(id, consumeKey)]);
+      if (resp.type === 'error') {
+        return { ok: false, code: 'internal', message: `Redis EXISTS error: ${resp.value}` };
+      }
+      return parseRedisConsumedUseResult(resp.value);
+    } catch (e: unknown) {
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Failed to check consumed threshold session operation',
       );
       return { ok: false, code: 'internal', message: msg };
     }
@@ -837,6 +920,35 @@ class PostgresEd25519AuthSessionStore implements Ed25519AuthSessionStore {
       return { ok: false, code: 'internal', message: msg };
     } finally {
       client.release();
+    }
+  }
+
+  async hasConsumedUseCountOnce(
+    id: string,
+    idempotencyKey: string,
+  ): Promise<ThresholdEd25519AuthConsumedUseResult> {
+    const consumeKey = normalizeConsumeOnceKey(idempotencyKey);
+    if (!consumeKey) return { ok: true, consumed: false };
+    const nowMs = Date.now();
+    try {
+      const pool = await this.poolPromise;
+      const { rows } = await pool.query(
+        `
+          SELECT 1
+          FROM threshold_ed25519_auth_consumptions
+          WHERE namespace = $1 AND session_id = $2 AND idempotency_key = $3 AND expires_at_ms > $4
+          LIMIT 1
+        `,
+        [this.namespace, id, consumeKey, nowMs],
+      );
+      return { ok: true, consumed: !!rows[0] };
+    } catch (e: unknown) {
+      const msg = String(
+        e && typeof e === 'object' && 'message' in e
+          ? (e as { message?: unknown }).message
+          : e || 'Failed to check consumed threshold session operation',
+      );
+      return { ok: false, code: 'internal', message: msg };
     }
   }
 

@@ -8,6 +8,10 @@ import type { InitInput } from '../../../wasm/near_signer/pkg/wasm_signer_worker
 import type { Logger } from './logger';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type {
+  ThresholdEd25519NearAction,
+  ThresholdEd25519NearTransaction,
+} from '@shared/threshold/ed25519OperationFingerprint';
+import type {
   EcdsaClientRootPublicKey33B64u,
   EcdsaHssClientSharePublicKey33B64u,
   EcdsaRelayerHssPublicKey33B64u,
@@ -1481,6 +1485,194 @@ export interface ThresholdEd25519SignFinalizeResponse {
   /** Signature shares keyed by relayer participant id (stringified u16). */
   relayerSignatureSharesById?: Record<string, string>;
 }
+
+export type ThresholdEd25519CommitmentsWire = {
+  hiding: string;
+  binding: string;
+};
+
+export type ThresholdEd25519PresignRefillRequest = {
+  kind: 'threshold_ed25519_presign_refill_v1';
+  relayerKeyId: string;
+  nearAccountId: string;
+  nearNetworkId: string;
+  expectedSignerPublicKey: string;
+  participantIds: readonly number[];
+  clientPresigns: readonly ThresholdEd25519ClientPresignOffer[];
+  requestTag: 'background_presign_pool_refill' | 'foreground_presign_pool_refill';
+};
+
+export type ThresholdEd25519ClientPresignOffer = {
+  clientPresignId: string;
+  clientVerifyingShareB64u: string;
+  clientCommitments: ThresholdEd25519CommitmentsWire;
+};
+
+export type ThresholdEd25519PresignRefillResponse =
+  | {
+      ok: true;
+      kind: 'threshold_ed25519_presign_refill_response_v1';
+      accepted: readonly ThresholdEd25519PresignPair[];
+      rejectedClientPresignIds: readonly string[];
+      serverTimeMs: number;
+    }
+  | {
+      ok: false;
+      code: ThresholdEd25519PresignRefillErrorCode;
+      message: string;
+    };
+
+export type ThresholdEd25519PresignPair = {
+  presignId: string;
+  clientPresignId: string;
+  relayerCommitments: ThresholdEd25519CommitmentsWire;
+  relayerVerifyingShareB64u: string;
+  signerPublicKey: string;
+  nearNetworkId: string;
+  participantIds: readonly number[];
+  expiresAtMs: number;
+};
+
+export type ThresholdEd25519PresignRefillErrorCode =
+  | 'invalid_body'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'expired'
+  | 'wrong_scope'
+  | 'invalid_commitments'
+  | 'rate_limited'
+  | 'capacity_exceeded'
+  | 'internal';
+
+export type ThresholdEd25519SigningOperation = {
+  kind: 'threshold_ed25519_signing_operation_v1';
+  operationId: string;
+  operationFingerprint: string;
+  purpose: 'near_transaction' | 'nep413_message' | 'delegate_action';
+};
+
+export type ThresholdEd25519FinalizeAndDispatchRequest =
+  | ThresholdEd25519FinalizeSignatureOnlyRequest
+  | ThresholdEd25519FinalizeAndDispatchNearTxRequest;
+
+export type ThresholdEd25519FinalizeNep413Intent = {
+  kind: 'nep413_message_v1';
+  message: string;
+  recipient: string;
+  nonce: string;
+  state?: string;
+};
+
+export type ThresholdEd25519FinalizeDelegateActionIntent = {
+  kind: 'near_delegate_action_v1';
+  delegate: {
+    senderId: string;
+    receiverId: string;
+    actions: readonly ThresholdEd25519NearAction[];
+    nonce: string;
+    maxBlockHeight: string;
+    publicKey: string;
+  };
+};
+
+export type ThresholdEd25519FinalizeSignatureOnlyIntent =
+  | ThresholdEd25519FinalizeNep413Intent
+  | ThresholdEd25519FinalizeDelegateActionIntent;
+
+export type ThresholdEd25519FinalizeSignatureOnlyRequest = {
+  kind: 'threshold_ed25519_finalize_signature_only_v1';
+  operation: ThresholdEd25519SigningOperation;
+  requestIntegrityHash: string;
+  presignId: string;
+  relayerKeyId: string;
+  nearAccountId: string;
+  nearNetworkId: string;
+  expectedSignerPublicKey: string;
+  intent: ThresholdEd25519FinalizeSignatureOnlyIntent;
+  clientSignatureShareB64u: string;
+};
+
+export type ThresholdEd25519FinalizeAndDispatchNearTxRequest = {
+  kind: 'threshold_ed25519_finalize_and_dispatch_near_tx_v1';
+  operation: ThresholdEd25519SigningOperation;
+  requestIntegrityHash: string;
+  presignId: string;
+  relayerKeyId: string;
+  nearAccountId: string;
+  nearNetworkId: string;
+  expectedSignerPublicKey: string;
+  transactions: readonly ThresholdEd25519NearTransaction[];
+  unsignedTransactionBorshB64u: string;
+  signingDigestB64u: string;
+  clientSignatureShareB64u: string;
+  dispatch: {
+    kind: 'near_rpc_configured_default_v1';
+  };
+};
+
+export type ThresholdEd25519FinalizeAndDispatchResponse =
+  | {
+      ok: true;
+      kind: 'threshold_ed25519_signature_only_result_v1';
+      operationId: string;
+      budgetState: 'consumed' | 'already_consumed';
+      remainingSigningUses: number;
+      signatureB64u: string;
+      signerPublicKey: string;
+    }
+  | {
+      ok: true;
+      kind: 'threshold_ed25519_dispatched_near_tx_result_v1';
+      operationId: string;
+      budgetState: 'consumed' | 'already_consumed';
+      remainingSigningUses: number;
+      signatureB64u: string;
+      signerPublicKey: string;
+      signedTransactionBorshB64u: string;
+      transactionHash: string;
+      rpcResult: unknown;
+    }
+  | {
+      ok: false;
+      kind: 'threshold_ed25519_finalize_rejected_without_operation_v1';
+      code: 'invalid_body' | 'unauthorized' | 'internal';
+      message: string;
+      budgetState: 'not_consumed';
+      presignConsumed: false;
+      dispatchState: 'not_attempted';
+    }
+  | {
+      ok: false;
+      kind: 'threshold_ed25519_finalize_rejected_for_operation_v1';
+      code: ThresholdEd25519FinalizeAndDispatchErrorCode;
+      message: string;
+      operationId: string;
+      budgetState: 'not_consumed' | 'consumed' | 'already_consumed';
+      presignConsumed: boolean;
+      dispatchState: 'not_attempted' | 'attempted' | 'unknown';
+    };
+
+export type ThresholdEd25519FinalizeAndDispatchErrorCode =
+  | 'invalid_body'
+  | 'unauthorized'
+  | 'forbidden'
+  | 'expired'
+  | 'wrong_scope'
+  | 'request_integrity_mismatch'
+  | 'operation_fingerprint_mismatch'
+  | 'budget_exhausted'
+  | 'budget_operation_conflict'
+  | 'presign_unavailable'
+  | 'presign_expired'
+  | 'presign_consumed'
+  | 'digest_mismatch'
+  | 'transaction_scope_mismatch'
+  | 'transaction_signer_key_mismatch'
+  | 'transaction_network_mismatch'
+  | 'invalid_signature_share'
+  | 'signature_verification_failed'
+  | 'dispatch_failed'
+  | 'internal';
 
 // ==========================================
 // Threshold Ed25519 cosign continuation payloads

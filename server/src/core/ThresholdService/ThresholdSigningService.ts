@@ -7,6 +7,7 @@ import type { AccessKeyList } from '@/core/rpcClients/near/NearClient';
 import type { ThresholdEcdsaIntegratedKeyStore, ThresholdEd25519KeyStore } from './stores/KeyStore';
 import type {
   ThresholdEd25519MpcSessionRecord,
+  ThresholdEd25519PresignRecord,
   ThresholdEd25519SessionStore,
 } from './stores/SessionStore';
 import type {
@@ -72,6 +73,11 @@ import type {
   ThresholdEd25519CosignInitResponse,
   ThresholdEd25519CosignFinalizeRequest,
   ThresholdEd25519CosignFinalizeResponse,
+  ThresholdEd25519FinalizeAndDispatchErrorCode,
+  ThresholdEd25519FinalizeAndDispatchRequest,
+  ThresholdEd25519FinalizeAndDispatchResponse,
+  ThresholdEd25519PresignRefillRequest,
+  ThresholdEd25519PresignRefillResponse,
   ThresholdEd25519SignInitRequest,
   ThresholdEd25519SignInitResponse,
   ThresholdEd25519SignFinalizeRequest,
@@ -98,8 +104,11 @@ import {
 } from './ed25519HssWasm';
 import {
   threshold_ed25519_compute_delegate_signing_digest,
+  threshold_ed25519_finalize_near_tx_from_signature,
+  threshold_ed25519_finalize_signature,
   threshold_ed25519_compute_near_tx_signing_digests,
   threshold_ed25519_compute_nep413_signing_digest,
+  threshold_ed25519_validate_near_tx_unsigned_borsh,
 } from '../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import {
   ensureRelayerKeyIsActiveAccessKey,
@@ -111,6 +120,7 @@ import {
   parseThresholdEd25519SessionClaims,
   resolveAppSessionWalletIdForWalletScope,
   resolveAppSessionProviderUserIdForWalletScope,
+  toNearPublicKeyStr,
   type ThresholdEd25519SessionClaims,
   type ThresholdEcdsaSessionClaims,
   verifyThresholdEd25519AuthorizeSigningPayloadSigningDigestOnly,
@@ -162,11 +172,51 @@ import { createThresholdEd25519Frost2pSchemeModule } from './schemes/ed25519Fros
 import { createThresholdSecp256k1Ecdsa2pSchemeModule } from './schemes/secp256k1Ecdsa2p';
 import { signerBoundWalletSigningBudgetSessionId } from './walletSigningBudget';
 import { secureRandomIdFragment } from './secureRandomId';
+import {
+  createThresholdEd25519RelayerPresignMaterial,
+  type ThresholdEd25519RelayerPresignMaterial,
+} from './ed25519PresignRound1';
+import { createThresholdEd25519RelayerSignatureShare } from './ed25519PresignRound2';
+import {
+  thresholdEd25519DelegateActionOperationFingerprint,
+  thresholdEd25519FinalizeRequestIntegrityHash,
+  thresholdEd25519NearTransactionOperationFingerprint,
+  thresholdEd25519Nep413OperationFingerprint,
+} from '@shared/threshold/ed25519OperationFingerprint';
 
 type ParseOk<T> = { ok: true; value: T };
 type ParseErr = { ok: false; code: string; message: string };
 type ParseResult<T> = ParseOk<T> | ParseErr;
 type ThresholdEd25519HssSessionError = { ok: false; code?: string; message?: string };
+type ThresholdEd25519PresignRefillMetric = {
+  metric:
+    | 'ed25519_presign_refill_result'
+    | 'ed25519_presign_refill_rejected'
+    | 'ed25519_presign_finalize_take_result';
+  nearAccountId: string;
+  nearNetworkId: string;
+  offeredCount: number;
+  acceptedOfferCount: number;
+  rejectedOfferCount: number;
+  capacityRejectedOfferCount: number;
+  overflowRejectedOfferCount: number;
+  rateLimitRejected: boolean;
+  code?: string;
+  takeResult?: 'consumed' | 'not_found' | 'expired' | 'scope_mismatch' | 'invalid_record';
+  doubleConsumeAttempt?: boolean;
+  ttlCleanupCount?: number;
+};
+
+const THRESHOLD_ED25519_PRESIGN_FINALIZE_RPC_POLICY_ID = 'ed25519-presign-finalize';
+const THRESHOLD_ED25519_PRESIGN_REFILL_TTL_MS = 60_000;
+const THRESHOLD_ED25519_MAX_REFILL_OFFERS = 8;
+const THRESHOLD_ED25519_PRESIGN_WALLET_SESSION_CAP = 8;
+const THRESHOLD_ED25519_PRESIGN_GLOBAL_CAP = 1024;
+const THRESHOLD_ED25519_PRESIGN_REFILL_RATE_LIMIT_WINDOW_MS = 60_000;
+const THRESHOLD_ED25519_PRESIGN_REFILL_WALLET_SESSION_MAX_COST = 8;
+const THRESHOLD_ED25519_PRESIGN_REFILL_THRESHOLD_SESSION_MAX_COST = 8;
+const THRESHOLD_ED25519_PRESIGN_REFILL_ACCOUNT_RELAYER_MAX_COST = 24;
+const THRESHOLD_ED25519_PRESIGN_REFILL_REQUEST_ORIGIN_MAX_COST = 16;
 
 const ED25519_HSS_SERVER_VISIBLE_CLIENT_REQUEST_FORBIDDEN_FIELDS = [
   'evaluatorOtStateB64u',
@@ -204,10 +254,7 @@ function assertNever(value: never): never {
   throw new Error(`Unexpected threshold signing branch: ${String(value)}`);
 }
 
-function findOwnField(
-  raw: Record<string, unknown>,
-  fields: readonly string[],
-): string | undefined {
+function findOwnField(raw: Record<string, unknown>, fields: readonly string[]): string | undefined {
   return fields.find((field) => Object.prototype.hasOwnProperty.call(raw, field));
 }
 
@@ -274,6 +321,246 @@ function errorMessage(error: unknown): string {
       ? (error as { message?: unknown }).message
       : error || '',
   );
+}
+
+type ThresholdEd25519FinalizeSignatureWasmOutput = {
+  signatureB64u: string;
+  signatureBytes: number;
+};
+
+function expectThresholdEd25519FinalizeSignatureWasmOutput(
+  output: unknown,
+): ThresholdEd25519FinalizeSignatureWasmOutput {
+  const parsed = output as ThresholdEd25519FinalizeSignatureWasmOutput;
+  if (!parsed?.signatureB64u || parsed.signatureBytes !== 64) {
+    throw new Error('threshold-ed25519 presign finalize produced invalid signature output');
+  }
+  return parsed;
+}
+
+function thresholdEd25519ParticipantIdsMatch(
+  left: readonly number[],
+  right: readonly number[],
+): boolean {
+  return left.length === right.length && left.every((id, index) => id === right[index]);
+}
+
+async function thresholdEd25519FinalizeBudgetIdempotencyKey(input: {
+  operationId: string;
+  operationFingerprint: string;
+  walletSigningSessionId: string;
+  signingDigestB64u: string;
+}): Promise<string> {
+  return base64UrlEncode(
+    await sha256BytesUtf8(
+      alphabetizeStringify({
+        version: 'threshold_ed25519_finalize_budget_v1',
+        operationId: input.operationId,
+        operationFingerprint: input.operationFingerprint,
+        walletSigningSessionId: input.walletSigningSessionId,
+        signingDigestB64u: input.signingDigestB64u,
+      }),
+    ),
+  );
+}
+
+type ThresholdEd25519FinalizeSignatureOnlyRequest = Extract<
+  ThresholdEd25519FinalizeAndDispatchRequest,
+  { kind: 'threshold_ed25519_finalize_signature_only_v1' }
+>;
+type ThresholdEd25519FinalizeAndDispatchNearTxRequest = Extract<
+  ThresholdEd25519FinalizeAndDispatchRequest,
+  { kind: 'threshold_ed25519_finalize_and_dispatch_near_tx_v1' }
+>;
+
+function thresholdEd25519BytesToB64u(value: unknown): string {
+  if (value instanceof Uint8Array) return base64UrlEncode(value);
+  if (value instanceof ArrayBuffer) return base64UrlEncode(new Uint8Array(value));
+  if (ArrayBuffer.isView(value)) {
+    return base64UrlEncode(new Uint8Array(value.buffer, value.byteOffset, value.byteLength));
+  }
+  throw new Error('threshold Ed25519 digest helper returned invalid bytes');
+}
+
+function thresholdEd25519SignatureOnlyIntentPurpose(
+  intent: ThresholdEd25519FinalizeSignatureOnlyRequest['intent'],
+): 'nep413_message' | 'delegate_action' {
+  switch (intent.kind) {
+    case 'nep413_message_v1':
+      return 'nep413_message';
+    case 'near_delegate_action_v1':
+      return 'delegate_action';
+  }
+  return assertNever(intent);
+}
+
+function thresholdEd25519SignatureOnlySigningDigestB64u(
+  request: ThresholdEd25519FinalizeSignatureOnlyRequest,
+): string {
+  switch (request.intent.kind) {
+    case 'nep413_message_v1':
+      return thresholdEd25519BytesToB64u(
+        threshold_ed25519_compute_nep413_signing_digest({
+          message: request.intent.message,
+          recipient: request.intent.recipient,
+          nonce: request.intent.nonce,
+          ...(request.intent.state ? { state: request.intent.state } : {}),
+        }),
+      );
+    case 'near_delegate_action_v1':
+      return thresholdEd25519BytesToB64u(
+        threshold_ed25519_compute_delegate_signing_digest({
+          delegate: request.intent.delegate,
+        }),
+      );
+  }
+  return assertNever(request.intent);
+}
+
+type ThresholdNearTransactionDispatchResult = {
+  rpcResult: unknown;
+};
+
+type ThresholdNearTransactionDispatcher = (input: {
+  signedTransactionBorshB64u: string;
+}) => Promise<ThresholdNearTransactionDispatchResult>;
+
+export async function thresholdEd25519FinalizeOperationFingerprint(
+  request:
+    | ThresholdEd25519FinalizeSignatureOnlyRequest
+    | ThresholdEd25519FinalizeAndDispatchNearTxRequest,
+): Promise<string> {
+  if (request.kind === 'threshold_ed25519_finalize_and_dispatch_near_tx_v1') {
+    return thresholdEd25519NearTransactionOperationFingerprint({
+      nearAccountId: request.nearAccountId,
+      nearNetworkId: request.nearNetworkId,
+      relayerKeyId: request.relayerKeyId,
+      signerPublicKey: request.expectedSignerPublicKey,
+      transactions: request.transactions,
+      unsignedTransactionBorshB64u: request.unsignedTransactionBorshB64u,
+      signingDigestB64u: request.signingDigestB64u,
+    });
+  }
+  switch (request.intent.kind) {
+    case 'nep413_message_v1':
+      return thresholdEd25519Nep413OperationFingerprint({
+        nearAccountId: request.nearAccountId,
+        nearNetworkId: request.nearNetworkId,
+        relayerKeyId: request.relayerKeyId,
+        signerPublicKey: request.expectedSignerPublicKey,
+        message: request.intent.message,
+        recipient: request.intent.recipient,
+        nonce: request.intent.nonce,
+        state: request.intent.state || null,
+      });
+    case 'near_delegate_action_v1':
+      return thresholdEd25519DelegateActionOperationFingerprint({
+        nearAccountId: request.nearAccountId,
+        nearNetworkId: request.nearNetworkId,
+        relayerKeyId: request.relayerKeyId,
+        signerPublicKey: request.expectedSignerPublicKey,
+        delegate: request.intent.delegate,
+      });
+  }
+  return assertNever(request.intent);
+}
+
+function expectThresholdEd25519FinalizeNearTxWasmOutput(output: unknown): {
+  signedTransactionBorshB64u: string;
+  transactionHash: string;
+} {
+  const parsed = output as {
+    signedTransactionBorshB64u?: unknown;
+    transactionHash?: unknown;
+  };
+  const signedTransactionBorshB64u = toOptionalTrimmedString(parsed?.signedTransactionBorshB64u);
+  const transactionHash = toOptionalTrimmedString(parsed?.transactionHash);
+  if (!signedTransactionBorshB64u || !transactionHash) {
+    throw new Error('threshold_ed25519_finalize_near_tx_from_signature returned invalid output');
+  }
+  return { signedTransactionBorshB64u, transactionHash };
+}
+
+function expectThresholdEd25519ValidatedNearTxWasmOutput(output: unknown): {
+  signerAccountId: string;
+  signerPublicKey: string;
+  nonce: string;
+} {
+  if (!isObject(output)) {
+    throw new Error('threshold_ed25519_validate_near_tx_unsigned_borsh returned invalid output');
+  }
+  const signerAccountId = toOptionalTrimmedString(output.signerAccountId);
+  const signerPublicKey = toNearPublicKeyStr(output.signerPublicKey);
+  const nonce = toOptionalTrimmedString(output.nonce);
+  if (!signerAccountId || !signerPublicKey || !/^\d+$/.test(nonce)) {
+    throw new Error('threshold_ed25519_validate_near_tx_unsigned_borsh returned invalid output');
+  }
+  return { signerAccountId, signerPublicKey, nonce };
+}
+
+function thresholdEd25519NearTxValidationErrorCode(
+  error: unknown,
+): Extract<
+  ThresholdEd25519FinalizeAndDispatchErrorCode,
+  | 'digest_mismatch'
+  | 'transaction_scope_mismatch'
+  | 'transaction_signer_key_mismatch'
+  | 'invalid_body'
+> {
+  const message = errorMessage(error);
+  if (/signer account/i.test(message || '')) return 'transaction_scope_mismatch';
+  if (/signer public key/i.test(message || '')) return 'transaction_signer_key_mismatch';
+  if (/signingDigestB64u does not match/i.test(message || '')) return 'digest_mismatch';
+  return 'invalid_body';
+}
+
+function nearNonceBigInt(value: unknown): bigint | null {
+  if (typeof value === 'bigint') return value >= 0n ? value : null;
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value) || value < 0) return null;
+    return BigInt(value);
+  }
+  const normalized = toOptionalTrimmedString(value);
+  if (!/^\d+$/.test(normalized)) return null;
+  try {
+    return BigInt(normalized);
+  } catch {
+    return null;
+  }
+}
+
+function findNearAccessKeyNonce(input: {
+  accessKeyList: AccessKeyList;
+  expectedSignerPublicKey: string;
+}):
+  | { ok: true; nonce: bigint }
+  | { ok: false; code: 'transaction_signer_key_mismatch' | 'internal'; message: string } {
+  const keys = Array.isArray(input.accessKeyList.keys) ? input.accessKeyList.keys : [];
+  for (const key of keys) {
+    if (!isObject(key)) continue;
+    if (toNearPublicKeyStr(key.public_key) !== input.expectedSignerPublicKey) continue;
+    if (!isObject(key.access_key)) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'matched NEAR access key is missing nonce metadata',
+      };
+    }
+    const nonce = nearNonceBigInt(key.access_key.nonce);
+    if (nonce == null) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: 'matched NEAR access key has invalid nonce metadata',
+      };
+    }
+    return { ok: true, nonce };
+  }
+  return {
+    ok: false,
+    code: 'transaction_signer_key_mismatch',
+    message: 'expectedSignerPublicKey is not an active access key for nearAccountId',
+  };
 }
 
 function isEcdsaHssPublicKeyValidationError(message: string): boolean {
@@ -396,7 +683,8 @@ function ecdsaHssRoleLocalRecordMatchesBootstrap(
     record.clientPublicKey33B64u === bootstrap.publicIdentity.hssClientSharePublicKey33B64u &&
     record.relayerPublicKey33B64u === bootstrap.publicIdentity.relayerPublicKey33B64u &&
     record.groupPublicKey33B64u === bootstrap.publicIdentity.groupPublicKey33B64u &&
-    record.ethereumAddress.toLowerCase() === bootstrap.publicIdentity.ethereumAddress.toLowerCase() &&
+    record.ethereumAddress.toLowerCase() ===
+      bootstrap.publicIdentity.ethereumAddress.toLowerCase() &&
     record.groupPublicKey33B64u === bootstrap.thresholdEcdsaPublicKeyB64u &&
     record.ethereumAddress.toLowerCase() === bootstrap.ethereumAddress.toLowerCase() &&
     record.relayerPublicKey33B64u === bootstrap.relayerVerifyingShareB64u
@@ -996,7 +1284,10 @@ function parseThresholdEd25519HssServerVisibleClientRequestEnvelope(
       message: 'clientRequest.clientRequestMessageB64u is required',
     };
   }
-  const forbiddenField = findOwnField(raw, ED25519_HSS_SERVER_VISIBLE_CLIENT_REQUEST_FORBIDDEN_FIELDS);
+  const forbiddenField = findOwnField(
+    raw,
+    ED25519_HSS_SERVER_VISIBLE_CLIENT_REQUEST_FORBIDDEN_FIELDS,
+  );
   if (forbiddenField) {
     return {
       ok: false,
@@ -1032,7 +1323,10 @@ function parseThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope(
       message: 'evaluationResult.stagedEvaluatorArtifactB64u is required',
     };
   }
-  const forbiddenField = findOwnField(raw, ED25519_HSS_CLIENT_OWNED_STAGED_ARTIFACT_FORBIDDEN_FIELDS);
+  const forbiddenField = findOwnField(
+    raw,
+    ED25519_HSS_CLIENT_OWNED_STAGED_ARTIFACT_FORBIDDEN_FIELDS,
+  );
   if (forbiddenField) {
     return {
       ok: false,
@@ -1160,6 +1454,7 @@ export class ThresholdSigningService {
       }) => Promise<VerifyAuthenticationResponse>)
     | null;
   private readonly viewAccessKeyList: (accountId: string) => Promise<AccessKeyList>;
+  private readonly dispatchNearTransaction: ThresholdNearTransactionDispatcher;
   private readonly ed25519HssCeremonyTtlMs = 2 * 60_000;
   private readonly ed25519HssCeremonyStore = new Map<string, ThresholdEd25519HssCeremonyRecord>();
   private cachedSchemeModules: Partial<Record<ThresholdSchemeId, ThresholdAnySchemeModule>> | null =
@@ -1252,6 +1547,7 @@ export class ThresholdSigningService {
       webauthn_authentication: WebAuthnAuthenticationCredential;
     }) => Promise<VerifyAuthenticationResponse>;
     viewAccessKeyList: (accountId: string) => Promise<AccessKeyList>;
+    dispatchNearTransaction: ThresholdNearTransactionDispatcher;
   }) {
     this.logger = input.logger;
     this.keyStore = input.keyStore;
@@ -1301,6 +1597,7 @@ export class ThresholdSigningService {
     this.ensureSignerWasm = input.ensureSignerWasm;
     this.verifyWebAuthnAuthenticationLite = input.verifyWebAuthnAuthenticationLite || null;
     this.viewAccessKeyList = input.viewAccessKeyList;
+    this.dispatchNearTransaction = input.dispatchNearTransaction;
     this.keygenStrategy = new ThresholdEd25519KeygenStrategyV1({
       clientParticipantId: this.clientParticipantId,
       relayerParticipantId: this.relayerParticipantId,
@@ -1352,6 +1649,31 @@ export class ThresholdSigningService {
 
   private createThresholdEd25519HssCeremonyHandle(): string {
     return base64UrlEncode(randomBytes(18));
+  }
+
+  private emitThresholdEd25519PresignRefillMetric(
+    metric: ThresholdEd25519PresignRefillMetric,
+  ): void {
+    this.logger.info('[threshold-ed25519-presign-metrics]', {
+      metric: metric.metric,
+      nearAccountId: metric.nearAccountId,
+      nearNetworkId: metric.nearNetworkId,
+      offeredCount: Math.max(0, Math.floor(metric.offeredCount)),
+      acceptedOfferCount: Math.max(0, Math.floor(metric.acceptedOfferCount)),
+      rejectedOfferCount: Math.max(0, Math.floor(metric.rejectedOfferCount)),
+      capacityRejectedOfferCount: Math.max(0, Math.floor(metric.capacityRejectedOfferCount)),
+      overflowRejectedOfferCount: Math.max(0, Math.floor(metric.overflowRejectedOfferCount)),
+      rateLimitRejected: metric.rateLimitRejected,
+      ...(metric.code ? { code: metric.code } : {}),
+      ...(metric.takeResult ? { takeResult: metric.takeResult } : {}),
+      ...(typeof metric.doubleConsumeAttempt === 'boolean'
+        ? { doubleConsumeAttempt: metric.doubleConsumeAttempt }
+        : {}),
+      ...(typeof metric.ttlCleanupCount === 'number'
+        ? { ttlCleanupCount: Math.max(0, Math.floor(metric.ttlCleanupCount)) }
+        : {}),
+      atMs: Date.now(),
+    });
   }
 
   private cleanupExpiredThresholdEd25519HssCeremonies(nowMs = Date.now()): void {
@@ -1492,6 +1814,790 @@ export class ThresholdSigningService {
     return { ok: true, value: derived.value };
   }
 
+  private async thresholdEd25519PresignRefill(input: {
+    claims: ThresholdEd25519SessionClaims;
+    request: ThresholdEd25519PresignRefillRequest;
+    requestOriginRateLimitKey?: string;
+  }): Promise<ThresholdEd25519PresignRefillResponse> {
+    const { claims, request } = input;
+    const rejected = (args: {
+      code:
+        | 'invalid_body'
+        | 'unauthorized'
+        | 'forbidden'
+        | 'expired'
+        | 'wrong_scope'
+        | 'invalid_commitments'
+        | 'rate_limited'
+        | 'capacity_exceeded'
+        | 'internal';
+      message: string;
+    }): ThresholdEd25519PresignRefillResponse => ({
+      ok: false,
+      code: args.code,
+      message: args.message,
+    });
+
+    try {
+      if (Date.now() > claims.thresholdExpiresAtMs) {
+        return rejected({ code: 'expired', message: 'threshold session expired' });
+      }
+      const participantIds = normalizeThresholdEd25519ParticipantIds(claims.participantIds);
+      if (
+        !participantIds ||
+        !thresholdEd25519ParticipantIdsMatch(participantIds, this.participantIds2p)
+      ) {
+        return rejected({
+          code: 'unauthorized',
+          message: 'threshold session participant set does not match this server',
+        });
+      }
+      if (!thresholdEd25519ParticipantIdsMatch(request.participantIds, participantIds)) {
+        return rejected({
+          code: 'wrong_scope',
+          message: 'request participantIds do not match threshold session scope',
+        });
+      }
+      if (!claims.runtimePolicyScope) {
+        return rejected({
+          code: 'wrong_scope',
+          message: 'threshold session missing runtimePolicyScope',
+        });
+      }
+      if (request.relayerKeyId !== claims.relayerKeyId) {
+        return rejected({
+          code: 'unauthorized',
+          message: 'relayerKeyId does not match threshold session scope',
+        });
+      }
+      if (request.nearAccountId !== claims.walletId) {
+        return rejected({
+          code: 'wrong_scope',
+          message: 'nearAccountId does not match threshold session wallet',
+        });
+      }
+
+      const key = await this.resolveRelayerKeyMaterial({ relayerKeyId: request.relayerKeyId });
+      if (!key.ok) {
+        return rejected({
+          code: key.code === 'missing_key' ? 'unauthorized' : 'internal',
+          message: key.message,
+        });
+      }
+      if (key.publicKey !== request.expectedSignerPublicKey) {
+        return rejected({
+          code: 'wrong_scope',
+          message: 'expectedSignerPublicKey does not match relayer key scope',
+        });
+      }
+      const accessKey = await ensureRelayerKeyIsActiveAccessKey({
+        nearAccountId: request.nearAccountId,
+        relayerPublicKey: key.publicKey,
+        viewAccessKeyList: this.viewAccessKeyList,
+      });
+      if (!accessKey.ok) {
+        return rejected({
+          code: accessKey.code === 'unauthorized' ? 'unauthorized' : 'internal',
+          message: accessKey.message,
+        });
+      }
+
+      const accepted: Array<{
+        presignId: string;
+        clientPresignId: string;
+        relayerCommitments: { hiding: string; binding: string };
+        relayerVerifyingShareB64u: string;
+        signerPublicKey: string;
+        nearNetworkId: string;
+        participantIds: readonly number[];
+        expiresAtMs: number;
+      }> = [];
+      const rejectedClientPresignIds: string[] = [];
+      const offers = request.clientPresigns.slice(0, THRESHOLD_ED25519_MAX_REFILL_OFFERS);
+      let overflowRejectedOfferCount = 0;
+      let capacityRejectedOfferCount = 0;
+      for (const overflow of request.clientPresigns.slice(THRESHOLD_ED25519_MAX_REFILL_OFFERS)) {
+        rejectedClientPresignIds.push(overflow.clientPresignId);
+        overflowRejectedOfferCount += 1;
+      }
+      const refillCost = offers.length;
+      const rateWindow = { windowMs: THRESHOLD_ED25519_PRESIGN_REFILL_RATE_LIMIT_WINDOW_MS };
+      const requestOriginRateLimitKey = toOptionalTrimmedString(input.requestOriginRateLimitKey);
+      const refillRateLimits = [
+        {
+          bucket: {
+            kind: 'wallet_signing_session' as const,
+            key: claims.walletSigningSessionId,
+          },
+          policy: {
+            ...rateWindow,
+            maxCost: THRESHOLD_ED25519_PRESIGN_REFILL_WALLET_SESSION_MAX_COST,
+          },
+        },
+        {
+          bucket: {
+            kind: 'threshold_session' as const,
+            key: claims.sessionId,
+          },
+          policy: {
+            ...rateWindow,
+            maxCost: THRESHOLD_ED25519_PRESIGN_REFILL_THRESHOLD_SESSION_MAX_COST,
+          },
+        },
+        {
+          bucket: {
+            kind: 'account_relayer_key' as const,
+            key: `${claims.walletId}\0${claims.relayerKeyId}`,
+          },
+          policy: {
+            ...rateWindow,
+            maxCost: THRESHOLD_ED25519_PRESIGN_REFILL_ACCOUNT_RELAYER_MAX_COST,
+          },
+        },
+        ...(requestOriginRateLimitKey
+          ? [
+              {
+                bucket: {
+                  kind: 'request_origin' as const,
+                  key: requestOriginRateLimitKey,
+                },
+                policy: {
+                  ...rateWindow,
+                  maxCost: THRESHOLD_ED25519_PRESIGN_REFILL_REQUEST_ORIGIN_MAX_COST,
+                },
+              },
+            ]
+          : []),
+      ];
+      for (const limit of refillRateLimits) {
+        const consumed = await this.sessionStore.consumePresignRefillRateLimit(
+          limit.bucket,
+          limit.policy,
+          refillCost,
+        );
+        if (!consumed.ok) {
+          this.emitThresholdEd25519PresignRefillMetric({
+            metric: 'ed25519_presign_refill_rejected',
+            nearAccountId: request.nearAccountId,
+            nearNetworkId: request.nearNetworkId,
+            offeredCount: offers.length,
+            acceptedOfferCount: 0,
+            rejectedOfferCount: offers.length + overflowRejectedOfferCount,
+            capacityRejectedOfferCount,
+            overflowRejectedOfferCount,
+            rateLimitRejected: true,
+            code: 'rate_limited',
+          });
+          return rejected({
+            code: 'rate_limited',
+            message: 'presign refill rate limit exceeded',
+          });
+        }
+      }
+
+      const capacity = {
+        walletSigningSessionMax: THRESHOLD_ED25519_PRESIGN_WALLET_SESSION_CAP,
+        globalMax: THRESHOLD_ED25519_PRESIGN_GLOBAL_CAP,
+      };
+      let signerWasmReady = false;
+      for (const offer of offers) {
+        const capacityAvailable = await this.sessionStore.checkPresignCapacity(
+          claims.walletSigningSessionId,
+          capacity,
+        );
+        if (!capacityAvailable.ok) {
+          rejectedClientPresignIds.push(offer.clientPresignId);
+          capacityRejectedOfferCount += 1;
+          continue;
+        }
+        if (!signerWasmReady) {
+          await this.ensureSignerWasm();
+          signerWasmReady = true;
+        }
+        let commit: ThresholdEd25519RelayerPresignMaterial;
+        try {
+          commit = createThresholdEd25519RelayerPresignMaterial(key.relayerSigningShareB64u);
+        } catch (error) {
+          return rejected({
+            code: 'invalid_commitments',
+            message: errorMessage(error) || 'failed to create relayer presign commitments',
+          });
+        }
+        const presignId = `presign-${secureRandomIdFragment()}`;
+        const expiresAtMs = Date.now() + THRESHOLD_ED25519_PRESIGN_REFILL_TTL_MS;
+        const record: ThresholdEd25519PresignRecord = {
+          kind: 'threshold_ed25519_presign_record_v1',
+          expiresAtMs,
+          thresholdSessionId: claims.sessionId,
+          walletSigningSessionId: claims.walletSigningSessionId,
+          relayerKeyId: claims.relayerKeyId,
+          nearAccountId: claims.walletId,
+          nearNetworkId: request.nearNetworkId,
+          signerPublicKey: key.publicKey,
+          rpcPolicyId: THRESHOLD_ED25519_PRESIGN_FINALIZE_RPC_POLICY_ID,
+          rpId: claims.rpId,
+          runtimePolicyScope: claims.runtimePolicyScope,
+          protocolVersion: 'ed25519_frost_2p_presign_v1',
+          participantIds,
+          groupPublicKey: key.publicKey,
+          clientVerifyingShareB64u: offer.clientVerifyingShareB64u,
+          clientCommitments: offer.clientCommitments,
+          relayerCommitments: commit.relayerCommitments,
+          relayerVerifyingShareB64u: key.relayerVerifyingShareB64u,
+          relayerNoncesB64u: commit.relayerNoncesB64u,
+        };
+        const stored = await this.sessionStore.putPresignWithCapacity(
+          presignId,
+          record,
+          THRESHOLD_ED25519_PRESIGN_REFILL_TTL_MS,
+          capacity,
+        );
+        if (!stored.ok) {
+          rejectedClientPresignIds.push(offer.clientPresignId);
+          capacityRejectedOfferCount += 1;
+          continue;
+        }
+        accepted.push({
+          presignId,
+          clientPresignId: offer.clientPresignId,
+          relayerCommitments: commit.relayerCommitments,
+          relayerVerifyingShareB64u: key.relayerVerifyingShareB64u,
+          signerPublicKey: key.publicKey,
+          nearNetworkId: request.nearNetworkId,
+          participantIds,
+          expiresAtMs,
+        });
+      }
+
+      if (!accepted.length && rejectedClientPresignIds.length > 0) {
+        this.emitThresholdEd25519PresignRefillMetric({
+          metric: 'ed25519_presign_refill_rejected',
+          nearAccountId: request.nearAccountId,
+          nearNetworkId: request.nearNetworkId,
+          offeredCount: offers.length,
+          acceptedOfferCount: 0,
+          rejectedOfferCount: rejectedClientPresignIds.length,
+          capacityRejectedOfferCount,
+          overflowRejectedOfferCount,
+          rateLimitRejected: false,
+          code: 'capacity_exceeded',
+        });
+        return rejected({
+          code: 'capacity_exceeded',
+          message: 'presign refill capacity is exhausted',
+        });
+      }
+
+      this.emitThresholdEd25519PresignRefillMetric({
+        metric: 'ed25519_presign_refill_result',
+        nearAccountId: request.nearAccountId,
+        nearNetworkId: request.nearNetworkId,
+        offeredCount: offers.length,
+        acceptedOfferCount: accepted.length,
+        rejectedOfferCount: rejectedClientPresignIds.length,
+        capacityRejectedOfferCount,
+        overflowRejectedOfferCount,
+        rateLimitRejected: false,
+      });
+      return {
+        ok: true,
+        kind: 'threshold_ed25519_presign_refill_response_v1',
+        accepted,
+        rejectedClientPresignIds,
+        serverTimeMs: Date.now(),
+      };
+    } catch (error) {
+      return rejected({
+        code: 'internal',
+        message: errorMessage(error) || 'threshold-ed25519 presign refill failed',
+      });
+    }
+  }
+
+  private async thresholdEd25519FinalizeAndDispatch(input: {
+    claims: ThresholdEd25519SessionClaims;
+    request: ThresholdEd25519FinalizeAndDispatchRequest;
+  }): Promise<ThresholdEd25519FinalizeAndDispatchResponse> {
+    const { claims, request } = input;
+    const operationId = String(request.operation?.operationId || '').trim();
+    const rejected = (args: {
+      code:
+        | 'invalid_body'
+        | 'unauthorized'
+        | 'forbidden'
+        | 'expired'
+        | 'wrong_scope'
+        | 'request_integrity_mismatch'
+        | 'operation_fingerprint_mismatch'
+        | 'budget_exhausted'
+        | 'budget_operation_conflict'
+        | 'presign_unavailable'
+        | 'presign_expired'
+        | 'presign_consumed'
+        | 'digest_mismatch'
+        | 'transaction_scope_mismatch'
+        | 'transaction_signer_key_mismatch'
+        | 'transaction_network_mismatch'
+        | 'invalid_signature_share'
+        | 'signature_verification_failed'
+        | 'dispatch_failed'
+        | 'internal';
+      message: string;
+      budgetState?: 'not_consumed' | 'consumed' | 'already_consumed';
+      presignConsumed?: boolean;
+      dispatchState?: 'not_attempted' | 'attempted' | 'unknown';
+    }): ThresholdEd25519FinalizeAndDispatchResponse => ({
+      ok: false,
+      kind: 'threshold_ed25519_finalize_rejected_for_operation_v1',
+      code: args.code,
+      message: args.message,
+      operationId,
+      budgetState: args.budgetState ?? 'not_consumed',
+      presignConsumed: args.presignConsumed ?? false,
+      dispatchState: args.dispatchState ?? 'not_attempted',
+    });
+
+    if (!operationId) {
+      return {
+        ok: false,
+        kind: 'threshold_ed25519_finalize_rejected_without_operation_v1',
+        code: 'invalid_body',
+        message: 'operation.operationId is required',
+        budgetState: 'not_consumed',
+        presignConsumed: false,
+        dispatchState: 'not_attempted',
+      };
+    }
+
+    try {
+      const operationFingerprint = toOptionalTrimmedString(request.operation.operationFingerprint);
+      if (!operationFingerprint) {
+        return rejected({
+          code: 'invalid_body',
+          message: 'operation.operationFingerprint is required',
+        });
+      }
+      if (
+        request.kind === 'threshold_ed25519_finalize_signature_only_v1' &&
+        request.operation.purpose !== thresholdEd25519SignatureOnlyIntentPurpose(request.intent)
+      ) {
+        return rejected({
+          code: 'wrong_scope',
+          message: 'operation.purpose does not match signature-only intent',
+        });
+      }
+      if (
+        request.kind === 'threshold_ed25519_finalize_and_dispatch_near_tx_v1' &&
+        request.operation.purpose !== 'near_transaction'
+      ) {
+        return rejected({
+          code: 'wrong_scope',
+          message: 'operation.purpose must be near_transaction',
+        });
+      }
+      if (
+        request.kind === 'threshold_ed25519_finalize_and_dispatch_near_tx_v1' &&
+        request.transactions.length !== 1
+      ) {
+        return rejected({
+          code: 'invalid_body',
+          message: 'transactions must contain exactly one NEAR transaction payload',
+        });
+      }
+      const expectedRequestIntegrityHash =
+        await thresholdEd25519FinalizeRequestIntegrityHash(request);
+      if (request.requestIntegrityHash !== expectedRequestIntegrityHash) {
+        return rejected({
+          code: 'request_integrity_mismatch',
+          message: 'requestIntegrityHash does not match the finalize request',
+        });
+      }
+      const expectedOperationFingerprint =
+        await thresholdEd25519FinalizeOperationFingerprint(request);
+      if (operationFingerprint !== expectedOperationFingerprint) {
+        return rejected({
+          code: 'operation_fingerprint_mismatch',
+          message:
+            'operation.operationFingerprint does not match the finalize-and-dispatch request',
+        });
+      }
+      if (Date.now() > claims.thresholdExpiresAtMs) {
+        return rejected({ code: 'expired', message: 'threshold session expired' });
+      }
+      const participantIds = normalizeThresholdEd25519ParticipantIds(claims.participantIds);
+      if (
+        !participantIds ||
+        !thresholdEd25519ParticipantIdsMatch(participantIds, this.participantIds2p)
+      ) {
+        return rejected({
+          code: 'unauthorized',
+          message: 'threshold session participant set does not match this server',
+        });
+      }
+      if (!claims.runtimePolicyScope) {
+        return rejected({
+          code: 'wrong_scope',
+          message: 'threshold session missing runtimePolicyScope',
+        });
+      }
+      if (request.relayerKeyId !== claims.relayerKeyId) {
+        return rejected({
+          code: 'unauthorized',
+          message: 'relayerKeyId does not match threshold session scope',
+        });
+      }
+      if (request.nearAccountId !== claims.walletId) {
+        return rejected({
+          code: 'wrong_scope',
+          message: 'nearAccountId does not match threshold session wallet',
+        });
+      }
+      if (request.kind === 'threshold_ed25519_finalize_signature_only_v1') {
+        if (
+          request.intent.kind === 'near_delegate_action_v1' &&
+          request.intent.delegate.senderId !== request.nearAccountId
+        ) {
+          return rejected({
+            code: 'transaction_scope_mismatch',
+            message: 'delegate senderId does not match nearAccountId',
+          });
+        }
+        if (
+          request.intent.kind === 'near_delegate_action_v1' &&
+          request.intent.delegate.publicKey !== request.expectedSignerPublicKey
+        ) {
+          return rejected({
+            code: 'transaction_signer_key_mismatch',
+            message: 'delegate publicKey does not match expectedSignerPublicKey',
+          });
+        }
+      }
+      let signingDigestB64u: string;
+      try {
+        if (request.kind === 'threshold_ed25519_finalize_signature_only_v1') {
+          await this.ensureSignerWasm();
+          signingDigestB64u = thresholdEd25519SignatureOnlySigningDigestB64u(request);
+        } else {
+          signingDigestB64u = request.signingDigestB64u;
+        }
+        if (base64UrlDecode(signingDigestB64u).length !== 32) {
+          return rejected({
+            code: 'invalid_body',
+            message: 'signingDigestB64u must decode to 32 bytes',
+          });
+        }
+      } catch {
+        return rejected({
+          code: 'invalid_body',
+          message:
+            request.kind === 'threshold_ed25519_finalize_signature_only_v1'
+              ? 'signature-only intent produced an invalid signing digest'
+              : 'signingDigestB64u must be base64url',
+        });
+      }
+
+      const key = await this.resolveRelayerKeyMaterial({ relayerKeyId: request.relayerKeyId });
+      if (!key.ok)
+        return rejected({
+          code: key.code === 'missing_key' ? 'unauthorized' : 'internal',
+          message: key.message,
+        });
+      if (key.publicKey !== request.expectedSignerPublicKey) {
+        return rejected({
+          code: 'wrong_scope',
+          message: 'expectedSignerPublicKey does not match relayer key scope',
+        });
+      }
+      if (request.kind === 'threshold_ed25519_finalize_and_dispatch_near_tx_v1') {
+        await this.ensureSignerWasm();
+        let validatedNearTx: {
+          signerAccountId: string;
+          signerPublicKey: string;
+          nonce: string;
+        };
+        try {
+          validatedNearTx = expectThresholdEd25519ValidatedNearTxWasmOutput(
+            threshold_ed25519_validate_near_tx_unsigned_borsh({
+              unsignedTransactionBorshB64u: request.unsignedTransactionBorshB64u,
+              signingDigestB64u: request.signingDigestB64u,
+              txSigningRequests: request.transactions,
+              expectedNearAccountId: request.nearAccountId,
+              expectedSignerPublicKey: request.expectedSignerPublicKey,
+            }),
+          );
+        } catch (error) {
+          return rejected({
+            code: thresholdEd25519NearTxValidationErrorCode(error),
+            message: errorMessage(error) || 'invalid unsigned NEAR transaction',
+            presignConsumed: false,
+            budgetState: 'not_consumed',
+          });
+        }
+        if (validatedNearTx.signerAccountId !== request.nearAccountId) {
+          return rejected({
+            code: 'transaction_scope_mismatch',
+            message: 'unsigned NEAR transaction signer account does not match nearAccountId',
+          });
+        }
+        if (validatedNearTx.signerPublicKey !== request.expectedSignerPublicKey) {
+          return rejected({
+            code: 'transaction_signer_key_mismatch',
+            message: 'unsigned NEAR transaction signer key does not match expectedSignerPublicKey',
+          });
+        }
+        const txNonce = nearNonceBigInt(validatedNearTx.nonce);
+        if (txNonce == null) {
+          return rejected({
+            code: 'invalid_body',
+            message: 'unsigned NEAR transaction nonce is invalid',
+          });
+        }
+        let accessKeyList: AccessKeyList;
+        try {
+          accessKeyList = await this.viewAccessKeyList(request.nearAccountId);
+        } catch (error) {
+          return rejected({
+            code: 'internal',
+            message: `Failed to verify NEAR access key nonce: ${errorMessage(error) || 'access key lookup failed'}`,
+          });
+        }
+        const accessKey = findNearAccessKeyNonce({
+          accessKeyList,
+          expectedSignerPublicKey: request.expectedSignerPublicKey,
+        });
+        if (!accessKey.ok) {
+          return rejected({
+            code: accessKey.code,
+            message: accessKey.message,
+          });
+        }
+        if (txNonce <= accessKey.nonce) {
+          return rejected({
+            code: 'transaction_scope_mismatch',
+            message:
+              'unsigned NEAR transaction nonce must be greater than current access key nonce',
+          });
+        }
+      }
+      const budgetIdempotencyKey = await thresholdEd25519FinalizeBudgetIdempotencyKey({
+        operationId,
+        operationFingerprint,
+        walletSigningSessionId: claims.walletSigningSessionId,
+        signingDigestB64u,
+      });
+      const consumedBudget = await this.hasConsumedWalletOrCurveSessionUse({
+        walletSigningSessionId: claims.walletSigningSessionId,
+        curve: 'ed25519',
+        curveSessionId: claims.sessionId,
+        curveStore: this.authSessionStore,
+        idempotencyKey: budgetIdempotencyKey,
+      });
+      if (!consumedBudget.ok) {
+        return rejected({
+          code: consumedBudget.code === 'unauthorized' ? 'unauthorized' : 'internal',
+          message: consumedBudget.message,
+        });
+      }
+      if (consumedBudget.consumed) {
+        return rejected({
+          code: 'budget_operation_conflict',
+          message:
+            'operation budget was already consumed and no cached finalize result is available',
+          budgetState: 'already_consumed',
+          presignConsumed: false,
+        });
+      }
+
+      const presign = await this.sessionStore.takePresignForFinalize(request.presignId, {
+        thresholdSessionId: claims.sessionId,
+        walletSigningSessionId: claims.walletSigningSessionId,
+        relayerKeyId: claims.relayerKeyId,
+        nearAccountId: claims.walletId,
+        nearNetworkId: request.nearNetworkId,
+        signerPublicKey: request.expectedSignerPublicKey,
+        rpcPolicyId: THRESHOLD_ED25519_PRESIGN_FINALIZE_RPC_POLICY_ID,
+        rpId: claims.rpId,
+        runtimePolicyScope: claims.runtimePolicyScope,
+        participantIds,
+        groupPublicKey: key.publicKey,
+      });
+      if (!presign.ok) {
+        this.emitThresholdEd25519PresignRefillMetric({
+          metric: 'ed25519_presign_finalize_take_result',
+          nearAccountId: request.nearAccountId,
+          nearNetworkId: request.nearNetworkId,
+          offeredCount: 0,
+          acceptedOfferCount: 0,
+          rejectedOfferCount: 0,
+          capacityRejectedOfferCount: 0,
+          overflowRejectedOfferCount: 0,
+          rateLimitRejected: false,
+          takeResult: presign.code,
+          doubleConsumeAttempt: presign.code === 'not_found',
+          ttlCleanupCount: presign.code === 'expired' ? 1 : 0,
+          code: presign.code,
+        });
+        const code =
+          presign.code === 'expired'
+            ? 'presign_expired'
+            : presign.code === 'scope_mismatch'
+              ? 'wrong_scope'
+              : presign.code === 'invalid_record'
+                ? 'internal'
+                : 'presign_unavailable';
+        return rejected({
+          code,
+          message: `presign ${presign.code}`,
+          presignConsumed: false,
+        });
+      }
+      this.emitThresholdEd25519PresignRefillMetric({
+        metric: 'ed25519_presign_finalize_take_result',
+        nearAccountId: request.nearAccountId,
+        nearNetworkId: request.nearNetworkId,
+        offeredCount: 0,
+        acceptedOfferCount: 0,
+        rejectedOfferCount: 0,
+        capacityRejectedOfferCount: 0,
+        overflowRejectedOfferCount: 0,
+        rateLimitRejected: false,
+        takeResult: 'consumed',
+        doubleConsumeAttempt: false,
+        ttlCleanupCount: 0,
+      });
+
+      const budget = await this.consumeWalletOrCurveSessionUse({
+        walletSigningSessionId: claims.walletSigningSessionId,
+        curve: 'ed25519',
+        curveSessionId: claims.sessionId,
+        curveStore: this.authSessionStore,
+        idempotencyKey: budgetIdempotencyKey,
+      });
+      if (!budget.ok) {
+        return rejected({
+          code:
+            budget.code === 'unauthorized'
+              ? 'unauthorized'
+              : budget.code === 'forbidden'
+                ? 'budget_exhausted'
+                : 'budget_exhausted',
+          message: budget.message,
+          presignConsumed: true,
+        });
+      }
+
+      await this.ensureSignerWasm();
+      let relayerSignatureShareB64u: string;
+      try {
+        const relayerShare = createThresholdEd25519RelayerSignatureShare({
+          clientParticipantId: this.clientParticipantId,
+          relayerParticipantId: this.relayerParticipantId,
+          relayerSigningShareB64u: key.relayerSigningShareB64u,
+          relayerNoncesB64u: presign.record.relayerNoncesB64u,
+          groupPublicKey: presign.record.groupPublicKey,
+          signingDigestB64u,
+          clientCommitments: presign.record.clientCommitments,
+          relayerCommitments: presign.record.relayerCommitments,
+        });
+        relayerSignatureShareB64u = relayerShare.relayerSignatureShareB64u;
+      } catch (error) {
+        return rejected({
+          code: 'invalid_signature_share',
+          message: errorMessage(error) || 'failed to compute relayer signature share',
+          budgetState: 'consumed',
+          presignConsumed: true,
+        });
+      }
+
+      try {
+        const signature = expectThresholdEd25519FinalizeSignatureWasmOutput(
+          threshold_ed25519_finalize_signature({
+            clientParticipantId: this.clientParticipantId,
+            relayerParticipantId: this.relayerParticipantId,
+            groupPublicKey: presign.record.groupPublicKey,
+            signingDigestB64u,
+            clientCommitments: presign.record.clientCommitments,
+            relayerCommitments: presign.record.relayerCommitments,
+            clientVerifyingShareB64u: presign.record.clientVerifyingShareB64u,
+            relayerVerifyingShareB64u: presign.record.relayerVerifyingShareB64u,
+            clientSignatureShareB64u: request.clientSignatureShareB64u,
+            relayerSignatureShareB64u,
+          }),
+        );
+        if (request.kind === 'threshold_ed25519_finalize_and_dispatch_near_tx_v1') {
+          let finalizedNearTx: {
+            signedTransactionBorshB64u: string;
+            transactionHash: string;
+          };
+          try {
+            finalizedNearTx = expectThresholdEd25519FinalizeNearTxWasmOutput(
+              threshold_ed25519_finalize_near_tx_from_signature({
+                unsignedTransactionBorshB64u: request.unsignedTransactionBorshB64u,
+                signingDigestB64u,
+                signatureB64u: signature.signatureB64u,
+                expectedNearAccountId: request.nearAccountId,
+                expectedSignerPublicKey: request.expectedSignerPublicKey,
+              }),
+            );
+          } catch (error) {
+            return rejected({
+              code: 'digest_mismatch',
+              message: errorMessage(error) || 'failed to build signed NEAR transaction',
+              budgetState: 'consumed',
+              presignConsumed: true,
+            });
+          }
+          try {
+            const dispatch = await this.dispatchNearTransaction({
+              signedTransactionBorshB64u: finalizedNearTx.signedTransactionBorshB64u,
+            });
+            return {
+              ok: true,
+              kind: 'threshold_ed25519_dispatched_near_tx_result_v1',
+              operationId,
+              budgetState: 'consumed',
+              remainingSigningUses: budget.remainingUses,
+              signatureB64u: signature.signatureB64u,
+              signerPublicKey: presign.record.signerPublicKey,
+              signedTransactionBorshB64u: finalizedNearTx.signedTransactionBorshB64u,
+              transactionHash: finalizedNearTx.transactionHash,
+              rpcResult: dispatch.rpcResult,
+            };
+          } catch (error) {
+            return rejected({
+              code: 'dispatch_failed',
+              message: errorMessage(error) || 'failed to dispatch NEAR transaction',
+              budgetState: 'consumed',
+              presignConsumed: true,
+              dispatchState: 'attempted',
+            });
+          }
+        }
+        return {
+          ok: true,
+          kind: 'threshold_ed25519_signature_only_result_v1',
+          operationId,
+          budgetState: 'consumed',
+          remainingSigningUses: budget.remainingUses,
+          signatureB64u: signature.signatureB64u,
+          signerPublicKey: presign.record.signerPublicKey,
+        };
+      } catch (error) {
+        return rejected({
+          code: 'signature_verification_failed',
+          message: errorMessage(error) || 'final signature verification failed',
+          budgetState: 'consumed',
+          presignConsumed: true,
+        });
+      }
+    } catch (error) {
+      return rejected({
+        code: 'internal',
+        message: errorMessage(error) || 'threshold-ed25519 finalize-and-dispatch failed',
+      });
+    }
+  }
+
   getSchemeModule(schemeId: ThresholdSchemeId): ThresholdAnySchemeModule | null {
     if (!this.cachedSchemeModules) this.cachedSchemeModules = {};
     const existing = this.cachedSchemeModules[schemeId];
@@ -1504,6 +2610,10 @@ export class ThresholdSigningService {
             this.ed25519RegistrationKeygenFromRegistrationMaterial(request),
           session: (request) => this.ed25519Session(request),
           authorize: (input) => this.ed25519AuthorizeWithSession(input),
+          presign: {
+            refill: (input) => this.thresholdEd25519PresignRefill(input),
+            finalizeAndDispatch: (input) => this.thresholdEd25519FinalizeAndDispatch(input),
+          },
           protocol: {
             signInit: (request) => this.signingHandlers.thresholdEd25519SignInit(request),
             signFinalize: (request) => this.signingHandlers.thresholdEd25519SignFinalize(request),
@@ -1983,6 +3093,44 @@ export class ThresholdSigningService {
       return await input.curveStore.consumeUseCountOnce(input.curveSessionId, idempotencyKey);
     }
     return await input.curveStore.consumeUseCount(input.curveSessionId);
+  }
+
+  private async hasConsumedWalletOrCurveSessionUse(input: {
+    walletSigningSessionId?: string;
+    curve: 'ed25519' | 'ecdsa';
+    curveSessionId: string;
+    curveStore: Ed25519AuthSessionStore;
+    idempotencyKey: string;
+  }): Promise<{ ok: true; consumed: boolean } | { ok: false; code: string; message: string }> {
+    const idempotencyKey = toOptionalTrimmedString(input.idempotencyKey);
+    if (!idempotencyKey) return { ok: true, consumed: false };
+    const walletBudgetSessionId = this.walletSigningBudgetSessionId({
+      walletSigningSessionId: input.walletSigningSessionId || '',
+      binding: {
+        curve: input.curve,
+        thresholdSessionId: input.curveSessionId,
+      },
+    });
+    if (walletBudgetSessionId) {
+      const walletBudgetSession = await this.authSessionStore.getSession(walletBudgetSessionId);
+      const binding = walletBudgetSession?.walletBudgetBinding;
+      if (
+        !binding ||
+        binding.curve !== input.curve ||
+        binding.thresholdSessionId !== input.curveSessionId
+      ) {
+        return {
+          ok: false,
+          code: 'unauthorized',
+          message: 'wallet signing-session budget is not bound to this threshold session',
+        };
+      }
+      return await this.authSessionStore.hasConsumedUseCountOnce(
+        walletBudgetSessionId,
+        idempotencyKey,
+      );
+    }
+    return await input.curveStore.hasConsumedUseCountOnce(input.curveSessionId, idempotencyKey);
   }
 
   private async thresholdEd25519AuthorizationBudgetIdempotencyKey(input: {
@@ -2497,13 +3645,7 @@ export class ThresholdSigningService {
     const rpId = toOptionalTrimmedString(input.rpId);
     const walletKeyVersion =
       toOptionalTrimmedString(input.walletKeyVersion) || THRESHOLD_ECDSA_HSS_KEY_VERSION_V1;
-    if (
-      !signingRootId ||
-      !signingRootVersion ||
-      !walletId ||
-      !ecdsaThresholdKeyId ||
-      !rpId
-    ) {
+    if (!signingRootId || !signingRootVersion || !walletId || !ecdsaThresholdKeyId || !rpId) {
       return {
         ok: false,
         code: 'invalid_body',
@@ -2551,9 +3693,8 @@ export class ThresholdSigningService {
         left33: clientPublicKey33,
         right33: relayerPublicKey33,
       });
-      const canonicalEthereumAddress = await secp256k1PublicKey33ToEthereumAddress(
-        groupPublicKey33,
-      );
+      const canonicalEthereumAddress =
+        await secp256k1PublicKey33ToEthereumAddress(groupPublicKey33);
       const normalizedExpected = expectedEthereumAddress?.toLowerCase();
       return {
         ok: true,
@@ -3000,9 +4141,7 @@ export class ThresholdSigningService {
         ethereumAddress,
         relayerCaitSithInput: {
           participantId: 2,
-          mappedPrivateShare32B64u: base64UrlEncode(
-            relayerBootstrap.relayerMappedPrivateShare32,
-          ),
+          mappedPrivateShare32B64u: base64UrlEncode(relayerBootstrap.relayerMappedPrivateShare32),
           verifyingShare33B64u: relayerPublicKey33B64u,
         },
         publicTranscriptDigest32B64u,
@@ -3084,7 +4223,8 @@ export class ThresholdSigningService {
         record.ecdsaThresholdKeyId !== request.ecdsaThresholdKeyId ||
         record.keyHandle !== keyHandle ||
         record.signingRootId !== request.signingRootId ||
-        record.signingRootVersion !== canonicalEcdsaHssSigningRootVersion(request.signingRootVersion) ||
+        record.signingRootVersion !==
+          canonicalEcdsaHssSigningRootVersion(request.signingRootVersion) ||
         record.relayerKeyId !== request.relayerKeyId ||
         record.keyScope !== request.keyScope ||
         record.contextBinding32B64u !== request.contextBinding32B64u ||
@@ -3272,13 +4412,11 @@ export class ThresholdSigningService {
           message: 'ECDSA HSS export request public identity does not match persisted key',
         };
       }
-      const expectedConfirmationDigest32 =
-        await this.computeEcdsaHssExportConfirmationDigest32({ request });
+      const expectedConfirmationDigest32 = await this.computeEcdsaHssExportConfirmationDigest32({
+        request,
+      });
       if (
-        !bytesEqual(
-          base64UrlDecode(request.confirmationDigest32B64u),
-          expectedConfirmationDigest32,
-        )
+        !bytesEqual(base64UrlDecode(request.confirmationDigest32B64u), expectedConfirmationDigest32)
       ) {
         return {
           ok: false,
@@ -3286,13 +4424,12 @@ export class ThresholdSigningService {
           message: 'ECDSA HSS export confirmation digest is invalid',
         };
       }
-      const expectedAuthorizationDigest32 =
-        await this.computeEcdsaHssExportAuthorizationDigest32({
-          request,
-          keyHandle,
-          record,
-          claims,
-        });
+      const expectedAuthorizationDigest32 = await this.computeEcdsaHssExportAuthorizationDigest32({
+        request,
+        keyHandle,
+        record,
+        claims,
+      });
       if (
         !bytesEqual(
           base64UrlDecode(request.authorizationDigest32B64u),
@@ -3374,9 +4511,7 @@ export class ThresholdSigningService {
       );
       const tokenKeyHandle = toOptionalTrimmedString(claims.keyHandle);
 
-      const roleLocalKey = await this.ecdsaKeyStore.getRoleLocalByKeyHandle(
-        keySelector.keyHandle,
-      );
+      const roleLocalKey = await this.ecdsaKeyStore.getRoleLocalByKeyHandle(keySelector.keyHandle);
       if (!roleLocalKey) {
         return {
           ok: false,
@@ -3413,10 +4548,7 @@ export class ThresholdSigningService {
           message: 'keyHandle does not match threshold session scope',
         };
       }
-      if (
-        resolvedKey.walletId !== walletSessionUserId ||
-        resolvedKey.rpId !== tokenRpId
-      ) {
+      if (resolvedKey.walletId !== walletSessionUserId || resolvedKey.rpId !== tokenRpId) {
         return {
           ok: false,
           code: 'unauthorized',
@@ -3431,10 +4563,7 @@ export class ThresholdSigningService {
         };
       }
       if (
-        !haveSameEcdsaSigningRootMetadata(
-          resolvedKey.signingRootMetadata,
-          tokenSigningRootMetadata,
-        )
+        !haveSameEcdsaSigningRootMetadata(resolvedKey.signingRootMetadata, tokenSigningRootMetadata)
       ) {
         return {
           ok: false,
@@ -4238,8 +5367,9 @@ export class ThresholdSigningService {
       if (ceremony.value.kind !== 'session') {
         return { ok: false, code: 'invalid_body', message: 'ceremonyHandle scope mismatch' };
       }
-      const clientRequest =
-        parseThresholdEd25519HssServerVisibleClientRequestEnvelope(rec.clientRequest);
+      const clientRequest = parseThresholdEd25519HssServerVisibleClientRequestEnvelope(
+        rec.clientRequest,
+      );
       if (!clientRequest.ok) return clientRequest;
 
       const scopeError = this.validateThresholdEd25519HssSessionScope({
@@ -4342,8 +5472,9 @@ export class ThresholdSigningService {
           message: 'ceremonyHandle does not match registration scope',
         };
       }
-      const clientRequest =
-        parseThresholdEd25519HssServerVisibleClientRequestEnvelope(rec.clientRequest);
+      const clientRequest = parseThresholdEd25519HssServerVisibleClientRequestEnvelope(
+        rec.clientRequest,
+      );
       if (!clientRequest.ok) return clientRequest;
 
       const scopeError = this.validateThresholdEd25519HssRegistrationScope({
@@ -4432,11 +5563,13 @@ export class ThresholdSigningService {
       if (ceremony.value.kind !== 'session') {
         return { ok: false, code: 'invalid_body', message: 'ceremonyHandle scope mismatch' };
       }
-      const evaluationResult =
-        parseThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope(rec.evaluationResult);
+      const evaluationResult = parseThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope(
+        rec.evaluationResult,
+      );
       if (!evaluationResult.ok) return evaluationResult;
       if (
-        evaluationResult.value.contextBindingB64u !== ceremony.value.preparedSession.contextBindingB64u
+        evaluationResult.value.contextBindingB64u !==
+        ceremony.value.preparedSession.contextBindingB64u
       ) {
         return {
           ok: false,
@@ -4539,11 +5672,13 @@ export class ThresholdSigningService {
       if (ceremony.value.kind !== 'registration') {
         return { ok: false, code: 'invalid_body', message: 'ceremonyHandle scope mismatch' };
       }
-      const evaluationResult =
-        parseThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope(rec.evaluationResult);
+      const evaluationResult = parseThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope(
+        rec.evaluationResult,
+      );
       if (!evaluationResult.ok) return evaluationResult;
       if (
-        evaluationResult.value.contextBindingB64u !== ceremony.value.preparedSession.contextBindingB64u
+        evaluationResult.value.contextBindingB64u !==
+        ceremony.value.preparedSession.contextBindingB64u
       ) {
         return {
           ok: false,

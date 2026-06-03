@@ -13,6 +13,7 @@ import {
   parseThresholdEd25519CoordinatorSigningSessionRecord,
   parseThresholdEd25519KeyRecord,
   parseThresholdEd25519MpcSessionRecord,
+  parseThresholdEd25519PresignRecord,
   parseThresholdEd25519SigningSessionRecord,
   toThresholdEcdsaAuthPrefix,
   toThresholdEcdsaKeyPrefix,
@@ -39,9 +40,18 @@ import type {
 import type { EcdsaHssRoleLocalKeyRecord } from '../../types';
 import type {
   ThresholdEd25519CoordinatorSigningSessionRecord,
+  ThresholdEd25519ConsumePresignRefillRateLimitResult,
   ThresholdEd25519MpcSessionRecord,
+  ThresholdEd25519PresignCapacity,
+  ThresholdEd25519CheckPresignCapacityResult,
+  ThresholdEd25519PresignExpectedScope,
+  ThresholdEd25519PresignRefillRateLimitBucket,
+  ThresholdEd25519PresignRefillRateLimitPolicy,
+  ThresholdEd25519PutPresignWithCapacityResult,
+  ThresholdEd25519PresignRecord,
   ThresholdEd25519SessionStore,
   ThresholdEd25519SigningSessionRecord,
+  ThresholdEd25519TakePresignForFinalizeResult,
 } from './SessionStore';
 import type {
   ThresholdEcdsaPresignSessionCasResult,
@@ -87,6 +97,11 @@ type DoAuthConsumeUseCountOnceRequest = {
   key: string;
   idempotencyKey: string;
 };
+type DoAuthHasConsumedUseCountOnceRequest = {
+  op: 'authHasConsumedUseCountOnce';
+  key: string;
+  idempotencyKey: string;
+};
 type DoAuthReserveReplayGuardRequest = {
   op: 'authReserveReplayGuard';
   key: string;
@@ -119,6 +134,36 @@ type DoEcdsaPresignSessionAdvanceCasRequest = {
   value: unknown;
   ttlMs?: number;
 };
+type DoEd25519PresignTakeRequest = {
+  op: 'ed25519PresignTake';
+  key: string;
+  presignId: string;
+  expectedScope: ThresholdEd25519PresignExpectedScope;
+  walletIndexKey: string;
+  globalIndexKey: string;
+};
+type DoEd25519PresignPutWithCapacityRequest = {
+  op: 'ed25519PresignPutWithCapacity';
+  key: string;
+  presignId: string;
+  value: ThresholdEd25519PresignRecord;
+  ttlMs: number;
+  capacity: ThresholdEd25519PresignCapacity;
+  walletIndexKey: string;
+  globalIndexKey: string;
+};
+type DoEd25519PresignCheckCapacityRequest = {
+  op: 'ed25519PresignCheckCapacity';
+  capacity: ThresholdEd25519PresignCapacity;
+  walletIndexKey: string;
+  globalIndexKey: string;
+};
+type DoEd25519PresignConsumeRateLimitRequest = {
+  op: 'ed25519PresignConsumeRateLimit';
+  key: string;
+  cost: number;
+  policy: ThresholdEd25519PresignRefillRateLimitPolicy;
+};
 type DoRequest =
   | DoGetRequest
   | DoSetRequest
@@ -128,12 +173,17 @@ type DoRequest =
   | DoGetDelRequest
   | DoAuthConsumeUseCountRequest
   | DoAuthConsumeUseCountOnceRequest
+  | DoAuthHasConsumedUseCountOnceRequest
   | DoAuthReserveReplayGuardRequest
   | DoEcdsaPresignPutRequest
   | DoEcdsaPresignReserveRequest
   | DoEcdsaPresignReserveByIdRequest
   | DoEcdsaPresignSessionCreateRequest
-  | DoEcdsaPresignSessionAdvanceCasRequest;
+  | DoEcdsaPresignSessionAdvanceCasRequest
+  | DoEd25519PresignCheckCapacityRequest
+  | DoEd25519PresignConsumeRateLimitRequest
+  | DoEd25519PresignPutWithCapacityRequest
+  | DoEd25519PresignTakeRequest;
 
 type DoAuthEntry = {
   record: Ed25519AuthSessionRecord;
@@ -434,6 +484,19 @@ export class CloudflareDurableObjectEd25519AuthSessionStore implements Ed25519Au
     return { ok: true, remainingUses: resp.value.remainingUses };
   }
 
+  async hasConsumedUseCountOnce(
+    id: string,
+    idempotencyKey: string,
+  ): Promise<{ ok: true; consumed: boolean } | { ok: false; code: string; message: string }> {
+    const resp = await callDo<{ consumed: boolean }>(this.stub, {
+      op: 'authHasConsumedUseCountOnce',
+      key: this.key(id),
+      idempotencyKey,
+    });
+    if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
+    return { ok: true, consumed: resp.value.consumed };
+  }
+
   async reserveReplayGuard(
     scopeId: string,
     replayKey: string,
@@ -453,6 +516,8 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
   private readonly stub: DurableObjectStubLike;
   private readonly keyPrefix: string;
   private readonly coordinatorPrefix: string;
+  private readonly presignPrefix: string;
+  private readonly presignRateLimitPrefix: string;
 
   constructor(input: {
     namespace: CloudflareDurableObjectNamespaceLike;
@@ -462,6 +527,8 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
     this.stub = resolveDoStub({ namespace: input.namespace, objectName: input.objectName });
     this.keyPrefix = input.keyPrefix;
     this.coordinatorPrefix = `${this.keyPrefix}coord:`;
+    this.presignPrefix = `${this.keyPrefix}presign:`;
+    this.presignRateLimitPrefix = `${this.keyPrefix}presign-rate:`;
   }
 
   private key(id: string): string {
@@ -470,6 +537,32 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
 
   private coordKey(id: string): string {
     return `${this.coordinatorPrefix}${id}`;
+  }
+
+  private presignKey(id: string): string {
+    return `${this.presignPrefix}${id}`;
+  }
+
+  private presignGlobalIndexKey(): string {
+    return `${this.presignPrefix}idx:global`;
+  }
+
+  private presignWalletIndexKey(walletSigningSessionId: string): string {
+    return `${this.presignPrefix}idx:wallet:${encodeURIComponent(walletSigningSessionId)}`;
+  }
+
+  private presignRateLimitKey(
+    bucket: ThresholdEd25519PresignRefillRateLimitBucket,
+    policy: ThresholdEd25519PresignRefillRateLimitPolicy,
+  ): string {
+    const key = toOptionalTrimmedString(bucket.key);
+    if (!key) throw new Error('presign refill rate limit bucket key is required');
+    const windowMs = Math.floor(Number(policy.windowMs));
+    if (!Number.isSafeInteger(windowMs) || windowMs < 1) {
+      throw new Error('windowMs must be a positive integer');
+    }
+    const windowStartMs = Math.floor(Date.now() / windowMs) * windowMs;
+    return `${this.presignRateLimitPrefix}${bucket.kind}:${encodeURIComponent(key)}:${windowStartMs}`;
   }
 
   async putMpcSession(
@@ -532,6 +625,94 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
     const resp = await callDo<unknown | null>(this.stub, { op: 'getdel', key: this.coordKey(id) });
     if (!resp.ok) return null;
     return parseThresholdEd25519CoordinatorSigningSessionRecord(resp.value);
+  }
+
+  async putPresign(
+    id: string,
+    record: ThresholdEd25519PresignRecord,
+    ttlMs: number,
+  ): Promise<void> {
+    const parsed = parseThresholdEd25519PresignRecord(record);
+    if (!parsed) throw new Error('Invalid threshold ed25519 presign record');
+    const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
+    const resp = await callDo<void>(this.stub, {
+      op: 'set',
+      key: this.presignKey(id),
+      value: { ...parsed, expiresAtMs },
+      ttlMs,
+    });
+    if (!resp.ok) throw new Error(resp.message);
+  }
+
+  async putPresignWithCapacity(
+    id: string,
+    record: ThresholdEd25519PresignRecord,
+    ttlMs: number,
+    capacity: ThresholdEd25519PresignCapacity,
+  ): Promise<ThresholdEd25519PutPresignWithCapacityResult> {
+    const parsed = parseThresholdEd25519PresignRecord(record);
+    if (!parsed) throw new Error('Invalid threshold ed25519 presign record');
+    const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
+    const value = { ...parsed, expiresAtMs };
+    const resp = await callDo<ThresholdEd25519PutPresignWithCapacityResult>(this.stub, {
+      op: 'ed25519PresignPutWithCapacity',
+      key: this.presignKey(id),
+      presignId: id,
+      value,
+      ttlMs,
+      capacity,
+      walletIndexKey: this.presignWalletIndexKey(parsed.walletSigningSessionId),
+      globalIndexKey: this.presignGlobalIndexKey(),
+    });
+    if (!resp.ok) return { ok: false, code: 'capacity_exceeded' };
+    return resp.value;
+  }
+
+  async checkPresignCapacity(
+    walletSigningSessionId: string,
+    capacity: ThresholdEd25519PresignCapacity,
+  ): Promise<ThresholdEd25519CheckPresignCapacityResult> {
+    const walletId = toOptionalTrimmedString(walletSigningSessionId);
+    if (!walletId) return { ok: false, code: 'capacity_exceeded' };
+    const resp = await callDo<ThresholdEd25519CheckPresignCapacityResult>(this.stub, {
+      op: 'ed25519PresignCheckCapacity',
+      capacity,
+      walletIndexKey: this.presignWalletIndexKey(walletId),
+      globalIndexKey: this.presignGlobalIndexKey(),
+    });
+    if (!resp.ok) return { ok: false, code: 'capacity_exceeded' };
+    return resp.value;
+  }
+
+  async consumePresignRefillRateLimit(
+    bucket: ThresholdEd25519PresignRefillRateLimitBucket,
+    policy: ThresholdEd25519PresignRefillRateLimitPolicy,
+    cost: number,
+  ): Promise<ThresholdEd25519ConsumePresignRefillRateLimitResult> {
+    const resp = await callDo<ThresholdEd25519ConsumePresignRefillRateLimitResult>(this.stub, {
+      op: 'ed25519PresignConsumeRateLimit',
+      key: this.presignRateLimitKey(bucket, policy),
+      cost,
+      policy,
+    });
+    if (!resp.ok) return { ok: false, code: 'rate_limited' };
+    return resp.value;
+  }
+
+  async takePresignForFinalize(
+    id: string,
+    expectedScope: ThresholdEd25519PresignExpectedScope,
+  ): Promise<ThresholdEd25519TakePresignForFinalizeResult> {
+    const resp = await callDo<ThresholdEd25519TakePresignForFinalizeResult>(this.stub, {
+      op: 'ed25519PresignTake',
+      key: this.presignKey(id),
+      presignId: id,
+      expectedScope,
+      walletIndexKey: this.presignWalletIndexKey(expectedScope.walletSigningSessionId),
+      globalIndexKey: this.presignGlobalIndexKey(),
+    });
+    if (!resp.ok) return { ok: false, code: 'not_found' };
+    return resp.value;
   }
 }
 

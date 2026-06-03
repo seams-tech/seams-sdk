@@ -1,4 +1,7 @@
-export { ThresholdSigningService } from './ThresholdSigningService';
+export {
+  ThresholdSigningService,
+  thresholdEd25519FinalizeOperationFingerprint,
+} from './ThresholdSigningService';
 export { createThresholdSigningService } from './createThresholdSigningService';
 export * from './schemes/schemeIds';
 export * from './schemes/types';

@@ -29,6 +29,7 @@ import type {
   BudgetAdmittedOperation,
   PreparedTransactionOperation,
 } from '../session/operationState/transactionState';
+import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 type NearResolvedEd25519SessionAuth =
   | {
       sessionKind: 'jwt';
@@ -71,6 +72,7 @@ export type NearResolvedEd25519SigningSessionState = NearResolvedEd25519SessionA
   signingLane: NearTransactionSigningLane;
   remainingUses: number;
   xClientBaseB64u?: string;
+  runtimePolicyScope?: ThresholdRuntimePolicyScope;
   signingRootId: string;
   relayerUrl: string;
   persistClientBase: (xClientBaseB64u: string) => boolean;

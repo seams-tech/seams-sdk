@@ -68,6 +68,46 @@ struct ThresholdEd25519HssServerInputsOutput {
     tau_relayer_b64u: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ThresholdEd25519ClientPresignCreateArgs {
+    #[serde(default)]
+    client_participant_id: Option<u16>,
+    #[serde(default)]
+    relayer_participant_id: Option<u16>,
+    x_client_base_b64u: String,
+    group_public_key: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ThresholdEd25519ClientPresignCreateOutput {
+    client_nonce_handle_b64u: String,
+    client_commitments: signer_platform_web::near_threshold_ed25519::CommitmentsWire,
+    client_verifying_share_b64u: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ThresholdEd25519ClientPresignSignArgs {
+    #[serde(default)]
+    client_participant_id: Option<u16>,
+    #[serde(default)]
+    relayer_participant_id: Option<u16>,
+    x_client_base_b64u: String,
+    group_public_key: String,
+    signing_digest_b64u: String,
+    client_nonce_handle_b64u: String,
+    client_commitments: signer_platform_web::near_threshold_ed25519::CommitmentsWire,
+    relayer_commitments: signer_platform_web::near_threshold_ed25519::CommitmentsWire,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ThresholdEd25519ClientPresignSignOutput {
+    client_signature_share_b64u: String,
+}
+
 #[wasm_bindgen]
 #[cfg(feature = "hss-server-exports")]
 pub fn threshold_ed25519_recovery_keypair_from_seed(args: JsValue) -> Result<JsValue, JsValue> {
@@ -154,6 +194,135 @@ pub fn threshold_ed25519_round1_commit(
 }
 
 #[wasm_bindgen]
+pub fn threshold_ed25519_keygen_from_client_verifying_share(
+    args: JsValue,
+) -> Result<JsValue, JsValue> {
+    let args: signer_platform_web::near_threshold_frost::ThresholdEd25519KeygenFromClientVerifyingShareArgs =
+        serde_wasm_bindgen::from_value(args)
+            .map_err(|e| JsValue::from_str(&format!("Invalid keygen args: {e}")))?;
+    let out =
+        signer_platform_web::near_threshold_frost::threshold_ed25519_keygen_from_client_verifying_share(args)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    serde_wasm_bindgen::to_value(&out)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize keygen output: {e}")))
+}
+
+#[wasm_bindgen]
+pub fn threshold_ed25519_client_presign_create(args: JsValue) -> Result<JsValue, JsValue> {
+    let args: ThresholdEd25519ClientPresignCreateArgs = serde_wasm_bindgen::from_value(args)
+        .map_err(|e| JsValue::from_str(&format!("Invalid client presign args: {e}")))?;
+    let group_public_key_bytes =
+        signer_platform_web::near_threshold_ed25519::parse_near_public_key_to_bytes(
+            args.group_public_key.as_str(),
+        )
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let (client_id, _relayer_id) =
+        signer_platform_web::near_threshold_ed25519::validate_threshold_ed25519_participant_ids_2p(
+            args.client_participant_id,
+            args.relayer_participant_id,
+            &[],
+        )
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let client_identifier: frost_ed25519::Identifier = client_id
+        .try_into()
+        .map_err(|_| JsValue::from_str("Invalid clientParticipantId"))?;
+    let key_package = crate::threshold::threshold_client_share::key_package_from_client_base_b64u(
+        args.x_client_base_b64u.as_str(),
+        &group_public_key_bytes,
+        client_identifier,
+    )
+    .map_err(|e| JsValue::from_str(&e))?;
+    let round1 = signer_platform_web::near_threshold_ed25519::client_round1_commit(&key_package)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let nonce_bytes = round1
+        .nonces
+        .serialize()
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize client nonces: {e}")))?;
+    let client_verifying_share_bytes = key_package.verifying_share().serialize().map_err(|e| {
+        JsValue::from_str(&format!("Failed to serialize client verifying share: {e}"))
+    })?;
+    serde_wasm_bindgen::to_value(&ThresholdEd25519ClientPresignCreateOutput {
+        client_nonce_handle_b64u: base64_url_encode(nonce_bytes.as_slice()),
+        client_commitments: round1.commitments_wire,
+        client_verifying_share_b64u: base64_url_encode(client_verifying_share_bytes.as_slice()),
+    })
+    .map_err(|e| JsValue::from_str(&format!("Failed to serialize client presign output: {e}")))
+}
+
+#[wasm_bindgen]
+pub fn threshold_ed25519_client_presign_sign(args: JsValue) -> Result<JsValue, JsValue> {
+    let args: ThresholdEd25519ClientPresignSignArgs = serde_wasm_bindgen::from_value(args)
+        .map_err(|e| JsValue::from_str(&format!("Invalid client presign sign args: {e}")))?;
+    let group_public_key_bytes =
+        signer_platform_web::near_threshold_ed25519::parse_near_public_key_to_bytes(
+            args.group_public_key.as_str(),
+        )
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let signing_digest = base64_url_decode(args.signing_digest_b64u.as_str())
+        .map_err(|e| JsValue::from_str(&format!("Invalid signingDigestB64u: {e}")))?;
+    if signing_digest.len() != 32 {
+        return Err(JsValue::from_str(&format!(
+            "signingDigestB64u must decode to 32 bytes, got {}",
+            signing_digest.len()
+        )));
+    }
+    let nonce_bytes = base64_url_decode(args.client_nonce_handle_b64u.as_str())
+        .map_err(|e| JsValue::from_str(&format!("Invalid clientNonceHandleB64u: {e}")))?;
+    let nonces = frost_ed25519::round1::SigningNonces::deserialize(nonce_bytes.as_slice())
+        .map_err(|e| JsValue::from_str(&format!("Invalid clientNonceHandleB64u: {e}")))?;
+    let (client_id, relayer_id) =
+        signer_platform_web::near_threshold_ed25519::validate_threshold_ed25519_participant_ids_2p(
+            args.client_participant_id,
+            args.relayer_participant_id,
+            &[],
+        )
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let client_identifier: frost_ed25519::Identifier = client_id
+        .try_into()
+        .map_err(|_| JsValue::from_str("Invalid clientParticipantId"))?;
+    let relayer_identifier: frost_ed25519::Identifier = relayer_id
+        .try_into()
+        .map_err(|_| JsValue::from_str("Invalid relayerParticipantId"))?;
+    let key_package = crate::threshold::threshold_client_share::key_package_from_client_base_b64u(
+        args.x_client_base_b64u.as_str(),
+        &group_public_key_bytes,
+        client_identifier,
+    )
+    .map_err(|e| JsValue::from_str(&e))?;
+    let client_commitments = signer_platform_web::near_threshold_ed25519::commitments_from_wire(
+        &args.client_commitments,
+    )
+    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let relayer_commitments = signer_platform_web::near_threshold_ed25519::commitments_from_wire(
+        &args.relayer_commitments,
+    )
+    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let mut commitments_by_id = BTreeMap::new();
+    commitments_by_id.insert(client_identifier, client_commitments);
+    commitments_by_id.insert(relayer_identifier, relayer_commitments);
+    let signing_package = signer_platform_web::near_threshold_ed25519::build_signing_package(
+        signing_digest.as_slice(),
+        commitments_by_id,
+    );
+    let client_signature_share =
+        signer_platform_web::near_threshold_ed25519::client_round2_signature_share(
+            &signing_package,
+            &nonces,
+            &key_package,
+        )
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let client_signature_share_b64u =
+        signer_platform_web::near_threshold_ed25519::signature_share_to_b64u(
+            &client_signature_share,
+        )
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    serde_wasm_bindgen::to_value(&ThresholdEd25519ClientPresignSignOutput {
+        client_signature_share_b64u,
+    })
+    .map_err(|e| JsValue::from_str(&format!("Failed to serialize client signature share: {e}")))
+}
+
+#[wasm_bindgen]
 pub fn threshold_ed25519_round2_sign(args: JsValue) -> Result<JsValue, JsValue> {
     let args: signer_platform_web::near_threshold_frost::ThresholdEd25519Round2SignArgs =
         serde_wasm_bindgen::from_value(args)
@@ -162,6 +331,20 @@ pub fn threshold_ed25519_round2_sign(args: JsValue) -> Result<JsValue, JsValue> 
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
     serde_wasm_bindgen::to_value(&out)
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize round2 output: {e}")))
+}
+
+#[wasm_bindgen]
+pub fn threshold_ed25519_finalize_signature(args: JsValue) -> Result<JsValue, JsValue> {
+    let args: signer_platform_web::near_threshold_frost::ThresholdEd25519FinalizeSignatureArgs =
+        serde_wasm_bindgen::from_value(args)
+            .map_err(|e| JsValue::from_str(&format!("Invalid finalize signature args: {e}")))?;
+    let out = signer_platform_web::near_threshold_frost::threshold_ed25519_finalize_signature(args)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    serde_wasm_bindgen::to_value(&out).map_err(|e| {
+        JsValue::from_str(&format!(
+            "Failed to serialize finalize signature output: {e}"
+        ))
+    })
 }
 
 #[wasm_bindgen]

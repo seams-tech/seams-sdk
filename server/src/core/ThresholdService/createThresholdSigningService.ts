@@ -147,5 +147,7 @@ export function createThresholdSigningService(input: {
     verifyWebAuthnAuthenticationLite: (req) =>
       input.authService.verifyWebAuthnAuthenticationLite(req as any),
     viewAccessKeyList: (accountId) => input.authService.viewAccessKeyList(accountId),
+    dispatchNearTransaction: (request) =>
+      input.authService.dispatchNearSignedTransactionBorsh(request),
   });
 }

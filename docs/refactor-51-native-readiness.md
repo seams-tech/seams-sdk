@@ -17,6 +17,7 @@ the Phase 9 compatibility deletion and data reset cleanup recorded in
 | Native replay fixture | `crates/signer-core/fixtures/native-readiness/ecdsa-bootstrap-v1.json` |
 | Native replay test | `crates/signer-core/tests/native_readiness_vectors.rs` |
 | Browser adapter conformance baseline | `tests/unit/platformAdapter.conformance.unit.test.ts` |
+| Web/native facade split plan | `docs/refactor-51b-cross-platform-3.md` |
 
 Regenerate the replay fixture only when the command contract intentionally
 changes:
@@ -76,6 +77,59 @@ implementations and keep signer-core as the owner of ECDSA HSS command logic.
 | Secret storage | Store platform secrets in Keychain with access controls appropriate to the wallet lifecycle. Logs, analytics, crash reports, and diagnostics must omit PRF outputs, root shares, state blob payloads, and raw relayer material. |
 | Lifecycle | Handle app backgrounding, biometric cancellation, passkey sheet cancellation, network retry, and process restart without widening internal domain types to partial lifecycle states. |
 
+## iOS RP ID And Web Boundary
+
+The browser wallet runtime is origin-isolated today because the browser uses the
+wallet iframe as a separate origin-owned execution surface. Native adapters
+should translate that requirement into platform isolation: app sandboxing,
+Keychain access control, AuthenticationServices passkey ceremony ownership, and
+signer-core bindings behind the platform ports. The iframe is a browser facade
+detail.
+
+The public web facade should be treated as `SeamsWeb` after the Refactor 51b
+split. It owns browser-only concerns: DOM availability, React integration, the
+wallet iframe coordinator, browser WebAuthn prompts, browser IndexedDB adapters,
+and iframe message routing. Native iOS and Linux/embedded packages must have
+zero imports from `SeamsWeb`, `WalletIframeRouter`, `WalletIframeCoordinator`,
+React, DOM modules, and iframe route definitions.
+
+iOS passkeys should use the service domain as the relying party ID. The app name
+and bundle ID identify the app, while the WebAuthn relying party remains
+`seams.sh` when interoperability with the web wallet is required.
+
+Required iOS passkey contract:
+
+- The iOS `AuthenticatorPort` uses AuthenticationServices, with
+  `ASAuthorizationPlatformPublicKeyCredentialProvider` configured for
+  `seams.sh`.
+- The app entitlement includes the Associated Domains entry
+  `webcredentials:seams.sh`.
+- `https://seams.sh/.well-known/apple-app-site-association` lists the app ID
+  under its `webcredentials` section.
+- Server verification accepts native iOS ceremonies only when the WebAuthn
+  artifacts bind to the expected `seams.sh` RP ID hash and the expected native
+  origin policy for the registered app.
+- Boundary parsers must normalize native AuthenticationServices responses into
+  the same internal credential-result shape used by browser WebAuthn before
+  core lifecycle or signing code sees them.
+
+`WKWebView` and `ASWebAuthenticationSession` can be used for account linking or
+temporary integration flows when a product surface requires web continuity. They
+do not define the SDK architecture. Native adapters should call the platform
+ports directly and should never route signing, restore, export, or durable-store
+operations through the wallet iframe.
+
+Reference material:
+
+- Apple AuthenticationServices relying party identifier:
+  https://developer.apple.com/documentation/authenticationservices/asauthorizationplatformpublickeycredentialprovider/relyingpartyidentifier
+- Apple Associated Domains:
+  https://developer.apple.com/documentation/Xcode/supporting-associated-domains
+- Apple passkey app integration sample:
+  https://developer.apple.com/documentation/authenticationservices/connecting_to_a_service_with_passkeys
+- W3C WebAuthn relying party ID and `rpIdHash`:
+  https://w3c.github.io/webauthn/
+
 ## Linux/Embedded Adapter Requirements
 
 The Linux/embedded adapter should use the same signer-core command contracts and
@@ -102,6 +156,16 @@ release:
   conformance coverage for invocation and command-failure mapping.
 - define platform-specific restore persistence behavior for iOS and
   Linux/embedded durable stores.
+- add an iOS Associated Domains fixture for the canonical `seams.sh` RP ID and
+  expected app ID.
+- define native-app expected-origin verification fixtures for WebAuthn server
+  validation.
+- add guard tests proving native and embedded packages have zero imports from
+  `SeamsWeb`, wallet iframe routing, React, DOM modules, and browser IndexedDB
+  adapters.
+- add an embedded isolation note for each supported device class, covering the
+  process boundary, storage boundary, and hardware-backed secret source used in
+  place of browser origin isolation.
 - keep Email OTP worker-session handles browser-owned unless a native Email OTP
   worker or equivalent platform handle is explicitly specified.
 

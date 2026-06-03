@@ -328,10 +328,15 @@ export class RedisTcpClient {
 }
 
 export async function redisGetJson(client: RedisTcpClient, key: string): Promise<unknown | null> {
+  const raw = await redisGetRaw(client, key);
+  return raw ? tryParseJson(raw) : null;
+}
+
+export async function redisGetRaw(client: RedisTcpClient, key: string): Promise<string | null> {
   const resp = await client.send(['GET', key]);
   if (resp.type === 'bulk') {
     if (!resp.value) return null;
-    return tryParseJson(resp.value);
+    return resp.value;
   }
   if (resp.type === 'error') throw new Error(`Redis GET error: ${resp.value}`);
   return null;
@@ -379,4 +384,15 @@ export async function redisGetdelJson(
     throw new Error(`Redis GETDEL error: ${resp.value}`);
   }
   return null;
+}
+
+export async function redisEval(
+  client: RedisTcpClient,
+  script: string,
+  keys: string[],
+  args: string[],
+): Promise<RedisResp> {
+  const resp = await client.send(['EVAL', script, String(keys.length), ...keys, ...args]);
+  if (resp.type === 'error') throw new Error(`Redis EVAL error: ${resp.value}`);
+  return resp;
 }

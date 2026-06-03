@@ -3,6 +3,7 @@ use curve25519_dalek::constants::ED25519_BASEPOINT_POINT;
 use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 use curve25519_dalek::scalar::Scalar as CurveScalar;
 use curve25519_dalek::traits::Identity;
+use ed25519_dalek::Verifier;
 use frost_ed25519::Group;
 use hkdf::Hkdf;
 use rand_core::RngCore;
@@ -76,6 +77,30 @@ pub struct ThresholdEd25519Round2SignArgs {
 #[serde(rename_all = "camelCase")]
 pub struct ThresholdEd25519Round2SignOutput {
     pub relayer_signature_share_b64u: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThresholdEd25519FinalizeSignatureArgs {
+    #[serde(default)]
+    pub client_participant_id: Option<u16>,
+    #[serde(default)]
+    pub relayer_participant_id: Option<u16>,
+    pub group_public_key: String,
+    pub signing_digest_b64u: String,
+    pub client_commitments: CommitmentsWire,
+    pub relayer_commitments: CommitmentsWire,
+    pub client_verifying_share_b64u: String,
+    pub relayer_verifying_share_b64u: String,
+    pub client_signature_share_b64u: String,
+    pub relayer_signature_share_b64u: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThresholdEd25519FinalizeSignatureOutput {
+    pub signature_b64u: String,
+    pub signature_bytes: usize,
 }
 
 fn decode_base64_url(input: &str, label: &str) -> CoreResult<Vec<u8>> {
@@ -416,6 +441,76 @@ pub fn threshold_ed25519_round2_sign(
     })
 }
 
+pub fn threshold_ed25519_finalize_signature(
+    args: ThresholdEd25519FinalizeSignatureArgs,
+) -> CoreResult<ThresholdEd25519FinalizeSignatureOutput> {
+    let (client_id, relayer_id) =
+        resolve_participant_ids(args.client_participant_id, args.relayer_participant_id)?;
+    let client_identifier: frost_ed25519::Identifier = client_id
+        .try_into()
+        .map_err(|_| SignerCoreError::invalid_input("Invalid client identifier"))?;
+    let relayer_identifier: frost_ed25519::Identifier = relayer_id
+        .try_into()
+        .map_err(|_| SignerCoreError::invalid_input("Invalid relayer identifier"))?;
+
+    let message = decode_base64_url(&args.signing_digest_b64u, "signingDigestB64u")?;
+    let group_pk_bytes = parse_near_public_key_to_bytes(args.group_public_key.as_str())?;
+    let verifying_key = frost_ed25519::VerifyingKey::deserialize(&group_pk_bytes)
+        .map_err(|e| SignerCoreError::decode_error(format!("Invalid group public key: {e}")))?;
+
+    let client_commitments =
+        near_threshold_ed25519::commitments_from_wire(&args.client_commitments)?;
+    let relayer_commitments =
+        near_threshold_ed25519::commitments_from_wire(&args.relayer_commitments)?;
+    let mut commitments_map = BTreeMap::new();
+    commitments_map.insert(client_identifier, client_commitments);
+    commitments_map.insert(relayer_identifier, relayer_commitments);
+    let signing_package =
+        near_threshold_ed25519::build_signing_package(message.as_slice(), commitments_map);
+
+    let client_verifying_share =
+        near_threshold_ed25519::verifying_share_from_b64u(&args.client_verifying_share_b64u)?;
+    let relayer_verifying_share =
+        near_threshold_ed25519::verifying_share_from_b64u(&args.relayer_verifying_share_b64u)?;
+    let mut verifying_shares = BTreeMap::new();
+    verifying_shares.insert(client_identifier, client_verifying_share);
+    verifying_shares.insert(relayer_identifier, relayer_verifying_share);
+
+    let client_signature_share =
+        near_threshold_ed25519::signature_share_from_b64u(&args.client_signature_share_b64u)?;
+    let relayer_signature_share =
+        near_threshold_ed25519::signature_share_from_b64u(&args.relayer_signature_share_b64u)?;
+    let mut signature_shares = BTreeMap::new();
+    signature_shares.insert(client_identifier, client_signature_share);
+    signature_shares.insert(relayer_identifier, relayer_signature_share);
+
+    let signature_bytes = near_threshold_ed25519::aggregate_signature(
+        &signing_package,
+        verifying_key,
+        verifying_shares,
+        signature_shares,
+    )?;
+    verify_ed25519_signature(&group_pk_bytes, &message, &signature_bytes)?;
+
+    Ok(ThresholdEd25519FinalizeSignatureOutput {
+        signature_b64u: Base64UrlUnpadded::encode_string(&signature_bytes),
+        signature_bytes: signature_bytes.len(),
+    })
+}
+
+fn verify_ed25519_signature(
+    public_key_bytes: &[u8; 32],
+    message: &[u8],
+    signature_bytes: &[u8; 64],
+) -> CoreResult<()> {
+    let verifying_key = ed25519_dalek::VerifyingKey::from_bytes(public_key_bytes)
+        .map_err(|e| SignerCoreError::decode_error(format!("Invalid Ed25519 public key: {e}")))?;
+    let signature = ed25519_dalek::Signature::from_bytes(signature_bytes);
+    verifying_key.verify(message, &signature).map_err(|e| {
+        SignerCoreError::crypto_error(format!("final signature failed to verify: {e}"))
+    })
+}
+
 pub fn threshold_ed25519_round2_sign_cosigner(
     args: ThresholdEd25519Round2SignArgs,
 ) -> CoreResult<ThresholdEd25519Round2SignOutput> {
@@ -575,6 +670,100 @@ mod tests {
         Base64UrlUnpadded::encode_string(bytes)
     }
 
+    struct FinalizeFixture {
+        args: ThresholdEd25519FinalizeSignatureArgs,
+        signing_digest: Vec<u8>,
+        group_public_key_bytes: [u8; 32],
+    }
+
+    fn build_finalize_fixture(signing_digest: &[u8]) -> FinalizeFixture {
+        let client_id = 1u16;
+        let relayer_id = 2u16;
+        let client_identifier: frost_ed25519::Identifier =
+            client_id.try_into().expect("client identifier");
+        let relayer_signing_share_bytes = CurveScalar::from(7u64).to_bytes();
+        let client_signing_share_bytes = CurveScalar::from(5u64).to_bytes();
+        let client_verifying_share_bytes =
+            scalar_to_verifying_share_bytes(&client_signing_share_bytes);
+        let relayer_verifying_share_bytes =
+            scalar_to_verifying_share_bytes(&relayer_signing_share_bytes);
+        let group_public_key_bytes =
+            compute_threshold_ed25519_group_public_key_2p_from_verifying_shares(
+                &client_verifying_share_bytes,
+                &relayer_verifying_share_bytes,
+                client_id,
+                relayer_id,
+            )
+            .expect("group public key");
+        let group_public_key = format!(
+            "ed25519:{}",
+            bs58::encode(group_public_key_bytes).into_string()
+        );
+        let client_key_package = near_threshold_ed25519::key_package_from_signing_share_bytes(
+            &client_signing_share_bytes,
+            &group_public_key_bytes,
+            client_identifier,
+        )
+        .expect("client key package");
+        let client_round1 = near_threshold_ed25519::client_round1_commit(&client_key_package)
+            .expect("client round1");
+        let relayer_signing_share_b64u = b64u(&relayer_signing_share_bytes);
+        let relayer_round1 =
+            threshold_ed25519_round1_commit(&relayer_signing_share_b64u).expect("relayer round1");
+
+        let relayer_commitments =
+            near_threshold_ed25519::commitments_from_wire(&relayer_round1.relayer_commitments)
+                .expect("relayer commitments");
+        let mut commitments_map = BTreeMap::new();
+        commitments_map.insert(client_identifier, client_round1.commitments.clone());
+        commitments_map.insert(
+            relayer_id.try_into().expect("relayer identifier"),
+            relayer_commitments,
+        );
+        let signing_package =
+            near_threshold_ed25519::build_signing_package(signing_digest, commitments_map);
+        let client_signature_share = near_threshold_ed25519::client_round2_signature_share(
+            &signing_package,
+            &client_round1.nonces,
+            &client_key_package,
+        )
+        .expect("client signature share");
+        let client_signature_share_b64u =
+            near_threshold_ed25519::signature_share_to_b64u(&client_signature_share)
+                .expect("client signature share wire");
+
+        let relayer_signature_share_b64u =
+            threshold_ed25519_round2_sign(ThresholdEd25519Round2SignArgs {
+                client_participant_id: Some(client_id),
+                relayer_participant_id: Some(relayer_id),
+                relayer_signing_share_b64u,
+                relayer_nonces_b64u: relayer_round1.relayer_nonces_b64u.clone(),
+                group_public_key: group_public_key.clone(),
+                signing_digest_b64u: b64u(signing_digest),
+                client_commitments: client_round1.commitments_wire.clone(),
+                relayer_commitments: relayer_round1.relayer_commitments.clone(),
+            })
+            .expect("relayer signature share")
+            .relayer_signature_share_b64u;
+
+        FinalizeFixture {
+            args: ThresholdEd25519FinalizeSignatureArgs {
+                client_participant_id: Some(client_id),
+                relayer_participant_id: Some(relayer_id),
+                group_public_key,
+                signing_digest_b64u: b64u(signing_digest),
+                client_commitments: client_round1.commitments_wire,
+                relayer_commitments: relayer_round1.relayer_commitments,
+                client_verifying_share_b64u: b64u(&client_verifying_share_bytes),
+                relayer_verifying_share_b64u: b64u(&relayer_verifying_share_bytes),
+                client_signature_share_b64u,
+                relayer_signature_share_b64u,
+            },
+            signing_digest: signing_digest.to_vec(),
+            group_public_key_bytes,
+        }
+    }
+
     #[test]
     fn deterministic_master_secret_keygen_is_stable_and_normalizes_rp_id() {
         let client_scalar = CurveScalar::from(5u64);
@@ -636,5 +825,55 @@ mod tests {
         let err = threshold_ed25519_round1_commit(&b64u(&[1u8; 31]))
             .expect_err("invalid length should fail");
         assert!(err.message.contains("32 bytes"));
+    }
+
+    #[test]
+    fn finalize_signature_verifies_presign_transcript_bound_to_digest() {
+        let fixture = build_finalize_fixture(&[42u8; 32]);
+        let out = threshold_ed25519_finalize_signature(fixture.args).expect("finalize signature");
+        let signature_bytes = decode_base64_url(&out.signature_b64u, "signatureB64u")
+            .expect("decode final signature");
+        assert_eq!(out.signature_bytes, 64);
+        assert_eq!(signature_bytes.len(), 64);
+
+        let verifying_key =
+            ed25519_dalek::VerifyingKey::from_bytes(&fixture.group_public_key_bytes)
+                .expect("dalek verifying key");
+        let signature = ed25519_dalek::Signature::from_slice(signature_bytes.as_slice())
+            .expect("dalek signature");
+        verifying_key
+            .verify(fixture.signing_digest.as_slice(), &signature)
+            .expect("final signature verifies");
+    }
+
+    #[test]
+    fn finalize_signature_rejects_digest_mismatch() {
+        let mut fixture = build_finalize_fixture(&[42u8; 32]);
+        fixture.args.signing_digest_b64u = b64u(&[43u8; 32]);
+        let err = threshold_ed25519_finalize_signature(fixture.args)
+            .expect_err("digest mismatch should fail");
+        assert!(
+            err.message.contains("aggregate failed")
+                || err.message.contains("final signature failed to verify"),
+            "unexpected error: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn finalize_signature_rejects_commitment_mismatch() {
+        let mut fixture = build_finalize_fixture(&[42u8; 32]);
+        let alternate_relayer_round1 =
+            threshold_ed25519_round1_commit(&b64u(&CurveScalar::from(7u64).to_bytes()))
+                .expect("alternate relayer round1");
+        fixture.args.relayer_commitments = alternate_relayer_round1.relayer_commitments;
+        let err = threshold_ed25519_finalize_signature(fixture.args)
+            .expect_err("commitment mismatch should fail");
+        assert!(
+            err.message.contains("aggregate failed")
+                || err.message.contains("final signature failed to verify"),
+            "unexpected error: {}",
+            err.message
+        );
     }
 }

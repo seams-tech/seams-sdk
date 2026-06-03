@@ -1,4 +1,5 @@
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
+import { resolveNearNetwork } from '@/core/config/chains';
 import { AccountId, toAccountId } from '@/core/types/accountIds';
 import { DelegateActionInput } from '@/core/types/delegate';
 import {
@@ -11,6 +12,7 @@ import {
   ConfirmationConfig,
   RpcCallPayload,
   WorkerRequestType,
+  WorkerResponseType,
   type DelegateSignResponse,
   type WasmSignDelegateActionRequest,
   isWorkerError,
@@ -32,6 +34,7 @@ import {
 } from '@/core/signingEngine/workerManager/validation';
 import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { executeWorkerOperation } from '@/core/signingEngine/workerManager/executeWorkerOperation';
+import { computeThresholdEd25519DelegateSigningDigestWasm } from '../../chains/near/nearSignerWasm';
 import {
   generateNearSigningSessionId,
   requirePrfFirstFromCredential,
@@ -60,6 +63,10 @@ import {
   type SigningOperationContext,
 } from '../../session/operationState/types';
 import {
+  parseThresholdEd25519NearAction,
+  thresholdEd25519DelegateActionOperationFingerprint,
+} from '@shared/threshold/ed25519OperationFingerprint';
+import {
   SigningOperationCommandKind,
   runSigningOperationCommand,
   type SigningOperationCommand,
@@ -68,6 +75,10 @@ import { runSigningConfirmationCommand } from '../shared/signingConfirmation';
 import { requireNearStepUpAuth } from './requireNearStepUpAuth';
 import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
 import type { NearAccountRef } from '../../interfaces/ecdsaChainTarget';
+import {
+  finalizeThresholdEd25519DelegatePresignResult,
+  tryFinalizeThresholdEd25519SignatureOnlyPresign,
+} from './shared/ed25519PresignFinalize';
 
 function emitNearSigningEvent(
   onEvent: ((event: SigningFlowEvent) => void) | undefined,
@@ -183,9 +194,26 @@ export async function runNearDelegateActionSigning({
     delegate,
     signingPublicKey: signingContext.delegatePublicKeyStr,
   });
+  const presignDelegateIntent = {
+    ...delegateSigningPayloads.workerDelegate,
+    actions: delegateSigningPayloads.workerDelegate.actions.map((action, index) =>
+      parseThresholdEd25519NearAction(action, `delegate.actions[${index}]`),
+    ),
+  };
 
   const signingOperation: SigningOperationContext = {
     operationId: SigningSessionIds.signingOperation(`near-delegate:${sessionId}`),
+    operationFingerprint: SigningSessionIds.signingOperationFingerprint(
+      await thresholdEd25519DelegateActionOperationFingerprint({
+        nearAccountId,
+        nearNetworkId: resolveNearNetwork(
+          ctx.chains || PASSKEY_MANAGER_DEFAULT_CONFIGS.network.chains,
+        ),
+        relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
+        signerPublicKey: signingContext.delegatePublicKeyStr,
+        delegate: presignDelegateIntent,
+      }),
+    ),
     intent: SigningOperationIntent.TransactionSign,
   };
   const runSharedNearDelegateCommand = async <T>(args: {
@@ -269,19 +297,20 @@ export async function runNearDelegateActionSigning({
         interaction: { kind: 'none', overlay: 'none' },
       });
 
-      const prfFirstB64u = stepUpAuthorization.kind === 'warm_session'
-        ? await signingSessionCoordinator.claimPrfFirstByThresholdSessionId({
-            kind: 'wallet_scoped_ed25519_claim',
-            thresholdSessionId: thresholdAuthPlan.sessionId,
-            uses: requiredSignatureUses,
-            errorContext: 'threshold-ed25519 delegate signing',
-            walletId: nearAccountId,
-            authMethod: thresholdAuthPlan.lane.authMethod,
-            curve: 'ed25519',
-            chain: 'near',
-            walletSigningSessionId: thresholdAuthPlan.lane.walletSigningSessionId,
-          })
-        : requirePrfFirstFromCredential(credentialWithPrf);
+      const prfFirstB64u =
+        stepUpAuthorization.kind === 'warm_session'
+          ? await signingSessionCoordinator.claimPrfFirstByThresholdSessionId({
+              kind: 'wallet_scoped_ed25519_claim',
+              thresholdSessionId: thresholdAuthPlan.sessionId,
+              uses: requiredSignatureUses,
+              errorContext: 'threshold-ed25519 delegate signing',
+              walletId: nearAccountId,
+              authMethod: thresholdAuthPlan.lane.authMethod,
+              curve: 'ed25519',
+              chain: 'near',
+              walletSigningSessionId: thresholdAuthPlan.lane.walletSigningSessionId,
+            })
+          : requirePrfFirstFromCredential(credentialWithPrf);
 
       if (!prfFirstB64u) {
         throw new Error('Missing PRF.first output for signing');
@@ -381,8 +410,7 @@ export async function runNearDelegateActionSigning({
         threshold: {
           relayerUrl: currentThresholdSessionState.relayerUrl,
           thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
-          xClientBaseB64u:
-            xClientBaseOverride || currentThresholdSessionState.xClientBaseB64u,
+          xClientBaseB64u: xClientBaseOverride || currentThresholdSessionState.xClientBaseB64u,
           thresholdSessionKind: currentThresholdSessionState.sessionKind,
           thresholdSessionAuthToken: currentThresholdSessionState.thresholdSessionAuthToken,
         },
@@ -403,6 +431,49 @@ export async function runNearDelegateActionSigning({
       status: 'running',
       interaction: { kind: 'none', overlay: 'none' },
     });
+    const signingDigest = await computeThresholdEd25519DelegateSigningDigestWasm({
+      sessionId: canonicalThresholdSessionId,
+      delegate: delegatePayload,
+      workerCtx: ctx,
+    });
+    const presignXClientBaseB64u = payload.threshold.xClientBaseB64u || xClientBaseB64u;
+    const presignResult = presignXClientBaseB64u
+      ? await tryFinalizeThresholdEd25519SignatureOnlyPresign({
+          ctx,
+          thresholdSessionId: canonicalThresholdSessionId,
+          thresholdSessionState,
+          thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+          nearAccountId,
+          xClientBaseB64u: presignXClientBaseB64u,
+          operationId: signingOperation.operationId,
+          operationFingerprint: signingOperation.operationFingerprint!,
+          purpose: 'delegate_action',
+          signingDigestB64u: signingDigest.signingDigestB64u,
+          intent: {
+            kind: 'near_delegate_action_v1',
+            delegate: presignDelegateIntent,
+          },
+        })
+      : null;
+    if (presignResult) {
+      const delegateResult = await finalizeThresholdEd25519DelegatePresignResult({
+        ctx,
+        thresholdSessionId: canonicalThresholdSessionId,
+        delegate: delegatePayload,
+        signingDigestB64u: signingDigest.signingDigestB64u,
+        presignResult,
+      });
+      return {
+        type: WorkerResponseType.SignDelegateActionSuccess,
+        payload: {
+          success: true,
+          hash: delegateResult.hash,
+          signedDelegate: delegateResult.signedDelegate,
+          logs: ['Delegate action signed with threshold Ed25519 presign'],
+          error: undefined,
+        },
+      } as WorkerSuccessResponse<typeof WorkerRequestType.SignDelegateAction>;
+    }
     const resp = await executeWorkerOperation({
       ctx,
       kind: 'nearSigner',

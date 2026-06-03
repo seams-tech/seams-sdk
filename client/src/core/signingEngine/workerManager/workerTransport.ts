@@ -5,6 +5,7 @@ import {
   type NearWorkerProgressEvent,
   type WorkerErrorResponse,
   type WorkerProgressResponse,
+  type RequestResponseMap,
   type WorkerResponseForRequest,
   isWorkerError,
   isWorkerProgress,
@@ -49,7 +50,7 @@ type NearRpcProgressFrame = {
 type NearRpcSuccessFrame = {
   id: string;
   ok: true;
-  result: WorkerResponseForRequest<NearWorkerOperationType>;
+  result: NearWorkerOperationResult<NearWorkerOperationType>;
 };
 
 type NearRpcErrorFrame = {
@@ -65,6 +66,7 @@ type PendingEntry = {
   reject: (error: Error) => void;
   onEvent?: (update: unknown) => void;
   timeoutId?: ReturnType<typeof setTimeout>;
+  nearDirectResult?: boolean;
 };
 
 type NearWorkerOperationArgs<T extends NearWorkerOperationType = NearWorkerOperationType> = {
@@ -288,6 +290,7 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
         reject,
         onEvent: onEvent ? (update) => onEvent(update as NearWorkerProgressEvent) : undefined,
         timeoutId,
+        nearDirectResult: typeof type === 'string',
       });
 
       try {
@@ -655,19 +658,26 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
 
   private resolveNearResponse(
     requestId: string,
-    response: WorkerResponseForRequest<NearWorkerOperationType>,
+    response: NearWorkerOperationResult<NearWorkerOperationType>,
   ): void {
     const pending = this.getPendingMap('nearSigner').get(requestId);
     if (!pending) return;
 
-    if (isWorkerProgress(response)) {
-      const progressResponse = response as WorkerProgressResponse;
+    if (pending.nearDirectResult) {
+      this.resolveRequest('nearSigner', requestId, response);
+      return;
+    }
+
+    const workerResponse = response as WorkerResponseForRequest<keyof RequestResponseMap>;
+
+    if (isWorkerProgress(workerResponse)) {
+      const progressResponse = workerResponse as WorkerProgressResponse;
       pending.onEvent?.(progressResponse.payload);
       return;
     }
 
-    if (isWorkerError(response)) {
-      const errorResponse = response as WorkerErrorResponse;
+    if (isWorkerError(workerResponse)) {
+      const errorResponse = workerResponse as WorkerErrorResponse;
       this.rejectRequest(
         'nearSigner',
         requestId,
@@ -680,8 +690,8 @@ export class WorkerTransport implements SignerWorkerTransportProtocol {
       return;
     }
 
-    if (isWorkerSuccess(response)) {
-      this.resolveRequest('nearSigner', requestId, response);
+    if (isWorkerSuccess(workerResponse)) {
+      this.resolveRequest('nearSigner', requestId, workerResponse);
       return;
     }
 

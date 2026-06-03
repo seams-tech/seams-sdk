@@ -19,6 +19,10 @@ Build a repeatable load-testing program for threshold signing that can answer, w
 - The kept threshold-ed25519 scenarios now include:
   - `ed25519_local_steady_smoke`
   - `ed25519_local_burst_smoke`
+  - `ed25519_local_presign_pool_hit_smoke`
+  - `ed25519_local_presign_pool_miss_smoke`
+  - `ed25519_local_presign_refill_smoke`
+  - `ed25519_local_presign_double_consume_smoke`
   - `ed25519_local_steady_50`
   - `ed25519_local_burst_50`
 - Named scale profiles are now checked in for:
@@ -30,6 +34,8 @@ Build a repeatable load-testing program for threshold signing that can answer, w
   - minting real `/threshold-ed25519/session` JWTs
   - driving `/threshold-ed25519/authorize`, `/threshold-ed25519/sign/init`, and
     `/threshold-ed25519/sign/finalize`
+  - driving `/threshold-ed25519/presign/refill` and
+    `/threshold-ed25519/sign/finalize-and-dispatch` for presign pool coverage
   - keeping `xClientBaseB64u` local for touchless signing
 - The latest synced run report lives at
   [docs/benchmarks/threshold-load.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/benchmarks/threshold-load.md).
@@ -144,6 +150,8 @@ Interpretation:
 - `/threshold-ed25519/authorize`
 - `/threshold-ed25519/sign/init`
 - `/threshold-ed25519/sign/finalize`
+- `/threshold-ed25519/presign/refill`
+- `/threshold-ed25519/sign/finalize-and-dispatch`
 - `/threshold-ed25519/internal/cosign/init`
 - `/threshold-ed25519/internal/cosign/finalize`
 - `/threshold-ecdsa/authorize`

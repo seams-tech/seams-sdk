@@ -31,7 +31,7 @@ import {
   type UserConfirmProgressEvent,
 } from '@/core/signingEngine/stepUpConfirmation/types';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
-import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
+import { resolveNearNetwork, resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/types';
 import {
@@ -91,7 +91,10 @@ import {
   createSigningSessionBudgetFinalizer,
   type SigningSessionBudgetFinalizer,
 } from '../../session/budget/budgetFinalizer';
-import { computeSigningOperationFingerprint } from '../../session/planning/operationFingerprint';
+import {
+  parseThresholdEd25519NearTransaction,
+  thresholdEd25519NearTransactionPlanningOperationFingerprint,
+} from '@shared/threshold/ed25519OperationFingerprint';
 import {
   SigningOperationCommandKind,
   runSigningOperationCommand,
@@ -102,6 +105,8 @@ import { runSigningConfirmationCommand } from '../shared/signingConfirmation';
 import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
 import type { NearAccountRef } from '../../interfaces/ecdsaChainTarget';
 import { requiredNearTransactionSignatureUses } from './signatureUses';
+import { tryFinalizeThresholdEd25519NearTransactionPresign } from './shared/ed25519PresignFinalize';
+import { emitThresholdEd25519PresignMetric } from './shared/ed25519PresignMetrics';
 
 function emitNearSigningEvent(
   onEvent: ((event: SigningFlowEvent) => void) | undefined,
@@ -272,13 +277,20 @@ export async function runNearTransactionsWithActionsSigning({
     nearAccountId: String(resolvedRpcCall.nearAccountId),
     transactions,
   });
-  const operationFingerprint = await computeSigningOperationFingerprint({
-    kind: 'near:transactions_with_actions',
-    payload: {
+  const presignFingerprintTransactions = txSigningRequests.map((transaction, index) =>
+    parseThresholdEd25519NearTransaction(transaction, `txSigningRequests[${index}]`),
+  );
+  const operationFingerprint = SigningSessionIds.signingOperationFingerprint(
+    await thresholdEd25519NearTransactionPlanningOperationFingerprint({
       nearAccountId,
-      transactions: txSigningRequests,
-    },
-  });
+      nearNetworkId: resolveNearNetwork(
+        ctx.chains || PASSKEY_MANAGER_DEFAULT_CONFIGS.network.chains,
+      ),
+      relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
+      signerPublicKey: signingContext.threshold.thresholdKeyMaterial.publicKey,
+      transactions: presignFingerprintTransactions,
+    }),
+  );
 
   // UserConfirm before sending anything to the signer worker.
   // WebAuthn uses the typed threshold session policy challenge when passkey reauth is required.
@@ -859,6 +871,25 @@ export async function runNearTransactionsWithActionsSigning({
       status: 'running',
       interaction: { kind: 'none', overlay: 'none' },
     });
+    const presignXClientBaseB64u = payload.threshold.xClientBaseB64u || xClientBaseB64u;
+    const presignResult = presignXClientBaseB64u
+      ? await tryFinalizeThresholdEd25519NearTransactionPresign({
+          ctx,
+          thresholdSessionId: canonicalThresholdSessionId,
+          thresholdSessionState,
+          thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+          nearAccountId,
+          xClientBaseB64u: presignXClientBaseB64u,
+          operationId: signingOperation.operationId,
+          operationFingerprint,
+          txSigningRequests,
+          transactionContext,
+        })
+      : null;
+    if (presignResult) {
+      return presignResult.okResponse;
+    }
+    const fallbackStartedAtMs = Date.now();
     const response = await executeWorkerOperation({
       ctx,
       kind: 'nearSigner',
@@ -867,6 +898,16 @@ export async function runNearTransactionsWithActionsSigning({
         type: WorkerRequestType.SignTransactionsWithActions,
         payload,
       },
+    });
+    emitThresholdEd25519PresignMetric({
+      metric: 'ed25519_two_rtt_fallback_ms',
+      nearAccountId,
+      nearNetworkId: resolveNearNetwork(
+        ctx.chains || PASSKEY_MANAGER_DEFAULT_CONFIGS.network.chains,
+      ),
+      operationId: signingOperation.operationId,
+      operationFingerprint,
+      durationMs: Date.now() - fallbackStartedAtMs,
     });
     return requireOkSignTransactionsWithActionsResponse(response);
   };
@@ -1098,11 +1139,14 @@ function toSignedTransactionResults(args: {
       throw new Error(`Incomplete signed transaction data received for transaction ${index + 1}`);
     }
     const nonceLease = args.nonceLeases?.[index];
+    const serverDispatch = (signedTx as { serverDispatch?: SignedTransaction['serverDispatch'] })
+      .serverDispatch;
     const signedTransaction = new SignedTransaction({
       transaction: signedTx.transaction,
       signature: signedTx.signature,
       borsh_bytes: Array.from(signedTx.borshBytes || []),
       ...(nonceLease ? { nonceLease } : {}),
+      ...(serverDispatch ? { serverDispatch } : {}),
     });
     return {
       signedTransaction,

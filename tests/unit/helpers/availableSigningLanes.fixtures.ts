@@ -18,6 +18,7 @@ import {
   buildCurrentSealedSessionRecord,
   type SigningSessionSealedStoreRecord,
 } from '@/core/signingEngine/session/persistence/sealedSessionStore';
+import type { SealedSigningSessionEcdsaRestoreMetadata } from '@shared/utils/signingSessionSeal';
 import { THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND } from '@shared/utils/sessionTokens';
 
 export const AVAILABLE_LANES_WALLET_ID = 'alice.testnet';
@@ -84,9 +85,9 @@ export function sealedEcdsaAvailableLaneRecord(args: {
   const restoreMetadata = args.restoreMetadata || 'valid';
   const keyHandle = args.keyHandle || AVAILABLE_LANES_ECDSA_KEY_HANDLE;
   const ecdsaThresholdKeyId = args.ecdsaThresholdKeyId || 'ek-passkey';
-  const ecdsaRestore = {
+  const validEcdsaRestore: SealedSigningSessionEcdsaRestoreMetadata = {
     chainTarget,
-    ...(restoreMetadata === 'missing_rp_id' ? {} : { rpId: AVAILABLE_LANES_ECDSA_RP_ID }),
+    rpId: AVAILABLE_LANES_ECDSA_RP_ID,
     sessionKind,
     ...(sessionKind === 'jwt'
       ? {
@@ -132,7 +133,10 @@ export function sealedEcdsaAvailableLaneRecord(args: {
               sessionKind: 'cookie',
               ecdsaThresholdKeyId,
             }
-          : ecdsaRestore,
+          : {
+              ...validEcdsaRestore,
+              rpId: undefined,
+            },
       issuedAtMs,
       expiresAtMs: args.expiresAtMs ?? issuedAtMs + 60_000,
       remainingUses: args.remainingUses ?? 1,
@@ -152,7 +156,7 @@ export function sealedEcdsaAvailableLaneRecord(args: {
     relayerUrl: 'https://relay.example.test',
     keyVersion: 'seal-key-v1',
     shamirPrimeB64u: 'shamir-prime',
-    ecdsaRestore,
+    ecdsaRestore: validEcdsaRestore,
     issuedAtMs,
     expiresAtMs: args.expiresAtMs ?? issuedAtMs + 60_000,
     remainingUses: args.remainingUses ?? 1,

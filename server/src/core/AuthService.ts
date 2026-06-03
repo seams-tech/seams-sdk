@@ -2867,6 +2867,21 @@ export class AuthService {
     return this.nearClient.viewAccessKeyList(accountId);
   }
 
+  async dispatchNearSignedTransactionBorsh(input: {
+    signedTransactionBorshB64u: string;
+  }): Promise<{ rpcResult: FinalExecutionOutcome }> {
+    await this._ensureSignerAndRelayerAccount();
+    const signedTransactionBorsh = base64UrlDecode(input.signedTransactionBorshB64u);
+    const signedTransaction = SignedTransaction.fromPlain({
+      transaction: {},
+      signature: {},
+      borsh_bytes: Array.from(signedTransactionBorsh),
+    });
+    return {
+      rpcResult: await this.nearClient.sendTransaction(signedTransaction),
+    };
+  }
+
   /**
    * Lazily constructs the threshold signing service when `thresholdStore` is configured.
    * Routers may call this to auto-enable `/threshold-ed25519/*` endpoints.

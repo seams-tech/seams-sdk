@@ -6,7 +6,7 @@ import type {
   SignTransactionHooksOptions,
 } from '../../types/sdkSentEvents';
 import type { ActionResult, SignTransactionResult } from '../../types/seams';
-import type { TxExecutionStatus } from '@near-js/types';
+import type { FinalExecutionOutcome, TxExecutionStatus } from '@near-js/types';
 import type { ActionArgs, TransactionInput, TransactionInputWasm } from '../../types/actions';
 import { type ConfirmationConfig } from '../../types/signer-worker';
 import type { PasskeyManagerContext } from '../index';
@@ -186,6 +186,44 @@ export async function sendTransaction({
   let transactionResult;
   let txId;
   try {
+    if (signedTransaction.serverDispatch) {
+      transactionResult = signedTransaction.serverDispatch.rpcResult as FinalExecutionOutcome;
+      txId = signedTransaction.serverDispatch.transactionHash;
+      if (nonceLease) {
+        await context.signingEngine.getNonceCoordinator().markBroadcastAccepted({
+          leaseId: nonceLease.leaseId,
+          operationId: nonceLease.operationId,
+          operationFingerprint: nonceLease.operationFingerprint,
+          txHash: txId,
+        });
+        await context.signingEngine.getNonceCoordinator().markFinalized({
+          leaseId: nonceLease.leaseId,
+          operationId: nonceLease.operationId,
+          operationFingerprint: nonceLease.operationFingerprint,
+          txHash: txId,
+        });
+      }
+      emitNearSigningEvent(options?.onEvent, accountId, {
+        phase: SigningEventPhase.STEP_12_BROADCAST_ACCEPTED,
+        status: 'succeeded',
+        message: `Transaction ${txId} sent successfully`,
+        interaction: { kind: 'none', overlay: 'none' },
+        data: { txId },
+      });
+      emitNearSigningEvent(options?.onEvent, accountId, {
+        phase: SigningEventPhase.STEP_15_COMPLETED,
+        status: 'succeeded',
+        message: `Transaction ${txId} completed`,
+        interaction: { kind: 'none', overlay: 'none' },
+        data: { txId },
+      });
+      return {
+        success: true,
+        transactionId: txId,
+        result: transactionResult,
+      };
+    }
+
     // Debug snapshot of the signed transaction shape to aid integration debugging.
     try {
       const st: unknown = signedTransaction;

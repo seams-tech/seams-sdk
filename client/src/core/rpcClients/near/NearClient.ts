@@ -66,18 +66,29 @@ export class SignedTransaction {
   signature: WasmSignature;
   borsh_bytes: number[];
   nonceLease?: NonceLeaseRef;
+  serverDispatch?: {
+    transactionHash: string;
+    rpcResult: unknown;
+  };
 
   constructor(data: {
     transaction: WasmTransaction;
     signature: WasmSignature;
     borsh_bytes: number[];
     nonceLease?: NonceLeaseRef;
+    serverDispatch?: {
+      transactionHash: string;
+      rpcResult: unknown;
+    };
   }) {
     this.transaction = data.transaction;
     this.signature = data.signature;
     this.borsh_bytes = data.borsh_bytes;
     if (data.nonceLease) {
       this.nonceLease = data.nonceLease;
+    }
+    if (data.serverDispatch) {
+      this.serverDispatch = data.serverDispatch;
     }
   }
 
@@ -86,12 +97,17 @@ export class SignedTransaction {
     signature: unknown;
     borsh_bytes: number[];
     nonceLease?: NonceLeaseRef;
+    serverDispatch?: {
+      transactionHash: string;
+      rpcResult: unknown;
+    };
   }): SignedTransaction {
     return new SignedTransaction({
       transaction: input.transaction as WasmTransaction,
       signature: input.signature as WasmSignature,
       borsh_bytes: input.borsh_bytes,
       ...(input.nonceLease ? { nonceLease: input.nonceLease } : {}),
+      ...(input.serverDispatch ? { serverDispatch: input.serverDispatch } : {}),
     });
   }
 

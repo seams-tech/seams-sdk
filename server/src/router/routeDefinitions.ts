@@ -1722,6 +1722,22 @@ export function createRelayRouteDefinitions(
       ['threshold', 'session'],
     ),
     thresholdSessionRoute(
+      'threshold_ed25519_presign_refill',
+      'POST',
+      '/threshold-ed25519/presign/refill',
+      'Refill threshold Ed25519 presign pool',
+      'ed25519',
+      ['threshold', 'session'],
+    ),
+    thresholdSessionRoute(
+      'threshold_ed25519_sign_finalize_and_dispatch',
+      'POST',
+      '/threshold-ed25519/sign/finalize-and-dispatch',
+      'Finalize threshold Ed25519 presign and dispatch or return signature',
+      'ed25519',
+      ['threshold', 'session'],
+    ),
+    thresholdSessionRoute(
       'threshold_ed25519_hss_prepare',
       'POST',
       '/threshold-ed25519/hss/prepare',

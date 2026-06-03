@@ -53,6 +53,24 @@ type ParsedArgs = {
   profile: 'steady' | 'burst';
 };
 
+type Ed25519ScenarioMode =
+  | 'two_rtt'
+  | 'presign_pool_hit'
+  | 'presign_pool_miss_fallback'
+  | 'presign_refill'
+  | 'presign_refill_pressure'
+  | 'presign_concurrent_finalize'
+  | 'presign_double_consume';
+
+type ScenarioOperationResult = {
+  endToEndMs: number;
+  routeTimings: Array<{ route: string; durationMs: number }>;
+  accepted?: number;
+  rejected?: number;
+  poolHit?: boolean;
+  doubleConsumeRejectedCodes?: string[];
+};
+
 function parseArgs(argv: string[]): ParsedArgs {
   const out: ParsedArgs = {
     scenarioId: 'ed25519_local_steady',
@@ -148,8 +166,7 @@ function createSessionAdapter() {
         return { ok: false as const };
       }
     },
-    buildSetCookie: (token: string) =>
-      `seams-jwt=${token}; Path=/; HttpOnly; Secure; SameSite=Lax`,
+    buildSetCookie: (token: string) => `seams-jwt=${token}; Path=/; HttpOnly; Secure; SameSite=Lax`,
     buildClearCookie: () => `seams-jwt=; Path=/; Max-Age=0`,
     refresh: async () => ({ ok: false as const, code: 'not_eligible', message: 'not eligible' }),
   };
@@ -190,6 +207,24 @@ function createRouteDurationMap(routeTimings: Array<{ route: string; durationMs:
   const out: Record<string, ReturnType<typeof summarizeNumbers>> = {};
   for (const [route, values] of grouped.entries()) {
     out[route] = summarizeNumbers(values);
+  }
+  return out;
+}
+
+function resolveEd25519ScenarioMode(scenarioId: string): Ed25519ScenarioMode {
+  if (scenarioId.includes('presign_pool_hit')) return 'presign_pool_hit';
+  if (scenarioId.includes('presign_pool_miss')) return 'presign_pool_miss_fallback';
+  if (scenarioId.includes('presign_refill_pressure')) return 'presign_refill_pressure';
+  if (scenarioId.includes('presign_concurrent_finalize')) return 'presign_concurrent_finalize';
+  if (scenarioId.includes('presign_refill')) return 'presign_refill';
+  if (scenarioId.includes('double_consume')) return 'presign_double_consume';
+  return 'two_rtt';
+}
+
+function countStringValues(values: string[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const value of values) {
+    out[value] = (out[value] || 0) + 1;
   }
   return out;
 }
@@ -260,6 +295,22 @@ async function createLocalRelayContext() {
     return { keys };
   };
 
+  (
+    service as unknown as {
+      dispatchNearSignedTransactionBorsh: (input: {
+        signedTransactionBorshB64u: string;
+      }) => Promise<{ rpcResult: unknown }>;
+    }
+  ).dispatchNearSignedTransactionBorsh = async (input) => ({
+    rpcResult: {
+      status: { SuccessValue: '' },
+      benchmarkSignedTransactionBorshBytes: Buffer.from(
+        input.signedTransactionBorshB64u,
+        'base64url',
+      ).length,
+    },
+  });
+
   const threshold = createThresholdSigningService({
     authService: service,
     thresholdStore: thresholdConfig,
@@ -306,6 +357,7 @@ async function createLocalRelayContext() {
 }
 
 async function runEd25519Scenario(args: ParsedArgs) {
+  const mode = resolveEd25519ScenarioMode(args.scenarioId);
   const relay = await createLocalRelayContext();
   try {
     const actors = Array.from({ length: args.wallets }, (_, walletIndex) => {
@@ -356,49 +408,135 @@ async function runEd25519Scenario(args: ParsedArgs) {
       .map((entry) => entry.value);
 
     const bootstrapRouteTimings = bootstrapFulfilled.flatMap((entry) => entry.routeTimings);
+    let presignSetup: {
+      accepted: number;
+      rejected: number;
+      endToEndMs: ReturnType<typeof summarizeNumbers>;
+      routeDurations: ReturnType<typeof createRouteDurationMap>;
+    } | null = null;
+    if (mode === 'presign_pool_hit' || mode === 'presign_concurrent_finalize') {
+      const setupResults = await runLimited(
+        actors,
+        Math.min(args.maxConcurrency, actors.length),
+        (actor) =>
+          actor.refillPresigns({
+            count: args.signsPerWallet,
+            requestTag: 'background_presign_pool_refill',
+          }),
+      );
+      const setupFailures = setupResults.filter((entry) => entry.status === 'rejected');
+      if (setupFailures.length > 0) {
+        throw new Error(
+          `presign setup failed: ${String(setupFailures[0]?.reason?.message || setupFailures[0]?.reason || 'unknown')}`,
+        );
+      }
+      const fulfilledSetup = setupResults
+        .filter(
+          (
+            entry,
+          ): entry is PromiseFulfilledResult<{
+            endToEndMs: number;
+            routeTimings: Array<{ route: string; durationMs: number }>;
+            accepted: number;
+            rejected: number;
+          }> => entry.status === 'fulfilled',
+        )
+        .map((entry) => entry.value);
+      presignSetup = {
+        accepted: fulfilledSetup.reduce((sum, entry) => sum + entry.accepted, 0),
+        rejected: fulfilledSetup.reduce((sum, entry) => sum + entry.rejected, 0),
+        endToEndMs: summarizeNumbers(fulfilledSetup.map((entry) => entry.endToEndMs)),
+        routeDurations: createRouteDurationMap(
+          fulfilledSetup.flatMap((entry) => entry.routeTimings),
+        ),
+      };
+    }
+
     const systemCollector = startSystemStatsCollector({ sampleIntervalMs: 200 });
     const signingStartedAt = performance.now();
 
-    let signResults: Array<
-      PromiseSettledResult<{
-        endToEndMs: number;
-        routeTimings: Array<{ route: string; durationMs: number }>;
-      }>
-    >;
+    let signResults: Array<PromiseSettledResult<ScenarioOperationResult>>;
     if (args.profile === 'burst') {
       const rounds = Array.from({ length: args.signsPerWallet }, (_, roundIndex) => roundIndex);
-      const settled: Array<
-        PromiseSettledResult<{
-          endToEndMs: number;
-          routeTimings: Array<{ route: string; durationMs: number }>;
-        }>
-      > = [];
+      const settled: Array<PromiseSettledResult<ScenarioOperationResult>> = [];
       for (const _round of rounds) {
-        const wave = await Promise.allSettled(actors.map((actor) => actor.signOnce()));
+        const wave = await Promise.allSettled(
+          actors.map((actor) => {
+            if (mode === 'presign_pool_hit' || mode === 'presign_concurrent_finalize') {
+              return actor.signOnceWithPresignPoolHit();
+            }
+            if (mode === 'presign_double_consume') return actor.exerciseDoubleConsumePressure();
+            if (mode === 'presign_refill' || mode === 'presign_refill_pressure') {
+              return actor.refillPresigns({
+                count: 1,
+                requestTag: 'foreground_presign_pool_refill',
+              });
+            }
+            return actor.signOnce();
+          }),
+        );
         settled.push(...wave);
       }
       signResults = settled;
     } else {
-      const work = actors.flatMap((actor) =>
-        Array.from({ length: args.signsPerWallet }, () => actor),
-      );
-      signResults = await runLimited(work, args.maxConcurrency, (actor) => actor.signOnce());
+      if (
+        mode === 'presign_refill' ||
+        mode === 'presign_refill_pressure' ||
+        mode === 'presign_double_consume'
+      ) {
+        const refillWork =
+          mode === 'presign_refill_pressure'
+            ? actors.flatMap((actor) => Array.from({ length: args.signsPerWallet }, () => actor))
+            : actors;
+        signResults = await runLimited(refillWork, args.maxConcurrency, (actor) => {
+          if (mode === 'presign_double_consume') return actor.exerciseDoubleConsumePressure();
+          return actor.refillPresigns({
+            count: mode === 'presign_refill_pressure' ? 1 : args.signsPerWallet,
+            requestTag: 'foreground_presign_pool_refill',
+          });
+        });
+      } else {
+        const work = actors.flatMap((actor) =>
+          Array.from({ length: args.signsPerWallet }, () => actor),
+        );
+        signResults = await runLimited(work, args.maxConcurrency, (actor) => {
+          if (mode === 'presign_pool_hit' || mode === 'presign_concurrent_finalize') {
+            return actor.signOnceWithPresignPoolHit();
+          }
+          return actor.signOnce();
+        });
+      }
     }
 
     const signingDurationMs = Number((performance.now() - signingStartedAt).toFixed(2));
     const system = systemCollector.stop();
 
     const successfulSigns = signResults.filter(
-      (
-        entry,
-      ): entry is PromiseFulfilledResult<{
-        endToEndMs: number;
-        routeTimings: Array<{ route: string; durationMs: number }>;
-      }> => entry.status === 'fulfilled',
+      (entry): entry is PromiseFulfilledResult<ScenarioOperationResult> =>
+        entry.status === 'fulfilled',
     );
     const failedSigns = signResults.filter((entry) => entry.status === 'rejected');
+    if (failedSigns.length > 0) {
+      throw new Error(
+        `scenario operations failed: ${String(failedSigns[0]?.reason?.message || failedSigns[0]?.reason || 'unknown')}`,
+      );
+    }
     const routeTimings = successfulSigns.flatMap((entry) => entry.value.routeTimings);
     const endToEndMs = successfulSigns.map((entry) => entry.value.endToEndMs);
+    const presignAccepted = successfulSigns.reduce(
+      (sum, entry) => sum + Number(entry.value.accepted || 0),
+      0,
+    );
+    const presignRejected = successfulSigns.reduce(
+      (sum, entry) => sum + Number(entry.value.rejected || 0),
+      0,
+    );
+    const poolHits = successfulSigns.filter((entry) => entry.value.poolHit === true).length;
+    const doubleConsumeRejectedCodes = successfulSigns.flatMap((entry) =>
+      Array.isArray(entry.value.doubleConsumeRejectedCodes)
+        ? entry.value.doubleConsumeRejectedCodes.map((code) => String(code))
+        : [],
+    );
     const totalAttempts = signResults.length;
     const totalSuccess = successfulSigns.length;
     const totalFailure = failedSigns.length;
@@ -407,7 +545,7 @@ async function runEd25519Scenario(args: ParsedArgs) {
       reportVersion: 'threshold_load_scenario_v1',
       curve: 'ed25519',
       topology: 'local_2p',
-      mode: 'warm_touchless',
+      mode,
       scenarioId: args.scenarioId,
       profile: args.profile,
       wallets: args.wallets,
@@ -430,6 +568,14 @@ async function runEd25519Scenario(args: ParsedArgs) {
             : null,
         endToEndMs: summarizeNumbers(endToEndMs),
         routeDurations: createRouteDurationMap(routeTimings),
+      },
+      presign: {
+        mode,
+        setup: presignSetup,
+        acceptedDuringMeasuredRun: presignAccepted,
+        rejectedDuringMeasuredRun: presignRejected,
+        poolHits,
+        doubleConsumeRejectedCodes: countStringValues(doubleConsumeRejectedCodes),
       },
       system,
     };

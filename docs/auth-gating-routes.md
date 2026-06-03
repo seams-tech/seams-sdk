@@ -112,6 +112,24 @@ Use for threshold authorization and continuation routes that are authenticated b
 - authenticated via threshold session auth tokens or equivalent threshold signing session claims
 - scoped to the threshold signing flow, not reused as a general user session
 
+Ed25519 presign routes:
+
+- `/threshold-ed25519/presign/refill` is a threshold-session route for the
+  `ed25519` scheme. It accepts either the threshold-session bearer token or the
+  threshold-session cookie, depending on the session kind minted for the wallet
+  session. The route prepares message-independent presign material and does not
+  consume signing budget.
+- `/threshold-ed25519/sign/finalize-and-dispatch` is a threshold-session route
+  for the `ed25519` scheme. It requires the same threshold-session auth scope as
+  refill, parses the typed finalize intent at the route boundary, verifies
+  `requestIntegrityHash`, recomputes the canonical operation fingerprint, and
+  consumes presign material and signing budget only after scope and intent
+  validation.
+- SDK callers should use the presign pool helpers rather than constructing these
+  route bodies directly. The SDK computes the canonical operation fingerprint and
+  `requestIntegrityHash`, sends cookie sessions with credentials included, and
+  sends JWT sessions with `Authorization: Bearer <threshold-session-token>`.
+
 ### 5. Explicit public route
 
 Use only when a route is intentionally unauthenticated.

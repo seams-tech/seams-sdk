@@ -11,6 +11,7 @@ export { WorkerRequestType, WorkerResponseType }; // Export the WASM enums direc
 import type { StripFree } from './index.js';
 import type { TransactionContext } from './rpc.js';
 import type { ActionArgsWasm } from './actions.js';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type {
   BuildEcdsaRoleLocalExportArtifactCommand as GeneratedBuildEcdsaRoleLocalExportArtifactCommand,
   BuildEcdsaRoleLocalExportArtifactOutput as GeneratedBuildEcdsaRoleLocalExportArtifactOutput,
@@ -37,7 +38,24 @@ export function resolveThresholdBehavior(
   return isThresholdBehavior(input) ? input : fallback;
 }
 
-export type SignerWorkerRequestType = WorkerRequestType;
+export const NearSignerWorkerCustomRequestType = {
+  ThresholdEd25519ClientPresignCreate: 'thresholdEd25519ClientPresignCreate',
+  ThresholdEd25519ClientPresignSign: 'thresholdEd25519ClientPresignSign',
+  ThresholdEd25519ClientPresignBurn: 'thresholdEd25519ClientPresignBurn',
+  ThresholdEd25519ComputeNep413SigningDigest: 'thresholdEd25519ComputeNep413SigningDigest',
+  ThresholdEd25519ComputeDelegateSigningDigest: 'thresholdEd25519ComputeDelegateSigningDigest',
+  ThresholdEd25519FinalizeDelegateFromSignature:
+    'thresholdEd25519FinalizeDelegateFromSignature',
+  ThresholdEd25519BuildNearTxUnsignedBorsh:
+    'thresholdEd25519BuildNearTxUnsignedBorsh',
+  ThresholdEd25519DecodeSignedNearTxBorsh:
+    'thresholdEd25519DecodeSignedNearTxBorsh',
+} as const;
+
+export type NearSignerWorkerCustomRequestType =
+  (typeof NearSignerWorkerCustomRequestType)[keyof typeof NearSignerWorkerCustomRequestType];
+
+export type SignerWorkerRequestType = WorkerRequestType | NearSignerWorkerCustomRequestType;
 export type SignerWorkerResponseType = WorkerResponseType;
 
 export interface ThresholdSignerConfig {
@@ -75,7 +93,212 @@ export interface ThresholdSignerConfig {
    * - `cookie`: set HttpOnly cookie (same-site only).
    */
   thresholdSessionKind?: 'jwt' | 'cookie';
+  /** Optional client-side policy for the Ed25519 background presign pool. */
+  ed25519PresignPoolPolicy?: ThresholdEd25519PresignPoolPolicyConfig;
 }
+
+export type ThresholdEd25519PresignPoolPolicyConfig = {
+  targetDepth?: number;
+  lowWatermark?: number;
+  maxAcceptedRefillCount?: number;
+  ttlMs?: number;
+};
+
+export type ThresholdEd25519PresignPoolPolicy = {
+  targetDepth: number;
+  lowWatermark: number;
+  maxAcceptedRefillCount: number;
+  ttlMs: number;
+};
+
+export type ThresholdEd25519PresignPoolRouteAuth =
+  | {
+      sessionKind: 'jwt';
+      thresholdSessionAuthToken: string;
+      useThresholdSessionCookie?: never;
+    }
+  | {
+      sessionKind: 'cookie';
+      useThresholdSessionCookie: true;
+      thresholdSessionAuthToken?: never;
+    };
+
+export type ThresholdEd25519PresignCommitmentsWire = {
+  hiding: string;
+  binding: string;
+};
+
+export type ThresholdEd25519ClientPresignCreateRequest = {
+  clientParticipantId?: number;
+  relayerParticipantId?: number;
+  xClientBaseB64u: string;
+  groupPublicKey: string;
+};
+
+export type ThresholdEd25519ClientPresignCreateResult = {
+  clientNonceHandleB64u: string;
+  clientVerifyingShareB64u: string;
+  clientCommitments: ThresholdEd25519PresignCommitmentsWire;
+};
+
+export type ThresholdEd25519ClientPresignSignRequest = {
+  clientParticipantId?: number;
+  relayerParticipantId?: number;
+  xClientBaseB64u: string;
+  groupPublicKey: string;
+  signingDigestB64u: string;
+  clientNonceHandleB64u: string;
+  clientCommitments: ThresholdEd25519PresignCommitmentsWire;
+  relayerCommitments: ThresholdEd25519PresignCommitmentsWire;
+};
+
+export type ThresholdEd25519ClientPresignSignResult = {
+  clientSignatureShareB64u: string;
+};
+
+export type ThresholdEd25519ClientPresignBurnRequest = {
+  clientNonceHandleB64u: string;
+};
+
+export type ThresholdEd25519ClientPresignBurnResult = {
+  burned: true;
+};
+
+export type ThresholdEd25519ComputeNep413SigningDigestRequest = {
+  message: string;
+  recipient: string;
+  nonce: string;
+  state?: string;
+};
+
+export type ThresholdEd25519ComputeSigningDigestResult = {
+  signingDigestB64u: string;
+};
+
+export type ThresholdEd25519FinalizeDelegateFromSignatureRequest = {
+  delegate: DelegatePayload;
+  signingDigestB64u: string;
+  signatureB64u: string;
+};
+
+export type ThresholdEd25519BuildNearTxUnsignedBorshRequest = {
+  txSigningRequests: readonly TransactionPayload[];
+  transactionContext: TransactionContext;
+};
+
+export type ThresholdEd25519NearTxUnsignedBorsh = {
+  unsignedTransactionBorshB64u: string;
+  signingDigestB64u: string;
+};
+
+export type ThresholdEd25519DecodeSignedNearTxBorshRequest = {
+  signedTransactionBorshB64u: string;
+};
+
+export type ThresholdEd25519DecodeSignedNearTxBorshResult = {
+  signedTransaction: WasmSignedTransaction;
+  transactionHash: string;
+};
+
+export type ThresholdEd25519ClientPresignWorkerOffer = {
+  clientPresignId: string;
+  nonceHandle: string;
+  clientVerifyingShareB64u: string;
+  clientCommitments: ThresholdEd25519PresignCommitmentsWire;
+  nonceSecretB64u?: never;
+  hidingNonceB64u?: never;
+  bindingNonceB64u?: never;
+};
+
+export type PrepareThresholdEd25519PresignPoolPayload =
+  ThresholdEd25519PresignPoolRouteAuth & {
+    kind: 'prepare_threshold_ed25519_presign_pool_v1';
+    relayUrl: string;
+    thresholdSessionId: string;
+    walletSigningSessionId: string;
+    relayerKeyId: string;
+    nearAccountId: string;
+    nearNetworkId: string;
+    signerPublicKey: string;
+    participantIds: readonly number[];
+    runtimePolicyScope: RuntimePolicyScope;
+    policy: ThresholdEd25519PresignPoolPolicy;
+    requestTag: 'background_presign_pool_refill' | 'foreground_presign_pool_refill';
+    generation: number;
+    clientPresigns: readonly ThresholdEd25519ClientPresignWorkerOffer[];
+    xClientBaseB64u?: never;
+    clientSigningShareB64u?: never;
+    prfFirstB64u?: never;
+  };
+
+export type PrepareThresholdEd25519PresignPoolResult =
+  | {
+      ok: true;
+      kind: 'prepare_threshold_ed25519_presign_pool_result_v1';
+      generation: number;
+      accepted: readonly ThresholdEd25519PresignPoolAcceptedPair[];
+      rejectedClientPresignIds: readonly string[];
+      expiresAtMs: number;
+    }
+  | {
+      ok: false;
+      kind: 'prepare_threshold_ed25519_presign_pool_result_v1';
+      code: string;
+      message: string;
+      generation: number;
+      accepted?: never;
+      rejectedClientPresignIds?: never;
+      expiresAtMs?: never;
+    };
+
+export type ThresholdEd25519PresignPoolAcceptedPair = {
+  presignId: string;
+  clientPresignId: string;
+  relayerCommitments: ThresholdEd25519PresignCommitmentsWire;
+  relayerVerifyingShareB64u: string;
+  expiresAtMs: number;
+};
+
+export type GetThresholdEd25519PresignPoolStatusPayload = {
+  kind: 'get_threshold_ed25519_presign_pool_status_v1';
+  scopeKey: string;
+};
+
+export type GetThresholdEd25519PresignPoolStatusResult = {
+  kind: 'get_threshold_ed25519_presign_pool_status_result_v1';
+  scopeKey: string;
+  generation: number;
+  offeredCount: number;
+  readyCount: number;
+  burnedCount: number;
+  refillInFlight: boolean;
+  nextExpiryAtMs: number | null;
+};
+
+export type ClearThresholdEd25519PresignPoolPayload = {
+  kind: 'clear_threshold_ed25519_presign_pool_v1';
+  scopeKey: string;
+  generation: number;
+  reason:
+    | 'worker_restart'
+    | 'page_reload'
+    | 'logout'
+    | 'account_switch'
+    | 'threshold_session_change'
+    | 'wallet_signing_session_change'
+    | 'relayer_key_change'
+    | 'participant_change'
+    | 'client_base_change';
+};
+
+export type ClearThresholdEd25519PresignPoolResult = {
+  ok: true;
+  kind: 'clear_threshold_ed25519_presign_pool_result_v1';
+  scopeKey: string;
+  previousGeneration: number;
+  nextGeneration: number;
+  clearedEntries: number;
+};
 
 export interface TransactionPayload {
   nearAccountId: string;

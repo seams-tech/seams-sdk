@@ -149,7 +149,7 @@ function makeRecord(input: PasskeyRecordFixtureInput = {}): PasskeyEcdsaSessionR
     chainTarget: input.chainTarget ?? EVM_TARGET,
     relayerUrl: 'https://relay.localhost',
     ecdsaThresholdKeyId: input.ecdsaThresholdKeyId ?? 'ehss-shared-key',
-    signingRootId: 'signingRootId' in input ? input.signingRootId : 'project:dev',
+    signingRootId: input.signingRootId ?? 'project:dev',
     signingRootVersion: input.signingRootVersion ?? 'default',
     relayerKeyId: 'relayer-key',
     clientVerifyingShareB64u: VALID_PUBLIC_KEY_B64U,
@@ -158,7 +158,7 @@ function makeRecord(input: PasskeyRecordFixtureInput = {}): PasskeyEcdsaSessionR
       chainTarget: input.chainTarget ?? EVM_TARGET,
     }),
     participantIds: input.participantIds ?? [2, 1],
-    thresholdSessionKind: 'jwt',
+    thresholdSessionKind: 'jwt' as const,
     thresholdSessionId: input.thresholdSessionId ?? 'threshold-session-1',
     walletSigningSessionId: input.walletSigningSessionId ?? 'wallet-signing-session-1',
     thresholdSessionAuthToken: 'threshold-auth-token',
@@ -170,11 +170,11 @@ function makeRecord(input: PasskeyRecordFixtureInput = {}): PasskeyEcdsaSessionR
         : VALID_PUBLIC_KEY_B64U,
     ethereumAddress: input.ethereumAddress ?? OWNER_ADDRESS,
     updatedAtMs: 1_800_000_000_000,
-    source: 'login',
+    source: 'login' as const,
     keyHandle: keyHandleForRecord,
     authMetadata: { rpId: RP_ID },
   };
-  if ('runtimePolicyScope' in input) {
+  if (input.runtimePolicyScope) {
     return { ...record, runtimePolicyScope: input.runtimePolicyScope };
   }
   return record;
@@ -1056,7 +1056,7 @@ test.describe('EVM-family ECDSA identity', () => {
       deps,
       makeRecord({
         runtimePolicyScope,
-        signingRootId: undefined,
+        signingRootId: 'project-client-conflict:dev',
         thresholdSessionId: 'threshold-session-first-key',
         walletSigningSessionId: 'wallet-session-first-key',
       }),
@@ -1067,7 +1067,7 @@ test.describe('EVM-family ECDSA identity', () => {
         deps,
         makeRecord({
           runtimePolicyScope,
-          signingRootId: undefined,
+          signingRootId: 'project-client-conflict:dev',
           chainTarget: TEMPO_TARGET,
           keyHandle: toEvmFamilyEcdsaKeyHandle('key-handle-conflicting'),
           ecdsaThresholdKeyId: 'ehss-conflicting-key',

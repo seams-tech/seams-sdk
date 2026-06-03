@@ -40,6 +40,19 @@ function appendRouteTable(lines, routeDurations) {
   lines.push('');
 }
 
+function appendCountMap(lines, title, values) {
+  const entries = Object.entries(values || {}).sort(([left], [right]) => left.localeCompare(right));
+  if (!entries.length) return;
+  lines.push(`#### ${title}`);
+  lines.push('');
+  lines.push('| Value | Count |');
+  lines.push('|---|---:|');
+  for (const [value, count] of entries) {
+    lines.push(`| \`${value}\` | ${fmtNum(count, 0)} |`);
+  }
+  lines.push('');
+}
+
 export function buildMarkdownReport(input) {
   const lines = [];
   lines.push('# Threshold Load Report');
@@ -82,18 +95,45 @@ export function buildMarkdownReport(input) {
     lines.push(`- Total failure: ${fmtNum(summary.signing?.totalFailure, 0)}`);
     lines.push(`- Success rate: ${fmtPct(summary.signing?.successRate)}`);
     lines.push(`- Throughput (signs/sec): ${fmtNum(summary.signing?.throughputSignsPerSec)}`);
+    if (summary.presign) {
+      lines.push(`- Presign mode: ${summary.presign.mode}`);
+      lines.push(
+        `- Presign accepted during measured run: ${fmtNum(summary.presign.acceptedDuringMeasuredRun, 0)}`,
+      );
+      lines.push(
+        `- Presign rejected during measured run: ${fmtNum(summary.presign.rejectedDuringMeasuredRun, 0)}`,
+      );
+      lines.push(`- Presign pool hits: ${fmtNum(summary.presign.poolHits, 0)}`);
+      if (summary.presign.setup) {
+        lines.push(`- Presign setup accepted: ${fmtNum(summary.presign.setup.accepted, 0)}`);
+        lines.push(`- Presign setup rejected: ${fmtNum(summary.presign.setup.rejected, 0)}`);
+      }
+    }
     lines.push('');
 
     appendStatsTable(lines, 'Bootstrap Session Mint', summary.bootstrap?.sessionMintMs);
+    appendStatsTable(lines, 'Presign Setup', summary.presign?.setup?.endToEndMs);
     appendStatsTable(lines, 'End-to-End Sign', summary.signing?.endToEndMs);
 
     lines.push('### Bootstrap Routes');
     lines.push('');
     appendRouteTable(lines, summary.bootstrap?.routeDurations || {});
 
+    if (summary.presign?.setup) {
+      lines.push('### Presign Setup Routes');
+      lines.push('');
+      appendRouteTable(lines, summary.presign.setup.routeDurations || {});
+    }
+
     lines.push('### Signing Routes');
     lines.push('');
     appendRouteTable(lines, summary.signing?.routeDurations || {});
+
+    appendCountMap(
+      lines,
+      'Presign Double-Consume Rejection Codes',
+      summary.presign?.doubleConsumeRejectedCodes,
+    );
 
     lines.push('### System');
     lines.push('');
@@ -114,7 +154,7 @@ export function buildMarkdownReport(input) {
   lines.push('');
   lines.push('- Current coverage is threshold-ed25519 warm-session local 2-party only.');
   lines.push(
-    '- The actor provisions canonical single-key material directly, then measures the kept warm signing path.',
+    '- The actor provisions canonical single-key material directly, then measures the kept warm signing and presign paths.',
   );
   lines.push(
     '- ECDSA, multi-node routing, backend comparison, and relayer-cosigner topologies remain follow-on work.',

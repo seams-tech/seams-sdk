@@ -5,6 +5,10 @@ import type {
   ThresholdEd25519CosignFinalizeResponse,
   ThresholdEd25519CosignInitRequest,
   ThresholdEd25519CosignInitResponse,
+  ThresholdEd25519FinalizeAndDispatchRequest,
+  ThresholdEd25519FinalizeAndDispatchResponse,
+  ThresholdEd25519PresignRefillRequest,
+  ThresholdEd25519PresignRefillResponse,
   ThresholdEcdsaAuthorizeResponse,
   ThresholdEcdsaAuthorizeWithSessionRequest,
   ThresholdEcdsaCosignFinalizeRequest,
@@ -123,6 +127,17 @@ export type ThresholdEd25519Frost2pSchemeModule = {
     claims: ThresholdEd25519SessionClaims;
     request: ThresholdEd25519AuthorizeWithSessionRequest;
   }): Promise<ThresholdEd25519AuthorizeResponse>;
+  presign: {
+    refill(input: {
+      claims: ThresholdEd25519SessionClaims;
+      request: ThresholdEd25519PresignRefillRequest;
+      requestOriginRateLimitKey?: string;
+    }): Promise<ThresholdEd25519PresignRefillResponse>;
+    finalizeAndDispatch(input: {
+      claims: ThresholdEd25519SessionClaims;
+      request: ThresholdEd25519FinalizeAndDispatchRequest;
+    }): Promise<ThresholdEd25519FinalizeAndDispatchResponse>;
+  };
   registration: {
     keygenFromRegistrationMaterial(
       request: ThresholdEd25519RegistrationKeygenRequest,
