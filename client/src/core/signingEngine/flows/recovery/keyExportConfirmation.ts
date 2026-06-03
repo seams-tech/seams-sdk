@@ -59,13 +59,21 @@ export type EmailOtpNearAccountExportAuthorizationDeps = {
 };
 
 type UiConfirmRequest = Parameters<UiConfirmRuntimeBridgePort['requestUserConfirmation']>[0];
-type ExportPrivateKeyDisplayEntry = {
-  scheme: 'ed25519' | 'secp256k1';
-  label: string;
-  publicKey: string;
-  privateKey: string;
-  address?: string;
-};
+type ExportPrivateKeyDisplayEntry =
+  | {
+      scheme: 'ed25519';
+      label: string;
+      publicKey: string;
+      privateKey: string;
+      address?: never;
+    }
+  | {
+      scheme: 'secp256k1';
+      label: string;
+      publicKey: string;
+      privateKey: string;
+      address: string;
+    };
 
 type ThresholdEcdsaExportViewerBaseArgs = {
   nearAccountId: AccountId;
@@ -80,8 +88,8 @@ type ThresholdEcdsaExportViewerBaseArgs = {
 type ThresholdEcdsaExportViewerLoadingArgs = ThresholdEcdsaExportViewerBaseArgs & {
   state: 'loading';
   viewerSessionId: string;
+  ethereumAddress: string;
   privateKeyHex?: never;
-  ethereumAddress?: never;
 };
 
 type ThresholdEcdsaExportViewerReadyArgs = ThresholdEcdsaExportViewerBaseArgs & {
@@ -402,6 +410,7 @@ export async function showThresholdEcdsaExportViewer(
           label,
           publicKey: args.publicKeyHex,
           privateKey: '',
+          address: args.ethereumAddress,
         },
       ]
     : [

@@ -155,6 +155,7 @@ async function showEcdsaExportLoadingViewer(
     walletSessionUserId: string;
     exportLane: ExactEcdsaExportLane;
     publicKey: string;
+    ethereumAddress: string;
     options: EcdsaExportOptions;
     viewerSessionId: string;
     flowId: string;
@@ -168,6 +169,7 @@ async function showEcdsaExportLoadingViewer(
       nearAccountId: toAccountId(args.walletSessionUserId),
       chainTarget: args.exportLane.session.chainTarget,
       publicKeyHex: String(args.publicKey || '').trim(),
+      ethereumAddress: String(args.ethereumAddress || '').trim(),
       variant: args.options.variant,
       theme: args.options.theme,
       viewerSessionId: args.viewerSessionId,
@@ -202,6 +204,7 @@ async function prepareAndShowEcdsaExportArtifact(
       walletSessionUserId: args.walletSessionUserId,
       exportLane: args.exportLane,
       publicKey: args.exportPublicKey,
+      ethereumAddress: args.exportLane.publicFacts.thresholdOwnerAddress,
       options: args.options,
       viewerSessionId,
       flowId: args.flowId,
