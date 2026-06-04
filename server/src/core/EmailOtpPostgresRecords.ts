@@ -476,10 +476,15 @@ export function parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(
   const aadHashB64u = toOptionalTrimmedString(obj.aadHashB64u);
   const issuedAtMs = toPositiveSafeInt(obj.issuedAtMs);
   const updatedAtMs = toPositiveSafeInt(obj.updatedAtMs);
+  const acknowledgedAtMs =
+    obj.acknowledgedAtMs == null ? undefined : toPositiveSafeInt(obj.acknowledgedAtMs) || undefined;
   const consumedAtMs =
     obj.consumedAtMs == null ? undefined : toPositiveSafeInt(obj.consumedAtMs) || undefined;
   const revokedAtMs =
     obj.revokedAtMs == null ? undefined : toPositiveSafeInt(obj.revokedAtMs) || undefined;
+  const abandonedAtMs =
+    obj.abandonedAtMs == null ? undefined : toPositiveSafeInt(obj.abandonedAtMs) || undefined;
+  const cleanupReason = toOptionalTrimmedString(obj.cleanupReason);
   if (
     version !== 'email_otp_recovery_wrapped_enrollment_escrow_v1' ||
     alg !== EMAIL_OTP_RECOVERY_WRAP_ALG ||
@@ -512,27 +517,25 @@ export function parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(
     return null;
   }
   if (
+    recoveryKeyStatus !== 'pending_backup' &&
     recoveryKeyStatus !== 'active' &&
     recoveryKeyStatus !== 'consumed' &&
-    recoveryKeyStatus !== 'revoked'
+    recoveryKeyStatus !== 'revoked' &&
+    recoveryKeyStatus !== 'abandoned'
   ) {
     return null;
   }
   if (updatedAtMs < issuedAtMs) return null;
-  if (recoveryKeyStatus === 'active' && (consumedAtMs !== undefined || revokedAtMs !== undefined)) {
-    return null;
-  }
-  if (recoveryKeyStatus === 'consumed' && consumedAtMs === undefined) return null;
-  if (recoveryKeyStatus === 'revoked' && revokedAtMs === undefined) return null;
-  return {
-    version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
+
+  const base = {
+    version: 'email_otp_recovery_wrapped_enrollment_escrow_v1' as const,
     alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
     secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
     escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
     walletId,
     userId,
     authSubjectId,
-    authMethod: 'google_sso_email_otp',
+    authMethod: 'google_sso_email_otp' as const,
     enrollmentId,
     enrollmentVersion,
     enrollmentSealKeyVersion,
@@ -540,15 +543,88 @@ export function parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(
     signingRootVersion,
     recoveryKeyId,
     ...(recoveryKeyLabel ? { recoveryKeyLabel } : {}),
-    recoveryKeyStatus,
     nonceB64u,
     wrappedDeviceEnrollmentEscrowB64u,
     aadHashB64u,
     issuedAtMs,
     updatedAtMs,
-    ...(consumedAtMs !== undefined ? { consumedAtMs } : {}),
-    ...(revokedAtMs !== undefined ? { revokedAtMs } : {}),
   };
+  switch (recoveryKeyStatus) {
+    case 'pending_backup':
+      if (
+        acknowledgedAtMs !== undefined ||
+        consumedAtMs !== undefined ||
+        revokedAtMs !== undefined ||
+        abandonedAtMs !== undefined ||
+        cleanupReason
+      ) {
+        return null;
+      }
+      return { ...base, recoveryKeyStatus };
+    case 'active':
+      if (
+        acknowledgedAtMs === undefined ||
+        consumedAtMs !== undefined ||
+        revokedAtMs !== undefined ||
+        abandonedAtMs !== undefined ||
+        cleanupReason
+      ) {
+        return null;
+      }
+      return { ...base, recoveryKeyStatus, acknowledgedAtMs };
+    case 'consumed':
+      if (
+        acknowledgedAtMs === undefined ||
+        consumedAtMs === undefined ||
+        revokedAtMs !== undefined ||
+        abandonedAtMs !== undefined ||
+        cleanupReason
+      ) {
+        return null;
+      }
+      return { ...base, recoveryKeyStatus, acknowledgedAtMs, consumedAtMs };
+    case 'revoked':
+      if (
+        acknowledgedAtMs === undefined ||
+        consumedAtMs !== undefined ||
+        revokedAtMs === undefined ||
+        abandonedAtMs !== undefined ||
+        cleanupReason
+      ) {
+        return null;
+      }
+      return { ...base, recoveryKeyStatus, acknowledgedAtMs, revokedAtMs };
+    case 'abandoned':
+      const abandonedCleanupReason = cleanupReason as
+        | 'registration_cancelled'
+        | 'registration_restarted'
+        | 'rotation_restarted'
+        | 'pending_backup_expired'
+        | undefined;
+      if (
+        acknowledgedAtMs !== undefined ||
+        consumedAtMs !== undefined ||
+        revokedAtMs !== undefined ||
+        abandonedAtMs === undefined ||
+        !abandonedCleanupReason ||
+        ![
+          'registration_cancelled',
+          'registration_restarted',
+          'rotation_restarted',
+          'pending_backup_expired',
+        ].includes(abandonedCleanupReason)
+      ) {
+        return null;
+      }
+      return {
+        ...base,
+        recoveryKeyStatus,
+        abandonedAtMs,
+        cleanupReason: abandonedCleanupReason,
+      };
+    default:
+      return null;
+  }
 }
 
 export function parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRow(input: {

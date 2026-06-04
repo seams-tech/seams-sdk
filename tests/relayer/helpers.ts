@@ -167,9 +167,11 @@ export function makeEmailOtpRecoveryWrappedEnrollmentEscrows(input: {
   authSubjectId?: string;
   enrollmentSealKeyVersion: string;
   nowMs?: number;
+  recoveryKeyStatus?: 'pending_backup' | 'active';
 }) {
   const nowMs = input.nowMs ?? Date.now();
   const authSubjectId = input.authSubjectId || input.userId;
+  const recoveryKeyStatus = input.recoveryKeyStatus || 'pending_backup';
   return Array.from({ length: EMAIL_OTP_RECOVERY_KEY_COUNT }, (_, index) => {
     const metadata = {
       walletId: input.walletId,
@@ -189,7 +191,8 @@ export function makeEmailOtpRecoveryWrappedEnrollmentEscrows(input: {
       secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
       escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
       ...metadata,
-      recoveryKeyStatus: 'active',
+      recoveryKeyStatus,
+      ...(recoveryKeyStatus === 'active' ? { acknowledgedAtMs: nowMs } : {}),
       nonceB64u: base64UrlEncode(Uint8Array.from(Array.from({ length: 12 }, (_, i) => i + index))),
       wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(
         Uint8Array.from(Array.from({ length: 48 }, (_, i) => i + index + 1)),

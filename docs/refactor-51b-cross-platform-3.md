@@ -921,6 +921,40 @@ Before merging any phase:
 - Do guard allow-list entries include owner and reason fields, and did the phase
   remove entries that became obsolete?
 
+## High-Impact Post-Implementation Backlog
+
+These are the only post-implementation cleanup tasks worth tracking here. Each
+one directly reduces audit cost or makes the next broad SDK architecture refactor
+smaller.
+
+- [x] Split `client/src/web/SeamsWeb/index.ts` into public capability modules
+  for auth, NEAR, EVM, Tempo, wallet iframe, and shared constructor/composition
+  code.
+  - [x] Move NEAR, Tempo, and EVM public capability builders into the web
+    capability layer while keeping chain signer modules local-only.
+  - [x] Move auth, registration, recovery, key export, and preferences public
+    capability builders out of the constructor.
+  - [x] Move wallet iframe public-method composition out of the constructor/class
+    surface where it can be expressed without reintroducing legacy facade names.
+- [x] Split
+  `client/src/web/SeamsWeb/assembly/BrowserSigningSurface.ts` into smaller
+  browser assembly factories for UI confirmation, registration, warm sessions,
+  exports, Email OTP, and wallet iframe wiring.
+  - [x] Move Email OTP public dependency assembly into a focused browser
+    factory.
+  - [x] Move registration public dependency assembly into a focused browser
+    factory.
+  - [x] Move export/recovery dependency assembly into a focused browser factory.
+  - [x] Move warm-session and UI-confirm browser dependency assembly into
+    focused factories.
+- [x] Replace remaining raw web-boundary casts in `SeamsWeb` modules with named
+  boundary parsers and branch-specific builders, prioritizing `syncAccount.ts`,
+  `registration.ts`, and `index.ts`.
+  - [x] Replace the sync-account threshold session, registration ECDSA target,
+    and index ECDSA chain-target casts with named boundary parsers.
+  - [x] Continue replacing lower-risk event/error/transports casts after the
+    main architecture cleanup is stable.
+
 ## Final Target State
 
 - `SeamsWeb` is the browser SDK facade.

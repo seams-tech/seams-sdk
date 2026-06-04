@@ -93,7 +93,7 @@ function emailOtpEnrollmentMaterial(walletId: string, authSubjectId: string) {
           secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
           escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
           ...metadata,
-          recoveryKeyStatus: 'active',
+          recoveryKeyStatus: 'pending_backup',
           nonceB64u: base64UrlEncode(
             Uint8Array.from(Array.from({ length: 12 }, (_, byteIndex) => byteIndex + index)),
           ),

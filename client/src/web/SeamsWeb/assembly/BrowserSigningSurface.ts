@@ -136,18 +136,19 @@ import type {
 import * as sessionPublic from '@/core/signingEngine/session/public';
 import { readPersistedAvailableSigningLanesForSigning as readPersistedAvailableSigningLanesForSigningOperation } from '@/core/signingEngine/session/availability/persistedAvailableSigningLanes';
 import {
-  createPasskeyPublicDeps,
-  createWarmCapabilitiesPublicDeps,
   createWarmSigningPorts,
   type WarmSigningPorts,
 } from '@/core/signingEngine/assembly/ports/warmSigning';
-import { createStepUpRuntime } from '@/core/signingEngine/assembly/ports/stepUpRuntime';
-import { createRecoveryPublicDeps } from '@/core/signingEngine/assembly/ports/recovery';
 import { createSessionPublicDeps } from '@/core/signingEngine/assembly/ports/session';
 import * as warmCapabilitiesPublic from '@/core/signingEngine/session/warmCapabilities/public';
 import type { WarmCapabilitiesPublicDeps } from '@/core/signingEngine/session/warmCapabilities/public';
 import * as passkeyPublic from '@/core/signingEngine/session/passkey/public';
 import type { ConnectEd25519SessionArgs, PasskeyPublicDeps } from '@/core/signingEngine/session/passkey/public';
+import { createBrowserEmailOtpPublicDeps } from './createBrowserEmailOtpPublicDeps';
+import { createBrowserRegistrationPublicDeps } from './createBrowserRegistrationPublicDeps';
+import { createBrowserRecoveryPublicDeps } from './createBrowserRecoveryPublicDeps';
+import { createBrowserStepUpRuntime } from './createBrowserStepUpRuntime';
+import { createBrowserWarmSessionPublicDeps } from './createBrowserWarmSessionPublicDeps';
 
 type InitializeSigningRuntimePort = (args: {
   config: SeamsConfigsReadonly;
@@ -257,21 +258,16 @@ export class BrowserSigningSurface {
     this.thresholdEcdsaSessionByLane = signingRuntime.state.ecdsaSessions.recordsByLane;
     this.thresholdEcdsaExportArtifactByLane =
       signingRuntime.state.ecdsaSessions.exportArtifactsByLane;
-    const stepUpRuntime = createStepUpRuntime({
+    const stepUpRuntime = createBrowserStepUpRuntime({
       seamsWebConfigs: this.seamsWebConfigs,
       touchIdPrompt: this.touchIdPrompt,
       signerWorkerManager: this.signerWorkerManager,
-      ecdsaBootstrapStore: deps.signingEngineStores.walletProfileAndSignerRecords.ecdsaBootstrapStore,
-      ed25519MetadataStore: deps.signingEngineStores.recoveryAndDeviceLinking.ed25519MetadataStore,
-      sealedSessionStore: deps.sealedSigningSessionStore,
+      stores: deps.signingEngineStores,
+      sealedSigningSessionStore: deps.sealedSigningSessionStore,
       baseTouchConfirm: assembly.touchConfirm,
-      getSignerWorkerContext: () =>
-        this.enginePorts.thresholdSessionActivationDeps.getSignerWorkerContext(),
+      getEnginePorts: () => this.enginePorts,
       thresholdEcdsaBootstrapQueueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
-      getEcdsaSessions: () => this.warmSigning.ecdsaSessions,
-      getWarmCapabilityReader: () => this.warmSigning.capabilityReader,
-      getThresholdEcdsaSessionRecordByThresholdSessionId: (thresholdSessionId) =>
-        this.warmSigning.getThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId),
+      getWarmSigning: () => this.warmSigning,
       ensureSealedRefreshStartupParity: () => this.ensureSealedRefreshStartupParity(),
     });
     this.emailOtpSessions = stepUpRuntime.emailOtpSessions;
@@ -289,43 +285,22 @@ export class BrowserSigningSurface {
       emailOtpSessions: this.emailOtpSessions,
       warmSigning: this.warmSigning,
     });
-    this.emailOtpPublicDeps = {
-      ecdsaSessions: this.warmSigning.ecdsaSessions,
-      relayerUrl: this.seamsWebConfigs.network.relayer?.url || '',
-      shamirPrimeB64u: this.seamsWebConfigs.signing.sessionSeal?.shamirPrimeB64u || '',
+    this.emailOtpPublicDeps = createBrowserEmailOtpPublicDeps({
+      seamsWebConfigs: this.seamsWebConfigs,
+      warmSigning: this.warmSigning,
       getSignerWorkerContext: () =>
         this.enginePorts.thresholdSessionActivationDeps.getSignerWorkerContext(),
       emailOtpSessions: this.emailOtpSessions,
-    };
-    this.recoveryPublicDeps = createRecoveryPublicDeps({
+    });
+    this.recoveryPublicDeps = createBrowserRecoveryPublicDeps({
       seamsWebConfigs: this.seamsWebConfigs,
       touchIdPrompt: this.touchIdPrompt,
       signerWorkerManager: this.signerWorkerManager,
-      privateKeyExportRecovery: {
-        keyMaterialStore: deps.signingEngineStores.recoveryAndDeviceLinking.keyMaterialStore,
-        relayerUrl: this.seamsWebConfigs.network.relayer.url,
-        getRpId: () => this.touchIdPrompt.getRpId(),
-        requestExportPrivateKeysWithUi: (payload) =>
-          this.signerWorkerManager.requestExportPrivateKeysWithUi(payload),
-        getTheme: () => this.theme,
-      },
-      ecdsaSessions: this.warmSigning.ecdsaSessions,
+      keyMaterialStore: deps.signingEngineStores.recoveryAndDeviceLinking.keyMaterialStore,
+      warmSigning: this.warmSigning,
       touchConfirm: this.touchConfirm,
       emailOtpSessions: this.emailOtpSessions,
-      keyMaterialStore: deps.signingEngineStores.recoveryAndDeviceLinking.keyMaterialStore,
-      warmSessionPolicy: {
-        getWarmSession: (nearAccountId) =>
-          this.warmSigning.capabilityReader.getWarmSession(nearAccountId),
-        resolveExactEcdsaRecord: (recordArgs) =>
-          this.warmSigning.statusReader.resolveExactEcdsaRecord(recordArgs),
-      },
-      getWalletSigningBudgetStatus: (statusArgs) =>
-        readTrustedWalletSigningBudgetStatusOperation(
-          {
-            ecdsaSessions: this.warmSigning.ecdsaSessions,
-          },
-          statusArgs,
-        ),
+      getTheme: () => this.theme,
     });
 
     this.enginePorts = createSigningEnginePorts({
@@ -496,31 +471,21 @@ export class BrowserSigningSurface {
           ...queueArgs,
         }),
     });
-    this.passkeyPublicDeps = createPasskeyPublicDeps({
+    const warmSessionPublicDeps = createBrowserWarmSessionPublicDeps({
       seamsWebConfigs: this.seamsWebConfigs,
-      credentialStore: deps.signingEngineStores.recoveryAndDeviceLinking.credentialStore,
+      stores: deps.signingEngineStores,
       touchIdPrompt: this.touchIdPrompt,
       touchConfirm: this.touchConfirm,
       warmSigning: this.warmSigning,
       thresholdEcdsaBootstrapQueueByWallet: this.thresholdEcdsaBootstrapQueueByWallet,
       ensureSealedRefreshStartupParity: () => this.ensureSealedRefreshStartupParity(),
-      thresholdSessionActivationDeps: this.enginePorts.thresholdSessionActivationDeps,
+      enginePorts: this.enginePorts,
     });
-    this.warmCapabilitiesPublicDeps = createWarmCapabilitiesPublicDeps({
-      seamsWebConfigs: this.seamsWebConfigs,
-      bootstrapStore: deps.signingEngineStores.walletProfileAndSignerRecords.ecdsaBootstrapStore,
-      touchConfirm: this.touchConfirm,
-      warmSigning: this.warmSigning,
-      thresholdSessionActivationDeps: this.enginePorts.thresholdSessionActivationDeps,
-      resolveCanonicalThresholdEcdsaSessionIdForWalletTarget:
-        this.enginePorts.resolveCanonicalThresholdEcdsaSessionIdForWalletTarget,
-      signingSessionCoordinator: this.enginePorts.signingSessionCoordinator,
+    this.passkeyPublicDeps = warmSessionPublicDeps.passkeyPublicDeps;
+    this.warmCapabilitiesPublicDeps = warmSessionPublicDeps.warmCapabilitiesPublicDeps;
+    this.registrationPublicDeps = createBrowserRegistrationPublicDeps({
+      enginePorts: this.enginePorts,
     });
-    this.registrationPublicDeps = {
-      accountLifecycle: this.enginePorts.registrationAccountLifecycleDeps,
-      session: this.enginePorts.registrationSessionDeps,
-      signingKeyOps: this.enginePorts.nearKeyOpsDeps.signingKeyOps,
-    };
     this.thresholdEd25519PublicDeps = this.enginePorts.thresholdEd25519LifecycleDeps;
 
     deps.initializeRuntime({

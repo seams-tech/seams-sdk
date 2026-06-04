@@ -1,12 +1,11 @@
 import { expect, test } from '@playwright/test';
 import { createRegistrationLifecycleEvent } from '../../client/src/web/SeamsWeb/registration';
-import { toAccountId } from '../../client/src/core/types/accountIds';
 import { RegistrationEventPhase } from '../../client/src/core/types/sdkSentEvents';
 
 test.describe('registration flow events', () => {
   test('passkey events use passkey-scoped registration flow identity by default', () => {
     const event = createRegistrationLifecycleEvent({
-      nearAccountId: toAccountId('alice.testnet'),
+      accountId: 'alice.testnet',
       event: {
         phase: RegistrationEventPhase.STEP_01_STARTED,
         status: 'started',
@@ -25,7 +24,7 @@ test.describe('registration flow events', () => {
 
   test('Email OTP events use Email OTP-scoped registration flow identity', () => {
     const event = createRegistrationLifecycleEvent({
-      nearAccountId: toAccountId('alice.testnet'),
+      accountId: 'alice.testnet',
       event: {
         authMethod: 'email_otp',
         phase: RegistrationEventPhase.STEP_04_OTP_CHALLENGE_STARTED,

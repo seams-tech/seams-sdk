@@ -259,7 +259,7 @@ function makeRecoveryWrappedEnrollmentEscrows(
       secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
       escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
       ...metadata,
-      recoveryKeyStatus: 'active',
+      recoveryKeyStatus: 'pending_backup',
       nonceB64u: base64UrlEncode(Uint8Array.from(Array.from({ length: 12 }, (_, i) => i + index))),
       wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(
         Uint8Array.from(Array.from({ length: 48 }, (_, i) => i + index + 1)),
@@ -317,6 +317,14 @@ async function enrollRecoveryWallet(service: AuthService): Promise<void> {
     thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
   });
   expect(verified.ok).toBe(true);
+  const acknowledged = await service.acknowledgeEmailOtpRecoveryCodeBackup({
+    userId: USER_ID,
+    walletId: WALLET_ID,
+    orgId: ORG_ID,
+    enrollmentId: RECOVERY_ENROLLMENT_ID,
+    enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+  });
+  expect(acknowledged.ok).toBe(true);
 }
 
 async function verifyEnrollmentWithRecoveryWrappedEnrollmentEscrows(
@@ -696,6 +704,51 @@ test.describe('AuthService Email OTP policy', () => {
     expect(await (service as any).getEmailOtpWalletEnrollmentStore().get(WALLET_ID)).toBeNull();
   });
 
+  test('Email OTP enrollment abandons stale pending recovery-code backups on restart', async () => {
+    const service = makeService();
+    const first = await verifyEnrollmentWithRecoveryWrappedEnrollmentEscrows(
+      service,
+      makeRecoveryWrappedEnrollmentEscrows(1_000),
+    );
+    expect(first?.ok).toBe(true);
+
+    const restartedEscrows = makeRecoveryWrappedEnrollmentEscrows(2_000).map((record, index) => {
+      const recoveryKeyId = `restarted-recovery-key-${index + 1}`;
+      const metadata = {
+        walletId: record.walletId,
+        userId: record.userId,
+        authSubjectId: record.authSubjectId,
+        authMethod: record.authMethod,
+        enrollmentId: record.enrollmentId,
+        enrollmentVersion: record.enrollmentVersion,
+        enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
+        signingRootId: record.signingRootId,
+        signingRootVersion: record.signingRootVersion,
+        recoveryKeyId,
+      };
+      return {
+        ...record,
+        recoveryKeyId,
+        aadHashB64u: recoveryEscrowAadHashB64u(metadata),
+      };
+    });
+    const second = await verifyEnrollmentWithRecoveryWrappedEnrollmentEscrows(
+      service,
+      restartedEscrows,
+    );
+    expect(second?.ok).toBe(true);
+
+    const records = await (service as any)
+      .getEmailOtpRecoveryWrappedEnrollmentEscrowStore()
+      .listByWallet(WALLET_ID);
+    expect(
+      records.filter((record: any) => record.recoveryKeyStatus === 'pending_backup').length,
+    ).toBe(EMAIL_OTP_RECOVERY_KEY_COUNT);
+    expect(records.filter((record: any) => record.recoveryKeyStatus === 'abandoned').length).toBe(
+      EMAIL_OTP_RECOVERY_KEY_COUNT,
+    );
+  });
+
   test('Email OTP enrollment rejects duplicate recovery nonces', async () => {
     const service = makeService();
     const escrows = makeRecoveryWrappedEnrollmentEscrows();
@@ -760,6 +813,8 @@ test.describe('AuthService Email OTP policy', () => {
     await (service as any).getEmailOtpRecoveryWrappedEnrollmentEscrowStore().put({
       ...stale,
       ...staleMetadata,
+      recoveryKeyStatus: 'active',
+      acknowledgedAtMs: Date.now(),
       nonceB64u: base64UrlEncode(Uint8Array.from([9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9])),
       aadHashB64u: recoveryEscrowAadHashB64u(staleMetadata),
     });

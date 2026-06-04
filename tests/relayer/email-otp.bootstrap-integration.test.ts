@@ -111,6 +111,20 @@ function makeAppSessionAdapter(appSessionVersion: string) {
   });
 }
 
+async function seedCanonicalWallet(service: AuthService, walletId = 'alice.testnet'): Promise<void> {
+  const walletStore = (service as any).getWalletStore();
+  const existing = await walletStore.getWallet({ walletId });
+  if (existing) return;
+  const nowMs = Date.now();
+  await walletStore.putSubject({
+    version: 'wallet_v1',
+    walletId,
+    rpId: 'localhost',
+    createdAtMs: nowMs,
+    updatedAtMs: nowMs,
+  });
+}
+
 function makeTokenBoundAppSessionAdapter(
   claimsByToken: Record<string, Record<string, unknown> | (() => Record<string, unknown>)>,
 ) {
@@ -433,6 +447,17 @@ function createEmailOtpRouteWorkerCtx(args: { fetchImpl: typeof fetch; relayUrl:
             thresholdEcdsaClientVerifyingShareB64u,
           },
         });
+        await postWorkerJson({
+          fetchImpl: args.fetchImpl,
+          relayUrl: args.relayUrl,
+          path: '/wallet/email-otp/recovery-key/backup-acknowledge',
+          appSessionJwt,
+          body: {
+            walletId,
+            enrollmentId: `email-otp-device-enrollment-v1:${walletId}:${userId}`,
+            enrollmentSealKeyVersion: String(enrollSeal.enrollmentSealKeyVersion || ''),
+          },
+        });
         return {
           clientRootShare32B64u,
           thresholdEcdsaClientVerifyingShareB64u,
@@ -594,6 +619,7 @@ test.describe('Email OTP bootstrap integration', () => {
       userId: 'alice.testnet',
     });
 
+    await seedCanonicalWallet(service);
     const enrollOtp = await requestEmailOtpWithOutbox({
       fetchImpl: cfFetch,
       relayUrl,
@@ -727,6 +753,7 @@ test.describe('Email OTP bootstrap integration', () => {
         userId: 'alice.testnet',
       });
 
+      await seedCanonicalWallet(service);
       const enrollOtp = await requestEmailOtpWithOutbox({
         fetchImpl: fetch,
         relayUrl: srv.baseUrl,
@@ -871,6 +898,7 @@ test.describe('Email OTP bootstrap integration', () => {
         await secp256k1PrivateKey32ToPublicKey33(base64UrlDecode(expectedClientRootShare32B64u)),
       );
 
+      await seedCanonicalWallet(service);
       const enrollOtp = await requestEmailOtpWithOutbox({
         fetchImpl: fetch,
         relayUrl: srv.baseUrl,
@@ -931,6 +959,7 @@ test.describe('Email OTP bootstrap integration', () => {
     const srv = await startExpressRouter(router);
 
     try {
+      await seedCanonicalWallet(service);
       const enrollChallenge = await fetchJson(
         `${srv.baseUrl}/wallet/email-otp/registration/challenge`,
         {
@@ -1010,6 +1039,19 @@ test.describe('Email OTP bootstrap integration', () => {
         },
       );
       expect(enrollVerify.status).toBe(200);
+      const acknowledge = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/recovery-key/backup-acknowledge`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+          body: JSON.stringify({
+            walletId: 'alice.testnet',
+            enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:alice.testnet',
+            enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+          }),
+        },
+      );
+      expect(acknowledge.status).toBe(200);
 
       const bootstrapCalls: Array<Record<string, unknown>> = [];
       const recoveryOtp = await requestEmailOtpWithOutbox({

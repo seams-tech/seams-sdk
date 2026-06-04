@@ -1,5 +1,5 @@
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
-import { validateNearAccountId } from '@shared/utils/validation';
+import { isObject, validateNearAccountId } from '@shared/utils/validation';
 import type {
   CreateRegistrationFlowEventInput,
   RegistrationFlowEvent,
@@ -65,6 +65,8 @@ import {
 } from '@/core/rpcClients/relayer/walletRegistration';
 import { buildPasskeyNearWalletRegistrationSignerSelection } from './registrationSignerSelection';
 import { collectPasskeyRegistrationAuthority } from './passkeyRegistrationAuthority';
+import { backupEmailOtpRecoveryCodes } from './emailOtpRecoveryCodeBackup';
+import type { EmailOtpEnrollmentResult } from './interfaces';
 
 type RegistrationSigningSurface = Pick<
   SeamsWebContext['signingEngine'],
@@ -87,16 +89,76 @@ import { assertWalletRuntimePostconditions } from '@/core/signingEngine/session/
 
 type EmitRegistrationEventInput = Omit<CreateRegistrationFlowEventInput, 'accountId' | 'flowId'>;
 
+function emailOtpRegistrationMaterialToEnrollmentResult(input: {
+  material: EmailOtpRegistrationEnrollmentMaterial;
+  challengeId: string;
+}): EmailOtpEnrollmentResult {
+  const recoveryEscrow =
+    input.material.emailOtpEnrollment.recoveryWrappedEnrollmentEscrows[0] &&
+    typeof input.material.emailOtpEnrollment.recoveryWrappedEnrollmentEscrows[0] === 'object'
+      ? (input.material.emailOtpEnrollment.recoveryWrappedEnrollmentEscrows[0] as Record<
+          string,
+          unknown
+        >)
+      : {};
+  return {
+    thresholdEcdsaClientVerifyingShareB64u:
+      input.material.emailOtpEnrollment.thresholdEcdsaClientVerifyingShareB64u,
+    recoveryKeys: input.material.recoveryKeys,
+    recoveryCodesIssuedAtMs: input.material.recoveryCodesIssuedAtMs,
+    challengeId: input.challengeId,
+    otpChannel: EMAIL_OTP_CHANNEL,
+    enrollmentId: String(recoveryEscrow.enrollmentId || '').trim(),
+    enrollmentSealKeyVersion: input.material.emailOtpEnrollment.enrollmentSealKeyVersion,
+    clientUnlockPublicKeyB64u: input.material.emailOtpEnrollment.clientUnlockPublicKeyB64u,
+    unlockKeyVersion: input.material.emailOtpEnrollment.unlockKeyVersion,
+  };
+}
+
 export function createRegistrationLifecycleEvent(input: {
-  nearAccountId: AccountId;
+  accountId: string;
   event: EmitRegistrationEventInput;
 }): RegistrationFlowEvent {
   const authMethod = input.event.authMethod || 'passkey';
+  const accountId = registrationEventAccountId(input.accountId);
   return createRegistrationFlowEvent({
     ...input.event,
-    flowId: `registration:${authMethod}:${input.nearAccountId}`,
-    accountId: String(input.nearAccountId),
+    flowId: `registration:${authMethod}:${accountId}`,
+    accountId,
     authMethod,
+  });
+}
+
+function registrationEventAccountId(value: string): string {
+  const accountId = String(value || '').trim();
+  if (!accountId) {
+    throw new Error('Registration event account id is required');
+  }
+  return accountId;
+}
+
+function registrationErrorCodeFromUnknown(error: unknown): string {
+  return isObject(error) && 'code' in error ? String(error.code || '').trim() : '';
+}
+
+function registrationErrorWithCode(message: string, errorCode: string): Error & { code?: string } {
+  return Object.assign(new Error(message), errorCode ? { code: errorCode } : {});
+}
+
+function webAuthnTransportsFromRaw(value: unknown): AuthenticatorTransport[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((transport): transport is AuthenticatorTransport => {
+    switch (transport) {
+      case 'ble':
+      case 'hybrid':
+      case 'internal':
+      case 'nfc':
+      case 'smart-card':
+      case 'usb':
+        return true;
+      default:
+        return false;
+    }
   });
 }
 
@@ -122,10 +184,10 @@ function passkeyEcdsaCredentialIdFromPrepared(
 
 function emitRegistrationEvent(
   onEvent: RegistrationHooksOptions['onEvent'] | undefined,
-  nearAccountId: AccountId,
+  accountId: string,
   event: EmitRegistrationEventInput,
 ): void {
-  onEvent?.(createRegistrationLifecycleEvent({ nearAccountId, event }));
+  onEvent?.(createRegistrationLifecycleEvent({ accountId, event }));
 }
 
 /**
@@ -213,12 +275,19 @@ async function assertImmediateRegistrationSigningLanes(args: {
 function expectedEcdsaChainTargetsFromRegistrationSpec(
   ecdsa: ThresholdEcdsaRegistrationSpec,
 ): ThresholdEcdsaChainTarget[] {
-  return ecdsa.chainTargets.map((target) => {
-    if (!target || typeof target !== 'object') {
-      throw new Error('[Registration][postcondition] invalid ECDSA chain target');
-    }
-    return thresholdEcdsaChainTargetFromRequest(target as Record<string, unknown>);
-  });
+  return ecdsa.chainTargets.map((target) =>
+    parseRegistrationEcdsaChainTarget(target, '[Registration][postcondition]'),
+  );
+}
+
+function parseRegistrationEcdsaChainTarget(
+  target: unknown,
+  source: string,
+): ThresholdEcdsaChainTarget {
+  if (!isObject(target)) {
+    throw new Error(`${source} invalid ECDSA chain target`);
+  }
+  return thresholdEcdsaChainTargetFromRequest(target);
 }
 
 // Public wrapper without explicit confirmationConfig override.
@@ -245,9 +314,9 @@ async function registerEcdsaWalletOnly(args: {
   const { onEvent, onError, afterCall } = options;
   const startedAt = performance.now();
   const rpId = String(args.rpId || '').trim();
-  const initialEventAccountId = String(
-    wallet.kind === 'provided' ? wallet.walletId : 'wallet-registration',
-  ) as AccountId;
+  const initialEventAccountId = registrationEventAccountId(
+    wallet.kind === 'provided' ? String(wallet.walletId) : 'wallet-registration',
+  );
 
   if (!rpId) {
     throw new Error('registerWallet requires rpId');
@@ -288,7 +357,7 @@ async function registerEcdsaWalletOnly(args: {
     }
 
     const walletId = intentResponse.intent.walletId;
-    const eventAccountId = String(walletId) as AccountId;
+    const eventAccountId = registrationEventAccountId(String(walletId));
     let passkeyPrfFirstB64u = '';
     let emailOtpClientRootShareHandle:
       | EmailOtpRegistrationEnrollmentMaterial['clientRootShareHandle']
@@ -298,6 +367,7 @@ async function registerEcdsaWalletOnly(args: {
     let emailOtpProviderSubject = '';
     let emailOtpEnrollment: EmailOtpRegistrationEnrollmentMaterial['emailOtpEnrollment'] | null =
       null;
+    let emailOtpEnrollmentMaterial: EmailOtpRegistrationEnrollmentMaterial | null = null;
     let passkeyAuthority: Awaited<ReturnType<typeof collectPasskeyRegistrationAuthority>> | null =
       null;
     let startAuthority:
@@ -366,6 +436,7 @@ async function registerEcdsaWalletOnly(args: {
         });
       emailOtpClientRootShareHandle = enrollment.clientRootShareHandle;
       emailOtpEnrollment = enrollment.emailOtpEnrollment;
+      emailOtpEnrollmentMaterial = enrollment;
       emailOtpChallengeId = emailAuthority.challengeId;
       emailOtpEmail = emailAuthority.email;
       emailOtpProviderSubject = emailAuthority.providerSubject;
@@ -432,6 +503,17 @@ async function registerEcdsaWalletOnly(args: {
       },
       ...(emailOtpEnrollment ? { emailOtpEnrollment } : {}),
     });
+    if (args.authMethod.kind === 'email_otp' && emailOtpEnrollmentMaterial) {
+      await backupEmailOtpRecoveryCodes({
+        relayUrl: relayerUrl,
+        walletId: String(walletId),
+        appSessionJwt: args.authMethod.appSessionJwt,
+        enrollment: emailOtpRegistrationMaterialToEnrollmentResult({
+          material: emailOtpEnrollmentMaterial,
+          challengeId: emailOtpChallengeId,
+        }),
+      });
+    }
     const walletKeys = finalized.ecdsa?.walletKeys || [];
     if (walletKeys.length === 0) {
       throw new Error('Wallet registration finalize did not return ECDSA wallet keys');
@@ -517,15 +599,9 @@ async function registerEcdsaWalletOnly(args: {
     afterCall?.(true, result);
     return result;
   } catch (error: unknown) {
-    const errorCode =
-      error && typeof error === 'object' && 'code' in error
-        ? String((error as { code?: unknown }).code || '').trim()
-        : '';
+    const errorCode = registrationErrorCodeFromUnknown(error);
     const errorMessage = getUserFriendlyErrorMessage(error, 'registration', initialEventAccountId);
-    const errorObject = new Error(errorMessage);
-    if (errorCode) {
-      (errorObject as Error & { code?: string }).code = errorCode;
-    }
+    const errorObject = registrationErrorWithCode(errorMessage, errorCode);
     onError?.(errorObject);
     emitRegistrationEvent(onEvent, initialEventAccountId, {
       authMethod: args.authMethod.kind,
@@ -677,6 +753,7 @@ export async function registerWallet(args: {
     let emailOtpProviderSubject = '';
     let emailOtpEnrollment: EmailOtpRegistrationEnrollmentMaterial['emailOtpEnrollment'] | null =
       null;
+    let emailOtpEnrollmentMaterial: EmailOtpRegistrationEnrollmentMaterial | null = null;
     let passkeyAuthority: Awaited<ReturnType<typeof collectPasskeyRegistrationAuthority>> | null =
       null;
     let startAuthority:
@@ -747,6 +824,7 @@ export async function registerWallet(args: {
       ed25519PrfFirstB64u = enrollment.thresholdEd25519PrfFirstB64u;
       emailOtpClientRootShareHandle = enrollment.clientRootShareHandle;
       emailOtpEnrollment = enrollment.emailOtpEnrollment;
+      emailOtpEnrollmentMaterial = enrollment;
       emailOtpChallengeId = emailAuthority.challengeId;
       emailOtpEmail = emailAuthority.email;
       emailOtpProviderSubject = emailAuthority.providerSubject;
@@ -893,6 +971,17 @@ export async function registerWallet(args: {
         : {}),
       ...(emailOtpEnrollment ? { emailOtpEnrollment } : {}),
     });
+    if (args.authMethod.kind === 'email_otp' && emailOtpEnrollmentMaterial) {
+      await backupEmailOtpRecoveryCodes({
+        relayUrl: relayerUrl,
+        walletId: String(intentResponse.intent.walletId),
+        appSessionJwt: args.authMethod.appSessionJwt,
+        enrollment: emailOtpRegistrationMaterialToEnrollmentResult({
+          material: emailOtpEnrollmentMaterial,
+          challengeId: emailOtpChallengeId,
+        }),
+      });
+    }
     if (!finalized.ed25519) {
       throw new Error('Wallet registration finalize did not return Ed25519 key material');
     }
@@ -1126,20 +1215,14 @@ export async function registerWallet(args: {
     afterCall?.(true, successResult);
     return successResult;
   } catch (error: unknown) {
-    const errorCode =
-      error && typeof error === 'object' && 'code' in error
-        ? String((error as { code?: unknown }).code || '').trim()
-        : '';
+    const errorCode = registrationErrorCodeFromUnknown(error);
     const errorMessage = getUserFriendlyErrorMessage(error, 'registration', nearAccountId);
     const rollback = await performRegistrationRollback(
       registrationState,
       nearAccountId,
       context.signingRuntime.services.registrationAccounts,
     );
-    const errorObject = new Error(errorMessage);
-    if (errorCode) {
-      (errorObject as Error & { code?: string }).code = errorCode;
-    }
+    const errorObject = registrationErrorWithCode(errorMessage, errorCode);
     onError?.(errorObject);
     emitRegistrationEvent(onEvent, nearAccountId, {
       authMethod: args.authMethod.kind,
@@ -1183,7 +1266,7 @@ export async function addWalletSigner(args: {
   const options = args.options || {};
   const { onEvent, onError, afterCall } = options;
   const walletId = walletIdFromString(String(args.walletId || '').trim());
-  const eventAccountId = String(walletId) as AccountId;
+  const eventAccountId = registrationEventAccountId(String(walletId));
   const rpId = String(args.rpId || '').trim();
   const startedAt = performance.now();
 
@@ -1238,13 +1321,11 @@ export async function addWalletSigner(args: {
     const allowCredentials = authenticators.map((authenticator) => ({
       id: String(authenticator.credentialId || ''),
       type: 'public-key',
-      transports: Array.isArray(authenticator.transports)
-        ? (authenticator.transports as AuthenticatorTransport[])
-        : [],
+      transports: webAuthnTransportsFromRaw(authenticator.transports),
     }));
     const webauthnAuthentication =
       await context.signingEngine.getAuthenticationCredentialsSerialized({
-        nearAccountId: eventAccountId,
+        nearAccountId: toAccountId(eventAccountId),
         challengeB64u: intentResponse.addSignerIntentDigestB64u,
         allowCredentials,
         includeSecondPrfOutput: false,
@@ -1517,15 +1598,9 @@ export async function addWalletSigner(args: {
     afterCall?.(true, result);
     return result;
   } catch (error: unknown) {
-    const errorCode =
-      error && typeof error === 'object' && 'code' in error
-        ? String((error as { code?: unknown }).code || '').trim()
-        : '';
+    const errorCode = registrationErrorCodeFromUnknown(error);
     const errorMessage = getUserFriendlyErrorMessage(error, 'registration', eventAccountId);
-    const errorObject = new Error(errorMessage);
-    if (errorCode) {
-      (errorObject as Error & { code?: string }).code = errorCode;
-    }
+    const errorObject = registrationErrorWithCode(errorMessage, errorCode);
     onError?.(errorObject);
     emitRegistrationEvent(onEvent, eventAccountId, {
       phase: RegistrationEventPhase.FAILED,

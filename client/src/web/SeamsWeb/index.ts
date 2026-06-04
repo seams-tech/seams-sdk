@@ -64,6 +64,7 @@ import {
 } from './authSessions';
 import type {
   AuthCapability,
+  EmailOtpBackedUpEnrollmentResult,
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
   EmailOtpEcdsaCapabilityResult,
@@ -102,21 +103,30 @@ import {
 import type {
   EmailOtpEd25519SessionReconstructionPlan,
 } from '@/core/signingEngine/session/emailOtp/provisioning';
-import { EmailRecoveryDomain } from './near/emailRecovery';
 import {
+  acknowledgeEmailOtpRecoveryCodeBackup,
   exchangeGoogleEmailOtpSession,
+  getEmailOtpRecoveryCodeStatus,
   requestEmailOtpChallenge,
   requestEmailOtpEnrollmentChallenge,
 } from './emailOtp';
-import { DeviceLinkingDomain } from './near/linkDevice';
-import { buildNearWalletRegistrationArgs, NearSigner } from './near';
-import { buildTempoBootstrapArgs, TempoSigner, toSerializableTempoError } from './tempo';
-import { executeEvmFamilyTransactionLifecycle } from './tempo/executeEvmFamilyTransaction';
-import { buildEvmBootstrapArgs, buildEvmWalletRegistrationArgs, EvmSigner } from './evm';
+import { createNearSignerCapability } from './capabilities/near';
+import { createTempoSignerCapability } from './capabilities/tempo';
+import { createEvmSignerCapability } from './capabilities/evm';
+import { createPreferencesCapability } from './capabilities/preferences';
+import { createAuthCapability } from './capabilities/auth';
+import { createRegistrationCapability } from './capabilities/registration';
+import { createRecoveryCapability } from './capabilities/recovery';
+import { createKeyExportCapability } from './capabilities/keys';
+import {
+  createWalletIframeControlCapability,
+  type WalletIframeControlCapability,
+} from './capabilities/walletIframe';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { buildPasskeyNearWalletRegistrationSignerSelection } from './registrationSignerSelection';
 import { SIGNER_AUTH_METHODS, SIGNER_KINDS } from '@shared/utils/signerDomain';
 import { buildThresholdEd25519Participants2pV1 } from '@shared/threshold/participants';
+import { isObject } from '@shared/utils/validation';
 
 ///////////////////////////////////////
 // PASSKEY MANAGER
@@ -126,10 +136,10 @@ function requireConcreteEcdsaChainTarget(
   value: unknown,
   operation: string,
 ): ThresholdEcdsaChainTarget {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+  if (!isObject(value)) {
     throw new Error(`[SeamsWeb] ${operation} requires a concrete ECDSA chainTarget`);
   }
-  return thresholdEcdsaChainTargetFromRequest(value as Record<string, unknown>);
+  return thresholdEcdsaChainTargetFromRequest(value);
 }
 
 async function resolveEmailOtpEd25519SessionReconstruction(
@@ -312,6 +322,7 @@ export class SeamsWeb {
   readonly near: NearSignerCapability;
   readonly tempo: TempoSignerCapability;
   readonly evm: EvmSignerCapability;
+  private readonly walletIframeControls: WalletIframeControlCapability;
 
   constructor(configs: SeamsConfigsInput, nearClient?: NearClient) {
     this.configs = buildConfigsFromEnv(configs);
@@ -344,42 +355,14 @@ export class SeamsWeb {
         await this.getWalletSession(walletId);
       },
     });
-    this.preferences = {
-      setCurrentWallet: (walletId: WalletId): void => {
-        userPreferences.setCurrentWallet(walletId);
-      },
-      getCurrentWalletId: (): WalletId | null => userPreferences.getCurrentWalletId(),
-      onConfirmationConfigChange: (callback): (() => void) =>
-        userPreferences.onConfirmationConfigChange(callback),
-      onCurrentWalletChange: (callback): (() => void) =>
-        userPreferences.onCurrentWalletChange(callback),
-      setConfirmBehavior: (behavior): void => {
-        if (this.walletIframe.shouldUseWalletIframe()) {
-          void (async () => {
-            try {
-              const router = await this.walletIframe.requireRouter();
-              await router.setConfirmBehavior(behavior);
-            } catch {}
-          })();
-          return;
-        }
-        userPreferences.setConfirmBehavior(behavior);
-      },
-      setConfirmationConfig: (config): void => {
-        if (this.walletIframe.shouldUseWalletIframe()) {
-          void (async () => {
-            try {
-              const router = await this.walletIframe.requireRouter();
-              await router.setConfirmationConfig(config);
-            } catch {}
-          })();
-          return;
-        }
-        userPreferences.setConfirmationConfig(config);
-      },
-      getConfirmationConfig: (): ConfirmationConfig => userPreferences.getConfirmationConfig(),
-    };
-    this.auth = {
+    this.walletIframeControls = createWalletIframeControlCapability({
+      getWalletIframe: () => this.walletIframe,
+    });
+    this.preferences = createPreferencesCapability({
+      userPreferences,
+      getWalletIframe: () => this.walletIframe,
+    });
+    this.auth = createAuthCapability({
       unlock: async (nearAccountId, options) => await this.unlock(nearAccountId, options),
       lock: async () => await this.lock(),
       getWalletSession: async (walletId) => await this.getWalletSession(walletId),
@@ -395,12 +378,16 @@ export class SeamsWeb {
       refreshEmailOtpSigningSession: async (args) => await this.refreshEmailOtpSigningSession(args),
       exchangeGoogleEmailOtpSession: async (args) => await this.exchangeGoogleEmailOtpSession(args),
       enrollEmailOtp: async (args) => await this.enrollEmailOtp(args),
+      acknowledgeEmailOtpRecoveryCodeBackup: async (args) =>
+        await this.acknowledgeEmailOtpRecoveryCodeBackup(args),
+      getEmailOtpRecoveryCodeStatus: async (args) =>
+        await this.getEmailOtpRecoveryCodeStatus(args),
       loginWithEmailOtpEcdsaCapability: async (args) =>
         await this.loginWithEmailOtpEcdsaCapability(args),
       enrollAndLoginWithEmailOtpEcdsaCapability: async (args) =>
         await this.enrollAndLoginWithEmailOtpEcdsaCapability(args),
-    };
-    this.registration = {
+    });
+    this.registration = createRegistrationCapability({
       addWalletSigner: async (args) => await this.addWalletSigner(args),
       registerWallet: async (args) => await this.registerWallet(args),
       registerWithEmailOtp: async (args) => await this.registerWallet(args),
@@ -408,460 +395,28 @@ export class SeamsWeb {
         await this.registerPasskey(nearAccountId, options),
       registerPasskeyInternal: async (nearAccountId, options, confirmationConfigOverride) =>
         await this.registerPasskeyInternal(nearAccountId, options, confirmationConfigOverride),
-    };
-    const recoveryDeps = {
+    });
+    this.recovery = createRecoveryCapability({
       getContext: () => this.getContext(),
-      walletIframe: this.walletIframe,
-    };
-    const emailRecovery = new EmailRecoveryDomain(recoveryDeps);
-    const deviceLinking = new DeviceLinkingDomain(recoveryDeps);
-    this.recovery = {
-      getRecoveryEmails: async (accountId) => await emailRecovery.getRecoveryEmails(accountId),
-      setRecoveryEmails: async (args) => await emailRecovery.setRecoveryEmails(args),
-      syncAccount: async (args) => await emailRecovery.syncAccount(args),
-      startEmailRecovery: async (args) => await emailRecovery.startEmailRecovery(args),
-      finalizeEmailRecovery: async (args) => await emailRecovery.finalizeEmailRecovery(args),
-      cancelEmailRecovery: async (args) => await emailRecovery.cancelEmailRecovery(args),
-      startDevice2LinkingFlow: async (args) => await deviceLinking.startDevice2LinkingFlow(args),
-      stopDevice2LinkingFlow: async () => await deviceLinking.stopDevice2LinkingFlow(),
-      linkDeviceWithScannedQRData: async (qrData, options) =>
-        await deviceLinking.linkDeviceWithScannedQRData(qrData, options),
-    };
-    this.keys = {
+      getWalletIframe: () => this.walletIframe,
+    });
+    this.keys = createKeyExportCapability({
       exportKeypairWithUI: async (input) => await this.exportKeypairWithUIDomain(input),
       exportThresholdEd25519SeedFromHssReport: async (args) =>
         await this.exportThresholdEd25519SeedFromHssReportDomain(args),
-    };
-    const nearSigner = new NearSigner({ getContext: () => this.getContext() });
-    const nearCapability: NearSignerCapability = {
-      registerNearWallet: async (args) => {
-        const context = this.getContext();
-        const accountId = toAccountId(args.nearAccountId);
-        const registerWalletArgs = buildNearWalletRegistrationArgs(context, args);
-        if (!this.walletIframe.shouldUseWalletIframe()) {
-          return await nearSigner.registerNearWallet(args);
-        }
-        try {
-          const router = await this.walletIframe.requireRouter(String(accountId));
-          const result = await router.registerWallet(registerWalletArgs);
-          await args.options?.afterCall?.(true, result);
-          return result;
-        } catch (error: unknown) {
-          const e = toError(error);
-          await args.options?.onError?.(e);
-          await args.options?.afterCall?.(false, undefined, e);
-          throw e;
-        }
-      },
-      executeAction: async (args) => {
-        const nearAccountId = args.nearAccount.accountId;
-        if (!this.walletIframe.shouldUseWalletIframe()) {
-          return await nearSigner.executeAction(args);
-        }
-        try {
-          const router = await this.walletIframe.requireRouter(nearAccountId);
-          const result = await router.executeAction({
-            nearAccountId,
-            receiverId: args.receiverId,
-            actionArgs: args.actionArgs,
-            options: args.options,
-          });
-          await args.options?.afterCall?.(true, result);
-          return result;
-        } catch (error: unknown) {
-          const e = toError(error);
-          await args.options?.onError?.(e);
-          await args.options?.afterCall?.(false, undefined, e);
-          throw e;
-        }
-      },
-      signAndSendTransactions: async (args) => {
-        const nearAccountId = args.nearAccount.accountId;
-        const { transactions, options } = args;
-        if (!this.walletIframe.shouldUseWalletIframe()) {
-          return await nearSigner.signAndSendTransactions(args);
-        }
-        try {
-          const router = await this.walletIframe.requireRouter(nearAccountId);
-          const routerOptions = {
-            ...options,
-            executionWait: options?.executionWait ?? {
-              mode: 'sequential' as const,
-              waitUntil: options?.waitUntil,
-            },
-          };
-          const result = await router.signAndSendTransactions({
-            nearAccountId,
-            transactions: transactions.map((transaction) => ({
-              receiverId: transaction.receiverId,
-              actions: transaction.actions,
-            })),
-            options: routerOptions,
-          });
-          await options?.afterCall?.(true, result);
-          return result;
-        } catch (error: unknown) {
-          const e = toError(error);
-          await options?.onError?.(e);
-          await options?.afterCall?.(false, undefined, e);
-          throw e;
-        }
-      },
-      signAndSendTransaction: async (args) => {
-        const results = await nearCapability.signAndSendTransactions({
-          nearAccount: args.nearAccount,
-          transactions: [
-            {
-              receiverId: args.receiverId,
-              actions: args.actions,
-            },
-          ],
-          options: args.options,
-        });
-        return results[0] as ActionResult;
-      },
-      signTransactionsWithActions: async (args) => {
-        const nearAccountId = args.nearAccount.accountId;
-        const { transactions, options } = args;
-        if (!this.walletIframe.shouldUseWalletIframe()) {
-          return await nearSigner.signTransactionsWithActions(args);
-        }
-        try {
-          const router = await this.walletIframe.requireRouter(nearAccountId);
-          const result = await router.signTransactionsWithActions({
-            nearAccountId,
-            transactions: transactions.map((transaction) => ({
-              receiverId: transaction.receiverId,
-              actions: transaction.actions,
-            })),
-            options: {
-              signerSlot: options.signerSlot,
-              onEvent: options.onEvent,
-              confirmationConfig: options.confirmationConfig,
-              confirmerText: options.confirmerText,
-            },
-          });
-          const signedTransactions = Array.isArray(result) ? result : [];
-          await options?.afterCall?.(true, signedTransactions);
-          return signedTransactions;
-        } catch (error: unknown) {
-          const e = toError(error);
-          await options?.onError?.(e);
-          await options?.afterCall?.(false, undefined, e);
-          throw e;
-        }
-      },
-      sendTransaction: async (args) => {
-        if (!this.walletIframe.shouldUseWalletIframe()) {
-          return await nearSigner.sendTransaction(args);
-        }
-        try {
-          const router = await this.walletIframe.requireRouter();
-          const result = await router.sendTransaction({
-            signedTransaction: args.signedTransaction,
-            options: {
-              onEvent: args.options?.onEvent,
-              ...(args.options && 'waitUntil' in args.options
-                ? { waitUntil: args.options.waitUntil }
-                : {}),
-            },
-          });
-          await args.options?.afterCall?.(true, result);
-          return result;
-        } catch (error: unknown) {
-          const e = toError(error);
-          await args.options?.onError?.(e);
-          await args.options?.afterCall?.(false, undefined, e);
-          throw e;
-        }
-      },
-      signDelegateAction: async (args) => {
-        const nearAccountId = args.nearAccount.accountId;
-        const { delegate, options } = args;
-        if (!this.walletIframe.shouldUseWalletIframe()) {
-          return await nearSigner.signDelegateAction(args);
-        }
-        try {
-          const router = await this.walletIframe.requireRouter(nearAccountId);
-          const result = await router.signDelegateAction({
-            nearAccountId,
-            delegate,
-            options: {
-              signerSlot: options.signerSlot,
-              onEvent: options.onEvent,
-              confirmationConfig: options.confirmationConfig,
-              confirmerText: options.confirmerText,
-            },
-          });
-          await options?.afterCall?.(true, result);
-          return result;
-        } catch (error: unknown) {
-          const e = toError(error);
-          await options?.onError?.(e);
-          await options?.afterCall?.(false, undefined, e);
-          throw e;
-        }
-      },
-      sendDelegateActionViaRelayer: async (args) =>
-        await nearSigner.sendDelegateActionViaRelayer(args),
-      signAndSendDelegateAction: async (args) => {
-        const signOptions = {
-          signerSlot: args.options.signerSlot,
-          onEvent: args.options.onEvent,
-          onError: args.options.onError,
-          waitUntil: args.options.waitUntil,
-          confirmationConfig: args.options.confirmationConfig,
-          confirmerText: args.options.confirmerText,
-          afterCall: () => {},
-        };
-
-        let signResult;
-        try {
-          signResult = await nearCapability.signDelegateAction({
-            nearAccount: args.nearAccount,
-            delegate: args.delegate,
-            options: signOptions,
-          });
-        } catch (error: unknown) {
-          const e = toError(error);
-          await args.options?.afterCall?.(false, undefined, e);
-          throw e;
-        }
-
-        const relayOptions = {
-          onEvent: args.options.onEvent,
-          onError: args.options.onError,
-        };
-
-        let relayResult;
-        try {
-          relayResult = await nearCapability.sendDelegateActionViaRelayer({
-            relayerUrl: args.relayerUrl,
-            hash: signResult.hash,
-            signedDelegate: signResult.signedDelegate,
-            signal: args.signal,
-            options: relayOptions,
-          });
-        } catch (error: unknown) {
-          const e = toError(error);
-          await args.options?.afterCall?.(false, undefined, e);
-          throw e;
-        }
-
-        const combined = {
-          signResult,
-          relayResult,
-        };
-        if (relayResult.ok !== false) {
-          await args.options?.afterCall?.(true, combined);
-        } else {
-          const relayError = toError(relayResult.error || 'Delegate relay failed');
-          await args.options?.afterCall?.(false, undefined, relayError);
-        }
-        return combined;
-      },
-      signNEP413Message: async (args) => {
-        const nearAccountId = args.nearAccount.accountId;
-        if (!this.walletIframe.shouldUseWalletIframe()) {
-          return await nearSigner.signNEP413Message(args);
-        }
-        try {
-          const router = await this.walletIframe.requireRouter(nearAccountId);
-          const result = await router.signNep413Message({
-            nearAccountId,
-            message: args.params.message,
-            recipient: args.params.recipient,
-            state: args.params.state,
-            options: {
-              signerSlot: args.options.signerSlot,
-              onEvent: args.options.onEvent,
-              confirmerText: args.options.confirmerText,
-              confirmationConfig: args.options.confirmationConfig,
-            },
-          });
-          await args.options?.afterCall?.(true, result);
-          return result;
-        } catch (error: unknown) {
-          const e = toError(error);
-          await args.options?.onError?.(e);
-          await args.options?.afterCall?.(false, undefined, e);
-          throw e;
-        }
-      },
-    };
-    this.near = nearCapability;
-    const tempoSigner = new TempoSigner({ getContext: () => this.getContext() });
-    const tempoCapability: TempoSignerCapability = {
-      signTempo: async (args) => {
-        const chainTarget = thresholdEcdsaChainTargetFromRequest(args.chainTarget);
-        const walletId = toWalletId(args.walletSession.walletId);
-        if (!this.walletIframe.shouldUseWalletIframe()) {
-          return await tempoSigner.signTempo({ ...args, chainTarget });
-        }
-        try {
-          const router = await this.walletIframe.requireRouter(walletId);
-          return await router.signTempo({
-            walletSession: args.walletSession,
-            request: args.request,
-            chainTarget,
-            options: {
-              confirmationConfig: args.options?.confirmationConfig,
-              onEvent: args.options?.onEvent,
-            },
-          });
-        } catch (error: unknown) {
-          throw toError(error);
-        }
-      },
-      executeEvmFamilyTransaction: async (args) => {
-        const chainTarget = thresholdEcdsaChainTargetFromRequest(args.chainTarget);
-        return await executeEvmFamilyTransactionLifecycle({
-          capability: tempoCapability,
-          chains: this.getContext().configs.network.chains,
-          input: { ...args, chainTarget },
-        });
-      },
-      reportBroadcastAccepted: async (args) => {
-        const walletId = toWalletId(args.walletSession.walletId);
-        if (!this.walletIframe.shouldUseWalletIframe()) {
-          await tempoSigner.reportBroadcastAccepted(args);
-          return;
-        }
-        try {
-          const router = await this.walletIframe.requireRouter(walletId);
-          await router.reportTempoBroadcastAccepted({
-            walletSession: args.walletSession,
-            signedResult: args.signedResult,
-            ...(args.txHash ? { txHash: args.txHash } : {}),
-            options: {
-              onEvent: args.options?.onEvent,
-            },
-          });
-        } catch (error: unknown) {
-          throw toError(error);
-        }
-      },
-      reportBroadcastRejected: async (args) => {
-        const walletId = toWalletId(args.walletSession.walletId);
-        if (!this.walletIframe.shouldUseWalletIframe()) {
-          await tempoSigner.reportBroadcastRejected(args);
-          return;
-        }
-        try {
-          const router = await this.walletIframe.requireRouter(walletId);
-          await router.reportTempoBroadcastRejected({
-            walletSession: args.walletSession,
-            signedResult: args.signedResult,
-            ...(args.error != null ? { error: toSerializableTempoError(args.error) } : {}),
-            options: {
-              onEvent: args.options?.onEvent,
-            },
-          });
-        } catch (error: unknown) {
-          throw toError(error);
-        }
-      },
-      reportFinalized: async (args) => {
-        const walletId = toWalletId(args.walletSession.walletId);
-        if (!this.walletIframe.shouldUseWalletIframe()) {
-          await tempoSigner.reportFinalized(args);
-          return;
-        }
-        try {
-          const router = await this.walletIframe.requireRouter(walletId);
-          await router.reportTempoFinalized({
-            walletSession: args.walletSession,
-            signedResult: args.signedResult,
-            ...(args.txHash ? { txHash: args.txHash } : {}),
-            ...(args.receiptStatus ? { receiptStatus: args.receiptStatus } : {}),
-            options: {
-              onEvent: args.options?.onEvent,
-            },
-          });
-        } catch (error: unknown) {
-          throw toError(error);
-        }
-      },
-      reportDroppedOrReplaced: async (args) => {
-        const walletId = toWalletId(args.walletSession.walletId);
-        if (!this.walletIframe.shouldUseWalletIframe()) {
-          await tempoSigner.reportDroppedOrReplaced(args);
-          return;
-        }
-        try {
-          const router = await this.walletIframe.requireRouter(walletId);
-          await router.reportTempoDroppedOrReplaced({
-            walletSession: args.walletSession,
-            signedResult: args.signedResult,
-            reason: args.reason,
-            ...(args.txHash ? { txHash: args.txHash } : {}),
-            options: {
-              onEvent: args.options?.onEvent,
-            },
-          });
-        } catch (error: unknown) {
-          throw toError(error);
-        }
-      },
-      reconcileNonceLane: async (args) => {
-        const walletId = toWalletId(args.walletSession.walletId);
-        if (!this.walletIframe.shouldUseWalletIframe()) {
-          return await tempoSigner.reconcileNonceLane(args);
-        }
-        try {
-          const router = await this.walletIframe.requireRouter(walletId);
-          return await router.reconcileTempoNonceLane({
-            walletSession: args.walletSession,
-            signedResult: args.signedResult,
-            options: {
-              onEvent: args.options?.onEvent,
-            },
-          });
-        } catch (error: unknown) {
-          throw toError(error);
-        }
-      },
-      bootstrapEcdsaSession: async (args) => {
-        const context = this.getContext();
-        const bootstrapArgs = buildTempoBootstrapArgs(context, args);
-        if (!this.walletIframe.shouldUseWalletIframe()) {
-          return await tempoSigner.bootstrapEcdsaSession(bootstrapArgs);
-        }
-        const router = await this.walletIframe.requireRouter(toWalletId(args.walletSession.walletId));
-        return await router.bootstrapEcdsaSession(bootstrapArgs);
-      },
-    };
-    this.tempo = tempoCapability;
-    const evmSigner = new EvmSigner({ getContext: () => this.getContext() });
-    this.evm = {
-      registerEvmWallet: async (args) => {
-        const context = this.getContext();
-        const registerWalletArgs = buildEvmWalletRegistrationArgs(context, args);
-        if (!this.walletIframe.shouldUseWalletIframe()) {
-          return await evmSigner.registerEvmWallet(args);
-        }
-        try {
-          const router = await this.walletIframe.requireRouter();
-          const result = await router.registerWallet(registerWalletArgs);
-          await args.options?.afterCall?.(true, result);
-          return result;
-        } catch (error: unknown) {
-          const e = toError(error);
-          await args.options?.onError?.(e);
-          await args.options?.afterCall?.(false, undefined, e);
-          throw e;
-        }
-      },
-      bootstrapEcdsaSession: async (args) => {
-        const context = this.getContext();
-        const bootstrapArgs = buildEvmBootstrapArgs(context, args);
-        if (!this.walletIframe.shouldUseWalletIframe()) {
-          return await evmSigner.bootstrapEcdsaSession(bootstrapArgs);
-        }
-        const router = await this.walletIframe.requireRouter(toWalletId(args.walletSession.walletId));
-        return await router.bootstrapEcdsaSession(bootstrapArgs);
-      },
-    };
+    });
+    this.near = createNearSignerCapability({
+      getContext: () => this.getContext(),
+      getWalletIframe: () => this.walletIframe,
+    });
+    this.tempo = createTempoSignerCapability({
+      getContext: () => this.getContext(),
+      getWalletIframe: () => this.walletIframe,
+    });
+    this.evm = createEvmSignerCapability({
+      getContext: () => this.getContext(),
+      getWalletIframe: () => this.walletIframe,
+    });
 
     // UserConfirm worker initializes automatically in the constructor
   }
@@ -872,31 +427,31 @@ export class SeamsWeb {
    * Idempotent and safe to call multiple times.
    */
   async initWalletIframe(walletId?: string): Promise<void> {
-    await this.walletIframe.init(walletId);
+    await this.walletIframeControls.initWalletIframe(walletId);
   }
 
   /** True when the wallet iframe client is connected and ready. */
   isWalletIframeReady(): boolean {
-    return this.walletIframe.isReady();
+    return this.walletIframeControls.isWalletIframeReady();
   }
 
   /** Subscribe to wallet iframe ready state transitions. */
   onWalletIframeReady(listener: () => void): () => void {
-    return this.walletIframe.onReady(listener);
+    return this.walletIframeControls.onWalletIframeReady(listener);
   }
 
   /** Subscribe to wallet-host login status updates. */
   onWalletIframeLoginStatusChanged(
     listener: (status: { isLoggedIn: boolean; walletId: string | null }) => void,
   ): () => void {
-    return this.walletIframe.onLoginStatusChanged(listener);
+    return this.walletIframeControls.onWalletIframeLoginStatusChanged(listener);
   }
 
   /** Subscribe to wallet-host preference updates. */
   onWalletIframePreferencesChanged(
     listener: (payload: PreferencesChangedPayload) => void,
   ): () => void {
-    return this.walletIframe.onPreferencesChanged(listener);
+    return this.walletIframeControls.onWalletIframePreferencesChanged(listener);
   }
 
   getContext(): SeamsWebContext {
@@ -1716,7 +1271,7 @@ export class SeamsWeb {
     appSessionJwt?: string;
     clientSecret32?: Uint8Array;
     onEvent?: (event: RegistrationFlowEvent) => void;
-  }): Promise<EnrollEmailOtpInternalResult> {
+  }): Promise<EnrollEmailOtpInternalResult | EmailOtpBackedUpEnrollmentResult> {
     const flowId = this.emailOtpRegistrationFlowId(args.nearAccountId, args.challengeId);
     this.emitEmailOtpRegistrationEvent(args.onEvent, {
       flowId,
@@ -1822,6 +1377,34 @@ export class SeamsWeb {
       });
       throw e;
     }
+  }
+
+  async acknowledgeEmailOtpRecoveryCodeBackup(args: {
+    walletId: string;
+    enrollmentId: string;
+    enrollmentSealKeyVersion: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }) {
+    return await acknowledgeEmailOtpRecoveryCodeBackup({
+      relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
+      walletId: args.walletId,
+      enrollmentId: args.enrollmentId,
+      enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
+      ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+    });
+  }
+
+  async getEmailOtpRecoveryCodeStatus(args: {
+    walletId: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }) {
+    return await getEmailOtpRecoveryCodeStatus({
+      relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
+      walletId: args.walletId,
+      ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+    });
   }
 
   async loginWithEmailOtpEcdsaCapability(
@@ -2394,12 +1977,15 @@ export class SeamsWeb {
 export type {
   AuthCapability,
   BootstrapThresholdEcdsaSessionArgs,
+  EmailOtpBackedUpEnrollmentResult,
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
   EmailOtpEcdsaCapabilityResult,
   EmailOtpEcdsaEnrollmentCapabilityArgs,
   EmailOtpEcdsaEnrollmentCapabilityResult,
   EmailOtpEnrollmentResult,
+  EmailOtpRecoveryCodeBackupStatus,
+  EmailOtpRecoveryCodeStatus,
   ExportKeypairWithUIInput,
   GoogleEmailOtpSessionExchangeResult,
   ExecuteEvmFamilyTransactionArgs,

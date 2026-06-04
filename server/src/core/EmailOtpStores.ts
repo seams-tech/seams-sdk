@@ -157,9 +157,14 @@ export interface EmailOtpWalletEnrollmentStore {
   del(walletId: string): Promise<void>;
 }
 
-export type EmailOtpRecoveryWrappedEnrollmentEscrowStatus = 'active' | 'consumed' | 'revoked';
+export type EmailOtpRecoveryWrappedEnrollmentEscrowStatus =
+  | 'pending_backup'
+  | 'active'
+  | 'consumed'
+  | 'revoked'
+  | 'abandoned';
 
-export type EmailOtpRecoveryWrappedEnrollmentEscrowRecord = {
+type EmailOtpRecoveryWrappedEnrollmentEscrowBase = {
   version: 'email_otp_recovery_wrapped_enrollment_escrow_v1';
   alg: typeof EMAIL_OTP_RECOVERY_WRAP_ALG;
   secretKind: typeof EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND;
@@ -181,17 +186,78 @@ export type EmailOtpRecoveryWrappedEnrollmentEscrowRecord = {
   aadHashB64u: string;
   issuedAtMs: number;
   updatedAtMs: number;
-  consumedAtMs?: number;
-  revokedAtMs?: number;
 };
+
+export type PendingBackupEmailOtpRecoveryWrappedEnrollmentEscrowRecord =
+  EmailOtpRecoveryWrappedEnrollmentEscrowBase & {
+    recoveryKeyStatus: 'pending_backup';
+    acknowledgedAtMs?: never;
+    consumedAtMs?: never;
+    revokedAtMs?: never;
+    abandonedAtMs?: never;
+    cleanupReason?: never;
+  };
+
+export type ActiveEmailOtpRecoveryWrappedEnrollmentEscrowRecord =
+  EmailOtpRecoveryWrappedEnrollmentEscrowBase & {
+    recoveryKeyStatus: 'active';
+    acknowledgedAtMs: number;
+    consumedAtMs?: never;
+    revokedAtMs?: never;
+    abandonedAtMs?: never;
+    cleanupReason?: never;
+  };
+
+export type ConsumedEmailOtpRecoveryWrappedEnrollmentEscrowRecord =
+  EmailOtpRecoveryWrappedEnrollmentEscrowBase & {
+    recoveryKeyStatus: 'consumed';
+    acknowledgedAtMs: number;
+    consumedAtMs: number;
+    revokedAtMs?: never;
+    abandonedAtMs?: never;
+    cleanupReason?: never;
+  };
+
+export type RevokedEmailOtpRecoveryWrappedEnrollmentEscrowRecord =
+  EmailOtpRecoveryWrappedEnrollmentEscrowBase & {
+    recoveryKeyStatus: 'revoked';
+    acknowledgedAtMs: number;
+    consumedAtMs?: never;
+    revokedAtMs: number;
+    abandonedAtMs?: never;
+    cleanupReason?: never;
+  };
+
+export type AbandonedEmailOtpRecoveryWrappedEnrollmentEscrowRecord =
+  EmailOtpRecoveryWrappedEnrollmentEscrowBase & {
+    recoveryKeyStatus: 'abandoned';
+    acknowledgedAtMs?: never;
+    consumedAtMs?: never;
+    revokedAtMs?: never;
+    abandonedAtMs: number;
+    cleanupReason:
+      | 'registration_cancelled'
+      | 'registration_restarted'
+      | 'rotation_restarted'
+      | 'pending_backup_expired';
+  };
+
+export type EmailOtpRecoveryWrappedEnrollmentEscrowRecord =
+  | PendingBackupEmailOtpRecoveryWrappedEnrollmentEscrowRecord
+  | ActiveEmailOtpRecoveryWrappedEnrollmentEscrowRecord
+  | ConsumedEmailOtpRecoveryWrappedEnrollmentEscrowRecord
+  | RevokedEmailOtpRecoveryWrappedEnrollmentEscrowRecord
+  | AbandonedEmailOtpRecoveryWrappedEnrollmentEscrowRecord;
 
 export interface EmailOtpRecoveryWrappedEnrollmentEscrowStore {
   get(input: {
     walletId: string;
     recoveryKeyId: string;
   }): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord | null>;
+  listByWallet(walletId: string): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]>;
   listActiveByWallet(walletId: string): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]>;
   put(record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord): Promise<void>;
+  putMany(records: readonly EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]): Promise<void>;
   del(input: { walletId: string; recoveryKeyId: string }): Promise<void>;
 }
 
@@ -586,8 +652,12 @@ export function normalizeEmailOtpRecoveryWrappedEnrollmentEscrowRecord(
   const aadHashB64u = toOptionalTrimmedString(obj.aadHashB64u);
   const issuedAtMs = Number(obj.issuedAtMs);
   const updatedAtMs = Number(obj.updatedAtMs);
+  const acknowledgedAtMs =
+    obj.acknowledgedAtMs == null ? undefined : Number(obj.acknowledgedAtMs);
   const consumedAtMs = obj.consumedAtMs == null ? undefined : Number(obj.consumedAtMs);
   const revokedAtMs = obj.revokedAtMs == null ? undefined : Number(obj.revokedAtMs);
+  const abandonedAtMs = obj.abandonedAtMs == null ? undefined : Number(obj.abandonedAtMs);
+  const cleanupReason = toOptionalTrimmedString(obj.cleanupReason);
 
   if (version !== 'email_otp_recovery_wrapped_enrollment_escrow_v1') return null;
   if (alg !== EMAIL_OTP_RECOVERY_WRAP_ALG) return null;
@@ -618,35 +688,42 @@ export function normalizeEmailOtpRecoveryWrappedEnrollmentEscrowRecord(
     return null;
   }
   if (
+    recoveryKeyStatus !== 'pending_backup' &&
     recoveryKeyStatus !== 'active' &&
     recoveryKeyStatus !== 'consumed' &&
-    recoveryKeyStatus !== 'revoked'
+    recoveryKeyStatus !== 'revoked' &&
+    recoveryKeyStatus !== 'abandoned'
   ) {
     return null;
   }
   if (!Number.isFinite(issuedAtMs) || issuedAtMs <= 0) return null;
   if (!Number.isFinite(updatedAtMs) || updatedAtMs <= 0) return null;
+  if (
+    acknowledgedAtMs !== undefined &&
+    (!Number.isFinite(acknowledgedAtMs) || acknowledgedAtMs <= 0)
+  ) {
+    return null;
+  }
   if (consumedAtMs !== undefined && (!Number.isFinite(consumedAtMs) || consumedAtMs <= 0)) {
     return null;
   }
   if (revokedAtMs !== undefined && (!Number.isFinite(revokedAtMs) || revokedAtMs <= 0)) {
     return null;
   }
-  if (recoveryKeyStatus === 'active' && (consumedAtMs !== undefined || revokedAtMs !== undefined)) {
+  if (abandonedAtMs !== undefined && (!Number.isFinite(abandonedAtMs) || abandonedAtMs <= 0)) {
     return null;
   }
-  if (recoveryKeyStatus === 'consumed' && consumedAtMs === undefined) return null;
-  if (recoveryKeyStatus === 'revoked' && revokedAtMs === undefined) return null;
+  if (updatedAtMs < issuedAtMs) return null;
 
-  return {
-    version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
+  const base = {
+    version: 'email_otp_recovery_wrapped_enrollment_escrow_v1' as const,
     alg: EMAIL_OTP_RECOVERY_WRAP_ALG,
     secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
     escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
     walletId,
     userId,
     authSubjectId,
-    authMethod: 'google_sso_email_otp',
+    authMethod: 'google_sso_email_otp' as const,
     enrollmentId,
     enrollmentVersion,
     enrollmentSealKeyVersion,
@@ -654,15 +731,98 @@ export function normalizeEmailOtpRecoveryWrappedEnrollmentEscrowRecord(
     signingRootVersion,
     recoveryKeyId,
     ...(recoveryKeyLabel ? { recoveryKeyLabel } : {}),
-    recoveryKeyStatus,
     nonceB64u,
     wrappedDeviceEnrollmentEscrowB64u,
     aadHashB64u,
     issuedAtMs: Math.floor(issuedAtMs),
     updatedAtMs: Math.floor(updatedAtMs),
-    ...(consumedAtMs !== undefined ? { consumedAtMs: Math.floor(consumedAtMs) } : {}),
-    ...(revokedAtMs !== undefined ? { revokedAtMs: Math.floor(revokedAtMs) } : {}),
   };
+  switch (recoveryKeyStatus) {
+    case 'pending_backup':
+      if (
+        acknowledgedAtMs !== undefined ||
+        consumedAtMs !== undefined ||
+        revokedAtMs !== undefined ||
+        abandonedAtMs !== undefined ||
+        cleanupReason
+      ) {
+        return null;
+      }
+      return { ...base, recoveryKeyStatus };
+    case 'active':
+      if (
+        acknowledgedAtMs === undefined ||
+        consumedAtMs !== undefined ||
+        revokedAtMs !== undefined ||
+        abandonedAtMs !== undefined ||
+        cleanupReason
+      ) {
+        return null;
+      }
+      return { ...base, recoveryKeyStatus, acknowledgedAtMs: Math.floor(acknowledgedAtMs) };
+    case 'consumed':
+      if (
+        acknowledgedAtMs === undefined ||
+        consumedAtMs === undefined ||
+        revokedAtMs !== undefined ||
+        abandonedAtMs !== undefined ||
+        cleanupReason
+      ) {
+        return null;
+      }
+      return {
+        ...base,
+        recoveryKeyStatus,
+        acknowledgedAtMs: Math.floor(acknowledgedAtMs),
+        consumedAtMs: Math.floor(consumedAtMs),
+      };
+    case 'revoked':
+      if (
+        acknowledgedAtMs === undefined ||
+        consumedAtMs !== undefined ||
+        revokedAtMs === undefined ||
+        abandonedAtMs !== undefined ||
+        cleanupReason
+      ) {
+        return null;
+      }
+      return {
+        ...base,
+        recoveryKeyStatus,
+        acknowledgedAtMs: Math.floor(acknowledgedAtMs),
+        revokedAtMs: Math.floor(revokedAtMs),
+      };
+    case 'abandoned':
+      const abandonedCleanupReason = cleanupReason as
+        | 'registration_cancelled'
+        | 'registration_restarted'
+        | 'rotation_restarted'
+        | 'pending_backup_expired'
+        | undefined;
+      if (
+        acknowledgedAtMs !== undefined ||
+        consumedAtMs !== undefined ||
+        revokedAtMs !== undefined ||
+        abandonedAtMs === undefined ||
+        !abandonedCleanupReason ||
+        ![
+          'registration_cancelled',
+          'registration_restarted',
+          'rotation_restarted',
+          'pending_backup_expired',
+        ].includes(abandonedCleanupReason)
+      ) {
+        return null;
+      }
+      return {
+        ...base,
+        recoveryKeyStatus,
+        abandonedAtMs: Math.floor(abandonedAtMs),
+        cleanupReason: abandonedCleanupReason,
+      };
+    default:
+      return null;
+  }
 }
 
 function parseAuthStateRecord(raw: unknown): EmailOtpAuthStateRecord | null {
@@ -998,10 +1158,29 @@ class InMemoryEmailOtpRecoveryWrappedEnrollmentEscrowStore implements EmailOtpRe
       .map((record) => cloneRecord(record));
   }
 
+  async listByWallet(walletId: string): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]> {
+    const key = toOptionalTrimmedString(walletId);
+    if (!key) return [];
+    return Array.from(this.map.values())
+      .filter((record) => record.walletId === key)
+      .map((record) => cloneRecord(record));
+  }
+
   async put(record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord): Promise<void> {
     const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(record);
     if (!parsed) throw new Error('Invalid Email OTP recovery-wrapped enrollment escrow record');
     this.map.set(this.key(parsed), cloneRecord(parsed));
+  }
+
+  async putMany(records: readonly EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]): Promise<void> {
+    const parsedRecords = records.map((record) => {
+      const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(record);
+      if (!parsed) throw new Error('Invalid Email OTP recovery-wrapped enrollment escrow record');
+      return parsed;
+    });
+    for (const parsed of parsedRecords) {
+      this.map.set(this.key(parsed), cloneRecord(parsed));
+    }
   }
 
   async del(input: { walletId: string; recoveryKeyId: string }): Promise<void> {
@@ -1629,6 +1808,39 @@ class PostgresEmailOtpRecoveryWrappedEnrollmentEscrowStore implements EmailOtpRe
     return records;
   }
 
+  async listByWallet(walletId: string): Promise<EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]> {
+    const key = toOptionalTrimmedString(walletId);
+    if (!key) return [];
+    const pool = await this.poolPromise;
+    const { rows } = await pool.query(
+      `
+        SELECT record_json, updated_at_ms, recovery_key_id
+        FROM email_otp_recovery_wrapped_enrollment_escrows
+        WHERE namespace = $1 AND wallet_id = $2
+        ORDER BY updated_at_ms DESC, recovery_key_id ASC
+      `,
+      [this.namespace, key],
+    );
+    const records: EmailOtpRecoveryWrappedEnrollmentEscrowRecord[] = [];
+    const malformedRecoveryKeyIds: string[] = [];
+    for (const row of rows) {
+      const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRow({
+        recordJson: row.record_json,
+        updatedAtMs: row.updated_at_ms,
+      });
+      if (parsed) {
+        records.push(cloneRecord(parsed));
+        continue;
+      }
+      const recoveryKeyId = toOptionalTrimmedString(row.recovery_key_id);
+      if (recoveryKeyId) malformedRecoveryKeyIds.push(recoveryKeyId);
+    }
+    await Promise.all(
+      malformedRecoveryKeyIds.map((recoveryKeyId) => this.del({ walletId: key, recoveryKeyId })),
+    );
+    return records;
+  }
+
   async put(record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord): Promise<void> {
     const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(record);
     if (!parsed) throw new Error('Invalid Email OTP recovery-wrapped enrollment escrow record');
@@ -1659,6 +1871,57 @@ class PostgresEmailOtpRecoveryWrappedEnrollmentEscrowStore implements EmailOtpRe
         parsed.updatedAtMs,
       ],
     );
+  }
+
+  async putMany(records: readonly EmailOtpRecoveryWrappedEnrollmentEscrowRecord[]): Promise<void> {
+    const parsedRecords = records.map((record) => {
+      const parsed = parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(record);
+      if (!parsed) throw new Error('Invalid Email OTP recovery-wrapped enrollment escrow record');
+      return parsed;
+    });
+    if (parsedRecords.length === 0) return;
+    const pool = await this.poolPromise;
+    if (typeof pool.connect !== 'function') {
+      throw new Error('Email OTP recovery escrow batch write requires a transaction-capable pool');
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      for (const parsed of parsedRecords) {
+        await client.query(
+          `
+            INSERT INTO email_otp_recovery_wrapped_enrollment_escrows (
+              namespace,
+              wallet_id,
+              recovery_key_id,
+              recovery_key_status,
+              record_json,
+              updated_at_ms
+            )
+            VALUES ($1, $2, $3, $4, $5::jsonb, $6)
+            ON CONFLICT (namespace, wallet_id, recovery_key_id)
+            DO UPDATE SET
+              recovery_key_status = EXCLUDED.recovery_key_status,
+              record_json = EXCLUDED.record_json,
+              updated_at_ms = EXCLUDED.updated_at_ms
+          `,
+          [
+            this.namespace,
+            parsed.walletId,
+            parsed.recoveryKeyId,
+            parsed.recoveryKeyStatus,
+            JSON.stringify(parsed),
+            parsed.updatedAtMs,
+          ],
+        );
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async del(input: { walletId: string; recoveryKeyId: string }): Promise<void> {

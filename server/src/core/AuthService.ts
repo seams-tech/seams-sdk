@@ -260,6 +260,9 @@ import {
   type EmailOtpWalletEnrollmentStore,
   type EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   type EmailOtpRecoveryWrappedEnrollmentEscrowStore,
+  type PendingBackupEmailOtpRecoveryWrappedEnrollmentEscrowRecord,
+  type ActiveEmailOtpRecoveryWrappedEnrollmentEscrowRecord,
+  type AbandonedEmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   type EmailOtpAuthStateRecord,
   type EmailOtpAuthStateStore,
   type EmailOtpChannel,
@@ -5743,9 +5746,27 @@ export class AuthService {
         );
       }
       await this.getEmailOtpWalletEnrollmentStore().put(emailOtpEnrollment.enrollment);
-      for (const record of emailOtpEnrollment.recoveryWrappedEnrollmentEscrows) {
-        await this.getEmailOtpRecoveryWrappedEnrollmentEscrowStore().put(record);
-      }
+      const recoveryStore = this.getEmailOtpRecoveryWrappedEnrollmentEscrowStore();
+      const stalePendingRecoveryBackups = (await recoveryStore.listByWallet(
+        emailOtpEnrollment.enrollment.walletId,
+      ))
+        .filter(
+          (
+            record,
+          ): record is PendingBackupEmailOtpRecoveryWrappedEnrollmentEscrowRecord =>
+            record.recoveryKeyStatus === 'pending_backup',
+        )
+        .map((record) =>
+          this.abandonEmailOtpPendingBackupEscrow(
+            record,
+            emailOtpEnrollment.enrollment.updatedAtMs,
+            'registration_restarted',
+          ),
+        );
+      await recoveryStore.putMany([
+        ...stalePendingRecoveryBackups,
+        ...emailOtpEnrollment.recoveryWrappedEnrollmentEscrows,
+      ]);
       await this.getEmailOtpAuthStateStore().put(emailOtpEnrollment.authState);
     }
   }
@@ -5877,7 +5898,35 @@ export class AuthService {
         enrollment.updatedAtMs,
       ],
     );
-    for (const record of input.enrollment.recoveryWrappedEnrollmentEscrows) {
+    const stalePendingRows = await input.executor.query(
+      `
+        SELECT record_json
+        FROM email_otp_recovery_wrapped_enrollment_escrows
+        WHERE namespace = $1
+          AND wallet_id = $2
+          AND recovery_key_status = 'pending_backup'
+      `,
+      [input.namespace, enrollment.walletId],
+    );
+    const stalePendingRecoveryBackups = stalePendingRows.rows
+      .map((row) => normalizeEmailOtpRecoveryWrappedEnrollmentEscrowRecord(row.record_json))
+      .filter(
+        (
+          record,
+        ): record is PendingBackupEmailOtpRecoveryWrappedEnrollmentEscrowRecord =>
+          record !== null && record.recoveryKeyStatus === 'pending_backup',
+      )
+      .map((record) =>
+        this.abandonEmailOtpPendingBackupEscrow(
+          record,
+          enrollment.updatedAtMs,
+          'registration_restarted',
+        ),
+      );
+    for (const record of [
+      ...stalePendingRecoveryBackups,
+      ...input.enrollment.recoveryWrappedEnrollmentEscrows,
+    ]) {
       await input.executor.query(
         `
           INSERT INTO email_otp_recovery_wrapped_enrollment_escrows (
@@ -10406,6 +10455,68 @@ export class AuthService {
     );
   }
 
+  private activateEmailOtpPendingBackupEscrow(
+    record: PendingBackupEmailOtpRecoveryWrappedEnrollmentEscrowRecord,
+    acknowledgedAtMs: number,
+  ): ActiveEmailOtpRecoveryWrappedEnrollmentEscrowRecord {
+    return {
+      version: record.version,
+      alg: record.alg,
+      secretKind: record.secretKind,
+      escrowKind: record.escrowKind,
+      walletId: record.walletId,
+      userId: record.userId,
+      authSubjectId: record.authSubjectId,
+      authMethod: record.authMethod,
+      enrollmentId: record.enrollmentId,
+      enrollmentVersion: record.enrollmentVersion,
+      enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
+      signingRootId: record.signingRootId,
+      signingRootVersion: record.signingRootVersion,
+      recoveryKeyId: record.recoveryKeyId,
+      ...(record.recoveryKeyLabel ? { recoveryKeyLabel: record.recoveryKeyLabel } : {}),
+      recoveryKeyStatus: 'active',
+      nonceB64u: record.nonceB64u,
+      wrappedDeviceEnrollmentEscrowB64u: record.wrappedDeviceEnrollmentEscrowB64u,
+      aadHashB64u: record.aadHashB64u,
+      issuedAtMs: record.issuedAtMs,
+      updatedAtMs: acknowledgedAtMs,
+      acknowledgedAtMs,
+    };
+  }
+
+  private abandonEmailOtpPendingBackupEscrow(
+    record: PendingBackupEmailOtpRecoveryWrappedEnrollmentEscrowRecord,
+    abandonedAtMs: number,
+    cleanupReason: AbandonedEmailOtpRecoveryWrappedEnrollmentEscrowRecord['cleanupReason'],
+  ): AbandonedEmailOtpRecoveryWrappedEnrollmentEscrowRecord {
+    return {
+      version: record.version,
+      alg: record.alg,
+      secretKind: record.secretKind,
+      escrowKind: record.escrowKind,
+      walletId: record.walletId,
+      userId: record.userId,
+      authSubjectId: record.authSubjectId,
+      authMethod: record.authMethod,
+      enrollmentId: record.enrollmentId,
+      enrollmentVersion: record.enrollmentVersion,
+      enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
+      signingRootId: record.signingRootId,
+      signingRootVersion: record.signingRootVersion,
+      recoveryKeyId: record.recoveryKeyId,
+      ...(record.recoveryKeyLabel ? { recoveryKeyLabel: record.recoveryKeyLabel } : {}),
+      recoveryKeyStatus: 'abandoned',
+      nonceB64u: record.nonceB64u,
+      wrappedDeviceEnrollmentEscrowB64u: record.wrappedDeviceEnrollmentEscrowB64u,
+      aadHashB64u: record.aadHashB64u,
+      issuedAtMs: record.issuedAtMs,
+      updatedAtMs: abandonedAtMs,
+      abandonedAtMs,
+      cleanupReason,
+    };
+  }
+
   private async buildEmailOtpRegistrationEnrollmentPersistence(input: {
     walletId: string;
     orgId: string;
@@ -10446,7 +10557,7 @@ export class AuthService {
         record.userId !== authSubjectId ||
         record.authSubjectId !== authSubjectId ||
         record.enrollmentSealKeyVersion !== enrollmentMaterial.enrollmentSealKeyVersion ||
-        record.recoveryKeyStatus !== 'active'
+        record.recoveryKeyStatus !== 'pending_backup'
       ) {
         return {
           ok: false,
@@ -10746,7 +10857,7 @@ export class AuthService {
         record.userId !== verified.challengeSubjectId ||
         record.authSubjectId !== verified.challengeSubjectId ||
         record.enrollmentSealKeyVersion !== enrollmentMaterial.enrollmentSealKeyVersion ||
-        record.recoveryKeyStatus !== 'active'
+        record.recoveryKeyStatus !== 'pending_backup'
       ) {
         return {
           ok: false,
@@ -10789,24 +10900,39 @@ export class AuthService {
     await this.getEmailOtpWalletEnrollmentStore().put(enrollmentRecord);
     const recoveryWrappedEnrollmentEscrowStore =
       this.getEmailOtpRecoveryWrappedEnrollmentEscrowStore();
-    for (const record of enrollmentMaterial.recoveryWrappedEnrollmentEscrows) {
-      await recoveryWrappedEnrollmentEscrowStore.put({
+    const stalePendingRecoveryBackups = (
+      await recoveryWrappedEnrollmentEscrowStore.listByWallet(verified.walletId)
+    )
+      .filter(
+        (
+          record,
+        ): record is PendingBackupEmailOtpRecoveryWrappedEnrollmentEscrowRecord =>
+          record.recoveryKeyStatus === 'pending_backup',
+      )
+      .map((record) =>
+        this.abandonEmailOtpPendingBackupEscrow(record, nowMs, 'registration_restarted'),
+      );
+    if (stalePendingRecoveryBackups.length > 0) {
+      await recoveryWrappedEnrollmentEscrowStore.putMany(stalePendingRecoveryBackups);
+    }
+    await recoveryWrappedEnrollmentEscrowStore.putMany(
+      enrollmentMaterial.recoveryWrappedEnrollmentEscrows.map((record) => ({
         ...record,
         updatedAtMs: nowMs,
-      });
-    }
-    const activeRecoveryWrappedEnrollmentEscrowCount = (
-      await recoveryWrappedEnrollmentEscrowStore.listActiveByWallet(verified.walletId)
+      })),
+    );
+    const pendingRecoveryWrappedEnrollmentEscrowCount = (
+      await recoveryWrappedEnrollmentEscrowStore.listByWallet(verified.walletId)
     ).filter(
       (record) =>
-        record.recoveryKeyStatus === 'active' &&
+        record.recoveryKeyStatus === 'pending_backup' &&
         this.emailOtpRecoveryEscrowMatchesEnrollment(record, enrollmentRecord),
     ).length;
-    if (activeRecoveryWrappedEnrollmentEscrowCount !== EMAIL_OTP_RECOVERY_KEY_COUNT) {
+    if (pendingRecoveryWrappedEnrollmentEscrowCount !== EMAIL_OTP_RECOVERY_KEY_COUNT) {
       return {
         ok: false,
         code: 'internal',
-        message: `Email OTP enrollment persisted ${activeRecoveryWrappedEnrollmentEscrowCount} active recovery-wrapped escrows; expected ${EMAIL_OTP_RECOVERY_KEY_COUNT}`,
+        message: `Email OTP enrollment persisted ${pendingRecoveryWrappedEnrollmentEscrowCount} pending backup recovery-wrapped escrows; expected ${EMAIL_OTP_RECOVERY_KEY_COUNT}`,
       };
     }
     await this.getEmailOtpAuthStateStore().put({
@@ -11071,6 +11197,257 @@ export class AuthService {
         ok: false,
         code: 'internal',
         message: errorMessage(e) || 'Failed to consume Email OTP grant',
+      };
+    }
+  }
+
+  async acknowledgeEmailOtpRecoveryCodeBackup(request: {
+    userId?: unknown;
+    walletId?: unknown;
+    orgId?: unknown;
+    enrollmentId?: unknown;
+    enrollmentSealKeyVersion?: unknown;
+    clientIp?: unknown;
+  }): Promise<
+    | {
+        ok: true;
+        status: 'active';
+        walletId: string;
+        enrollmentId: string;
+        recoveryCodeCount: number;
+        issuedAtMs: number;
+        acknowledgedAtMs: number;
+        activeRecoveryCodeCountAtAcknowledgement: number;
+      }
+    | { ok: false; code: string; message: string }
+  > {
+    try {
+      const userId = toOptionalTrimmedString(request.userId);
+      const walletId = toOptionalTrimmedString(request.walletId);
+      const orgId = toOptionalTrimmedString(request.orgId) || '';
+      const enrollmentId = toOptionalTrimmedString(request.enrollmentId);
+      const enrollmentSealKeyVersion = toOptionalTrimmedString(request.enrollmentSealKeyVersion);
+      const clientIp = toOptionalTrimmedString(request.clientIp) || undefined;
+      if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing userId' };
+      if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+      if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
+      if (!enrollmentId) {
+        return { ok: false, code: 'invalid_body', message: 'Missing enrollmentId' };
+      }
+      if (!enrollmentSealKeyVersion) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Missing enrollmentSealKeyVersion',
+        };
+      }
+
+      const rateLimit = await this.consumeEmailOtpRateLimit({
+        scope: 'grant',
+        userId,
+        walletId,
+        orgId,
+        clientIp,
+      });
+      if (!rateLimit.ok) return rateLimit;
+
+      const enrollment = await this.readActiveEmailOtpEnrollment({
+        walletId,
+        orgId,
+        providerUserId: userId,
+      });
+      if (!enrollment.ok) return enrollment;
+      if (
+        enrollment.enrollment.enrollmentId !== enrollmentId ||
+        enrollment.enrollment.enrollmentSealKeyVersion !== enrollmentSealKeyVersion
+      ) {
+        return {
+          ok: false,
+          code: 'enrollment_binding_mismatch',
+          message: 'Recovery-code backup acknowledgement does not match Email OTP enrollment',
+        };
+      }
+
+      const store = this.getEmailOtpRecoveryWrappedEnrollmentEscrowStore();
+      const walletRecords = (await store.listByWallet(walletId)).filter((record) =>
+        this.emailOtpRecoveryEscrowMatchesEnrollment(record, enrollment.enrollment),
+      );
+      const pendingRecords = walletRecords.filter(
+        (
+          record,
+        ): record is PendingBackupEmailOtpRecoveryWrappedEnrollmentEscrowRecord =>
+          record.recoveryKeyStatus === 'pending_backup',
+      );
+      const activeRecords = walletRecords.filter(
+        (record) => record.recoveryKeyStatus === 'active',
+      );
+      if (pendingRecords.length === 0 && activeRecords.length === EMAIL_OTP_RECOVERY_KEY_COUNT) {
+        const acknowledgedAtMs = Math.max(
+          ...activeRecords.map((record) => record.acknowledgedAtMs),
+        );
+        const issuedAtMs = Math.min(...activeRecords.map((record) => record.issuedAtMs));
+        return {
+          ok: true,
+          status: 'active',
+          walletId,
+          enrollmentId,
+          recoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
+          issuedAtMs,
+          acknowledgedAtMs,
+          activeRecoveryCodeCountAtAcknowledgement: EMAIL_OTP_RECOVERY_KEY_COUNT,
+        };
+      }
+      if (pendingRecords.length !== EMAIL_OTP_RECOVERY_KEY_COUNT) {
+        return {
+          ok: false,
+          code: 'pending_backup_set_missing',
+          message: `Expected ${EMAIL_OTP_RECOVERY_KEY_COUNT} pending backup recovery-wrapped escrows`,
+        };
+      }
+
+      const acknowledgedAtMs = Date.now();
+      await store.putMany(
+        pendingRecords.map((record) =>
+          this.activateEmailOtpPendingBackupEscrow(record, acknowledgedAtMs),
+        ),
+      );
+      const acknowledgedActiveRecords = (await store.listActiveByWallet(walletId)).filter(
+        (record) => this.emailOtpRecoveryEscrowMatchesEnrollment(record, enrollment.enrollment),
+      );
+      if (acknowledgedActiveRecords.length !== EMAIL_OTP_RECOVERY_KEY_COUNT) {
+        return {
+          ok: false,
+          code: 'internal',
+          message: `Email OTP backup acknowledgement activated ${acknowledgedActiveRecords.length} recovery-wrapped escrows; expected ${EMAIL_OTP_RECOVERY_KEY_COUNT}`,
+        };
+      }
+      return {
+        ok: true,
+        status: 'active',
+        walletId,
+        enrollmentId,
+        recoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
+        issuedAtMs: Math.min(...acknowledgedActiveRecords.map((record) => record.issuedAtMs)),
+        acknowledgedAtMs,
+        activeRecoveryCodeCountAtAcknowledgement: EMAIL_OTP_RECOVERY_KEY_COUNT,
+      };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to acknowledge Email OTP recovery-code backup',
+      };
+    }
+  }
+
+  async getEmailOtpRecoveryCodeStatus(request: {
+    userId?: unknown;
+    walletId?: unknown;
+    orgId?: unknown;
+  }): Promise<
+    | {
+        ok: true;
+        status: 'ready' | 'pending_backup' | 'incomplete' | 'not_enrolled';
+        walletId: string;
+        enrollmentId: string;
+        enrollmentSealKeyVersion: string;
+        expectedRecoveryCodeCount: number;
+        activeRecoveryCodeCount: number;
+        pendingBackupRecoveryCodeCount: number;
+        consumedRecoveryCodeCount: number;
+        revokedRecoveryCodeCount: number;
+        abandonedRecoveryCodeCount: number;
+        totalRecoveryCodeCount: number;
+        issuedAtMs: number | null;
+        acknowledgedAtMs: number | null;
+      }
+    | { ok: false; code: string; message: string }
+  > {
+    try {
+      const userId = toOptionalTrimmedString(request.userId);
+      const walletId = toOptionalTrimmedString(request.walletId);
+      const orgId = toOptionalTrimmedString(request.orgId) || '';
+      if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing userId' };
+      if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
+      if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
+
+      const enrollment = await this.readActiveEmailOtpEnrollment({
+        walletId,
+        orgId,
+        providerUserId: userId,
+      });
+      if (!enrollment.ok) {
+        if (enrollment.code === 'not_found') {
+          return {
+            ok: true,
+            status: 'not_enrolled',
+            walletId,
+            enrollmentId: '',
+            enrollmentSealKeyVersion: '',
+            expectedRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
+            activeRecoveryCodeCount: 0,
+            pendingBackupRecoveryCodeCount: 0,
+            consumedRecoveryCodeCount: 0,
+            revokedRecoveryCodeCount: 0,
+            abandonedRecoveryCodeCount: 0,
+            totalRecoveryCodeCount: 0,
+            issuedAtMs: null,
+            acknowledgedAtMs: null,
+          };
+        }
+        return enrollment;
+      }
+
+      const records = (
+        await this.getEmailOtpRecoveryWrappedEnrollmentEscrowStore().listByWallet(walletId)
+      ).filter((record) =>
+        this.emailOtpRecoveryEscrowMatchesEnrollment(record, enrollment.enrollment),
+      );
+      const activeRecords = records.filter((record) => record.recoveryKeyStatus === 'active');
+      const pendingBackupRecords = records.filter(
+        (record) => record.recoveryKeyStatus === 'pending_backup',
+      );
+      const consumedRecords = records.filter((record) => record.recoveryKeyStatus === 'consumed');
+      const revokedRecords = records.filter((record) => record.recoveryKeyStatus === 'revoked');
+      const abandonedRecords = records.filter((record) => record.recoveryKeyStatus === 'abandoned');
+      const issuedAtValues = records.map((record) => record.issuedAtMs);
+      const acknowledgedAtValues = records
+        .map((record) =>
+          'acknowledgedAtMs' in record && typeof record.acknowledgedAtMs === 'number'
+            ? record.acknowledgedAtMs
+            : null,
+        )
+        .filter((value): value is number => typeof value === 'number');
+      const status =
+        activeRecords.length === EMAIL_OTP_RECOVERY_KEY_COUNT
+          ? 'ready'
+          : pendingBackupRecords.length > 0
+            ? 'pending_backup'
+            : records.length > 0
+              ? 'incomplete'
+              : 'not_enrolled';
+      return {
+        ok: true,
+        status,
+        walletId,
+        enrollmentId: enrollment.enrollment.enrollmentId,
+        enrollmentSealKeyVersion: enrollment.enrollment.enrollmentSealKeyVersion,
+        expectedRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
+        activeRecoveryCodeCount: activeRecords.length,
+        pendingBackupRecoveryCodeCount: pendingBackupRecords.length,
+        consumedRecoveryCodeCount: consumedRecords.length,
+        revokedRecoveryCodeCount: revokedRecords.length,
+        abandonedRecoveryCodeCount: abandonedRecords.length,
+        totalRecoveryCodeCount: records.length,
+        issuedAtMs: issuedAtValues.length > 0 ? Math.min(...issuedAtValues) : null,
+        acknowledgedAtMs:
+          acknowledgedAtValues.length > 0 ? Math.max(...acknowledgedAtValues) : null,
+      };
+    } catch (e: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(e) || 'Failed to read Email OTP recovery-code status',
       };
     }
   }

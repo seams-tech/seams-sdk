@@ -36,6 +36,12 @@ export interface SyncAccountResult {
   };
 }
 
+function thresholdEd25519SessionFromSyncVerifyResponse(
+  thresholdEd25519: Record<string, unknown>,
+): Record<string, unknown> | null {
+  return isObject(thresholdEd25519.session) ? thresholdEd25519.session : null;
+}
+
 export async function syncAccount(
   context: SeamsWebContext,
   accountId: AccountId | null,
@@ -307,9 +313,7 @@ export async function syncAccount(
         normalizedRequestedAccountId &&
         String(normalizedRequestedAccountId) === String(normalizedAccountId)
       ) {
-        const thresholdSession = isObject((thresholdEd25519 as Record<string, unknown>).session)
-          ? ((thresholdEd25519 as Record<string, unknown>).session as Record<string, unknown>)
-          : null;
+        const thresholdSession = thresholdEd25519SessionFromSyncVerifyResponse(thresholdEd25519);
         if (!thresholdSession) {
           throw new Error('sync-account/verify did not return threshold session bootstrap data');
         }

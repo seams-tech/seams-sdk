@@ -18,6 +18,25 @@ export const EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND =
 export const EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND =
   'recovery_wrapped_enrollment_escrow' as const;
 
+declare const emailOtpRecoveryCodeBrand: unique symbol;
+
+export type EmailOtpRecoveryCode = string & {
+  readonly [emailOtpRecoveryCodeBrand]: 'EmailOtpRecoveryCode';
+};
+
+export type EmailOtpRecoveryCodeSet = readonly [
+  EmailOtpRecoveryCode,
+  EmailOtpRecoveryCode,
+  EmailOtpRecoveryCode,
+  EmailOtpRecoveryCode,
+  EmailOtpRecoveryCode,
+  EmailOtpRecoveryCode,
+  EmailOtpRecoveryCode,
+  EmailOtpRecoveryCode,
+  EmailOtpRecoveryCode,
+  EmailOtpRecoveryCode,
+];
+
 export type EmailOtpRecoveryWrapMetadata = {
   walletId: string;
   userId: string;
@@ -130,7 +149,7 @@ export function encodeEmailOtpRecoveryKeyBytes(bytes: Uint8Array): string {
   return normalized;
 }
 
-export function formatEmailOtpRecoveryKey(normalizedKey: string): string {
+export function formatEmailOtpRecoveryKey(normalizedKey: string): EmailOtpRecoveryCode {
   const normalized = normalizeEmailOtpRecoveryKey(normalizedKey);
   const groups: string[] = [];
   let offset = 0;
@@ -138,7 +157,25 @@ export function formatEmailOtpRecoveryKey(normalizedKey: string): string {
     groups.push(normalized.slice(offset, offset + EMAIL_OTP_RECOVERY_KEY_GROUP_LENGTH));
     offset += EMAIL_OTP_RECOVERY_KEY_GROUP_LENGTH;
   }
-  return groups.join('-');
+  return groups.join('-') as EmailOtpRecoveryCode;
+}
+
+export function buildEmailOtpRecoveryCodeSet(keys: readonly string[]): EmailOtpRecoveryCodeSet {
+  if (keys.length !== EMAIL_OTP_RECOVERY_KEY_COUNT) {
+    throw new Error(`Email OTP recovery code set must contain ${EMAIL_OTP_RECOVERY_KEY_COUNT} keys`);
+  }
+  return [
+    formatEmailOtpRecoveryKey(keys[0]),
+    formatEmailOtpRecoveryKey(keys[1]),
+    formatEmailOtpRecoveryKey(keys[2]),
+    formatEmailOtpRecoveryKey(keys[3]),
+    formatEmailOtpRecoveryKey(keys[4]),
+    formatEmailOtpRecoveryKey(keys[5]),
+    formatEmailOtpRecoveryKey(keys[6]),
+    formatEmailOtpRecoveryKey(keys[7]),
+    formatEmailOtpRecoveryKey(keys[8]),
+    formatEmailOtpRecoveryKey(keys[9]),
+  ];
 }
 
 export function normalizeEmailOtpRecoveryKey(input: string): string {
@@ -339,7 +376,7 @@ export function generateEmailOtpRecoveryKey(): string {
   }
 }
 
-export function generateEmailOtpRecoveryKeySet(): string[] {
+export function generateEmailOtpRecoveryKeySet(): EmailOtpRecoveryCodeSet {
   const keys: string[] = [];
   const seen = new Set<string>();
   while (keys.length < EMAIL_OTP_RECOVERY_KEY_COUNT) {
@@ -348,5 +385,5 @@ export function generateEmailOtpRecoveryKeySet(): string[] {
     seen.add(key);
     keys.push(key);
   }
-  return keys;
+  return buildEmailOtpRecoveryCodeSet(keys);
 }

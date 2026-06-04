@@ -2071,6 +2071,20 @@ export function createRelayRouteDefinitions(
       ['authService', 'session'],
     ),
     userSessionRoute(
+      'wallet_email_otp_recovery_key_backup_acknowledge',
+      'POST',
+      '/wallet/email-otp/recovery-key/backup-acknowledge',
+      'Acknowledge backup of generated Email OTP recovery codes and activate pending escrows',
+      ['authService', 'session'],
+    ),
+    userSessionRoute(
+      'wallet_email_otp_recovery_key_status',
+      'POST',
+      '/wallet/email-otp/recovery-key/status',
+      'Read non-secret Email OTP recovery-code backup status metadata',
+      ['authService', 'session'],
+    ),
+    userSessionRoute(
       'wallet_email_otp_recovery_key_attempt_failed',
       'POST',
       '/wallet/email-otp/recovery-key/attempt-failed',

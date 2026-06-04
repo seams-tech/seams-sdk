@@ -8,6 +8,7 @@ import {
 import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import { createSigningSessionSealShamir3PassBigIntRuntime } from '@server/threshold/session/signingSessionSeal';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { EMAIL_OTP_RECOVERY_KEY_COUNT } from '@shared/utils/emailOtpRecoveryKey';
 import {
   callCf,
   fetchJson,
@@ -278,7 +279,7 @@ function makeSigningSessionStatusPolicy(args?: {
   const makeWalletBudgetStatus = (id: string, recordRelayerKeyId: string) => ({
     kind: 'wallet_budget' as const,
     curve: 'ecdsa' as const,
-    thresholdSessionId: id,
+    thresholdSessionId: sessionId,
     walletSigningSessionId,
     userId,
     expiresAtMs,
@@ -456,6 +457,32 @@ async function enrollEmailOtpOverExpress(args: {
     }),
   });
   expect(enrollVerify.status).toBe(200);
+  const acknowledge = await fetchJson(
+    `${args.baseUrl}/wallet/email-otp/recovery-key/backup-acknowledge`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({
+        walletId: 'alice.testnet',
+        enrollmentId: `email-otp-device-enrollment-v1:alice.testnet:${userId}`,
+        enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+      }),
+    },
+  );
+  expect(acknowledge.status).toBe(200);
+  expect(acknowledge.json?.activeRecoveryCodeCountAtAcknowledgement).toBe(
+    EMAIL_OTP_RECOVERY_KEY_COUNT,
+  );
+  const status = await fetchJson(`${args.baseUrl}/wallet/email-otp/recovery-key/status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
+    body: JSON.stringify({
+      walletId: 'alice.testnet',
+    }),
+  });
+  expect(status.status).toBe(200);
+  expect(status.json?.status).toBe('ready');
+  expect(status.json?.activeRecoveryCodeCount).toBe(EMAIL_OTP_RECOVERY_KEY_COUNT);
 }
 
 async function enrollEmailOtpOverCloudflare(args: {
@@ -527,6 +554,33 @@ async function enrollEmailOtpOverCloudflare(args: {
     ctx: args.ctx,
   });
   expect(enrollVerify.status).toBe(200);
+  const acknowledge = await callCf(args.handler, {
+    method: 'POST',
+    path: '/wallet/email-otp/recovery-key/backup-acknowledge',
+    headers: { Authorization: `Bearer ${authToken}` },
+    body: {
+      walletId: 'alice.testnet',
+      enrollmentId: `email-otp-device-enrollment-v1:alice.testnet:${userId}`,
+      enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+    },
+    ctx: args.ctx,
+  });
+  expect(acknowledge.status).toBe(200);
+  expect(acknowledge.json?.activeRecoveryCodeCountAtAcknowledgement).toBe(
+    EMAIL_OTP_RECOVERY_KEY_COUNT,
+  );
+  const status = await callCf(args.handler, {
+    method: 'POST',
+    path: '/wallet/email-otp/recovery-key/status',
+    headers: { Authorization: `Bearer ${authToken}` },
+    body: {
+      walletId: 'alice.testnet',
+    },
+    ctx: args.ctx,
+  });
+  expect(status.status).toBe(200);
+  expect(status.json?.status).toBe('ready');
+  expect(status.json?.activeRecoveryCodeCount).toBe(EMAIL_OTP_RECOVERY_KEY_COUNT);
 }
 
 test.describe('Email OTP routes', () => {
@@ -593,6 +647,21 @@ test.describe('Email OTP routes', () => {
     const srv = await startExpressRouter(router);
     try {
       await enrollEmailOtpOverExpress({ service, baseUrl: srv.baseUrl });
+      const rejectedBackupAck = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/recovery-key/backup-acknowledge`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+          body: JSON.stringify({
+            walletId: 'alice.testnet',
+            enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:alice.testnet',
+            enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+            recoveryKeys: ['must-not-be-sent'],
+          }),
+        },
+      );
+      expect(rejectedBackupAck.status).toBe(400);
+      expect(rejectedBackupAck.json?.code).toBe('invalid_body');
       const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/recovery-challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
@@ -1712,7 +1781,7 @@ test.describe('Email OTP routes', () => {
           wrappedCiphertext: wrapped.wrappedCiphertext,
         }),
       });
-      expect(replay.status).toBe(400);
+      expect(replay.status).toBe(401);
       expect(replay.json?.code).toBe('challenge_expired_or_invalid');
     } finally {
       await srv.close();
@@ -1758,11 +1827,12 @@ test.describe('Email OTP routes', () => {
             otpCode: '000000',
           }),
         });
-        expect(invalid.status).toBe(400);
         if (invalid.json?.code === 'otp_attempts_exhausted') {
+          expect(invalid.status).toBe(400);
           exhausted = invalid;
           break;
         }
+        expect(invalid.status).toBe(401);
         expect(invalid.json?.code).toBe('invalid_otp');
         expect(typeof invalid.json?.attemptsRemaining).toBe('number');
         expect(Number(invalid.json?.attemptsRemaining)).toBeGreaterThan(0);
@@ -1919,8 +1989,8 @@ test.describe('Email OTP routes', () => {
             otpCode: '000000',
           }),
         });
-        expect(invalid.status).toBe(400);
         exhausted = invalid.json?.code === 'otp_attempts_exhausted';
+        expect(invalid.status).toBe(exhausted ? 400 : 401);
       }
       const lockedChallenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/login/challenge`, {
         method: 'POST',
@@ -2285,7 +2355,7 @@ test.describe('Email OTP routes', () => {
       },
       ctx: cf.ctx,
     });
-    expect(consumedReplay.status).toBe(400);
+    expect(consumedReplay.status).toBe(401);
     expect(consumedReplay.json?.code).toBe('challenge_expired_or_invalid');
   });
 
@@ -2331,11 +2401,12 @@ test.describe('Email OTP routes', () => {
         },
         ctx: cf.ctx,
       });
-      expect(invalid.status).toBe(400);
       if (invalid.json?.code === 'otp_attempts_exhausted') {
+        expect(invalid.status).toBe(400);
         exhausted = invalid;
         break;
       }
+      expect(invalid.status).toBe(401);
       expect(invalid.json?.code).toBe('invalid_otp');
       expect(typeof invalid.json?.attemptsRemaining).toBe('number');
       expect(Number(invalid.json?.attemptsRemaining)).toBeGreaterThan(0);
@@ -2501,8 +2572,8 @@ test.describe('Email OTP routes', () => {
         },
         ctx: cf.ctx,
       });
-      expect(invalid.status).toBe(400);
       exhausted = invalid.json?.code === 'otp_attempts_exhausted';
+      expect(invalid.status).toBe(exhausted ? 400 : 401);
     }
     const lockedChallenge = await callCf(handler, {
       method: 'POST',

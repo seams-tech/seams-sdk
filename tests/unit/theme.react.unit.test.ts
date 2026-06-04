@@ -492,6 +492,11 @@ test.describe('React Theme integration', () => {
     const trigger = page.locator(`#${mountId} .w3a-user-account-button-trigger`);
     await trigger.click();
 
+    const recoveryCodesItem = page.locator(
+      `#${mountId} .w3a-dropdown-menu-item:has-text("Recovery Codes")`,
+    );
+    await expect(recoveryCodesItem).toBeVisible();
+
     const toggleItem = page.locator(`#${mountId} .w3a-dropdown-menu-item:has-text("Toggle Theme")`);
     await expect(toggleItem).toBeVisible();
     await toggleItem.click();

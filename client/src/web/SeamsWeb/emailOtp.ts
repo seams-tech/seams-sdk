@@ -5,6 +5,10 @@ import {
   type WalletEmailOtpLoginOperation,
 } from '@shared/utils/emailOtpDomain';
 import { joinNormalizedUrl } from '@shared/utils/normalize';
+import {
+  buildEmailOtpRecoveryCodeSet,
+  type EmailOtpRecoveryCodeSet,
+} from '@shared/utils/emailOtpRecoveryKey';
 import { requireTrimmedString, toOptionalTrimmedNonEmptyString } from '@shared/utils/validation';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
@@ -56,12 +60,46 @@ export class EmailOtpRouteError extends Error {
 
 export type EmailOtpEnrollmentResult = {
   thresholdEcdsaClientVerifyingShareB64u: string;
-  recoveryKeys: string[];
+  recoveryKeys: EmailOtpRecoveryCodeSet;
+  recoveryCodesIssuedAtMs: number;
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
+  enrollmentId: string;
   enrollmentSealKeyVersion: string;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
+};
+
+export type EmailOtpRecoveryCodeBackupStatus = {
+  status: 'active';
+  walletId: string;
+  enrollmentId: string;
+  recoveryCodeCount: number;
+  issuedAtMs: number;
+  acknowledgedAtMs: number;
+  activeRecoveryCodeCountAtAcknowledgement: number;
+};
+
+export type EmailOtpRecoveryCodeLifecycleStatus =
+  | 'ready'
+  | 'pending_backup'
+  | 'incomplete'
+  | 'not_enrolled';
+
+export type EmailOtpRecoveryCodeStatus = {
+  status: EmailOtpRecoveryCodeLifecycleStatus;
+  walletId: string;
+  enrollmentId: string;
+  enrollmentSealKeyVersion: string;
+  expectedRecoveryCodeCount: number;
+  activeRecoveryCodeCount: number;
+  pendingBackupRecoveryCodeCount: number;
+  consumedRecoveryCodeCount: number;
+  revokedRecoveryCodeCount: number;
+  abandonedRecoveryCodeCount: number;
+  totalRecoveryCodeCount: number;
+  issuedAtMs: number | null;
+  acknowledgedAtMs: number | null;
 };
 
 export type EmailOtpDeviceEnrollmentRestoreResult = {
@@ -111,6 +149,55 @@ function requireObjectJson(value: unknown, label: string): JsonObject {
     throw new Error(`${label} returned invalid JSON`);
   }
   return value as JsonObject;
+}
+
+function requireFiniteTimestampMs(value: unknown, label: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive timestamp`);
+  }
+  return Math.floor(parsed);
+}
+
+function parseEmailOtpRecoveryCodeMaterial(value: unknown): {
+  recoveryKeys: EmailOtpRecoveryCodeSet;
+  recoveryCodesIssuedAtMs: number;
+} {
+  const response = requireObjectJson(value, 'Email OTP recovery-code material');
+  return {
+    recoveryKeys: buildEmailOtpRecoveryCodeSet(
+      Array.isArray(response.recoveryKeys) ? response.recoveryKeys.map(String) : [],
+    ),
+    recoveryCodesIssuedAtMs: requireFiniteTimestampMs(
+      response.recoveryCodesIssuedAtMs,
+      'recoveryCodesIssuedAtMs',
+    ),
+  };
+}
+
+function parseEmailOtpEnrollmentResult(value: unknown): EmailOtpEnrollmentResult {
+  const response = requireObjectJson(value, 'Email OTP enrollment result');
+  const recoveryCodeMaterial = parseEmailOtpRecoveryCodeMaterial(response);
+  return {
+    thresholdEcdsaClientVerifyingShareB64u: readString(
+      response.thresholdEcdsaClientVerifyingShareB64u,
+      'thresholdEcdsaClientVerifyingShareB64u',
+    ),
+    recoveryKeys: recoveryCodeMaterial.recoveryKeys,
+    recoveryCodesIssuedAtMs: recoveryCodeMaterial.recoveryCodesIssuedAtMs,
+    challengeId: readString(response.challengeId, 'challengeId'),
+    otpChannel: EMAIL_OTP_CHANNEL,
+    enrollmentId: readString(response.enrollmentId, 'enrollmentId'),
+    enrollmentSealKeyVersion: readString(
+      response.enrollmentSealKeyVersion,
+      'enrollmentSealKeyVersion',
+    ),
+    clientUnlockPublicKeyB64u: readString(
+      response.clientUnlockPublicKeyB64u,
+      'clientUnlockPublicKeyB64u',
+    ),
+    unlockKeyVersion: readString(response.unlockKeyVersion, 'unlockKeyVersion'),
+  };
 }
 
 function readString(value: unknown, label: string): string {
@@ -564,7 +651,8 @@ export async function enrollEmailOtpWallet(args: {
     workerClientSecret32 = args.clientSecret32
       ? cloneFixed32Bytes(args.clientSecret32, 'clientSecret32')
       : null;
-    return await workerCtx.requestWorkerOperation({
+    return parseEmailOtpEnrollmentResult(
+      await workerCtx.requestWorkerOperation({
       kind: 'emailOtp',
       request: {
         type: 'enrollEmailOtpWallet',
@@ -585,10 +673,45 @@ export async function enrollEmailOtpWallet(args: {
           ...(workerClientSecret32 ? { clientSecret32: workerClientSecret32.buffer.slice(0) } : {}),
         },
       },
-    });
+      }),
+    );
   } finally {
     zeroizeBytes(workerClientSecret32);
   }
+}
+
+export async function acknowledgeEmailOtpRecoveryCodeBackup(args: {
+  relayUrl: string;
+  walletId: string;
+  enrollmentId: string;
+  enrollmentSealKeyVersion: string;
+  appSessionJwt?: string;
+  fetchImpl?: FetchLike;
+}): Promise<EmailOtpRecoveryCodeBackupStatus> {
+  const response = await postJson({
+    url: joinNormalizedUrl(args.relayUrl, '/wallet/email-otp/recovery-key/backup-acknowledge'),
+    appSessionJwt: args.appSessionJwt,
+    fetchImpl: args.fetchImpl,
+    body: {
+      walletId: readString(args.walletId, 'walletId'),
+      enrollmentId: readString(args.enrollmentId, 'enrollmentId'),
+      enrollmentSealKeyVersion: readString(
+        args.enrollmentSealKeyVersion,
+        'enrollmentSealKeyVersion',
+      ),
+    },
+  });
+  return {
+    status: 'active',
+    walletId: readString(response.walletId, 'recovery-code backup status walletId'),
+    enrollmentId: readString(response.enrollmentId, 'recovery-code backup status enrollmentId'),
+    recoveryCodeCount: Math.floor(Number(response.recoveryCodeCount)),
+    issuedAtMs: Math.floor(Number(response.issuedAtMs)),
+    acknowledgedAtMs: Math.floor(Number(response.acknowledgedAtMs)),
+    activeRecoveryCodeCountAtAcknowledgement: Math.floor(
+      Number(response.activeRecoveryCodeCountAtAcknowledgement),
+    ),
+  };
 }
 
 export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
@@ -604,8 +727,10 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
 }): Promise<{
   thresholdEcdsaClientVerifyingShareB64u: string;
   thresholdEd25519PrfFirstB64u: string;
-  recoveryKeys: string[];
+  recoveryKeys: EmailOtpRecoveryCodeSet;
+  recoveryCodesIssuedAtMs: number;
   otpChannel: WalletEmailOtpChannel;
+  enrollmentId: string;
   enrollmentSealKeyVersion: string;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
@@ -624,7 +749,7 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
     workerClientSecret32 = args.clientSecret32
       ? cloneFixed32Bytes(args.clientSecret32, 'clientSecret32')
       : null;
-    return await workerCtx.requestWorkerOperation({
+    const result = await workerCtx.requestWorkerOperation({
       kind: 'emailOtp',
       request: {
         type: 'prepareEmailOtpRegistrationEnrollmentMaterial',
@@ -643,9 +768,71 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
         },
       },
     });
+    const recoveryCodeMaterial = parseEmailOtpRecoveryCodeMaterial(result);
+    return {
+      ...result,
+      recoveryKeys: recoveryCodeMaterial.recoveryKeys,
+      recoveryCodesIssuedAtMs: recoveryCodeMaterial.recoveryCodesIssuedAtMs,
+      thresholdEd25519PrfFirstB64u: readString(
+        result.thresholdEd25519PrfFirstB64u,
+        'thresholdEd25519PrfFirstB64u',
+      ),
+      clientRootShareHandle: result.clientRootShareHandle,
+      emailOtpEnrollment: result.emailOtpEnrollment,
+    };
   } finally {
     zeroizeBytes(workerClientSecret32);
   }
+}
+
+function parseNullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return Math.floor(parsed);
+}
+
+export async function getEmailOtpRecoveryCodeStatus(args: {
+  relayUrl: string;
+  walletId: string;
+  appSessionJwt?: string;
+  fetchImpl?: FetchLike;
+}): Promise<EmailOtpRecoveryCodeStatus> {
+  const response = await postJson({
+    url: joinNormalizedUrl(args.relayUrl, '/wallet/email-otp/recovery-key/status'),
+    appSessionJwt: args.appSessionJwt,
+    fetchImpl: args.fetchImpl,
+    body: {
+      walletId: readString(args.walletId, 'walletId'),
+    },
+  });
+  const status = readString(response.status, 'recovery-code status');
+  if (
+    status !== 'ready' &&
+    status !== 'pending_backup' &&
+    status !== 'incomplete' &&
+    status !== 'not_enrolled'
+  ) {
+    throw new Error('Unexpected Email OTP recovery-code status');
+  }
+  return {
+    status,
+    walletId: readString(response.walletId, 'recovery-code status walletId'),
+    enrollmentId: readString(response.enrollmentId, 'recovery-code status enrollmentId'),
+    enrollmentSealKeyVersion: readString(
+      response.enrollmentSealKeyVersion,
+      'recovery-code status enrollmentSealKeyVersion',
+    ),
+    expectedRecoveryCodeCount: Math.floor(Number(response.expectedRecoveryCodeCount)),
+    activeRecoveryCodeCount: Math.floor(Number(response.activeRecoveryCodeCount)),
+    pendingBackupRecoveryCodeCount: Math.floor(Number(response.pendingBackupRecoveryCodeCount)),
+    consumedRecoveryCodeCount: Math.floor(Number(response.consumedRecoveryCodeCount)),
+    revokedRecoveryCodeCount: Math.floor(Number(response.revokedRecoveryCodeCount)),
+    abandonedRecoveryCodeCount: Math.floor(Number(response.abandonedRecoveryCodeCount)),
+    totalRecoveryCodeCount: Math.floor(Number(response.totalRecoveryCodeCount)),
+    issuedAtMs: parseNullableNumber(response.issuedAtMs),
+    acknowledgedAtMs: parseNullableNumber(response.acknowledgedAtMs),
+  };
 }
 
 export async function restoreEmailOtpDeviceEnrollmentEscrow(args: {

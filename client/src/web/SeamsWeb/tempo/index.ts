@@ -77,7 +77,7 @@ export class TempoSigner implements TempoSignerCapability {
 
   async signTempo(args: SignTempoArgs): Promise<TempoSignedResult | EvmSignedResult> {
     const chainTarget = thresholdEcdsaChainTargetFromRequest(args.chainTarget);
-    return await this.getContext().signingRuntime.services.evmFamilySigning.signTempo({
+    return await this.getContext().signingEngine.signTempo({
       walletSession: args.walletSession,
       request: args.request,
       chainTarget,

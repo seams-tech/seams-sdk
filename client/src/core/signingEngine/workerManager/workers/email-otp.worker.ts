@@ -171,6 +171,7 @@ import {
   generateEmailOtpRecoveryKeySet,
   unwrapEmailOtpDeviceEnrollmentEscrow,
   wrapEmailOtpDeviceEnrollmentEscrow,
+  type EmailOtpRecoveryCodeSet,
   type EmailOtpRecoveryWrapMetadata,
 } from '@shared/utils/emailOtpRecoveryKey';
 
@@ -239,7 +240,7 @@ type EmailOtpRecoveryWrappedEnrollmentEscrowPayload = {
   signingRootId: string;
   signingRootVersion: string;
   recoveryKeyId: string;
-  recoveryKeyStatus: 'active';
+  recoveryKeyStatus: 'pending_backup' | 'active';
   nonceB64u: string;
   wrappedDeviceEnrollmentEscrowB64u: string;
   aadHashB64u: string;
@@ -1727,7 +1728,8 @@ async function createEmailOtpRecoveryWrappedEnrollmentEscrows(args: {
   signingRootVersion: string;
   encSB64u: string;
 }): Promise<{
-  recoveryKeys: string[];
+  recoveryKeys: EmailOtpRecoveryCodeSet;
+  recoveryCodesIssuedAtMs: number;
   recoveryWrappedEnrollmentEscrows: EmailOtpRecoveryWrappedEnrollmentEscrowPayload[];
 }> {
   await ensureNearSignerRecoveryWasm();
@@ -1784,7 +1786,7 @@ async function createEmailOtpRecoveryWrappedEnrollmentEscrows(args: {
           signingRootId: args.signingRootId,
           signingRootVersion: args.signingRootVersion,
           recoveryKeyId,
-          recoveryKeyStatus: 'active',
+          recoveryKeyStatus: 'pending_backup',
           nonceB64u: base64UrlEncode(wrapped.nonce12),
           wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(wrapped.ciphertext),
           aadHashB64u: base64UrlEncode(await sha256Bytes(aad)),
@@ -1795,7 +1797,7 @@ async function createEmailOtpRecoveryWrappedEnrollmentEscrows(args: {
         zeroizeBytes(aad);
       }
     }
-    return { recoveryKeys, recoveryWrappedEnrollmentEscrows };
+    return { recoveryKeys, recoveryCodesIssuedAtMs: issuedAtMs, recoveryWrappedEnrollmentEscrows };
   } finally {
     zeroizeBytes(encS);
   }
@@ -1851,7 +1853,7 @@ function parseEmailOtpRecoveryWrappedEnrollmentEscrowPayload(
     recoveryKeyStatus: readString(
       obj.recoveryKeyStatus,
       'recoveryWrappedEnrollmentEscrow.recoveryKeyStatus',
-    ) as 'active',
+    ) as 'pending_backup' | 'active',
     nonceB64u: readString(obj.nonceB64u, 'recoveryWrappedEnrollmentEscrow.nonceB64u'),
     wrappedDeviceEnrollmentEscrowB64u: readString(
       obj.wrappedDeviceEnrollmentEscrowB64u,
@@ -2257,9 +2259,11 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
 }): Promise<{
   thresholdEcdsaClientVerifyingShareB64u: string;
   thresholdEd25519PrfFirstB64u: string;
-  recoveryKeys: string[];
+  recoveryKeys: EmailOtpRecoveryCodeSet;
+  recoveryCodesIssuedAtMs: number;
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
+  enrollmentId: string;
   enrollmentSealKeyVersion: string;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
@@ -2372,7 +2376,7 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
     const enrollmentVersion = EMAIL_OTP_DEVICE_ENROLLMENT_VERSION;
     const signingRootId = EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_ID;
     const signingRootVersion = EMAIL_OTP_DEVICE_ENROLLMENT_SIGNING_ROOT_VERSION;
-    const { recoveryKeys, recoveryWrappedEnrollmentEscrows } =
+    const { recoveryKeys, recoveryCodesIssuedAtMs, recoveryWrappedEnrollmentEscrows } =
       await createEmailOtpRecoveryWrappedEnrollmentEscrows({
         walletId,
         userId,
@@ -2442,8 +2446,10 @@ async function completeEmailOtpEnrollmentFromSecret32(args: {
       thresholdEcdsaClientVerifyingShareB64u,
       thresholdEd25519PrfFirstB64u,
       recoveryKeys,
+      recoveryCodesIssuedAtMs,
       challengeId: challengeId || '',
       otpChannel: EMAIL_OTP_CHANNEL,
+      enrollmentId,
       enrollmentSealKeyVersion,
       clientUnlockPublicKeyB64u,
       unlockKeyVersion: EMAIL_OTP_UNLOCK_KEY_VERSION,
@@ -4561,8 +4567,10 @@ self.addEventListener('message', async (event: MessageEvent) => {
             thresholdEcdsaClientVerifyingShareB64u: result.thresholdEcdsaClientVerifyingShareB64u,
             thresholdEd25519PrfFirstB64u: result.thresholdEd25519PrfFirstB64u,
             recoveryKeys: result.recoveryKeys,
+            recoveryCodesIssuedAtMs: result.recoveryCodesIssuedAtMs,
             challengeId: result.challengeId,
             otpChannel: result.otpChannel,
+            enrollmentId: result.enrollmentId,
             enrollmentSealKeyVersion: result.enrollmentSealKeyVersion,
             clientUnlockPublicKeyB64u: result.clientUnlockPublicKeyB64u,
             unlockKeyVersion: result.unlockKeyVersion,
@@ -4613,7 +4621,9 @@ self.addEventListener('message', async (event: MessageEvent) => {
             thresholdEcdsaClientVerifyingShareB64u: result.thresholdEcdsaClientVerifyingShareB64u,
             thresholdEd25519PrfFirstB64u: result.thresholdEd25519PrfFirstB64u,
             recoveryKeys: result.recoveryKeys,
+            recoveryCodesIssuedAtMs: result.recoveryCodesIssuedAtMs,
             otpChannel: result.otpChannel,
+            enrollmentId: result.enrollmentId,
             enrollmentSealKeyVersion: result.enrollmentSealKeyVersion,
             clientUnlockPublicKeyB64u: result.clientUnlockPublicKeyB64u,
             unlockKeyVersion: result.unlockKeyVersion,

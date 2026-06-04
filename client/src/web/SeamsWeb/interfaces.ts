@@ -7,6 +7,7 @@ import type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
+import type { EmailOtpRecoveryCodeSet } from '@shared/utils/emailOtpRecoveryKey';
 import type {
   ProvisionWarmEd25519CapabilityResult,
   WarmEcdsaSigningSessionStatus,
@@ -273,12 +274,50 @@ export type EmailOtpChallengeResult = {
 
 export type EmailOtpEnrollmentResult = {
   thresholdEcdsaClientVerifyingShareB64u: string;
-  recoveryKeys: string[];
+  recoveryKeys: EmailOtpRecoveryCodeSet;
+  recoveryCodesIssuedAtMs: number;
   challengeId: string;
   otpChannel: WalletEmailOtpChannel;
+  enrollmentId: string;
   enrollmentSealKeyVersion: string;
   clientUnlockPublicKeyB64u: string;
   unlockKeyVersion: string;
+};
+
+export type EmailOtpRecoveryCodeBackupStatus = {
+  status: 'active';
+  walletId: string;
+  enrollmentId: string;
+  recoveryCodeCount: number;
+  issuedAtMs: number;
+  acknowledgedAtMs: number;
+  activeRecoveryCodeCountAtAcknowledgement: number;
+};
+
+export type EmailOtpBackedUpEnrollmentResult = Omit<EmailOtpEnrollmentResult, 'recoveryKeys'> & {
+  recoveryCodeBackup: EmailOtpRecoveryCodeBackupStatus;
+};
+
+export type EmailOtpRecoveryCodeLifecycleStatus =
+  | 'ready'
+  | 'pending_backup'
+  | 'incomplete'
+  | 'not_enrolled';
+
+export type EmailOtpRecoveryCodeStatus = {
+  status: EmailOtpRecoveryCodeLifecycleStatus;
+  walletId: string;
+  enrollmentId: string;
+  enrollmentSealKeyVersion: string;
+  expectedRecoveryCodeCount: number;
+  activeRecoveryCodeCount: number;
+  pendingBackupRecoveryCodeCount: number;
+  consumedRecoveryCodeCount: number;
+  revokedRecoveryCodeCount: number;
+  abandonedRecoveryCodeCount: number;
+  totalRecoveryCodeCount: number;
+  issuedAtMs: number | null;
+  acknowledgedAtMs: number | null;
 };
 
 export type EmailOtpDeviceEnrollmentRestoreResult = {
@@ -341,7 +380,7 @@ export type EmailOtpEcdsaEnrollmentCapabilityArgs = Omit<EmailOtpEcdsaCapability
 };
 
 export type EmailOtpEcdsaEnrollmentCapabilityResult = {
-  enrollment: EmailOtpEnrollmentResult;
+  enrollment: EmailOtpEnrollmentResult | EmailOtpBackedUpEnrollmentResult;
   bootstrap: PublicThresholdEcdsaSessionBootstrapResult;
   warmCapability: WarmSessionEcdsaCapabilityState;
 };
@@ -404,7 +443,19 @@ export interface AuthCapability {
     appSessionJwt?: string;
     clientSecret32?: Uint8Array;
     onEvent?: (event: RegistrationFlowEvent) => void;
-  }): Promise<EmailOtpEnrollmentResult>;
+  }): Promise<EmailOtpEnrollmentResult | EmailOtpBackedUpEnrollmentResult>;
+  acknowledgeEmailOtpRecoveryCodeBackup(args: {
+    walletId: string;
+    enrollmentId: string;
+    enrollmentSealKeyVersion: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }): Promise<EmailOtpRecoveryCodeBackupStatus>;
+  getEmailOtpRecoveryCodeStatus(args: {
+    walletId: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }): Promise<EmailOtpRecoveryCodeStatus>;
   loginWithEmailOtpEcdsaCapability(
     args: EmailOtpEcdsaCapabilityArgs,
   ): Promise<EmailOtpEcdsaCapabilityResult>;

@@ -132,6 +132,7 @@ import type {
   EmailOtpEcdsaCapabilityResult,
   EmailOtpEcdsaEnrollmentCapabilityArgs,
   EmailOtpEcdsaEnrollmentCapabilityResult,
+  EmailOtpBackedUpEnrollmentResult,
   EmailOtpEnrollmentResult,
   GoogleEmailOtpSessionExchangeResult,
   RegistrationCapability,
@@ -227,6 +228,7 @@ const EMAIL_OTP_APP_ORIGIN_FORBIDDEN_RESULT_KEYS = new Set([
   'secretS',
   'recoveredS',
   'recoveredSB64u',
+  'recoveryKeys',
   'clientSecret32',
   'clientRootShare32',
   'clientRootShare32B64u',
@@ -1112,9 +1114,9 @@ export class WalletIframeRouter {
     shamirPrimeB64u?: string;
     appSessionJwt?: string;
     onEvent?: (ev: RegistrationFlowEvent) => void;
-  }): Promise<EmailOtpEnrollmentResult> {
+  }): Promise<EmailOtpBackedUpEnrollmentResult> {
     const { onEvent, ...wirePayload } = payload;
-    const res = await this.post<EmailOtpEnrollmentResult>(
+    const res = await this.post<EmailOtpBackedUpEnrollmentResult>(
       {
         type: 'PM_ENROLL_EMAIL_OTP',
         payload: wirePayload,

@@ -15,8 +15,10 @@ import {
   handleEmailOtpDeviceRecoveryChallengeRoute,
   handleEmailOtpLoginChallengeRoute,
   handleEmailOtpLoginVerifyAndUnsealRoute,
+  handleEmailOtpRecoveryKeyBackupAcknowledgeRoute,
   handleEmailOtpRecoveryKeyAttemptFailedRoute,
   handleEmailOtpRecoveryKeyConsumeRoute,
+  handleEmailOtpRecoveryKeyStatusRoute,
   handleEmailOtpRecoveryWrappedEscrowsRoute,
   handleEmailOtpSigningSessionChallengeRoute,
   handleEmailOtpLoginVerifyRoute,
@@ -1413,6 +1415,63 @@ export async function handleWalletEmailOtpRecoveryKeyConsume(
     return validated.response;
   }
   const response = await handleEmailOtpRecoveryKeyConsumeRoute({
+    body,
+    claims: validated.claims,
+    userId: validated.userId,
+    appSessionVersion: validated.appSessionVersion,
+    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+    service: ctx.service,
+  });
+  return json(response.body, { status: response.status });
+}
+
+export async function handleWalletEmailOtpRecoveryKeyBackupAcknowledge(
+  ctx: CloudflareRelayContext,
+): Promise<Response | null> {
+  if (
+    ctx.method !== 'POST' ||
+    ctx.pathname !== '/wallet/email-otp/recovery-key/backup-acknowledge'
+  ) {
+    return null;
+  }
+  const body = await readJson(ctx.request);
+  const validated = await readAndValidateAppSession(ctx);
+  if (!validated.ok) {
+    await maybeEmitWarmExpiredFromValidationFailure({
+      ctx,
+      validated,
+      source: 'wallet.email_otp.recovery_key.backup_acknowledge',
+    });
+    return validated.response;
+  }
+  const response = await handleEmailOtpRecoveryKeyBackupAcknowledgeRoute({
+    body,
+    claims: validated.claims,
+    userId: validated.userId,
+    appSessionVersion: validated.appSessionVersion,
+    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+    service: ctx.service,
+  });
+  return json(response.body, { status: response.status });
+}
+
+export async function handleWalletEmailOtpRecoveryKeyStatus(
+  ctx: CloudflareRelayContext,
+): Promise<Response | null> {
+  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/status') {
+    return null;
+  }
+  const body = await readJson(ctx.request);
+  const validated = await readAndValidateAppSession(ctx);
+  if (!validated.ok) {
+    await maybeEmitWarmExpiredFromValidationFailure({
+      ctx,
+      validated,
+      source: 'wallet.email_otp.recovery_key.status',
+    });
+    return validated.response;
+  }
+  const response = await handleEmailOtpRecoveryKeyStatusRoute({
     body,
     claims: validated.claims,
     userId: validated.userId,

@@ -47,7 +47,7 @@ type EmailOtpRecoveryWrappedEnrollmentEscrowRecord = {
   signingRootId: string;
   signingRootVersion: string;
   recoveryKeyId: string;
-  recoveryKeyStatus: 'pending_backup' | 'active' | 'consumed' | 'revoked';
+  recoveryKeyStatus: 'pending_backup' | 'active' | 'consumed' | 'revoked' | 'abandoned';
   nonceB64u: string;
   wrappedDeviceEnrollmentEscrowB64u: string;
   aadHashB64u: string;
@@ -55,6 +55,62 @@ type EmailOtpRecoveryWrappedEnrollmentEscrowRecord = {
   updatedAtMs: number;
 };
 ```
+
+Implement the lifecycle as a discriminated union in TypeScript. Avoid optional
+timestamp bags in core logic. Boundary parsers may accept raw persistence rows,
+then must normalize them into one of these valid lifecycle branches:
+
+```ts
+type EmailOtpRecoveryWrappedEnrollmentEscrowLifecycle =
+  | {
+      recoveryKeyStatus: 'pending_backup';
+      acknowledgedAtMs?: never;
+      consumedAtMs?: never;
+      revokedAtMs?: never;
+      abandonedAtMs?: never;
+      cleanupReason?: never;
+    }
+  | {
+      recoveryKeyStatus: 'active';
+      acknowledgedAtMs: number;
+      consumedAtMs?: never;
+      revokedAtMs?: never;
+      abandonedAtMs?: never;
+      cleanupReason?: never;
+    }
+  | {
+      recoveryKeyStatus: 'consumed';
+      acknowledgedAtMs: number;
+      consumedAtMs: number;
+      revokedAtMs?: never;
+      abandonedAtMs?: never;
+      cleanupReason?: never;
+    }
+  | {
+      recoveryKeyStatus: 'revoked';
+      acknowledgedAtMs: number;
+      consumedAtMs?: never;
+      revokedAtMs: number;
+      abandonedAtMs?: never;
+      cleanupReason?: never;
+    }
+  | {
+      recoveryKeyStatus: 'abandoned';
+      acknowledgedAtMs?: never;
+      consumedAtMs?: never;
+      revokedAtMs?: never;
+      abandonedAtMs: number;
+      cleanupReason:
+        | 'registration_cancelled'
+        | 'registration_restarted'
+        | 'rotation_restarted'
+        | 'pending_backup_expired';
+    };
+```
+
+The worker currently emits `active` recovery-wrapped escrow records. This plan
+changes that behavior. Enrollment must persist `pending_backup` records first,
+and only `backup-acknowledge` may activate them.
 
 The server never stores the plaintext recovery keys, plaintext `enc_s(S)`,
 plaintext `S`, recovery KEKs, or derived signing material.
@@ -347,6 +403,16 @@ fails. Validate and normalize raw worker output once at the worker/SDK boundary
 with `normalizeEmailOtpRecoveryKey(...)`, then pass `EmailOtpRecoveryCodeSet`
 through UI code.
 
+Add a named parser/builder for this boundary. Existing raw `string[]` enrollment
+results must be replaced at the public SDK surface. Add static type fixtures that
+reject:
+
+1. arbitrary `string[]` recovery-code sets.
+2. missing `recoveryCodesIssuedAtMs`.
+3. optional `recoveryKeys`.
+4. broad object spreads that bypass the builder.
+5. direct casts from raw worker output to `EmailOtpRecoveryCodeSet`.
+
 ### React Component
 
 Add a component:
@@ -428,6 +494,13 @@ worker returns EmailOtpRecoveryCodeSet inside wallet iframe
 Iframe RPC payloads to host code must carry only non-secret lifecycle metadata.
 They must never carry generated `recoveryKeys`.
 
+This is a breaking iframe contract change. The iframe-owned routes
+`PM_ENROLL_EMAIL_OTP` and `PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY` must stop
+returning generated recovery-code arrays to the host. In wallet-iframe mode, the
+iframe renders the backup screen, calls `backup-acknowledge`, clears plaintext
+codes, and returns only `EmailOtpRecoveryCodeBackupStatus` or equivalent
+non-secret completion metadata to host code.
+
 Server activation and abandoned-backup cleanup:
 
 1. Enrollment persists the 10 recovery-wrapped escrows with
@@ -493,11 +566,27 @@ Download implementation rules:
 
 ## Account Settings Follow-Up
 
-Add an account-settings section:
+Add an account-settings section reachable from the profile menu:
 
 ```text
 Email OTP recovery codes
 ```
+
+Profile-menu entrypoint:
+
+1. Add `PROFILE_MENU_ITEM_IDS.RECOVERY_CODES`.
+2. Add a menu item with label `Recovery Codes`.
+3. Render the status/rotation UI from `AccountMenuButton` using the same portal
+   pattern as linked devices and key export.
+4. Disable the item when the user is logged out.
+5. Fetch only non-secret status on open.
+6. Never redisplay old plaintext recovery codes from status data.
+
+Files:
+
+1. `client/src/react/components/AccountMenuButton/types.ts`
+2. `client/src/react/components/AccountMenuButton/index.tsx`
+3. recovery-code status/rotation modal or drawer component files
 
 Display:
 
@@ -566,6 +655,24 @@ Recovery use errors:
 11. `backup-acknowledge` route payloads must contain only non-secret enrollment
     identifiers and acknowledgement metadata.
 
+## Regression Warnings
+
+1. Do not keep active-immediately recovery-wrapped escrow behavior. New
+   enrollment records start as `pending_backup`; recovery consumption and active
+   counts must ignore them until acknowledgement.
+2. Do not preserve old iframe result payloads that expose generated
+   `recoveryKeys` to host pages. Wallet-iframe backup is iframe-owned.
+3. Do not keep public recovery-code types as raw `string[]`. Normalize once at
+   the worker/SDK boundary into a fixed-size `EmailOtpRecoveryCodeSet`.
+4. Do not make `recoveryKeys`, identity fields, lifecycle timestamps, or
+   acknowledgement metadata optional in core types.
+5. Do not persist plaintext recovery codes to recover abandoned backup screens.
+   Abandonment means those plaintext codes are gone.
+6. Do not patch tests around obsolete behavior. Delete or rewrite fixtures that
+   encode active-immediately records, raw recovery-code arrays, or iframe host
+   `recoveryKeys` payloads unless they are intentionally testing request or
+   persistence boundary rejection.
+
 ## Implementation Steps
 
 ### Phase 1: Current Surface Audit
@@ -581,6 +688,10 @@ Recovery use errors:
 5. Confirm logs redact `recoveryKeys`.
 6. Confirm no IndexedDB/localStorage/sessionStorage code persists
    `recoveryKeys` or generated recovery-code text.
+7. Identify tests, helpers, and fixtures that assume active-immediately
+   recovery-wrapped escrows.
+8. Identify iframe host message types and handlers that currently return
+   `recoveryKeys` to host code.
 
 Files:
 
@@ -592,7 +703,64 @@ Files:
 6. `client/src/core/WalletIframe/host/wallet-iframe-handlers.ts`
 7. `client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`
 
-### Phase 2: Backup Component
+### Phase 2: Server Lifecycle Hardening
+
+1. Replace active-immediately worker output with `pending_backup` recovery
+   wrapped escrows.
+2. Add `pending_backup` and `abandoned` to server persistence boundary parsers.
+3. Model recovery-wrapped escrow lifecycle as a discriminated union with
+   branch-specific timestamps and `never` fields for invalid timestamps.
+4. Add `backup-acknowledge` route and route definition.
+5. Make `backup-acknowledge` atomically activate exactly the matching pending
+   set and record `acknowledgedAtMs`.
+6. Ensure pending and abandoned records are excluded from
+   `activeRecoveryWrappedEnrollmentEscrowCount`.
+7. Ensure pending and abandoned records cannot be consumed by recovery-key use.
+8. Add stale pending cleanup behavior that revokes, deletes, or marks records
+   abandoned before replacement.
+9. Update Postgres and in-memory stores together.
+10. Delete or rewrite active-immediately fixtures that only protected obsolete
+    behavior.
+
+Files:
+
+1. `client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`
+2. `server/src/core/EmailOtpStores.ts`
+3. `server/src/core/EmailOtpPostgresRecords.ts`
+4. `server/src/router/routeDefinitions.ts`
+5. `server/src/router/express/routes/sessions.ts`
+6. `server/src/router/cloudflare/routes/sessions.ts`
+7. `server/src/router/emailOtpRouteHandlers.ts`
+8. `tests/unit/emailOtpRecoveryWrappedEnrollmentEscrowStore.unit.test.ts`
+9. `tests/relayer/email-otp.routes.test.ts`
+10. `tests/relayer/helpers.ts`
+
+### Phase 3: SDK And Iframe Boundary Contracts
+
+1. Add an `EmailOtpRecoveryCode` brand and fixed-size
+   `EmailOtpRecoveryCodeSet`.
+2. Add a boundary parser/builder that validates exactly 10 normalized recovery
+   codes and `recoveryCodesIssuedAtMs`.
+3. Replace raw `string[]` recovery-code public result types.
+4. Add type fixtures rejecting raw arrays, optional recovery-code fields, broad
+   spreads, and direct casts from worker output.
+5. Change wallet-iframe enrollment routes so generated recovery codes remain
+   inside the iframe boundary.
+6. Return only non-secret backup completion metadata to host code.
+7. Add architecture/static tests that fail if iframe host RPC payloads include
+   generated `recoveryKeys`.
+
+Files:
+
+1. `client/src/web/SeamsWeb/interfaces.ts`
+2. `client/src/web/SeamsWeb/emailOtp.ts`
+3. `client/src/core/signingEngine/workerManager/workerTypes.ts`
+4. `client/src/core/WalletIframe/shared/messages.ts`
+5. `client/src/core/WalletIframe/host/handlers/emailOtp.ts`
+6. `client/src/core/WalletIframe/client/router.ts`
+7. SDK/public typecheck fixtures
+
+### Phase 4: Backup Component
 
 1. Add `EmailOtpRecoveryCodesBackup`.
 2. Accept `EmailOtpRecoveryCodeSet` and `recoveryCodesIssuedAtMs` props.
@@ -611,7 +779,7 @@ Files:
 2. `shared/src/utils/emailOtpRecoveryKey.ts`
 3. `tests/unit/emailOtpRecoveryCodesBackup.unit.test.ts`
 
-### Phase 3: Registration UI Integration
+### Phase 5: Registration UI Integration
 
 1. Show backup UI after `enrollEmailOtp`.
 2. Show backup UI after `enrollAndLoginWithEmailOtpEcdsaCapability`.
@@ -634,14 +802,16 @@ Likely integration points:
 4. wallet-iframe host handlers that receive non-secret backup acknowledgement
    metadata
 
-### Phase 4: Settings And Rotation
+### Phase 6: Settings And Rotation
 
 1. Add recovery-code status route.
 2. Add revoke route.
 3. Add rotate route.
-4. Add account-settings recovery-code status UI.
-5. Add rotate flow using the same backup component.
-6. Prompt rotation after recovery when active count is below 10.
+4. Add `PROFILE_MENU_ITEM_IDS.RECOVERY_CODES`.
+5. Add a `Recovery Codes` menu item in `AccountMenuButton`.
+6. Add account-settings recovery-code status UI reachable from that menu item.
+7. Add rotate flow using the same backup component.
+8. Prompt rotation after recovery when active count is below 10.
 
 Server files:
 
@@ -655,9 +825,11 @@ Client files:
 
 1. `client/src/web/SeamsWeb/emailOtp.ts`
 2. `client/src/core/WalletIframe/shared/messages.ts`
-3. account settings UI modules
+3. `client/src/react/components/AccountMenuButton/types.ts`
+4. `client/src/react/components/AccountMenuButton/index.tsx`
+5. account settings recovery-code UI modules
 
-### Phase 5: Tests
+### Phase 7: Tests
 
 Add tests for:
 
@@ -686,6 +858,14 @@ Add tests for:
 19. IndexedDB/localStorage/sessionStorage never receive generated recovery codes.
 20. abandoned backup cannot redisplay the old plaintext recovery codes after
     reload.
+21. active-immediately recovery-wrapped escrow fixtures are gone or limited to
+    boundary rejection coverage.
+22. public SDK type fixtures reject raw recovery-code arrays and optional
+    recovery-code fields.
+23. wallet-iframe enrollment host responses contain no generated `recoveryKeys`.
+24. `AccountMenuButton` exposes the `Recovery Codes` menu item only for logged-in
+    users.
+25. profile-menu recovery-code status fetches and renders only non-secret status.
 
 ## Acceptance Criteria
 

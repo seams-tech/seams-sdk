@@ -25,6 +25,7 @@ import type { ThresholdEcdsaSessionBootstrapResult } from '../threshold/ecdsa/ac
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { WalletEmailOtpChannel } from '@shared/utils/emailOtpDomain';
+import type { EmailOtpRecoveryCodeSet } from '@shared/utils/emailOtpRecoveryKey';
 import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
 import type { EmailOtpRoutePlan } from '../stepUpConfirmation/otpPrompt/authLane';
 import type {
@@ -344,9 +345,11 @@ export interface EmailOtpWorkerOperationMap {
     result: {
       thresholdEcdsaClientVerifyingShareB64u: string;
       thresholdEd25519PrfFirstB64u: string;
-      recoveryKeys: string[];
+      recoveryKeys: EmailOtpRecoveryCodeSet;
+      recoveryCodesIssuedAtMs: number;
       challengeId: string;
       otpChannel: WalletEmailOtpChannel;
+      enrollmentId: string;
       enrollmentSealKeyVersion: string;
       clientUnlockPublicKeyB64u: string;
       unlockKeyVersion: string;
@@ -367,8 +370,10 @@ export interface EmailOtpWorkerOperationMap {
     result: {
       thresholdEcdsaClientVerifyingShareB64u: string;
       thresholdEd25519PrfFirstB64u: string;
-      recoveryKeys: string[];
+      recoveryKeys: EmailOtpRecoveryCodeSet;
+      recoveryCodesIssuedAtMs: number;
       otpChannel: WalletEmailOtpChannel;
+      enrollmentId: string;
       enrollmentSealKeyVersion: string;
       clientUnlockPublicKeyB64u: string;
       unlockKeyVersion: string;

@@ -15,8 +15,10 @@ import {
   handleEmailOtpDeviceRecoveryChallengeRoute,
   handleEmailOtpLoginChallengeRoute,
   handleEmailOtpLoginVerifyAndUnsealRoute,
+  handleEmailOtpRecoveryKeyBackupAcknowledgeRoute,
   handleEmailOtpRecoveryKeyAttemptFailedRoute,
   handleEmailOtpRecoveryKeyConsumeRoute,
+  handleEmailOtpRecoveryKeyStatusRoute,
   handleEmailOtpRecoveryWrappedEscrowsRoute,
   handleEmailOtpSigningSessionChallengeRoute,
   handleEmailOtpLoginVerifyRoute,
@@ -1358,6 +1360,60 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       const clientIp =
         resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
       const response = await handleEmailOtpRecoveryKeyConsumeRoute({
+        body: req?.body,
+        claims: validated.claims,
+        userId: validated.userId,
+        appSessionVersion: validated.appSessionVersion,
+        clientIp,
+        service: ctx.service,
+      });
+      res.status(response.status).json(response.body);
+    } catch (e: any) {
+      res.status(500).json(emailOtpInternalErrorBody(e));
+    }
+  });
+
+  router.post('/wallet/email-otp/recovery-key/backup-acknowledge', async (req: any, res: any) => {
+    try {
+      const validated = await readAndValidateAppSession(req.headers || {});
+      if (!validated.ok) {
+        await maybeEmitWarmExpiredFromValidationFailure({
+          validated,
+          source: 'wallet.email_otp.recovery_key.backup_acknowledge',
+        });
+        res.status(validated.status).json(validated.body);
+        return;
+      }
+      const clientIp =
+        resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
+      const response = await handleEmailOtpRecoveryKeyBackupAcknowledgeRoute({
+        body: req?.body,
+        claims: validated.claims,
+        userId: validated.userId,
+        appSessionVersion: validated.appSessionVersion,
+        clientIp,
+        service: ctx.service,
+      });
+      res.status(response.status).json(response.body);
+    } catch (e: any) {
+      res.status(500).json(emailOtpInternalErrorBody(e));
+    }
+  });
+
+  router.post('/wallet/email-otp/recovery-key/status', async (req: any, res: any) => {
+    try {
+      const validated = await readAndValidateAppSession(req.headers || {});
+      if (!validated.ok) {
+        await maybeEmitWarmExpiredFromValidationFailure({
+          validated,
+          source: 'wallet.email_otp.recovery_key.status',
+        });
+        res.status(validated.status).json(validated.body);
+        return;
+      }
+      const clientIp =
+        resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
+      const response = await handleEmailOtpRecoveryKeyStatusRoute({
         body: req?.body,
         claims: validated.claims,
         userId: validated.userId,

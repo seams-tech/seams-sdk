@@ -5,6 +5,7 @@ import { SpinnerIcon } from './icons/SpinnerIcon';
 import { ScanIcon } from './icons/ScanIcon';
 import { LinkIcon } from './icons/LinkIcon';
 import { SlidersIcon } from './icons/SlidersIcon';
+import { RecoveryCodesIcon } from './icons/RecoveryCodesIcon';
 import { SunIcon } from './icons/SunIcon';
 import { MoonIcon } from './icons/MoonIcon';
 import { UserAccountButton } from './UserAccountButton';
@@ -15,6 +16,7 @@ import type { AccountMenuButtonProps, MenuItem } from './types';
 import { PROFILE_MENU_ITEM_IDS } from './types';
 import { QRCodeScanner } from '../QRCodeScanner';
 import { LinkedDevicesModal } from './LinkedDevicesModal';
+import { RecoveryCodesModal } from './RecoveryCodesModal';
 import { ExportKeyTypeModal } from './ExportKeyTypeModal';
 import './Web3AuthProfileButton.css';
 import { Theme, useTheme } from '../theme';
@@ -116,6 +118,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   // Local state for modals/expanded sections
   const [showQRScanner, setShowQRScanner] = useState(false);
   const [showLinkedDevices, setShowLinkedDevices] = useState(false);
+  const [showRecoveryCodes, setShowRecoveryCodes] = useState(false);
   const [showExportKeyTypeModal, setShowExportKeyTypeModal] = useState(false);
   const [transactionSettingsOpen, setTransactionSettingsOpen] = useState(false);
   const [currentConfirmConfig, setCurrentConfirmConfig] = useState<any>(null);
@@ -283,6 +286,15 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         keepOpenOnClick: true,
       },
       {
+        id: PROFILE_MENU_ITEM_IDS.RECOVERY_CODES,
+        icon: <RecoveryCodesIcon />,
+        label: 'Recovery Codes',
+        description: 'Email OTP backup codes',
+        disabled: !loginState.isLoggedIn,
+        onClick: () => setShowRecoveryCodes(true),
+        keepOpenOnClick: true,
+      },
+      {
         id: PROFILE_MENU_ITEM_IDS.SCAN_LINK_DEVICE,
         icon: <ScanIcon />,
         label: 'Scan and Link Device',
@@ -427,6 +439,17 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
             nearAccountId={nearAccountId!}
             isOpen={showLinkedDevices}
             onClose={() => setShowLinkedDevices(false)}
+          />,
+          portalHost!,
+        )}
+
+      {/* Recovery Codes Modal (portaled to the resolved root so it stays inside shadow-hosted surfaces) */}
+      {canPortal &&
+        createPortal(
+          <RecoveryCodesModal
+            nearAccountId={nearAccountId!}
+            isOpen={showRecoveryCodes}
+            onClose={() => setShowRecoveryCodes(false)}
           />,
           portalHost!,
         )}
