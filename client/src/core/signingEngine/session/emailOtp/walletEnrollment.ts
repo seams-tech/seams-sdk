@@ -1,4 +1,4 @@
-import type { EmailOtpEnrollmentResult } from '@/core/SeamsPasskey/emailOtp';
+import type { EmailOtpEnrollmentResult } from '@/web/SeamsWeb/emailOtp';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
   EmailOtpEcdsaSessionBootstrapHandleBinding,

@@ -35,7 +35,7 @@ function thresholdEcdsaSessionJwt(args: {
 
 test.describe('UserConfirm worker router', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('routes concurrent responses by request id with one long-lived listener', async ({

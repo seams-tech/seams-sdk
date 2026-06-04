@@ -1,4 +1,11 @@
-import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
+import type {
+  EvmFamilyWalletSignerStorePort,
+} from '../flows/signEvmFamily/accountAuth';
+import type {
+  EvmFamilyPasskeyAuthenticatorStorePort,
+} from './passkeyAuthenticatorStore';
+import type { RecoveryNearKeyMaterialStorePort } from '../flows/recovery/recoveryStorePorts';
+import type { RegistrationAccountStorePort } from '../flows/registration/registrationStorePorts';
 import type { AccountId } from '@/core/types/accountIds';
 import type {
   ExportPrivateKeysWithUiWorkerPayload,
@@ -156,8 +163,9 @@ export type EvmFamilyEcdsaSessionReaderDeps = {
 };
 
 export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps & {
-  indexedDB: UnifiedIndexedDBManager;
-  seamsPasskeyConfigs: SeamsConfigsReadonly;
+  walletSignerStore: EvmFamilyWalletSignerStorePort;
+  passkeyAuthenticatorStore: EvmFamilyPasskeyAuthenticatorStorePort;
+  seamsWebConfigs: SeamsConfigsReadonly;
   nonceCoordinator: NonceCoordinator;
   ensureSealedRefreshStartupParity: () => Promise<void>;
   getSignerWorkerContext: () => SignerWorkerManagerContext;
@@ -214,7 +222,7 @@ export type EvmFamilySigningDeps = EvmFamilyEcdsaSessionReaderDeps & {
 };
 
 export type PrivateKeyExportRecoveryDeps = {
-  indexedDB: UnifiedIndexedDBManager;
+  keyMaterialStore: RecoveryNearKeyMaterialStorePort;
   relayerUrl: string;
   getRpId: () => string | null;
   requestExportPrivateKeysWithUi?: (
@@ -224,7 +232,7 @@ export type PrivateKeyExportRecoveryDeps = {
 };
 
 export type RegistrationAccountLifecycleDeps = {
-  indexedDB: UnifiedIndexedDBManager;
+  accountStore: RegistrationAccountStorePort;
   userPreferencesManager: Pick<UserPreferencesManager, 'setCurrentWallet' | 'reloadUserSettings'>;
   nonceCoordinator: Pick<NonceCoordinator, 'initializeNearAccessKey' | 'prefetchNearContext'>;
   extractCosePublicKey: (attestationObjectBase64url: string) => Promise<Uint8Array>;

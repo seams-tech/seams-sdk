@@ -1,4 +1,5 @@
 import { isObject } from '@shared/utils/validation';
+import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
 import type { AccountId } from '../../../types/accountIds';
 import {
   thresholdEcdsaChainTargetFromRequest,
@@ -143,14 +144,14 @@ function parseProfileContinuityEvmFamilyEcdsaWalletKey(args: {
 export function parseProfileContinuityEcdsaWarmKey(args: {
   nearAccountId: AccountId;
   configuredTargets: readonly ThresholdEcdsaChainTarget[];
-  signer: unknown;
+  signer: AccountSignerRecord;
 }): ProfileContinuityEcdsaWarmKeyParseResult {
-  const signer = isObject(args.signer) ? args.signer : {};
-  if (signer.status && signer.status !== 'active') return { kind: 'skipped' };
-  if (signer.signerKind && signer.signerKind !== SIGNER_KINDS.thresholdEcdsa) {
+  const signer = args.signer;
+  if (signer.status !== 'active') return { kind: 'skipped' };
+  if (signer.signerKind !== SIGNER_KINDS.thresholdEcdsa) {
     return { kind: 'skipped' };
   }
-  if (signer.signerAuthMethod && signer.signerAuthMethod !== SIGNER_AUTH_METHODS.passkey) {
+  if (signer.signerAuthMethod !== SIGNER_AUTH_METHODS.passkey) {
     return { kind: 'skipped' };
   }
   const metadata = isObject(signer.metadata) ? signer.metadata : {};

@@ -7,7 +7,7 @@ const IMPORT_PATHS = {
 
 test.describe('signer mutation saga pending behavior', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('confirms undeployed add-signer operations without activating the signer locally', async ({

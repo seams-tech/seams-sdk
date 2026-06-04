@@ -17,7 +17,7 @@ import {
   isThresholdSignerMissingKeyError,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import type { SigningRuntimeDeps } from '../../interfaces/runtime';
+import type { NearSigningRuntimeDeps } from '../../interfaces/runtime';
 import { executeWorkerOperation } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { computeThresholdEd25519Nep413SigningDigestWasm } from '../../chains/near/nearSignerWasm';
 import {
@@ -69,7 +69,7 @@ export async function signNep413Message({
   nearAccount,
   payload,
 }: {
-  ctx: SigningRuntimeDeps;
+  ctx: NearSigningRuntimeDeps;
   nearAccount: NearAccountRef;
   payload: {
     message: string;

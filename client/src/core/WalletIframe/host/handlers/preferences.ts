@@ -5,7 +5,7 @@ import { respondOk, respondOkResult } from './shared';
 export function createPreferencesWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
   return {
     PM_SET_CONFIRM_BEHAVIOR: async (req: Req<'PM_SET_CONFIRM_BEHAVIOR'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const { behavior, walletId } = req.payload!;
       if (walletId) {
         pm.preferences.setCurrentWallet(toWalletId(walletId));
@@ -15,7 +15,7 @@ export function createPreferencesWalletIframeHandlers(deps: HandlerDeps): Handle
     },
 
     PM_SET_CONFIRMATION_CONFIG: async (req: Req<'PM_SET_CONFIRMATION_CONFIG'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const { walletId } = req.payload || {};
       const incoming = (req.payload?.config || {}) as Record<string, unknown>;
       let patch: Record<string, unknown> = { ...incoming };
@@ -38,13 +38,13 @@ export function createPreferencesWalletIframeHandlers(deps: HandlerDeps): Handle
     },
 
     PM_GET_CONFIRMATION_CONFIG: async (req: Req<'PM_GET_CONFIRMATION_CONFIG'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const result = pm.getConfirmationConfig();
       respondOkResult(deps, req.requestId, result);
     },
 
     PM_SET_THEME: async (req: Req<'PM_SET_THEME'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const { theme } = req.payload!;
       try {
         pm.setTheme(theme);

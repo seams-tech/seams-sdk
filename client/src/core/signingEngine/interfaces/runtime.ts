@@ -1,4 +1,6 @@
-import type { UnifiedIndexedDBManager } from '../../indexedDB';
+import type { AccountKeyMaterialStorePort } from '@/core/indexedDB/accountKeyMaterial';
+import type { LastProfileState } from '@/core/indexedDB/passkeyClientDB.types';
+import type { ProfileAccountContextPort } from '@/core/indexedDB/profileAccountProjection';
 import type { NearClient } from '../../rpcClients/near/NearClient';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type { UiConfirmSigningSessionPort } from '../uiConfirm/types';
@@ -12,14 +14,19 @@ import type {
   SignerWorkerOperationType,
 } from '../workerManager/workerTypes';
 
+export type NearSigningKeyMaterialStorePort = ProfileAccountContextPort &
+  AccountKeyMaterialStorePort & {
+    getLastProfileState: () => Promise<LastProfileState | null>;
+  };
+
 /**
- * Runtime dependencies required by chain adapters/handlers.
+ * Dependencies required by NEAR signing adapters and handlers.
  * Keeps chain signing logic decoupled from SignerWorkerManager internals.
  */
-export interface SigningRuntimeDeps {
+export interface NearSigningRuntimeDeps {
   touchIdPrompt: TouchIdPrompt;
   nearClient: NearClient;
-  indexedDB: UnifiedIndexedDBManager;
+  nearKeyMaterialStore: NearSigningKeyMaterialStorePort;
   userPreferencesManager: UserPreferencesManager;
   nonceCoordinator: NonceCoordinator;
   chains?: readonly SeamsChainConfig[];

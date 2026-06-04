@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { ActionType } from '@/core/types/actions';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
-import { WorkerResponseType } from '@/core/types/signer-worker';
+import { NearSignerWorkerCustomRequestType, WorkerResponseType } from '@/core/types/signer-worker';
 import { signTransactionsWithActions } from '@/core/signingEngine/flows/signNear/signNear';
 import {
   createNearSigningSessionCoordinator,
@@ -280,7 +280,7 @@ test.describe('near signing session selection', () => {
           createSigningSessionId: () => 'unexpected-generated-session',
           getSignerWorkerContext: () =>
             ({
-              indexedDB: createNearTestIndexedDB({
+              nearKeyMaterialStore: createNearTestIndexedDB({
                 profileId: 'profile-alice',
                 nearAccountId: 'alice.testnet',
                 relayerUrl: 'https://relay.example.test',
@@ -450,7 +450,7 @@ test.describe('near signing session selection', () => {
           }),
           getSignerWorkerContext: () =>
             ({
-              indexedDB: createNearTestIndexedDB({
+              nearKeyMaterialStore: createNearTestIndexedDB({
                 profileId: 'profile-prepared-warm',
                 nearAccountId,
                 relayerUrl,
@@ -631,9 +631,9 @@ test.describe('near signing session selection', () => {
           },
           loginWithEmailOtpEd25519CapabilityForSigning: async ({ otpCode }) => {
             order.push(`complete:${otpCode}`);
-            persistWarmSessionEd25519Capability({
-        kind: 'jwt_email_otp',
-        sessionKind: 'jwt',
+            const record = persistWarmSessionEd25519Capability({
+              kind: 'jwt_email_otp',
+              sessionKind: 'jwt',
               nearAccountId,
               rpId,
               relayerUrl,
@@ -659,12 +659,12 @@ test.describe('near signing session selection', () => {
                 authMethod: 'email_otp',
               },
             });
-            return { sessionId: refreshedSessionId };
+            return { sessionId: refreshedSessionId, record };
           },
           createSigningSessionId: () => 'unexpected-generated-session',
           getSignerWorkerContext: () =>
             ({
-              indexedDB: createNearTestIndexedDB({
+              nearKeyMaterialStore: createNearTestIndexedDB({
                 profileId: 'profile-otp-confirmation-order',
                 nearAccountId,
                 relayerUrl,
@@ -712,9 +712,22 @@ test.describe('near signing session selection', () => {
               requestWorkerOperation: async ({ request }: any) => {
                 order.push('worker');
                 workerSessionId = String(request?.sessionId || '').trim();
-                expect(String(request?.payload?.threshold?.thresholdSessionAuthToken || '')).toBe(
-                  'otp-confirmation-order-refreshed-jwt',
-                );
+                if (
+                  request?.type === NearSignerWorkerCustomRequestType.ThresholdEd25519BuildNearTxUnsignedBorsh
+                ) {
+                  const txSigningRequests = Array.isArray(request.payload?.txSigningRequests)
+                    ? request.payload.txSigningRequests
+                    : [{}];
+                  return txSigningRequests.map((_tx: unknown, index: number) => ({
+                    unsignedTransactionBorshB64u: `otp-confirmation-order-unsigned-${index + 1}`,
+                    signingDigestB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+                  }));
+                }
+                if (request?.payload?.threshold) {
+                  expect(String(request.payload.threshold.thresholdSessionAuthToken || '')).toBe(
+                    'otp-confirmation-order-refreshed-jwt',
+                  );
+                }
                 return {
                   type: WorkerResponseType.SignTransactionsWithActionsSuccess,
                   payload: {
@@ -924,7 +937,7 @@ test.describe('near signing session selection', () => {
           createSigningSessionId: () => 'unexpected-generated-session',
           getSignerWorkerContext: () =>
             ({
-              indexedDB: createNearTestIndexedDB({
+              nearKeyMaterialStore: createNearTestIndexedDB({
                 profileId: 'profile-otp-missing-runtime',
                 nearAccountId,
                 relayerUrl,
@@ -1137,7 +1150,7 @@ test.describe('near signing session selection', () => {
           },
           getSignerWorkerContext: () =>
             ({
-              indexedDB: createNearTestIndexedDB({
+              nearKeyMaterialStore: createNearTestIndexedDB({
                 profileId: 'profile-durable-ed25519-valid-budget',
                 nearAccountId,
                 relayerUrl,
@@ -1387,7 +1400,7 @@ test.describe('near signing session selection', () => {
           },
           getSignerWorkerContext: () =>
             ({
-              indexedDB: createNearTestIndexedDB({
+              nearKeyMaterialStore: createNearTestIndexedDB({
                 profileId: 'profile-passkey-stale-runtime-restorable',
                 nearAccountId,
                 relayerUrl,
@@ -1617,7 +1630,7 @@ test.describe('near signing session selection', () => {
           createSigningSessionId: () => 'unexpected-generated-session',
           getSignerWorkerContext: () =>
             ({
-              indexedDB: createNearTestIndexedDB({
+              nearKeyMaterialStore: createNearTestIndexedDB({
                 profileId: 'profile-otp-runtime-candidate-selection',
                 nearAccountId,
                 relayerUrl,
@@ -1794,7 +1807,7 @@ test.describe('near signing session selection', () => {
             }),
             getSignerWorkerContext: () =>
             ({
-              indexedDB: createNearTestIndexedDB({
+              nearKeyMaterialStore: createNearTestIndexedDB({
                 profileId: 'profile-otp-runtime-candidate-missing',
                 nearAccountId,
                 relayerUrl,
@@ -1990,7 +2003,7 @@ test.describe('near signing session selection', () => {
           createSigningSessionId: () => 'unexpected-generated-session',
           getSignerWorkerContext: () =>
             ({
-              indexedDB: createNearTestIndexedDB({
+              nearKeyMaterialStore: createNearTestIndexedDB({
                 profileId: 'profile-otp-post-confirm-retry',
                 nearAccountId,
                 relayerUrl,

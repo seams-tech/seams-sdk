@@ -7,7 +7,7 @@ const IMPORT_PATHS = {
 
 test.describe('useAccountInput refresh prefill behavior', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('refreshAccountData does not repopulate input after explicit clear', async ({ page }) => {

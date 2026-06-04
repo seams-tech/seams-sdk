@@ -503,7 +503,7 @@ export async function handleTransactionSigningFlow(
         : {}),
     });
     const serializedCredential = await collectAuthenticationCredentialForChallengeB64u({
-      indexedDB: ctx.indexedDB,
+      credentialStore: ctx.webauthnCredentialStore,
       touchIdPrompt: ctx.touchIdPrompt,
       nearAccountId,
       challengeB64u,
@@ -750,7 +750,7 @@ export async function handleIntentDigestSigningFlow(
     });
 
     const serializedCredential = await collectAuthenticationCredentialForChallengeB64u({
-      indexedDB: ctx.indexedDB,
+      credentialStore: ctx.webauthnCredentialStore,
       touchIdPrompt: ctx.touchIdPrompt,
       nearAccountId,
       challengeB64u,

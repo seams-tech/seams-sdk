@@ -82,7 +82,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
     const appSessionJwt = jwtWithPayload({ kind: 'app_session_v1', sub: 'alice.testnet' });
 
     const result = await bootstrapEcdsaSession({
-      indexedDB: {} as any,
+      credentialStore: {} as any,
       touchIdPrompt: {
         getRpId: () => 'wallet.example.test',
       } as any,
@@ -139,7 +139,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
 
     try {
       await bootstrapEcdsaSession({
-        indexedDB: {} as any,
+        credentialStore: {} as any,
         touchIdPrompt: {
           getRpId: () => 'wallet.example.test',
         } as any,

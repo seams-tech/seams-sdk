@@ -44,7 +44,7 @@ function normalizeSignedTransaction(
 export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
   return {
     PM_REGISTER: async (req: Req<'PM_REGISTER'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const { nearAccountId, options, confirmationConfig } = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
 
@@ -66,7 +66,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_REGISTER_WALLET: async (req: Req<'PM_REGISTER_WALLET'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const payload = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
       const hooksOptions = withProgress(
@@ -89,7 +89,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_ADD_WALLET_SIGNER: async (req: Req<'PM_ADD_WALLET_SIGNER'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const payload = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
       const hooksOptions = withProgress(
@@ -111,13 +111,13 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_PREFETCH_BLOCKHEIGHT: async (req: Req<'PM_PREFETCH_BLOCKHEIGHT'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       await pm.prefetchBlockheight().catch(() => undefined);
       respondOk(deps, req.requestId);
     },
 
     PM_SIGN_TXS_WITH_ACTIONS: async (req: Req<'PM_SIGN_TXS_WITH_ACTIONS'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const { nearAccountId, transactions, options } = req.payload!;
       const results = await pm.near.signTransactionsWithActions({
         nearAccount: nearAccountRefFromAccountId(nearAccountId),
@@ -132,7 +132,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_SIGN_AND_SEND_TXS: async (req: Req<'PM_SIGN_AND_SEND_TXS'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const { nearAccountId, transactions, options } = req.payload || {};
       const results = await pm.near.signAndSendTransactions({
         nearAccount: nearAccountRefFromAccountId(nearAccountId),
@@ -147,7 +147,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_SEND_TRANSACTION: async (req: Req<'PM_SEND_TRANSACTION'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const { signedTransaction, options } = req.payload || {};
       const result = await pm.near.sendTransaction({
         signedTransaction: normalizeSignedTransaction(signedTransaction) as SignedTransaction,
@@ -161,7 +161,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_EXECUTE_ACTION: async (req: Req<'PM_EXECUTE_ACTION'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const { nearAccountId, receiverId, actionArgs, options } =
         req.payload || ({} as Partial<PMExecuteActionPayload>);
       const result = await pm.near.executeAction({
@@ -177,7 +177,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_SIGN_DELEGATE_ACTION: async (req: Req<'PM_SIGN_DELEGATE_ACTION'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const { nearAccountId, delegate, options } = req.payload!;
       const result = await pm.near.signDelegateAction({
         nearAccount: nearAccountRefFromAccountId(nearAccountId),
@@ -191,7 +191,7 @@ export function createNearWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_SIGN_NEP413: async (req: Req<'PM_SIGN_NEP413'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const { nearAccountId, params, options } = req.payload!;
       const result = await pm.near.signNEP413Message({
         nearAccount: nearAccountRefFromAccountId(nearAccountId),

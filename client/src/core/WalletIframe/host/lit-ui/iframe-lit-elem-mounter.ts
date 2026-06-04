@@ -7,15 +7,15 @@
  *
  * Key Responsibilities:
  * - Component Mounting: Creates and mounts Lit UI components on demand
- * - Event Wiring: Connects UI interactions to SeamsPasskey methods
+ * - Event Wiring: Connects UI interactions to SeamsWeb methods
  * - Lifecycle Management: Handles mount/unmount/update operations
  * - Message API: Exposes window.postMessage interface for parent communication
  * - Component Registry: Uses declarative registry for component definitions
- * - SeamsPasskey Integration: Wires UI actions to actual wallet operations
+ * - SeamsWeb Integration: Wires UI actions to actual wallet operations
  *
  * Architecture:
  * - Maintains mounted component instances by ID
- * - Provides typed prop/event bindings for SeamsPasskey actions
+ * - Provides typed prop/event bindings for SeamsWeb actions
  * - Handles both direct component mounting and registry-based mounting
  *
  * Message Protocol:
@@ -25,7 +25,7 @@
  * - WALLET_UI_REGISTER_TYPES: Register new component types
  */
 
-import type { SeamsPasskey } from '@/core/SeamsPasskey';
+import type { SeamsWeb } from '@/web/SeamsWeb';
 import { type SeamsConfigsInput } from '@/core/types';
 import {
   uiBuiltinRegistry,
@@ -51,8 +51,8 @@ import type {
   UiActionArgs,
 } from './uiActionRuntime';
 
-export type EnsureSeamsPasskey = () => void;
-export type GetPasskeyManager = () => SeamsPasskey | null;
+export type EnsureSeamsWeb = () => void;
+export type GetSeamsWeb = () => SeamsWeb | null;
 export type UpdateWalletConfigs = (patch: Partial<SeamsConfigsInput>) => void;
 
 type UiProps = Record<string, StructuredValue>;
@@ -108,8 +108,8 @@ type MountedEntry = {
 };
 
 type SetupLitElemMounterOptions = {
-  ensureSeamsPasskey: EnsureSeamsPasskey;
-  getSeamsPasskey: GetPasskeyManager;
+  ensureSeamsWeb: EnsureSeamsWeb;
+  getSeamsWeb: GetSeamsWeb;
   updateWalletConfigs: UpdateWalletConfigs;
   postToParent: (message: WalletUiOutboundMessage) => void;
 };
@@ -276,7 +276,7 @@ const mountAnchored = (
 };
 
 export function setupLitElemMounter(opts: SetupLitElemMounterOptions) {
-  const { ensureSeamsPasskey, getSeamsPasskey, updateWalletConfigs } = opts;
+  const { ensureSeamsWeb, getSeamsWeb, updateWalletConfigs } = opts;
 
   // Generic registry for mountable components
   let uiRegistry: WalletUIRegistry = { ...uiBuiltinRegistry };
@@ -291,8 +291,8 @@ export function setupLitElemMounter(opts: SetupLitElemMounterOptions) {
     action: T,
     args: PmActionArgsMap[T],
   ): Promise<PmActionResultMap[T]> => {
-    ensureSeamsPasskey();
-    const pm = getSeamsPasskey();
+    ensureSeamsWeb();
+    const pm = getSeamsWeb();
     if (!pm) {
       throw new Error('Passkey manager not initialized');
     }

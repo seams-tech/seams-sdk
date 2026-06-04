@@ -55,7 +55,7 @@ function selectionDb(args: {
 test('step-up prompt resolves the canonical wallet passkey from the active account signer', async () => {
   let capturedAllowCredentials: WebAuthnAllowCredential[] | undefined;
   const credential = await collectAuthenticationCredentialForChallengeB64u({
-    indexedDB: selectionDb({
+    credentialStore: selectionDb({
       nearAuthenticators: [
         { credentialId: 'wrong-near-profile-credential', signerSlot: 1, transports: [] },
       ],
@@ -94,7 +94,7 @@ test('step-up prompt resolves the canonical wallet passkey from the active accou
 test('wallet challenge prompt uses canonical wallet passkey directly', async () => {
   let capturedAllowCredentials: WebAuthnAllowCredential[] | undefined;
   await collectAuthenticationCredentialForWalletChallengeB64u({
-    indexedDB: selectionDb({
+    credentialStore: selectionDb({
       walletAuthenticators: [
         { credentialId: 'cred-old', signerSlot: 1, transports: [] },
         { credentialId: 'cred-current', signerSlot: 2, transports: ['internal'] },
@@ -130,7 +130,7 @@ test('wallet challenge prompt uses canonical wallet passkey directly', async () 
 test('step-up prompt fails closed when no passkey can be resolved', async () => {
   await expect(
     collectAuthenticationCredentialForChallengeB64u({
-      indexedDB: selectionDb({ nearAuthenticators: [], walletAuthenticators: [] }),
+      credentialStore: selectionDb({ nearAuthenticators: [], walletAuthenticators: [] }),
       touchIdPrompt: {
         getAuthenticationCredentialsSerializedForChallengeB64u: async () => {
           throw new Error('should not prompt');

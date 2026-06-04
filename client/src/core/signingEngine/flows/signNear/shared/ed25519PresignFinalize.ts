@@ -20,7 +20,7 @@ import {
   signThresholdEd25519ClientPresignWasm,
 } from '@/core/signingEngine/chains/near/nearSignerWasm';
 import type { TransactionContext } from '@/core/types/rpc';
-import type { SigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
+import type { NearSigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
   applyThresholdEd25519PresignRefillResult,
@@ -122,12 +122,12 @@ function digestB64uToHex(signingDigestB64u: string): string {
     .join('');
 }
 
-function normalizeNearNetworkId(ctx: SigningRuntimeDeps): 'testnet' | 'mainnet' {
+function normalizeNearNetworkId(ctx: NearSigningRuntimeDeps): 'testnet' | 'mainnet' {
   return resolveNearNetwork(ctx.chains || PASSKEY_MANAGER_DEFAULT_CONFIGS.network.chains);
 }
 
 export async function refillThresholdEd25519ClientPresignPool(args: {
-  ctx: SigningRuntimeDeps;
+  ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
   thresholdSessionState: ResolvedThresholdEd25519SessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
@@ -215,7 +215,7 @@ export async function refillThresholdEd25519ClientPresignPool(args: {
 }
 
 function scheduleThresholdEd25519ClientPresignPoolRefillInBackground(args: {
-  ctx: SigningRuntimeDeps;
+  ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
   thresholdSessionState: ResolvedThresholdEd25519SessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
@@ -231,7 +231,7 @@ function scheduleThresholdEd25519ClientPresignPoolRefillInBackground(args: {
 }
 
 async function createThresholdEd25519PresignOffers(args: {
-  ctx: SigningRuntimeDeps;
+  ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   xClientBaseB64u: string;
@@ -245,7 +245,7 @@ async function createThresholdEd25519PresignOffers(args: {
 }
 
 async function createThresholdEd25519PresignOffer(args: {
-  ctx: SigningRuntimeDeps;
+  ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   xClientBaseB64u: string;
@@ -286,7 +286,7 @@ function createClientPresignId(): string {
 }
 
 async function burnThresholdEd25519PresignOffers(
-  ctx: SigningRuntimeDeps,
+  ctx: NearSigningRuntimeDeps,
   thresholdSessionId: string,
   offers: readonly ThresholdEd25519ClientPresignWorkerOffer[],
 ): Promise<void> {
@@ -302,7 +302,7 @@ async function burnThresholdEd25519PresignOffers(
 }
 
 export async function tryFinalizeThresholdEd25519SignatureOnlyPresign(args: {
-  ctx: SigningRuntimeDeps;
+  ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
   thresholdSessionState: ResolvedThresholdEd25519SessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
@@ -404,7 +404,7 @@ export async function tryFinalizeThresholdEd25519SignatureOnlyPresign(args: {
 }
 
 export async function finalizeThresholdEd25519DelegatePresignResult(args: {
-  ctx: SigningRuntimeDeps;
+  ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
   delegate: DelegatePayload;
   signingDigestB64u: string;
@@ -425,7 +425,7 @@ export async function finalizeThresholdEd25519DelegatePresignResult(args: {
 }
 
 export async function tryFinalizeThresholdEd25519NearTransactionPresign(args: {
-  ctx: SigningRuntimeDeps;
+  ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
   thresholdSessionState: ResolvedThresholdEd25519SessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;

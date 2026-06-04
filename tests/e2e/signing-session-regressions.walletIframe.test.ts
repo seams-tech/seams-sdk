@@ -36,14 +36,14 @@ async function setupPasskeyEvmSigningSession(
   const setupPromise = page.evaluate(
     async ({ relayerUrl, accountId, remainingUses, keyVersion, shamirPrimeB64u }) => {
       try {
-        const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
-        const { SeamsPasskey } = sdkMod as any;
+        const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+        const { SeamsWeb } = sdkMod as any;
         const confirmationConfig = {
           uiMode: 'none' as const,
           behavior: 'skipClick' as const,
           autoProceedDelay: 0,
         };
-        const seams = new SeamsPasskey({
+        const seams = new SeamsWeb({
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayerAccount: 'web3-authn-v4.testnet',
@@ -176,8 +176,8 @@ async function runPasskeyEvmSign(
       let readSealedRecordSummaries = async (): Promise<Array<Record<string, unknown>>> => [];
       let readRuntimeDiagnostics = async (): Promise<Record<string, unknown>> => ({});
       try {
-        const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
-        const { SeamsPasskey } = sdkMod as any;
+        const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+        const { SeamsWeb } = sdkMod as any;
         const confirmationConfig = {
           uiMode: 'none' as const,
           behavior: 'skipClick' as const,
@@ -185,7 +185,7 @@ async function runPasskeyEvmSign(
         };
         const seams =
           (globalThis as any)[globalKey] ||
-          new SeamsPasskey({
+          new SeamsWeb({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
             relayerAccount: 'web3-authn-v4.testnet',

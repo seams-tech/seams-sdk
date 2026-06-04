@@ -4,12 +4,12 @@ import type {
   RegistrationHooksOptions,
   ActionHooksOptions,
   SignNEP413HooksOptions,
-  SeamsPasskey,
+  SeamsWeb,
   SeamsConfigsInput,
   SignNEP413MessageParams,
   SignNEP413MessageResult,
   RegistrationCapability,
-} from '../core/SeamsPasskey';
+} from '../web/SeamsWeb';
 import type { ThemeName, WalletAuthMethod } from '../core/types/seams';
 import { TransactionInput } from '../core/types/actions';
 import type { ConfirmationConfig, ConfirmationBehavior } from '../core/types/signer-worker';
@@ -123,8 +123,8 @@ export type SDKFlowRuntime = SDKFlowState & {
 };
 
 export interface SeamsContextType {
-  // Core SeamsPasskey instance - provides all user-facing functionality
-  seams: SeamsPasskey;
+  // Core SeamsWeb instance - provides all user-facing functionality
+  seams: SeamsWeb;
 
   /**
    * SDK progress state for the most recent flow (login/registration).
@@ -134,7 +134,7 @@ export interface SeamsContextType {
   sdkFlow: SDKFlowRuntime;
 
   ////////////////////////////
-  // SeamsPasskey functions
+  // SeamsWeb functions
   ////////////////////////////
 
   // Registration and wallet unlock functions

@@ -6,7 +6,7 @@ import { respondOk, respondOkResult, withProgress } from './shared';
 export function createAuthWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
   return {
     PM_UNLOCK: async (req: Req<'PM_UNLOCK'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const { nearAccountId, options } = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
       const result = await pm.auth.unlock(
@@ -18,19 +18,19 @@ export function createAuthWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
     },
 
     PM_LOCK: async (req: Req<'PM_LOCK'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       await pm.auth.lock();
       respondOk(deps, req.requestId);
     },
 
     PM_GET_WALLET_SESSION: async (req: Req<'PM_GET_WALLET_SESSION'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const result: WalletSession = await pm.auth.getWalletSession(req.payload?.walletId);
       respondOkResult(deps, req.requestId, result);
     },
 
     PM_GET_RECENT_UNLOCKS: async (req: Req<'PM_GET_RECENT_UNLOCKS'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const result = await pm.auth.getRecentUnlocks();
       respondOkResult(deps, req.requestId, result);
     },

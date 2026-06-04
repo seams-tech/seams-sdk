@@ -86,7 +86,7 @@ export interface SigningPrefetchCapability {
 Expose it as:
 
 ```ts
-const seams = new SeamsPasskey(config);
+const seams = new SeamsWeb(config);
 
 await seams.signing.preconnectThresholdSigning();
 
@@ -313,9 +313,9 @@ file ownership and detailed implementation notes.
 Files:
 
 - `client/src/react/hooks/usePreconnectWalletAssets.ts`
-- `client/src/core/SeamsPasskey/authSessions.ts`
-- `client/src/core/SeamsPasskey/interfaces.ts`
-- `client/src/core/SeamsPasskey/index.ts`
+- `client/src/web/SeamsWeb/authSessions.ts`
+- `client/src/web/SeamsWeb/interfaces.ts`
+- `client/src/web/SeamsWeb/index.ts`
 
 Tasks:
 
@@ -369,8 +369,8 @@ Tasks:
 
 Files:
 
-- `client/src/core/SeamsPasskey/interfaces.ts`
-- `client/src/core/SeamsPasskey/index.ts`
+- `client/src/web/SeamsWeb/interfaces.ts`
+- `client/src/web/SeamsWeb/index.ts`
 - `client/src/index.ts`
 - `client/src/react/index.ts`
 - `client/src/core/WalletIframe/shared/messages.ts`
@@ -411,8 +411,8 @@ Files:
 - `client/src/core/signingEngine/api/evmSigning.ts`
 - `client/src/core/signingEngine/api/tempoSigning.ts`
 - `client/src/core/signingEngine/orchestration/walletOrigin/thresholdEcdsaCoordinator.ts`
-- `client/src/core/SeamsPasskey/tempo/index.ts`
-- `client/src/core/SeamsPasskey/evm/index.ts`
+- `client/src/web/SeamsWeb/tempo/index.ts`
+- `client/src/web/SeamsWeb/evm/index.ts`
 
 Tasks:
 

@@ -3,7 +3,7 @@ import { setupBasicPasskeyTest } from '../setup';
 import { buildWalletServiceHtml, registerWalletServiceRoute, captureOverlay } from './harness';
 
 const IMPORT_PATHS = {
-  provider: '/sdk/esm/react/context/SeamsPasskeyProvider.js',
+  provider: '/sdk/esm/react/context/SeamsWebProvider.js',
   passkeyAuthMenu: '/sdk/esm/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js',
 } as const;
 
@@ -94,7 +94,7 @@ const qrFlowResponseScript = String.raw`
 
 test.describe('PasskeyAuthMenu QR button overlay regression', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     await registerWalletServiceRoute(
       page,
       buildWalletServiceHtml({ extraScript: qrFlowResponseScript }),
@@ -128,7 +128,7 @@ test.describe('PasskeyAuthMenu QR button overlay regression', () => {
 
         const providerMod: any = await import(paths.provider);
         const menuMod: any = await import(paths.passkeyAuthMenu);
-        const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
+        const Provider = providerMod.SeamsWebProvider || providerMod.default;
         const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
         const AuthMenuMode = menuMod.AuthMenuMode;
 

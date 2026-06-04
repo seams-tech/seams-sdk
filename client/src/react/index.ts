@@ -4,31 +4,31 @@
  * This package provides React components and hooks for integrating Web3Authn Passkey
  * functionality into React applications.
  *
- * **Important:** All React components and hooks must be used inside a SeamsPasskey context.
- * Wrap your app with SeamsPasskeyProvider to provide the required context.
+ * **Important:** All React components and hooks must be used inside a SeamsWeb context.
+ * Wrap your app with SeamsWebProvider to provide the required context.
  *
  * @example
  * ```tsx
- * import { SeamsPasskeyProvider, QRCodeScanner, AccountMenuButton } from '@seams/sdk/react';
+ * import { SeamsWebProvider, QRCodeScanner, AccountMenuButton } from '@seams/sdk/react';
  *
  * function App() {
  *   return (
- *     <SeamsPasskeyProvider configs={passkeyConfigs}>
+ *     <SeamsWebProvider configs={passkeyConfigs}>
  *       <div>
  *         <QRCodeScanner onDeviceLinked={(result) => console.log(result)} />
  *         <AccountMenuButton username="alice" onLock={() => console.log('wallet locked')} />
  *       </div>
- *     </SeamsPasskeyProvider>
+ *     </SeamsWebProvider>
  *   );
  * }
  * ```
  */
 
 export { SeamsContextProvider, useSeams } from './context';
-export { SeamsPasskeyProvider } from './context/SeamsPasskeyProvider';
+export { SeamsWebProvider } from './context/SeamsWebProvider';
 
 // === RE-EXPORT CORE TYPES ===
-export { SeamsPasskey } from '../core/SeamsPasskey';
+export { SeamsWeb } from '../web/SeamsWeb';
 export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../core/config/defaultConfigs';
 export type {
   EmailOtpAuthPolicy,
@@ -71,7 +71,7 @@ export type {
   LoginState,
   LoginResult,
   RegistrationResult,
-  // Re-exported from SeamsPasskey types
+  // Re-exported from SeamsWeb types
   RegistrationHooksOptions,
   LoginHooksOptions,
   SignNEP413HooksOptions,

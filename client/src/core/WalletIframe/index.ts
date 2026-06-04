@@ -5,7 +5,7 @@
  * public APIs and types that developers need to use the iframe-based wallet.
  *
  * Key Exports:
- * - SeamsPasskeyIframe: Main API class for developers
+ * - SeamsWebIframe: Main API class for developers
  * - WalletIframeRouter: Communication layer (for advanced use cases)
  * - Message types: For custom message handling
  * - Environment utilities: For configuration
@@ -20,4 +20,4 @@ export * from './client';
 export * from './sanitization';
 // Note: wallet-iframe-host-runtime is intended to be bundled into the wallet origin page.
 // It should not be imported by the parent SDK bundle.
-export { SeamsPasskeyIframe } from './SeamsPasskeyIframe';
+export { SeamsWebIframe } from './SeamsWebIframe';

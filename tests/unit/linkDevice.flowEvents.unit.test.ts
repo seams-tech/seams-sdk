@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { LinkDeviceFlow } from '@/core/SeamsPasskey/near/linkDevice';
-import { linkDeviceWithScannedQRData } from '@/core/SeamsPasskey/scanDevice';
+import { LinkDeviceFlow } from '@/web/SeamsWeb/near/linkDevice';
+import { linkDeviceWithScannedQRData } from '@/web/SeamsWeb/scanDevice';
 import { LinkDeviceEventPhase } from '@/core/types/sdkSentEvents';
 
 function createDisplayContext() {
@@ -12,11 +12,15 @@ function createDisplayContext() {
         },
       },
     },
-    signingEngine: {
-      generateEphemeralNearKeypair: async () => ({
-        publicKey: 'ed25519:device2-public-key',
-        privateKey: 'device2-private-key',
-      }),
+    signingRuntime: {
+      services: {
+        nearKeyOperations: {
+          generateEphemeralNearKeypair: async () => ({
+            publicKey: 'ed25519:device2-public-key',
+            privateKey: 'device2-private-key',
+          }),
+        },
+      },
     },
   } as any;
 }

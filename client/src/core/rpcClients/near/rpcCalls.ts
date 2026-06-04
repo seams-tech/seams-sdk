@@ -11,7 +11,7 @@
 import type { NearClient } from './NearClient';
 import type { AccountId } from '../../types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
-import type { PasskeyManagerContext } from '../../SeamsPasskey';
+import type { SeamsWebContext } from '@/web/SeamsWeb';
 import type { ConfirmationConfig } from '../../types/signer-worker';
 import type { FinalExecutionOutcome } from '@near-js/types';
 
@@ -481,7 +481,7 @@ export async function executeDeviceLinkingContractCalls({
   confirmationConfigOverride,
   confirmerText,
 }: {
-  context: PasskeyManagerContext;
+  context: SeamsWebContext;
   device1AccountId: AccountId;
   device2PublicKey: string;
   onEvent?: (event: LinkDeviceFlowEvent) => void;
@@ -499,7 +499,7 @@ export async function executeDeviceLinkingContractCalls({
         sessionId: secureRandomId('link-device', 32, 'link device signing session IDs'),
         rpcCall: {
           nearRpcUrl: resolvePrimaryNearRpcUrl(
-            context.signingEngine.seamsPasskeyConfigs.network.chains,
+            context.signingEngine.seamsWebConfigs.network.chains,
           ),
           nearAccountId: device1AccountId,
         },

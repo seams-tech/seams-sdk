@@ -4,7 +4,7 @@ import type {
   ParentToChildType,
   ProgressPayload,
 } from '../../shared/messages';
-import type { SeamsPasskey } from '../../../SeamsPasskey';
+import type { SeamsWeb } from '@/web/SeamsWeb';
 
 export type Req<T extends ParentToChildType> = Extract<ParentToChildEnvelope, { type: T }>;
 
@@ -13,7 +13,7 @@ export type HandlerMap = Partial<{
 }>;
 
 export interface HandlerDeps {
-  getSeamsPasskey(): SeamsPasskey;
+  getSeamsWeb(): SeamsWeb;
   post(msg: ChildToParentEnvelope): void;
   postProgress(requestId: string | undefined, payload: ProgressPayload): void;
   postToParent?(msg: unknown): void;

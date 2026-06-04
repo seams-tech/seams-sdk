@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createRegistrationLifecycleEvent } from '../../client/src/core/SeamsPasskey/registration';
+import { createRegistrationLifecycleEvent } from '../../client/src/web/SeamsWeb/registration';
 import { toAccountId } from '../../client/src/core/types/accountIds';
 import { RegistrationEventPhase } from '../../client/src/core/types/sdkSentEvents';
 

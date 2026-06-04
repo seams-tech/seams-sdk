@@ -1251,11 +1251,11 @@ export interface CreateAccountAndRegisterRequest {
   rp_id: string;
   webauthn_registration: WebAuthnRegistrationCredential;
   /**
-   * Optional expected origin override for strict WebAuthn verification.
+   * Expected origin policy for strict WebAuthn verification.
    *
-   * Routers typically populate this from the request `Origin` header.
+   * Routers populate this from the request `Origin` header.
    */
-  expected_origin?: string;
+  expected_origin: string;
   authenticator_options?: AuthenticatorOptions;
 }
 
@@ -1405,6 +1405,7 @@ export interface ThresholdEd25519SessionRequest {
   sessionPolicy: Ed25519SessionPolicy;
   runtimeEnvironmentId?: string;
   webauthn_authentication?: WebAuthnAuthenticationCredential;
+  expected_origin: string;
   appSessionClaims?: Record<string, unknown>;
   ecdsaSessionClaims?: Record<string, unknown>;
   // Optional: whether to return JWT in JSON or set an HttpOnly cookie

@@ -1,4 +1,4 @@
-import type { ThresholdIndexedDbPort, ThresholdWebAuthnPromptPort } from '../crypto/webauthn';
+import type { ThresholdCredentialStorePort, ThresholdWebAuthnPromptPort } from '../crypto/webauthn';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import { bootstrapEcdsaSession } from './bootstrapSession';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -10,7 +10,7 @@ import type { ThresholdSessionKind } from '../sessionPolicy';
  * - validates that returned `relayerKeyId` matches the requested key id
  */
 export async function connectEcdsaSession(args: {
-  indexedDB: ThresholdIndexedDbPort;
+  credentialStore: ThresholdCredentialStorePort;
   touchIdPrompt: ThresholdWebAuthnPromptPort;
   relayerUrl: string;
   relayerKeyId: string;
@@ -38,7 +38,7 @@ export async function connectEcdsaSession(args: {
   }
 
   const bootstrap = await bootstrapEcdsaSession({
-    indexedDB: args.indexedDB,
+    credentialStore: args.credentialStore,
     touchIdPrompt: args.touchIdPrompt,
     relayerUrl: args.relayerUrl,
     userId: String(args.userId || '').trim(),

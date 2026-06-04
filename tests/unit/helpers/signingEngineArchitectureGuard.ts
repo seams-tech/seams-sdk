@@ -63,6 +63,9 @@ function extractImportSpecifiers(source: string): string[] {
 }
 
 function resolveSigningEngineImport(fromRelativePath: string, specifier: string): string | null {
+  if (specifier === '@/web/SeamsWeb/assembly/BrowserSigningSurface') {
+    return 'client/src/web/SeamsWeb/assembly/BrowserSigningSurface';
+  }
   if (specifier.startsWith('@/core/signingEngine/')) {
     return `client/src/core/signingEngine/${specifier.slice('@/core/signingEngine/'.length)}`;
   }
@@ -73,6 +76,7 @@ function resolveSigningEngineImport(fromRelativePath: string, specifier: string)
 
   const resolved = path.resolve(path.join(repoRoot, path.dirname(fromRelativePath)), specifier);
   const relative = path.relative(repoRoot, resolved).replaceAll(path.sep, '/');
+  if (relative === 'client/src/web/SeamsWeb/assembly/BrowserSigningSurface') return relative;
   if (!relative.startsWith('client/src/core/signingEngine')) return null;
   return relative;
 }

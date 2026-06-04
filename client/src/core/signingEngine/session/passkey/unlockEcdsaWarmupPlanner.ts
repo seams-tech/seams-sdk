@@ -207,12 +207,9 @@ function mapProfileBlockedReason(
 export function parseActiveEcdsaSignerRecordForUnlock(args: {
   walletId: AccountId;
   configuredTargets: readonly ThresholdEcdsaChainTarget[];
-  signer: AccountSignerRecord | Record<string, unknown> | unknown;
+  signer: AccountSignerRecord;
 }): ParsedEcdsaUnlockSignerRecord {
-  const signer =
-    args.signer && typeof args.signer === 'object' && !Array.isArray(args.signer)
-      ? (args.signer as Partial<AccountSignerRecord>)
-      : {};
+  const signer = args.signer;
   const parsed = parseProfileContinuityEcdsaWarmKey({
     nearAccountId: args.walletId,
     configuredTargets: args.configuredTargets,

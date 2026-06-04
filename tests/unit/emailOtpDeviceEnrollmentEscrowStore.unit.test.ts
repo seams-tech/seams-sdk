@@ -7,7 +7,7 @@ const IMPORT_PATHS = {
 
 test.describe('Email OTP device enrollment escrow store', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('persists device-local enc_s(S) records without plaintext S or signing-session fields', async ({

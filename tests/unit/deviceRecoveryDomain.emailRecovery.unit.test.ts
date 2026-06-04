@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { EmailRecoveryDomain } from '@/core/SeamsPasskey/near/emailRecovery';
+import { EmailRecoveryDomain } from '@/web/SeamsWeb/near/emailRecovery';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { EmailRecoveryFlowEventPhase } from '@/core/types/sdkSentEvents';
 
@@ -113,6 +113,56 @@ function createLocalDomain(options?: {
         },
       },
     },
+    signingRuntime: {
+      services: {
+        ecdsaRegistrationBootstrap: {
+          preparePasskeyClientBootstrap: async (input: any) => ({
+            clientBootstrap: {
+              ...input.prepare,
+              clientPublicKey33B64u: 'client-public-key',
+              clientShareRetryCounter: 0,
+              contextBinding32B64u: 'context-binding',
+            },
+          }),
+        },
+        ecdsaWalletRecords: {
+          storeWalletEcdsaSignerRecords: async () => undefined,
+          storeWalletEmailOtpEcdsaSignerRecords: async () => undefined,
+          storeWalletEcdsaRegistrationData: async () => ({ storedSigners: [] }),
+          storeWalletEmailOtpEcdsaRegistrationData: async () => ({ storedSigners: [] }),
+        },
+        warmSessions: {
+          hydrateSigningSession: async (input: any) => {
+            warmSigningSession = {
+              sessionId: String(input?.sessionId || ''),
+              expiresAtMs: Number(input?.expiresAtMs || Date.now() + 60_000),
+              remainingUses: Number(input?.remainingUses || 1),
+            };
+          },
+        },
+        registrationAccounts: {
+          storeUserData: async (input: any) => {
+            storeUserDataCalls.push(input);
+            usersByAccount.set(String(input?.nearAccountId || ''), input);
+          },
+          storeAuthenticator: async (input: any) => {
+            storeAuthenticatorCalls.push(input);
+          },
+          setLastUser: async (nearAccountId: string, signerSlot: number) => {
+            const accountId = String(nearAccountId || '');
+            const stored = usersByAccount.get(accountId) || {};
+            lastUser = {
+              nearAccountId: accountId,
+              signerSlot,
+              operationalPublicKey: String(stored?.operationalPublicKey || 'ed25519:recovery-key'),
+            };
+          },
+          updateLastLogin: async () => undefined,
+          initializeCurrentUser: async () => undefined,
+          getLastUser: async () => lastUser,
+        },
+      },
+    },
     signingEngine: {
       getRpId: () => 'example.test',
       requestRegistrationCredentialConfirmation: async () => ({
@@ -163,20 +213,6 @@ function createLocalDomain(options?: {
           xClientBaseB64u: 'x-client-base',
         },
       }),
-      prepareWalletRegistrationEcdsaClientBootstrap: async (input: any) => ({
-        ...input.prepare,
-        clientPublicKey33B64u: 'client-public-key',
-        clientShareRetryCounter: 0,
-        contextBinding32B64u: 'context-binding',
-      }),
-      storeWalletEcdsaSignerRecords: async () => undefined,
-      hydrateSigningSession: async (input: any) => {
-        warmSigningSession = {
-          sessionId: String(input?.sessionId || ''),
-          expiresAtMs: Number(input?.expiresAtMs || Date.now() + 60_000),
-          remainingUses: Number(input?.remainingUses || 1),
-        };
-      },
       extractCosePublicKey: async () => new Uint8Array([1, 2, 3]),
       storeUserData: async (input: any) => {
         storeUserDataCalls.push(input);

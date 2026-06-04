@@ -62,7 +62,7 @@ plaintext `S`, recovery KEKs, or derived signing material.
 Relevant implementation surfaces:
 
 1. SDK enrollment result recovery-code field in
-   `client/src/core/SeamsPasskey/interfaces.ts`.
+   `client/src/web/SeamsWeb/interfaces.ts`.
 2. recovery key generation and wrapping in
    `client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`.
 3. formatting/normalization helpers in
@@ -112,7 +112,7 @@ clearer and matches account-recovery expectations.
 sequenceDiagram
   participant User
   participant UI as "Registration UI"
-  participant SDK as "SeamsPasskey SDK"
+  participant SDK as "SeamsWeb SDK"
   participant Worker as "emailOtp Worker"
   participant Server
 
@@ -398,8 +398,8 @@ Rules:
 
 Wire the component after successful Email OTP enrollment:
 
-1. `SeamsPasskey.auth.enrollEmailOtp(...)`
-2. `SeamsPasskey.auth.enrollAndLoginWithEmailOtpEcdsaCapability(...)`
+1. `SeamsWeb.auth.enrollEmailOtp(...)`
+2. `SeamsWeb.auth.enrollAndLoginWithEmailOtpEcdsaCapability(...)`
 3. wallet-iframe registration flows inside the iframe UI boundary.
 
 The UI should pause the registration completion path until backup is
@@ -584,9 +584,9 @@ Recovery use errors:
 
 Files:
 
-1. `client/src/core/SeamsPasskey/interfaces.ts`
-2. `client/src/core/SeamsPasskey/emailOtp.ts`
-3. `client/src/core/SeamsPasskey/index.ts`
+1. `client/src/web/SeamsWeb/interfaces.ts`
+2. `client/src/web/SeamsWeb/emailOtp.ts`
+3. `client/src/web/SeamsWeb/index.ts`
 4. `client/src/core/WalletIframe/shared/messages.ts`
 5. `client/src/core/WalletIframe/router.ts`
 6. `client/src/core/WalletIframe/host/wallet-iframe-handlers.ts`
@@ -653,7 +653,7 @@ Server files:
 
 Client files:
 
-1. `client/src/core/SeamsPasskey/emailOtp.ts`
+1. `client/src/web/SeamsWeb/emailOtp.ts`
 2. `client/src/core/WalletIframe/shared/messages.ts`
 3. account settings UI modules
 

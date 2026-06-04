@@ -40,7 +40,7 @@ const EMAIL_OTP_ED25519_RESTORE = {
 
 test.describe('signing session sealed store', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     await page.evaluate(
       ({ ecdsaRestore, emailOtpEcdsaRestore, passkeyEd25519Restore, emailOtpEd25519Restore }) => {
         (

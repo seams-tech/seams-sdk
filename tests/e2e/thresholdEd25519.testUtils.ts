@@ -30,7 +30,7 @@ export async function setupThresholdE2ePage(page: Page): Promise<void> {
   const blankPageUrl = new URL('/__test_blank.html', DEFAULT_TEST_CONFIG.frontendUrl).toString();
   await setupBasicPasskeyTest(page, {
     frontendUrl: blankPageUrl,
-    skipPasskeyManagerInit: true,
+    skipSeamsWebInit: true,
   });
 
   await page.evaluate(async (base64Path) => {

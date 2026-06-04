@@ -306,7 +306,7 @@ export async function runEmailOtpEcdsaTempoFlow(
 
     const sdkMod = await import('/sdk/esm/index.js');
     const actionsMod = await import('/sdk/esm/core/types/actions.js');
-    const { SeamsPasskey } = sdkMod as any;
+    const { SeamsWeb } = sdkMod as any;
     const { ActionType } = actionsMod as any;
 
     const accountId =
@@ -444,7 +444,7 @@ export async function runEmailOtpEcdsaTempoFlow(
         target: 'login',
       });
 
-    const pm = new SeamsPasskey({
+    const pm = new SeamsWeb({
       nearNetwork: 'testnet',
       nearRpcUrl: 'https://test.rpc.fastnear.com',
       relayerAccount: 'web3-authn-v4.testnet',
@@ -478,8 +478,8 @@ export async function runEmailOtpEcdsaTempoFlow(
       if (context?.configs?.signing?.sessionSeal) {
         context.configs.signing.sessionSeal.shamirPrimeB64u = shamirPrimeB64u;
       }
-      if (context?.signingEngine?.seamsPasskeyConfigs?.signing?.sessionSeal) {
-        context.signingEngine.seamsPasskeyConfigs.signing.sessionSeal.shamirPrimeB64u =
+      if (context?.signingEngine?.seamsWebConfigs?.signing?.sessionSeal) {
+        context.signingEngine.seamsWebConfigs.signing.sessionSeal.shamirPrimeB64u =
           shamirPrimeB64u;
       }
     } catch {}
@@ -956,7 +956,7 @@ export async function runEmailOtpReloadPhase(
     }) => {
       const sdkMod = await import('/sdk/esm/index.js');
       const actionsMod = await import('/sdk/esm/core/types/actions.js');
-      const { SeamsPasskey } = sdkMod as any;
+      const { SeamsWeb } = sdkMod as any;
       const { ActionType } = actionsMod as any;
 
       const readSealedRecordSummaries = async (): Promise<Array<Record<string, unknown>>> => {
@@ -1130,7 +1130,7 @@ export async function runEmailOtpReloadPhase(
       }
 
       try {
-        const pm = new SeamsPasskey({
+        const pm = new SeamsWeb({
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayerAccount: 'web3-authn-v4.testnet',

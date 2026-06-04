@@ -23,7 +23,7 @@ import {
 import { decodeJwtPayloadRecord } from '@shared/utils/sessionTokens';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-import { type ThresholdIndexedDbPort, type ThresholdWebAuthnPromptPort } from '../crypto/webauthn';
+import { type ThresholdCredentialStorePort, type ThresholdWebAuthnPromptPort } from '../crypto/webauthn';
 import {
   buildEcdsaHssSessionPolicy,
   clampThresholdSessionPolicy,
@@ -280,7 +280,7 @@ type ResolveBootstrapSecretSourceRequest =
     }
   | {
       kind: 'passkey_webauthn_challenge';
-      indexedDB: ThresholdIndexedDbPort;
+      credentialStore: ThresholdCredentialStorePort;
       touchIdPrompt: ThresholdWebAuthnPromptPort;
       walletId: string;
       challengeB64u: string;
@@ -447,7 +447,7 @@ async function resolveBootstrapSecretSource(
       });
     case 'passkey_webauthn_challenge': {
       const credential = await collectAuthenticationCredentialForWalletChallengeB64u({
-        indexedDB: args.indexedDB,
+        credentialStore: args.credentialStore,
         touchIdPrompt: args.touchIdPrompt,
         walletId: args.walletId,
         challengeB64u: args.challengeB64u,
@@ -549,7 +549,7 @@ function buildBootstrapSecretSourceRequest(args: {
           ok: true,
           request: {
             kind: 'passkey_webauthn_challenge',
-            indexedDB: args.sessionArgs.indexedDB,
+            credentialStore: args.sessionArgs.credentialStore,
             touchIdPrompt: args.sessionArgs.touchIdPrompt,
             walletId: args.userId,
             challengeB64u: args.challengeB64u,
@@ -592,7 +592,7 @@ async function prepareEcdsaClientBootstrapForSecretSource(args: {
 }
 
 type BootstrapEcdsaSessionBaseArgs = {
-  indexedDB: ThresholdIndexedDbPort;
+  credentialStore: ThresholdCredentialStorePort;
   touchIdPrompt: ThresholdWebAuthnPromptPort;
   relayerUrl: string;
   userId: string;

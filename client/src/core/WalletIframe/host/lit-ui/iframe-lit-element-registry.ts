@@ -3,7 +3,7 @@
  *
  * This module provides a declarative registry of UI components that can be mounted
  * inside the wallet iframe. It defines the available components and how they should
- * be wired to SeamsPasskey actions.
+ * be wired to SeamsWeb actions.
  */
 
 export type PmActionName = 'signAndSendTransactions';

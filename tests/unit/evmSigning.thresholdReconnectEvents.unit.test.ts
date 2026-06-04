@@ -103,7 +103,7 @@ test.describe('EVM family threshold reconnect events', () => {
             return await fixture.touchConfirm.claimWarmSessionMaterial({ sessionId, uses: 1 });
           },
         },
-        seamsPasskeyConfigs: {
+        seamsWebConfigs: {
           registration: { mode: 'self' },
         },
         getEmailOtpThresholdEcdsaSessionRecordForSigning: () => staleRecord,

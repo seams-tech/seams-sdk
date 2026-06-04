@@ -25,7 +25,7 @@ await walletRouter.registerPasskey({
 
 2. Child emits PROGRESS from its `onEvent`
 
-- The wallet host wraps `SeamsPasskey` calls and translates `onEvent(ev)` into:
+- The wallet host wraps `SeamsWeb` calls and translates `onEvent(ev)` into:
   `post({ type: 'PROGRESS', requestId, payload: ev })`.
 - Payloads use the v2 wallet flow event envelope:
   `RegistrationFlowEvent | UnlockFlowEvent | SigningFlowEvent | LinkDeviceFlowEvent | EmailRecoveryFlowEvent | AccountSyncFlowEvent | KeyExportFlowEvent`.

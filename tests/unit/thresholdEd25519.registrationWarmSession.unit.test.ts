@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  thresholdWarmSessionBootstrap: '/sdk/esm/core/SeamsPasskey/thresholdWarmSessionBootstrap.js',
-  login: '/sdk/esm/core/SeamsPasskey/login.js',
+  thresholdWarmSessionBootstrap: '/sdk/esm/web/SeamsWeb/thresholdWarmSessionBootstrap.js',
+  login: '/sdk/esm/web/SeamsWeb/login.js',
   indexedDb: '/sdk/esm/core/indexedDB/index.js',
   thresholdSessionStore:
     '/sdk/esm/core/signingEngine/session/persistence/records.js',
@@ -11,7 +11,7 @@ const IMPORT_PATHS = {
 
 test.describe('threshold Ed25519 registration warm-session', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('awaits warm-session hydrate before registration persistence returns', async ({ page }) => {
@@ -75,11 +75,17 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                       createdAtMs: now,
                     }
                   : null,
-              hydrateSigningSession: async (input: unknown) => {
-                hydrateCalls += 1;
-                await new Promise((resolve) => setTimeout(resolve, 25));
-                warmSessionActive = true;
-                return input;
+            },
+            signingRuntime: {
+              services: {
+                warmSessions: {
+                  hydrateSigningSession: async (input: unknown) => {
+                    hydrateCalls += 1;
+                    await new Promise((resolve) => setTimeout(resolve, 25));
+                    warmSessionActive = true;
+                    return input;
+                  },
+                },
               },
             },
             configs: {
@@ -95,6 +101,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
 
           await bootstrapMod.persistRegisteredThresholdEd25519Session({
             signingEngine: context.signingEngine,
+            signingRuntime: context.signingRuntime,
             nearAccountId,
             signerSlot: 1,
             auth: { kind: 'passkey' },
@@ -242,9 +249,15 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                       createdAtMs: now,
                     }
                   : null,
-              hydrateSigningSession: async (input: unknown) => {
-                warmSessionActive = true;
-                return input;
+            },
+            signingRuntime: {
+              services: {
+                warmSessions: {
+                  hydrateSigningSession: async (input: unknown) => {
+                    warmSessionActive = true;
+                    return input;
+                  },
+                },
               },
             },
             configs: {
@@ -260,6 +273,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
 
           await bootstrapMod.persistRegisteredThresholdEd25519Session({
             signingEngine: context.signingEngine,
+            signingRuntime: context.signingRuntime,
             nearAccountId,
             signerSlot: 1,
             auth: { kind: 'passkey' },
@@ -396,11 +410,17 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                   },
                 };
               },
-              hydrateSigningSession: async () => {
-                hydratedRecord =
-                  sessionStoreMod.getStoredThresholdEd25519SessionRecordByThresholdSessionId(
-                    'registration-session-email-otp',
-                  );
+            },
+            signingRuntime: {
+              services: {
+                warmSessions: {
+                  hydrateSigningSession: async () => {
+                    hydratedRecord =
+                      sessionStoreMod.getStoredThresholdEd25519SessionRecordByThresholdSessionId(
+                        'registration-session-email-otp',
+                      );
+                  },
+                },
               },
             },
             nearAccountId,

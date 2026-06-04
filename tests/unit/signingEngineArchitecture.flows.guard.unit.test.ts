@@ -179,6 +179,7 @@ test.describe('signing-engine flow architecture guardrails', () => {
           resolved === 'client/src/core/signingEngine' ||
           resolved === 'client/src/core/signingEngine/SigningEngine' ||
           resolved === 'client/src/core/signingEngine/SigningEngine.ts' ||
+          resolved === 'client/src/web/SeamsWeb/assembly/BrowserSigningSurface' ||
           resolved?.startsWith('client/src/core/signingEngine/assembly')
         ) {
           offenders.push(`${relativePath} -> ${specifier}`);

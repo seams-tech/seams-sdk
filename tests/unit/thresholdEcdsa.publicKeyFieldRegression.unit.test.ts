@@ -8,7 +8,7 @@ const CANONICAL_FIELD = 'thresholdEcdsaPublicKeyB64u';
 const SOURCE_FILES = [
   '../client/src/core/rpcClients/relayer/thresholdEcdsa.ts',
   '../client/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
-  '../client/src/core/SeamsPasskey/login.ts',
+  '../client/src/web/SeamsWeb/login.ts',
 ];
 
 const DIST_FILES = [

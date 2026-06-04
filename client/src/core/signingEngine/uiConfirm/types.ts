@@ -5,7 +5,8 @@
 import type { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-worker';
 import type { NearClient } from '../../rpcClients/near/NearClient';
-import type { UnifiedIndexedDBManager } from '../../indexedDB';
+import type { EvmFamilyPasskeyAuthenticatorStorePort } from '../interfaces/passkeyAuthenticatorStore';
+import type { WebAuthnCredentialStorePort } from '../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { UserPreferencesManager } from '../session/userPreferences';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type {
@@ -35,6 +36,7 @@ import type {
   RestorePersistedSessionsForWalletResult,
   RestorePersistedSessionForSigningInput,
 } from '../session/sealedRecovery/types';
+import type { WarmSessionMaterialWriter } from '../session/passkey/warmSessionMaterialWriter';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { DeleteDurableSealedSessionCommand } from '../session/persistence/durableSealedSessionCommands';
 import type { VolatileWarmSessionId } from '../session/warmCapabilities/volatileWarmSessionId';
@@ -47,7 +49,8 @@ export type RequestUserConfirmationOptions = {
 export interface UiConfirmContext {
   touchIdPrompt: TouchIdPrompt;
   nearClient: NearClient;
-  indexedDB: UnifiedIndexedDBManager;
+  webauthnCredentialStore: WebAuthnCredentialStorePort;
+  passkeyAuthenticatorStore: EvmFamilyPasskeyAuthenticatorStorePort;
   userPreferencesManager: UserPreferencesManager;
   nonceCoordinator: NonceCoordinator;
   chains?: readonly SeamsChainConfig[];
@@ -74,16 +77,6 @@ export type RequestRegistrationCredentialConfirmationParams = {
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   challengeB64u?: string;
 };
-
-export interface WarmSessionMaterialWriter {
-  putWarmSessionMaterial(args: {
-    sessionId: string;
-    prfFirstB64u: string;
-    expiresAtMs: number;
-    remainingUses: number;
-    transport?: WarmSessionSealTransportInput;
-  }): Promise<void>;
-}
 
 export interface WarmSessionStatusReader {
   getWarmSessionStatus(args: { sessionId: string }): Promise<WarmSessionStatusResult>;

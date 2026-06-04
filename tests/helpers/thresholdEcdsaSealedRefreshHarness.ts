@@ -899,9 +899,9 @@ export async function runPasskeySigningSessionLifecyclePhase(
     }) => {
       let stage = 'init';
       try {
-        const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+        const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
         const actionsMod = await import('/sdk/esm/core/types/actions.js');
-        const { SeamsPasskey } = sdkMod as any;
+        const { SeamsWeb } = sdkMod as any;
         const { ActionType } = actionsMod as any;
 
         const confirmationConfig = {
@@ -909,7 +909,7 @@ export async function runPasskeySigningSessionLifecyclePhase(
           behavior: 'skipClick' as const,
           autoProceedDelay: 0,
         };
-        const seams = new SeamsPasskey({
+        const seams = new SeamsWeb({
           nearNetwork: 'testnet',
           nearRpcUrl: 'https://test.rpc.fastnear.com',
           relayerAccount: 'web3-authn-v4.testnet',
@@ -1103,9 +1103,9 @@ export async function runPasskeySigningSessionLifecyclePhase(
       } catch (error: unknown) {
         let sessionStatus = '';
         try {
-          const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
-          const { SeamsPasskey } = sdkMod as any;
-          const seams = new SeamsPasskey({
+          const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+          const { SeamsWeb } = sdkMod as any;
+          const seams = new SeamsWeb({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
             relayerAccount: 'web3-authn-v4.testnet',

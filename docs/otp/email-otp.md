@@ -265,7 +265,7 @@ Rules:
 
 In wallet-iframe mode, the wallet iframe origin owns:
 
-1. the `SeamsPasskey` runtime used for Email OTP.
+1. the `SeamsWeb` runtime used for Email OTP.
 2. the dedicated `emailOtp` worker and nested `shamir3pass` worker.
 3. Email OTP challenge, verify, enrollment, unseal, bootstrap, and recovery
    route calls.

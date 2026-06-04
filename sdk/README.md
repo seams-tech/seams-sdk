@@ -47,11 +47,11 @@ pnpm -C sdk run type-check # TypeScript validation
 The easiest way to get started with React (React 18+)
 
 ```tsx
-import { SeamsPasskeyProvider, useSeams } from '@seams/sdk/react';
+import { SeamsWebProvider, useSeams } from '@seams/sdk/react';
 
 function App() {
   return (
-    <SeamsPasskeyProvider
+    <SeamsWebProvider
       config={{
         chains: [
           {
@@ -69,7 +69,7 @@ function App() {
       }}
     >
       <YourApp />
-    </SeamsPasskeyProvider>
+    </SeamsWebProvider>
   );
 }
 
@@ -114,7 +114,7 @@ See `examples/seams-site` and `examples/seams-docs` for full app examples.
 
 ## Stable API Surfaces
 
-Use `@seams/sdk` for the main surface (for example `SeamsPasskey` and core types).
+Use `@seams/sdk` for the main surface (for example `SeamsWeb` and core types).
 
 Threshold APIs are stable under an explicit subpath:
 
@@ -125,7 +125,7 @@ import { keygenEcdsa } from '@seams/sdk/threshold';
 ## Configuration Options
 
 ```typescript
-interface SeamsPasskeyConfig {
+interface SeamsWebConfig {
   // Chain settings
   chains: Array<{
     network:

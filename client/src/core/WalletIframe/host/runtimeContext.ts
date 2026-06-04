@@ -5,13 +5,13 @@ import type {
   PreferencesChangedPayload,
   ProgressPayload,
 } from '../shared/messages';
-import { SeamsPasskey } from '../../SeamsPasskey';
+import { SeamsWeb } from '@/web/SeamsWeb';
 import type { SeamsConfigsInput } from '../../types/seams';
 import { setupLitElemMounter } from './lit-ui/iframe-lit-elem-mounter';
 import {
   applyWalletConfig,
   createHostContext,
-  ensurePasskeyManager,
+  ensureSeamsWeb,
   type HostContext,
 } from './context';
 import type { HandlerDeps, HandlerMap } from './handlers/types';
@@ -54,9 +54,9 @@ function installLitMounterOnce(ctx: HostContext, input: WalletHostRuntimeRequest
   if (litMounterInstalled) return;
   litMounterInstalled = true;
 
-  const ensureSeamsPasskey = (): SeamsPasskey => {
-    const prev = ctx.seamsPasskey;
-    const pm = ensurePasskeyManager(ctx) as SeamsPasskey;
+  const ensureHostSeamsWeb = (): SeamsWeb => {
+    const prev = ctx.seamsWeb;
+    const pm = ensureSeamsWeb(ctx) as SeamsWeb;
     if (prev !== pm) {
       const up = pm.preferences;
       ctx.prefsUnsubscribe?.();
@@ -89,8 +89,8 @@ function installLitMounterOnce(ctx: HostContext, input: WalletHostRuntimeRequest
   };
 
   setupLitElemMounter({
-    ensureSeamsPasskey,
-    getSeamsPasskey: () => ctx.seamsPasskey,
+    ensureSeamsWeb: ensureHostSeamsWeb,
+    getSeamsWeb: () => ctx.seamsWeb,
     updateWalletConfigs: (patch) => {
       ctx.walletConfigs = {
         ...(ctx.walletConfigs || ({} as SeamsConfigsInput)),
@@ -108,10 +108,10 @@ function buildHandlerDeps(ctx: HostContext, input: WalletHostRuntimeRequest): Ha
     input.post({ type: 'PROGRESS', requestId, payload });
   };
 
-  const ensureSeamsPasskey = (): SeamsPasskey => ensurePasskeyManager(ctx) as SeamsPasskey;
+  const ensureHostSeamsWeb = (): SeamsWeb => ensureSeamsWeb(ctx) as SeamsWeb;
 
   return {
-    getSeamsPasskey: ensureSeamsPasskey,
+    getSeamsWeb: ensureHostSeamsWeb,
     post: input.post,
     postProgress,
     postToParent: input.postToParent,
@@ -141,4 +141,3 @@ export async function handleWalletHostRuntimeRequestWithHandlers(
   }
   await handler(input.req);
 }
-

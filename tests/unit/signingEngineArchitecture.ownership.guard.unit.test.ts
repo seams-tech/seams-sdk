@@ -89,7 +89,7 @@ test.describe('signing-engine ownership architecture guardrails', () => {
       '/assembly/',
       "from './SigningEngine'",
       "from '../SigningEngine'",
-      "from '@/core/signingEngine/SigningEngine'",
+      "from '@/web/SeamsWeb/assembly/BrowserSigningSurface'",
     ] as const;
     const offenders: string[] = [];
 
@@ -105,7 +105,7 @@ test.describe('signing-engine ownership architecture guardrails', () => {
     expect(offenders).toEqual([]);
   });
 
-  test('sealedRecovery stays free of method folders, flows, assembly, and SigningEngine.ts', () => {
+  test('sealedRecovery stays free of method folders, flows, and assembly surfaces', () => {
     const domainRoot = path.join(repoRoot, 'client/src/core/signingEngine/session/sealedRecovery');
     const offenders: string[] = [];
 
@@ -119,7 +119,7 @@ test.describe('signing-engine ownership architecture guardrails', () => {
           resolved.startsWith('client/src/core/signingEngine/session/emailOtp/') ||
           resolved.startsWith('client/src/core/signingEngine/flows/') ||
           resolved.startsWith('client/src/core/signingEngine/assembly/') ||
-          resolved === 'client/src/core/signingEngine/SigningEngine'
+          resolved === 'client/src/web/SeamsWeb/assembly/BrowserSigningSurface'
         ) {
           offenders.push(`${relativePath} -> ${specifier}`);
         }

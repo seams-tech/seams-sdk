@@ -123,7 +123,7 @@ test.describe('Wallet iframe preferences sync', () => {
       if (msg.type() === 'error') consoleErrors.push(msg.text());
     });
 
-    const seamsPath = SDK_ESM_PATHS.seamsPasskey;
+    const seamsPath = SDK_ESM_PATHS.seamsWeb;
     const result = await page.evaluate(
       async ({ walletOrigin, waitForSource, seamsPath }) => {
         const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
@@ -133,9 +133,9 @@ test.describe('Wallet iframe preferences sync', () => {
               ? 'https://example.localhost'
               : window.location.origin;
           const mod = await import(new URL(seamsPath, base).toString());
-          const { SeamsPasskey } = mod as typeof import('@/core/SeamsPasskey');
+          const { SeamsWeb } = mod as typeof import('@/web/SeamsWeb');
 
-          const seams = new SeamsPasskey({
+          const seams = new SeamsWeb({
             chains: [
               {
                 network: 'near-testnet',
@@ -218,7 +218,7 @@ test.describe('Wallet iframe preferences sync', () => {
   });
 
   test('seams.setTheme forwards updates to the wallet host', async ({ page }) => {
-    const seamsPath = SDK_ESM_PATHS.seamsPasskey;
+    const seamsPath = SDK_ESM_PATHS.seamsWeb;
     const result = await page.evaluate(
       async ({ walletOrigin, seamsPath }) => {
         try {
@@ -227,9 +227,9 @@ test.describe('Wallet iframe preferences sync', () => {
               ? 'https://example.localhost'
               : window.location.origin;
           const mod = await import(new URL(seamsPath, base).toString());
-          const { SeamsPasskey } = mod as typeof import('@/core/SeamsPasskey');
+          const { SeamsWeb } = mod as typeof import('@/web/SeamsWeb');
 
-          const seams = new SeamsPasskey({
+          const seams = new SeamsWeb({
             chains: [
               {
                 network: 'near-testnet',

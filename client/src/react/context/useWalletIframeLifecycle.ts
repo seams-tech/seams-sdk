@@ -1,12 +1,12 @@
 import { useEffect } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import type { SeamsPasskey } from '@/core/SeamsPasskey';
+import type { SeamsWeb } from '@/web/SeamsWeb';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { LoginState } from '../types';
 import { isWalletSessionReadyForUi } from './walletSessionReadiness';
 
 export function useWalletIframeLifecycle(args: {
-  seams: SeamsPasskey;
+  seams: SeamsWeb;
   setWalletIframeConnected: Dispatch<SetStateAction<boolean>>;
   setLoginState: Dispatch<SetStateAction<LoginState>>;
 }) {

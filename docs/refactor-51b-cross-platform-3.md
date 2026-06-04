@@ -1,7 +1,7 @@
 # Refactor 51b: Web Facade And Native Runtime Split
 
 Date created: 2026-06-03
-Status: proposed canonical follow-up
+Status: implementation complete
 Owner: SDK architecture
 
 ## Purpose
@@ -51,15 +51,14 @@ The lower SDK layers are already close to the target:
 
 The remaining browser coupling is above and around those ports:
 
-- `client/src/core/SeamsPasskey/index.ts` is the public browser SDK facade and
-  owns `WalletIframeCoordinator`.
-- `client/src/core/SeamsPasskey/walletIframeRoute.ts` chooses local browser
-  execution or `WalletIframeRouter` execution.
-- `client/src/core/signingEngine/SigningEngine.ts` constructs
-  `createBrowserPlatformRuntime(...)` internally.
-- `client/src/core/signingEngine/assembly/createPorts.ts` calls
-  `getBrowserPlatformIndexedDB(...)`, so shared assembly still assumes browser
-  IndexedDB for some paths.
+- `client/src/web/SeamsWeb/index.ts` is the public browser SDK facade and owns
+  wallet iframe routing.
+- `client/src/web/SeamsWeb/assembly/BrowserSigningSurface.ts` owns browser
+  signing assembly state and exposes the structural `SeamsWebSigningSurface`.
+- `client/src/core/runtime/createSigningRuntime.ts` builds platform-neutral
+  runtime services from explicit platform, worker, store, UI, and relayer ports.
+- Shared signing assembly receives explicit store ports; browser IndexedDB
+  construction is isolated under `client/src/web/SeamsWeb/assembly/`.
 
 ## SDK Simplification Workstream
 
@@ -70,7 +69,7 @@ browser-shaped assumptions that future platforms must understand.
 | Cleanup target | Owner phase | Expected simplification |
 | --- | --- | --- |
 | Browser facade naming | Phase 1 | `SeamsWeb` becomes the only browser public facade; old `SeamsPasskey` symbols, aliases, docs, and error prefixes are deleted. |
-| `SigningEngine` composition surface | Phase 2 | `SigningRuntime` becomes the neutral composition root; `SigningEngine` becomes a temporary web wrapper or is deleted once `SeamsWeb` calls the runtime directly. |
+| Browser signing assembly surface | Phase 2 | `SigningRuntime` becomes the neutral composition root; `SeamsWeb` receives a structural `SeamsWebSigningSurface` from browser assembly. |
 | Browser IndexedDB coupling | Phase 3 | Shared assembly receives explicit store ports instead of recovering `IndexedDBManager` from a browser runtime. |
 | Wallet iframe routing | Phase 4 | Iframe routing becomes a web facade decorator; core chain signers and runtime services receive direct operation dependencies. |
 | Runtime and web config | Phase 3, Phase 7 | Platform-neutral runtime config is split from `SeamsWeb` browser config, including `iframeWallet`, DOM UI, browser WebAuthn, and React settings. |
@@ -83,8 +82,7 @@ Simplification rules:
   the behavior.
 - Convert broad dependency bags into named port groups only when the port group
   is consumed by more than one operation or platform.
-- Prefer grouped runtime services over long public `Pick<SigningEngine, ...>`
-  member lists.
+- Prefer grouped runtime services over long public capability member lists.
 - Keep compatibility handling at request and persistence boundaries with an
   owner phase and deletion trigger.
 - Split large files after dependencies point at the new boundaries, so file
@@ -320,27 +318,26 @@ Goals:
 
 Tasks:
 
-- [ ] Add `docs/refactor-51b-inventory.md` with rows for public exports, React
+- [x] Add `docs/refactor-51b-inventory.md` with rows for public exports, React
   exports, facade files, iframe files, signing assembly files, storage
   dependencies, and tests.
-- [ ] Add simplification inventory rows for:
-  - [ ] `client/src/core/SeamsPasskey/index.ts` public facade responsibilities;
-  - [ ] `client/src/core/signingEngine/SigningEngine.ts` constructor ownership and
-    public member list;
-  - [ ] `client/src/core/signingEngine/assembly/createPorts.ts` browser storage
+- [x] Add simplification inventory rows for:
+  - [x] `client/src/core/SeamsPasskey/index.ts` public facade responsibilities;
+  - [x] former `SigningEngine` constructor ownership and public member list;
+  - [x] `client/src/core/signingEngine/assembly/createPorts.ts` browser storage
     assumptions;
-  - [ ] `client/src/core/platform/types.ts` type groups that should split after the
+  - [x] `client/src/core/platform/types.ts` type groups that should split after the
     runtime boundary is stable;
-  - [ ] `sdk/package.json`, `client/src/index.ts`, and `client/src/react/index.ts`
+  - [x] `sdk/package.json`, `client/src/index.ts`, and `client/src/react/index.ts`
     export surfaces.
-- [ ] Add a guard that rejects `WalletIframe`, `SeamsWeb`, React, DOM globals, and
+- [x] Add a guard that rejects `WalletIframe`, `SeamsWeb`, React, DOM globals, and
   browser platform adapter imports inside `client/src/core/runtime/**`.
-- [ ] Add a guard that rejects `SeamsPasskey` symbols after the rename phase.
-- [ ] Add a guard that rejects `getBrowserPlatformIndexedDB(...)` outside browser
+- [x] Add a guard that rejects `SeamsPasskey` symbols after the rename phase.
+- [x] Add a guard that rejects `getBrowserPlatformIndexedDB(...)` outside browser
   assembly.
-- [ ] Add a guard that rejects `client/src/core/WalletIframe/**` imports from
+- [x] Add a guard that rejects `client/src/core/WalletIframe/**` imports from
   future native or embedded package roots.
-- [ ] Use the existing source-guard allow-list pattern for expected current
+- [x] Use the existing source-guard allow-list pattern for expected current
   violations: every allow-list row must include an owner and reason, and the
   inventory must record the owner phase and deletion trigger.
 
@@ -367,30 +364,32 @@ Goals:
 
 Tasks:
 
-- [ ] Rename `client/src/core/SeamsPasskey` to the chosen web facade path.
-- [ ] Rename exported class `SeamsPasskey` to `SeamsWeb`.
-- [ ] Rename `PasskeyManagerContext` to `SeamsWebContext`.
-- [ ] Rename React provider files and symbols from `SeamsPasskeyProvider` to
+- [x] Rename `client/src/core/SeamsPasskey` to the chosen web facade path.
+- [x] Rename exported class `SeamsPasskey` to `SeamsWeb`.
+- [x] Rename `PasskeyManagerContext` to `SeamsWebContext`.
+- [x] Rename React provider files and symbols from `SeamsPasskeyProvider` to
   `SeamsWebProvider`.
-- [ ] Rename `SeamsPasskeyIframe` to `SeamsWebIframe`.
-- [ ] Update `client/src/index.ts`, `client/src/react/index.ts`, `sdk/package.json`
+- [x] Rename `SeamsPasskeyIframe` to `SeamsWebIframe`.
+- [x] Update `client/src/index.ts`, `client/src/react/index.ts`, `sdk/package.json`
   export descriptions, docs, README snippets, tests, and error prefixes.
-- [ ] Move `sdk/package.json` `./react/provider` to `SeamsWebProvider` in this
+- [x] Move `sdk/package.json` `./react/provider` to `SeamsWebProvider` in this
   phase because package consumers hit this export immediately after the rename.
-- [ ] Delete stale `sdk/package.json` `./components/modal` and
+- [x] Delete stale `sdk/package.json` `./components/modal` and
   `./components/embedded` WebAuthn manager exports unless current web-owned
   component paths replace them.
-- [ ] Delete all compatibility aliases and old symbol re-exports.
-- [ ] Delete passkey-manager naming in comments, provider examples, type names, and
+- [x] Delete all compatibility aliases and old symbol re-exports.
+- [x] Delete passkey-manager naming in comments, provider examples, type names, and
   package descriptions unless the text refers to passkey authentication as a
   domain concept.
-- [ ] Rename or delete tests that only protect old `SeamsPasskey` public symbols.
+- [x] Rename or delete tests that only protect old `SeamsPasskey` public symbols.
+- [x] Narrow the legacy-name guard allow-list to explicit historical refactor
+  files and update active docs that still referenced `SeamsPasskey`.
 
 Acceptance:
 
 - `rg "SeamsPasskey|PasskeyManagerContext|SeamsPasskeyProvider|SeamsPasskeyIframe"`
-  returns only this plan, historical docs explicitly marked as historical, and
-  guard fixtures.
+  returns only this plan, explicitly allow-listed historical docs, and guard
+  fixtures.
 - Public import examples use `SeamsWeb`.
 - Wallet iframe host creates a `SeamsWeb` instance.
 - No public package entrypoint exports `SeamsPasskey`, `SeamsPasskeyProvider`,
@@ -440,21 +439,24 @@ Rules:
 
 Tasks:
 
-- [ ] Add `client/src/core/runtime/types.ts`.
-- [ ] Add `client/src/core/runtime/createSigningRuntime.ts`.
-- [ ] Move use-case construction from `SigningEngine` into `SigningRuntime`.
-- [ ] Change `SigningEngine` into either a thin web wrapper around `SigningRuntime`
+- [x] Add `client/src/core/runtime/types.ts`.
+- [x] Add `client/src/core/runtime/createSigningRuntime.ts`.
+- [x] Move use-case construction from `SigningEngine` into `SigningRuntime`.
+- [x] Change `SigningEngine` into either a thin web wrapper around `SigningRuntime`
   or delete it once `SeamsWeb` calls the runtime directly.
-- [ ] Move relayer-client assembly into runtime dependencies.
-- [ ] Keep iframe routing in `SeamsWeb`, outside `SigningRuntime`.
-- [ ] Replace the long `signingEnginePublicMembers` tuple with grouped runtime
+- [x] Move relayer-client assembly into runtime dependencies.
+- [x] Keep iframe routing in `SeamsWeb`, outside `SigningRuntime`.
+- [x] Replace the long `signingEnginePublicMembers` tuple with grouped runtime
   services, such as registration, auth/session, near signing, EVM-family
   signing, recovery/export, preferences, and diagnostics.
-- [ ] Move `createBrowserPlatformRuntime(...)` construction into
+- [x] Move `createBrowserPlatformRuntime(...)` construction into
   `client/src/web/SeamsWeb/assembly/createBrowserSigningRuntime.ts`.
-- [ ] Move in-memory ECDSA session/export artifact maps into explicit runtime
+- [x] Move in-memory ECDSA session/export artifact maps into explicit runtime
   state ports.
-- [ ] Delete `SigningEngine` public methods as soon as an equivalent runtime service
+- [x] Rename the old NEAR/worker `SigningRuntimeDeps` context to
+  `NearSigningRuntimeDeps` so it no longer conflicts with the platform-neutral
+  `SigningRuntime` contract.
+- [x] Delete `SigningEngine` public methods as soon as an equivalent runtime service
   owns the operation.
 
 Acceptance:
@@ -484,24 +486,90 @@ Goals:
 
 Tasks:
 
-- [ ] Define store ports for remaining flows that currently require
+- [x] Define store ports for remaining flows that currently require
   `UnifiedIndexedDBManager` directly.
-- [ ] Move browser `IndexedDBManager` access into browser store adapters.
-- [ ] Update `createSigningEnginePorts(...)` or its replacement runtime assembly to
+- [x] Move browser `IndexedDBManager` access into browser store adapters.
+  - [x] Inject the browser IndexedDB singleton from `SeamsWeb` into the
+    transitional `SigningEngine` wrapper instead of importing it from shared
+    signing code.
+  - [x] Move the nonce lane IndexedDB adapter construction out of manager
+    assembly and into the browser wrapper store wiring.
+  - [x] Move browser signing store bundle construction into
+    `client/src/web/SeamsWeb/assembly/createBrowserSigningStores.ts`, then pass
+    required store bundles into the transitional `SigningEngine` wrapper.
+- [x] Update `createSigningEnginePorts(...)` or its replacement runtime assembly to
   receive store ports instead of deriving IndexedDB from `PlatformRuntime`.
-- [ ] Convert sealed-session, nonce, user-preference, registration, and recovery
+- [x] Convert sealed-session, nonce, user-preference, registration, and recovery
   storage dependencies into typed ports as each path is touched.
-- [ ] Define domain store port groups with required branch-specific ports for:
-  - [ ] wallet profile and signer records;
-  - [ ] ECDSA role-local ready records;
-  - [ ] sealed signing-session records;
-  - [ ] nonce lane coordination;
-  - [ ] user preferences;
-  - [ ] recovery and device-linking records.
-- [ ] Split `SeamsConfigsReadonly` into a platform-neutral runtime config and
+  - [x] Convert `UserPreferencesManager` from a module-level browser IndexedDB
+    singleton to an explicit injected store dependency.
+  - [x] Narrow `UserPreferencesManager` from a broad
+    `UnifiedIndexedDBManager` dependency to a preference/profile-selection
+    store port.
+  - [x] Convert worker-resource warmup from full IndexedDB access to a narrow
+    profile/key-material store port.
+  - [x] Convert EVM-family account-auth and WebAuthn P-256 key selection from
+    full IndexedDB access to wallet-signer and passkey-authenticator store
+    ports.
+  - [x] Rename threshold-ECDSA bootstrap persistence from an IndexedDB-shaped
+    dependency to a `ThresholdEcdsaBootstrapStorePort` and pass it through
+    warm-signing and email-OTP commit assembly.
+  - [x] Convert threshold-ECDSA session activation assembly from an
+    IndexedDB-named dependency to an explicit WebAuthn credential store
+    dependency.
+  - [x] Narrow threshold-ECDSA session activation dependencies from
+    `UnifiedIndexedDBManager` to the shared threshold credential-store port.
+  - [x] Convert lower-level threshold-ECDSA bootstrap, keygen, and connect-session
+    WebAuthn dependencies from IndexedDB-named ports to credential-store ports,
+    then delete the unused IndexedDB-named threshold WebAuthn aliases.
+  - [x] Convert passkey Ed25519 session provisioning and connector assembly from
+    IndexedDB-named dependencies to explicit WebAuthn credential store
+    dependencies.
+  - [x] Update immediate Ed25519 signing fallback fixtures to provide the
+    `nearKeyMaterialStore` port and current one-RTT near-signer worker response
+    shapes.
+  - [x] Convert private-key recovery/export and NEAR single-key HSS export from
+    full IndexedDB access to a recovery key-material store port.
+  - [x] Convert registration account lifecycle persistence from full IndexedDB
+    access to a registration account store port.
+  - [x] Convert UI-confirm WebAuthn credential collection from broad
+    `ctx.indexedDB` access to a WebAuthn credential store port.
+  - [x] Convert UI-confirm Tempo WebAuthn P-256 key selection from broad
+    `ctx.indexedDB` access to an EVM-family passkey authenticator store port.
+  - [x] Delete the broad `indexedDB` field from `UiConfirmContext` after
+    WebAuthn credential and passkey-authenticator stores replaced the remaining
+    UI-confirm database access.
+  - [x] Convert NEAR signing material resolution from broad `ctx.indexedDB`
+    access to a NEAR key-material store port.
+  - [x] Narrow shared signing assembly helper inputs from broad
+    `UnifiedIndexedDBManager` parameters to branch-specific credential,
+    bootstrap, key-material, account, and warmup store ports where those
+    contracts already exist.
+  - [x] Narrow NEAR and EVM-family signing assembly from full
+    `UnifiedIndexedDBManager` parameters to wallet-signer and
+    passkey-authenticator store ports.
+  - [x] Narrow `SignerWorkerManager` from full IndexedDB access to the NEAR
+    key-material store port exposed on the worker context.
+  - [x] Convert `createManagerAssembly(...)` from a broad IndexedDB dependency
+    to named user-preference, nonce-lane, WebAuthn credential,
+    passkey-authenticator, and NEAR key-material store ports.
+  - [x] Replace the raw `indexedDB` field on `CreateSigningEnginePortsArgs`
+    and `SigningEnginePorts` with a typed signing-engine store bundle.
+  - [x] Name the ECDSA role-local ready-record maps as an explicit warm-signing
+    store port group.
+  - [x] Inject sealed signing-session persistence into step-up runtime as an
+    explicit sealed-session store port group.
+- [x] Define domain store port groups with required branch-specific ports for:
+  - [x] wallet profile and signer records;
+  - [x] ECDSA role-local ready records;
+  - [x] sealed signing-session records;
+  - [x] nonce lane coordination;
+  - [x] user preferences;
+  - [x] recovery and device-linking records.
+- [x] Split `SeamsConfigsReadonly` into a platform-neutral runtime config and
   `SeamsWeb` browser config. Keep `iframeWallet`, browser authenticator options,
   DOM UI, asset paths, and React-facing settings out of the runtime config.
-- [ ] Keep raw DB parsing in persistence boundary modules.
+- [x] Keep raw DB parsing in persistence boundary modules.
 
 Acceptance:
 
@@ -529,17 +597,42 @@ Goals:
 
 Tasks:
 
-- [ ] Add `createBrowserSigningRuntime(...)`.
-- [ ] Move browser-specific worker warmup, wallet-origin storage disabling, iframe
+- [x] Add `createBrowserSigningRuntime(...)`.
+- [x] Move browser-specific worker warmup, wallet-origin storage disabling, iframe
   readiness, asset preconnect, and UI overlay behavior into web assembly.
-- [ ] Keep `WalletIframeCoordinator` under the web facade boundary.
-- [ ] Keep direct browser mode and wallet iframe mode as `SeamsWeb` branches.
-- [ ] Move `routeWalletIframeOrLocal(...)` usage up to the `SeamsWeb` capability
+  - [x] Move browser IndexedDB mode selection and wallet-origin storage disabling
+    policy into `client/src/web/SeamsWeb/assembly/configureBrowserIndexedDB.ts`.
+  - [x] Move browser worker prewarm eligibility out of shared signing assembly
+    and into
+    `client/src/web/SeamsWeb/assembly/browserWorkerWarmupPolicy.ts`.
+  - [x] Move worker base-origin initialization, embedded base change handling,
+    and app-origin iframe-mode preference loading policy into
+    `client/src/web/SeamsWeb/assembly/initializeBrowserSigningRuntime.ts`.
+  - [x] Move wallet iframe asset preconnect, modulepreload, WASM prefetch, and
+    embedded SDK base calculation into
+    `client/src/web/SeamsWeb/assembly/preconnectWalletAssets.ts`.
+  - [x] Move lazy wallet iframe router construction and same-origin iframe
+    warning policy into
+    `client/src/web/SeamsWeb/assembly/createWalletIframeRouter.ts`.
+  - [x] Move app-facing wallet iframe overlay-state construction into
+    `client/src/web/SeamsWeb/assembly/createWalletIframeOverlayState.ts`.
+- [x] Keep `WalletIframeCoordinator` under the web facade boundary.
+- [x] Keep direct browser mode and wallet iframe mode as `SeamsWeb` branches.
+- [x] Move `routeWalletIframeOrLocal(...)` usage up to the `SeamsWeb` capability
   layer. Chain signer modules should expose local runtime operations that can be
   called directly by web or native facades.
-- [ ] Keep wallet iframe preference mirroring and login-status events in web-only
+  - [x] Move EVM registration and ECDSA bootstrap wallet-iframe routing from
+    the EVM signer module into `SeamsWeb` capability wiring; keep the EVM
+    signer local-only.
+  - [x] Move Tempo signing, ECDSA bootstrap, and nonce-lifecycle wallet-iframe
+    routing from the Tempo signer module into `SeamsWeb` capability wiring;
+    keep the Tempo signer local-only.
+- [x] Move NEAR registration, transaction, delegate, and NEP-413 wallet-iframe
+  routing from the NEAR signer module into `SeamsWeb` capability wiring; keep
+  the NEAR signer local-only.
+- [x] Keep wallet iframe preference mirroring and login-status events in web-only
   modules.
-- [ ] Delete iframe-aware dependency fields from chain signer constructors once the
+- [x] Delete iframe-aware dependency fields from chain signer constructors once the
   web facade owns routing.
 
 Acceptance:
@@ -566,25 +659,30 @@ Goals:
 
 Tasks:
 
-- [ ] Add `client/src/core/platform/ios/README.md` with:
-  - [ ] `AuthenticationServices` mapping for `AuthenticatorPort`;
-  - [ ] `ASAuthorizationPlatformPublicKeyCredentialProvider` usage with
+- [x] Add `client/src/core/platform/ios/README.md` with:
+  - [x] `AuthenticationServices` mapping for `AuthenticatorPort`;
+  - [x] `ASAuthorizationPlatformPublicKeyCredentialProvider` usage with
     `relyingPartyIdentifier: "seams.sh"`;
-  - [ ] Associated Domains entitlement example using `webcredentials:seams.sh`;
-  - [ ] required `apple-app-site-association` `webcredentials` shape;
-  - [ ] PRF extension expectations and typed unsupported fallback;
-  - [ ] Keychain-backed `SecureSecretStore` requirements;
-  - [ ] native signer-core binding requirements.
-- [ ] Add `refactor51bRpIdContract.unit.test.ts` for config/domain constants that
+  - [x] Associated Domains entitlement example using `webcredentials:seams.sh`;
+  - [x] required `apple-app-site-association` `webcredentials` shape;
+  - [x] PRF extension expectations and typed unsupported fallback;
+  - [x] Keychain-backed `SecureSecretStore` requirements;
+  - [x] native signer-core binding requirements.
+- [x] Add `refactor51bRpIdContract.unit.test.ts` for config/domain constants that
   must stay stable in the repo.
-- [ ] Add server-side verification notes for expected browser and iOS/native
+- [x] Add server-side verification notes for expected browser and iOS/native
   origins, including the route-level requirement to pass expected-origin or
   native-origin policy into every WebAuthn verification call.
-- [ ] Add route tests that fail when passkey verifier calls omit expected-origin
+- [x] Add route tests that fail when passkey verifier calls omit expected-origin
   or native-origin policy for registration, add-signer, session exchange,
   threshold ECDSA bootstrap, threshold Ed25519 session, and future native-auth
   routes.
-- [ ] Add a native replay fixture task for every signer-core command the iOS adapter
+- [x] Remove server verifier fallbacks that inferred `expectedOrigin` from
+  `clientDataJSON.origin`; AuthService verification now requires route-provided
+  expected-origin policy before invoking WebAuthn verifiers.
+- [x] Extend origin-policy guards to cover AuthService and threshold Ed25519 route
+  wrappers.
+- [x] Add a native replay fixture task for every signer-core command the iOS adapter
   will call.
 
 Acceptance:
@@ -613,14 +711,14 @@ Goals:
 
 Tasks:
 
-- [ ] Add `client/src/core/platform/embedded/README.md`.
-- [ ] Define `EmbeddedPlatformRuntime` requirements:
-  - [ ] FIDO2 hmac-secret, TPM, or reviewed platform secret source;
-  - [ ] signer-core through Rust crate, C ABI, or authenticated local daemon;
-  - [ ] SQLite or atomic filesystem durable records;
-  - [ ] TLS transport with bounded timeouts;
-  - [ ] resource limits and replay-vector expectations.
-- [ ] Add guard tests proving embedded roots do not import `WalletIframe`, React, DOM
+- [x] Add `client/src/core/platform/embedded/README.md`.
+- [x] Define `EmbeddedPlatformRuntime` requirements:
+  - [x] FIDO2 hmac-secret, TPM, or reviewed platform secret source;
+  - [x] signer-core through Rust crate, C ABI, or authenticated local daemon;
+  - [x] SQLite or atomic filesystem durable records;
+  - [x] TLS transport with bounded timeouts;
+  - [x] resource limits and replay-vector expectations.
+- [x] Add guard tests proving embedded roots do not import `WalletIframe`, React, DOM
   UI, or browser storage modules.
 
 Acceptance:
@@ -644,25 +742,25 @@ Goals:
 
 Tasks:
 
-- [ ] Update `sdk/package.json` exports:
-  - [ ] `.` exports `SeamsWeb` for the browser package while this repo ships only
+- [x] Update `sdk/package.json` exports:
+  - [x] `.` exports `SeamsWeb` for the browser package while this repo ships only
     the web SDK.
-  - [ ] `./react` exports `SeamsWebProvider` and browser React hooks.
-  - [ ] add `./runtime` only if it exposes platform-neutral types without browser
+  - [x] `./react` exports `SeamsWebProvider` and browser React hooks.
+  - [x] add `./runtime` only if it exposes platform-neutral types without browser
     dependencies.
-  - [ ] reserve future `./ios` and `./embedded` entries for packages or generated
+  - [x] reserve future `./ios` and `./embedded` entries for packages or generated
     bindings that do not bundle browser code.
-- [ ] Move or delete the direct `./WalletIframe/client/html` export during Phase
+- [x] Move or delete the direct `./WalletIframe/client/html` export during Phase
   4. If it remains public for web hosts, rename it under a web-owned export path
   and guard it from platform-neutral, iOS, and embedded roots.
-- [ ] Update type declarations and build checks to prevent native packages from
+- [x] Update type declarations and build checks to prevent native packages from
   pulling browser chunks.
-- [ ] Add bundle inspection tests for native-target package entries once they exist.
-- [ ] Update package description and keywords so browser, runtime, server, and
+- [x] Add bundle inspection tests for native-target package entries once they exist.
+- [x] Update package description and keywords so browser, runtime, server, and
   native-facing surfaces are described separately.
-- [ ] Remove stale component exports that point at deleted or renamed browser-only
+- [x] Remove stale component exports that point at deleted or renamed browser-only
   WebAuthn manager paths.
-- [ ] Add package export smoke tests for `.`, `./react`, `./runtime`, and any
+- [x] Add package export smoke tests for `.`, `./react`, `./runtime`, and any
   reserved native roots.
 
 Acceptance:
@@ -689,23 +787,69 @@ Goals:
 
 Tasks:
 
-- [ ] Split `client/src/core/platform/types.ts` into focused modules:
-  - [ ] `ports.ts` for `AuthenticatorPort`, `SignerCryptoPort`,
+- [x] Split `client/src/core/platform/types.ts` into focused modules:
+  - [x] `ports.ts` for `AuthenticatorPort`, `SignerCryptoPort`,
     `DurableRecordStore`, `SecureSecretStore`, `HttpTransport`, `ClockPort`,
     and `RandomSource`;
-  - [ ] `secretSources.ts` for client secret-source brands, builders, and parsers;
-  - [ ] `ecdsaRoleLocalRecords.ts` for role-local ready/pending record shapes and
+  - [x] `secretSources.ts` for client secret-source brands, builders, and parsers;
+  - [x] `ecdsaRoleLocalRecords.ts` for role-local ready/pending record shapes and
     parse results;
-  - [ ] `http.ts` for HTTP transport request/result types;
-  - [ ] `runtime.ts` for `PlatformRuntime` and platform-kind aggregates.
-- [ ] Delete temporary `SigningEngine` wrappers once all public web capability
+  - [x] `http.ts` for HTTP transport request/result types;
+  - [x] `runtime.ts` for `PlatformRuntime` and platform-kind aggregates.
+- [x] Keep ECDSA role-local record primitives platform-owned by moving role-local
+  identity brands and ECDSA chain-target shapes out of signing-engine modules.
+- [x] Move ECDSA registration bootstrap prepare/finalize construction into
+  `SigningRuntime.services.ecdsaRegistrationBootstrap` so the web facade no
+  longer calls `platformRuntime.signerCrypto` directly.
+- [x] Delete the passkey ECDSA registration prepare wrappers from
+  `SigningEngine` after SeamsWeb registration, link-device, and email-recovery
+  call `SigningRuntime.services.ecdsaRegistrationBootstrap` directly.
+- [x] Delete the combined ECDSA registration persistence/finalization wrapper
+  from `SigningEngine`; SeamsWeb registration now finalizes through
+  `SigningRuntime.services.ecdsaRegistrationBootstrap` and uses narrow session
+  persistence methods.
+- [x] Delete the Email OTP ECDSA registration prepare wrapper from
+  `SigningEngine`; SeamsWeb registration now prepares Email OTP client
+  bootstraps through `SigningRuntime.services.ecdsaRegistrationBootstrap`.
+- [x] Delete the ECDSA wallet signer-record persistence wrappers from
+  `SigningEngine`; SeamsWeb registration, link-device, and email-recovery now
+  store ECDSA wallet records through `SigningRuntime.services.ecdsaWalletRecords`.
+- [x] Delete the ECDSA registration session persistence wrappers from
+  `SigningEngine`; SeamsWeb registration now persists registration sessions
+  through `SigningRuntime.services.ecdsaRegistrationSessions`.
+- [x] Delete the warm-session hydration wrapper from `SigningEngine`; Ed25519
+  registration and bootstrap hydration now use
+  `SigningRuntime.services.warmSessions`.
+- [x] Delete the NEAR key-operation wrappers from `SigningEngine`; device-linking
+  now signs temporary key-swap transactions and generates ephemeral keypairs via
+  `SigningRuntime.services.nearKeyOperations`.
+- [x] Delete the registration account lifecycle wrappers from `SigningEngine`;
+  SeamsWeb auth, login, registration, recovery, sync, and device-linking now use
+  `SigningRuntime.services.registrationAccounts`.
+- [x] Move direct NEAR transaction/delegate/NEP-413 signing and Tempo/EVM-family
+  signing/nonce-lifecycle calls from web capability methods to
+  `SigningRuntime.services.nearSigning` and
+  `SigningRuntime.services.evmFamilySigning`.
+- [x] Narrow remaining direct web-module dependencies on `SigningEnginePublic`;
+  auth/session, registration, and wallet-iframe coordination now accept
+  branch-specific signing capability slices instead of the full wrapper surface.
+- [x] Delete the exported `SigningEnginePublic` compatibility surface; the
+  web context now declares a structural `SeamsWebSigningSurface` from core
+  runtime/session/signing types.
+- [x] Move registration-account, ECDSA wallet-record, ECDSA registration-session,
+  and ECDSA registration-bootstrap runtime services under the registration flow
+  boundary, and move warm-session hydration under the passkey session boundary,
+  so `useCases` no longer imports flow, worker-manager, or UI-confirm modules.
+- [x] Move the warm-session material writer contract under the passkey session
+  boundary so session/passkey modules do not import UI-confirm internals.
+- [x] Delete temporary `SigningEngine` wrappers once all public web capability
   methods call `SigningRuntime` services.
-- [ ] Delete temporary inventory TODO rows and guard allow-list entries created for
+- [x] Delete temporary inventory TODO rows and guard allow-list entries created for
   phases that have completed.
-- [ ] Audit tests, fixtures, and snapshots for old facade names, iframe assumptions
+- [x] Audit tests, fixtures, and snapshots for old facade names, iframe assumptions
   in shared runtime tests, and IndexedDB assumptions outside browser adapter
   tests.
-- [ ] Update file-level README docs for `core/runtime`, `core/platform`, `web`, and
+- [x] Update file-level README docs for `core/runtime`, `core/platform`, `web`, and
   React entrypoints.
 
 Acceptance:

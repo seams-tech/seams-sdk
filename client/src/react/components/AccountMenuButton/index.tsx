@@ -59,8 +59,8 @@ async function waitForNextPaint(): Promise<void> {
 /**
  * Account Menu Button Component
  * Provides user settings, account management, and device linking.
- * **Important:** This component should be used inside a SeamsPasskey context.
- * Wrap your app with PasskeyProvider or ensure SeamsPasskey is available in context via useSeams.
+ * **Important:** This component should be used inside a SeamsWeb context.
+ * Wrap your app with PasskeyProvider or ensure SeamsWeb is available in context via useSeams.
  *
  * @example
  * ```tsx

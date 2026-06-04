@@ -16,7 +16,7 @@ const ARC_TESTNET_GREETING_CONTRACT = '0xeB7aB5A6F761072C96147A54B8a15F012e83669
 
 test.describe('demo threshold action hooks', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('ThresholdSignerSection displays the threshold owner address', async ({ page }) => {

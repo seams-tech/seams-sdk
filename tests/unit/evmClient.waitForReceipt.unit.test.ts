@@ -5,7 +5,7 @@ const IMPORT_PATH = '/sdk/esm/core/rpcClients/evm/EvmClient.js' as const;
 
 test.describe('evm client waitForTransactionReceipt', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('waits for mined receipt via helper client', async ({ page }) => {

@@ -8,7 +8,7 @@ import { ScanQRCodeFlow, enumerateVideoDevices, detectFrontCamera } from '@/util
  *
  * Provides camera-based QR code scanning functionality for device linking.
  *
- * **Important:** This hook should be used with the SeamsPasskey provider.
+ * **Important:** This hook should be used with the SeamsWeb provider.
  * Wrap your app with PasskeyProvider so useSeams is available when needed.
  *
  * @example

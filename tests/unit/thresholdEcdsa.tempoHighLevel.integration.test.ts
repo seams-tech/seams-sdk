@@ -98,7 +98,7 @@ async function signTempoWithExistingPasskey(
 }> {
   return await page.evaluate(async (input) => {
     const sdkMod = await import('/sdk/esm/index.js');
-    const { SeamsPasskey } = sdkMod as any;
+    const { SeamsWeb } = sdkMod as any;
 
     const confirmationConfig = {
       uiMode: 'none' as const,
@@ -109,7 +109,7 @@ async function signTempoWithExistingPasskey(
     const existingPm = (globalThis as any).__w3aTempoHighLevelPm;
     const pm =
       existingPm ||
-      new SeamsPasskey({
+      new SeamsWeb({
         nearNetwork: 'testnet',
         nearRpcUrl: 'https://test.rpc.fastnear.com',
         relayerAccount: 'web3-authn-v4.testnet',
@@ -530,12 +530,12 @@ async function bootstrapEvmSessionWithExistingPasskey(
 }> {
   return await page.evaluate(async (input) => {
     const sdkMod = await import('/sdk/esm/index.js');
-    const { SeamsPasskey } = sdkMod as any;
+    const { SeamsWeb } = sdkMod as any;
 
     const existingPm = (globalThis as any).__w3aTempoHighLevelPm;
     const pm =
       existingPm ||
-      new SeamsPasskey({
+      new SeamsWeb({
         nearNetwork: 'testnet',
         nearRpcUrl: 'https://test.rpc.fastnear.com',
         relayerAccount: 'web3-authn-v4.testnet',
@@ -592,7 +592,7 @@ async function runConcurrentThresholdSignsWithExistingPasskey(
 }> {
   return await page.evaluate(async (input) => {
     const sdkMod = await import('/sdk/esm/index.js');
-    const { SeamsPasskey } = sdkMod as any;
+    const { SeamsWeb } = sdkMod as any;
 
     const confirmationConfig = {
       uiMode: 'none' as const,
@@ -603,7 +603,7 @@ async function runConcurrentThresholdSignsWithExistingPasskey(
     const existingPm = (globalThis as any).__w3aTempoHighLevelPm;
     const pm =
       existingPm ||
-      new SeamsPasskey({
+      new SeamsWeb({
         nearNetwork: 'testnet',
         nearRpcUrl: 'https://test.rpc.fastnear.com',
         relayerAccount: 'web3-authn-v4.testnet',

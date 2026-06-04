@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
-import { sendTransaction } from '@/core/SeamsPasskey/near/actions';
-import type { PasskeyManagerContext } from '@/core/SeamsPasskey/interfaces';
+import { sendTransaction } from '@/web/SeamsWeb/near/actions';
+import type { SeamsWebContext } from '@/web/SeamsWeb/interfaces';
 import type { NonceLeaseRef } from '@/core/signingEngine/interfaces/nonceLease';
 
 test('sendTransaction returns server-dispatched result without rebroadcasting', async () => {
@@ -37,7 +37,7 @@ test('sendTransaction returns server-dispatched result without rebroadcasting', 
         },
       }),
     },
-  } as unknown as PasskeyManagerContext;
+  } as unknown as SeamsWebContext;
 
   const result = await sendTransaction({ context, signedTransaction });
 

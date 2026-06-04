@@ -4495,7 +4495,7 @@ export class AuthService {
   private async verifyRegistrationCredentialForIntent(input: {
     webauthnRegistration: unknown;
     expectedChallenge: string;
-    expectedOrigin?: string;
+    expectedOrigin: string;
     rpId: string;
   }): Promise<
     | {
@@ -4523,6 +4523,14 @@ export class AuthService {
     if (clientData.challenge !== input.expectedChallenge) {
       return { ok: false, code: 'challenge_mismatch', message: 'Registration challenge mismatch' };
     }
+    const expectedOrigin = toOptionalTrimmedString(input.expectedOrigin);
+    if (!expectedOrigin) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'expected_origin is required for WebAuthn registration verification',
+      };
+    }
     const originHost = originHostnameOrEmpty(clientData.origin);
     if (!isHostWithinRpId(originHost, input.rpId)) {
       return { ok: false, code: 'invalid_origin', message: 'WebAuthn origin is not within rpId' };
@@ -4543,7 +4551,7 @@ export class AuthService {
     const registration = await verifyRegistrationResponse({
       response: cred,
       expectedChallenge: input.expectedChallenge,
-      expectedOrigin: input.expectedOrigin || clientData.origin,
+      expectedOrigin,
       expectedRPID: input.rpId,
       requireUserVerification: false,
     });
@@ -4577,7 +4585,7 @@ export class AuthService {
     intent: RegistrationIntentV1;
     registrationIntentDigestB64u: string;
     orgId: string;
-    expectedOrigin?: string;
+    expectedOrigin: string;
     emailOtpRegistrationProof?: unknown;
     webauthnRegistration: unknown;
   }): Promise<
@@ -5027,12 +5035,20 @@ export class AuthService {
       if (!storedIntent) {
         return { ok: false, code: 'invalid_grant', message: 'registration intent grant expired' };
       }
+      const storedExpectedOrigin = toOptionalTrimmedString(storedIntent.expectedOrigin);
+      if (request.authority.kind === 'passkey' && !storedExpectedOrigin) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'expected_origin is required for WebAuthn registration verification',
+        };
+      }
 
       const verifiedAuthority = await this.verifyRegistrationAuthorityForIntent({
         intent: storedIntent.intent,
         registrationIntentDigestB64u: storedIntent.digestB64u,
         orgId: storedIntent.orgId,
-        expectedOrigin: storedIntent.expectedOrigin,
+        expectedOrigin: storedExpectedOrigin || '',
         emailOtpRegistrationProof:
           request.authority.kind === 'email_otp'
             ? request.authority.emailOtpRegistrationProof
@@ -6926,7 +6942,7 @@ export class AuthService {
     orgId: string;
     authority: WalletAddAuthMethodStartRequest['authority'];
     expectedDigestB64u: string;
-    expectedOrigin?: string;
+    expectedOrigin: string;
     intent: AddAuthMethodIntentV1;
     walletAuthMethodStore: WalletAuthMethodStore;
   }): Promise<
@@ -7198,11 +7214,19 @@ export class AuthService {
           message: 'add-auth-method intent grant expired',
         };
       }
+      const storedExpectedOrigin = toOptionalTrimmedString(storedIntent.expectedOrigin);
+      if (request.authority.kind === 'passkey' && !storedExpectedOrigin) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'expected_origin is required for WebAuthn registration verification',
+        };
+      }
       const authority = await this.verifyAddAuthMethodAuthority({
         orgId: storedIntent.orgId,
         authority: request.authority,
         expectedDigestB64u: storedIntent.digestB64u,
-        expectedOrigin: storedIntent.expectedOrigin,
+        expectedOrigin: storedExpectedOrigin || '',
         intent: storedIntent.intent,
         walletAuthMethodStore,
       });
@@ -7979,8 +8003,10 @@ export class AuthService {
           throw new Error('WebAuthn registration verifier is unavailable in this runtime');
         }
 
-        // Require a concrete origin when possible (routers should pass the request Origin header).
-        const expectedOriginStrict = expectedOrigin || clientData.origin;
+        const expectedOriginStrict = toOptionalTrimmedString(expectedOrigin);
+        if (!expectedOriginStrict) {
+          throw new Error('expected_origin is required for WebAuthn registration verification');
+        }
         const verification = await verifyRegistrationResponse({
           response: cred,
           expectedChallenge,
@@ -8248,7 +8274,7 @@ export class AuthService {
     rpId: string;
     expectedChallenge: string;
     webauthn_authentication: WebAuthnAuthenticationCredential;
-    expected_origin?: string;
+    expected_origin: string;
   }): Promise<{ success: boolean; verified: boolean; code?: string; message?: string }> {
     try {
       await this._ensureSignerAndRelayerAccount();
@@ -8256,7 +8282,7 @@ export class AuthService {
       const nearAccountId = String(input.nearAccountId || '').trim();
       const rpId = String(input.rpId || '').trim();
       const expectedChallenge = String(input.expectedChallenge || '').trim();
-      const expectedOriginOverride = toOptionalTrimmedString(input.expected_origin);
+      const expectedOrigin = toOptionalTrimmedString(input.expected_origin);
       const cred = input.webauthn_authentication as any;
 
       if (!nearAccountId)
@@ -8274,6 +8300,13 @@ export class AuthService {
           verified: false,
           code: 'invalid_body',
           message: 'Missing expectedChallenge',
+        };
+      if (!expectedOrigin)
+        return {
+          success: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'expected_origin is required for WebAuthn authentication verification',
         };
       if (!cred || typeof cred !== 'object')
         return {
@@ -8383,7 +8416,7 @@ export class AuthService {
         verification = await verifyAuthenticationResponse({
           response: cred,
           expectedChallenge,
-          expectedOrigin: expectedOriginOverride || clientData.origin,
+          expectedOrigin,
           expectedRPID: rpId,
           credential,
           requireUserVerification: false,
@@ -8659,12 +8692,21 @@ export class AuthService {
         };
       }
 
+      const expectedOrigin = toOptionalTrimmedString(request.expected_origin);
+      if (!expectedOrigin) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'expected_origin is required for WebAuthn authentication verification',
+        };
+      }
       const verification = await this.verifyWebAuthnAuthenticationLite({
         nearAccountId: record.userId,
         rpId: record.rpId,
         expectedChallenge: record.challengeB64u,
         webauthn_authentication: request?.webauthn_authentication as any,
-        expected_origin: request.expected_origin,
+        expected_origin: expectedOrigin,
       });
 
       if (!verification.success || !verification.verified) {
@@ -12485,12 +12527,21 @@ export class AuthService {
         };
       }
 
+      const expectedOrigin = toOptionalTrimmedString(request.expected_origin);
+      if (!expectedOrigin) {
+        return {
+          ok: false,
+          verified: false,
+          code: 'invalid_body',
+          message: 'expected_origin is required for WebAuthn authentication verification',
+        };
+      }
       const verification = await this.verifyWebAuthnAuthenticationLite({
         nearAccountId: binding.userId,
         rpId: binding.rpId,
         expectedChallenge: challenge.challengeB64u,
         webauthn_authentication: request?.webauthn_authentication as any,
-        expected_origin: request.expected_origin,
+        expected_origin: expectedOrigin,
       });
 
       if (!verification.success || !verification.verified) {
@@ -13018,7 +13069,14 @@ export class AuthService {
         };
       }
 
-      const expectedOriginStrict = request.expected_origin || clientData.origin;
+      const expectedOriginStrict = toOptionalTrimmedString(request.expected_origin);
+      if (!expectedOriginStrict) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'expected_origin is required for WebAuthn registration verification',
+        };
+      }
       const registration = await verifyRegistrationResponse({
         response: cred,
         expectedChallenge,
@@ -13525,7 +13583,14 @@ export class AuthService {
         };
       }
 
-      const expectedOriginStrict = request.expected_origin || clientData.origin;
+      const expectedOriginStrict = toOptionalTrimmedString(request.expected_origin);
+      if (!expectedOriginStrict) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'expected_origin is required for WebAuthn registration verification',
+        };
+      }
       const registration = await verifyRegistrationResponse({
         response: cred,
         expectedChallenge,

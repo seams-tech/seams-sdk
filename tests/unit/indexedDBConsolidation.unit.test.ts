@@ -54,7 +54,7 @@ test.describe('IndexedDB consolidation', () => {
   });
 
   test('fresh seams wallet databases match the schema manifest', async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
@@ -133,7 +133,7 @@ test.describe('IndexedDB consolidation', () => {
   });
 
   test('schema upgrade replaces stale unique auth-method identifier index', async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
@@ -198,7 +198,7 @@ test.describe('IndexedDB consolidation', () => {
   test('wallet DB manager deletes legacy local databases before opening seams_wallet', async ({
     page,
   }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
@@ -263,7 +263,7 @@ test.describe('IndexedDB consolidation', () => {
   test('disabled wallet DB manager does not open seams_wallet or delete legacy databases', async ({
     page,
   }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
@@ -335,7 +335,7 @@ test.describe('IndexedDB consolidation', () => {
   test('unified repositories persist profile, chain account, app state, and recovery email records', async ({
     page,
   }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
@@ -508,7 +508,7 @@ test.describe('IndexedDB consolidation', () => {
   test('wallet signer rows mirror branch identity fields and ECDSA signers do not create NEAR projections', async ({
     page,
   }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
@@ -685,7 +685,7 @@ test.describe('IndexedDB consolidation', () => {
   test('wallet signer finalize rejects missing signer key material atomically', async ({
     page,
   }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
@@ -757,7 +757,7 @@ test.describe('IndexedDB consolidation', () => {
   test('wallet auth-method rows allow shared Email OTP identifiers and reject passkey duplicates plus scalar drift', async ({
     page,
   }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
@@ -888,7 +888,7 @@ test.describe('IndexedDB consolidation', () => {
   test('wallet signer finalize rejects existing active signers without key material', async ({
     page,
   }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');
@@ -1010,7 +1010,7 @@ test.describe('IndexedDB consolidation', () => {
   test('key material lookup prefers the active signer row over stale placeholder material', async ({
     page,
   }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     const result = await page.evaluate(async () => {
       const schemaNames = await import('/sdk/esm/core/indexedDB/schemaNames.js');
       const managerModule = await import('/sdk/esm/core/indexedDB/seamsWalletDB/manager.js');

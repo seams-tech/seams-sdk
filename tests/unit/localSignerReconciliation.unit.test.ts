@@ -7,7 +7,7 @@ const IMPORT_PATHS = {
 
 test.describe('local signer reconciliation', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('reports missing threshold material, orphaned material, and stale pending signers', async ({

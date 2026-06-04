@@ -5,7 +5,7 @@ import { respondOk } from './shared';
 export function createExportWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
   return {
     PM_EXPORT_KEYPAIR_UI: async (req: Req<'PM_EXPORT_KEYPAIR_UI'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const payload = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
       try {
@@ -45,7 +45,7 @@ export function createExportWalletIframeHandlers(deps: HandlerDeps): HandlerMap 
     PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI: async (
       req: Req<'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI'>,
     ) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const { nearAccountId, preparedSession, finalizedReport, expectedPublicKey, variant, theme } =
         req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;

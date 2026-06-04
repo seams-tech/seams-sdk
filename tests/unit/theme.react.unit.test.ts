@@ -2,7 +2,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { injectImportMap } from '../setup/bootstrap';
 
 const IMPORT_PATHS = {
-  provider: '/sdk/esm/react/context/SeamsPasskeyProvider.js',
+  provider: '/sdk/esm/react/context/SeamsWebProvider.js',
   theme: '/sdk/esm/react/components/theme/ThemeProvider.js',
   context: '/sdk/esm/react/context/index.js',
   accountMenu: '/sdk/esm/react/components/AccountMenuButton/index.js',
@@ -112,7 +112,7 @@ test.describe('React Theme integration', () => {
     expect(nextBg).not.toBe(initialBg);
   });
 
-  test('SeamsPasskeyProvider applies config appearance token overrides', async ({ page }) => {
+  test('SeamsWebProvider applies config appearance token overrides', async ({ page }) => {
     const mountId = 'w3a-theme-harness-config-appearance';
     const scopeSelector = `#${mountId} .w3a-theme-provider`;
 
@@ -132,7 +132,7 @@ test.describe('React Theme integration', () => {
             const ReactDOM = await import('react-dom');
 
             const providerMod: any = await import(paths.provider);
-            const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
+            const Provider = providerMod.SeamsWebProvider || providerMod.default;
 
             const config = {
               nearNetwork: 'testnet',
@@ -197,7 +197,7 @@ test.describe('React Theme integration', () => {
             const ReactDOM = await import('react-dom');
 
             const providerMod: any = await import(paths.provider);
-            const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
+            const Provider = providerMod.SeamsWebProvider || providerMod.default;
 
             const config = {
               nearNetwork: 'testnet',
@@ -270,7 +270,7 @@ test.describe('React Theme integration', () => {
         const ReactDOM = await import('react-dom');
 
         const providerMod: any = await import(paths.provider);
-        const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
+        const Provider = providerMod.SeamsWebProvider || providerMod.default;
 
         const config = {
           nearNetwork: 'testnet',
@@ -337,7 +337,7 @@ test.describe('React Theme integration', () => {
       .toBe('#112233');
   });
 
-  test('SeamsPasskeyProvider syncs theme and proxies seams.setTheme to host', async ({
+  test('SeamsWebProvider syncs theme and proxies seams.setTheme to host', async ({
     page,
   }) => {
     const mountId = 'w3a-theme-harness-provider';
@@ -364,7 +364,7 @@ test.describe('React Theme integration', () => {
             const themeMod: any = await import(paths.theme);
             const ctxMod: any = await import(paths.context);
 
-            const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
+            const Provider = providerMod.SeamsWebProvider || providerMod.default;
             const useTheme = themeMod.useTheme;
             const useSeams = ctxMod.useSeams;
 
@@ -452,7 +452,7 @@ test.describe('React Theme integration', () => {
         const accountMod: any = await import(paths.accountMenu);
         const themeMod: any = await import(paths.theme);
 
-        const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
+        const Provider = providerMod.SeamsWebProvider || providerMod.default;
         const AccountMenuButton = accountMod.AccountMenuButton || accountMod.default;
         const useTheme = themeMod.useTheme;
 

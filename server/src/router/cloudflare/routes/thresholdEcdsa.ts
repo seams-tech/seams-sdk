@@ -41,6 +41,7 @@ import {
   type RuntimePolicyScope,
 } from '@shared/threshold/signingRootScope';
 import { verifySecp256k1RecoverableSignatureAgainstPublicKey33 } from '../../../core/ThresholdService/ethSignerWasm';
+import { normalizeCorsOrigin } from '../../../core/SessionService';
 
 type EcdsaRuntimePolicyScope = RuntimePolicyScope;
 type ThresholdEcdsaSessionClaims = NonNullable<ReturnType<typeof parseThresholdEcdsaSessionClaims>>;
@@ -223,6 +224,14 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
   const proof = request.clientRootProof;
   const passkeyAuthorization = request.passkeyBootstrapAuthorization;
   if (passkeyAuthorization) {
+    const expectedOrigin = normalizeCorsOrigin(ctx.request.headers.get('origin') || undefined);
+    if (!expectedOrigin) {
+      return {
+        ok: false,
+        code: 'unauthorized',
+        message: 'Origin header is required and must be a valid exact origin',
+      };
+    }
     const runtimePolicyScopeResolution = await resolveThresholdRuntimePolicyScope({
       explicitScopeRaw: passkeyAuthorization.runtimePolicyScope,
       runtimeEnvironmentIdRaw: passkeyAuthorization.runtimeEnvironmentId,
@@ -270,6 +279,7 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
       nearAccountId: request.walletId,
       rpId: request.rpId,
       expectedChallenge,
+      expected_origin: expectedOrigin,
       webauthn_authentication: passkeyAuthorization.webauthn_authentication,
     });
     if (!verified.success || !verified.verified) {

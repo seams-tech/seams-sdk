@@ -13,12 +13,12 @@ import { QRScanMode } from '@/react/hooks/useQRCamera';
  *
  * Provides device linking functionality with QR code scanning and transaction management.
  *
- * **Important:** This hook must be used inside a SeamsPasskey context.
- * Wrap your app with SeamsPasskeyProvider or ensure SeamsPasskey is available in context via useSeams.
+ * **Important:** This hook must be used inside a SeamsWeb context.
+ * Wrap your app with SeamsWebProvider or ensure SeamsWeb is available in context via useSeams.
  *
  * @example
  * ```tsx
- * import { SeamsPasskeyProvider } from '@seams/sdk/react';
+ * import { SeamsWebProvider } from '@seams/sdk/react';
  * import { useDeviceLinking } from '@seams/sdk/react';
  *
  * function DeviceLinker() {

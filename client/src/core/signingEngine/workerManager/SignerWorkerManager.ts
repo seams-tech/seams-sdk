@@ -1,15 +1,14 @@
-import { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { type NearClient } from '@/core/rpcClients/near/NearClient';
 import type { UiConfirmSigningSessionPort } from '../uiConfirm/types';
-import { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
-import type { SigningRuntimeDeps } from '../interfaces/runtime';
+import type { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
+import type { NearSigningKeyMaterialStorePort, NearSigningRuntimeDeps } from '../interfaces/runtime';
 import type {
   SignerWorkerKind,
   SignerWorkerOperationRequest,
   SignerWorkerOperationResult,
   SignerWorkerOperationType,
 } from './workerTypes';
-import { UserPreferencesManager } from '../session/userPreferences';
+import type { UserPreferencesManager } from '../session/userPreferences';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type { ThemeName, SeamsChainConfig } from '@/core/types/seams';
 import type {
@@ -20,7 +19,7 @@ import type { NearSigningKeyOps } from '../interfaces/nearKeyOps';
 import type { WorkerTransport } from './workerTransport';
 import { createNearKeyOps } from './nearKeyOps/createNearKeyOps';
 
-export interface SignerWorkerManagerContext extends SigningRuntimeDeps {
+export interface SignerWorkerManagerContext extends NearSigningRuntimeDeps {
   userPreferencesManager: UserPreferencesManager;
   getTheme?: () => ThemeName;
   rpIdOverride?: string;
@@ -30,7 +29,7 @@ export interface SignerWorkerManagerContext extends SigningRuntimeDeps {
 }
 
 export type SignerWorkerManagerDeps = {
-  indexedDB: UnifiedIndexedDBManager;
+  nearKeyMaterialStore: NearSigningKeyMaterialStorePort;
   touchIdPrompt: TouchIdPrompt;
   touchConfirm: UiConfirmSigningSessionPort;
   nearClient: NearClient;
@@ -52,7 +51,7 @@ export type SignerWorkerManagerDeps = {
  * (e.g. login) or derived from intent/session digests (e.g. threshold sessions).
  */
 export class SignerWorkerManager {
-  private indexedDB: UnifiedIndexedDBManager;
+  private nearKeyMaterialStore: NearSigningKeyMaterialStorePort;
   private touchIdPrompt: TouchIdPrompt;
   private touchConfirm: UiConfirmSigningSessionPort;
   private nearClient: NearClient;
@@ -68,7 +67,7 @@ export class SignerWorkerManager {
   readonly nearKeyOps: NearSigningKeyOps;
 
   constructor(deps: SignerWorkerManagerDeps) {
-    this.indexedDB = deps.indexedDB;
+    this.nearKeyMaterialStore = deps.nearKeyMaterialStore;
     this.touchIdPrompt = deps.touchIdPrompt;
     this.touchConfirm = deps.touchConfirm;
     this.nearClient = deps.nearClient;
@@ -91,7 +90,7 @@ export class SignerWorkerManager {
   getContext(): SignerWorkerManagerContext {
     return {
       requestWorkerOperation: this.requestWorkerOperation.bind(this),
-      indexedDB: this.indexedDB,
+      nearKeyMaterialStore: this.nearKeyMaterialStore,
       touchIdPrompt: this.touchIdPrompt,
       touchConfirm: this.touchConfirm,
       nearClient: this.nearClient,

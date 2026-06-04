@@ -1,4 +1,3 @@
-import { getBrowserPlatformIndexedDB } from '@/core/platform';
 import {
   createEmailOtpWarmSessionStatusReader,
   createSigningSessionCoordinatorPort,
@@ -33,8 +32,6 @@ export type {
 export function createSigningEnginePorts(
   args: CreateSigningEnginePortsArgs,
 ): SigningEnginePorts {
-  const indexedDB = getBrowserPlatformIndexedDB(args.platformRuntime);
-  const runtimeDeps = { indexedDB };
   const nearRpcUrl = resolveNearRpcUrl(args);
   const getEmailOtpWarmSessionStatus = createEmailOtpWarmSessionStatusReader(args);
   const signingSessionCoordinator = createSigningSessionCoordinatorPort({
@@ -43,32 +40,37 @@ export function createSigningEnginePorts(
   });
   const getOrCreateActiveThresholdEcdsaSessionId =
     createGetOrCreateActiveThresholdEcdsaSessionId();
-  const getWorkerResourceWarmupDeps = createWorkerResourceWarmupDepsFactory(args, runtimeDeps);
+  const getWorkerResourceWarmupDeps = createWorkerResourceWarmupDepsFactory(args, {
+    warmupStore: args.stores.warmup.store,
+  });
   const getWarmThresholdEd25519SessionStatus = createWarmThresholdEd25519SessionStatusReader({
     createArgs: args,
     getEmailOtpWarmSessionStatus,
   });
 
   return {
-    indexedDB,
     thresholdEd25519LifecycleDeps: createThresholdEd25519LifecycleDeps(args),
     nearSigningDeps: createNearSigningDeps({
       createArgs: args,
-      indexedDB,
+      walletSignerStore: args.stores.walletProfileAndSignerRecords.walletSignerStore,
       nearRpcUrl,
       signingSessionCoordinator,
       getEmailOtpWarmSessionStatus,
     }),
     tempoSigningDeps: createEvmFamilySigningDeps({
       createArgs: args,
-      indexedDB,
+      walletSignerStore: args.stores.walletProfileAndSignerRecords.walletSignerStore,
+      passkeyAuthenticatorStore:
+        args.stores.walletProfileAndSignerRecords.passkeyAuthenticatorStore,
       signingSessionCoordinator,
       getEmailOtpWarmSessionStatus,
     }),
-    privateKeyExportRecoveryDeps: createPrivateKeyExportRecoveryDeps(args, runtimeDeps),
+    privateKeyExportRecoveryDeps: createPrivateKeyExportRecoveryDeps(args, {
+      keyMaterialStore: args.stores.recoveryAndDeviceLinking.keyMaterialStore,
+    }),
     registrationAccountLifecycleDeps: createRegistrationAccountLifecycleDeps({
       createArgs: args,
-      indexedDB,
+      accountStore: args.stores.walletProfileAndSignerRecords.accountStore,
     }),
     registrationSessionDeps: {
       touchConfirm: args.touchConfirm,
@@ -76,7 +78,7 @@ export function createSigningEnginePorts(
     },
     thresholdSessionActivationDeps: createThresholdSessionActivationDeps({
       createArgs: args,
-      indexedDB,
+      credentialStore: args.stores.recoveryAndDeviceLinking.credentialStore,
       getOrCreateActiveThresholdEcdsaSessionId,
     }),
     nearKeyOpsDeps: {

@@ -26,6 +26,7 @@ import {
 import { resolveRequestOriginRateLimitKeyFromExpressRequest } from '../../relayApiKeyAuth';
 import { validateRuntimeSnapshotExpectation } from '../../runtimeSnapshotConsumer';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '../../../core/ThresholdService/schemes/schemeIds';
+import { normalizeCorsOrigin } from '../../../core/SessionService';
 
 function errMessage(e: unknown): string {
   if (e && typeof e === 'object' && 'message' in e)
@@ -267,9 +268,20 @@ export function registerThresholdEd25519Routes(
           };
         }
         const runtimePolicyScope = runtimePolicyScopeResolution.scope;
+        const expectedOrigin = normalizeCorsOrigin(
+          Array.isArray(req.headers?.origin) ? req.headers.origin[0] : req.headers?.origin,
+        );
+        if ((body as any).webauthn_authentication && !expectedOrigin) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'expected_origin is required for WebAuthn authentication verification',
+          };
+        }
 
         const result = await resolved.scheme.session({
           ...body,
+          expected_origin: expectedOrigin || '',
           ...(appSessionClaims ? { appSessionClaims } : {}),
           ...(ecdsaSessionClaims ? { ecdsaSessionClaims } : {}),
         });

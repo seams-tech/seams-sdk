@@ -121,7 +121,7 @@ type NearAccountContext = {
   sourceAccountAddress: string;
 };
 
-type NearAccountClientDbPort = ProfileAccountProjectionPort &
+export type NearAccountClientDbPort = ProfileAccountProjectionPort &
   ProfileLastSelectionPort & {
     setLastProfileStateForProfile: (
       profileId: string,

@@ -1,24 +1,26 @@
-import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { base64UrlDecode } from '@shared/utils/base64';
 import { decodeCoseP256PublicKeyWasm } from '../../chains/evm/ethSignerWasm';
 import { toWalletId } from '../../interfaces/ecdsaChainTarget';
+import type { EvmFamilyPasskeyAuthenticatorStorePort } from '../../interfaces/passkeyAuthenticatorStore';
 import type { KeyRef } from '../../interfaces/signing';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 
 export async function resolveWebAuthnP256KeyRefForWallet(args: {
-  indexedDB: UnifiedIndexedDBManager;
+  passkeyAuthenticatorStore: EvmFamilyPasskeyAuthenticatorStorePort;
   walletId: string;
   workerCtx: WorkerOperationContext;
   rpId?: string;
 }): Promise<KeyRef & { type: 'webauthnP256' }> {
   const walletId = toWalletId(args.walletId);
-  const authenticators = await args.indexedDB.listWalletPasskeyAuthenticators(walletId);
+  const authenticators = await args.passkeyAuthenticatorStore.listWalletPasskeyAuthenticators(
+    walletId,
+  );
   if (!authenticators.length) {
     throw new Error(`[multichain] no passkeys found for wallet ${walletId}`);
   }
 
   const { authenticatorsForPrompt } =
-    await args.indexedDB.selectProfileAuthenticatorsForPrompt({
+    await args.passkeyAuthenticatorStore.selectProfileAuthenticatorsForPrompt({
       profileId: walletId,
       authenticators,
       accountLabel: walletId,

@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
-const REGISTRATION_URL = new URL('../../client/src/core/SeamsPasskey/registration.ts', import.meta.url);
+const REGISTRATION_URL = new URL('../../client/src/web/SeamsWeb/registration.ts', import.meta.url);
 const PRODUCTION_CONTINUATION_SCAN_URLS = [
-  '../../client/src/core/SeamsPasskey/registration.ts',
+  '../../client/src/web/SeamsWeb/registration.ts',
   '../../client/src/core/rpcClients/relayer/thresholdEcdsa.ts',
   '../../client/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
   '../../server/src/core/types.ts',

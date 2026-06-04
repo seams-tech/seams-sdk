@@ -11,7 +11,7 @@ const SET_GREETING_SELECTOR = '0xa4136862';
 
 test.describe('docs frontend signing actions smoke', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('logged-in demo invokes NEAR action + Tempo/EVM threshold signing actions', async ({

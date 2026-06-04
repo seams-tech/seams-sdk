@@ -263,7 +263,7 @@ test('EVM-family signing deps preserve one-use Email OTP step-up budget', async 
   const forwardedRemainingUses: unknown[] = [];
   const deps = createEvmFamilySigningDeps({
     createArgs: {
-      seamsPasskeyConfigs: { network: { chains: [] }, signing: {} },
+      seamsWebConfigs: { network: { chains: [] }, signing: {} },
       platformRuntime: createBrowserPlatformRuntime(),
       nonceCoordinator: {},
       ensureSealedRefreshStartupParity: async () => undefined,
@@ -277,6 +277,8 @@ test('EVM-family signing deps preserve one-use Email OTP step-up budget', async 
         return emptyEmailOtpEcdsaSigningBootstrapResult();
       },
     } as never,
+    walletSignerStore: {} as never,
+    passkeyAuthenticatorStore: {} as never,
     signingSessionCoordinator: {} as never,
     getEmailOtpWarmSessionStatus: async () => ({ status: 'active' }) as never,
   });

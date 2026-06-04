@@ -201,9 +201,9 @@ function buildPublishableKeyManagedSnippet(
   const envScope = String(environmentId || '').trim() || '<environment-id>';
   const allowedOrigin = allowedOrigins[0] || 'https://app.example.com';
   return [
-    "import { SeamsPasskey } from '@seams/sdk';",
+    "import { SeamsWeb } from '@seams/sdk';",
     '',
-    'const seams = new SeamsPasskey({',
+    'const seams = new SeamsWeb({',
     "  relayer: { url: '$RELAYER_URL' },",
     '  registration: {',
     "    mode: 'managed',",

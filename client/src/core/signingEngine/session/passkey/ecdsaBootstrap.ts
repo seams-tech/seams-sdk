@@ -1,9 +1,11 @@
-import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManagerContext } from '../../workerManager/SignerWorkerManager';
-import type { ThresholdWarmSessionMaterialPort } from '../../threshold/crypto/webauthn';
+import type {
+  ThresholdCredentialStorePort,
+  ThresholdWarmSessionMaterialPort,
+} from '../../threshold/crypto/webauthn';
 import {
   activateEcdsaSession,
   type ActivateEcdsaSessionAuth,
@@ -271,7 +273,7 @@ export type EcdsaBootstrapRequest =
   | EmailOtpEcdsaBootstrapRequest;
 
 export type ThresholdSessionActivationDeps = {
-  indexedDB: UnifiedIndexedDBManager;
+  credentialStore: ThresholdCredentialStorePort;
   touchIdPrompt: Pick<
     TouchIdPrompt,
     'getRpId' | 'getAuthenticationCredentialsSerializedForChallengeB64u'
@@ -624,7 +626,7 @@ export async function bootstrapEcdsaSessionValue(
 
   const signerWorkerCtx = deps.getSignerWorkerContext();
   const activationDeps = {
-    indexedDB: deps.indexedDB,
+    credentialStore: deps.credentialStore,
     touchIdPrompt: deps.touchIdPrompt,
     workerCtx: signerWorkerCtx,
     getOrCreateActiveThresholdEcdsaSessionId: (

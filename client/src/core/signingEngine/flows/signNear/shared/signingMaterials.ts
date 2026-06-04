@@ -4,7 +4,7 @@ import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/types'
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { AccountId } from '@/core/types/accountIds';
 import { toAccountId } from '@/core/types/accountIds';
-import type { SigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
+import type { NearSigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
 import type { NearAccountRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   getPrfResultsFromCredential,
@@ -46,7 +46,7 @@ export type ResolvedNearSigningMaterials = {
 };
 
 export async function resolveNearSigningMaterials(args: {
-  ctx: SigningRuntimeDeps;
+  ctx: NearSigningRuntimeDeps;
   nearAccount: NearAccountRef;
   signerSlot?: number;
   operationLabel: string;
@@ -62,12 +62,12 @@ export async function resolveNearSigningMaterials(args: {
   }
   const resolvedSignerSlot =
     parsedSignerSlot ??
-    (await getLastLoggedInSignerSlot(nearAccountId, args.ctx.indexedDB));
+    (await getLastLoggedInSignerSlot(nearAccountId, args.ctx.nearKeyMaterialStore));
 
   const thresholdKeyMaterial = await getNearThresholdKeyMaterial(
     {
-      clientDB: args.ctx.indexedDB,
-      keyMaterialStore: args.ctx.indexedDB,
+      clientDB: args.ctx.nearKeyMaterialStore,
+      keyMaterialStore: args.ctx.nearKeyMaterialStore,
     },
     nearAccountId,
     resolvedSignerSlot,

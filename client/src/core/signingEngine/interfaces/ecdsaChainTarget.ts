@@ -6,8 +6,18 @@ import {
 import type { AccountId } from '@/core/types/accountIds';
 import type { SeamsChainConfig, SeamsChainNetwork } from '@/core/types/seams';
 import { parseWalletId, type WalletId } from '@shared/utils/domainIds';
+import type {
+  EvmEip155ChainTarget,
+  TempoChainTarget,
+  ThresholdEcdsaChainTarget,
+} from '@/core/platform/types';
 
 export type { WalletId } from '@shared/utils/domainIds';
+export type {
+  EvmEip155ChainTarget,
+  TempoChainTarget,
+  ThresholdEcdsaChainTarget,
+} from '@/core/platform/types';
 
 export type BaseEcdsaWalletId = WalletId;
 
@@ -29,23 +39,6 @@ export type NearCommandSubject = {
   walletSession: WalletSessionRef;
   nearAccount: NearAccountRef;
 };
-
-export type EvmEip155ChainTarget = {
-  kind: 'evm';
-  namespace: 'eip155';
-  chainId: number;
-  // Display/config metadata only. Canonical equality must ignore this field.
-  networkSlug: string;
-};
-
-export type TempoChainTarget = {
-  kind: 'tempo';
-  chainId: number;
-  // Display/config metadata only. Canonical equality must ignore this field.
-  networkSlug: string;
-};
-
-export type ThresholdEcdsaChainTarget = EvmEip155ChainTarget | TempoChainTarget;
 
 export type ThresholdEcdsaSessionRecordKey = {
   walletId: AccountId;

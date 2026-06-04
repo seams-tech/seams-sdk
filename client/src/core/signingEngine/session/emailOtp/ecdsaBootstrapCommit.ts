@@ -15,7 +15,7 @@ import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa
 import { withThresholdEcdsaBootstrapQueue } from '../warmCapabilities/ecdsaBootstrapQueue';
 import {
   persistThresholdEcdsaBootstrapForWalletTarget,
-  type ThresholdEcdsaBootstrapIndexedDbPort,
+  type ThresholdEcdsaBootstrapStorePort,
 } from '../warmCapabilities/ecdsaBootstrapPersistence';
 import {
   assertWarmThresholdEcdsaCapabilityReady,
@@ -26,7 +26,7 @@ import type { WarmSessionEcdsaCapabilityState } from '../warmCapabilities/types'
 
 export type CommitWorkerProvisionedThresholdEcdsaSessionDeps = {
   queueByWallet: Map<string, Promise<void>>;
-  indexedDB: ThresholdEcdsaBootstrapIndexedDbPort;
+  bootstrapStore: ThresholdEcdsaBootstrapStorePort;
   ecdsaSessions: ThresholdEcdsaSessionStoreDeps;
   ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap: (
     args: ThresholdEcdsaBootstrapParityArgs,
@@ -132,7 +132,7 @@ export async function commitWorkerProvisionedThresholdEcdsaSession(
   return await withThresholdEcdsaBootstrapQueue(deps.queueByWallet, args.walletId, async () => {
     const canonicalBootstrap = canonicalizeWorkerProvisionedBootstrap(args.bootstrap);
     await persistThresholdEcdsaBootstrapForWalletTarget({
-      indexedDB: deps.indexedDB,
+      bootstrapStore: deps.bootstrapStore,
       walletId: args.walletId,
       chainTarget: args.chainTarget,
       bootstrap: canonicalBootstrap,

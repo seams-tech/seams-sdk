@@ -70,12 +70,12 @@ async function mountVisibleEmailOtpUnlockPrompt(
       const ReactDOMClient = await import('react-dom/client');
       const ReactDOM = await import('react-dom');
       const sdkMod = await import('/sdk/esm/index.js');
-      const providerMod: any = await import('/sdk/esm/react/context/SeamsPasskeyProvider.js');
+      const providerMod: any = await import('/sdk/esm/react/context/SeamsWebProvider.js');
       const menuMod: any =
         await import('/sdk/esm/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js');
 
-      const { SeamsPasskey } = sdkMod as any;
-      const Provider = providerMod.SeamsPasskeyProvider || providerMod.default;
+      const { SeamsWeb } = sdkMod as any;
+      const Provider = providerMod.SeamsWebProvider || providerMod.default;
       const PasskeyAuthMenu = menuMod.PasskeyAuthMenu || menuMod.default;
       const AuthMenuMode = menuMod.AuthMenuMode;
       const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
@@ -108,7 +108,7 @@ async function mountVisibleEmailOtpUnlockPrompt(
           rpIdOverride: 'example.localhost',
         },
       };
-      const pm = new SeamsPasskey(sdkConfig);
+      const pm = new SeamsWeb(sdkConfig);
       await pm
         .getContext()
         .signingEngine.clearVolatileWarmSigningMaterial(toWalletId(accountId))

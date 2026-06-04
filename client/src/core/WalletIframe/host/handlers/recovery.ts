@@ -5,7 +5,7 @@ import { respondOk, respondOkResult, withProgress } from './shared';
 export function createRecoveryWalletIframeHandlers(deps: HandlerDeps): HandlerMap {
   return {
     PM_GET_RECOVERY_EMAILS: async (req: Req<'PM_GET_RECOVERY_EMAILS'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const { nearAccountId } = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
       const result = await pm.recovery.getRecoveryEmails(nearAccountId);
@@ -14,7 +14,7 @@ export function createRecoveryWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     },
 
     PM_SET_RECOVERY_EMAILS: async (req: Req<'PM_SET_RECOVERY_EMAILS'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const { nearAccountId, recoveryEmails, options } = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
       const result = await pm.recovery.setRecoveryEmails({
@@ -29,7 +29,7 @@ export function createRecoveryWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     },
 
     PM_SYNC_ACCOUNT_FLOW: async (req: Req<'PM_SYNC_ACCOUNT_FLOW'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const { accountId } = req.payload || {};
       if (deps.respondIfCancelled(req.requestId)) return;
       const result = await pm.recovery.syncAccount({
@@ -43,7 +43,7 @@ export function createRecoveryWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     },
 
     PM_START_EMAIL_RECOVERY: async (req: Req<'PM_START_EMAIL_RECOVERY'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const { accountId, options } = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
       const result = await pm.recovery.startEmailRecovery({
@@ -57,7 +57,7 @@ export function createRecoveryWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     },
 
     PM_FINALIZE_EMAIL_RECOVERY: async (req: Req<'PM_FINALIZE_EMAIL_RECOVERY'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const { accountId, nearPublicKey } = req.payload!;
       if (deps.respondIfCancelled(req.requestId)) return;
       await pm.recovery.finalizeEmailRecovery({
@@ -72,7 +72,7 @@ export function createRecoveryWalletIframeHandlers(deps: HandlerDeps): HandlerMa
     },
 
     PM_STOP_EMAIL_RECOVERY: async (req: Req<'PM_STOP_EMAIL_RECOVERY'>) => {
-      const pm = deps.getSeamsPasskey();
+      const pm = deps.getSeamsWeb();
       const { accountId, nearPublicKey } = req.payload || {};
       if (deps.respondIfCancelled(req.requestId)) return;
       await pm.recovery.cancelEmailRecovery({

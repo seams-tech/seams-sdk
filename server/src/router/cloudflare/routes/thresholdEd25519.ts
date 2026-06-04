@@ -30,6 +30,7 @@ import {
   parseThresholdEd25519PresignRefillRequest,
 } from '../../../core/ThresholdService/validation';
 import { resolveRequestOriginRateLimitKeyFromFetchHeaders } from '../../relayApiKeyAuth';
+import { normalizeCorsOrigin } from '../../../core/SessionService';
 
 function isEmailOtpRegistrationHssRequest(body: Record<string, unknown>): boolean {
   return (
@@ -249,9 +250,21 @@ export async function handleThresholdEd25519(
         );
       }
       const runtimePolicyScope = runtimePolicyScopeResolution.scope;
+      const expectedOrigin = normalizeCorsOrigin(ctx.request.headers.get('origin') || undefined);
+      if ((b as any).webauthn_authentication && !expectedOrigin) {
+        return json(
+          {
+            ok: false,
+            code: 'invalid_body',
+            message: 'expected_origin is required for WebAuthn authentication verification',
+          },
+          { status: 400 },
+        );
+      }
 
       const result = await ed25519.session({
         ...b,
+        expected_origin: expectedOrigin || '',
         ...(appSessionClaims ? { appSessionClaims } : {}),
         ...(ecdsaSessionClaims ? { ecdsaSessionClaims } : {}),
       });

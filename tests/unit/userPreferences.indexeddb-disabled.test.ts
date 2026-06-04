@@ -10,7 +10,7 @@ test.describe('UserPreferences when IndexedDB is disabled', () => {
   test('wallet-iframe app-origin mode disables SDK IndexedDB persistence', async ({
     page,
   }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
 
     const result = await page.evaluate(
       async ({ paths }) => {
@@ -37,7 +37,7 @@ test.describe('UserPreferences when IndexedDB is disabled', () => {
   test('wallet-iframe app-origin mode does not create app-origin seams_wallet', async ({
     page,
   }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
 
     const result = await page.evaluate(
       async ({ paths }) => {

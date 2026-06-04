@@ -1,6 +1,6 @@
-// Typed RPC messages for the wallet service iframe channel (SeamsPasskey-first)
+// Typed RPC messages for the wallet service iframe channel (SeamsWeb-first)
 import type { WalletUIRegistry } from '../host/lit-ui/iframe-lit-element-registry';
-import type { BootstrapThresholdEcdsaSessionArgs } from '../../SeamsPasskey/interfaces';
+import type { BootstrapThresholdEcdsaSessionArgs } from '@/web/SeamsWeb/interfaces';
 import { SignedTransaction } from '../../rpcClients/near/NearClient';
 import { ActionArgs, TransactionInput } from '../../types';
 import { type DeviceLinkingQRData } from '../../types/linkDevice';
@@ -36,7 +36,7 @@ export type ParentToChildType =
   | 'PING'
   | 'PM_SET_CONFIG'
   | 'PM_CANCEL'
-  // SeamsPasskey API surface
+  // SeamsWeb API surface
   | 'PM_REGISTER'
   | 'PM_REGISTER_WALLET'
   | 'PM_ADD_WALLET_SIGNER'

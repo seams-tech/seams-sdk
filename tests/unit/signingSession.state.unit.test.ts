@@ -106,12 +106,12 @@ test.describe('signing session PRF cache utilities', () => {
     const source = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/SeamsPasskey/thresholdWarmSessionBootstrap.ts',
+        '../client/src/web/SeamsWeb/thresholdWarmSessionBootstrap.ts',
       ),
       'utf8',
     );
 
-    expect(source).toContain('signingEngine.hydrateSigningSession({');
+    expect(source).toContain('signingRuntime.services.warmSessions.hydrateSigningSession({');
     expect(source).not.toContain('setActiveSigningSessionId');
     expect(source).not.toContain('signingEngine.setActiveSigningSessionId(');
     expect(source).not.toContain('signingEngine.putWarmSessionMaterial(');

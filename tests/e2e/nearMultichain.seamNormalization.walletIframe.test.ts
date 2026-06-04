@@ -71,7 +71,7 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
       const resultPromise = page.evaluate(
         async ({ walletOrigin, relayerUrl, receiverId }) => {
           try {
-            const { SeamsPasskey } = await import('/sdk/esm/core/SeamsPasskey/index.js');
+            const { SeamsWeb } = await import('/sdk/esm/web/SeamsWeb/index.js');
             const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
             const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
@@ -81,7 +81,7 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
                 : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
             const accountId = `e2enearnorm${suffix}.w3a-v1.testnet`;
 
-            const seams = new SeamsPasskey({
+            const seams = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayer: { url: relayerUrl },

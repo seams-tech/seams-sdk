@@ -92,14 +92,14 @@ test.describe('threshold-ed25519 authorize unauthorized', () => {
       const setup = await page.evaluate(
         async ({ relayerUrl }) => {
           try {
-            const { SeamsPasskey } = await import('/sdk/esm/core/SeamsPasskey/index.js');
+            const { SeamsWeb } = await import('/sdk/esm/web/SeamsWeb/index.js');
             const suffix =
               typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
                 ? crypto.randomUUID()
                 : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
             const accountId = `e2eunauth${suffix}.w3a-v1.testnet`;
 
-            const pm = new SeamsPasskey({
+            const pm = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayer: { url: relayerUrl },

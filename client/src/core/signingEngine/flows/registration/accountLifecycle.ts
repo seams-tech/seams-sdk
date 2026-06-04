@@ -146,7 +146,7 @@ async function resolveNearProfileContext(
 ): Promise<{ profileId: string; chainIdKey: string; accountAddress: string } | null> {
   const accountId = toAccountId(nearAccountId);
   const context = await resolveProfileAccountContextFromCandidates(
-    deps.indexedDB,
+    deps.accountStore,
     buildNearAccountRefs(accountId),
   ).catch(() => null);
   if (!context?.profileId) return null;
@@ -163,7 +163,7 @@ async function readNearUserData(
   signerSlot?: number,
 ): Promise<ClientUserData | null> {
   const accountId = toAccountId(nearAccountId);
-  const projection = await resolveProfileAccountProjection(deps.indexedDB, {
+  const projection = await resolveProfileAccountProjection(deps.accountStore, {
     accountRefs: buildNearAccountRefs(accountId),
     ...(typeof signerSlot === 'number' ? { signerSlot } : {}),
   }).catch(() => null);
@@ -211,20 +211,20 @@ export async function storeUserData(
   const signerId =
     String(userData.passkeyCredential?.rawId || '').trim() || `signer-${normalizedSignerSlot}`;
 
-  await deps.indexedDB.upsertProfile({
+  await deps.accountStore.upsertProfile({
     profileId,
     defaultSignerSlot: normalizedSignerSlot,
     passkeyCredential: userData.passkeyCredential,
     ...(userData.preferences ? { preferences: userData.preferences } : {}),
   });
-  const existingSigner = await deps.indexedDB
+  const existingSigner = await deps.accountStore
     .getAccountSigner({
       chainIdKey,
       accountAddress,
       signerId,
     })
     .catch(() => null);
-  const activation = await deps.indexedDB.activateAccountSigner({
+  const activation = await deps.accountStore.activateAccountSigner({
     account: {
       profileId,
       chainIdKey,
@@ -250,14 +250,14 @@ export async function storeUserData(
   });
 
   if (activation.signerSlot !== normalizedSignerSlot) {
-    await deps.indexedDB.upsertProfile({
+    await deps.accountStore.upsertProfile({
       profileId,
       defaultSignerSlot: activation.signerSlot,
       passkeyCredential: userData.passkeyCredential,
       ...(userData.preferences ? { preferences: userData.preferences } : {}),
     });
   }
-  await deps.indexedDB.setLastProfileStateForProfile(profileId, activation.signerSlot);
+  await deps.accountStore.setLastProfileStateForProfile(profileId, activation.signerSlot);
 
   return { signerSlot: activation.signerSlot };
 }
@@ -265,7 +265,7 @@ export async function storeUserData(
 export function getAllUsers(
   deps: RegistrationAccountLifecycleDeps,
 ): Promise<ClientUserData[]> {
-  return listNearAccountProjections(deps.indexedDB);
+  return listNearAccountProjections(deps.accountStore);
 }
 
 export function getUserBySignerSlot(
@@ -273,13 +273,13 @@ export function getUserBySignerSlot(
   nearAccountId: AccountId,
   signerSlot: number,
 ): Promise<ClientUserData | null> {
-  return getNearAccountProjection(deps.indexedDB, nearAccountId, signerSlot);
+  return getNearAccountProjection(deps.accountStore, nearAccountId, signerSlot);
 }
 
 export function getLastUser(
   deps: RegistrationAccountLifecycleDeps,
 ): Promise<ClientUserData | null> {
-  return getLastSelectedNearAccountProjection(deps.indexedDB);
+  return getLastSelectedNearAccountProjection(deps.accountStore);
 }
 
 function mapProfileAuthenticatorToClient(
@@ -323,7 +323,7 @@ async function listCanonicalPasskeyAuthenticatorsForNearAccount(
     accountAddress: string;
   },
 ): Promise<ClientAuthenticatorData[]> {
-  const activeSigners = await deps.indexedDB.listAccountSigners({
+  const activeSigners = await deps.accountStore.listAccountSigners({
     chainIdKey: args.chainIdKey,
     accountAddress: args.accountAddress,
     status: 'active',
@@ -343,7 +343,7 @@ async function listCanonicalPasskeyAuthenticatorsForNearAccount(
 
   const authenticators: ClientAuthenticatorData[] = [];
   for (const [walletId, walletBindings] of byWalletId.entries()) {
-    const walletAuthenticators = await deps.indexedDB.listProfileAuthenticators(walletId);
+    const walletAuthenticators = await deps.accountStore.listProfileAuthenticators(walletId);
     for (const binding of walletBindings) {
       const matched = walletAuthenticators.find(
         (authenticator) => authenticator.credentialId === binding.credentialId,
@@ -363,7 +363,7 @@ export async function nearAuthenticatorsByAccount(
 ): Promise<ClientAuthenticatorData[]> {
   const accountId = toAccountId(nearAccountId);
   const context = await resolveProfileAccountContextFromCandidates(
-    deps.indexedDB,
+    deps.accountStore,
     buildNearAccountRefs(accountId),
   ).catch(() => null);
   if (!context?.accountRef) return [];
@@ -380,13 +380,13 @@ export async function updateLastLogin(
 ): Promise<void> {
   const accountId = toAccountId(nearAccountId);
   const context = await resolveProfileAccountContextFromCandidates(
-    deps.indexedDB,
+    deps.accountStore,
     buildNearAccountRefs(accountId),
   ).catch(() => null);
   if (!context?.profileId) return;
   const [lastProfileState, profile] = await Promise.all([
-    deps.indexedDB.getLastProfileState().catch(() => null),
-    deps.indexedDB.getProfile(context.profileId).catch(() => null),
+    deps.accountStore.getLastProfileState().catch(() => null),
+    deps.accountStore.getProfile(context.profileId).catch(() => null),
   ]);
   const defaultSignerSlot = Number(profile?.defaultSignerSlot);
   const signerSlot =
@@ -395,7 +395,7 @@ export async function updateLastLogin(
       : Number.isSafeInteger(defaultSignerSlot) && defaultSignerSlot >= 1
         ? defaultSignerSlot
         : 1;
-  await deps.indexedDB.setLastProfileStateForProfile(context.profileId, signerSlot);
+  await deps.accountStore.setLastProfileStateForProfile(context.profileId, signerSlot);
 }
 
 export async function setLastUser(
@@ -409,7 +409,7 @@ export async function setLastUser(
   }
   const accountId = toAccountId(nearAccountId);
   const context = await resolveProfileAccountContextFromCandidates(
-    deps.indexedDB,
+    deps.accountStore,
     buildNearAccountRefs(accountId),
   ).catch(() => null);
   if (!context?.profileId) {
@@ -417,7 +417,7 @@ export async function setLastUser(
       `SeamsWalletDB: Missing profile/account mapping for NEAR account ${String(accountId)}`,
     );
   }
-  await deps.indexedDB.setLastProfileStateForProfile(context.profileId, normalizedSignerSlot);
+  await deps.accountStore.setLastProfileStateForProfile(context.profileId, normalizedSignerSlot);
 }
 
 export async function initializeCurrentUser(
@@ -429,12 +429,12 @@ export async function initializeCurrentUser(
   // Set as last profile/signer slot for future sessions, preferring the existing pointer.
   let signerSlotToUse = await getLastLoggedInSignerSlot(
     accountId,
-    deps.indexedDB,
+    deps.accountStore,
   ).catch(() => null as number | null);
   if (signerSlotToUse === null) {
     const context = await resolveNearProfileContext(deps, accountId);
     const profile = context?.profileId
-      ? await deps.indexedDB.getProfile(context.profileId).catch(() => null)
+      ? await deps.accountStore.getProfile(context.profileId).catch(() => null)
       : null;
     const defaultSignerSlot = Number(profile?.defaultSignerSlot);
     signerSlotToUse =
@@ -442,7 +442,7 @@ export async function initializeCurrentUser(
   }
   const context = await resolveNearProfileContext(deps, accountId);
   if (context?.profileId) {
-    await deps.indexedDB.setLastProfileStateForProfile(context.profileId, signerSlotToUse);
+    await deps.accountStore.setLastProfileStateForProfile(context.profileId, signerSlotToUse);
   }
 
   // Set as current user for immediate use
@@ -509,7 +509,7 @@ export async function storeAuthenticator(
       `SeamsWalletDB: Missing profile/account mapping for NEAR account ${authData.nearAccountId}`,
     );
   }
-  await deps.indexedDB.upsertProfileAuthenticator({
+  await deps.accountStore.upsertProfileAuthenticator({
     profileId: context.profileId,
     signerSlot: authData.signerSlot,
     credentialId: authData.credentialId,
@@ -579,7 +579,7 @@ export async function rollbackUserRegistration(
   const accountId = toAccountId(nearAccountId);
   const context = await resolveNearProfileContext(deps, accountId);
   if (!context?.profileId) return;
-  await deps.indexedDB.deleteProfileData(context.profileId, { eventAccountId: accountId });
+  await deps.accountStore.deleteProfileData(context.profileId, { eventAccountId: accountId });
 }
 
 export async function hasPasskeyCredential(
@@ -752,7 +752,7 @@ export async function storeWalletEd25519RegistrationData(
     mutation: { routeThroughOutbox: false },
   };
   const keyMaterialTimestamp = Date.now();
-  const result = await deps.indexedDB.persistWalletRegistrationFinalize({
+  const result = await deps.accountStore.persistWalletRegistrationFinalize({
     profiles: [
       {
         profileId: walletId,
@@ -886,7 +886,7 @@ export async function storeWalletEmailOtpEd25519RegistrationData(
     mutation: { routeThroughOutbox: false },
   };
   const keyMaterialTimestamp = Date.now();
-  const result = await deps.indexedDB.persistWalletRegistrationFinalize({
+  const result = await deps.accountStore.persistWalletRegistrationFinalize({
     profiles: [
       {
         profileId: walletId,
@@ -1005,7 +1005,7 @@ export async function storeWalletEd25519SignerRecord(
     mutation: { routeThroughOutbox: false },
   } satisfies ActivateAccountSignerInput;
   const keyMaterialTimestamp = Date.now();
-  const result = await deps.indexedDB.persistWalletSignerFinalize({
+  const result = await deps.accountStore.persistWalletSignerFinalize({
     profiles: [
       {
         profileId: walletId,
@@ -1207,7 +1207,7 @@ export async function storeWalletEcdsaSignerRecords(
   const { walletId, signerActivations } =
     prepareWalletEcdsaSignerActivations(args);
   const keyMaterialTimestamp = Date.now();
-  const batch = await deps.indexedDB.persistWalletSignerFinalize({
+  const batch = await deps.accountStore.persistWalletSignerFinalize({
     profiles: [{ profileId: walletId }],
     signerActivations: signerActivations.map((activation) => activation.input),
     keyMaterials: signerActivations.map((activation) =>
@@ -1243,7 +1243,7 @@ export async function storeWalletEmailOtpEcdsaSignerRecords(
     signerSource: SIGNER_SOURCES.emailOtpRegistration,
   });
   const keyMaterialTimestamp = Date.now();
-  const batch = await deps.indexedDB.persistWalletSignerFinalize({
+  const batch = await deps.accountStore.persistWalletSignerFinalize({
     profiles: [{ profileId: walletId }],
     signerActivations: signerActivations.map((activation) => activation.input),
     keyMaterials: signerActivations.map((activation) =>
@@ -1296,7 +1296,7 @@ export async function storeWalletEcdsaRegistrationData(
   });
   const keyMaterialTimestamp = Date.now();
 
-  const batch = await deps.indexedDB.persistWalletRegistrationFinalize({
+  const batch = await deps.accountStore.persistWalletRegistrationFinalize({
     profiles: [
       {
         profileId: walletId,
@@ -1367,7 +1367,7 @@ export async function storeWalletEmailOtpEcdsaRegistrationData(
   );
   const keyMaterialTimestamp = Date.now();
 
-  const batch = await deps.indexedDB.persistWalletRegistrationFinalize({
+  const batch = await deps.accountStore.persistWalletRegistrationFinalize({
     profiles: [
       {
         profileId: walletId,

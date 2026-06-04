@@ -15,7 +15,7 @@ import type { ThresholdEd25519SessionStoreSource } from '../identity/laneIdentit
 type ConnectEd25519SessionInput = Parameters<typeof connectEd25519Session>[0];
 
 export type ProvisionThresholdEd25519SessionDeps = {
-  indexedDB: ConnectEd25519SessionInput['indexedDB'];
+  credentialStore: ConnectEd25519SessionInput['credentialStore'];
   touchIdPrompt: ConnectEd25519SessionInput['touchIdPrompt'];
   touchConfirm: Parameters<typeof cacheSigningSessionPrfFirst>[0];
   defaultRelayerUrl: string;
@@ -45,7 +45,7 @@ export async function provisionThresholdEd25519Session(
       ? String(args.sessionId || '').trim()
       : generateSessionId('threshold-ed25519');
   const connected = await connectEd25519Session({
-    indexedDB: deps.indexedDB,
+    credentialStore: deps.credentialStore,
     touchIdPrompt: deps.touchIdPrompt,
     relayerUrl,
     relayerKeyId: args.relayerKeyId,

@@ -8,7 +8,7 @@ const IMPORT_PATHS = {
 
 test.describe('generic account key material helpers', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('persists and reads non-NEAR key material rows through account refs', async ({ page }) => {

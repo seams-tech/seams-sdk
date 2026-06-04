@@ -1,5 +1,3 @@
-import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
-import { getBrowserPlatformIndexedDB } from '@/core/platform';
 import type { AccountId } from '@/core/types/accountIds';
 import type { NearSigningApiDeps } from '../../interfaces/operationDeps';
 import {
@@ -8,6 +6,7 @@ import {
 } from '../../session/persistence/records';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import { resolveEvmFamilyTransactionWalletAuth } from '../../flows/signEvmFamily/accountAuth';
+import type { EvmFamilyWalletSignerStorePort } from '../../flows/signEvmFamily/accountAuth';
 import { createWarmSessionCapabilityReader } from '../../session/warmCapabilities/capabilityReader';
 import { createWarmSessionStatusReader } from '../../session/warmCapabilities/statusReader';
 import { generateSessionId as generateSessionIdValue } from '../../session/passkey/prfCache';
@@ -17,7 +16,7 @@ import type { CreateSigningEnginePortsArgs } from './shared';
 
 export function createNearSigningDeps(args: {
   createArgs: CreateSigningEnginePortsArgs;
-  indexedDB?: UnifiedIndexedDBManager;
+  walletSignerStore: EvmFamilyWalletSignerStorePort;
   nearRpcUrl: string;
   signingSessionCoordinator: SigningSessionCoordinator;
   getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
@@ -28,7 +27,6 @@ export function createNearSigningDeps(args: {
     signingSessionCoordinator,
     getEmailOtpWarmSessionStatus,
   } = args;
-  const indexedDB = args.indexedDB || getBrowserPlatformIndexedDB(createArgs.platformRuntime);
   return {
     nearRpcUrl,
     resolveThresholdEd25519SessionId: (nearAccountId: AccountId): string | null => {
@@ -81,7 +79,7 @@ export function createNearSigningDeps(args: {
       createArgs.readAvailableSigningLanesForSigning(snapshotArgs),
     resolveAccountAuthMethodForSigning: async ({ nearAccountId }) => {
       const accountAuth = await resolveEvmFamilyTransactionWalletAuth({
-        deps: { indexedDB },
+        deps: { walletSignerStore: args.walletSignerStore },
         walletId: String(nearAccountId),
         senderSignatureAlgorithm: 'secp256k1',
       });

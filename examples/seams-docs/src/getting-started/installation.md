@@ -92,11 +92,11 @@ Setup the React provider:
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
-import { SeamsPasskeyProvider } from '@seams/sdk/react/provider';
+import { SeamsWebProvider } from '@seams/sdk/react/provider';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <SeamsPasskeyProvider
+    <SeamsWebProvider
       config={{
         iframeWallet: {
           walletOrigin: 'https://wallet.web3authn.org',
@@ -107,7 +107,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       }}
     >
       <App />
-    </SeamsPasskeyProvider>
+    </SeamsWebProvider>
   </React.StrictMode>,
 );
 ```

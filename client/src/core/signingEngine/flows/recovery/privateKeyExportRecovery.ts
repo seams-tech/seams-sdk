@@ -85,7 +85,7 @@ export async function exportNearEd25519SeedArtifactWithUIWorkerDriven(
   }
 
   const resolvedTheme = args.options?.theme ?? deps.getTheme();
-  const signerSlot = await getLastLoggedInSignerSlot(accountId, deps.indexedDB).catch(
+  const signerSlot = await getLastLoggedInSignerSlot(accountId, deps.keyMaterialStore).catch(
     () => null as number | null,
   );
   if (signerSlot == null) {
@@ -170,7 +170,7 @@ export async function exportEcdsaHssThresholdKeyArtifactWithUIWorkerDriven(
   }
   const requestExportPrivateKeysWithUi = deps.requestExportPrivateKeysWithUi;
   const resolvedTheme = args.options?.theme ?? deps.getTheme();
-  const signerSlot = await getLastLoggedInSignerSlot(accountId, deps.indexedDB).catch(
+  const signerSlot = await getLastLoggedInSignerSlot(accountId, deps.keyMaterialStore).catch(
     () => null as number | null,
   );
   if (signerSlot == null) {

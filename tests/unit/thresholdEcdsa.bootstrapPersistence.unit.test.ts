@@ -5,12 +5,12 @@ import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types
 import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import {
   persistThresholdEcdsaBootstrapForWalletTarget,
-  type ThresholdEcdsaBootstrapIndexedDbPort,
+  type ThresholdEcdsaBootstrapStorePort,
   type ThresholdEcdsaBootstrapSignerAuth,
 } from '@/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
-type UpsertProfileCall = Parameters<ThresholdEcdsaBootstrapIndexedDbPort['upsertProfile']>[0];
+type UpsertProfileCall = Parameters<ThresholdEcdsaBootstrapStorePort['upsertProfile']>[0];
 
 const PASSKEY_SIGNER_AUTH: ThresholdEcdsaBootstrapSignerAuth = {
   authMethod: SIGNER_AUTH_METHODS.passkey,
@@ -80,10 +80,10 @@ function bootstrap(args: {
   };
 }
 
-function createIndexedDbPort(calls: {
+function createBootstrapStore(calls: {
   profiles: UpsertProfileCall[];
   signers: ActivateAccountSignerInput[];
-}): ThresholdEcdsaBootstrapIndexedDbPort {
+}): ThresholdEcdsaBootstrapStorePort {
   return {
     upsertProfile: async (input) => {
       calls.profiles.push(input);
@@ -118,7 +118,7 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
     const calls = { profiles: [] as UpsertProfileCall[], signers: [] as ActivateAccountSignerInput[] };
 
     await persistThresholdEcdsaBootstrapForWalletTarget({
-      indexedDB: createIndexedDbPort(calls),
+      bootstrapStore: createBootstrapStore(calls),
       walletId: toWalletId('alice.testnet'),
       chainTarget: EVM_TARGET,
       bootstrap: bootstrap({
@@ -164,7 +164,7 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
     const calls = { profiles: [] as UpsertProfileCall[], signers: [] as ActivateAccountSignerInput[] };
 
     await persistThresholdEcdsaBootstrapForWalletTarget({
-      indexedDB: createIndexedDbPort(calls),
+      bootstrapStore: createBootstrapStore(calls),
       walletId: toWalletId('alice.testnet'),
       chainTarget: EVM_TARGET,
       bootstrap: bootstrap({
@@ -181,7 +181,7 @@ test.describe('threshold ECDSA bootstrap persistence', () => {
     const calls = { profiles: [] as UpsertProfileCall[], signers: [] as ActivateAccountSignerInput[] };
 
     await persistThresholdEcdsaBootstrapForWalletTarget({
-      indexedDB: createIndexedDbPort(calls),
+      bootstrapStore: createBootstrapStore(calls),
       walletId: toWalletId('google-user.testnet'),
       chainTarget: TEMPO_TARGET,
       bootstrap: bootstrap({

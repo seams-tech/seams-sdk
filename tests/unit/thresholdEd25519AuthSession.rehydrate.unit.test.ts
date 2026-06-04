@@ -8,7 +8,7 @@ const IMPORT_PATHS = {
 
 test.describe('threshold Ed25519 auth-session rehydrate', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('keeps canonical Ed25519 session records out of sessionStorage for wallet host mode', async ({

@@ -18,7 +18,7 @@ import {
 } from '@/core/types/signer-worker';
 import { AccountId, toAccountId } from '@/core/types/accountIds';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
-import type { SigningRuntimeDeps } from '../../interfaces/runtime';
+import type { NearSigningRuntimeDeps } from '../../interfaces/runtime';
 import type {
   NearEd25519TransactionSigningBoundary,
   NearEd25519WarmupHook,
@@ -180,7 +180,7 @@ export async function runNearTransactionsWithActionsSigning({
   ed25519Warmup,
   passkeyEd25519Reconnect,
 }: {
-  ctx: SigningRuntimeDeps;
+  ctx: NearSigningRuntimeDeps;
   nearAccount: NearAccountRef;
   transactions: TransactionInputWasm[];
   rpcCall: RpcCallPayload;
@@ -1082,7 +1082,7 @@ export async function runNearTransactionsWithActionsSigning({
 }
 
 async function releaseNearNonceLeases(
-  ctx: SigningRuntimeDeps,
+  ctx: NearSigningRuntimeDeps,
   nonceLeases: readonly NonceLeaseRef[],
   reason: 'cancelled' | 'auth_failed' | 'signing_failed' | 'nonce_failed',
 ): Promise<void> {
@@ -1100,7 +1100,7 @@ async function releaseNearNonceLeases(
 }
 
 async function markNearNonceLeasesSigned(
-  ctx: SigningRuntimeDeps,
+  ctx: NearSigningRuntimeDeps,
   nonceLeases: readonly NonceLeaseRef[],
 ): Promise<void> {
   if (!nonceLeases.length) return;

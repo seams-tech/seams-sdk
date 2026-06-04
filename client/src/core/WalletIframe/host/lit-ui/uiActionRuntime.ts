@@ -1,4 +1,4 @@
-import type { SeamsPasskey } from '@/core/SeamsPasskey';
+import type { SeamsWeb } from '@/web/SeamsWeb';
 import { nearAccountRefFromAccountId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { SignAndSendTransactionHooksOptions } from '@/core/types/sdkSentEvents';
 import {
@@ -64,7 +64,7 @@ const normalizeTransactions = (
 };
 
 export async function runWalletUiAction<T extends PmActionName>(
-  pm: SeamsPasskey,
+  pm: SeamsWeb,
   action: T,
   args: PmActionArgsMap[T],
 ): Promise<PmActionResultMap[T]> {

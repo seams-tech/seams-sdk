@@ -20,9 +20,9 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const flowPromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
             const actionsMod = await import('/sdk/esm/core/types/actions.js');
-            const { SeamsPasskey } = sdkMod as any;
+            const { SeamsWeb } = sdkMod as any;
             const { ActionType } = actionsMod as any;
 
             const confirmationConfig = {
@@ -31,7 +31,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               autoProceedDelay: 0,
             };
             const accountId = `ecdsa-export-${Date.now()}.w3a-v1.testnet`;
-            const seams = new SeamsPasskey({
+            const seams = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -214,10 +214,10 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
     try {
       const result = await page.evaluate(
         async ({ relayerUrl, shamirPrimeB64u }) => {
-          const mod = await import('/sdk/esm/core/SeamsPasskey/index.js');
-          const { SeamsPasskey } = mod as any;
+          const mod = await import('/sdk/esm/web/SeamsWeb/index.js');
+          const { SeamsWeb } = mod as any;
           const accountId = `parity-mismatch-${Date.now()}.testnet`;
-          const seams = new SeamsPasskey({
+          const seams = new SeamsWeb({
             nearNetwork: 'testnet',
             nearRpcUrl: 'https://test.rpc.fastnear.com',
             relayerAccount: 'web3-authn-v4.testnet',
@@ -287,8 +287,8 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const loginPhasePromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
-            const { SeamsPasskey } = sdkMod as any;
+            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const { SeamsWeb } = sdkMod as any;
 
             const confirmationConfig = {
               uiMode: 'none' as const,
@@ -297,7 +297,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
             };
             const events: Array<{ phase: string; status: string; authMethod: string }> = [];
             const accountId = `sealedrefresh${Date.now()}.w3a-v1.testnet`;
-            const seams = new SeamsPasskey({
+            const seams = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -410,15 +410,15 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
           shamirPrimeB64u: string;
         }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
-            const { SeamsPasskey } = sdkMod as any;
+            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const { SeamsWeb } = sdkMod as any;
 
             const confirmationConfig = {
               uiMode: 'none' as const,
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
-            const seams = new SeamsPasskey({
+            const seams = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -549,15 +549,15 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const secondPhasePromise = page.evaluate(
         async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
-            const { SeamsPasskey } = sdkMod as any;
+            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const { SeamsWeb } = sdkMod as any;
 
             const confirmationConfig = {
               uiMode: 'none' as const,
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
-            const seams = new SeamsPasskey({
+            const seams = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -684,9 +684,9 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const firstPhasePromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
             const actionsMod = await import('/sdk/esm/core/types/actions.js');
-            const { SeamsPasskey } = sdkMod as any;
+            const { SeamsWeb } = sdkMod as any;
             const { ActionType } = actionsMod as any;
 
             const confirmationConfig = {
@@ -695,7 +695,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               autoProceedDelay: 0,
             };
             const accountId = `sealedrefreshexhaust${Date.now()}.w3a-v1.testnet`;
-            const seams = new SeamsPasskey({
+            const seams = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -793,9 +793,9 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const restoredSignPromise = page.evaluate(
         async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
             const actionsMod = await import('/sdk/esm/core/types/actions.js');
-            const { SeamsPasskey } = sdkMod as any;
+            const { SeamsWeb } = sdkMod as any;
             const { ActionType } = actionsMod as any;
 
             const confirmationConfig = {
@@ -803,7 +803,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
-            const seams = new SeamsPasskey({
+            const seams = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -887,9 +887,9 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const reauthSignPromise = page.evaluate(
         async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
             const actionsMod = await import('/sdk/esm/core/types/actions.js');
-            const { SeamsPasskey } = sdkMod as any;
+            const { SeamsWeb } = sdkMod as any;
             const { ActionType } = actionsMod as any;
 
             const confirmationConfig = {
@@ -897,7 +897,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
-            const seams = new SeamsPasskey({
+            const seams = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -1073,8 +1073,8 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const firstPhasePromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
-            const { SeamsPasskey } = sdkMod as any;
+            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const { SeamsWeb } = sdkMod as any;
 
             const confirmationConfig = {
               uiMode: 'none' as const,
@@ -1082,7 +1082,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               autoProceedDelay: 0,
             };
             const accountId = `sealedrefreshmultichain${Date.now()}.w3a-v1.testnet`;
-            const seams = new SeamsPasskey({
+            const seams = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -1259,15 +1259,15 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
         const phasePromise = page.evaluate(
           async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u, order }) => {
             try {
-              const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
-              const { SeamsPasskey } = sdkMod as any;
+              const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+              const { SeamsWeb } = sdkMod as any;
 
               const confirmationConfig = {
                 uiMode: 'none' as const,
                 behavior: 'skipClick' as const,
                 autoProceedDelay: 0,
               };
-              const seams = new SeamsPasskey({
+              const seams = new SeamsWeb({
                 nearNetwork: 'testnet',
                 nearRpcUrl: 'https://test.rpc.fastnear.com',
                 relayerAccount: 'web3-authn-v4.testnet',
@@ -1465,15 +1465,15 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const firstPhasePromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
-            const { SeamsPasskey } = sdkMod as any;
+            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const { SeamsWeb } = sdkMod as any;
             const confirmationConfig = {
               uiMode: 'none' as const,
               behavior: 'skipClick' as const,
               autoProceedDelay: 0,
             };
             const accountId = `tabclose${Date.now()}.w3a-v1.testnet`;
-            const seams = new SeamsPasskey({
+            const seams = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -1555,9 +1555,9 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const secondPhasePromise = secondPage.evaluate(
         async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
-            const { SeamsPasskey } = sdkMod as any;
-            const seams = new SeamsPasskey({
+            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const { SeamsWeb } = sdkMod as any;
+            const seams = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -1661,9 +1661,9 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
             sessionKind,
           }) => {
             try {
-              const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+              const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
               const actionsMod = await import('/sdk/esm/core/types/actions.js');
-              const { SeamsPasskey } = sdkMod as any;
+              const { SeamsWeb } = sdkMod as any;
               const { ActionType } = actionsMod as any;
 
               const confirmationConfig = {
@@ -1673,7 +1673,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
               };
               const accountId =
                 `refreshmatrix-${curve}-${sessionKind}-${Date.now()}.w3a-v1.testnet`.toLowerCase();
-              const seams = new SeamsPasskey({
+              const seams = new SeamsWeb({
                 nearNetwork: 'testnet',
                 nearRpcUrl: 'https://test.rpc.fastnear.com',
                 relayerAccount: 'web3-authn-v4.testnet',
@@ -1864,9 +1864,9 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
             sessionKind,
           }) => {
             try {
-              const sdkMod = await import('/sdk/esm/core/SeamsPasskey/index.js');
+              const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
               const actionsMod = await import('/sdk/esm/core/types/actions.js');
-              const { SeamsPasskey } = sdkMod as any;
+              const { SeamsWeb } = sdkMod as any;
               const { ActionType } = actionsMod as any;
 
               const confirmationConfig = {
@@ -1874,7 +1874,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 behavior: 'skipClick' as const,
                 autoProceedDelay: 0,
               };
-              const seams = new SeamsPasskey({
+              const seams = new SeamsWeb({
                 nearNetwork: 'testnet',
                 nearRpcUrl: 'https://test.rpc.fastnear.com',
                 relayerAccount: 'web3-authn-v4.testnet',

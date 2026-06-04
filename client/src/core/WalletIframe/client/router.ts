@@ -107,10 +107,8 @@ import type { MultichainSigningRequest } from '../../signingEngine/chains/tempo/
 import type { EvmSignedResult } from '../../signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '../../signingEngine/chains/tempo/tempoAdapter';
 import type { NonceLeaseRef } from '../../signingEngine/nonce/NonceCoordinator';
-import type {
-  ThresholdEcdsaLoginPrefillResult,
-  ThresholdEcdsaSessionBootstrapResult,
-} from '../../signingEngine/SigningEngine';
+import type { ThresholdEcdsaLoginPrefillResult } from '@/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefill';
+import type { ThresholdEcdsaSessionBootstrapResult } from '@/core/signingEngine/threshold/ecdsa/activation';
 import type {
   ThresholdEcdsaChainTarget,
   WalletSessionRef,
@@ -125,8 +123,8 @@ import type {
   StartDevice2LinkingFlowResults,
   DeviceLinkingQRData,
 } from '../../types/linkDevice';
-import type { SyncAccountResult } from '../../SeamsPasskey/syncAccount';
-import type { ExportKeypairWithUIInput } from '../../SeamsPasskey/interfaces';
+import type { SyncAccountResult } from '@/web/SeamsWeb/syncAccount';
+import type { ExportKeypairWithUIInput } from '@/web/SeamsWeb/interfaces';
 import type {
   BootstrapThresholdEcdsaSessionArgs,
   EmailOtpChallengeResult,
@@ -137,7 +135,7 @@ import type {
   EmailOtpEnrollmentResult,
   GoogleEmailOtpSessionExchangeResult,
   RegistrationCapability,
-} from '../../SeamsPasskey/interfaces';
+} from '@/web/SeamsWeb/interfaces';
 import { ActionArgs, TransactionInput, TxExecutionStatus } from '../../types';
 import type { DelegateActionInput } from '../../types/delegate';
 import { IframeTransport } from './transport/IframeTransport';
@@ -155,7 +153,7 @@ import { secureRandomBase36 } from '@shared/utils/secureRandomId';
 import type { AuthenticatorOptions } from '../../types/authenticatorOptions';
 import { type ConfirmationConfig } from '../../types/signer-worker';
 import type { AccessKeyList } from '../../rpcClients/near/NearClient';
-import type { SignNEP413MessageResult } from '../../SeamsPasskey/near';
+import type { SignNEP413MessageResult } from '@/web/SeamsWeb/near';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../../config/defaultConfigs';
 import { cloneResolvedChainConfig } from '../../config/chains';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
@@ -200,7 +198,16 @@ export interface WalletIframeRouterOptions {
   appearance?: Pick<AppearanceConfigInput, 'theme' | 'tokens'>;
   // Optional: pre-register UI components in wallet host
   uiRegistry?: Record<string, unknown>;
+  // Optional browser assembly hook for owning wallet iframe overlay state construction.
+  createOverlayState?: (args: {
+    ensureIframe: () => HTMLIFrameElement;
+  }) => WalletIframeOverlayState;
 }
+
+export type WalletIframeOverlayState = {
+  controller: OverlayController;
+  forceFullscreen: boolean;
+};
 
 type Pending = {
   resolve: (value: unknown) => void;
@@ -417,10 +424,7 @@ export class WalletIframeRouter {
   private readonly walletOriginOrigin: string;
   // Force the overlay to remain fullscreen during critical flows (e.g., registration)
   // and ignore anchored rect updates from helper hooks.
-  private overlayState: {
-    controller: OverlayController;
-    forceFullscreen: boolean;
-  };
+  private overlayState: WalletIframeOverlayState;
   private windowMsgHandlerBound?: (ev: MessageEvent) => void;
 
   constructor(options: WalletIframeRouterOptions) {
@@ -492,12 +496,15 @@ export class WalletIframeRouter {
 
     // Centralize overlay sizing/visibility. The router is the single owner of
     // "how" the iframe is shown/hidden (fullscreen vs anchored, sticky, etc).
-    this.overlayState = {
-      controller: new OverlayController({
-        ensureIframe: () => this.transport.ensureIframeMounted(),
-      }),
-      forceFullscreen: false,
-    };
+    this.overlayState = (
+      this.opts.createOverlayState ||
+      ((args: { ensureIframe: () => HTMLIFrameElement }) => ({
+        controller: new OverlayController(args),
+        forceFullscreen: false,
+      }))
+    )({
+      ensureIframe: () => this.transport.ensureIframeMounted(),
+    });
 
     // Initialize progress router with overlay control and v2 overlay intents.
     // OnEventsProgressBus only decides *when* to show/hide based on events; it calls
@@ -757,7 +764,7 @@ export class WalletIframeRouter {
     };
   }
 
-  // ===== SeamsPasskey RPCs =====
+  // ===== SeamsWeb RPCs =====
 
   async signTransactionsWithActions(payload: {
     nearAccountId: string;

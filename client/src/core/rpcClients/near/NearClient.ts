@@ -1,6 +1,6 @@
 /**
  * Minimal NEAR RPC client that replaces @near-js/providers
- * Only includes the methods actually used by SeamsPasskey
+ * Only includes the methods actually used by SeamsWeb
  *
  * If needed, we can just wrap @near-js if we require more complex
  * functionality and type definitions

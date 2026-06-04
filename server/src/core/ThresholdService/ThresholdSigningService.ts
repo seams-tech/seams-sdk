@@ -1001,6 +1001,7 @@ function parseThresholdEd25519SessionRequest(
   ttlMsRaw: number;
   remainingUsesRaw: number;
   policyParticipantIds: number[] | null;
+  expectedOrigin: string | null;
 }> {
   const rec = (request || {}) as unknown as Record<string, unknown>;
   const relayerKeyId = toOptionalTrimmedString(rec.relayerKeyId);
@@ -1047,6 +1048,7 @@ function parseThresholdEd25519SessionRequest(
   }
   const ttlMsRaw = Number((policyRaw as Record<string, unknown>).ttlMs);
   const remainingUsesRaw = Number((policyRaw as Record<string, unknown>).remainingUses);
+  const expectedOrigin = toOptionalTrimmedString(rec.expected_origin) || null;
   if (!nearAccountId || !rpId || !sessionId || !walletSigningSessionId || !policyRelayerKeyId) {
     return {
       ok: false,
@@ -1120,6 +1122,7 @@ function parseThresholdEd25519SessionRequest(
       ttlMsRaw,
       remainingUsesRaw,
       policyParticipantIds: policyParticipantIds || null,
+      expectedOrigin,
     },
   };
 }
@@ -1450,6 +1453,7 @@ export class ThresholdSigningService {
         nearAccountId: string;
         rpId: string;
         expectedChallenge: string;
+        expected_origin: string;
         webauthn_authentication: WebAuthnAuthenticationCredential;
       }) => Promise<VerifyAuthenticationResponse>)
     | null;
@@ -1544,6 +1548,7 @@ export class ThresholdSigningService {
       nearAccountId: string;
       rpId: string;
       expectedChallenge: string;
+      expected_origin: string;
       webauthn_authentication: WebAuthnAuthenticationCredential;
     }) => Promise<VerifyAuthenticationResponse>;
     viewAccessKeyList: (accountId: string) => Promise<AccessKeyList>;
@@ -4852,10 +4857,18 @@ export class ThresholdSigningService {
           };
         }
       } else if (walletAuthProof.value.method === 'passkey') {
+        if (!parsedRequest.value.expectedOrigin) {
+          return {
+            ok: false,
+            code: 'unauthorized',
+            message: 'expected_origin is required for threshold-ed25519 passkey session mint',
+          };
+        }
         const verification = await this.verifyWebAuthnAuthenticationLite!({
           nearAccountId,
           rpId,
           expectedChallenge,
+          expected_origin: parsedRequest.value.expectedOrigin,
           webauthn_authentication: walletAuthProof.value.webauthnAuthentication,
         });
 

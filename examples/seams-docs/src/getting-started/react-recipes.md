@@ -4,13 +4,13 @@ title: React Recipes
 
 # React Recipes
 
-These examples assume you’ve already wrapped your app in `SeamsPasskeyProvider` as shown in the [installation](../getting-started/installation.md) guide.
+These examples assume you’ve already wrapped your app in `SeamsWebProvider` as shown in the [installation](../getting-started/installation.md) guide.
 
 The SDK provides pre-built React components which hooks up a lot of the functionality
-exposed by the `SeamsPasskeyManager`.
+exposed by the `SeamsWebManager`.
 
 ```tsx
-import { SeamsPasskeyProvider } from '@seams/sdk/react/provider';
+import { SeamsWebProvider } from '@seams/sdk/react/provider';
 
 const config = {
   iframeWallet: { walletOrigin: 'https://wallet.web3authn.org' },
@@ -21,20 +21,20 @@ const config = {
 
 function Root() {
   return (
-    <SeamsPasskeyProvider config={config}>
+    <SeamsWebProvider config={config}>
       <App />
-    </SeamsPasskeyProvider>
+    </SeamsWebProvider>
   );
 }
 ```
 
 ## Color Theming API
 
-The SDK’s color theming is driven by `SeamsPasskeyProvider` and the `appearance.tokens` shape.
+The SDK’s color theming is driven by `SeamsWebProvider` and the `appearance.tokens` shape.
 
 Theme precedence (highest to lowest):
 
-1. `theme.tokens` passed to `SeamsPasskeyProvider`
+1. `theme.tokens` passed to `SeamsWebProvider`
 2. `config.appearance.tokens`
 3. built-in SDK defaults
 
@@ -43,7 +43,7 @@ Theme precedence (highest to lowest):
 Use `config.appearance` for app-wide defaults.
 
 ```tsx
-import { SeamsPasskeyProvider } from '@seams/sdk/react/provider';
+import { SeamsWebProvider } from '@seams/sdk/react/provider';
 
 const config = {
   appearance: {
@@ -78,9 +78,9 @@ const config = {
 
 function Root() {
   return (
-    <SeamsPasskeyProvider config={config}>
+    <SeamsWebProvider config={config}>
       <App />
-    </SeamsPasskeyProvider>
+    </SeamsWebProvider>
   );
 }
 ```
@@ -91,13 +91,13 @@ Use the `theme` prop when your app owns light/dark state.
 
 ```tsx
 import * as React from 'react';
-import { SeamsPasskeyProvider } from '@seams/sdk/react/provider';
+import { SeamsWebProvider } from '@seams/sdk/react/provider';
 
 export function Root() {
   const [theme, setTheme] = React.useState<'light' | 'dark'>('dark');
 
   return (
-    <SeamsPasskeyProvider
+    <SeamsWebProvider
       config={config}
       theme={{
         theme,
@@ -109,7 +109,7 @@ export function Root() {
       }}
     >
       <App />
-    </SeamsPasskeyProvider>
+    </SeamsWebProvider>
   );
 }
 ```

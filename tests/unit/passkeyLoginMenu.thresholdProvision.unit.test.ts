@@ -483,7 +483,7 @@ async function runGoogleSsoRegisterRerollFlow(
 
 test.describe('PasskeyLoginMenu threshold signer auto-provision', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('register flow does not auto-provision Tempo/EVM signers', async ({ page }) => {

@@ -1,10 +1,9 @@
 import React from 'react';
 import type { SeamsContextProviderProps } from '../types';
-import { setEmbeddedBase } from '../../core/walletRuntimePaths';
 import {
   normalizeWalletHostVariant,
-  walletHostScriptFileForVariant,
 } from '../../core/WalletIframe/hostVariant';
+import { preconnectWalletAssets } from '../../web/SeamsWeb/assembly/preconnectWalletAssets';
 
 // Internal: Add preconnect/prefetch hints for wallet service + relayer and
 // expose an absolute embedded asset base for srcdoc iframes.
@@ -37,101 +36,13 @@ export function usePreconnectWalletAssets(config: SeamsContextProviderProps['con
   const relayerUrl = config?.relayer?.url as string | undefined;
 
   React.useEffect(() => {
-    try {
-      if (typeof document === 'undefined') return;
-      // Determine cross‑origin once per effect and expose absolute embedded base
-      // for srcdoc iframes ONLY when wallet is cross‑origin.
-      let isCrossOrigin = false;
-      let walletOriginOrigin: string | undefined = undefined;
-      try {
-        if (walletOrigin) {
-          walletOriginOrigin = new URL(walletOrigin, window.location.href).origin;
-          const parentOrigin = window.location.origin;
-          isCrossOrigin = walletOriginOrigin !== parentOrigin;
-          if (isCrossOrigin) {
-            const sdkPath = (sdkBasePath || '/sdk') as string;
-            const withSlash = sdkPath.endsWith('/') ? sdkPath : sdkPath + '/';
-            const abs = new URL(withSlash, walletOriginOrigin).toString();
-            setEmbeddedBase(abs);
-          }
-        }
-      } catch {}
-      const ensureLink = (rel: string, href?: string, attrs?: Record<string, string>) => {
-        try {
-          if (!href) return;
-          const head = document.head || document.getElementsByTagName('head')[0];
-          if (!head) return;
-          const selector = `link[rel="${rel}"][href="${href}"]`;
-          if (head.querySelector(selector)) return;
-          const link = document.createElement('link');
-          link.rel = rel;
-          link.href = href;
-          if (attrs) {
-            for (const [k, v] of Object.entries(attrs)) {
-              try {
-                link.setAttribute(k, v);
-              } catch {}
-            }
-          }
-          head.appendChild(link);
-        } catch {}
-      };
-
-      if (walletOrigin) {
-        // Reduce DNS/TLS handshake and fetch delays for the wallet origin
-        ensureLink('dns-prefetch', walletOrigin);
-        ensureLink('preconnect', walletOrigin, { crossorigin: '' });
-
-        // Prefetch the service HTML document only in same‑origin dev.
-        // Cross‑origin prefetch would require ACAO on the HTML, which we purposely avoid.
-        if (!isCrossOrigin) {
-          try {
-            const serviceUrl = new URL(servicePath, walletOrigin).toString();
-            ensureLink('prefetch', serviceUrl, { as: 'document' });
-          } catch {}
-        }
-
-        // Preload the wallet host script module so the iframe boots faster
-        // Ensure the base URL ends with a trailing slash; otherwise new URL('file', base)
-        // would replace the last path segment ("/sdk") and yield a root-level host script path.
-        try {
-          const sdkPath = (sdkBasePath || '/sdk') as string;
-          const withSlash = sdkPath.endsWith('/') ? sdkPath : sdkPath + '/';
-          const base = new URL(withSlash, walletOrigin);
-          const hostJs = new URL(
-            walletHostScriptFileForVariant(walletHostVariant),
-            base,
-          ).toString();
-          ensureLink('modulepreload', hostJs, { crossorigin: '' });
-
-          // Optionally prefetch WASM binaries to accelerate first-use while avoiding preload warnings
-          // Requires CORS + correct MIME (application/wasm) on the wallet origin
-          try {
-            const signerWasm = new URL('workers/wasm_signer_worker_bg.wasm', base).toString();
-            ensureLink('prefetch', signerWasm, {
-              as: 'fetch',
-              crossorigin: '',
-              type: 'application/wasm',
-            } as any);
-          } catch {}
-
-          // // Preload core CSS used by confirmer to reduce first-paint FOUC
-          // const tokensCss = new URL('w3a-components.css', base).toString();
-          // const txTreeCss = new URL('tx-tree.css', base).toString();
-          // const txConfirmerCss = new URL('tx-confirmer.css', base).toString();
-          // const drawerCss = new URL('drawer.css', base).toString();
-          // ensureLink('preload', tokensCss, { as: 'style', crossorigin: '' });
-          // ensureLink('preload', txTreeCss, { as: 'style', crossorigin: '' });
-          // ensureLink('preload', modalCss, { as: 'style', crossorigin: '' });
-          // ensureLink('preload', drawerCss, { as: 'style', crossorigin: '' });
-        } catch {}
-      }
-
-      if (relayerUrl) {
-        ensureLink('dns-prefetch', relayerUrl);
-        ensureLink('preconnect', relayerUrl, { crossorigin: '' });
-      }
-    } catch {}
+    preconnectWalletAssets({
+      walletOrigin,
+      servicePath,
+      sdkBasePath,
+      walletHostVariant,
+      relayerUrl,
+    });
   }, [walletOrigin, servicePath, sdkBasePath, walletHostVariant, relayerUrl]);
 }
 

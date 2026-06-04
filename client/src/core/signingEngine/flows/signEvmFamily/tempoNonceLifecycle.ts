@@ -36,7 +36,7 @@ export async function reserveManagedTempoNonceForRequest(args: {
   const reservationInput: ReserveNonceInput = reserveNonceInputFromBoundary({
     chain: 'tempo',
     networkKey: resolveNonceNetworkKey({
-      configs: args.deps.seamsPasskeyConfigs,
+      configs: args.deps.seamsWebConfigs,
       request: args.request,
     }),
     chainId: args.request.tx.chainId,

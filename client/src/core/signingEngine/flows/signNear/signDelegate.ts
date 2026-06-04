@@ -27,7 +27,7 @@ import {
   isThresholdSignerMissingKeyError,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
-import type { SigningRuntimeDeps } from '../../interfaces/runtime';
+import type { NearSigningRuntimeDeps } from '../../interfaces/runtime';
 import {
   ensureEd25519Prefix,
   toPublicKeyString,
@@ -108,7 +108,7 @@ export async function runNearDelegateActionSigning({
   sessionId: providedSessionId,
   signerSlot,
 }: {
-  ctx: SigningRuntimeDeps;
+  ctx: NearSigningRuntimeDeps;
   nearAccount: NearAccountRef;
   delegate: DelegateActionInput;
   rpcCall: RpcCallPayload;

@@ -23,14 +23,14 @@ Use `dynamic` import to avoid SSR issues:
 import dynamic from 'next/dynamic';
 import '@seams/sdk/react/styles';
 
-const SeamsPasskeyProvider = dynamic(
-  () => import('@seams/sdk/react/provider').then((m) => m.SeamsPasskeyProvider),
+const SeamsWebProvider = dynamic(
+  () => import('@seams/sdk/react/provider').then((m) => m.SeamsWebProvider),
   { ssr: false },
 );
 
 export default function App({ Component, pageProps }) {
   return (
-    <SeamsPasskeyProvider
+    <SeamsWebProvider
       config={{
         iframeWallet: {
           walletOrigin: process.env.NEXT_PUBLIC_WALLET_ORIGIN,
@@ -41,7 +41,7 @@ export default function App({ Component, pageProps }) {
       }}
     >
       <Component {...pageProps} />
-    </SeamsPasskeyProvider>
+    </SeamsWebProvider>
   );
 }
 ```
@@ -73,9 +73,9 @@ export default seamsNextApp({
 ```ts
 // components/LoginButtons.vue (script setup)
 import { onMounted } from 'vue';
-import { SeamsPasskey } from '@seams/sdk';
+import { SeamsWeb } from '@seams/sdk';
 
-const seams = new SeamsPasskey({
+const seams = new SeamsWeb({
   iframeWallet: {
     walletOrigin: import.meta.env.VITE_WALLET_ORIGIN,
   },
@@ -114,12 +114,12 @@ export default defineConfig(({ mode }) => {
 ```ts
 // src/components/LoginButtons.svelte
 import { onMount } from 'svelte';
-import { SeamsPasskey } from '@seams/sdk';
+import { SeamsWeb } from '@seams/sdk';
 
-let seams: SeamsPasskey;
+let seams: SeamsWeb;
 
 onMount(async () => {
-  seams = new SeamsPasskey({
+  seams = new SeamsWeb({
     iframeWallet: {
       walletOrigin: import.meta.env.VITE_WALLET_ORIGIN,
     },
@@ -200,9 +200,9 @@ app.listen(3000, () => console.log('App on https://example.localhost'));
 
 ```ts
 // client.js
-import { SeamsPasskey } from '@seams/sdk';
+import { SeamsWeb } from '@seams/sdk';
 
-const seams = new SeamsPasskey({
+const seams = new SeamsWeb({
   iframeWallet: {
     walletOrigin: 'https://wallet.web3authn.org',
   },

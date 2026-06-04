@@ -26,7 +26,7 @@ import {
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 
 export type EvmFamilyThresholdEcdsaReadinessDeps = EvmFamilyWarmSessionServicesDeps & {
-  seamsPasskeyConfigs: SeamsConfigsReadonly;
+  seamsWebConfigs: SeamsConfigsReadonly;
 };
 
 type EvmFamilyThresholdEcdsaReadinessBaseArgs = {
@@ -115,7 +115,7 @@ export async function ensureEvmFamilyThresholdEcdsaRecordReady(
     plan: reconnectPlan,
     record: selectedRecord,
     source,
-    runtimeScopeBootstrap: resolveManagedRuntimeScopeBootstrap(args.deps.seamsPasskeyConfigs),
+    runtimeScopeBootstrap: resolveManagedRuntimeScopeBootstrap(args.deps.seamsWebConfigs),
     usesNeeded: operationUsesNeeded,
     sessionBudgetUses,
     operationIntent: SigningOperationIntent.TransactionSign,

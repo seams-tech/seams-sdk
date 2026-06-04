@@ -3,7 +3,7 @@ import type { SeamsConfigsInput } from '../../types/seams';
 /**
  * Wallet-iframe host guardrails
  *
- * The wallet service iframe runs the "real" SeamsPasskey instance. It must never
+ * The wallet service iframe runs the "real" SeamsWeb instance. It must never
  * attempt to initialize a nested wallet iframe client, even if consumer defaults
  * enable `iframeWallet`.
  *

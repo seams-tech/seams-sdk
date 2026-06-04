@@ -86,7 +86,7 @@ test.describe('threshold-ed25519 relayer failure behavior', () => {
       const result = await page.evaluate(
         async ({ relayerUrl }) => {
           try {
-            const { SeamsPasskey } = await import('/sdk/esm/core/SeamsPasskey/index.js');
+            const { SeamsWeb } = await import('/sdk/esm/web/SeamsWeb/index.js');
             const { ActionType } = await import('/sdk/esm/core/types/actions.js');
             const suffix =
               typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -94,7 +94,7 @@ test.describe('threshold-ed25519 relayer failure behavior', () => {
                 : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
             const accountId = `e2erelayfail${suffix}.w3a-v1.testnet`;
 
-            const pm = new SeamsPasskey({
+            const pm = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayer: { url: relayerUrl },
@@ -213,7 +213,7 @@ test.describe('threshold-ed25519 relayer failure behavior', () => {
       const result = await page.evaluate(
         async ({ relayerUrl }) => {
           try {
-            const { SeamsPasskey } = await import('/sdk/esm/core/SeamsPasskey/index.js');
+            const { SeamsWeb } = await import('/sdk/esm/web/SeamsWeb/index.js');
             const { ActionType } = await import('/sdk/esm/core/types/actions.js');
             const suffix =
               typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -221,7 +221,7 @@ test.describe('threshold-ed25519 relayer failure behavior', () => {
                 : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
             const accountId = `e2erelayfail${suffix}.w3a-v1.testnet`;
 
-            const pm = new SeamsPasskey({
+            const pm = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayer: { url: relayerUrl },

@@ -59,6 +59,7 @@ test('threshold-ed25519 passkey session mint verifies the client runtime-scoped 
   const result = await scheme.session({
     relayerKeyId,
     sessionPolicy: policy,
+    expected_origin: 'http://localhost',
     webauthn_authentication: {
       id: 'cred-runtime-scope',
       rawId: 'cred-runtime-scope',
@@ -121,6 +122,7 @@ test('threshold-ed25519 passkey reauth mints a signer-bound wallet budget for th
     const result = await ed25519Scheme.session({
       relayerKeyId,
       sessionPolicy: policy,
+      expected_origin: 'http://localhost',
       webauthn_authentication: {
         id: `cred-${sessionId}`,
         rawId: `cred-${sessionId}`,

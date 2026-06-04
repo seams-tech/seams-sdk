@@ -1,19 +1,18 @@
 # Signing Architecture (`client/src/core/signingEngine`)
 
 This folder is the SDK signing runtime for NEAR, EVM, and Tempo flows. The
-current layout is organized by call direction: public engine methods enter a
+current layout is organized by call direction: runtime services enter a
 single operation module, operation modules call state/session/confirmation/
 chain/threshold/worker modules, and child modules do not call back into
-flows or `SigningEngine`.
+flows or browser assembly.
 
 ## Public Entrypoints
 
-- `index.ts`: public SDK signing-engine export surface.
-- `SigningEngine.ts`: product-level facade. Public methods should delegate to
-  one feature entry module within one hop and keep deeper composition inside
-  `assembly/*`, `flows/*`, `session/public.ts`, `session/warmCapabilities/public.ts`,
-  or other documented public boundary owners.
-- `assembly/`: assembles runtime dependencies and operation ports for `SigningEngine`.
+- `runtime/`: platform-neutral `SigningRuntime` construction and service surface.
+- `flows/*`: feature entry modules for signing, registration, recovery, and
+  Email OTP operations.
+- `assembly/`: assembles runtime dependencies and operation ports for the
+  browser signing surface under `web/SeamsWeb/assembly`.
 
 ## Folder Roles
 
@@ -58,9 +57,9 @@ primitives into `webauthnAuth/`, and moved wallet-auth policy resolution into
 
 ```mermaid
 flowchart TD
-  SP["SeamsPasskey / SDK"] --> SE["SigningEngine.ts"]
-  SE --> INIT["assembly/"]
-  SE --> OPS["flows/*"]
+  SP["SeamsWeb / SDK"] --> RT["SigningRuntime.services"]
+  SP --> INIT["web/SeamsWeb/assembly"]
+  RT --> OPS["flows/*"]
   INIT --> SESSION["session/"]
   INIT --> CONF["stepUpConfirmation/"]
   INIT --> THRESHOLD["threshold/"]
@@ -84,7 +83,7 @@ flowchart TD
 
 Rules enforced by Refactor 33 guards:
 
-- `flows/*` must not import `SigningEngine` or assembly construction.
+- `flows/*` must not import browser assembly construction.
 - Child folders must not import `flows/*`.
 - New broad internal `index.ts` barrels are blocked.
 - Deleted `api/`, `orchestration/`, `chainAdaptors/`, and `signers/` paths stay
@@ -95,7 +94,7 @@ Rules enforced by Refactor 33 guards:
 ```mermaid
 sequenceDiagram
   participant SDK as "SDK caller"
-  participant SE as "SigningEngine"
+  participant RT as "SigningRuntime.services"
   participant OP as "flows/*"
   participant SS as "session/*"
   participant CF as "stepUpConfirmation/*"
@@ -104,16 +103,16 @@ sequenceDiagram
   participant WK as "workers/*"
   participant NC as "nonce/*"
 
-  SDK->>SE: "sign / export / register"
-  SE->>OP: "delegate to operation"
+  SDK->>RT: "sign / export / register"
+  RT->>OP: "delegate to operation"
   OP->>SS: "select lane, restore, reserve budget"
   OP->>CF: "confirm passkey or email OTP"
   OP->>TH: "authorize/connect/sign threshold material"
   OP->>CH: "build payload/display/final tx"
   OP->>WK: "run signer/WASM worker command"
   OP->>NC: "reserve/commit nonce when required"
-  OP-->>SE: "signed result"
-  SE-->>SDK: "SDK response"
+  OP-->>RT: "signed result"
+  RT-->>SDK: "SDK response"
 ```
 
 ## Key State Shapes
@@ -159,7 +158,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart LR
-  SE["SigningEngine.signEvm/signTempo"] --> OP["flows/signEvmFamily/signEvmFamily.ts"]
+  RT["evmFamilySigning.signTempo"] --> OP["flows/signEvmFamily/signEvmFamily.ts"]
   OP --> PREP["preparedSigning.ts"]
   PREP --> SELECT["session/identity/selectLane.ts"]
   SELECT --> ID["session/identity/laneIdentity.ts"]
@@ -180,7 +179,7 @@ encoding.
 
 ```mermaid
 flowchart LR
-  SE["SigningEngine.signNear*"] --> OP["flows/signNear/signNear.ts"]
+  RT["nearSigning.signNear"] --> OP["flows/signNear/signNear.ts"]
   OP --> TX["signTransactions.ts / signDelegate.ts / signNep413.ts"]
   TX --> SELECT["session/identity/selectLane.ts"]
   TX --> CONF["flows/shared/signingConfirmation.ts"]

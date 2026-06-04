@@ -8,7 +8,7 @@ const IMPORT_PATHS = {
 
 test.describe('generic profile/account projection helpers', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('resolves mapped candidates and selects canonical signer slots', async ({ page }) => {

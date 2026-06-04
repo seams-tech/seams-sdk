@@ -1,4 +1,4 @@
-import type { WarmSessionMaterialWriter } from '../../uiConfirm/types';
+import type { WarmSessionMaterialWriter } from './warmSessionMaterialWriter';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 
 type SigningSessionCacheTransport = Parameters<

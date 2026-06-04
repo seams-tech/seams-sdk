@@ -104,6 +104,21 @@ type RelayWalletRegistrationInput = {
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false; code: 'invalid_body'; message: string };
 
+function requireWebAuthnExpectedOrigin(
+  input: RelayWalletRegistrationInput,
+): { ok: true; expectedOrigin: string } | { ok: false; response: RouteResponse<RouteErrorBody> } {
+  const expectedOrigin = normalizeCorsOrigin(input.origin);
+  if (expectedOrigin) return { ok: true, expectedOrigin };
+  return {
+    ok: false,
+    response: routeError(
+      403,
+      'forbidden',
+      'Origin header is required and must be a valid exact origin',
+    ),
+  };
+}
+
 type Ed25519SessionCarrier = {
   ok: true;
   rpId: string;
@@ -1894,10 +1909,13 @@ export async function handleRelayWalletAddSignerStart(
   const parsedBody = await parseWalletAddSignerStartBody(input.body, walletId);
   if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
   if (parsedBody.value.auth.kind === 'webauthn_assertion') {
+    const origin = requireWebAuthnExpectedOrigin(input);
+    if (!origin.ok) return origin.response;
     const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
       nearAccountId: walletId,
       rpId: parsedBody.value.intent.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
+      expected_origin: origin.expectedOrigin,
       webauthn_authentication: parsedBody.value.auth.credential,
     });
     if (!verified.success || !verified.verified) {
@@ -2073,10 +2091,13 @@ export async function handleRelayWalletAddAuthMethodStart(
   const parsedBody = await parseWalletAddAuthMethodStartBody(input.body, walletId);
   if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
   if (parsedBody.value.auth.kind === 'webauthn_assertion') {
+    const origin = requireWebAuthnExpectedOrigin(input);
+    if (!origin.ok) return origin.response;
     const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
       nearAccountId: walletId,
       rpId: parsedBody.value.intent.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
+      expected_origin: origin.expectedOrigin,
       webauthn_authentication: parsedBody.value.auth.credential,
     });
     if (!verified.success || !verified.verified) {
@@ -2149,10 +2170,13 @@ export async function handleRelayWalletRevokeAuthMethod(
   const parsedBody = await parseWalletRevokeAuthMethodRequest(input.body, walletId);
   if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
   if (parsedBody.value.auth.kind === 'webauthn_assertion') {
+    const origin = requireWebAuthnExpectedOrigin(input);
+    if (!origin.ok) return origin.response;
     const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
       nearAccountId: walletId,
       rpId: parsedBody.value.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
+      expected_origin: origin.expectedOrigin,
       webauthn_authentication: parsedBody.value.auth.credential,
     });
     if (!verified.success || !verified.verified) {
@@ -2205,10 +2229,13 @@ export async function handleRelayWalletEcdsaKeyFactsInventory(
   const parsedBody = await parseWalletEcdsaInventoryBody(input.body, walletId);
   if (!parsedBody.ok) return routeError(400, parsedBody.code, parsedBody.message);
   if (parsedBody.value.auth.kind === 'webauthn_assertion') {
+    const origin = requireWebAuthnExpectedOrigin(input);
+    if (!origin.ok) return origin.response;
     const verified = await input.services.authService.verifyWebAuthnAuthenticationLite({
       nearAccountId: walletId,
       rpId: parsedBody.value.rpId,
       expectedChallenge: parsedBody.value.auth.expectedChallengeDigestB64u,
+      expected_origin: origin.expectedOrigin,
       webauthn_authentication: parsedBody.value.auth.credential,
     });
     if (!verified.success || !verified.verified) {

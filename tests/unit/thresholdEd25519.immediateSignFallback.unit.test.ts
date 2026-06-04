@@ -18,7 +18,7 @@ import {
 import { buildNearTransactionSigningLane } from '@/core/signingEngine/session/operationState/lanes';
 import { ActionType } from '@/core/types/actions';
 import { SigningEventPhase, type SigningFlowEvent } from '@/core/types/sdkSentEvents';
-import { WorkerResponseType } from '@/core/types/signer-worker';
+import { NearSignerWorkerCustomRequestType, WorkerResponseType } from '@/core/types/signer-worker';
 
 class MemorySessionStorage implements Pick<
   Storage,
@@ -80,6 +80,51 @@ async function withNearThresholdTestEnv<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
+function createNearSignerWorkerFixtureRequestHandler(
+  requestWorkerOperation: (params: any) => Promise<any>,
+): (params: any) => Promise<any> {
+  let presignCreateCount = 0;
+  return async (params: any) => {
+    const request = params?.request;
+    switch (request?.type) {
+      case NearSignerWorkerCustomRequestType.ThresholdEd25519BuildNearTxUnsignedBorsh: {
+        const txSigningRequests = Array.isArray(request.payload?.txSigningRequests)
+          ? request.payload.txSigningRequests
+          : [{}];
+        return txSigningRequests.map((_tx: unknown, index: number) => ({
+          unsignedTransactionBorshB64u: `unsigned-tx-borsh-${index + 1}`,
+          signingDigestB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        }));
+      }
+      case NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignCreate:
+        presignCreateCount += 1;
+        return {
+          clientNonceHandleB64u: `client-nonce-handle-${presignCreateCount}`,
+          clientVerifyingShareB64u: 'client-verifying-share',
+          clientCommitments: {
+            hiding: `client-hiding-${presignCreateCount}`,
+            binding: `client-binding-${presignCreateCount}`,
+          },
+        };
+      case NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignSign:
+        return { clientSignatureShareB64u: 'client-signature-share' };
+      case NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignBurn:
+        return { burned: true };
+      case NearSignerWorkerCustomRequestType.ThresholdEd25519DecodeSignedNearTxBorsh:
+        return {
+          signedTransaction: {
+            transaction: { signerId: 'fixture.testnet' },
+            signature: { keyType: 0, signatureData: [1] },
+            borshBytes: [2],
+          },
+          transactionHash: 'fixture-tx-hash',
+        };
+      default:
+        return await requestWorkerOperation(params);
+    }
+  };
+}
+
 function createNearThresholdRuntimeCtx({
   nearAccountId,
   relayerUrl,
@@ -96,7 +141,7 @@ function createNearThresholdRuntimeCtx({
   requestWorkerOperation: (params: any) => Promise<any>;
 }) {
   return {
-    indexedDB: {
+    nearKeyMaterialStore: {
       resolveProfileAccountContext: async () => ({
         profileId: `profile-${nearAccountId}`,
         accountRef: {
@@ -149,7 +194,7 @@ function createNearThresholdRuntimeCtx({
       clearVolatileWarmSessionMaterial: async () => undefined,
       orchestrateSigningConfirmation,
     },
-    requestWorkerOperation,
+    requestWorkerOperation: createNearSignerWorkerFixtureRequestHandler(requestWorkerOperation),
   } as any;
 }
 
@@ -347,6 +392,7 @@ async function signTransactionsWithActions(args: any) {
 
   return await signPreparedTransactionsWithActions({
     ...args,
+    ctx: args.ctx,
     nearAccount: args.nearAccount || { kind: 'named', accountId: nearAccountId },
     transactionOperation,
     ed25519SigningBoundary,
@@ -477,7 +523,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       const signed = await signTransactionsWithActions({
         ctx: {
-          indexedDB: createNearThresholdTestIndexedDB({
+          nearKeyMaterialStore: createNearThresholdTestIndexedDB({
             profileId: 'profile-email-otp-ed25519',
             nearAccountId,
             relayerUrl,
@@ -517,7 +563,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
               };
             },
           },
-          requestWorkerOperation: async ({ request }: any) => {
+          requestWorkerOperation: createNearSignerWorkerFixtureRequestHandler(async ({ request }: any) => {
             workerThresholdSessionAuthToken = String(
               request?.payload?.threshold?.thresholdSessionAuthToken || '',
             ).trim();
@@ -535,7 +581,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
                 logs: [],
               },
             };
-          },
+          }),
         } as any,
         transactions: [
           {
@@ -700,7 +746,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       const signed = await signTransactionsWithActions({
         ctx: {
-          indexedDB: createNearThresholdTestIndexedDB({
+          nearKeyMaterialStore: createNearThresholdTestIndexedDB({
             profileId: 'profile-email-otp-ed25519-per-operation',
             nearAccountId,
             relayerUrl,
@@ -744,7 +790,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
               };
             },
           },
-          requestWorkerOperation: async ({ request }: any) => {
+          requestWorkerOperation: createNearSignerWorkerFixtureRequestHandler(async ({ request }: any) => {
             workerThresholdSessionAuthToken = String(
               request?.payload?.threshold?.thresholdSessionAuthToken || '',
             ).trim();
@@ -763,7 +809,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
                 logs: [],
               },
             };
-          },
+          }),
         } as any,
         transactions: [
           {
@@ -934,7 +980,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
       await expect(
         signTransactionsWithActions({
           ctx: {
-            indexedDB: createNearThresholdTestIndexedDB({
+            nearKeyMaterialStore: createNearThresholdTestIndexedDB({
               profileId: 'profile-email-otp-refresh-required',
               nearAccountId,
               relayerUrl,
@@ -1069,7 +1115,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       const signed = await signTransactionsWithActions({
         ctx: {
-          indexedDB: createNearThresholdTestIndexedDB({
+          nearKeyMaterialStore: createNearThresholdTestIndexedDB({
             profileId: 'profile-immediate-fallback',
             nearAccountId,
             relayerUrl,
@@ -1109,7 +1155,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
               };
             },
           },
-          requestWorkerOperation: async ({ request }: any) => {
+          requestWorkerOperation: createNearSignerWorkerFixtureRequestHandler(async ({ request }: any) => {
             workerThresholdSessionAuthToken = String(
               request?.payload?.threshold?.thresholdSessionAuthToken || '',
             ).trim();
@@ -1127,7 +1173,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
                 logs: [],
               },
             };
-          },
+          }),
         } as any,
         transactions: [
           {
@@ -1543,7 +1589,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       try {
         const result = await connectEd25519Session({
-          indexedDB: {} as any,
+          credentialStore: {} as any,
           touchIdPrompt: {
             getRpId: () => 'example.localhost',
             getAuthenticationCredentialsSerializedForChallengeB64u: async () => {
@@ -1649,7 +1695,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       try {
         const result = await connectEd25519Session({
-          indexedDB: {} as any,
+          credentialStore: {} as any,
           touchIdPrompt: {
             getRpId: () => 'example.localhost',
             getAuthenticationCredentialsSerializedForChallengeB64u: async () => {
@@ -1756,7 +1802,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       try {
         const result = await connectEd25519Session({
-          indexedDB: {} as any,
+          credentialStore: {} as any,
           touchIdPrompt: {
             getRpId: () => 'example.localhost',
             getAuthenticationCredentialsSerializedForChallengeB64u: async () => {
@@ -1847,7 +1893,7 @@ test.describe('threshold ed25519 immediate signing fallback', () => {
 
       try {
         const result = await connectEd25519Session({
-          indexedDB: {} as any,
+          credentialStore: {} as any,
           touchIdPrompt: {
             getRpId: () => 'example.localhost',
             getAuthenticationCredentialsSerializedForChallengeB64u: async () => {

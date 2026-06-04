@@ -31,6 +31,7 @@ export type {
   EcdsaRoleLocalRecordParseResult,
   EcdsaRoleLocalReadyRecord,
   EcdsaRoleLocalReadyStateBlob,
+  EmbeddedPlatformRuntime,
   EmailOtpWorkerIssuedSessionHandle,
   EmailOtpWorkerIssuedSessionHandleInput,
   EmailOtpWorkerSessionSecretSource,

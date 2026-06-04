@@ -8,7 +8,7 @@ import type {
   SeamsContextType,
 } from '../types';
 import type { ThemeName } from '@/core/types/seams';
-import type { RecoveryCapability } from '@/core/SeamsPasskey';
+import type { RecoveryCapability } from '@/web/SeamsWeb';
 import { useSDKFlowRuntime } from './useSDKFlowRuntime';
 import { useSeamsWithSdkFlow } from './useSeamsWithSdkFlow';
 import { isWalletSessionReadyForUi } from './walletSessionReadiness';

@@ -1,4 +1,3 @@
-import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import type { PlatformRuntime } from '@/core/platform';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { AccountId } from '@/core/types/accountIds';
@@ -56,6 +55,8 @@ import type { ThresholdEd25519LifecycleDeps } from '../../threshold/ed25519/hssL
 import type {
   ThresholdSessionActivationDeps,
 } from '../../session/passkey/ecdsaBootstrap';
+import type { PersistEmailOtpThresholdEd25519LocalMetadataDeps } from '../../session/emailOtp/ed25519LocalMetadata';
+import type { ThresholdEcdsaBootstrapStorePort } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
 import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/types';
 import { prewarmTxConfirmerUi } from '../../uiConfirm/ui/confirm-ui';
 import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManager';
@@ -63,6 +64,7 @@ import {
   prewarmSignerWorkers as prewarmSignerWorkersValue,
   warmCriticalResources as warmCriticalResourcesValue,
   type WorkerResourceWarmupDeps,
+  type WorkerResourceWarmupStorePort,
 } from '../warmup';
 
 export type SignTempoPortInput = {
@@ -81,9 +83,27 @@ export type SigningEngineConveniencePorts = {
   ) => Promise<SigningSessionStatus | null>;
 };
 
+export type SigningEngineStorePorts = {
+  walletProfileAndSignerRecords: {
+    accountStore: RegistrationAccountLifecycleDeps['accountStore'];
+    walletSignerStore: EvmFamilySigningDeps['walletSignerStore'];
+    passkeyAuthenticatorStore: EvmFamilySigningDeps['passkeyAuthenticatorStore'];
+    ecdsaBootstrapStore: ThresholdEcdsaBootstrapStorePort;
+  };
+  recoveryAndDeviceLinking: {
+    credentialStore: ThresholdSessionActivationDeps['credentialStore'];
+    keyMaterialStore: PrivateKeyExportRecoveryDeps['keyMaterialStore'];
+    ed25519MetadataStore: PersistEmailOtpThresholdEd25519LocalMetadataDeps;
+  };
+  warmup: {
+    store: WorkerResourceWarmupStorePort;
+  };
+};
+
 export type CreateSigningEnginePortsArgs = {
   platformRuntime: PlatformRuntime;
-  seamsPasskeyConfigs: SeamsConfigsReadonly;
+  stores: SigningEngineStorePorts;
+  seamsWebConfigs: SeamsConfigsReadonly;
   nearClient: NearClient;
   touchIdPrompt: TouchIdPrompt;
   userPreferencesManager: UserPreferencesManager;
@@ -100,6 +120,7 @@ export type CreateSigningEnginePortsArgs = {
   ) => Promise<SigningSessionStatus | null>;
   signerWorkerManager: SignerWorkerManager;
   getWorkerBaseOrigin: () => string;
+  shouldPrewarmWorkers: WorkerResourceWarmupDeps['shouldPrewarmWorkers'];
   getTheme: () => ThemeName;
   signTempo: SigningEngineConveniencePorts['signTempo'];
   extractCosePublicKey: (attestationObjectBase64url: string) => Promise<Uint8Array>;
@@ -205,7 +226,6 @@ export type NearKeyOpsDeps = {
 };
 
 export type SigningEnginePorts = {
-  indexedDB: UnifiedIndexedDBManager;
   thresholdEd25519LifecycleDeps: ThresholdEd25519LifecycleDeps;
   nearSigningDeps: NearSigningApiDeps;
   tempoSigningDeps: EvmFamilySigningDeps;
@@ -224,7 +244,7 @@ export type SigningEnginePorts = {
 };
 
 export function resolveNearRpcUrl(args: CreateSigningEnginePortsArgs): string {
-  return resolvePrimaryNearRpcUrl(args.seamsPasskeyConfigs.network.chains);
+  return resolvePrimaryNearRpcUrl(args.seamsWebConfigs.network.chains);
 }
 
 export function createResolveCanonicalThresholdEcdsaSessionIdForWalletTarget(
@@ -260,14 +280,15 @@ export function createGetOrCreateActiveThresholdEcdsaSessionId(): (
 
 export function createWorkerResourceWarmupDepsFactory(
   args: CreateSigningEnginePortsArgs,
-  runtimeDeps: { indexedDB: UnifiedIndexedDBManager },
+  runtimeDeps: { warmupStore: WorkerResourceWarmupStorePort },
 ): () => WorkerResourceWarmupDeps {
   return () => ({
     workerBaseOrigin: args.getWorkerBaseOrigin(),
-    indexedDB: runtimeDeps.indexedDB,
+    store: runtimeDeps.warmupStore,
     nearClient: args.nearClient,
     nonceCoordinator: args.nonceCoordinator,
     prewarmWorkers: args.signerWorkerManager.prewarmWorkers.bind(args.signerWorkerManager),
+    shouldPrewarmWorkers: args.shouldPrewarmWorkers,
     prewarmUiConfirmUi: prewarmTxConfirmerUi,
     initializeCurrentUser: args.initializeCurrentUser,
   });

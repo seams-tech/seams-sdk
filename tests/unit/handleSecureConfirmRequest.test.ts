@@ -7,9 +7,9 @@ const IMPORT_PATHS = {
 
 test.describe('handlePromptFromWorker - Orchestrator Unit Tests', () => {
   test.beforeEach(async ({ page }) => {
-    // These unit tests only import the orchestrator module; avoid initializing a full SeamsPasskey instance
+    // These unit tests only import the orchestrator module; avoid initializing a full SeamsWeb instance
     // (which can be slow/flaky in dev due to iframe + externalized dependency resolution).
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
     await page.waitForTimeout(300);
   });
 

@@ -1,29 +1,30 @@
-import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { getNearThresholdKeyMaterial } from '@/core/accountData/near/keyMaterial';
+import type { AccountKeyMaterialStorePort } from '@/core/indexedDB/accountKeyMaterial';
+import type { LastProfileState } from '@/core/indexedDB/passkeyClientDB.types';
+import type { ProfileAccountContextPort } from '@/core/indexedDB/profileAccountProjection';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import { getLastLoggedInSignerSlot } from '../webauthnAuth/device/signerSlot';
 
+export type WorkerResourceWarmupStorePort = ProfileAccountContextPort &
+  AccountKeyMaterialStorePort & {
+    getLastProfileState: () => Promise<LastProfileState | null>;
+  };
+
 export type WorkerResourceWarmupDeps = {
   workerBaseOrigin: string;
-  indexedDB: UnifiedIndexedDBManager;
+  store: WorkerResourceWarmupStorePort;
   nearClient: NearClient;
   nonceCoordinator: Pick<NonceCoordinator, 'prefetchNearContext'>;
   prewarmWorkers: () => Promise<void>;
+  shouldPrewarmWorkers: (workerBaseOrigin: string) => boolean;
   prewarmUiConfirmUi: () => Promise<void>;
   initializeCurrentUser: (nearAccountId: AccountId, nearClient?: NearClient) => Promise<void>;
 };
 
-function shouldPrewarmBrowserWorkers(deps: WorkerResourceWarmupDeps): boolean {
-  if (typeof window === 'undefined' || typeof window.Worker === 'undefined') return false;
-  // Avoid noisy SecurityError in cross-origin dev: only prewarm when same-origin.
-  if (deps.workerBaseOrigin && deps.workerBaseOrigin !== window.location.origin) return false;
-  return true;
-}
-
 export function prewarmSignerWorkers(deps: WorkerResourceWarmupDeps): void {
-  if (!shouldPrewarmBrowserWorkers(deps)) return;
+  if (!deps.shouldPrewarmWorkers(deps.workerBaseOrigin)) return;
   deps.prewarmWorkers().catch(() => {});
 }
 
@@ -46,12 +47,12 @@ export async function warmCriticalResources(
     const accountId = toAccountId(nearAccountId);
     const signerSlot = await getLastLoggedInSignerSlot(
       accountId,
-      deps.indexedDB,
+      deps.store,
     ).catch(() => 1);
     await getNearThresholdKeyMaterial(
       {
-        clientDB: deps.indexedDB,
-        keyMaterialStore: deps.indexedDB,
+        clientDB: deps.store,
+        keyMaterialStore: deps.store,
       },
       accountId,
       signerSlot,
@@ -59,7 +60,7 @@ export async function warmCriticalResources(
   }
 
   const warmupTasks: Promise<unknown>[] = [deps.prewarmUiConfirmUi().catch(() => null)];
-  if (shouldPrewarmBrowserWorkers(deps)) {
+  if (deps.shouldPrewarmWorkers(deps.workerBaseOrigin)) {
     warmupTasks.push(deps.prewarmWorkers().catch(() => null));
   }
   await Promise.all(warmupTasks);

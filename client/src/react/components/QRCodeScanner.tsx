@@ -10,7 +10,7 @@ import { Theme, useTheme } from './theme';
  * This component provides a complete QR code scanning interface for device linking.
  * It supports both camera-based scanning and file upload scanning.
  *
- * **Important:** This component should be used inside a SeamsPasskey context.
+ * **Important:** This component should be used inside a SeamsWeb context.
  * Wrap your app with PasskeyProvider (useSeams available) for full functionality.
  *
  * @example

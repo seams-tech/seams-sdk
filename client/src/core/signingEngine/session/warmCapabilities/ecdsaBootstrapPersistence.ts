@@ -19,7 +19,7 @@ import {
   SIGNER_SOURCES,
 } from '@shared/utils/signerDomain';
 
-export type ThresholdEcdsaBootstrapIndexedDbPort = {
+export type ThresholdEcdsaBootstrapStorePort = {
   upsertProfile: (input: UpsertProfileInput) => Promise<unknown>;
   activateAccountSigner: (input: ActivateAccountSignerInput) => Promise<{
     signer: AccountSignerRecord;
@@ -191,17 +191,17 @@ function ecdsaBootstrapSignerActivation(args: {
 }
 
 export async function persistThresholdEcdsaBootstrapForWalletTarget(args: {
-  indexedDB: ThresholdEcdsaBootstrapIndexedDbPort;
+  bootstrapStore: ThresholdEcdsaBootstrapStorePort;
   walletId: WalletId;
   chainTarget: ThresholdEcdsaChainTarget;
   bootstrap: ThresholdEcdsaSessionBootstrapResult;
   signerAuth: ThresholdEcdsaBootstrapSignerAuth;
 }): Promise<void> {
   const walletId = toWalletId(args.walletId);
-  await args.indexedDB.upsertProfile({
+  await args.bootstrapStore.upsertProfile({
     profileId: walletId,
   });
-  await args.indexedDB.activateAccountSigner(
+  await args.bootstrapStore.activateAccountSigner(
     ecdsaBootstrapSignerActivation({
       walletId,
       chainTarget: args.chainTarget,

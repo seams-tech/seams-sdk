@@ -16,6 +16,11 @@ import type {
 import type {
   EcdsaRoleLocalReadyRecord,
   EcdsaRoleLocalReadyStateBlob,
+  EcdsaThresholdKeyId,
+  EmailOtpAuthSubjectId,
+  RpId,
+  SigningRootId,
+  SigningRootVersion,
 } from '@/core/platform/types';
 import {
   parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
@@ -41,12 +46,16 @@ import type {
   ThresholdSessionKind,
 } from '../../threshold/sessionPolicy';
 
-export type { WalletId, ThresholdEcdsaSessionId, WalletSigningSessionId };
-
-export type RpId = string & { readonly __brand: 'RpId' };
-export type EcdsaThresholdKeyId = string & { readonly __brand: 'EcdsaThresholdKeyId' };
-export type SigningRootId = string & { readonly __brand: 'SigningRootId' };
-export type SigningRootVersion = string & { readonly __brand: 'SigningRootVersion' };
+export type {
+  EcdsaThresholdKeyId,
+  EmailOtpAuthSubjectId,
+  RpId,
+  SigningRootId,
+  SigningRootVersion,
+  WalletId,
+  ThresholdEcdsaSessionId,
+  WalletSigningSessionId,
+};
 export type ParticipantId = number & { readonly __brand: 'ParticipantId' };
 export type ThresholdOwnerAddress = `0x${string}` & {
   readonly __brand: 'ThresholdOwnerAddress';
@@ -56,9 +65,6 @@ export type ThresholdEcdsaPublicKeyB64u = string & {
 };
 export type EvmFamilyEcdsaKeyHandle = string & {
   readonly __brand: 'EvmFamilyEcdsaKeyHandle';
-};
-export type EmailOtpAuthSubjectId = string & {
-  readonly __brand: 'EmailOtpAuthSubjectId';
 };
 export type EmailOtpProviderId = string & {
   readonly __brand: 'EmailOtpProviderId';

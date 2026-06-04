@@ -3,8 +3,7 @@ import type { WarmSessionSealTransportInput } from '@/core/types/secure-confirm-
 import type { ProfileAuthenticatorRecord } from '../../../indexedDB';
 import {
   type WebAuthnAuthenticatorRecord,
-  type WebAuthnIndexedDbClientPort,
-  type WebAuthnIndexedDbPort,
+  type WebAuthnCredentialStorePort,
   type WebAuthnPromptPort,
 } from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import {
@@ -18,9 +17,8 @@ export {
 };
 
 export type ThresholdAuthenticatorRecord = ProfileAuthenticatorRecord & WebAuthnAuthenticatorRecord;
-export type ThresholdIndexedDbClientPort =
-  WebAuthnIndexedDbClientPort<ThresholdAuthenticatorRecord>;
-export type ThresholdIndexedDbPort = WebAuthnIndexedDbPort<ThresholdAuthenticatorRecord>;
+export type ThresholdCredentialStorePort =
+  WebAuthnCredentialStorePort<ThresholdAuthenticatorRecord>;
 export type ThresholdWebAuthnPromptPort = WebAuthnPromptPort;
 
 export type ThresholdEd25519ClientShareDeriverPort = {

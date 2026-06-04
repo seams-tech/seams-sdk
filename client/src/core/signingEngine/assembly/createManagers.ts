@@ -1,7 +1,3 @@
-import {
-  createIndexedDBNonceLaneCoordinationStore,
-  IndexedDBManager,
-} from '@/core/indexedDB';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import { createEvmNonceBackend } from '@/core/rpcClients/evm/nonceBackend';
 import {
@@ -16,11 +12,13 @@ import type {
 } from '@/core/types/seams';
 import { createUiConfirmManager } from '../uiConfirm/UiConfirmManager';
 import type { UiConfirmRuntimeBridgePort } from '../uiConfirm/types';
+import type { UiConfirmContext } from '../uiConfirm/types';
 import { TouchIdPrompt } from '../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import { SignerWorkerManager } from '../workerManager/SignerWorkerManager';
+import type { SignerWorkerManagerDeps } from '../workerManager/SignerWorkerManager';
 import { getWorkerTransport } from '../workerManager/workerTransport';
-import { UserPreferencesManager } from '../session/userPreferences';
-import UserPreferencesInstance from '../session/userPreferences';
+import { type UserPreferencesStorePort, UserPreferencesManager } from '../session/userPreferences';
+import type { NonceLaneCoordinationStore } from '../nonce/NonceCoordinator';
 
 export type ManagerAssembly = {
   touchIdPrompt: TouchIdPrompt;
@@ -30,30 +28,36 @@ export type ManagerAssembly = {
   signerWorkerManager: SignerWorkerManager;
 };
 
+export type ManagerAssemblyStores = {
+  userPreferencesStore: UserPreferencesStorePort;
+  nonceLaneCoordinationStore: NonceLaneCoordinationStore;
+  webauthnCredentialStore: UiConfirmContext['webauthnCredentialStore'];
+  passkeyAuthenticatorStore: UiConfirmContext['passkeyAuthenticatorStore'];
+  nearKeyMaterialStore: SignerWorkerManagerDeps['nearKeyMaterialStore'];
+};
+
 export function createManagerAssembly(args: {
-  indexedDB: typeof IndexedDBManager;
-  seamsPasskeyConfigs: SeamsConfigsReadonly;
+  stores: ManagerAssemblyStores;
+  seamsWebConfigs: SeamsConfigsReadonly;
   nearClient: NearClient;
   getTheme: () => ThemeName;
   getAppearanceTokens?: () => ThemeTokenOverridesInput | undefined;
 }): ManagerAssembly {
-  const indexedDB = args.indexedDB;
   const touchIdPrompt = new TouchIdPrompt(
-    args.seamsPasskeyConfigs.wallet.iframe?.rpIdOverride,
+    args.seamsWebConfigs.wallet.iframe?.rpIdOverride,
     true,
   );
-  const userPreferencesManager = UserPreferencesInstance;
-  const chains = args.seamsPasskeyConfigs.network.chains;
+  const userPreferencesManager = new UserPreferencesManager({
+    store: args.stores.userPreferencesStore,
+  });
+  const chains = args.seamsWebConfigs.network.chains;
   const evmNonceBackend = createEvmNonceBackend({
     chains,
-  });
-  const nonceLaneCoordinationStore = createIndexedDBNonceLaneCoordinationStore({
-    indexedDB,
   });
   const nonceCoordinator = createNonceCoordinator({
     evmNonceBackend,
     nearClient: args.nearClient,
-    nonceLaneCoordinationStore,
+    nonceLaneCoordinationStore: args.stores.nonceLaneCoordinationStore,
   });
   void nonceCoordinator.recoverDurableLeases().catch((error) => {
     console.warn('[NonceCoordinator] startup durable lease recovery failed', error);
@@ -62,23 +66,24 @@ export function createManagerAssembly(args: {
   const tempoExplorerUrl = resolvePrimaryExplorerUrl(chains, 'tempo');
   const evmExplorerUrl = resolvePrimaryExplorerUrl(chains, 'evm');
   const isSealedRefreshMode =
-    args.seamsPasskeyConfigs.signing.sessionPersistenceMode === 'sealed_refresh_v1';
+    args.seamsWebConfigs.signing.sessionPersistenceMode === 'sealed_refresh_v1';
 
   const touchConfirm: UiConfirmRuntimeBridgePort = createUiConfirmManager(
     {
-      signingSessionPersistenceMode: args.seamsPasskeyConfigs.signing.sessionPersistenceMode,
+      signingSessionPersistenceMode: args.seamsWebConfigs.signing.sessionPersistenceMode,
       ...(isSealedRefreshMode
         ? {
-            signingSessionSealKeyVersion: args.seamsPasskeyConfigs.signing.sessionSeal.keyVersion,
+            signingSessionSealKeyVersion: args.seamsWebConfigs.signing.sessionSeal.keyVersion,
             signingSessionSealShamirPrimeB64u:
-              args.seamsPasskeyConfigs.signing.sessionSeal.shamirPrimeB64u,
+              args.seamsWebConfigs.signing.sessionSeal.shamirPrimeB64u,
           }
         : {}),
     },
     {
       touchIdPrompt: touchIdPrompt,
       nearClient: args.nearClient,
-      indexedDB,
+      webauthnCredentialStore: args.stores.webauthnCredentialStore,
+      passkeyAuthenticatorStore: args.stores.passkeyAuthenticatorStore,
       userPreferencesManager: userPreferencesManager,
       nonceCoordinator: nonceCoordinator,
       chains,
@@ -92,13 +97,13 @@ export function createManagerAssembly(args: {
   );
 
   const signerWorkerManager = new SignerWorkerManager({
-    indexedDB,
+    nearKeyMaterialStore: args.stores.nearKeyMaterialStore,
     touchIdPrompt,
     touchConfirm,
     nearClient: args.nearClient,
     userPreferencesManager,
     nonceCoordinator,
-    relayerUrl: args.seamsPasskeyConfigs.network.relayer.url,
+    relayerUrl: args.seamsWebConfigs.network.relayer.url,
     workerTransport: getWorkerTransport(),
     chains,
     nearExplorerUrl,

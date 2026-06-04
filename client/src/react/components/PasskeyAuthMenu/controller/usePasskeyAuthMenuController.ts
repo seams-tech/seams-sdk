@@ -345,7 +345,7 @@ export function usePasskeyAuthMenuController(
     let cancelled = false;
     void import('../features/recentUnlockPrefill')
       .then(async (m) => {
-        const result = await m.getRecentUnlockPrefill(runtime.seamsPasskey);
+        const result = await m.getRecentUnlockPrefill(runtime.seamsWeb);
         if (cancelled || !result?.username) return;
         if (prevModeRef.current !== AuthMenuMode.Login) return;
         if (latestValueRef.current.trim().length > 0) return;
@@ -359,7 +359,7 @@ export function usePasskeyAuthMenuController(
     return () => {
       cancelled = true;
     };
-  }, [mode, runtime.seamsPasskey, setCurrentValue]);
+  }, [mode, runtime.seamsWeb, setCurrentValue]);
 
   const fallbackOnEvent = React.useCallback((event: LinkDeviceFlowEvent) => {
     console.log('ShowQRCode event:', event);

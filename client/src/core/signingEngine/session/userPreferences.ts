@@ -1,7 +1,22 @@
 import { ConfirmationConfig, DEFAULT_CONFIRMATION_CONFIG } from '../../types/signer-worker';
-import { IndexedDBManager, type IndexedDBEvent } from '../../indexedDB';
+import type { IndexedDBEvent, UserPreferences } from '../../indexedDB';
 import { getLastSelectedNearAccount } from '../../accountData/near/accountProjection';
+import type { ProfileLastSelectionPort } from '../../indexedDB/profileAccountProjection';
 import { toWalletId, type WalletId } from '../interfaces/ecdsaChainTarget';
+
+export type UserPreferencesStorePort = ProfileLastSelectionPort & {
+  isDisabled: () => boolean;
+  onChange: (callback: (event: IndexedDBEvent) => void) => () => void;
+  getWalletPreferences: (walletId: WalletId) => Promise<Partial<UserPreferences>>;
+  updateWalletPreferences: (args: {
+    walletId: WalletId;
+    preferences: Partial<UserPreferences>;
+  }) => Promise<unknown>;
+};
+
+export type UserPreferencesManagerDeps = {
+  store: UserPreferencesStorePort;
+};
 
 export class UserPreferencesManager {
   private confirmationConfigChangeListeners: Set<(config: ConfirmationConfig) => void> =
@@ -12,7 +27,7 @@ export class UserPreferencesManager {
   private confirmationConfig: ConfirmationConfig = DEFAULT_CONFIRMATION_CONFIG;
   private unsubscribeFromIndexedDB?: () => void;
 
-  constructor() {
+  constructor(private readonly deps: UserPreferencesManagerDeps) {
     this.subscribeToIndexedDBChanges();
   }
 
@@ -77,7 +92,7 @@ export class UserPreferencesManager {
   }
 
   private subscribeToIndexedDBChanges(): void {
-    this.unsubscribeFromIndexedDB = IndexedDBManager.onChange((event) => {
+    this.unsubscribeFromIndexedDB = this.deps.store.onChange((event) => {
       void this.handleIndexedDBEvent(event).catch((error) => {
         console.warn('[SigningEngine]: Error handling IndexedDB event:', error);
       });
@@ -149,7 +164,7 @@ export class UserPreferencesManager {
     if (!prev || String(prev) !== String(walletId)) {
       this.notifyCurrentWalletChange(walletId);
     }
-    if (!IndexedDBManager.isDisabled()) {
+    if (!this.deps.store.isDisabled()) {
       void this.loadSettingsForWallet(walletId).catch(() => undefined);
     }
   }
@@ -164,8 +179,10 @@ export class UserPreferencesManager {
   }
 
   private async loadSettingsForWallet(walletId: WalletId): Promise<void> {
-    if (IndexedDBManager.isDisabled()) return;
-    const preferences = await IndexedDBManager.getWalletPreferences(walletId).catch(() => undefined);
+    if (this.deps.store.isDisabled()) return;
+    const preferences = await this.deps.store
+      .getWalletPreferences(walletId)
+      .catch(() => undefined);
     this.applyStoredPreferences(preferences);
   }
 
@@ -191,8 +208,8 @@ export class UserPreferencesManager {
   }
 
   async loadUserSettings(): Promise<void> {
-    if (IndexedDBManager.isDisabled()) return;
-    const last = await getLastSelectedNearAccount(IndexedDBManager).catch(() => null);
+    if (this.deps.store.isDisabled()) return;
+    const last = await getLastSelectedNearAccount(this.deps.store).catch(() => null);
     if (!last) {
       console.debug('[SigningEngine]: No last user found, using default settings');
       return;
@@ -211,7 +228,7 @@ export class UserPreferencesManager {
         return;
       }
 
-      await IndexedDBManager.updateWalletPreferences({
+      await this.deps.store.updateWalletPreferences({
         walletId,
         preferences: {
           confirmationConfig: this.confirmationConfig,
@@ -222,6 +239,3 @@ export class UserPreferencesManager {
     }
   }
 }
-
-const UserPreferencesInstance = new UserPreferencesManager();
-export default UserPreferencesInstance;

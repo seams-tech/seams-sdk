@@ -9,7 +9,7 @@ const IMPORT_PATHS = {
 
 test.describe('Passkey auth account availability', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('local saved credentials do not mark an unregistered account as existing', async ({

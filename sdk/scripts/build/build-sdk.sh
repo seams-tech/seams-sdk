@@ -71,6 +71,9 @@ if npx rolldown -c rolldown.config.ts; then print_success "Rolldown bundling com
 print_step "Asserting NEAR signer WASM imports stay within dist/esm..."
 if node "$SDK_ROOT/scripts/checks/assert-near-signer-wasm-imports.mjs"; then print_success "NEAR signer WASM imports OK"; else print_error "NEAR signer WASM imports invalid"; exit 1; fi
 
+print_step "Asserting native-facing package entries avoid browser bundles..."
+if node "$SDK_ROOT/scripts/checks/assert-native-package-entry-bundles.mjs"; then print_success "Native-facing package entries OK"; else print_error "Native-facing package entries invalid"; exit 1; fi
+
 print_step "Bundling browser-embedded SDK assets with Bun (dev, no minify)..."
 if [ -z "$BUN_BIN" ]; then print_error "Bun not found. Install Bun or ensure it is on PATH."; exit 1; fi
 

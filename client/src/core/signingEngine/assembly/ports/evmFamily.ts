@@ -1,5 +1,3 @@
-import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
-import { getBrowserPlatformIndexedDB } from '@/core/platform';
 import type { EvmFamilySigningDeps } from '../../interfaces/operationDeps';
 import { SigningSessionCoordinator } from '../../session/SigningSessionCoordinator';
 import {
@@ -15,15 +13,16 @@ import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 export function createEvmFamilySigningDeps(args: {
   createArgs: CreateSigningEnginePortsArgs;
-  indexedDB?: UnifiedIndexedDBManager;
+  walletSignerStore: EvmFamilySigningDeps['walletSignerStore'];
+  passkeyAuthenticatorStore: EvmFamilySigningDeps['passkeyAuthenticatorStore'];
   signingSessionCoordinator: SigningSessionCoordinator;
   getEmailOtpWarmSessionStatus: (sessionId: string) => Promise<WarmSessionStatusResult>;
 }): EvmFamilySigningDeps {
   const { createArgs, signingSessionCoordinator, getEmailOtpWarmSessionStatus } = args;
-  const indexedDB = args.indexedDB || getBrowserPlatformIndexedDB(createArgs.platformRuntime);
   return {
-    indexedDB,
-    seamsPasskeyConfigs: createArgs.seamsPasskeyConfigs,
+    walletSignerStore: args.walletSignerStore,
+    passkeyAuthenticatorStore: args.passkeyAuthenticatorStore,
+    seamsWebConfigs: createArgs.seamsWebConfigs,
     nonceCoordinator: createArgs.nonceCoordinator,
     ensureSealedRefreshStartupParity: createArgs.ensureSealedRefreshStartupParity,
     getSignerWorkerContext: () => createArgs.signerWorkerManager.getContext(),

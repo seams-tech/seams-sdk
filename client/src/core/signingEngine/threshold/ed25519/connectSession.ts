@@ -1,7 +1,7 @@
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import { collectAuthenticationCredentialForChallengeB64u } from '../../webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type {
-  ThresholdIndexedDbPort,
+  ThresholdCredentialStorePort,
   ThresholdWebAuthnPromptPort,
 } from '../crypto/webauthn';
 import { buildEd25519SessionPolicy } from '../sessionPolicy';
@@ -28,7 +28,7 @@ import {
  * - The WebAuthn credential sent to the relay is PRF-redacted in `mintEd25519AuthSession`.
  */
 export async function connectEd25519Session(args: {
-  indexedDB: ThresholdIndexedDbPort;
+  credentialStore: ThresholdCredentialStorePort;
   touchIdPrompt: ThresholdWebAuthnPromptPort;
   relayerUrl: string;
   relayerKeyId: string;
@@ -86,7 +86,7 @@ export async function connectEd25519Session(args: {
     // A regression here ignored the provided PRF source, so post-exhaustion transaction signing
     // showed one tx confirmation and then a second TouchID prompt for the session mint.
     const credential = await collectAuthenticationCredentialForChallengeB64u({
-      indexedDB: args.indexedDB,
+      credentialStore: args.credentialStore,
       touchIdPrompt: args.touchIdPrompt,
       nearAccountId: args.nearAccountId,
       challengeB64u: sessionPolicyDigest32,

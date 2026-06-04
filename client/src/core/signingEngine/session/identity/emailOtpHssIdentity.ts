@@ -8,9 +8,11 @@ import type {
   ThresholdOwnerAddress,
   WalletSigningSessionId,
 } from './evmFamilyEcdsaIdentity';
+import type { EmailOtpAuthSubjectId } from '@/core/platform/types';
 
 export type {
   EcdsaThresholdKeyId,
+  EmailOtpAuthSubjectId,
   SigningRootId,
   SigningRootVersion,
   ThresholdEcdsaSessionId,
@@ -19,7 +21,6 @@ export type {
 };
 
 export type WalletSessionUserId = string & { readonly __brand: 'WalletSessionUserId' };
-export type EmailOtpAuthSubjectId = string & { readonly __brand: 'EmailOtpAuthSubjectId' };
 
 export type EmailOtpRegistrationBootstrap = {
   operation: 'email_otp_bootstrap';

@@ -12,7 +12,7 @@ import { toOptionalEvmAddress } from './addresses';
 export type { EvmFamilyAccountMetadataDeps };
 
 export type EvmFamilyNonceNetworkDeps = {
-  seamsPasskeyConfigs: SeamsConfigsReadonly;
+  seamsWebConfigs: SeamsConfigsReadonly;
 };
 
 function readOptionalChainId(chain: SeamsChainConfig): number | undefined {
@@ -142,7 +142,7 @@ export async function resolveWalletChainNonceSenderIdentity(args: {
   walletId: string;
   chainTarget: ThresholdEcdsaChainTarget;
 }): Promise<EvmFamilyManagedNonceSenderIdentity> {
-  const signer = await args.deps.indexedDB.getActiveWalletSignerForChainTarget({
+  const signer = await args.deps.walletSignerStore.getActiveWalletSignerForChainTarget({
     walletId: args.walletId,
     chainTarget: args.chainTarget,
   });

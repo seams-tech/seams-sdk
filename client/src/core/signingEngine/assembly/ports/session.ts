@@ -7,7 +7,7 @@ import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
 import type { WarmSigningPorts } from './warmSigning';
 
 export function createSessionPublicDeps(args: {
-  seamsPasskeyConfigs: SeamsConfigsReadonly;
+  seamsWebConfigs: SeamsConfigsReadonly;
   touchConfirm: UiConfirmRuntimeBridgePort;
   emailOtpSessions: EmailOtpThresholdSessionCoordinator;
   warmSigning: WarmSigningPorts;
@@ -35,9 +35,9 @@ export function createSessionPublicDeps(args: {
         ),
     },
     ecdsaSessions: args.warmSigning.ecdsaSessions,
-    signingSessionSeal: args.seamsPasskeyConfigs.signing.sessionSeal,
+    signingSessionSeal: args.seamsWebConfigs.signing.sessionSeal,
     getConfiguredEcdsaChainTargets: () =>
-      configuredThresholdEcdsaChainTargets(args.seamsPasskeyConfigs.network.chains),
+      configuredThresholdEcdsaChainTargets(args.seamsWebConfigs.network.chains),
     restore: sessionRestore,
   };
 }

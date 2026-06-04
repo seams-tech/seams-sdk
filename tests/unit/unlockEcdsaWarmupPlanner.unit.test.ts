@@ -15,6 +15,7 @@ import {
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
+import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
 import {
   buildEcdsaRoleLocalPasskeyAuthMethod,
   buildEcdsaRoleLocalPublicFacts,
@@ -57,8 +58,8 @@ function profileSigner(args: {
   keyHandle?: string;
   sharedKey?: boolean;
   signerId?: string;
-  status?: string;
-}): Record<string, unknown> {
+  status?: AccountSignerRecord['status'];
+}): AccountSignerRecord {
   const chainTarget = args.chainTarget ?? EVM_TARGET;
   const keyHandle = args.keyHandle ?? 'ehss-key-shared';
   return {
@@ -70,7 +71,7 @@ function profileSigner(args: {
     signerType: 'threshold',
     signerKind: 'threshold-ecdsa',
     signerAuthMethod: 'passkey',
-    signerSource: 'registration',
+    signerSource: 'passkey_registration',
     status: args.status ?? 'active',
     addedAt: Date.now(),
     updatedAt: Date.now(),
@@ -97,7 +98,7 @@ function profileSigner(args: {
 }
 
 function parseActive(
-  signer: Record<string, unknown>,
+  signer: AccountSignerRecord,
   configuredTargets: readonly ThresholdEcdsaChainTarget[] = [EVM_TARGET, TEMPO_TARGET],
 ): ActiveEcdsaSignerRecord {
   const parsed = parseActiveEcdsaSignerRecordForUnlock({
@@ -111,7 +112,7 @@ function parseActive(
   return parsed;
 }
 
-function parseRepair(signer: Record<string, unknown>): RepairRequiredEcdsaSignerRecord {
+function parseRepair(signer: AccountSignerRecord): RepairRequiredEcdsaSignerRecord {
   const parsed = parseActiveEcdsaSignerRecordForUnlock({
     walletId: WALLET_ID,
     configuredTargets: [EVM_TARGET, TEMPO_TARGET],

@@ -171,7 +171,7 @@ export class IframeExportHost extends LitElementWithProps {
       try {
         console.warn(
           '[W3A][IframeExportHost] Embedded SDK base is not absolute. Skipping CSS preloads. ' +
-            'Configure an absolute base so assets resolve: React → set SeamsPasskeyProvider config ' +
+            'Configure an absolute base so assets resolve: React → set SeamsWebProvider config ' +
             '{ iframeWallet: { walletOrigin: "https://wallet.example.com", sdkBasePath: "/sdk" } }, ',
         );
       } catch {}

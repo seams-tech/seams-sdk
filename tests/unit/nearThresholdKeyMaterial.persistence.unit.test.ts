@@ -8,7 +8,7 @@ const IMPORT_PATHS = {
 
 test.describe('NEAR threshold key material persistence', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('threshold key writes persist the canonical single-key record shape', async ({ page }) => {

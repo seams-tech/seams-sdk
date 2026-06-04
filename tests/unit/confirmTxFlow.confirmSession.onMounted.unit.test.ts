@@ -7,7 +7,7 @@ const IMPORT_PATHS = {
 
 test.describe('touchConfirm confirm session onMounted lifecycle', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('promptUser exposes handle early enough for updateUI before decision resolution', async ({

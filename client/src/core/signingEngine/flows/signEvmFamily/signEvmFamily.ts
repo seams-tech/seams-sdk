@@ -1,4 +1,3 @@
-import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import { SigningEventPhase } from '@/core/types/sdkSentEvents';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';

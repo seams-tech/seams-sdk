@@ -1,4 +1,4 @@
-import { SeamsPasskey } from '@/core/SeamsPasskey';
+import { SeamsWeb } from '@/web/SeamsWeb';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { SeamsConfigsReadonly, SeamsConfigsInput } from '@/core/types/seams';
@@ -8,7 +8,7 @@ import type { SeamsConfigsReadonly, SeamsConfigsInput } from '@/core/types/seams
 // IMPORTANT: Only persist on `window` (not Node/SSR globalThis) to avoid leaking
 // state across server requests/tests.
 type SingletonState = {
-  manager: SeamsPasskey | null;
+  manager: SeamsWeb | null;
   configKey: string | null;
 };
 
@@ -86,7 +86,7 @@ function computeConfigKey(config: SeamsConfigsReadonly): string {
 export function getOrCreateSeamsManager(
   config: SeamsConfigsInput,
   nearClient: NearClient,
-): SeamsPasskey {
+): SeamsWeb {
   const finalConfig: SeamsConfigsReadonly = buildConfigsFromEnv(config);
   const nextKey = computeConfigKey(finalConfig);
   const state = getSingletonState();
@@ -95,7 +95,7 @@ export function getOrCreateSeamsManager(
     if (isDevRuntime()) {
       console.debug('[SeamsContextProvider] Creating manager with config:', finalConfig);
     }
-    state.manager = new SeamsPasskey(config, nearClient);
+    state.manager = new SeamsWeb(config, nearClient);
     state.configKey = nextKey;
     return state.manager;
   }

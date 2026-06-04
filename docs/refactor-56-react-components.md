@@ -290,9 +290,9 @@ methods, or validate local wallet-session readiness.
 
 Core SDK:
 
-- `client/src/core/SeamsPasskey/interfaces.ts`
-- `client/src/core/SeamsPasskey/index.ts`
-- `client/src/core/SeamsPasskey/emailOtp.ts`
+- `client/src/web/SeamsWeb/interfaces.ts`
+- `client/src/web/SeamsWeb/index.ts`
+- `client/src/web/SeamsWeb/emailOtp.ts`
 - `client/src/core/WalletIframe/shared/messages.ts`
 - wallet iframe router/client files that proxy `AuthCapability`
 
@@ -363,7 +363,7 @@ Validation:
 
 Tasks:
 
-- Implement `beginGoogleEmailOtpWalletAuth(...)` in `SeamsPasskey`.
+- Implement `beginGoogleEmailOtpWalletAuth(...)` in `SeamsWeb`.
 - Reuse existing low-level helpers internally:
   `exchangeGoogleEmailOtpSession`, challenge request helpers,
   Email OTP registration, and Email OTP ECDSA login.

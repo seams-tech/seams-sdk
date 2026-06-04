@@ -281,7 +281,7 @@ async function collectAuthenticationCredentialWithPRF({
   includeSecondPrfOutput?: boolean;
 }): Promise<SerializableCredential> {
   return collectAuthenticationCredentialForChallengeB64u({
-    indexedDB: ctx.indexedDB,
+    credentialStore: ctx.webauthnCredentialStore,
     touchIdPrompt: ctx.touchIdPrompt,
     nearAccountId,
     challengeB64u,

@@ -15,7 +15,7 @@ export type WebAuthnAuthenticatorRecord = Pick<
   'credentialId' | 'transports'
 >;
 
-export type WebAuthnIndexedDbClientPort<
+export type WebAuthnCredentialStorePort<
   TAuth extends WebAuthnAuthenticatorRecord = ProfileAuthenticatorRecord,
 > = {
   resolveProfileAccountContext: (args: {
@@ -38,10 +38,6 @@ export type WebAuthnIndexedDbClientPort<
     wrongPasskeyError?: string;
   }>;
 };
-
-export type WebAuthnIndexedDbPort<
-  TAuth extends WebAuthnAuthenticatorRecord = ProfileAuthenticatorRecord,
-> = WebAuthnIndexedDbClientPort<TAuth>;
 
 export type WebAuthnPromptPort = {
   getRpId: () => string;
@@ -75,12 +71,12 @@ function canonicalWalletIdFromPasskeySigner(
 async function resolveCanonicalWalletPasskeyContext<
   TAuth extends WebAuthnAuthenticatorRecord = ProfileAuthenticatorRecord,
 >(args: {
-  indexedDB: WebAuthnIndexedDbPort<TAuth>;
+  credentialStore: WebAuthnCredentialStorePort<TAuth>;
   chainIdKey: string;
   accountAddress: string;
   accountLabel: string;
 }): Promise<{ walletId: string; authenticators: TAuth[] }> {
-  const signers = await args.indexedDB
+  const signers = await args.credentialStore
     .listAccountSigners({
       chainIdKey: args.chainIdKey,
       accountAddress: args.accountAddress,
@@ -96,14 +92,14 @@ async function resolveCanonicalWalletPasskeyContext<
     throw new Error(`[multichain] multiple wallet identities found for account ${args.accountLabel}`);
   }
   const walletId = walletIds[0];
-  const authenticators = await args.indexedDB.listProfileAuthenticators(walletId);
+  const authenticators = await args.credentialStore.listProfileAuthenticators(walletId);
   return { walletId, authenticators };
 }
 
 async function collectFromAuthenticators<
   TAuth extends WebAuthnAuthenticatorRecord = ProfileAuthenticatorRecord,
 >(args: {
-  indexedDB: WebAuthnIndexedDbPort<TAuth>;
+  credentialStore: WebAuthnCredentialStorePort<TAuth>;
   touchIdPrompt: Pick<WebAuthnPromptPort, 'getAuthenticationCredentialsSerializedForChallengeB64u'>;
   profileId: string;
   accountLabel: AccountId | string;
@@ -120,7 +116,7 @@ async function collectFromAuthenticators<
     throw new Error(`[multichain] no passkeys found for account ${String(args.accountLabel)}`);
   }
 
-  const ensured = await args.indexedDB.selectProfileAuthenticatorsForPrompt({
+  const ensured = await args.credentialStore.selectProfileAuthenticatorsForPrompt({
     profileId: args.profileId,
     authenticators: args.authenticators,
     accountLabel: String(args.accountLabel),
@@ -145,7 +141,7 @@ async function collectFromAuthenticators<
       includeSecondPrfOutput: args.includeSecondPrfOutput,
     });
 
-  const selected = await args.indexedDB.selectProfileAuthenticatorsForPrompt({
+  const selected = await args.credentialStore.selectProfileAuthenticatorsForPrompt({
     profileId: args.profileId,
     authenticators: args.authenticators,
     selectedCredentialRawId: serialized.rawId,
@@ -161,7 +157,7 @@ async function collectFromAuthenticators<
 export async function collectAuthenticationCredentialForChallengeB64u<
   TAuth extends WebAuthnAuthenticatorRecord = ProfileAuthenticatorRecord,
 >(args: {
-  indexedDB: WebAuthnIndexedDbPort<TAuth>;
+  credentialStore: WebAuthnCredentialStorePort<TAuth>;
   touchIdPrompt: Pick<WebAuthnPromptPort, 'getAuthenticationCredentialsSerializedForChallengeB64u'>;
   nearAccountId: AccountId | string;
   challengeB64u: string;
@@ -174,7 +170,7 @@ export async function collectAuthenticationCredentialForChallengeB64u<
 }): Promise<WebAuthnAuthenticationCredential> {
   const nearAccountId = toAccountId(args.nearAccountId);
   const context = await resolveProfileAccountContextFromCandidates(
-    args.indexedDB,
+    args.credentialStore,
     buildNearAccountRefs(nearAccountId),
   );
   if (!context?.profileId) {
@@ -182,13 +178,13 @@ export async function collectAuthenticationCredentialForChallengeB64u<
   }
 
   const passkeyContext = await resolveCanonicalWalletPasskeyContext({
-    indexedDB: args.indexedDB,
+    credentialStore: args.credentialStore,
     chainIdKey: context.accountRef.chainIdKey,
     accountAddress: context.accountRef.accountAddress,
     accountLabel: nearAccountId,
   });
   return await collectFromAuthenticators({
-    indexedDB: args.indexedDB,
+    credentialStore: args.credentialStore,
     touchIdPrompt: args.touchIdPrompt,
     profileId: passkeyContext.walletId,
     accountLabel: nearAccountId,
@@ -204,7 +200,7 @@ export async function collectAuthenticationCredentialForChallengeB64u<
 export async function collectAuthenticationCredentialForWalletChallengeB64u<
   TAuth extends WebAuthnAuthenticatorRecord = ProfileAuthenticatorRecord,
 >(args: {
-  indexedDB: WebAuthnIndexedDbPort<TAuth>;
+  credentialStore: WebAuthnCredentialStorePort<TAuth>;
   touchIdPrompt: Pick<WebAuthnPromptPort, 'getAuthenticationCredentialsSerializedForChallengeB64u'>;
   walletId: AccountId | string;
   challengeB64u: string;
@@ -216,9 +212,9 @@ export async function collectAuthenticationCredentialForWalletChallengeB64u<
   includeSecondPrfOutput?: boolean;
 }): Promise<WebAuthnAuthenticationCredential> {
   const walletId = String(args.walletId || '').trim();
-  const authenticators = await args.indexedDB.listProfileAuthenticators(walletId);
+  const authenticators = await args.credentialStore.listProfileAuthenticators(walletId);
   return await collectFromAuthenticators({
-    indexedDB: args.indexedDB,
+    credentialStore: args.credentialStore,
     touchIdPrompt: args.touchIdPrompt,
     profileId: walletId,
     accountLabel: walletId,

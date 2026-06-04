@@ -16,7 +16,7 @@
       "@seams/sdk/plugins/vite": ["../../sdk/dist/types/client/src/plugins/vite.d.ts"],
       "@seams/sdk/react": ["../../sdk/dist/types/client/src/react/index.d.ts"],
       "@seams/sdk/react/provider": [
-        "../../sdk/dist/types/client/src/react/context/SeamsPasskeyProvider.d.ts"
+        "../../sdk/dist/types/client/src/react/context/SeamsWebProvider.d.ts"
       ],
       "@seams/sdk/react/profile": [
         "../../sdk/dist/types/client/src/react/components/AccountMenuButton/index.d.ts"

@@ -61,7 +61,7 @@ test('COEP strict: all Lit elements define + upgrade without COEP/CORP violation
   });
 
   // Keep this lightweight: we only need the app page loaded under the correct headers.
-  await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+  await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
 
   const origin = (() => {
     try {

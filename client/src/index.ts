@@ -1,4 +1,4 @@
-export { SeamsPasskey } from './core/SeamsPasskey';
+export { SeamsWeb } from './web/SeamsWeb';
 export {
   type NearClient,
   MinimalNearClient,
@@ -131,7 +131,7 @@ export type {
   WalletSessionRef,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
-export type { SignNEP413MessageParams, SignNEP413MessageResult } from './core/SeamsPasskey/near';
+export type { SignNEP413MessageParams, SignNEP413MessageResult } from './web/SeamsWeb/near';
 
 // === Action Types ===
 export { ActionType } from './core/types/actions';

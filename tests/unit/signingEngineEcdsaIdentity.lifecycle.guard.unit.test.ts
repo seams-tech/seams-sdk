@@ -176,7 +176,7 @@ test.describe('signing engine ECDSA lifecycle identity guards', () => {
   });
 
   test('wallet unlock keeps raw ECDSA profile and inventory parsing at boundaries', () => {
-    const loginSource = readRepoFile('client/src/core/SeamsPasskey/login.ts');
+    const loginSource = readRepoFile('client/src/web/SeamsWeb/login.ts');
     const offenders: string[] = [];
     for (const forbidden of [
       'metadata.sharedEvmFamilyKey',
@@ -225,8 +225,8 @@ test.describe('signing engine ECDSA lifecycle identity guards', () => {
 
   test('nearAccountId residue stays out of ECDSA-only paths', () => {
     const forbiddenPaths = [
-      'client/src/core/SeamsPasskey/evm',
-      'client/src/core/SeamsPasskey/tempo',
+      'client/src/web/SeamsWeb/evm',
+      'client/src/web/SeamsWeb/tempo',
       'client/src/core/signingEngine/flows/signEvmFamily',
       'client/src/core/signingEngine/nonce',
       'client/src/core/signingEngine/session/budget',

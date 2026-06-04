@@ -26,7 +26,7 @@ const tempoTarget = thresholdEcdsaChainTargetFromChainFamily({
 
 function depsWithProfileRows(rows: Array<Record<string, unknown>>) {
   return {
-    seamsPasskeyConfigs: {
+    seamsWebConfigs: {
       network: {
         chains: [
           {

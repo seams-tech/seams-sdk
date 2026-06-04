@@ -1,4 +1,3 @@
-import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
 import type { PrivateKeyExportRecoveryDeps } from '../../interfaces/operationDeps';
 import { configuredThresholdEcdsaChainTargets } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
@@ -22,11 +21,11 @@ import type { CreateSigningEnginePortsArgs } from './shared';
 
 export function createPrivateKeyExportRecoveryDeps(
   args: CreateSigningEnginePortsArgs,
-  runtimeDeps: { indexedDB: UnifiedIndexedDBManager },
+  runtimeDeps: { keyMaterialStore: PrivateKeyExportRecoveryDeps['keyMaterialStore'] },
 ): PrivateKeyExportRecoveryDeps {
   return {
-    indexedDB: runtimeDeps.indexedDB,
-    relayerUrl: args.seamsPasskeyConfigs.network.relayer.url,
+    keyMaterialStore: runtimeDeps.keyMaterialStore,
+    relayerUrl: args.seamsWebConfigs.network.relayer.url,
     getRpId: () => args.touchIdPrompt.getRpId(),
     requestExportPrivateKeysWithUi: (payload) =>
       args.signerWorkerManager.requestExportPrivateKeysWithUi(payload),
@@ -35,7 +34,7 @@ export function createPrivateKeyExportRecoveryDeps(
 }
 
 export function createRecoveryPublicDeps(args: {
-  seamsPasskeyConfigs: CreateSigningEnginePortsArgs['seamsPasskeyConfigs'];
+  seamsWebConfigs: CreateSigningEnginePortsArgs['seamsWebConfigs'];
   touchIdPrompt: CreateSigningEnginePortsArgs['touchIdPrompt'];
   signerWorkerManager: CreateSigningEnginePortsArgs['signerWorkerManager'];
   privateKeyExportRecovery: PrivateKeyExportRecoveryDeps;
@@ -51,7 +50,7 @@ export function createRecoveryPublicDeps(args: {
     exportEcdsaKeyWithAuthorization: RecoveryPublicDeps['ecdsa']['emailOtp']['exportEcdsaKeyWithAuthorization'];
     exportEd25519SeedWithAuthorization: RecoveryPublicDeps['nearSingleKeyHss']['emailOtpSessions']['exportEd25519SeedWithAuthorization'];
   };
-  indexedDB: UnifiedIndexedDBManager;
+  keyMaterialStore: PrivateKeyExportRecoveryDeps['keyMaterialStore'];
   warmSessionPolicy: {
     getWarmSession: WarmSessionCapabilityReader['getWarmSession'];
     resolveExactEcdsaRecord: WarmSigningStatusReader['resolveExactEcdsaRecord'];
@@ -61,7 +60,7 @@ export function createRecoveryPublicDeps(args: {
   const getEmailOtpWarmSessionStatus = (sessionId: string) =>
     args.emailOtpSessions.readWarmSessionStatusOnly(sessionId);
   const configuredChainTargets = configuredThresholdEcdsaChainTargets(
-    args.seamsPasskeyConfigs.network.chains,
+    args.seamsWebConfigs.network.chains,
   );
   const completeConfiguredEcdsaTargets = <
     TArgs extends { ecdsaChainTargets: readonly (typeof configuredChainTargets)[number][] },
@@ -109,7 +108,7 @@ export function createRecoveryPublicDeps(args: {
         args.emailOtpSessions.restorePersistedSessionForSigning(restoreArgs),
     },
     nearSingleKeyHss: {
-      indexedDB: args.indexedDB,
+      keyMaterialStore: args.keyMaterialStore,
       touchConfirm: args.touchConfirm,
       emailOtpSessions: {
         requestExportChallenge: (

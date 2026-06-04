@@ -3,7 +3,7 @@ import { SDK_ESM_PATHS, setupBasicPasskeyTest } from '../setup';
 
 test.describe('Tempo fee token helpers', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('encodes setUserToken(address) calldata and default fee-manager call', async ({ page }) => {

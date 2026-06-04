@@ -14,7 +14,6 @@ const guardedRoots = [
 ];
 
 const activeCoreSigningRoots = [
-  'client/src/core/signingEngine/SigningEngine.ts',
   ...guardedRoots,
   'client/src/core/signingEngine/chains',
 ];
@@ -192,7 +191,7 @@ const secretSourceCastPatterns = [
 
 function isPlatformRuntimeAssemblyFile(file: string): boolean {
   return (
-    file === 'client/src/core/signingEngine/SigningEngine.ts' ||
+    file === 'client/src/web/SeamsWeb/assembly/BrowserSigningSurface.ts' ||
     file.startsWith('client/src/core/signingEngine/assembly/')
   );
 }
@@ -329,7 +328,7 @@ test.describe('cross-platform boundary guards', () => {
     for (const file of listTypeScriptFilesInRoots([
       ...activeCoreSigningRoots,
       'client/src/core/platform',
-      'client/src/core/SeamsPasskey',
+      'client/src/web/SeamsWeb',
     ])) {
       if (rawDbRecordBoundaryFiles.has(file)) continue;
       const source = readRepoFile(file);
@@ -343,15 +342,19 @@ test.describe('cross-platform boundary guards', () => {
   });
 
   test('keeps the ECDSA role-local parser on the canonical persistence path', () => {
-    const temporaryReexport = 'client/src/core/platform/ecdsaRoleLocalRecords.ts';
+    const platformTypes = 'client/src/core/platform/ecdsaRoleLocalRecords.ts';
     const violations: string[] = [];
-    if (fs.existsSync(path.join(repoRoot, temporaryReexport))) {
-      violations.push(`${temporaryReexport}: temporary re-export still exists`);
+    if (fs.existsSync(path.join(repoRoot, platformTypes))) {
+      const source = readRepoFile(platformTypes);
+      if (/\bexport function parse|\bfunction parseRaw|\bfrom ['"].*\/persistence\/records['"]/.test(source)) {
+        violations.push(`${platformTypes}: parser implementation belongs in the persistence boundary`);
+      }
     }
     for (const file of listTypeScriptFilesInRoots(['client/src/core'])) {
+      if (file.startsWith('client/src/core/platform/')) continue;
       const source = readRepoFile(file);
       if (/platform\/ecdsaRoleLocalRecords/.test(source)) {
-        violations.push(`${file}: imports temporary platform parser re-export`);
+        violations.push(`${file}: imports platform role-local types outside the platform barrel`);
       }
     }
     expect(violations, violations.join('\n')).toEqual([]);
@@ -398,8 +401,8 @@ test.describe('cross-platform boundary guards', () => {
   });
 
   test('keeps Email OTP registration ECDSA prep behind worker-issued handles', () => {
-    const registrationSource = readRepoFile('client/src/core/SeamsPasskey/registration.ts');
-    const emailOtpSource = readRepoFile('client/src/core/SeamsPasskey/emailOtp.ts');
+    const registrationSource = readRepoFile('client/src/web/SeamsWeb/registration.ts');
+    const emailOtpSource = readRepoFile('client/src/web/SeamsWeb/emailOtp.ts');
     const workerTypesSource = readRepoFile(
       'client/src/core/signingEngine/workerManager/workerTypes.ts',
     );

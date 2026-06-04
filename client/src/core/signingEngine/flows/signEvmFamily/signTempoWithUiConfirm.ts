@@ -60,7 +60,7 @@ export async function signTempoWithUiConfirm(
         },
         resolveKeyRef: async ({ ctx, walletId, workerCtx, signReq, credential }) => {
           const webauthnKeyRef = await resolveWebAuthnP256KeyRefForWallet({
-            indexedDB: ctx.indexedDB,
+            passkeyAuthenticatorStore: ctx.passkeyAuthenticatorStore,
             walletId,
             workerCtx,
             rpId: signReq.rpId,

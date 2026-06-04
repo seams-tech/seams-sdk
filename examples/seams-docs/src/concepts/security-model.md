@@ -58,7 +58,7 @@ Your app never directly accesses the wallet's storage. Instead, it sends typed m
 When you configure the SDK, it mounts a hidden iframe from the wallet origin. Think of this as a secure vault embedded in your page:
 
 ```tsx
-<SeamsPasskeyProvider
+<SeamsWebProvider
   config={{
     iframeWallet: {
       walletOrigin: 'https://wallet.web3authn.org',
@@ -67,7 +67,7 @@ When you configure the SDK, it mounts a hidden iframe from the wallet origin. Th
   }}
 >
   <App />
-</SeamsPasskeyProvider>
+</SeamsWebProvider>
 ```
 
 Your app code can _ask_ the wallet to sign something, but it cannot silently extract keys. If an attacker attempts to inject code into your app, they're blocked by the browser's same-origin policy.

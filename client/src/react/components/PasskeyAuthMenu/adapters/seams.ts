@@ -1,9 +1,9 @@
 import { useSeams } from '@/react/context';
-import type { SeamsPasskey } from '@/core/SeamsPasskey';
+import type { SeamsWeb } from '@/web/SeamsWeb';
 import { type SDKFlowRuntime, type StoredAccountOption } from '@/react/types';
 
 export interface PasskeyAuthMenuRuntime {
-  seamsPasskey: SeamsPasskey;
+  seamsWeb: SeamsWeb;
   accountExists: boolean;
   inputUsername: string;
   targetAccountId: string;
@@ -20,7 +20,7 @@ export function usePasskeyAuthMenuRuntime(): PasskeyAuthMenuRuntime {
   const ctx = useSeams();
   const accountExists = !!ctx.accountInputState?.accountExists;
   return {
-    seamsPasskey: ctx.seams,
+    seamsWeb: ctx.seams,
     accountExists,
     inputUsername: ctx.accountInputState?.inputUsername ?? '',
     targetAccountId: ctx.accountInputState?.targetAccountId ?? '',

@@ -140,7 +140,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
         async ({ relayerUrl }) => {
           try {
             const sdkMod = await import('/sdk/esm/index.js');
-            const { SeamsPasskey } = sdkMod as any;
+            const { SeamsWeb } = sdkMod as any;
 
             const accountId = `tempopayload${Date.now()}.w3a-v1.testnet`;
             const confirmationConfig = {
@@ -150,7 +150,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
             };
             const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
-            const pm = new SeamsPasskey({
+            const pm = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -318,7 +318,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
         async ({ relayerUrl }) => {
           try {
             const sdkMod = await import('/sdk/esm/index.js');
-            const { SeamsPasskey } = sdkMod as any;
+            const { SeamsWeb } = sdkMod as any;
 
             const accountId = `tempoevmnonce${Date.now()}.w3a-v1.testnet`;
             const confirmationConfig = {
@@ -328,7 +328,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
             };
             const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
-            const pm = new SeamsPasskey({
+            const pm = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -514,7 +514,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
         async ({ relayerUrl }) => {
           try {
             const sdkMod = await import('/sdk/esm/index.js');
-            const { SeamsPasskey } = sdkMod as any;
+            const { SeamsWeb } = sdkMod as any;
 
             const accountId = `tempononcegap${Date.now()}.w3a-v1.testnet`;
             const confirmationConfig = {
@@ -524,7 +524,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
             };
             const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
-            const pm = new SeamsPasskey({
+            const pm = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -775,7 +775,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
         async ({ relayerUrl }) => {
           try {
             const sdkMod = await import('/sdk/esm/index.js');
-            const { SeamsPasskey } = sdkMod as any;
+            const { SeamsWeb } = sdkMod as any;
 
             const accountId = `tempounresolvedgap${Date.now()}.w3a-v1.testnet`;
             const confirmationConfig = {
@@ -785,7 +785,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
             };
             const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
-            const pm = new SeamsPasskey({
+            const pm = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -1031,7 +1031,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
         async ({ relayerUrl }) => {
           try {
             const sdkMod = await import('/sdk/esm/index.js');
-            const { SeamsPasskey } = sdkMod as any;
+            const { SeamsWeb } = sdkMod as any;
 
             const accountId = `tempoqueue${Date.now()}.w3a-v1.testnet`;
             const confirmationConfig = {
@@ -1041,7 +1041,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
             };
             const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
-            const pm = new SeamsPasskey({
+            const pm = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',
@@ -1260,7 +1260,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
         async ({ relayerUrl }) => {
           try {
             const sdkMod = await import('/sdk/esm/index.js');
-            const { SeamsPasskey } = sdkMod as any;
+            const { SeamsWeb } = sdkMod as any;
 
             const accountId = `tempoevmorder${Date.now()}.w3a-v1.testnet`;
             const confirmationConfig = {
@@ -1270,7 +1270,7 @@ test.describe('threshold-ecdsa tempo signing', () => {
             };
             const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 
-            const pm = new SeamsPasskey({
+            const pm = new SeamsWeb({
               nearNetwork: 'testnet',
               nearRpcUrl: 'https://test.rpc.fastnear.com',
               relayerAccount: 'web3-authn-v4.testnet',

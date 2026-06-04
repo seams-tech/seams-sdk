@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
-import type { SeamsPasskey } from '@/core/SeamsPasskey';
+import type { SeamsWeb } from '@/web/SeamsWeb';
 import type {
   AuthCapability,
   RecoveryCapability,
   RegistrationCapability,
-} from '@/core/SeamsPasskey';
+} from '@/web/SeamsWeb';
 import {
   type LoginHooksOptions,
   UnlockEventPhase,
@@ -18,7 +18,7 @@ import {
 } from '@/core/types/sdkSentEvents';
 
 export function useSeamsWithSdkFlow(args: {
-  seams: SeamsPasskey;
+  seams: SeamsWeb;
   beginSdkFlow: (kind: 'login' | 'register' | 'sync', accountId?: string) => number;
   appendSdkEventMessage: (seq: number, message: string) => void;
   endSdkFlow: (
@@ -28,13 +28,13 @@ export function useSeamsWithSdkFlow(args: {
     error?: string,
   ) => void;
   hostSetTheme?: (theme: 'light' | 'dark') => void;
-}): SeamsPasskey {
+}): SeamsWeb {
   const { seams, beginSdkFlow, appendSdkEventMessage, endSdkFlow, hostSetTheme } = args;
 
   return useMemo(() => {
     /**
      * We use a `Proxy` to instrument a few core flow entrypoints (login/register/sync)
-     * while preserving the full `SeamsPasskey` API surface.
+     * while preserving the full `SeamsWeb` API surface.
      *
      * This lets *all* callers (not just PasskeyAuthMenu) use `ctx.seams.*` directly and
      * still have `sdkFlow` update as events stream in.
@@ -45,7 +45,7 @@ export function useSeamsWithSdkFlow(args: {
     type AddWalletSignerFn = RegistrationCapability['addWalletSigner'];
     type RegisterPasskeyFn = RegistrationCapability['registerPasskey'];
     type SyncAccountFn = RecoveryCapability['syncAccount'];
-    type SetThemeFn = SeamsPasskey['setTheme'];
+    type SetThemeFn = SeamsWeb['setTheme'];
 
     const loginWithSdkFlow: LoginFn = async (
       nearAccountId: string,

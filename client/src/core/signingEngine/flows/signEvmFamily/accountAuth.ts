@@ -1,4 +1,4 @@
-import type { UnifiedIndexedDBManager } from '@/core/indexedDB';
+import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 import {
   resolveAccountAuthMetadataForSignerSource,
@@ -10,7 +10,18 @@ import {
 } from '../../interfaces/ecdsaChainTarget';
 
 export type EvmFamilyAccountMetadataDeps = {
-  indexedDB: UnifiedIndexedDBManager;
+  walletSignerStore: EvmFamilyWalletSignerStorePort;
+};
+
+export type EvmFamilyWalletSignerStorePort = {
+  getActiveWalletSignerForChainTarget: (args: {
+    walletId: string;
+    chainTarget: ThresholdEcdsaChainTarget;
+  }) => Promise<AccountSignerRecord | null>;
+  listActiveWalletSigners: (args: {
+    walletId: string;
+    signerFamily: 'ecdsa';
+  }) => Promise<AccountSignerRecord[]>;
 };
 
 function signerSourceFromAuthMethod(value: unknown): string {
@@ -33,7 +44,7 @@ export async function resolveEvmFamilyTransactionWalletAuth(args: {
 
   const walletId = toWalletId(args.walletId);
   const exactSigner = args.chainTarget
-    ? await args.deps.indexedDB
+    ? await args.deps.walletSignerStore
         .getActiveWalletSignerForChainTarget({
           walletId,
           chainTarget: args.chainTarget,
@@ -47,7 +58,7 @@ export async function resolveEvmFamilyTransactionWalletAuth(args: {
   }
 
   if (!args.chainTarget) {
-    const activeSigners = await args.deps.indexedDB
+    const activeSigners = await args.deps.walletSignerStore
       .listActiveWalletSigners({ walletId, signerFamily: 'ecdsa' })
       .catch(() => []);
     const sources = new Set(

@@ -1,6 +1,9 @@
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import { ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap } from '../../session/warmCapabilities/sealedRefreshParity';
-import { commitEvmFamilyThresholdEcdsaSessions } from '../../session/emailOtp/ecdsaBootstrapCommit';
+import {
+  commitEvmFamilyThresholdEcdsaSessions,
+  type CommitEvmFamilyThresholdEcdsaSessionsDeps,
+} from '../../session/emailOtp/ecdsaBootstrapCommit';
 import { persistWarmSessionEd25519Capability } from '../../session/warmCapabilities/persistence';
 import { cacheSigningSessionPrfFirst } from '../../session/passkey/prfCache';
 import {
@@ -12,21 +15,15 @@ import type { UiConfirmRuntimeBridgePort } from '../../uiConfirm/types';
 import {
   EmailOtpThresholdSessionCoordinator,
   type EmailOtpThresholdSessionCoordinatorDeps,
+  type EmailOtpSealedSessionStorePorts,
 } from '../../session/emailOtp/EmailOtpThresholdSessionCoordinator';
-import { persistEmailOtpThresholdEd25519LocalMetadata } from '../../session/emailOtp/ed25519LocalMetadata';
 import {
-  acquireSigningSessionRestoreLease,
-  deleteDurableSealedSessionRecord,
-  listExactSealedSessionsForWallet,
-  releaseSigningSessionRestoreLease,
-  readExactSealedSession,
-  updateExactSealedSessionPolicy,
-  writeExactSealedSession,
-} from '../../session/persistence/sealedSessionStore';
+  persistEmailOtpThresholdEd25519LocalMetadata,
+  type PersistEmailOtpThresholdEd25519LocalMetadataDeps,
+} from '../../session/emailOtp/ed25519LocalMetadata';
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManager';
 import type { WarmSigningPorts } from './warmSigning';
-import type { SigningEnginePorts } from './shared';
 
 export type StepUpRuntime = {
   emailOtpSessions: EmailOtpThresholdSessionCoordinator;
@@ -34,10 +31,12 @@ export type StepUpRuntime = {
 };
 
 export function createStepUpRuntime(args: {
-  seamsPasskeyConfigs: SeamsConfigsReadonly;
+  seamsWebConfigs: SeamsConfigsReadonly;
   touchIdPrompt: TouchIdPrompt;
   signerWorkerManager: SignerWorkerManager;
-  indexedDB: SigningEnginePorts['indexedDB'];
+  ecdsaBootstrapStore: CommitEvmFamilyThresholdEcdsaSessionsDeps['bootstrapStore'];
+  ed25519MetadataStore: PersistEmailOtpThresholdEd25519LocalMetadataDeps;
+  sealedSessionStore: EmailOtpSealedSessionStorePorts;
   baseTouchConfirm: UiConfirmRuntimeBridgePort;
   getSignerWorkerContext: EmailOtpThresholdSessionCoordinatorDeps['getSignerWorkerContext'];
   thresholdEcdsaBootstrapQueueByWallet: Map<string, Promise<void>>;
@@ -48,7 +47,7 @@ export function createStepUpRuntime(args: {
   ensureSealedRefreshStartupParity: () => Promise<void>;
 }): StepUpRuntime {
   const emailOtpSessions = new EmailOtpThresholdSessionCoordinator({
-    configs: args.seamsPasskeyConfigs,
+    configs: args.seamsWebConfigs,
     signerWorkerManager: args.signerWorkerManager,
     getRpId: () => args.touchIdPrompt.getRpId(),
     getSignerWorkerContext: args.getSignerWorkerContext,
@@ -56,7 +55,7 @@ export function createStepUpRuntime(args: {
       commitEvmFamilyThresholdEcdsaSessions(
         {
           queueByWallet: args.thresholdEcdsaBootstrapQueueByWallet,
-          indexedDB: args.indexedDB,
+          bootstrapStore: args.ecdsaBootstrapStore,
           ecdsaSessions: args.getEcdsaSessions(),
           warmCapabilityReader: args.getWarmCapabilityReader(),
           ensureSealedRefreshStartupParityForThresholdEcdsaBootstrap: (parityArgs) =>
@@ -74,18 +73,18 @@ export function createStepUpRuntime(args: {
     getThresholdEd25519SessionRecordByThresholdSessionId: (thresholdSessionId) =>
       getStoredThresholdEd25519SessionRecordByThresholdSessionId(thresholdSessionId),
     persistEmailOtpThresholdEd25519LocalMetadata: (persistArgs) =>
-      persistEmailOtpThresholdEd25519LocalMetadata(args.indexedDB, persistArgs),
+      persistEmailOtpThresholdEd25519LocalMetadata(args.ed25519MetadataStore, persistArgs),
     persistWarmSessionEd25519Capability: (persistArgs) =>
       persistWarmSessionEd25519Capability(persistArgs),
     hydrateSigningSession: (hydrateArgs) =>
       cacheSigningSessionPrfFirst(args.baseTouchConfirm, hydrateArgs),
-    writeExactSealedSession,
-    readExactSealedSession,
-    listExactSealedSessionsForWallet,
-    acquireSigningSessionRestoreLease,
-    releaseSigningSessionRestoreLease,
-    deleteDurableSealedSessionRecord,
-    updateExactSealedSessionPolicy,
+    writeExactSealedSession: args.sealedSessionStore.writeExactSealedSession,
+    readExactSealedSession: args.sealedSessionStore.readExactSealedSession,
+    listExactSealedSessionsForWallet: args.sealedSessionStore.listExactSealedSessionsForWallet,
+    acquireSigningSessionRestoreLease: args.sealedSessionStore.acquireSigningSessionRestoreLease,
+    releaseSigningSessionRestoreLease: args.sealedSessionStore.releaseSigningSessionRestoreLease,
+    deleteDurableSealedSessionRecord: args.sealedSessionStore.deleteDurableSealedSessionRecord,
+    updateExactSealedSessionPolicy: args.sealedSessionStore.updateExactSealedSessionPolicy,
   });
 
   const touchConfirm = createWarmSessionAwareUiConfirm({

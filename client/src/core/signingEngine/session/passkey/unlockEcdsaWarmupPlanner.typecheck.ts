@@ -1,15 +1,21 @@
 import type { ThresholdEcdsaChainTarget } from '../../interfaces/ecdsaChainTarget';
 import type { EvmFamilyEcdsaWalletKey } from '../identity/evmFamilyEcdsaIdentity';
 import {
+  parseActiveEcdsaSignerRecordForUnlock,
   planUnlockEcdsaWarmup,
   type ActiveEcdsaSignerRecord,
   type EcdsaWarmupPlannerResult,
   type RepairRequiredEcdsaSignerRecord,
   type WalletUnlockSelection,
 } from './unlockEcdsaWarmupPlanner';
+import type { AccountId } from '@/core/types/accountIds';
+import type { AccountSignerRecord } from '@/core/indexedDB/passkeyClientDB.types';
 
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const walletKey: EvmFamilyEcdsaWalletKey;
+declare const walletId: AccountId;
+declare const accountSignerRecord: AccountSignerRecord;
+declare const rawSignerRecord: Record<string, unknown>;
 
 const invalidEd25519OnlySelectionWithEcdsa = {
   mode: 'ed25519_only',
@@ -81,4 +87,17 @@ planUnlockEcdsaWarmup({
   configuredTargets: [chainTarget],
   activeSignerRecords: [activeRecord],
   localSessionRecords: [],
+});
+
+parseActiveEcdsaSignerRecordForUnlock({
+  walletId,
+  configuredTargets: [chainTarget],
+  signer: accountSignerRecord,
+});
+
+parseActiveEcdsaSignerRecordForUnlock({
+  walletId,
+  configuredTargets: [chainTarget],
+  // @ts-expect-error raw DB signer rows must be parsed before unlock planning.
+  signer: rawSignerRecord,
 });

@@ -13,10 +13,11 @@ test.describe('EVM-family account auth resolution', () => {
   test('uses exact wallet signer auth method for concrete ECDSA chain target', async () => {
     const auth = await resolveEvmFamilyTransactionWalletAuth({
       deps: {
-        indexedDB: {
+        walletSignerStore: {
           getActiveWalletSignerForChainTarget: async () => ({
             signerAuthMethod: SIGNER_AUTH_METHODS.emailOtp,
           }),
+          listActiveWalletSigners: async () => [],
         } as never,
       },
       walletId: 'wallet-1',
@@ -31,10 +32,11 @@ test.describe('EVM-family account auth resolution', () => {
     await expect(
       resolveEvmFamilyTransactionWalletAuth({
         deps: {
-          indexedDB: {
+          walletSignerStore: {
             getActiveWalletSignerForChainTarget: async () => {
               throw new Error('ambiguous active ECDSA wallet signer');
             },
+            listActiveWalletSigners: async () => [],
           } as never,
         },
         walletId: 'wallet-1',

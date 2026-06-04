@@ -20,7 +20,7 @@ test.describe('confirm-ui inline confirmer', () => {
   test.describe.configure({ timeout: 20_000 });
 
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('modal confirm resolves with confirmed=true', async ({ page }) => {

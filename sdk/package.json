@@ -2,7 +2,7 @@
   "name": "@seams/sdk",
   "version": "0.46.0",
   "type": "module",
-  "description": "An embedded passkey wallet SDK built on NEAR protocol",
+  "description": "Seams web, runtime, server, and native-facing signing SDK for NEAR and EVM-family wallets",
   "main": "./dist/esm/index.js",
   "module": "./dist/esm/index.js",
   "types": "./dist/types/client/src/index.d.ts",
@@ -17,6 +17,21 @@
       "import": "./dist/esm/threshold.js",
       "default": "./dist/esm/threshold.js",
       "types": "./dist/types/client/src/threshold.d.ts"
+    },
+    "./runtime": {
+      "import": "./dist/esm/runtime.js",
+      "default": "./dist/esm/runtime.js",
+      "types": "./dist/types/client/src/runtime.d.ts"
+    },
+    "./ios": {
+      "import": "./dist/esm/ios.js",
+      "default": "./dist/esm/ios.js",
+      "types": "./dist/types/client/src/ios.d.ts"
+    },
+    "./embedded": {
+      "import": "./dist/esm/embedded.js",
+      "default": "./dist/esm/embedded.js",
+      "types": "./dist/types/client/src/embedded.d.ts"
     },
     "./plugins/headers": {
       "import": "./dist/esm/plugins/headers.js",
@@ -89,29 +104,19 @@
       "types": "./dist/types/client/src/react/components/PasskeyAuthMenu/preload.d.ts"
     },
     "./react/provider": {
-      "import": "./dist/esm/react/context/SeamsPasskeyProvider.js",
-      "default": "./dist/esm/react/context/SeamsPasskeyProvider.js",
-      "types": "./dist/types/client/src/react/context/SeamsPasskeyProvider.d.ts"
+      "import": "./dist/esm/react/context/SeamsWebProvider.js",
+      "default": "./dist/esm/react/context/SeamsWebProvider.js",
+      "types": "./dist/types/client/src/react/context/SeamsWebProvider.d.ts"
     },
     "./react/styles": "./dist/esm/react/styles/styles.css",
-    "./WalletIframe/client/html": {
+    "./web/wallet-iframe-client-html": {
       "import": "./dist/esm/core/WalletIframe/client/html.js",
       "default": "./dist/esm/core/WalletIframe/client/html.js",
       "types": "./dist/types/client/src/core/WalletIframe/client/html.d.ts"
     },
     "./worker": "./dist/near-signer.worker.js",
     "./wasm": "./dist/wasm_signer_worker_bg.wasm",
-    "./wasm-js": "./dist/wasm_signer_worker.js",
-    "./components/modal": {
-      "import": "./dist/esm/core/WebAuthnManager/Components/modal.js",
-      "default": "./dist/esm/core/WebAuthnManager/Components/modal.js",
-      "types": "./dist/types/client/src/core/WebAuthnManager/Components/modal.d.ts"
-    },
-    "./components/embedded": {
-      "import": "./dist/esm/core/WebAuthnManager/Components/embedded.js",
-      "default": "./dist/esm/core/WebAuthnManager/Components/embedded.js",
-      "types": "./dist/types/client/src/core/WebAuthnManager/Components/embedded.d.ts"
-    }
+    "./wasm-js": "./dist/wasm_signer_worker.js"
   },
   "files": [
     "dist/",
@@ -124,6 +129,15 @@
     "*": {
       "threshold": [
         "dist/types/client/src/threshold.d.ts"
+      ],
+      "runtime": [
+        "dist/types/client/src/runtime.d.ts"
+      ],
+      "ios": [
+        "dist/types/client/src/ios.d.ts"
+      ],
+      "embedded": [
+        "dist/types/client/src/embedded.d.ts"
       ],
       "react": [
         "dist/types/client/src/react/index.d.ts"
@@ -160,17 +174,24 @@
     "test:relayer": "pnpm -C ../tests test:relayer",
     "build:check:fresh": "./scripts/build/check-build-freshness.sh",
     "check:bundle-size": "node ./scripts/checks/report-wallet-iframe-bundle-size.mjs",
+    "check:native-entry-bundles": "node ./scripts/checks/assert-native-package-entry-bundles.mjs",
     "check:wasm-exports": "node ./scripts/checks/report-wasm-export-surface.mjs",
     "size:lite": "node ./scripts/reports/report-lite-bundle-sizes.mjs",
     "size:lite:check": "node ./scripts/reports/report-lite-bundle-sizes.mjs --check",
     "type-check": "tsc --noEmit"
   },
   "keywords": [
+    "seams",
+    "wallet",
+    "signing-runtime",
+    "native",
+    "embedded",
+    "server",
+    "browser",
     "NEAR",
-    "passkey",
-    "webauthn",
-    "authentication",
+    "EVM",
     "blockchain",
+    "passkey",
     "react",
     "typescript",
     "sdk"

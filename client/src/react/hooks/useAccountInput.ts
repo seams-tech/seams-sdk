@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { SeamsPasskey } from '@/core/SeamsPasskey';
+import type { SeamsWeb } from '@/web/SeamsWeb';
 import { checkNearAccountExistsBestEffort } from '@/core/rpcClients/near/rpcCalls';
 import { awaitWalletIframeReady } from '../utils/walletIframe';
 import { isObject } from '@shared/utils/validation';
@@ -45,7 +45,7 @@ export interface AccountInputState {
 }
 
 export interface UseAccountInputOptions {
-  seams: SeamsPasskey;
+  seams: SeamsWeb;
   /**
    * Account domain/postfix used to derive full accountIds from a username input
    * (e.g. `w3a-relayer.testnet` for `alice.w3a-relayer.testnet`).

@@ -1,8 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { addWalletSigner, registerWallet } from '../../client/src/core/SeamsPasskey/registration';
-import { SigningEngine } from '../../client/src/core/signingEngine/SigningEngine';
-import { EvmSigner } from '../../client/src/core/SeamsPasskey/evm';
-import { NearSigner } from '../../client/src/core/SeamsPasskey/near';
+import { addWalletSigner, registerWallet } from '../../client/src/web/SeamsWeb/registration';
+import { EvmSigner } from '../../client/src/web/SeamsWeb/evm';
+import { NearSigner } from '../../client/src/web/SeamsWeb/near';
 import { IndexedDBManager } from '../../client/src/core/indexedDB';
 import { UserVerificationPolicy } from '../../client/src/core/types/authenticatorOptions';
 import {
@@ -10,7 +9,6 @@ import {
   computeRegistrationIntentDigestB64u,
   walletIdFromString,
 } from '../../shared/src/utils/registrationIntent';
-import { parseWalletRegistrationEcdsaHssRespond } from '../../client/src/core/rpcClients/relayer/walletRegistration';
 import { thresholdEcdsaChainTargetKey } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EcdsaHssClientSharePublicKey33B64u } from '../../shared/src/threshold/ecdsaHssRoleLocalBootstrap';
 
@@ -23,6 +21,9 @@ const CLIENT_PUBLIC_KEY_B64U =
   'AgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' as EcdsaHssClientSharePublicKey33B64u;
 const MISMATCHED_CLIENT_PUBLIC_KEY_B64U =
   'AwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' as EcdsaHssClientSharePublicKey33B64u;
+const RELAYER_PUBLIC_KEY_33_B64U = 'AwEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEB';
+const GROUP_PUBLIC_KEY_33_B64U = 'AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC';
+const CONTEXT_BINDING_32_B64U = 'DQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0NDQ0';
 const RUNTIME_POLICY_SCOPE = {
   orgId: 'org_matrix',
   projectId: 'project_matrix',
@@ -89,7 +90,7 @@ function createContext(captures: Record<string, unknown>): any {
       ...(args.prepare as Record<string, unknown>),
       hssClientSharePublicKey33B64u: CLIENT_PUBLIC_KEY_B64U,
       clientShareRetryCounter: 0,
-      contextBinding32B64u: 'context-binding',
+      contextBinding32B64u: CONTEXT_BINDING_32_B64U,
     };
     return {
       materialSource: 'passkey_prf_first',
@@ -164,6 +165,84 @@ function createContext(captures: Record<string, unknown>): any {
         },
       },
     },
+    signingRuntime: {
+      services: {
+        ecdsaRegistrationBootstrap: {
+          preparePasskeyClientBootstrap: prepareWalletRegistrationEcdsaPreparedClientBootstrap,
+          finalizeClientBootstrap: async () => ({
+            stateBlob: {
+              kind: 'ecdsa_role_local_state_blob_v1',
+              curve: 'secp256k1',
+              encoding: 'base64url',
+              producer: 'signer_core',
+              stateBlobB64u: 'ready-state',
+            },
+            publicFacts: {
+              hssClientSharePublicKey33B64u: CLIENT_PUBLIC_KEY_B64U,
+              clientVerifyingShareB64u: CLIENT_PUBLIC_KEY_B64U,
+              relayerPublicKey33B64u: RELAYER_PUBLIC_KEY_33_B64U,
+              groupPublicKey33B64u: GROUP_PUBLIC_KEY_33_B64U,
+              ethereumAddress: '0x3333333333333333333333333333333333333333',
+            },
+          }),
+        },
+        ecdsaWalletRecords: {
+          storeWalletEcdsaSignerRecords: async (input: Record<string, unknown>) => {
+            captures.storedEcdsa = input;
+            return { storedSigners: [] };
+          },
+          storeWalletEmailOtpEcdsaSignerRecords: async (input: Record<string, unknown>) => {
+            captures.storedEcdsa = input;
+            return { storedSigners: [] };
+          },
+          storeWalletEcdsaRegistrationData: async (input: Record<string, unknown>) => {
+            captures.storedEcdsaRegistration = input;
+            return { storedSigners: [] };
+          },
+          storeWalletEmailOtpEcdsaRegistrationData: async (input: Record<string, unknown>) => {
+            captures.storedEcdsaRegistration = input;
+            return { storedSigners: [] };
+          },
+        },
+        ecdsaRegistrationSessions: {
+          persistWalletRegistrationEcdsaSessions: async (input: Record<string, unknown>) => {
+            const bootstrap = input.bootstrap as { keyHandle?: unknown };
+            const walletKeys = input.walletKeys as Array<{ keyHandle?: unknown }>;
+            for (const walletKey of walletKeys) {
+              if (String(walletKey.keyHandle || '') !== String(bootstrap.keyHandle || '')) {
+                throw new Error('ECDSA registration bootstrap keyHandle mismatch');
+              }
+            }
+            captures.persistedEcdsaSessions = input;
+          },
+        },
+        warmSessions: {
+          hydrateSigningSession: async (input: Record<string, unknown>) => {
+            captures.hydratedSession = input;
+          },
+        },
+        registrationAccounts: {
+          storeWalletEd25519RegistrationData: async (input: Record<string, unknown>) => {
+            captures.storedEd25519Registration = input;
+            return { signerSlot: input.signerSlot };
+          },
+          storeWalletEmailOtpEd25519RegistrationData: async (input: Record<string, unknown>) => {
+            captures.storedEd25519Registration = input;
+            return { signerSlot: input.signerSlot };
+          },
+          storeWalletEd25519SignerRecord: async (input: Record<string, unknown>) => {
+            captures.storedEd25519 = input;
+            return { signerSlot: input.signerSlot };
+          },
+          getUserBySignerSlot: async (nearAccountId: unknown, signerSlot: unknown) => ({
+            nearAccountId,
+            signerSlot,
+          }),
+          initializeCurrentUser: async () => undefined,
+          rollbackUserRegistration: async () => undefined,
+        },
+      },
+    },
     signingEngine: {
       getRpId: () => RP_ID,
       requestRegistrationCredentialConfirmation: async (args: Record<string, unknown>) => {
@@ -175,31 +254,6 @@ function createContext(captures: Record<string, unknown>): any {
       getAuthenticationCredentialsSerialized: async (args: Record<string, unknown>) => {
         captures.authenticationArgs = args;
         return credentialWithPrf();
-      },
-      prepareWalletRegistrationEcdsaPreparedClientBootstrap,
-      prepareWalletRegistrationEcdsaClientBootstrap: async (args: Record<string, unknown>) => {
-        const prepared = await prepareWalletRegistrationEcdsaPreparedClientBootstrap(args);
-        return prepared.clientBootstrap;
-      },
-      persistWalletRegistrationEcdsaBootstrapForWalletKeys: async (
-        input: Record<string, unknown>,
-      ) => {
-        const bootstrap = input.bootstrap as { keyHandle?: unknown };
-        const walletKeys = input.walletKeys as Array<{ keyHandle?: unknown }>;
-        for (const walletKey of walletKeys) {
-          if (String(walletKey.keyHandle || '') !== String(bootstrap.keyHandle || '')) {
-            throw new Error('ECDSA registration bootstrap keyHandle mismatch');
-          }
-        }
-        captures.persistedEcdsaBootstrap = input;
-      },
-      storeWalletEcdsaSignerRecords: async (input: Record<string, unknown>) => {
-        captures.storedEcdsa = input;
-        return { storedSigners: [] };
-      },
-      storeWalletEcdsaRegistrationData: async (input: Record<string, unknown>) => {
-        captures.storedEcdsaRegistration = input;
-        return { storedSigners: [] };
       },
       storeWalletEd25519RegistrationData: async (input: Record<string, unknown>) => {
         captures.storedEd25519Registration = input;
@@ -240,9 +294,6 @@ function createContext(captures: Record<string, unknown>): any {
         captures.storedEd25519 = input;
         return { signerSlot: input.signerSlot };
       },
-      hydrateSigningSession: async (input: Record<string, unknown>) => {
-        captures.hydratedSession = input;
-      },
       readPersistedAvailableSigningLanes: async (input: Record<string, unknown>) => {
         const authMethod = input.authMethod === 'email_otp' ? 'email_otp' : 'passkey';
         const walletId = String(input.walletId || WALLET_SUBJECT_ID);
@@ -279,7 +330,7 @@ function createContext(captures: Record<string, unknown>): any {
               ecdsaThresholdKeyId: 'ecdsa-threshold-key-id',
               signingRootId: 'project_matrix:dev',
               signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
-              thresholdEcdsaPublicKeyB64u: 'group-public-key',
+              thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_33_B64U,
               ethereumAddress: '0x3333333333333333333333333333333333333333',
               participantIds: [1, 2],
             },
@@ -422,15 +473,15 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
             ...body.ecdsa.clientBootstrap,
             publicIdentity: {
               hssClientSharePublicKey33B64u: CLIENT_PUBLIC_KEY_B64U,
-              relayerPublicKey33B64u: 'relayer-public-key',
-              groupPublicKey33B64u: 'group-public-key',
+              relayerPublicKey33B64u: RELAYER_PUBLIC_KEY_33_B64U,
+              groupPublicKey33B64u: GROUP_PUBLIC_KEY_33_B64U,
               ethereumAddress: '0x3333333333333333333333333333333333333333',
             },
             publicTranscriptDigest32B64u: 'transcript-digest',
             keyHandle: 'ehss-registration-key',
-            thresholdEcdsaPublicKeyB64u: 'group-public-key',
+            thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_33_B64U,
             ethereumAddress: '0x3333333333333333333333333333333333333333',
-            relayerVerifyingShareB64u: 'relayer-public-key',
+            relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_33_B64U,
             expiresAtMs: Date.now() + 60_000,
             expiresAt: new Date(Date.now() + 60_000).toISOString(),
             jwt: 'threshold-ecdsa-session-jwt',
@@ -512,10 +563,10 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
               ecdsaThresholdKeyId: 'ecdsa-threshold-key-id',
               signingRootId: 'project_matrix:dev',
               signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
-              thresholdEcdsaPublicKeyB64u: 'group-public-key',
+              thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_33_B64U,
               thresholdOwnerAddress: '0x3333333333333333333333333333333333333333',
               relayerKeyId: 'relayer-ecdsa',
-              relayerVerifyingShareB64u: 'relayer-public-key',
+              relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_33_B64U,
               participantIds: [1, 2],
             };
             return patchRegistrationWalletKey ? patchRegistrationWalletKey(walletKey) : walletKey;
@@ -565,15 +616,6 @@ async function withMockedIndexedDb<T>(run: () => Promise<T>): Promise<T> {
   }
 }
 
-function localWalletIframeRouteDeps() {
-  return {
-    shouldUseWalletIframe: () => false,
-    requireRouter: async () => {
-      throw new Error('wallet iframe should not be used');
-    },
-  };
-}
-
 test('near.registerNearWallet wraps combined registration for configured ECDSA targets', async () => {
   const captures: Record<string, unknown> = {};
   const fetchMock = installRegisterWalletFetch(captures);
@@ -582,7 +624,6 @@ test('near.registerNearWallet wraps combined registration for configured ECDSA t
   try {
     const signer = new NearSigner({
       getContext: () => createContext(captures),
-      walletIframe: localWalletIframeRouteDeps(),
     });
     const result = await withMockedIndexedDb(() =>
       signer.registerNearWallet({
@@ -643,7 +684,6 @@ test('near.registerNearWallet respects per-call disabled ECDSA provisioning', as
   try {
     const signer = new NearSigner({
       getContext: () => createContext(captures),
-      walletIframe: localWalletIframeRouteDeps(),
     });
     const result = await withMockedIndexedDb(() =>
       signer.registerNearWallet({
@@ -688,7 +728,6 @@ test('evm.registerEvmWallet wraps ECDSA-only wallet registration', async () => {
   try {
     const signer = new EvmSigner({
       getContext: () => createContext(captures),
-      walletIframe: localWalletIframeRouteDeps(),
     });
     const result = await withMockedIndexedDb(() =>
       signer.registerEvmWallet({
@@ -780,7 +819,7 @@ test('registerWallet orchestrates ECDSA-only wallet registration without NEAR pr
         },
       ],
     });
-    expect(captures.persistedEcdsaBootstrap).toMatchObject({
+    expect(captures.persistedEcdsaSessions).toMatchObject({
       auth: { kind: 'passkey', credentialIdB64u: 'registration-credential-id' },
     });
   } finally {
@@ -830,7 +869,7 @@ test('registerWallet rejects invalid ECDSA respond bootstrap before finalize', a
       error: expect.stringMatching(/hssClientSharePublicKey33B64u mismatch/),
     });
     expect(captures.finalizeBody).toBeUndefined();
-    expect(captures.persistedEcdsaBootstrap).toBeUndefined();
+    expect(captures.persistedEcdsaSessions).toBeUndefined();
     expect(captures.storedEcdsaRegistration).toBeUndefined();
   } finally {
     fetchMock.restore();
@@ -876,7 +915,7 @@ test('registerWallet rejects mismatched ECDSA wallet key before registration per
       error: expect.stringMatching(/keyHandle mismatch/),
     });
     expect(captures.finalizeBody).toBeDefined();
-    expect(captures.persistedEcdsaBootstrap).toBeUndefined();
+    expect(captures.persistedEcdsaSessions).toBeUndefined();
     expect(captures.storedEcdsaRegistration).toBeUndefined();
   } finally {
     fetchMock.restore();
@@ -1079,15 +1118,15 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
           ...body.ecdsa.clientBootstrap,
           publicIdentity: {
             hssClientSharePublicKey33B64u: CLIENT_PUBLIC_KEY_B64U,
-            relayerPublicKey33B64u: 'relayer-public-key',
-            groupPublicKey33B64u: 'group-public-key',
+            relayerPublicKey33B64u: RELAYER_PUBLIC_KEY_33_B64U,
+            groupPublicKey33B64u: GROUP_PUBLIC_KEY_33_B64U,
             ethereumAddress: '0x1111111111111111111111111111111111111111',
           },
           publicTranscriptDigest32B64u: 'transcript-digest',
           keyHandle: 'ehss-key-matrix',
-          thresholdEcdsaPublicKeyB64u: 'group-public-key',
+          thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_33_B64U,
           ethereumAddress: '0x1111111111111111111111111111111111111111',
-          relayerVerifyingShareB64u: 'relayer-public-key',
+          relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_33_B64U,
           expiresAtMs: Date.now() + 60_000,
           expiresAt: new Date(Date.now() + 60_000).toISOString(),
           jwt: 'threshold-ecdsa-session-jwt',
@@ -1134,10 +1173,10 @@ function installAddSignerFetch(captures: Record<string, unknown>) {
                 ecdsaThresholdKeyId: 'ecdsa-threshold-key-id',
                 signingRootId: 'project_matrix:dev',
                 signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
-                thresholdEcdsaPublicKeyB64u: 'group-public-key',
+                thresholdEcdsaPublicKeyB64u: GROUP_PUBLIC_KEY_33_B64U,
                 thresholdOwnerAddress: '0x1111111111111111111111111111111111111111',
                 relayerKeyId: 'relayer-ecdsa',
-                relayerVerifyingShareB64u: 'relayer-public-key',
+                relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_33_B64U,
                 participantIds: [1, 2],
               },
             ],
@@ -1242,7 +1281,7 @@ test('addWalletSigner orchestrates later ECDSA from an Ed25519 wallet', async ()
         },
       ],
     });
-    expect(captures.persistedEcdsaBootstrap).toMatchObject({
+    expect(captures.persistedEcdsaSessions).toMatchObject({
       auth: { kind: 'passkey', credentialIdB64u: 'credential-id' },
     });
   } finally {
@@ -1280,7 +1319,7 @@ test('addWalletSigner rejects invalid ECDSA respond bootstrap before finalize', 
       error: expect.stringMatching(/contextBinding32B64u mismatch/),
     });
     expect(captures.finalizeBody).toBeUndefined();
-    expect(captures.persistedEcdsaBootstrap).toBeUndefined();
+    expect(captures.persistedEcdsaSessions).toBeUndefined();
     expect(captures.storedEcdsa).toBeUndefined();
   } finally {
     fetchMock.restore();
@@ -1366,135 +1405,4 @@ test('addWalletSigner orchestrates later Ed25519 from an ECDSA wallet', async ()
   } finally {
     fetchMock.restore();
   }
-});
-
-test('SigningEngine validates ECDSA bootstrap identity before warm-session material write', async () => {
-  const warmMaterialWrites: unknown[] = [];
-  const fakeEngine = {
-    platformRuntime: {
-      signerCrypto: {
-        finalizeEcdsaClientBootstrap: async () => ({
-          ok: true,
-          value: {
-            stateBlob: {
-              kind: 'ecdsa_role_local_state_blob_v1',
-              curve: 'secp256k1',
-              encoding: 'base64url',
-              producer: 'signer_core',
-              stateBlobB64u: 'ready-state',
-            },
-            publicFacts: {
-              hssClientSharePublicKey33B64u: CLIENT_PUBLIC_KEY_B64U,
-              clientVerifyingShareB64u: CLIENT_PUBLIC_KEY_B64U,
-              relayerPublicKey33B64u: 'relayer-public-key',
-              groupPublicKey33B64u: 'group-public-key',
-              ethereumAddress: '0x3333333333333333333333333333333333333333',
-            },
-          },
-        }),
-      },
-    },
-    enginePorts: {
-      thresholdSessionActivationDeps: {
-        touchConfirm: {
-          putWarmSessionMaterial: async (input: unknown) => {
-            warmMaterialWrites.push(input);
-          },
-        },
-      },
-    },
-    persistThresholdEcdsaBootstrapForWalletTarget: async () => undefined,
-    upsertThresholdEcdsaSessionFromBootstrap: () => undefined,
-  };
-  const localBootstrap: any = {
-    formatVersion: 'ecdsa-hss-role-local',
-    walletId: String(WALLET_SUBJECT_ID),
-    walletSessionUserId: String(WALLET_SUBJECT_ID),
-    rpId: RP_ID,
-    subjectId: String(WALLET_SUBJECT_ID),
-    ecdsaThresholdKeyId: 'ecdsa-threshold-key-id',
-    signingRootId: 'project_matrix:dev',
-    signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
-    keyScope: 'evm-family',
-    relayerKeyId: 'relayer-ecdsa',
-    requestId: 'request-ecdsa',
-    sessionId: 'session-ecdsa',
-    walletSigningSessionId: 'wallet-session-ecdsa',
-    ttlMs: 600_000,
-    remainingUses: 1,
-    participantIds: [1, 2],
-    runtimePolicyScope: RUNTIME_POLICY_SCOPE,
-    hssClientSharePublicKey33B64u: CLIENT_PUBLIC_KEY_B64U,
-    clientShareRetryCounter: 0,
-    contextBinding32B64u: 'context-binding',
-  };
-  const parsedBootstrap = parseWalletRegistrationEcdsaHssRespond({
-    clientBootstrap: localBootstrap,
-    serverBootstrap: {
-      ...localBootstrap,
-      formatVersion: 'ecdsa-hss-role-local',
-      publicIdentity: {
-        hssClientSharePublicKey33B64u: CLIENT_PUBLIC_KEY_B64U,
-        relayerPublicKey33B64u: 'relayer-public-key',
-        groupPublicKey33B64u: 'group-public-key',
-        ethereumAddress: '0x3333333333333333333333333333333333333333',
-      },
-      publicTranscriptDigest32B64u: 'transcript-digest',
-      keyHandle: 'ehss-registration-key',
-      thresholdEcdsaPublicKeyB64u: 'group-public-key',
-      ethereumAddress: '0x3333333333333333333333333333333333333333',
-      relayerVerifyingShareB64u: 'relayer-public-key',
-      expiresAtMs: Date.now() + 60_000,
-      expiresAt: new Date(Date.now() + 60_000).toISOString(),
-      jwt: 'threshold-ecdsa-session-jwt',
-    },
-  });
-
-  await expect(
-    SigningEngine.prototype.persistWalletRegistrationEcdsaBootstrapForWalletKeys.call(
-      fakeEngine as any,
-      {
-        walletId: String(WALLET_SUBJECT_ID) as any,
-        relayerUrl: RELAYER_URL,
-        preparedClientBootstrap: {
-          materialSource: 'passkey_prf_first',
-          clientBootstrap: localBootstrap,
-          pendingStateBlob: {
-            kind: 'ecdsa_role_local_pending_state_blob_v1',
-            curve: 'secp256k1',
-            encoding: 'base64url',
-            producer: 'signer_core',
-            stateBlobB64u: 'pending-state',
-          },
-          preparePublicFacts: {
-            hssClientSharePublicKey33B64u: CLIENT_PUBLIC_KEY_B64U,
-            clientVerifyingShareB64u: CLIENT_PUBLIC_KEY_B64U,
-          },
-          passkeyPrfFirstB64u: REGISTRATION_PRF_FIRST_B64U,
-          credentialIdB64u: 'registration-passkey-credential',
-        },
-        bootstrap: parsedBootstrap,
-        walletKeys: [
-          {
-            keyScope: 'evm-family',
-            chainTarget: { kind: 'evm', namespace: 'eip155', chainId: 1, networkSlug: 'ethereum' },
-            walletId: String(WALLET_SUBJECT_ID),
-            rpId: RP_ID,
-            keyHandle: 'mismatched-key-handle',
-            ecdsaThresholdKeyId: 'ecdsa-threshold-key-id',
-            signingRootId: 'project_matrix:dev',
-            signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
-            thresholdEcdsaPublicKeyB64u: 'group-public-key',
-            thresholdOwnerAddress: '0x3333333333333333333333333333333333333333',
-            relayerKeyId: 'relayer-ecdsa',
-            relayerVerifyingShareB64u: 'relayer-public-key',
-            participantIds: [1, 2],
-          },
-        ],
-        auth: { kind: 'passkey', credentialIdB64u: 'registration-passkey-credential' },
-      },
-    ),
-  ).rejects.toThrow(/keyHandle mismatch/);
-
-  expect(warmMaterialWrites).toEqual([]);
 });

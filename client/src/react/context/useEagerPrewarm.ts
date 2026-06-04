@@ -1,12 +1,12 @@
 import { useEffect } from 'react';
-import type { SeamsPasskey } from '@/core/SeamsPasskey';
+import type { SeamsWeb } from '@/web/SeamsWeb';
 
 type IdleCapableWindow = Window & {
   requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number;
   cancelIdleCallback?: (id: number) => void;
 };
 
-export function useEagerPrewarm(seams: SeamsPasskey, eager?: boolean) {
+export function useEagerPrewarm(seams: SeamsWeb, eager?: boolean) {
   useEffect(() => {
     if (!eager) return;
     if (typeof window === 'undefined') return;

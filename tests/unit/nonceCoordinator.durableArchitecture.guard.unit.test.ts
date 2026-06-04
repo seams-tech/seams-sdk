@@ -34,6 +34,12 @@ test.describe('nonce coordinator durable architecture guards', () => {
     const managerAssembly = readRepoSource(
       'client/src/core/signingEngine/assembly/createManagers.ts',
     );
+    const signingEngine = readRepoSource(
+      'client/src/web/SeamsWeb/assembly/BrowserSigningSurface.ts',
+    );
+    const browserSigningStores = readRepoSource(
+      'client/src/web/SeamsWeb/assembly/createBrowserSigningStores.ts',
+    );
     const store = readRepoSource('client/src/core/indexedDB/nonceLaneCoordinationStore.ts');
 
     expect(schemaNames).toContain("nonceLaneLeases: 'nonce_lane_leases'");
@@ -45,7 +51,8 @@ test.describe('nonce coordinator durable architecture guards', () => {
     expect(store).toContain('UnifiedIndexedDBManager');
     expect(store).not.toContain('indexedDB.open');
     expect(store).not.toContain('localStorage');
-    expect(managerAssembly).toContain('createIndexedDBNonceLaneCoordinationStore');
+    expect(browserSigningStores).toContain('createIndexedDBNonceLaneCoordinationStore');
+    expect(signingEngine).not.toContain('createIndexedDBNonceLaneCoordinationStore');
     expect(managerAssembly).toContain('nonceLaneCoordinationStore');
   });
 
@@ -282,7 +289,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
   test('startup recovery is only invoked from startup or unlock boundaries', () => {
     const allowedCallers = new Set([
       'client/src/core/signingEngine/assembly/createManagers.ts',
-      'client/src/core/SeamsPasskey/login.ts',
+      'client/src/web/SeamsWeb/login.ts',
       'client/src/core/signingEngine/nonce/NonceCoordinator.ts',
       'client/src/core/signingEngine/nonce/nonceTypes.ts',
     ]);

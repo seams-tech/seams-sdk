@@ -188,7 +188,7 @@ async function executeConfiguredEvmFamilyTransactionSigning<
       error,
       chain: config.targetKind,
       networkKey: resolveNonceNetworkKeyForError({
-        configs: args.deps.seamsPasskeyConfigs,
+        configs: args.deps.seamsWebConfigs,
         request: args.request,
       }),
       chainId: args.chainTarget.chainId,

@@ -49,7 +49,7 @@ function buildConfig(input: {
 
 test.describe('sealed refresh startup parity', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('passes when relayer well-known capabilities match client config', async ({ page }) => {

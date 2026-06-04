@@ -1,5 +1,5 @@
 import React from 'react';
-import { SeamsPasskeyProvider } from '@seams/sdk/react/provider';
+import { SeamsWebProvider } from '@seams/sdk/react/provider';
 import { useTheme } from '@seams/sdk/react';
 
 import { HomePage } from '@/pages/home/page';
@@ -110,7 +110,7 @@ export const App: React.FC = () => {
   }, [pathname]);
 
   return (
-    <SeamsPasskeyProvider
+    <SeamsWebProvider
       eager
       theme={{ theme, setTheme, tokens: SITE_THEME_TOKEN_OVERRIDES }}
       config={{
@@ -153,7 +153,7 @@ export const App: React.FC = () => {
       {page}
       <VitepressStateSync />
       <ToasterThemed />
-    </SeamsPasskeyProvider>
+    </SeamsWebProvider>
   );
 };
 

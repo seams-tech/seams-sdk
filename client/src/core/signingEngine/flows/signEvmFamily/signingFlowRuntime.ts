@@ -146,7 +146,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
   const requestChainId = args.chainTarget.chainId;
   const requestChainTarget = args.chainTarget;
   const configuredEcdsaChainTargets = configuredThresholdEcdsaChainTargets(
-    args.deps.seamsPasskeyConfigs.network.chains,
+    args.deps.seamsWebConfigs.network.chains,
   );
   const postExhaustionStepUpBudgetPolicy = resolvePostExhaustionStepUpBudgetPolicy({
     operationId: resolveEvmFamilyStepUpOperationId(args.signingOperation),
@@ -428,7 +428,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         workerCtx: signerWorkerCtx,
         shouldAbort: args.shouldAbort,
         thresholdEcdsaPresignPoolPolicy:
-          args.deps.seamsPasskeyConfigs.signing.thresholdEcdsa.presignPool,
+          args.deps.seamsWebConfigs.signing.thresholdEcdsa.presignPool,
         onThresholdEcdsaPresignRefillScheduled: ({
           trigger,
           result,

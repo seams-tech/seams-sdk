@@ -7,7 +7,7 @@ const IMPORT_PATHS = {
 
 test.describe('wallet flow event invariants', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('maps every numbered phase enum member to its declared step and message', async ({
@@ -169,7 +169,7 @@ test.describe('wallet flow event invariants', () => {
 
 test.describe('signing wallet flow events', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('derives stable step numbers and canonical messages from signing phases', async ({
@@ -278,7 +278,7 @@ test.describe('signing wallet flow events', () => {
 
 test.describe('account sync wallet flow events', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('derives account sync steps, messages, and terminal overlay metadata', async ({ page }) => {
@@ -342,7 +342,7 @@ test.describe('account sync wallet flow events', () => {
 
 test.describe('key export wallet flow events', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('derives key export viewer steps, messages, and overlay metadata', async ({ page }) => {

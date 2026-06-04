@@ -1,6 +1,6 @@
 import { bootstrapEcdsaSession } from './bootstrapSession';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
-import type { ThresholdIndexedDbPort, ThresholdWebAuthnPromptPort } from '../crypto/webauthn';
+import type { ThresholdCredentialStorePort, ThresholdWebAuthnPromptPort } from '../crypto/webauthn';
 import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 /**
@@ -13,7 +13,7 @@ import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/
  * - This helper performs staged bootstrap and returns the finalized keygen/session projection.
  */
 export async function keygenEcdsa(args: {
-  indexedDB: ThresholdIndexedDbPort;
+  credentialStore: ThresholdCredentialStorePort;
   touchIdPrompt: ThresholdWebAuthnPromptPort;
   relayerUrl: string;
   userId: string;
@@ -41,7 +41,7 @@ export async function keygenEcdsa(args: {
     }
 > {
   const bootstrap = await bootstrapEcdsaSession({
-    indexedDB: args.indexedDB,
+    credentialStore: args.credentialStore,
     touchIdPrompt: args.touchIdPrompt,
     relayerUrl: args.relayerUrl,
     userId: String(args.userId || '').trim(),

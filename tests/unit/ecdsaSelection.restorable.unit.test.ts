@@ -187,10 +187,10 @@ function selectionDeps(): EvmFamilyEcdsaSigningSelectionDeps {
     throw new Error('missing exact material');
   };
   return {
-    indexedDB: {
+    walletSignerStore: {
       getActiveWalletSignerForChainTarget: async () => null,
       listActiveWalletSigners: async () => [],
-    } as unknown as EvmFamilyEcdsaSigningSelectionDeps['indexedDB'],
+    } as EvmFamilyEcdsaSigningSelectionDeps['walletSignerStore'],
     getEmailOtpThresholdEcdsaSessionRecordForSigning: missing,
     getPasskeyThresholdEcdsaSessionRecordForSigning: missing,
     listThresholdEcdsaSessionRecordsForSigning: () => [],

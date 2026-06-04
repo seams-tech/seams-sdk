@@ -319,7 +319,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         throw new Error(String(login?.error || 'unlock failed for fresh Tempo ECDSA bootstrap'));
       }
       const localPrfCredential = await collectAuthenticationCredentialForChallengeB64u({
-        indexedDB: IndexedDBManager,
+        credentialStore: IndexedDBManager,
         touchIdPrompt: {
           getAuthenticationCredentialsSerializedForChallengeB64u: async ({
             nearAccountId,
@@ -585,7 +585,7 @@ export async function runThresholdEcdsaTempoFlow(
     const identityMod =
       await import('/sdk/esm/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.js');
 
-    const { SeamsPasskey } = sdkMod as any;
+    const { SeamsWeb } = sdkMod as any;
     const { IndexedDBManager } = indexedDbMod as any;
     const { getNearThresholdKeyMaterial } = keyMaterialMod as any;
     const { getStoredThresholdEd25519SessionRecordForAccount } = recordsMod as any;
@@ -626,7 +626,7 @@ export async function runThresholdEcdsaTempoFlow(
       return response;
     };
 
-    const pm = new SeamsPasskey({
+    const pm = new SeamsWeb({
       nearNetwork: 'testnet',
       nearRpcUrl: 'https://test.rpc.fastnear.com',
       relayerAccount: 'web3-authn-v4.testnet',
@@ -744,7 +744,7 @@ export async function runThresholdEcdsaTempoFlow(
         };
       }
       const localPrfCredential = await collectAuthenticationCredentialForChallengeB64u({
-        indexedDB: IndexedDBManager,
+        credentialStore: IndexedDBManager,
         touchIdPrompt: {
           getAuthenticationCredentialsSerializedForChallengeB64u: async ({
             nearAccountId,

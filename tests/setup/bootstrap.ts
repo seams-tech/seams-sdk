@@ -195,16 +195,16 @@ async function waitForEnvironmentStabilization(page: Page): Promise<void> {
 
 /**
  * Step 4: DYNAMIC IMPORTS
- * Load SeamsPasskey only after environment is ready
+ * Load SeamsWeb only after environment is ready
  *
  * NOTE (UserConfirm worker):
- * - The dynamically loaded SeamsPasskey instance wires:
+ * - The dynamically loaded SeamsWeb instance wires:
  *   - UserConfirm worker as the owner of WebAuthn PRF + UserConfirm
  *     (via awaitUserConfirmationV2 in the UserConfirm worker bundle).
  *   - Signer worker as a WrapKeySeed/KEK/NEAR‑signature enclave that derives
  *     WrapKeySeed from prfFirstB64u + wrapKeySalt supplied in wallet-origin requests.
  */
-async function loadPasskeyManagerDynamically(
+async function loadSeamsWebDynamically(
   page: Page,
   configs: PasskeyTestConfig,
 ): Promise<void> {
@@ -222,17 +222,17 @@ async function loadPasskeyManagerDynamically(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      printStepLine(5, `importing SeamsPasskey: attempt ${attempt}/${maxRetries}`, 1);
+      printStepLine(5, `importing SeamsWeb: attempt ${attempt}/${maxRetries}`, 1);
 
-      const modulePaths = { seamsPasskey: SDK_ESM_PATHS.seamsPasskey } as const;
+      const modulePaths = { seamsWeb: SDK_ESM_PATHS.seamsWeb } as const;
       const loadHandle = await page.waitForFunction(
         async (args) => {
           try {
             const { setupOptions, modulePaths } = args as any;
-            const { SeamsPasskey } = await import(modulePaths.seamsPasskey);
+            const { SeamsWeb } = await import(modulePaths.seamsWeb);
 
-            if (!SeamsPasskey) {
-              throw new Error('SeamsPasskey not found in SDK module');
+            if (!SeamsWeb) {
+              throw new Error('SeamsWeb not found in SDK module');
             }
 
             // Create and validate configuration
@@ -255,15 +255,15 @@ async function loadPasskeyManagerDynamically(
             if (!runtimeConfigs.relayerAccount)
               throw new Error('relayerAccount is required but not provided');
 
-            // Create SeamsPasskey instance
-            const seams = new SeamsPasskey(runtimeConfigs);
+            // Create SeamsWeb instance
+            const seams = new SeamsWeb(runtimeConfigs);
 
             // Store in window for test access
-            (window as any).SeamsPasskey = SeamsPasskey;
+            (window as any).SeamsWeb = SeamsWeb;
             (window as any).seams = seams;
             (window as any).configs = runtimeConfigs;
 
-            return { success: true, message: 'SeamsPasskey loaded successfully' };
+            return { success: true, message: 'SeamsWeb loaded successfully' };
           } catch (error: any) {
             const message = error?.message ? String(error.message) : String(error);
             return { success: false, error: message };
@@ -286,11 +286,11 @@ async function loadPasskeyManagerDynamically(
           'error' in loadResult &&
           typeof (loadResult as { error?: unknown }).error === 'string'
             ? (loadResult as { error: string }).error
-            : 'Unknown error loading SeamsPasskey';
+            : 'Unknown error loading SeamsWeb';
         throw new Error(message);
       }
 
-      printStepLine(5, `SeamsPasskey ready (attempt ${attempt})`, 2);
+      printStepLine(5, `SeamsWeb ready (attempt ${attempt})`, 2);
       return;
     } catch (error: any) {
       lastError = error;
@@ -307,7 +307,7 @@ async function loadPasskeyManagerDynamically(
 
   // All retries failed
   throw new Error(
-    `Failed to load SeamsPasskey after ${maxRetries} attempts. Last error: ${lastError?.message}`,
+    `Failed to load SeamsWeb after ${maxRetries} attempts. Last error: ${lastError?.message}`,
   );
 }
 
@@ -383,7 +383,7 @@ async function ensureGlobalFallbacks(page: Page): Promise<void> {
 export async function executeSequentialSetup(
   page: Page,
   configs: PasskeyTestConfig,
-  options: { skipPasskeyManagerInit?: boolean } = {},
+  options: { skipSeamsWebInit?: boolean } = {},
 ): Promise<string> {
   printStepLine('bootstrap', 'starting 6-step sequential bootstrap', 0);
 
@@ -427,9 +427,9 @@ export async function executeSequentialSetup(
   // Step 4: STABILIZATION WAIT
   await waitForEnvironmentStabilization(page);
 
-  if (!options.skipPasskeyManagerInit) {
+  if (!options.skipSeamsWebInit) {
     // Step 5: DYNAMIC IMPORTS
-    await loadPasskeyManagerDynamically(page, configs);
+    await loadSeamsWebDynamically(page, configs);
 
     // Step 6: GLOBAL FALLBACK
     await ensureGlobalFallbacks(page);

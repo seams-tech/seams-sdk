@@ -112,7 +112,6 @@ function buildUiConfirmContext(): UiConfirmContext {
   return {
     touchIdPrompt: { getRpId: () => RP_ID },
     nearClient: {},
-    indexedDB: {},
     userPreferencesManager: {},
     nonceCoordinator: {
       markSigned: async () => undefined,

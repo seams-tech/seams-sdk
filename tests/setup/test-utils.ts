@@ -41,7 +41,7 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
     };
 
     (window as any).testUtils = {
-      PasskeyManager: (window as any).PasskeyManager,
+      SeamsWeb: (window as any).SeamsWeb,
       seams: (window as any).seams,
       configs: (window as any).configs || setupConfig,
       confirmOverrides: {

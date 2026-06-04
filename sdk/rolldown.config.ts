@@ -409,6 +409,9 @@ const configs = [
   {
     input: [
       '../client/src/index.ts',
+      '../client/src/runtime.ts',
+      '../client/src/ios.ts',
+      '../client/src/embedded.ts',
       // Stable threshold workflow surface.
       '../client/src/threshold.ts',
       // Treat this as an entry so Rolldown doesn't tree-shake its re-exported WASM enums.

@@ -15,7 +15,7 @@ import {
   type PrepareThresholdEd25519PresignPoolPayload,
   type DelegatePayload,
 } from '@/core/types/signer-worker';
-import type { SigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
+import type { NearSigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/types';
 import type { ResolvedThresholdEd25519SessionState } from '@/core/signingEngine/flows/signNear/shared/thresholdSessionAuth';
 import type {
@@ -122,9 +122,9 @@ function sessionState(): ResolvedThresholdEd25519SessionState {
   };
 }
 
-function runtimeDeps(calls: unknown[]): SigningRuntimeDeps {
+function runtimeDeps(calls: unknown[]): NearSigningRuntimeDeps {
   let presignCreateCount = 0;
-  const requestWorkerOperation: SigningRuntimeDeps['requestWorkerOperation'] = async (args) => {
+  const requestWorkerOperation: NearSigningRuntimeDeps['requestWorkerOperation'] = async (args) => {
     calls.push(args);
     const requestType = args.request.type;
     if (requestType === NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignCreate) {
@@ -176,11 +176,23 @@ function runtimeDeps(calls: unknown[]): SigningRuntimeDeps {
     }
     throw new Error(`unexpected worker request ${String(requestType)}`);
   };
-  return {
-    chains: [{ network: 'near-testnet', rpcUrl: 'https://rpc.testnet.near.org' }],
+  const deps: NearSigningRuntimeDeps = {
+    touchIdPrompt: {} as NearSigningRuntimeDeps['touchIdPrompt'],
+    nearClient: {} as NearSigningRuntimeDeps['nearClient'],
+    nearKeyMaterialStore: {} as NearSigningRuntimeDeps['nearKeyMaterialStore'],
+    userPreferencesManager: {} as NearSigningRuntimeDeps['userPreferencesManager'],
+    nonceCoordinator: {} as NearSigningRuntimeDeps['nonceCoordinator'],
+    chains: [
+      {
+        network: 'near-testnet',
+        rpcUrl: 'https://rpc.testnet.near.org',
+        explorerUrl: 'https://testnet.nearblocks.io',
+      },
+    ],
     relayerUrl: 'https://relay.example',
     requestWorkerOperation,
-  } as unknown as SigningRuntimeDeps;
+  };
+  return deps;
 }
 
 async function flushMicrotasks(): Promise<void> {

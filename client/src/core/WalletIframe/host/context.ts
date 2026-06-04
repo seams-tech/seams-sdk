@@ -1,5 +1,5 @@
 import { MinimalNearClient } from '../../rpcClients/near/NearClient';
-import { SeamsPasskey } from '../../SeamsPasskey';
+import { SeamsWeb } from '@/web/SeamsWeb';
 import { __setWalletIframeHostMode } from '../host-mode';
 import type { SeamsConfigsInput } from '../../types/seams';
 import type { PMSetConfigPayload } from '../shared/messages';
@@ -155,7 +155,7 @@ export interface HostContext {
   port: MessagePort | null;
   walletConfigs: SeamsConfigsInput | null;
   nearClient: MinimalNearClient | null;
-  seamsPasskey: SeamsPasskey | null;
+  seamsWeb: SeamsWeb | null;
   prefsUnsubscribe?: (() => void) | null;
   onWindowMessage?: (e: MessageEvent) => void;
 }
@@ -166,13 +166,13 @@ export function createHostContext(): HostContext {
     port: null,
     walletConfigs: null,
     nearClient: null,
-    seamsPasskey: null,
+    seamsWeb: null,
     prefsUnsubscribe: null,
     onWindowMessage: undefined,
   };
 }
 
-export function ensurePasskeyManager(ctx: HostContext): SeamsPasskey {
+export function ensureSeamsWeb(ctx: HostContext): SeamsWeb {
   const { walletConfigs } = ctx;
   if (!walletConfigs) {
     throw new Error('Wallet service not configured. Call PM_SET_CONFIG first.');
@@ -181,22 +181,22 @@ export function ensurePasskeyManager(ctx: HostContext): SeamsPasskey {
   if (!ctx.nearClient) {
     ctx.nearClient = new MinimalNearClient(nearRpcUrl);
   }
-  if (!ctx.seamsPasskey) {
+  if (!ctx.seamsWeb) {
     const cfg = sanitizeWalletHostConfigs(walletConfigs);
     assertWalletHostConfigsNoNestedIframeWallet(cfg);
     __setWalletIframeHostMode(true);
-    ctx.seamsPasskey = new SeamsPasskey(cfg, ctx.nearClient);
+    ctx.seamsWeb = new SeamsWeb(cfg, ctx.nearClient);
     try {
-      void ctx.seamsPasskey.initWalletIframe().catch(() => {});
+      void ctx.seamsWeb.initWalletIframe().catch(() => {});
     } catch {}
     updateThemeBridge(ctx);
   }
-  return ctx.seamsPasskey!;
+  return ctx.seamsWeb!;
 }
 
 export function updateThemeBridge(ctx: HostContext): void {
   try {
-    const pm = ctx.seamsPasskey;
+    const pm = ctx.seamsWeb;
     if (!pm) return;
     const theme = pm.theme;
     if (theme === 'light' || theme === 'dark') {
@@ -320,7 +320,7 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
     ctx.prefsUnsubscribe?.();
     ctx.prefsUnsubscribe = null;
     ctx.nearClient = null;
-    ctx.seamsPasskey = null;
+    ctx.seamsWeb = null;
   }
 
   // Forward UI registry to iframe-lit-elem-mounter if provided

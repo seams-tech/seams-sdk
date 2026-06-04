@@ -14,7 +14,7 @@ const IMPORT_PATHS = {
 
 test.describe('threshold Ed25519 threshold-session state', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('publishing a fresh Ed25519 runtime lane keeps stale exact lanes out of active listing', async ({

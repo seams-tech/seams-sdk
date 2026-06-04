@@ -1,4 +1,4 @@
-import type { SigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
+import type { NearSigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
 import { runThresholdEd25519HssCeremonyWithSession } from '@/core/signingEngine/threshold/ed25519/hssLifecycle';
 import {
   deriveThresholdEd25519HssClientInputsWasm,
@@ -8,7 +8,7 @@ export const THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE = 'near-ed25519-signing';
 export const THRESHOLD_ED25519_HSS_DERIVATION_VERSION = 1;
 
 export async function ensureThresholdEd25519HssClientBase(args: {
-  ctx: SigningRuntimeDeps;
+  ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
   existingXClientBaseB64u?: string;
   thresholdSessionAuthToken?: string;

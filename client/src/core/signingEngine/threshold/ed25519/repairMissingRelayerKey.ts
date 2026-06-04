@@ -1,8 +1,8 @@
-import type { SigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
+import type { NearSigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
 import { ensureThresholdEd25519HssClientBase } from './hssClientBase';
 
 export async function repairThresholdEd25519MissingRelayerKey(args: {
-  ctx: SigningRuntimeDeps;
+  ctx: NearSigningRuntimeDeps;
   operationLabel: 'transactions' | 'delegate' | 'nep413';
   thresholdSessionId: string;
   thresholdSessionAuthToken?: string;

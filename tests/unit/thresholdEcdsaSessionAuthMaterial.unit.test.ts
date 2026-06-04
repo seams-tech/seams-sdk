@@ -12,7 +12,7 @@ const IMPORT_PATHS = {
 
 test.describe('threshold ECDSA warm-session auth material', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
 test('resolves JWT only from explicit canonical ECDSA ownership', async ({

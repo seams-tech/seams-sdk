@@ -42,7 +42,7 @@ test.describe('wallet iframe host export UI handlers', () => {
     let exportCalls = 0;
 
     const handlers = createWalletIframeHandlers({
-      getSeamsPasskey: () =>
+      getSeamsWeb: () =>
         ({
           keys: {
             exportKeypairWithUI: async (input: any) => {
@@ -95,7 +95,7 @@ test.describe('wallet iframe host export UI handlers', () => {
     const posts: ChildToParentEnvelope[] = [];
 
     const handlers = createWalletIframeHandlers({
-      getSeamsPasskey: () =>
+      getSeamsWeb: () =>
         ({
           keys: {
             exportKeypairWithUI: async () => {
@@ -120,7 +120,7 @@ test.describe('wallet iframe host export UI handlers', () => {
     const posts: ChildToParentEnvelope[] = [];
 
     const handlers = createWalletIframeHandlers({
-      getSeamsPasskey: () =>
+      getSeamsWeb: () =>
         ({
           keys: {
             exportKeypairWithUI: async () => {

@@ -58,8 +58,10 @@ test.describe('signing engine ECDSA export and fixture identity guards', () => {
     expect(offenders, offenders.join('\n')).toEqual([]);
   });
 
-  test('SigningEngine public ECDSA methods do not derive subject identity from accounts', () => {
-    const source = readRepoFile('client/src/core/signingEngine/SigningEngine.ts');
+  test('browser signing surface ECDSA methods do not derive subject identity from accounts', () => {
+    const source = readRepoFile(
+      'client/src/web/SeamsWeb/assembly/BrowserSigningSurface.ts',
+    );
     const methodNames = [
       'signTempo',
       'bootstrapEcdsaSession',
@@ -74,10 +76,10 @@ test.describe('signing engine ECDSA export and fixture identity guards', () => {
       const methodSource = findMethodDeclarationAndBody(source, methodName);
       if (!methodSource) continue;
       if (/\btoWalletId\(/.test(methodSource)) {
-        offenders.push(`SigningEngine.${methodName} derives subject identity`);
+        offenders.push(`BrowserSigningSurface.${methodName} derives subject identity`);
       }
       if (/\bnearAccountId\b/.test(methodSource)) {
-        offenders.push(`SigningEngine.${methodName} exposes nearAccountId`);
+        offenders.push(`BrowserSigningSurface.${methodName} exposes nearAccountId`);
       }
     }
 

@@ -3,7 +3,7 @@ import type { EcdsaRoleLocalAuthMethod, EmailOtpWorkerIssuedSessionHandle } from
 import type { ThresholdEcdsaSecp256k1KeyRef } from '@/core/signingEngine/interfaces/signing';
 import type { WorkerOperationContext } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import type {
-  ThresholdIndexedDbPort,
+  ThresholdCredentialStorePort,
   ThresholdWebAuthnPromptPort,
 } from '@/core/signingEngine/threshold/crypto/webauthn';
 import { bootstrapEcdsaSession } from '@/core/signingEngine/threshold/ecdsa/bootstrapSession';
@@ -80,7 +80,7 @@ export type ThresholdEcdsaSessionBootstrapResult = {
 export type ThresholdEcdsaSessionActivationResult = ThresholdEcdsaSessionBootstrapResult;
 
 export type ActivateEcdsaSessionDeps = {
-  indexedDB: ThresholdIndexedDbPort;
+  credentialStore: ThresholdCredentialStorePort;
   touchIdPrompt: ThresholdWebAuthnPromptPort;
   workerCtx: WorkerOperationContext;
   getOrCreateActiveThresholdEcdsaSessionId: (
@@ -448,7 +448,7 @@ export async function activateEcdsaSession(
   ).trim();
   const bootstrapSecretSourceArgs = bootstrapSecretSourceArgsForActivation(args);
   const baseBootstrapArgs = {
-    indexedDB: deps.indexedDB,
+    credentialStore: deps.credentialStore,
     touchIdPrompt: deps.touchIdPrompt,
     relayerUrl: args.relayerUrl,
     chainTarget,

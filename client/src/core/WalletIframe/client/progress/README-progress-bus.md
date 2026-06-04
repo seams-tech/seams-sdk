@@ -12,8 +12,8 @@ The wallet iframe mounts as a hidden 0×0 element in the parent document. When a
 - Overlay control lives in the wallet iframe client router and its `OnEventsProgressBus`:
   - `client/src/core/WalletIframe/client/progress/on-events-progress-bus.ts`
   - `client/src/core/WalletIframe/client/router.ts`
-- Public progress events are emitted by SeamsPasskey flows as v2 `WalletFlowEvent` payloads:
-  - `client/src/core/SeamsPasskey/near/actions.ts`
+- Public progress events are emitted by SeamsWeb flows as v2 `WalletFlowEvent` payloads:
+  - `client/src/web/SeamsWeb/near/actions.ts`
   - `client/src/core/signingEngine/uiConfirm/handlers/*`
   - `client/src/core/signingEngine/uiConfirm/handlers/flows/*`
 - Signer workers may emit private transport progress, but that is not consumed by the iframe progress bus unless the SDK maps it into a public `WalletFlowEvent`.
@@ -151,7 +151,7 @@ Before merging changes to the progress bus or overlay logic, verify:
 
 - Pre‑warm to reduce perceived latency before the overlay appears:
   - `seams.prefetchBlockheight()` → caches/refreshes block height/hash/nonce ahead of time.
-  - Sources: `client/src/core/SeamsPasskey/index.ts` and `client/src/core/signingEngine/nonce/NonceCoordinator.ts`.
+  - Sources: `client/src/web/SeamsWeb/index.ts` and `client/src/core/signingEngine/nonce/NonceCoordinator.ts`.
 
 - Overlay is intentionally invisible but intercepts clicks while active. Keep the overlay up for the minimum time by setting `interaction.overlay: 'show'` only on events that truly need activation.
 

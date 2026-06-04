@@ -7,7 +7,7 @@ const IMPORT_PATHS = {
 
 test.describe('evm nonce lifecycle metrics', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('emits broadcast_accepted metric with lane tags', async ({ page }) => {

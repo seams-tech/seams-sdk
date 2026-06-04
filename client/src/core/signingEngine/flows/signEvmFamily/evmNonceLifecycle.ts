@@ -31,7 +31,7 @@ export async function resolveManagedEvmNonceReservationInput(args: {
   return reserveNonceInputFromBoundary({
     chain: 'evm',
     networkKey: resolveNonceNetworkKey({
-      configs: args.deps.seamsPasskeyConfigs,
+      configs: args.deps.seamsWebConfigs,
       request: args.request,
     }),
     chainId: args.request.tx.chainId,

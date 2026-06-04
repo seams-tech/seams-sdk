@@ -8,6 +8,7 @@ import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
 } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { AccountSignerRecord } from '../../client/src/core/indexedDB/passkeyClientDB.types';
 
 const WALLET_ID = toAccountId('alice.testnet');
 const SUBJECT_ID = toWalletId(WALLET_ID);
@@ -46,11 +47,20 @@ function inventoryRecord(overrides: Record<string, unknown> = {}): Record<string
   };
 }
 
-function profileSigner(metadataOverrides: Record<string, unknown> = {}): Record<string, unknown> {
+function profileSigner(metadataOverrides: Record<string, unknown> = {}): AccountSignerRecord {
   return {
+    profileId: WALLET_ID,
+    chainIdKey: 'evm:eip155:5042002',
+    accountAddress: OWNER_ADDRESS,
+    signerId: 'signer-evm:eip155:5042002',
+    signerSlot: 1,
+    signerType: 'threshold',
     status: 'active',
     signerKind: 'threshold-ecdsa',
     signerAuthMethod: 'passkey',
+    signerSource: 'passkey_registration',
+    addedAt: Date.now(),
+    updatedAt: Date.now(),
     metadata: {
       keyHandle: 'ehss-key-inventory',
       chainTarget: EVM_TARGET,

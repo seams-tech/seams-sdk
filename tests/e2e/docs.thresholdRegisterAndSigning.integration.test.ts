@@ -518,7 +518,7 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
 
 test.describe('docs frontend register + threshold signing integration', () => {
   test.beforeEach(async ({ page }) => {
-    await setupBasicPasskeyTest(page, { skipPasskeyManagerInit: true });
+    await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
   test('register/login provisions threshold signers during login, then signs Tempo and EVM', async ({

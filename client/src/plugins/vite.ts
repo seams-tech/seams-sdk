@@ -1,5 +1,4 @@
-// Minimal Vite dev plugin(s) to support Passkey Manager modes.
-// See docs/passkey-manager-modes.md (Vite Plugin section).
+// Minimal Vite dev plugin(s) to support SeamsWeb wallet-service modes.
 //
 // What these plugins do:
 // - Serve SDK assets under a base path, expose a wallet service route,

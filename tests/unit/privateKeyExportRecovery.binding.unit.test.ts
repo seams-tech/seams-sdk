@@ -23,7 +23,7 @@ test.describe('privateKeyExportRecovery method binding', () => {
 
     const result = await exportNearEd25519SeedArtifactWithUI(
       {
-        indexedDB: {
+        keyMaterialStore: {
           resolveProfileAccountContext: async () => ({
             profileId: 'profile-1',
             accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
@@ -77,7 +77,7 @@ test.describe('privateKeyExportRecovery method binding', () => {
 
     const result = await exportEcdsaHssThresholdKeyArtifactWithUI(
       {
-        indexedDB: {
+        keyMaterialStore: {
           resolveProfileAccountContext: async () => ({
             profileId: 'profile-1',
             accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },
@@ -135,7 +135,7 @@ test.describe('privateKeyExportRecovery method binding', () => {
     await expect(
       exportEcdsaHssThresholdKeyArtifactWithUI(
         {
-          indexedDB: {
+          keyMaterialStore: {
             resolveProfileAccountContext: async () => ({
               profileId: 'profile-1',
               accountRef: { chainIdKey: 'near:testnet', accountAddress: 'alice.testnet' },

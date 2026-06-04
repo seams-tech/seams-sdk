@@ -1,7 +1,7 @@
 import {
   enrollEmailOtpWallet,
   prepareEmailOtpRegistrationEnrollmentMaterial,
-} from '@/core/SeamsPasskey/emailOtp';
+} from '@/web/SeamsWeb/emailOtp';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import type {

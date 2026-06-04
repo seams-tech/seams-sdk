@@ -49,7 +49,7 @@ export interface SigningSessionSealConfig {
 }
 
 /**
- * Public SDK configuration overrides accepted by `new SeamsPasskey(config)`.
+ * Public SDK configuration overrides accepted by `new SeamsWeb(config)`.
  *
  * The SDK normalizes this input shape into the grouped resolved config
  * (`SeamsConfigsReadonly`) used at runtime.
@@ -492,7 +492,7 @@ export interface ThresholdEcdsaPresignPoolPolicy {
 }
 
 //////////////////////////////////
-/// SeamsPasskey Configuration
+/// SeamsWeb Configuration
 //////////////////////////////////
 
 export type SeamsNearChainNetwork = 'near-mainnet' | 'near-testnet';
