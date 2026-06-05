@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { createWalletIframeHandlers } from '@/web/SeamsWeb/walletIframe/host/wallet-iframe-handlers';
-import type { ChildToParentEnvelope } from '@/web/SeamsWeb/walletIframe/shared/messages';
+import { createWalletIframeHandlers } from '@/SeamsWeb/walletIframe/host/wallet-iframe-handlers';
+import type { ChildToParentEnvelope } from '@/SeamsWeb/walletIframe/shared/messages';
 
 type Deferred<T> = {
   promise: Promise<T>;

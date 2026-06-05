@@ -106,7 +106,7 @@ test.describe('signing session PRF cache utilities', () => {
     const source = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/web/SeamsWeb/thresholdWarmSessionBootstrap.ts',
+        '../client/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts',
       ),
       'utf8',
     );

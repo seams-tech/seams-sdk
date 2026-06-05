@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
-import type { SeamsWeb } from '@/web/SeamsWeb';
+import type { SeamsWeb } from '@/SeamsWeb';
 import type {
   AuthCapability,
   RecoveryCapability,
   RegistrationCapability,
-} from '@/web/SeamsWeb';
+} from '@/SeamsWeb';
 import {
   type LoginHooksOptions,
   UnlockEventPhase,

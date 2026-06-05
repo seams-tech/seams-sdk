@@ -51,14 +51,14 @@ The lower SDK layers are already close to the target:
 
 The remaining browser coupling is above and around those ports:
 
-- `client/src/web/SeamsWeb/index.ts` is the public browser SDK facade and owns
+- `client/src/SeamsWeb/index.ts` is the public browser SDK facade and owns
   wallet iframe routing.
-- `client/src/web/SeamsWeb/assembly/BrowserSigningSurface.ts` owns browser
+- `client/src/SeamsWeb/assembly/BrowserSigningSurface.ts` owns browser
   signing assembly state and exposes the structural `SeamsWebSigningSurface`.
 - `client/src/core/runtime/createSigningRuntime.ts` builds platform-neutral
   runtime services from explicit platform, worker, store, UI, and relayer ports.
 - Shared signing assembly receives explicit store ports; browser IndexedDB
-  construction is isolated under `client/src/web/SeamsWeb/assembly/`.
+  construction is isolated under `client/src/SeamsWeb/assembly/`.
 
 ## SDK Simplification Workstream
 
@@ -132,7 +132,7 @@ Required renames:
 | Current | Target |
 | --- | --- |
 | `SeamsPasskey` | `SeamsWeb` |
-| `client/src/core/SeamsPasskey/` | `client/src/web/SeamsWeb/` or `client/src/core/SeamsWeb/` if the build cannot yet move the directory |
+| `client/src/core/SeamsPasskey/` | `client/src/SeamsWeb/` or `client/src/core/SeamsWeb/` if the build cannot yet move the directory |
 | `SeamsPasskeyProvider` | `SeamsWebProvider` |
 | `SeamsPasskeyProviderProps` | `SeamsWebProviderProps` |
 | `SeamsPasskeyProviderThemeProps` | `SeamsWebProviderThemeProps` |
@@ -230,7 +230,7 @@ External references:
 
 The web build may import:
 
-- `client/src/web/SeamsWeb/**`;
+- `client/src/SeamsWeb/**`;
 - `client/src/core/runtime/**`;
 - `client/src/core/platform/browser/**`;
 - `client/src/core/WalletIframe/**`;
@@ -239,7 +239,7 @@ The web build may import:
 The web build owns the default `@seams/sdk` export until native packages exist:
 
 ```ts
-export { SeamsWeb } from './web/SeamsWeb';
+export { SeamsWeb } from './SeamsWeb';
 ```
 
 React exports become:
@@ -260,7 +260,7 @@ Future native packages may import:
 
 Future native packages must not import:
 
-- `client/src/web/SeamsWeb/**`;
+- `client/src/SeamsWeb/**`;
 - `client/src/core/WalletIframe/**`;
 - `client/src/react/**`;
 - `client/src/core/platform/browser/**`;
@@ -285,15 +285,15 @@ Use this layout unless a phase updates this table first.
 
 | Area | Target location |
 | --- | --- |
-| Browser facade | `client/src/web/SeamsWeb/` |
+| Browser facade | `client/src/SeamsWeb/` |
 | React provider | `client/src/react/context/SeamsWebProvider.tsx` |
-| Wallet iframe browser modules | `client/src/web/SeamsWeb/walletIframe/` or existing `client/src/core/WalletIframe/` behind web-only guards |
+| Wallet iframe browser modules | `client/src/SeamsWeb/walletIframe/` or existing `client/src/core/WalletIframe/` behind web-only guards |
 | Platform-neutral runtime | `client/src/core/runtime/` |
 | Runtime assembly entry | `client/src/core/runtime/createSigningRuntime.ts` |
 | Runtime dependency types | `client/src/core/runtime/types.ts` |
-| Browser runtime assembly | `client/src/web/SeamsWeb/assembly/createBrowserSigningRuntime.ts` |
+| Browser runtime assembly | `client/src/SeamsWeb/assembly/createBrowserSigningRuntime.ts` |
 | Runtime config types | `client/src/core/runtime/config.ts` |
-| Web config types | `client/src/web/SeamsWeb/config.ts` |
+| Web config types | `client/src/SeamsWeb/config.ts` |
 | Platform ports | `client/src/core/platform/ports.ts` |
 | Platform secret sources | `client/src/core/platform/secretSources.ts` |
 | ECDSA role-local record types | `client/src/core/platform/ecdsaRoleLocalRecords.ts` |
@@ -450,7 +450,7 @@ Tasks:
   services, such as registration, auth/session, near signing, EVM-family
   signing, recovery/export, preferences, and diagnostics.
 - [x] Move `createBrowserPlatformRuntime(...)` construction into
-  `client/src/web/SeamsWeb/assembly/createBrowserSigningRuntime.ts`.
+  `client/src/SeamsWeb/assembly/createBrowserSigningRuntime.ts`.
 - [x] Move in-memory ECDSA session/export artifact maps into explicit runtime
   state ports.
 - [x] Rename the old NEAR/worker `SigningRuntimeDeps` context to
@@ -495,7 +495,7 @@ Tasks:
   - [x] Move the nonce lane IndexedDB adapter construction out of manager
     assembly and into the browser wrapper store wiring.
   - [x] Move browser signing store bundle construction into
-    `client/src/web/SeamsWeb/assembly/createBrowserSigningStores.ts`, then pass
+    `client/src/SeamsWeb/assembly/createBrowserSigningStores.ts`, then pass
     required store bundles into the transitional `SigningEngine` wrapper.
 - [x] Update `createSigningEnginePorts(...)` or its replacement runtime assembly to
   receive store ports instead of deriving IndexedDB from `PlatformRuntime`.
@@ -601,21 +601,21 @@ Tasks:
 - [x] Move browser-specific worker warmup, wallet-origin storage disabling, iframe
   readiness, asset preconnect, and UI overlay behavior into web assembly.
   - [x] Move browser IndexedDB mode selection and wallet-origin storage disabling
-    policy into `client/src/web/SeamsWeb/assembly/configureBrowserIndexedDB.ts`.
+    policy into `client/src/SeamsWeb/assembly/configureBrowserIndexedDB.ts`.
   - [x] Move browser worker prewarm eligibility out of shared signing assembly
     and into
-    `client/src/web/SeamsWeb/assembly/browserWorkerWarmupPolicy.ts`.
+    `client/src/SeamsWeb/assembly/browserWorkerWarmupPolicy.ts`.
   - [x] Move worker base-origin initialization, embedded base change handling,
     and app-origin iframe-mode preference loading policy into
-    `client/src/web/SeamsWeb/assembly/initializeBrowserSigningRuntime.ts`.
+    `client/src/SeamsWeb/assembly/initializeBrowserSigningRuntime.ts`.
   - [x] Move wallet iframe asset preconnect, modulepreload, WASM prefetch, and
     embedded SDK base calculation into
-    `client/src/web/SeamsWeb/assembly/preconnectWalletAssets.ts`.
+    `client/src/SeamsWeb/assembly/preconnectWalletAssets.ts`.
   - [x] Move lazy wallet iframe router construction and same-origin iframe
     warning policy into
-    `client/src/web/SeamsWeb/assembly/createWalletIframeRouter.ts`.
+    `client/src/SeamsWeb/assembly/createWalletIframeRouter.ts`.
   - [x] Move app-facing wallet iframe overlay-state construction into
-    `client/src/web/SeamsWeb/assembly/createWalletIframeOverlayState.ts`.
+    `client/src/SeamsWeb/assembly/createWalletIframeOverlayState.ts`.
 - [x] Keep `WalletIframeCoordinator` under the web facade boundary.
 - [x] Keep direct browser mode and wallet iframe mode as `SeamsWeb` branches.
 - [x] Move `routeWalletIframeOrLocal(...)` usage up to the `SeamsWeb` capability
@@ -927,7 +927,7 @@ These are the only post-implementation cleanup tasks worth tracking here. Each
 one directly reduces audit cost or makes the next broad SDK architecture refactor
 smaller.
 
-- [x] Split `client/src/web/SeamsWeb/index.ts` into public capability modules
+- [x] Split `client/src/SeamsWeb/index.ts` into public capability modules
   for auth, NEAR, EVM, Tempo, wallet iframe, and shared constructor/composition
   code.
   - [x] Move NEAR, Tempo, and EVM public capability builders into the web
@@ -937,7 +937,7 @@ smaller.
   - [x] Move wallet iframe public-method composition out of the constructor/class
     surface where it can be expressed without reintroducing legacy facade names.
 - [x] Split
-  `client/src/web/SeamsWeb/assembly/BrowserSigningSurface.ts` into smaller
+  `client/src/SeamsWeb/assembly/BrowserSigningSurface.ts` into smaller
   browser assembly factories for UI confirmation, registration, warm sessions,
   exports, Email OTP, and wallet iframe wiring.
   - [x] Move Email OTP public dependency assembly into a focused browser

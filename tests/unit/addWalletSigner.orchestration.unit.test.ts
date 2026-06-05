@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { addWalletSigner, registerWallet } from '../../client/src/web/SeamsWeb/operations/registration/registration';
-import { createEvmSignerCapability } from '../../client/src/web/SeamsWeb/publicApi/evm';
-import { createNearSignerCapability } from '../../client/src/web/SeamsWeb/publicApi/near';
+import { addWalletSigner, registerWallet } from '../../client/src/SeamsWeb/operations/registration/registration';
+import { createEvmSignerCapability } from '../../client/src/SeamsWeb/publicApi/evm';
+import { createNearSignerCapability } from '../../client/src/SeamsWeb/publicApi/near';
 import { IndexedDBManager } from '../../client/src/core/indexedDB';
 import { UserVerificationPolicy } from '../../client/src/core/types/authenticatorOptions';
 import {

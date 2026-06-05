@@ -1,5 +1,5 @@
 import { useSeams } from '@/react/context';
-import type { SeamsWeb } from '@/web/SeamsWeb';
+import type { SeamsWeb } from '@/SeamsWeb';
 import { type SDKFlowRuntime, type StoredAccountOption } from '@/react/types';
 
 export interface PasskeyAuthMenuRuntime {

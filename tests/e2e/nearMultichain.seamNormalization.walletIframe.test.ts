@@ -71,7 +71,7 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
       const resultPromise = page.evaluate(
         async ({ walletOrigin, relayerUrl, receiverId }) => {
           try {
-            const { SeamsWeb } = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const { SeamsWeb } = await import('/sdk/esm/SeamsWeb/index.js');
             const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
             const managedRegistration = (globalThis as any).__w3aManagedRegistration || null;
 

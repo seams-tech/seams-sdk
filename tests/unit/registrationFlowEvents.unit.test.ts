@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { createRegistrationLifecycleEvent } from '../../client/src/web/SeamsWeb/operations/registration/registration';
+import { createRegistrationLifecycleEvent } from '../../client/src/SeamsWeb/operations/registration/registration';
 import { RegistrationEventPhase } from '../../client/src/core/types/sdkSentEvents';
 
 test.describe('registration flow events', () => {

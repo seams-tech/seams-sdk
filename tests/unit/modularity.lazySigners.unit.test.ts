@@ -30,7 +30,7 @@ test.describe('modularity lazy signer loading', () => {
       'utf8',
     );
 
-    expect(nearSigningSource).toContain("from '@/web/SeamsWeb/operations/nearSigningFlow'");
+    expect(nearSigningSource).toContain("from '@/SeamsWeb/operations/nearSigningFlow'");
     expect(nearSigningFlowSource).toContain(
       'runNearTransactionsWithActionsSigning(request.payload)',
     );
@@ -75,7 +75,7 @@ test.describe('modularity lazy signer loading', () => {
     expect(evmAdapterSource).not.toContain('tempoSignerWasm');
     expect(evmAdapterSource).not.toContain('tempoSigner-worker');
 
-    expect(tempoAdapterSource).toContain("from '@/web/SeamsWeb/operations/tempoSignerWasm'");
+    expect(tempoAdapterSource).toContain("from '@/SeamsWeb/operations/tempoSignerWasm'");
     expect(tempoAdapterSource).not.toContain('ethSignerWasm');
     expect(tempoAdapterSource).not.toContain('ethSigner-worker');
 

@@ -70,7 +70,7 @@ test.describe('threshold-ed25519 NEP-413 signing', () => {
       const result = await page.evaluate(
         async ({ relayerUrl, managedRegistration }) => {
           try {
-            const { SeamsWeb } = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const { SeamsWeb } = await import('/sdk/esm/SeamsWeb/index.js');
             const suffix =
               typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
                 ? crypto.randomUUID()

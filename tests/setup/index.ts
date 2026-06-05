@@ -37,7 +37,7 @@
 // - type SeamsWeb: TypeScript type only, no runtime code
 // - encoders: Utility functions used in Node.js context, not browser
 import { Page, test } from '@playwright/test';
-import type { SeamsWeb } from '@/web/SeamsWeb';
+import type { SeamsWeb } from '@/SeamsWeb';
 import { executeSequentialSetup } from './bootstrap';
 import { DEFAULT_TEST_CONFIG } from './config';
 import { setupWebAuthnMocks } from './webauthn-mocks';

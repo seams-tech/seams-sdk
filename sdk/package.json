@@ -105,9 +105,9 @@
     },
     "./react/styles": "./dist/esm/react/styles/styles.css",
     "./web/wallet-iframe-client-html": {
-      "import": "./dist/esm/web/SeamsWeb/walletIframe/client/html.js",
-      "default": "./dist/esm/web/SeamsWeb/walletIframe/client/html.js",
-      "types": "./dist/types/client/src/web/SeamsWeb/walletIframe/client/html.d.ts"
+      "import": "./dist/esm/SeamsWeb/walletIframe/client/html.js",
+      "default": "./dist/esm/SeamsWeb/walletIframe/client/html.js",
+      "types": "./dist/types/client/src/SeamsWeb/walletIframe/client/html.d.ts"
     },
     "./worker": "./dist/near-signer.worker.js",
     "./wasm": "./dist/wasm_signer_worker_bg.wasm",

@@ -20,7 +20,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const flowPromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const sdkMod = await import('/sdk/esm/SeamsWeb/index.js');
             const actionsMod = await import('/sdk/esm/core/types/actions.js');
             const { SeamsWeb } = sdkMod as any;
             const { ActionType } = actionsMod as any;
@@ -212,7 +212,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
     try {
       const result = await page.evaluate(
         async ({ relayerUrl, shamirPrimeB64u }) => {
-          const mod = await import('/sdk/esm/web/SeamsWeb/index.js');
+          const mod = await import('/sdk/esm/SeamsWeb/index.js');
           const { SeamsWeb } = mod as any;
           const accountId = `parity-mismatch-${Date.now()}.testnet`;
           const seams = new SeamsWeb({
@@ -285,7 +285,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const loginPhasePromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const sdkMod = await import('/sdk/esm/SeamsWeb/index.js');
             const { SeamsWeb } = sdkMod as any;
 
             const confirmationConfig = {
@@ -406,7 +406,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
           shamirPrimeB64u: string;
         }) => {
           try {
-            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const sdkMod = await import('/sdk/esm/SeamsWeb/index.js');
             const { SeamsWeb } = sdkMod as any;
 
             const confirmationConfig = {
@@ -545,7 +545,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const secondPhasePromise = page.evaluate(
         async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const sdkMod = await import('/sdk/esm/SeamsWeb/index.js');
             const { SeamsWeb } = sdkMod as any;
 
             const confirmationConfig = {
@@ -680,7 +680,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const firstPhasePromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const sdkMod = await import('/sdk/esm/SeamsWeb/index.js');
             const actionsMod = await import('/sdk/esm/core/types/actions.js');
             const { SeamsWeb } = sdkMod as any;
             const { ActionType } = actionsMod as any;
@@ -787,7 +787,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const restoredSignPromise = page.evaluate(
         async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const sdkMod = await import('/sdk/esm/SeamsWeb/index.js');
             const actionsMod = await import('/sdk/esm/core/types/actions.js');
             const { SeamsWeb } = sdkMod as any;
             const { ActionType } = actionsMod as any;
@@ -881,7 +881,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const reauthSignPromise = page.evaluate(
         async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const sdkMod = await import('/sdk/esm/SeamsWeb/index.js');
             const actionsMod = await import('/sdk/esm/core/types/actions.js');
             const { SeamsWeb } = sdkMod as any;
             const { ActionType } = actionsMod as any;
@@ -1067,7 +1067,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const firstPhasePromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const sdkMod = await import('/sdk/esm/SeamsWeb/index.js');
             const { SeamsWeb } = sdkMod as any;
 
             const confirmationConfig = {
@@ -1251,7 +1251,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
         const phasePromise = page.evaluate(
           async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u, order }) => {
             try {
-              const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+              const sdkMod = await import('/sdk/esm/SeamsWeb/index.js');
               const { SeamsWeb } = sdkMod as any;
 
               const confirmationConfig = {
@@ -1457,7 +1457,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const firstPhasePromise = page.evaluate(
         async ({ relayerUrl, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const sdkMod = await import('/sdk/esm/SeamsWeb/index.js');
             const { SeamsWeb } = sdkMod as any;
             const confirmationConfig = {
               uiMode: 'none' as const,
@@ -1545,7 +1545,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
       const secondPhasePromise = secondPage.evaluate(
         async ({ relayerUrl, accountId, keyVersion, shamirPrimeB64u }) => {
           try {
-            const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const sdkMod = await import('/sdk/esm/SeamsWeb/index.js');
             const { SeamsWeb } = sdkMod as any;
             const seams = new SeamsWeb({
               nearNetwork: 'testnet',
@@ -1651,7 +1651,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
             sessionKind,
           }) => {
             try {
-              const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+              const sdkMod = await import('/sdk/esm/SeamsWeb/index.js');
               const actionsMod = await import('/sdk/esm/core/types/actions.js');
               const { SeamsWeb } = sdkMod as any;
               const { ActionType } = actionsMod as any;
@@ -1852,7 +1852,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
             sessionKind,
           }) => {
             try {
-              const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+              const sdkMod = await import('/sdk/esm/SeamsWeb/index.js');
               const actionsMod = await import('/sdk/esm/core/types/actions.js');
               const { SeamsWeb } = sdkMod as any;
               const { ActionType } = actionsMod as any;

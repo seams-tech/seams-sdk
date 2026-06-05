@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { LinkDeviceFlow } from '@/web/SeamsWeb/operations/devices/linkDevice';
-import { linkDeviceWithScannedQRData } from '@/web/SeamsWeb/operations/devices/scanDevice';
+import { LinkDeviceFlow } from '@/SeamsWeb/operations/devices/linkDevice';
+import { linkDeviceWithScannedQRData } from '@/SeamsWeb/operations/devices/scanDevice';
 import { LinkDeviceEventPhase } from '@/core/types/sdkSentEvents';
 
 function createDisplayContext() {

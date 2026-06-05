@@ -3,7 +3,7 @@ import type { SeamsContextProviderProps } from '../types';
 import {
   normalizeWalletHostVariant,
 } from '../../core/browser/walletIframe/hostVariant';
-import { preconnectWalletAssets } from '../../web/SeamsWeb/assembly/preconnectWalletAssets';
+import { preconnectWalletAssets } from '../../SeamsWeb/assembly/preconnectWalletAssets';
 
 // Internal: Add preconnect/prefetch hints for wallet service + relayer and
 // expose an absolute embedded asset base for srcdoc iframes.

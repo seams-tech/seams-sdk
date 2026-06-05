@@ -87,7 +87,7 @@ test.describe('threshold-ed25519 on-chain scope', () => {
       const result = await page.evaluate(
         async ({ relayerUrl }) => {
           try {
-            const { SeamsWeb } = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const { SeamsWeb } = await import('/sdk/esm/SeamsWeb/index.js');
             const { ActionType } = await import('/sdk/esm/core/types/actions.js');
             const suffix =
               typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'

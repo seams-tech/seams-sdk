@@ -118,7 +118,7 @@ plaintext `S`, recovery KEKs, or derived signing material.
 Relevant implementation surfaces:
 
 1. SDK enrollment result recovery-code field in
-   `client/src/web/SeamsWeb/interfaces.ts`.
+   `client/src/SeamsWeb/interfaces.ts`.
 2. recovery key generation and wrapping in
    `client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts`.
 3. formatting/normalization helpers in
@@ -152,15 +152,19 @@ clearer and matches account-recovery expectations.
 
 ## Non-Goals
 
-1. Do not store plaintext recovery codes in IndexedDB, localStorage,
-   sessionStorage, analytics, logs, or server state.
-2. Do not email recovery codes to the user.
-3. Do not allow server-side recovery without one user-held recovery code.
-4. Do not use recovery codes for transaction signing or key export.
-5. Do not couple recovery-code backup to passkey recovery or NEAR account
+1. Do not store plaintext recovery codes in localStorage, sessionStorage,
+   analytics, logs, or server state.
+2. Store generated plaintext recovery codes in IndexedDB only in the dedicated
+   pending-backup store defined in Phase 6. This store exists only to survive a
+   reload or crash before the user downloads the generated codes.
+3. Do not email recovery codes to the user.
+4. Do not allow server-side recovery without one user-held recovery code.
+5. Do not use recovery codes for transaction signing or key export.
+6. Do not couple recovery-code backup to passkey recovery or NEAR account
    recovery.
-6. Do not add a "temporary local recovery-code cache" to give the user more time
-   to back up codes. Plaintext codes are memory-only.
+7. Do not add a long-lived recovery-code cache. The pending-backup IndexedDB
+   store is deleted after download acknowledgement, account lock, explicit
+   cancellation, stale pending cleanup, or expiry.
 
 ## UX Flow
 
@@ -244,12 +248,17 @@ First implementation:
    only. It provides no cryptographic proof of backup.
 6. The plaintext recovery codes are cleared from React state after the user
    continues.
-7. The plaintext recovery codes are also cleared if the user cancels, closes the
-   modal, navigates away, reloads, or the registration UI unmounts.
-8. If the backup step is abandoned before acknowledgement, the app must not rely
-   on the generated codes. The generated server records remain `pending_backup`
-   and excluded from recovery use. The next setup attempt must revoke, delete, or
-   expire that pending set before generating a fresh set of 10 codes.
+7. The pending-backup IndexedDB record is deleted after successful download and
+   backup acknowledgement.
+8. If the user cancels, closes the modal, navigates away, reloads, or the
+   registration UI unmounts before acknowledgement, the pending-backup IndexedDB
+   record remains until it is redisplayed, explicitly abandoned, replaced, or
+   expired.
+9. If the backup step is abandoned before acknowledgement and the local pending
+   record is gone, the app must not rely on the generated codes. The generated
+   server records remain `pending_backup` and excluded from recovery use. The
+   next setup attempt must revoke, delete, or expire that pending set before
+   generating a fresh set of 10 codes.
 
 Backup action completion semantics:
 
@@ -262,8 +271,8 @@ Backup action completion semantics:
 3. Print counts after `window.print()` is invoked from a user gesture in a
    browser that supports it. The UI may record only `printDialogOpened`; browsers
    do not expose a reliable printed-page signal.
-4. Backup-action completion state is memory-only and resets when the backup
-   screen unmounts.
+4. Backup-action completion is persisted only as deletion of the pending backup
+   record plus non-secret server acknowledgement.
 
 Optional stronger follow-up:
 
@@ -284,13 +293,15 @@ Plaintext recovery codes may exist only in:
    registration UI.
 3. wallet-iframe internal messages and wallet-iframe UI memory while the backup
    screen is displayed.
-4. clipboard, downloaded file, printed page, or password manager after explicit
+4. the dedicated pending-backup IndexedDB store before successful download and
+   backup acknowledgement.
+5. clipboard, downloaded file, printed page, or password manager after explicit
    user action.
 
 Plaintext recovery codes must not exist in:
 
 1. server storage.
-2. IndexedDB.
+2. IndexedDB outside the dedicated pending-backup store.
 3. localStorage or sessionStorage.
 4. logs.
 5. analytics or telemetry events.
@@ -304,11 +315,12 @@ non-secret acknowledgement metadata to the host page. The host page must never
 receive generated `recoveryKeys` through iframe RPC, logs, progress events, or
 registration result payloads.
 
-IndexedDB may store only non-secret backup state. It must never store the
-plaintext recovery codes, recovery wrapping keys, recovery KEKs, `enc_s(S)` for
-backup display, or a serialized backup-screen payload.
+IndexedDB may store generated plaintext recovery codes only while the matching
+server-side recovery-wrapped escrows remain `pending_backup`. It must never
+store recovery wrapping keys, recovery KEKs, `enc_s(S)` for backup display, or a
+serialized backup-screen payload after acknowledgement.
 
-Allowed non-secret backup metadata:
+Allowed backup metadata and temporary plaintext state:
 
 ```ts
 type EmailOtpRecoveryCodeSetLifecycle =
@@ -346,17 +358,31 @@ type EmailOtpRecoveryCodeBackupStatus = Extract<
   EmailOtpRecoveryCodeSetLifecycle,
   { status: 'active' }
 >;
+
+type PendingEmailOtpRecoveryCodeBackupRecord = {
+  v: 1;
+  secretKind: 'email_otp_recovery_codes_pending_backup';
+  storageScope: 'iframe_origin_indexeddb' | 'host_origin_indexeddb';
+  walletId: string;
+  enrollmentId: string;
+  enrollmentSealKeyVersion: string;
+  recoveryCodesIssuedAtMs: number;
+  recoveryKeys: EmailOtpRecoveryCodeSet;
+  createdAtMs: number;
+  expiresAtMs: number;
+};
 ```
 
-This record proves only that the UI step was completed. It must not contain the
-codes.
+The active lifecycle record proves only that the UI step was completed. The
+pending backup record is a temporary local artifact. It is deleted before or
+during the same operation that activates the server-side pending set.
 
-Pending backup UI state should remain in memory. The server may persist the
-non-secret `pending_backup` lifecycle state for recovery-wrapped escrow records,
-and those records are excluded from active recovery-code counts, status
-responses, and recovery consumption until acknowledgement activates them.
-Persisted pending state must never enable redisplaying the same plaintext codes
-after reload.
+The server may persist the non-secret `pending_backup` lifecycle state for
+recovery-wrapped escrow records, and those records are excluded from active
+recovery-code counts, active status responses, and recovery consumption until
+acknowledgement activates them. A matching pending backup record lets the owning
+UI boundary redisplay the generated code set after reload while the server set is
+still pending.
 
 ## UI Integration Points
 
@@ -453,12 +479,16 @@ Rules:
 2. The boundary normalizer enforces exactly 10 codes.
 3. The component formats with `formatEmailOtpRecoveryKey(...)`.
 4. Download is visually primary; copy and print are secondary.
-5. The component does not persist codes.
+5. The component writes generated codes only through the pending-backup
+   repository from Phase 6.
 6. The component clears any local copied/downloaded text buffer after action
    completion where the browser API permits it.
-7. The component clears plaintext code state on unmount.
-8. The component tracks `hasCompletedBackupAction` in memory only.
-9. `Continue` requires `hasCompletedBackupAction && acknowledgementChecked`.
+7. The component clears React plaintext code state on unmount.
+8. The component reloads codes from the pending-backup repository only when the
+   server status is still `pending_backup` for the same enrollment identifiers.
+9. The component tracks `hasCompletedBackupAction` through successful download
+   and pending-record deletion.
+10. `Continue` requires successful download and server acknowledgement.
 
 ### Registration Flow
 
@@ -476,19 +506,21 @@ Direct SDK mode boundary:
 ```text
 worker returns EmailOtpRecoveryCodeSet
   -> SDK validates and returns EmailOtpRecoveryCodeSet to trusted registration UI
+  -> trusted registration UI stores PendingEmailOtpRecoveryCodeBackupRecord
   -> trusted registration UI displays and acknowledges
   -> SDK activates pending_backup escrow set
-  -> UI drops EmailOtpRecoveryCodeSet from state
+  -> UI deletes PendingEmailOtpRecoveryCodeBackupRecord and drops state
 ```
 
 Wallet-iframe mode boundary:
 
 ```text
 worker returns EmailOtpRecoveryCodeSet inside wallet iframe
+  -> wallet iframe stores PendingEmailOtpRecoveryCodeBackupRecord
   -> wallet iframe displays and acknowledges
   -> wallet iframe activates pending_backup escrow set
   -> wallet iframe returns non-secret backup acknowledgement metadata to host
-  -> wallet iframe drops EmailOtpRecoveryCodeSet from state
+  -> wallet iframe deletes PendingEmailOtpRecoveryCodeBackupRecord and drops state
 ```
 
 Iframe RPC payloads to host code must carry only non-secret lifecycle metadata.
@@ -520,7 +552,8 @@ Server activation and abandoned-backup cleanup:
 5. The server may expire stale `pending_backup` sets and mark them `abandoned`
    with `cleanupReason: 'pending_backup_expired'`.
 
-Do not recover this case by storing plaintext codes locally.
+Recover this case through the dedicated pending-backup IndexedDB record only
+while the server status is still `pending_backup`.
 
 ## Download Format
 
@@ -649,8 +682,9 @@ Recovery use errors:
 7. Browser autocomplete should be disabled for recovery-code display and entry
    fields.
 8. Recovery-code entry should accept paste and normalize spaces/dashes.
-9. Never store generated recovery codes in IndexedDB to preserve them for later
-   backup.
+9. Store generated recovery codes in IndexedDB only in the dedicated
+   pending-backup store, only before acknowledgement, and only for the matching
+   `pending_backup` server state.
 10. Wallet-iframe host RPC payloads must never include generated `recoveryKeys`.
 11. `backup-acknowledge` route payloads must contain only non-secret enrollment
     identifiers and acknowledgement metadata.
@@ -666,8 +700,9 @@ Recovery use errors:
    the worker/SDK boundary into a fixed-size `EmailOtpRecoveryCodeSet`.
 4. Do not make `recoveryKeys`, identity fields, lifecycle timestamps, or
    acknowledgement metadata optional in core types.
-5. Do not persist plaintext recovery codes to recover abandoned backup screens.
-   Abandonment means those plaintext codes are gone.
+5. Do not persist plaintext recovery codes outside the dedicated pending-backup
+   store. Abandonment after that record is deleted means those plaintext codes
+   are gone.
 6. Do not patch tests around obsolete behavior. Delete or rewrite fixtures that
    encode active-immediately records, raw recovery-code arrays, or iframe host
    `recoveryKeys` payloads unless they are intentionally testing request or
@@ -695,9 +730,9 @@ Recovery use errors:
 
 Files:
 
-1. `client/src/web/SeamsWeb/interfaces.ts`
-2. `client/src/web/SeamsWeb/emailOtp.ts`
-3. `client/src/web/SeamsWeb/index.ts`
+1. `client/src/SeamsWeb/interfaces.ts`
+2. `client/src/SeamsWeb/emailOtp.ts`
+3. `client/src/SeamsWeb/index.ts`
 4. `client/src/core/WalletIframe/shared/messages.ts`
 5. `client/src/core/WalletIframe/router.ts`
 6. `client/src/core/WalletIframe/host/wallet-iframe-handlers.ts`
@@ -752,8 +787,8 @@ Files:
 
 Files:
 
-1. `client/src/web/SeamsWeb/interfaces.ts`
-2. `client/src/web/SeamsWeb/emailOtp.ts`
+1. `client/src/SeamsWeb/interfaces.ts`
+2. `client/src/SeamsWeb/emailOtp.ts`
 3. `client/src/core/signingEngine/workerManager/workerTypes.ts`
 4. `client/src/core/WalletIframe/shared/messages.ts`
 5. `client/src/core/WalletIframe/host/handlers/emailOtp.ts`
@@ -802,7 +837,159 @@ Likely integration points:
 4. wallet-iframe host handlers that receive non-secret backup acknowledgement
    metadata
 
-### Phase 6: Settings And Rotation
+### Phase 6: Temporary Pending Backup IndexedDB Store
+
+Goal: prevent loss of generated recovery codes if the browser reloads, the
+registration modal unmounts, or the wallet iframe restarts before the user has
+downloaded the codes. This is a bounded pending-backup artifact, scoped to the
+same origin that owns the backup UI.
+
+State model:
+
+```ts
+type PendingEmailOtpRecoveryCodeBackupLifecycle =
+  | {
+      status: 'pending_backup';
+      acknowledgedAtMs?: never;
+      abandonedAtMs?: never;
+      expiredAtMs?: never;
+    }
+  | {
+      status: 'abandoned';
+      acknowledgedAtMs?: never;
+      abandonedAtMs: number;
+      expiredAtMs?: never;
+      cleanupReason:
+        | 'registration_cancelled'
+        | 'registration_restarted'
+        | 'rotation_restarted'
+        | 'user_dismissed'
+        | 'server_pending_set_missing';
+    }
+  | {
+      status: 'expired';
+      acknowledgedAtMs?: never;
+      abandonedAtMs?: never;
+      expiredAtMs: number;
+      cleanupReason: 'pending_backup_expired';
+    };
+
+type PendingEmailOtpRecoveryCodeBackupRecord =
+  PendingEmailOtpRecoveryCodeBackupLifecycle & {
+    v: 1;
+    secretKind: 'email_otp_recovery_codes_pending_backup';
+    storageScope: 'iframe_origin_indexeddb' | 'host_origin_indexeddb';
+    walletId: string;
+    enrollmentId: string;
+    enrollmentSealKeyVersion: string;
+    recoveryCodesIssuedAtMs: number;
+    recoveryKeys: EmailOtpRecoveryCodeSet;
+    createdAtMs: number;
+    expiresAtMs: number;
+  };
+```
+
+Implementation steps:
+
+1. Add a new `seams_wallet` object store for pending Email OTP recovery-code
+   backups.
+2. Bump `SEAMS_WALLET_DB_VERSION` and add the store to
+   `SEAMS_WALLET_SCHEMA_MANIFEST`.
+3. Use a composite key of `[wallet_id, enrollment_id]`.
+4. Add indexes for `wallet_id`, `enrollment_id`, `expires_at_ms`, and
+   `status`.
+5. Add a repository module:
+
+   ```text
+   client/src/core/indexedDB/seamsWalletDB/emailOtpPendingRecoveryCodeBackups.ts
+   ```
+
+6. Normalize raw rows at the repository boundary into
+   `PendingEmailOtpRecoveryCodeBackupRecord`.
+7. Require `recoveryKeys` to parse through the fixed-size
+   `EmailOtpRecoveryCodeSet` builder. Reject raw `string[]` in core helpers.
+8. Reject records with missing wallet identity, enrollment identifiers,
+   timestamps, expiry, or invalid lifecycle branch timestamps.
+9. Reject records whose `secretKind` is anything other than
+   `email_otp_recovery_codes_pending_backup`.
+10. Write the pending record immediately after enrollment returns generated
+    codes and before showing the backup modal.
+11. In wallet-iframe mode, write the pending record inside the wallet iframe
+    origin. The host page must never receive the record or `recoveryKeys`.
+12. In direct SDK mode, write the pending record in the SDK origin that owns the
+    same-origin registration UI.
+13. On opening the `Recovery Codes` menu item, fetch server status first.
+14. If server status is `pending_backup`, read the matching pending backup
+    record by `walletId`, `enrollmentId`, and `enrollmentSealKeyVersion`.
+15. If a matching pending record exists and is not expired, show the compact
+    recovery-code backup modal with the stored codes and a `Download` button.
+16. If no matching pending record exists, show non-secret pending status and a
+    message that the generated codes are unavailable on this device.
+17. If the server reports `ready`, `not_enrolled`, or `incomplete`, never
+    display a pending backup record. Delete stale local pending records for that
+    wallet/enrollment.
+18. After a successful download, call
+    `POST /wallet/email-otp/recovery-key/backup-acknowledge`.
+19. Delete the pending record only after acknowledgement succeeds. If deletion
+    fails, retry deletion and keep the server acknowledgement result; the next
+    status open must delete the stale record because server status is no longer
+    `pending_backup`.
+20. If acknowledgement fails, keep the pending record and keep the modal open so
+    the user can retry.
+21. Delete pending records on explicit abandon/cancel only after marking or
+    replacing the matching server pending set according to the server cleanup
+    policy.
+22. Delete expired pending records during repository startup, before writing a
+    new record for the same wallet, and when the account menu opens.
+23. Use a short expiry window. Start with 24 hours unless product requires a
+    shorter window.
+24. Never sync this store, export it, include it in diagnostics, or expose it
+    through public API payloads.
+
+Files:
+
+1. `client/src/core/indexedDB/schemaNames.ts`
+2. `client/src/core/indexedDB/seamsWalletDB/schema.ts`
+3. `client/src/core/indexedDB/seamsWalletDB/emailOtpPendingRecoveryCodeBackups.ts`
+4. `client/src/web/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.ts`
+5. `client/src/web/SeamsWeb/operations/registration/registration.ts`
+6. `client/src/web/SeamsWeb/walletIframe/host/handlers/emailOtp.ts`
+7. `client/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx`
+8. `tests/unit/emailOtpPendingRecoveryCodeBackups.unit.test.ts`
+9. `tests/unit/seamsWeb.emailOtpRecoveryCodeBackup.unit.test.ts`
+10. `tests/unit/walletIframeHost.emailOtpRecoveryCodes.unit.test.ts`
+
+Static guard updates:
+
+1. Keep the existing escrow-store guard that rejects `recoveryKeys` in
+   `email_otp_escrows`.
+2. Add an allowlist guard so `recoveryKeys` may appear only in:
+   - worker generation output.
+   - enrollment result boundary parsers.
+   - pending backup repository.
+   - backup UI rendering/download code.
+   - boundary rejection tests.
+3. Add a guard that fails if `PendingEmailOtpRecoveryCodeBackupRecord` appears
+   in server code, iframe host-to-parent message payloads, progress events, logs,
+   telemetry, or public non-registration APIs.
+
+Validation:
+
+1. Repository unit tests prove invalid branch combinations are rejected.
+2. Repository unit tests prove raw `string[]` recovery-code arrays are rejected.
+3. Repository unit tests prove expired records are deleted and never returned for
+   display.
+4. Backup UI tests prove codes can be restored from pending IndexedDB after a
+   reload when server status is still `pending_backup`.
+5. Account menu tests prove pending codes are displayed only for the matching
+   Email OTP wallet/enrollment.
+6. Account menu tests prove ready status deletes stale pending records and does
+   not redisplay codes.
+7. Iframe tests prove host responses still contain no generated `recoveryKeys`.
+8. Static guards prove generated recovery codes are not written to localStorage,
+   sessionStorage, logs, telemetry, or server route payloads.
+
+### Phase 7: Settings And Rotation
 
 1. Add recovery-code status route.
 2. Add revoke route.
@@ -823,13 +1010,13 @@ Server files:
 
 Client files:
 
-1. `client/src/web/SeamsWeb/emailOtp.ts`
+1. `client/src/SeamsWeb/emailOtp.ts`
 2. `client/src/core/WalletIframe/shared/messages.ts`
 3. `client/src/react/components/AccountMenuButton/types.ts`
 4. `client/src/react/components/AccountMenuButton/index.tsx`
 5. account settings recovery-code UI modules
 
-### Phase 7: Tests
+### Phase 8: Tests
 
 Add tests for:
 
@@ -855,17 +1042,23 @@ Add tests for:
 16. recovery-code entry normalizes lowercase, spaces, and dashes.
 17. used recovery code consumes exactly one active server record.
 18. post-recovery active count below 10 triggers rotation prompt.
-19. IndexedDB/localStorage/sessionStorage never receive generated recovery codes.
-20. abandoned backup cannot redisplay the old plaintext recovery codes after
-    reload.
-21. active-immediately recovery-wrapped escrow fixtures are gone or limited to
+19. IndexedDB receives generated recovery codes only through the dedicated
+    pending-backup store.
+20. localStorage and sessionStorage never receive generated recovery codes.
+21. abandoned backup can redisplay old plaintext recovery codes after reload only
+    while the matching pending-backup IndexedDB record exists, has not expired,
+    and server status is still `pending_backup`.
+22. active-immediately recovery-wrapped escrow fixtures are gone or limited to
     boundary rejection coverage.
-22. public SDK type fixtures reject raw recovery-code arrays and optional
+23. public SDK type fixtures reject raw recovery-code arrays and optional
     recovery-code fields.
-23. wallet-iframe enrollment host responses contain no generated `recoveryKeys`.
-24. `AccountMenuButton` exposes the `Recovery Codes` menu item only for logged-in
+24. wallet-iframe enrollment host responses contain no generated `recoveryKeys`.
+25. `AccountMenuButton` exposes the `Recovery Codes` menu item only for logged-in
     users.
-25. profile-menu recovery-code status fetches and renders only non-secret status.
+26. profile-menu recovery-code status fetches server status before reading local
+    pending backup records.
+27. profile-menu recovery-code status renders plaintext codes only from a
+    matching, unexpired pending backup record.
 
 ## Acceptance Criteria
 
@@ -876,7 +1069,8 @@ Add tests for:
 4. Continue requires a completed backup action and acknowledgement.
 5. The UI clearly says each code can be used once.
 6. The app does not persist plaintext recovery codes after acknowledgement.
-7. The app does not persist plaintext recovery codes before acknowledgement.
+7. The app persists plaintext recovery codes before acknowledgement only in the
+   dedicated pending-backup IndexedDB store.
 8. The server never receives generated plaintext recovery codes.
 9. Wallet-iframe host code never receives generated recovery codes.
 10. Pending backup escrows become active only after backup acknowledgement.
@@ -886,8 +1080,8 @@ Add tests for:
 13. Successful recovery consumes one code and surfaces the remaining active count.
 14. Account settings can show recovery-code status and rotate back to 10 active
    codes.
-15. Tests prove recovery codes are redacted from events, logs, and persistent
-   stores.
+15. Tests prove recovery codes are redacted from events, logs, server state, and
+   every persistent store outside the dedicated pending-backup store.
 
 ## Related Docs
 

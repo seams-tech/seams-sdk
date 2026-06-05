@@ -904,7 +904,7 @@ export async function runPasskeySigningSessionLifecyclePhase(
     }) => {
       let stage = 'init';
       try {
-        const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+        const sdkMod = await import('/sdk/esm/SeamsWeb/index.js');
         const actionsMod = await import('/sdk/esm/core/types/actions.js');
         const { SeamsWeb } = sdkMod as any;
         const { ActionType } = actionsMod as any;
@@ -1106,7 +1106,7 @@ export async function runPasskeySigningSessionLifecyclePhase(
       } catch (error: unknown) {
         let sessionStatus = '';
         try {
-          const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+          const sdkMod = await import('/sdk/esm/SeamsWeb/index.js');
           const { SeamsWeb } = sdkMod as any;
           const seams = new SeamsWeb({
             nearNetwork: 'testnet',

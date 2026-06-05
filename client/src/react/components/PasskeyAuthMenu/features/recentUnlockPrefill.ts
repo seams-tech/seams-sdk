@@ -1,4 +1,4 @@
-import type { SeamsWeb } from '@/web/SeamsWeb';
+import type { SeamsWeb } from '@/SeamsWeb';
 import { awaitWalletIframeReady } from '@/react/utils/walletIframe';
 
 export interface RecentUnlockPrefillResult {

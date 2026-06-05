@@ -89,7 +89,7 @@ test.describe('signing-engine ownership architecture guardrails', () => {
       '/assembly/',
       "from './SigningEngine'",
       "from '../SigningEngine'",
-      "from '@/web/SeamsWeb/signingSurface/BrowserSigningSurface'",
+      "from '@/SeamsWeb/signingSurface/BrowserSigningSurface'",
     ] as const;
     const offenders: string[] = [];
 
@@ -119,7 +119,7 @@ test.describe('signing-engine ownership architecture guardrails', () => {
           resolved.startsWith('client/src/core/signingEngine/session/emailOtp/') ||
           resolved.startsWith('client/src/core/signingEngine/flows/') ||
           resolved.startsWith('client/src/core/signingEngine/assembly/') ||
-          resolved === 'client/src/web/SeamsWeb/assembly/BrowserSigningSurface'
+          resolved === 'client/src/SeamsWeb/assembly/BrowserSigningSurface'
         ) {
           offenders.push(`${relativePath} -> ${specifier}`);
         }

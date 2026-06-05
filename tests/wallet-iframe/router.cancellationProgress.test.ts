@@ -26,7 +26,7 @@ test.describe('WalletIframeRouter cancellation progress', () => {
     const result = await page.evaluate(
       async ({ routerPath, walletOrigin, captureOverlaySource, waitForSource }) => {
         const mod = await import(routerPath);
-        const { WalletIframeRouter } = mod as typeof import('@/web/SeamsWeb/walletIframe/client/router');
+        const { WalletIframeRouter } = mod as typeof import('@/SeamsWeb/walletIframe/client/router');
         const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
         const waitFor = eval(waitForSource) as typeof import('./harness').waitFor;
 

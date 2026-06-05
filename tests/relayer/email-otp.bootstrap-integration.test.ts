@@ -12,7 +12,7 @@ import {
   deriveEmailOtpEcdsaClientRootShare32B64u,
   deriveEmailOtpUnlockAuthSeed,
 } from '../helpers/emailOtpDerivation';
-import { enrollEmailOtpWallet } from '@/web/SeamsWeb/operations/authMethods/emailOtp/enrollment';
+import { enrollEmailOtpWallet } from '@/SeamsWeb/operations/authMethods/emailOtp/enrollment';
 import {
   callCf,
   fetchJson,

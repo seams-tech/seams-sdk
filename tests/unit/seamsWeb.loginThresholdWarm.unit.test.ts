@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { unlock } from '@/web/SeamsWeb/operations/auth/login';
+import { unlock } from '@/SeamsWeb/operations/auth/login';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { toAccountId } from '@/core/types/accountIds';
 import {

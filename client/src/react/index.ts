@@ -28,7 +28,7 @@ export { SeamsContextProvider, useSeams } from './context';
 export { SeamsWebProvider } from './context/SeamsWebProvider';
 
 // === RE-EXPORT CORE TYPES ===
-export { SeamsWeb } from '../web/SeamsWeb';
+export { SeamsWeb } from '../SeamsWeb';
 export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '../core/config/defaultConfigs';
 export type {
   EmailOtpAuthPolicy,

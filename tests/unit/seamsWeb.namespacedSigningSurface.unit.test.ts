@@ -25,7 +25,7 @@ test.describe('SeamsWeb namespaced signing surface', () => {
   }) => {
     const result = await page.evaluate(
       async ({ flatMethods }) => {
-        const mod = await import('/sdk/esm/web/SeamsWeb/index.js');
+        const mod = await import('/sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
 
         const seams = new SeamsWeb({

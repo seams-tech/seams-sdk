@@ -36,7 +36,7 @@ async function setupPasskeyEvmSigningSession(
   const setupPromise = page.evaluate(
     async ({ relayerUrl, accountId, remainingUses, keyVersion, shamirPrimeB64u }) => {
       try {
-        const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+        const sdkMod = await import('/sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = sdkMod as any;
         const confirmationConfig = {
           uiMode: 'none' as const,
@@ -174,7 +174,7 @@ async function runPasskeyEvmSign(
       let readSealedRecordSummaries = async (): Promise<Array<Record<string, unknown>>> => [];
       let readRuntimeDiagnostics = async (): Promise<Record<string, unknown>> => ({});
       try {
-        const sdkMod = await import('/sdk/esm/web/SeamsWeb/index.js');
+        const sdkMod = await import('/sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = sdkMod as any;
         const confirmationConfig = {
           uiMode: 'none' as const,

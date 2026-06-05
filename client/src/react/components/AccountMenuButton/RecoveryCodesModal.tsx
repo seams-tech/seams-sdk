@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { Theme, useTheme } from '../theme';
 import { useSeams } from '../../context';
-import type { EmailOtpRecoveryCodeStatus } from '@/web/SeamsWeb/signingSurface/types';
+import type { EmailOtpRecoveryCodeStatus } from '@/SeamsWeb/signingSurface/types';
 import './RecoveryCodesModal.css';
 
 interface RecoveryCodesModalProps {

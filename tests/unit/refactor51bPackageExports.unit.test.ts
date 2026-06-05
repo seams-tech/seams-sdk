@@ -15,7 +15,7 @@ function readRepoFile(relativePath: string): string {
 
 const browserSurfacePatterns = [
   /\bWalletIframe\b/,
-  /web\/SeamsWeb/,
+  /SeamsWeb/,
   /from\s+['"][^'"]*react[^'"]*['"]/,
   /\bwindow\b/,
   /\bdocument\b/,
@@ -66,9 +66,9 @@ test.describe('refactor 51b package exports', () => {
     expect(exportsMap['./components/modal']).toBeUndefined();
     expect(exportsMap['./components/embedded']).toBeUndefined();
     expect(exportsMap['./web/wallet-iframe-client-html']).toEqual({
-      import: './dist/esm/web/SeamsWeb/walletIframe/client/html.js',
-      default: './dist/esm/web/SeamsWeb/walletIframe/client/html.js',
-      types: './dist/types/client/src/web/SeamsWeb/walletIframe/client/html.d.ts',
+      import: './dist/esm/SeamsWeb/walletIframe/client/html.js',
+      default: './dist/esm/SeamsWeb/walletIframe/client/html.js',
+      types: './dist/types/client/src/SeamsWeb/walletIframe/client/html.d.ts',
     });
   });
 

@@ -12,7 +12,7 @@ flows or browser assembly.
 - `flows/*`: feature entry modules for signing, registration, recovery, and
   Email OTP operations.
 - `assembly/`: assembles runtime dependencies and operation ports for the
-  browser signing surface under `web/SeamsWeb/assembly`.
+  browser signing surface under `SeamsWeb/assembly`.
 
 ## Folder Roles
 
@@ -58,7 +58,7 @@ primitives into `webauthnAuth/`, and moved wallet-auth policy resolution into
 ```mermaid
 flowchart TD
   SP["SeamsWeb / SDK"] --> RT["SigningRuntime.services"]
-  SP --> INIT["web/SeamsWeb/assembly"]
+  SP --> INIT["SeamsWeb/assembly"]
   RT --> OPS["flows/*"]
   INIT --> SESSION["session/"]
   INIT --> CONF["stepUpConfirmation/"]

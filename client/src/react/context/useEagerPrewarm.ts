@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import type { SeamsWeb } from '@/web/SeamsWeb';
+import type { SeamsWeb } from '@/SeamsWeb';
 
 type IdleCapableWindow = Window & {
   requestIdleCallback?: (cb: () => void, opts?: { timeout?: number }) => number;

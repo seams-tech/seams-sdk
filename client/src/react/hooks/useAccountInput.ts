@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { SeamsWeb } from '@/web/SeamsWeb';
+import type { SeamsWeb } from '@/SeamsWeb';
 import { checkNearAccountExistsBestEffort } from '@/core/rpcClients/near/rpcCalls';
 import { awaitWalletIframeReady } from '../utils/walletIframe';
 import { isObject } from '@shared/utils/validation';

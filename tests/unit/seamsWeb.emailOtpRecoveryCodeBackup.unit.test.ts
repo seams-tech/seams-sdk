@@ -49,7 +49,7 @@ async function mountBackupUi(page: import('@playwright/test').Page): Promise<voi
   await page.evaluate(
     async ({ enrollment }) => {
       const mod = await import(
-        '/sdk/esm/web/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.js'
+        '/sdk/esm/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.js'
       );
       (window as any).__backupPromise = mod.backupEmailOtpRecoveryCodes({
         relayUrl: 'https://relay.example',

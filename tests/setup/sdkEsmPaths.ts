@@ -11,8 +11,8 @@ export const SDK_ESM_PATHS = {
   base64: sdkEsmPath('utils/base64.js'),
   accountIds: sdkEsmPath('core/types/accountIds.js'),
   actions: sdkEsmPath('core/types/actions.js'),
-  seamsWeb: sdkEsmPath('web/SeamsWeb/index.js'),
-  walletIframeRouter: sdkEsmPath('web/SeamsWeb/walletIframe/client/router.js'),
+  seamsWeb: sdkEsmPath('SeamsWeb/index.js'),
+  walletIframeRouter: sdkEsmPath('SeamsWeb/walletIframe/client/router.js'),
   confirmUi: sdkEsmPath('core/signingEngine/uiConfirm/ui/confirm-ui.js'),
   walletEvents: sdkEsmPath('core/browser/walletIframe/events.js'),
 } as const;

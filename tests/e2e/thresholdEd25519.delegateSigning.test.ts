@@ -82,7 +82,7 @@ test.describe('threshold-ed25519 delegate signing (NEP-461)', () => {
       const result = (await page.evaluate(
         async ({ relayerUrl, managedRegistration }) => {
           try {
-            const { SeamsWeb } = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const { SeamsWeb } = await import('/sdk/esm/SeamsWeb/index.js');
             const { ActionType, toActionArgsWasm } = await import('/sdk/esm/core/types/actions.js');
             const suffix =
               typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'

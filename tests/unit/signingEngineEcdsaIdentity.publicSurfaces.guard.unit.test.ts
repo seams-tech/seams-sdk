@@ -21,7 +21,7 @@ import {
 
 test.describe('signing engine ECDSA public surface identity guards', () => {
   test('public SDK ECDSA inputs stay wallet-session shaped', () => {
-    const source = readRepoFile('client/src/web/SeamsWeb/signingSurface/types.ts');
+    const source = readRepoFile('client/src/SeamsWeb/signingSurface/types.ts');
     const namedDeclarations = [
       {
         name: 'SignTempoArgs',
@@ -102,7 +102,7 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
   });
 
   test('ECDSA iframe payloads stay wallet-session shaped', () => {
-    const source = readRepoFile('client/src/web/SeamsWeb/walletIframe/shared/messages.ts');
+    const source = readRepoFile('client/src/SeamsWeb/walletIframe/shared/messages.ts');
     const namedDeclarations = [
       {
         name: 'PMSignTempoPayload',

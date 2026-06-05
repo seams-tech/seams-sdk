@@ -123,7 +123,7 @@ const browserRuntimeConstructionAllowList = guardBoundaryEntries([
     reason: 'defines current browser platform runtime',
   },
   {
-    file: 'client/src/web/SeamsWeb/assembly/createBrowserSigningRuntime.ts',
+    file: 'client/src/SeamsWeb/assembly/createBrowserSigningRuntime.ts',
     owner: 'browser runtime assembly',
     reason: 'browser web assembly constructs the browser platform runtime for SeamsWeb',
   },
@@ -156,12 +156,12 @@ const walletIframeCoreImportAllowList = guardBoundaryEntries([
     reason: 'shared browser-platform host-mode state stays outside wallet iframe implementation',
   },
   {
-    prefix: 'client/src/web/SeamsWeb/',
+    prefix: 'client/src/SeamsWeb/',
     owner: 'browser web facade',
     reason: 'current browser facade owns wallet iframe routing',
   },
   {
-    prefix: 'client/src/web/SeamsWeb/walletIframe/',
+    prefix: 'client/src/SeamsWeb/walletIframe/',
     owner: 'browser wallet iframe implementation',
     reason: 'current wallet iframe implementation imports within its own browser-only tree',
   },
@@ -198,7 +198,7 @@ const nativeAndEmbeddedForbiddenPatterns = [
   /\bIndexedDBManager\b/,
   /\bUnifiedIndexedDBManager\b/,
   /platform\/browser/,
-  /web\/SeamsWeb/,
+  /SeamsWeb/,
 ];
 
 const useCaseIndexedDBForbiddenPatterns = [
@@ -315,9 +315,9 @@ test.describe('refactor 51b platform boundary guards', () => {
 
   test('keeps chain signer modules local-only after SeamsWeb owns iframe routing', () => {
     const signerFiles = [
-      'client/src/web/SeamsWeb/operations/near/index.ts',
-      'client/src/web/SeamsWeb/operations/tempo/index.ts',
-      'client/src/web/SeamsWeb/operations/evm/index.ts',
+      'client/src/SeamsWeb/operations/near/index.ts',
+      'client/src/SeamsWeb/operations/tempo/index.ts',
+      'client/src/SeamsWeb/operations/evm/index.ts',
     ];
     const violations: string[] = [];
     for (const file of signerFiles) {
@@ -336,7 +336,7 @@ test.describe('refactor 51b platform boundary guards', () => {
     }
 
     expect(violations, violations.join('\n')).toEqual([]);
-    expect(fs.existsSync(path.join(repoRoot, 'client/src/web/SeamsWeb/walletIframeRoute.ts'))).toBe(
+    expect(fs.existsSync(path.join(repoRoot, 'client/src/SeamsWeb/walletIframeRoute.ts'))).toBe(
       false,
     );
   });

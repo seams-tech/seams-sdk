@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  thresholdWarmSessionBootstrap: '/sdk/esm/web/SeamsWeb/thresholdWarmSessionBootstrap.js',
-  login: '/sdk/esm/web/SeamsWeb/login.js',
+  thresholdWarmSessionBootstrap: '/sdk/esm/SeamsWeb/thresholdWarmSessionBootstrap.js',
+  login: '/sdk/esm/SeamsWeb/login.js',
   indexedDb: '/sdk/esm/core/indexedDB/index.js',
   thresholdSessionStore:
     '/sdk/esm/core/signingEngine/session/persistence/records.js',

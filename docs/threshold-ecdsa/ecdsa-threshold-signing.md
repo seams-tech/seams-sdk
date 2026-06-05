@@ -185,6 +185,6 @@ Server-side instrumentation for threshold ECDSA presign/sign should be treated a
 
 3. Wallet-origin coordinator and presign pool scheduling: `client/src/core/signingEngine/orchestration/walletOrigin/thresholdEcdsaCoordinator.ts`.
 
-4. ECDSA bootstrap path: `client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionActivation.ts`, `client/src/web/SeamsWeb/registration.ts`.
+4. ECDSA bootstrap path: `client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionActivation.ts`, `client/src/SeamsWeb/registration.ts`.
 
 5. Server route timings and presign prioritization: `server/src/router/express/routes/thresholdEcdsa.ts`.

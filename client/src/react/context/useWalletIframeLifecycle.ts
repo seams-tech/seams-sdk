@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
-import type { SeamsWeb } from '@/web/SeamsWeb';
+import type { SeamsWeb } from '@/SeamsWeb';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { LoginState } from '../types';
 import { isWalletSessionReadyForUi } from './walletSessionReadiness';

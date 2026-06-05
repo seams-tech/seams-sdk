@@ -92,7 +92,7 @@ test.describe('threshold-ed25519 authorize unauthorized', () => {
       const setup = await page.evaluate(
         async ({ relayerUrl }) => {
           try {
-            const { SeamsWeb } = await import('/sdk/esm/web/SeamsWeb/index.js');
+            const { SeamsWeb } = await import('/sdk/esm/SeamsWeb/index.js');
             const suffix =
               typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
                 ? crypto.randomUUID()

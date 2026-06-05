@@ -1,4 +1,4 @@
-import { SeamsWeb } from '@/web/SeamsWeb';
+import { SeamsWeb } from '@/SeamsWeb';
 import { buildConfigsFromEnv } from '@/core/config/defaultConfigs';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { SeamsConfigsReadonly, SeamsConfigsInput } from '@/core/types/seams';

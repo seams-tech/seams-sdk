@@ -133,7 +133,7 @@ test.describe('Wallet iframe preferences sync', () => {
               ? 'https://example.localhost'
               : window.location.origin;
           const mod = await import(new URL(seamsPath, base).toString());
-          const { SeamsWeb } = mod as typeof import('@/web/SeamsWeb');
+          const { SeamsWeb } = mod as typeof import('@/SeamsWeb');
 
           const seams = new SeamsWeb({
             chains: [
@@ -227,7 +227,7 @@ test.describe('Wallet iframe preferences sync', () => {
               ? 'https://example.localhost'
               : window.location.origin;
           const mod = await import(new URL(seamsPath, base).toString());
-          const { SeamsWeb } = mod as typeof import('@/web/SeamsWeb');
+          const { SeamsWeb } = mod as typeof import('@/SeamsWeb');
 
           const seams = new SeamsWeb({
             chains: [

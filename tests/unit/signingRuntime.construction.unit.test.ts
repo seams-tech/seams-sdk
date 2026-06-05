@@ -5,7 +5,7 @@ import {
   createSigningRuntimeStatePorts,
 } from '@/core/runtime/createSigningRuntime';
 import type { RuntimePorts } from '@/core/platform';
-import { toSigningRuntimeConfig } from '@/web/SeamsWeb/assembly/runtimeConfig';
+import { toSigningRuntimeConfig } from '@/SeamsWeb/assembly/runtimeConfig';
 
 function createInMemoryRuntimePorts(): RuntimePorts {
   return {

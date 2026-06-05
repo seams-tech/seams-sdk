@@ -9,7 +9,7 @@ import type {
   SignNEP413MessageParams,
   SignNEP413MessageResult,
   RegistrationCapability,
-} from '../web/SeamsWeb';
+} from '../SeamsWeb';
 import type { ThemeName, WalletAuthMethod } from '../core/types/seams';
 import { TransactionInput } from '../core/types/actions';
 import type { ConfirmationConfig, ConfirmationBehavior } from '../core/types/signer-worker';

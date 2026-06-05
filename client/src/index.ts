@@ -1,4 +1,4 @@
-export { SeamsWeb } from './web/SeamsWeb';
+export { SeamsWeb } from './SeamsWeb';
 
 export * from './config';
 export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from './core/config/defaultConfigs';

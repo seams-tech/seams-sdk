@@ -59,7 +59,7 @@ test.describe('signing engine ECDSA export and fixture identity guards', () => {
   });
 
   test('browser signing surface ECDSA methods do not derive subject identity from accounts', () => {
-    const source = readRepoFile('client/src/web/SeamsWeb/signingSurface/BrowserSigningSurface.ts');
+    const source = readRepoFile('client/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts');
     const methodNames = [
       'signEvmFamily',
       'bootstrapEcdsaSession',

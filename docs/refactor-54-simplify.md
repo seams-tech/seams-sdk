@@ -64,7 +64,7 @@ Examples to remove:
 Current high-signal search patterns:
 
 ```bash
-rg -n "signingRuntime\\.services|SeamsWebContext| getContext:" client/src/web/SeamsWeb client/src/core
+rg -n "signingRuntime\\.services|SeamsWebContext| getContext:" client/src/SeamsWeb client/src/core
 ```
 
 ## Target Architecture
@@ -147,18 +147,18 @@ operations they already use without exposing the runtime graph.
 ## Phase 0: Inventory And Guardrails
 
 - [x] Inventory every `context.signingRuntime.services.*` call under
-      `client/src/web/SeamsWeb`.
+      `client/src/SeamsWeb`.
 - [x] Inventory every capability factory that accepts `getContext()`.
 - [x] Inventory every core module importing `SeamsWebContext`.
 - [x] Add or update a source guard that fails when web modules outside
-      `client/src/web/SeamsWeb/assembly/BrowserSigningSurface.ts` and
-      `client/src/web/SeamsWeb/assembly/**` call `signingRuntime.services`.
+      `client/src/SeamsWeb/assembly/BrowserSigningSurface.ts` and
+      `client/src/SeamsWeb/assembly/**` call `signingRuntime.services`.
 - [x] Add a guard that fails if `SeamsWebContext` has a `signingRuntime` field
       after the final removal phase.
 - [x] Record intentional temporary exceptions in this plan with an owner phase.
 
 Temporary exceptions: none for `signingRuntime.services` outside
-`client/src/web/SeamsWeb/assembly/**`. Broad `getContext()` dependency narrowing
+`client/src/SeamsWeb/assembly/**`. Broad `getContext()` dependency narrowing
 remains Phase 4 work.
 
 ## Phase 1: Flatten Signing And Tempo Calls
@@ -168,9 +168,9 @@ remains Phase 4 work.
 - [x] Replace Tempo/EVM direct runtime calls with
       `context.signingEngine.signTempo(...)` and the matching report/reconcile
       methods.
-- [x] Update `client/src/web/SeamsWeb/near/**` callers.
-- [x] Update `client/src/web/SeamsWeb/tempo/**` callers.
-- [x] Update `client/src/web/SeamsWeb/evm/**` callers.
+- [x] Update `client/src/SeamsWeb/near/**` callers.
+- [x] Update `client/src/SeamsWeb/tempo/**` callers.
+- [x] Update `client/src/SeamsWeb/evm/**` callers.
 - [x] Keep wallet-iframe routing behavior unchanged.
 - [x] Add focused tests for direct `signingEngine` callpaths where existing
       tests currently pass by using runtime services directly.
@@ -193,11 +193,11 @@ Acceptance:
       through `ecdsaRegistrationSessions`.
 - [x] Add methods for ECDSA wallet record writes currently reached through
       `ecdsaWalletRecords`.
-- [x] Update `client/src/web/SeamsWeb/registration.ts`.
-- [x] Update `client/src/web/SeamsWeb/login.ts`.
-- [x] Update `client/src/web/SeamsWeb/authSessions.ts`.
-- [x] Update `client/src/web/SeamsWeb/near/linkDevice.ts`.
-- [x] Update `client/src/web/SeamsWeb/near/emailRecovery.ts`.
+- [x] Update `client/src/SeamsWeb/registration.ts`.
+- [x] Update `client/src/SeamsWeb/login.ts`.
+- [x] Update `client/src/SeamsWeb/authSessions.ts`.
+- [x] Update `client/src/SeamsWeb/near/linkDevice.ts`.
+- [x] Update `client/src/SeamsWeb/near/emailRecovery.ts`.
 - [x] Keep persistence boundary parsers unchanged.
 
 Acceptance:
@@ -280,7 +280,7 @@ Acceptance:
 - [x] `SeamsWebSigningSurface` has no `signingRuntime` field.
 - [x] `SeamsWebSigningSurface` does not import or mirror runtime service
       interfaces such as `RegistrationAccountsService`.
-- [x] `rg -n "signingRuntime\\.services" client/src/web/SeamsWeb client/src/core/WalletIframe`
+- [x] `rg -n "signingRuntime\\.services" client/src/SeamsWeb client/src/core/WalletIframe`
       returns only allowed assembly/runtime references.
 - [x] TypeScript rejects web modules that attempt to access runtime services
       through context.
@@ -668,10 +668,10 @@ infer direction from the path:
 
 ```text
 app code
-  -> web/SeamsWeb/SeamsWeb.ts
-    -> web/SeamsWeb/publicApi
-      -> web/SeamsWeb/operations
-        -> web/SeamsWeb/signingSurface
+  -> SeamsWeb/SeamsWeb.ts
+    -> SeamsWeb/publicApi
+      -> SeamsWeb/operations
+        -> SeamsWeb/signingSurface
           -> core/runtime
             -> core/platform
 ```
@@ -687,7 +687,7 @@ shape; `publicApi/` describes the product boundary.
 Target layout:
 
 ```text
-client/src/web/SeamsWeb/
+client/src/SeamsWeb/
   index.ts
 
   SeamsWeb.ts
@@ -759,13 +759,13 @@ Rules:
 
 Tasks:
 
-- [x] Keep `client/src/web/SeamsWeb/index.ts` as exports only and keep the
-      facade implementation in `client/src/web/SeamsWeb/SeamsWeb.ts`.
+- [x] Keep `client/src/SeamsWeb/index.ts` as exports only and keep the
+      facade implementation in `client/src/SeamsWeb/SeamsWeb.ts`.
 - [x] Move direct public API object construction from the `SeamsWeb` constructor
       into `createPublicApi.ts` when doing so removes constructor noise
       without adding a per-call forwarding layer.
-- [x] Rename `client/src/web/SeamsWeb/capabilities/` to
-      `client/src/web/SeamsWeb/publicApi/`.
+- [x] Rename `client/src/SeamsWeb/capabilities/` to
+      `client/src/SeamsWeb/publicApi/`.
 - [x] Keep the public API unchanged: app code still calls
       `seams.registration.enrollEmailOtp(...)`, `seams.auth.unlock(...)`, and the
       other task APIs.
@@ -792,11 +792,11 @@ Tasks:
 - [x] Keep browser construction helpers under `assembly/`; do not move runtime
       construction into `SeamsWeb.ts` or `publicApi/`.
 - [x] Move `client/src/core/WalletIframe/**` under
-      `client/src/web/SeamsWeb/walletIframe/**`, or split any truly
+      `client/src/SeamsWeb/walletIframe/**`, or split any truly
       platform-neutral message types into `core` before moving the browser
       implementation.
 - [x] Move shared web-leaked result types and Email OTP worker-facing operations
-      out of `web/SeamsWeb` and into `core` so `core/**` no longer imports
+      out of `SeamsWeb` and into `core` so `core/**` no longer imports
       `web/**`.
 - [x] Update import aliases, package exports, React imports, wallet-iframe host
       imports, and tests to the new paths.
@@ -805,8 +805,8 @@ Tasks:
       `operations/**` must not import the `SeamsWeb.ts` implementation;
       `signingSurface/**` must not import `publicApi/**`;
       `publicApi/**` must not import concrete assembly factories;
-      `walletIframe/**` stays under `web/SeamsWeb`.
-- [x] Add a small folder-layout README or update `web/SeamsWeb/README.md` with
+      `walletIframe/**` stays under `SeamsWeb`.
+- [x] Add a small folder-layout README or update `SeamsWeb/README.md` with
       the allowed import direction and the reason for `publicApi/`.
 - [x] Run `pnpm -C sdk type-check`, the refactor-54 source guard, targeted web
       facade tests, and `git diff --check`.
@@ -875,12 +875,12 @@ cleanup above.
 Known residual imports:
 
 - `client/src/core/types/sdkSentEvents.ts` imports public result types from
-  `@/web/SeamsWeb`.
+  `@/SeamsWeb`.
 - `client/src/core/signingEngine/session/emailOtp/walletEnrollment.ts` and
   `client/src/core/signingEngine/session/emailOtp/ecdsaEnrollment.ts` import
-  Email OTP enrollment result types from `@/web/SeamsWeb/emailOtp`.
+  Email OTP enrollment result types from `@/SeamsWeb/emailOtp`.
 - `client/src/core/signingEngine/flows/signEvmFamily/emailOtpPublic.ts` imports
-  Email OTP worker-facing operations from `@/web/SeamsWeb/emailOtp`.
+  Email OTP worker-facing operations from `@/SeamsWeb/emailOtp`.
 - `client/src/core/WalletIframe/**` is effectively browser/web infrastructure,
   but it still lives under `client/src/core`.
 
@@ -889,13 +889,13 @@ Tasks:
 - [x] Move shared public result types such as `SyncAccountResult` and
       `SignNEP413MessageResult` into core/public type modules.
 - [x] Move Email OTP worker-facing operations and result types out of
-      `client/src/web/SeamsWeb/emailOtp.ts` into a core-owned Email OTP module,
+      `client/src/SeamsWeb/emailOtp.ts` into a core-owned Email OTP module,
       leaving web only as facade wiring.
 - [x] Move or re-home `client/src/core/WalletIframe/**` under a web-owned
-      boundary so core no longer imports `@/web/SeamsWeb`.
+      boundary so core no longer imports `@/SeamsWeb`.
 - [x] Add a source guard that rejects `client/src/core/**` imports from
-      `@/web/SeamsWeb` after the ownership move lands.
-- [x] The `web/SeamsWeb` folder hierarchy expresses the linear call graph:
+      `@/SeamsWeb` after the ownership move lands.
+- [x] The `SeamsWeb` folder hierarchy expresses the linear call graph:
       `SeamsWeb.ts -> publicApi -> operations -> signingSurface -> runtime -> platform`.
 - [x] `core/**` does not import `web/**`.
 
@@ -922,7 +922,7 @@ user tasks and call method-specific helpers through narrow inputs.
 Target layout:
 
 ```text
-client/src/web/SeamsWeb/operations/
+client/src/SeamsWeb/operations/
   auth/
     login.ts
     authSessions.ts
@@ -965,7 +965,7 @@ Rules:
 
 Tasks:
 
-- [x] Create `client/src/web/SeamsWeb/operations/authMethods/passkey/`.
+- [x] Create `client/src/SeamsWeb/operations/authMethods/passkey/`.
 - [x] Move `operations/registration/passkeyRegistrationAuthority.ts` to
       `operations/authMethods/passkey/registrationAuthority.ts`.
 - [x] Extract passkey assertion collection from `operations/auth/login.ts` into
@@ -976,7 +976,7 @@ Tasks:
 - [x] Move or extract passkey ECDSA bootstrap helpers used by registration,
       login, recovery, and device linking into
       `operations/authMethods/passkey/ecdsaBootstrap.ts`.
-- [x] Create `client/src/web/SeamsWeb/operations/authMethods/emailOtp/`.
+- [x] Create `client/src/SeamsWeb/operations/authMethods/emailOtp/`.
 - [x] Split `operations/emailOtp/emailOtp.ts` into method-role modules:
       `challenge.ts`, `enrollment.ts`, and `deviceEscrow.ts`.
 - [x] Move `operations/registration/emailOtpRegistrationAuthority.ts` to
@@ -1014,7 +1014,7 @@ Acceptance:
 Problem:
 
 The TypeScript package now has a clear browser facade under
-`client/src/web/SeamsWeb`, but it still exposes native-looking npm package
+`client/src/SeamsWeb`, but it still exposes native-looking npm package
 entries at `./ios` and `./embedded` through `client/src/ios.ts` and
 `client/src/embedded.ts`. That distribution shape is misleading. iOS developers
 will not install an iOS SDK through npm, and embedded Rust developers will not
@@ -1163,7 +1163,7 @@ Tasks:
       itself; otherwise keep browser specificity on factory names such as
       `createBrowserPlatformRuntime`.
 - [x] Update `core/runtime/README.md`, `core/platform/README.md`, and
-      `web/SeamsWeb/README.md` so they describe TypeScript browser/runtime
+      `SeamsWeb/README.md` so they describe TypeScript browser/runtime
       ports without implying that Swift or embedded Rust import this package.
 - [x] Update platform/runtime guards and package export guards to reject fake
       native TypeScript platform branches and stale `EmbeddedPlatformRuntime`
@@ -1216,7 +1216,7 @@ Acceptance:
 - [x] Can this function be called with a narrower dependency than
       `SeamsWebContext`?
 - [x] Can invalid lifecycle or auth states still cross more than one boundary?
-- [x] Are browser-only concerns still isolated under `client/src/web/SeamsWeb`
+- [x] Are browser-only concerns still isolated under `client/src/SeamsWeb`
       and browser platform adapters?
 - [x] Are tests protecting current behavior rather than preserving an obsolete
       wrapper?
@@ -1260,3 +1260,32 @@ Acceptance:
       intentional breaking API cleanup.
 - [x] New guards or type fixtures cover any newly narrowed context or port
       boundary.
+
+## Phase 20: Flatten SeamsWeb Source Root
+
+Problem:
+
+`client/src/web/SeamsWeb` still carries redundant path noise after the browser
+facade became the product boundary. The `web/` segment no longer adds enough
+ownership signal to justify the extra import depth.
+
+Tasks:
+
+- [x] Move `client/src/web/SeamsWeb/**` to `client/src/SeamsWeb/**`.
+- [x] Update internal imports from `@/web/SeamsWeb/...` to `@/SeamsWeb/...`.
+- [x] Intentionally break built SDK runtime paths from
+      `/sdk/esm/web/SeamsWeb/...` to `/sdk/esm/SeamsWeb/...`.
+- [x] Update SDK rolldown entries, package export type paths, build freshness
+      checks, tests, docs, and source guards to use the flattened source root.
+- [x] Keep browser-only concerns isolated with guards now anchored at
+      `client/src/SeamsWeb`.
+
+Acceptance:
+
+- [x] No source, test, build, or active doc reference still points at
+      `client/src/web/SeamsWeb`, `@/web/SeamsWeb`, or
+      `/sdk/esm/web/SeamsWeb`.
+- [x] The folder hierarchy remains linear:
+      `SeamsWeb -> publicApi -> operations -> signingSurface -> core`.
+- [x] The package/runtime output uses the new breaking
+      `/sdk/esm/SeamsWeb/...` location.

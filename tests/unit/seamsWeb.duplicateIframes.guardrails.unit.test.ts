@@ -80,7 +80,7 @@ test.describe('Wallet iframe duplicate guardrails', () => {
   }) => {
     const result = await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/web/SeamsWeb/index.js');
+        const mod = await import('/sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
 
         for (const el of Array.from(document.querySelectorAll('iframe.w3a-wallet-overlay'))) {

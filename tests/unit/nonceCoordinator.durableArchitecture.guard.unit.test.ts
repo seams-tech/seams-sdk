@@ -35,10 +35,10 @@ test.describe('nonce coordinator durable architecture guards', () => {
       'client/src/core/signingEngine/assembly/createManagers.ts',
     );
     const signingEngine = readRepoSource(
-      'client/src/web/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
+      'client/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
     );
     const browserSigningStores = readRepoSource(
-      'client/src/web/SeamsWeb/assembly/createBrowserSigningStores.ts',
+      'client/src/SeamsWeb/assembly/createBrowserSigningStores.ts',
     );
     const store = readRepoSource('client/src/core/indexedDB/nonceLaneCoordinationStore.ts');
 
@@ -289,7 +289,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
   test('startup recovery is only invoked from startup or unlock boundaries', () => {
     const allowedCallers = new Set([
       'client/src/core/signingEngine/assembly/createManagers.ts',
-      'client/src/web/SeamsWeb/login.ts',
+      'client/src/SeamsWeb/operations/auth/login.ts',
       'client/src/core/signingEngine/nonce/NonceCoordinator.ts',
       'client/src/core/signingEngine/nonce/nonceTypes.ts',
     ]);

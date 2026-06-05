@@ -1,5 +1,5 @@
 // Utilities for coordinating with wallet-iframe readiness from SeamsWeb.
-import type { SeamsWeb } from '@/web/SeamsWeb';
+import type { SeamsWeb } from '@/SeamsWeb';
 
 /**
  * Await wallet iframe readiness when using SeamsWeb.

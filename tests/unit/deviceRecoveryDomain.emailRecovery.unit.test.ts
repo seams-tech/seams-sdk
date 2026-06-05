@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { EmailRecoveryDomain } from '@/web/SeamsWeb/operations/recovery/emailRecovery';
+import { EmailRecoveryDomain } from '@/SeamsWeb/operations/recovery/emailRecovery';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { EmailRecoveryFlowEventPhase } from '@/core/types/sdkSentEvents';
 

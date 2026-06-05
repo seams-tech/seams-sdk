@@ -133,7 +133,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
         try {
           // Dynamically import the router from built ESM
           const mod = await import(routerPath);
-          const { WalletIframeRouter } = mod as typeof import('@/web/SeamsWeb/walletIframe/client/router');
+          const { WalletIframeRouter } = mod as typeof import('@/SeamsWeb/walletIframe/client/router');
 
           const router = new WalletIframeRouter({
             walletOrigin,
@@ -237,7 +237,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
       async ({ walletOrigin, routerPath }) => {
         try {
           const mod = await import(routerPath);
-          const { WalletIframeRouter } = mod as typeof import('@/web/SeamsWeb/walletIframe/client/router');
+          const { WalletIframeRouter } = mod as typeof import('@/SeamsWeb/walletIframe/client/router');
 
           const router = new WalletIframeRouter({
             walletOrigin,
@@ -305,7 +305,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
       async ({ walletOrigin, routerPath }) => {
         try {
           const mod = await import(routerPath);
-          const { WalletIframeRouter } = mod as typeof import('@/web/SeamsWeb/walletIframe/client/router');
+          const { WalletIframeRouter } = mod as typeof import('@/SeamsWeb/walletIframe/client/router');
 
           const router = new WalletIframeRouter({
             walletOrigin,
@@ -373,7 +373,7 @@ test.describe('WalletIframeRouter – overlay + timeout behavior', () => {
       async ({ walletOrigin, routerPath }) => {
         try {
           const mod = await import(routerPath);
-          const { WalletIframeRouter } = mod as typeof import('@/web/SeamsWeb/walletIframe/client/router');
+          const { WalletIframeRouter } = mod as typeof import('@/SeamsWeb/walletIframe/client/router');
 
           const accountId = 'crisp-plain-29ph888gzw.w3a-relayer.testnet';
           const router = new WalletIframeRouter({

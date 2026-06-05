@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { SignedTransaction } from '@/core/rpcClients/near/NearClient';
-import { sendTransaction } from '@/web/SeamsWeb/operations/near/actions';
-import type { SeamsWebContext } from '@/web/SeamsWeb/signingSurface/types';
+import { sendTransaction } from '@/SeamsWeb/operations/near/actions';
+import type { SeamsWebContext } from '@/SeamsWeb/signingSurface/types';
 import type { NonceLeaseRef } from '@/core/signingEngine/interfaces/nonceLease';
 
 test('sendTransaction returns server-dispatched result without rebroadcasting', async () => {

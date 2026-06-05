@@ -290,9 +290,9 @@ methods, or validate local wallet-session readiness.
 
 Core SDK:
 
-- `client/src/web/SeamsWeb/interfaces.ts`
-- `client/src/web/SeamsWeb/index.ts`
-- `client/src/web/SeamsWeb/emailOtp.ts`
+- `client/src/SeamsWeb/interfaces.ts`
+- `client/src/SeamsWeb/index.ts`
+- `client/src/SeamsWeb/emailOtp.ts`
 - `client/src/core/WalletIframe/shared/messages.ts`
 - wallet iframe router/client files that proxy `AuthCapability`
 

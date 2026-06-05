@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { SeamsWeb } from '@/web/SeamsWeb';
-import { getWalletSession } from '@/web/SeamsWeb/operations/auth/login';
-import { toSerializableTempoError } from '@/web/SeamsWeb/operations/tempo';
-import { createEvmSignerCapability } from '@/web/SeamsWeb/publicApi/evm';
-import { createTempoSignerCapability } from '@/web/SeamsWeb/publicApi/tempo';
+import { SeamsWeb } from '@/SeamsWeb';
+import { getWalletSession } from '@/SeamsWeb/operations/auth/login';
+import { toSerializableTempoError } from '@/SeamsWeb/operations/tempo';
+import { createEvmSignerCapability } from '@/SeamsWeb/publicApi/evm';
+import { createTempoSignerCapability } from '@/SeamsWeb/publicApi/tempo';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { createSigningFlowEvent, SigningEventPhase } from '@/core/types/sdkSentEvents';
 import {

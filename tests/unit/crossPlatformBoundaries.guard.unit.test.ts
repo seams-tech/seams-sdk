@@ -191,7 +191,7 @@ const secretSourceCastPatterns = [
 
 function isRuntimePortsAssemblyFile(file: string): boolean {
   return (
-    file === 'client/src/web/SeamsWeb/signingSurface/BrowserSigningSurface.ts' ||
+    file === 'client/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts' ||
     file.startsWith('client/src/core/signingEngine/assembly/')
   );
 }
@@ -328,7 +328,7 @@ test.describe('cross-platform boundary guards', () => {
     for (const file of listTypeScriptFilesInRoots([
       ...activeCoreSigningRoots,
       'client/src/core/platform',
-      'client/src/web/SeamsWeb',
+      'client/src/SeamsWeb',
     ])) {
       if (rawDbRecordBoundaryFiles.has(file)) continue;
       const source = readRepoFile(file);
@@ -402,10 +402,10 @@ test.describe('cross-platform boundary guards', () => {
 
   test('keeps Email OTP registration ECDSA prep behind worker-issued handles', () => {
     const registrationSource = readRepoFile(
-      'client/src/web/SeamsWeb/operations/registration/registration.ts',
+      'client/src/SeamsWeb/operations/registration/registration.ts',
     );
     const emailOtpSource = readRepoFile(
-      'client/src/web/SeamsWeb/operations/authMethods/emailOtp/enrollment.ts',
+      'client/src/SeamsWeb/operations/authMethods/emailOtp/enrollment.ts',
     );
     const workerTypesSource = readRepoFile(
       'client/src/core/signingEngine/workerManager/workerTypes.ts',

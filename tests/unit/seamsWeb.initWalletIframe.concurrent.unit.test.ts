@@ -78,7 +78,7 @@ test.describe('SeamsWeb.initWalletIframe', () => {
   test('does not mount multiple wallet iframes on concurrent init', async ({ page }) => {
     const result = await page.evaluate(
       async ({ walletOrigin }) => {
-        const mod = await import('/sdk/esm/web/SeamsWeb/index.js');
+        const mod = await import('/sdk/esm/SeamsWeb/index.js');
         const { SeamsWeb } = mod as any;
 
         // Defensive: ensure a clean slate.

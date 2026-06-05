@@ -185,7 +185,7 @@ export const initRouter = async (page: Page, options: RouterHarnessOptions = {})
       const base =
         window.location.origin === 'null' ? 'https://example.localhost' : window.location.origin;
       const module = await import(new URL(modulePath, base).toString());
-      const { WalletIframeRouter } = module as typeof import('@/web/SeamsWeb/walletIframe/client/router');
+      const { WalletIframeRouter } = module as typeof import('@/SeamsWeb/walletIframe/client/router');
       const router = new WalletIframeRouter(routerOptions);
       (window as any).__walletRouter = router;
     },

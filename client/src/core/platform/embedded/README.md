@@ -40,8 +40,8 @@ subpackage.
 Embedded Rust SDK code must not depend on npm `@seams/sdk` entry points for
 runtime behavior. It must not mirror browser concepts such as:
 
-- `client/src/web/SeamsWeb/**`;
-- `client/src/web/SeamsWeb/walletIframe/**`;
+- `client/src/SeamsWeb/**`;
+- `client/src/SeamsWeb/walletIframe/**`;
 - `client/src/react/**`;
 - `client/src/core/platform/browser/**`;
 - DOM globals such as `window`, `document`, `navigator`, or `DOMException`;

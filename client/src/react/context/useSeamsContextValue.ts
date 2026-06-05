@@ -8,7 +8,7 @@ import type {
   SeamsContextType,
 } from '../types';
 import type { ThemeName } from '@/core/types/seams';
-import type { DevicesCapability } from '@/web/SeamsWeb';
+import type { DevicesCapability } from '@/SeamsWeb';
 import { useSDKFlowRuntime } from './useSDKFlowRuntime';
 import { useSeamsWithSdkFlow } from './useSeamsWithSdkFlow';
 import { isWalletSessionReadyForUi } from './walletSessionReadiness';
