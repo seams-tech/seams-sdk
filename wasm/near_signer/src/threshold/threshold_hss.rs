@@ -30,7 +30,7 @@ use ed25519_hss::wire::WireMessage;
 #[cfg(feature = "hss-server-exports")]
 use js_sys::{Date, Object, Reflect};
 use serde::{Deserialize, Serialize};
-use signer_platform_web::near_threshold_ed25519::verifying_share_bytes_from_signing_share_bytes;
+use signer_wasm_core::near_threshold_ed25519::verifying_share_bytes_from_signing_share_bytes;
 #[cfg(feature = "hss-server-exports")]
 use std::cell::RefCell;
 #[cfg(feature = "hss-server-exports")]

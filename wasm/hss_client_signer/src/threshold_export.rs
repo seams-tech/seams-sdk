@@ -17,7 +17,7 @@ pub fn threshold_ed25519_seed_export_artifact_from_seed(args: JsValue) -> Result
     let mut seed32 = [0u8; 32];
     seed32.copy_from_slice(seed.as_slice());
     let artifact =
-        signer_platform_web::near_ed25519_recovery::build_near_ed25519_seed_export_artifact_v1(
+        signer_wasm_core::near_ed25519_recovery::build_near_ed25519_seed_export_artifact_v1(
             seed32,
             expected_public_key.as_str(),
         )

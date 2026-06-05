@@ -540,7 +540,7 @@ Current export-only code now isolated:
   exists only to expose:
   - `threshold_ed25519_seed_export_artifact_from_seed`
 - that path depends on
-  [crates/signer-platform-web](/Users/pta/Dev/rust/simple-threshold-signer/crates/signer-platform-web)
+  [crates/signer-wasm-core](/Users/pta/Dev/rust/simple-threshold-signer/crates/signer-wasm-core)
   `near_ed25519_recovery`, which is not part of the registration/rebuild hot
   path
 - the rest of the package is the actual browser HSS evaluator surface:
@@ -622,7 +622,7 @@ Recommended evaluation order:
 1. confirm exactly where `serde_json` is used in:
    - [wasm/hss_client_signer](/Users/pta/Dev/rust/simple-threshold-signer/wasm/hss_client_signer)
    - [crates/ed25519-hss](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss)
-   - [crates/signer-platform-web](/Users/pta/Dev/rust/simple-threshold-signer/crates/signer-platform-web)
+   - [crates/signer-wasm-core](/Users/pta/Dev/rust/simple-threshold-signer/crates/signer-wasm-core)
 2. separate usages into:
    - public/user-facing JSON that must stay JSON
    - internal state blobs that can change format
@@ -644,7 +644,7 @@ Important rule:
 - if the new encoding lands, remove the old JSON-only internal blob surface as
   part of the same refactor
 
-### Optimization 4: Feature-Prune `ed25519-hss` And `signer-platform-web`
+### Optimization 4: Feature-Prune `ed25519-hss` And `signer-wasm-core`
 
 Current state:
 
@@ -655,22 +655,22 @@ Potential improvement:
 
 - add narrower feature gates in:
   - [crates/ed25519-hss](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss)
-  - [crates/signer-platform-web](/Users/pta/Dev/rust/simple-threshold-signer/crates/signer-platform-web)
+  - [crates/signer-wasm-core](/Users/pta/Dev/rust/simple-threshold-signer/crates/signer-wasm-core)
 - compile only the browser evaluator/runtime/wire surface required by
   `hss_client_signer`
 
 Landed partial result:
 
-- split `signer-core` and `signer-platform-web` so browser HSS recovery uses a
+- split `signer-core` and `signer-wasm-core` so browser HSS recovery uses a
   dedicated `near-ed25519-recovery` feature instead of the broader
   `near-threshold-ed25519` feature
 - `hss_client_signer` now depends on:
-  - `signer-platform-web/near-ed25519-recovery`
+  - `signer-wasm-core/near-ed25519-recovery`
 - confirmed via `cargo tree -e features` that the browser HSS package no longer
   pulls:
   - `frost-ed25519`
   - `borsh`
-  through `signer-platform-web`
+  through `signer-wasm-core`
 - production browser HSS artifact changed from:
   - wasm: `562,737` bytes
   - JS glue: `22,209` bytes
@@ -687,7 +687,7 @@ Interim decision:
 - do not count this as a meaningful size optimization by itself
 - the remaining worthwhile pruning work is now clearly in
   [crates/ed25519-hss](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss),
-  not `signer-platform-web`
+  not `signer-wasm-core`
 
 Landed `ed25519-hss` pruning result:
 
@@ -783,7 +783,7 @@ Result:
   - `base64ct`
   - `bs58`
   - explicit `default-features = false` on the browser-side
-    `signer-platform-web` dependency
+    `signer-wasm-core` dependency
 - production browser HSS package did not move in a meaningful way:
   - wasm stayed effectively flat at `472,527` bytes
   - JS glue stayed flat at `18,414` bytes
@@ -856,7 +856,7 @@ Decision:
 - [x] Optimization 3: remove the old JSON-only internal blob surface if the replacement lands
 
 - [x] Optimization 4: identify feature-pruning opportunities in `ed25519-hss`
-- [x] Optimization 4: identify feature-pruning opportunities in `signer-platform-web`
+- [x] Optimization 4: identify feature-pruning opportunities in `signer-wasm-core`
 - [x] Optimization 4: benchmark browser wasm size after pruning
 - [x] Optimization 4: keep only if the reduction is meaningful
 

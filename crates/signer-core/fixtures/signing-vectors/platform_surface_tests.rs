@@ -1,5 +1,6 @@
-#[path = "../../signer-core/fixtures/signing-vectors/v1_test_vectors.rs"]
-mod vectors;
+mod vectors {
+    include!("v1_test_vectors.rs");
+}
 use vectors::*;
 
 #[cfg(feature = "tx-finalization")]

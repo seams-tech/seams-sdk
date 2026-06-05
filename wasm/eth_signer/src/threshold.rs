@@ -6,11 +6,11 @@ use crate::errors::js_core_err;
 
 #[wasm_bindgen]
 pub struct ThresholdEcdsaPresignSession {
-    inner: signer_platform_web::threshold_ecdsa::ThresholdEcdsaPresignSession,
+    inner: signer_wasm_core::threshold_ecdsa::ThresholdEcdsaPresignSession,
 }
 
 fn progress_to_js(
-    progress: signer_platform_web::threshold_ecdsa::ThresholdEcdsaPresignProgress,
+    progress: signer_wasm_core::threshold_ecdsa::ThresholdEcdsaPresignProgress,
 ) -> Result<JsValue, JsValue> {
     let obj = Object::new();
     Reflect::set(
@@ -44,7 +44,7 @@ impl ThresholdEcdsaPresignSession {
         mut private_share32: Vec<u8>,
         public_key_sec1: Vec<u8>,
     ) -> Result<ThresholdEcdsaPresignSession, JsValue> {
-        let inner = signer_platform_web::threshold_ecdsa::ThresholdEcdsaPresignSession::new(
+        let inner = signer_wasm_core::threshold_ecdsa::ThresholdEcdsaPresignSession::new(
             participant_ids.as_slice(),
             me,
             threshold,
@@ -101,7 +101,7 @@ pub fn threshold_ecdsa_compute_signature_share(
     mut digest32: Vec<u8>,
     mut entropy32: Vec<u8>,
 ) -> Result<Vec<u8>, JsValue> {
-    let result = signer_platform_web::threshold_ecdsa::threshold_ecdsa_compute_signature_share(
+    let result = signer_wasm_core::threshold_ecdsa::threshold_ecdsa_compute_signature_share(
         participant_ids.as_slice(),
         me,
         public_key_sec1.as_slice(),
@@ -130,7 +130,7 @@ pub fn threshold_ecdsa_finalize_signature(
     mut entropy32: Vec<u8>,
     mut client_signature_share32: Vec<u8>,
 ) -> Result<Vec<u8>, JsValue> {
-    let result = signer_platform_web::threshold_ecdsa::threshold_ecdsa_finalize_signature(
+    let result = signer_wasm_core::threshold_ecdsa::threshold_ecdsa_finalize_signature(
         participant_ids.as_slice(),
         relayer_id,
         public_key_sec1.as_slice(),

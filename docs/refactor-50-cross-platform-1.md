@@ -39,8 +39,8 @@ Most cryptographic implementation work is already in Rust/WASM. The existing
 codebase has dedicated Rust/WASM packages for NEAR signing, EVM signing, Tempo
 signing, Ed25519 HSS client work, threshold PRF work, email OTP runtime, and
 Shamir 3-pass runtime. The existing `crates/signer-core`,
-`crates/signer-platform-web`, and `crates/signer-platform-ios` structure is also
-already pointed toward shared Rust core plus platform-specific bindings.
+`crates/signer-wasm-core`, and `crates/signer-embedded-linux` structure is
+pointed toward shared Rust core plus target-specific bindings.
 
 This refactor is therefore a boundary-tightening pass across the existing
 Rust/WASM crypto surfaces:
@@ -74,8 +74,9 @@ into central runtime construction and signing flows:
   a future platform SDK should know: derivation source shape, role-local state
   layout, worker command granularity, protocol state blobs, and relayer payload
   assembly.
-- `crates/signer-platform-ios` exists, but its early C ABI helpers still expose
-  a narrow vector-replay style surface.
+- iOS is expected to use a Swift SDK surface, so native iOS crypto/package
+  boundaries should live in the Swift codebase rather than a Rust platform
+  crate.
 
 These are manageable for the browser SDK. They will create unnecessary churn
 when adding native iOS or Linux SDKs unless the seams are made explicit first.
@@ -177,15 +178,14 @@ flowchart TD
 
   PORTS --> CORE_TS["High-Level SDK Orchestration"]
   CORE_TS --> CRYPTO["SignerCryptoPort"]
-  CRYPTO --> RUST["Rust Core + WASM / Native Bindings"]
+  CRYPTO --> RUST["Rust Core + Target Bindings"]
 
   WEB --> WEB_IMPL["Browser Adapters: IndexedDB, WebAuthn, Workers, Fetch"]
-  IOS --> IOS_IMPL["iOS Adapters: Keychain, AuthenticationServices, Native Rust"]
+  IOS --> IOS_IMPL["Swift Adapters: Keychain, AuthenticationServices"]
   LINUX --> LINUX_IMPL["Linux Adapters: SQLite, Filesystem, TPM/FIDO2, Native Rust"]
 
   RUST --> WASM["WASM Bindings"]
-  RUST --> SWIFT["Swift / C ABI Bindings"]
-  RUST --> NATIVE["Native Linux Library / Daemon"]
+  RUST --> EMBEDDED["Embedded Linux Crate / Daemon"]
 ```
 
 Ownership rules:
@@ -828,9 +828,8 @@ Tasks:
 - [x] Inventory persistence record types that combine raw storage records,
       normalized domain records, public identity, and hot signer material.
 - [x] Inventory current Rust core coverage in `crates/signer-core`,
-      `crates/signer-platform-web`, `crates/signer-platform-ios`, and
-      `wasm/*`, with emphasis on which high-level workflows already have Rust
-      coverage.
+      `crates/signer-wasm-core`, `crates/signer-embedded-linux`, and `wasm/*`,
+      with emphasis on which high-level workflows already have Rust coverage.
 
 Deliverable:
 
@@ -1213,8 +1212,8 @@ Tasks:
       to Refactor 51 Phase 6 and Phase 9.
 - [x] Add parity fixtures for current browser PRF inputs, prepare output,
       relayer public identity input, and finalized public facts.
-- [x] Confirm native-binding vector replay coverage is out of scope for
-      Refactor 50 because the command did not land in `crates/signer-platform-ios`.
+- [x] Confirm native iOS vector replay coverage is out of scope for Refactor 50
+      because iOS is owned by the Swift SDK surface.
 - [x] Hand off before/after browser JS, WASM, and lazy-flow asset size recording
       to Refactor 51 Phase 6.
 

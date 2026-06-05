@@ -379,7 +379,7 @@ dependencies = [
  "serde-wasm-bindgen",
  "sha2",
  "sha3",
- "signer-platform-web",
+ "signer-wasm-core",
  "wasm-bindgen",
  "zeroize",
 ]
@@ -1082,7 +1082,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "signer-platform-web"
+name = "signer-wasm-core"
 version = "0.1.0"
 dependencies = [
  "signer-core",

@@ -50,7 +50,7 @@ web-sys = { version = "0.3", features = [
 ] }
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
-signer-platform-web = { path = "../../crates/signer-platform-web", features = ["near-crypto", "near-threshold-ed25519"] }
+signer-wasm-core = { path = "../../crates/signer-wasm-core", features = ["near-crypto", "near-threshold-ed25519"] }
 ed25519-hss = { path = "../../crates/ed25519-hss" }
 x25519-dalek = "2.0"
 

@@ -5,7 +5,6 @@ import { test } from '@playwright/test';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const parityFeatures = 'secp256k1,near-crypto,near-threshold-ed25519,tx-finalization';
-const iosSwiftReplayScript = 'crates/signer-platform-ios/scripts/run-swift-vector-replay.sh';
 
 type ParityCommand = {
   label: string;
@@ -54,12 +53,12 @@ const rustParityCommands: ParityCommand[] = [
     ],
   },
   {
-    label: 'signer-platform-web baseline vectors',
+    label: 'signer-wasm-core baseline vectors',
     command: 'cargo',
     args: [
       'test',
       '--manifest-path',
-      'crates/signer-platform-web/Cargo.toml',
+      'crates/signer-wasm-core/Cargo.toml',
       '--locked',
       '--features',
       parityFeatures,
@@ -67,12 +66,12 @@ const rustParityCommands: ParityCommand[] = [
     ],
   },
   {
-    label: 'signer-platform-web invalid tx-finalization vectors',
+    label: 'signer-wasm-core invalid tx-finalization vectors',
     command: 'cargo',
     args: [
       'test',
       '--manifest-path',
-      'crates/signer-platform-web/Cargo.toml',
+      'crates/signer-wasm-core/Cargo.toml',
       '--locked',
       '--features',
       parityFeatures,
@@ -80,12 +79,12 @@ const rustParityCommands: ParityCommand[] = [
     ],
   },
   {
-    label: 'signer-platform-ios baseline vectors',
+    label: 'signer-embedded-linux baseline vectors',
     command: 'cargo',
     args: [
       'test',
       '--manifest-path',
-      'crates/signer-platform-ios/Cargo.toml',
+      'crates/signer-embedded-linux/Cargo.toml',
       '--locked',
       '--features',
       parityFeatures,
@@ -93,16 +92,16 @@ const rustParityCommands: ParityCommand[] = [
     ],
   },
   {
-    label: 'signer-platform-ios invalid tx-finalization parity',
+    label: 'signer-embedded-linux invalid tx-finalization vectors',
     command: 'cargo',
     args: [
       'test',
       '--manifest-path',
-      'crates/signer-platform-ios/Cargo.toml',
+      'crates/signer-embedded-linux/Cargo.toml',
       '--locked',
       '--features',
       parityFeatures,
-      'parity_invalid_tx_finalization_vectors_with_web_binding',
+      'invalid_tx_finalization_vectors_match_expected_errors',
     ],
   },
 ];
@@ -132,24 +131,11 @@ function runParityCommand(step: ParityCommand): void {
 
 test.describe.configure({ mode: 'serial' });
 
-test.describe('signer parity rust platforms', () => {
+test.describe('signer parity rust surfaces', () => {
   for (const step of rustParityCommands) {
     test(step.label, async () => {
       test.setTimeout(20 * 60 * 1000);
       runParityCommand(step);
     });
   }
-
-  test('ios swift replay harness (opt-in)', async () => {
-    test.setTimeout(20 * 60 * 1000);
-    test.skip(
-      process.env.RUN_IOS_SWIFT_REPLAY !== '1',
-      'Set RUN_IOS_SWIFT_REPLAY=1 to enable iOS Swift vector replay parity test',
-    );
-    runParityCommand({
-      label: 'ios swift vector replay',
-      command: 'bash',
-      args: [iosSwiftReplayScript],
-    });
-  });
 });

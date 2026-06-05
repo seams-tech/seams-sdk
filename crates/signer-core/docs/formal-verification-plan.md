@@ -90,11 +90,13 @@ The initial `signer-core` FV plan should **not** try to prove:
 3. side-channel resistance
 4. the behavior of the external `threshold-signatures` crate from first principles
 5. a separate formal-verification track for
-   [crates/signer-platform-web](/Users/pta/Dev/rust/simple-threshold-signer/crates/signer-platform-web)
+   [crates/signer-wasm-core](/Users/pta/Dev/rust/simple-threshold-signer/crates/signer-wasm-core)
+   or
+   [crates/signer-embedded-linux](/Users/pta/Dev/rust/simple-threshold-signer/crates/signer-embedded-linux)
 
-`signer-platform-web` is primarily a feature-gated re-export layer, so a
-standalone FV track there would be much lower impact than proving the shared
-helpers in `signer-core`.
+`signer-wasm-core` and `signer-embedded-linux` are primarily feature-gated
+re-export layers, so standalone FV tracks there would be much lower impact than
+proving the shared helpers in `signer-core`.
 
 ## Recommended Layout
 

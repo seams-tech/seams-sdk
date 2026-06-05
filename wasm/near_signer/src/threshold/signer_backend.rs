@@ -381,7 +381,7 @@ impl ThresholdEd25519RelayerSigner {
         }
 
         let near_public_key_bytes =
-            signer_platform_web::near_threshold_ed25519::parse_near_public_key_to_bytes(
+            signer_wasm_core::near_threshold_ed25519::parse_near_public_key_to_bytes(
                 near_public_key_str,
             )
             .map_err(|e| e.to_string())?;

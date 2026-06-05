@@ -11,7 +11,7 @@ pub(crate) fn derive_threshold_client_signing_share_bytes_v1(
     wrap_key: &WrapKey,
     near_account_id: &str,
 ) -> Result<[u8; 32], String> {
-    signer_platform_web::near_threshold_ed25519::derive_threshold_client_signing_share_bytes_v1_from_wrap_key_seed_b64u(
+    signer_wasm_core::near_threshold_ed25519::derive_threshold_client_signing_share_bytes_v1_from_wrap_key_seed_b64u(
         &wrap_key.wrap_key_seed,
         near_account_id,
     )
@@ -22,7 +22,7 @@ pub(crate) fn derive_threshold_client_verifying_share_b64u_v1(
     wrap_key: &WrapKey,
     near_account_id: &str,
 ) -> Result<String, String> {
-    signer_platform_web::near_threshold_ed25519::derive_threshold_client_verifying_share_b64u_v1_from_wrap_key_seed_b64u(
+    signer_wasm_core::near_threshold_ed25519::derive_threshold_client_verifying_share_b64u_v1_from_wrap_key_seed_b64u(
         &wrap_key.wrap_key_seed,
         near_account_id,
     )
@@ -42,7 +42,7 @@ pub(crate) fn key_package_from_client_base_b64u(
             decoded.len()
         )
     })?;
-    signer_platform_web::near_threshold_ed25519::key_package_from_signing_share_bytes(
+    signer_wasm_core::near_threshold_ed25519::key_package_from_signing_share_bytes(
         &signing_share_bytes,
         near_public_key_bytes,
         client_identifier,
@@ -69,7 +69,7 @@ mod tests {
             .expect("signing share should derive");
         assert_eq!(s1, s2);
 
-        let v1 = signer_platform_web::near_threshold_ed25519::derive_threshold_client_verifying_share_bytes_v1_from_wrap_key_seed_b64u(
+        let v1 = signer_wasm_core::near_threshold_ed25519::derive_threshold_client_verifying_share_bytes_v1_from_wrap_key_seed_b64u(
             &wrap_key.wrap_key_seed,
             "alice.near",
         )
@@ -112,7 +112,7 @@ mod tests {
         )
         .expect("client base should decode");
         let direct =
-            signer_platform_web::near_threshold_ed25519::key_package_from_signing_share_bytes(
+            signer_wasm_core::near_threshold_ed25519::key_package_from_signing_share_bytes(
                 &signing_share_bytes,
                 &near_public_key_bytes,
                 client_identifier,

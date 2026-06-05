@@ -1,12 +1,12 @@
 [package]
-name = "signer-platform-web"
+name = "signer-embedded-linux"
 version = "0.1.0"
 edition = "2021"
-description = "Web binding surface over signer-core primitives"
+description = "Embedded Linux binding surface over signer-core primitives"
 license = "Apache-2.0"
 
 [lib]
-name = "signer_platform_web"
+name = "signer_embedded_linux"
 path = "src/lib.rs"
 
 [dependencies]
