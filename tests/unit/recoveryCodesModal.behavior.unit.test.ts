@@ -70,15 +70,12 @@ test.describe('RecoveryCodesModal behavior', () => {
           },
         },
         pendingBackupRepository: {
-          deleteExpired: async () => {
-            calls.push('deleteExpired');
+          deleteInvalid: async () => {
+            calls.push('deleteInvalid');
           },
           readMatching: async (args: unknown) => {
             calls.push(['readMatching', args]);
             return pendingBackup;
-          },
-          delete: async (args: unknown) => {
-            calls.push(['delete', args]);
           },
         },
         showPendingBackup: async (args: unknown) => {
@@ -92,7 +89,7 @@ test.describe('RecoveryCodesModal behavior', () => {
     expect(result.loaded).toMatchObject({
       kind: 'loaded',
       status: { status: 'pending_backup', walletId: 'alice.testnet' },
-      pendingBackup: {
+      localBackup: {
         walletId: 'alice.testnet',
         enrollmentId: 'enrollment-1',
         recoveryKeys: RECOVERY_CODES,
@@ -100,7 +97,90 @@ test.describe('RecoveryCodesModal behavior', () => {
       actionError: '',
     });
     expect(result.calls).toEqual([
-      'deleteExpired',
+      'deleteInvalid',
+      ['status', { walletId: 'alice.testnet' }],
+      [
+        'readMatching',
+        {
+          walletId: 'alice.testnet',
+          enrollmentId: 'enrollment-1',
+          enrollmentSealKeyVersion: 'seal-v1',
+        },
+      ],
+    ]);
+  });
+
+  test('loads retained local codes after the server marks backup ready', async ({ page }) => {
+    const result = await page.evaluate(async ({ recoveryCodes }) => {
+      const mod = await import(
+        '/sdk/esm/react/components/AccountMenuButton/RecoveryCodesModalState.js'
+      );
+      const calls: Array<string | [string, unknown]> = [];
+      const readyStatus = {
+        status: 'ready',
+        walletId: 'alice.testnet',
+        enrollmentId: 'enrollment-1',
+        enrollmentSealKeyVersion: 'seal-v1',
+        expectedRecoveryCodeCount: 10,
+        activeRecoveryCodeCount: 10,
+        pendingBackupRecoveryCodeCount: 0,
+        consumedRecoveryCodeCount: 0,
+        revokedRecoveryCodeCount: 0,
+        abandonedRecoveryCodeCount: 0,
+        totalRecoveryCodeCount: 10,
+        issuedAtMs: 1_700_000_000_000,
+        acknowledgedAtMs: 1_700_000_100_000,
+      };
+      const pendingBackup = {
+        v: 1,
+        secretKind: 'email_otp_recovery_codes_pending_backup',
+        storageScope: 'iframe_origin_indexeddb',
+        status: 'pending_backup',
+        walletId: 'alice.testnet',
+        enrollmentId: 'enrollment-1',
+        enrollmentSealKeyVersion: 'seal-v1',
+        recoveryCodesIssuedAtMs: 1_700_000_000_000,
+        recoveryKeys: recoveryCodes,
+        createdAtMs: 1_700_000_000_000,
+        expiresAtMs: 1_700_086_400_000,
+      };
+      const loaded = await mod.loadRecoveryCodesModalLoadedState({
+        walletId: 'alice.testnet',
+        recovery: {
+          getEmailOtpRecoveryCodeStatus: async (args: unknown) => {
+            calls.push(['status', args]);
+            return readyStatus;
+          },
+        },
+        pendingBackupRepository: {
+          deleteInvalid: async () => {
+            calls.push('deleteInvalid');
+          },
+          readMatching: async (args: unknown) => {
+            calls.push(['readMatching', args]);
+            return pendingBackup;
+          },
+        },
+        showPendingBackup: async (args: unknown) => {
+          calls.push(['presenter', args]);
+          return readyStatus;
+        },
+      });
+      return { loaded, calls };
+    }, { recoveryCodes: RECOVERY_CODES });
+
+    expect(result.loaded).toMatchObject({
+      kind: 'loaded',
+      status: { status: 'ready', walletId: 'alice.testnet' },
+      localBackup: {
+        walletId: 'alice.testnet',
+        enrollmentId: 'enrollment-1',
+        recoveryKeys: RECOVERY_CODES,
+      },
+      actionError: '',
+    });
+    expect(result.calls).toEqual([
+      'deleteInvalid',
       ['status', { walletId: 'alice.testnet' }],
       [
         'readMatching',
@@ -150,15 +230,12 @@ test.describe('RecoveryCodesModal behavior', () => {
           },
         },
         pendingBackupRepository: {
-          deleteExpired: async () => {
-            calls.push('deleteExpired');
+          deleteInvalid: async () => {
+            calls.push('deleteInvalid');
           },
           readMatching: async (args: unknown) => {
             calls.push(['readMatching', args]);
             return null;
-          },
-          delete: async (args: unknown) => {
-            calls.push(['delete', args]);
           },
         },
         showPendingBackup: async (args: unknown) => {
@@ -172,11 +249,11 @@ test.describe('RecoveryCodesModal behavior', () => {
     expect(result.loaded).toMatchObject({
       kind: 'loaded',
       status: { status: 'ready', walletId: 'alice.testnet' },
-      pendingBackup: null,
+      localBackup: null,
       actionError: '',
     });
     expect(result.calls).toEqual([
-      'deleteExpired',
+      'deleteInvalid',
       ['status', { walletId: 'alice.testnet' }],
       [
         'readMatching',

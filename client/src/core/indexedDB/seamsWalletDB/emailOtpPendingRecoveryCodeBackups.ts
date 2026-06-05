@@ -178,7 +178,7 @@ export class EmailOtpPendingRecoveryCodeBackupRepository {
     args: WritePendingEmailOtpRecoveryCodeBackupInput,
   ): Promise<PendingEmailOtpRecoveryCodeBackupRecord> {
     const nowMs = args.createdAtMs ?? Date.now();
-    await this.deleteExpired({ nowMs });
+    await this.deleteInvalid();
     const record = normalizePendingEmailOtpRecoveryCodeBackupRecord({
       v: EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_RECORD_VERSION,
       secretKind: EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_SECRET_KIND,
@@ -223,19 +223,8 @@ export class EmailOtpPendingRecoveryCodeBackupRepository {
       walletId,
       enrollmentId,
     ]);
-    const row = isRecord(value) ? value : null;
-    const expiresAtMsFromRow = normalizePositiveTimestamp(row?.expires_at_ms);
-    const nowMs = args.nowMs ?? Date.now();
-    if (expiresAtMsFromRow !== null && expiresAtMsFromRow <= nowMs) {
-      await this.delete({ walletId, enrollmentId });
-      return null;
-    }
     const record = normalizePendingEmailOtpRecoveryCodeBackupRecord(value);
     if (!record || record.enrollmentSealKeyVersion !== enrollmentSealKeyVersion) {
-      await this.delete({ walletId, enrollmentId });
-      return null;
-    }
-    if (record.expiresAtMs <= nowMs) {
       await this.delete({ walletId, enrollmentId });
       return null;
     }
@@ -275,8 +264,7 @@ export class EmailOtpPendingRecoveryCodeBackupRepository {
     );
   }
 
-  async deleteExpired(args?: { nowMs?: number }): Promise<void> {
-    const nowMs = args?.nowMs ?? Date.now();
+  async deleteInvalid(): Promise<void> {
     await this.manager.runTransaction(
       [EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_STORE_NAME],
       'readwrite',
@@ -287,7 +275,7 @@ export class EmailOtpPendingRecoveryCodeBackupRepository {
           const key = pendingEmailOtpRecoveryCodeBackupStorageKey(row);
           if (!key) continue;
           const record = normalizePendingEmailOtpRecoveryCodeBackupRecord(row);
-          if (!record || record.expiresAtMs <= nowMs) await store.delete(key);
+          if (!record) await store.delete(key);
         }
       },
     );

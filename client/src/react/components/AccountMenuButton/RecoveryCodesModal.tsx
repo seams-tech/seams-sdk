@@ -126,33 +126,31 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
 
   const downloadPendingBackup = React.useCallback(async () => {
     const current = loadState;
-    if (current.kind !== 'loaded' || !current.pendingBackup) return;
-    const { status, pendingBackup } = current;
+    if (current.kind !== 'loaded' || !current.localBackup) return;
+    const { status, localBackup } = current;
     try {
-      downloadRecoveryCodes(pendingBackupUiInput(pendingBackup));
+      downloadRecoveryCodes(pendingBackupUiInput(localBackup));
     } catch {
       setLoadState({ ...current, actionError: 'Download failed. Try again.' });
       return;
     }
-    setLoadState({ kind: 'acknowledging_pending_backup', status, pendingBackup });
+    if (status.status !== 'pending_backup') {
+      setLoadState({ ...current, actionError: '' });
+      return;
+    }
+    setLoadState({ kind: 'acknowledging_pending_backup', status, pendingBackup: localBackup });
     try {
       await seams.recovery.acknowledgeEmailOtpRecoveryCodeBackup({
-        walletId: pendingBackup.walletId,
-        enrollmentId: pendingBackup.enrollmentId,
-        enrollmentSealKeyVersion: pendingBackup.enrollmentSealKeyVersion,
+        walletId: localBackup.walletId,
+        enrollmentId: localBackup.enrollmentId,
+        enrollmentSealKeyVersion: localBackup.enrollmentSealKeyVersion,
       });
-      await emailOtpPendingRecoveryCodeBackupRepository
-        .delete({
-          walletId: pendingBackup.walletId,
-          enrollmentId: pendingBackup.enrollmentId,
-        })
-        .catch(() => undefined);
       await loadRecoveryCodeStatus();
     } catch (error: unknown) {
       setLoadState({
         kind: 'loaded',
         status,
-        pendingBackup,
+        localBackup,
         actionError:
           error instanceof Error ? error.message : 'Could not confirm backup. Try again.',
       });
@@ -212,10 +210,10 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
             </div>
             {loadState.kind === 'loaded' ? (
               <>
-                {loadState.pendingBackup ? (
+                {loadState.localBackup ? (
                   <>
                     <ol className="w3a-recovery-codes-list">
-                      {loadState.pendingBackup.recoveryKeys.map((code, index) => (
+                      {loadState.localBackup.recoveryKeys.map((code, index) => (
                         <li className="w3a-recovery-codes-list-item" key={code}>
                           <span className="w3a-recovery-codes-list-index">{index + 1}.</span>
                           <span className="w3a-recovery-codes-list-code">{code}</span>

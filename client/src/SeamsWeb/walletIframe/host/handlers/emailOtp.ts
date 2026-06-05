@@ -71,7 +71,7 @@ async function showPendingEmailOtpBackupInIframe(input: {
   relayUrl?: string;
   appSessionJwt?: string;
 }) {
-  await emailOtpPendingRecoveryCodeBackupRepository.deleteExpired().catch(() => undefined);
+  await emailOtpPendingRecoveryCodeBackupRepository.deleteInvalid().catch(() => undefined);
   const status = await input.pm.recovery.getEmailOtpRecoveryCodeStatus({
     walletId: input.walletId,
     ...(input.relayUrl ? { relayUrl: input.relayUrl } : {}),

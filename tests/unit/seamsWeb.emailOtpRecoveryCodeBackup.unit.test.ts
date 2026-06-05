@@ -152,7 +152,13 @@ test.describe('SeamsWeb Email OTP recovery-code backup UI', () => {
       text: EXPECTED_BACKUP_TEXT,
       revokedUrl: 'blob:email-otp-recovery-codes',
     });
-    expect(await readPendingBackup(page)).toBeNull();
+    expect(await readPendingBackup(page)).toMatchObject({
+      status: 'pending_backup',
+      walletId: 'alice.testnet',
+      enrollmentId: ENROLLMENT.enrollmentId,
+      enrollmentSealKeyVersion: ENROLLMENT.enrollmentSealKeyVersion,
+      recoveryKeys: RECOVERY_CODES,
+    });
 
     const finalResult = await page.evaluate(async () => await (window as any).__backupPromise);
     expect(finalResult).toEqual({

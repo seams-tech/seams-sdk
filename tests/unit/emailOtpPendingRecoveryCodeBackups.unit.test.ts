@@ -68,7 +68,7 @@ test.describe('Email OTP pending recovery-code backup repository', () => {
     expect(result.afterDelete).toBeNull();
   });
 
-  test('rejects invalid lifecycle branches and expires stale records', async ({ page }) => {
+  test('rejects invalid lifecycle branches and retains valid records until explicit deletion', async ({ page }) => {
     const result = await page.evaluate(async ({ recoveryCodes }) => {
       const indexedDbMod = await import('/sdk/esm/core/indexedDB/index.js');
       const mod = await import(
@@ -159,7 +159,7 @@ test.describe('Email OTP pending recovery-code backup repository', () => {
         'alice.testnet',
         'enrollment-corrupt-expired',
       ]);
-      await repository.deleteExpired({ nowMs: 1_700_000_000_101 });
+      await repository.deleteInvalid();
       const corruptExpiredAfterCleanup = await db.get(storeName, [
         'alice.testnet',
         'enrollment-corrupt-expired',
@@ -200,7 +200,7 @@ test.describe('Email OTP pending recovery-code backup repository', () => {
           expiresAtMs: 'bad-expiry',
         },
       });
-      await repository.deleteExpired({ nowMs: 1_700_000_000_101 });
+      await repository.deleteInvalid();
       const corruptMissingExpiryAfterCleanup = await db.get(storeName, [
         'alice.testnet',
         'enrollment-corrupt-missing-expiry',
@@ -220,7 +220,7 @@ test.describe('Email OTP pending recovery-code backup repository', () => {
         createdAtMs: 1_700_000_000_000,
         expiresAtMs: 1_700_000_000_100,
       });
-      const expired = await repository.readMatching({
+      const retainedPastBackupWindow = await repository.readMatching({
         walletId: 'alice.testnet',
         enrollmentId: 'enrollment-1',
         enrollmentSealKeyVersion: 'seal-v1',
@@ -233,7 +233,7 @@ test.describe('Email OTP pending recovery-code backup repository', () => {
         corruptExpiredAfterCleanup,
         corruptMissingExpiryAfterCleanup,
         corruptBadExpiryAfterCleanup,
-        expired,
+        retainedPastBackupWindow,
       };
     }, { recoveryCodes: RECOVERY_CODES });
 
@@ -243,6 +243,11 @@ test.describe('Email OTP pending recovery-code backup repository', () => {
     expect(result.corruptExpiredAfterCleanup).toBeUndefined();
     expect(result.corruptMissingExpiryAfterCleanup).toBeUndefined();
     expect(result.corruptBadExpiryAfterCleanup).toBeUndefined();
-    expect(result.expired).toBeNull();
+    expect(result.retainedPastBackupWindow).toMatchObject({
+      status: 'pending_backup',
+      walletId: 'alice.testnet',
+      enrollmentId: 'enrollment-1',
+      recoveryKeys: RECOVERY_CODES,
+    });
   });
 });

@@ -232,12 +232,6 @@ export async function completePendingEmailOtpRecoveryCodeBackup(input: {
         enrollmentId: input.pendingBackup.enrollmentId,
         enrollmentSealKeyVersion: input.pendingBackup.enrollmentSealKeyVersion,
       });
-      await emailOtpPendingRecoveryCodeBackupRepository
-        .delete({
-          walletId: input.pendingBackup.walletId,
-          enrollmentId: input.pendingBackup.enrollmentId,
-        })
-        .catch(() => undefined);
     },
   );
   if (!backup) {

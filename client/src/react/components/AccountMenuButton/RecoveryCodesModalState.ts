@@ -10,13 +10,13 @@ import type {
 export type RecoveryCodesLoadedState = {
   kind: 'loaded';
   status: EmailOtpRecoveryCodeStatus;
-  pendingBackup: PendingEmailOtpRecoveryCodeBackupRecord | null;
+  localBackup: PendingEmailOtpRecoveryCodeBackupRecord | null;
   actionError: string;
 };
 
 type RecoveryCodesModalRepository = Pick<
   typeof emailOtpPendingRecoveryCodeBackupRepository,
-  'deleteExpired' | 'readMatching' | 'delete'
+  'deleteInvalid' | 'readMatching'
 >;
 
 type ShowEmailOtpPendingBackupForAccountMenu = (args: {
@@ -44,34 +44,27 @@ export async function loadRecoveryCodesModalLoadedState(args: {
   pendingBackupRepository: RecoveryCodesModalRepository;
   showPendingBackup: ShowEmailOtpPendingBackupForAccountMenu | null;
 }): Promise<RecoveryCodesLoadedState> {
-  await args.pendingBackupRepository.deleteExpired().catch(() => undefined);
+  await args.pendingBackupRepository.deleteInvalid().catch(() => undefined);
   let status = await args.recovery.getEmailOtpRecoveryCodeStatus({
     walletId: args.walletId,
   });
-  let pendingBackup: PendingEmailOtpRecoveryCodeBackupRecord | null = null;
-  if (status.status === 'pending_backup') {
+  let localBackup: PendingEmailOtpRecoveryCodeBackupRecord | null = null;
+  if (status.enrollmentId && status.enrollmentSealKeyVersion) {
     try {
-      pendingBackup = await args.pendingBackupRepository.readMatching({
+      localBackup = await args.pendingBackupRepository.readMatching({
         walletId: status.walletId,
         enrollmentId: status.enrollmentId,
         enrollmentSealKeyVersion: status.enrollmentSealKeyVersion,
       });
     } catch {
-      pendingBackup = null;
+      localBackup = null;
     }
-    if (!pendingBackup && args.showPendingBackup) {
+    if (!localBackup && status.status === 'pending_backup' && args.showPendingBackup) {
       status = await args.showPendingBackup({ walletId: status.walletId });
       if (status.status === 'pending_backup') {
-        pendingBackup = null;
+        localBackup = null;
       }
     }
-  } else if (status.enrollmentId) {
-    await args.pendingBackupRepository
-      .delete({
-        walletId: status.walletId,
-        enrollmentId: status.enrollmentId,
-      })
-      .catch(() => undefined);
   }
-  return { kind: 'loaded', status, pendingBackup, actionError: '' };
+  return { kind: 'loaded', status, localBackup, actionError: '' };
 }
