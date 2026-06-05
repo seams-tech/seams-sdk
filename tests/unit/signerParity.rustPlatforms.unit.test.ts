@@ -53,25 +53,12 @@ const rustParityCommands: ParityCommand[] = [
     ],
   },
   {
-    label: 'signer-wasm-core baseline vectors',
+    label: 'signer-core invalid tx-finalization vectors',
     command: 'cargo',
     args: [
       'test',
       '--manifest-path',
-      'crates/signer-wasm-core/Cargo.toml',
-      '--locked',
-      '--features',
-      parityFeatures,
-      'vectors_v1_match_expected_outputs',
-    ],
-  },
-  {
-    label: 'signer-wasm-core invalid tx-finalization vectors',
-    command: 'cargo',
-    args: [
-      'test',
-      '--manifest-path',
-      'crates/signer-wasm-core/Cargo.toml',
+      'crates/signer-core/Cargo.toml',
       '--locked',
       '--features',
       parityFeatures,

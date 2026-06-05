@@ -1,8 +1,10 @@
-import type { SeamsWebContext } from '@/web/SeamsWeb/signingSurface/types';
+import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import { clampThresholdSessionPolicy } from '@/core/signingEngine/threshold/sessionPolicy';
 
+type ThresholdWarmSessionConfigContext = { configs: SeamsConfigsReadonly };
+
 export function resolveThresholdWarmSessionDefaults(
-  context: Pick<SeamsWebContext, 'configs'>,
+  context: ThresholdWarmSessionConfigContext,
 ): { ttlMs: number; remainingUses: number } | null {
   const clamped = clampThresholdSessionPolicy({
     ttlMs: Number(context.configs?.signing.sessionDefaults?.ttlMs),
@@ -13,7 +15,7 @@ export function resolveThresholdWarmSessionDefaults(
 }
 
 export function shouldRequireThresholdWarmSession(
-  context: Pick<SeamsWebContext, 'configs'>,
+  context: ThresholdWarmSessionConfigContext,
 ): boolean {
   return resolveThresholdWarmSessionDefaults(context) != null;
 }

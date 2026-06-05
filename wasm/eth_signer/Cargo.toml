@@ -38,7 +38,7 @@ sha2 = "0.10"
 sha3 = "0.10"
 wasm-bindgen = "0.2"
 zeroize = "1.8"
-signer-wasm-core = { path = "../../crates/signer-wasm-core", features = ["secp256k1", "tx-finalization", "threshold-ecdsa"] }
+signer-core = { path = "../../crates/signer-core", features = ["secp256k1", "tx-finalization", "threshold-ecdsa"] }
 ecdsa-hss = { path = "../../crates/ecdsa-hss" }
 
 [dev-dependencies]

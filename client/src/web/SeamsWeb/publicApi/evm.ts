@@ -6,8 +6,9 @@ import type {
   EvmSignerCapability,
   RegistrationSigningSurface,
   RegistrationWebContext,
-  SeamsWebContext,
 } from '@/web/SeamsWeb/signingSurface/types';
+import type { NearClient } from '@/core/rpcClients/near/NearClient';
+import type { SeamsConfigsReadonly, ThemeName } from '@/core/types/seams';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { registerWallet as registerWalletWithUnifiedCeremony } from '@/web/SeamsWeb/operations/registration/registration';
@@ -31,9 +32,9 @@ function toLocalEvmBootstrapRequest(
 
 export function createEvmSignerCapability(deps: {
   signingEngine: RegistrationSigningSurface & EcdsaSessionBootstrapSurface;
-  nearClient: SeamsWebContext['nearClient'];
-  configs: SeamsWebContext['configs'];
-  getTheme: () => SeamsWebContext['theme'];
+  nearClient: NearClient;
+  configs: SeamsConfigsReadonly;
+  getTheme: () => ThemeName;
   getWalletIframe: () => WalletIframeCoordinator;
 }): EvmSignerCapability {
   return {

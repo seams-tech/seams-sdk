@@ -1,4 +1,4 @@
-import type { SeamsWebContext } from '@/web/SeamsWeb/signingSurface/types';
+import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import type { RegistrationErrorCode } from '@/core/types/seams';
 import { isObject } from '@shared/utils/validation';
@@ -119,12 +119,12 @@ type ResolvedRegistrationTransport =
       paymentMode?: string;
     };
 
-type RegistrationTransportConfigContext = Pick<SeamsWebContext, 'configs'>;
+type RegistrationTransportConfigContext = { configs: SeamsConfigsReadonly };
 
 function resolveRegistrationTransport(
   context: RegistrationTransportConfigContext,
 ): ResolvedRegistrationTransport {
-  const configs = context.configs as SeamsWebContext['configs'] & {
+  const configs = context.configs as SeamsConfigsReadonly & {
     registration?: unknown;
   };
   const registration = configs.registration;

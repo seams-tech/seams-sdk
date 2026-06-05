@@ -1275,6 +1275,16 @@ export class SeamsWeb {
     appSessionJwt?: string;
   }) {
     const relayUrl = String(args.relayUrl || this.configs.network.relayer.url || '').trim();
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(args.walletId);
+      return await router.acknowledgeEmailOtpRecoveryCodeBackup({
+        walletId: args.walletId,
+        enrollmentId: args.enrollmentId,
+        enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
+        relayUrl,
+        ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+      });
+    }
     const appSessionJwt = await this.resolveEmailOtpRecoveryCodeAppSessionJwt({
       walletId: args.walletId,
       relayUrl,
@@ -1295,6 +1305,14 @@ export class SeamsWeb {
     appSessionJwt?: string;
   }) {
     const relayUrl = String(args.relayUrl || this.configs.network.relayer.url || '').trim();
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(args.walletId);
+      return await router.getEmailOtpRecoveryCodeStatus({
+        walletId: args.walletId,
+        relayUrl,
+        ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+      });
+    }
     const appSessionJwt = await this.resolveEmailOtpRecoveryCodeAppSessionJwt({
       walletId: args.walletId,
       relayUrl,

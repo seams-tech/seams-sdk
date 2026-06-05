@@ -5,9 +5,9 @@ import type {
   NearSigningWebContext,
   RegistrationSigningSurface,
   RegistrationWebContext,
-  SeamsWebContext,
   UserAccountLookupSurface,
 } from '@/web/SeamsWeb/signingSurface/types';
+import type { SeamsConfigsReadonly, ThemeName } from '@/core/types/seams';
 import { toError } from '@shared/utils/errors';
 import { toAccountId } from '@/core/types/accountIds';
 import type { WalletIframeCoordinator } from '@/web/SeamsWeb/walletIframe/coordinator';
@@ -28,9 +28,9 @@ import { registerWallet as registerWalletWithUnifiedCeremony } from '@/web/Seams
 
 export function createNearSignerCapability(deps: {
   signingEngine: RegistrationSigningSurface & NearSigningSurface & UserAccountLookupSurface;
-  nearClient: SeamsWebContext['nearClient'];
-  configs: SeamsWebContext['configs'];
-  getTheme: () => SeamsWebContext['theme'];
+  nearClient: NearSigningWebContext['nearClient'];
+  configs: SeamsConfigsReadonly;
+  getTheme: () => ThemeName;
   getWalletIframe: () => WalletIframeCoordinator;
 }): NearSignerCapability {
   const getContext = (): NearSigningWebContext => ({

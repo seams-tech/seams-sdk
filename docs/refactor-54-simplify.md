@@ -1158,7 +1158,7 @@ Tasks:
       union if no TypeScript runtime code still needs those branches.
 - [x] Remove `EmbeddedPlatformRuntime` from TypeScript public/runtime exports
       after `./embedded` is deleted.
-- [x] Rename or document `RuntimePorts` as `RuntimePorts`. Use
+- [x] Replace the old `PlatformRuntime` name with `RuntimePorts`. Use
       `BrowserRuntimePorts` only if browser-only methods are added to the type
       itself; otherwise keep browser specificity on factory names such as
       `createBrowserPlatformRuntime`.
@@ -1182,12 +1182,12 @@ Tasks:
 - [x] Audit any new or moved public API assembly modules after cleanup. Keep
       only modules that route, validate, orchestrate, branch between wallet
       iframe/local behavior, or stabilize a public type boundary.
-- [ ] Shrink `SeamsWebSigningSurface` by moving registration/store/session
+- [x] Shrink `SeamsWebSigningSurface` by moving registration/store/session
       methods into narrower operation-specific port types where practical.
-- [ ] Keep `BrowserSigningSurface` as the browser signing boundary, but reduce
+- [x] Keep `BrowserSigningSurface` as the browser signing boundary, but reduce
       its public TypeScript interface so web operations cannot depend on broad
       store/session internals.
-- [ ] Add or update type fixtures/guards proving web operations receive narrow
+- [x] Add or update type fixtures/guards proving web operations receive narrow
       signing-surface slices instead of the full `SeamsWebSigningSurface` when
       a narrower slice is enough.
 - [x] Run `pnpm -C sdk type-check`, package export guards, platform-boundary
@@ -1203,7 +1203,7 @@ Acceptance:
 - [x] Pure public API forwarding factories are deleted or justified by real
       routing/orchestration behavior.
 - [x] No deleted forwarding facade is replaced by a renamed one-hop facade.
-- [ ] `SeamsWebSigningSurface` exposes narrower operation ports instead of a
+- [x] `SeamsWebSigningSurface` exposes narrower operation ports instead of a
       broad internal store/session surface where practical.
 - [x] Public app-facing `SeamsWeb` namespace method names remain unchanged.
 
@@ -1220,3 +1220,43 @@ Acceptance:
       and browser platform adapters?
 - [x] Are tests protecting current behavior rather than preserving an obsolete
       wrapper?
+
+## Phase 19: Opportunistic Follow-On Simplification
+
+Problem:
+
+The web SDK callpath is now linear enough for implementation work, but a few
+file-size and type-location smells remain. These should be handled as smaller
+cleanup passes when the touched area is already under review, rather than as one
+large architecture rewrite.
+
+Tasks:
+
+- [x] Reassess `publicApi/createPublicApi.ts` after future namespace cleanup.
+      Inline it into `SeamsWeb.ts` only if it stops owning real namespace
+      assembly, wallet-iframe routing, or public boundary stabilization. Current
+      state: keep it because it still owns namespace assembly and wallet-iframe
+      routing.
+- [x] Continue replacing broad `SeamsWebContext` usage with task-specific
+      context builders such as Email Recovery, Device Linking, NEAR signing, and
+      login/session contexts.
+- [x] Reduce `BrowserSigningSurface` editing pressure by extracting private
+      collaborators only where a collaborator removes real complexity. Candidate
+      groups: registration store port, session port, WebAuthn port, and key
+      export port. Current state: no new collaborator was added because the
+      useful cleanup was extracting the operation port/context type layer.
+- [x] Split public capability/result types, operation port types, and browser
+      signing-surface implementation types out of `signingSurface/types.ts`
+      when the next touched change makes that file harder to review.
+- [x] Keep deleting one-hop wrappers when touched. A module should remain only
+      if it routes, validates, orchestrates lifecycle, branches wallet
+      iframe/local behavior, or stabilizes a public type boundary.
+
+Acceptance:
+
+- [x] No new facade layer is added unless it removes a broader dependency or
+      makes an invalid state unrepresentable.
+- [x] Public namespace behavior remains unchanged unless the change is an
+      intentional breaking API cleanup.
+- [x] New guards or type fixtures cover any newly narrowed context or port
+      boundary.

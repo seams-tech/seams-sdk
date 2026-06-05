@@ -78,9 +78,7 @@ test.describe('SeamsWeb Email OTP recovery-code backup UI', () => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
   });
 
-  test('renders all codes and gates continuation on download plus acknowledgement', async ({
-    page,
-  }) => {
+  test('renders all codes and acknowledges backup after download', async ({ page }) => {
     await page.evaluate(() => {
       (window as any).__downloadClicks = 0;
       (window as any).__downloadBlobText = null;
@@ -105,28 +103,23 @@ test.describe('SeamsWeb Email OTP recovery-code backup UI', () => {
     await expect(dialog.getByRole('listitem')).toHaveCount(10);
     const downloadButton = dialog.getByRole('button', { name: 'Download' });
     await expect(dialog.getByRole('button').first()).toHaveText('Download');
+    await expect(dialog.getByRole('button')).toHaveCount(1);
     const downloadStyle = await downloadButton.evaluate((button) => {
       const style = window.getComputedStyle(button);
       return {
         backgroundColor: style.backgroundColor,
         color: style.color,
-        gridColumn: style.gridColumn,
         fontWeight: style.fontWeight,
       };
     });
     expect(downloadStyle).toEqual({
       backgroundColor: 'rgb(86, 81, 119)',
       color: 'rgb(255, 250, 243)',
-      gridColumn: '1 / -1',
-      fontWeight: '900',
+      fontWeight: '700',
     });
-    const continueButton = dialog.getByRole('button', { name: 'Continue' });
-    await expect(continueButton).toBeDisabled();
 
     await downloadButton.click();
-    await expect(continueButton).toBeDisabled();
-    await dialog.getByLabel('I saved these codes in a private place').check();
-    await expect(continueButton).toBeEnabled();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
 
     const download = await page.evaluate(async () => ({
       clicks: (window as any).__downloadClicks,
@@ -141,8 +134,6 @@ test.describe('SeamsWeb Email OTP recovery-code backup UI', () => {
       revokedUrl: 'blob:email-otp-recovery-codes',
     });
 
-    await continueButton.click();
-    await expect(page.getByRole('dialog')).toHaveCount(0);
     const finalResult = await page.evaluate(async () => await (window as any).__backupPromise);
     expect(finalResult).toEqual({
       thresholdEcdsaClientVerifyingShareB64u: 'threshold-verifier-b64u',
@@ -173,46 +164,21 @@ test.describe('SeamsWeb Email OTP recovery-code backup UI', () => {
     });
   });
 
-  test('requires explicit manual-copy confirmation when clipboard copy fails', async ({ page }) => {
+  test('keeps the dialog open when download fails', async ({ page }) => {
     await page.evaluate(() => {
-      Object.defineProperty(navigator, 'clipboard', {
-        configurable: true,
-        value: {
-          writeText: async (text: string) => {
-            (window as any).__clipboardText = text;
-            throw new Error('clipboard denied');
-          },
-        },
-      });
+      URL.createObjectURL = (() => {
+        throw new Error('blob denied');
+      }) as typeof URL.createObjectURL;
     });
     await mountBackupUi(page);
 
     const dialog = page.getByRole('dialog');
-    const continueButton = dialog.getByRole('button', { name: 'Continue' });
-    await dialog.getByRole('button', { name: 'Copy', exact: true }).click();
-    await dialog.getByLabel('I saved these codes in a private place').check();
-    await expect(continueButton).toBeDisabled();
-    await expect(dialog.getByText('Copy failed. Select the codes below')).toBeVisible();
-    await expect(dialog.getByRole('textbox')).toHaveValue(EXPECTED_BACKUP_TEXT);
+    await dialog.getByRole('button', { name: 'Download' }).click();
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText('Download failed. Try again.')).toBeVisible();
+    await expect(page.getByRole('dialog')).toHaveCount(1);
     await expect
-      .poll(async () => await page.evaluate(() => (window as any).__clipboardText))
-      .toBe(EXPECTED_BACKUP_TEXT);
-
-    await dialog.getByRole('button', { name: 'I copied these codes' }).click();
-    await expect(continueButton).toBeEnabled();
-  });
-
-  test('does not complete backup when print is blocked before window.print()', async ({ page }) => {
-    await page.evaluate(() => {
-      window.open = (() => null) as typeof window.open;
-    });
-    await mountBackupUi(page);
-
-    const dialog = page.getByRole('dialog');
-    const continueButton = dialog.getByRole('button', { name: 'Continue' });
-    await dialog.getByRole('button', { name: 'Print' }).click();
-    await dialog.getByLabel('I saved these codes in a private place').check();
-    await expect(dialog.getByText('Print is blocked.')).toBeVisible();
-    await expect(continueButton).toBeDisabled();
+      .poll(async () => await page.evaluate(() => (window as any).__acknowledgeArgs || null))
+      .toBeNull();
   });
 });

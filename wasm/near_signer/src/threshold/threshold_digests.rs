@@ -11,7 +11,7 @@ use sha2::{Digest, Sha256};
 use wasm_bindgen::prelude::*;
 
 fn parse_near_public_key_to_bytes(public_key: &str) -> Result<[u8; 32], JsValue> {
-    signer_wasm_core::near_threshold_ed25519::parse_near_public_key_to_bytes(public_key)
+    signer_core::near_threshold_ed25519::parse_near_public_key_to_bytes(public_key)
         .map_err(|e| JsValue::from_str(&e.to_string()))
 }
 
@@ -508,7 +508,7 @@ pub fn threshold_ed25519_compute_nep413_signing_digest(
         .map_err(|e| JsValue::from_str(&format!("Invalid nep413 signingPayload: {e}")))?;
 
     let digest =
-        signer_wasm_core::near_threshold_ed25519::compute_nep413_signing_digest_from_nonce_base64(
+        signer_core::near_threshold_ed25519::compute_nep413_signing_digest_from_nonce_base64(
             &payload.message,
             &payload.recipient,
             payload.nonce.trim(),

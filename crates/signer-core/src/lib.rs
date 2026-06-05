@@ -23,3 +23,8 @@ pub mod threshold_ecdsa;
 #[cfg(feature = "threshold-ecdsa-hss")]
 pub mod threshold_ecdsa_hss;
 pub mod webauthn_p256;
+
+#[cfg(all(test, feature = "secp256k1", feature = "near-crypto"))]
+mod platform_surface_tests {
+    include!("../fixtures/signing-vectors/platform_surface_tests.rs");
+}

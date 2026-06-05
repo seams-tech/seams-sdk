@@ -134,6 +134,8 @@ import type {
   EmailOtpEcdsaEnrollmentCapabilityResult,
   EmailOtpBackedUpEnrollmentResult,
   EmailOtpEnrollmentResult,
+  EmailOtpRecoveryCodeBackupStatus,
+  EmailOtpRecoveryCodeStatus,
   GoogleEmailOtpSessionExchangeResult,
   RegistrationCapability,
 } from '@/web/SeamsWeb/signingSurface/types';
@@ -1174,6 +1176,32 @@ export class WalletIframeRouter {
     const { login: st } = await this.getWalletSession(payload.walletSession.walletId);
     this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
     return sanitizeEmailOtpIframeResult(res.result);
+  }
+
+  async acknowledgeEmailOtpRecoveryCodeBackup(payload: {
+    walletId: string;
+    enrollmentId: string;
+    enrollmentSealKeyVersion: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }): Promise<EmailOtpRecoveryCodeBackupStatus> {
+    const res = await this.post<EmailOtpRecoveryCodeBackupStatus>({
+      type: 'PM_ACKNOWLEDGE_EMAIL_OTP_RECOVERY_CODE_BACKUP',
+      payload,
+    });
+    return res.result;
+  }
+
+  async getEmailOtpRecoveryCodeStatus(payload: {
+    walletId: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }): Promise<EmailOtpRecoveryCodeStatus> {
+    const res = await this.post<EmailOtpRecoveryCodeStatus>({
+      type: 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS',
+      payload,
+    });
+    return res.result;
   }
 
   async enrollAndLoginWithEmailOtpEcdsaCapability(

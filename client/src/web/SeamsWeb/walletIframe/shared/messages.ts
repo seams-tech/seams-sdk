@@ -52,6 +52,8 @@ export type ParentToChildType =
   | 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
   | 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'
   | 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
+  | 'PM_ACKNOWLEDGE_EMAIL_OTP_RECOVERY_CODE_BACKUP'
+  | 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS'
   | 'PM_GET_RECOVERY_EMAILS'
   | 'PM_SET_RECOVERY_EMAILS'
   | 'PM_SIGN_TXS_WITH_ACTIONS'
@@ -340,6 +342,20 @@ export interface PMEnrollEmailOtpPayload {
   appSessionJwt?: string;
 }
 
+export interface PMAcknowledgeEmailOtpRecoveryCodeBackupPayload {
+  walletId: string;
+  enrollmentId: string;
+  enrollmentSealKeyVersion: string;
+  relayUrl?: string;
+  appSessionJwt?: string;
+}
+
+export interface PMGetEmailOtpRecoveryCodeStatusPayload {
+  walletId: string;
+  relayUrl?: string;
+  appSessionJwt?: string;
+}
+
 export interface PMEmailOtpEcdsaCapabilityPayload {
   walletSession: WalletSessionRef;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -465,6 +481,14 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<
       'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
       PMEmailOtpEcdsaEnrollmentCapabilityPayload
+    >
+  | RpcEnvelope<
+      'PM_ACKNOWLEDGE_EMAIL_OTP_RECOVERY_CODE_BACKUP',
+      PMAcknowledgeEmailOtpRecoveryCodeBackupPayload
+    >
+  | RpcEnvelope<
+      'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS',
+      PMGetEmailOtpRecoveryCodeStatusPayload
     >
   | RpcEnvelope<'PM_GET_RECOVERY_EMAILS', PMGetRecoveryEmailsPayload>
   | RpcEnvelope<'PM_SET_RECOVERY_EMAILS', PMSetRecoveryEmailsPayload>

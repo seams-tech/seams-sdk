@@ -11423,9 +11423,7 @@ export class AuthService {
           ? 'ready'
           : pendingBackupRecords.length > 0
             ? 'pending_backup'
-            : records.length > 0
-              ? 'incomplete'
-              : 'not_enrolled';
+            : 'incomplete';
       return {
         ok: true,
         status,

@@ -38,9 +38,9 @@ Future target examples:
 Most cryptographic implementation work is already in Rust/WASM. The existing
 codebase has dedicated Rust/WASM packages for NEAR signing, EVM signing, Tempo
 signing, Ed25519 HSS client work, threshold PRF work, email OTP runtime, and
-Shamir 3-pass runtime. The existing `crates/signer-core`,
-`crates/signer-wasm-core`, and `crates/signer-embedded-linux` structure is
-pointed toward shared Rust core plus target-specific bindings.
+Shamir 3-pass runtime. The existing `crates/signer-core` and
+`crates/signer-embedded-linux` structure is pointed toward shared Rust core
+plus target-specific native bindings.
 
 This refactor is therefore a boundary-tightening pass across the existing
 Rust/WASM crypto surfaces:
@@ -828,8 +828,8 @@ Tasks:
 - [x] Inventory persistence record types that combine raw storage records,
       normalized domain records, public identity, and hot signer material.
 - [x] Inventory current Rust core coverage in `crates/signer-core`,
-      `crates/signer-wasm-core`, `crates/signer-embedded-linux`, and `wasm/*`,
-      with emphasis on which high-level workflows already have Rust coverage.
+      `crates/signer-embedded-linux`, and `wasm/*`, with emphasis on which
+      high-level workflows already have Rust coverage.
 
 Deliverable:
 

@@ -21,7 +21,6 @@ export type {
   FinalizedEvmTxPayloadVerification,
   KeyExportCapability,
   NearSignerCapability,
-  SeamsWebContext,
   PreferencesCapability,
   RegistrationCapability,
   RecoveryCapability,
@@ -35,7 +34,7 @@ export type {
   TempoNonceLifecycleOptions,
   TempoNonceLaneStatus,
   TempoSignerCapability,
-} from './signingSurface/types';
+} from './publicApi/types';
 
 export type {
   SeamsConfigsReadonly,

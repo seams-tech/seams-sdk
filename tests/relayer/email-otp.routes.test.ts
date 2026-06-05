@@ -610,6 +610,56 @@ test.describe('Email OTP routes', () => {
     }
   });
 
+  test('Express: recovery-code status reports incomplete when an OTP enrollment has no recovery-code records', async () => {
+    const service = makeService();
+    await seedCanonicalWallet(service);
+    const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });
+    expect(appVersion.ok).toBe(true);
+    const nowMs = Date.now();
+    await (service as any).getEmailOtpWalletEnrollmentStore().put({
+      version: 'email_otp_wallet_enrollment_v1',
+      walletId: 'alice.testnet',
+      providerUserId: 'alice.testnet',
+      orgId: DEFAULT_RUNTIME_POLICY_SCOPE.orgId,
+      verifiedEmail: 'alice@example.com',
+      enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:alice.testnet',
+      enrollmentVersion: '1',
+      enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+      signingRootId: 'email_otp_default_signing_root',
+      signingRootVersion: 'default',
+      recoveryWrappedEnrollmentEscrowCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
+      clientUnlockPublicKeyB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+      unlockKeyVersion: 'email-otp-unlock-v1',
+      thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
+      createdAtMs: nowMs,
+      updatedAtMs: nowMs,
+    });
+    const router = createRelayRouter(service, {
+      session: makeAppSessionAdapter(
+        (appVersion as { appSessionVersion: string }).appSessionVersion,
+      ),
+    });
+    const srv = await startExpressRouter(router);
+    try {
+      const status = await fetchJson(`${srv.baseUrl}/wallet/email-otp/recovery-key/status`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+        body: JSON.stringify({
+          walletId: 'alice.testnet',
+        }),
+      });
+      expect(status.status).toBe(200);
+      expect(status.json?.status).toBe('incomplete');
+      expect(status.json?.enrollmentId).toBe(
+        'email-otp-device-enrollment-v1:alice.testnet:alice.testnet',
+      );
+      expect(status.json?.activeRecoveryCodeCount).toBe(0);
+      expect(status.json?.totalRecoveryCodeCount).toBe(0);
+    } finally {
+      await srv.close();
+    }
+  });
+
   test('Cloudflare: login challenge requires completed Email OTP enrollment', async () => {
     const service = makeService();
     const appVersion = await service.getOrCreateAppSessionVersion({ userId: 'alice.testnet' });

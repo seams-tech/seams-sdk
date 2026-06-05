@@ -379,7 +379,7 @@ dependencies = [
  "serde-wasm-bindgen",
  "sha2",
  "sha3",
- "signer-wasm-core",
+ "signer-core",
  "wasm-bindgen",
  "zeroize",
 ]
@@ -1079,13 +1079,6 @@ dependencies = [
  "sha3",
  "threshold-signatures",
  "zeroize",
-]
-
-[[package]]
-name = "signer-wasm-core"
-version = "0.1.0"
-dependencies = [
- "signer-core",
 ]
 
 [[package]]

@@ -4,7 +4,9 @@ import {
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { toAccountId } from '@/core/types/accountIds';
 import { toError } from '@shared/utils/errors';
-import type { SeamsWebContext, TempoSignerCapability, TempoSigningSurface } from '@/web/SeamsWeb/signingSurface/types';
+import type { TempoSignerCapability, TempoSigningSurface } from '@/web/SeamsWeb/signingSurface/types';
+import type { NearClient } from '@/core/rpcClients/near/NearClient';
+import type { SeamsConfigsReadonly, ThemeName } from '@/core/types/seams';
 import type { EcdsaBootstrapRequest } from '@/core/signingEngine/session/passkey/ecdsaBootstrap';
 import { executeEvmFamilyTransactionLifecycle } from '@/web/SeamsWeb/operations/tempo/executeEvmFamilyTransaction';
 import { buildTempoBootstrapArgs, toSerializableTempoError } from '@/web/SeamsWeb/operations/tempo';
@@ -27,9 +29,9 @@ function toLocalTempoBootstrapRequest(
 
 export function createTempoSignerCapability(deps: {
   signingEngine: TempoSigningSurface;
-  nearClient: SeamsWebContext['nearClient'];
-  configs: SeamsWebContext['configs'];
-  getTheme: () => SeamsWebContext['theme'];
+  nearClient: NearClient;
+  configs: SeamsConfigsReadonly;
+  getTheme: () => ThemeName;
   getWalletIframe: () => WalletIframeCoordinator;
 }): TempoSignerCapability {
   const signTempo: TempoSignerCapability['signTempo'] = async (args) => {

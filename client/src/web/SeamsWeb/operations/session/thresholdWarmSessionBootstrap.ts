@@ -36,10 +36,10 @@ import {
   type ThresholdSessionKind,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import type {
-  SeamsWebContext,
   SigningSessionSurface,
   ThresholdEd25519HssClientSurface,
 } from '@/web/SeamsWeb/signingSurface/types';
+import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import {
   THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
   THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
@@ -133,7 +133,8 @@ type ThresholdWarmSessionRelayResult = {
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 };
 
-export type ThresholdWarmSessionContext = Pick<SeamsWebContext, 'configs'> & {
+export type ThresholdWarmSessionContext = {
+  configs: SeamsConfigsReadonly;
   signingEngine: ThresholdEd25519HssClientSurface &
     Pick<SigningSessionSurface, 'hydrateSigningSession'>;
 };

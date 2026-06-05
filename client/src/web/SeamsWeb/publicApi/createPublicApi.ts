@@ -21,14 +21,19 @@ import type {
   DevicesCapability,
   DeviceLinkingWebContext,
   EmailRecoveryWebContext,
+  EcdsaSessionBootstrapSurface,
+  NearSigningSurface,
   EvmSignerCapability,
   KeyExportCapability,
   NearSignerCapability,
   PreferencesCapability,
+  RegistrationSigningSurface,
   RecoveryCapability,
   RegistrationCapability,
-  SeamsWebSigningSurface,
+  RpIdSurface,
   TempoSignerCapability,
+  TempoSigningSurface,
+  UserAccountLookupSurface,
 } from '@/web/SeamsWeb/signingSurface/types';
 import type { WalletIframeCoordinator } from '@/web/SeamsWeb/walletIframe/coordinator';
 
@@ -85,8 +90,17 @@ export type SeamsWebPublicApi = {
   walletIframeControls: WalletIframeControlCapability;
 };
 
+type PublicApiSigningSurface = RegistrationSigningSurface &
+  EmailRecoveryWebContext['signingEngine'] &
+  DeviceLinkingWebContext['signingEngine'] &
+  NearSigningSurface &
+  UserAccountLookupSurface &
+  RpIdSurface &
+  TempoSigningSurface &
+  EcdsaSessionBootstrapSurface;
+
 export function createPublicApi(deps: {
-  signingEngine: SeamsWebSigningSurface;
+  signingEngine: PublicApiSigningSurface;
   nearClient: NearClient;
   configs: SeamsConfigsReadonly;
   getTheme: () => ThemeName;

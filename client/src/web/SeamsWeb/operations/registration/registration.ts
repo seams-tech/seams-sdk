@@ -505,17 +505,6 @@ async function registerEcdsaWalletOnly(args: {
       },
       ...(emailOtpEnrollment ? { emailOtpEnrollment } : {}),
     });
-    if (args.authMethod.kind === 'email_otp' && emailOtpEnrollmentMaterial) {
-      await backupEmailOtpRecoveryCodes({
-        relayUrl: relayerUrl,
-        walletId: String(walletId),
-        appSessionJwt: args.authMethod.appSessionJwt,
-        enrollment: emailOtpRegistrationMaterialToEnrollmentResult({
-          material: emailOtpEnrollmentMaterial,
-          challengeId: emailOtpChallengeId,
-        }),
-      });
-    }
     const walletKeys = finalized.ecdsa?.walletKeys || [];
     if (walletKeys.length === 0) {
       throw new Error('Wallet registration finalize did not return ECDSA wallet keys');
@@ -587,6 +576,17 @@ async function registerEcdsaWalletOnly(args: {
       phase: RegistrationEventPhase.STEP_11_COMPLETED,
       status: 'succeeded',
     });
+    if (args.authMethod.kind === 'email_otp' && emailOtpEnrollmentMaterial) {
+      await backupEmailOtpRecoveryCodes({
+        relayUrl: relayerUrl,
+        walletId: String(walletId),
+        appSessionJwt: args.authMethod.appSessionJwt,
+        enrollment: emailOtpRegistrationMaterialToEnrollmentResult({
+          material: emailOtpEnrollmentMaterial,
+          challengeId: emailOtpChallengeId,
+        }),
+      });
+    }
 
     const primaryKey = walletKeys[0];
     const result: RegistrationResult = {
@@ -973,17 +973,6 @@ export async function registerWallet(args: {
         : {}),
       ...(emailOtpEnrollment ? { emailOtpEnrollment } : {}),
     });
-    if (args.authMethod.kind === 'email_otp' && emailOtpEnrollmentMaterial) {
-      await backupEmailOtpRecoveryCodes({
-        relayUrl: relayerUrl,
-        walletId: String(intentResponse.intent.walletId),
-        appSessionJwt: args.authMethod.appSessionJwt,
-        enrollment: emailOtpRegistrationMaterialToEnrollmentResult({
-          material: emailOtpEnrollmentMaterial,
-          challengeId: emailOtpChallengeId,
-        }),
-      });
-    }
     if (!finalized.ed25519) {
       throw new Error('Wallet registration finalize did not return Ed25519 key material');
     }
@@ -1193,6 +1182,17 @@ export async function registerWallet(args: {
       phase: RegistrationEventPhase.STEP_11_COMPLETED,
       status: 'succeeded',
     });
+    if (args.authMethod.kind === 'email_otp' && emailOtpEnrollmentMaterial) {
+      await backupEmailOtpRecoveryCodes({
+        relayUrl: relayerUrl,
+        walletId: String(intentResponse.intent.walletId),
+        appSessionJwt: args.authMethod.appSessionJwt,
+        enrollment: emailOtpRegistrationMaterialToEnrollmentResult({
+          material: emailOtpEnrollmentMaterial,
+          challengeId: emailOtpChallengeId,
+        }),
+      });
+    }
     const primaryEcdsaWalletKey = ecdsaWalletKeys[0] || null;
     const successResult: RegistrationResult = {
       success: true,

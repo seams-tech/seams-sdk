@@ -27,7 +27,7 @@ const forbiddenSourcePatterns = [
 ];
 
 function fail(message) {
-  console.error(`\n[assert-native-package-entry-bundles] ${message}`);
+  console.error(`\n[assert-runtime-entry-bundles] ${message}`);
   process.exit(1);
 }
 
@@ -107,7 +107,7 @@ for (const entry of entryFiles) {
 }
 
 if (offenders.length > 0) {
-  console.error('[assert-native-package-entry-bundles] Runtime entry bundle violations:');
+  console.error('[assert-runtime-entry-bundles] Runtime entry bundle violations:');
   for (const offender of offenders.slice(0, 80)) {
     console.error(`  - ${offender}`);
   }
@@ -115,4 +115,4 @@ if (offenders.length > 0) {
   process.exit(1);
 }
 
-console.log('[assert-native-package-entry-bundles] OK: runtime entry avoids browser bundles');
+console.log('[assert-runtime-entry-bundles] OK: runtime entry avoids browser bundles');

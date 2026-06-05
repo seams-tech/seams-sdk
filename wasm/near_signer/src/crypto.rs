@@ -35,7 +35,7 @@ pub(crate) fn derive_kek_from_wrap_key_seed(
     wrap_key_seed_b64u: &str,
     wrap_key_salt_b64u: &str,
 ) -> Result<Vec<u8>, KdfError> {
-    signer_wasm_core::near_crypto::derive_kek_from_wrap_key_seed_b64u(
+    signer_core::near_crypto::derive_kek_from_wrap_key_seed_b64u(
         wrap_key_seed_b64u,
         wrap_key_salt_b64u,
     )

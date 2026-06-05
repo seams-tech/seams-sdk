@@ -1,5 +1,5 @@
 use serde::Serialize;
-use signer_wasm_core::error::{SignerCoreError, SignerCoreErrorCode};
+use signer_core::error::{SignerCoreError, SignerCoreErrorCode};
 use wasm_bindgen::prelude::JsValue;
 
 #[derive(Debug, Clone, Serialize)]

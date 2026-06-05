@@ -41,7 +41,7 @@ test.describe('refactor 54 web signing surface guards', () => {
 
   test('SeamsWebContext does not expose the runtime service graph', () => {
     const source = readRepoSource('client/src/web/SeamsWeb/signingSurface/types.ts');
-    const contextBlock = source.match(/export interface SeamsWebContext\s*{[\s\S]*?^}/m)?.[0];
+    const contextBlock = source.match(/export type SeamsWebContext\s*=[^;]+;/m)?.[0];
 
     expect(contextBlock).toBeTruthy();
     expect(contextBlock).not.toMatch(/\bsigningRuntime\b/);
@@ -50,7 +50,7 @@ test.describe('refactor 54 web signing surface guards', () => {
   test('web signing surface does not expose SigningRuntime escape hatches', () => {
     const interfacesSource = readRepoSource('client/src/web/SeamsWeb/signingSurface/types.ts');
     const surfaceBlock = interfacesSource.match(
-      /export interface SeamsWebSigningSurface\s*{[\s\S]*?^}/m,
+      /export interface SeamsWebSigningSurface[\s\S]*?^}/m,
     )?.[0];
 
     expect(surfaceBlock).toBeTruthy();
@@ -84,7 +84,7 @@ test.describe('refactor 54 web signing surface guards', () => {
 
   test('public registration surfaces do not expose internal registration methods', () => {
     const legacyRegistrationMethodPattern = new RegExp(`\\bregisterPasskey${'Internal'}\\b`);
-    const interfacesSource = readRepoSource('client/src/web/SeamsWeb/signingSurface/types.ts');
+    const interfacesSource = readRepoSource('client/src/web/SeamsWeb/publicApi/types.ts');
     const registrationCapabilityBlock = interfacesSource.match(
       /export interface RegistrationCapability\s*{[\s\S]*?^}/m,
     )?.[0];
@@ -139,7 +139,7 @@ test.describe('refactor 54 web signing surface guards', () => {
 
   test('Email OTP methods live under task namespaces', () => {
     const seamsWebSource = readRepoSource(seamsWebImplementationPath);
-    const interfacesSource = readRepoSource('client/src/web/SeamsWeb/signingSurface/types.ts');
+    const interfacesSource = readRepoSource('client/src/web/SeamsWeb/publicApi/types.ts');
     const authCapabilityBlock = interfacesSource.match(
       /export interface AuthCapability\s*{[\s\S]*?^}/m,
     )?.[0];
@@ -187,7 +187,7 @@ test.describe('refactor 54 web signing surface guards', () => {
 
   test('device lifecycle methods live under the devices namespace', () => {
     const seamsWebSource = readRepoSource(seamsWebImplementationPath);
-    const interfacesSource = readRepoSource('client/src/web/SeamsWeb/signingSurface/types.ts');
+    const interfacesSource = readRepoSource('client/src/web/SeamsWeb/publicApi/types.ts');
     const recoveryCapabilityBlock = interfacesSource.match(
       /export interface RecoveryCapability\s*{[\s\S]*?^}/m,
     )?.[0];
@@ -330,6 +330,39 @@ test.describe('refactor 54 web signing surface guards', () => {
     expect(offenders).toEqual([]);
   });
 
+  test('web operations and public API use narrow signing-surface ports', () => {
+    const operationRoots = [
+      'client/src/web/SeamsWeb/operations',
+      'client/src/web/SeamsWeb/publicApi',
+    ];
+    const offenders = operationRoots.flatMap((root) =>
+      listTypeScriptFiles(root).flatMap((relativePath) => {
+        const source = readRepoSource(relativePath);
+        return [
+          /\bSeamsWebSigningSurface\b/,
+          /Pick\s*<\s*SeamsWebSigningSurface\b/,
+        ]
+          .filter((pattern) => pattern.test(source))
+          .map((pattern) => `${relativePath}: ${pattern.source}`);
+      }),
+    );
+
+    expect(offenders).toEqual([]);
+
+    const signingSurfaceTypes = readRepoSource('client/src/web/SeamsWeb/signingSurface/types.ts');
+    const signingSurfacePorts = readRepoSource('client/src/web/SeamsWeb/signingSurface/ports.ts');
+    const aggregateMatch = signingSurfaceTypes.match(
+      /export interface SeamsWebSigningSurface[\s\S]*?^}/m,
+    );
+    expect(aggregateMatch?.[0] ?? '').toContain('extends RpIdSurface');
+    expect(aggregateMatch?.[0] ?? '').not.toContain('storeWalletEcdsaSignerRecords(');
+    expect(signingSurfaceTypes).not.toMatch(/Pick\s*<\s*SeamsWebSigningSurface\b/);
+    expect(signingSurfaceTypes).not.toMatch(/export interface (Auth|Registration|NearSigner|TempoSigner|EvmSigner|Recovery|Devices|KeyExport|Preferences)Capability\b/);
+    expect(signingSurfaceTypes).toContain("export type * from '../publicApi/types'");
+    expect(signingSurfacePorts).toContain('export type SeamsWebBaseContext<TSigningEngine>');
+    expect(signingSurfacePorts).not.toMatch(/Omit\s*<\s*SeamsWebContext\b/);
+  });
+
   test('web helpers do not accept raw SeamsWebContext inputs', () => {
     const allowedRawContextFiles = [
       seamsWebImplementationPath,
@@ -352,6 +385,18 @@ test.describe('refactor 54 web signing surface guards', () => {
     expect(offenders).toEqual([]);
   });
 
+  test('broad SeamsWebContext stays facade-only', () => {
+    const allowedFiles = [
+      seamsWebImplementationPath,
+      'client/src/web/SeamsWeb/signingSurface/types.ts',
+    ];
+    const offenders = listTypeScriptFiles('client/src/web/SeamsWeb')
+      .filter((relativePath) => !allowedFiles.includes(relativePath))
+      .filter((relativePath) => /\bSeamsWebContext\b/.test(readRepoSource(relativePath)));
+
+    expect(offenders).toEqual([]);
+  });
+
   test('linear SeamsWeb layout enforces import direction', () => {
     const coreWebImportOffenders = listTypeScriptFiles('client/src/core').filter((relativePath) =>
       /from\s+['"](?:@\/web\/|\.\.?\/.*web\/)/.test(readRepoSource(relativePath)),
@@ -369,11 +414,13 @@ test.describe('refactor 54 web signing surface guards', () => {
 
     const surfacePublicApiOffenders = listTypeScriptFiles(
       'client/src/web/SeamsWeb/signingSurface',
-    ).filter((relativePath) =>
-      /from\s+['"](?:@\/web\/SeamsWeb\/publicApi\/|\.\.?\/.*publicApi\/)/.test(
-        readRepoSource(relativePath),
-      ),
-    );
+    )
+      .filter((relativePath) => relativePath !== 'client/src/web/SeamsWeb/signingSurface/types.ts')
+      .filter((relativePath) =>
+        /from\s+['"](?:@\/web\/SeamsWeb\/publicApi\/|\.\.?\/.*publicApi\/)/.test(
+          readRepoSource(relativePath),
+        ),
+      );
     expect(surfacePublicApiOffenders).toEqual([]);
 
     const publicApiAssemblyOffenders = listTypeScriptFiles(

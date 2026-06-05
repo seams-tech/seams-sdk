@@ -17,9 +17,9 @@ pub fn derive_threshold_ed25519_hss_client_inputs(args: JsValue) -> Result<JsVal
 
     let prf_first = Base64UrlUnpadded::decode_vec(&prf_first_b64u)
         .map_err(|e| JsValue::from_str(&format!("Invalid prfFirstB64u: {e}")))?;
-    let inputs = signer_wasm_core::near_ed25519_recovery::derive_ed25519_hss_client_inputs_v1(
+    let inputs = signer_core::near_ed25519_recovery::derive_ed25519_hss_client_inputs_v1(
         &prf_first,
-        &signer_wasm_core::near_ed25519_recovery::Ed25519HssCanonicalContextV1 {
+        &signer_core::near_ed25519_recovery::Ed25519HssCanonicalContextV1 {
             org_id: signing_root_id.clone(),
             account_id: near_account_id.clone(),
             key_purpose: key_purpose.clone(),

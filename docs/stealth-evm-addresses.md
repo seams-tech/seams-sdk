@@ -211,9 +211,9 @@ formats from entering the SDK.
   identity public-key sums with stable `SignerCoreErrorCode` values.
 - [ ] Add Rust unit tests for scalar multiplication, ECDH share addition,
   stealth public-key derivation, zero/identity rejection, and fixture vectors.
-- [ ] Add wasm-core fixture coverage in `crates/signer-wasm-core/src/tests.rs`
-  and embedded-Linux fixture coverage in
-  `crates/signer-embedded-linux/src/tests.rs`.
+- [ ] Add shared core fixture coverage in
+  `crates/signer-core/fixtures/signing-vectors/platform_surface_tests.rs`
+  and embedded-Linux replay coverage in `crates/signer-embedded-linux/src/tests.rs`.
 
 ### threshold_ecdsa
 

@@ -14,6 +14,53 @@ function walletIdFromPayloadSession(value: unknown): string {
   return String(session.walletId || '').trim();
 }
 
+function readRequiredString(record: Record<string, unknown>, field: string): string {
+  const value = typeof record[field] === 'string' ? record[field].trim() : '';
+  if (!value) {
+    throw new Error(`Missing ${field}`);
+  }
+  return value;
+}
+
+function readOptionalString(record: Record<string, unknown>, field: string): string | undefined {
+  const value = typeof record[field] === 'string' ? record[field].trim() : '';
+  return value || undefined;
+}
+
+function parseAcknowledgeEmailOtpRecoveryCodeBackupPayload(value: unknown): {
+  walletId: string;
+  enrollmentId: string;
+  enrollmentSealKeyVersion: string;
+  relayUrl?: string;
+  appSessionJwt?: string;
+} {
+  const record = recordFromPayload(value);
+  const relayUrl = readOptionalString(record, 'relayUrl');
+  const appSessionJwt = readOptionalString(record, 'appSessionJwt');
+  return {
+    walletId: readRequiredString(record, 'walletId'),
+    enrollmentId: readRequiredString(record, 'enrollmentId'),
+    enrollmentSealKeyVersion: readRequiredString(record, 'enrollmentSealKeyVersion'),
+    ...(relayUrl ? { relayUrl } : {}),
+    ...(appSessionJwt ? { appSessionJwt } : {}),
+  };
+}
+
+function parseGetEmailOtpRecoveryCodeStatusPayload(value: unknown): {
+  walletId: string;
+  relayUrl?: string;
+  appSessionJwt?: string;
+} {
+  const record = recordFromPayload(value);
+  const relayUrl = readOptionalString(record, 'relayUrl');
+  const appSessionJwt = readOptionalString(record, 'appSessionJwt');
+  return {
+    walletId: readRequiredString(record, 'walletId'),
+    ...(relayUrl ? { relayUrl } : {}),
+    ...(appSessionJwt ? { appSessionJwt } : {}),
+  };
+}
+
 async function acknowledgeEmailOtpBackupInIframe(input: {
   pm: ReturnType<HandlerDeps['getSeamsWeb']>;
   result: EmailOtpEnrollmentResult;
@@ -114,6 +161,26 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       const payload = withProgress(deps, req.requestId, req.payload || {});
       const result = await pm.auth.refreshEmailOtpSigningSession(
         payload as Parameters<typeof pm.auth.refreshEmailOtpSigningSession>[0],
+      );
+      respondOkResult(deps, req.requestId, result);
+    },
+
+    PM_ACKNOWLEDGE_EMAIL_OTP_RECOVERY_CODE_BACKUP: async (
+      req: Req<'PM_ACKNOWLEDGE_EMAIL_OTP_RECOVERY_CODE_BACKUP'>,
+    ) => {
+      const pm = deps.getSeamsWeb();
+      const result = await pm.recovery.acknowledgeEmailOtpRecoveryCodeBackup(
+        parseAcknowledgeEmailOtpRecoveryCodeBackupPayload(req.payload),
+      );
+      respondOkResult(deps, req.requestId, result);
+    },
+
+    PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS: async (
+      req: Req<'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS'>,
+    ) => {
+      const pm = deps.getSeamsWeb();
+      const result = await pm.recovery.getEmailOtpRecoveryCodeStatus(
+        parseGetEmailOtpRecoveryCodeStatusPayload(req.payload),
       );
       respondOkResult(deps, req.requestId, result);
     },

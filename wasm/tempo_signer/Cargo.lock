@@ -214,13 +214,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "signer-wasm-core"
-version = "0.1.0"
-dependencies = [
- "signer-core",
-]
-
-[[package]]
 name = "syn"
 version = "2.0.114"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -240,7 +233,7 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "sha3",
- "signer-wasm-core",
+ "signer-core",
  "wasm-bindgen",
 ]
 

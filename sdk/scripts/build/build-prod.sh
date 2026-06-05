@@ -53,7 +53,7 @@ print_step "Asserting NEAR signer WASM imports stay within dist/esm..."
 if node "$SDK_ROOT/scripts/checks/assert-near-signer-wasm-imports.mjs"; then print_success "NEAR signer WASM imports OK"; else print_error "NEAR signer WASM imports invalid"; exit 1; fi
 
 print_step "Asserting runtime package entry avoids browser bundles..."
-if node "$SDK_ROOT/scripts/checks/assert-native-package-entry-bundles.mjs"; then print_success "Runtime package entry OK"; else print_error "Runtime package entry invalid"; exit 1; fi
+if node "$SDK_ROOT/scripts/checks/assert-runtime-entry-bundles.mjs"; then print_success "Runtime package entry OK"; else print_error "Runtime package entry invalid"; exit 1; fi
 
 print_step "Bundling browser-embedded SDK assets with Bun (minified)..."
 if [ -z "$BUN_BIN" ]; then print_error "Bun not found. Install Bun or ensure it is on PATH."; exit 1; fi

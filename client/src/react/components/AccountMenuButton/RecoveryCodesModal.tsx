@@ -41,10 +41,33 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
 }) => {
   const { seams } = useSeams();
   const [loadState, setLoadState] = React.useState<RecoveryCodesLoadState>({ kind: 'idle' });
+  const loadStatusSeq = React.useRef(0);
   const { theme, tokens } = useTheme();
   const scopedTokens = React.useMemo(
     () => (theme === 'dark' ? { dark: tokens } : { light: tokens }),
     [theme, tokens],
+  );
+
+  const loadRecoveryCodeStatus = React.useCallback(
+    async () => {
+      const requestSeq = loadStatusSeq.current + 1;
+      loadStatusSeq.current = requestSeq;
+      setLoadState({ kind: 'loading' });
+      try {
+        const status = await seams.recovery.getEmailOtpRecoveryCodeStatus({
+          walletId: nearAccountId,
+        });
+        if (loadStatusSeq.current !== requestSeq) return;
+        setLoadState({ kind: 'loaded', status });
+      } catch (error: unknown) {
+        if (loadStatusSeq.current !== requestSeq) return;
+        setLoadState({
+          kind: 'error',
+          message: error instanceof Error ? error.message : 'Could not load recovery-code status',
+        });
+      }
+    },
+    [nearAccountId, seams],
   );
 
   useEffect(() => {
@@ -61,28 +84,12 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) {
+      loadStatusSeq.current += 1;
       setLoadState({ kind: 'idle' });
       return;
     }
-    let cancelled = false;
-    setLoadState({ kind: 'loading' });
-    seams.recovery
-      .getEmailOtpRecoveryCodeStatus({ walletId: nearAccountId })
-      .then((status) => {
-        if (!cancelled) setLoadState({ kind: 'loaded', status });
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setLoadState({
-            kind: 'error',
-            message: error instanceof Error ? error.message : 'Could not load recovery-code status',
-          });
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, nearAccountId, seams]);
+    void loadRecoveryCodeStatus();
+  }, [isOpen, loadRecoveryCodeStatus]);
 
   if (!isOpen) return null;
 
@@ -104,10 +111,14 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
           <button
             type="button"
             className="w3a-recovery-codes-modal-close"
-            onClick={onClose}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onClose();
+            }}
             aria-label="Close recovery codes"
           >
-            x
+            ✕
           </button>
           <div className="w3a-recovery-codes-modal-header">
             <h2 id="w3a-recovery-codes-modal-title" className="w3a-recovery-codes-modal-title">
