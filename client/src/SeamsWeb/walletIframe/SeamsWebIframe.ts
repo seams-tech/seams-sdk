@@ -99,10 +99,6 @@ import type {
   TempoSignerCapability,
 } from '@/SeamsWeb';
 import { executeEvmFamilyTransactionLifecycle } from '@/SeamsWeb/operations/tempo/executeEvmFamilyTransaction';
-import {
-  acknowledgeEmailOtpRecoveryCodeBackup,
-  getEmailOtpRecoveryCodeStatus,
-} from '@/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup';
 import { toAccountId } from '@/core/types/accountIds';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { buildPasskeyNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
@@ -387,20 +383,20 @@ export class SeamsWebIframe {
         await this.router.stopEmailRecovery(args);
       },
       acknowledgeEmailOtpRecoveryCodeBackup: async (args) =>
-        await acknowledgeEmailOtpRecoveryCodeBackup({
-          relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
+        await this.router.acknowledgeEmailOtpRecoveryCodeBackup({
           walletId: args.walletId,
           enrollmentId: args.enrollmentId,
           enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
+          relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
           ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
         }),
       getEmailOtpRecoveryCodeStatus: async (args) =>
-        await getEmailOtpRecoveryCodeStatus({
-          relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
+        await this.router.getEmailOtpRecoveryCodeStatus({
           walletId: args.walletId,
+          relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
           ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
         }),
-    };
+    } satisfies RecoveryCapability;
     this.devices = {
       startDevice2LinkingFlow: async (args) => {
         await this.requireRouterReady();
@@ -466,6 +462,16 @@ export class SeamsWebIframe {
       throw new Error('[SeamsWebIframe] Wallet iframe is configured but unavailable.');
     }
     return this.router;
+  }
+
+  async showEmailOtpPendingRecoveryCodeBackupForAccountMenu(args: {
+    walletId: string;
+  }): Promise<Awaited<ReturnType<RecoveryCapability['getEmailOtpRecoveryCodeStatus']>>> {
+    await this.requireRouterReady();
+    return await this.router.showEmailOtpPendingRecoveryCodeBackup({
+      walletId: args.walletId,
+      relayUrl: String(this.configs.network.relayer.url || '').trim(),
+    });
   }
 
   isReady(): boolean {

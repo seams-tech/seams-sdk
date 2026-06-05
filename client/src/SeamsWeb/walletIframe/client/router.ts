@@ -225,6 +225,7 @@ type Pending = {
 
 const WALLET_IFRAME_PROGRESS_TIMEOUT_EXTENSION_FACTOR = 4;
 const WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS = 30_000;
+const WALLET_IFRAME_EMAIL_OTP_BACKUP_TIMEOUT_MS = 5 * 60 * 1000;
 const EMAIL_OTP_APP_ORIGIN_FORBIDDEN_RESULT_KEYS = new Set([
   'S',
   'secretS',
@@ -1125,7 +1126,7 @@ export class WalletIframeRouter {
         options: { onProgress: this.wrapOnEvent(onEvent, isRegistrationFlowEvent) },
       },
       {
-        timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
+        timeoutMs: WALLET_IFRAME_EMAIL_OTP_BACKUP_TIMEOUT_MS,
         progressTimeoutExtensionFactor: 1,
       },
     );
@@ -1204,6 +1205,24 @@ export class WalletIframeRouter {
     return res.result;
   }
 
+  async showEmailOtpPendingRecoveryCodeBackup(payload: {
+    walletId: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }): Promise<EmailOtpRecoveryCodeStatus> {
+    const res = await this.post<EmailOtpRecoveryCodeStatus>(
+      {
+        type: 'PM_SHOW_EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP',
+        payload,
+      },
+      {
+        timeoutMs: WALLET_IFRAME_EMAIL_OTP_BACKUP_TIMEOUT_MS,
+        progressTimeoutExtensionFactor: 1,
+      },
+    );
+    return res.result;
+  }
+
   async enrollAndLoginWithEmailOtpEcdsaCapability(
     payload: Omit<EmailOtpEcdsaEnrollmentCapabilityArgs, 'clientSecret32'>,
   ): Promise<EmailOtpEcdsaEnrollmentCapabilityResult> {
@@ -1221,7 +1240,7 @@ export class WalletIframeRouter {
         },
       },
       {
-        timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
+        timeoutMs: WALLET_IFRAME_EMAIL_OTP_BACKUP_TIMEOUT_MS,
         progressTimeoutExtensionFactor: 1,
       },
     );
@@ -2087,6 +2106,7 @@ export class WalletIframeRouter {
       case 'PM_SIGN_TEMPO':
       case 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION':
       case 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA':
+      case 'PM_SHOW_EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP':
         return { mode: 'fullscreen' };
 
       // All other operations (background/read-only) don't need overlay

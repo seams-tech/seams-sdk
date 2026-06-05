@@ -48,6 +48,11 @@ Store these codes somewhere private. Each code can be used once.
 async function mountBackupUi(page: import('@playwright/test').Page): Promise<void> {
   await page.evaluate(
     async ({ enrollment }) => {
+      const indexedDbMod = await import('/sdk/esm/core/indexedDB/index.js');
+      indexedDbMod.seamsWalletDB.setDisabled(false);
+      indexedDbMod.seamsWalletDB.setDbName(
+        indexedDbMod.createSeamsTestWalletDbName(`otp-backup-${crypto.randomUUID()}`),
+      );
       const mod = await import(
         '/sdk/esm/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.js'
       );
@@ -71,6 +76,20 @@ async function mountBackupUi(page: import('@playwright/test').Page): Promise<voi
     },
     { enrollment: ENROLLMENT },
   );
+}
+
+async function readPendingBackup(page: import('@playwright/test').Page): Promise<unknown> {
+  return await page.evaluate(async ({ enrollment }) => {
+    const mod = await import(
+      '/sdk/esm/core/indexedDB/seamsWalletDB/emailOtpPendingRecoveryCodeBackups.js'
+    );
+    return await mod.emailOtpPendingRecoveryCodeBackupRepository.readMatching({
+      walletId: 'alice.testnet',
+      enrollmentId: enrollment.enrollmentId,
+      enrollmentSealKeyVersion: enrollment.enrollmentSealKeyVersion,
+      nowMs: 1_700_000_000_001,
+    });
+  }, { enrollment: ENROLLMENT });
 }
 
 test.describe('SeamsWeb Email OTP recovery-code backup UI', () => {
@@ -133,6 +152,7 @@ test.describe('SeamsWeb Email OTP recovery-code backup UI', () => {
       text: EXPECTED_BACKUP_TEXT,
       revokedUrl: 'blob:email-otp-recovery-codes',
     });
+    expect(await readPendingBackup(page)).toBeNull();
 
     const finalResult = await page.evaluate(async () => await (window as any).__backupPromise);
     expect(finalResult).toEqual({
@@ -177,6 +197,13 @@ test.describe('SeamsWeb Email OTP recovery-code backup UI', () => {
     await expect(dialog).toBeVisible();
     await expect(dialog.getByText('Download failed. Try again.')).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(1);
+    expect(await readPendingBackup(page)).toMatchObject({
+      status: 'pending_backup',
+      walletId: 'alice.testnet',
+      enrollmentId: ENROLLMENT.enrollmentId,
+      enrollmentSealKeyVersion: ENROLLMENT.enrollmentSealKeyVersion,
+      recoveryKeys: RECOVERY_CODES,
+    });
     await expect
       .poll(async () => await page.evaluate(() => (window as any).__acknowledgeArgs || null))
       .toBeNull();

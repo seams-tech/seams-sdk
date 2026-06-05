@@ -547,8 +547,10 @@ Server activation and abandoned-backup cleanup:
    `pending_backup` set to `active`, records `acknowledgedAtMs`, and returns
    `EmailOtpRecoveryCodeBackupStatus`.
 4. If the user abandons backup, the owning UI boundary marks setup incomplete
-   and drops the plaintext codes. The next setup attempt must revoke or delete
-   the old `pending_backup` set before generating a replacement set.
+   and drops React plaintext code state. The pending-backup IndexedDB record
+   remains available for redisplay until acknowledgement, explicit cleanup, or
+   expiry. The next setup attempt must revoke or delete the old
+   `pending_backup` set before generating a replacement set.
 5. The server may expire stale `pending_backup` sets and mark them `abandoned`
    with `cleanupReason: 'pending_backup_expired'`.
 
@@ -612,8 +614,9 @@ Profile-menu entrypoint:
 3. Render the status/rotation UI from `AccountMenuButton` using the same portal
    pattern as linked devices and key export.
 4. Disable the item when the user is logged out.
-5. Fetch only non-secret status on open.
-6. Never redisplay old plaintext recovery codes from status data.
+5. Fetch server status on open before reading any local pending backup record.
+6. Redisplay plaintext recovery codes only from a matching, unexpired
+   pending-backup IndexedDB record while server status is `pending_backup`.
 
 Files:
 
@@ -721,7 +724,8 @@ Recovery use errors:
    acknowledgement metadata.
 4. Confirm SDK progress events do not include `recoveryKeys`.
 5. Confirm logs redact `recoveryKeys`.
-6. Confirm no IndexedDB/localStorage/sessionStorage code persists
+6. Confirm IndexedDB persists `recoveryKeys` only in the dedicated
+   pending-backup store, and confirm localStorage/sessionStorage never persist
    `recoveryKeys` or generated recovery-code text.
 7. Identify tests, helpers, and fixtures that assume active-immediately
    recovery-wrapped escrows.

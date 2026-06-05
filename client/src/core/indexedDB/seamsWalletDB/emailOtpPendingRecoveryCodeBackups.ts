@@ -1,0 +1,308 @@
+import { buildEmailOtpRecoveryCodeSet, type EmailOtpRecoveryCodeSet } from '@shared/utils/emailOtpRecoveryKey';
+import { normalizeInteger, normalizeOptionalNonEmptyString } from '@shared/utils/normalize';
+import {
+  SEAMS_WALLET_DB_NAME,
+  SEAMS_WALLET_DB_VERSION,
+  SEAMS_WALLET_INDEXES,
+  SEAMS_WALLET_STORES,
+} from '../schemaNames';
+import { seamsWalletDB } from '../singletons';
+import type { SeamsWalletDBManager } from './manager';
+
+export const EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_RECORD_VERSION = 1 as const;
+export const EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_DB_NAME = SEAMS_WALLET_DB_NAME;
+export const EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_DB_VERSION = SEAMS_WALLET_DB_VERSION;
+export const EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_STORE_NAME =
+  SEAMS_WALLET_STORES.emailOtpPendingRecoveryCodeBackups;
+export const EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_SECRET_KIND =
+  'email_otp_recovery_codes_pending_backup' as const;
+export const EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
+const EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_PAYLOAD_FIELD = 'backup_record';
+
+export type EmailOtpPendingRecoveryCodeBackupStorageScope =
+  | 'host_origin_indexeddb'
+  | 'iframe_origin_indexeddb';
+
+export type PendingEmailOtpRecoveryCodeBackupRecord = {
+  v: typeof EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_RECORD_VERSION;
+  secretKind: typeof EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_SECRET_KIND;
+  storageScope: EmailOtpPendingRecoveryCodeBackupStorageScope;
+  status: 'pending_backup';
+  walletId: string;
+  enrollmentId: string;
+  enrollmentSealKeyVersion: string;
+  recoveryCodesIssuedAtMs: number;
+  recoveryKeys: EmailOtpRecoveryCodeSet;
+  createdAtMs: number;
+  expiresAtMs: number;
+  acknowledgedAtMs?: never;
+  abandonedAtMs?: never;
+  expiredAtMs?: never;
+  cleanupReason?: never;
+};
+
+export type WritePendingEmailOtpRecoveryCodeBackupInput = Omit<
+  PendingEmailOtpRecoveryCodeBackupRecord,
+  | 'v'
+  | 'secretKind'
+  | 'status'
+  | 'createdAtMs'
+  | 'expiresAtMs'
+  | 'acknowledgedAtMs'
+  | 'abandonedAtMs'
+  | 'expiredAtMs'
+  | 'cleanupReason'
+> & {
+  createdAtMs?: number;
+  expiresAtMs?: number;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeStorageScope(value: unknown): EmailOtpPendingRecoveryCodeBackupStorageScope | null {
+  const scope = String(value || '').trim();
+  if (scope === 'host_origin_indexeddb' || scope === 'iframe_origin_indexeddb') return scope;
+  return null;
+}
+
+function normalizePositiveTimestamp(value: unknown): number | null {
+  const parsed = normalizeInteger(value);
+  return parsed !== null && parsed > 0 ? parsed : null;
+}
+
+function normalizeRecoveryCodeSet(value: unknown): EmailOtpRecoveryCodeSet | null {
+  if (!Array.isArray(value)) return null;
+  try {
+    return buildEmailOtpRecoveryCodeSet(value.map(String));
+  } catch {
+    return null;
+  }
+}
+
+export function normalizePendingEmailOtpRecoveryCodeBackupRecord(
+  value: unknown,
+): PendingEmailOtpRecoveryCodeBackupRecord | null {
+  const row = isRecord(value) ? value : null;
+  if (
+    row &&
+    EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_PAYLOAD_FIELD in row &&
+    row[EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_PAYLOAD_FIELD]
+  ) {
+    value = row[EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_PAYLOAD_FIELD];
+  }
+  const obj = isRecord(value) ? value : null;
+  if (!obj) return null;
+  if (Number(obj.v) !== EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_RECORD_VERSION) return null;
+  if (
+    String(obj.secretKind || '').trim() !== EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_SECRET_KIND
+  ) {
+    return null;
+  }
+  if (String(obj.status || '').trim() !== 'pending_backup') return null;
+  for (const forbiddenField of [
+    'acknowledgedAtMs',
+    'abandonedAtMs',
+    'expiredAtMs',
+    'cleanupReason',
+  ]) {
+    if (Object.prototype.hasOwnProperty.call(obj, forbiddenField)) return null;
+  }
+
+  const storageScope = normalizeStorageScope(obj.storageScope);
+  const walletId = normalizeOptionalNonEmptyString(obj.walletId);
+  const enrollmentId = normalizeOptionalNonEmptyString(obj.enrollmentId);
+  const enrollmentSealKeyVersion = normalizeOptionalNonEmptyString(obj.enrollmentSealKeyVersion);
+  const recoveryCodesIssuedAtMs = normalizePositiveTimestamp(obj.recoveryCodesIssuedAtMs);
+  const createdAtMs = normalizePositiveTimestamp(obj.createdAtMs);
+  const expiresAtMs = normalizePositiveTimestamp(obj.expiresAtMs);
+  const recoveryKeys = normalizeRecoveryCodeSet(obj.recoveryKeys);
+
+  if (
+    !storageScope ||
+    !walletId ||
+    !enrollmentId ||
+    !enrollmentSealKeyVersion ||
+    recoveryCodesIssuedAtMs === null ||
+    createdAtMs === null ||
+    expiresAtMs === null ||
+    !recoveryKeys
+  ) {
+    return null;
+  }
+  if (expiresAtMs <= createdAtMs) return null;
+
+  return {
+    v: EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_RECORD_VERSION,
+    secretKind: EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_SECRET_KIND,
+    storageScope,
+    status: 'pending_backup',
+    walletId,
+    enrollmentId,
+    enrollmentSealKeyVersion,
+    recoveryCodesIssuedAtMs,
+    recoveryKeys,
+    createdAtMs,
+    expiresAtMs,
+  };
+}
+
+function pendingEmailOtpRecoveryCodeBackupStorageRow(
+  record: PendingEmailOtpRecoveryCodeBackupRecord,
+): Record<string, unknown> {
+  return {
+    wallet_id: record.walletId,
+    enrollment_id: record.enrollmentId,
+    enrollment_seal_key_version: record.enrollmentSealKeyVersion,
+    status: record.status,
+    expires_at_ms: record.expiresAtMs,
+    [EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_PAYLOAD_FIELD]: record,
+  };
+}
+
+function pendingEmailOtpRecoveryCodeBackupStorageKey(value: unknown): [string, string] | null {
+  const row = isRecord(value) ? value : null;
+  const walletId = normalizeOptionalNonEmptyString(row?.wallet_id);
+  const enrollmentId = normalizeOptionalNonEmptyString(row?.enrollment_id);
+  if (walletId && enrollmentId) return [walletId, enrollmentId];
+  const record = normalizePendingEmailOtpRecoveryCodeBackupRecord(value);
+  if (!record) return null;
+  return [record.walletId, record.enrollmentId];
+}
+
+export class EmailOtpPendingRecoveryCodeBackupRepository {
+  constructor(private readonly manager: SeamsWalletDBManager = seamsWalletDB) {}
+
+  async write(
+    args: WritePendingEmailOtpRecoveryCodeBackupInput,
+  ): Promise<PendingEmailOtpRecoveryCodeBackupRecord> {
+    const nowMs = args.createdAtMs ?? Date.now();
+    await this.deleteExpired({ nowMs });
+    const record = normalizePendingEmailOtpRecoveryCodeBackupRecord({
+      v: EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_RECORD_VERSION,
+      secretKind: EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_SECRET_KIND,
+      storageScope: args.storageScope,
+      status: 'pending_backup',
+      walletId: args.walletId,
+      enrollmentId: args.enrollmentId,
+      enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
+      recoveryCodesIssuedAtMs: args.recoveryCodesIssuedAtMs,
+      recoveryKeys: args.recoveryKeys,
+      createdAtMs: nowMs,
+      expiresAtMs: args.expiresAtMs ?? nowMs + EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_DEFAULT_TTL_MS,
+    });
+    if (!record) {
+      throw new Error('Invalid pending Email OTP recovery-code backup record');
+    }
+
+    await this.manager.runTransaction(
+      [EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_STORE_NAME],
+      'readwrite',
+      async (ctx) => {
+        await ctx
+          .store(EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_STORE_NAME)
+          .put(pendingEmailOtpRecoveryCodeBackupStorageRow(record));
+      },
+    );
+    return record;
+  }
+
+  async readMatching(args: {
+    walletId: string;
+    enrollmentId: string;
+    enrollmentSealKeyVersion: string;
+    nowMs?: number;
+  }): Promise<PendingEmailOtpRecoveryCodeBackupRecord | null> {
+    const walletId = normalizeOptionalNonEmptyString(args.walletId);
+    const enrollmentId = normalizeOptionalNonEmptyString(args.enrollmentId);
+    const enrollmentSealKeyVersion = normalizeOptionalNonEmptyString(args.enrollmentSealKeyVersion);
+    if (!walletId || !enrollmentId || !enrollmentSealKeyVersion) return null;
+    const db = await this.manager.getDB();
+    const value = await db.get(EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_STORE_NAME, [
+      walletId,
+      enrollmentId,
+    ]);
+    const row = isRecord(value) ? value : null;
+    const expiresAtMsFromRow = normalizePositiveTimestamp(row?.expires_at_ms);
+    const nowMs = args.nowMs ?? Date.now();
+    if (expiresAtMsFromRow !== null && expiresAtMsFromRow <= nowMs) {
+      await this.delete({ walletId, enrollmentId });
+      return null;
+    }
+    const record = normalizePendingEmailOtpRecoveryCodeBackupRecord(value);
+    if (!record || record.enrollmentSealKeyVersion !== enrollmentSealKeyVersion) {
+      await this.delete({ walletId, enrollmentId });
+      return null;
+    }
+    if (record.expiresAtMs <= nowMs) {
+      await this.delete({ walletId, enrollmentId });
+      return null;
+    }
+    return record;
+  }
+
+  async delete(args: { walletId: string; enrollmentId: string }): Promise<void> {
+    const walletId = normalizeOptionalNonEmptyString(args.walletId);
+    const enrollmentId = normalizeOptionalNonEmptyString(args.enrollmentId);
+    if (!walletId || !enrollmentId) return;
+    await this.manager.runTransaction(
+      [EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_STORE_NAME],
+      'readwrite',
+      async (ctx) => {
+        await ctx.store(EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_STORE_NAME).delete([
+          walletId,
+          enrollmentId,
+        ]);
+      },
+    );
+  }
+
+  async deleteForWallet(args: { walletId: string }): Promise<void> {
+    const walletId = normalizeOptionalNonEmptyString(args.walletId);
+    if (!walletId) return;
+    await this.manager.runTransaction(
+      [EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_STORE_NAME],
+      'readwrite',
+      async (ctx) => {
+        const store = ctx.store(EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_STORE_NAME);
+        const rows = await store.index(SEAMS_WALLET_INDEXES.walletId).getAll(walletId);
+        for (const row of rows) {
+          const key = pendingEmailOtpRecoveryCodeBackupStorageKey(row);
+          if (key) await store.delete(key);
+        }
+      },
+    );
+  }
+
+  async deleteExpired(args?: { nowMs?: number }): Promise<void> {
+    const nowMs = args?.nowMs ?? Date.now();
+    await this.manager.runTransaction(
+      [EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_STORE_NAME],
+      'readwrite',
+      async (ctx) => {
+        const store = ctx.store(EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_STORE_NAME);
+        const rows = await store.getAll();
+        for (const row of rows) {
+          const key = pendingEmailOtpRecoveryCodeBackupStorageKey(row);
+          if (!key) continue;
+          const record = normalizePendingEmailOtpRecoveryCodeBackupRecord(row);
+          if (!record || record.expiresAtMs <= nowMs) await store.delete(key);
+        }
+      },
+    );
+  }
+
+  async clearAll(): Promise<void> {
+    await this.manager.runTransaction(
+      [EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_STORE_NAME],
+      'readwrite',
+      async (ctx) => {
+        await ctx.store(EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP_STORE_NAME).clear();
+      },
+    );
+  }
+}
+
+export const emailOtpPendingRecoveryCodeBackupRepository =
+  new EmailOtpPendingRecoveryCodeBackupRepository();

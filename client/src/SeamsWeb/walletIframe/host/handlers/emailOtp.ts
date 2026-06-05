@@ -1,7 +1,11 @@
 import type { HandlerDeps, HandlerMap, Req } from './types';
 import { respondOkResult, withProgress } from './shared';
 import type { EmailOtpEnrollmentResult } from '@/SeamsWeb/signingSurface/types';
-import { backupEmailOtpRecoveryCodes } from '@/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup';
+import {
+  backupEmailOtpRecoveryCodes,
+  completePendingEmailOtpRecoveryCodeBackup,
+} from '@/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup';
+import { emailOtpPendingRecoveryCodeBackupRepository } from '@/core/indexedDB/seamsWalletDB/emailOtpPendingRecoveryCodeBackups';
 
 function recordFromPayload(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -61,6 +65,53 @@ function parseGetEmailOtpRecoveryCodeStatusPayload(value: unknown): {
   };
 }
 
+async function showPendingEmailOtpBackupInIframe(input: {
+  pm: ReturnType<HandlerDeps['getSeamsWeb']>;
+  walletId: string;
+  relayUrl?: string;
+  appSessionJwt?: string;
+}) {
+  await emailOtpPendingRecoveryCodeBackupRepository.deleteExpired().catch(() => undefined);
+  const status = await input.pm.recovery.getEmailOtpRecoveryCodeStatus({
+    walletId: input.walletId,
+    ...(input.relayUrl ? { relayUrl: input.relayUrl } : {}),
+    ...(input.appSessionJwt ? { appSessionJwt: input.appSessionJwt } : {}),
+  });
+  if (status.status !== 'pending_backup') {
+    if (status.enrollmentId) {
+      await emailOtpPendingRecoveryCodeBackupRepository
+        .delete({
+          walletId: status.walletId,
+          enrollmentId: status.enrollmentId,
+        })
+        .catch(() => undefined);
+    }
+    return status;
+  }
+  const pendingBackup = await emailOtpPendingRecoveryCodeBackupRepository.readMatching({
+    walletId: status.walletId,
+    enrollmentId: status.enrollmentId,
+    enrollmentSealKeyVersion: status.enrollmentSealKeyVersion,
+  });
+  if (!pendingBackup) return status;
+  await completePendingEmailOtpRecoveryCodeBackup({
+    pendingBackup,
+    acknowledge: async (args) =>
+      await input.pm.recovery.acknowledgeEmailOtpRecoveryCodeBackup({
+        walletId: args.walletId,
+        enrollmentId: args.enrollmentId,
+        enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
+        ...(input.relayUrl ? { relayUrl: input.relayUrl } : {}),
+        ...(input.appSessionJwt ? { appSessionJwt: input.appSessionJwt } : {}),
+      }),
+  });
+  return await input.pm.recovery.getEmailOtpRecoveryCodeStatus({
+    walletId: input.walletId,
+    ...(input.relayUrl ? { relayUrl: input.relayUrl } : {}),
+    ...(input.appSessionJwt ? { appSessionJwt: input.appSessionJwt } : {}),
+  });
+}
+
 async function acknowledgeEmailOtpBackupInIframe(input: {
   pm: ReturnType<HandlerDeps['getSeamsWeb']>;
   result: EmailOtpEnrollmentResult;
@@ -72,6 +123,7 @@ async function acknowledgeEmailOtpBackupInIframe(input: {
     relayUrl: String(input.relayUrl || '').trim(),
     walletId: input.nearAccountId,
     enrollment: input.result,
+    storageScope: 'iframe_origin_indexeddb',
     ...(input.relayUrl ? { relayUrl: input.relayUrl } : {}),
     ...(input.appSessionJwt ? { appSessionJwt: input.appSessionJwt } : {}),
     acknowledge: async (args) => await input.pm.recovery.acknowledgeEmailOtpRecoveryCodeBackup(args),
@@ -182,6 +234,20 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
       const result = await pm.recovery.getEmailOtpRecoveryCodeStatus(
         parseGetEmailOtpRecoveryCodeStatusPayload(req.payload),
       );
+      respondOkResult(deps, req.requestId, result);
+    },
+
+    PM_SHOW_EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP: async (
+      req: Req<'PM_SHOW_EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP'>,
+    ) => {
+      const pm = deps.getSeamsWeb();
+      const payload = parseGetEmailOtpRecoveryCodeStatusPayload(req.payload);
+      const result = await showPendingEmailOtpBackupInIframe({
+        pm,
+        walletId: payload.walletId,
+        ...(payload.relayUrl ? { relayUrl: payload.relayUrl } : {}),
+        ...(payload.appSessionJwt ? { appSessionJwt: payload.appSessionJwt } : {}),
+      });
       respondOkResult(deps, req.requestId, result);
     },
 

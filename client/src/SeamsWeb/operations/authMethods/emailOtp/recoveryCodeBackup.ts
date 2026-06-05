@@ -1,9 +1,15 @@
 import { joinNormalizedUrl } from '@shared/utils/normalize';
+import type { EmailOtpRecoveryCodeSet } from '@shared/utils/emailOtpRecoveryKey';
 import type {
   EmailOtpBackedUpEnrollmentResult,
   EmailOtpEnrollmentResult,
   EmailOtpRecoveryCodeBackupStatus,
 } from '@/SeamsWeb/signingSurface/types';
+import {
+  emailOtpPendingRecoveryCodeBackupRepository,
+  type PendingEmailOtpRecoveryCodeBackupRecord,
+  type EmailOtpPendingRecoveryCodeBackupStorageScope,
+} from '@/core/indexedDB/seamsWalletDB/emailOtpPendingRecoveryCodeBackups';
 import type { EmailOtpRecoveryCodeStatus } from './challenge';
 import {
   postJson,
@@ -11,9 +17,12 @@ import {
   type FetchLike,
 } from './challenge';
 
-type EmailOtpRecoveryCodeBackupUiInput = {
+export type EmailOtpRecoveryCodeBackupUiInput = {
   walletId: string;
-  enrollment: EmailOtpEnrollmentResult;
+  enrollmentId: string;
+  enrollmentSealKeyVersion: string;
+  recoveryKeys: EmailOtpRecoveryCodeSet;
+  recoveryCodesIssuedAtMs: number;
 };
 
 function stripEmailOtpRecoveryKeysAfterBackup(
@@ -32,14 +41,14 @@ function filenameSafeWalletId(walletId: string): string {
   return safe || 'wallet';
 }
 
-function buildEmailOtpRecoveryCodeBackupFilename(walletId: string): string {
+export function buildEmailOtpRecoveryCodeBackupFilename(walletId: string): string {
   return `seams-email-otp-recovery-codes-${filenameSafeWalletId(walletId)}.txt`;
 }
 
-function buildEmailOtpRecoveryCodeBackupText(
+export function buildEmailOtpRecoveryCodeBackupText(
   input: EmailOtpRecoveryCodeBackupUiInput,
 ): string {
-  const created = new Date(input.enrollment.recoveryCodesIssuedAtMs).toISOString();
+  const created = new Date(input.recoveryCodesIssuedAtMs).toISOString();
   const lines = [
     'Seams Email OTP recovery codes',
     '',
@@ -48,14 +57,14 @@ function buildEmailOtpRecoveryCodeBackupText(
     '',
     'Store these codes somewhere private. Each code can be used once.',
     '',
-    ...input.enrollment.recoveryKeys.map(
+    ...input.recoveryKeys.map(
       (code, index) => `${String(index + 1).padStart(2, '0')}  ${code}`,
     ),
   ];
   return `${lines.join('\n')}\n`;
 }
 
-function downloadRecoveryCodes(input: EmailOtpRecoveryCodeBackupUiInput): void {
+export function downloadRecoveryCodes(input: EmailOtpRecoveryCodeBackupUiInput): void {
   const blob = new Blob([buildEmailOtpRecoveryCodeBackupText(input)], {
     type: 'text/plain;charset=utf-8',
   });
@@ -73,11 +82,11 @@ function downloadRecoveryCodes(input: EmailOtpRecoveryCodeBackupUiInput): void {
 
 function showEmailOtpRecoveryCodeBackupUi(
   input: EmailOtpRecoveryCodeBackupUiInput,
+  onDownloadComplete: () => Promise<void>,
 ): Promise<void> {
   if (typeof document === 'undefined') {
     return Promise.reject(new Error('Email OTP recovery code backup UI requires document'));
   }
-  const { enrollment } = input;
   const overlay = document.createElement('div');
   overlay.setAttribute('role', 'dialog');
   overlay.setAttribute('aria-modal', 'true');
@@ -123,7 +132,7 @@ function showEmailOtpRecoveryCodeBackupUi(
     'padding:0',
     'list-style:none',
   ].join(';');
-  for (const [index, code] of enrollment.recoveryKeys.entries()) {
+  for (const [index, code] of input.recoveryKeys.entries()) {
     const item = document.createElement('li');
     item.style.cssText = [
       'box-sizing:border-box',
@@ -179,14 +188,62 @@ function showEmailOtpRecoveryCodeBackupUi(
       () => {
         try {
           downloadRecoveryCodes(input);
-          overlay.remove();
-          resolve();
         } catch {
           status.textContent = 'Download failed. Try again.';
+          return;
         }
+        status.textContent = 'Confirming backup...';
+        download.disabled = true;
+        void onDownloadComplete()
+          .then(() => {
+            overlay.remove();
+            resolve();
+          })
+          .catch((error: unknown) => {
+            download.disabled = false;
+            status.textContent =
+              error instanceof Error ? error.message : 'Could not confirm backup. Try again.';
+          });
       },
     );
   });
+}
+
+export async function completePendingEmailOtpRecoveryCodeBackup(input: {
+  pendingBackup: PendingEmailOtpRecoveryCodeBackupRecord;
+  acknowledge: (args: {
+    walletId: string;
+    enrollmentId: string;
+    enrollmentSealKeyVersion: string;
+  }) => Promise<EmailOtpRecoveryCodeBackupStatus>;
+}): Promise<EmailOtpRecoveryCodeBackupStatus> {
+  let backup: EmailOtpRecoveryCodeBackupStatus | null = null;
+  await showEmailOtpRecoveryCodeBackupUi(
+    {
+      walletId: input.pendingBackup.walletId,
+      enrollmentId: input.pendingBackup.enrollmentId,
+      enrollmentSealKeyVersion: input.pendingBackup.enrollmentSealKeyVersion,
+      recoveryCodesIssuedAtMs: input.pendingBackup.recoveryCodesIssuedAtMs,
+      recoveryKeys: input.pendingBackup.recoveryKeys,
+    },
+    async () => {
+      backup = await input.acknowledge({
+        walletId: input.pendingBackup.walletId,
+        enrollmentId: input.pendingBackup.enrollmentId,
+        enrollmentSealKeyVersion: input.pendingBackup.enrollmentSealKeyVersion,
+      });
+      await emailOtpPendingRecoveryCodeBackupRepository
+        .delete({
+          walletId: input.pendingBackup.walletId,
+          enrollmentId: input.pendingBackup.enrollmentId,
+        })
+        .catch(() => undefined);
+    },
+  );
+  if (!backup) {
+    throw new Error('Email OTP recovery-code backup did not complete');
+  }
+  return backup;
 }
 
 export async function backupEmailOtpRecoveryCodes(input: {
@@ -194,6 +251,7 @@ export async function backupEmailOtpRecoveryCodes(input: {
   walletId: string;
   appSessionJwt?: string;
   enrollment: EmailOtpEnrollmentResult;
+  storageScope?: EmailOtpPendingRecoveryCodeBackupStorageScope;
   acknowledge?: (args: {
     walletId: string;
     enrollmentId: string;
@@ -202,17 +260,35 @@ export async function backupEmailOtpRecoveryCodes(input: {
     appSessionJwt?: string;
   }) => Promise<EmailOtpRecoveryCodeBackupStatus>;
 }): Promise<EmailOtpBackedUpEnrollmentResult> {
-  await showEmailOtpRecoveryCodeBackupUi({
-    walletId: input.walletId,
-    enrollment: input.enrollment,
-  });
-  const acknowledge = input.acknowledge || acknowledgeEmailOtpRecoveryCodeBackup;
-  const backup = await acknowledge({
-    relayUrl: input.relayUrl,
+  const storageScope = input.storageScope || 'host_origin_indexeddb';
+  await emailOtpPendingRecoveryCodeBackupRepository.write({
+    storageScope,
     walletId: input.walletId,
     enrollmentId: input.enrollment.enrollmentId,
     enrollmentSealKeyVersion: input.enrollment.enrollmentSealKeyVersion,
-    ...(input.appSessionJwt ? { appSessionJwt: input.appSessionJwt } : {}),
+    recoveryCodesIssuedAtMs: input.enrollment.recoveryCodesIssuedAtMs,
+    recoveryKeys: input.enrollment.recoveryKeys,
+  });
+  const record = await emailOtpPendingRecoveryCodeBackupRepository.readMatching({
+    walletId: input.walletId,
+    enrollmentId: input.enrollment.enrollmentId,
+    enrollmentSealKeyVersion: input.enrollment.enrollmentSealKeyVersion,
+  });
+  if (!record) {
+    throw new Error('Email OTP recovery-code backup was not persisted');
+  }
+  const backup = await completePendingEmailOtpRecoveryCodeBackup({
+    pendingBackup: record,
+    acknowledge: async (args) => {
+      const acknowledge = input.acknowledge || acknowledgeEmailOtpRecoveryCodeBackup;
+      return await acknowledge({
+        relayUrl: input.relayUrl,
+        walletId: args.walletId,
+        enrollmentId: args.enrollmentId,
+        enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
+        ...(input.appSessionJwt ? { appSessionJwt: input.appSessionJwt } : {}),
+      });
+    },
   });
   return stripEmailOtpRecoveryKeysAfterBackup(input.enrollment, backup);
 }

@@ -1,5 +1,5 @@
 export const SEAMS_WALLET_DB_NAME = 'seams_wallet' as const;
-export const SEAMS_WALLET_DB_VERSION = 5 as const;
+export const SEAMS_WALLET_DB_VERSION = 6 as const;
 
 export const SEAMS_WALLET_STORES = {
   appState: 'app_state',
@@ -15,6 +15,7 @@ export const SEAMS_WALLET_STORES = {
   signingSessionSeals: 'signing_session_seals',
   signingSessionRestoreLeases: 'signing_session_restore_leases',
   emailOtpDeviceEnrollmentEscrows: 'email_otp_escrows',
+  emailOtpPendingRecoveryCodeBackups: 'email_otp_pending_recovery_code_backups',
 } as const;
 
 export const SEAMS_WALLET_INDEXES = {
@@ -69,6 +70,7 @@ export const SEAMS_WALLET_INDEXES = {
   budgetReservationKey: 'budget_reservation_key',
   authSubjectId: 'auth_subject_id',
   enrollmentId: 'enrollment_id',
+  walletIdEnrollmentId: 'wallet_id_enrollment_id',
   walletIdAuthSubjectId: 'wallet_id_auth_subject_id',
   walletIdAuthSubjectIdEnrollmentId: 'wallet_id_auth_subject_id_enrollment_id',
   authIdentifierKey: 'auth_identifier_key',
@@ -323,6 +325,21 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
         unique: true,
       },
       { name: SEAMS_WALLET_INDEXES.signingRootId, keyPath: 'signing_root_id', unique: false },
+    ],
+  },
+  {
+    store: SEAMS_WALLET_STORES.emailOtpPendingRecoveryCodeBackups,
+    keyPath: ['wallet_id', 'enrollment_id'],
+    indexes: [
+      { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
+      { name: SEAMS_WALLET_INDEXES.enrollmentId, keyPath: 'enrollment_id', unique: false },
+      {
+        name: SEAMS_WALLET_INDEXES.walletIdEnrollmentId,
+        keyPath: ['wallet_id', 'enrollment_id'],
+        unique: true,
+      },
+      { name: SEAMS_WALLET_INDEXES.expiresAtMs, keyPath: 'expires_at_ms', unique: false },
+      { name: SEAMS_WALLET_INDEXES.status, keyPath: 'status', unique: false },
     ],
   },
 ] as const satisfies readonly SeamsWalletStoreDefinition[];

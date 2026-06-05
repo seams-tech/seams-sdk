@@ -34,6 +34,7 @@ import { joinNormalizedUrl } from '@shared/utils/normalize';
 import { secureRandomId } from '@shared/utils/secureRandomId';
 import { isObject } from '@shared/utils/validation';
 import { IndexedDBManager } from '@/core/indexedDB';
+import { emailOtpPendingRecoveryCodeBackupRepository } from '@/core/indexedDB/seamsWalletDB/emailOtpPendingRecoveryCodeBackups';
 import {
   getLastSelectedNearAccount,
   getNearAccountProjection,
@@ -2841,6 +2842,9 @@ export async function lock(context: LockWebContext): Promise<void> {
   } catch {}
   try {
     await signingEngine.clearVolatileWarmSigningMaterial();
+  } catch {}
+  try {
+    await emailOtpPendingRecoveryCodeBackupRepository.clearAll();
   } catch {}
   try {
     clearAllStoredThresholdEd25519SessionRecords();
