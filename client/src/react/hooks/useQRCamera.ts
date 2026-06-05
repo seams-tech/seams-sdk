@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { getOptimalCameraFacingMode } from '../deviceDetection';
-import type { DeviceLinkingQRData } from '@/index';
+import type { DeviceLinkingQRData } from '@/core/types/linkDevice';
 import { ScanQRCodeFlow, enumerateVideoDevices, detectFrontCamera } from '@/utils/qrScanner';
 
 /**

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { unlock } from '@/web/SeamsWeb/login';
+import { unlock } from '@/web/SeamsWeb/operations/auth/login';
 import { SeamsWeb } from '@/web/SeamsWeb';
 import { createUnlockFlowEvent, UnlockEventPhase } from '@/core/types/sdkSentEvents';
 

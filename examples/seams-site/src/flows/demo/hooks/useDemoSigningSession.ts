@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { walletSessionRefFromSession } from '@seams/sdk';
+import { walletSessionRefFromSession } from '@seams/sdk/advanced';
 import { useSeams } from '@seams/sdk/react';
 import { toast } from 'sonner';
 import { resolveDemoThresholdEcdsaChainTarget } from '../demoChainTargets';

@@ -63,7 +63,7 @@ function extractImportSpecifiers(source: string): string[] {
 }
 
 function resolveSigningEngineImport(fromRelativePath: string, specifier: string): string | null {
-  if (specifier === '@/web/SeamsWeb/assembly/BrowserSigningSurface') {
+  if (specifier === '@/web/SeamsWeb/signingSurface/BrowserSigningSurface') {
     return 'client/src/web/SeamsWeb/assembly/BrowserSigningSurface';
   }
   if (specifier.startsWith('@/core/signingEngine/')) {

@@ -10,7 +10,7 @@ import {
   type RegistrationFlowEvent,
   type UnlockFlowEvent,
 } from '@seams/sdk/react';
-import { walletSessionRefFromSession } from '@seams/sdk';
+import { walletSessionRefFromSession } from '@seams/sdk/advanced';
 import React from 'react';
 import { toast } from 'sonner';
 
@@ -247,7 +247,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
       // session: {
       //   kind: 'jwt',
       // },
-      onEvent: (event) => handleUnlockEvent(event, loginTarget),
+      onEvent: (event: UnlockFlowEvent) => handleUnlockEvent(event, loginTarget),
     });
     if (result?.success) {
       const accountId = String(result.nearAccountId || '').trim();
@@ -355,7 +355,7 @@ export function PasskeyLoginMenu(props: PasskeyLoginMenuProps) {
           return { walletId, challenge: nextChallenge };
         }
 
-        const nextChallenge = await seams.auth.requestEmailOtpEnrollmentChallenge({
+        const nextChallenge = await seams.registration.requestEmailOtpEnrollmentChallenge({
           nearAccountId: walletId,
           relayUrl: relayerBaseUrl,
           appSessionJwt,

@@ -57,7 +57,7 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
       loginStatus: async () => {
         try {
           const pm = (window as any).seams;
-          if (!pm || typeof pm.getWalletSession !== 'function') return null;
+          if (!pm || typeof pm.auth?.getWalletSession !== 'function') return null;
           return await pm.auth.getWalletSession();
         } catch {
           return null;
@@ -164,8 +164,8 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
         },
         preventSessionClearing: () => {
           const t = (window as any).testUtils?.seams;
-          if (t && typeof t.lock === 'function') {
-            (window as any).testUtils.seams.lock = async () => {
+          if (t && typeof t.auth?.lock === 'function') {
+            (window as any).testUtils.seams.auth.lock = async () => {
               console.log('[TEST] Preventing session clearing in test environment');
             };
           }
@@ -286,6 +286,5 @@ export async function setupTestUtilities(page: Page, config: PasskeyTestConfig):
         return (originalWarn as any).apply(console, args as any);
       } as any;
     } catch {}
-
   }, config);
 }

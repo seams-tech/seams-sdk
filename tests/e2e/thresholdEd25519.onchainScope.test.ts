@@ -104,24 +104,21 @@ test.describe('threshold-ed25519 on-chain scope', () => {
 
             const confirmConfig = { uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 };
 
-            const reg = await pm.registration.registerPasskeyInternal(
-              accountId,
-              {
-                signerOptions: {
-                  tempo: {
-                    enabled: false,
-                    participantIds: [1, 2],
-                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-                  },
-                  evm: {
-                    enabled: false,
-                    participantIds: [1, 2],
-                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-                  },
+            const reg = await pm.registration.registerPasskey(accountId, {
+              signerOptions: {
+                tempo: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                },
+                evm: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
                 },
               },
-              confirmConfig as any,
-            );
+              confirmationConfig: confirmConfig as any,
+            });
             if (!reg?.success) throw new Error(reg?.error || 'registration failed');
             const login = await pm.auth.unlock(accountId);
             if (!login?.success) throw new Error(login?.error || 'login failed');

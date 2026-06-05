@@ -8,7 +8,7 @@ const __dirname = path.dirname(__filename);
 const sdkRoot = path.resolve(path.join(__dirname, '../..'));
 const distEsmRoot = path.join(sdkRoot, 'dist', 'esm');
 
-const entryFiles = ['runtime.js', 'ios.js', 'embedded.js'];
+const entryFiles = ['runtime.js'];
 const forbiddenResolvedPathPatterns = [
   /(^|\/)react(\/|$)/,
   /(^|\/)web\/SeamsWeb(\/|$)/,
@@ -68,7 +68,7 @@ if (!fs.existsSync(distEsmRoot)) {
 
 const missingEntries = entryFiles.filter((entry) => !fs.existsSync(path.join(distEsmRoot, entry)));
 if (missingEntries.length > 0) {
-  fail(`Missing native-facing package entry output(s): ${missingEntries.join(', ')}`);
+  fail(`Missing runtime package entry output(s): ${missingEntries.join(', ')}`);
 }
 
 const offenders = [];
@@ -107,7 +107,7 @@ for (const entry of entryFiles) {
 }
 
 if (offenders.length > 0) {
-  console.error('[assert-native-package-entry-bundles] Native-facing entry bundle violations:');
+  console.error('[assert-native-package-entry-bundles] Runtime entry bundle violations:');
   for (const offender of offenders.slice(0, 80)) {
     console.error(`  - ${offender}`);
   }
@@ -115,4 +115,4 @@ if (offenders.length > 0) {
   process.exit(1);
 }
 
-console.log('[assert-native-package-entry-bundles] OK: native-facing entries avoid browser bundles');
+console.log('[assert-native-package-entry-bundles] OK: runtime entry avoids browser bundles');

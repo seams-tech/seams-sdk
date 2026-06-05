@@ -3,7 +3,7 @@ import {
   hasPasskeyCredential,
   nearAuthenticatorsByAccount,
   storeWalletEcdsaSignerRecords,
-  storeWalletEd25519SignerRecord,
+  finalizeWalletEd25519SignerRegistration,
   storeWalletEd25519RegistrationData,
 } from '../../client/src/core/signingEngine/flows/registration/accountLifecycle';
 import type {
@@ -266,7 +266,7 @@ test('wallet add-signer persists Ed25519 signer records without re-registering a
     },
   };
 
-  const result = await storeWalletEd25519SignerRecord(deps as any, {
+  const result = await finalizeWalletEd25519SignerRegistration(deps as any, {
     walletId: walletIdFromString('wallet_alice'),
     nearAccountId: toAccountId('alice.testnet'),
     credential: authenticationCredential,
@@ -608,7 +608,7 @@ test('wallet add-signer persistence supports both later signer-family orders', a
     walletId,
     walletKeys,
   });
-  await storeWalletEd25519SignerRecord(ecdsaThenEd25519.deps as any, {
+  await finalizeWalletEd25519SignerRegistration(ecdsaThenEd25519.deps as any, {
     walletId,
     nearAccountId: toAccountId('matrix.testnet'),
     credential: authenticationCredential,

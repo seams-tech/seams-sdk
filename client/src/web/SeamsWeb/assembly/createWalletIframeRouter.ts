@@ -1,6 +1,6 @@
 import { cloneAuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import type { ThemeName, SeamsConfigsReadonly } from '@/core/types/seams';
-import type { WalletIframeRouter } from '@/core/WalletIframe/client/router';
+import type { WalletIframeRouter } from '@/web/SeamsWeb/walletIframe/client/router';
 import { createWalletIframeOverlayState } from './createWalletIframeOverlayState';
 
 let warnedAboutSameOriginWallet = false;
@@ -25,7 +25,7 @@ export async function createWalletIframeRouter(args: {
 }): Promise<WalletIframeRouter> {
   warnIfSameOriginWallet(args.walletOrigin);
 
-  const { WalletIframeRouter } = await import('@/core/WalletIframe/client/router');
+  const { WalletIframeRouter } = await import('@/web/SeamsWeb/walletIframe/client/router');
   const signingSessionPersistenceMode = args.configs.signing.sessionPersistenceMode;
   const signingSessionSeal =
     signingSessionPersistenceMode === 'sealed_refresh_v1'

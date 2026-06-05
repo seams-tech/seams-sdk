@@ -21,7 +21,10 @@ export type WebAuthnCredentialStorePort<
   resolveProfileAccountContext: (args: {
     chainIdKey: string;
     accountAddress: string;
-  }) => Promise<{ profileId: string; accountRef: { chainIdKey: string; accountAddress: string } } | null>;
+  }) => Promise<{
+    profileId: string;
+    accountRef: { chainIdKey: string; accountAddress: string };
+  } | null>;
   listProfileAuthenticators: (profileId: string) => Promise<TAuth[]>;
   listAccountSigners: (args: {
     chainIdKey: string;
@@ -42,7 +45,7 @@ export type WebAuthnCredentialStorePort<
 export type WebAuthnPromptPort = {
   getRpId: () => string;
   getAuthenticationCredentialsSerializedForChallengeB64u: (args: {
-    nearAccountId: AccountId;
+    subjectId: string;
     challengeB64u: string;
     allowCredentials?: WebAuthnAllowCredential[];
     includeSecondPrfOutput?: boolean;
@@ -59,9 +62,10 @@ export function authenticatorsToAllowCredentials<TAuth extends WebAuthnAuthentic
   }));
 }
 
-function canonicalWalletIdFromPasskeySigner(
-  signer: { metadata?: Record<string, unknown>; signerAuthMethod?: string },
-): string {
+function canonicalWalletIdFromPasskeySigner(signer: {
+  metadata?: Record<string, unknown>;
+  signerAuthMethod?: string;
+}): string {
   if (String(signer.signerAuthMethod || '') !== 'passkey') return '';
   const walletId = String(signer.metadata?.walletId || '').trim();
   const credentialId = String(signer.metadata?.passkeyCredentialRawId || '').trim();
@@ -76,12 +80,11 @@ async function resolveCanonicalWalletPasskeyContext<
   accountAddress: string;
   accountLabel: string;
 }): Promise<{ walletId: string; authenticators: TAuth[] }> {
-  const signers = await args.credentialStore
-    .listAccountSigners({
-      chainIdKey: args.chainIdKey,
-      accountAddress: args.accountAddress,
-      status: 'active',
-    });
+  const signers = await args.credentialStore.listAccountSigners({
+    chainIdKey: args.chainIdKey,
+    accountAddress: args.accountAddress,
+    status: 'active',
+  });
   const walletIds = Array.from(
     new Set(signers.map(canonicalWalletIdFromPasskeySigner).filter(Boolean)),
   );
@@ -89,7 +92,9 @@ async function resolveCanonicalWalletPasskeyContext<
     throw new Error(`[multichain] no passkey signer found for account ${args.accountLabel}`);
   }
   if (walletIds.length > 1) {
-    throw new Error(`[multichain] multiple wallet identities found for account ${args.accountLabel}`);
+    throw new Error(
+      `[multichain] multiple wallet identities found for account ${args.accountLabel}`,
+    );
   }
   const walletId = walletIds[0];
   const authenticators = await args.credentialStore.listProfileAuthenticators(walletId);
@@ -123,7 +128,9 @@ async function collectFromAuthenticators<
   });
   const authenticatorsForPrompt = ensured.authenticatorsForPrompt;
   if (authenticatorsForPrompt.length === 0) {
-    throw new Error(`[multichain] no passkey credential selected for account ${String(args.accountLabel)}`);
+    throw new Error(
+      `[multichain] no passkey credential selected for account ${String(args.accountLabel)}`,
+    );
   }
 
   args.onBeforePrompt?.({
@@ -135,7 +142,7 @@ async function collectFromAuthenticators<
   const allowCredentials = authenticatorsToAllowCredentials(authenticatorsForPrompt);
   const serialized =
     await args.touchIdPrompt.getAuthenticationCredentialsSerializedForChallengeB64u({
-      nearAccountId: String(args.accountLabel) as AccountId,
+      subjectId: String(args.accountLabel),
       challengeB64u: args.challengeB64u,
       allowCredentials,
       includeSecondPrfOutput: args.includeSecondPrfOutput,

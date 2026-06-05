@@ -121,7 +121,7 @@ test.describe('EVM-family request boundaries', () => {
       "args.chainTarget.kind === 'evm' || args.request.kind === 'eip1559'",
     );
     expect(transactionExecutor).toContain(
-      "targetKind === 'tempo' ? loadSignTempoWithUiConfirm : loadSignEvmWithUiConfirm",
+      "targetKind === 'tempo' ? loadSignEvmFamilyWithUiConfirmForTempo : loadSignEvmWithUiConfirm",
     );
     expect(transactionExecutor).toContain('requireRawEip1559ThresholdOwnerNonceSenderIdentity');
     expect(transactionExecutor).toContain('thresholdOwnerNonceSenderIdentity');
@@ -129,16 +129,18 @@ test.describe('EVM-family request boundaries', () => {
       'raw EIP-1559 signing requires prepared threshold ECDSA owner address',
     );
 
-    const signTempoWithUiConfirm = fs.readFileSync(
+    const signEvmFamilyWithUiConfirmForTempo = fs.readFileSync(
       path.join(
         repoRoot,
-        'client/src/core/signingEngine/flows/signEvmFamily/signTempoWithUiConfirm.ts',
+        'client/src/core/signingEngine/flows/signEvmFamily/signEvmFamilyWithUiConfirmForTempo.ts',
       ),
       'utf8',
     );
-    expect(signTempoWithUiConfirm).toContain("args.request.kind === 'eip1559'");
-    expect(signTempoWithUiConfirm).toContain('new EvmAdapter(workerCtx).buildIntent(request)');
-    expect(signTempoWithUiConfirm).toContain("targetKind: 'tempo'");
+    expect(signEvmFamilyWithUiConfirmForTempo).toContain("args.request.kind === 'eip1559'");
+    expect(signEvmFamilyWithUiConfirmForTempo).toContain(
+      'new EvmAdapter(workerCtx).buildIntent(request)',
+    );
+    expect(signEvmFamilyWithUiConfirmForTempo).toContain("targetKind: 'tempo'");
   });
 
   test('refreshes step-up ECDSA lanes with the normalized signing target chain', () => {
@@ -207,7 +209,10 @@ test.describe('Trusted wallet signing budget status', () => {
 
     const originalFetch = globalThis.fetch;
     const authorizations: string[] = [];
-    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    globalThis.fetch = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
       const authorization = String(new Headers(init?.headers).get('Authorization') || '');
       authorizations.push(authorization);
       return new Response(
@@ -295,7 +300,10 @@ test.describe('Trusted wallet signing budget status', () => {
     resetWarmSessionFixtureState(ecdsaSessions);
     const originalFetch = globalThis.fetch;
     const calls: Array<{ authorization: string; thresholdSessionId: string }> = [];
-    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    globalThis.fetch = (async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
       const headers = new Headers(init?.headers);
       const authorization = String(headers.get('Authorization') || '');
       const payload = JSON.parse(String(init?.body || '{}')) as {

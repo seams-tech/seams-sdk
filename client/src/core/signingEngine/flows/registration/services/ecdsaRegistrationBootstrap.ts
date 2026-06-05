@@ -84,13 +84,16 @@ export function createEcdsaRegistrationBootstrapService(deps: {
   emailOtpWorker: WorkerOperationContext;
 }): EcdsaRegistrationBootstrapService {
   return {
-    preparePasskeyClientBootstrap: (input) => preparePasskeyClientBootstrap(deps, input),
-    prepareEmailOtpClientBootstrap: (input) => prepareEmailOtpClientBootstrap(deps, input),
-    finalizeClientBootstrap: (input) => finalizeClientBootstrap(deps, input),
+    preparePasskeyClientBootstrap: (input) =>
+      preparePasskeyWalletRegistrationEcdsaClientBootstrap(deps, input),
+    prepareEmailOtpClientBootstrap: (input) =>
+      prepareEmailOtpWalletRegistrationEcdsaClientBootstrap(deps, input),
+    finalizeClientBootstrap: (input) =>
+      finalizeWalletRegistrationEcdsaClientBootstrap(deps, input),
   };
 }
 
-async function preparePasskeyClientBootstrap(
+export async function preparePasskeyWalletRegistrationEcdsaClientBootstrap(
   deps: {
     signerCrypto: Pick<SignerCryptoPort, 'prepareEcdsaClientBootstrap'>;
   },
@@ -139,7 +142,7 @@ async function preparePasskeyClientBootstrap(
   };
 }
 
-async function prepareEmailOtpClientBootstrap(
+export async function prepareEmailOtpWalletRegistrationEcdsaClientBootstrap(
   deps: {
     emailOtpWorker: WorkerOperationContext;
   },
@@ -165,7 +168,7 @@ async function prepareEmailOtpClientBootstrap(
   };
 }
 
-async function finalizeClientBootstrap(
+export async function finalizeWalletRegistrationEcdsaClientBootstrap(
   deps: {
     signerCrypto: Pick<SignerCryptoPort, 'finalizeEcdsaClientBootstrap'>;
   },

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import type { DeviceLinkingQRData, LinkDeviceResult, LinkDeviceFlowEvent } from '@/index';
+import type { DeviceLinkingQRData, LinkDeviceResult } from '@/core/types/linkDevice';
+import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import { useQRCamera, QRScanMode } from '../hooks/useQRCamera';
 import { useDeviceLinking } from '../hooks/useDeviceLinking';
 import { Theme, useTheme } from './theme';

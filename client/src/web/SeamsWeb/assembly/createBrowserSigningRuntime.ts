@@ -32,14 +32,14 @@ export function createBrowserSigningRuntime(
 ): SigningRuntime {
   const state = createSigningRuntimeStatePorts();
   const config: SigningRuntimeConfig = toSigningRuntimeConfig(args.config);
-  const platformRuntime = createBrowserPlatformRuntime({
+  const runtimePorts = createBrowserPlatformRuntime({
     indexedDB: IndexedDBManager,
     workerCtx: args.workerCtx,
     ecdsaSessionStore: state.ecdsaSessions,
   });
 
   return createSigningRuntime({
-    platformRuntime,
+    runtimePorts,
     relayers: {
       ecdsa: createThresholdEcdsaRelayerClient({
         relayerUrl: config.network.relayer.url,

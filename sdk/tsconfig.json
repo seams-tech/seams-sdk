@@ -34,6 +34,7 @@
       "@shared/*": ["../shared/src/*"],
       "@server": ["../server/src/index.ts"],
       "@server/*": ["../server/src/*"],
+      "@seams/sdk/advanced": ["../client/src/advanced.ts"],
       "@seams/sdk/server": ["../server/src/index.ts"],
       "@seams/sdk/server/router/cloudflare": ["../server/src/router/cloudflare-adaptor.ts"],
       "@seams/sdk/server/router/express": ["../server/src/router/express-adaptor.ts"],

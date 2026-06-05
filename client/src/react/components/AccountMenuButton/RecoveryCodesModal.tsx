@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { Theme, useTheme } from '../theme';
 import { useSeams } from '../../context';
-import type { EmailOtpRecoveryCodeStatus } from '@/web/SeamsWeb/interfaces';
+import type { EmailOtpRecoveryCodeStatus } from '@/web/SeamsWeb/signingSurface/types';
 import './RecoveryCodesModal.css';
 
 interface RecoveryCodesModalProps {
@@ -66,7 +66,7 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
     }
     let cancelled = false;
     setLoadState({ kind: 'loading' });
-    seams.auth
+    seams.recovery
       .getEmailOtpRecoveryCodeStatus({ walletId: nearAccountId })
       .then((status) => {
         if (!cancelled) setLoadState({ kind: 'loaded', status });

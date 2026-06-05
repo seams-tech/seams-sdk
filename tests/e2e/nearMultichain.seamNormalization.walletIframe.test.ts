@@ -107,11 +107,9 @@ test.describe('Lite signer – NEAR multichain seam normalization (wallet iframe
               behavior: 'skipClick',
               autoProceedDelay: 0,
             } as const;
-            const registration = await seams.registration.registerPasskeyInternal(
-              accountId,
-              {},
-              confirmationConfig as any,
-            );
+            const registration = await seams.registration.registerPasskey(accountId, {
+              confirmationConfig: confirmationConfig as any,
+            });
             if (!registration?.success) {
               return { ok: false as const, error: registration?.error || 'registration failed' };
             }

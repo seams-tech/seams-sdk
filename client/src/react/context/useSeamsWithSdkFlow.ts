@@ -265,9 +265,6 @@ export function useSeamsWithSdkFlow(args: {
             registerWallet: registerWalletWithSdkFlow,
             registerWithEmailOtp: registerWithEmailOtpWithSdkFlow,
             registerPasskey: registerPasskeyWithSdkFlow,
-            registerPasskeyInternal: (
-              ...args: Parameters<RegistrationCapability['registerPasskeyInternal']>
-            ) => registration.registerPasskeyInternal(...args),
           } as RegistrationCapability;
         }
 
@@ -286,16 +283,13 @@ export function useSeamsWithSdkFlow(args: {
             ) => recovery.finalizeEmailRecovery(...args),
             cancelEmailRecovery: (...args: Parameters<RecoveryCapability['cancelEmailRecovery']>) =>
               recovery.cancelEmailRecovery(...args),
-            startDevice2LinkingFlow: (
-              ...args: Parameters<RecoveryCapability['startDevice2LinkingFlow']>
-            ) => recovery.startDevice2LinkingFlow(...args),
-            stopDevice2LinkingFlow: (
-              ...args: Parameters<RecoveryCapability['stopDevice2LinkingFlow']>
-            ) => recovery.stopDevice2LinkingFlow(...args),
-            linkDeviceWithScannedQRData: (
-              ...args: Parameters<RecoveryCapability['linkDeviceWithScannedQRData']>
-            ) => recovery.linkDeviceWithScannedQRData(...args),
-          } as RecoveryCapability;
+            acknowledgeEmailOtpRecoveryCodeBackup: (
+              ...args: Parameters<RecoveryCapability['acknowledgeEmailOtpRecoveryCodeBackup']>
+            ) => recovery.acknowledgeEmailOtpRecoveryCodeBackup(...args),
+            getEmailOtpRecoveryCodeStatus: (
+              ...args: Parameters<RecoveryCapability['getEmailOtpRecoveryCodeStatus']>
+            ) => recovery.getEmailOtpRecoveryCodeStatus(...args),
+          } satisfies RecoveryCapability;
         }
 
         if (prop === 'setTheme') {

@@ -1,9 +1,9 @@
-# Embedded Platform Runtime
+# Embedded Rust SDK Notes
 
-`EmbeddedPlatformRuntime` is the Linux/device adapter branch for running signing
-flows without a browser container. It must implement the shared
-`PlatformRuntime` contract with `kind: 'linux_embedded'` and keep web facade,
-React, DOM, and wallet iframe concepts out of embedded packages.
+The embedded SDK is a standalone Rust crate installed through Cargo. It should
+own the `SeamsEmbedded` facade, device-local operation orchestration, and direct
+Rust signer-core integration. It must not be implemented as a TypeScript npm
+subpackage.
 
 ## Required Ports
 
@@ -14,8 +14,8 @@ React, DOM, and wallet iframe concepts out of embedded packages.
   hardware secure element, or a reviewed platform secret provider. Raw secret
   bytes must have bounded lifetime in process memory.
 - `signerCrypto`: call signer-core through a Rust crate, a C ABI, or an
-  authenticated local daemon. Command payloads must use the shared signer-core
-  command schemas from `client/src/core/platform/generated/`.
+  authenticated local daemon. Command payloads must use signer-core schemas or
+  language-neutral fixtures, not npm package exports.
 - `storage`: persist durable records in SQLite with transactions or atomic
   filesystem records with fsync-backed replace semantics.
 - `http`: use TLS transport with explicit connect, write, read, and total
@@ -37,10 +37,11 @@ React, DOM, and wallet iframe concepts out of embedded packages.
 
 ## Exclusions
 
-Embedded roots must not import:
+Embedded Rust SDK code must not depend on npm `@seams/sdk` entry points for
+runtime behavior. It must not mirror browser concepts such as:
 
 - `client/src/web/SeamsWeb/**`;
-- `client/src/core/WalletIframe/**`;
+- `client/src/web/SeamsWeb/walletIframe/**`;
 - `client/src/react/**`;
 - `client/src/core/platform/browser/**`;
 - DOM globals such as `window`, `document`, `navigator`, or `DOMException`;

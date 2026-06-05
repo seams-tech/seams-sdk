@@ -114,7 +114,7 @@ test.describe('WalletIframeRouter signing progress forwarding', () => {
     const result = await page.evaluate(
       async ({ routerPath, walletOrigin, chainTarget, walletSession }) => {
         const mod = await import(routerPath);
-        const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
+        const { WalletIframeRouter } = mod as typeof import('@/web/SeamsWeb/walletIframe/client/router');
 
         const router = new WalletIframeRouter({
           walletOrigin,

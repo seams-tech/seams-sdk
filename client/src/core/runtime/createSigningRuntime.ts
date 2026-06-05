@@ -1,8 +1,4 @@
-import type {
-  SigningRuntime,
-  SigningRuntimeDeps,
-  SigningRuntimeStatePorts,
-} from './types';
+import type { SigningRuntime, SigningRuntimeDeps, SigningRuntimeStatePorts } from './types';
 import { createProvisionEcdsaUseCase } from '@/core/signingEngine/useCases/provisionEcdsa';
 import { createEcdsaRegistrationBootstrapService } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap';
 import { createEcdsaWalletRecordsService } from '@/core/signingEngine/flows/registration/services/ecdsaWalletRecords';
@@ -17,7 +13,7 @@ import {
   reportTempoBroadcastRejected,
   reportTempoDroppedOrReplaced,
   reportTempoFinalized,
-  signTempo,
+  signEvmFamily,
 } from '@/core/signingEngine/flows/signEvmFamily/signEvmFamily';
 
 export function createSigningRuntimeStatePorts(): SigningRuntimeStatePorts {
@@ -31,7 +27,7 @@ export function createSigningRuntimeStatePorts(): SigningRuntimeStatePorts {
 
 export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
   const ecdsaRegistrationBootstrap = createEcdsaRegistrationBootstrapService({
-    signerCrypto: deps.platformRuntime.signerCrypto,
+    signerCrypto: deps.runtimePorts.signerCrypto,
     emailOtpWorker: deps.workers.emailOtp,
   });
   const warmSessions = createWarmSessionHydrationService({
@@ -42,14 +38,12 @@ export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
     services: {
       warmSessions,
       nearKeyOperations: createNearKeyOperationsService(deps.nearKeyOps),
-      registrationAccounts: createRegistrationAccountsService(
-        deps.registration.accountLifecycle,
-      ),
+      registrationAccounts: createRegistrationAccountsService(deps.registration.accountLifecycle),
       nearSigning: {
         signNear: (request) => signNear(deps.signing.near.getDeps(), request),
       },
       evmFamilySigning: {
-        signTempo: (args) => signTempo(deps.signing.evmFamily.getDeps(), args),
+        signEvmFamily: (args) => signEvmFamily(deps.signing.evmFamily.getDeps(), args),
         reportTempoBroadcastAccepted: (args) =>
           reportTempoBroadcastAccepted(deps.signing.evmFamily.getDeps(), args),
         reportTempoBroadcastRejected: (args) =>
@@ -73,11 +67,11 @@ export function createSigningRuntime(deps: SigningRuntimeDeps): SigningRuntime {
         accountLifecycle: deps.registration.accountLifecycle,
       }),
       ecdsaProvisioning: createProvisionEcdsaUseCase({
-        authenticator: deps.platformRuntime.authenticator,
-        signerCrypto: deps.platformRuntime.signerCrypto,
-        storage: deps.platformRuntime.storage,
+        authenticator: deps.runtimePorts.authenticator,
+        signerCrypto: deps.runtimePorts.signerCrypto,
+        storage: deps.runtimePorts.storage,
         relayer: deps.relayers.ecdsa,
-        clock: deps.platformRuntime.clock,
+        clock: deps.runtimePorts.clock,
       }),
     },
   };

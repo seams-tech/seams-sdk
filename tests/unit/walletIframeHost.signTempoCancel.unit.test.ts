@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { createWalletIframeHandlers } from '@/core/WalletIframe/host/wallet-iframe-handlers';
+import { createWalletIframeHandlers } from '@/web/SeamsWeb/walletIframe/host/wallet-iframe-handlers';
 import {
   resolveWalletBoundaryErrorCode,
   resolveWalletBoundaryErrorMessage,
-} from '@/core/WalletIframe/host/canonicalSignerErrorCode';
-import type { ChildToParentEnvelope } from '@/core/WalletIframe/shared/messages';
+} from '@/web/SeamsWeb/walletIframe/host/canonicalSignerErrorCode';
+import type { ChildToParentEnvelope } from '@/web/SeamsWeb/walletIframe/shared/messages';
 
 function makeTempoRequest(requestId: string): any {
   return {

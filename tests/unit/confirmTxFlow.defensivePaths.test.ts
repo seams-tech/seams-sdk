@@ -4,7 +4,7 @@ import { setupBasicPasskeyTest } from '../setup';
 const IMPORT_PATHS = {
   handle: '/sdk/esm/core/signingEngine/uiConfirm/handlers/handlePromptFromWorker.js',
   types: '/sdk/esm/core/signingEngine/stepUpConfirmation/channel/confirmTypes.js',
-  events: '/sdk/esm/core/WalletIframe/events.js',
+  events: '/sdk/esm/core/browser/walletIframe/events.js',
   localOnly: '/sdk/esm/core/signingEngine/uiConfirm/handlers/flows/localOnly.js',
   nonceCoordinator: '/sdk/esm/core/signingEngine/nonce/NonceCoordinator.js',
 } as const;

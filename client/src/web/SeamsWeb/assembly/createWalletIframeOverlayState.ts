@@ -1,5 +1,5 @@
-import OverlayController from '@/core/WalletIframe/client/overlay/overlay-controller';
-import type { WalletIframeOverlayState } from '@/core/WalletIframe/client/router';
+import OverlayController from '@/web/SeamsWeb/walletIframe/client/overlay/overlay-controller';
+import type { WalletIframeOverlayState } from '@/web/SeamsWeb/walletIframe/client/router';
 
 export function createWalletIframeOverlayState(args: {
   ensureIframe: () => HTMLIFrameElement;

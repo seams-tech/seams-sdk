@@ -1,7 +1,9 @@
 # iOS Platform Adapter Contract
 
-This directory records the native iOS contract for sharing production Seams
-passkeys with the web wallet without requiring a wallet iframe.
+This directory records RP ID and server verification notes for the standalone
+Swift iOS SDK. The real iOS SDK is installed through Swift Package Manager,
+owns the `SeamsIOS` facade, and binds to Rust signer-core through native
+bindings.
 
 ## RP ID Contract
 
@@ -36,9 +38,9 @@ The production domain must serve:
 at `https://seams.sh/.well-known/apple-app-site-association`. Replace
 `TEAMID.com.seams.app` with the concrete Apple Team ID and bundle identifier.
 
-## AuthenticatorPort Mapping
+## AuthenticationServices Mapping
 
-The native `AuthenticatorPort` implementation maps to AuthenticationServices:
+The Swift SDK maps native passkey behavior to AuthenticationServices:
 
 - Registration challenge: `ASAuthorizationPlatformPublicKeyCredentialRegistrationRequest`.
 - Assertion challenge: `ASAuthorizationPlatformPublicKeyCredentialAssertionRequest`.
@@ -48,8 +50,8 @@ The native `AuthenticatorPort` implementation maps to AuthenticationServices:
   to the nearest AuthenticationServices request behavior.
 - PRF extension: request PRF output only when the platform reports support.
 
-The adapter must normalize the native result into the same boundary shape used
-by browser WebAuthn before signer-core receives any material.
+The Swift boundary must normalize native results before signer-core receives
+any material.
 
 ## PRF Fallback
 

@@ -2,7 +2,7 @@ import React from 'react';
 import type { SeamsContextProviderProps } from '../types';
 import {
   normalizeWalletHostVariant,
-} from '../../core/WalletIframe/hostVariant';
+} from '../../core/browser/walletIframe/hostVariant';
 import { preconnectWalletAssets } from '../../web/SeamsWeb/assembly/preconnectWalletAssets';
 
 // Internal: Add preconnect/prefetch hints for wallet service + relayer and

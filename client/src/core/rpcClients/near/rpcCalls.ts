@@ -11,7 +11,7 @@
 import type { NearClient } from './NearClient';
 import type { AccountId } from '../../types/accountIds';
 import type { WebAuthnAuthenticationCredential } from '../../types/webauthn';
-import type { SeamsWebContext } from '@/web/SeamsWeb';
+import type { SeamsConfigsReadonly } from '../../types/seams';
 import type { ConfirmationConfig } from '../../types/signer-worker';
 import type { FinalExecutionOutcome } from '@near-js/types';
 
@@ -36,6 +36,10 @@ import {
   SigningEventPhase,
 } from '../../types/sdkSentEvents';
 import { redactCredentialExtensionOutputs } from '../../signingEngine/webauthnAuth/credentials/credentialExtensions';
+import type {
+  NearSignIntentRequest,
+  NearSignIntentResult,
+} from '../../signingEngine/flows/signNear/signNear';
 
 export async function fetchNonceBlockHashAndHeight({
   nearClient,
@@ -473,15 +477,23 @@ export async function getEmailRecoveryAttempt(
  * Execute device1's linking transactions (AddKey + Contract mapping)
  * This function signs and broadcasts both transactions required for device linking
  */
+type DeviceLinkingContractCallDeps = {
+  nearClient: NearClient;
+  chains: SeamsConfigsReadonly['network']['chains'];
+  signNear: <TRequest extends NearSignIntentRequest>(
+    request: TRequest,
+  ) => Promise<NearSignIntentResult<TRequest>>;
+};
+
 export async function executeDeviceLinkingContractCalls({
-  context,
+  deps,
   device1AccountId,
   device2PublicKey,
   onEvent,
   confirmationConfigOverride,
   confirmerText,
 }: {
-  context: SeamsWebContext;
+  deps: DeviceLinkingContractCallDeps;
   device1AccountId: AccountId;
   device2PublicKey: string;
   onEvent?: (event: LinkDeviceFlowEvent) => void;
@@ -491,16 +503,14 @@ export async function executeDeviceLinkingContractCalls({
   addKeyTxResult: FinalExecutionOutcome;
 }> {
   const signTransactions = () =>
-    context.signingEngine.signNear({
+    deps.signNear({
       chain: 'near',
       kind: 'transactionsWithActions',
       args: {
         nearAccount: nearAccountRefFromAccountId(device1AccountId),
         sessionId: secureRandomId('link-device', 32, 'link device signing session IDs'),
         rpcCall: {
-          nearRpcUrl: resolvePrimaryNearRpcUrl(
-            context.signingEngine.seamsWebConfigs.network.chains,
-          ),
+          nearRpcUrl: resolvePrimaryNearRpcUrl(deps.chains),
           nearAccountId: device1AccountId,
         },
         confirmationConfigOverride,
@@ -555,7 +565,7 @@ export async function executeDeviceLinkingContractCalls({
 
   let addKeyTxResult: FinalExecutionOutcome;
   try {
-    addKeyTxResult = await context.nearClient.sendTransaction(
+    addKeyTxResult = await deps.nearClient.sendTransaction(
       signedTransactions[0].signedTransaction,
       DEFAULT_WAIT_STATUS.linkDeviceAddKey,
     );

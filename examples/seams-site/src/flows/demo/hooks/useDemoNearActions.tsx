@@ -6,8 +6,9 @@ import {
   ActionType,
   TxExecutionStatus,
   useSeams,
+  type SigningFlowEvent,
 } from '@seams/sdk/react';
-import { nearAccountRefFromAccountId } from '@seams/sdk';
+import { nearAccountRefFromAccountId } from '@seams/sdk/advanced';
 import type { ActionArgs, FunctionCallAction } from '@seams/sdk/react';
 
 import { DEMO_CONTRACT_ID, NEAR_EXPLORER_BASE_URL } from '@/shared/types';
@@ -77,7 +78,7 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
           },
         ],
         options: {
-          onEvent: (event) => {
+          onEvent: (event: SigningFlowEvent) => {
             const result = handleSigningToastEvent(event, {
               toastId: 'greeting',
               chainLabel: 'NEAR',
@@ -174,7 +175,7 @@ export function useDemoNearActions(args: UseDemoNearActionsArgs) {
           publicKey: loginState.publicKey || nearPublicKey || '',
         },
         options: {
-          onEvent: (event) => {
+          onEvent: (event: SigningFlowEvent) => {
             handleSigningToastEvent(event, {
               toastId: 'delegate-greeting',
               chainLabel: 'NEAR',

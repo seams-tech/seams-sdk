@@ -1159,7 +1159,7 @@ export async function runEmailOtpReloadPhase(
             rpIdOverride: 'example.localhost',
           },
         });
-        pm.setConfirmationConfig(confirmationConfig as any);
+        pm.preferences.setConfirmationConfig(confirmationConfig as any);
 
         const signingEngine = pm.getContext().signingEngine as any;
         const restoreCallEvents: Array<{

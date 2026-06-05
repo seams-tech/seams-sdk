@@ -28,7 +28,7 @@ function listProductionCoreFiles(dir = path.join(repoRoot, 'client/src/core')): 
 test.describe('wallet-scoped lookup guards', () => {
   test('production wallet paths do not resolve wallet ids through NEAR projection helpers', () => {
     const allowedToAccountIdWalletFiles = new Set([
-      'client/src/web/SeamsWeb/assembly/BrowserSigningSurface.ts',
+      'client/src/web/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
       'client/src/core/signingEngine/session/public.ts',
       'client/src/core/signingEngine/session/availability/availableSigningLanes.ts',
       'client/src/core/signingEngine/session/availability/readiness.ts',

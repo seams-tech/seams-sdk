@@ -13,7 +13,7 @@ test.describe('WalletIframeRouter.computeOverlayIntent', () => {
     const result = await page.evaluate(
       async ({ walletOrigin, routerPath }) => {
         const mod = await import(routerPath);
-        const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
+        const { WalletIframeRouter } = mod as typeof import('@/web/SeamsWeb/walletIframe/client/router');
         const router = new WalletIframeRouter({
           walletOrigin,
           servicePath: '/wallet-service',

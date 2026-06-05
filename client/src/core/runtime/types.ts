@@ -1,16 +1,12 @@
-import type { PlatformRuntime } from '@/core/platform';
+import type { RuntimePorts } from '@/core/platform';
 import type {
   ReadonlyDeep,
   SeamsNetworkConfig,
   SeamsRegistrationConfig,
   SeamsSigningConfig,
 } from '@/core/types/seams';
-import type {
-  ThresholdEcdsaCanonicalExportArtifact,
-} from '@/core/signingEngine/interfaces/signing';
-import type {
-  ThresholdEcdsaSessionRecord,
-} from '@/core/signingEngine/session/persistence/records';
+import type { ThresholdEcdsaCanonicalExportArtifact } from '@/core/signingEngine/interfaces/signing';
+import type { ThresholdEcdsaSessionRecord } from '@/core/signingEngine/session/persistence/records';
 import type { EcdsaRelayerClient } from '@/core/platform';
 import type { ProvisionEcdsaUseCase } from '@/core/signingEngine/useCases/provisionEcdsa';
 import type { EcdsaRegistrationBootstrapService } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap';
@@ -87,7 +83,7 @@ export type SigningRuntimeEvmFamilySigningDeps = {
   getDeps: () => TempoSigningDeps;
 };
 
-export type SigningRuntimeSignTempoArgs = {
+export type SigningRuntimeSignEvmFamilyArgs = {
   walletSession: WalletSessionRef;
   request: TempoSigningRequest | EvmSigningRequest;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -103,7 +99,9 @@ export type SigningRuntimeNearSigningService = {
 };
 
 export type SigningRuntimeEvmFamilySigningService = {
-  signTempo(args: SigningRuntimeSignTempoArgs): Promise<TempoSignedResult | EvmSignedResult>;
+  signEvmFamily(
+    args: SigningRuntimeSignEvmFamilyArgs,
+  ): Promise<TempoSignedResult | EvmSignedResult>;
   reportTempoBroadcastAccepted(args: ReportTempoBroadcastAcceptedArgs): Promise<void>;
   reportTempoBroadcastRejected(args: ReportTempoBroadcastRejectedArgs): Promise<void>;
   reportTempoFinalized(args: ReportTempoFinalizedArgs): Promise<void>;
@@ -124,7 +122,7 @@ export type SigningRuntimeServices = {
 };
 
 export type SigningRuntimeDeps = {
-  platformRuntime: PlatformRuntime;
+  runtimePorts: RuntimePorts;
   relayers: SigningRuntimeRelayerClients;
   workers: SigningRuntimeWorkerPorts;
   nearKeyOps: NearKeyOperationsPort;

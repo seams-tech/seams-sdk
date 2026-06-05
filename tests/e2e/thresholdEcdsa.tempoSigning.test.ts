@@ -174,28 +174,25 @@ test.describe('threshold-ecdsa tempo signing', () => {
               },
             });
 
-            const registration = await pm.registration.registerPasskeyInternal(
-              accountId,
-              {
-                signerOptions: {
-                  tempo: {
-                    enabled: false,
-                    participantIds: [1, 2],
-                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-                  },
-                  evm: {
-                    enabled: false,
-                    participantIds: [1, 2],
-                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-                  },
+            const registration = await pm.registration.registerPasskey(accountId, {
+              signerOptions: {
+                tempo: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                },
+                evm: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
                 },
               },
-              confirmationConfig,
-            );
+              confirmationConfig: confirmationConfig,
+            });
             if (!registration?.success) {
               return {
                 ok: false,
-                error: String(registration?.error || 'registerPasskeyInternal failed'),
+                error: String(registration?.error || 'registerPasskey failed'),
               };
             }
 
@@ -352,28 +349,25 @@ test.describe('threshold-ecdsa tempo signing', () => {
               },
             });
 
-            const registration = await pm.registration.registerPasskeyInternal(
-              accountId,
-              {
-                signerOptions: {
-                  tempo: {
-                    enabled: false,
-                    participantIds: [1, 2],
-                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-                  },
-                  evm: {
-                    enabled: false,
-                    participantIds: [1, 2],
-                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-                  },
+            const registration = await pm.registration.registerPasskey(accountId, {
+              signerOptions: {
+                tempo: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                },
+                evm: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
                 },
               },
-              confirmationConfig,
-            );
+              confirmationConfig: confirmationConfig,
+            });
             if (!registration?.success) {
               return {
                 ok: false,
-                error: String(registration?.error || 'registerPasskeyInternal failed'),
+                error: String(registration?.error || 'registerPasskey failed'),
               };
             }
 
@@ -548,28 +542,25 @@ test.describe('threshold-ecdsa tempo signing', () => {
               },
             });
 
-            const registration = await pm.registration.registerPasskeyInternal(
-              accountId,
-              {
-                signerOptions: {
-                  tempo: {
-                    enabled: false,
-                    participantIds: [1, 2],
-                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-                  },
-                  evm: {
-                    enabled: false,
-                    participantIds: [1, 2],
-                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-                  },
+            const registration = await pm.registration.registerPasskey(accountId, {
+              signerOptions: {
+                tempo: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                },
+                evm: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
                 },
               },
-              confirmationConfig,
-            );
+              confirmationConfig: confirmationConfig,
+            });
             if (!registration?.success) {
               return {
                 ok: false,
-                error: String(registration?.error || 'registerPasskeyInternal failed'),
+                error: String(registration?.error || 'registerPasskey failed'),
               };
             }
 
@@ -809,28 +800,25 @@ test.describe('threshold-ecdsa tempo signing', () => {
               },
             });
 
-            const registration = await pm.registration.registerPasskeyInternal(
-              accountId,
-              {
-                signerOptions: {
-                  tempo: {
-                    enabled: false,
-                    participantIds: [1, 2],
-                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-                  },
-                  evm: {
-                    enabled: false,
-                    participantIds: [1, 2],
-                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-                  },
+            const registration = await pm.registration.registerPasskey(accountId, {
+              signerOptions: {
+                tempo: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                },
+                evm: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
                 },
               },
-              confirmationConfig,
-            );
+              confirmationConfig: confirmationConfig,
+            });
             if (!registration?.success) {
               return {
                 ok: false,
-                error: String(registration?.error || 'registerPasskeyInternal failed'),
+                error: String(registration?.error || 'registerPasskey failed'),
               };
             }
 
@@ -1065,28 +1053,25 @@ test.describe('threshold-ecdsa tempo signing', () => {
               },
             });
 
-            const registration = await pm.registration.registerPasskeyInternal(
-              accountId,
-              {
-                signerOptions: {
-                  tempo: {
-                    enabled: false,
-                    participantIds: [1, 2],
-                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-                  },
-                  evm: {
-                    enabled: false,
-                    participantIds: [1, 2],
-                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-                  },
+            const registration = await pm.registration.registerPasskey(accountId, {
+              signerOptions: {
+                tempo: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                },
+                evm: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
                 },
               },
-              confirmationConfig,
-            );
+              confirmationConfig: confirmationConfig,
+            });
             if (!registration?.success) {
               return {
                 ok: false,
-                error: String(registration?.error || 'registerPasskeyInternal failed'),
+                error: String(registration?.error || 'registerPasskey failed'),
               };
             }
 
@@ -1294,28 +1279,25 @@ test.describe('threshold-ecdsa tempo signing', () => {
               },
             });
 
-            const registration = await pm.registration.registerPasskeyInternal(
-              accountId,
-              {
-                signerOptions: {
-                  tempo: {
-                    enabled: false,
-                    participantIds: [1, 2],
-                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-                  },
-                  evm: {
-                    enabled: false,
-                    participantIds: [1, 2],
-                    signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-                  },
+            const registration = await pm.registration.registerPasskey(accountId, {
+              signerOptions: {
+                tempo: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
+                },
+                evm: {
+                  enabled: false,
+                  participantIds: [1, 2],
+                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
                 },
               },
-              confirmationConfig,
-            );
+              confirmationConfig: confirmationConfig,
+            });
             if (!registration?.success) {
               return {
                 ok: false,
-                error: String(registration?.error || 'registerPasskeyInternal failed'),
+                error: String(registration?.error || 'registerPasskey failed'),
               };
             }
 
@@ -1505,5 +1487,4 @@ test.describe('threshold-ecdsa tempo signing', () => {
       await harness.close();
     }
   });
-
 });

@@ -18,7 +18,7 @@ import { formatEmailOtpSentText } from '@/core/signingEngine/stepUpConfirmation/
 import HaloBorderElement from '../HaloBorder';
 import PasskeyHaloLoadingElement from '../PasskeyHaloLoading';
 import type { ConfirmUIElement } from '../../confirm-ui-types';
-import { WalletIframeDomEvents } from '@/core/WalletIframe/events';
+import { WalletIframeDomEvents } from '@/core/browser/walletIframe/events';
 
 const EMAIL_OTP_SUBMIT_FADE_MS = 150;
 

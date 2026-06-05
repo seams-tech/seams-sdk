@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { addWalletSigner, registerWallet } from '../../client/src/web/SeamsWeb/registration';
-import { EvmSigner } from '../../client/src/web/SeamsWeb/evm';
-import { NearSigner } from '../../client/src/web/SeamsWeb/near';
+import { addWalletSigner, registerWallet } from '../../client/src/web/SeamsWeb/operations/registration/registration';
+import { createEvmSignerCapability } from '../../client/src/web/SeamsWeb/publicApi/evm';
+import { createNearSignerCapability } from '../../client/src/web/SeamsWeb/publicApi/near';
 import { IndexedDBManager } from '../../client/src/core/indexedDB';
 import { UserVerificationPolicy } from '../../client/src/core/types/authenticatorOptions';
 import {
@@ -30,6 +30,40 @@ const RUNTIME_POLICY_SCOPE = {
   envId: 'dev',
   signingRootVersion: 'root_v1',
 } as const;
+
+function createLocalEvmCapability(deps: { getContext: () => any }) {
+  const context = deps.getContext();
+  return createEvmSignerCapability({
+    signingEngine: context.signingEngine,
+    nearClient: context.nearClient ?? {},
+    configs: context.configs,
+    getTheme: () => context.theme ?? 'light',
+    getWalletIframe: () =>
+      ({
+        shouldUseWalletIframe: () => false,
+        requireRouter: async () => {
+          throw new Error('local EVM capability test should not require wallet iframe router');
+        },
+      }) as any,
+  } as any);
+}
+
+function createLocalNearCapability(deps: { getContext: () => any }) {
+  const context = deps.getContext();
+  return createNearSignerCapability({
+    signingEngine: context.signingEngine,
+    nearClient: context.nearClient ?? {},
+    configs: context.configs,
+    getTheme: () => context.theme ?? 'light',
+    getWalletIframe: () =>
+      ({
+        shouldUseWalletIframe: () => false,
+        requireRouter: async () => {
+          throw new Error('local NEAR capability test should not require wallet iframe router');
+        },
+      }) as any,
+  } as any);
+}
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -195,7 +229,7 @@ function createContext(captures: Record<string, unknown>): any {
             captures.storedEcdsa = input;
             return { storedSigners: [] };
           },
-          storeWalletEcdsaRegistrationData: async (input: Record<string, unknown>) => {
+          finalizeWalletEcdsaRegistration: async (input: Record<string, unknown>) => {
             captures.storedEcdsaRegistration = input;
             return { storedSigners: [] };
           },
@@ -205,7 +239,7 @@ function createContext(captures: Record<string, unknown>): any {
           },
         },
         ecdsaRegistrationSessions: {
-          persistWalletRegistrationEcdsaSessions: async (input: Record<string, unknown>) => {
+          finalizeWalletRegistrationEcdsaSessions: async (input: Record<string, unknown>) => {
             const bootstrap = input.bootstrap as { keyHandle?: unknown };
             const walletKeys = input.walletKeys as Array<{ keyHandle?: unknown }>;
             for (const walletKey of walletKeys) {
@@ -230,7 +264,7 @@ function createContext(captures: Record<string, unknown>): any {
             captures.storedEd25519Registration = input;
             return { signerSlot: input.signerSlot };
           },
-          storeWalletEd25519SignerRecord: async (input: Record<string, unknown>) => {
+          finalizeWalletEd25519SignerRegistration: async (input: Record<string, unknown>) => {
             captures.storedEd25519 = input;
             return { signerSlot: input.signerSlot };
           },
@@ -238,7 +272,7 @@ function createContext(captures: Record<string, unknown>): any {
             nearAccountId,
             signerSlot,
           }),
-          initializeCurrentUser: async () => undefined,
+          activateAuthenticatedWalletState: async () => undefined,
           rollbackUserRegistration: async () => undefined,
         },
       },
@@ -258,6 +292,38 @@ function createContext(captures: Record<string, unknown>): any {
       storeWalletEd25519RegistrationData: async (input: Record<string, unknown>) => {
         captures.storedEd25519Registration = input;
         return { signerSlot: input.signerSlot };
+      },
+      storeWalletEmailOtpEd25519RegistrationData: async (input: Record<string, unknown>) => {
+        captures.storedEd25519Registration = input;
+        return { signerSlot: input.signerSlot };
+      },
+      preparePasskeyEcdsaBootstrap: prepareWalletRegistrationEcdsaPreparedClientBootstrap,
+      prepareEmailOtpEcdsaBootstrap: prepareWalletRegistrationEcdsaPreparedClientBootstrap,
+      finalizeWalletRegistrationEcdsaSessions: async (input: Record<string, unknown>) => {
+        const bootstrap = input.bootstrap as { keyHandle?: unknown };
+        const walletKeys = input.walletKeys as Array<{ keyHandle?: unknown }>;
+        for (const walletKey of walletKeys) {
+          if (String(walletKey.keyHandle || '') !== String(bootstrap.keyHandle || '')) {
+            throw new Error('ECDSA registration bootstrap keyHandle mismatch');
+          }
+        }
+        captures.persistedEcdsaSessions = input;
+      },
+      finalizeWalletEcdsaRegistration: async (input: Record<string, unknown>) => {
+        captures.storedEcdsaRegistration = input;
+        return { storedSigners: [] };
+      },
+      storeWalletEmailOtpEcdsaRegistrationData: async (input: Record<string, unknown>) => {
+        captures.storedEcdsaRegistration = input;
+        return { storedSigners: [] };
+      },
+      storeWalletEcdsaSignerRecords: async (input: Record<string, unknown>) => {
+        captures.storedEcdsa = input;
+        return { storedSigners: [] };
+      },
+      storeWalletEmailOtpEcdsaSignerRecords: async (input: Record<string, unknown>) => {
+        captures.storedEcdsa = input;
+        return { storedSigners: [] };
       },
       prepareThresholdEd25519HssClientCeremonyFromCredential: async (
         input: Record<string, unknown>,
@@ -290,9 +356,12 @@ function createContext(captures: Record<string, unknown>): any {
         captures.ed25519ArtifactArgs = input;
         return { stagedEvaluatorArtifactB64u: 'staged-artifact' };
       },
-      storeWalletEd25519SignerRecord: async (input: Record<string, unknown>) => {
+      finalizeWalletEd25519SignerRegistration: async (input: Record<string, unknown>) => {
         captures.storedEd25519 = input;
         return { signerSlot: input.signerSlot };
+      },
+      hydrateSigningSession: async (input: Record<string, unknown>) => {
+        captures.hydratedSession = input;
       },
       readPersistedAvailableSigningLanes: async (input: Record<string, unknown>) => {
         const authMethod = input.authMethod === 'email_otp' ? 'email_otp' : 'passkey';
@@ -365,7 +434,7 @@ function createContext(captures: Record<string, unknown>): any {
         nearAccountId,
         signerSlot,
       }),
-      initializeCurrentUser: async () => undefined,
+      activateAuthenticatedWalletState: async () => undefined,
     },
     nearClient: {
       viewAccount: async () => {
@@ -622,7 +691,7 @@ test('near.registerNearWallet wraps combined registration for configured ECDSA t
   const originalWindow = (globalThis as any).window;
   (globalThis as any).window = { isSecureContext: true };
   try {
-    const signer = new NearSigner({
+    const signer = createLocalNearCapability({
       getContext: () => createContext(captures),
     });
     const result = await withMockedIndexedDb(() =>
@@ -682,7 +751,7 @@ test('near.registerNearWallet respects per-call disabled ECDSA provisioning', as
   const originalWindow = (globalThis as any).window;
   (globalThis as any).window = { isSecureContext: true };
   try {
-    const signer = new NearSigner({
+    const signer = createLocalNearCapability({
       getContext: () => createContext(captures),
     });
     const result = await withMockedIndexedDb(() =>
@@ -726,7 +795,7 @@ test('evm.registerEvmWallet wraps ECDSA-only wallet registration', async () => {
   const captures: Record<string, unknown> = {};
   const fetchMock = installRegisterWalletFetch(captures);
   try {
-    const signer = new EvmSigner({
+    const signer = createLocalEvmCapability({
       getContext: () => createContext(captures),
     });
     const result = await withMockedIndexedDb(() =>

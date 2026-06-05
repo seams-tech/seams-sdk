@@ -1,5 +1,5 @@
-import { WalletIframeDomEvents } from '@/core/WalletIframe/events';
-import { __isWalletIframeHostMode } from '@/core/WalletIframe/host-mode';
+import { WalletIframeDomEvents } from '@/core/browser/walletIframe/events';
+import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import type { UserConfirmSecurityContext, TransactionInputWasm } from '@/core/types';
 import {
   isActionArgsWasm,

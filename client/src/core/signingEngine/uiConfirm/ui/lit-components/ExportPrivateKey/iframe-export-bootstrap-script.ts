@@ -9,7 +9,7 @@ import type { ThemeTokenOverridesInput } from '@/core/types/seams';
 import {
   createCspStylesheetManager,
   getDefaultCspNonce,
-} from '@/core/WalletIframe/shared/csp-stylesheet';
+} from '@/core/browser/walletIframe/csp-stylesheet';
 
 type MessageType =
   | 'READY'

@@ -16,7 +16,7 @@ import {
   expectDeclaredFields,
   expectAnyDeclaredField,
   expectNoField,
-  expectNoNearAccountId
+  expectNoNearAccountId,
 } from './helpers/signingEngineEcdsaIdentityGuard';
 
 test.describe('signing engine ECDSA export and fixture identity guards', () => {
@@ -59,11 +59,9 @@ test.describe('signing engine ECDSA export and fixture identity guards', () => {
   });
 
   test('browser signing surface ECDSA methods do not derive subject identity from accounts', () => {
-    const source = readRepoFile(
-      'client/src/web/SeamsWeb/assembly/BrowserSigningSurface.ts',
-    );
+    const source = readRepoFile('client/src/web/SeamsWeb/signingSurface/BrowserSigningSurface.ts');
     const methodNames = [
-      'signTempo',
+      'signEvmFamily',
       'bootstrapEcdsaSession',
       'requestEmailOtpSigningSessionChallenge',
       'refreshEmailOtpSigningSession',

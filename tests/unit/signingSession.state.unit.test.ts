@@ -111,7 +111,7 @@ test.describe('signing session PRF cache utilities', () => {
       'utf8',
     );
 
-    expect(source).toContain('signingRuntime.services.warmSessions.hydrateSigningSession({');
+    expect(source).toContain('signingEngine.hydrateSigningSession({');
     expect(source).not.toContain('setActiveSigningSessionId');
     expect(source).not.toContain('signingEngine.setActiveSigningSessionId(');
     expect(source).not.toContain('signingEngine.putWarmSessionMaterial(');

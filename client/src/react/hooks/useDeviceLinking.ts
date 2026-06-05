@@ -4,8 +4,8 @@ import {
   type DeviceLinkingQRData,
   LinkDeviceEventPhase,
   type LinkDeviceResult,
-  type LinkDeviceFlowEvent,
-} from '@/index';
+} from '@/core/types/linkDevice';
+import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import { QRScanMode } from '@/react/hooks/useQRCamera';
 
 /**
@@ -76,7 +76,7 @@ export const useDeviceLinking = (options: UseDeviceLinkingOptions): UseDeviceLin
         console.log(`useDeviceLinking: Starting device linking from ${source}...`);
         hasClosedEarlyRef.current = false; // Reset for this linking attempt
 
-        const result = await seams.recovery.linkDeviceWithScannedQRData(qrData, {
+        const result = await seams.devices.linkDeviceWithScannedQRData(qrData, {
           fundingAmount,
           onEvent: (event) => {
             onEvent?.(event);

@@ -675,7 +675,7 @@ async function runConcurrentThresholdSignsWithExistingPasskey(
     };
 
     if (!existingPm) {
-      const login = await pm.unlock(input.accountId, {
+      const login = await pm.auth.unlock(input.accountId, {
         session: {
           kind: 'jwt',
           relayUrl: input.relayerUrl,

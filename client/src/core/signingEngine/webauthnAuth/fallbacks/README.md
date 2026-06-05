@@ -122,9 +122,9 @@ Permissions-Policy: publickey-credentials-get=(self "https://wallet.example.loca
 
 - `client/src/core/WebAuthnManager/touchIdPrompt.ts:241` (create fallback)
 - `client/src/core/WebAuthnManager/touchIdPrompt.ts:316` (get fallback)
-- `client/src/core/WalletIframe/client/transport/IframeTransport.ts:87` (parent create handler)
-- `client/src/core/WalletIframe/client/transport/IframeTransport.ts:106` (parent get handler)
-- `client/src/core/WalletIframe/client/transport/IframeTransport.ts:131` (iframe permissions)
+- `client/src/web/SeamsWeb/walletIframe/client/transport/IframeTransport.ts:87` (parent create handler)
+- `client/src/web/SeamsWeb/walletIframe/client/transport/IframeTransport.ts:106` (parent get handler)
+- `client/src/web/SeamsWeb/walletIframe/client/transport/IframeTransport.ts:131` (iframe permissions)
 - `client/src/core/WebAuthnManager/credentialsHelpers.ts` (serialization)
 - `client/src/plugins/vite.ts` (dev server headers)
 

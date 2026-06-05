@@ -25,7 +25,7 @@ import { setContentType } from './plugin-utils';
 import {
   normalizeWalletHostVariant,
   type WalletHostVariant,
-} from '../core/WalletIframe/hostVariant';
+} from '../core/browser/walletIframe/hostVariant';
 
 export type VitePlugin = {
   name: string;

@@ -307,7 +307,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         .replace(/\+/g, '-')
         .replace(/\//g, '_')
         .replace(/=+$/g, '');
-      const login = await input.pm.unlock(input.accountId, {
+      const login = await input.pm.auth.unlock(input.accountId, {
         session: {
           kind: 'jwt',
           relayUrl: input.relayerUrl,
@@ -322,12 +322,12 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         credentialStore: IndexedDBManager,
         touchIdPrompt: {
           getAuthenticationCredentialsSerializedForChallengeB64u: async ({
-            nearAccountId,
+            subjectId,
             challengeB64u,
             allowCredentials,
             includeSecondPrfOutput,
           }: {
-            nearAccountId: string;
+            subjectId: string;
             challengeB64u: string;
             allowCredentials?: Array<{
               id: string;
@@ -337,7 +337,7 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
             includeSecondPrfOutput?: boolean;
           }) =>
             await signingEngine.getAuthenticationCredentialsSerialized({
-              nearAccountId,
+              subjectId,
               challengeB64u,
               allowCredentials: Array.isArray(allowCredentials) ? allowCredentials : [],
               includeSecondPrfOutput,
@@ -458,7 +458,9 @@ export async function setupThresholdEcdsaTempoHarness(page: Page): Promise<{
         : [];
       const keyIdentityParticipantIds =
         existingParticipantIds.length > 0 ? existingParticipantIds : participantIds;
-      const existingThresholdOwnerAddress = String(existingTargetRecord?.ethereumAddress || '').trim();
+      const existingThresholdOwnerAddress = String(
+        existingTargetRecord?.ethereumAddress || '',
+      ).trim();
       const existingKeyHandle = String(existingTargetRecord?.keyHandle || '').trim();
       const existingSigningRootId = String(existingTargetRecord?.signingRootId || '').trim();
       const existingSigningRootVersion =
@@ -655,29 +657,26 @@ export async function runThresholdEcdsaTempoFlow(
     (globalThis as any).__w3aTempoHighLevelPm = pm;
 
     try {
-      const registration = await pm.registration.registerPasskeyInternal(
-        accountId,
-        {
-          signerOptions: {
-            tempo: {
-              enabled: false,
-              participantIds: [1, 2],
-              signingSession: { kind: 'jwt', ttlMs: 120_000, remainingUses: 4 },
-            },
-            evm: {
-              enabled: false,
-              participantIds: [1, 2],
-              signingSession: { kind: 'jwt', ttlMs: 120_000, remainingUses: 4 },
-            },
+      const registration = await pm.registration.registerPasskey(accountId, {
+        signerOptions: {
+          tempo: {
+            enabled: false,
+            participantIds: [1, 2],
+            signingSession: { kind: 'jwt', ttlMs: 120_000, remainingUses: 4 },
+          },
+          evm: {
+            enabled: false,
+            participantIds: [1, 2],
+            signingSession: { kind: 'jwt', ttlMs: 120_000, remainingUses: 4 },
           },
         },
-        confirmationConfig,
-      );
+        confirmationConfig: confirmationConfig,
+      });
       if (!registration?.success) {
         return {
           ok: false,
           accountId,
-          error: String(registration?.error || 'registerPasskeyInternal failed'),
+          error: String(registration?.error || 'registerPasskey failed'),
         };
       }
       globalThis.fetch = originalFetch;
@@ -686,7 +685,7 @@ export async function runThresholdEcdsaTempoFlow(
         connectEd25519Session: (args: Record<string, unknown>) => Promise<Record<string, unknown>>;
         getRpId?: () => string;
         getAuthenticationCredentialsSerialized: (args: {
-          nearAccountId: string;
+          subjectId: string;
           challengeB64u: string;
           allowCredentials: Array<{
             id: string;
@@ -728,7 +727,7 @@ export async function runThresholdEcdsaTempoFlow(
           error: 'missing persisted Ed25519 registration session identity after registration',
         };
       }
-      const login = await pm.unlock(accountId, {
+      const login = await pm.auth.unlock(accountId, {
         session: {
           kind: 'jwt',
           relayUrl: input.relayerUrl,
@@ -747,12 +746,12 @@ export async function runThresholdEcdsaTempoFlow(
         credentialStore: IndexedDBManager,
         touchIdPrompt: {
           getAuthenticationCredentialsSerializedForChallengeB64u: async ({
-            nearAccountId,
+            subjectId,
             challengeB64u,
             allowCredentials,
             includeSecondPrfOutput,
           }: {
-            nearAccountId: string;
+            subjectId: string;
             challengeB64u: string;
             allowCredentials?: Array<{
               id: string;
@@ -762,7 +761,7 @@ export async function runThresholdEcdsaTempoFlow(
             includeSecondPrfOutput?: boolean;
           }) =>
             await signingEngine.getAuthenticationCredentialsSerialized({
-              nearAccountId,
+              subjectId,
               challengeB64u,
               allowCredentials: Array.isArray(allowCredentials) ? allowCredentials : [],
               includeSecondPrfOutput,
@@ -1033,7 +1032,7 @@ export async function runThresholdEcdsaTempoFlow(
                 e && typeof e === 'object' && 'message' in e
                   ? (e as { message?: unknown }).message
                   : e || 'bootstrapEcdsaSession failed',
-            ),
+              ),
           };
         }
       } else {

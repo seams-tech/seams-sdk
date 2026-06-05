@@ -495,7 +495,7 @@ test.describe('React Theme integration', () => {
     const recoveryCodesItem = page.locator(
       `#${mountId} .w3a-dropdown-menu-item:has-text("Recovery Codes")`,
     );
-    await expect(recoveryCodesItem).toBeVisible();
+    await expect(recoveryCodesItem).toHaveCount(0);
 
     const toggleItem = page.locator(`#${mountId} .w3a-dropdown-menu-item:has-text("Toggle Theme")`);
     await expect(toggleItem).toBeVisible();

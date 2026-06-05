@@ -29,6 +29,7 @@ import {
   toWalletId,
   walletSessionRefFromSession,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
 
 function resolveDefaultPortalTarget(
   explicit: HTMLElement | ShadowRoot | null | undefined,
@@ -134,6 +135,14 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
 
   // Read current theme from Theme context (falls back to system preference)
   const { theme } = useTheme();
+  const canShowRecoveryCodes =
+    loginState.isLoggedIn && loginState.authMethod === SIGNER_AUTH_METHODS.emailOtp;
+
+  useEffect(() => {
+    if (!canShowRecoveryCodes) {
+      setShowRecoveryCodes(false);
+    }
+  }, [canShowRecoveryCodes]);
 
   // Keep local view state in sync with SDK preferences (mirrors wallet host in iframe mode)
   useEffect(() => {
@@ -148,7 +157,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
     if (AccountId.validate(loggedInAccountId).valid) {
       seams.preferences.setCurrentWallet(toWalletId(loggedInAccountId));
     }
-    setCurrentConfirmConfig(seams.getConfirmationConfig());
+    setCurrentConfirmConfig(seams.preferences.getConfirmationConfig());
 
     const unsubConfirmConfig = seams.preferences.onConfirmationConfigChange?.((cfg: any) => {
       if (cancelled) return;
@@ -164,19 +173,19 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
   // Handlers for transaction settings
   const handleSetUiMode = (mode: 'none' | 'modal' | 'drawer') => {
     // Only patch the field we intend to change to avoid overwriting theme or other values
-    seams.setConfirmationConfig({ uiMode: mode } as any);
+    seams.preferences.setConfirmationConfig({ uiMode: mode } as any);
   };
 
   const handleToggleSkipClick = () => {
     if (!currentConfirmConfig) return;
     const newBehavior =
       currentConfirmConfig.behavior === 'requireClick' ? 'skipClick' : 'requireClick';
-    seams.setConfirmBehavior(newBehavior);
+    seams.preferences.setConfirmBehavior(newBehavior);
   };
 
   const handleSetDelay = (delay: number) => {
     // Only patch delay; avoid passing a stale theme from local state
-    seams.setConfirmationConfig({ autoProceedDelay: delay } as any);
+    seams.preferences.setConfirmationConfig({ autoProceedDelay: delay } as any);
   };
 
   const handleToggleTheme = () => {
@@ -285,15 +294,21 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         },
         keepOpenOnClick: true,
       },
-      {
+    ];
+
+    if (canShowRecoveryCodes) {
+      items.push({
         id: PROFILE_MENU_ITEM_IDS.RECOVERY_CODES,
         icon: <RecoveryCodesIcon />,
         label: 'Recovery Codes',
         description: 'Email OTP backup codes',
-        disabled: !loginState.isLoggedIn,
+        disabled: false,
         onClick: () => setShowRecoveryCodes(true),
         keepOpenOnClick: true,
-      },
+      });
+    }
+
+    items.push(
       {
         id: PROFILE_MENU_ITEM_IDS.SCAN_LINK_DEVICE,
         icon: <ScanIcon />,
@@ -314,7 +329,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
         onClick: () => setShowLinkedDevices(true),
         keepOpenOnClick: true,
       },
-    ];
+    );
 
     items.push({
       id: PROFILE_MENU_ITEM_IDS.TOGGLE_THEME,
@@ -336,7 +351,7 @@ const AccountMenuButtonInner: React.FC<AccountMenuButtonProps> = ({
       keepOpenOnClick: true,
     });
     return items;
-  }, [loginState.authMethod, loginState.isLoggedIn, theme, handleToggleTheme, exportKeysLoading]);
+  }, [canShowRecoveryCodes, loginState.isLoggedIn, theme, handleToggleTheme, exportKeysLoading]);
 
   const highlightedMenuItemId = highlightedMenuItem?.id;
   const highlightShouldFocus = highlightedMenuItem?.focus ?? true;

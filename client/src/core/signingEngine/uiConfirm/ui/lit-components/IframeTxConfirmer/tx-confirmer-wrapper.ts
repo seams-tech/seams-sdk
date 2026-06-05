@@ -2,7 +2,7 @@ import { html, type PropertyValues } from 'lit';
 import { createRef, Ref, ref } from 'lit/directives/ref.js';
 import { LitElementWithProps } from '../LitElementWithProps';
 import type { ConfirmUIElement, ThemeName } from '../../confirm-ui-types';
-import { WalletIframeDomEvents } from '@/core/WalletIframe/events';
+import { WalletIframeDomEvents } from '@/core/browser/walletIframe/events';
 import type { UserConfirmSecurityContext } from '@/core/types';
 import { W3A_TX_CONFIRMER_ID } from '../../registry';
 import { DrawerTxConfirmerElement } from './viewer-drawer';

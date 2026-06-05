@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import {
   createIntentId,
   walletSessionRefFromSession,
-} from '@seams/sdk';
+} from '@seams/sdk/advanced';
 import { useSeams } from '@seams/sdk/react';
 import { toast } from 'sonner';
 

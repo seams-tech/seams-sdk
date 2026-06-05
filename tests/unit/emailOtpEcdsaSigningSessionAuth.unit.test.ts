@@ -264,7 +264,7 @@ test('EVM-family signing deps preserve one-use Email OTP step-up budget', async 
   const deps = createEvmFamilySigningDeps({
     createArgs: {
       seamsWebConfigs: { network: { chains: [] }, signing: {} },
-      platformRuntime: createBrowserPlatformRuntime(),
+      runtimePorts: createBrowserPlatformRuntime(),
       nonceCoordinator: {},
       ensureSealedRefreshStartupParity: async () => undefined,
       signerWorkerManager: { getContext: () => ({}) },

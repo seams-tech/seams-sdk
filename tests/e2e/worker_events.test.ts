@@ -80,16 +80,13 @@ test.describe('Worker Communication Protocol', () => {
           const cfg =
             (window as any).testUtils?.confirmOverrides?.none ||
             ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
-          const registrationResult = await seams.registration.registerPasskeyInternal(
-            testAccountId,
-            {
-              onEvent: (event: any) => {
-                progressEvents.push(event);
-                registrationEvents.push(event);
-              },
+          const registrationResult = await seams.registration.registerPasskey(testAccountId, {
+            onEvent: (event: any) => {
+              progressEvents.push(event);
+              registrationEvents.push(event);
             },
-            cfg,
-          );
+            confirmationConfig: cfg,
+          });
 
           if (!registrationResult.success) {
             throw new Error(`Registration failed: ${registrationResult.error}`);
@@ -442,18 +439,15 @@ test.describe('Worker Communication Protocol', () => {
           const cfg =
             utils?.confirmOverrides?.none ||
             ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
-          const registrationResult = await utils.seams.registration.registerPasskeyInternal(
-            testAccountId,
-            {
-              onEvent: (event: any) => {
-                registrationEvents.push({
-                  phase: event?.phase ?? '',
-                  status: event?.status ?? '',
-                });
-              },
+          const registrationResult = await utils.seams.registration.registerPasskey(testAccountId, {
+            onEvent: (event: any) => {
+              registrationEvents.push({
+                phase: event?.phase ?? '',
+                status: event?.status ?? '',
+              });
             },
-            cfg,
-          );
+            confirmationConfig: cfg,
+          });
 
           if (!registrationResult?.success) {
             throw new Error(`Registration failed unexpectedly: ${registrationResult?.error}`);
@@ -584,16 +578,13 @@ test.describe('Worker Communication Protocol', () => {
         const cfg2 =
           (window as any).testUtils?.confirmOverrides?.none ||
           ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
-        const registrationResult = await seams.registration.registerPasskeyInternal(
-          testAccountId,
-          {
-            onEvent: (event: any) => {
-              progressEvents.push(event);
-              messageTypes.add(`${event.phase}:${event.status}`);
-            },
+        const registrationResult = await seams.registration.registerPasskey(testAccountId, {
+          onEvent: (event: any) => {
+            progressEvents.push(event);
+            messageTypes.add(`${event.phase}:${event.status}`);
           },
-          cfg2,
-        );
+          confirmationConfig: cfg2,
+        });
         if (!registrationResult?.success) {
           throw new Error(`Registration failed: ${registrationResult?.error || 'unknown error'}`);
         }
@@ -705,21 +696,18 @@ test.describe('Worker Communication Protocol', () => {
           const cfg3 =
             (window as any).testUtils?.confirmOverrides?.none ||
             ({ uiMode: 'none', behavior: 'skipClick', autoProceedDelay: 0 } as const);
-          result = await seams.registration.registerPasskeyInternal(
-            validAccountId,
-            {
-              onEvent: (event: any) => {
-                progressEvents.push(event);
-                if (event.status === 'failed') {
-                  errorEvents.push(event);
-                }
-              },
-              onError: (error: any) => {
-                console.log('Expected error caught:', error.message);
-              },
+          result = await seams.registration.registerPasskey(validAccountId, {
+            onEvent: (event: any) => {
+              progressEvents.push(event);
+              if (event.status === 'failed') {
+                errorEvents.push(event);
+              }
             },
-            cfg3,
-          );
+            onError: (error: any) => {
+              console.log('Expected error caught:', error.message);
+            },
+            confirmationConfig: cfg3,
+          });
         } catch (expectedError) {
           // This is expected to fail
           threw = true;

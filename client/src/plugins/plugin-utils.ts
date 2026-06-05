@@ -6,7 +6,7 @@ import {
   normalizeWalletHostVariant,
   walletHostScriptFileForVariant,
   type WalletHostVariant,
-} from '../core/WalletIframe/hostVariant';
+} from '../core/browser/walletIframe/hostVariant';
 
 export function addPreconnectLink(res: any, origin?: string) {
   if (!origin) return;

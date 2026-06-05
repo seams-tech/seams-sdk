@@ -1,4 +1,4 @@
-import type { PlatformRuntime } from '@/core/platform';
+import type { RuntimePorts } from '@/core/platform';
 import type { NearClient } from '@/core/rpcClients/near/NearClient';
 import type { AccountId } from '@/core/types/accountIds';
 import type { SeamsConfigsReadonly, SigningSessionStatus, ThemeName } from '@/core/types/seams';
@@ -101,7 +101,7 @@ export type SigningEngineStorePorts = {
 };
 
 export type CreateSigningEnginePortsArgs = {
-  platformRuntime: PlatformRuntime;
+  runtimePorts: RuntimePorts;
   stores: SigningEngineStorePorts;
   seamsWebConfigs: SeamsConfigsReadonly;
   nearClient: NearClient;
@@ -124,7 +124,7 @@ export type CreateSigningEnginePortsArgs = {
   getTheme: () => ThemeName;
   signTempo: SigningEngineConveniencePorts['signTempo'];
   extractCosePublicKey: (attestationObjectBase64url: string) => Promise<Uint8Array>;
-  initializeCurrentUser: WorkerResourceWarmupDeps['initializeCurrentUser'];
+  activateAuthenticatedWalletState: WorkerResourceWarmupDeps['activateAuthenticatedWalletState'];
   persistThresholdEcdsaBootstrapForWalletTarget: ThresholdSessionActivationDeps['persistThresholdEcdsaBootstrapForWalletTarget'];
   upsertThresholdEcdsaSessionFromBootstrap: ThresholdSessionActivationDeps['upsertThresholdEcdsaSessionFromBootstrap'];
   listThresholdEcdsaKeyRefsForWalletTarget: (args: {
@@ -290,7 +290,7 @@ export function createWorkerResourceWarmupDepsFactory(
     prewarmWorkers: args.signerWorkerManager.prewarmWorkers.bind(args.signerWorkerManager),
     shouldPrewarmWorkers: args.shouldPrewarmWorkers,
     prewarmUiConfirmUi: prewarmTxConfirmerUi,
-    initializeCurrentUser: args.initializeCurrentUser,
+    activateAuthenticatedWalletState: args.activateAuthenticatedWalletState,
   });
 }
 

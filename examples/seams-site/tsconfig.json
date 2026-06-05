@@ -13,6 +13,7 @@
     "baseUrl": ".",
     "paths": {
       "@seams/sdk": ["../../sdk/dist/types/client/src/index.d.ts"],
+      "@seams/sdk/advanced": ["../../sdk/dist/types/client/src/advanced.d.ts"],
       "@seams/sdk/plugins/vite": ["../../sdk/dist/types/client/src/plugins/vite.d.ts"],
       "@seams/sdk/react": ["../../sdk/dist/types/client/src/react/index.d.ts"],
       "@seams/sdk/react/provider": [

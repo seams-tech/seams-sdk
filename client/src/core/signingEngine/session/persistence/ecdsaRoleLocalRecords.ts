@@ -16,7 +16,6 @@ import {
   parseRawThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionRecord,
 } from './records';
-import { assertNeverPlatform } from '@/core/platform/types';
 import type {
   CleanupMalformedEcdsaRoleLocalRecordInput,
   CredentialIdB64u,
@@ -43,6 +42,10 @@ export type EcdsaRoleLocalWorkerExportMaterial = EcdsaRoleLocalExportMaterial;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled ECDSA role-local branch: ${String(value)}`);
 }
 
 function requiredString(value: unknown, field: string): string {
@@ -205,7 +208,7 @@ function authMethodsEqual(
       if (right.kind !== 'email_otp') return false;
       return String(left.authSubjectId) === String(right.authSubjectId);
     default:
-      return assertNeverPlatform(left);
+      return assertNever(left);
   }
 }
 
@@ -233,7 +236,7 @@ function readyRecordFromParts(args: {
         authMethod: args.authMethod,
       };
     default:
-      return assertNeverPlatform(args.authMethod);
+      return assertNever(args.authMethod);
   }
 }
 
@@ -329,7 +332,7 @@ function serializeAuthMethod(authMethod: EcdsaRoleLocalAuthMethod): Record<strin
         authSubjectId: authMethod.authSubjectId,
       };
     default:
-      return assertNeverPlatform(authMethod);
+      return assertNever(authMethod);
   }
 }
 
@@ -375,7 +378,7 @@ export function thresholdEcdsaRecordHasRoleLocalSigningMaterial(input: unknown):
     case 'cleanup_only_raw_role_local_record_v1':
       return false;
     default:
-      return assertNeverPlatform(state);
+      return assertNever(state);
   }
 }
 
@@ -612,7 +615,7 @@ function ecdsaRoleLocalAuthMethodStorageKeyPart(authMethod: EcdsaRoleLocalAuthMe
     case 'email_otp':
       return ['email_otp', authMethod.authSubjectId].join(':');
     default:
-      return assertNeverPlatform(authMethod);
+      return assertNever(authMethod);
   }
 }
 

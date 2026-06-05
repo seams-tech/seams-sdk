@@ -35,7 +35,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
       'client/src/core/signingEngine/assembly/createManagers.ts',
     );
     const signingEngine = readRepoSource(
-      'client/src/web/SeamsWeb/assembly/BrowserSigningSurface.ts',
+      'client/src/web/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
     );
     const browserSigningStores = readRepoSource(
       'client/src/web/SeamsWeb/assembly/createBrowserSigningStores.ts',
@@ -60,7 +60,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
     const transactionFiles = [
       'client/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
       'client/src/core/signingEngine/flows/signEvmFamily/signEvmWithUiConfirm.ts',
-      'client/src/core/signingEngine/flows/signEvmFamily/signTempoWithUiConfirm.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/signEvmFamilyWithUiConfirmForTempo.ts',
       'client/src/core/signingEngine/flows/signNear/signTransactions.ts',
       'client/src/core/signingEngine/flows/signNear/signNear.ts',
     ];
@@ -175,7 +175,7 @@ test.describe('nonce coordinator durable architecture guards', () => {
     const transactionFiles = [
       'client/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
       'client/src/core/signingEngine/flows/signEvmFamily/signEvmWithUiConfirm.ts',
-      'client/src/core/signingEngine/flows/signEvmFamily/signTempoWithUiConfirm.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/signEvmFamilyWithUiConfirmForTempo.ts',
       'client/src/core/signingEngine/flows/signNear/signTransactions.ts',
       'client/src/core/signingEngine/flows/signNear/signNear.ts',
     ];

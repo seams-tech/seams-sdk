@@ -1,6 +1,6 @@
 import type { DeviceLinkingQRData } from '../core/types/linkDevice';
 import { DeviceLinkingError, DeviceLinkingErrorCode } from '../core/types/linkDevice';
-import { validateDeviceLinkingQRData } from '../web/SeamsWeb/scanDevice';
+import { validateDeviceLinkingQRData } from '../web/SeamsWeb/operations/devices/scanDevice';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 
 // ===========================

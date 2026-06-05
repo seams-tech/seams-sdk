@@ -225,8 +225,8 @@ test.describe('signing engine ECDSA lifecycle identity guards', () => {
 
   test('nearAccountId residue stays out of ECDSA-only paths', () => {
     const forbiddenPaths = [
-      'client/src/web/SeamsWeb/evm',
-      'client/src/web/SeamsWeb/tempo',
+      'client/src/web/SeamsWeb/operations/evm',
+      'client/src/web/SeamsWeb/operations/tempo',
       'client/src/core/signingEngine/flows/signEvmFamily',
       'client/src/core/signingEngine/nonce',
       'client/src/core/signingEngine/session/budget',

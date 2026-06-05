@@ -1,4 +1,3 @@
-import type { AccountId } from '@/core/types/accountIds';
 import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { RegistrationCredentialConfirmationPayload } from '../../workerManager/validation';
@@ -27,14 +26,14 @@ export async function requestRegistrationSessionCredentialConfirmation(
 export async function getAuthenticationCredentialsSerialized(
   deps: RegistrationSessionDeps,
   params: {
-    nearAccountId: AccountId;
+    subjectId: string;
     challengeB64u: string;
     allowCredentials: WebAuthnAllowCredential[];
     includeSecondPrfOutput?: boolean;
   },
 ): Promise<WebAuthnAuthenticationCredential> {
   return await deps.touchIdPrompt.getAuthenticationCredentialsSerializedForChallengeB64u({
-    nearAccountId: params.nearAccountId,
+    subjectId: params.subjectId,
     challengeB64u: params.challengeB64u,
     allowCredentials: params.allowCredentials,
     includeSecondPrfOutput: params.includeSecondPrfOutput ?? false,
@@ -52,13 +51,13 @@ function toAllowCredentials(credentialIds: string[]): WebAuthnAllowCredential[] 
 export async function getAuthenticationCredentialsSerializedDualPrf(
   deps: RegistrationSessionDeps,
   params: {
-    nearAccountId: AccountId;
+    subjectId: string;
     challengeB64u: string;
     credentialIds: string[];
   },
 ): Promise<WebAuthnAuthenticationCredential> {
   return await deps.touchIdPrompt.getAuthenticationCredentialsSerializedForChallengeB64u({
-    nearAccountId: params.nearAccountId,
+    subjectId: params.subjectId,
     challengeB64u: params.challengeB64u,
     allowCredentials: toAllowCredentials(params.credentialIds),
     includeSecondPrfOutput: true,

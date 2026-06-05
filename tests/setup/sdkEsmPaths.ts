@@ -12,9 +12,9 @@ export const SDK_ESM_PATHS = {
   accountIds: sdkEsmPath('core/types/accountIds.js'),
   actions: sdkEsmPath('core/types/actions.js'),
   seamsWeb: sdkEsmPath('web/SeamsWeb/index.js'),
-  walletIframeRouter: sdkEsmPath('core/WalletIframe/client/router.js'),
+  walletIframeRouter: sdkEsmPath('web/SeamsWeb/walletIframe/client/router.js'),
   confirmUi: sdkEsmPath('core/signingEngine/uiConfirm/ui/confirm-ui.js'),
-  walletEvents: sdkEsmPath('core/WalletIframe/events.js'),
+  walletEvents: sdkEsmPath('core/browser/walletIframe/events.js'),
 } as const;
 
 export type SdkEsmPaths = typeof SDK_ESM_PATHS;

@@ -5,7 +5,7 @@ import { W3A_DRAWER_ID } from '../../registry';
 import TxConfirmContentElement from './tx-confirm-content';
 import PadlockIconElement from '../common/PadlockIcon';
 import { ensureExternalStyles } from '../css/css-loader';
-import { WalletIframeDomEvents } from '@/core/WalletIframe/events';
+import { WalletIframeDomEvents } from '@/core/browser/walletIframe/events';
 import type { UserConfirmSecurityContext } from '@/core/types';
 import type { TransactionInputWasm } from '@/core/types';
 import type { ThemeName } from '../../confirm-ui-types';

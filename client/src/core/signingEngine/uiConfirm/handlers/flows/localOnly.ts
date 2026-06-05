@@ -8,7 +8,7 @@ import {
   type ExportPrivateKeyDisplayEntry,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { UserConfirmSecurityContext } from '@/core/types';
-import { __isWalletIframeHostMode } from '@/core/WalletIframe/host-mode';
+import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import { isUserCancelledUserConfirm, ERROR_MESSAGES } from '@/core/signingEngine/stepUpConfirmation/channel/confirmCommon';
 import { getNearAccountId, getIntentDigest } from './adapters/request';
 import { errorMessage } from '@shared/utils/errors';

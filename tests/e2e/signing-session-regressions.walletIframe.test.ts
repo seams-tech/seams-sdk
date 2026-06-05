@@ -75,18 +75,16 @@ async function setupPasskeyEvmSigningSession(
             rpIdOverride: 'example.localhost',
           },
         });
-        seams.setConfirmationConfig(confirmationConfig as any);
+        seams.preferences.setConfirmationConfig(confirmationConfig as any);
 
-        const registration = await seams.registration.registerPasskeyInternal(
-          accountId,
-          {},
-          confirmationConfig as any,
-        );
+        const registration = await seams.registration.registerPasskey(accountId, {
+          confirmationConfig: confirmationConfig as any,
+        });
         if (!registration?.success) {
           return { ok: false, error: String(registration?.error || 'registration failed') };
         }
 
-        const login = await seams.unlock(accountId, {
+        const login = await seams.auth.unlock(accountId, {
           session: {
             kind: 'jwt',
             relayUrl: relayerUrl,
@@ -218,7 +216,7 @@ async function runPasskeyEvmSign(
             },
           });
         (globalThis as any)[globalKey] = seams;
-        seams.setConfirmationConfig(confirmationConfig as any);
+        seams.preferences.setConfirmationConfig(confirmationConfig as any);
         readSealedRecordSummaries = async (): Promise<Array<Record<string, unknown>>> => {
           const indexedDb = globalThis.indexedDB;
           if (!indexedDb) return [];
@@ -288,7 +286,8 @@ async function runPasskeyEvmSign(
             );
           const ecdsaRecords =
             thresholdStore &&
-            typeof (thresholdStore as any).listStoredThresholdEcdsaSessionRecordsForWallet === 'function'
+            typeof (thresholdStore as any).listStoredThresholdEcdsaSessionRecordsForWallet ===
+              'function'
               ? (thresholdStore as any).listStoredThresholdEcdsaSessionRecordsForWallet(accountId)
               : [];
           const identities =

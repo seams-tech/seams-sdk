@@ -23,16 +23,16 @@ import {
   getLastUser as getLastUserValue,
   getUserBySignerSlot as getUserBySignerSlotValue,
   hasPasskeyCredential as hasPasskeyCredentialValue,
-  initializeCurrentUser as initializeCurrentUserValue,
+  activateAuthenticatedWalletState as activateAuthenticatedWalletStateValue,
   nearAuthenticatorsByAccount as nearAuthenticatorsByAccountValue,
   rollbackUserRegistration as rollbackUserRegistrationValue,
   setLastUser as setLastUserValue,
-  storeWalletEd25519SignerRecord as storeWalletEd25519SignerRecordValue,
+  finalizeWalletEd25519SignerRegistration as finalizeWalletEd25519SignerRegistrationValue,
   storeWalletEd25519RegistrationData as storeWalletEd25519RegistrationDataValue,
   storeWalletEmailOtpEd25519RegistrationData as storeWalletEmailOtpEd25519RegistrationDataValue,
   storeWalletEmailOtpEcdsaRegistrationData as storeWalletEmailOtpEcdsaRegistrationDataValue,
   storeWalletEmailOtpEcdsaSignerRecords as storeWalletEmailOtpEcdsaSignerRecordsValue,
-  storeWalletEcdsaRegistrationData as storeWalletEcdsaRegistrationDataValue,
+  finalizeWalletEcdsaRegistration as finalizeWalletEcdsaRegistrationValue,
   storeWalletEcdsaSignerRecords as storeWalletEcdsaSignerRecordsValue,
   storeAuthenticator as storeAuthenticatorValue,
   storeUserData as storeUserDataValue,
@@ -115,14 +115,14 @@ export function setLastUser(
   return setLastUserValue(deps.accountLifecycle, nearAccountId, signerSlot);
 }
 
-export function initializeCurrentUser(
+export function activateAuthenticatedWalletState(
   deps: RegistrationPublicDeps,
   args: {
     nearAccountId: AccountId;
     nearClient?: NearClient;
   },
 ): Promise<void> {
-  return initializeCurrentUserValue(deps.accountLifecycle, args);
+  return activateAuthenticatedWalletStateValue(deps.accountLifecycle, args);
 }
 
 export function storeAuthenticator(
@@ -171,11 +171,11 @@ export function storeWalletEmailOtpEd25519RegistrationData(
   return storeWalletEmailOtpEd25519RegistrationDataValue(deps.accountLifecycle, args);
 }
 
-export function storeWalletEd25519SignerRecord(
+export function finalizeWalletEd25519SignerRegistration(
   deps: RegistrationPublicDeps,
   args: StoreWalletEd25519SignerRecordInput,
 ): Promise<StoredRegistrationData> {
-  return storeWalletEd25519SignerRecordValue(deps.accountLifecycle, args);
+  return finalizeWalletEd25519SignerRegistrationValue(deps.accountLifecycle, args);
 }
 
 export function storeWalletEcdsaSignerRecords(
@@ -192,11 +192,11 @@ export function storeWalletEmailOtpEcdsaSignerRecords(
   return storeWalletEmailOtpEcdsaSignerRecordsValue(deps.accountLifecycle, args);
 }
 
-export function storeWalletEcdsaRegistrationData(
+export function finalizeWalletEcdsaRegistration(
   deps: RegistrationPublicDeps,
   args: StoreWalletEcdsaRegistrationInput,
 ): Promise<StoreWalletEcdsaSignerRecordsResult> {
-  return storeWalletEcdsaRegistrationDataValue(deps.accountLifecycle, args);
+  return finalizeWalletEcdsaRegistrationValue(deps.accountLifecycle, args);
 }
 
 export function storeWalletEmailOtpEcdsaRegistrationData(
@@ -222,7 +222,7 @@ export function requestRegistrationCredentialConfirmation(
 export function getAuthenticationCredentialsSerialized(
   deps: RegistrationPublicDeps,
   args: {
-    nearAccountId: AccountId;
+    subjectId: string;
     challengeB64u: string;
     allowCredentials: WebAuthnAllowCredential[];
     includeSecondPrfOutput?: boolean;

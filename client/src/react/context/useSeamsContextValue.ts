@@ -8,7 +8,7 @@ import type {
   SeamsContextType,
 } from '../types';
 import type { ThemeName } from '@/core/types/seams';
-import type { RecoveryCapability } from '@/web/SeamsWeb';
+import type { DevicesCapability } from '@/web/SeamsWeb';
 import { useSDKFlowRuntime } from './useSDKFlowRuntime';
 import { useSeamsWithSdkFlow } from './useSeamsWithSdkFlow';
 import { isWalletSessionReadyForUi } from './walletSessionReadiness';
@@ -66,15 +66,15 @@ export function useSeamsContextValue(args: {
 
   const startDevice2LinkingFlow: SeamsContextType['startDevice2LinkingFlow'] = useCallback(
     async (args) => {
-      const request: Parameters<RecoveryCapability['startDevice2LinkingFlow']>[0] = args ?? {};
-      return await seamsWithSdkFlow.recovery.startDevice2LinkingFlow(request);
+      const request: Parameters<DevicesCapability['startDevice2LinkingFlow']>[0] = args ?? {};
+      return await seamsWithSdkFlow.devices.startDevice2LinkingFlow(request);
     },
     [seamsWithSdkFlow],
   );
 
   const stopDevice2LinkingFlow: SeamsContextType['stopDevice2LinkingFlow'] =
     useCallback(async () => {
-      await seams.recovery.stopDevice2LinkingFlow();
+      await seams.devices.stopDevice2LinkingFlow();
     }, [seams]);
 
   const unlock: SeamsContextType['unlock'] = useCallback(
@@ -196,25 +196,25 @@ export function useSeamsContextValue(args: {
 
   const setConfirmBehavior: SeamsContextType['setConfirmBehavior'] = useCallback(
     (behavior) => {
-      seams.setConfirmBehavior(behavior);
+      seams.preferences.setConfirmBehavior(behavior);
     },
     [seams],
   );
 
   const setConfirmationConfig: SeamsContextType['setConfirmationConfig'] = useCallback(
     (config) => {
-      seams.setConfirmationConfig(config);
+      seams.preferences.setConfirmationConfig(config);
     },
     [seams],
   );
 
   const getConfirmationConfig: SeamsContextType['getConfirmationConfig'] = useCallback(() => {
-    return seams.getConfirmationConfig();
+    return seams.preferences.getConfirmationConfig();
   }, [seams]);
 
   const viewAccessKeyList: SeamsContextType['viewAccessKeyList'] = useCallback(
     (accountId: string) => {
-      return seams.viewAccessKeyList(accountId);
+      return seams.devices.viewAccessKeyList(accountId);
     },
     [seams],
   );

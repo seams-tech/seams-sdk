@@ -111,20 +111,16 @@ test.describe('Lite signer – concurrent sessions (wallet iframe)', () => {
               autoProceedDelay: 0,
             } as const;
 
-            const reg1 = await seams.registration.registerPasskeyInternal(
-              account1,
-              {},
-              confirmConfig as any,
-            );
+            const reg1 = await seams.registration.registerPasskey(account1, {
+              confirmationConfig: confirmConfig as any,
+            });
             if (!reg1?.success) {
               return { ok: false as const, error: reg1?.error || 'registration (1) failed' };
             }
 
-            const reg2 = await seams.registration.registerPasskeyInternal(
-              account2,
-              {},
-              confirmConfig as any,
-            );
+            const reg2 = await seams.registration.registerPasskey(account2, {
+              confirmationConfig: confirmConfig as any,
+            });
             if (!reg2?.success) {
               return { ok: false as const, error: reg2?.error || 'registration (2) failed' };
             }

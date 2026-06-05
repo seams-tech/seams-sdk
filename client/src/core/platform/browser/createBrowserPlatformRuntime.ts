@@ -40,7 +40,7 @@ import {
   toGeneratedFinalizeEcdsaClientBootstrapCommand,
   toGeneratedPrepareEcdsaClientBootstrapCommand,
 } from '../signerCoreCommandAdapters';
-import { assertNeverPlatform } from '../types';
+import { assertNeverRuntimePortsKind } from '../types';
 import type {
   AuthenticatorOperation,
   AuthenticatorResult,
@@ -55,7 +55,7 @@ import type {
   HttpTransport,
   LoadEcdsaRoleLocalReadyRecordResult,
   PlatformResult,
-  PlatformRuntime,
+  RuntimePorts,
   PrepareEcdsaClientBootstrapErrorCode,
   PrepareEcdsaClientBootstrapOutput,
   PersistEcdsaRoleLocalReadyRecordResult,
@@ -67,7 +67,7 @@ import type {
 } from '../types';
 import type { EcdsaRelayerHssPublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 
-type BrowserPlatformRuntimeDeps = {
+type BrowserRuntimePortsDeps = {
   indexedDB?: typeof IndexedDBManager;
   fetch?: typeof fetch;
   crypto?: Crypto;
@@ -81,7 +81,7 @@ export type BrowserDurableRecordStore = DurableRecordStore & {
   indexedDB: typeof IndexedDBManager;
 };
 
-export type BrowserPlatformRuntime = PlatformRuntime & {
+export type BrowserRuntimePorts = RuntimePorts & {
   kind: 'browser';
   storage: BrowserDurableRecordStore;
 };
@@ -604,7 +604,7 @@ function createBrowserSignerCryptoPort(
           case 'webauthn_prf_first':
             break;
           default:
-            return assertNeverPlatform(generatedCommand.secretSource);
+            return assertNeverRuntimePortsKind(generatedCommand.secretSource);
         }
         const generatedOutput = await prepareEcdsaClientBootstrapCommandWasm({
           command: generatedCommand,
@@ -766,8 +766,8 @@ function createBrowserRandomSource(cryptoImpl: Crypto | undefined): RandomSource
 }
 
 export function createBrowserPlatformRuntime(
-  deps: BrowserPlatformRuntimeDeps = {},
-): BrowserPlatformRuntime {
+  deps: BrowserRuntimePortsDeps = {},
+): BrowserRuntimePorts {
   const indexedDB = deps.indexedDB || IndexedDBManager;
   return {
     kind: 'browser',
@@ -783,7 +783,7 @@ export function createBrowserPlatformRuntime(
   };
 }
 
-export function getBrowserPlatformIndexedDB(runtime: PlatformRuntime): typeof IndexedDBManager {
+export function getBrowserPlatformIndexedDB(runtime: RuntimePorts): typeof IndexedDBManager {
   if (runtime.kind !== 'browser' || !('indexedDB' in runtime.storage)) {
     throw new Error('Browser IndexedDB manager is unavailable for this platform runtime');
   }

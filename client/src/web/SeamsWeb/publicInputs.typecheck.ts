@@ -11,7 +11,7 @@ import type {
   RegistrationCapability,
   SignTempoArgs,
   PublicThresholdEcdsaSessionBootstrapResult,
-} from './interfaces';
+} from '@/web/SeamsWeb/signingSurface/types';
 
 const walletSession = walletSessionRefFromSession({
   walletId: 'wallet.testnet',

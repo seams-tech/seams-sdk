@@ -4,10 +4,7 @@ import {
   type WalletRegistrationEcdsaHssRespondBootstrap,
   type WalletRegistrationEcdsaWalletKey,
 } from '@/core/rpcClients/relayer/walletRegistration';
-import {
-  toWalletId,
-  type WalletId,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toWalletId, type WalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
   upsertThresholdEcdsaSessionFromBootstrap,
@@ -22,7 +19,7 @@ import type { WalletRegistrationEcdsaPreparedClientBootstrap } from './ecdsaRegi
 import type { WarmSessionHydrationService } from '@/core/signingEngine/session/passkey/warmSessionHydration';
 import { SIGNER_AUTH_METHODS, SIGNER_SOURCES } from '@shared/utils/signerDomain';
 
-export type PersistWalletRegistrationEcdsaSessionsInput = {
+export type FinalizeWalletRegistrationEcdsaSessionsInput = {
   walletId: string;
   relayerUrl: string;
   preparedClientBootstrap: WalletRegistrationEcdsaPreparedClientBootstrap;
@@ -34,8 +31,8 @@ export type PersistWalletRegistrationEcdsaSessionsInput = {
 };
 
 export type EcdsaRegistrationSessionsService = {
-  persistWalletRegistrationEcdsaSessions(
-    input: PersistWalletRegistrationEcdsaSessionsInput,
+  finalizeWalletRegistrationEcdsaSessions(
+    input: FinalizeWalletRegistrationEcdsaSessionsInput,
   ): Promise<void>;
 };
 
@@ -50,12 +47,12 @@ export function createEcdsaRegistrationSessionsService(deps: {
   };
 }): EcdsaRegistrationSessionsService {
   return {
-    persistWalletRegistrationEcdsaSessions: (input) =>
-      persistWalletRegistrationEcdsaSessions(deps, input),
+    finalizeWalletRegistrationEcdsaSessions: (input) =>
+      finalizeWalletRegistrationEcdsaSessions(deps, input),
   };
 }
 
-async function persistWalletRegistrationEcdsaSessions(
+export async function finalizeWalletRegistrationEcdsaSessions(
   deps: {
     registrationBootstrap: Pick<EcdsaRegistrationBootstrapService, 'finalizeClientBootstrap'>;
     bootstrapStore: ThresholdEcdsaBootstrapStorePort;
@@ -66,7 +63,7 @@ async function persistWalletRegistrationEcdsaSessions(
       shamirPrimeB64u?: string;
     };
   },
-  args: PersistWalletRegistrationEcdsaSessionsInput,
+  args: FinalizeWalletRegistrationEcdsaSessionsInput,
 ): Promise<void> {
   const walletId = toWalletId(args.walletId);
   const finalized = await deps.registrationBootstrap.finalizeClientBootstrap({
@@ -161,7 +158,9 @@ async function hydratePasskeyRegistrationSession(args: {
       '',
   ).trim();
   const thresholdSessionAuthToken = String(
-    args.bootstrap.session.jwt || args.bootstrap.thresholdEcdsaKeyRef.thresholdSessionAuthToken || '',
+    args.bootstrap.session.jwt ||
+      args.bootstrap.thresholdEcdsaKeyRef.thresholdSessionAuthToken ||
+      '',
   ).trim();
   const transport: WarmSessionSealTransportInput = {
     curve: 'ecdsa',

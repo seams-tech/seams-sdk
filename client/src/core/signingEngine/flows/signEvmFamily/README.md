@@ -26,7 +26,7 @@ owner address.
 Current entrypoint: `signEvmFamily.ts`.
 
 Supporting entrypoints: `signingFlow.ts`, `signEvmWithUiConfirm.ts`,
-`signTempoWithUiConfirm.ts`, `nonceLifecycleAdapter.ts`,
+`signEvmFamilyWithUiConfirmForTempo.ts`, `nonceLifecycleAdapter.ts`,
 `emailOtpPublic.ts`, and
 `transactionExecutor.ts`.
 
@@ -38,7 +38,7 @@ Supporting entrypoints: `signingFlow.ts`, `signEvmWithUiConfirm.ts`,
    `emailOtpRefresh.ts`, `emailOtpPublic.ts`, `freshEmailOtpRetry.ts`,
    `requireEvmFamilyStepUpAuth.ts`.
 4. Confirmation: `signingFlow.ts`, `signEvmWithUiConfirm.ts`,
-   `signTempoWithUiConfirm.ts`.
+   `signEvmFamilyWithUiConfirmForTempo.ts`.
 5. Threshold admission: `thresholdAdmission.ts`, `budgetSpending.ts`,
    `warmSessionServices.ts`.
 6. Payload preparation: `preparedSigning.ts`, `transactionExecutor.ts`.

@@ -26,7 +26,7 @@ const browserSurfacePatterns = [
 ];
 
 test.describe('refactor 51b package exports', () => {
-  test('maps public roots to current web, runtime, server, and native-facing entries', () => {
+  test('maps public roots to current web, runtime, and server entries', () => {
     const packageJson = readJson('sdk/package.json');
     const exportsMap = packageJson.exports;
 
@@ -40,27 +40,22 @@ test.describe('refactor 51b package exports', () => {
       default: './dist/esm/runtime.js',
       types: './dist/types/client/src/runtime.d.ts',
     });
-    expect(exportsMap['./ios']).toEqual({
-      import: './dist/esm/ios.js',
-      default: './dist/esm/ios.js',
-      types: './dist/types/client/src/ios.d.ts',
-    });
-    expect(exportsMap['./embedded']).toEqual({
-      import: './dist/esm/embedded.js',
-      default: './dist/esm/embedded.js',
-      types: './dist/types/client/src/embedded.d.ts',
-    });
+
+    expect(exportsMap['./ios']).toBeUndefined();
+    expect(exportsMap['./embedded']).toBeUndefined();
   });
 
-  test('keeps native-facing and runtime source entries free of browser surfaces', () => {
+  test('keeps runtime source entry free of browser surfaces', () => {
     const violations: string[] = [];
-    for (const file of ['client/src/runtime.ts', 'client/src/ios.ts', 'client/src/embedded.ts']) {
+    for (const file of ['client/src/runtime.ts']) {
       const source = readRepoFile(file);
       for (const pattern of browserSurfacePatterns) {
         if (pattern.test(source)) violations.push(`${file}: ${pattern}`);
       }
     }
     expect(violations, violations.join('\n')).toEqual([]);
+    expect(fs.existsSync(path.join(repoRoot, 'client/src/ios.ts'))).toBe(false);
+    expect(fs.existsSync(path.join(repoRoot, 'client/src/embedded.ts'))).toBe(false);
   });
 
   test('keeps WalletIframe HTML under a web-owned package export', () => {
@@ -71,9 +66,9 @@ test.describe('refactor 51b package exports', () => {
     expect(exportsMap['./components/modal']).toBeUndefined();
     expect(exportsMap['./components/embedded']).toBeUndefined();
     expect(exportsMap['./web/wallet-iframe-client-html']).toEqual({
-      import: './dist/esm/core/WalletIframe/client/html.js',
-      default: './dist/esm/core/WalletIframe/client/html.js',
-      types: './dist/types/client/src/core/WalletIframe/client/html.d.ts',
+      import: './dist/esm/web/SeamsWeb/walletIframe/client/html.js',
+      default: './dist/esm/web/SeamsWeb/walletIframe/client/html.js',
+      types: './dist/types/client/src/web/SeamsWeb/walletIframe/client/html.d.ts',
     });
   });
 
@@ -82,9 +77,12 @@ test.describe('refactor 51b package exports', () => {
     expect(packageJson.description).toContain('web');
     expect(packageJson.description).toContain('runtime');
     expect(packageJson.description).toContain('server');
-    expect(packageJson.description).toContain('native-facing');
+    expect(packageJson.description).toContain('TypeScript');
+    expect(packageJson.description).not.toContain('native-facing');
     expect(packageJson.keywords).toEqual(
-      expect.arrayContaining(['browser', 'signing-runtime', 'server', 'native', 'embedded']),
+      expect.arrayContaining(['browser', 'signing-runtime', 'server']),
     );
+    expect(packageJson.keywords).not.toContain('native');
+    expect(packageJson.keywords).not.toContain('embedded');
   });
 });

@@ -167,7 +167,7 @@ Implementation reference:
 
 Implementation reference:
 
-- `src/core/WalletIframe/client/router.ts` sets `options: { sticky: true }` for the export‑UI call and guards overlay hiding with `isSticky()`.
+- `src/web/SeamsWeb/walletIframe/client/router.ts` sets `options: { sticky: true }` for the export‑UI call and guards overlay hiding with `isSticky()`.
 
 ### Build entries
 

@@ -16,7 +16,10 @@ test.describe('modularity lazy signer loading', () => {
       'utf8',
     );
     const evmSigningSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts'),
+      path.resolve(
+        process.cwd(),
+        '../client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
+      ),
       'utf8',
     );
     const signerLoaderSource = fs.readFileSync(
@@ -27,12 +30,14 @@ test.describe('modularity lazy signer loading', () => {
       'utf8',
     );
 
-    expect(nearSigningSource).toContain("from './nearSigningFlow'");
-    expect(nearSigningFlowSource).toContain('runNearTransactionsWithActionsSigning(request.payload)');
+    expect(nearSigningSource).toContain("from '@/web/SeamsWeb/operations/nearSigningFlow'");
+    expect(nearSigningFlowSource).toContain(
+      'runNearTransactionsWithActionsSigning(request.payload)',
+    );
     expect(nearSigningFlowSource).toContain('runNearDelegateActionSigning(request.payload)');
     expect(nearSigningFlowSource).toContain('signNep413Message(request.payload)');
     expect(signerLoaderSource).toContain("import('./signEvmWithUiConfirm')");
-    expect(signerLoaderSource).toContain("import('./signTempoWithUiConfirm')");
+    expect(signerLoaderSource).toContain("import('./signEvmFamilyWithUiConfirmForTempo')");
     expect(signerLoaderSource).toContain("import('./signers/secp256k1')");
     expect(signerLoaderSource).toContain("import('./signers/webauthnP256')");
 
@@ -41,7 +46,9 @@ test.describe('modularity lazy signer loading', () => {
     expect(nearSigningFlowSource).not.toContain('NearAdapter');
     expect(nearSigningFlowSource).not.toContain('NearEd25519Engine');
     expect(nearSigningSource).not.toContain("await import('./chainAdaptors/near/walletOrigin')");
-    expect(evmSigningSource).not.toContain("from '../flows/signEvmFamily/signTempoWithUiConfirm'");
+    expect(evmSigningSource).not.toContain(
+      "from '../flows/signEvmFamily/signEvmFamilyWithUiConfirmForTempo'",
+    );
     expect(nearSigningSource).not.toContain("from '../signers/algorithms/ed25519'");
     expect(evmSigningSource).not.toContain("from '../signers/algorithms/secp256k1'");
     expect(evmSigningSource).not.toContain("from '../signers/algorithms/webauthnP256'");
@@ -68,7 +75,7 @@ test.describe('modularity lazy signer loading', () => {
     expect(evmAdapterSource).not.toContain('tempoSignerWasm');
     expect(evmAdapterSource).not.toContain('tempoSigner-worker');
 
-    expect(tempoAdapterSource).toContain("from './tempoSignerWasm'");
+    expect(tempoAdapterSource).toContain("from '@/web/SeamsWeb/operations/tempoSignerWasm'");
     expect(tempoAdapterSource).not.toContain('ethSignerWasm');
     expect(tempoAdapterSource).not.toContain('ethSigner-worker');
 

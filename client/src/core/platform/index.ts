@@ -31,7 +31,6 @@ export type {
   EcdsaRoleLocalRecordParseResult,
   EcdsaRoleLocalReadyRecord,
   EcdsaRoleLocalReadyStateBlob,
-  EmbeddedPlatformRuntime,
   EmailOtpWorkerIssuedSessionHandle,
   EmailOtpWorkerIssuedSessionHandleInput,
   EmailOtpWorkerSessionSecretSource,
@@ -42,9 +41,9 @@ export type {
   HttpTransport,
   LoadEcdsaRoleLocalReadyRecordInput,
   LoadEcdsaRoleLocalReadyRecordResult,
-  PlatformKind,
+  RuntimePortsKind,
   PlatformResult,
-  PlatformRuntime,
+  RuntimePorts,
   PrepareEcdsaClientBootstrapErrorCode,
   PrepareEcdsaClientBootstrapInput,
   PrepareEcdsaClientBootstrapOutput,
@@ -62,7 +61,7 @@ export type {
   WebAuthnPrfFirstSecretSource,
 } from './types';
 export {
-  assertNeverPlatform,
+  assertNeverRuntimePortsKind,
   buildEmailOtpWorkerIssuedSessionHandle,
   buildEmailOtpWorkerSessionSecretSource,
   buildFido2HmacSecretSource,
@@ -71,13 +70,13 @@ export {
   buildSecureEnclaveWrappedSecretSource,
   buildWebAuthnPrfFirstSecretSource,
   buildWebAuthnPrfFirstSecretSourceFromParts,
-  platformKindLabel,
+  runtimePortsKindLabel,
 } from './types';
 export {
   createBrowserPlatformRuntime,
   getBrowserPlatformIndexedDB,
   type BrowserDurableRecordStore,
-  type BrowserPlatformRuntime,
+  type BrowserRuntimePorts,
 } from './browser/createBrowserPlatformRuntime';
 export {
   parseGeneratedBuildEcdsaRoleLocalExportArtifactOutput,

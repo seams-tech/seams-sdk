@@ -7,7 +7,7 @@ import type {
   SignerCryptoPort,
 } from './ports';
 
-export type PlatformKind = 'browser' | 'ios' | 'linux_embedded';
+export type RuntimePortsKind = 'browser';
 
 export type ClockPort = {
   kind: 'clock';
@@ -19,8 +19,8 @@ export type RandomSource = {
   randomBytes(length: number): Uint8Array;
 };
 
-export type PlatformRuntime = {
-  kind: PlatformKind;
+export type RuntimePorts = {
+  kind: RuntimePortsKind;
   storage: DurableRecordStore;
   secrets: SecureSecretStore;
   authenticator: AuthenticatorPort;
@@ -30,22 +30,14 @@ export type PlatformRuntime = {
   random: RandomSource;
 };
 
-export type EmbeddedPlatformRuntime = PlatformRuntime & {
-  kind: 'linux_embedded';
-};
-
-export function assertNeverPlatform(value: never): never {
-  throw new Error(`Unhandled platform branch: ${String(value)}`);
+export function assertNeverRuntimePortsKind(value: never): never {
+  throw new Error(`Unhandled runtime ports branch: ${String(value)}`);
 }
 
-export function platformKindLabel(kind: PlatformKind): string {
+export function runtimePortsKindLabel(kind: RuntimePortsKind): string {
   switch (kind) {
     case 'browser':
       return 'Browser';
-    case 'ios':
-      return 'iOS';
-    case 'linux_embedded':
-      return 'Linux embedded';
   }
-  return assertNeverPlatform(kind);
+  return assertNeverRuntimePortsKind(kind);
 }

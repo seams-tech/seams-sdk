@@ -95,31 +95,28 @@ export async function registerPasskey(
       const confirmConfig = overrides[confirmVariant] ?? overrides.none ?? defaultConfirm;
 
       try {
-        console.log(`[flow:register] invoking registerPasskeyInternal for ${args.accountId}`);
+        console.log(`[flow:register] invoking registerPasskey for ${args.accountId}`);
         return utils.seams
-          .registerPasskeyInternal(
-            toAccountId(args.accountId),
-            {
-              signerOptions: {
-                tempo: {
-                  enabled: false,
-                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-                },
-                evm: {
-                  enabled: false,
-                  signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
-                },
+          .registration.registerPasskey(toAccountId(args.accountId), {
+            signerOptions: {
+              tempo: {
+                enabled: false,
+                signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
               },
-              onEvent: (event: any) => {
-                events.push(event);
-                console.log(`[flow:register]   -> ${event.phase} | ${event.message}`);
-              },
-              onError: (error: any) => {
-                console.error(`[flow:register] ! ${error}`);
+              evm: {
+                enabled: false,
+                signingSession: { kind: 'jwt', ttlMs: 1, remainingUses: 1 },
               },
             },
-            confirmConfig,
-          )
+            onEvent: (event: any) => {
+              events.push(event);
+              console.log(`[flow:register]   -> ${event.phase} | ${event.message}`);
+            },
+            onError: (error: any) => {
+              console.error(`[flow:register] ! ${error}`);
+            },
+            confirmationConfig: confirmConfig,
+          })
           .then((result: any) => {
             const response: RegistrationFlowResult = {
               success: !!result.success,
@@ -213,7 +210,7 @@ export async function unlock(
       try {
         console.log(`[flow:login] invoking unlock for ${args.accountId}`);
         return utils.seams
-          .unlock(toAccountId(args.accountId), {
+          .auth.unlock(toAccountId(args.accountId), {
             onEvent: (event: any) => {
               events.push(event);
               console.log(`[flow:login]   -> ${event.phase} | ${event.message}`);

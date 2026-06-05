@@ -420,7 +420,7 @@ export async function setLastUser(
   await deps.accountStore.setLastProfileStateForProfile(context.profileId, normalizedSignerSlot);
 }
 
-export async function initializeCurrentUser(
+export async function activateAuthenticatedWalletState(
   deps: RegistrationAccountLifecycleDeps,
   args: { nearAccountId: AccountId; nearClient?: NearClient },
 ): Promise<void> {
@@ -925,7 +925,7 @@ export async function storeWalletEmailOtpEd25519RegistrationData(
   return { signerSlot: storedNearActivation.signerSlot };
 }
 
-export async function storeWalletEd25519SignerRecord(
+export async function finalizeWalletEd25519SignerRegistration(
   deps: RegistrationAccountLifecycleDeps,
   args: StoreWalletEd25519SignerRecordInput,
 ): Promise<StoredRegistrationData> {
@@ -1270,7 +1270,7 @@ export async function storeWalletEmailOtpEcdsaSignerRecords(
   };
 }
 
-export async function storeWalletEcdsaRegistrationData(
+export async function finalizeWalletEcdsaRegistration(
   deps: RegistrationAccountLifecycleDeps,
   args: StoreWalletEcdsaRegistrationInput,
 ): Promise<StoreWalletEcdsaSignerRecordsResult> {

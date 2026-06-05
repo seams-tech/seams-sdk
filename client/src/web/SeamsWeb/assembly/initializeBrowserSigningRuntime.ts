@@ -1,4 +1,4 @@
-import { __isWalletIframeHostMode } from '@/core/WalletIframe/host-mode';
+import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import type { UserPreferencesManager } from '@/core/signingEngine/session/userPreferences';
 import type { SeamsConfigsReadonly } from '@/core/types/seams';
 import { onEmbeddedBaseChange, resolveWorkerBaseOrigin } from '@/core/walletRuntimePaths';

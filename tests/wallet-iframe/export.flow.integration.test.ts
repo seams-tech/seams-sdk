@@ -417,7 +417,7 @@ test.describe('wallet-origin export flow integration', () => {
         const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
         try {
           const mod = await import(routerPath);
-          const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
+          const { WalletIframeRouter } = mod as typeof import('@/web/SeamsWeb/walletIframe/client/router');
 
           const marks: Record<string, boolean> = {};
           let capturedPayload: Record<string, unknown> | null = null;
@@ -539,7 +539,7 @@ test.describe('wallet-origin export flow integration', () => {
         const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
         try {
           const mod = await import(routerPath);
-          const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
+          const { WalletIframeRouter } = mod as typeof import('@/web/SeamsWeb/walletIframe/client/router');
 
           const marks: Record<string, boolean> = {};
           let visibleAtStaleGenericClose = false;
@@ -653,7 +653,7 @@ test.describe('wallet-origin export flow integration', () => {
         const capture = eval(captureOverlaySource) as typeof import('./harness').captureOverlay;
         try {
           const mod = await import(routerPath);
-          const { WalletIframeRouter } = mod as typeof import('@/core/WalletIframe/client/router');
+          const { WalletIframeRouter } = mod as typeof import('@/web/SeamsWeb/walletIframe/client/router');
 
           const marks: Record<string, boolean> = {};
           let exportRequestId = '';

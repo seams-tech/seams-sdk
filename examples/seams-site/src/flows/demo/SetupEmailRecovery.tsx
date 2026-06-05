@@ -18,7 +18,8 @@ export const SetupEmailRecovery: React.FC = () => {
   const [recoveryEmails, setRecoveryEmails] = React.useState<string[]>(['']);
   const [onChainHashes, setOnChainHashes] = React.useState<string[]>([]);
   const nearNetwork = (() => {
-    const nearChain = seams?.configs.network.chains.find((chain) =>
+    type ConfiguredChain = ReturnType<typeof useSeams>['seams']['configs']['network']['chains'][number];
+    const nearChain = seams?.configs.network.chains.find((chain: ConfiguredChain) =>
       String(chain.network).startsWith('near-'),
     );
     return nearChain?.network === 'near-mainnet' ? 'mainnet' : 'testnet';

@@ -377,7 +377,7 @@ const emitWalletServiceStaticAssets = async (sdkRoot = process.cwd()): Promise<v
     path.join(sdkDir, 'export-iframe.css'),
   );
   copyIfMissing(
-    path.join(sdkRoot, '../client/src/core/WalletIframe/client/overlay/overlay.css'),
+    path.join(sdkRoot, '../client/src/web/SeamsWeb/walletIframe/client/overlay/overlay.css'),
     path.join(sdkDir, 'overlay.css'),
   );
 
@@ -409,9 +409,9 @@ const configs = [
   {
     input: [
       '../client/src/index.ts',
+      '../client/src/advanced.ts',
       '../client/src/runtime.ts',
-      '../client/src/ios.ts',
-      '../client/src/embedded.ts',
+      '../client/src/web/SeamsWeb/index.ts',
       // Stable threshold workflow surface.
       '../client/src/threshold.ts',
       // Treat this as an entry so Rolldown doesn't tree-shake its re-exported WASM enums.
@@ -710,10 +710,10 @@ const configs = [
       'w3a-tx-confirmer':
         '../client/src/core/signingEngine/uiConfirm/ui/lit-components/IframeTxConfirmer/tx-confirmer-wrapper.ts',
       // Wallet service host (headless)
-      'wallet-iframe-host-runtime': '../client/src/core/WalletIframe/host/index.ts',
-      'wallet-iframe-host-near': '../client/src/core/WalletIframe/host/entry-near.ts',
-      'wallet-iframe-host-ecdsa': '../client/src/core/WalletIframe/host/entry-ecdsa.ts',
-      'wallet-iframe-host-full': '../client/src/core/WalletIframe/host/entry-full.ts',
+      'wallet-iframe-host-runtime': '../client/src/web/SeamsWeb/walletIframe/host/index.ts',
+      'wallet-iframe-host-near': '../client/src/web/SeamsWeb/walletIframe/host/entry-near.ts',
+      'wallet-iframe-host-ecdsa': '../client/src/web/SeamsWeb/walletIframe/host/entry-ecdsa.ts',
+      'wallet-iframe-host-full': '../client/src/web/SeamsWeb/walletIframe/host/entry-full.ts',
       // Export viewer host + bootstrap
       'iframe-export-bootstrap':
         '../client/src/core/signingEngine/uiConfirm/ui/lit-components/ExportPrivateKey/iframe-export-bootstrap-script.ts',

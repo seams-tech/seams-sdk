@@ -342,7 +342,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           chainId: 5042002,
           networkSlug: 'arc-testnet',
         };
-        const enrollmentChallenge = await pm.auth.requestEmailOtpEnrollmentChallenge({
+        const enrollmentChallenge = await pm.registration.requestEmailOtpEnrollmentChallenge({
           nearAccountId,
           appSessionJwt: 'app-session-jwt',
           onEvent: captureEvent(registrationEvents),
@@ -353,7 +353,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           sessionKind: 'cookie',
           onEvent: captureEvent(registrationEvents),
         });
-        const enrollment = await pm.auth.enrollEmailOtp({
+        const enrollment = await pm.registration.enrollEmailOtp({
           nearAccountId,
           challengeId: enrollmentChallenge.challengeId,
           otpCode: '123456',
@@ -390,7 +390,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           })
           .then(() => null)
           .catch((error: unknown) => String((error as Error)?.message || error));
-        const enrollAndLogin = await pm.auth.enrollAndLoginWithEmailOtpEcdsaCapability({
+        const enrollAndLogin = await pm.registration.enrollAndLoginWithEmailOtpEcdsaCapability({
           walletSession: walletSessionRef,
           chainTarget,
           emailOtpAuthPolicy: 'session',
@@ -399,7 +399,7 @@ test.describe('SeamsWeb Email OTP wallet iframe ownership', () => {
           appSessionJwt: 'app-session-jwt',
           onEvent: captureEvent(enrollAndLoginEvents),
         });
-        const appOriginSecretRejection = await pm.auth
+        const appOriginSecretRejection = await pm.registration
           .enrollEmailOtp({
             nearAccountId,
             challengeId: enrollmentChallenge.challengeId,

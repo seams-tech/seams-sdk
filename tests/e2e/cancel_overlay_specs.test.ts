@@ -35,7 +35,7 @@ test.describe('Wallet iframe overlay specs on cancel', () => {
           // Dynamically import the wallet iframe client
           // @ts-ignore - runtime import path resolved by SDK build served at /sdk
           const { WalletIframeRouter } =
-            await import('/sdk/esm/core/WalletIframe/client/router.js');
+            await import('/sdk/esm/web/SeamsWeb/walletIframe/client/router.js');
 
           const cfg = (window as any).configs || {};
 

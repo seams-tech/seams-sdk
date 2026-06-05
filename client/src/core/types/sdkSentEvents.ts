@@ -11,7 +11,7 @@ import type {
   SignDelegateActionResult,
   SignTransactionResult,
 } from './seams';
-import type { SyncAccountResult, SignNEP413MessageResult } from '@/web/SeamsWeb';
+import type { SyncAccountResult, SignNEP413MessageResult } from '@/core/types/sdkPublicResults';
 
 ////////////////////////////
 // Wallet Flow Event Model

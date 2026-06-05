@@ -466,10 +466,9 @@ async function signEvmFamilyAttempt(
       chainTarget: requestChainTarget,
     });
   }
-  const isEmailOtpThresholdContext =
-    thresholdEcdsaRecord
-      ? isEmailOtpThresholdEcdsaSigningContext({ record: thresholdEcdsaRecord })
-      : false;
+  const isEmailOtpThresholdContext = thresholdEcdsaRecord
+    ? isEmailOtpThresholdEcdsaSigningContext({ record: thresholdEcdsaRecord })
+    : false;
   accountAuth =
     accountAuth ||
     (await resolveEvmFamilyTransactionWalletAuth({
@@ -1144,9 +1143,7 @@ async function signEvmFamilyAttempt(
         );
         const admittedPrepared = await admitPreparedEcdsaTransactionBudget(
           updatedPrepared,
-          trustedBudgetStatusAuthFromReadySignerSession(
-            refreshedReadyToSignMaterial.signerSession,
-          ),
+          trustedBudgetStatusAuthFromReadySignerSession(refreshedReadyToSignMaterial.signerSession),
         );
         if (admittedPrepared.budget.kind !== 'BudgetAdmitted') {
           throw new Error(
@@ -1449,9 +1446,7 @@ async function signEvmFamilyAttempt(
             record: thresholdEcdsaRecord,
           })
         : null;
-    const thresholdOwnerAddress = toOptionalEvmAddress(
-      publicFacts?.thresholdOwnerAddress,
-    );
+    const thresholdOwnerAddress = toOptionalEvmAddress(publicFacts?.thresholdOwnerAddress);
     if (!thresholdOwnerAddress) {
       if (signingSessionPlan.kind === SigningSessionPlanKind.EmailOtpReauth) {
         return {
@@ -1545,13 +1540,6 @@ export type ReportTempoFinalizedArgs = EvmFamilyFinalizedArgs;
 export type ReportTempoDroppedOrReplacedArgs = EvmFamilyDroppedOrReplacedArgs;
 export type ReconcileTempoNonceLaneArgs = EvmFamilyReconcileLaneArgs;
 export type TempoNonceLaneStatus = EvmFamilyNonceLaneStatus;
-
-export async function signTempo(
-  deps: TempoSigningDeps,
-  args: SignEvmFamilyArgs,
-): Promise<TempoSignedResult | EvmSignedResult> {
-  return await signEvmFamily(deps, args);
-}
 
 export async function reportTempoBroadcastAccepted(
   deps: TempoSigningDeps,

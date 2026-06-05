@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { EmailRecoveryDomain } from '@/web/SeamsWeb/near/emailRecovery';
+import { EmailRecoveryDomain } from '@/web/SeamsWeb/operations/recovery/emailRecovery';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { EmailRecoveryFlowEventPhase } from '@/core/types/sdkSentEvents';
 
@@ -128,7 +128,7 @@ function createLocalDomain(options?: {
         ecdsaWalletRecords: {
           storeWalletEcdsaSignerRecords: async () => undefined,
           storeWalletEmailOtpEcdsaSignerRecords: async () => undefined,
-          storeWalletEcdsaRegistrationData: async () => ({ storedSigners: [] }),
+          finalizeWalletEcdsaRegistration: async () => ({ storedSigners: [] }),
           storeWalletEmailOtpEcdsaRegistrationData: async () => ({ storedSigners: [] }),
         },
         warmSessions: {
@@ -158,7 +158,7 @@ function createLocalDomain(options?: {
             };
           },
           updateLastLogin: async () => undefined,
-          initializeCurrentUser: async () => undefined,
+          activateAuthenticatedWalletState: async () => undefined,
           getLastUser: async () => lastUser,
         },
       },
@@ -231,7 +231,7 @@ function createLocalDomain(options?: {
         };
       },
       updateLastLogin: async () => undefined,
-      initializeCurrentUser: async () => undefined,
+      activateAuthenticatedWalletState: async () => undefined,
       getLastUser: async () => lastUser,
       getWarmThresholdEd25519SessionStatus: async () =>
         warmSigningSession

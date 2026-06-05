@@ -146,12 +146,22 @@ const walletIframeCoreImportAllowList = guardBoundaryEntries([
     reason: 'current sealed-refresh exchange types still carry wallet iframe expected-origin data',
   },
   {
+    file: 'client/src/core/browser/walletIframe/events.ts',
+    owner: 'browser wallet iframe primitive',
+    reason: 'shared browser-platform event constants stay outside wallet iframe implementation',
+  },
+  {
+    file: 'client/src/core/browser/walletIframe/host-mode.ts',
+    owner: 'browser wallet iframe primitive',
+    reason: 'shared browser-platform host-mode state stays outside wallet iframe implementation',
+  },
+  {
     prefix: 'client/src/web/SeamsWeb/',
     owner: 'browser web facade',
     reason: 'current browser facade owns wallet iframe routing',
   },
   {
-    prefix: 'client/src/core/WalletIframe/',
+    prefix: 'client/src/web/SeamsWeb/walletIframe/',
     owner: 'browser wallet iframe implementation',
     reason: 'current wallet iframe implementation imports within its own browser-only tree',
   },
@@ -175,8 +185,6 @@ const walletIframeCoreImportAllowList = guardBoundaryEntries([
 const nativeAndEmbeddedRoots = [
   'client/src/core/platform/ios',
   'client/src/core/platform/embedded',
-  'client/src/ios',
-  'client/src/embedded',
 ];
 
 const nativeAndEmbeddedForbiddenPatterns = [
@@ -260,7 +268,7 @@ test.describe('refactor 51b platform boundary guards', () => {
     expect(violations, violations.join('\n')).toEqual([]);
   });
 
-  test('keeps future native and embedded roots free of browser surfaces', () => {
+  test('keeps native SDK notes free of browser surfaces', () => {
     const violations: string[] = [];
     for (const file of listTypeScriptFilesInRoots(nativeAndEmbeddedRoots)) {
       const source = readRepoFile(file);
@@ -271,6 +279,26 @@ test.describe('refactor 51b platform boundary guards', () => {
       }
     }
     expect(violations, violations.join('\n')).toEqual([]);
+  });
+
+  test('does not grow TypeScript native SDK facades', () => {
+    const forbiddenPaths = [
+      'client/src/ios',
+      'client/src/embedded',
+      'client/src/ios.ts',
+      'client/src/embedded.ts',
+    ];
+    const existing = forbiddenPaths.filter((relativePath) =>
+      fs.existsSync(path.join(repoRoot, relativePath)),
+    );
+
+    const forbiddenNamePattern =
+      /(?:SeamsIOS|IoSSigningSurface|SeamsEmbedded|EmbeddedSigningSurface)/;
+    const namedOffenders = listTypeScriptFilesInRoots(['client/src']).filter((file) =>
+      forbiddenNamePattern.test(file),
+    );
+
+    expect([...existing, ...namedOffenders]).toEqual([]);
   });
 
   test('tracks current core WalletIframe imports as web-owned Phase 4 work', () => {
@@ -287,9 +315,9 @@ test.describe('refactor 51b platform boundary guards', () => {
 
   test('keeps chain signer modules local-only after SeamsWeb owns iframe routing', () => {
     const signerFiles = [
-      'client/src/web/SeamsWeb/near/index.ts',
-      'client/src/web/SeamsWeb/tempo/index.ts',
-      'client/src/web/SeamsWeb/evm/index.ts',
+      'client/src/web/SeamsWeb/operations/near/index.ts',
+      'client/src/web/SeamsWeb/operations/tempo/index.ts',
+      'client/src/web/SeamsWeb/operations/evm/index.ts',
     ];
     const violations: string[] = [];
     for (const file of signerFiles) {

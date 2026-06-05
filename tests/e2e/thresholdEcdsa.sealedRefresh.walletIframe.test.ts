@@ -60,13 +60,11 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            seams.setConfirmationConfig(confirmationConfig as any);
+            seams.preferences.setConfirmationConfig(confirmationConfig as any);
 
-            const registration = await seams.registration.registerPasskeyInternal(
-              accountId,
-              {},
-              confirmationConfig as any,
-            );
+            const registration = await seams.registration.registerPasskey(accountId, {
+              confirmationConfig: confirmationConfig as any,
+            });
             if (!registration?.success) {
               return {
                 ok: false,
@@ -75,7 +73,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const login = await seams.unlock(accountId, {
+            const login = await seams.auth.unlock(accountId, {
               session: {
                 kind: 'jwt',
                 relayUrl: relayerUrl,
@@ -326,13 +324,11 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            seams.setConfirmationConfig(confirmationConfig as any);
+            seams.preferences.setConfirmationConfig(confirmationConfig as any);
 
-            const registration = await seams.registration.registerPasskeyInternal(
-              accountId,
-              {},
-              confirmationConfig as any,
-            );
+            const registration = await seams.registration.registerPasskey(accountId, {
+              confirmationConfig: confirmationConfig as any,
+            });
             if (!registration?.success) {
               return {
                 ok: false,
@@ -340,7 +336,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const login = await seams.unlock(accountId, {
+            const login = await seams.auth.unlock(accountId, {
               session: {
                 kind: 'jwt',
                 relayUrl: relayerUrl,
@@ -447,7 +443,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            seams.setConfirmationConfig(confirmationConfig as any);
+            seams.preferences.setConfirmationConfig(confirmationConfig as any);
             const bootstrap = await seams.tempo.bootstrapEcdsaSession({
               kind: 'reuse_warm_ecdsa_bootstrap',
               walletSession: {
@@ -586,7 +582,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            seams.setConfirmationConfig(confirmationConfig as any);
+            seams.preferences.setConfirmationConfig(confirmationConfig as any);
 
             const session = await seams.auth.getWalletSession(accountId);
 
@@ -728,13 +724,11 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            seams.setConfirmationConfig(confirmationConfig as any);
+            seams.preferences.setConfirmationConfig(confirmationConfig as any);
 
-            const registration = await seams.registration.registerPasskeyInternal(
-              accountId,
-              {},
-              confirmationConfig as any,
-            );
+            const registration = await seams.registration.registerPasskey(accountId, {
+              confirmationConfig: confirmationConfig as any,
+            });
             if (!registration?.success) {
               return {
                 ok: false,
@@ -742,7 +736,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const login = await seams.unlock(accountId, {
+            const login = await seams.auth.unlock(accountId, {
               signingSession: { ttlMs: 120_000, remainingUses: 1 },
             });
             if (!login?.success) {
@@ -836,7 +830,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            seams.setConfirmationConfig(confirmationConfig as any);
+            seams.preferences.setConfirmationConfig(confirmationConfig as any);
 
             const sign = await seams.near.executeAction({
               nearAccount: { accountId },
@@ -930,7 +924,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            seams.setConfirmationConfig(confirmationConfig as any);
+            seams.preferences.setConfirmationConfig(confirmationConfig as any);
 
             const sign = await seams.near.executeAction({
               nearAccount: { accountId },
@@ -1111,13 +1105,11 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            seams.setConfirmationConfig(confirmationConfig as any);
+            seams.preferences.setConfirmationConfig(confirmationConfig as any);
 
-            const registration = await seams.registration.registerPasskeyInternal(
-              accountId,
-              {},
-              confirmationConfig as any,
-            );
+            const registration = await seams.registration.registerPasskey(accountId, {
+              confirmationConfig: confirmationConfig as any,
+            });
             if (!registration?.success) {
               return {
                 ok: false,
@@ -1125,7 +1117,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               };
             }
 
-            const login = await seams.unlock(accountId);
+            const login = await seams.auth.unlock(accountId);
             if (!login?.success) {
               return {
                 ok: false,
@@ -1295,7 +1287,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
                   rpIdOverride: 'example.localhost',
                 },
               });
-              seams.setConfirmationConfig(confirmationConfig as any);
+              seams.preferences.setConfirmationConfig(confirmationConfig as any);
 
               const tempoRequest = {
                 chain: 'tempo' as const,
@@ -1502,19 +1494,17 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            seams.setConfirmationConfig(confirmationConfig as any);
-            const registration = await seams.registration.registerPasskeyInternal(
-              accountId,
-              {},
-              confirmationConfig as any,
-            );
+            seams.preferences.setConfirmationConfig(confirmationConfig as any);
+            const registration = await seams.registration.registerPasskey(accountId, {
+              confirmationConfig: confirmationConfig as any,
+            });
             if (!registration?.success) {
               return {
                 ok: false,
                 error: String(registration?.error || 'registration failed'),
               };
             }
-            const login = await seams.unlock(accountId);
+            const login = await seams.auth.unlock(accountId);
             if (!login?.success) {
               return {
                 ok: false,
@@ -1586,7 +1576,7 @@ test.describe('threshold-ecdsa sealed refresh (wallet iframe)', () => {
               },
             });
 
-            const login = await seams.unlock(accountId);
+            const login = await seams.auth.unlock(accountId);
             return {
               ok: !!login?.success,
               error: String(login?.error || ''),
@@ -1698,13 +1688,11 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 },
               });
 
-              seams.setConfirmationConfig(confirmationConfig as any);
+              seams.preferences.setConfirmationConfig(confirmationConfig as any);
 
-              const registration = await seams.registration.registerPasskeyInternal(
-                accountId,
-                {},
-                confirmationConfig as any,
-              );
+              const registration = await seams.registration.registerPasskey(accountId, {
+                confirmationConfig: confirmationConfig as any,
+              });
               if (!registration?.success) {
                 return {
                   ok: false,
@@ -1712,7 +1700,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 };
               }
 
-              const login = await seams.unlock(accountId, {
+              const login = await seams.auth.unlock(accountId, {
                 session: {
                   kind: sessionKind,
                   relayUrl: relayerUrl,
@@ -1899,7 +1887,7 @@ for (const matrixCase of THRESHOLD_REFRESH_MATRIX) {
                 },
               });
 
-              seams.setConfirmationConfig(confirmationConfig as any);
+              seams.preferences.setConfirmationConfig(confirmationConfig as any);
 
               if (curve === 'ed25519') {
                 if (sessionKind === 'jwt') {

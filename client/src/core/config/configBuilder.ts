@@ -17,7 +17,7 @@ import {
   toColorTokenRecord,
   type IntRange,
 } from './configHelpers';
-import { normalizeWalletHostVariant } from '../WalletIframe/hostVariant';
+import { normalizeWalletHostVariant } from '../browser/walletIframe/hostVariant';
 
 const THRESHOLD_ECDSA_PRESIGN_POOL_LIMITS = {
   targetDepth: { min: 1, max: 64 } satisfies IntRange,

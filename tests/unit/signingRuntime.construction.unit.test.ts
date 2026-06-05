@@ -4,12 +4,12 @@ import {
   createSigningRuntime,
   createSigningRuntimeStatePorts,
 } from '@/core/runtime/createSigningRuntime';
-import type { PlatformRuntime } from '@/core/platform';
+import type { RuntimePorts } from '@/core/platform';
 import { toSigningRuntimeConfig } from '@/web/SeamsWeb/assembly/runtimeConfig';
 
-function createInMemoryPlatformRuntime(): PlatformRuntime {
+function createInMemoryRuntimePorts(): RuntimePorts {
   return {
-    kind: 'linux_embedded',
+    kind: 'browser',
     storage: {
       kind: 'durable_record_store',
       async loadEcdsaRoleLocalReadyRecord() {
@@ -92,7 +92,7 @@ test.describe('SigningRuntime construction', () => {
   test('constructs with an in-memory platform runtime and explicit state ports', () => {
     const state = createSigningRuntimeStatePorts();
     const runtime = createSigningRuntime({
-      platformRuntime: createInMemoryPlatformRuntime(),
+      runtimePorts: createInMemoryRuntimePorts(),
       relayers: {
         ecdsa: {
           async bootstrapEcdsaSession() {
@@ -180,7 +180,7 @@ test.describe('SigningRuntime construction', () => {
       state,
     });
 
-    expect(runtime.platformRuntime.kind).toBe('linux_embedded');
+    expect(runtime.runtimePorts.kind).toBe('browser');
     expect(runtime.state.ecdsaSessions.recordsByLane).toBe(state.ecdsaSessions.recordsByLane);
     expect(runtime.state.ecdsaSessions.exportArtifactsByLane).toBe(
       state.ecdsaSessions.exportArtifactsByLane,

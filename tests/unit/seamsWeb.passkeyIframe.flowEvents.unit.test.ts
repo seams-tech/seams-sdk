@@ -180,7 +180,7 @@ test.describe('SeamsWeb passkey wallet iframe flow events', () => {
           };
         const registration = await withTimeout(
           'registration',
-          pm.registration.registerPasskeyInternal('alice.testnet', {
+          pm.registration.registerPasskey('alice.testnet', {
             onEvent: captureEvent(registrationEvents),
           }),
         );

@@ -189,9 +189,9 @@ const secretSourceCastPatterns = [
   /\bas\s+Fido2HmacSecretSource\b/,
 ];
 
-function isPlatformRuntimeAssemblyFile(file: string): boolean {
+function isRuntimePortsAssemblyFile(file: string): boolean {
   return (
-    file === 'client/src/web/SeamsWeb/assembly/BrowserSigningSurface.ts' ||
+    file === 'client/src/web/SeamsWeb/signingSurface/BrowserSigningSurface.ts' ||
     file.startsWith('client/src/core/signingEngine/assembly/')
   );
 }
@@ -300,23 +300,23 @@ test.describe('cross-platform boundary guards', () => {
     expect(violations, violations.join('\n')).toEqual([]);
   });
 
-  test('keeps PlatformRuntime as an assembly-only aggregate', () => {
+  test('keeps RuntimePorts as an assembly-only aggregate', () => {
     const violations: string[] = [];
     for (const file of listTypeScriptFiles('client/src/core/signingEngine')) {
-      if (isPlatformRuntimeAssemblyFile(file)) continue;
+      if (isRuntimePortsAssemblyFile(file)) continue;
       const source = readRepoFile(file);
-      if (/\bPlatformRuntime\b/.test(source) || /\bcreateBrowserPlatformRuntime\b/.test(source)) {
+      if (/\bRuntimePorts\b/.test(source) || /\bcreateBrowserPlatformRuntime\b/.test(source)) {
         violations.push(file);
       }
     }
     expect(violations, violations.join('\n')).toEqual([]);
   });
 
-  test('keeps use-case services from depending on PlatformRuntime', () => {
+  test('keeps use-case services from depending on RuntimePorts', () => {
     const violations: string[] = [];
     for (const file of listTypeScriptFiles('client/src/core/signingEngine/useCases')) {
       const source = readRepoFile(file);
-      if (/\bPlatformRuntime\b/.test(source) || /\bcreateBrowserPlatformRuntime\b/.test(source)) {
+      if (/\bRuntimePorts\b/.test(source) || /\bcreateBrowserPlatformRuntime\b/.test(source)) {
         violations.push(file);
       }
     }
@@ -401,8 +401,12 @@ test.describe('cross-platform boundary guards', () => {
   });
 
   test('keeps Email OTP registration ECDSA prep behind worker-issued handles', () => {
-    const registrationSource = readRepoFile('client/src/web/SeamsWeb/registration.ts');
-    const emailOtpSource = readRepoFile('client/src/web/SeamsWeb/emailOtp.ts');
+    const registrationSource = readRepoFile(
+      'client/src/web/SeamsWeb/operations/registration/registration.ts',
+    );
+    const emailOtpSource = readRepoFile(
+      'client/src/web/SeamsWeb/operations/authMethods/emailOtp/enrollment.ts',
+    );
     const workerTypesSource = readRepoFile(
       'client/src/core/signingEngine/workerManager/workerTypes.ts',
     );

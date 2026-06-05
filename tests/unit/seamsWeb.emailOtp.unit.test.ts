@@ -1,16 +1,18 @@
 import { expect, test } from '@playwright/test';
 import {
   EmailOtpRouteError,
-  enrollEmailOtpWallet,
   exchangeGoogleEmailOtpSession,
   requestEmailOtpDeviceRecoveryChallenge,
   requestEmailOtpChallenge,
   requestEmailOtpEnrollmentChallenge,
+  verifyEmailOtpCode,
+} from '@/web/SeamsWeb/operations/authMethods/emailOtp/challenge';
+import { enrollEmailOtpWallet } from '@/web/SeamsWeb/operations/authMethods/emailOtp/enrollment';
+import {
   removeEmailOtpDeviceEnrollmentEscrowFromDevice,
   restoreEmailOtpDeviceEnrollmentEscrow,
-  verifyEmailOtpCode,
-} from '@/web/SeamsWeb/emailOtp';
-import { collectEmailOtpRegistrationAuthority } from '@/web/SeamsWeb/emailOtpRegistrationAuthority';
+} from '@/web/SeamsWeb/operations/authMethods/emailOtp/deviceEscrow';
+import { collectEmailOtpRegistrationAuthority } from '@/web/SeamsWeb/operations/authMethods/emailOtp/registrationAuthority';
 
 function jwtWithPayload(payload: Record<string, unknown>): string {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');

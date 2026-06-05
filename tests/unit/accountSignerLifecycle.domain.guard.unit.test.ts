@@ -79,8 +79,8 @@ test.describe('account signer lifecycle domain guard', () => {
       'client/src/core/indexedDB/passkeyClientDB.types.ts',
       'client/src/core/indexedDB/unifiedIndexedDBManager.ts',
       'client/src/core/accountData/near/accountProjection.ts',
-      'client/src/web/SeamsWeb/near/linkDevice.ts',
-      'client/src/web/SeamsWeb/assembly/BrowserSigningSurface.ts',
+      'client/src/web/SeamsWeb/operations/devices/linkDevice.ts',
+      'client/src/web/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
       'client/src/core/signingEngine/flows/registration/accountLifecycle.ts',
     ];
     const forbidden = [

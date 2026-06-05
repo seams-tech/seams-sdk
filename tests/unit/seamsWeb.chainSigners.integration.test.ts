@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { EvmSigner } from '@/web/SeamsWeb/evm';
 import { SeamsWeb } from '@/web/SeamsWeb';
-import { getWalletSession } from '@/web/SeamsWeb/login';
-import { TempoSigner, toSerializableTempoError } from '@/web/SeamsWeb/tempo';
+import { getWalletSession } from '@/web/SeamsWeb/operations/auth/login';
+import { toSerializableTempoError } from '@/web/SeamsWeb/operations/tempo';
+import { createEvmSignerCapability } from '@/web/SeamsWeb/publicApi/evm';
+import { createTempoSignerCapability } from '@/web/SeamsWeb/publicApi/tempo';
 import { IndexedDBManager } from '@/core/indexedDB';
 import { createSigningFlowEvent, SigningEventPhase } from '@/core/types/sdkSentEvents';
 import {
@@ -63,8 +64,39 @@ function createSeamsWebNearWithRouter(router: Record<string, unknown>) {
   return seams.near;
 }
 
+function createLocalWalletIframe() {
+  return {
+    shouldUseWalletIframe: () => false,
+    requireRouter: async () => {
+      throw new Error('local capability test should not require wallet iframe router');
+    },
+  } as any;
+}
+
+function createLocalTempoCapability(deps: { getContext: () => any }) {
+  const context = deps.getContext();
+  return createTempoSignerCapability({
+    signingEngine: context.signingEngine,
+    nearClient: context.nearClient ?? {},
+    configs: context.configs,
+    getTheme: () => context.theme ?? 'light',
+    getWalletIframe: createLocalWalletIframe,
+  } as any);
+}
+
+function createLocalEvmCapability(deps: { getContext: () => any }) {
+  const context = deps.getContext();
+  return createEvmSignerCapability({
+    signingEngine: context.signingEngine,
+    nearClient: context.nearClient ?? {},
+    configs: context.configs,
+    getTheme: () => context.theme ?? 'light',
+    getWalletIframe: createLocalWalletIframe,
+  } as any);
+}
+
 test.describe('SeamsWeb chain signer modules', () => {
-  test('NearSigner.executeAction calls afterCall(true) on success in iframe mode', async () => {
+  test('NEAR capability.executeAction calls afterCall(true) on success in iframe mode', async () => {
     const afterCalls: Array<{ ok: boolean; result?: unknown }> = [];
     const onErrors: Error[] = [];
     const expectedResult = { success: true, transactionId: 'tx-1' };
@@ -87,7 +119,7 @@ test.describe('SeamsWeb chain signer modules', () => {
     expect(afterCalls).toEqual([{ ok: true, result: expectedResult }]);
   });
 
-  test('NearSigner.executeAction calls onError + afterCall(false) on router failure', async () => {
+  test('NEAR capability.executeAction calls onError + afterCall(false) on router failure', async () => {
     const afterCalls: Array<{ ok: boolean; result?: unknown }> = [];
     const onErrors: Error[] = [];
     const signer = createSeamsWebNearWithRouter({
@@ -113,7 +145,7 @@ test.describe('SeamsWeb chain signer modules', () => {
     expect(afterCalls).toEqual([{ ok: false, result: undefined }]);
   });
 
-  test('NearSigner.signAndSendTransactions emits completion event and defaults executionWait', async () => {
+  test('NEAR capability.signAndSendTransactions emits completion event and defaults executionWait', async () => {
     const afterCalls: Array<{ ok: boolean; result?: unknown }> = [];
     const progressEvents: any[] = [];
     const routerArgs: any[] = [];
@@ -149,7 +181,7 @@ test.describe('SeamsWeb chain signer modules', () => {
     expect(progressEvents.at(-1)?.message).toContain('tx-b');
   });
 
-  test('NearSigner.signAndSendDelegateAction reports afterCall(false) when relay returns ok=false', async () => {
+  test('NEAR capability.signAndSendDelegateAction reports afterCall(false) when relay returns ok=false', async () => {
     const afterCalls: Array<{ ok: boolean; result?: unknown }> = [];
     const signer = createSeamsWebNearWithRouter({});
     const signResult = {
@@ -175,17 +207,17 @@ test.describe('SeamsWeb chain signer modules', () => {
     expect(afterCalls).toEqual([{ ok: false, result: undefined }]);
   });
 
-  test('TempoSigner forwards shouldAbort in non-iframe mode', async () => {
+  test('Tempo capability forwards shouldAbort in non-iframe mode', async () => {
     let capturedArgs: any = null;
     const expectedResult = { chain: 'evm', txHashHex: '0x1', rawTxHex: '0x2' } as any;
     const shouldAbort = () => false;
-    const signer = new TempoSigner({
+    const signer = createLocalTempoCapability({
       getContext: () =>
         ({
           signingEngine: {
             assertThresholdEcdsaOperationAllowed: allowThresholdEcdsaOperation,
             applyThresholdEcdsaPostSignPolicy,
-            signTempo: async (args: any) => {
+            signEvmFamily: async (args: any) => {
               capturedArgs = args;
               return expectedResult;
             },
@@ -216,7 +248,7 @@ test.describe('SeamsWeb chain signer modules', () => {
     expect(capturedArgs?.confirmationConfigOverride?.uiMode).toBe('modal');
   });
 
-  test('TempoSigner and EvmSigner local paths force chain during bootstrap', async () => {
+  test('Tempo capability and EVM capability local paths force chain during bootstrap', async () => {
     const tempoCalls: any[] = [];
     const evmCalls: any[] = [];
     const configs = {
@@ -239,7 +271,7 @@ test.describe('SeamsWeb chain signer modules', () => {
       },
     };
 
-    const tempoSigner = new TempoSigner({
+    const tempoSigner = createLocalTempoCapability({
       getContext: () =>
         ({
           configs,
@@ -251,7 +283,7 @@ test.describe('SeamsWeb chain signer modules', () => {
           },
         }) as any,
     });
-    const evmSigner = new EvmSigner({
+    const evmSigner = createLocalEvmCapability({
       getContext: () =>
         ({
           configs,
@@ -366,6 +398,7 @@ test.describe('SeamsWeb chain signer modules', () => {
             getLastUser: async () => null,
             getUserBySignerSlot: async () => null,
             getWarmThresholdEd25519SessionStatus: async () => null,
+            listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
           },
         } as any,
         'alice.testnet',
@@ -482,6 +515,7 @@ test.describe('SeamsWeb chain signer modules', () => {
             getLastUser: async () => null,
             getUserBySignerSlot: async () => null,
             getWarmThresholdEd25519SessionStatus: async () => null,
+            listThresholdEcdsaSessionRecordsForWalletTarget: () => [],
           },
         } as any,
         'alice.testnet',
@@ -597,9 +631,9 @@ test.describe('SeamsWeb chain signer modules', () => {
     }
   });
 
-  test('TempoSigner.reportBroadcastRejected forwards args in non-iframe mode', async () => {
+  test('Tempo capability.reportBroadcastRejected forwards args in non-iframe mode', async () => {
     let capturedArgs: any = null;
-    const signer = new TempoSigner({
+    const signer = createLocalTempoCapability({
       getContext: () =>
         ({
           signingEngine: {
@@ -643,9 +677,9 @@ test.describe('SeamsWeb chain signer modules', () => {
     expect(String(serialized?.message || '')).toContain('underpriced');
   });
 
-  test('TempoSigner.executeEvmFamilyTransaction runs sign->broadcast->finalize lifecycle', async () => {
+  test('Tempo capability.executeEvmFamilyTransaction runs sign->broadcast->finalize lifecycle', async () => {
     const calls = {
-      signTempo: 0,
+      signEvmFamily: 0,
       reportBroadcastAccepted: 0,
       reportBroadcastRejected: 0,
       reportFinalized: 0,
@@ -709,7 +743,7 @@ test.describe('SeamsWeb chain signer modules', () => {
     }) as typeof fetch;
 
     try {
-      const signer = new TempoSigner({
+      const signer = createLocalTempoCapability({
         getContext: () =>
           ({
             configs: {
@@ -727,8 +761,8 @@ test.describe('SeamsWeb chain signer modules', () => {
             signingEngine: {
               assertThresholdEcdsaOperationAllowed: allowThresholdEcdsaOperation,
               applyThresholdEcdsaPostSignPolicy,
-              signTempo: async (args: any) => {
-                calls.signTempo += 1;
+              signEvmFamily: async (args: any) => {
+                calls.signEvmFamily += 1;
                 args.onEvent?.(
                   createTestSigningEvent(
                     SigningEventPhase.STEP_06_AUTH_WARM_SESSION_CLAIMED,
@@ -812,7 +846,7 @@ test.describe('SeamsWeb chain signer modules', () => {
 
       expect(result.txHash).toBe(txHash);
       expect(result.payloadVerification.verified).toBe(true);
-      expect(calls.signTempo).toBe(1);
+      expect(calls.signEvmFamily).toBe(1);
       expect(calls.reportBroadcastAccepted).toBe(1);
       expect(calls.reportFinalized).toBe(1);
       expect(calls.reportBroadcastRejected).toBe(0);
@@ -843,9 +877,9 @@ test.describe('SeamsWeb chain signer modules', () => {
     }
   });
 
-  test('TempoSigner.executeEvmFamilyTransaction reports broadcast rejection when send fails', async () => {
+  test('Tempo capability.executeEvmFamilyTransaction reports broadcast rejection when send fails', async () => {
     const calls = {
-      signTempo: 0,
+      signEvmFamily: 0,
       reportBroadcastAccepted: 0,
       reportBroadcastRejected: 0,
       reportFinalized: 0,
@@ -883,7 +917,7 @@ test.describe('SeamsWeb chain signer modules', () => {
     }) as typeof fetch;
 
     try {
-      const signer = new TempoSigner({
+      const signer = createLocalTempoCapability({
         getContext: () =>
           ({
             configs: {
@@ -901,8 +935,8 @@ test.describe('SeamsWeb chain signer modules', () => {
             signingEngine: {
               assertThresholdEcdsaOperationAllowed: allowThresholdEcdsaOperation,
               applyThresholdEcdsaPostSignPolicy,
-              signTempo: async () => {
-                calls.signTempo += 1;
+              signEvmFamily: async () => {
+                calls.signEvmFamily += 1;
                 return {
                   chain: 'evm',
                   kind: 'eip1559',
@@ -951,7 +985,7 @@ test.describe('SeamsWeb chain signer modules', () => {
         }),
       ).rejects.toThrow('insufficient funds');
 
-      expect(calls.signTempo).toBe(1);
+      expect(calls.signEvmFamily).toBe(1);
       expect(calls.reportBroadcastAccepted).toBe(0);
       expect(calls.reportBroadcastRejected).toBe(1);
       expect(calls.reportFinalized).toBe(0);
@@ -969,9 +1003,9 @@ test.describe('SeamsWeb chain signer modules', () => {
     }
   });
 
-  test('TempoSigner.executeEvmFamilyTransaction reports dropped/replaced when nonce lane advances', async () => {
+  test('Tempo capability.executeEvmFamilyTransaction reports dropped/replaced when nonce lane advances', async () => {
     const calls = {
-      signTempo: 0,
+      signEvmFamily: 0,
       reportBroadcastAccepted: 0,
       reportBroadcastRejected: 0,
       reportFinalized: 0,
@@ -1036,7 +1070,7 @@ test.describe('SeamsWeb chain signer modules', () => {
     }) as typeof fetch;
 
     try {
-      const signer = new TempoSigner({
+      const signer = createLocalTempoCapability({
         getContext: () =>
           ({
             configs: {
@@ -1054,8 +1088,8 @@ test.describe('SeamsWeb chain signer modules', () => {
             signingEngine: {
               assertThresholdEcdsaOperationAllowed: allowThresholdEcdsaOperation,
               applyThresholdEcdsaPostSignPolicy,
-              signTempo: async () => {
-                calls.signTempo += 1;
+              signEvmFamily: async () => {
+                calls.signEvmFamily += 1;
                 return {
                   chain: 'evm',
                   kind: 'eip1559',
@@ -1120,7 +1154,7 @@ test.describe('SeamsWeb chain signer modules', () => {
         reason: 'dropped',
       });
 
-      expect(calls.signTempo).toBe(1);
+      expect(calls.signEvmFamily).toBe(1);
       expect(calls.reportBroadcastAccepted).toBe(1);
       expect(calls.reportDroppedOrReplaced).toBe(1);
       expect(calls.reportBroadcastRejected).toBe(0);
@@ -1131,9 +1165,9 @@ test.describe('SeamsWeb chain signer modules', () => {
     }
   });
 
-  test('TempoSigner.executeEvmFamilyTransaction rejects on payload mismatch and reconciles nonce lane', async () => {
+  test('Tempo capability.executeEvmFamilyTransaction rejects on payload mismatch and reconciles nonce lane', async () => {
     const calls = {
-      signTempo: 0,
+      signEvmFamily: 0,
       reportBroadcastAccepted: 0,
       reportBroadcastRejected: 0,
       reportFinalized: 0,
@@ -1197,7 +1231,7 @@ test.describe('SeamsWeb chain signer modules', () => {
     }) as typeof fetch;
 
     try {
-      const signer = new TempoSigner({
+      const signer = createLocalTempoCapability({
         getContext: () =>
           ({
             configs: {
@@ -1215,8 +1249,8 @@ test.describe('SeamsWeb chain signer modules', () => {
             signingEngine: {
               assertThresholdEcdsaOperationAllowed: allowThresholdEcdsaOperation,
               applyThresholdEcdsaPostSignPolicy,
-              signTempo: async () => {
-                calls.signTempo += 1;
+              signEvmFamily: async () => {
+                calls.signEvmFamily += 1;
                 return {
                   chain: 'evm',
                   kind: 'eip1559',
@@ -1296,7 +1330,7 @@ test.describe('SeamsWeb chain signer modules', () => {
         code: 'tx_payload_mismatch',
       });
 
-      expect(calls.signTempo).toBe(1);
+      expect(calls.signEvmFamily).toBe(1);
       expect(calls.reportBroadcastAccepted).toBe(1);
       expect(calls.reportFinalized).toBe(0);
       expect(calls.reportBroadcastRejected).toBe(0);
@@ -1319,9 +1353,9 @@ test.describe('SeamsWeb chain signer modules', () => {
     }
   });
 
-  test('TempoSigner.executeEvmFamilyTransaction maps post-finalization check failures to canonical code', async () => {
+  test('Tempo capability.executeEvmFamilyTransaction maps post-finalization check failures to canonical code', async () => {
     const calls = {
-      signTempo: 0,
+      signEvmFamily: 0,
       reportBroadcastAccepted: 0,
       reportBroadcastRejected: 0,
       reportFinalized: 0,
@@ -1384,7 +1418,7 @@ test.describe('SeamsWeb chain signer modules', () => {
     }) as typeof fetch;
 
     try {
-      const signer = new TempoSigner({
+      const signer = createLocalTempoCapability({
         getContext: () =>
           ({
             configs: {
@@ -1402,8 +1436,8 @@ test.describe('SeamsWeb chain signer modules', () => {
             signingEngine: {
               assertThresholdEcdsaOperationAllowed: allowThresholdEcdsaOperation,
               applyThresholdEcdsaPostSignPolicy,
-              signTempo: async () => {
-                calls.signTempo += 1;
+              signEvmFamily: async () => {
+                calls.signEvmFamily += 1;
                 return {
                   chain: 'evm',
                   kind: 'eip1559',
@@ -1462,7 +1496,7 @@ test.describe('SeamsWeb chain signer modules', () => {
         code: 'post_finalization_state_mismatch',
       });
 
-      expect(calls.signTempo).toBe(1);
+      expect(calls.signEvmFamily).toBe(1);
       expect(calls.reportBroadcastAccepted).toBe(1);
       expect(calls.reportFinalized).toBe(1);
       expect(calls.reportBroadcastRejected).toBe(0);
@@ -1473,9 +1507,9 @@ test.describe('SeamsWeb chain signer modules', () => {
     }
   });
 
-  test('TempoSigner.executeEvmFamilyTransaction aborts finalization poll when shouldAbort flips true', async () => {
+  test('Tempo capability.executeEvmFamilyTransaction aborts finalization poll when shouldAbort flips true', async () => {
     const calls = {
-      signTempo: 0,
+      signEvmFamily: 0,
       reportBroadcastAccepted: 0,
       reportBroadcastRejected: 0,
       reportFinalized: 0,
@@ -1538,7 +1572,7 @@ test.describe('SeamsWeb chain signer modules', () => {
 
     try {
       let cancelRequested = false;
-      const signer = new TempoSigner({
+      const signer = createLocalTempoCapability({
         getContext: () =>
           ({
             configs: {
@@ -1556,8 +1590,8 @@ test.describe('SeamsWeb chain signer modules', () => {
             signingEngine: {
               assertThresholdEcdsaOperationAllowed: allowThresholdEcdsaOperation,
               applyThresholdEcdsaPostSignPolicy,
-              signTempo: async () => {
-                calls.signTempo += 1;
+              signEvmFamily: async () => {
+                calls.signEvmFamily += 1;
                 return {
                   chain: 'evm',
                   kind: 'eip1559',
@@ -1624,7 +1658,7 @@ test.describe('SeamsWeb chain signer modules', () => {
       });
 
       expect(rpcCalls.receipt).toBeGreaterThan(0);
-      expect(calls.signTempo).toBe(1);
+      expect(calls.signEvmFamily).toBe(1);
       expect(calls.reportBroadcastAccepted).toBe(1);
       expect(calls.reportBroadcastRejected).toBe(0);
       expect(calls.reportFinalized).toBe(0);
@@ -1635,9 +1669,9 @@ test.describe('SeamsWeb chain signer modules', () => {
     }
   });
 
-  test('TempoSigner.executeEvmFamilyTransaction surfaces finalization timeout when nonce cleanup stalls', async () => {
+  test('Tempo capability.executeEvmFamilyTransaction surfaces finalization timeout when nonce cleanup stalls', async () => {
     const calls = {
-      signTempo: 0,
+      signEvmFamily: 0,
       reportBroadcastAccepted: 0,
       reportBroadcastRejected: 0,
       reportFinalized: 0,
@@ -1690,7 +1724,7 @@ test.describe('SeamsWeb chain signer modules', () => {
     }) as typeof fetch;
 
     try {
-      const signer = new TempoSigner({
+      const signer = createLocalTempoCapability({
         getContext: () =>
           ({
             configs: {
@@ -1708,8 +1742,8 @@ test.describe('SeamsWeb chain signer modules', () => {
             signingEngine: {
               assertThresholdEcdsaOperationAllowed: allowThresholdEcdsaOperation,
               applyThresholdEcdsaPostSignPolicy,
-              signTempo: async () => {
-                calls.signTempo += 1;
+              signEvmFamily: async () => {
+                calls.signEvmFamily += 1;
                 return {
                   chain: 'evm',
                   kind: 'eip1559',
@@ -1778,7 +1812,7 @@ test.describe('SeamsWeb chain signer modules', () => {
         /Timed out waiting for tx receipt|Timed out waiting for transaction finalization/,
       );
 
-      expect(calls.signTempo).toBe(1);
+      expect(calls.signEvmFamily).toBe(1);
       expect(calls.reportBroadcastAccepted).toBe(1);
       expect(calls.reportBroadcastRejected).toBe(0);
       expect(calls.reportFinalized).toBe(0);

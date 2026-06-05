@@ -1,10 +1,8 @@
-import type {
-  RegistrationAccountLifecycleDeps,
-} from '@/core/signingEngine/interfaces/operationDeps';
+import type { RegistrationAccountLifecycleDeps } from '@/core/signingEngine/interfaces/operationDeps';
 import {
   storeWalletEmailOtpEcdsaRegistrationData,
   storeWalletEmailOtpEcdsaSignerRecords,
-  storeWalletEcdsaRegistrationData,
+  finalizeWalletEcdsaRegistration,
   storeWalletEcdsaSignerRecords,
   type StoreWalletEcdsaRegistrationInput,
   type StoreWalletEcdsaSignerRecordsInput,
@@ -19,7 +17,7 @@ export type EcdsaWalletRecordsService = {
   storeWalletEmailOtpEcdsaSignerRecords(
     input: StoreWalletEcdsaSignerRecordsInput,
   ): Promise<StoreWalletEcdsaSignerRecordsResult>;
-  storeWalletEcdsaRegistrationData(
+  finalizeWalletEcdsaRegistration(
     input: StoreWalletEcdsaRegistrationInput,
   ): Promise<StoreWalletEcdsaSignerRecordsResult>;
   storeWalletEmailOtpEcdsaRegistrationData(
@@ -35,8 +33,8 @@ export function createEcdsaWalletRecordsService(deps: {
       storeWalletEcdsaSignerRecords(deps.accountLifecycle, input),
     storeWalletEmailOtpEcdsaSignerRecords: (input) =>
       storeWalletEmailOtpEcdsaSignerRecords(deps.accountLifecycle, input),
-    storeWalletEcdsaRegistrationData: (input) =>
-      storeWalletEcdsaRegistrationData(deps.accountLifecycle, input),
+    finalizeWalletEcdsaRegistration: (input) =>
+      finalizeWalletEcdsaRegistration(deps.accountLifecycle, input),
     storeWalletEmailOtpEcdsaRegistrationData: (input) =>
       storeWalletEmailOtpEcdsaRegistrationData(deps.accountLifecycle, input),
   };

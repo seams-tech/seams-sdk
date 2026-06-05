@@ -1,9 +1,12 @@
 import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
-const REGISTRATION_URL = new URL('../../client/src/web/SeamsWeb/registration.ts', import.meta.url);
+const REGISTRATION_URL = new URL(
+  '../../client/src/web/SeamsWeb/operations/registration/registration.ts',
+  import.meta.url,
+);
 const PRODUCTION_CONTINUATION_SCAN_URLS = [
-  '../../client/src/web/SeamsWeb/registration.ts',
+  '../../client/src/web/SeamsWeb/operations/registration/registration.ts',
   '../../client/src/core/rpcClients/relayer/thresholdEcdsa.ts',
   '../../client/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
   '../../server/src/core/types.ts',
@@ -18,20 +21,25 @@ test.describe('Passkey registration rollback guard', () => {
     const rollbackBlock = source.slice(functionStart);
 
     expect(rollbackBlock).toContain('registrationState.databaseStored');
-    expect(rollbackBlock).toContain('registrationState.accountCreated || registrationState.contractRegistered');
+    expect(rollbackBlock).toContain(
+      'registrationState.accountCreated || registrationState.contractRegistered',
+    );
     expect(rollbackBlock).toContain('databaseRollbackSkippedReason');
     expect(rollbackBlock).toContain('on_chain_account_created');
     expect(rollbackBlock).toContain('rollbackUserRegistration');
     expect(rollbackBlock.indexOf('on_chain_account_created')).toBeLessThan(
-      rollbackBlock.indexOf('rollbackUserRegistration'),
+      rollbackBlock.indexOf('await registrationAccounts.rollbackUserRegistration'),
     );
   });
 
-  test('registerPasskeyInternal routes through wallet registration signer-selection builder', () => {
+  test('passkey registration helper routes through wallet registration signer-selection builder', () => {
     const source = readFileSync(REGISTRATION_URL, 'utf8');
-    const functionStart = source.indexOf('export async function registerPasskeyInternal');
+    const functionStart = source.indexOf('async function registerPasskeyWithAuthenticatorOptions');
     expect(functionStart).toBeGreaterThan(-1);
-    const functionEnd = source.indexOf('// Public wrapper without explicit confirmationConfig override.', functionStart);
+    const functionEnd = source.indexOf(
+      '// Public wrapper without explicit confirmationConfig override.',
+      functionStart,
+    );
     expect(functionEnd).toBeGreaterThan(functionStart);
     const functionBlock = source.slice(functionStart, functionEnd);
 

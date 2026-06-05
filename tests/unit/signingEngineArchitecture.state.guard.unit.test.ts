@@ -13,7 +13,7 @@ import {
   resolveSigningEngineImport,
   signingEngineTopLevel,
   sliceTypeAlias,
-  stripNeverOptionalGuards
+  stripNeverOptionalGuards,
 } from './helpers/signingEngineArchitectureGuard';
 
 test.describe('signing-engine state architecture guardrails', () => {
@@ -141,7 +141,7 @@ test.describe('signing-engine state architecture guardrails', () => {
       'client/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
       'client/src/core/signingEngine/flows/signEvmFamily/signingFlow.ts',
       'client/src/core/signingEngine/flows/signEvmFamily/signEvmWithUiConfirm.ts',
-      'client/src/core/signingEngine/flows/signEvmFamily/signTempoWithUiConfirm.ts',
+      'client/src/core/signingEngine/flows/signEvmFamily/signEvmFamilyWithUiConfirmForTempo.ts',
     ] as const;
     const forbiddenMarkers = [
       'LaneCandidate',

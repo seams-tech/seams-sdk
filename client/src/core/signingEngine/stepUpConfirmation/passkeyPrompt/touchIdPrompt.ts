@@ -48,7 +48,7 @@ interface RegisterCredentialsArgs {
 }
 
 interface AuthenticateCredentialsForChallengeB64uArgs {
-  nearAccountId: string;
+  subjectId: string;
   /**
    * Base64url-encoded 32-byte challenge.
    *
@@ -111,7 +111,7 @@ export class TouchIdPrompt {
    * is already a canonical digest (e.g. `sessionPolicyDigest32`).
    */
   async getAuthenticationCredentialsSerializedForChallengeB64u({
-    nearAccountId: _nearAccountId,
+    subjectId: _subjectId,
     challengeB64u,
     allowCredentials = [],
     includeSecondPrfOutput = false,

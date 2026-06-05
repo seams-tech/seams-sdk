@@ -34,7 +34,7 @@ import {
   resolveManagedEvmNonceReservationInput,
   reserveManagedEvmNonceForRequest,
 } from './evmNonceLifecycle';
-import { loadSignEvmWithUiConfirm, loadSignTempoWithUiConfirm } from './signerLoader';
+import { loadSignEvmWithUiConfirm, loadSignEvmFamilyWithUiConfirmForTempo } from './signerLoader';
 import { reserveManagedTempoNonceForRequest } from './tempoNonceLifecycle';
 
 type EvmFamilyTransactionExecutorDeps = EvmFamilyAccountMetadataDeps &
@@ -277,7 +277,7 @@ export async function executeEvmFamilyTransactionSigning(args: {
       },
       {
         targetKind,
-        loadSigner: targetKind === 'tempo' ? loadSignTempoWithUiConfirm : loadSignEvmWithUiConfirm,
+        loadSigner: targetKind === 'tempo' ? loadSignEvmFamilyWithUiConfirmForTempo : loadSignEvmWithUiConfirm,
         reconcileNonceLane: (nonceArgs) => {
           void getReservationInput(nonceArgs)
             .then((reservationInput) =>
@@ -325,7 +325,7 @@ export async function executeEvmFamilyTransactionSigning(args: {
     },
     {
       targetKind: 'tempo',
-      loadSigner: loadSignTempoWithUiConfirm,
+      loadSigner: loadSignEvmFamilyWithUiConfirmForTempo,
       prepareRequestWithManagedNonce: async (nonceArgs) => {
         const senderIdentity = await getTempoSenderIdentity(nonceArgs);
         return await reserveManagedTempoNonceForRequest({

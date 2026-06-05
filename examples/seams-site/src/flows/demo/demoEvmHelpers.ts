@@ -8,7 +8,7 @@ import {
   TEMPO_FEE_MANAGER_CONTRACT,
   TEMPO_FEE_MANAGER_ABI,
   type EvmClient,
-} from '@seams/sdk';
+} from '@seams/sdk/advanced';
 import {
   normalizeLowercaseString,
   normalizeTrimmedString,

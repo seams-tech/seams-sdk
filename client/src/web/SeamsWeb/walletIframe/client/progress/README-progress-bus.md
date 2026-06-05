@@ -1,0 +1,167 @@
+# Wallet Iframe Progress Bus and User Activation
+
+This document explains how progress events drive the invisible wallet‑iframe overlay to satisfy WebAuthn “transient user activation” requirements without browser popups, what permissions are granted to the iframes involved, and why both flows work:
+
+- (ii) SecureSignTxButton (click happens inside the wallet iframe)
+- (i) Direct `executeAction` calls from the SDK (no Lit component)
+
+## Overview
+
+The wallet iframe mounts as a hidden 0×0 element in the parent document. When a signing flow reaches phases that need user activation (e.g., TouchID / WebAuthn), we temporarily expand the wallet iframe to a full‑screen, invisible overlay so the WebAuthn call occurs in the wallet document (the correct browsing context). As soon as activation completes, we hide the iframe again to avoid blocking the app.
+
+- Overlay control lives in the wallet iframe client router and its `OnEventsProgressBus`:
+  - `client/src/web/SeamsWeb/walletIframe/client/progress/on-events-progress-bus.ts`
+  - `client/src/web/SeamsWeb/walletIframe/client/router.ts`
+- Public progress events are emitted by SeamsWeb flows as v2 `WalletFlowEvent` payloads:
+  - `client/src/web/SeamsWeb/near/actions.ts`
+  - `client/src/core/signingEngine/uiConfirm/handlers/*`
+  - `client/src/core/signingEngine/uiConfirm/handlers/flows/*`
+- Signer workers may emit private transport progress, but that is not consumed by the iframe progress bus unless the SDK maps it into a public `WalletFlowEvent`.
+
+## Progress → Overlay behavior
+
+The `OnEventsProgressBus` class receives v2 `WalletFlowEvent` payloads and reads `event.interaction.overlay` to decide whether the wallet iframe overlay should show, hide, or remain unchanged. Overlay behavior is event metadata, not phase-name inference.
+
+- `overlay: 'show'`: records a show demand for the request and calls `overlay.show()`.
+- `overlay: 'hide'`: records a hide demand and hides only when no tracked request still demands show.
+- `overlay: 'none'`: updates stats without changing the current overlay demand.
+
+This aggregation ensures that if two flows overlap (e.g., a background broadcast finishing while a new confirmation begins), the overlay stays visible until the last active flow no longer requires it.
+
+Router integration: when a request completes or times out, the router will only hide the overlay if the request wasn’t sticky and `OnEventsProgressBus.wantsVisible()` is false (no remaining show demands).
+
+Key points:
+
+- Signing, registration, unlock, link-device, email-recovery, and account-sync flows all use the same v2 event envelope.
+- User-interactive phases set `interaction.kind` to values such as `transaction_confirmation`, `passkey_assert`, `passkey_create`, `otp_input`, `qr_scan`, or `email_recovery_link`.
+- Non-interactive threshold signer, nonce, broadcast, persistence, polling, and finalization work uses `overlay: 'none'` unless a terminal event needs to hide a prior prompt.
+- Email OTP worker progress is mapped into public registration/unlock events before it reaches this bus. EVM/Tempo signer worker RPC progress stays private and does not affect overlay visibility.
+- This keeps the blocking fullscreen iframe visible only for the minimum activation interval.
+
+## What `showFrameForActivation()` actually does
+
+File: `client/src/web/SeamsWeb/walletIframe/client/router.ts`
+
+`showFrameForActivation()` ensures the service iframe is mounted, then delegates to the OverlayController to expand to fullscreen. Effective styles are:
+
+- `position: fixed; inset: 0; top: 0; left: 0;` (fills viewport without 100vw/100vh)
+- `opacity: 1; pointer-events: auto; z-index: 2147483646;`
+- Removes `aria-hidden` and `tabindex` attributes
+
+This makes the wallet iframe cover the viewport so clicks and the WebAuthn transient activation are captured in the wallet document. The actual transaction modal or secure UI is rendered inside the wallet iframe (either directly or inside its own nested, same‑origin iframe for the modal host). Once activation completes (or moves to non‑interactive phases), `hideFrameForActivation()` (via the OverlayController) restores the iframe to:
+
+- `width: 0px; height: 0px; opacity: 0; pointer-events: none; z-index: ''`
+- Restores `aria-hidden` and `tabindex="-1"`
+
+This minimizes any interaction blocking of the parent app and keeps the iframe invisible when not needed.
+
+See: `client/src/web/SeamsWeb/walletIframe/client/overlay/overlay-controller.ts` for the single source of truth that applies these CSS mutations and manages sticky mode.
+
+## Concurrency: multiple in‑flight requests
+
+The overlay must not close while any request still needs user activation. ProgressBus maintains a per‑request demand map and applies aggregated visibility:
+
+- On every progress event, the latest demand for that `requestId` is stored.
+- Overlay is shown when any demand is `show`.
+- Overlay hides only when all demands are `hide` or `none`.
+- On completion/timeout, the router unregisters the request; if no other request wants visibility, the overlay is hidden.
+
+API surface:
+
+- `OnEventsProgressBus.wantsVisible(): boolean` — returns true if any in‑flight request currently demands `show`. The router uses this to avoid premature hides.
+
+## Iframe permissions policy
+
+The wallet service iframe and the nested modal iframe must be allowed to use WebAuthn APIs. We set the permissions policy explicitly via the `allow` attribute.
+
+1. Wallet service iframe (created by `IframeTransport`)
+
+- File: `client/src/web/SeamsWeb/walletIframe/client/transport/IframeTransport.ts`
+- Cross‑origin wallet host:
+  - `allow="publickey-credentials-get <wallet-origin>; publickey-credentials-create <wallet-origin>"`
+- Same‑origin srcdoc host:
+  - `allow="publickey-credentials-get 'self'; publickey-credentials-create 'self'"`
+- Sandbox:
+  - Only applied for same‑origin srcdoc: `sandbox="allow-scripts allow-same-origin"`
+  - Cross‑origin page is not sandboxed to avoid inconsistent MessagePort behavior across browsers.
+
+2. Modal host iframe (full‑screen UI for confirm in wallet origin)
+
+- File: `client/src/core/signingEngine/uiConfirm/ui/lit-components/IframeTxConfirmer/tx-confirmer-wrapper.ts`
+- Uses: `allow="publickey-credentials-get; publickey-credentials-create"`
+- This iframe is same‑origin to the wallet host, so it inherits the wallet origin’s permission context.
+
+Notes:
+
+- These policies ensure `navigator.credentials.get()` / `create()` calls initiated by the wallet iframe (or its modal host) satisfy the browser’s origin/user‑activation requirements.
+
+## How both flows meet user activation
+
+### (ii) SecureSignTxButton
+
+- The button is rendered inside the wallet iframe (or a same‑origin iframe controlled by the wallet). When the user clicks it, the click occurs in the wallet’s document, so transient user activation is already satisfied.
+- The signing flow runs within that context, and `navigator.credentials.get()` is called from the wallet host with the proper `allow` policy and recent user activation. No extra modal click is needed.
+- Auto‑proceed vs. explicit click is configurable, but for a button living inside the wallet iframe, a single click is sufficient for the entire flow.
+
+### (i) Direct `executeAction` from SDK
+
+Even when you call `seams.near.executeAction(...)` directly from your app (not from a Lit component), the flow still meets activation without an extra modal click by combining:
+
+1. Overlay activation from v2 event metadata
+   - When a signing event carries `interaction.overlay: 'show'`, the `ProgressBus` instructs the router to expand the wallet iframe overlay, so the credential call happens in the wallet document.
+
+2. Default confirmation config: “modal + requireClick”
+   - `DEFAULT_CONFIRMATION_CONFIG` is `uiMode: 'modal', behavior: 'requireClick', autoProceedDelay: 0`.
+   - Source: `client/src/core/types/signer-worker.ts`
+   - In `handlePromptFromWorker.ts`, the `modal + skipClick` branch mounts the modal with `loading: true`, waits `autoProceedDelay`, and proceeds without requiring a user click.
+     - Source: `client/src/core/signingEngine/uiConfirm/handlers/handlePromptFromWorker.ts`
+
+3. Proper iframe permissions
+   - As described above, the wallet iframe (and nested modal host) have the correct `allow` attributes to use WebAuthn.
+
+Put together, when you trigger `executeAction` in response to any user gesture in your app (e.g., a button click), the SDK:
+
+- Emits v2 signing events with `interaction.overlay: 'show'` when activation is needed
+- Mounts the modal in the wallet iframe and auto‑proceeds
+- Authenticates via WebAuthn in the wallet context
+- Emits a v2 event with `interaction.overlay: 'hide'` once activation is complete
+
+No additional modal click is required for signing.
+
+## Regression checklist
+
+Before merging changes to the progress bus or overlay logic, verify:
+
+- Overlay visibility follows `event.interaction.overlay`; there are no phase-string show/hide lists.
+- Terminal failed/cancelled events hide the overlay when they follow a user-interactive event.
+- Non-interactive signing events such as threshold reconnect, presign refill, commit, nonce reconcile, and broadcast tracking do not show the overlay by themselves.
+- In iframe mode, a manual test with `setConfirmBehavior('requireClick')` shows the modal and allows clicking Confirm.
+- In skipClick mode, modal appears briefly with loading then proceeds without extra clicks.
+
+## When an extra click is required (and for registrations)
+
+- If you run `executeAction` without a recent user gesture (e.g., on page load, or after a long async chain with no new click), browsers may reject WebAuthn with `NotAllowedError` due to missing activation. In such cases:
+  - Switch to `requireClick` behavior: `seams.setConfirmationConfig({ uiMode: 'modal', behavior: 'requireClick' })`.
+  - Or use a UI element inside the wallet iframe (e.g., `SecureSignTxButton`) so the click lands in the wallet context.
+
+- For registration/link‑device in the wallet‑iframe host context, we enforce explicit click (no auto‑proceed) to guarantee a clean activation for `create()`:
+  - See: `client/src/core/signingEngine/uiConfirm/handlers/determineConfirmationConfig.ts` (forces `{ uiMode: 'modal', behavior: 'requireClick' }` in that runtime).
+
+## Developer tips
+
+- Pre‑warm to reduce perceived latency before the overlay appears:
+  - `seams.prefetchBlockheight()` → caches/refreshes block height/hash/nonce ahead of time.
+  - Sources: `client/src/web/SeamsWeb/index.ts` and `client/src/core/signingEngine/nonce/NonceCoordinator.ts`.
+
+- Overlay is intentionally invisible but intercepts clicks while active. Keep the overlay up for the minimum time by setting `interaction.overlay: 'show'` only on events that truly need activation.
+
+## Rough timeline: direct `executeAction`
+
+1. App calls `executeAction` (typically from a click handler).
+2. Wallet host mounts modal and prepares the WebAuthn challenge digest + tx context.
+3. SDK emits a v2 signing event such as `SigningEventPhase.STEP_06_AUTH_PASSKEY_PROMPT_STARTED` with `interaction.overlay: 'show'` → overlay expands.
+4. WebAuthn prompt (`navigator.credentials.get`) runs in the wallet document.
+5. SDK emits `SigningEventPhase.STEP_06_AUTH_PASSKEY_PROMPT_SUCCEEDED` or `SigningEventPhase.STEP_07_AUTHENTICATION_COMPLETE` with `interaction.overlay: 'hide'` → overlay hides; signing continues.
+6. Transaction is signed and broadcast; final progress events emitted; modal closed.
+
+This is how we preserve “no popups,” satisfy WebAuthn activation, and avoid extra clicks for signing flows by default.

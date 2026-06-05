@@ -20,7 +20,7 @@ export type WorkerResourceWarmupDeps = {
   prewarmWorkers: () => Promise<void>;
   shouldPrewarmWorkers: (workerBaseOrigin: string) => boolean;
   prewarmUiConfirmUi: () => Promise<void>;
-  initializeCurrentUser: (nearAccountId: AccountId, nearClient?: NearClient) => Promise<void>;
+  activateAuthenticatedWalletState: (nearAccountId: AccountId, nearClient?: NearClient) => Promise<void>;
 };
 
 export function prewarmSignerWorkers(deps: WorkerResourceWarmupDeps): void {
@@ -34,7 +34,7 @@ export async function warmCriticalResources(
 ): Promise<void> {
   // Initialize current user first (best-effort).
   if (nearAccountId) {
-    await deps.initializeCurrentUser(toAccountId(nearAccountId), deps.nearClient).catch(() => null);
+    await deps.activateAuthenticatedWalletState(toAccountId(nearAccountId), deps.nearClient).catch(() => null);
   }
 
   // Prefetch latest block/nonce context through the coordinator (best-effort).

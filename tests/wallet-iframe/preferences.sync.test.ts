@@ -153,11 +153,11 @@ test.describe('Wallet iframe preferences sync', () => {
 
           await seams.initWalletIframe();
           const seeded = await waitFor(
-            () => seams.getConfirmationConfig().uiMode === 'modal',
+            () => seams.preferences.getConfirmationConfig().uiMode === 'modal',
             3000,
           );
           const initialTheme = seams.theme;
-          const initialConfig = seams.getConfirmationConfig();
+          const initialConfig = seams.preferences.getConfirmationConfig();
 
           // Flip confirmation config on the wallet host and ensure the app-origin mirrors it via PREFERENCES_CHANGED.
           const router = await (seams as any).walletIframe.requireRouter();
@@ -167,7 +167,7 @@ test.describe('Wallet iframe preferences sync', () => {
             autoProceedDelay: 5,
           });
           const mirrored = await waitFor(
-            () => seams.getConfirmationConfig().uiMode === 'drawer',
+            () => seams.preferences.getConfirmationConfig().uiMode === 'drawer',
             3000,
           );
 
@@ -176,7 +176,7 @@ test.describe('Wallet iframe preferences sync', () => {
             initialTheme,
             finalTheme: seams.theme,
             initialConfig,
-            finalConfig: seams.getConfirmationConfig(),
+            finalConfig: seams.preferences.getConfirmationConfig(),
             currentWallet: String(seams.preferences.getCurrentWalletId?.() || ''),
             seeded,
             mirrored,

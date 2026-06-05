@@ -33,7 +33,7 @@ import type {
   LoadEcdsaRoleLocalReadyRecordInput,
   PersistEcdsaRoleLocalReadyRecordInput,
   PlatformResult,
-  PlatformRuntime,
+  RuntimePorts,
   PrepareEcdsaClientBootstrapInput,
   RequiredPrfAuthenticatorSuccess,
   SignerCryptoResult,
@@ -47,7 +47,7 @@ import type {
   WebAuthnRegistrationCredential,
 } from '../types/webauthn';
 
-declare const runtime: PlatformRuntime;
+declare const runtime: RuntimePorts;
 declare const platformResult: PlatformResult<{ value: string }, 'failed'>;
 declare const signerResult: SignerCryptoResult<{ value: string }, 'invalid_context'>;
 declare const secretSource: ClientSecretSource;
@@ -473,12 +473,12 @@ const provisioningFailedWithRecord = {
 // @ts-expect-error failed provisioning states cannot carry ready records
 provisioningFailedWithRecord satisfies EcdsaProvisioningState;
 
-const incompletePlatformRuntime = {
+const incompleteRuntimePorts = {
   kind: 'browser',
   storage: runtime.storage,
   signerCrypto: runtime.signerCrypto,
 };
-// @ts-expect-error platform runtime construction requires every port
-incompletePlatformRuntime satisfies PlatformRuntime;
+// @ts-expect-error runtime port construction requires every port
+incompleteRuntimePorts satisfies RuntimePorts;
 
 void hssClientSharePublicKey33B64u;

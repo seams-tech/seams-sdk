@@ -1,6 +1,6 @@
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type { EmailOtpAuthPolicy, SeamsConfigsReadonly } from '@/core/types/seams';
-import type { EmailOtpEnrollmentResult } from '@/web/SeamsWeb/emailOtp';
+import type { EmailOtpEnrollmentResult } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
   toEmailOtpAuthSubjectId,

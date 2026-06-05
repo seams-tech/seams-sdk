@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import {
   assertWalletHostConfigsNoNestedIframeWallet,
   sanitizeWalletHostConfigs,
-} from '@/core/WalletIframe/host/config-guards';
+} from '@/web/SeamsWeb/walletIframe/host/config-guards';
 
 test.describe('WalletIframe host config guardrails', () => {
   test('sanitizeWalletHostConfigs clears nested iframeWallet fields', async () => {

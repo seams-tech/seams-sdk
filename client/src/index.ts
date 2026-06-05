@@ -1,21 +1,6 @@
 export { SeamsWeb } from './web/SeamsWeb';
-export {
-  type NearClient,
-  MinimalNearClient,
-  encodeSignedTransactionBase64,
-} from './core/rpcClients/near/NearClient';
-export {
-  createEvmClient,
-  parseRpcHexQuantity as parseEvmRpcHexQuantity,
-  type EvmClient,
-  type EvmTransactionReceipt,
-  type EvmBlockHeader,
-  type EvmJsonRpcError,
-  type WaitForEvmTransactionReceiptArgs,
-} from './core/rpcClients/evm/EvmClient';
 
 export * from './config';
-export { base64UrlEncode, base64UrlDecode } from '@shared/utils/encoders';
 export { PASSKEY_MANAGER_DEFAULT_CONFIGS } from './core/config/defaultConfigs';
 export { buildConfigsFromEnv } from './core/config/defaultConfigs';
 export type {
@@ -56,18 +41,6 @@ export type {
 } from './core/types/sdkSentEvents';
 
 export { DEFAULT_WAIT_STATUS } from './core/types/rpc';
-export { createIntentId } from './core/idempotency/createIntentId';
-export {
-  TEMPO_FEE_MANAGER_CONTRACT,
-  TEMPO_FEE_MANAGER_ABI,
-  TEMPO_ALPHA_USD_FEE_TOKEN,
-  TEMPO_SET_USER_TOKEN_SELECTOR,
-  TEMPO_USER_TOKENS_SELECTOR,
-  encodeTempoSetUserTokenCalldata,
-  encodeTempoUserTokensCalldata,
-  decodeTempoUserTokenResult,
-  buildTempoSetUserTokenCall,
-} from './core/signingEngine/chains/tempo/feeToken';
 
 // === Device Linking Types ===
 export {
@@ -115,23 +88,8 @@ export type {
 // === AccountID Types ===
 export type { AccountId } from './core/types/accountIds';
 export { toAccountId } from './core/types/accountIds';
-export {
-  nearAccountRefFromAccountId,
-  thresholdEcdsaChainTargetFromConfig,
-  walletSessionRefFromSession,
-  toWalletId,
-  walletIdFromWalletProfile,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-export type {
-  EcdsaCommandSubject,
-  NearAccountRef,
-  NearCommandSubject,
-  ThresholdEcdsaChainTarget,
-  WalletId,
-  WalletSessionRef,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
-export type { SignNEP413MessageParams, SignNEP413MessageResult } from './web/SeamsWeb/near';
+export type { SignNEP413MessageParams, SignNEP413MessageResult } from './core/types/sdkPublicResults';
 
 // === Action Types ===
 export { ActionType } from './core/types/actions';

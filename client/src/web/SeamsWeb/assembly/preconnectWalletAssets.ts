@@ -1,7 +1,7 @@
 import {
   normalizeWalletHostVariant,
   walletHostScriptFileForVariant,
-} from '@/core/WalletIframe/hostVariant';
+} from '@/core/browser/walletIframe/hostVariant';
 import { setEmbeddedBase } from '@/core/walletRuntimePaths';
 import type { SeamsConfigsInput } from '@/core/types/seams';
 

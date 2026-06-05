@@ -9,7 +9,7 @@ import { deepMerge } from '../components/theme/utils';
 import {
   createCspStylesheetManager,
   getDefaultCspNonce,
-} from '../../core/WalletIframe/shared/csp-stylesheet';
+} from '../../core/browser/walletIframe/csp-stylesheet';
 
 export type SeamsWebProviderThemeProps = Omit<ThemeProps, 'children'> & {
   setTheme?: (theme: ThemeName) => void;

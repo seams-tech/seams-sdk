@@ -89,7 +89,7 @@ test.describe('signing-engine ownership architecture guardrails', () => {
       '/assembly/',
       "from './SigningEngine'",
       "from '../SigningEngine'",
-      "from '@/web/SeamsWeb/assembly/BrowserSigningSurface'",
+      "from '@/web/SeamsWeb/signingSurface/BrowserSigningSurface'",
     ] as const;
     const offenders: string[] = [];
 

@@ -11,14 +11,14 @@ import {
   getLastUser,
   getUserBySignerSlot,
   hasPasskeyCredential,
-  initializeCurrentUser,
+  activateAuthenticatedWalletState,
   nearAuthenticatorsByAccount,
   rollbackUserRegistration,
   setLastUser,
   storeAuthenticator,
   storeUserData,
   storeWalletEd25519RegistrationData,
-  storeWalletEd25519SignerRecord,
+  finalizeWalletEd25519SignerRegistration,
   storeWalletEmailOtpEd25519RegistrationData,
   updateLastLogin,
   type StoredRegistrationData,
@@ -28,7 +28,7 @@ import {
   type StoreWalletEmailOtpEd25519RegistrationInput,
 } from '@/core/signingEngine/flows/registration/accountLifecycle';
 
-export type InitializeCurrentUserInput = {
+export type ActivateAuthenticatedWalletStateInput = {
   nearAccountId: AccountId;
   nearClient?: NearClient;
 };
@@ -36,15 +36,12 @@ export type InitializeCurrentUserInput = {
 export type RegistrationAccountsService = {
   storeUserData(userData: StoreUserDataInput): Promise<void>;
   getAllUsers(): Promise<ClientUserData[]>;
-  getUserBySignerSlot(
-    nearAccountId: AccountId,
-    signerSlot: number,
-  ): Promise<ClientUserData | null>;
+  getUserBySignerSlot(nearAccountId: AccountId, signerSlot: number): Promise<ClientUserData | null>;
   getLastUser(): Promise<ClientUserData | null>;
   nearAuthenticatorsByAccount(nearAccountId: AccountId): Promise<ClientAuthenticatorData[]>;
   updateLastLogin(nearAccountId: AccountId): Promise<void>;
   setLastUser(nearAccountId: AccountId, signerSlot: number): Promise<void>;
-  initializeCurrentUser(input: InitializeCurrentUserInput): Promise<void>;
+  activateAuthenticatedWalletState(input: ActivateAuthenticatedWalletStateInput): Promise<void>;
   storeAuthenticator(authenticatorData: StoreAuthenticatorInput): Promise<void>;
   rollbackUserRegistration(nearAccountId: AccountId): Promise<void>;
   hasPasskeyCredential(nearAccountId: AccountId): Promise<boolean>;
@@ -54,7 +51,7 @@ export type RegistrationAccountsService = {
   storeWalletEmailOtpEd25519RegistrationData(
     input: StoreWalletEmailOtpEd25519RegistrationInput,
   ): Promise<StoredRegistrationData>;
-  storeWalletEd25519SignerRecord(
+  finalizeWalletEd25519SignerRegistration(
     input: StoreWalletEd25519SignerRecordInput,
   ): Promise<StoredRegistrationData>;
 };
@@ -75,18 +72,18 @@ export function createRegistrationAccountsService(
     updateLastLogin: (nearAccountId) => updateLastLogin(accountLifecycle, nearAccountId),
     setLastUser: (nearAccountId, signerSlot) =>
       setLastUser(accountLifecycle, nearAccountId, signerSlot),
-    initializeCurrentUser: (input) => initializeCurrentUser(accountLifecycle, input),
+    activateAuthenticatedWalletState: (input) =>
+      activateAuthenticatedWalletState(accountLifecycle, input),
     storeAuthenticator: (authenticatorData) =>
       storeAuthenticator(accountLifecycle, authenticatorData),
     rollbackUserRegistration: (nearAccountId) =>
       rollbackUserRegistration(accountLifecycle, nearAccountId),
-    hasPasskeyCredential: (nearAccountId) =>
-      hasPasskeyCredential(accountLifecycle, nearAccountId),
+    hasPasskeyCredential: (nearAccountId) => hasPasskeyCredential(accountLifecycle, nearAccountId),
     storeWalletEd25519RegistrationData: (input) =>
       storeWalletEd25519RegistrationData(accountLifecycle, input),
     storeWalletEmailOtpEd25519RegistrationData: (input) =>
       storeWalletEmailOtpEd25519RegistrationData(accountLifecycle, input),
-    storeWalletEd25519SignerRecord: (input) =>
-      storeWalletEd25519SignerRecord(accountLifecycle, input),
+    finalizeWalletEd25519SignerRegistration: (input) =>
+      finalizeWalletEd25519SignerRegistration(accountLifecycle, input),
   };
 }

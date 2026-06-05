@@ -316,25 +316,17 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
 
         const seams = ReactRuntime.useMemo(
           () => ({
-            registerPasskey: async () => {
-              counters.registerCalls += 1;
-              return {
-                success: true,
-                nearAccountId: accountId,
-                transactionId: 'mock-registration-tx',
-              };
-            },
-            unlock: async () => {
-              counters.loginCalls += 1;
-              counters.bootstrapCalls.push(`${accountId}:tempo`);
-              setLoginState({ isLoggedIn: true, nearAccountId: accountId });
-              return {
-                success: true,
-                nearAccountId: accountId,
-                jwt: 'mock-jwt-token',
-              };
-            },
             auth: {
+              unlock: async () => {
+                counters.loginCalls += 1;
+                counters.bootstrapCalls.push(`${accountId}:tempo`);
+                setLoginState({ isLoggedIn: true, nearAccountId: accountId });
+                return {
+                  success: true,
+                  nearAccountId: accountId,
+                  jwt: 'mock-jwt-token',
+                };
+              },
               getWalletSession: async () => ({
                 login: {
                   thresholdEcdsaEthereumAddress: thresholdEvmAddress,
@@ -438,6 +430,16 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
                 },
               }),
             },
+            registration: {
+              registerPasskey: async () => {
+                counters.registerCalls += 1;
+                return {
+                  success: true,
+                  nearAccountId: accountId,
+                  transactionId: 'mock-registration-tx',
+                };
+              },
+            },
             configs: {
               relayer: {
                 url: 'https://relay.example',
@@ -450,8 +452,8 @@ async function mountRegisterToSigningHarness(page: Page): Promise<void> {
         const contextValue = ReactRuntime.useMemo(
           () => ({
             accountInputState: { targetAccountId: accountId, accountExists: true },
-            unlock: seams.unlock,
-            registerPasskey: seams.registerPasskey,
+            unlock: seams.auth.unlock,
+            registerPasskey: seams.registration.registerPasskey,
             loginState,
             seams,
           }),
@@ -638,9 +640,9 @@ test.describe('docs frontend register + threshold signing integration', () => {
         value: '0',
       },
     });
-    expect(
-      String(finalCounters.lastTempoSponsoredCallRequest.call.to || '').toLowerCase(),
-    ).toBe('0xbb442b54c85efba2d7b81ea52990ad638cdba483');
+    expect(String(finalCounters.lastTempoSponsoredCallRequest.call.to || '').toLowerCase()).toBe(
+      '0xbb442b54c85efba2d7b81ea52990ad638cdba483',
+    );
     expect(String(finalCounters.lastTempoSponsoredCallRequest.call.data || '')).toMatch(
       /^0x867ae9d4/i,
     );
