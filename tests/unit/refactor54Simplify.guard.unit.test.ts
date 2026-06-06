@@ -161,10 +161,7 @@ test.describe('refactor 54 web signing surface guards', () => {
       'enrollEmailOtp',
       'enrollAndLoginWithEmailOtpEcdsaCapability',
     ];
-    const recoveryMethods = [
-      'acknowledgeEmailOtpRecoveryCodeBackup',
-      'getEmailOtpRecoveryCodeStatus',
-    ];
+    const recoveryMethods = ['getEmailOtpRecoveryCodeStatus'];
 
     expect(authCapabilityBlock).toBeTruthy();
     expect(registrationCapabilityBlock).toBeTruthy();

@@ -351,6 +351,7 @@ function registrationIntent(kind: 'passkey' | 'email_otp' = 'passkey'): Registra
         ? { kind: 'passkey' }
         : {
             kind: 'email_otp',
+            proofKind: 'otp_challenge',
             email: 'alice@example.test',
             otpCode: '123456',
             appSessionJwt: 'app-session.jwt',
@@ -777,6 +778,92 @@ test.describe('wallet registration route boundaries', () => {
       ecdsa: {
         expectedKeyHandles: ['ehss-key-alice', 'ehss-key-bob'],
       },
+    });
+  });
+
+  test('finalize forwards normalized Email OTP backup acknowledgement metadata', async () => {
+    let captured: unknown = null;
+    const response = await handleRelayWalletRegistrationFinalize(
+      inputFor(
+        'wallet_registration_finalize',
+        {
+          registrationCeremonyId: ' wrc_123 ',
+          ecdsa: {
+            expectedKeyHandles: ['ehss-key-alice'],
+          },
+          emailOtpBackupAck: {
+            kind: 'email_otp_recovery_code_backup_ack_v1',
+            offerId: ' offer-1 ',
+            candidateId: ' candidate-1 ',
+            recoveryCodesIssuedAtMs: 1_700_000_000_000,
+            backupActionKind: 'manual',
+            acknowledgedAtMs: 1_700_000_000_001,
+            idempotencyKey: ' backup-ack-idempotency-1 ',
+          },
+        },
+        {
+          finalizeWalletRegistration: async (request: unknown) => {
+            captured = request;
+            return {
+              ok: true,
+              walletId: 'wallet_alice',
+              rpId: 'wallet.example.test',
+              ecdsa: { walletKeys: [] },
+            };
+          },
+        },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(captured).toMatchObject({
+      registrationCeremonyId: 'wrc_123',
+      emailOtpBackupAck: {
+        kind: 'email_otp_recovery_code_backup_ack_v1',
+        offerId: 'offer-1',
+        candidateId: 'candidate-1',
+        recoveryCodesIssuedAtMs: 1_700_000_000_000,
+        backupActionKind: 'manual',
+        acknowledgedAtMs: 1_700_000_000_001,
+        idempotencyKey: 'backup-ack-idempotency-1',
+      },
+    });
+  });
+
+  test('finalize rejects secret material in Email OTP backup acknowledgement', async () => {
+    let called = false;
+    const response = await handleRelayWalletRegistrationFinalize(
+      inputFor(
+        'wallet_registration_finalize',
+        {
+          registrationCeremonyId: 'wrc_123',
+          ecdsa: {
+            expectedKeyHandles: ['ehss-key-alice'],
+          },
+          emailOtpBackupAck: {
+            kind: 'email_otp_recovery_code_backup_ack_v1',
+            recoveryCodesIssuedAtMs: 1_700_000_000_000,
+            backupActionKind: 'manual',
+            acknowledgedAtMs: 1_700_000_000_001,
+            idempotencyKey: 'backup-ack-idempotency-1',
+            recoveryKeys: ['secret-code'],
+          },
+        },
+        {
+          finalizeWalletRegistration: async () => {
+            called = true;
+            return { ok: true };
+          },
+        },
+      ),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+      message: 'emailOtpBackupAck.recoveryKeys must not be included',
     });
   });
 

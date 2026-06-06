@@ -13,6 +13,7 @@ import {
   EMAIL_OTP_RECOVERY_WRAP_ALG,
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+  buildEmailOtpRecoveryWrapBinding,
   encodeEmailOtpRecoveryWrappedEnrollmentAad,
 } from '@shared/utils/emailOtpRecoveryKey';
 import { ensurePostgresSchema, getPostgresPool } from '../../server/src/storage/postgres';
@@ -47,6 +48,8 @@ const EMAIL_OTP_RATE_LIMIT_ENV_UNSET: Record<string, string | undefined> = {
   EMAIL_OTP_GRANT_RATE_LIMIT_WINDOW_MS: undefined,
   EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_MAX: undefined,
   EMAIL_OTP_RECOVERY_KEY_ATTEMPT_RATE_LIMIT_WINDOW_MS: undefined,
+  EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX: undefined,
+  EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS: undefined,
   EMAIL_OTP_RATE_LIMIT_KEY_PREFIX: undefined,
   EMAIL_OTP_MAX_ACTIVE_CHALLENGES_PER_CONTEXT: undefined,
 };
@@ -55,7 +58,7 @@ function recoveryEscrowAadHashB64u(metadata: {
   walletId: string;
   userId: string;
   authSubjectId: string;
-  authMethod: string;
+  authMethod: 'google_sso_email_otp';
   enrollmentId: string;
   enrollmentVersion: string;
   enrollmentSealKeyVersion: string;
@@ -64,7 +67,11 @@ function recoveryEscrowAadHashB64u(metadata: {
   recoveryKeyId: string;
 }): string {
   return base64UrlEncode(
-    createHash('sha256').update(encodeEmailOtpRecoveryWrappedEnrollmentAad(metadata)).digest(),
+    createHash('sha256')
+      .update(
+        encodeEmailOtpRecoveryWrappedEnrollmentAad(buildEmailOtpRecoveryWrapBinding(metadata)),
+      )
+      .digest(),
   );
 }
 
@@ -245,7 +252,7 @@ function makeRecoveryWrappedEnrollmentEscrows(
       walletId,
       userId,
       authSubjectId,
-      authMethod: 'google_sso_email_otp',
+      authMethod: 'google_sso_email_otp' as const,
       enrollmentId,
       enrollmentVersion: RECOVERY_ENROLLMENT_VERSION,
       enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
@@ -259,7 +266,7 @@ function makeRecoveryWrappedEnrollmentEscrows(
       secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
       escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
       ...metadata,
-      recoveryKeyStatus: 'pending_backup',
+      recoveryKeyStatus: 'active',
       nonceB64u: base64UrlEncode(Uint8Array.from(Array.from({ length: 12 }, (_, i) => i + index))),
       wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(
         Uint8Array.from(Array.from({ length: 48 }, (_, i) => i + index + 1)),
@@ -278,6 +285,25 @@ async function consumeEmailOtpChallengeRateLimit(service: AuthService, clientIp:
     userId: USER_ID,
     walletId: WALLET_ID,
     clientIp,
+  });
+}
+
+async function consumeGoogleRegistrationRateLimit(
+  service: AuthService,
+  input?: { providerSubject?: string; clientIp?: string },
+) {
+  return service.consumeGoogleEmailOtpRegistrationAttemptRateLimit({
+    providerSubject: input?.providerSubject || 'google:subject-rate-limit',
+    email: 'alice@example.com',
+    accountMode: 'register',
+    runtimePolicyScope: {
+      orgId: ORG_ID,
+      projectId: 'project-rate-limit',
+      envId: 'env-rate-limit',
+      signingRootVersion: RECOVERY_SIGNING_ROOT_VERSION,
+    },
+    appSessionUserId: input?.providerSubject || 'google:subject-rate-limit',
+    clientIp: input?.clientIp || '203.0.113.30',
   });
 }
 
@@ -317,14 +343,6 @@ async function enrollRecoveryWallet(service: AuthService): Promise<void> {
     thresholdEcdsaClientVerifyingShareB64u: VALID_SECP256K1_PUBLIC_KEY_33_B64U,
   });
   expect(verified.ok).toBe(true);
-  const acknowledged = await service.acknowledgeEmailOtpRecoveryCodeBackup({
-    userId: USER_ID,
-    walletId: WALLET_ID,
-    orgId: ORG_ID,
-    enrollmentId: RECOVERY_ENROLLMENT_ID,
-    enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
-  });
-  expect(acknowledged.ok).toBe(true);
 }
 
 async function verifyEnrollmentWithRecoveryWrappedEnrollmentEscrows(
@@ -537,6 +555,7 @@ test.describe('AuthService Email OTP policy', () => {
       providerSubject,
       email: 'activation@example.com',
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: {
         orgId: ORG_ID,
         projectId: 'project_email_otp_authservice',
@@ -619,6 +638,7 @@ test.describe('AuthService Email OTP policy', () => {
       providerSubject,
       email,
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: {
         orgId: ORG_ID,
         projectId: 'project_email_otp_authservice',
@@ -652,7 +672,8 @@ test.describe('AuthService Email OTP policy', () => {
       providerSubject,
       email,
       accountMode: 'register',
-      rerollRegistrationAttempt: true,
+      appSessionVersion: 'app-session-v1',
+      restartRegistrationOffer: true,
       runtimePolicyScope: {
         orgId: ORG_ID,
         projectId: 'project_email_otp_authservice',
@@ -702,51 +723,6 @@ test.describe('AuthService Email OTP policy', () => {
       'Recovery-wrapped enrollment escrow recoveryKeyId values must be unique',
     );
     expect(await (service as any).getEmailOtpWalletEnrollmentStore().get(WALLET_ID)).toBeNull();
-  });
-
-  test('Email OTP enrollment abandons stale pending recovery-code backups on restart', async () => {
-    const service = makeService();
-    const first = await verifyEnrollmentWithRecoveryWrappedEnrollmentEscrows(
-      service,
-      makeRecoveryWrappedEnrollmentEscrows(1_000),
-    );
-    expect(first?.ok).toBe(true);
-
-    const restartedEscrows = makeRecoveryWrappedEnrollmentEscrows(2_000).map((record, index) => {
-      const recoveryKeyId = `restarted-recovery-key-${index + 1}`;
-      const metadata = {
-        walletId: record.walletId,
-        userId: record.userId,
-        authSubjectId: record.authSubjectId,
-        authMethod: record.authMethod,
-        enrollmentId: record.enrollmentId,
-        enrollmentVersion: record.enrollmentVersion,
-        enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
-        signingRootId: record.signingRootId,
-        signingRootVersion: record.signingRootVersion,
-        recoveryKeyId,
-      };
-      return {
-        ...record,
-        recoveryKeyId,
-        aadHashB64u: recoveryEscrowAadHashB64u(metadata),
-      };
-    });
-    const second = await verifyEnrollmentWithRecoveryWrappedEnrollmentEscrows(
-      service,
-      restartedEscrows,
-    );
-    expect(second?.ok).toBe(true);
-
-    const records = await (service as any)
-      .getEmailOtpRecoveryWrappedEnrollmentEscrowStore()
-      .listByWallet(WALLET_ID);
-    expect(
-      records.filter((record: any) => record.recoveryKeyStatus === 'pending_backup').length,
-    ).toBe(EMAIL_OTP_RECOVERY_KEY_COUNT);
-    expect(records.filter((record: any) => record.recoveryKeyStatus === 'abandoned').length).toBe(
-      EMAIL_OTP_RECOVERY_KEY_COUNT,
-    );
   });
 
   test('Email OTP enrollment rejects duplicate recovery nonces', async () => {
@@ -814,7 +790,6 @@ test.describe('AuthService Email OTP policy', () => {
       ...stale,
       ...staleMetadata,
       recoveryKeyStatus: 'active',
-      acknowledgedAtMs: Date.now(),
       nonceB64u: base64UrlEncode(Uint8Array.from([9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9])),
       aadHashB64u: recoveryEscrowAadHashB64u(staleMetadata),
     });
@@ -994,6 +969,43 @@ test.describe('AuthService Email OTP policy', () => {
     });
     expect(unchangedEnrollment.ok).toBe(true);
     expect(unchangedEnrollment.ok && unchangedEnrollment.enrollment.verifiedEmail).toBe(EMAIL);
+  });
+
+  test('Email OTP login exchange can reuse an active challenge without resending', async () => {
+    const service = makeService();
+    await seedEmailOtpEnrollment(service);
+    const first = await service.createEmailOtpChallenge({
+      userId: USER_ID,
+      walletId: WALLET_ID,
+      orgId: ORG_ID,
+      email: EMAIL,
+      otpChannel: 'email_otp',
+      sessionHash: SESSION_HASH,
+      appSessionVersion: APP_SESSION_VERSION,
+      reuseActiveChallenge: true,
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    expect(first.delivery.status).toBe('sent');
+
+    const second = await service.createEmailOtpChallenge({
+      userId: USER_ID,
+      walletId: WALLET_ID,
+      orgId: ORG_ID,
+      email: EMAIL,
+      otpChannel: 'email_otp',
+      sessionHash: SESSION_HASH,
+      appSessionVersion: APP_SESSION_VERSION,
+      reuseActiveChallenge: true,
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.delivery.status).toBe('reused');
+    expect(second.challenge.challengeId).toBe(first.challenge.challengeId);
+
+    const outbox = (service as any).emailOtpMemoryOutbox;
+    expect(outbox.size).toBe(1);
+    expect(outbox.has(first.challenge.challengeId)).toBe(true);
   });
 
   test('Email OTP resend accepts any active matching code for the same context', async () => {
@@ -1757,6 +1769,41 @@ test.describe('AuthService Email OTP policy', () => {
         expect(limited.ok).toBe(false);
         if (limited.ok) return;
         expect(limited.code).toBe('rate_limited');
+      },
+    );
+  });
+
+  test('Google Email OTP registration attempts are rate-limited by provider subject and source IP', async () => {
+    await withEnv(
+      {
+        ...EMAIL_OTP_RATE_LIMIT_ENV_UNSET,
+        EMAIL_OTP_RATE_LIMITER_KIND: 'in-memory',
+        EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX: '1',
+        EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS: '60000',
+      },
+      async () => {
+        const service = makeService();
+        const first = await consumeGoogleRegistrationRateLimit(service, {
+          providerSubject: 'google:subject-rate-limit-a',
+          clientIp: '203.0.113.30',
+        });
+        expect(first.ok).toBe(true);
+
+        const sameSubjectDifferentIp = await consumeGoogleRegistrationRateLimit(service, {
+          providerSubject: 'google:subject-rate-limit-a',
+          clientIp: '203.0.113.31',
+        });
+        expect(sameSubjectDifferentIp.ok).toBe(false);
+        if (sameSubjectDifferentIp.ok) return;
+        expect(sameSubjectDifferentIp.code).toBe('rate_limited');
+
+        const differentSubjectSameIp = await consumeGoogleRegistrationRateLimit(service, {
+          providerSubject: 'google:subject-rate-limit-b',
+          clientIp: '203.0.113.30',
+        });
+        expect(differentSubjectSameIp.ok).toBe(false);
+        if (differentSubjectSameIp.ok) return;
+        expect(differentSubjectSameIp.code).toBe('rate_limited');
       },
     );
   });

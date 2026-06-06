@@ -11,6 +11,7 @@ import {
   EMAIL_OTP_RECOVERY_WRAP_ALG,
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+  buildEmailOtpRecoveryWrapBinding,
   encodeEmailOtpRecoveryWrappedEnrollmentAad,
 } from '@shared/utils/emailOtpRecoveryKey';
 
@@ -167,17 +168,15 @@ export function makeEmailOtpRecoveryWrappedEnrollmentEscrows(input: {
   authSubjectId?: string;
   enrollmentSealKeyVersion: string;
   nowMs?: number;
-  recoveryKeyStatus?: 'pending_backup' | 'active';
 }) {
   const nowMs = input.nowMs ?? Date.now();
   const authSubjectId = input.authSubjectId || input.userId;
-  const recoveryKeyStatus = input.recoveryKeyStatus || 'pending_backup';
   return Array.from({ length: EMAIL_OTP_RECOVERY_KEY_COUNT }, (_, index) => {
     const metadata = {
       walletId: input.walletId,
       userId: input.userId,
       authSubjectId,
-      authMethod: 'google_sso_email_otp',
+      authMethod: 'google_sso_email_otp' as const,
       enrollmentId: `email-otp-device-enrollment-v1:${input.walletId}:${authSubjectId}`,
       enrollmentVersion: '1',
       enrollmentSealKeyVersion: input.enrollmentSealKeyVersion,
@@ -191,14 +190,17 @@ export function makeEmailOtpRecoveryWrappedEnrollmentEscrows(input: {
       secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
       escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
       ...metadata,
-      recoveryKeyStatus,
-      ...(recoveryKeyStatus === 'active' ? { acknowledgedAtMs: nowMs } : {}),
+      recoveryKeyStatus: 'active',
       nonceB64u: base64UrlEncode(Uint8Array.from(Array.from({ length: 12 }, (_, i) => i + index))),
       wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(
         Uint8Array.from(Array.from({ length: 48 }, (_, i) => i + index + 1)),
       ),
       aadHashB64u: base64UrlEncode(
-        createHash('sha256').update(encodeEmailOtpRecoveryWrappedEnrollmentAad(metadata)).digest(),
+        createHash('sha256')
+          .update(
+            encodeEmailOtpRecoveryWrappedEnrollmentAad(buildEmailOtpRecoveryWrapBinding(metadata)),
+          )
+          .digest(),
       ),
       issuedAtMs: nowMs,
       updatedAtMs: nowMs,
@@ -244,6 +246,7 @@ export function makeFakeAuthService(
     verifyOidcJwtExchange: AuthService['verifyOidcJwtExchange'];
     resolveOidcWalletId: AuthService['resolveOidcWalletId'];
     resolveGoogleEmailOtpSession: AuthService['resolveGoogleEmailOtpSession'];
+    consumeGoogleEmailOtpRegistrationAttemptRateLimit: AuthService['consumeGoogleEmailOtpRegistrationAttemptRateLimit'];
     recordGoogleEmailOtpRegistrationAttemptPublicKey: AuthService['recordGoogleEmailOtpRegistrationAttemptPublicKey'];
     completeGoogleEmailOtpRegistrationAttempt: AuthService['completeGoogleEmailOtpRegistrationAttempt'];
     failGoogleEmailOtpRegistrationAttempt: AuthService['failGoogleEmailOtpRegistrationAttempt'];
@@ -303,6 +306,8 @@ export function makeFakeAuthService(
     verifyEmailOtpChallenge:
       overrides.verifyEmailOtpChallenge ||
       (async () => ({ ok: false, code: 'not_implemented', message: 'not implemented' })),
+    consumeGoogleEmailOtpRegistrationAttemptRateLimit:
+      overrides.consumeGoogleEmailOtpRegistrationAttemptRateLimit || (async () => ({ ok: true })),
     resolveGoogleEmailOtpSession:
       overrides.resolveGoogleEmailOtpSession ||
       (async (request) => {

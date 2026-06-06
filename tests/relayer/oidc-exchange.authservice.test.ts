@@ -81,6 +81,62 @@ function makeService(): AuthService {
   });
 }
 
+function googleEmailOtpRegistrationAuthorityInput(input: {
+  walletId: string;
+  email: string;
+  providerSubject: string;
+  registrationAttemptId: string;
+  offerId: string;
+  candidateId: string;
+  appSessionVersion: string;
+}) {
+  return {
+    intent: {
+      version: 'registration_intent_v1',
+      walletId: input.walletId,
+      rpId: 'localhost',
+      authMethod: {
+        kind: 'email_otp',
+        proofKind: 'google_sso_registration',
+        email: input.email,
+        appSessionJwt: 'app-session-jwt',
+        googleEmailOtpRegistrationAttemptId: input.registrationAttemptId,
+        googleEmailOtpRegistrationOfferId: input.offerId,
+        googleEmailOtpRegistrationCandidateId: input.candidateId,
+      },
+      signerSelection: {
+        mode: 'ed25519_only',
+        ed25519: {
+          nearAccountId: input.walletId,
+          signerSlot: 1,
+          participantIds: [1, 2],
+          keyPurpose: 'near_tx',
+          keyVersion: 'threshold-ed25519-hss-v1',
+          derivationVersion: 1,
+          createNearAccount: true,
+        },
+      },
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+      nonceB64u: 'nonce',
+    },
+    registrationIntentDigestB64u: 'registration-digest',
+    orgId: ORG_ID,
+    expectedOrigin: '',
+    webauthnRegistration: undefined,
+    emailOtpRegistrationProof: {
+      version: 'email_otp_registration_proof_v1',
+      proofKind: 'google_sso_registration',
+      providerSubject: input.providerSubject,
+      email: input.email,
+      googleEmailOtpRegistrationAttemptId: input.registrationAttemptId,
+      googleEmailOtpRegistrationOfferId: input.offerId,
+      googleEmailOtpRegistrationCandidateId: input.candidateId,
+      registrationIntentDigestB64u: 'registration-digest',
+      appSessionVersion: input.appSessionVersion,
+    },
+  };
+}
+
 test.describe('AuthService OIDC exchange verification', () => {
   test('verifies a valid OIDC JWT exchange token and maps subject', async () => {
     const service = makeService();
@@ -205,6 +261,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-1',
       email: 'Alice.Example+demo@Example.COM',
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(registered.ok).toBe(true);
@@ -215,6 +272,9 @@ test.describe('AuthService OIDC exchange verification', () => {
     expect(registered.walletId).not.toContain('alice');
     expect(registered.walletId).not.toContain('example');
     expect(registered.registrationAttemptId).toBeTruthy();
+    expect(registered.offer.candidates.length).toBeGreaterThan(1);
+    expect(registered.offer.candidates[0]?.walletId).toBe(registered.walletId);
+    expect(registered.offer.selectedCandidateId).toBe(registered.offer.candidates[0]?.candidateId);
     const attempt = await (service as any)
       .getEmailOtpRegistrationAttemptStore()
       .get(registered.registrationAttemptId);
@@ -226,7 +286,10 @@ test.describe('AuthService OIDC exchange verification', () => {
       accountIdSlugVersion: 'hmac_readable_v1',
       walletIdDerivationNonce: expect.any(String),
       collisionCounter: 0,
+      offerId: registered.offer.offerId,
+      selectedCandidateId: registered.offer.selectedCandidateId,
     });
+    expect(attempt?.offerCandidates).toHaveLength(registered.offer.candidates.length);
 
     const identity = (service as any).getIdentityStore();
     await expect(identity.getUserIdBySubject('wallet:google:subject-1')).resolves.toBeNull();
@@ -244,19 +307,21 @@ test.describe('AuthService OIDC exchange verification', () => {
     });
   });
 
-  test('Google Email OTP registration resumes a live pending attempt', async () => {
+  test('Google Email OTP registration reuses a live pending offer after refresh', async () => {
     const service = makeService();
 
     const first = await service.resolveGoogleEmailOtpSession({
       providerSubject: 'google:subject-resume',
       email: 'resume@example.com',
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     const second = await service.resolveGoogleEmailOtpSession({
       providerSubject: 'google:subject-resume',
       email: 'resume@example.com',
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
 
@@ -268,6 +333,349 @@ test.describe('AuthService OIDC exchange verification', () => {
     if (first.mode !== 'register_started' || second.mode !== 'register_started') return;
     expect(second.walletId).toBe(first.walletId);
     expect(second.registrationAttemptId).toBe(first.registrationAttemptId);
+    expect(second.offer).toEqual(first.offer);
+    const firstAttempt = await (service as any)
+      .getEmailOtpRegistrationAttemptStore()
+      .get(first.registrationAttemptId);
+    expect(firstAttempt?.state).toBe('started');
+    expect(firstAttempt?.failureCode).toBeUndefined();
+  });
+
+  test('Google Email OTP registration offer is bound to app-session version', async () => {
+    const service = makeService();
+
+    const first = await service.resolveGoogleEmailOtpSession({
+      providerSubject: 'google:subject-app-session-bound',
+      email: 'app-session-bound@example.com',
+      accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok || first.mode !== 'register_started') return;
+
+    const second = await service.resolveGoogleEmailOtpSession({
+      providerSubject: 'google:subject-app-session-bound',
+      email: 'app-session-bound@example.com',
+      accountMode: 'register',
+      appSessionVersion: 'app-session-v2',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok || second.mode !== 'register_started') return;
+    expect(second.registrationAttemptId).not.toBe(first.registrationAttemptId);
+
+    const firstAttempt = await (service as any)
+      .getEmailOtpRegistrationAttemptStore()
+      .get(first.registrationAttemptId);
+    expect(firstAttempt).toMatchObject({
+      state: 'abandoned',
+      failureCode: 'app_session_version_replaced',
+    });
+
+    const selected = second.offer.candidates[0];
+    expect(selected).toBeTruthy();
+    if (!selected) return;
+    const verified = await (service as any).verifyRegistrationAuthorityForIntent({
+      intent: {
+        version: 'registration_intent_v1',
+        walletId: selected.walletId,
+        rpId: 'localhost',
+        authMethod: {
+          kind: 'email_otp',
+          proofKind: 'google_sso_registration',
+          email: 'app-session-bound@example.com',
+          appSessionJwt: 'app-session-jwt',
+          googleEmailOtpRegistrationAttemptId: second.registrationAttemptId,
+          googleEmailOtpRegistrationOfferId: second.offer.offerId,
+          googleEmailOtpRegistrationCandidateId: selected.candidateId,
+        },
+        signerSelection: {
+          mode: 'ed25519_only',
+          ed25519: {
+            nearAccountId: selected.walletId,
+            signerSlot: 1,
+            participantIds: [1, 2],
+            keyPurpose: 'near_tx',
+            keyVersion: 'threshold-ed25519-hss-v1',
+            derivationVersion: 1,
+            createNearAccount: true,
+          },
+        },
+        runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+        nonceB64u: 'nonce',
+      },
+      registrationIntentDigestB64u: 'registration-digest',
+      orgId: ORG_ID,
+      expectedOrigin: '',
+      webauthnRegistration: undefined,
+      emailOtpRegistrationProof: {
+        version: 'email_otp_registration_proof_v1',
+        proofKind: 'google_sso_registration',
+        providerSubject: 'google:subject-app-session-bound',
+        email: 'app-session-bound@example.com',
+        googleEmailOtpRegistrationAttemptId: second.registrationAttemptId,
+        googleEmailOtpRegistrationOfferId: second.offer.offerId,
+        googleEmailOtpRegistrationCandidateId: selected.candidateId,
+        registrationIntentDigestB64u: 'registration-digest',
+        appSessionVersion: 'app-session-v1',
+      },
+    });
+    expect(verified).toMatchObject({
+      ok: false,
+      code: 'app_session_version_mismatch',
+    });
+  });
+
+  test('Google Email OTP registration authority binds by offer candidate id', async () => {
+    const service = makeService();
+
+    const registered = await service.resolveGoogleEmailOtpSession({
+      providerSubject: 'google:subject-offer-candidate',
+      email: 'offer-candidate@example.com',
+      accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    });
+    expect(registered.ok).toBe(true);
+    if (!registered.ok || registered.mode !== 'register_started') return;
+    const selected = registered.offer.candidates[1];
+    expect(selected).toBeTruthy();
+    if (!selected) return;
+    const authMethod = {
+      kind: 'email_otp' as const,
+      proofKind: 'google_sso_registration' as const,
+      email: 'offer-candidate@example.com',
+      appSessionJwt: 'app-session-jwt',
+      googleEmailOtpRegistrationAttemptId: registered.registrationAttemptId,
+      googleEmailOtpRegistrationOfferId: registered.offer.offerId,
+      googleEmailOtpRegistrationCandidateId: selected.candidateId,
+    };
+
+    const verified = await (service as any).verifyRegistrationAuthorityForIntent({
+      intent: {
+        version: 'registration_intent_v1',
+        walletId: selected.walletId,
+        rpId: 'localhost',
+        authMethod,
+        signerSelection: {
+          mode: 'ed25519_only',
+          ed25519: {
+            nearAccountId: selected.walletId,
+            signerSlot: 1,
+            participantIds: [1, 2],
+            keyPurpose: 'near_tx',
+            keyVersion: 'threshold-ed25519-hss-v1',
+            derivationVersion: 1,
+            createNearAccount: true,
+          },
+        },
+        runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+        nonceB64u: 'nonce',
+      },
+      registrationIntentDigestB64u: 'registration-digest',
+      orgId: ORG_ID,
+      expectedOrigin: '',
+      webauthnRegistration: undefined,
+      emailOtpRegistrationProof: {
+        version: 'email_otp_registration_proof_v1',
+        proofKind: 'google_sso_registration',
+        providerSubject: 'google:subject-offer-candidate',
+        email: 'offer-candidate@example.com',
+        googleEmailOtpRegistrationAttemptId: registered.registrationAttemptId,
+        googleEmailOtpRegistrationOfferId: registered.offer.offerId,
+        googleEmailOtpRegistrationCandidateId: selected.candidateId,
+        registrationIntentDigestB64u: 'registration-digest',
+        appSessionVersion: 'app-session-v1',
+      },
+    });
+
+    expect(verified).toMatchObject({
+      ok: true,
+      authority: {
+        kind: 'email_otp',
+        proofKind: 'google_sso_registration',
+        walletId: selected.walletId,
+        googleEmailOtpRegistrationOfferId: registered.offer.offerId,
+        googleEmailOtpRegistrationCandidateId: selected.candidateId,
+      },
+    });
+    const attempt = await (service as any)
+      .getEmailOtpRegistrationAttemptStore()
+      .get(registered.registrationAttemptId);
+    const storedCandidate = attempt?.offerCandidates?.find(
+      (candidate: { candidateId: string }) => candidate.candidateId === selected.candidateId,
+    );
+    expect(attempt).toMatchObject({
+      walletId: selected.walletId,
+      selectedCandidateId: selected.candidateId,
+      collisionCounter: storedCandidate?.collisionCounter,
+    });
+  });
+
+  test('Google Email OTP registration authority rejects mismatched offer candidate ids', async () => {
+    const service = makeService();
+
+    const registered = await service.resolveGoogleEmailOtpSession({
+      providerSubject: 'google:subject-offer-mismatch',
+      email: 'offer-mismatch@example.com',
+      accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    });
+    expect(registered.ok).toBe(true);
+    if (!registered.ok || registered.mode !== 'register_started') return;
+    const selected = registered.offer.candidates[0];
+    const other = registered.offer.candidates[1];
+    expect(selected).toBeTruthy();
+    expect(other).toBeTruthy();
+    if (!selected || !other) return;
+
+    const verified = await (service as any).verifyRegistrationAuthorityForIntent({
+      intent: {
+        version: 'registration_intent_v1',
+        walletId: selected.walletId,
+        rpId: 'localhost',
+        authMethod: {
+          kind: 'email_otp',
+          proofKind: 'google_sso_registration',
+          email: 'offer-mismatch@example.com',
+          appSessionJwt: 'app-session-jwt',
+          googleEmailOtpRegistrationAttemptId: registered.registrationAttemptId,
+          googleEmailOtpRegistrationOfferId: registered.offer.offerId,
+          googleEmailOtpRegistrationCandidateId: other.candidateId,
+        },
+        signerSelection: {
+          mode: 'ed25519_only',
+          ed25519: {
+            nearAccountId: selected.walletId,
+            signerSlot: 1,
+            participantIds: [1, 2],
+            keyPurpose: 'near_tx',
+            keyVersion: 'threshold-ed25519-hss-v1',
+            derivationVersion: 1,
+            createNearAccount: true,
+          },
+        },
+        runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+        nonceB64u: 'nonce',
+      },
+      registrationIntentDigestB64u: 'registration-digest',
+      orgId: ORG_ID,
+      expectedOrigin: '',
+      webauthnRegistration: undefined,
+      emailOtpRegistrationProof: {
+        version: 'email_otp_registration_proof_v1',
+        proofKind: 'google_sso_registration',
+        providerSubject: 'google:subject-offer-mismatch',
+        email: 'offer-mismatch@example.com',
+        googleEmailOtpRegistrationAttemptId: registered.registrationAttemptId,
+        googleEmailOtpRegistrationOfferId: registered.offer.offerId,
+        googleEmailOtpRegistrationCandidateId: other.candidateId,
+        registrationIntentDigestB64u: 'registration-digest',
+        appSessionVersion: 'app-session-v1',
+      },
+    });
+
+    expect(verified).toMatchObject({
+      ok: false,
+      code: 'registration_candidate_mismatch',
+    });
+  });
+
+  test('Google Email OTP registration authority rejects replaced offers', async () => {
+    const service = makeService();
+    const providerSubject = 'google:subject-replaced-offer';
+    const email = 'replaced-offer@example.com';
+
+    const first = await service.resolveGoogleEmailOtpSession({
+      providerSubject,
+      email,
+      accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok || first.mode !== 'register_started') return;
+    const selected = first.offer.candidates[0];
+    expect(selected).toBeTruthy();
+    if (!selected) return;
+
+    const second = await service.resolveGoogleEmailOtpSession({
+      providerSubject,
+      email,
+      accountMode: 'register',
+      appSessionVersion: 'app-session-v2',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    });
+    expect(second.ok).toBe(true);
+    if (!second.ok || second.mode !== 'register_started') return;
+    expect(second.registrationAttemptId).not.toBe(first.registrationAttemptId);
+
+    const verified = await (service as any).verifyRegistrationAuthorityForIntent(
+      googleEmailOtpRegistrationAuthorityInput({
+        walletId: selected.walletId,
+        email,
+        providerSubject,
+        registrationAttemptId: first.registrationAttemptId,
+        offerId: first.offer.offerId,
+        candidateId: selected.candidateId,
+        appSessionVersion: 'app-session-v1',
+      }),
+    );
+
+    expect(verified).toMatchObject({
+      ok: false,
+      code: 'registration_attempt_not_started',
+    });
+  });
+
+  test('Google Email OTP registration authority rejects expired offers', async () => {
+    const service = makeService();
+    const providerSubject = 'google:subject-expired-offer';
+    const email = 'expired-offer@example.com';
+
+    const registered = await service.resolveGoogleEmailOtpSession({
+      providerSubject,
+      email,
+      accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    });
+    expect(registered.ok).toBe(true);
+    if (!registered.ok || registered.mode !== 'register_started') return;
+    const selected = registered.offer.candidates[0];
+    expect(selected).toBeTruthy();
+    if (!selected) return;
+
+    const attemptStore = (service as any).getEmailOtpRegistrationAttemptStore();
+    const attempt = await attemptStore.get(registered.registrationAttemptId);
+    expect(attempt).toBeTruthy();
+    await attemptStore.put({
+      ...attempt,
+      updatedAtMs: Date.now(),
+      expiresAtMs: Date.now() - 1,
+    });
+
+    const verified = await (service as any).verifyRegistrationAuthorityForIntent(
+      googleEmailOtpRegistrationAuthorityInput({
+        walletId: selected.walletId,
+        email,
+        providerSubject,
+        registrationAttemptId: registered.registrationAttemptId,
+        offerId: registered.offer.offerId,
+        candidateId: selected.candidateId,
+        appSessionVersion: 'app-session-v1',
+      }),
+    );
+
+    expect(verified).toMatchObject({
+      ok: false,
+      code: 'registration_attempt_expired',
+    });
+    await expect(attemptStore.get(registered.registrationAttemptId)).resolves.toMatchObject({
+      state: 'expired',
+    });
   });
 
   test('identity mapping is committed only after successful Google Email OTP finalization', async () => {
@@ -276,6 +684,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-finalize',
       email: 'finalize@example.com',
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(registered.ok).toBe(true);
@@ -300,6 +709,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-orphaned-enrollment',
       email: 'orphaned@example.com',
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(registered.ok).toBe(true);
@@ -377,6 +787,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-existing-active',
       email: 'existing@example.com',
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(resolved.ok).toBe(true);
@@ -442,6 +853,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-stale-failed',
       email: 'stale.failed@example.com',
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(resolved.ok).toBe(false);
@@ -460,6 +872,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-finalized-helper',
       email: 'finalized@example.com',
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(registered.ok).toBe(true);
@@ -501,6 +914,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-privacy',
       email: 'Alice.Example+demo@Example.COM',
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(registered.ok).toBe(true);
@@ -519,6 +933,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-deterministic',
       email: 'first@example.com',
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(first.ok).toBe(true);
@@ -532,12 +947,42 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-deterministic',
       email: 'second@example.com',
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(second.ok).toBe(true);
     if (!second.ok) return;
     expect(second.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
     expect(second.walletId).not.toBe(first.walletId);
+  });
+
+  test('Google Email OTP registration offer restart allocates a fresh registration attempt', async () => {
+    const service = makeService();
+    const first = await service.resolveGoogleEmailOtpSession({
+      providerSubject: 'google:subject-offer-restart',
+      email: 'offer-restart@example.com',
+      accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok || first.mode !== 'register_started') return;
+
+    const second = await service.resolveGoogleEmailOtpSession({
+      providerSubject: 'google:subject-offer-restart',
+      email: 'offer-restart@example.com',
+      accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
+      restartRegistrationOffer: true,
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    });
+
+    expect(second.ok).toBe(true);
+    if (!second.ok || second.mode !== 'register_started') return;
+    expect(second.walletId).not.toBe(first.walletId);
+    expect(second.registrationAttemptId).not.toBe(first.registrationAttemptId);
+    expect(second.offer.offerId).not.toBe(first.offer.offerId);
+    expect(JSON.stringify(second)).not.toContain('otpDelivery');
   });
 
   test('Google Email OTP registration keeps existing active wallet login semantics', async () => {
@@ -573,6 +1018,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:subject-active-stable',
       email: 'Dev.Active.Stable@Example.COM',
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(resolved.ok).toBe(true);
@@ -596,6 +1042,16 @@ test.describe('AuthService OIDC exchange verification', () => {
       providerSubject: 'google:expired-subject',
       email: 'expired@example.com',
       walletId: 'expired.relayer.testnet',
+      offerId: 'offer-expired-attempt',
+      offerCandidates: [
+        {
+          candidateId: 'candidate-expired-attempt',
+          walletId: 'expired.relayer.testnet',
+          collisionCounter: 0,
+        },
+      ],
+      selectedCandidateId: 'candidate-expired-attempt',
+      appSessionVersion: 'app-session-v1',
       authProvider: 'google_oidc',
       accountIdSlugVersion: 'hmac_readable_v1',
       walletIdDerivationNonce: 'expiredAttemptNonce001',
@@ -704,7 +1160,9 @@ test.describe('AuthService OIDC exchange verification', () => {
       linkedWalletId: 'mismatched-subject.relayer.testnet',
       orphanedWalletMappingRemoved: true,
     });
-    await expect(identity.getUserIdBySubject('wallet:google:subject-cleanup-target')).resolves.toBeNull();
+    await expect(
+      identity.getUserIdBySubject('wallet:google:subject-cleanup-target'),
+    ).resolves.toBeNull();
   });
 
   test('dev cleanup removes mappings whose Email OTP enrollment belongs to another org when org is provided', async () => {
@@ -746,7 +1204,9 @@ test.describe('AuthService OIDC exchange verification', () => {
       linkedWalletId: 'mismatched-org.relayer.testnet',
       orphanedWalletMappingRemoved: true,
     });
-    await expect(identity.getUserIdBySubject('wallet:google:subject-cleanup-org')).resolves.toBeNull();
+    await expect(
+      identity.getUserIdBySubject('wallet:google:subject-cleanup-org'),
+    ).resolves.toBeNull();
   });
 
   test('derives HMAC-readable OIDC wallet id when no registration mapping exists', async () => {
@@ -816,6 +1276,7 @@ test.describe('AuthService OIDC exchange verification', () => {
         providerSubject: 'google:subject-stale-top-level',
         email: 'stale@example.com',
         accountMode: 'register',
+        appSessionVersion: 'app-session-v1',
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       });
       expect(registered.ok).toBe(false);
@@ -833,6 +1294,7 @@ test.describe('AuthService OIDC exchange verification', () => {
       service.resolveOidcWalletId({
         providerSubject: 'google:subject-without-email',
         accountMode: 'register',
+        appSessionVersion: 'app-session-v1',
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       }),
     ).rejects.toThrow('Email is required to register a Google Email OTP wallet id');

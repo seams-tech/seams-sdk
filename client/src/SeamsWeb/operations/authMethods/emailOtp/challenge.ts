@@ -199,9 +199,7 @@ function requireEmailOtpChallengeAction(args: {
 }): void {
   const action = readOptionalString(args.challenge.action);
   if (action && action !== args.expectedAction) {
-    throw new Error(
-      `${args.context} returned ${action}; expected ${args.expectedAction}`,
-    );
+    throw new Error(`${args.context} returned ${action}; expected ${args.expectedAction}`);
   }
 }
 
@@ -502,7 +500,6 @@ export async function exchangeGoogleEmailOtpSession(args: {
   idToken: string;
   accountMode: 'register' | 'login';
   sessionKind?: 'jwt' | 'cookie';
-  rerollRegistrationAttempt?: boolean;
   runtimeEnvironmentId?: string;
   publishableKey?: string;
   fetchImpl?: FetchLike;
@@ -521,7 +518,6 @@ export async function exchangeGoogleEmailOtpSession(args: {
         type: 'oidc_jwt',
         provider: 'google',
         account_mode: accountMode,
-        ...(args.rerollRegistrationAttempt ? { reroll_registration_attempt: true } : {}),
         token: readString(args.idToken, 'idToken'),
       },
     },
@@ -545,6 +541,48 @@ export async function exchangeGoogleEmailOtpSession(args: {
   const googleEmailOtpResolutionExpiresAt = readOptionalString(
     googleEmailOtpResolutionRaw?.expiresAt,
   );
+  const loginChallengeRaw =
+    googleEmailOtpResolutionRaw?.loginChallenge &&
+    typeof googleEmailOtpResolutionRaw.loginChallenge === 'object' &&
+    !Array.isArray(googleEmailOtpResolutionRaw.loginChallenge)
+      ? (googleEmailOtpResolutionRaw.loginChallenge as JsonObject)
+      : null;
+  const loginChallengeDelivery = readOptionalString(loginChallengeRaw?.delivery);
+  const activeLoginChallengeDelivery: 'sent' | 'reused' | null =
+    loginChallengeDelivery === 'sent'
+      ? 'sent'
+      : loginChallengeDelivery === 'reused'
+        ? 'reused'
+        : null;
+  const loginChallenge =
+    activeLoginChallengeDelivery
+      ? {
+          delivery: activeLoginChallengeDelivery,
+          challengeId: readString(
+            loginChallengeRaw?.challengeId,
+            'session/exchange loginChallenge.challengeId',
+          ),
+          ...(readOptionalString(loginChallengeRaw?.emailHint)
+            ? { emailHint: readOptionalString(loginChallengeRaw?.emailHint) }
+            : {}),
+          ...(readOptionalString(loginChallengeRaw?.expiresAt)
+            ? { expiresAt: readOptionalString(loginChallengeRaw?.expiresAt) }
+            : {}),
+          ...(Number.isFinite(Number(loginChallengeRaw?.expiresAtMs))
+            ? { expiresAtMs: Math.floor(Number(loginChallengeRaw?.expiresAtMs)) }
+            : {}),
+        }
+      : loginChallengeDelivery === 'rate_limited'
+        ? {
+            delivery: 'rate_limited' as const,
+            ...(Number.isFinite(Number(loginChallengeRaw?.retryAfterMs))
+              ? { retryAfterMs: Math.floor(Number(loginChallengeRaw?.retryAfterMs)) }
+              : {}),
+            ...(Number.isFinite(Number(loginChallengeRaw?.resetAtMs))
+              ? { resetAtMs: Math.floor(Number(loginChallengeRaw?.resetAtMs)) }
+              : {}),
+          }
+        : undefined;
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(session.runtimePolicyScope);
   return {
     ...(jwt ? { jwt } : {}),
@@ -564,6 +602,7 @@ export async function exchangeGoogleEmailOtpSession(args: {
               ...(googleEmailOtpResolutionExpiresAt
                 ? { expiresAt: googleEmailOtpResolutionExpiresAt }
                 : {}),
+              ...(loginChallenge ? { loginChallenge } : {}),
             },
           }
         : {}),

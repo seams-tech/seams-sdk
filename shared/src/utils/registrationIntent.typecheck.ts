@@ -33,10 +33,21 @@ const passkeyAuthMethod = {
 
 const emailOtpAuthMethod = {
   kind: 'email_otp',
+  proofKind: 'otp_challenge',
   email: 'alice@example.test',
   otpCode: '123456',
   appSessionJwt: 'app-session.jwt',
   challengeId: 'challenge',
+} satisfies RegistrationAuthMethodInput;
+
+const googleSsoRegistrationAuthMethod = {
+  kind: 'email_otp',
+  proofKind: 'google_sso_registration',
+  email: 'alice@example.test',
+  appSessionJwt: 'app-session.jwt',
+  googleEmailOtpRegistrationAttemptId: 'registration-attempt-1',
+  googleEmailOtpRegistrationOfferId: 'registration-offer-1',
+  googleEmailOtpRegistrationCandidateId: 'registration-candidate-1',
 } satisfies RegistrationAuthMethodInput;
 
 const ecdsaOnlySelection = {
@@ -73,6 +84,15 @@ void ({
   version: 'registration_intent_v1',
   walletId: walletIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
+  authMethod: googleSsoRegistrationAuthMethod,
+  signerSelection: ed25519OnlySelection,
+  nonceB64u: 'nonce',
+} satisfies RegistrationIntentV1);
+
+void ({
+  version: 'registration_intent_v1',
+  walletId: walletIdFromString('wallet_alice'),
+  rpId: 'wallet.example.test',
   authMethod: passkeyAuthMethod,
   signerSelection: ed25519OnlySelection,
   nonceB64u: 'nonce',
@@ -98,6 +118,7 @@ void passkeyWithEmail;
 // @ts-expect-error Email OTP registration auth cannot carry passkey options.
 const emailOtpWithAuthenticatorOptions: RegistrationAuthMethodInput = {
   kind: 'email_otp',
+  proofKind: 'otp_challenge',
   email: 'alice@example.test',
   otpCode: '123456',
   appSessionJwt: 'app-session.jwt',
@@ -108,6 +129,7 @@ void emailOtpWithAuthenticatorOptions;
 // @ts-expect-error Email OTP registration auth requires an OTP code.
 const emailOtpMissingOtpCode: RegistrationAuthMethodInput = {
   kind: 'email_otp',
+  proofKind: 'otp_challenge',
   email: 'alice@example.test',
   appSessionJwt: 'app-session.jwt',
 };
@@ -116,10 +138,33 @@ void emailOtpMissingOtpCode;
 // @ts-expect-error Email OTP registration auth requires app-session authority.
 const emailOtpMissingAppSession: RegistrationAuthMethodInput = {
   kind: 'email_otp',
+  proofKind: 'otp_challenge',
   email: 'alice@example.test',
   otpCode: '123456',
 };
 void emailOtpMissingAppSession;
+
+// @ts-expect-error Google SSO registration auth requires an offer id.
+const googleSsoMissingOffer: RegistrationAuthMethodInput = {
+  kind: 'email_otp',
+  proofKind: 'google_sso_registration',
+  email: 'alice@example.test',
+  appSessionJwt: 'app-session.jwt',
+  googleEmailOtpRegistrationAttemptId: 'registration-attempt-1',
+  googleEmailOtpRegistrationCandidateId: 'registration-candidate-1',
+};
+void googleSsoMissingOffer;
+
+// @ts-expect-error Google SSO registration auth requires a selected candidate id.
+const googleSsoMissingCandidate: RegistrationAuthMethodInput = {
+  kind: 'email_otp',
+  proofKind: 'google_sso_registration',
+  email: 'alice@example.test',
+  appSessionJwt: 'app-session.jwt',
+  googleEmailOtpRegistrationAttemptId: 'registration-attempt-1',
+  googleEmailOtpRegistrationOfferId: 'registration-offer-1',
+};
+void googleSsoMissingCandidate;
 
 void ({
   version: 'wallet_auth_method_v1',
@@ -136,6 +181,7 @@ void ({
 
 void ({
   kind: 'email_otp',
+  proofKind: 'otp_challenge',
   walletId: walletIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
   providerSubject,
@@ -143,6 +189,7 @@ void ({
   email: 'alice@example.test',
   emailHashHex: '00',
   challengeId: emailOtpChallengeId,
+  registrationAuthorityId: emailOtpChallengeId,
   originalWalletId: walletIdFromString('wallet_alice_original'),
   finalWalletId: walletIdFromString('wallet_alice'),
   orgId,
@@ -154,12 +201,14 @@ void ({
 // @ts-expect-error Email OTP authority requires the normalized challenge owner.
 const emailOtpAuthorityMissingChallengeSubject: RegistrationAuthority = {
   kind: 'email_otp',
+  proofKind: 'otp_challenge',
   walletId: walletIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
   providerSubject,
   email: 'alice@example.test',
   emailHashHex: '00',
   challengeId: emailOtpChallengeId,
+  registrationAuthorityId: emailOtpChallengeId,
   originalWalletId: walletIdFromString('wallet_alice_original'),
   finalWalletId: walletIdFromString('wallet_alice'),
   orgId,
@@ -176,7 +225,7 @@ void ({
   walletId: walletIdFromString('wallet_alice'),
   rpId: 'wallet.example.test',
   emailHashHex: '00',
-  challengeId: 'challenge',
+  registrationAuthorityId: 'challenge',
   createdAtMs: 1,
   updatedAtMs: 1,
 } satisfies WalletAuthMethodRecord);

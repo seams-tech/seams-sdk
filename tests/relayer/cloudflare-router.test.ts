@@ -177,6 +177,52 @@ function makeRelayObservabilityCollector(
   };
 }
 
+const sessionExchangeRuntimeEnvironmentId = 'proj_session_exchange:dev';
+const sessionExchangeRuntimePolicyScope = {
+  orgId: 'org_session_exchange',
+  projectId: 'proj_session_exchange',
+  envId: 'dev',
+  signingRootVersion: 'default',
+};
+
+async function createScopedSessionExchangeRuntimeDeps(input?: { origin?: string }) {
+  const origin = input?.origin || 'https://example.localhost';
+  const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+  const orgCtx = {
+    orgId: sessionExchangeRuntimePolicyScope.orgId,
+    actorUserId: 'session-exchange-test',
+    roles: ['admin'],
+  };
+  await orgProjectEnv.upsertOrganization(orgCtx, { name: 'Session Exchange Org' });
+  await orgProjectEnv.createProject(orgCtx, {
+    id: sessionExchangeRuntimePolicyScope.projectId,
+    name: 'Session Exchange Project',
+  });
+  return {
+    orgProjectEnv,
+    publishableKeyAuth: {
+      authenticate: async (authInput: {
+        secret: string;
+        origin?: string;
+        environmentId?: string;
+      }) => {
+        expect(authInput.secret).toBe('pk_session_exchange');
+        expect(authInput.origin).toBe(origin);
+        expect(authInput.environmentId).toBe(sessionExchangeRuntimeEnvironmentId);
+        return {
+          ok: true as const,
+          principal: {
+            apiKeyId: 'pk_session_exchange',
+            orgId: sessionExchangeRuntimePolicyScope.orgId,
+            environmentId: sessionExchangeRuntimeEnvironmentId,
+            scopes: [],
+          },
+        };
+      },
+    },
+  };
+}
+
 function makeSignedDelegatePricing() {
   return resolveStaticSponsoredExecutionPricingFromEnv({
     SPONSORED_EXECUTION_STATIC_PRICING_JSON: JSON.stringify({
@@ -1528,33 +1574,45 @@ test.describe('relayer router (cloudflare) – P0', () => {
         aud: ['wallet-app'],
         sub: 'user-123',
       }),
+      resolveOidcWalletId: async (input) => {
+        expect(input.runtimePolicyScope).toEqual(sessionExchangeRuntimePolicyScope);
+        return 'user-oidc-cf-1.testnet';
+      },
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
     });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
       session,
+      ...runtimeDeps,
     });
 
     const res = await callCf(handler, {
       method: 'POST',
       path: '/session/exchange',
       origin: 'https://example.localhost',
+      headers: { Authorization: 'Bearer pk_session_exchange' },
       body: {
         sessionKind: 'jwt',
+        runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
         exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
       },
     });
 
-    expect(res.status).toBe(200);
+    expect(res.status, res.text).toBe(200);
     expect(res.json?.ok).toBe(true);
     expect(getPath(res.json, 'session', 'kind')).toBe('app_session_v1');
     expect(getPath(res.json, 'session', 'userId')).toBe('user-oidc-cf-1');
+    expect(getPath(res.json, 'session', 'runtimePolicyScope')).toEqual(
+      sessionExchangeRuntimePolicyScope,
+    );
     expect(getPath(res.json, 'session', 'expiresAt')).toBe('2030-01-01T00:00:00.000Z');
     expect(typeof res.json?.jwt).toBe('string');
   });
 
   test('POST /session/exchange: Google register forwards account mode to wallet id resolution', async () => {
     let resolvedInput: Record<string, unknown> | null = null;
+    let emailOtpChallengeCreated = false;
     const session = makeSessionAdapter({ signJwt: async () => 'google-register-cf-jwt' });
     const service = makeFakeAuthService({
       verifyGoogleLogin: async () => ({
@@ -1564,6 +1622,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         providerSubject: 'google:user-cf-1',
         sub: 'user-cf-1',
         email: 'alice@example.com',
+        emailVerified: true,
         name: 'Alice Example',
       }),
       resolveGoogleEmailOtpSession: async (input) => {
@@ -1579,18 +1638,26 @@ test.describe('relayer router (cloudflare) – P0', () => {
         };
       },
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
+      createEmailOtpChallenge: async () => {
+        emailOtpChallengeCreated = true;
+        throw new Error('register-mode exchange must not send Email OTP');
+      },
     });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
       session,
+      ...runtimeDeps,
     });
 
     const res = await callCf(handler, {
       method: 'POST',
       path: '/session/exchange',
       origin: 'https://example.localhost',
+      headers: { Authorization: 'Bearer pk_session_exchange' },
       body: {
         sessionKind: 'jwt',
+        runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
         exchange: {
           type: 'oidc_jwt',
           provider: 'google',
@@ -1612,7 +1679,221 @@ test.describe('relayer router (cloudflare) – P0', () => {
       sub: 'user-cf-1',
       email: 'alice@example.com',
       accountMode: 'register',
+      runtimePolicyScope: sessionExchangeRuntimePolicyScope,
     });
+    expect(emailOtpChallengeCreated).toBe(false);
+  });
+
+  test('POST /session/exchange: Google register rejects OTP challenge fields', async () => {
+    let resolverCalled = false;
+    const session = makeSessionAdapter({ signJwt: async () => 'unused-google-register-cf-jwt' });
+    const service = makeFakeAuthService({
+      verifyGoogleLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'google:user-cf-otp-fields',
+        providerSubject: 'google:user-cf-otp-fields',
+        sub: 'user-cf-otp-fields',
+        email: 'otp-fields@example.com',
+        emailVerified: true,
+      }),
+      resolveGoogleEmailOtpSession: async () => {
+        resolverCalled = true;
+        throw new Error('resolver should not run');
+      },
+    });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+      ...runtimeDeps,
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://example.localhost',
+      headers: { Authorization: 'Bearer pk_session_exchange' },
+      body: {
+        sessionKind: 'jwt',
+        runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+        exchange: {
+          type: 'oidc_jwt',
+          provider: 'google',
+          account_mode: 'register',
+          token: 'google.id.token',
+          otpCode: '123456',
+        },
+      },
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.json?.code).toBe('invalid_body');
+    expect(res.json?.message).toContain('otpCode');
+    expect(resolverCalled).toBe(false);
+  });
+
+  test('POST /session/exchange: Google register rejects top-level wallet and passkey fields', async () => {
+    let resolverCalled = false;
+    const session = makeSessionAdapter({ signJwt: async () => 'unused-google-register-cf-jwt' });
+    const service = makeFakeAuthService({
+      verifyGoogleLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'google:user-cf-top-level-mixed-fields',
+        providerSubject: 'google:user-cf-top-level-mixed-fields',
+        sub: 'user-cf-top-level-mixed-fields',
+        email: 'top-level-mixed-fields@example.com',
+        emailVerified: true,
+      }),
+      resolveGoogleEmailOtpSession: async () => {
+        resolverCalled = true;
+        throw new Error('resolver should not run');
+      },
+    });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+      ...runtimeDeps,
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://example.localhost',
+      headers: { Authorization: 'Bearer pk_session_exchange' },
+      body: {
+        sessionKind: 'jwt',
+        runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+        walletId: 'client-selected.testnet',
+        passkey: { credentialId: 'must-not-appear' },
+        exchange: {
+          type: 'oidc_jwt',
+          provider: 'google',
+          account_mode: 'register',
+          token: 'google.id.token',
+        },
+      },
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.json?.code).toBe('invalid_body');
+    expect(res.json?.message).toContain('walletId');
+    expect(resolverCalled).toBe(false);
+  });
+
+  test('POST /session/exchange: Google register consumes registration attempt rate limit before resolution', async () => {
+    let resolverCalled = false;
+    let rateLimitInput: Record<string, unknown> | null = null;
+    const session = makeSessionAdapter({ signJwt: async () => 'unused-rate-limited-google-cf-jwt' });
+    const service = makeFakeAuthService({
+      verifyGoogleLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'google:user-cf-rate-limited',
+        providerSubject: 'google:user-cf-rate-limited',
+        sub: 'user-cf-rate-limited',
+        email: 'rate-limited@example.com',
+        emailVerified: true,
+      }),
+      consumeGoogleEmailOtpRegistrationAttemptRateLimit: async (input) => {
+        rateLimitInput = input as Record<string, unknown>;
+        return {
+          ok: false,
+          code: 'rate_limited',
+          message: 'Google registration rate limit exceeded',
+          retryAfterMs: 60_000,
+        };
+      },
+      resolveGoogleEmailOtpSession: async () => {
+        resolverCalled = true;
+        throw new Error('resolver should not run after rate limit rejection');
+      },
+    });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+      ...runtimeDeps,
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://example.localhost',
+      headers: {
+        Authorization: 'Bearer pk_session_exchange',
+        'CF-Connecting-IP': '203.0.113.41',
+      },
+      body: {
+        sessionKind: 'jwt',
+        runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+        exchange: {
+          type: 'oidc_jwt',
+          provider: 'google',
+          account_mode: 'register',
+          token: 'google.id.token',
+        },
+      },
+    });
+
+    expect(res.status).toBe(429);
+    expect(res.json?.code).toBe('rate_limited');
+    expect(resolverCalled).toBe(false);
+    expect(rateLimitInput).toMatchObject({
+      providerSubject: 'google:user-cf-rate-limited',
+      email: 'rate-limited@example.com',
+      accountMode: 'register',
+      runtimePolicyScope: sessionExchangeRuntimePolicyScope,
+      appSessionUserId: 'google:user-cf-rate-limited',
+      clientIp: '203.0.113.41',
+    });
+  });
+
+  test('POST /session/exchange: Google register requires verified email', async () => {
+    const session = makeSessionAdapter({ signJwt: async () => 'unused-unverified-google-cf-jwt' });
+    const service = makeFakeAuthService({
+      verifyGoogleLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'google:user-cf-unverified',
+        providerSubject: 'google:user-cf-unverified',
+        sub: 'user-cf-unverified',
+        email: 'unverified@example.com',
+        emailVerified: false,
+      }),
+      resolveGoogleEmailOtpSession: async () => {
+        throw new Error('resolver should not run for unverified email');
+      },
+    });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+      ...runtimeDeps,
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://example.localhost',
+      headers: { Authorization: 'Bearer pk_session_exchange' },
+      body: {
+        sessionKind: 'jwt',
+        runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+        exchange: {
+          type: 'oidc_jwt',
+          provider: 'google',
+          account_mode: 'register',
+          token: 'google.id.token',
+        },
+      },
+    });
+
+    expect(res.status).toBe(400);
+    expect(res.json?.code).toBe('invalid_claims');
+    expect(res.json?.message).toContain('verified email');
   });
 
   test('POST /session/exchange: Google register binds managed runtime scope to app session', async () => {
@@ -1631,6 +1912,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
         providerSubject: 'google:user-cf-scoped-1',
         sub: 'user-cf-scoped-1',
         email: 'scoped@example.com',
+        emailVerified: true,
       }),
       resolveGoogleEmailOtpSession: async () => ({
         ok: true,
@@ -1664,7 +1946,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
           expect(input.origin).toBe('https://wallet.example.test');
           expect(input.environmentId).toBe('proj_test_scoped:dev');
           return {
-            ok: true,
+            ok: true as const,
             principal: {
               apiKeyId: 'pk_1',
               orgId: 'org_test_scoped',
@@ -1698,11 +1980,13 @@ test.describe('relayer router (cloudflare) – P0', () => {
       orgId: 'org_test_scoped',
       projectId: 'proj_test_scoped',
       envId: 'dev',
+      signingRootVersion: 'default',
     });
     expect((signedExtra as Record<string, unknown> | null)?.runtimePolicyScope).toEqual({
       orgId: 'org_test_scoped',
       projectId: 'proj_test_scoped',
       envId: 'dev',
+      signingRootVersion: 'default',
     });
   });
 
@@ -1723,17 +2007,21 @@ test.describe('relayer router (cloudflare) – P0', () => {
         throw error;
       },
     });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
       session,
+      ...runtimeDeps,
     });
 
     const res = await callCf(handler, {
       method: 'POST',
       path: '/session/exchange',
       origin: 'https://example.localhost',
+      headers: { Authorization: 'Bearer pk_session_exchange' },
       body: {
         sessionKind: 'jwt',
+        runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
         exchange: {
           type: 'oidc_jwt',
           provider: 'google',
@@ -1746,6 +2034,116 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(res.status).toBe(404);
     expect(res.json?.code).toBe('not_found');
     expect(res.json?.message).toBe('Email OTP enrollment not found');
+  });
+
+  test('POST /session/exchange: Google login sends Email OTP after verified SSO', async () => {
+    const calls: string[] = [];
+    const session = makeSessionAdapter({ signJwt: async () => 'google-login-otp-cf-jwt' });
+    const service = makeFakeAuthService({
+      verifyGoogleLogin: async () => {
+        calls.push('verify-google');
+        return {
+          ok: true,
+          verified: true,
+          userId: 'google:user-cf-login-send',
+          providerSubject: 'google:user-cf-login-send',
+          sub: 'user-cf-login-send',
+          email: 'login-send-cf@example.com',
+          emailVerified: true,
+        };
+      },
+      resolveGoogleEmailOtpSession: async (input) => {
+        expect(calls).toEqual(['verify-google']);
+        calls.push('resolve-wallet');
+        expect(input).toMatchObject({
+          providerSubject: 'google:user-cf-login-send',
+          accountMode: 'login',
+          runtimePolicyScope: sessionExchangeRuntimePolicyScope,
+        });
+        return {
+          ok: true,
+          mode: 'existing_wallet',
+          walletId: 'login-send-cf.relayer.testnet',
+          providerSubject: 'google:user-cf-login-send',
+          email: 'login-send-cf@example.com',
+        };
+      },
+      getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
+      createEmailOtpChallenge: async (input) => {
+        expect(calls).toEqual(['verify-google', 'resolve-wallet']);
+        calls.push('send-otp');
+        expect(input).toMatchObject({
+          userId: 'google:user-cf-login-send',
+          walletId: 'login-send-cf.relayer.testnet',
+          orgId: sessionExchangeRuntimePolicyScope.orgId,
+          email: 'login-send-cf@example.com',
+          otpChannel: 'email_otp',
+          appSessionVersion: 'app-v1',
+          clientIp: '203.0.113.51',
+        });
+        expect(typeof input.sessionHash).toBe('string');
+        return {
+          ok: true,
+          challenge: {
+            challengeId: 'login-exchange-challenge-cf-1',
+            issuedAtMs: 1_893_455_900_000,
+            expiresAtMs: 1_893_456_000_000,
+            userId: 'google:user-cf-login-send',
+            walletId: 'login-send-cf.relayer.testnet',
+            orgId: sessionExchangeRuntimePolicyScope.orgId,
+            otpChannel: 'email_otp' as const,
+            sessionHash: String(input.sessionHash),
+            appSessionVersion: 'app-v1',
+            action: 'wallet_email_otp_login' as const,
+            operation: 'wallet_unlock' as const,
+          },
+          delivery: {
+            status: 'sent' as const,
+            mode: 'memory' as const,
+            emailHint: 'l***@example.com',
+          },
+        };
+      },
+    });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
+    const handler = createCloudflareRouter(service, {
+      corsOrigins: ['https://example.localhost'],
+      session,
+      ...runtimeDeps,
+    });
+
+    const res = await callCf(handler, {
+      method: 'POST',
+      path: '/session/exchange',
+      origin: 'https://example.localhost',
+      headers: {
+        Authorization: 'Bearer pk_session_exchange',
+        'CF-Connecting-IP': '203.0.113.51',
+      },
+      body: {
+        sessionKind: 'jwt',
+        runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+        exchange: {
+          type: 'oidc_jwt',
+          provider: 'google',
+          account_mode: 'login',
+          token: 'google.id.token',
+        },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    expect(getPath(res.json, 'session', 'googleEmailOtpResolution')).toMatchObject({
+      mode: 'existing_wallet',
+      loginChallenge: {
+        delivery: 'sent',
+        challengeId: 'login-exchange-challenge-cf-1',
+        emailHint: 'l***@example.com',
+        expiresAt: '2030-01-01T00:00:00.000Z',
+        expiresAtMs: 1_893_456_000_000,
+      },
+    });
+    expect(calls).toEqual(['verify-google', 'resolve-wallet', 'send-otp']);
   });
 
   test('POST /wallet/email-otp/dev/cleanup-google-registration verifies Google token before cleanup', async () => {
@@ -1888,27 +2286,38 @@ test.describe('relayer router (cloudflare) – P0', () => {
         userId: 'user-oidc-cf-cookie-1',
         providerSubject: 'oidc:https://issuer.example.com:user-cookie-1',
       }),
+      resolveOidcWalletId: async (input) => {
+        expect(input.runtimePolicyScope).toEqual(sessionExchangeRuntimePolicyScope);
+        return 'user-oidc-cf-cookie-1.testnet';
+      },
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
     });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
       session,
+      ...runtimeDeps,
     });
 
     const res = await callCf(handler, {
       method: 'POST',
       path: '/session/exchange',
       origin: 'https://example.localhost',
+      headers: { Authorization: 'Bearer pk_session_exchange' },
       body: {
         sessionKind: 'cookie',
+        runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
         exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
       },
     });
 
-    expect(res.status).toBe(200);
+    expect(res.status, res.text).toBe(200);
     expect(res.json?.ok).toBe(true);
     expect(getPath(res.json, 'session', 'kind')).toBe('app_session_v1');
     expect(getPath(res.json, 'session', 'userId')).toBe('user-oidc-cf-cookie-1');
+    expect(getPath(res.json, 'session', 'runtimePolicyScope')).toEqual(
+      sessionExchangeRuntimePolicyScope,
+    );
     expect(getPath(res.json, 'session', 'expiresAt')).toBeUndefined();
     expect(res.json?.jwt).toBeUndefined();
     expect(res.headers.get('set-cookie')).toContain('seams-jwt=app-jwt-cf-cookie-123');
@@ -1986,17 +2395,21 @@ test.describe('relayer router (cloudflare) – P0', () => {
         return { ok: true, appSessionVersion: currentAppSessionVersion };
       },
     });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
     const handler = createCloudflareRouter(service, {
       corsOrigins: ['https://example.localhost'],
       session,
+      ...runtimeDeps,
     });
 
     const exchange = await callCf(handler, {
       method: 'POST',
       path: '/session/exchange',
       origin: 'https://example.localhost',
+      headers: { Authorization: 'Bearer pk_session_exchange' },
       body: {
         sessionKind: 'cookie',
+        runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
         exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
       },
     });
@@ -2038,7 +2451,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(stateAfter.json?.code).toBe('invalid_session_version');
   });
 
-  test('POST /session/exchange -> GET /console/session -> POST /session/revoke invalidates console session', async () => {
+  test('POST /session/exchange -> GET /console/session -> POST /session/revoke invalidates Google dashboard session', async () => {
     const issuedClaimsByToken = new Map<string, IssuedAppSessionClaims>();
     let currentAppSessionVersion = 'v1';
 
@@ -2090,11 +2503,13 @@ test.describe('relayer router (cloudflare) – P0', () => {
       buildClearCookie: () => 'seams-jwt=; Path=/; Max-Age=0',
     });
     const service = makeFakeAuthService({
-      verifyOidcJwtExchange: async () => ({
+      verifyGoogleLogin: async () => ({
         ok: true,
         verified: true,
-        userId: 'user-oidc-console-cf-1',
-        providerSubject: 'oidc:https://issuer.example.com:user-oidc-console-cf-1',
+        userId: 'google:console-cf-1',
+        providerSubject: 'google:console-cf-1',
+        sub: 'console-cf-1',
+        email: 'console-cf@example.com',
       }),
       getOrCreateAppSessionVersion: async () => ({
         ok: true,
@@ -2140,7 +2555,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
       origin: 'https://example.localhost',
       body: {
         sessionKind: 'cookie',
-        exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
+        exchange: { type: 'oidc_jwt', provider: 'google', token: 'google.id.token' },
       },
     });
     expect(exchange.status).toBe(200);
@@ -2156,7 +2571,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     });
     expect(consoleSessionBefore.status).toBe(200);
     expect(consoleSessionBefore.json?.ok).toBe(true);
-    expect(getPath(consoleSessionBefore.json, 'claims', 'userId')).toBe('user-oidc-console-cf-1');
+    expect(getPath(consoleSessionBefore.json, 'claims', 'userId')).toBe('google:console-cf-1');
     expect(getPath(consoleSessionBefore.json, 'claims', 'orgId')).toBe('org-oidc-console-cf-1');
 
     const revoke = await callCf(handler, {
@@ -2221,11 +2636,12 @@ test.describe('relayer router (cloudflare) – P0', () => {
       buildClearCookie: () => 'seams-jwt=; Path=/; Max-Age=0',
     });
     const service = makeFakeAuthService({
-      verifyOidcJwtExchange: async () => ({
+      verifyGoogleLogin: async () => ({
         ok: true,
         verified: true,
-        userId: 'user-no-membership-cf-1',
-        providerSubject: 'oidc:https://issuer.example.com:user-no-membership-cf-1',
+        userId: 'google:no-membership-cf-1',
+        providerSubject: 'google:no-membership-cf-1',
+        sub: 'no-membership-cf-1',
         email: 'alice@example.com',
         name: 'Alice Example',
       }),
@@ -2266,7 +2682,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
       origin: 'https://example.localhost',
       body: {
         sessionKind: 'cookie',
-        exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
+        exchange: { type: 'oidc_jwt', provider: 'google', token: 'google.id.token' },
       },
     });
     expect(exchange.status).toBe(200);
@@ -2325,11 +2741,13 @@ test.describe('relayer router (cloudflare) – P0', () => {
       buildClearCookie: () => 'seams-jwt=; Path=/; Max-Age=0',
     });
     const service = makeFakeAuthService({
-      verifyOidcJwtExchange: async () => ({
+      verifyGoogleLogin: async () => ({
         ok: true,
         verified: true,
-        userId: 'user-provisioning-cf-1',
-        providerSubject: 'oidc:https://issuer.example.com:user-provisioning-cf-1',
+        userId: 'google:provisioning-cf-1',
+        providerSubject: 'google:provisioning-cf-1',
+        sub: 'provisioning-cf-1',
+        email: 'provisioning-cf@example.com',
       }),
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
       validateAppSessionVersion: async () => ({ ok: true }),
@@ -2374,7 +2792,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
       origin: 'https://example.localhost',
       body: {
         sessionKind: 'cookie',
-        exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
+        exchange: { type: 'oidc_jwt', provider: 'google', token: 'google.id.token' },
       },
     });
     expect(exchange.status).toBe(200);
@@ -2404,7 +2822,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
     expect(members.status).toBe(200);
     const memberRows = Array.isArray(members.json?.members) ? members.json?.members : [];
     const actor = memberRows.find(
-      (entry: any) => String(entry?.userId || '') === 'user-provisioning-cf-1',
+      (entry: any) => String(entry?.userId || '') === 'google:provisioning-cf-1',
     );
     expect(actor).toBeTruthy();
 
@@ -2653,11 +3071,13 @@ test.describe('relayer router (cloudflare) – P0', () => {
       refresh: async () => ({ ok: true, jwt: 'refreshed-cf-warm-1' }),
     });
     const service = makeFakeAuthService({
-      verifyOidcJwtExchange: async () => ({
+      verifyGoogleLogin: async () => ({
         ok: true,
         verified: true,
-        userId: 'user-oidc-cf-warm-1',
-        providerSubject: 'oidc:https://issuer.example.com:user-cf-warm-1',
+        userId: 'google:warm-cf-1',
+        providerSubject: 'google:warm-cf-1',
+        sub: 'warm-cf-1',
+        email: 'warm-cf@example.com',
       }),
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
     });
@@ -2676,7 +3096,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
       origin: 'https://example.localhost',
       body: {
         sessionKind: 'jwt',
-        exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
+        exchange: { type: 'oidc_jwt', provider: 'google', token: 'google.id.token' },
       },
     });
     expect(exchange.status).toBe(200);

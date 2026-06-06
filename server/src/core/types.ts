@@ -730,6 +730,7 @@ export type WalletRegistrationHssRespondResponse =
 
 export type WalletRegistrationFinalizeRequest = {
   registrationCeremonyId: string;
+  idempotencyKey?: string;
   ed25519?: {
     evaluationResult: ThresholdEd25519HssClientOwnedStagedEvaluatorArtifactEnvelope;
     sessionPolicy?: Ed25519SessionPolicy;
@@ -744,6 +745,15 @@ export type WalletRegistrationFinalizeRequest = {
     clientUnlockPublicKeyB64u: string;
     unlockKeyVersion: string;
     thresholdEcdsaClientVerifyingShareB64u: string;
+  };
+  emailOtpBackupAck?: {
+    kind: 'email_otp_recovery_code_backup_ack_v1';
+    offerId?: string;
+    candidateId?: string;
+    recoveryCodesIssuedAtMs: number;
+    backupActionKind: 'download' | 'copy' | 'print' | 'manual';
+    acknowledgedAtMs: number;
+    idempotencyKey: string;
   };
 };
 

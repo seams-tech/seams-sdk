@@ -109,8 +109,8 @@ export function normalizeWalletAuthMethod(
     };
   }
   const emailHashHex = trimString(raw.emailHashHex);
-  const challengeId = trimString(raw.challengeId);
-  if (!emailHashHex || !challengeId) return null;
+  const registrationAuthorityId = trimString(raw.registrationAuthorityId);
+  if (!emailHashHex || !registrationAuthorityId) return null;
   return {
     version: 'wallet_auth_method_v1',
     kind: 'email_otp',
@@ -118,7 +118,7 @@ export function normalizeWalletAuthMethod(
     walletId,
     rpId,
     emailHashHex,
-    challengeId,
+    registrationAuthorityId,
     createdAtMs,
     updatedAtMs,
   };
@@ -177,7 +177,7 @@ export async function putWalletAuthMethodWithExecutor(input: {
       record.kind === 'passkey' ? record.credentialIdB64u : null,
       record.kind === 'passkey' ? record.credentialPublicKeyB64u : null,
       record.kind === 'email_otp' ? record.emailHashHex : null,
-      record.kind === 'email_otp' ? record.challengeId : null,
+      record.kind === 'email_otp' ? record.registrationAuthorityId : null,
       JSON.stringify(record),
       record.createdAtMs,
       record.updatedAtMs,

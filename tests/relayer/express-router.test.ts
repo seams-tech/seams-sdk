@@ -177,6 +177,52 @@ function makeRelayObservabilityCollector(
   };
 }
 
+const sessionExchangeRuntimeEnvironmentId = 'proj_session_exchange:dev';
+const sessionExchangeRuntimePolicyScope = {
+  orgId: 'org_session_exchange',
+  projectId: 'proj_session_exchange',
+  envId: 'dev',
+  signingRootVersion: 'default',
+};
+
+async function createScopedSessionExchangeRuntimeDeps(input?: { origin?: string }) {
+  const origin = input?.origin || 'https://example.localhost';
+  const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
+  const orgCtx = {
+    orgId: sessionExchangeRuntimePolicyScope.orgId,
+    actorUserId: 'session-exchange-test',
+    roles: ['admin'],
+  };
+  await orgProjectEnv.upsertOrganization(orgCtx, { name: 'Session Exchange Org' });
+  await orgProjectEnv.createProject(orgCtx, {
+    id: sessionExchangeRuntimePolicyScope.projectId,
+    name: 'Session Exchange Project',
+  });
+  return {
+    orgProjectEnv,
+    publishableKeyAuth: {
+      authenticate: async (authInput: {
+        secret: string;
+        origin?: string;
+        environmentId?: string;
+      }) => {
+        expect(authInput.secret).toBe('pk_session_exchange');
+        expect(authInput.origin).toBe(origin);
+        expect(authInput.environmentId).toBe(sessionExchangeRuntimeEnvironmentId);
+        return {
+          ok: true as const,
+          principal: {
+            apiKeyId: 'pk_session_exchange',
+            orgId: sessionExchangeRuntimePolicyScope.orgId,
+            environmentId: sessionExchangeRuntimeEnvironmentId,
+            scopes: [],
+          },
+        };
+      },
+    },
+  };
+}
+
 function makeSignedDelegatePricing() {
   return resolveStaticSponsoredExecutionPricingFromEnv({
     SPONSORED_EXECUTION_STATIC_PRICING_JSON: JSON.stringify({
@@ -1429,14 +1475,20 @@ test.describe('relayer router (express) – P0', () => {
       }),
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
     });
-    const router = createRelayRouter(service, { session });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
+    const router = createRelayRouter(service, { session, ...runtimeDeps });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer pk_session_exchange',
+          Origin: 'https://example.localhost',
+        },
         body: JSON.stringify({
           sessionKind: 'jwt',
+          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
           exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
         }),
       });
@@ -1444,6 +1496,9 @@ test.describe('relayer router (express) – P0', () => {
       expect(res.json?.ok).toBe(true);
       expect(getPath(res.json, 'session', 'kind')).toBe('app_session_v1');
       expect(getPath(res.json, 'session', 'userId')).toBe('user-oidc-1');
+      expect(getPath(res.json, 'session', 'runtimePolicyScope')).toEqual(
+        sessionExchangeRuntimePolicyScope,
+      );
       expect(getPath(res.json, 'session', 'expiresAt')).toBe('2030-01-01T00:00:00.000Z');
       expect(typeof res.json?.jwt).toBe('string');
     } finally {
@@ -1451,7 +1506,7 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
-  test('POST /session/exchange: Google register ignores caller-provided wallet ids', async () => {
+  test('POST /session/exchange: Google register rejects caller-provided wallet ids', async () => {
     let resolvedInput: Record<string, unknown> | null = null;
     const session = makeSessionAdapter({ signJwt: async () => 'google-register-jwt' });
     const service = makeFakeAuthService({
@@ -1462,30 +1517,29 @@ test.describe('relayer router (express) – P0', () => {
         providerSubject: 'google:user-1',
         sub: 'user-1',
         email: 'alice@example.com',
+        emailVerified: true,
         name: 'Alice Example',
       }),
       resolveGoogleEmailOtpSession: async (input) => {
         resolvedInput = input as Record<string, unknown>;
-        return {
-          ok: true,
-          mode: 'register_started',
-          walletId: 'brisk-maple-k7q9yh.testnet',
-          providerSubject: 'google:user-1',
-          email: 'alice@example.com',
-          registrationAttemptId: 'attempt-google-register',
-          expiresAtMs: 1_893_456_000_000,
-        };
+        throw new Error('resolver should not run');
       },
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
     });
-    const router = createRelayRouter(service, { session });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
+    const router = createRelayRouter(service, { session, ...runtimeDeps });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer pk_session_exchange',
+          Origin: 'https://example.localhost',
+        },
         body: JSON.stringify({
           sessionKind: 'jwt',
+          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
           exchange: {
             type: 'oidc_jwt',
             provider: 'google',
@@ -1497,22 +1551,224 @@ test.describe('relayer router (express) – P0', () => {
           },
         }),
       });
-      expect(res.status).toBe(200);
-      expect(getPath(res.json, 'session', 'userId')).toBe('google:user-1');
-      expect(getPath(res.json, 'session', 'walletId')).toBe('brisk-maple-k7q9yh.testnet');
-      expect(getPath(res.json, 'session', 'googleEmailOtpResolution')).toMatchObject({
-        mode: 'register_started',
-        registrationAttemptId: 'attempt-google-register',
+      expect(res.status).toBe(400);
+      expect(res.json?.code).toBe('invalid_body');
+      expect(res.json?.message).toContain('walletId');
+      expect(resolvedInput).toBe(null);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /session/exchange: Google register rejects OTP challenge fields', async () => {
+    let resolverCalled = false;
+    const session = makeSessionAdapter({ signJwt: async () => 'unused-google-register-jwt' });
+    const service = makeFakeAuthService({
+      verifyGoogleLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'google:user-otp-fields',
+        providerSubject: 'google:user-otp-fields',
+        sub: 'user-otp-fields',
+        email: 'otp-fields@example.com',
+        emailVerified: true,
+      }),
+      resolveGoogleEmailOtpSession: async () => {
+        resolverCalled = true;
+        throw new Error('resolver should not run');
+      },
+    });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
+    const router = createRelayRouter(service, { session, ...runtimeDeps });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer pk_session_exchange',
+          Origin: 'https://example.localhost',
+        },
+        body: JSON.stringify({
+          sessionKind: 'jwt',
+          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+          exchange: {
+            type: 'oidc_jwt',
+            provider: 'google',
+            account_mode: 'register',
+            token: 'google.id.token',
+            otpCode: '123456',
+          },
+        }),
       });
-      expect(resolvedInput).toMatchObject({
-        providerSubject: 'google:user-1',
-        sub: 'user-1',
-        email: 'alice@example.com',
+      expect(res.status).toBe(400);
+      expect(res.json?.code).toBe('invalid_body');
+      expect(res.json?.message).toContain('otpCode');
+      expect(resolverCalled).toBe(false);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /session/exchange: Google register rejects top-level wallet and passkey fields', async () => {
+    let resolverCalled = false;
+    const session = makeSessionAdapter({ signJwt: async () => 'unused-google-register-jwt' });
+    const service = makeFakeAuthService({
+      verifyGoogleLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'google:user-top-level-mixed-fields',
+        providerSubject: 'google:user-top-level-mixed-fields',
+        sub: 'user-top-level-mixed-fields',
+        email: 'top-level-mixed-fields@example.com',
+        emailVerified: true,
+      }),
+      resolveGoogleEmailOtpSession: async () => {
+        resolverCalled = true;
+        throw new Error('resolver should not run');
+      },
+    });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
+    const router = createRelayRouter(service, { session, ...runtimeDeps });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer pk_session_exchange',
+          Origin: 'https://example.localhost',
+        },
+        body: JSON.stringify({
+          sessionKind: 'jwt',
+          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+          walletId: 'client-selected.testnet',
+          passkey: { credentialId: 'must-not-appear' },
+          exchange: {
+            type: 'oidc_jwt',
+            provider: 'google',
+            account_mode: 'register',
+            token: 'google.id.token',
+          },
+        }),
+      });
+      expect(res.status).toBe(400);
+      expect(res.json?.code).toBe('invalid_body');
+      expect(res.json?.message).toContain('walletId');
+      expect(resolverCalled).toBe(false);
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /session/exchange: Google register consumes registration attempt rate limit before resolution', async () => {
+    let resolverCalled = false;
+    let rateLimitInput: Record<string, unknown> | null = null;
+    const session = makeSessionAdapter({ signJwt: async () => 'unused-rate-limited-google-jwt' });
+    const service = makeFakeAuthService({
+      verifyGoogleLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'google:user-rate-limited',
+        providerSubject: 'google:user-rate-limited',
+        sub: 'user-rate-limited',
+        email: 'rate-limited@example.com',
+        emailVerified: true,
+      }),
+      consumeGoogleEmailOtpRegistrationAttemptRateLimit: async (input) => {
+        rateLimitInput = input as Record<string, unknown>;
+        return {
+          ok: false,
+          code: 'rate_limited',
+          message: 'Google registration rate limit exceeded',
+          retryAfterMs: 60_000,
+        };
+      },
+      resolveGoogleEmailOtpSession: async () => {
+        resolverCalled = true;
+        throw new Error('resolver should not run after rate limit rejection');
+      },
+    });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
+    const router = createRelayRouter(service, { session, ...runtimeDeps });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer pk_session_exchange',
+          Origin: 'https://example.localhost',
+          'X-Forwarded-For': '203.0.113.40',
+        },
+        body: JSON.stringify({
+          sessionKind: 'jwt',
+          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+          exchange: {
+            type: 'oidc_jwt',
+            provider: 'google',
+            account_mode: 'register',
+            token: 'google.id.token',
+          },
+        }),
+      });
+      expect(res.status).toBe(429);
+      expect(res.json?.code).toBe('rate_limited');
+      expect(resolverCalled).toBe(false);
+      expect(rateLimitInput).toMatchObject({
+        providerSubject: 'google:user-rate-limited',
+        email: 'rate-limited@example.com',
         accountMode: 'register',
+        runtimePolicyScope: sessionExchangeRuntimePolicyScope,
+        appSessionUserId: 'google:user-rate-limited',
+        clientIp: '203.0.113.40',
       });
-      expect(resolvedInput).not.toHaveProperty('walletId');
-      expect(resolvedInput).not.toHaveProperty('newAccountId');
-      expect(resolvedInput).not.toHaveProperty('new_account_id');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /session/exchange: Google register requires verified email', async () => {
+    const session = makeSessionAdapter({ signJwt: async () => 'unused-unverified-google-jwt' });
+    const service = makeFakeAuthService({
+      verifyGoogleLogin: async () => ({
+        ok: true,
+        verified: true,
+        userId: 'google:user-unverified',
+        providerSubject: 'google:user-unverified',
+        sub: 'user-unverified',
+        email: 'unverified@example.com',
+        emailVerified: false,
+      }),
+      resolveGoogleEmailOtpSession: async () => {
+        throw new Error('resolver should not run for unverified email');
+      },
+    });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
+    const router = createRelayRouter(service, { session, ...runtimeDeps });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer pk_session_exchange',
+          Origin: 'https://example.localhost',
+        },
+        body: JSON.stringify({
+          sessionKind: 'jwt',
+          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+          exchange: {
+            type: 'oidc_jwt',
+            provider: 'google',
+            account_mode: 'register',
+            token: 'google.id.token',
+          },
+        }),
+      });
+      expect(res.status).toBe(400);
+      expect(res.json?.code).toBe('invalid_claims');
+      expect(res.json?.message).toContain('verified email');
     } finally {
       await srv.close();
     }
@@ -1520,6 +1776,7 @@ test.describe('relayer router (express) – P0', () => {
 
   test('POST /session/exchange: Google register binds managed runtime scope to app session', async () => {
     let signedExtra: Record<string, unknown> | null = null;
+    let emailOtpChallengeCreated = false;
     const session = makeSessionAdapter({
       signJwt: async (_sub, extra) => {
         signedExtra = extra as Record<string, unknown>;
@@ -1534,6 +1791,7 @@ test.describe('relayer router (express) – P0', () => {
         providerSubject: 'google:user-scoped-1',
         sub: 'user-scoped-1',
         email: 'scoped@example.com',
+        emailVerified: true,
       }),
       resolveGoogleEmailOtpSession: async () => ({
         ok: true,
@@ -1545,6 +1803,10 @@ test.describe('relayer router (express) – P0', () => {
         expiresAtMs: 1_893_456_000_000,
       }),
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
+      createEmailOtpChallenge: async () => {
+        emailOtpChallengeCreated = true;
+        throw new Error('register-mode exchange must not send Email OTP');
+      },
     });
     const orgProjectEnv = createInMemoryConsoleOrgProjectEnvService();
     const orgCtx = {
@@ -1566,7 +1828,7 @@ test.describe('relayer router (express) – P0', () => {
           expect(input.origin).toBe('https://wallet.example.test');
           expect(input.environmentId).toBe('proj_test_scoped:dev');
           return {
-            ok: true,
+            ok: true as const,
             principal: {
               apiKeyId: 'pk_1',
               orgId: 'org_test_scoped',
@@ -1602,12 +1864,15 @@ test.describe('relayer router (express) – P0', () => {
         orgId: 'org_test_scoped',
         projectId: 'proj_test_scoped',
         envId: 'dev',
+        signingRootVersion: 'default',
       });
       expect((signedExtra as Record<string, unknown> | null)?.runtimePolicyScope).toEqual({
         orgId: 'org_test_scoped',
         projectId: 'proj_test_scoped',
         envId: 'dev',
+        signingRootVersion: 'default',
       });
+      expect(emailOtpChallengeCreated).toBe(false);
     } finally {
       await srv.close();
     }
@@ -1630,14 +1895,20 @@ test.describe('relayer router (express) – P0', () => {
         throw error;
       },
     });
-    const router = createRelayRouter(service, { session });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
+    const router = createRelayRouter(service, { session, ...runtimeDeps });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer pk_session_exchange',
+          Origin: 'https://example.localhost',
+        },
         body: JSON.stringify({
           sessionKind: 'jwt',
+          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
           exchange: {
             type: 'oidc_jwt',
             provider: 'google',
@@ -1649,6 +1920,115 @@ test.describe('relayer router (express) – P0', () => {
       expect(res.status).toBe(404);
       expect(res.json?.code).toBe('not_found');
       expect(res.json?.message).toBe('Email OTP enrollment not found');
+    } finally {
+      await srv.close();
+    }
+  });
+
+  test('POST /session/exchange: Google login sends Email OTP after verified SSO', async () => {
+    const calls: string[] = [];
+    const session = makeSessionAdapter({ signJwt: async () => 'google-login-otp-jwt' });
+    const service = makeFakeAuthService({
+      verifyGoogleLogin: async () => {
+        calls.push('verify-google');
+        return {
+          ok: true,
+          verified: true,
+          userId: 'google:user-login-send',
+          providerSubject: 'google:user-login-send',
+          sub: 'user-login-send',
+          email: 'login-send@example.com',
+          emailVerified: true,
+        };
+      },
+      resolveGoogleEmailOtpSession: async (input) => {
+        expect(calls).toEqual(['verify-google']);
+        calls.push('resolve-wallet');
+        expect(input).toMatchObject({
+          providerSubject: 'google:user-login-send',
+          accountMode: 'login',
+          runtimePolicyScope: sessionExchangeRuntimePolicyScope,
+        });
+        return {
+          ok: true,
+          mode: 'existing_wallet',
+          walletId: 'login-send.relayer.testnet',
+          providerSubject: 'google:user-login-send',
+          email: 'login-send@example.com',
+        };
+      },
+      getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
+      createEmailOtpChallenge: async (input) => {
+        expect(calls).toEqual(['verify-google', 'resolve-wallet']);
+        calls.push('send-otp');
+        expect(input).toMatchObject({
+          userId: 'google:user-login-send',
+          walletId: 'login-send.relayer.testnet',
+          orgId: sessionExchangeRuntimePolicyScope.orgId,
+          email: 'login-send@example.com',
+          otpChannel: 'email_otp',
+          appSessionVersion: 'app-v1',
+          clientIp: '203.0.113.50',
+        });
+        expect(typeof input.sessionHash).toBe('string');
+        return {
+          ok: true,
+          challenge: {
+            challengeId: 'login-exchange-challenge-1',
+            issuedAtMs: 1_893_455_900_000,
+            expiresAtMs: 1_893_456_000_000,
+            userId: 'google:user-login-send',
+            walletId: 'login-send.relayer.testnet',
+            orgId: sessionExchangeRuntimePolicyScope.orgId,
+            otpChannel: 'email_otp' as const,
+            sessionHash: String(input.sessionHash),
+            appSessionVersion: 'app-v1',
+            action: 'wallet_email_otp_login' as const,
+            operation: 'wallet_unlock' as const,
+          },
+          delivery: {
+            status: 'sent' as const,
+            mode: 'memory' as const,
+            emailHint: 'l***@example.com',
+          },
+        };
+      },
+    });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
+    const router = createRelayRouter(service, { session, ...runtimeDeps });
+    const srv = await startExpressRouter(router);
+    try {
+      const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer pk_session_exchange',
+          Origin: 'https://example.localhost',
+          'X-Forwarded-For': '203.0.113.50',
+        },
+        body: JSON.stringify({
+          sessionKind: 'jwt',
+          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
+          exchange: {
+            type: 'oidc_jwt',
+            provider: 'google',
+            account_mode: 'login',
+            token: 'google.id.token',
+          },
+        }),
+      });
+      expect(res.status).toBe(200);
+      expect(getPath(res.json, 'session', 'googleEmailOtpResolution')).toMatchObject({
+        mode: 'existing_wallet',
+        loginChallenge: {
+          delivery: 'sent',
+          challengeId: 'login-exchange-challenge-1',
+          emailHint: 'l***@example.com',
+          expiresAt: '2030-01-01T00:00:00.000Z',
+          expiresAtMs: 1_893_456_000_000,
+        },
+      });
+      expect(calls).toEqual(['verify-google', 'resolve-wallet', 'send-otp']);
     } finally {
       await srv.close();
     }
@@ -1797,14 +2177,20 @@ test.describe('relayer router (express) – P0', () => {
       }),
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
     });
-    const router = createRelayRouter(service, { session });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
+    const router = createRelayRouter(service, { session, ...runtimeDeps });
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(`${srv.baseUrl}/session/exchange`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer pk_session_exchange',
+          Origin: 'https://example.localhost',
+        },
         body: JSON.stringify({
           sessionKind: 'cookie',
+          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
           exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
         }),
       });
@@ -1812,6 +2198,9 @@ test.describe('relayer router (express) – P0', () => {
       expect(res.json?.ok).toBe(true);
       expect(getPath(res.json, 'session', 'kind')).toBe('app_session_v1');
       expect(getPath(res.json, 'session', 'userId')).toBe('user-oidc-cookie-1');
+      expect(getPath(res.json, 'session', 'runtimePolicyScope')).toEqual(
+        sessionExchangeRuntimePolicyScope,
+      );
       expect(getPath(res.json, 'session', 'expiresAt')).toBeUndefined();
       expect(res.json?.jwt).toBeUndefined();
       expect(res.headers.get('set-cookie')).toContain('seams-jwt=app-jwt-cookie-123');
@@ -1892,14 +2281,20 @@ test.describe('relayer router (express) – P0', () => {
         return { ok: true, appSessionVersion: currentAppSessionVersion };
       },
     });
-    const router = createRelayRouter(service, { session });
+    const runtimeDeps = await createScopedSessionExchangeRuntimeDeps();
+    const router = createRelayRouter(service, { session, ...runtimeDeps });
     const srv = await startExpressRouter(router);
     try {
       const exchange = await fetchJson(`${srv.baseUrl}/session/exchange`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: 'Bearer pk_session_exchange',
+          Origin: 'https://example.localhost',
+        },
         body: JSON.stringify({
           sessionKind: 'cookie',
+          runtimeEnvironmentId: sessionExchangeRuntimeEnvironmentId,
           exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
         }),
       });
@@ -1938,7 +2333,7 @@ test.describe('relayer router (express) – P0', () => {
     }
   });
 
-  test('POST /session/exchange -> GET /console/session -> POST /session/revoke invalidates console session', async () => {
+  test('POST /session/exchange -> GET /console/session -> POST /session/revoke invalidates Google dashboard session', async () => {
     const issuedClaimsByToken = new Map<string, IssuedAppSessionClaims>();
     let currentAppSessionVersion = 'v1';
 
@@ -1990,11 +2385,13 @@ test.describe('relayer router (express) – P0', () => {
       buildClearCookie: () => 'seams-jwt=; Path=/; Max-Age=0',
     });
     const service = makeFakeAuthService({
-      verifyOidcJwtExchange: async () => ({
+      verifyGoogleLogin: async () => ({
         ok: true,
         verified: true,
-        userId: 'user-oidc-console-express-1',
-        providerSubject: 'oidc:https://issuer.example.com:user-oidc-console-express-1',
+        userId: 'google:console-express-1',
+        providerSubject: 'google:console-express-1',
+        sub: 'console-express-1',
+        email: 'console-express@example.com',
       }),
       getOrCreateAppSessionVersion: async () => ({
         ok: true,
@@ -2027,7 +2424,7 @@ test.describe('relayer router (express) – P0', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionKind: 'cookie',
-          exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
+          exchange: { type: 'oidc_jwt', provider: 'google', token: 'google.id.token' },
         }),
       });
       expect(exchange.status).toBe(200);
@@ -2042,7 +2439,7 @@ test.describe('relayer router (express) – P0', () => {
       expect(consoleSessionBefore.status).toBe(200);
       expect(consoleSessionBefore.json?.ok).toBe(true);
       expect(getPath(consoleSessionBefore.json, 'claims', 'userId')).toBe(
-        'user-oidc-console-express-1',
+        'google:console-express-1',
       );
       expect(getPath(consoleSessionBefore.json, 'claims', 'orgId')).toBe(
         'org-oidc-console-express-1',
@@ -2110,11 +2507,12 @@ test.describe('relayer router (express) – P0', () => {
     });
 
     const service = makeFakeAuthService({
-      verifyOidcJwtExchange: async () => ({
+      verifyGoogleLogin: async () => ({
         ok: true,
         verified: true,
-        userId: 'user-no-membership-express-1',
-        providerSubject: 'oidc:https://issuer.example.com:user-no-membership-express-1',
+        userId: 'google:no-membership-express-1',
+        providerSubject: 'google:no-membership-express-1',
+        sub: 'no-membership-express-1',
         email: 'alice@example.com',
         name: 'Alice Example',
       }),
@@ -2146,7 +2544,7 @@ test.describe('relayer router (express) – P0', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionKind: 'cookie',
-          exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
+          exchange: { type: 'oidc_jwt', provider: 'google', token: 'google.id.token' },
         }),
       });
       expect(exchange.status).toBe(200);
@@ -2207,11 +2605,13 @@ test.describe('relayer router (express) – P0', () => {
     });
 
     const service = makeFakeAuthService({
-      verifyOidcJwtExchange: async () => ({
+      verifyGoogleLogin: async () => ({
         ok: true,
         verified: true,
-        userId: 'user-provisioning-express-1',
-        providerSubject: 'oidc:https://issuer.example.com:user-provisioning-express-1',
+        userId: 'google:provisioning-express-1',
+        providerSubject: 'google:provisioning-express-1',
+        sub: 'provisioning-express-1',
+        email: 'provisioning-express@example.com',
       }),
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
       validateAppSessionVersion: async () => ({ ok: true }),
@@ -2247,7 +2647,7 @@ test.describe('relayer router (express) – P0', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionKind: 'cookie',
-          exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
+          exchange: { type: 'oidc_jwt', provider: 'google', token: 'google.id.token' },
         }),
       });
       expect(exchange.status).toBe(200);
@@ -2273,7 +2673,7 @@ test.describe('relayer router (express) – P0', () => {
       expect(members.status).toBe(200);
       const memberRows = Array.isArray(members.json?.members) ? members.json?.members : [];
       const actor = memberRows.find(
-        (entry: any) => String(entry?.userId || '') === 'user-provisioning-express-1',
+        (entry: any) => String(entry?.userId || '') === 'google:provisioning-express-1',
       );
       expect(actor).toBeTruthy();
 
@@ -2609,11 +3009,13 @@ test.describe('relayer router (express) – P0', () => {
       refresh: async () => ({ ok: true, jwt: 'refreshed-warm-1' }),
     });
     const service = makeFakeAuthService({
-      verifyOidcJwtExchange: async () => ({
+      verifyGoogleLogin: async () => ({
         ok: true,
         verified: true,
-        userId: 'user-oidc-warm-1',
-        providerSubject: 'oidc:https://issuer.example.com:user-warm-1',
+        userId: 'google:warm-express-1',
+        providerSubject: 'google:warm-express-1',
+        sub: 'warm-express-1',
+        email: 'warm-express@example.com',
       }),
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
     });
@@ -2631,7 +3033,7 @@ test.describe('relayer router (express) – P0', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionKind: 'jwt',
-          exchange: { type: 'oidc_jwt', token: 'header.payload.signature' },
+          exchange: { type: 'oidc_jwt', provider: 'google', token: 'google.id.token' },
         }),
       });
       expect(exchange.status).toBe(200);

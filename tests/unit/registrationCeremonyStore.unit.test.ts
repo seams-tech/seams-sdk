@@ -200,6 +200,47 @@ test('Cloudflare Durable Object registration ceremony store consumes grants and 
   });
   await expect(store.takeCeremony(ceremony.registrationCeremonyId)).resolves.toBeNull();
 
+  await store.putFinalizeReplay({
+    kind: 'wallet_registration_finalize_replay_v1',
+    registrationCeremonyId: ceremony.registrationCeremonyId,
+    idempotencyKey: 'finalize-idempotency-1',
+    createdAtMs: Date.now(),
+    expiresAtMs: Date.now() + 60_000,
+    response: {
+      ok: true,
+      walletId: INTENT.walletId,
+      rpId: INTENT.rpId,
+      ed25519: {
+        nearAccountId: 'registration-store.testnet',
+        publicKey: 'ed25519-public-key',
+        relayerKeyId: 'relayer-key',
+        keyVersion: 'threshold-ed25519-hss-v1',
+        recoveryExportCapable: true,
+      },
+    },
+  });
+  await expect(
+    store.getFinalizeReplay({
+      registrationCeremonyId: ceremony.registrationCeremonyId,
+      idempotencyKey: 'finalize-idempotency-1',
+    }),
+  ).resolves.toMatchObject({
+    kind: 'wallet_registration_finalize_replay_v1',
+    response: {
+      ok: true,
+      walletId: INTENT.walletId,
+      ed25519: {
+        publicKey: 'ed25519-public-key',
+      },
+    },
+  });
+  await expect(
+    store.getFinalizeReplay({
+      registrationCeremonyId: ceremony.registrationCeremonyId,
+      idempotencyKey: 'finalize-idempotency-miss',
+    }),
+  ).resolves.toBeNull();
+
   const addSignerCeremony = makeAddSignerCeremony();
   await store.putAddSignerCeremony(addSignerCeremony);
   await expect(
@@ -251,4 +292,48 @@ test('registration ceremony store rejects mixed raw authority branches', async (
   });
 
   await expect(store.getCeremony(ceremony.registrationCeremonyId)).resolves.toBeNull();
+});
+
+test('registration ceremony store rejects finalize replay records with Ed25519 sessions', async () => {
+  const namespace = new FakeDurableObjectNamespace();
+  const store = createRegistrationCeremonyStore({
+    config: {
+      kind: 'cloudflare-do',
+      namespace,
+      name: 'registration-store-test',
+      keyPrefix: 'test-prefix',
+    },
+    logger: undefined,
+    isNode: false,
+  });
+
+  const ceremony = makeCeremony();
+  await expect(
+    store.putFinalizeReplay({
+      kind: 'wallet_registration_finalize_replay_v1',
+      registrationCeremonyId: ceremony.registrationCeremonyId,
+      idempotencyKey: 'finalize-idempotency-with-session',
+      createdAtMs: Date.now(),
+      expiresAtMs: Date.now() + 60_000,
+      response: {
+        ok: true,
+        walletId: INTENT.walletId,
+        rpId: INTENT.rpId,
+        ed25519: {
+          nearAccountId: 'registration-store.testnet',
+          publicKey: 'ed25519-public-key',
+          relayerKeyId: 'relayer-key',
+          keyVersion: 'threshold-ed25519-hss-v1',
+          recoveryExportCapable: true,
+          session: {
+            sessionKind: 'jwt',
+            sessionId: 'session',
+            walletSigningSessionId: 'wallet-session',
+            expiresAtMs: Date.now() + 60_000,
+            jwt: 'secret-jwt',
+          },
+        },
+      },
+    }),
+  ).rejects.toThrow('Invalid wallet registration finalize replay record');
 });

@@ -17,6 +17,7 @@ import {
   EMAIL_OTP_RECOVERY_WRAP_ALG,
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+  buildEmailOtpRecoveryWrapBinding,
   encodeEmailOtpRecoveryWrappedEnrollmentAad,
 } from '@shared/utils/emailOtpRecoveryKey';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
@@ -79,7 +80,7 @@ function emailOtpEnrollmentMaterial(walletId: string, authSubjectId: string) {
           walletId,
           userId: authSubjectId,
           authSubjectId,
-          authMethod: 'google_sso_email_otp',
+          authMethod: 'google_sso_email_otp' as const,
           enrollmentId: `email-otp-device-enrollment-v1:${walletId}:${authSubjectId}`,
           enrollmentVersion: '1',
           enrollmentSealKeyVersion,
@@ -93,7 +94,7 @@ function emailOtpEnrollmentMaterial(walletId: string, authSubjectId: string) {
           secretKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
           escrowKind: EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
           ...metadata,
-          recoveryKeyStatus: 'pending_backup',
+          recoveryKeyStatus: 'active',
           nonceB64u: base64UrlEncode(
             Uint8Array.from(Array.from({ length: 12 }, (_, byteIndex) => byteIndex + index)),
           ),
@@ -101,7 +102,13 @@ function emailOtpEnrollmentMaterial(walletId: string, authSubjectId: string) {
             Uint8Array.from(Array.from({ length: 48 }, (_, byteIndex) => byteIndex + index + 1)),
           ),
           aadHashB64u: base64UrlEncode(
-            createHash('sha256').update(encodeEmailOtpRecoveryWrappedEnrollmentAad(metadata)).digest(),
+            createHash('sha256')
+              .update(
+                encodeEmailOtpRecoveryWrappedEnrollmentAad(
+                  buildEmailOtpRecoveryWrapBinding(metadata),
+                ),
+              )
+              .digest(),
           ),
           issuedAtMs: nowMs,
           updatedAtMs: nowMs,
@@ -112,6 +119,18 @@ function emailOtpEnrollmentMaterial(walletId: string, authSubjectId: string) {
     clientUnlockPublicKeyB64u: publicKey,
     unlockKeyVersion: 'email-otp-unlock-v1',
     thresholdEcdsaClientVerifyingShareB64u: publicKey,
+  };
+}
+
+function emailOtpBackupAck(input?: { offerId?: string; candidateId?: string }) {
+  return {
+    kind: 'email_otp_recovery_code_backup_ack_v1' as const,
+    ...(input?.offerId ? { offerId: input.offerId } : {}),
+    ...(input?.candidateId ? { candidateId: input.candidateId } : {}),
+    recoveryCodesIssuedAtMs: 1_700_000_000_000,
+    backupActionKind: 'manual' as const,
+    acknowledgedAtMs: 1_700_000_000_001,
+    idempotencyKey: 'email-otp-backup-ack-test',
   };
 }
 
@@ -181,6 +200,7 @@ const ED25519_ADD_SIGNER_INTENT = {
 } satisfies AddSignerIntentV1;
 
 function makeService(): AuthService {
+  process.env.ACCOUNT_ID_DERIVATION_SECRET ||= 'test-account-id-derivation-secret';
   return new AuthService({
     relayerAccount: 'relayer.testnet',
     relayerPrivateKey: 'ed25519:dummy',
@@ -216,6 +236,7 @@ async function allocateIntent(
 async function allocateEmailOtpIntent(service: AuthService) {
   return await allocateIntent(service, SIGNER_SELECTION, {
     kind: 'email_otp',
+    proofKind: 'otp_challenge',
     email: 'Alice@Example.Test',
     otpCode: '123456',
     appSessionJwt: 'app-session.jwt',
@@ -278,7 +299,7 @@ function activePasskeyAuthMethod(input: {
 function activeEmailOtpAuthMethod(input: {
   walletId?: string;
   emailHashHex?: string;
-  challengeId?: string;
+  registrationAuthorityId?: string;
 }) {
   const now = Date.now();
   return {
@@ -288,7 +309,7 @@ function activeEmailOtpAuthMethod(input: {
     walletId: walletIdFromString(input.walletId || 'wallet_alice'),
     rpId: 'wallet.example.test',
     emailHashHex: input.emailHashHex || 'email-hash-1',
-    challengeId: input.challengeId || 'challenge-1',
+    registrationAuthorityId: input.registrationAuthorityId || 'challenge-1',
     createdAtMs: now,
     updatedAtMs: now,
   };
@@ -659,6 +680,7 @@ test.describe('registration intent allocation', () => {
         kind: 'email_otp',
         emailOtpRegistrationProof: {
           version: 'email_otp_registration_proof_v1',
+          proofKind: 'otp_challenge',
           providerSubject: EMAIL_OTP_PROVIDER_SUBJECT,
           email: EMAIL_OTP_EMAIL,
           challengeId: 'email-otp-challenge-1',
@@ -792,6 +814,7 @@ test.describe('registration intent allocation', () => {
         kind: 'email_otp',
         emailOtpRegistrationProof: {
           version: 'email_otp_registration_proof_v1',
+          proofKind: 'otp_challenge',
           providerSubject: EMAIL_OTP_PROVIDER_SUBJECT,
           email: EMAIL_OTP_EMAIL,
           challengeId: 'email-otp-challenge-1',
@@ -821,6 +844,7 @@ test.describe('registration intent allocation', () => {
           evaluationResult: { stagedEvaluatorArtifactB64u: 'evaluation-result' } as any,
         },
         emailOtpEnrollment: emailOtpEnrollmentMaterial('wallet_alice', EMAIL_OTP_PROVIDER_SUBJECT),
+        emailOtpBackupAck: emailOtpBackupAck(),
       }),
     ).resolves.toMatchObject({
       ok: true,
@@ -839,7 +863,7 @@ test.describe('registration intent allocation', () => {
       status: 'active',
       walletId: 'wallet_alice',
       rpId: 'wallet.example.test',
-      challengeId: 'email-otp-challenge-1',
+      registrationAuthorityId: 'email-otp-challenge-1',
     });
     expect(String((walletAuthMethodWrite as any)?.emailHashHex || '')).toMatch(/^[0-9a-f]{64}$/);
     await expect(
@@ -874,6 +898,7 @@ test.describe('registration intent allocation', () => {
           kind: 'email_otp',
           emailOtpRegistrationProof: {
             version: 'email_otp_registration_proof_v1',
+            proofKind: 'otp_challenge',
             providerSubject: EMAIL_OTP_PROVIDER_SUBJECT,
             email: EMAIL_OTP_EMAIL,
             challengeId: 'email-otp-challenge-1',
@@ -912,6 +937,7 @@ test.describe('registration intent allocation', () => {
         rpId: 'wallet.example.test',
         authMethod: {
           kind: 'email_otp',
+          proofKind: 'otp_challenge',
           email: EMAIL_OTP_EMAIL,
           otpCode: '123456',
           appSessionJwt: 'app-session.jwt',
@@ -934,6 +960,7 @@ test.describe('registration intent allocation', () => {
           kind: 'email_otp',
           emailOtpRegistrationProof: {
             version: 'email_otp_registration_proof_v1',
+            proofKind: 'otp_challenge',
             providerSubject: EMAIL_OTP_PROVIDER_SUBJECT,
             email: EMAIL_OTP_EMAIL,
             challengeId: 'email-otp-challenge-1',
@@ -963,16 +990,13 @@ test.describe('registration intent allocation', () => {
     expect(allocated.ok).toBe(true);
     if (!allocated.ok) throw new Error(allocated.message);
 
-    const otherSelectionIntent = await allocateIntent(
-      service,
-      COMBINED_SIGNER_SELECTION,
-      {
-        kind: 'email_otp',
-        email: EMAIL_OTP_EMAIL,
-        otpCode: '123456',
-        appSessionJwt: 'app-session.jwt',
-      },
-    );
+    const otherSelectionIntent = await allocateIntent(service, COMBINED_SIGNER_SELECTION, {
+      kind: 'email_otp',
+      proofKind: 'otp_challenge',
+      email: EMAIL_OTP_EMAIL,
+      otpCode: '123456',
+      appSessionJwt: 'app-session.jwt',
+    });
     expect(otherSelectionIntent.ok).toBe(true);
     if (!otherSelectionIntent.ok) throw new Error(otherSelectionIntent.message);
 
@@ -985,6 +1009,7 @@ test.describe('registration intent allocation', () => {
           kind: 'email_otp',
           emailOtpRegistrationProof: {
             version: 'email_otp_registration_proof_v1',
+            proofKind: 'otp_challenge',
             providerSubject: EMAIL_OTP_PROVIDER_SUBJECT,
             email: EMAIL_OTP_EMAIL,
             challengeId: 'email-otp-challenge-1',
@@ -1359,6 +1384,183 @@ test.describe('registration intent allocation', () => {
       participantIds: tempoWalletKey.participantIds,
     });
     expect(accountCreationCalls).toBe(0);
+  });
+
+  test('Google Email OTP ECDSA registration requires idempotency, replays success, and rejects concurrent duplicate finalize', async () => {
+    const service = makeService();
+    const providerSubject = 'google:finalize-idempotency';
+    const email = 'finalize-idempotency@example.test';
+    const registered = await service.resolveGoogleEmailOtpSession({
+      providerSubject,
+      email,
+      accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    });
+    expect(registered.ok).toBe(true);
+    if (!registered.ok || registered.mode !== 'register_started') return;
+    const selected = registered.offer.candidates.find(
+      (candidate) => candidate.candidateId === registered.offer.selectedCandidateId,
+    );
+    expect(selected).toBeTruthy();
+    if (!selected) return;
+
+    (service as any).getThresholdSigningService = () => ({
+      ecdsaHssRoleLocalBootstrap: async (request: Record<string, unknown>) => ({
+        ok: true,
+        value: ecdsaServerBootstrapValue({
+          request,
+          keyHandle: 'ehss-key-google-email-otp',
+          ownerAddress: '0x4444444444444444444444444444444444444444',
+        }),
+      }),
+      verifyEcdsaHssRoleLocalBootstrapPersisted: async () => ({
+        ok: true,
+        value: { keyHandle: 'ehss-key-google-email-otp' },
+      }),
+    });
+
+    const allocated = await service.createRegistrationIntent({
+      request: {
+        wallet: {
+          kind: 'provided',
+          walletId: selected.walletId,
+        },
+        rpId: 'wallet.example.test',
+        authMethod: {
+          kind: 'email_otp',
+          proofKind: 'google_sso_registration',
+          email,
+          appSessionJwt: 'app-session.jwt',
+          googleEmailOtpRegistrationAttemptId: registered.registrationAttemptId,
+          googleEmailOtpRegistrationOfferId: registered.offer.offerId,
+          googleEmailOtpRegistrationCandidateId: selected.candidateId,
+        },
+        signerSelection: ECDSA_SIGNER_SELECTION,
+      },
+      orgId: ORG_ID,
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+      expectedOrigin: 'https://wallet.example.test',
+    });
+    expect(allocated.ok).toBe(true);
+    if (!allocated.ok) throw new Error(allocated.message);
+
+    const started = await service.startWalletRegistration({
+      registrationIntentGrant: allocated.registrationIntentGrant,
+      registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
+      intent: allocated.intent,
+      authority: {
+        kind: 'email_otp',
+        emailOtpRegistrationProof: {
+          version: 'email_otp_registration_proof_v1',
+          proofKind: 'google_sso_registration',
+          providerSubject,
+          email,
+          googleEmailOtpRegistrationAttemptId: registered.registrationAttemptId,
+          googleEmailOtpRegistrationOfferId: registered.offer.offerId,
+          googleEmailOtpRegistrationCandidateId: selected.candidateId,
+          registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
+          appSessionVersion: 'app-session-v1',
+        },
+      },
+    });
+    expect(started).toMatchObject({ ok: true });
+    if (!started.ok || !started.ecdsa) throw new Error('Google Email OTP ECDSA start failed');
+
+    const clientBootstrap = {
+      ...started.ecdsa.prepare,
+      hssClientSharePublicKey33B64u: ECDSA_HSS_CLIENT_SHARE_PUBLIC_KEY_B64U,
+      clientShareRetryCounter: 0,
+      contextBinding32B64u: 'context-binding',
+    };
+    await expect(
+      service.respondWalletRegistrationHss({
+        registrationCeremonyId: started.registrationCeremonyId,
+        ecdsa: {
+          clientBootstrap,
+        },
+      }),
+    ).resolves.toMatchObject({ ok: true });
+
+    const finalizeBody = {
+      registrationCeremonyId: started.registrationCeremonyId,
+      ecdsa: {
+        expectedKeyHandles: ['ehss-key-google-email-otp'],
+      },
+      emailOtpEnrollment: emailOtpEnrollmentMaterial(String(selected.walletId), providerSubject),
+      emailOtpBackupAck: emailOtpBackupAck({
+        offerId: registered.offer.offerId,
+        candidateId: selected.candidateId,
+      }),
+    };
+    await expect(service.finalizeWalletRegistration(finalizeBody)).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+    });
+    const { emailOtpBackupAck: _missingAck, ...finalizeBodyWithoutAck } = finalizeBody;
+    await expect(
+      service.finalizeWalletRegistration({
+        ...finalizeBodyWithoutAck,
+        idempotencyKey: 'google-email-otp-finalize-idempotency-missing-ack',
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+      message: 'Email OTP registration finalize requires emailOtpBackupAck',
+    });
+
+    const firstConcurrentFinalize = {
+      ...finalizeBody,
+      idempotencyKey: 'google-email-otp-finalize-idempotency-1',
+    };
+    const secondConcurrentFinalize = {
+      ...finalizeBody,
+      idempotencyKey: 'google-email-otp-finalize-idempotency-2',
+    };
+    const concurrentResults = await Promise.all([
+      service.finalizeWalletRegistration(firstConcurrentFinalize),
+      service.finalizeWalletRegistration(secondConcurrentFinalize),
+    ]);
+    const successfulFinalizes = concurrentResults.filter((result) => result.ok);
+    const rejectedFinalizes = concurrentResults.filter((result) => !result.ok);
+    expect(successfulFinalizes).toHaveLength(1);
+    expect(rejectedFinalizes).toHaveLength(1);
+
+    const finalized = successfulFinalizes[0];
+    if (!finalized?.ok) throw new Error('expected one concurrent finalize to succeed');
+    expect(finalized).toMatchObject({
+      ok: true,
+      walletId: selected.walletId,
+      ecdsa: {
+        walletKeys: expect.arrayContaining([
+          expect.objectContaining({
+            keyHandle: 'ehss-key-google-email-otp',
+            thresholdOwnerAddress: '0x4444444444444444444444444444444444444444',
+          }),
+        ]),
+      },
+    });
+    expect(rejectedFinalizes[0]).toMatchObject({
+      ok: false,
+      code: 'not_found',
+      message: 'registration ceremony not found',
+    });
+
+    const winningRetryInput = concurrentResults[0]?.ok
+      ? firstConcurrentFinalize
+      : secondConcurrentFinalize;
+
+    await expect(service.finalizeWalletRegistration(winningRetryInput)).resolves.toMatchObject({
+      ok: true,
+      walletId: selected.walletId,
+      ecdsa: {
+        walletKeys: expect.arrayContaining([
+          expect.objectContaining({
+            keyHandle: 'ehss-key-google-email-otp',
+          }),
+        ]),
+      },
+    });
   });
 
   test('replaces a stale uncommitted ECDSA registration key before bootstrap retry', async () => {
@@ -1878,6 +2080,7 @@ test.describe('registration intent allocation', () => {
         kind: 'email_otp',
         emailOtpRegistrationProof: {
           version: 'email_otp_registration_proof_v1',
+          proofKind: 'otp_challenge',
           providerSubject: EMAIL_OTP_PROVIDER_SUBJECT,
           email: EMAIL_OTP_EMAIL,
           challengeId: 'challenge-email-1',
@@ -1913,7 +2116,7 @@ test.describe('registration intent allocation', () => {
     expect(ceremony).toMatchObject({
       authority: {
         kind: 'email_otp',
-        challengeId: 'challenge-email-1',
+        registrationAuthorityId: 'challenge-email-1',
       },
     });
 
@@ -1942,7 +2145,7 @@ test.describe('registration intent allocation', () => {
         }),
         expect.objectContaining({
           kind: 'email_otp',
-          challengeId: 'challenge-email-1',
+          registrationAuthorityId: 'challenge-email-1',
           status: 'active',
         }),
       ]),
@@ -1999,7 +2202,7 @@ test.describe('registration intent allocation', () => {
     await authMethodStore.put(
       activeEmailOtpAuthMethod({
         emailHashHex: 'email-hash-2',
-        challengeId: 'challenge-email-2',
+        registrationAuthorityId: 'challenge-email-2',
       }),
     );
 
@@ -2047,7 +2250,7 @@ test.describe('registration intent allocation', () => {
         }),
         expect.objectContaining({
           kind: 'email_otp',
-          challengeId: 'challenge-email-2',
+          registrationAuthorityId: 'challenge-email-2',
           status: 'active',
         }),
       ]),

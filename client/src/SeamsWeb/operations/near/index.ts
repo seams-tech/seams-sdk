@@ -2,7 +2,7 @@ import { toAccountId } from '@/core/types/accountIds';
 import type { NearSignerCapability } from '@/SeamsWeb/signingSurface/types';
 import type { NearSigningWebContext, RegistrationCapability } from '@/SeamsWeb/signingSurface/types';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
-import { buildPasskeyNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
+import { buildNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
 
 type NearWalletRegistrationArgs = Parameters<RegistrationCapability['registerWallet']>[0] & {
   options: NonNullable<Parameters<RegistrationCapability['registerWallet']>[0]['options']>;
@@ -25,7 +25,7 @@ export function buildNearWalletRegistrationArgs(
     },
     rpId,
     authMethod,
-    signerSelection: buildPasskeyNearWalletRegistrationSignerSelection({
+    signerSelection: buildNearWalletRegistrationSignerSelection({
       configs: context.configs,
       nearAccountId: String(accountId),
       options: args.options || {},

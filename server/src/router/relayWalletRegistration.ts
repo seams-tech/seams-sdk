@@ -194,6 +194,30 @@ const ED25519_HSS_FINALIZE_FORBIDDEN_FIELDS = [
   'seedOutputMessageB64u',
 ] as const;
 
+const EMAIL_OTP_BACKUP_ACK_ALLOWED_FIELDS = [
+  'kind',
+  'offerId',
+  'candidateId',
+  'recoveryCodesIssuedAtMs',
+  'backupActionKind',
+  'acknowledgedAtMs',
+  'idempotencyKey',
+] as const;
+
+const EMAIL_OTP_BACKUP_ACK_FORBIDDEN_FIELDS = [
+  'recoveryKeys',
+  'recoveryCodes',
+  'appSessionJwt',
+  'otpCode',
+  'challengeId',
+  'walletId',
+  'webauthn',
+  'passkey',
+  'bootstrap',
+  'bootstrapMaterial',
+  'clientSecret32',
+] as const;
+
 const ECDSA_REGISTRATION_HSS_RESPOND_FORBIDDEN_FIELDS = [
   'clientRootProof',
   'passkeyBootstrapAuthorization',
@@ -212,6 +236,10 @@ function trimRequiredString(
 
 function findOwnField(raw: Record<string, unknown>, fields: readonly string[]): string | undefined {
   return fields.find((field) => Object.prototype.hasOwnProperty.call(raw, field));
+}
+
+function findUnknownField(raw: Record<string, unknown>, allowed: readonly string[]): string | undefined {
+  return Object.keys(raw).find((field) => !allowed.includes(field));
 }
 
 function hasBranch(
@@ -1390,6 +1418,90 @@ function parseWalletRegistrationHssRespondRequest(
   return { ok: true, value };
 }
 
+function parseEmailOtpBackupAck(
+  value: unknown,
+): ParseResult<NonNullable<WalletRegistrationFinalizeRequest['emailOtpBackupAck']>> {
+  const ack = isPlainObject(value) ? value : null;
+  if (!ack) {
+    return { ok: false, code: 'invalid_body', message: 'emailOtpBackupAck must be an object' };
+  }
+  const forbiddenField = findOwnField(ack, EMAIL_OTP_BACKUP_ACK_FORBIDDEN_FIELDS);
+  if (forbiddenField) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: `emailOtpBackupAck.${forbiddenField} must not be included`,
+    };
+  }
+  const unknownField = findUnknownField(ack, EMAIL_OTP_BACKUP_ACK_ALLOWED_FIELDS);
+  if (unknownField) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: `emailOtpBackupAck.${unknownField} is not supported`,
+    };
+  }
+  if (ack.kind !== 'email_otp_recovery_code_backup_ack_v1') {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'emailOtpBackupAck.kind must be email_otp_recovery_code_backup_ack_v1',
+    };
+  }
+  const recoveryCodesIssuedAtMs = Number(ack.recoveryCodesIssuedAtMs);
+  if (!Number.isSafeInteger(recoveryCodesIssuedAtMs) || recoveryCodesIssuedAtMs <= 0) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'emailOtpBackupAck.recoveryCodesIssuedAtMs must be a positive integer timestamp',
+    };
+  }
+  const backupActionKind =
+    typeof ack.backupActionKind === 'string' ? ack.backupActionKind.trim() : '';
+  if (
+    backupActionKind !== 'download' &&
+    backupActionKind !== 'copy' &&
+    backupActionKind !== 'print' &&
+    backupActionKind !== 'manual'
+  ) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'emailOtpBackupAck.backupActionKind is invalid',
+    };
+  }
+  const acknowledgedAtMs = Number(ack.acknowledgedAtMs);
+  if (!Number.isSafeInteger(acknowledgedAtMs) || acknowledgedAtMs <= 0) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'emailOtpBackupAck.acknowledgedAtMs must be a positive integer timestamp',
+    };
+  }
+  const idempotencyKey = typeof ack.idempotencyKey === 'string' ? ack.idempotencyKey.trim() : '';
+  if (!idempotencyKey) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: 'emailOtpBackupAck.idempotencyKey is required',
+    };
+  }
+  const offerId = typeof ack.offerId === 'string' ? ack.offerId.trim() : '';
+  const candidateId = typeof ack.candidateId === 'string' ? ack.candidateId.trim() : '';
+  return {
+    ok: true,
+    value: {
+      kind: 'email_otp_recovery_code_backup_ack_v1',
+      ...(offerId ? { offerId } : {}),
+      ...(candidateId ? { candidateId } : {}),
+      recoveryCodesIssuedAtMs,
+      backupActionKind,
+      acknowledgedAtMs,
+      idempotencyKey,
+    },
+  };
+}
+
 function parseWalletRegistrationFinalizeRequest(
   body: Record<string, unknown>,
 ): ParseResult<WalletRegistrationFinalizeRequest> {
@@ -1409,6 +1521,18 @@ function parseWalletRegistrationFinalizeRequest(
   const value: WalletRegistrationFinalizeRequest = {
     registrationCeremonyId: registrationCeremonyId.value,
   };
+  if (Object.prototype.hasOwnProperty.call(body, 'idempotencyKey')) {
+    const idempotencyKey =
+      typeof body.idempotencyKey === 'string' ? body.idempotencyKey.trim() : '';
+    if (!idempotencyKey) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'idempotencyKey must be a non-empty string',
+      };
+    }
+    value.idempotencyKey = idempotencyKey;
+  }
   if (hasBranch(body, 'ed25519')) {
     const ed25519 = isPlainObject(body.ed25519) ? body.ed25519 : null;
     if (!ed25519) {
@@ -1533,6 +1657,11 @@ function parseWalletRegistrationFinalizeRequest(
       unlockKeyVersion: unlockKeyVersion.value,
       thresholdEcdsaClientVerifyingShareB64u: thresholdEcdsaClientVerifyingShareB64u.value,
     };
+  }
+  if (Object.prototype.hasOwnProperty.call(body, 'emailOtpBackupAck')) {
+    const ack = parseEmailOtpBackupAck(body.emailOtpBackupAck);
+    if (!ack.ok) return ack;
+    value.emailOtpBackupAck = ack.value;
   }
   return {
     ok: true,

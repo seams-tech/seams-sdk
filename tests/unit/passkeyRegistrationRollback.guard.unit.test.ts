@@ -44,7 +44,7 @@ test.describe('Passkey registration rollback guard', () => {
     const functionBlock = source.slice(functionStart, functionEnd);
 
     expect(functionBlock).toContain('return await registerWallet({');
-    expect(functionBlock).toContain('buildPasskeyNearWalletRegistrationSignerSelection');
+    expect(functionBlock).toContain('buildNearWalletRegistrationSignerSelection');
     expect(functionBlock).not.toContain("mode: 'ed25519_only'");
     expect(source).not.toContain('async function provisionThresholdEcdsaAfterRegistration');
     expect(source).not.toContain("kind: 'registration_continuation'");

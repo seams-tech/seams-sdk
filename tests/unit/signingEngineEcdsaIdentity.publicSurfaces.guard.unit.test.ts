@@ -21,7 +21,7 @@ import {
 
 test.describe('signing engine ECDSA public surface identity guards', () => {
   test('public SDK ECDSA inputs stay wallet-session shaped', () => {
-    const source = readRepoFile('client/src/SeamsWeb/signingSurface/types.ts');
+    const source = readRepoFile('client/src/SeamsWeb/publicApi/types.ts');
     const namedDeclarations = [
       {
         name: 'SignTempoArgs',

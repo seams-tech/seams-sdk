@@ -3,16 +3,20 @@ import type {
   AppSessionVersion,
   EmailOtpChallengeId,
   EmailOtpRegistrationAttemptId,
+  GoogleProviderSubject,
   OrgId,
   ProviderSubject,
   ThresholdEcdsaSessionId,
   ThresholdEd25519SessionId,
+  VerifiedGoogleEmail,
   WalletId,
   WalletSigningSessionId,
 } from './domainIds';
 
 declare const walletId: WalletId;
 declare const providerSubject: ProviderSubject;
+declare const googleProviderSubject: GoogleProviderSubject;
+declare const verifiedGoogleEmail: VerifiedGoogleEmail;
 declare const challengeSubjectId: ChallengeSubjectId;
 declare const orgId: OrgId;
 declare const appSessionVersion: AppSessionVersion;
@@ -27,6 +31,14 @@ function acceptsWalletId(value: WalletId): void {
 }
 
 function acceptsProviderSubject(value: ProviderSubject): void {
+  void value;
+}
+
+function acceptsGoogleProviderSubject(value: GoogleProviderSubject): void {
+  void value;
+}
+
+function acceptsVerifiedGoogleEmail(value: VerifiedGoogleEmail): void {
   void value;
 }
 
@@ -64,6 +76,9 @@ function acceptsThresholdEcdsaSessionId(value: ThresholdEcdsaSessionId): void {
 
 acceptsWalletId(walletId);
 acceptsProviderSubject(providerSubject);
+acceptsProviderSubject(googleProviderSubject);
+acceptsGoogleProviderSubject(googleProviderSubject);
+acceptsVerifiedGoogleEmail(verifiedGoogleEmail);
 acceptsChallengeSubjectId(challengeSubjectId);
 acceptsOrgId(orgId);
 acceptsAppSessionVersion(appSessionVersion);
@@ -78,6 +93,12 @@ acceptsWalletId(providerSubject);
 
 // @ts-expect-error Wallet ids are not provider subjects.
 acceptsProviderSubject(walletId);
+
+// @ts-expect-error Generic provider subjects are not Google-specific provider subjects.
+acceptsGoogleProviderSubject(providerSubject);
+
+// @ts-expect-error Verified Google emails are not provider subjects.
+acceptsProviderSubject(verifiedGoogleEmail);
 
 // @ts-expect-error Challenge subjects are not wallet ids.
 acceptsWalletId(challengeSubjectId);

@@ -78,7 +78,7 @@ export type StoreWalletEmailOtpEd25519RegistrationInput = Omit<
   'credential'
 > & {
   email: string;
-  challengeId: string;
+  registrationAuthorityId: string;
 };
 
 export type StoreWalletEd25519SignerRecordInput = {
@@ -121,7 +121,7 @@ export type StoreWalletEcdsaRegistrationInput = StoreWalletEcdsaSignerRecordsInp
 
 export type StoreWalletEmailOtpEcdsaRegistrationInput = StoreWalletEcdsaSignerRecordsInput & {
   email: string;
-  challengeId: string;
+  registrationAuthorityId: string;
 };
 
 export type StoredWalletEcdsaSignerRecord = {
@@ -549,13 +549,15 @@ function passkeyAuthMethod(args: {
 async function emailOtpAuthMethod(args: {
   walletId: WalletId;
   email: string;
-  challengeId: string;
+  registrationAuthorityId: string;
 }): Promise<LocalWalletAuthMethodRecord> {
   const walletId = String(args.walletId || '').trim();
   const email = String(args.email || '').trim().toLowerCase();
-  const challengeId = String(args.challengeId || '').trim();
-  if (!walletId || !email || !challengeId) {
-    throw new Error('SeamsWalletDB: Email OTP auth method requires walletId, email, and challengeId');
+  const registrationAuthorityId = String(args.registrationAuthorityId || '').trim();
+  if (!walletId || !email || !registrationAuthorityId) {
+    throw new Error(
+      'SeamsWalletDB: Email OTP auth method requires walletId, email, and registrationAuthorityId',
+    );
   }
   const nowMs = Date.now();
   return {
@@ -566,7 +568,7 @@ async function emailOtpAuthMethod(args: {
     walletId: args.walletId,
     rpId: LOCAL_WALLET_AUTH_RP_ID,
     emailHashHex: bytesToHex(await sha256BytesUtf8(email)),
-    challengeId,
+    registrationAuthorityId,
     createdAtMs: nowMs,
     updatedAtMs: nowMs,
   };
@@ -834,7 +836,7 @@ export async function storeWalletEmailOtpEd25519RegistrationData(
     relayerKeyId: args.relayerKeyId,
     keyVersion: args.keyVersion,
     email: String(args.email || '').trim().toLowerCase(),
-    challengeId: String(args.challengeId || '').trim(),
+    registrationAuthorityId: String(args.registrationAuthorityId || '').trim(),
     ...(args.participantIds ? { participantIds: args.participantIds } : {}),
     ...(args.clientParticipantId != null ? { clientParticipantId: args.clientParticipantId } : {}),
     ...(args.relayerParticipantId != null ? { relayerParticipantId: args.relayerParticipantId } : {}),
@@ -900,7 +902,7 @@ export async function storeWalletEmailOtpEd25519RegistrationData(
     initialAuthMethod: await emailOtpAuthMethod({
       walletId: args.walletId,
       email: args.email,
-      challengeId: args.challengeId,
+      registrationAuthorityId: args.registrationAuthorityId,
     }),
     authenticators: [],
     signerActivations: [walletActivation, nearActivation],
@@ -1377,7 +1379,7 @@ export async function storeWalletEmailOtpEcdsaRegistrationData(
     initialAuthMethod: await emailOtpAuthMethod({
       walletId: args.walletId,
       email: args.email,
-      challengeId: args.challengeId,
+      registrationAuthorityId: args.registrationAuthorityId,
     }),
     authenticators: [],
     signerActivations: preparedEcdsa.signerActivations.map((activation) => activation.input),

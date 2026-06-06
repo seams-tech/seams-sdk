@@ -65,16 +65,18 @@ import {
   respondWalletRegistrationHss,
   startWalletAddSigner,
   startWalletRegistration,
+  type WalletRegistrationEmailOtpBackupAck,
 } from '@/core/rpcClients/relayer/walletRegistration';
-import { buildPasskeyNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
+import { buildNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
 import { collectPasskeyRegistrationAuthority } from '@/SeamsWeb/operations/authMethods/passkey/registrationAuthority';
 import { backupEmailOtpRecoveryCodes } from '@/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup';
 import type { EmailOtpEnrollmentResult } from '@/SeamsWeb/signingSurface/types';
-
-type EmailOtpRegistrationEnrollmentMaterial = Awaited<
-  ReturnType<RegistrationSigningSurface['prepareEmailOtpRegistrationEnrollmentMaterialInternal']>
->;
+import type { RegistrationFinalizeIdempotencyKey } from '@/SeamsWeb/publicApi/types';
 import { collectEmailOtpRegistrationAuthority } from '@/SeamsWeb/operations/authMethods/emailOtp/registrationAuthority';
+import {
+  readEmailOtpPrewarmedRegistrationMaterial,
+  type EmailOtpRegistrationEnrollmentMaterial,
+} from '@/SeamsWeb/operations/authMethods/emailOtp/prewarmedRegistrationMaterial';
 import { requirePasskeyPrfFirstB64u } from '@/SeamsWeb/operations/authMethods/passkey/ecdsaBootstrap';
 import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
@@ -85,9 +87,62 @@ import { assertWalletRuntimePostconditions } from '@/core/signingEngine/session/
 
 type EmitRegistrationEventInput = Omit<CreateRegistrationFlowEventInput, 'accountId' | 'flowId'>;
 
+function createRegistrationOperationIdempotencyKey(
+  label: string,
+): RegistrationFinalizeIdempotencyKey {
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi && typeof cryptoApi.randomUUID === 'function') {
+    return `${label}:${cryptoApi.randomUUID()}` as RegistrationFinalizeIdempotencyKey;
+  }
+  const bytes = new Uint8Array(16);
+  if (cryptoApi && typeof cryptoApi.getRandomValues === 'function') {
+    cryptoApi.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i += 1) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+  return `${label}:${hex}` as RegistrationFinalizeIdempotencyKey;
+}
+
+function googleEmailOtpFinalizeIdempotencyKey(
+  authMethod: RegistrationAuthMethodInput,
+): RegistrationFinalizeIdempotencyKey | undefined {
+  if (authMethod.kind !== 'email_otp' || authMethod.proofKind !== 'google_sso_registration') {
+    return undefined;
+  }
+  return createRegistrationOperationIdempotencyKey('google-email-otp-registration-finalize');
+}
+
+function emailOtpBackupAckFromStoredBackup(input: {
+  authMethod: RegistrationAuthMethodInput;
+  backedUpEnrollment: Awaited<ReturnType<typeof backupEmailOtpRecoveryCodes>>;
+}): WalletRegistrationEmailOtpBackupAck {
+  const backupAckIdempotencyKey = createRegistrationOperationIdempotencyKey(
+    'email-otp-recovery-code-backup-ack',
+  );
+  const googleOffer =
+    input.authMethod.kind === 'email_otp' &&
+    input.authMethod.proofKind === 'google_sso_registration'
+      ? {
+          offerId: input.authMethod.googleEmailOtpRegistrationOfferId,
+          candidateId: input.authMethod.googleEmailOtpRegistrationCandidateId,
+        }
+      : {};
+  return {
+    kind: 'email_otp_recovery_code_backup_ack_v1',
+    ...googleOffer,
+    recoveryCodesIssuedAtMs: input.backedUpEnrollment.recoveryCodesIssuedAtMs,
+    backupActionKind: 'manual',
+    acknowledgedAtMs: Date.now(),
+    idempotencyKey: backupAckIdempotencyKey,
+  };
+}
+
 function emailOtpRegistrationMaterialToEnrollmentResult(input: {
   material: EmailOtpRegistrationEnrollmentMaterial;
-  challengeId: string;
+  registrationAuthorityId: string;
 }): EmailOtpEnrollmentResult {
   const recoveryEscrow =
     input.material.emailOtpEnrollment.recoveryWrappedEnrollmentEscrows[0] &&
@@ -102,13 +157,49 @@ function emailOtpRegistrationMaterialToEnrollmentResult(input: {
       input.material.emailOtpEnrollment.thresholdEcdsaClientVerifyingShareB64u,
     recoveryKeys: input.material.recoveryKeys,
     recoveryCodesIssuedAtMs: input.material.recoveryCodesIssuedAtMs,
-    challengeId: input.challengeId,
+    challengeId: input.registrationAuthorityId,
     otpChannel: EMAIL_OTP_CHANNEL,
     enrollmentId: String(recoveryEscrow.enrollmentId || '').trim(),
     enrollmentSealKeyVersion: input.material.emailOtpEnrollment.enrollmentSealKeyVersion,
     clientUnlockPublicKeyB64u: input.material.emailOtpEnrollment.clientUnlockPublicKeyB64u,
     unlockKeyVersion: input.material.emailOtpEnrollment.unlockKeyVersion,
   };
+}
+
+async function resolveEmailOtpRegistrationEnrollmentMaterial(input: {
+  context: RegistrationWebContext;
+  authMethod: RegistrationAuthMethodInput;
+  relayerUrl: string;
+  walletId: string;
+  providerSubject: string;
+  rpId: string;
+  appSessionJwt: string;
+}): Promise<EmailOtpRegistrationEnrollmentMaterial> {
+  if (input.authMethod.kind !== 'email_otp') {
+    throw new Error('Email OTP enrollment material requires Email OTP auth');
+  }
+  const prewarmed = readEmailOtpPrewarmedRegistrationMaterial(input.authMethod);
+  if (prewarmed) {
+    if (input.authMethod.proofKind !== 'google_sso_registration') {
+      throw new Error('Prewarmed Email OTP material requires Google SSO registration');
+    }
+    if (
+      prewarmed.offerId !== input.authMethod.googleEmailOtpRegistrationOfferId ||
+      prewarmed.candidateId !== input.authMethod.googleEmailOtpRegistrationCandidateId ||
+      prewarmed.walletId !== input.walletId ||
+      prewarmed.providerSubject !== input.providerSubject
+    ) {
+      throw new Error('Prewarmed Email OTP material does not match the active registration offer');
+    }
+    return prewarmed.material;
+  }
+  return await input.context.signingEngine.prepareEmailOtpRegistrationEnrollmentMaterialInternal({
+    relayUrl: input.relayerUrl,
+    walletId: toWalletId(input.walletId),
+    userId: input.providerSubject,
+    rpId: input.rpId,
+    appSessionJwt: input.appSessionJwt,
+  });
 }
 
 export function createRegistrationLifecycleEvent(input: {
@@ -216,7 +307,7 @@ async function registerPasskeyWithAuthenticatorOptions(
     },
     rpId,
     authMethod: { kind: 'passkey' },
-    signerSelection: buildPasskeyNearWalletRegistrationSignerSelection({
+    signerSelection: buildNearWalletRegistrationSignerSelection({
       configs: context.configs,
       nearAccountId: String(accountId),
       options,
@@ -335,6 +426,7 @@ async function registerEcdsaWalletOnly(args: {
     if (!relayerUrl) {
       throw new Error('registerWallet requires relayer.url');
     }
+    const finalizeIdempotencyKey = googleEmailOtpFinalizeIdempotencyKey(args.authMethod);
 
     const managedGrant = await createManagedRegistrationFlowGrant({
       context,
@@ -364,7 +456,7 @@ async function registerEcdsaWalletOnly(args: {
     let emailOtpClientRootShareHandle:
       | EmailOtpRegistrationEnrollmentMaterial['clientRootShareHandle']
       | null = null;
-    let emailOtpChallengeId = '';
+    let emailOtpRegistrationAuthorityId = '';
     let emailOtpEmail = '';
     let emailOtpProviderSubject = '';
     let emailOtpEnrollment: EmailOtpRegistrationEnrollmentMaterial['emailOtpEnrollment'] | null =
@@ -428,18 +520,19 @@ async function registerEcdsaWalletOnly(args: {
         registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
         appSessionJwt: args.authMethod.appSessionJwt,
       });
-      const enrollment =
-        await context.signingEngine.prepareEmailOtpRegistrationEnrollmentMaterialInternal({
-          relayUrl: relayerUrl,
-          walletId: toWalletId(walletId),
-          userId: emailAuthority.providerSubject,
-          rpId,
-          appSessionJwt: args.authMethod.appSessionJwt,
-        });
+      const enrollment = await resolveEmailOtpRegistrationEnrollmentMaterial({
+        context,
+        authMethod: args.authMethod,
+        relayerUrl,
+        walletId: String(walletId),
+        providerSubject: emailAuthority.providerSubject,
+        rpId,
+        appSessionJwt: args.authMethod.appSessionJwt,
+      });
       emailOtpClientRootShareHandle = enrollment.clientRootShareHandle;
       emailOtpEnrollment = enrollment.emailOtpEnrollment;
       emailOtpEnrollmentMaterial = enrollment;
-      emailOtpChallengeId = emailAuthority.challengeId;
+      emailOtpRegistrationAuthorityId = emailAuthority.registrationAuthorityId;
       emailOtpEmail = emailAuthority.email;
       emailOtpProviderSubject = emailAuthority.providerSubject;
       startAuthority = {
@@ -497,13 +590,30 @@ async function registerEcdsaWalletOnly(args: {
       clientBootstrap: preparedClientBootstrap.clientBootstrap,
       serverBootstrap: responded.ecdsa.bootstrap,
     });
+    const emailOtpBackupAck =
+      args.authMethod.kind === 'email_otp' && emailOtpEnrollmentMaterial
+        ? emailOtpBackupAckFromStoredBackup({
+            authMethod: args.authMethod,
+            backedUpEnrollment: await backupEmailOtpRecoveryCodes({
+              relayUrl: relayerUrl,
+              walletId: String(intentResponse.intent.walletId),
+              appSessionJwt: args.authMethod.appSessionJwt,
+              enrollment: emailOtpRegistrationMaterialToEnrollmentResult({
+                material: emailOtpEnrollmentMaterial,
+                registrationAuthorityId: emailOtpRegistrationAuthorityId,
+              }),
+            }),
+          })
+        : undefined;
     const finalized = await finalizeWalletRegistration({
       relayerUrl,
       registrationCeremonyId: startedCeremony.registrationCeremonyId,
+      ...(finalizeIdempotencyKey ? { idempotencyKey: finalizeIdempotencyKey } : {}),
       ecdsa: {
         expectedKeyHandles: [ecdsaBootstrap.keyHandle],
       },
       ...(emailOtpEnrollment ? { emailOtpEnrollment } : {}),
+      ...(emailOtpBackupAck ? { emailOtpBackupAck } : {}),
     });
     const walletKeys = finalized.ecdsa?.walletKeys || [];
     if (walletKeys.length === 0) {
@@ -553,7 +663,7 @@ async function registerEcdsaWalletOnly(args: {
       await context.signingEngine.storeWalletEmailOtpEcdsaRegistrationData({
         walletId: finalized.walletId,
         email: emailOtpEmail,
-        challengeId: emailOtpChallengeId,
+        registrationAuthorityId: emailOtpRegistrationAuthorityId,
         walletKeys,
       });
     }
@@ -576,18 +686,6 @@ async function registerEcdsaWalletOnly(args: {
       phase: RegistrationEventPhase.STEP_11_COMPLETED,
       status: 'succeeded',
     });
-    if (args.authMethod.kind === 'email_otp' && emailOtpEnrollmentMaterial) {
-      await backupEmailOtpRecoveryCodes({
-        relayUrl: relayerUrl,
-        walletId: String(walletId),
-        appSessionJwt: args.authMethod.appSessionJwt,
-        enrollment: emailOtpRegistrationMaterialToEnrollmentResult({
-          material: emailOtpEnrollmentMaterial,
-          challengeId: emailOtpChallengeId,
-        }),
-      });
-    }
-
     const primaryKey = walletKeys[0];
     const result: RegistrationResult = {
       success: true,
@@ -703,6 +801,7 @@ export async function registerWallet(args: {
     if (!relayerUrl) {
       throw new Error('registerWallet requires relayer.url');
     }
+    const finalizeIdempotencyKey = googleEmailOtpFinalizeIdempotencyKey(args.authMethod);
 
     const managedGrant = await createManagedRegistrationFlowGrant({
       context,
@@ -750,7 +849,7 @@ export async function registerWallet(args: {
     let emailOtpClientRootShareHandle:
       | EmailOtpRegistrationEnrollmentMaterial['clientRootShareHandle']
       | null = null;
-    let emailOtpChallengeId = '';
+    let emailOtpRegistrationAuthorityId = '';
     let emailOtpEmail = '';
     let emailOtpProviderSubject = '';
     let emailOtpEnrollment: EmailOtpRegistrationEnrollmentMaterial['emailOtpEnrollment'] | null =
@@ -815,19 +914,20 @@ export async function registerWallet(args: {
         registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
         appSessionJwt: args.authMethod.appSessionJwt,
       });
-      const enrollment =
-        await context.signingEngine.prepareEmailOtpRegistrationEnrollmentMaterialInternal({
-          relayUrl: relayerUrl,
-          walletId: toWalletId(intentResponse.intent.walletId),
-          userId: emailAuthority.providerSubject,
-          rpId,
-          appSessionJwt: args.authMethod.appSessionJwt,
-        });
+      const enrollment = await resolveEmailOtpRegistrationEnrollmentMaterial({
+        context,
+        authMethod: args.authMethod,
+        relayerUrl,
+        walletId: String(intentResponse.intent.walletId),
+        providerSubject: emailAuthority.providerSubject,
+        rpId,
+        appSessionJwt: args.authMethod.appSessionJwt,
+      });
       ed25519PrfFirstB64u = enrollment.thresholdEd25519PrfFirstB64u;
       emailOtpClientRootShareHandle = enrollment.clientRootShareHandle;
       emailOtpEnrollment = enrollment.emailOtpEnrollment;
       emailOtpEnrollmentMaterial = enrollment;
-      emailOtpChallengeId = emailAuthority.challengeId;
+      emailOtpRegistrationAuthorityId = emailAuthority.registrationAuthorityId;
       emailOtpEmail = emailAuthority.email;
       emailOtpProviderSubject = emailAuthority.providerSubject;
       startAuthority = {
@@ -952,9 +1052,25 @@ export async function registerWallet(args: {
     if (!requestedPolicy) {
       throw new Error('Threshold warm-session defaults are disabled for registration');
     }
+    const emailOtpBackupAck =
+      args.authMethod.kind === 'email_otp' && emailOtpEnrollmentMaterial
+        ? emailOtpBackupAckFromStoredBackup({
+            authMethod: args.authMethod,
+            backedUpEnrollment: await backupEmailOtpRecoveryCodes({
+              relayUrl: relayerUrl,
+              walletId: String(intentResponse.intent.walletId),
+              appSessionJwt: args.authMethod.appSessionJwt,
+              enrollment: emailOtpRegistrationMaterialToEnrollmentResult({
+                material: emailOtpEnrollmentMaterial,
+                registrationAuthorityId: emailOtpRegistrationAuthorityId,
+              }),
+            }),
+          })
+        : undefined;
     const finalized = await finalizeWalletRegistration({
       relayerUrl,
       registrationCeremonyId: startedCeremony.registrationCeremonyId,
+      ...(finalizeIdempotencyKey ? { idempotencyKey: finalizeIdempotencyKey } : {}),
       ed25519: {
         evaluationResult,
         sessionPolicy: buildThresholdWarmSessionRequestEnvelope({
@@ -972,6 +1088,7 @@ export async function registerWallet(args: {
           }
         : {}),
       ...(emailOtpEnrollment ? { emailOtpEnrollment } : {}),
+      ...(emailOtpBackupAck ? { emailOtpBackupAck } : {}),
     });
     if (!finalized.ed25519) {
       throw new Error('Wallet registration finalize did not return Ed25519 key material');
@@ -1039,7 +1156,7 @@ export async function registerWallet(args: {
             walletId: finalized.walletId,
             nearAccountId,
             email: emailOtpEmail,
-            challengeId: emailOtpChallengeId,
+            registrationAuthorityId: emailOtpRegistrationAuthorityId,
             operationalPublicKey: completedThresholdEd25519Registration.operationalPublicKey,
             signerSlot: ed25519Selection.signerSlot,
             relayerKeyId: finalized.ed25519.relayerKeyId,
@@ -1182,17 +1299,6 @@ export async function registerWallet(args: {
       phase: RegistrationEventPhase.STEP_11_COMPLETED,
       status: 'succeeded',
     });
-    if (args.authMethod.kind === 'email_otp' && emailOtpEnrollmentMaterial) {
-      await backupEmailOtpRecoveryCodes({
-        relayUrl: relayerUrl,
-        walletId: String(intentResponse.intent.walletId),
-        appSessionJwt: args.authMethod.appSessionJwt,
-        enrollment: emailOtpRegistrationMaterialToEnrollmentResult({
-          material: emailOtpEnrollmentMaterial,
-          challengeId: emailOtpChallengeId,
-        }),
-      });
-    }
     const primaryEcdsaWalletKey = ecdsaWalletKeys[0] || null;
     const successResult: RegistrationResult = {
       success: true,

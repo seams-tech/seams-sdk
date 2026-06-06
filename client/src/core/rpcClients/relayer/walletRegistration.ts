@@ -154,6 +154,16 @@ export type WalletRegistrationEmailOtpEnrollmentMaterial = {
   thresholdEcdsaClientVerifyingShareB64u: string;
 };
 
+export type WalletRegistrationEmailOtpBackupAck = {
+  kind: 'email_otp_recovery_code_backup_ack_v1';
+  offerId?: string;
+  candidateId?: string;
+  recoveryCodesIssuedAtMs: number;
+  backupActionKind: 'download' | 'copy' | 'print' | 'manual';
+  acknowledgedAtMs: number;
+  idempotencyKey: string;
+};
+
 export type AddSignerAppSessionPolicy = {
   permission: 'wallet_signer_provision';
   walletId: WalletId;
@@ -791,6 +801,7 @@ export async function respondWalletRegistrationHss(args: {
 export async function finalizeWalletRegistration(args: {
   relayerUrl: string;
   registrationCeremonyId: string;
+  idempotencyKey?: string;
   ed25519?: {
     evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
     sessionPolicy?: unknown;
@@ -800,15 +811,18 @@ export async function finalizeWalletRegistration(args: {
     expectedKeyHandles?: string[];
   };
   emailOtpEnrollment?: WalletRegistrationEmailOtpEnrollmentMaterial;
+  emailOtpBackupAck?: WalletRegistrationEmailOtpBackupAck;
 }): Promise<WalletRegistrationFinalizeResponse> {
   return await postJson<WalletRegistrationFinalizeResponse>({
     relayerUrl: args.relayerUrl,
     path: '/wallets/register/finalize',
     body: {
       registrationCeremonyId: args.registrationCeremonyId,
+      ...(args.idempotencyKey ? { idempotencyKey: args.idempotencyKey } : {}),
       ...(args.ed25519 ? { ed25519: args.ed25519 } : {}),
       ...(args.ecdsa ? { ecdsa: args.ecdsa } : {}),
       ...(args.emailOtpEnrollment ? { emailOtpEnrollment: args.emailOtpEnrollment } : {}),
+      ...(args.emailOtpBackupAck ? { emailOtpBackupAck: args.emailOtpBackupAck } : {}),
     },
   });
 }

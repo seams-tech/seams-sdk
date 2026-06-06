@@ -9,6 +9,7 @@ import type {
   RegistrationIntentV1,
   WalletAddSignerStartResponse,
   WalletRegistrationEcdsaWalletKey,
+  WalletRegistrationFinalizeResponse,
   WalletRegistrationStartResponse,
   WalletId,
 } from './types';
@@ -226,6 +227,15 @@ export type StoredWalletRegistrationCeremony = StoredWalletRegistrationCeremonyB
   signerState: StoredWalletRegistrationSignerState;
 };
 
+export type StoredWalletRegistrationFinalizeReplay = {
+  kind: 'wallet_registration_finalize_replay_v1';
+  registrationCeremonyId: string;
+  idempotencyKey: string;
+  response: Extract<WalletRegistrationFinalizeResponse, { ok: true }>;
+  createdAtMs: number;
+  expiresAtMs: number;
+};
+
 export type StoredEd25519AddSignerPrepared = WalletAddSignerEd25519StartPayload & {
   kind: 'ed25519_add_signer_prepared';
   responded?: never;
@@ -325,6 +335,11 @@ export interface RegistrationCeremonyStore {
   getCeremony(registrationCeremonyId: string): Promise<StoredWalletRegistrationCeremony | null>;
   updateCeremony(ceremony: StoredWalletRegistrationCeremony): Promise<void>;
   takeCeremony(registrationCeremonyId: string): Promise<StoredWalletRegistrationCeremony | null>;
+  putFinalizeReplay(replay: StoredWalletRegistrationFinalizeReplay): Promise<void>;
+  getFinalizeReplay(input: {
+    registrationCeremonyId: string;
+    idempotencyKey: string;
+  }): Promise<StoredWalletRegistrationFinalizeReplay | null>;
   putAddSignerCeremony(ceremony: StoredWalletAddSignerCeremony): Promise<void>;
   getAddSignerCeremony(addSignerCeremonyId: string): Promise<StoredWalletAddSignerCeremony | null>;
   updateAddSignerCeremony(ceremony: StoredWalletAddSignerCeremony): Promise<void>;
@@ -344,6 +359,7 @@ export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStor
   private readonly addAuthMethodIntents = new Map<string, StoredAddAuthMethodIntent>();
   private readonly addSignerIntents = new Map<string, StoredAddSignerIntent>();
   private readonly ceremonies = new Map<string, StoredWalletRegistrationCeremony>();
+  private readonly finalizeReplays = new Map<string, StoredWalletRegistrationFinalizeReplay>();
   private readonly addAuthMethodCeremonies = new Map<string, StoredWalletAddAuthMethodCeremony>();
   private readonly addSignerCeremonies = new Map<string, StoredWalletAddSignerCeremony>();
 
@@ -448,6 +464,29 @@ export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStor
     return ceremony;
   }
 
+  async putFinalizeReplay(replay: StoredWalletRegistrationFinalizeReplay): Promise<void> {
+    this.pruneExpired();
+    const parsed = parseStoredWalletRegistrationFinalizeReplay(replay);
+    if (!parsed) throw new Error('Invalid wallet registration finalize replay record');
+    this.finalizeReplays.set(finalizeReplayKey(parsed), parsed);
+  }
+
+  async getFinalizeReplay(input: {
+    registrationCeremonyId: string;
+    idempotencyKey: string;
+  }): Promise<StoredWalletRegistrationFinalizeReplay | null> {
+    this.pruneExpired();
+    const replay =
+      this.finalizeReplays.get(
+        finalizeReplayKey({
+          registrationCeremonyId: input.registrationCeremonyId,
+          idempotencyKey: input.idempotencyKey,
+        }),
+      ) || null;
+    if (!replay || replay.expiresAtMs <= Date.now()) return null;
+    return replay;
+  }
+
   async putAddAuthMethodCeremony(ceremony: StoredWalletAddAuthMethodCeremony): Promise<void> {
     this.pruneExpired();
     this.addAuthMethodCeremonies.set(ceremony.addAuthMethodCeremonyId, ceremony);
@@ -525,6 +564,9 @@ export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStor
     for (const [key, ceremony] of this.ceremonies) {
       if (ceremony.expiresAtMs <= now) this.ceremonies.delete(key);
     }
+    for (const [key, replay] of this.finalizeReplays) {
+      if (replay.expiresAtMs <= now) this.finalizeReplays.delete(key);
+    }
     for (const [key, ceremony] of this.addAuthMethodCeremonies) {
       if (ceremony.expiresAtMs <= now) this.addAuthMethodCeremonies.delete(key);
     }
@@ -542,6 +584,10 @@ function trimString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function finalizeReplayKey(input: { registrationCeremonyId: string; idempotencyKey: string }): string {
+  return `${trimString(input.registrationCeremonyId)}:${trimString(input.idempotencyKey)}`;
+}
+
 function parseJsonValue(value: unknown): unknown {
   if (typeof value !== 'string') return value;
   try {
@@ -549,6 +595,94 @@ function parseJsonValue(value: unknown): unknown {
   } catch {
     return null;
   }
+}
+
+function parseFinalizeReplayResponse(
+  value: unknown,
+): Extract<WalletRegistrationFinalizeResponse, { ok: true }> | null {
+  if (!isRecord(value) || value.ok !== true) return null;
+  const walletIdRaw = trimString(value.walletId);
+  const rpId = trimString(value.rpId);
+  if (!walletIdRaw || !rpId) return null;
+  const walletId = walletIdFromString(walletIdRaw);
+  let ed25519: Extract<WalletRegistrationFinalizeResponse, { ok: true }>['ed25519'];
+  if (value.ed25519 !== undefined) {
+    if (!isRecord(value.ed25519) || value.ed25519.session !== undefined) return null;
+    const nearAccountId = trimString(value.ed25519.nearAccountId);
+    const publicKey = trimString(value.ed25519.publicKey);
+    const relayerKeyId = trimString(value.ed25519.relayerKeyId);
+    const keyVersion = trimString(value.ed25519.keyVersion);
+    if (
+      !nearAccountId ||
+      !publicKey ||
+      !relayerKeyId ||
+      !keyVersion ||
+      value.ed25519.recoveryExportCapable !== true
+    ) {
+      return null;
+    }
+    const clientParticipantId = Number(value.ed25519.clientParticipantId);
+    const relayerParticipantId = Number(value.ed25519.relayerParticipantId);
+    const participantIds = Array.isArray(value.ed25519.participantIds)
+      ? value.ed25519.participantIds.map((id) => Number(id))
+      : undefined;
+    if (participantIds && participantIds.some((id) => !Number.isSafeInteger(id))) return null;
+    ed25519 = {
+      nearAccountId,
+      publicKey,
+      relayerKeyId,
+      keyVersion,
+      recoveryExportCapable: true,
+      ...(Number.isSafeInteger(clientParticipantId) ? { clientParticipantId } : {}),
+      ...(Number.isSafeInteger(relayerParticipantId) ? { relayerParticipantId } : {}),
+      ...(participantIds ? { participantIds } : {}),
+    };
+  }
+  let ecdsa: Extract<WalletRegistrationFinalizeResponse, { ok: true }>['ecdsa'];
+  if (value.ecdsa !== undefined) {
+    if (!isRecord(value.ecdsa) || !Array.isArray(value.ecdsa.walletKeys)) return null;
+    ecdsa = {
+      walletKeys: value.ecdsa.walletKeys as WalletRegistrationEcdsaWalletKey[],
+    };
+  }
+  return {
+    ok: true,
+    walletId,
+    rpId,
+    ...(ed25519 ? { ed25519 } : {}),
+    ...(ecdsa ? { ecdsa } : {}),
+  };
+}
+
+function parseStoredWalletRegistrationFinalizeReplay(
+  value: unknown,
+): StoredWalletRegistrationFinalizeReplay | null {
+  value = parseJsonValue(value);
+  if (!isRecord(value) || value.kind !== 'wallet_registration_finalize_replay_v1') return null;
+  const registrationCeremonyId = trimString(value.registrationCeremonyId);
+  const idempotencyKey = trimString(value.idempotencyKey);
+  const createdAtMs = Number(value.createdAtMs);
+  const expiresAtMs = Number(value.expiresAtMs);
+  const response = parseFinalizeReplayResponse(value.response);
+  if (
+    !registrationCeremonyId ||
+    !idempotencyKey ||
+    !response ||
+    !Number.isSafeInteger(createdAtMs) ||
+    createdAtMs <= 0 ||
+    !Number.isSafeInteger(expiresAtMs) ||
+    expiresAtMs <= 0
+  ) {
+    return null;
+  }
+  return {
+    kind: 'wallet_registration_finalize_replay_v1',
+    registrationCeremonyId,
+    idempotencyKey,
+    response,
+    createdAtMs,
+    expiresAtMs,
+  };
 }
 
 function parseStoredRegistrationIntent(value: unknown): StoredRegistrationIntent | null {
@@ -698,6 +832,7 @@ function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAut
         typeof value.emailHashHex === 'string' && value.emailHashHex.trim()
           ? value.emailHashHex
           : null;
+      const proofKind = typeof value.proofKind === 'string' ? value.proofKind.trim() : '';
       const providerSubject =
         typeof value.providerSubject === 'string' && value.providerSubject.trim()
           ? value.providerSubject
@@ -706,54 +841,108 @@ function parseStoredRegistrationAuthority(value: unknown): StoredRegistrationAut
         typeof value.email === 'string' && value.email.trim()
           ? value.email.toLowerCase()
           : null;
-      const challengeId =
-        typeof value.challengeId === 'string' && value.challengeId.trim()
-          ? value.challengeId
-          : null;
-      const challengeSubjectId = parseChallengeSubjectId(value.challengeSubjectId);
       const parsedProviderSubject = parseProviderSubject(providerSubject);
-      const parsedChallengeId = parseEmailOtpChallengeId(challengeId);
-      const originalWalletId = parseWalletId(value.originalWalletId);
       const finalWalletId = parseWalletId(value.finalWalletId);
       const orgId = parseOrgId(value.orgId);
       const appSessionVersion = parseAppSessionVersion(value.appSessionVersion);
-      const challengePurpose =
-        value.challengePurpose === 'registration' ||
-        value.challengePurpose === 'registration_reroll'
-          ? value.challengePurpose
-          : null;
       if (
         !providerSubject ||
         !email ||
         !emailHashHex ||
-        !challengeId ||
-        !challengeSubjectId.ok ||
         !parsedProviderSubject.ok ||
-        !parsedChallengeId.ok ||
-        !originalWalletId.ok ||
         !finalWalletId.ok ||
         !orgId.ok ||
-        !appSessionVersion.ok ||
-        !challengePurpose
+        !appSessionVersion.ok
       ) {
         return null;
       }
-      return {
-        kind: 'email_otp',
-        walletId,
-        rpId,
-        providerSubject: parsedProviderSubject.value,
-        challengeSubjectId: challengeSubjectId.value,
-        email,
-        emailHashHex,
-        challengeId: parsedChallengeId.value,
-        originalWalletId: originalWalletId.value,
-        finalWalletId: finalWalletId.value,
-        orgId: orgId.value,
-        appSessionVersion: appSessionVersion.value,
-        challengePurpose,
-        registrationIntentDigestB64u,
-      };
+      if (proofKind === 'otp_challenge') {
+        const challengeId =
+          typeof value.challengeId === 'string' && value.challengeId.trim()
+            ? value.challengeId
+            : null;
+        const challengeSubjectId = parseChallengeSubjectId(value.challengeSubjectId);
+        const parsedChallengeId = parseEmailOtpChallengeId(challengeId);
+        const originalWalletId = parseWalletId(value.originalWalletId);
+        const challengePurpose =
+          value.challengePurpose === 'registration' ||
+          value.challengePurpose === 'registration_reroll'
+            ? value.challengePurpose
+            : null;
+        if (
+          !challengeId ||
+          !challengeSubjectId.ok ||
+          !parsedChallengeId.ok ||
+          !originalWalletId.ok ||
+          !challengePurpose
+        ) {
+          return null;
+        }
+        return {
+          kind: 'email_otp',
+          proofKind: 'otp_challenge',
+          walletId,
+          rpId,
+          providerSubject: parsedProviderSubject.value,
+          challengeSubjectId: challengeSubjectId.value,
+          email,
+          emailHashHex,
+          challengeId: parsedChallengeId.value,
+          registrationAuthorityId: parsedChallengeId.value,
+          originalWalletId: originalWalletId.value,
+          finalWalletId: finalWalletId.value,
+          orgId: orgId.value,
+          appSessionVersion: appSessionVersion.value,
+          challengePurpose,
+          registrationIntentDigestB64u,
+        };
+      }
+      if (proofKind === 'google_sso_registration') {
+        const registrationAttemptId =
+          typeof value.googleEmailOtpRegistrationAttemptId === 'string' &&
+          value.googleEmailOtpRegistrationAttemptId.trim()
+            ? value.googleEmailOtpRegistrationAttemptId.trim()
+            : '';
+        const registrationOfferId =
+          typeof value.googleEmailOtpRegistrationOfferId === 'string' &&
+          value.googleEmailOtpRegistrationOfferId.trim()
+            ? value.googleEmailOtpRegistrationOfferId.trim()
+            : '';
+        const registrationCandidateId =
+          typeof value.googleEmailOtpRegistrationCandidateId === 'string' &&
+          value.googleEmailOtpRegistrationCandidateId.trim()
+            ? value.googleEmailOtpRegistrationCandidateId.trim()
+            : '';
+        if (
+          !registrationAttemptId ||
+          !registrationOfferId ||
+          !registrationCandidateId ||
+          hasDefinedField(value, 'challengeId') ||
+          hasDefinedField(value, 'challengeSubjectId') ||
+          hasDefinedField(value, 'originalWalletId') ||
+          hasDefinedField(value, 'challengePurpose')
+        ) {
+          return null;
+        }
+        return {
+          kind: 'email_otp',
+          proofKind: 'google_sso_registration',
+          walletId,
+          rpId,
+          providerSubject: parsedProviderSubject.value,
+          email,
+          emailHashHex,
+          googleEmailOtpRegistrationAttemptId: registrationAttemptId,
+          googleEmailOtpRegistrationOfferId: registrationOfferId,
+          googleEmailOtpRegistrationCandidateId: registrationCandidateId,
+          registrationAuthorityId: registrationAttemptId,
+          finalWalletId: finalWalletId.value,
+          orgId: orgId.value,
+          appSessionVersion: appSessionVersion.value,
+          registrationIntentDigestB64u,
+        };
+      }
+      return null;
     }
   }
   return null;
@@ -856,6 +1045,10 @@ class PostgresRegistrationCeremonyStore implements RegistrationCeremonyStore {
   constructor(input: { postgresUrl: string; namespace: string }) {
     this.poolPromise = getPostgresPool(input.postgresUrl);
     this.namespace = input.namespace;
+  }
+
+  private replayRecordId(input: { registrationCeremonyId: string; idempotencyKey: string }): string {
+    return `finalize-replay:${finalizeReplayKey(input)}`;
   }
 
   async putIntent(intent: StoredRegistrationIntent): Promise<void> {
@@ -1074,6 +1267,48 @@ class PostgresRegistrationCeremonyStore implements RegistrationCeremonyStore {
       [this.namespace, key, Date.now()],
     );
     return parseJsonRecord(result.rows[0], parseStoredWalletRegistrationCeremony);
+  }
+
+  async putFinalizeReplay(replay: StoredWalletRegistrationFinalizeReplay): Promise<void> {
+    const parsed = parseStoredWalletRegistrationFinalizeReplay(replay);
+    if (!parsed) throw new Error('Invalid wallet registration finalize replay record');
+    const pool = await this.poolPromise;
+    await pool.query(
+      `
+        INSERT INTO wallet_registration_ceremonies
+          (namespace, registration_ceremony_id, record_json, expires_at_ms)
+        VALUES ($1, $2, $3::jsonb, $4)
+        ON CONFLICT (namespace, registration_ceremony_id) DO UPDATE SET
+          record_json = EXCLUDED.record_json,
+          expires_at_ms = EXCLUDED.expires_at_ms
+      `,
+      [
+        this.namespace,
+        this.replayRecordId(parsed),
+        JSON.stringify(parsed),
+        parsed.expiresAtMs,
+      ],
+    );
+  }
+
+  async getFinalizeReplay(input: {
+    registrationCeremonyId: string;
+    idempotencyKey: string;
+  }): Promise<StoredWalletRegistrationFinalizeReplay | null> {
+    const pool = await this.poolPromise;
+    const key = this.replayRecordId(input);
+    if (!trimString(input.registrationCeremonyId) || !trimString(input.idempotencyKey)) {
+      return null;
+    }
+    const result = await pool.query(
+      `
+        SELECT record_json
+        FROM wallet_registration_ceremonies
+        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $3
+      `,
+      [this.namespace, key, Date.now()],
+    );
+    return parseJsonRecord(result.rows[0], parseStoredWalletRegistrationFinalizeReplay);
   }
 
   async putAddAuthMethodCeremony(ceremony: StoredWalletAddAuthMethodCeremony): Promise<void> {
@@ -1314,6 +1549,7 @@ class CloudflareDurableObjectRegistrationCeremonyStore implements RegistrationCe
       | 'add-auth-method-intent'
       | 'add-signer-intent'
       | 'ceremony'
+      | 'finalize-replay'
       | 'add-auth-method'
       | 'add-signer',
     id: string,
@@ -1497,6 +1733,34 @@ class CloudflareDurableObjectRegistrationCeremonyStore implements RegistrationCe
     const ceremony = parseStoredWalletRegistrationCeremony(response.value);
     if (!ceremony || ceremony.expiresAtMs <= Date.now()) return null;
     return ceremony;
+  }
+
+  async putFinalizeReplay(replay: StoredWalletRegistrationFinalizeReplay): Promise<void> {
+    const parsed = parseStoredWalletRegistrationFinalizeReplay(replay);
+    if (!parsed) throw new Error('Invalid wallet registration finalize replay record');
+    const ttlMs = Math.max(1, parsed.expiresAtMs - Date.now());
+    const response = await callDo<void>(this.stub, {
+      op: 'set',
+      key: this.key('finalize-replay', finalizeReplayKey(parsed)),
+      value: parsed,
+      ttlMs,
+    });
+    if (!response.ok) throw new Error(response.message);
+  }
+
+  async getFinalizeReplay(input: {
+    registrationCeremonyId: string;
+    idempotencyKey: string;
+  }): Promise<StoredWalletRegistrationFinalizeReplay | null> {
+    if (!trimString(input.registrationCeremonyId) || !trimString(input.idempotencyKey)) return null;
+    const response = await callDo<unknown | null>(this.stub, {
+      op: 'get',
+      key: this.key('finalize-replay', finalizeReplayKey(input)),
+    });
+    if (!response.ok) return null;
+    const replay = parseStoredWalletRegistrationFinalizeReplay(response.value);
+    if (!replay || replay.expiresAtMs <= Date.now()) return null;
+    return replay;
   }
 
   async putAddAuthMethodCeremony(ceremony: StoredWalletAddAuthMethodCeremony): Promise<void> {

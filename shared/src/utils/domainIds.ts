@@ -18,6 +18,10 @@ export type WalletId = DomainId<'WalletId'>;
 // Subject from the upstream identity provider, such as a Google OIDC `sub`.
 // This identifies the human/provider account that requested or verified OTP.
 export type ProviderSubject = DomainId<'ProviderSubject'>;
+export type GoogleProviderSubject = ProviderSubject & {
+  readonly __googleProviderSubjectBrand: 'GoogleProviderSubject';
+};
+export type VerifiedGoogleEmail = DomainId<'VerifiedGoogleEmail'>;
 
 // Subject that owns an Email OTP challenge. For Google registration this should
 // match ProviderSubject after parsing, but it remains a separate type so
@@ -92,6 +96,39 @@ export function parseWalletId(raw: unknown): DomainIdParseResult<WalletId> {
 
 export function parseProviderSubject(raw: unknown): DomainIdParseResult<ProviderSubject> {
   return parseDomainId(raw, 'providerSubject');
+}
+
+export function parseGoogleProviderSubject(
+  raw: unknown,
+): DomainIdParseResult<GoogleProviderSubject> {
+  const parsed = parseDomainId<GoogleProviderSubject>(raw, 'googleProviderSubject');
+  if (!parsed.ok) return parsed;
+  if (!parsed.value.startsWith('google:')) {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid',
+        message: 'googleProviderSubject must start with google:',
+      },
+    };
+  }
+  return parsed;
+}
+
+export function parseVerifiedGoogleEmail(raw: unknown): DomainIdParseResult<VerifiedGoogleEmail> {
+  const parsed = parseDomainId<VerifiedGoogleEmail>(raw, 'verifiedGoogleEmail');
+  if (!parsed.ok) return parsed;
+  const normalized = parsed.value.toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+    return {
+      ok: false,
+      error: {
+        code: 'invalid',
+        message: 'verifiedGoogleEmail must be an email address',
+      },
+    };
+  }
+  return { ok: true, value: normalized as VerifiedGoogleEmail };
 }
 
 export function parseChallengeSubjectId(raw: unknown): DomainIdParseResult<ChallengeSubjectId> {
