@@ -11,11 +11,13 @@ import {
   THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
 } from '@/core/signingEngine/threshold/ed25519/hssClientBase';
 import { listThresholdEcdsaProvisionTargets } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
+import type { ThresholdEcdsaChainTarget } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
-export function buildPasskeyNearWalletRegistrationSignerSelection(args: {
+export function buildNearWalletRegistrationSignerSelection(args: {
   configs: SeamsConfigsReadonly;
   nearAccountId: string;
   options: RegistrationHooksOptions;
+  ecdsaChainTargets?: readonly ThresholdEcdsaChainTarget[];
 }): RegistrationSignerSelection {
   const ed25519 = {
     nearAccountId: args.nearAccountId,
@@ -26,14 +28,15 @@ export function buildPasskeyNearWalletRegistrationSignerSelection(args: {
     derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
     createNearAccount: true,
   };
-  const signerOptions =
-    args.options.signerOptions ?? args.configs.signing.thresholdEcdsa.provisioningDefaults;
-  const ecdsaTargets = listThresholdEcdsaProvisionTargets({
-    signerOptions,
-    chains: args.configs.network.chains,
-  });
+  const ecdsaChainTargets =
+    args.ecdsaChainTargets ??
+    listThresholdEcdsaProvisionTargets({
+      signerOptions:
+        args.options.signerOptions ?? args.configs.signing.thresholdEcdsa.provisioningDefaults,
+      chains: args.configs.network.chains,
+    }).map((target) => target.chainTarget);
 
-  if (!ecdsaTargets.length) {
+  if (!ecdsaChainTargets.length) {
     return {
       mode: 'ed25519_only',
       ed25519,
@@ -44,7 +47,7 @@ export function buildPasskeyNearWalletRegistrationSignerSelection(args: {
     mode: 'ed25519_and_ecdsa',
     ed25519,
     ecdsa: {
-      chainTargets: ecdsaTargets.map((target) => target.chainTarget),
+      chainTargets: [...ecdsaChainTargets],
       participantIds: [...THRESHOLD_SECP256K1_ECDSA_2P_PARTICIPANTS_V1.participantIds],
     },
   };

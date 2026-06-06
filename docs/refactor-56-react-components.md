@@ -524,22 +524,156 @@ the refactor does not add another wrapper layer.
   `runtimePolicyScope`, `walletSessionUserId`, recovery codes, or ECDSA
   bootstrap material from the headless flow.
 
+## Regression Prevention Strategy
+
+This refactor touches public SDK types, React component control flow, wallet
+iframe routing, Email OTP registration, and ECDSA session readiness. Treat it as
+an auth/session refactor, not a UI-only cleanup.
+
+### Implementation Order
+
+Land the work in this order to keep failures localized:
+
+1. Public types and type fixtures.
+2. Direct browser headless flow with unit tests.
+3. React adapter support with existing custom `otpPrompt` compatibility tests.
+4. Demo simplification after the SDK and React tests pass.
+5. Wallet iframe parity with handle lifecycle tests.
+6. Documentation and source guards.
+
+Do not switch the demo to the new flow before the direct browser flow, React
+adapter, and public type fixtures are passing.
+
+### Source Guards
+
+Add `tests/unit/refactor56HeadlessAuth.guard.unit.test.ts` with these checks:
+
+- `examples/seams-site/src/flows/demo/PasskeyLoginMenu.tsx` standard Google
+  Email OTP path does not call:
+  - `exchangeGoogleEmailOtpSession`
+  - `requestEmailOtpChallenge`
+  - `requestEmailOtpEnrollmentChallenge`
+  - `loginWithEmailOtpEcdsaCapability`
+  - `registerNearWallet`
+  - `getWalletSession`
+  - `walletSessionRefFromSession`
+- `client/src/react/**` does not branch on `googleEmailOtpResolution`.
+- `client/src/react/**` does not import `walletSessionRefFromSession`.
+- `client/src/SeamsWeb/publicApi/**` does not store or mutate flow handle
+  records.
+- `client/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts`
+  does not import `SeamsWebContext`, `SeamsWebSigningSurface`, or
+  `BrowserSigningSurface`.
+- wallet iframe client-visible result types do not expose `appSessionJwt`,
+  `runtimePolicyScope`, `walletSessionUserId`, `recoveryKeys`, or ECDSA
+  bootstrap material.
+
+### Type Fixtures
+
+Add public type fixtures that compile only when:
+
+- login-mode flow has `reroll?: never`;
+- explicit ECDSA target input rejects an empty target list;
+- app code must branch on `ok` before reading a flow or submit success;
+- submit success exposes `walletId`, `mode`, and `session` only;
+- app code cannot read `appSessionJwt`, `runtimePolicyScope`,
+  `walletSessionUserId`, `recoveryKeys`, `recoveryCodesIssuedAtMs`,
+  `bootstrap`, or `warmCapability` from the headless flow;
+- `onComplete` receives only UI-safe completion data.
+
+### Direct And Iframe Parity Matrix
+
+The same behavior must be tested in direct browser mode and wallet-iframe mode:
+
+| Case | Direct | Iframe |
+| --- | --- | --- |
+| register begins with enrollment challenge | required | required |
+| login begins with login challenge | required | required |
+| register request resolves to existing-wallet login | required | required |
+| resend replaces active flow | required | required |
+| reroll replaces active flow and burns old flow | required | required |
+| submit burns active flow | required | required |
+| stale submit fails closed | required | required |
+| recovery-code backup completes before register success | required | required |
+| recovery codes never reach app-visible result | required | required |
+| local signing readiness failure returns typed failure | required | required |
+| event callbacks preserve old phase semantics | required | required |
+
+### React Regression Matrix
+
+Add targeted component/controller tests for:
+
+- existing `{ username, otpPrompt }` custom integrations still work;
+- `{ kind: 'otp_flow', flow, onComplete }` renders prompt copy and submits;
+- `ok: false` submit leaves the OTP prompt open and shows the error;
+- successful submit calls `onComplete` exactly once;
+- resend/reroll success replaces the active flow used by submit;
+- back/reset/start-different-method calls `flow.cancel()` and suppresses
+  unhandled rejection if cancel fails;
+- resend debounce still applies after the flow adapter changes;
+- recovery-key prompt support remains unchanged for custom `otpPrompt` flows.
+
+### Event And Session Readiness Invariants
+
+Tests must assert these postconditions rather than only asserting method calls:
+
+- registration path emits registration events and never unlock-only completion
+  events before registration completes;
+- existing-wallet login from register mode emits unlock events after resolution;
+- successful submit refreshes local login state exactly once;
+- submit success requires `WalletSession.login.isLoggedIn === true`;
+- configured ECDSA targets are checked through the same readiness helper used by
+  current low-level flows;
+- `ecdsaTargets: { kind: 'none' }` skips ECDSA readiness only for the explicit
+  no-ECDSA branch.
+
+### Validation Gates
+
+Run the cheapest gate after each phase:
+
+```sh
+pnpm -C sdk exec tsc -p tsconfig.build.json --noEmit
+pnpm -C tests exec playwright test \
+  tests/unit/googleEmailOtpWalletAuthFlow.unit.test.ts \
+  tests/unit/passkeyAuthMenu.googleEmailOtpFlow.unit.test.ts \
+  tests/unit/refactor56HeadlessAuth.guard.unit.test.ts \
+  --reporter=line
+```
+
+Run the broader gate before closeout:
+
+```sh
+pnpm -C sdk type-check
+pnpm -C tests run test:source-guards
+pnpm -C tests exec playwright test \
+  tests/unit/seamsWeb.emailOtp.unit.test.ts \
+  tests/unit/seamsWeb.emailOtpIframe.unit.test.ts \
+  tests/unit/passkeyLoginMenu.thresholdProvision.unit.test.ts \
+  tests/unit/passkeyAuthMenu.fouc.unit.test.ts \
+  tests/unit/googleEmailOtpWalletAuthFlow.unit.test.ts \
+  tests/unit/passkeyAuthMenu.googleEmailOtpFlow.unit.test.ts \
+  --reporter=line
+```
+
 ## Phase Plan
 
 ### Phase 0: Inventory Current Social Auth Surface
 
 Tasks:
 
-- Inventory every call made by `onGoogleSsoEmailOtp(...)`.
-- Classify each call as app-owned, React-owned, or SDK-owned.
-- Confirm Refactor 52 warm Ed25519 session behavior is stable after unlock.
-- Identify wallet iframe parity requirements for the new high-level auth method.
-- Confirm the existing wallet-registration helper path that should be reused for
+- [x] Inventory every call made by `onGoogleSsoEmailOtp(...)`.
+- [x] Classify each call as app-owned, React-owned, or SDK-owned.
+- [x] Confirm Refactor 52 warm Ed25519 session behavior is stable after unlock.
+- [x] Identify wallet iframe parity requirements for the new high-level auth method.
+- [x] Confirm the existing wallet-registration helper path that should be reused for
   standard Google Email OTP registration.
+- [x] Record the pre-refactor event sequence for register, existing-wallet login,
+  resend, reroll, and submit so the new flow can preserve observable events.
 
 Acceptance:
 
 - The inventory maps every leaked SDK concept to a target owner.
+- The direct and iframe parity matrix has a concrete test owner for each row.
 - No implementation changes.
 
 Validation:
@@ -550,15 +684,17 @@ Validation:
 
 Tasks:
 
-- Add `GoogleEmailOtpWalletAuthFlow` and related input/result types.
-- Add `beginGoogleEmailOtpWalletAuth(...)` to `AuthCapability`.
-- Add the narrow `GoogleEmailOtpWalletAuthDeps` contract for the operation
+- [x] Add `GoogleEmailOtpWalletAuthFlow` and related input/result types.
+- [x] Add `beginGoogleEmailOtpWalletAuth(...)` to `AuthCapability`.
+- [x] Add the narrow `GoogleEmailOtpWalletAuthDeps` contract for the operation
   module.
-- Add public type fixtures proving app code cannot access internal JWT,
+- [x] Add public type fixtures proving app code cannot access internal JWT,
   runtime-policy, ECDSA bootstrap, or wallet-session user-id fields from the new
   flow.
-- Add type fixtures proving login flows reject `reroll`, explicit ECDSA target
+- [x] Add type fixtures proving login flows reject `reroll`, explicit ECDSA target
   lists reject empty arrays, and submit failures are handled as `ok: false`.
+- [x] Add type fixtures proving app code cannot access recovery-code or bootstrap
+  material from flow, submit, resend, or reroll results.
 
 Acceptance:
 
@@ -570,28 +706,35 @@ Validation:
 
 - `pnpm -C sdk exec tsc -p tsconfig.build.json --noEmit`
 - targeted type fixture tests
+- `tests/unit/refactor56HeadlessAuth.guard.unit.test.ts`
 
 ### Phase 2: Implement Headless SDK Flow
 
 Tasks:
 
-- Implement `beginGoogleEmailOtpWalletAuth(...)` in `SeamsWeb`.
-- Implement the workflow body in
+- [x] Implement `beginGoogleEmailOtpWalletAuth(...)` in `SeamsWeb`.
+- [x] Implement the workflow body in
   `operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts`.
-- Reuse existing low-level helpers internally:
+- [x] Reuse existing low-level helpers internally:
   `exchangeGoogleEmailOtpSession`, challenge request helpers,
   Email OTP registration, and Email OTP ECDSA login.
-- Internalize registration/login resolution.
-- Internalize app session JWT and runtime policy scope routing.
-- Internalize configured ECDSA target readiness.
-- Internalize login state refresh and wallet-session readiness validation.
-- Return typed user-facing failures.
-- Invoke recovery-code backup and acknowledgement before registration submit
+- [x] Internalize registration/login resolution.
+- [x] Internalize app session JWT and runtime policy scope routing.
+- [x] Internalize configured ECDSA target readiness.
+- [x] Internalize login state refresh and wallet-session readiness validation.
+- [x] Return typed user-facing failures.
+- [x] Invoke recovery-code backup and acknowledgement before registration submit
   completes.
-- Ensure reroll reuses a code only when the relay response explicitly authorizes
-  reuse for the same Google email identity and active registration attempt.
-- Keep low-level Email OTP APIs callable, but stop using them from the demo
+- [ ] Add an explicit relay-to-SDK reroll delivery contract if the UI must
+  distinguish reused-code vs newly-sent-code after reroll. The current relay
+  exchange result exposes registration attempt identity and expiry, but no
+  app-visible code-reuse flag for `GoogleEmailOtpWalletAuthFlow.delivery`.
+- [x] Keep low-level Email OTP APIs callable, but stop using them from the demo
   standard Google path.
+- [x] Add stale-flow protections for double submit, submit after cancel, submit
+  after reroll replacement, and submit after expiry.
+- [x] Add direct-mode parity tests for every row in the direct/iframe matrix before
+  starting iframe implementation.
 
 Acceptance:
 
@@ -604,25 +747,34 @@ Acceptance:
 - Registration submit never returns recovery codes to app code.
 - Submit burns or completes the active challenge flow so stale submit cannot be
   repeated.
+- Direct browser mode satisfies the direct column of the parity matrix.
 
 Validation:
 
 - `tests/unit/googleEmailOtpWalletAuthFlow.unit.test.ts`
 - existing Email OTP registration/unlock tests
 - wallet-session readiness regression tests
+- `tests/unit/refactor56HeadlessAuth.guard.unit.test.ts`
 
 ### Phase 3: Wallet Iframe Parity
 
 Tasks:
 
-- Add wallet iframe RPC messages for `beginGoogleEmailOtpWalletAuth`, `resend`,
+- [x] Add wallet iframe RPC messages for `beginGoogleEmailOtpWalletAuth`, `resend`,
   `reroll`, `submit`, and `cancel` using host-owned flow handles.
-- Ensure app-origin iframe mode does not receive secrets, app session JWT, or
+- [x] Ensure app-origin iframe mode does not receive secrets, app session JWT, or
   internal bootstrap material.
-- Preserve event emission across iframe boundaries.
-- Store flow handle records with expiry and same-origin/same-wallet checks.
-- Burn handles after submit, cancel, expiry, or reroll replacement.
-- Keep wallet-iframe handle state in wallet-iframe code, not in `publicApi`.
+- [x] Preserve event emission across iframe boundaries.
+- [x] Store flow handle records with expiry and same-wallet/mode checks. Same-origin remains
+  enforced by the existing iframe messaging boundary.
+- [x] Burn handles after submit, cancel, expiry, or reroll replacement.
+- [x] Keep wallet-iframe handle state in wallet-iframe code, not in `publicApi`.
+- [x] Add explicit stale-handle tests for wrong wallet, wrong mode, expired
+  handle, cancelled handle, submitted handle, and rerolled handle. Wrong-origin
+  checks stay at the iframe messaging boundary, outside the Email OTP handler
+  map.
+- [x] Add iframe parity tests that reuse the same public flow assertions as direct
+  mode wherever possible.
 
 Acceptance:
 
@@ -630,28 +782,34 @@ Acceptance:
 - Flow handles cannot be confused across wallets or auth modes.
 - Internal session material stays wallet-origin owned.
 - Registration recovery-code backup UI stays wallet-origin owned.
+- Wallet iframe mode satisfies the iframe column of the parity matrix.
 
 Validation:
 
 - wallet iframe router tests
 - iframe Email OTP auth flow tests
+- source guard proving public API does not own iframe flow-handle state
 
 ### Phase 4: React Flow Adapter
 
 Tasks:
 
-- Extend `PasskeyAuthMenuSocialLoginResult` with `{ kind: 'otp_flow'; flow }`.
-- Map `GoogleEmailOtpWalletAuthFlow` to the existing OTP prompt controller.
-- Add `useGoogleEmailOtpWalletAuth(...)`.
-- Export the hook and public types from `client/src/react/index.ts`.
-- Keep existing `otpPrompt` custom handler support for advanced apps.
-- Add `onComplete` handling for both `{ kind: 'otp_flow' }` and custom
+- [x] Extend `PasskeyAuthMenuSocialLoginResult` with `{ kind: 'otp_flow'; flow }`.
+- [x] Map `GoogleEmailOtpWalletAuthFlow` to the existing OTP prompt controller.
+- [x] Add `useGoogleEmailOtpWalletAuth(...)`.
+- [x] Export the hook and public types from `client/src/react/index.ts`.
+- [x] Keep existing `otpPrompt` custom handler support for advanced apps.
+- [x] Add `onComplete` handling for both `{ kind: 'otp_flow' }` and custom
   `otpPrompt` results.
-- Convert `ok: false` flow outcomes to OTP prompt errors without collapsing the
+- [x] Convert `ok: false` flow outcomes to OTP prompt errors without collapsing the
   prompt state.
-- Replace the active flow after successful `resend` or `reroll` results.
-- Call `flow.cancel()` when the user backs out, resets the menu, or starts a
+- [x] Replace the active flow after successful `resend` or `reroll` results.
+- [x] Call `flow.cancel()` when the user backs out, resets the menu, or starts a
   different auth method.
+- [x] Preserve all existing custom `otpPrompt` behaviors, including recovery-key
+  prompts and resend debounce.
+- [x] Keep `runtime.refreshLoginState` behavior for custom `otpPrompt` flows while
+  avoiding duplicate refreshes for headless flow submit success.
 
 Acceptance:
 
@@ -661,23 +819,27 @@ Acceptance:
   error display, and back navigation.
 - App callbacks run only after a successful submit result.
 - Back/reset cancels the active headless flow.
+- Existing FOUC and prompt-state tests keep passing.
 
 Validation:
 
 - `tests/unit/passkeyAuthMenu.googleEmailOtpFlow.unit.test.ts`
+- `tests/unit/passkeyAuthMenu.fouc.unit.test.ts`
 - React typecheck
 
 ### Phase 5: Simplify Demo
 
 Tasks:
 
-- Replace `onGoogleSsoEmailOtp(...)` in `PasskeyLoginMenu.tsx` with the target
+- [x] Replace `onGoogleSsoEmailOtp(...)` in `PasskeyLoginMenu.tsx` with the target
   shape.
-- Keep Google Identity token acquisition local to the demo.
-- Keep demo toast copy local to the demo.
-- Delete app-level calls to low-level Email OTP challenge, registration, ECDSA
+- [x] Keep Google Identity token acquisition local to the demo.
+- [x] Keep demo toast copy local to the demo.
+- [x] Delete app-level calls to low-level Email OTP challenge, registration, ECDSA
   capability, refresh, and readiness APIs from this flow.
-- Remove `walletSessionRefFromSession` import from `PasskeyLoginMenu.tsx`.
+- [x] Remove `walletSessionRefFromSession` import from `PasskeyLoginMenu.tsx`.
+- [x] Add or update a guard proving the standard Google Email OTP path does not call
+  the low-level methods listed in "Current Leaks To Remove From App Code".
 
 Acceptance:
 
@@ -685,21 +847,23 @@ Acceptance:
   Email OTP.
 - The component remains responsible for UI copy and `onLoggedIn`.
 - The demo code is short enough to serve as user-facing integration guidance.
+- Low-level Email OTP APIs remain available outside the standard Google path.
 
 Validation:
 
 - demo typecheck
 - unit test or component test for social Google OTP prompt path
 - manual browser smoke test for register and login if the demo app is running
+- `tests/unit/refactor56HeadlessAuth.guard.unit.test.ts`
 
 ### Phase 6: Documentation And API Guidance
 
 Tasks:
 
-- Document the preferred Google SSO + Email OTP integration path.
-- Mark low-level Email OTP methods as advanced in docs.
-- Add examples for app-owned Google token acquisition and SDK-owned wallet auth.
-- Document wallet iframe behavior.
+- [x] Document the preferred Google SSO + Email OTP integration path.
+- [x] Mark low-level Email OTP methods as advanced in docs.
+- [x] Add examples for app-owned Google token acquisition and SDK-owned wallet auth.
+- [x] Document wallet iframe behavior.
 
 Acceptance:
 
@@ -710,6 +874,116 @@ Acceptance:
 Validation:
 
 - docs review
+
+### Phase 7: Post-Review Lifecycle And Target-Policy Tightening
+
+Tasks:
+
+- [x] Fix wallet-iframe flow-handle burn semantics for recoverable failures.
+  `submit`, `resend`, and `reroll` should read and validate the active handle,
+  call the flow method, and burn the handle only after a successful operation
+  that consumes or replaces the flow. `cancel` and expiry still burn immediately.
+- [x] Keep the fix local to the iframe Email OTP handler. Do not add a generic
+  flow manager, lifecycle registry abstraction, or public API wrapper unless it
+  removes real duplicated logic across at least two wallet-iframe flow families.
+- [x] Add iframe tests proving invalid OTP, rate-limited submit, failed resend,
+  and failed reroll return `ok: false` while leaving the same handle usable for
+  a later retry or cancel.
+- [x] Tighten direct and iframe parity coverage so failed operations match the
+  React contract: prompt-visible errors do not collapse active prompt state, and
+  successful resend/reroll replaces the active flow.
+- [x] Make ECDSA target policy semantics explicit for both login and
+  registration. If `ecdsaTargets: { kind: 'explicit' }` remains public, it must
+  be honored for registration signer selection as well as login readiness. If
+  registration cannot support explicit targets cleanly, split the input type so
+  explicit target policy is accepted only by login-mode flows.
+- [x] Fix login readiness to cover every required ECDSA target, not only the
+  first target. Reuse the existing Email OTP ECDSA capability path per target or
+  factor the smallest operation-local helper needed to iterate targets and fail
+  closed when any required target is not ready.
+- [x] Keep registration signer selection and login readiness in one coherent
+  target-policy model. Avoid separate helper paths that can diverge on
+  `configured`, `explicit`, or `none`.
+- [x] Replace stale relay-mode fixtures with the normalized `existing_wallet`
+  value, and add a direct test for register-request-to-existing-wallet login
+  resolution using the real boundary value.
+- [x] Audit the new tests for obsolete behavior before keeping them. Tests should
+  protect current lifecycle and target-policy semantics only.
+
+Acceptance:
+
+- Iframe mode and direct mode have the same recoverable-failure behavior for
+  submit, resend, and reroll.
+- A failed iframe OTP attempt does not make the active prompt unrecoverable.
+- `ecdsaTargets` has one documented, type-enforced meaning across registration
+  and login.
+- All required ECDSA targets are ready before login submit succeeds. Registration
+  can explicitly select no-ECDSA; login with no ECDSA target fails closed because
+  this flow has no pure OTP local-session activation path.
+- The fix does not introduce another facade layer, registry abstraction, or
+  wrapper module around the public flow.
+
+Validation:
+
+- `tests/unit/googleEmailOtpWalletAuthFlow.unit.test.ts`
+- `tests/unit/googleEmailOtpWalletIframeHandles.unit.test.ts`
+- `tests/unit/passkeyAuthMenu.fouc.unit.test.ts`
+- `tests/unit/refactor56HeadlessAuth.guard.unit.test.ts`
+- `pnpm -C sdk exec tsc -p tsconfig.build.json --noEmit`
+
+### Phase 8: Reroll Delivery Contract And Closeout
+
+Tasks:
+
+- [x] Fix Google Email OTP registration prompt mode so a new registration renders
+  registration copy, `Create wallet`, and the shuffle/reroll account-name control.
+  It must render the unlock menu only when the relay explicitly resolves the
+  Google identity to an existing wallet.
+- [x] Add a regression test for register-mode Google Email OTP showing the
+  registration OTP prompt with `flow.mode === 'register'`, including the
+  shuffle/reroll account-name button.
+- [x] Add a regression test for register-mode Google Email OTP that resolves to an
+  existing wallet and intentionally renders the unlock prompt without the
+  shuffle/reroll button.
+- [x] Define the relay-to-SDK reroll delivery contract for whether a rerolled
+  registration flow reused the current Email OTP code or sent a new code.
+- [x] Add a normalized boundary field for that contract instead of inferring reuse
+  from challenge ids, registration-attempt ids, timestamps, or UI state.
+- [x] Update `GoogleEmailOtpWalletAuthFlow.delivery` to reflect only verified
+  relay-provided delivery state.
+- [x] Add direct-mode tests for reroll delivery state: new code, reused code, and
+  missing/unknown relay delivery metadata.
+- [x] Add iframe-mode tests proving reroll delivery state survives wire
+  serialization without exposing app-session JWTs, runtime policy scope,
+  recovery codes, or bootstrap material.
+- [x] Re-review app-visible direct and iframe flow results for secret leakage after
+  the delivery contract lands.
+- [x] Run the broad Refactor 56 validation gate from this plan, including existing
+  Email OTP registration/unlock tests and iframe Email OTP tests.
+- [x] Clean local generated artifacts before commit, including `.playwright-mcp/`
+  and `tmp/` unless they are intentionally needed.
+- [ ] Commit the completed Refactor 56 slice after the broader gate is green.
+
+Acceptance:
+
+- `GoogleEmailOtpWalletAuthFlow.delivery` is relay-backed and does not guess.
+- New-registration OTP prompts are visibly distinct from existing-wallet unlock
+  prompts.
+- Registration reroll UI can distinguish reused-code and new-code states without
+  app code reading relay internals.
+- Direct and iframe flows expose the same delivery state.
+- Closeout validation is green and the worktree contains only intended source,
+  doc, and test changes before commit.
+
+Validation:
+
+- `tests/unit/googleEmailOtpWalletAuthFlow.unit.test.ts`
+- `tests/unit/googleEmailOtpWalletIframeHandles.unit.test.ts`
+- existing Email OTP registration/unlock tests
+- iframe Email OTP tests
+- `tests/unit/refactor56HeadlessAuth.guard.unit.test.ts`
+- `pnpm -C sdk exec tsc -p tsconfig.build.json --noEmit`
+- `git diff --check`
 
 ## Regression Coverage
 

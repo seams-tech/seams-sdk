@@ -870,6 +870,421 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       .toEqual(['alice.testnet']);
   });
 
+  test('Google SSO headless Email OTP flow does not duplicate wallet refresh', async ({ page }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const mount = document.createElement('div');
+        mount.id = 'pam2-google-headless-otp-refresh-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const controllerMod: any = await import(paths.passkeyAuthMenuController);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const usePasskeyAuthMenuController = controllerMod.usePasskeyAuthMenuController;
+        const { AuthMenuMode } = typesMod;
+
+        (window as any).__headlessRefreshCalls = [];
+        (window as any).__headlessSubmitted = '';
+        (window as any).__headlessCompletions = [];
+
+        function Harness() {
+          const [inputUsername, setInputUsername] = React.useState('');
+          const runtime = React.useMemo(
+            () => ({
+              seamsWeb: {
+                auth: {
+                  getRecentUnlocks: async () => ({ lastUsedAccount: null }),
+                },
+              },
+              accountExists: false,
+              inputUsername,
+              targetAccountId: inputUsername,
+              setInputUsername,
+              refreshLoginState: async (nearAccountId?: string) => {
+                (window as any).__headlessRefreshCalls.push(String(nearAccountId || ''));
+              },
+              sdkFlow: {
+                eventsText: '',
+                seq: 0,
+                awaitNextCompletion: async () => undefined,
+              },
+              displayPostfix: '.testnet',
+              isUsingExistingAccount: false,
+            }),
+            [inputUsername],
+          );
+
+          const controller = usePasskeyAuthMenuController(
+            {
+              defaultMode: AuthMenuMode.Login,
+              socialLogin: {
+                google: async () => ({
+                  kind: 'otp_flow',
+                  flow: {
+                    kind: 'google_email_otp_wallet_auth_flow_v1',
+                    state: 'challenge_sent',
+                    flowId: 'flow-1',
+                    requestedMode: 'login',
+                    mode: 'login',
+                    walletId: 'alice.testnet',
+                    emailHint: 'alice@example.com',
+                    prompt: {
+                      title: 'Check your email to unlock your wallet',
+                      description: 'Enter the 6-digit code we sent to alice@example.com.',
+                      submitLabel: 'Unlock wallet',
+                      helperText: 'Use the code from your email.',
+                    },
+                    delivery: 'sent',
+                    expiresAtMs: Date.now() + 60_000,
+                    resend: async () => ({ ok: false, error: { code: 'email_otp_challenge_failed', message: 'no resend' } }),
+                    submit: async (input: { otpCode: string }) => {
+                      (window as any).__headlessSubmitted = input.otpCode;
+                      return {
+                        ok: true,
+                        value: {
+                          walletId: 'alice.testnet',
+                          mode: 'login',
+                          session: { login: { isLoggedIn: true } },
+                        },
+                      };
+                    },
+                    cancel: async () => undefined,
+                  },
+                  onComplete: async (result: { walletId: string; mode: string }) => {
+                    (window as any).__headlessCompletions.push({
+                      walletId: result.walletId,
+                      mode: result.mode,
+                    });
+                  },
+                }),
+              },
+            },
+            runtime,
+          );
+
+          return React.createElement(
+            'div',
+            null,
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: () => controller.onSocialLogin('google', AuthMenuMode.Login),
+              },
+              'Start Google',
+            ),
+            controller.otpPrompt
+              ? React.createElement(
+                  React.Fragment,
+                  null,
+                  React.createElement('div', { id: 'headless-otp-ready' }, controller.otpPrompt.title),
+                  React.createElement('input', {
+                    'aria-label': 'Email code',
+                    value: controller.otpPrompt.code,
+                    onChange: (event: React.ChangeEvent<HTMLInputElement>) =>
+                      controller.otpPrompt?.onCodeChange(event.currentTarget.value),
+                  }),
+                  React.createElement(
+                    'button',
+                    {
+                      type: 'button',
+                      onClick: controller.otpPrompt.onSubmit,
+                    },
+                    'Unlock wallet',
+                  ),
+                )
+              : null,
+          );
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Harness));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-google-headless-otp-refresh-mount');
+    await mount.getByRole('button', { name: 'Start Google' }).click();
+    await expect(mount.locator('#headless-otp-ready')).toHaveText(
+      'Check your email to unlock your wallet',
+    );
+
+    await mount.getByLabel('Email code').fill('123456');
+    await mount.getByRole('button', { name: 'Unlock wallet' }).click();
+
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__headlessSubmitted))
+      .toBe('123456');
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__headlessCompletions))
+      .toEqual([{ walletId: 'alice.testnet', mode: 'login' }]);
+    await expect
+      .poll(async () => await page.evaluate(() => (window as any).__headlessRefreshCalls))
+      .toEqual([]);
+  });
+
+  test('Google SSO headless registration shows registration prompt with reroll', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const mount = document.createElement('div');
+        mount.id = 'pam2-google-headless-registration-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const controllerMod: any = await import(paths.passkeyAuthMenuController);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const usePasskeyAuthMenuController = controllerMod.usePasskeyAuthMenuController;
+        const { AuthMenuMode } = typesMod;
+
+        function registrationFlow(walletId: string) {
+          return {
+            kind: 'google_email_otp_wallet_auth_flow_v1',
+            state: 'registration_ready',
+            flowId: `flow-${walletId}`,
+            requestedMode: 'register',
+            mode: 'register',
+            walletId,
+            emailHint: 'alice@example.com',
+            prompt: {
+              title: 'Create your Email OTP wallet',
+              description: 'Google verified alice@example.com.',
+              submitLabel: 'Create wallet',
+              helperText: 'Choose this wallet name or generate another one.',
+            },
+            expiresAtMs: Date.now() + 60_000,
+            rerollWalletId: async () => ({
+              ok: true,
+              value: registrationFlow('ember-river.testnet'),
+            }),
+            completeRegistration: async () => ({
+              ok: true,
+              value: {
+                walletId,
+                mode: 'register',
+                session: { login: { isLoggedIn: true } },
+              },
+            }),
+            cancel: async () => undefined,
+          };
+        }
+
+        function Harness() {
+          const [inputUsername, setInputUsername] = React.useState('');
+          const runtime = React.useMemo(
+            () => ({
+              seamsWeb: { auth: { getRecentUnlocks: async () => ({ lastUsedAccount: null }) } },
+              accountExists: false,
+              inputUsername,
+              targetAccountId: inputUsername,
+              setInputUsername,
+              refreshLoginState: async () => undefined,
+              sdkFlow: {
+                eventsText: '',
+                seq: 0,
+                awaitNextCompletion: async () => undefined,
+              },
+              displayPostfix: '.testnet',
+              isUsingExistingAccount: false,
+            }),
+            [inputUsername],
+          );
+          const controller = usePasskeyAuthMenuController(
+            {
+              defaultMode: AuthMenuMode.Register,
+              socialLogin: {
+                google: async () => ({
+                  kind: 'registration_flow',
+                  flow: registrationFlow('frost-beacon.testnet'),
+                }),
+              },
+            },
+            runtime,
+          );
+          return React.createElement(
+            'div',
+            null,
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: () => controller.onSocialLogin('google', AuthMenuMode.Register),
+              },
+              'Start registration',
+            ),
+            controller.registrationPrompt
+              ? React.createElement(
+                  React.Fragment,
+                  null,
+                  React.createElement('div', { id: 'registration-title' }, controller.registrationPrompt.title),
+                  React.createElement('div', { id: 'registration-account' }, controller.registrationPrompt.accountId),
+                  React.createElement('button', { type: 'button' }, controller.registrationPrompt.submitLabel),
+                  React.createElement(
+                    'button',
+                    {
+                      type: 'button',
+                      onClick: controller.registrationPrompt.onRerollAccount,
+                    },
+                    controller.registrationPrompt.rerollAccountLabel,
+                  ),
+                )
+              : null,
+          );
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Harness));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-google-headless-registration-mount');
+    await mount.getByRole('button', { name: 'Start registration' }).click();
+    await expect(mount.locator('#registration-title')).toHaveText(
+      'Create your Email OTP wallet',
+    );
+    await expect(mount.getByRole('button', { name: 'Create wallet' })).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Generate another name' })).toBeVisible();
+    await expect(mount.getByText('Check your email to unlock your wallet')).toHaveCount(0);
+    await mount.getByRole('button', { name: 'Generate another name' }).click();
+    await expect(mount.locator('#registration-account')).toHaveText('ember-river.testnet');
+  });
+
+  test('Google SSO headless register request for existing wallet shows unlock prompt', async ({
+    page,
+  }) => {
+    await page.evaluate(
+      async ({ paths }) => {
+        const mount = document.createElement('div');
+        mount.id = 'pam2-google-headless-existing-wallet-mount';
+        document.body.appendChild(mount);
+
+        const React = await import('react');
+        const ReactDOMClient = await import('react-dom/client');
+        const ReactDOM = await import('react-dom');
+        const controllerMod: any = await import(paths.passkeyAuthMenuController);
+        const typesMod: any = await import(paths.authMenuTypes);
+
+        const usePasskeyAuthMenuController = controllerMod.usePasskeyAuthMenuController;
+        const { AuthMenuMode } = typesMod;
+
+        function Harness() {
+          const [inputUsername, setInputUsername] = React.useState('');
+          const runtime = React.useMemo(
+            () => ({
+              seamsWeb: { auth: { getRecentUnlocks: async () => ({ lastUsedAccount: null }) } },
+              accountExists: false,
+              inputUsername,
+              targetAccountId: inputUsername,
+              setInputUsername,
+              refreshLoginState: async () => undefined,
+              sdkFlow: {
+                eventsText: '',
+                seq: 0,
+                awaitNextCompletion: async () => undefined,
+              },
+              displayPostfix: '.testnet',
+              isUsingExistingAccount: false,
+            }),
+            [inputUsername],
+          );
+          const controller = usePasskeyAuthMenuController(
+            {
+              defaultMode: AuthMenuMode.Register,
+              socialLogin: {
+                google: async () => ({
+                  kind: 'otp_flow',
+                  flow: {
+                    kind: 'google_email_otp_wallet_auth_flow_v1',
+                    state: 'challenge_sent',
+                    flowId: 'existing-flow',
+                    requestedMode: 'register',
+                    mode: 'login',
+                    walletId: 'frost-beacon.testnet',
+                    emailHint: 'alice@example.com',
+                    prompt: {
+                      title: 'Check your email to unlock your wallet',
+                      description: 'Enter the 6-digit code we sent to alice@example.com.',
+                      submitLabel: 'Unlock wallet',
+                      helperText:
+                        'Google keeps you signed in. The email code unlocks wallet signing for this session.',
+                    },
+                    delivery: 'sent',
+                    expiresAtMs: Date.now() + 60_000,
+                    resend: async () => ({ ok: false, error: { code: 'email_otp_challenge_failed', message: 'no resend' } }),
+                    submit: async () => ({
+                      ok: true,
+                      value: {
+                        walletId: 'frost-beacon.testnet',
+                        mode: 'login',
+                        session: { login: { isLoggedIn: true } },
+                      },
+                    }),
+                    cancel: async () => undefined,
+                  },
+                }),
+              },
+            },
+            runtime,
+          );
+          return React.createElement(
+            'div',
+            null,
+            React.createElement(
+              'button',
+              {
+                type: 'button',
+                onClick: () => controller.onSocialLogin('google', AuthMenuMode.Register),
+              },
+              'Start existing wallet',
+            ),
+            controller.otpPrompt
+              ? React.createElement(
+                  React.Fragment,
+                  null,
+                  React.createElement('div', { id: 'existing-title' }, controller.otpPrompt.title),
+                  React.createElement('button', { type: 'button' }, controller.otpPrompt.submitLabel),
+                  controller.otpPrompt.onRerollAccount
+                    ? React.createElement(
+                        'button',
+                        { type: 'button', onClick: controller.otpPrompt.onRerollAccount },
+                        controller.otpPrompt.rerollAccountLabel,
+                      )
+                    : null,
+                )
+              : null,
+          );
+        }
+
+        const root = ReactDOMClient.createRoot(mount);
+        ReactDOM.flushSync(() => {
+          root.render(React.createElement(Harness));
+        });
+      },
+      { paths: IMPORT_PATHS },
+    );
+
+    const mount = page.locator('#pam2-google-headless-existing-wallet-mount');
+    await mount.getByRole('button', { name: 'Start existing wallet' }).click();
+    await expect(mount.locator('#existing-title')).toHaveText(
+      'Check your email to unlock your wallet',
+    );
+    await expect(mount.getByRole('button', { name: 'Unlock wallet' })).toBeVisible();
+    await expect(mount.getByRole('button', { name: 'Generate another name' })).toHaveCount(0);
+    await expect(mount.getByText('Check your email to finish registration')).toHaveCount(0);
+  });
+
   test('Google SSO buttons pass explicit register and login modes', async ({ page }) => {
     await page.evaluate(
       async ({ paths }) => {
@@ -1078,7 +1493,7 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
       .toBe(0);
   });
 
-  test('React SDK-flow proxy preserves Email OTP auth methods', async ({ page }) => {
+  test('React SDK-flow proxy preserves Email OTP namespace methods', async ({ page }) => {
     const result = await page.evaluate(
       async ({ paths }) => {
         const mount = document.createElement('div');
@@ -1101,20 +1516,31 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           iframeWallet: { walletOrigin: '' },
         };
 
-        const methodNames = [
+        const authMethodNames = [
           'requestEmailOtpChallenge',
+          'loginWithEmailOtpEcdsaCapability',
+          'beginGoogleEmailOtpWalletAuth',
+        ];
+        const registrationMethodNames = [
           'requestEmailOtpEnrollmentChallenge',
           'enrollEmailOtp',
-          'loginWithEmailOtpEcdsaCapability',
           'enrollAndLoginWithEmailOtpEcdsaCapability',
         ];
 
         function Probe() {
           const { seams } = useSeams();
           React.useEffect(() => {
-            (window as any).__authSurface__ = Object.fromEntries(
-              methodNames.map((name) => [name, typeof (seams.auth as any)[name]]),
-            );
+            (window as any).__emailOtpSurface__ = {
+              auth: Object.fromEntries(
+                authMethodNames.map((name) => [name, typeof (seams.auth as any)[name]]),
+              ),
+              registration: Object.fromEntries(
+                registrationMethodNames.map((name) => [
+                  name,
+                  typeof (seams.registration as any)[name],
+                ]),
+              ),
+            };
           }, [seams]);
           return React.createElement('div', { id: 'auth-surface-ready' }, 'ready');
         }
@@ -1124,10 +1550,10 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
           root.render(React.createElement(Provider, { config }, React.createElement(Probe)));
         });
 
-        return await new Promise<Record<string, string>>((resolve, reject) => {
+        return await new Promise<Record<string, Record<string, string>>>((resolve, reject) => {
           const startedAt = Date.now();
           const poll = () => {
-            const surface = (window as any).__authSurface__;
+            const surface = (window as any).__emailOtpSurface__;
             if (surface) {
               resolve(surface);
               return;
@@ -1145,11 +1571,16 @@ test.describe('PasskeyAuthMenu styles bootstrap', () => {
     );
 
     expect(result).toEqual({
-      requestEmailOtpChallenge: 'function',
-      requestEmailOtpEnrollmentChallenge: 'function',
-      enrollEmailOtp: 'function',
-      loginWithEmailOtpEcdsaCapability: 'function',
-      enrollAndLoginWithEmailOtpEcdsaCapability: 'function',
+      auth: {
+        requestEmailOtpChallenge: 'function',
+        loginWithEmailOtpEcdsaCapability: 'function',
+        beginGoogleEmailOtpWalletAuth: 'function',
+      },
+      registration: {
+        requestEmailOtpEnrollmentChallenge: 'function',
+        enrollEmailOtp: 'function',
+        enrollAndLoginWithEmailOtpEcdsaCapability: 'function',
+      },
     });
   });
 });

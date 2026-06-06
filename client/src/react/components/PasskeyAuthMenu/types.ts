@@ -1,6 +1,12 @@
 import React from 'react';
 import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
-import type { EmailOtpAuthPolicy } from '@/core/types/seams';
+import type { EmailOtpAuthPolicy, WalletSession } from '@/core/types/seams';
+import type {
+  GoogleEmailOtpWalletAuthFlow,
+  GoogleEmailOtpWalletAuthRegistrationFlow,
+  GoogleEmailOtpWalletAuthResolvedMode,
+} from '@/SeamsWeb';
+import type { WalletId } from '@shared/utils/registrationIntent';
 import {
   AuthMenuMode,
   AuthMenuModeMap,
@@ -59,13 +65,69 @@ export type PasskeyAuthMenuOtpPrompt = {
     | Promise<{ challengeId?: string; emailHint?: string } | void>
     | { challengeId?: string; emailHint?: string }
     | void;
+  onCancel?: () => void | Promise<void>;
   resendDebounceMs?: number;
 };
 
-export type PasskeyAuthMenuSocialLoginResult = {
+export type PasskeyAuthMenuRegistrationPrompt = {
   username?: string;
-  otpPrompt?: PasskeyAuthMenuOtpPrompt;
+  accountId?: string;
+  emailHint?: string;
+  title?: string;
+  description?: string;
+  submitLabel?: string;
+  helperText?: string;
+  rerollAccountLabel?: string;
+  onSubmit: () => void | Promise<unknown>;
+  onRerollAccount?: () =>
+    | Promise<
+        | {
+            username?: string;
+            accountId?: string;
+            emailHint?: string;
+            title?: string;
+            description?: string;
+            submitLabel?: string;
+            helperText?: string;
+          }
+        | void
+      >
+    | {
+        username?: string;
+        accountId?: string;
+        emailHint?: string;
+        title?: string;
+        description?: string;
+        submitLabel?: string;
+        helperText?: string;
+      }
+    | void;
+  onCancel?: () => void | Promise<void>;
 };
+
+export type PasskeyAuthMenuSocialCompletion = (result: {
+  walletId: WalletId;
+  mode: GoogleEmailOtpWalletAuthResolvedMode;
+  session: WalletSession;
+}) => void | Promise<void>;
+
+export type PasskeyAuthMenuSocialLoginResult =
+  | {
+      kind?: 'otp_prompt';
+      username?: string;
+      otpPrompt?: PasskeyAuthMenuOtpPrompt;
+      onComplete?: PasskeyAuthMenuSocialCompletion;
+    }
+  | {
+      kind: 'otp_flow';
+      flow: GoogleEmailOtpWalletAuthFlow;
+      onComplete?: PasskeyAuthMenuSocialCompletion;
+    }
+  | {
+      kind: 'registration_flow';
+      flow: GoogleEmailOtpWalletAuthRegistrationFlow;
+      onComplete?: PasskeyAuthMenuSocialCompletion;
+    };
 
 export type PasskeyAuthMenuSocialLoginHandler = (args: {
   mode: AuthMenuMode;
@@ -104,8 +166,9 @@ export interface PasskeyAuthMenuProps {
   /** Optional custom headings for each mode */
   headings?: AuthMenuHeadings;
   /**
-   * Optional social login hooks. Google SSO should return an Email OTP prompt
-   * once the external app session is established and the OTP challenge is sent.
+   * Optional social login hooks. Google SSO login returns an Email OTP prompt.
+   * Google SSO registration returns a registration prompt because Google has
+   * already verified the email address.
    * If omitted or all undefined, the social buttons are hidden.
    */
   socialLogin?: {

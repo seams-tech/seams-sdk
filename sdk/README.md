@@ -85,6 +85,60 @@ function SignInButton() {
 }
 ```
 
+### Google SSO + Email OTP Wallet Auth
+
+For the standard Google SSO plus Email OTP wallet flow, the app owns Google
+Identity token acquisition and the SDK owns wallet registration, unlock,
+challenge routing, signing-session readiness, and wallet-iframe routing.
+
+```tsx
+import { PasskeyAuthMenu } from '@seams/sdk/react';
+
+function AuthMenu() {
+  const seams = useSeams();
+
+  return (
+    <PasskeyAuthMenu
+      socialLogin={{
+        google: async ({ mode, emailOtpAuthPolicy }) => {
+          const idToken = await getGoogleIdTokenFromYourApp();
+          const flow = await seams.auth.beginGoogleEmailOtpWalletAuth({
+            idToken,
+            mode,
+            sessionKind: 'jwt',
+            emailOtpAuthPolicy,
+          });
+          if (!flow.ok) throw new Error(flow.error.message);
+          return {
+            kind: 'otp_flow',
+            flow: flow.value,
+            onComplete: async ({ walletId }) => {
+              console.log('Wallet ready:', walletId);
+            },
+          };
+        },
+      }}
+    />
+  );
+}
+```
+
+The public flow only exposes UI-safe data: wallet id, email hint, prompt copy,
+delivery status, expiry, and `resend`/`reroll`/`submit`/`cancel` methods. It
+does not expose app-session JWTs, runtime policy scope, recovery codes, or
+ECDSA bootstrap material.
+
+Low-level Email OTP methods such as `requestEmailOtpChallenge`,
+`requestEmailOtpEnrollmentChallenge`, `enrollEmailOtp`, and
+`loginWithEmailOtpEcdsaCapability` remain available for advanced custom
+integrations. Prefer `beginGoogleEmailOtpWalletAuth` for the standard Google
+SSO wallet registration and login path.
+
+In wallet-iframe mode, the same public API is used by the app origin. The wallet
+origin owns Email OTP recovery-code backup UI, acknowledgement, workers, sealed
+refresh state, and threshold-session state. App-origin iframe responses carry
+only non-secret flow metadata and submit results.
+
 ## Vite Plugin Integration
 
 Use the Vite plugins to serve wallet assets in dev and emit the right headers for production.

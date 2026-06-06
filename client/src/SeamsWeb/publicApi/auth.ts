@@ -15,6 +15,7 @@ export type AuthCapabilityDomainMethods = {
   refreshEmailOtpSigningSession: AuthCapability['refreshEmailOtpSigningSession'];
   exchangeGoogleEmailOtpSession: AuthCapability['exchangeGoogleEmailOtpSession'];
   loginWithEmailOtpEcdsaCapability: AuthCapability['loginWithEmailOtpEcdsaCapability'];
+  beginGoogleEmailOtpWalletAuth: AuthCapability['beginGoogleEmailOtpWalletAuth'];
 };
 
 export function createAuthCapability(deps: {
@@ -37,5 +38,6 @@ export function createAuthCapability(deps: {
     refreshEmailOtpSigningSession: deps.domain.refreshEmailOtpSigningSession,
     exchangeGoogleEmailOtpSession: deps.domain.exchangeGoogleEmailOtpSession,
     loginWithEmailOtpEcdsaCapability: deps.domain.loginWithEmailOtpEcdsaCapability,
+    beginGoogleEmailOtpWalletAuth: deps.domain.beginGoogleEmailOtpWalletAuth,
   } satisfies AuthCapability;
 }

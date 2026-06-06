@@ -73,6 +73,7 @@ const validNearEmailOtpRegistrationInput: Parameters<
   nearAccountId: 'alice.testnet',
   authMethod: {
     kind: 'email_otp',
+    proofKind: 'otp_challenge',
     email: 'alice@example.test',
     otpCode: '123456',
     appSessionJwt: 'email-otp-app-session-jwt',
@@ -87,6 +88,7 @@ const validEvmEmailOtpRegistrationInput: Parameters<
   participantIds: [1, 2],
   authMethod: {
     kind: 'email_otp',
+    proofKind: 'otp_challenge',
     email: 'alice@example.test',
     otpCode: '123456',
     appSessionJwt: 'email-otp-app-session-jwt',
@@ -110,6 +112,7 @@ void registrationCapability.registerWithEmailOtp({
   },
   authMethod: {
     kind: 'email_otp',
+    proofKind: 'otp_challenge',
     email: 'alice@example.test',
     otpCode: '123456',
     appSessionJwt: 'email-otp-app-session-jwt',

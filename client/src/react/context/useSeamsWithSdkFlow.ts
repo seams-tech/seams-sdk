@@ -261,11 +261,12 @@ export function useSeamsWithSdkFlow(args: {
             receiver,
           ) as RegistrationCapability;
           return {
+            ...registration,
             addWalletSigner: addWalletSignerWithSdkFlow,
             registerWallet: registerWalletWithSdkFlow,
             registerWithEmailOtp: registerWithEmailOtpWithSdkFlow,
             registerPasskey: registerPasskeyWithSdkFlow,
-          } as RegistrationCapability;
+          } satisfies RegistrationCapability;
         }
 
         if (prop === 'recovery') {
@@ -283,9 +284,6 @@ export function useSeamsWithSdkFlow(args: {
             ) => recovery.finalizeEmailRecovery(...args),
             cancelEmailRecovery: (...args: Parameters<RecoveryCapability['cancelEmailRecovery']>) =>
               recovery.cancelEmailRecovery(...args),
-            acknowledgeEmailOtpRecoveryCodeBackup: (
-              ...args: Parameters<RecoveryCapability['acknowledgeEmailOtpRecoveryCodeBackup']>
-            ) => recovery.acknowledgeEmailOtpRecoveryCodeBackup(...args),
             getEmailOtpRecoveryCodeStatus: (
               ...args: Parameters<RecoveryCapability['getEmailOtpRecoveryCodeStatus']>
             ) => recovery.getEmailOtpRecoveryCodeStatus(...args),

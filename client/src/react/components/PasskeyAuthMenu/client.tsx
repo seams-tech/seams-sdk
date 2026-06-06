@@ -144,6 +144,7 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
       data-waiting={controller.waiting}
       data-scan-device={controller.showScanDevice}
       data-otp-prompt={controller.otpPrompt ? 'true' : 'false'}
+      data-registration-prompt={controller.registrationPrompt ? 'true' : 'false'}
       style={rootStyle}
     >
       <ContentSwitcher
@@ -164,6 +165,10 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
             aria-label="Back"
             type="button"
             onClick={() => {
+              if (controller.registrationPrompt) {
+                controller.registrationPrompt.onBack();
+                return;
+              }
               if (controller.otpPrompt) {
                 controller.otpPrompt.onBack();
                 return;
@@ -175,7 +180,10 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
               controller.onResetToStart();
             }}
             className={`w3a-back-button${
-              controller.waiting || controller.showScanDevice || controller.otpPrompt
+              controller.waiting ||
+              controller.showScanDevice ||
+              controller.registrationPrompt ||
+              controller.otpPrompt
                 ? ' is-visible'
                 : ''
             }`}
@@ -210,7 +218,45 @@ export const PasskeyAuthMenuClient: React.FC<PasskeyAuthMenuProps> = ({
           )}
         </div>
 
-        {controller.otpPrompt ? (
+        {controller.registrationPrompt ? (
+          <div className="w3a-otp-prompt" aria-live="polite">
+            <div className="w3a-otp-prompt-copy">
+              <div className="w3a-otp-title">{controller.registrationPrompt.title}</div>
+              <p className="w3a-otp-description">{controller.registrationPrompt.description}</p>
+              <div className="w3a-otp-account" title={controller.registrationPrompt.accountId}>
+                <span className="w3a-otp-account-label">Wallet</span>
+                <span className="w3a-otp-account-value">
+                  {controller.registrationPrompt.accountId}
+                </span>
+              </div>
+              <button
+                type="button"
+                className="w3a-otp-reroll"
+                onClick={controller.registrationPrompt.onRerollAccount}
+                disabled={controller.registrationPrompt.rerollAccountDisabled}
+              >
+                {controller.registrationPrompt.rerollAccountLabel}
+              </button>
+            </div>
+            {controller.registrationPrompt.error ? (
+              <p className="w3a-otp-error" role="alert">
+                {controller.registrationPrompt.error}
+              </p>
+            ) : (
+              <p className="w3a-otp-helper">{controller.registrationPrompt.helperText}</p>
+            )}
+            <button
+              type="button"
+              className="w3a-auth-method-btn w3a-auth-method-btn-primary"
+              onClick={controller.registrationPrompt.onSubmit}
+              disabled={controller.registrationPrompt.submitting}
+            >
+              {controller.registrationPrompt.submitting
+                ? 'Creating...'
+                : controller.registrationPrompt.submitLabel}
+            </button>
+          </div>
+        ) : controller.otpPrompt ? (
           <div className="w3a-otp-prompt" aria-live="polite">
             <div className="w3a-otp-prompt-copy">
               <div className="w3a-otp-title">{controller.otpPrompt.title}</div>

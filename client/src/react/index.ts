@@ -90,6 +90,11 @@ export type { NearClient, AccessKeyList } from '../core/rpcClients/near/NearClie
 export { useAccountInput } from './hooks/useAccountInput';
 export { useDeviceLinking } from './hooks/useDeviceLinking';
 export type { UseDeviceLinkingOptions, UseDeviceLinkingReturn } from './hooks/useDeviceLinking';
+export { useGoogleEmailOtpWalletAuth } from './hooks/useGoogleEmailOtpWalletAuth';
+export type {
+  UseGoogleEmailOtpWalletAuthOptions,
+  UseGoogleEmailOtpWalletAuthResult,
+} from './hooks/useGoogleEmailOtpWalletAuth';
 export { useQRCamera, QRScanMode } from './hooks/useQRCamera';
 export type { UseQRCameraOptions, UseQRCameraReturn } from './hooks/useQRCamera';
 export { usePostfixPosition } from './components/PasskeyAuthMenu/ui/usePostfixPosition';
@@ -137,6 +142,22 @@ export type { UseThemeReturn, ThemeProps, ThemeName } from './components/theme';
 export { LIGHT_TOKENS, DARK_TOKENS } from './components/theme';
 
 export type { ActionResult } from '../core/types/seams';
+export type {
+  GoogleEmailOtpWalletAuthDelivery,
+  GoogleEmailOtpWalletAuthEcdsaTargets,
+  GoogleEmailOtpWalletAuthFailure,
+  GoogleEmailOtpWalletAuthFailureCode,
+  GoogleEmailOtpWalletAuthFlow,
+  GoogleEmailOtpWalletAuthLoginFlow,
+  GoogleEmailOtpWalletAuthPromptCopy,
+  GoogleEmailOtpWalletAuthRegistrationCompleted,
+  GoogleEmailOtpWalletAuthRegistrationFlow,
+  GoogleEmailOtpWalletAuthRequestedMode,
+  GoogleEmailOtpWalletAuthResolvedMode,
+  GoogleEmailOtpWalletAuthResult,
+  GoogleEmailOtpWalletAuthStartInput,
+  GoogleEmailOtpWalletAuthSubmitSuccess,
+} from '../SeamsWeb';
 
 export {
   AccountSyncEventPhase,

@@ -9,7 +9,18 @@ import {
   normalizeEmailOtpRecoveryKey,
 } from '@shared/utils/emailOtpRecoveryKey';
 import type { PasskeyAuthMenuRuntime } from '../adapters/seams';
-import { AuthMenuMode, type PasskeyAuthMenuOtpPrompt, type PasskeyAuthMenuProps } from '../types';
+import {
+  AuthMenuMode,
+  type PasskeyAuthMenuOtpPrompt,
+  type PasskeyAuthMenuProps,
+  type PasskeyAuthMenuRegistrationPrompt,
+  type PasskeyAuthMenuSocialCompletion,
+} from '../types';
+import type {
+  GoogleEmailOtpWalletAuthFlow,
+  GoogleEmailOtpWalletAuthLoginFlow,
+  GoogleEmailOtpWalletAuthRegistrationFlow,
+} from '@/SeamsWeb';
 import type { SocialLoginHandlers } from '../ui/SocialProviders';
 import { usePasskeyAuthMenuForceInitialRegister } from '../hydrationContext';
 import { useAuthMenuMode } from './mode';
@@ -53,6 +64,22 @@ export interface PasskeyAuthMenuOtpPromptController {
   onBack: () => void;
 }
 
+export interface PasskeyAuthMenuRegistrationPromptController {
+  title: string;
+  description: string;
+  emailHint?: string;
+  accountId: string;
+  submitLabel: string;
+  helperText: string;
+  submitting: boolean;
+  error?: string;
+  rerollAccountLabel: string;
+  rerollAccountDisabled: boolean;
+  onRerollAccount: () => void;
+  onSubmit: () => void;
+  onBack: () => void;
+}
+
 export interface PasskeyAuthMenuController {
   mode: AuthMenuMode;
   title: { title: string; subtitle: string };
@@ -60,6 +87,7 @@ export interface PasskeyAuthMenuController {
   waitingReason: 'passkey' | 'social' | 'sync' | null;
   showScanDevice: boolean;
   otpPrompt: PasskeyAuthMenuOtpPromptController | null;
+  registrationPrompt: PasskeyAuthMenuRegistrationPromptController | null;
   methodError?: string;
   currentValue: string;
   passkeyAccountOptions: StoredAccountOption[];
@@ -98,12 +126,28 @@ type ActiveOtpPromptState = {
   onSubmit: PasskeyAuthMenuOtpPrompt['onSubmit'];
   onRerollAccount?: PasskeyAuthMenuOtpPrompt['onRerollAccount'];
   onResend?: PasskeyAuthMenuOtpPrompt['onResend'];
+  onCancel?: PasskeyAuthMenuOtpPrompt['onCancel'];
   resendDebounceMs: number;
+  refreshLoginStateAfterSubmit: boolean;
+};
+
+type ActiveRegistrationPromptState = {
+  username: string;
+  title: string;
+  description: string;
+  emailHint?: string;
+  accountId: string;
+  submitLabel: string;
+  helperText: string;
+  onSubmit: PasskeyAuthMenuRegistrationPrompt['onSubmit'];
+  onRerollAccount: NonNullable<PasskeyAuthMenuRegistrationPrompt['onRerollAccount']>;
+  onCancel?: PasskeyAuthMenuRegistrationPrompt['onCancel'];
 };
 
 function resolveOtpPrompt(
   prompt: PasskeyAuthMenuOtpPrompt,
   username?: string,
+  options?: { refreshLoginStateAfterSubmit?: boolean },
 ): ActiveOtpPromptState {
   const title = String(prompt.title || '').trim() || 'Check your email to unlock your wallet';
   const description =
@@ -143,7 +187,126 @@ function resolveOtpPrompt(
     onSubmit: prompt.onSubmit,
     ...(prompt.onRerollAccount ? { onRerollAccount: prompt.onRerollAccount } : {}),
     ...(prompt.onResend ? { onResend: prompt.onResend } : {}),
+    ...(prompt.onCancel ? { onCancel: prompt.onCancel } : {}),
     resendDebounceMs: Math.max(1000, Math.floor(Number(prompt.resendDebounceMs) || 10_000)),
+    refreshLoginStateAfterSubmit: options?.refreshLoginStateAfterSubmit !== false,
+  };
+}
+
+function resolveRegistrationPrompt(
+  prompt: PasskeyAuthMenuRegistrationPrompt,
+): ActiveRegistrationPromptState {
+  const accountId = String(prompt.accountId || prompt.username || '').trim();
+  if (!accountId) {
+    throw new Error('Registration prompt requires an account id');
+  }
+  const title = String(prompt.title || '').trim() || 'Create your Email OTP wallet';
+  const description =
+    String(prompt.description || '').trim() || 'Google verified your email address.';
+  const emailHint = String(prompt.emailHint || '').trim();
+  const submitLabel = String(prompt.submitLabel || '').trim() || 'Create wallet';
+  const helperText =
+    String(prompt.helperText || '').trim() ||
+    'Choose this wallet name or generate another one before creating the wallet.';
+  const onRerollAccount = prompt.onRerollAccount;
+  if (!onRerollAccount) {
+    throw new Error('Registration prompt requires wallet name reroll');
+  }
+  return {
+    username: accountId,
+    accountId,
+    title,
+    description,
+    ...(emailHint ? { emailHint } : {}),
+    submitLabel,
+    helperText,
+    onSubmit: prompt.onSubmit,
+    onRerollAccount,
+    ...(prompt.onCancel ? { onCancel: prompt.onCancel } : {}),
+  };
+}
+
+function otpPromptFromGoogleEmailOtpFlow(input: {
+  flow: GoogleEmailOtpWalletAuthFlow;
+  onComplete?: PasskeyAuthMenuSocialCompletion;
+}): { username: string; otpPrompt: PasskeyAuthMenuOtpPrompt } {
+  if (input.flow.mode !== 'login') {
+    throw new Error('Google Email OTP registration must use a registration prompt.');
+  }
+  let activeFlow: GoogleEmailOtpWalletAuthLoginFlow = input.flow;
+  const promptForFlow = (): PasskeyAuthMenuOtpPrompt => ({
+    title: activeFlow.prompt.title,
+    description: activeFlow.prompt.description,
+    emailHint: activeFlow.emailHint,
+    accountId: activeFlow.walletId,
+    submitLabel: activeFlow.prompt.submitLabel,
+    helperText: activeFlow.prompt.helperText,
+    onResend: async () => {
+      const result = await activeFlow.resend();
+      if (!result.ok) throw new Error(result.error.message);
+      if (result.value.mode !== 'login') {
+        throw new Error('Google Email OTP resend returned a registration flow.');
+      }
+      activeFlow = result.value;
+      return { emailHint: activeFlow.emailHint };
+    },
+    onSubmit: async (otpCode: string) => {
+      const result = await activeFlow.submit({ otpCode });
+      if (!result.ok) throw new Error(result.error.message);
+      await input.onComplete?.(result.value);
+    },
+    onCancel: async () => {
+      await activeFlow.cancel();
+    },
+  });
+  return {
+    username: activeFlow.walletId,
+    otpPrompt: promptForFlow(),
+  };
+}
+
+function registrationPromptFromGoogleEmailOtpFlow(input: {
+  flow: GoogleEmailOtpWalletAuthRegistrationFlow;
+  onComplete?: PasskeyAuthMenuSocialCompletion;
+}): { username: string; registrationPrompt: PasskeyAuthMenuRegistrationPrompt } {
+  let activeFlow = input.flow;
+  const promptForFlow = (): PasskeyAuthMenuRegistrationPrompt => ({
+    title: activeFlow.prompt.title,
+    description: activeFlow.prompt.description,
+    emailHint: activeFlow.emailHint,
+    accountId: activeFlow.walletId,
+    username: activeFlow.walletId,
+    submitLabel: activeFlow.prompt.submitLabel,
+    helperText: activeFlow.prompt.helperText,
+    onRerollAccount: async () => {
+      const result = await activeFlow.rerollWalletId();
+      if (!result.ok) throw new Error(result.error.message);
+      if (result.value.mode !== 'register') {
+        throw new Error('Google SSO resolved an existing wallet. Use the unlock flow.');
+      }
+      activeFlow = result.value;
+      return {
+        username: activeFlow.walletId,
+        accountId: activeFlow.walletId,
+        emailHint: activeFlow.emailHint,
+        title: activeFlow.prompt.title,
+        description: activeFlow.prompt.description,
+        submitLabel: activeFlow.prompt.submitLabel,
+        helperText: activeFlow.prompt.helperText,
+      };
+    },
+    onSubmit: async () => {
+      const result = await activeFlow.completeRegistration();
+      if (!result.ok) throw new Error(result.error.message);
+      await input.onComplete?.(result.value);
+    },
+    onCancel: async () => {
+      await activeFlow.cancel();
+    },
+  });
+  return {
+    username: activeFlow.walletId,
+    registrationPrompt: promptForFlow(),
   };
 }
 
@@ -243,11 +406,16 @@ export function usePasskeyAuthMenuController(
   );
   const [showScanDevice, setShowScanDevice] = React.useState(false);
   const [otpPromptState, setOtpPromptState] = React.useState<ActiveOtpPromptState | null>(null);
+  const [registrationPromptState, setRegistrationPromptState] =
+    React.useState<ActiveRegistrationPromptState | null>(null);
   const [otpCode, setOtpCode] = React.useState('');
   const [otpRecoveryKey, setOtpRecoveryKey] = React.useState('');
   const [otpSubmitting, setOtpSubmitting] = React.useState(false);
   const [otpError, setOtpError] = React.useState<string>('');
   const [otpRerollBusy, setOtpRerollBusy] = React.useState(false);
+  const [registrationSubmitting, setRegistrationSubmitting] = React.useState(false);
+  const [registrationRerollBusy, setRegistrationRerollBusy] = React.useState(false);
+  const [registrationError, setRegistrationError] = React.useState('');
   const [otpRecoveryKeyScanBusy, setOtpRecoveryKeyScanBusy] = React.useState(false);
   const [otpResendBusy, setOtpResendBusy] = React.useState(false);
   const [otpResendUntilMs, setOtpResendUntilMs] = React.useState(0);
@@ -391,15 +559,23 @@ export function usePasskeyAuthMenuController(
   );
 
   const onResetToStart = React.useCallback(() => {
+    const cancel = otpPromptState?.onCancel;
+    if (cancel) void Promise.resolve(cancel()).catch(() => {});
+    const registrationCancel = registrationPromptState?.onCancel;
+    if (registrationCancel) void Promise.resolve(registrationCancel()).catch(() => {});
     setWaiting(false);
     setWaitingReason(null);
     setOtpPromptState(null);
+    setRegistrationPromptState(null);
     setOtpCode('');
     setOtpRecoveryKey('');
     setOtpError('');
+    setRegistrationError('');
     setMethodError('');
     setOtpSubmitting(false);
+    setRegistrationSubmitting(false);
     setOtpRerollBusy(false);
+    setRegistrationRerollBusy(false);
     setOtpRecoveryKeyScanBusy(false);
     setOtpResendBusy(false);
     setOtpResendUntilMs(0);
@@ -413,7 +589,15 @@ export function usePasskeyAuthMenuController(
     resetToDefault();
     setCurrentValue('');
     clearPrefillMarkers();
-  }, [showScanDevice, closeLinkDeviceView, resetToDefault, setCurrentValue, clearPrefillMarkers]);
+  }, [
+    otpPromptState,
+    registrationPromptState,
+    showScanDevice,
+    closeLinkDeviceView,
+    resetToDefault,
+    setCurrentValue,
+    clearPrefillMarkers,
+  ]);
 
   const onProceed = React.useCallback(() => {
     if (!canSubmit) {
@@ -494,21 +678,56 @@ export function usePasskeyAuthMenuController(
         try {
           const result = await handler({ mode: socialMode, emailOtpAuthPolicy });
           const flowResult = result && typeof result === 'object' ? result : null;
-          const username = String(flowResult?.username || '').trim();
+          const isHeadlessOtpFlow =
+            flowResult && 'kind' in flowResult && flowResult.kind === 'otp_flow';
+          const isHeadlessRegistrationFlow =
+            flowResult && 'kind' in flowResult && flowResult.kind === 'registration_flow';
+          if (isHeadlessRegistrationFlow) {
+            const mappedRegistrationFlowResult = registrationPromptFromGoogleEmailOtpFlow({
+              flow: flowResult.flow,
+              ...(flowResult.onComplete ? { onComplete: flowResult.onComplete } : {}),
+            });
+            setCurrentValue(mappedRegistrationFlowResult.username);
+            setRegistrationError('');
+            setRegistrationSubmitting(false);
+            setRegistrationRerollBusy(false);
+            setMethodError('');
+            setOtpPromptState(null);
+            setRegistrationPromptState(
+              resolveRegistrationPrompt(mappedRegistrationFlowResult.registrationPrompt),
+            );
+            return;
+          }
+          const mappedFlowResult: { username?: string; otpPrompt?: PasskeyAuthMenuOtpPrompt } | null =
+            isHeadlessOtpFlow
+              ? otpPromptFromGoogleEmailOtpFlow({
+                  flow: flowResult.flow,
+                  ...(flowResult.onComplete ? { onComplete: flowResult.onComplete } : {}),
+                })
+              : flowResult && 'otpPrompt' in flowResult
+                ? flowResult
+                : null;
+          const username = String(mappedFlowResult?.username || '').trim();
           if (username) {
             setCurrentValue(username);
           }
-          if (flowResult?.otpPrompt) {
+          if (mappedFlowResult?.otpPrompt) {
             setOtpCode('');
             setOtpRecoveryKey('');
             setOtpError('');
+            setRegistrationPromptState(null);
+            setRegistrationError('');
             setOtpRerollBusy(false);
             setOtpRecoveryKeyScanBusy(false);
             setOtpResendBusy(false);
             setOtpResendUntilMs(0);
             setOtpResendStatus('');
             setMethodError('');
-            setOtpPromptState(resolveOtpPrompt(flowResult.otpPrompt, username || undefined));
+            setOtpPromptState(
+              resolveOtpPrompt(mappedFlowResult.otpPrompt, username || undefined, {
+                refreshLoginStateAfterSubmit: !isHeadlessOtpFlow,
+              }),
+            );
           } else if (username) {
             await runtime.refreshLoginState(username).catch(() => {});
           }
@@ -543,6 +762,8 @@ export function usePasskeyAuthMenuController(
   );
 
   const onOtpPromptBack = React.useCallback(() => {
+    const cancel = otpPromptState?.onCancel;
+    if (cancel) void Promise.resolve(cancel()).catch(() => {});
     setOtpPromptState(null);
     setOtpCode('');
     setOtpRecoveryKey('');
@@ -553,7 +774,16 @@ export function usePasskeyAuthMenuController(
     setOtpResendBusy(false);
     setOtpResendUntilMs(0);
     setOtpResendStatus('');
-  }, []);
+  }, [otpPromptState]);
+
+  const onRegistrationPromptBack = React.useCallback(() => {
+    const cancel = registrationPromptState?.onCancel;
+    if (cancel) void Promise.resolve(cancel()).catch(() => {});
+    setRegistrationPromptState(null);
+    setRegistrationError('');
+    setRegistrationSubmitting(false);
+    setRegistrationRerollBusy(false);
+  }, [registrationPromptState]);
 
   const onOtpResend = React.useCallback(() => {
     const activePrompt = otpPromptState;
@@ -647,6 +877,64 @@ export function usePasskeyAuthMenuController(
     })();
   }, [otpPromptState, otpSubmitting, otpRerollBusy, otpResendBusy, setCurrentValue]);
 
+  const onRegistrationRerollAccount = React.useCallback(() => {
+    const activePrompt = registrationPromptState;
+    if (!activePrompt || registrationSubmitting || registrationRerollBusy) return;
+    setRegistrationRerollBusy(true);
+    setRegistrationError('');
+    void (async () => {
+      try {
+        const result = await activePrompt.onRerollAccount();
+        const accountId = String(result?.accountId || result?.username || '').trim();
+        const username = String(result?.username || result?.accountId || '').trim();
+        const emailHint = String(result?.emailHint || '').trim();
+        const title = String(result?.title || '').trim();
+        const description = String(result?.description || '').trim();
+        const submitLabel = String(result?.submitLabel || '').trim();
+        const helperText = String(result?.helperText || '').trim();
+        if (username) setCurrentValue(username);
+        setRegistrationPromptState((current) =>
+          current
+            ? {
+                ...current,
+                ...(username ? { username } : {}),
+                ...(accountId ? { accountId } : {}),
+                ...(emailHint ? { emailHint } : {}),
+                ...(title ? { title } : {}),
+                ...(description ? { description } : {}),
+                ...(submitLabel ? { submitLabel } : {}),
+                ...(helperText ? { helperText } : {}),
+              }
+            : current,
+        );
+      } catch (error: unknown) {
+        setRegistrationError(
+          getErrorMessage(error, 'Could not choose another wallet name. Try again.'),
+        );
+      } finally {
+        setRegistrationRerollBusy(false);
+      }
+    })();
+  }, [registrationPromptState, registrationSubmitting, registrationRerollBusy, setCurrentValue]);
+
+  const onRegistrationSubmit = React.useCallback(() => {
+    const activePrompt = registrationPromptState;
+    if (!activePrompt || registrationSubmitting) return;
+    setRegistrationSubmitting(true);
+    setRegistrationError('');
+    void (async () => {
+      try {
+        await activePrompt.onSubmit();
+        await runtime.refreshLoginState(activePrompt.accountId).catch(() => {});
+        setRegistrationPromptState(null);
+      } catch (error: unknown) {
+        setRegistrationError(getErrorMessage(error, 'Wallet registration failed.'));
+      } finally {
+        setRegistrationSubmitting(false);
+      }
+    })();
+  }, [registrationPromptState, registrationSubmitting, runtime]);
+
   const onOtpSubmit = React.useCallback(() => {
     const activePrompt = otpPromptState;
     if (!activePrompt || otpSubmitting) return;
@@ -669,7 +957,7 @@ export function usePasskeyAuthMenuController(
       try {
         await activePrompt.onSubmit(otpCode, recoveryKey ? { recoveryKey } : undefined);
         const username = String(activePrompt.username || '').trim();
-        if (username) {
+        if (username && activePrompt.refreshLoginStateAfterSubmit) {
           await runtime.refreshLoginState(username).catch(() => {});
         }
         setOtpPromptState(null);
@@ -773,6 +1061,38 @@ export function usePasskeyAuthMenuController(
     onOtpPromptBack,
   ]);
 
+  const registrationPrompt: PasskeyAuthMenuRegistrationPromptController | null =
+    React.useMemo(() => {
+      if (!registrationPromptState) return null;
+      return {
+        title: registrationPromptState.title,
+        description: registrationPromptState.description,
+        ...(registrationPromptState.emailHint
+          ? { emailHint: registrationPromptState.emailHint }
+          : {}),
+        accountId: registrationPromptState.accountId,
+        submitLabel: registrationPromptState.submitLabel,
+        helperText: registrationPromptState.helperText,
+        submitting: registrationSubmitting,
+        ...(registrationError ? { error: registrationError } : {}),
+        rerollAccountLabel: registrationRerollBusy
+          ? 'Generating another name...'
+          : 'Generate another name',
+        rerollAccountDisabled: registrationSubmitting || registrationRerollBusy,
+        onRerollAccount: onRegistrationRerollAccount,
+        onSubmit: onRegistrationSubmit,
+        onBack: onRegistrationPromptBack,
+      };
+    }, [
+      registrationPromptState,
+      registrationSubmitting,
+      registrationError,
+      registrationRerollBusy,
+      onRegistrationRerollAccount,
+      onRegistrationSubmit,
+      onRegistrationPromptBack,
+    ]);
+
   const linkDevice: PasskeyAuthMenuLinkDeviceController = React.useMemo(
     () => ({
       isOpen: showScanDevice,
@@ -790,6 +1110,7 @@ export function usePasskeyAuthMenuController(
     waitingReason,
     showScanDevice,
     otpPrompt,
+    registrationPrompt,
     ...(methodError ? { methodError } : {}),
     currentValue,
     passkeyAccountOptions,

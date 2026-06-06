@@ -356,6 +356,180 @@ export type EmailOtpEcdsaEnrollmentCapabilityResult = {
   warmCapability: WarmSessionEcdsaCapabilityState;
 };
 
+export type GoogleEmailOtpWalletAuthRequestedMode = 'register' | 'login';
+export type GoogleEmailOtpWalletAuthResolvedMode = 'register' | 'login';
+export type GoogleEmailOtpWalletAuthDelivery = 'sent' | 'reused';
+
+export type GoogleEmailOtpRegistrationOfferId = string & {
+  readonly __googleEmailOtpRegistrationOfferId: unique symbol;
+};
+
+export type GoogleEmailOtpRegistrationCandidateId = string & {
+  readonly __googleEmailOtpRegistrationCandidateId: unique symbol;
+};
+
+export type RegistrationFinalizeIdempotencyKey = string & {
+  readonly __registrationFinalizeIdempotencyKey: unique symbol;
+};
+
+export type GoogleEmailOtpRegistrationBackupActionKind = 'download' | 'copy' | 'print' | 'manual';
+
+export type EmailOtpRecoveryCodeBackupAck = {
+  kind: 'email_otp_recovery_code_backup_ack_v1';
+  offerId: GoogleEmailOtpRegistrationOfferId;
+  candidateId: GoogleEmailOtpRegistrationCandidateId;
+  recoveryCodesIssuedAtMs: number;
+  backupActionKind: GoogleEmailOtpRegistrationBackupActionKind;
+  acknowledgedAtMs: number;
+  idempotencyKey: RegistrationFinalizeIdempotencyKey;
+  recoveryKeys?: never;
+  recoveryCodes?: never;
+  appSessionJwt?: never;
+  otpCode?: never;
+  challengeId?: never;
+  walletId?: never;
+  webauthn?: never;
+  passkey?: never;
+};
+
+export type GoogleEmailOtpRegistrationCandidate = {
+  candidateId: GoogleEmailOtpRegistrationCandidateId;
+  walletId: WalletId;
+};
+
+export type GoogleEmailOtpRegistrationOffer = {
+  kind: 'google_email_otp_registration_offer_v1';
+  offerId: GoogleEmailOtpRegistrationOfferId;
+  expiresAtMs: number;
+  emailHint: string;
+  candidates: readonly [
+    GoogleEmailOtpRegistrationCandidate,
+    ...GoogleEmailOtpRegistrationCandidate[],
+  ];
+  selectedCandidateId: GoogleEmailOtpRegistrationCandidateId;
+  delivery?: never;
+  challengeId?: never;
+  otpCode?: never;
+  webauthn?: never;
+  passkey?: never;
+};
+
+export type GoogleEmailOtpRegistrationFinalizeInput = {
+  kind: 'google_email_otp_registration_finalize_v1';
+  offerId: GoogleEmailOtpRegistrationOfferId;
+  candidateId: GoogleEmailOtpRegistrationCandidateId;
+  idempotencyKey: RegistrationFinalizeIdempotencyKey;
+  emailOtpEnrollment: EmailOtpBackedUpEnrollmentResult;
+  backupAck: EmailOtpRecoveryCodeBackupAck;
+  walletId?: never;
+  otpCode?: never;
+  challengeId?: never;
+  delivery?: never;
+  webauthn?: never;
+  passkey?: never;
+};
+
+export type GoogleEmailOtpWalletAuthEcdsaTargets =
+  | { kind: 'configured' }
+  | { kind: 'none' }
+  | {
+      kind: 'explicit';
+      targets: readonly [ThresholdEcdsaChainTarget, ...ThresholdEcdsaChainTarget[]];
+    };
+
+export type GoogleEmailOtpWalletAuthFailureCode =
+  | 'google_exchange_failed'
+  | 'email_otp_challenge_failed'
+  | 'email_otp_invalid_code'
+  | 'email_otp_expired'
+  | 'email_otp_rate_limited'
+  | 'registration_failed'
+  | 'unlock_failed'
+  | 'recovery_code_backup_incomplete'
+  | 'local_signing_session_not_ready'
+  | 'wallet_iframe_unavailable'
+  | 'flow_cancelled'
+  | 'flow_expired';
+
+export type GoogleEmailOtpWalletAuthFailure = {
+  code: GoogleEmailOtpWalletAuthFailureCode;
+  message: string;
+  retryAfterMs?: number;
+};
+
+export type GoogleEmailOtpWalletAuthResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: GoogleEmailOtpWalletAuthFailure };
+
+export type GoogleEmailOtpWalletAuthPromptCopy = {
+  title: string;
+  description: string;
+  submitLabel: string;
+  helperText: string;
+};
+
+export type GoogleEmailOtpWalletAuthSubmitSuccess = {
+  walletId: WalletId;
+  session: WalletSession;
+  mode: GoogleEmailOtpWalletAuthResolvedMode;
+};
+
+export type GoogleEmailOtpWalletAuthRegistrationCompleted = {
+  walletId: WalletId;
+  session: WalletSession;
+  mode: 'register';
+};
+
+export type GoogleEmailOtpWalletAuthBaseFlow = {
+  kind: 'google_email_otp_wallet_auth_flow_v1';
+  flowId: string;
+  requestedMode: GoogleEmailOtpWalletAuthRequestedMode;
+  mode: GoogleEmailOtpWalletAuthResolvedMode;
+  walletId: WalletId;
+  emailHint: string;
+  prompt: GoogleEmailOtpWalletAuthPromptCopy;
+  expiresAtMs: number;
+  cancel(): Promise<void>;
+};
+
+export type GoogleEmailOtpWalletAuthRegistrationFlow = GoogleEmailOtpWalletAuthBaseFlow & {
+  state: 'registration_ready';
+  mode: 'register';
+  completeRegistration(): Promise<
+    GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthRegistrationCompleted>
+  >;
+  rerollWalletId(): Promise<GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthRegistrationFlow>>;
+  delivery?: never;
+  resend?: never;
+  submit?: never;
+};
+
+export type GoogleEmailOtpWalletAuthLoginFlow = GoogleEmailOtpWalletAuthBaseFlow & {
+  state: 'challenge_sent';
+  mode: 'login';
+  delivery: GoogleEmailOtpWalletAuthDelivery;
+  resend(): Promise<GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthFlow>>;
+  submit(input: {
+    otpCode: string;
+  }): Promise<GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthSubmitSuccess>>;
+  completeRegistration?: never;
+  rerollWalletId?: never;
+};
+
+export type GoogleEmailOtpWalletAuthFlow =
+  | GoogleEmailOtpWalletAuthRegistrationFlow
+  | GoogleEmailOtpWalletAuthLoginFlow;
+
+export type GoogleEmailOtpWalletAuthStartInput = {
+  idToken: string;
+  mode: GoogleEmailOtpWalletAuthRequestedMode;
+  relayUrl?: string;
+  sessionKind?: 'jwt' | 'cookie';
+  ecdsaTargets?: GoogleEmailOtpWalletAuthEcdsaTargets;
+  emailOtpAuthPolicy?: EmailOtpAuthPolicy;
+  onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;
+};
+
 export interface AuthCapability {
   unlock(nearAccountId: string, options?: LoginHooksOptions): Promise<LoginAndCreateSessionResult>;
   lock(): Promise<void>;
@@ -396,12 +570,14 @@ export interface AuthCapability {
     accountMode: 'register' | 'login';
     relayUrl?: string;
     sessionKind?: 'jwt' | 'cookie';
-    rerollRegistrationAttempt?: boolean;
     onEvent?: (event: RegistrationFlowEvent | UnlockFlowEvent) => void;
   }): Promise<GoogleEmailOtpSessionExchangeResult>;
   loginWithEmailOtpEcdsaCapability(
     args: EmailOtpEcdsaCapabilityArgs,
   ): Promise<EmailOtpEcdsaCapabilityResult>;
+  beginGoogleEmailOtpWalletAuth(
+    args: GoogleEmailOtpWalletAuthStartInput,
+  ): Promise<GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthFlow>>;
 }
 
 export interface RegistrationCapability {
@@ -562,14 +738,6 @@ export interface RecoveryCapability {
   }): Promise<void>;
 
   cancelEmailRecovery(args?: { accountId?: string; nearPublicKey?: string }): Promise<void>;
-
-  acknowledgeEmailOtpRecoveryCodeBackup(args: {
-    walletId: string;
-    enrollmentId: string;
-    enrollmentSealKeyVersion: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
-  }): Promise<EmailOtpRecoveryCodeBackupStatus>;
 
   getEmailOtpRecoveryCodeStatus(args: {
     walletId: string;
