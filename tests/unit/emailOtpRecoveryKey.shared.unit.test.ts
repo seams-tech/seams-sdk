@@ -13,6 +13,7 @@ import {
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_AAD_CONTEXT,
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
+  buildEmailOtpRecoveryWrapBinding,
   decodeEmailOtpRecoveryKey,
   deriveEmailOtpRecoveryKek32,
   encodeEmailOtpRecoveryKeyBytes,
@@ -23,7 +24,7 @@ import {
   normalizeEmailOtpRecoveryKey,
   unwrapEmailOtpDeviceEnrollmentEscrow,
   wrapEmailOtpDeviceEnrollmentEscrow,
-  type EmailOtpRecoveryWrapMetadata,
+  type EmailOtpRecoveryWrapBinding,
 } from '@shared/utils/emailOtpRecoveryKey';
 import { encodeSigningSessionHkdfTuple } from '@shared/utils/signingSessionSeal';
 import { hkdfSync } from 'node:crypto';
@@ -34,7 +35,7 @@ import {
 
 const recoveryKey = '008J-4CT4-ANK7-F24S-NAXW-SQFE-ZW83-4N3P';
 
-const metadata: EmailOtpRecoveryWrapMetadata = {
+const binding: EmailOtpRecoveryWrapBinding = buildEmailOtpRecoveryWrapBinding({
   walletId: 'alice.testnet',
   userId: 'user-1',
   authSubjectId: 'google-sub-1',
@@ -45,7 +46,7 @@ const metadata: EmailOtpRecoveryWrapMetadata = {
   signingRootId: 'root-1',
   signingRootVersion: 'root-v1',
   recoveryKeyId: 'recovery-key-1',
-};
+});
 
 const chacha20poly1305 = {
   encrypt: chacha20poly1305Encrypt,
@@ -123,8 +124,8 @@ test.describe('shared Email OTP recovery key specs', () => {
       '1',
       'recovery-key-1',
     ]);
-    expect(Array.from(encodeEmailOtpRecoveryKekInfo(metadata))).toEqual(Array.from(expectedInfo));
-    expect(Array.from(encodeEmailOtpRecoveryWrappedEnrollmentAad(metadata))).toEqual(
+    expect(Array.from(encodeEmailOtpRecoveryKekInfo(binding))).toEqual(Array.from(expectedInfo));
+    expect(Array.from(encodeEmailOtpRecoveryWrappedEnrollmentAad(binding))).toEqual(
       Array.from(
         encodeSigningSessionHkdfTuple([
           'seams/email-otp/recovery-wrapped-enrollment/v1',
@@ -151,7 +152,7 @@ test.describe('shared Email OTP recovery key specs', () => {
         32,
       ),
     );
-    expect(Array.from(await deriveEmailOtpRecoveryKek32({ recoveryKey, metadata }))).toEqual(
+    expect(Array.from(await deriveEmailOtpRecoveryKek32({ recoveryKey, binding }))).toEqual(
       Array.from(expected),
     );
   });
@@ -162,7 +163,7 @@ test.describe('shared Email OTP recovery key specs', () => {
 
     const wrapped = await wrapEmailOtpDeviceEnrollmentEscrow({
       recoveryKey,
-      metadata,
+      binding,
       encS,
       nonce12,
       chacha20poly1305,
@@ -174,7 +175,7 @@ test.describe('shared Email OTP recovery key specs', () => {
     await expect(
       unwrapEmailOtpDeviceEnrollmentEscrow({
         recoveryKey,
-        metadata,
+        binding,
         wrapped,
         chacha20poly1305,
       }),
@@ -183,7 +184,7 @@ test.describe('shared Email OTP recovery key specs', () => {
     await expect(
       unwrapEmailOtpDeviceEnrollmentEscrow({
         recoveryKey: '00GJ-4CT4-ANK7-F24S-NAXW-SQFE-ZW83-4N3P',
-        metadata,
+        binding,
         wrapped,
         chacha20poly1305,
       }),
@@ -192,7 +193,10 @@ test.describe('shared Email OTP recovery key specs', () => {
     await expect(
       unwrapEmailOtpDeviceEnrollmentEscrow({
         recoveryKey,
-        metadata: { ...metadata, enrollmentVersion: '2' },
+        binding: {
+          ...binding,
+          enrollment: { ...binding.enrollment, enrollmentVersion: '2' },
+        },
         wrapped,
         chacha20poly1305,
       }),

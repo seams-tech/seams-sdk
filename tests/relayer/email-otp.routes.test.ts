@@ -457,22 +457,6 @@ async function enrollEmailOtpOverExpress(args: {
     }),
   });
   expect(enrollVerify.status).toBe(200);
-  const acknowledge = await fetchJson(
-    `${args.baseUrl}/wallet/email-otp/recovery-key/backup-acknowledge`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
-      body: JSON.stringify({
-        walletId: 'alice.testnet',
-        enrollmentId: `email-otp-device-enrollment-v1:alice.testnet:${userId}`,
-        enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
-      }),
-    },
-  );
-  expect(acknowledge.status).toBe(200);
-  expect(acknowledge.json?.activeRecoveryCodeCountAtAcknowledgement).toBe(
-    EMAIL_OTP_RECOVERY_KEY_COUNT,
-  );
   const status = await fetchJson(`${args.baseUrl}/wallet/email-otp/recovery-key/status`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authToken}` },
@@ -554,21 +538,6 @@ async function enrollEmailOtpOverCloudflare(args: {
     ctx: args.ctx,
   });
   expect(enrollVerify.status).toBe(200);
-  const acknowledge = await callCf(args.handler, {
-    method: 'POST',
-    path: '/wallet/email-otp/recovery-key/backup-acknowledge',
-    headers: { Authorization: `Bearer ${authToken}` },
-    body: {
-      walletId: 'alice.testnet',
-      enrollmentId: `email-otp-device-enrollment-v1:alice.testnet:${userId}`,
-      enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
-    },
-    ctx: args.ctx,
-  });
-  expect(acknowledge.status).toBe(200);
-  expect(acknowledge.json?.activeRecoveryCodeCountAtAcknowledgement).toBe(
-    EMAIL_OTP_RECOVERY_KEY_COUNT,
-  );
   const status = await callCf(args.handler, {
     method: 'POST',
     path: '/wallet/email-otp/recovery-key/status',
@@ -697,21 +666,6 @@ test.describe('Email OTP routes', () => {
     const srv = await startExpressRouter(router);
     try {
       await enrollEmailOtpOverExpress({ service, baseUrl: srv.baseUrl });
-      const rejectedBackupAck = await fetchJson(
-        `${srv.baseUrl}/wallet/email-otp/recovery-key/backup-acknowledge`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
-          body: JSON.stringify({
-            walletId: 'alice.testnet',
-            enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:alice.testnet',
-            enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
-            recoveryKeys: ['must-not-be-sent'],
-          }),
-        },
-      );
-      expect(rejectedBackupAck.status).toBe(400);
-      expect(rejectedBackupAck.json?.code).toBe('invalid_body');
       const challenge = await fetchJson(`${srv.baseUrl}/wallet/email-otp/recovery-challenge`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },

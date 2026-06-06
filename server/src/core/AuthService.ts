@@ -109,6 +109,20 @@ export type GoogleEmailOtpResolutionMode =
   | 'registration_incomplete'
   | 'stale_identity_mapping';
 
+export type GoogleEmailOtpRegistrationOfferCandidate = {
+  candidateId: string;
+  walletId: string;
+};
+
+export type GoogleEmailOtpRegistrationOffer = {
+  offerId: string;
+  selectedCandidateId: string;
+  candidates: readonly [
+    GoogleEmailOtpRegistrationOfferCandidate,
+    ...GoogleEmailOtpRegistrationOfferCandidate[],
+  ];
+};
+
 export type GoogleEmailOtpResolutionResult =
   | {
       ok: true;
@@ -126,6 +140,7 @@ export type GoogleEmailOtpResolutionResult =
       email: string;
       registrationAttemptId: string;
       expiresAtMs: number;
+      offer: GoogleEmailOtpRegistrationOffer;
     }
   | {
       ok: false;
@@ -149,15 +164,19 @@ import {
   parseChallengeSubjectId,
   parseEmailOtpChallengeId,
   parseEmailOtpRegistrationAttemptId,
+  parseGoogleProviderSubject,
   parseOrgId,
   parseProviderSubject,
+  parseVerifiedGoogleEmail,
   parseWalletId,
   type AppSessionVersion,
   type ChallengeSubjectId,
   type EmailOtpChallengeId,
   type EmailOtpRegistrationAttemptId,
+  type GoogleProviderSubject,
   type OrgId,
   type ProviderSubject,
+  type VerifiedGoogleEmail,
   type WalletId,
 } from '@shared/utils/domainIds';
 import {
@@ -254,15 +273,14 @@ import {
   createEmailOtpGrantStore,
   createEmailOtpRegistrationAttemptStore,
   createEmailOtpUnlockChallengeStore,
-  normalizeEmailOtpRecoveryWrappedEnrollmentEscrowRecord,
+  emailOtpRecoveryWrappedEnrollmentEscrowBoundaryFromRecord,
+  parseEmailOtpRecoveryWrappedEnrollmentEscrowBoundary,
   resolveEmailOtpStoreNamespace,
+  type EmailOtpRecoveryWrappedEnrollmentEscrowBoundary,
   type EmailOtpWalletEnrollmentRecord,
   type EmailOtpWalletEnrollmentStore,
   type EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   type EmailOtpRecoveryWrappedEnrollmentEscrowStore,
-  type PendingBackupEmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-  type ActiveEmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-  type AbandonedEmailOtpRecoveryWrappedEnrollmentEscrowRecord,
   type EmailOtpAuthStateRecord,
   type EmailOtpAuthStateStore,
   type EmailOtpChannel,
@@ -274,6 +292,8 @@ import {
   type EmailOtpLoginChallengeOperation,
   type EmailOtpRegistrationAttemptStore,
   type EmailOtpUnlockChallengeStore,
+  type NonEmptyGoogleEmailOtpRegistrationOfferCandidates,
+  type PendingGoogleEmailOtpRegistrationAttemptRecord,
   type GoogleEmailOtpRegistrationAttemptRecord,
 } from './EmailOtpStores';
 import {
@@ -311,7 +331,11 @@ import {
   type RecoveryExecutionStatus,
   type RecoveryExecutionStore,
 } from './RecoveryExecutionStore';
-import { ensurePostgresSchema, getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
+import {
+  ensurePostgresSchema,
+  getPostgresPool,
+  getPostgresUrlFromConfig,
+} from '../storage/postgres';
 import {
   createIdentityStore,
   type IdentityStore,
@@ -767,11 +791,15 @@ function normalizeAddSignerSelection(
     const chainTargets = Array.isArray(ecdsaRaw?.chainTargets)
       ? ecdsaRaw.chainTargets.map((target) => thresholdEcdsaChainTargetFromValue(target))
       : [];
-    if (participantIds.length === 0 || chainTargets.length === 0 || chainTargets.some(Boolean) === false) {
+    if (
+      participantIds.length === 0 ||
+      chainTargets.length === 0 ||
+      chainTargets.some(Boolean) === false
+    ) {
       return { ok: false, code: 'invalid_body', message: 'ecdsa add-signer spec is invalid' };
     }
-    const normalizedTargets = chainTargets.filter(
-      (target): target is ThresholdEcdsaChainTarget => Boolean(target),
+    const normalizedTargets = chainTargets.filter((target): target is ThresholdEcdsaChainTarget =>
+      Boolean(target),
     );
     if (normalizedTargets.length !== chainTargets.length) {
       return { ok: false, code: 'invalid_body', message: 'ecdsa add-signer spec is invalid' };
@@ -898,9 +926,7 @@ function normalizeAdjacentFlowEcdsaPrepareSpec(
     };
   }
   const participantIds = Array.isArray(participantIdRaw)
-    ? participantIdRaw
-        .map((id) => Number(id))
-        .filter((id) => Number.isInteger(id) && id > 0)
+    ? participantIdRaw.map((id) => Number(id)).filter((id) => Number.isInteger(id) && id > 0)
     : [];
   if (participantIds.length === 0) {
     return {
@@ -2222,6 +2248,10 @@ export class AuthService {
     providerSubject: string;
     email: string;
     walletId: string;
+    offerId: string;
+    offerCandidates: NonEmptyGoogleEmailOtpRegistrationOfferCandidates;
+    selectedCandidateId: string;
+    appSessionVersion: string;
     authProvider: string;
     walletIdDerivationNonce: string;
     collisionCounter: number;
@@ -2235,6 +2265,10 @@ export class AuthService {
       providerSubject: input.providerSubject,
       email: input.email,
       walletId: input.walletId,
+      offerId: input.offerId,
+      offerCandidates: input.offerCandidates,
+      selectedCandidateId: input.selectedCandidateId,
+      appSessionVersion: input.appSessionVersion,
       authProvider: input.authProvider,
       accountIdSlugVersion: 'hmac_readable_v1',
       walletIdDerivationNonce: input.walletIdDerivationNonce,
@@ -2249,10 +2283,10 @@ export class AuthService {
     return attempt;
   }
 
-  private async findResumableGoogleEmailOtpRegistrationAttempt(input: {
+  private async findStartedGoogleEmailOtpRegistrationAttempt(input: {
     providerSubject: string;
     email: string;
-  }): Promise<GoogleEmailOtpRegistrationAttemptRecord | null> {
+  }): Promise<PendingGoogleEmailOtpRegistrationAttemptRecord | null> {
     const now = Date.now();
     await this.cleanupGoogleEmailOtpRegistrationAttempts(now);
     const attempt = await this.getEmailOtpRegistrationAttemptStore().findStartedBySubjectEmail({
@@ -2262,16 +2296,19 @@ export class AuthService {
     });
     if (attempt) {
       if (!this.isHostedHmacReadableRelayerSubaccount(attempt.walletId)) {
-        attempt.state = 'failed';
-        attempt.failureCode = 'non_hmac_readable_wallet_id';
-        attempt.updatedAtMs = now;
-        await this.getEmailOtpRegistrationAttemptStore().put(attempt);
+        await this.getEmailOtpRegistrationAttemptStore().put({
+          ...attempt,
+          state: 'failed',
+          failureCode: 'non_hmac_readable_wallet_id',
+          updatedAtMs: now,
+        });
         return null;
       }
-      attempt.updatedAtMs = now;
-      await this.getEmailOtpRegistrationAttemptStore().put(attempt);
+      const refreshedAttempt = { ...attempt, updatedAtMs: now };
+      await this.getEmailOtpRegistrationAttemptStore().put(refreshedAttempt);
+      return refreshedAttempt;
     }
-    return attempt;
+    return null;
   }
 
   private async getGoogleEmailOtpEnrollmentBySubject(input: {
@@ -2350,13 +2387,75 @@ export class AuthService {
     };
   }
 
-  async resolveGoogleEmailOtpSession(input: {
-    providerSubject?: string;
-    sub?: string;
-    email?: string;
+  async consumeGoogleEmailOtpRegistrationAttemptRateLimit(input: {
+    providerSubject?: unknown;
+    email?: unknown;
     accountMode?: unknown;
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
-    rerollRegistrationAttempt?: unknown;
+    clientIp?: string;
+    appSessionUserId?: string;
+    restartRegistrationOffer?: unknown;
+  }): Promise<
+    | { ok: true }
+    | {
+        ok: false;
+        code: 'invalid_body' | 'rate_limited';
+        message: string;
+        retryAfterMs?: number;
+        resetAtMs?: number;
+      }
+  > {
+    const accountMode = toOptionalTrimmedString(input.accountMode)?.toLowerCase();
+    if (accountMode !== 'register') return { ok: true };
+    const providerSubject = parseGoogleProviderSubject(input.providerSubject);
+    if (!providerSubject.ok) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: providerSubject.error.message,
+      };
+    }
+    const email = parseVerifiedGoogleEmail(input.email);
+    if (!email.ok) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: email.error.message,
+      };
+    }
+    const orgId = parseOrgId(input.runtimePolicyScope?.orgId);
+    if (!orgId.ok) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: orgId.error.message,
+      };
+    }
+    const restartOffer =
+      input.restartRegistrationOffer === true ||
+      String(input.restartRegistrationOffer || '')
+        .trim()
+        .toLowerCase() === 'true';
+    return await this.consumeEmailOtpRateLimit({
+      scope: 'googleRegistrationAttempt',
+      action: restartOffer
+        ? 'google_email_otp_registration_offer_restart'
+        : 'google_email_otp_registration_create',
+      userId: toOptionalTrimmedString(input.appSessionUserId),
+      providerSubject: providerSubject.value,
+      orgId: orgId.value,
+      clientIp: toOptionalTrimmedString(input.clientIp),
+    });
+  }
+
+  async resolveGoogleEmailOtpSession(input: {
+    providerSubject?: string | GoogleProviderSubject;
+    sub?: string;
+    email?: string | VerifiedGoogleEmail;
+    accountMode?: unknown;
+    appSessionVersion?: string;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    restartRegistrationOffer?: unknown;
   }): Promise<GoogleEmailOtpResolutionResult> {
     const providerSubject = toOptionalTrimmedString(input.providerSubject ?? input.sub);
     if (!providerSubject || !providerSubject.startsWith('google:')) {
@@ -2371,9 +2470,13 @@ export class AuthService {
     if (!orgId) {
       throw new Error('Google Email OTP requires orgId tenant scope');
     }
-    const rerollRegistrationAttempt =
-      input.rerollRegistrationAttempt === true ||
-      String(input.rerollRegistrationAttempt || '')
+    const appSessionVersion = toOptionalTrimmedString(input.appSessionVersion);
+    if (accountMode === 'register' && !appSessionVersion) {
+      throw new Error('Google Email OTP registration requires appSessionVersion');
+    }
+    const restartRegistrationOffer =
+      input.restartRegistrationOffer === true ||
+      String(input.restartRegistrationOffer || '')
         .trim()
         .toLowerCase() === 'true';
     const wallet = `wallet:${providerSubject}`;
@@ -2458,7 +2561,7 @@ export class AuthService {
       providerSubject,
       orgId,
     });
-    if (discoveredExistingEnrollment && !rerollRegistrationAttempt) {
+    if (discoveredExistingEnrollment && !restartRegistrationOffer) {
       const repaired = await this.repairGoogleEmailOtpWalletLink({
         providerSubject,
         walletId: discoveredExistingEnrollment.walletId,
@@ -2483,7 +2586,7 @@ export class AuthService {
         hasEmailOtpEnrollment: true,
       };
     }
-    if (linkedWalletId && !rerollRegistrationAttempt) {
+    if (linkedWalletId && !restartRegistrationOffer) {
       return this.googleEmailOtpStaleIdentityMapping({
         providerSubject,
         linkedWalletId,
@@ -2491,25 +2594,49 @@ export class AuthService {
       });
     }
 
-    const resumableAttempt = await this.findResumableGoogleEmailOtpRegistrationAttempt({
+    const startedAttempt = await this.findStartedGoogleEmailOtpRegistrationAttempt({
       providerSubject,
       email,
     });
-    if (resumableAttempt) {
-      if (rerollRegistrationAttempt) {
-        resumableAttempt.state = 'failed';
-        resumableAttempt.failureCode = 'rerolled_by_user';
-        resumableAttempt.updatedAtMs = Date.now();
-        await this.getEmailOtpRegistrationAttemptStore().put(resumableAttempt);
+    if (startedAttempt) {
+      if (startedAttempt.appSessionVersion !== appSessionVersion) {
+        await this.getEmailOtpRegistrationAttemptStore().put({
+          ...startedAttempt,
+          state: 'abandoned',
+          failureCode: 'app_session_version_replaced',
+          updatedAtMs: Date.now(),
+        });
+      } else if (restartRegistrationOffer) {
+        await this.getEmailOtpRegistrationAttemptStore().put({
+          ...startedAttempt,
+          state: 'abandoned',
+          failureCode: 'offer_restarted_by_user',
+          updatedAtMs: Date.now(),
+        });
       } else {
+        const [selectedOfferCandidate, ...remainingOfferCandidates] =
+          startedAttempt.offerCandidates;
+        const firstCandidate = {
+          candidateId: selectedOfferCandidate.candidateId,
+          walletId: selectedOfferCandidate.walletId,
+        };
+        const remainingCandidates = remainingOfferCandidates.map((candidate) => ({
+          candidateId: candidate.candidateId,
+          walletId: candidate.walletId,
+        }));
         return {
           ok: true,
           mode: 'register_started',
-          walletId: resumableAttempt.walletId,
+          walletId: startedAttempt.walletId,
           providerSubject,
           email,
-          registrationAttemptId: resumableAttempt.attemptId,
-          expiresAtMs: resumableAttempt.expiresAtMs,
+          registrationAttemptId: startedAttempt.attemptId,
+          expiresAtMs: startedAttempt.expiresAtMs,
+          offer: {
+            offerId: startedAttempt.offerId,
+            selectedCandidateId: startedAttempt.selectedCandidateId,
+            candidates: [firstCandidate, ...remainingCandidates],
+          },
         };
       }
     }
@@ -2517,9 +2644,12 @@ export class AuthService {
     const nowMs = Date.now();
     const authProvider = 'google_oidc';
     const walletIdDerivationNonce = this.generateOpaqueId(18);
-    let walletId = '';
-    let collisionCounter = 0;
-    for (let attempt = 0; attempt < 10; attempt++) {
+    const offerCandidates: {
+      candidateId: string;
+      walletId: string;
+      collisionCounter: number;
+    }[] = [];
+    for (let attempt = 0; attempt < 30 && offerCandidates.length < 5; attempt++) {
       const candidate = await this.deriveHostedOidcWalletId({
         providerSubject,
         email,
@@ -2535,13 +2665,20 @@ export class AuthService {
         });
       const inUseByEnrollment = await this.getEmailOtpWalletEnrollmentStore().get(candidate);
       if (inUseByEnrollment) continue;
-      if (!inUseByLiveAttempt) {
-        walletId = candidate;
-        collisionCounter = attempt;
-        break;
-      }
+      if (inUseByLiveAttempt) continue;
+      const existingSubjects = await identity.listSubjectsByUserId(candidate);
+      const linkedToDifferentWallet = existingSubjects.some(
+        (subject) => subject.startsWith('wallet:') && subject !== wallet,
+      );
+      if (linkedToDifferentWallet) continue;
+      offerCandidates.push({
+        candidateId: this.generateOpaqueId(18),
+        walletId: candidate,
+        collisionCounter: attempt,
+      });
     }
-    if (!walletId) {
+    const [selectedCandidate, ...remainingOfferCandidates] = offerCandidates;
+    if (!selectedCandidate) {
       return {
         ok: false,
         mode: 'registration_incomplete',
@@ -2551,31 +2688,35 @@ export class AuthService {
         message: 'Unable to allocate a fresh Google Email OTP registration attempt',
       };
     }
-    const existingSubjects = await identity.listSubjectsByUserId(walletId);
-    const linkedToDifferentWallet = existingSubjects.some(
-      (subject) => subject.startsWith('wallet:') && subject !== wallet,
-    );
-    if (linkedToDifferentWallet) {
-      return {
-        ok: false,
-        mode: 'wallet_id_collision',
-        code: 'wallet_id_collision',
-        walletId,
-        providerSubject,
-        email,
-        message: 'Email OTP wallet id is already linked to a different Google account',
-      };
-    }
 
+    const nonEmptyOfferCandidates: NonEmptyGoogleEmailOtpRegistrationOfferCandidates = [
+      selectedCandidate,
+      ...remainingOfferCandidates,
+    ];
+    const walletId = selectedCandidate.walletId;
+    const offerId = this.generateOpaqueId(18);
     const attempt = await this.createGoogleEmailOtpRegistrationAttempt({
       providerSubject,
       email,
       walletId,
+      offerId,
+      offerCandidates: nonEmptyOfferCandidates,
+      selectedCandidateId: selectedCandidate.candidateId,
+      appSessionVersion,
       authProvider,
       walletIdDerivationNonce,
-      collisionCounter,
+      collisionCounter: selectedCandidate.collisionCounter,
       ...(input.runtimePolicyScope ? { runtimePolicyScope: input.runtimePolicyScope } : {}),
     });
+    const [firstOfferCandidate, ...remainingOfferCandidatesForResponse] = nonEmptyOfferCandidates;
+    const firstCandidate = {
+      candidateId: firstOfferCandidate.candidateId,
+      walletId: firstOfferCandidate.walletId,
+    };
+    const remainingCandidates = remainingOfferCandidatesForResponse.map((candidate) => ({
+      candidateId: candidate.candidateId,
+      walletId: candidate.walletId,
+    }));
     return {
       ok: true,
       mode: 'register_started',
@@ -2584,6 +2725,11 @@ export class AuthService {
       email,
       registrationAttemptId: attempt.attemptId,
       expiresAtMs: attempt.expiresAtMs,
+      offer: {
+        offerId,
+        selectedCandidateId: selectedCandidate.candidateId,
+        candidates: [firstCandidate, ...remainingCandidates],
+      },
     };
   }
 
@@ -2603,9 +2749,11 @@ export class AuthService {
       };
     }
     if (attempt.expiresAtMs <= Date.now()) {
-      attempt.state = 'expired';
-      attempt.updatedAtMs = Date.now();
-      await this.getEmailOtpRegistrationAttemptStore().put(attempt);
+      await this.getEmailOtpRegistrationAttemptStore().put({
+        ...attempt,
+        state: 'expired',
+        updatedAtMs: Date.now(),
+      });
       return {
         ok: false,
         code: 'registration_incomplete',
@@ -2619,6 +2767,13 @@ export class AuthService {
         message: 'registrationAttemptId does not match walletId',
       };
     }
+    if (attempt.state !== 'started' && attempt.state !== 'key_finalized') {
+      return {
+        ok: false,
+        code: 'registration_incomplete',
+        message: 'Google Email OTP registration attempt is no longer active',
+      };
+    }
     const identity = this.getIdentityStore();
     const linked = await identity.linkSubjectToUserId({
       userId: attempt.walletId,
@@ -2626,19 +2781,23 @@ export class AuthService {
       allowMoveIfSoleIdentity: true,
     });
     if (!linked.ok) {
-      attempt.state = 'failed';
-      attempt.failureCode = linked.code;
-      attempt.updatedAtMs = Date.now();
-      await this.getEmailOtpRegistrationAttemptStore().put(attempt);
+      await this.getEmailOtpRegistrationAttemptStore().put({
+        ...attempt,
+        state: 'failed',
+        failureCode: linked.code,
+        updatedAtMs: Date.now(),
+      });
       return {
         ok: false,
         code: linked.code,
         message: linked.message,
       };
     }
-    attempt.state = 'active';
-    attempt.updatedAtMs = Date.now();
-    await this.getEmailOtpRegistrationAttemptStore().put(attempt);
+    await this.getEmailOtpRegistrationAttemptStore().put({
+      ...attempt,
+      state: 'active',
+      updatedAtMs: Date.now(),
+    });
     return { ok: true };
   }
 
@@ -2660,9 +2819,11 @@ export class AuthService {
       };
     }
     if (attempt.expiresAtMs <= Date.now()) {
-      attempt.state = 'expired';
-      attempt.updatedAtMs = Date.now();
-      await this.getEmailOtpRegistrationAttemptStore().put(attempt);
+      await this.getEmailOtpRegistrationAttemptStore().put({
+        ...attempt,
+        state: 'expired',
+        updatedAtMs: Date.now(),
+      });
       return {
         ok: false,
         code: 'registration_incomplete',
@@ -2676,16 +2837,38 @@ export class AuthService {
         message: 'registrationAttemptId does not match walletId',
       };
     }
-    if (attempt.state !== 'started' && attempt.state !== 'active') {
+    if (
+      attempt.state !== 'started' &&
+      attempt.state !== 'key_finalized' &&
+      attempt.state !== 'active'
+    ) {
       return {
         ok: false,
         code: 'registration_incomplete',
         message: 'Google Email OTP registration attempt is no longer active',
       };
     }
-    if (finalizedPublicKey) attempt.finalizedPublicKey = finalizedPublicKey;
-    attempt.updatedAtMs = Date.now();
-    await this.getEmailOtpRegistrationAttemptStore().put(attempt);
+    if (attempt.state === 'started') {
+      if (!finalizedPublicKey) {
+        await this.getEmailOtpRegistrationAttemptStore().put({
+          ...attempt,
+          updatedAtMs: Date.now(),
+        });
+      } else {
+        await this.getEmailOtpRegistrationAttemptStore().put({
+          ...attempt,
+          state: 'key_finalized',
+          finalizedPublicKey,
+          updatedAtMs: Date.now(),
+        });
+      }
+      return { ok: true };
+    }
+    await this.getEmailOtpRegistrationAttemptStore().put({
+      ...attempt,
+      ...(finalizedPublicKey ? { finalizedPublicKey } : {}),
+      updatedAtMs: Date.now(),
+    });
     return { ok: true };
   }
 
@@ -2700,10 +2883,12 @@ export class AuthService {
     if (!attempt) return;
     const walletId = toOptionalTrimmedString(input.walletId);
     if (walletId && walletId !== attempt.walletId) return;
-    attempt.state = 'failed';
-    attempt.failureCode = toOptionalTrimmedString(input.failureCode) || 'failed';
-    attempt.updatedAtMs = Date.now();
-    await this.getEmailOtpRegistrationAttemptStore().put(attempt);
+    await this.getEmailOtpRegistrationAttemptStore().put({
+      ...attempt,
+      state: 'failed',
+      failureCode: toOptionalTrimmedString(input.failureCode) || 'failed',
+      updatedAtMs: Date.now(),
+    });
   }
 
   async cleanupGoogleEmailOtpDevRegistrationState(input: {
@@ -3271,6 +3456,7 @@ export class AuthService {
     verify: { limit: number; windowMs: number };
     grant: { limit: number; windowMs: number };
     recoveryKeyAttempt: { limit: number; windowMs: number };
+    googleRegistrationAttempt: { limit: number; windowMs: number };
   } {
     const parseConfiguredInt = (
       name: string,
@@ -3303,6 +3489,9 @@ export class AuthService {
     const recoveryKeyAttemptDefault = production
       ? { limit: 10, windowMs: 5 * 60_000 }
       : { limit: 100, windowMs: 60_000 };
+    const googleRegistrationAttemptDefault = production
+      ? { limit: 12, windowMs: 10 * 60_000 }
+      : { limit: 200, windowMs: 60_000 };
     return {
       challenge: {
         limit: parseConfiguredInt(
@@ -3368,14 +3557,33 @@ export class AuthService {
           24 * 60 * 60_000,
         ),
       },
+      googleRegistrationAttempt: {
+        limit: parseConfiguredInt(
+          'EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX',
+          this.readEmailOtpConfigValue('EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_MAX'),
+          googleRegistrationAttemptDefault.limit,
+          1,
+          1000,
+        ),
+        windowMs: parseConfiguredInt(
+          'EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS',
+          this.readEmailOtpConfigValue(
+            'EMAIL_OTP_GOOGLE_REGISTRATION_ATTEMPT_RATE_LIMIT_WINDOW_MS',
+          ),
+          googleRegistrationAttemptDefault.windowMs,
+          1_000,
+          24 * 60 * 60_000,
+        ),
+      },
     };
   }
 
   private async consumeEmailOtpRateLimit(args: {
-    scope: 'challenge' | 'verify' | 'grant' | 'recoveryKeyAttempt';
-    action?: EmailOtpChallengeAction | typeof WALLET_EMAIL_OTP_ACTIONS.unseal;
+    scope: 'challenge' | 'verify' | 'grant' | 'recoveryKeyAttempt' | 'googleRegistrationAttempt';
+    action?: string;
     userId?: string;
     walletId?: string;
+    providerSubject?: string;
     orgId?: string;
     clientIp?: string;
   }): Promise<
@@ -3395,6 +3603,7 @@ export class AuthService {
       args.clientIp ? `${keySuffix}:ip:${args.clientIp}` : '',
       args.userId ? `${keySuffix}:user:${args.userId}` : '',
       args.walletId ? `${keySuffix}:wallet:${args.walletId}` : '',
+      args.providerSubject ? `${keySuffix}:providerSubject:${args.providerSubject}` : '',
       args.orgId ? `${keySuffix}:org:${args.orgId}` : '',
     ].filter(Boolean);
     for (const key of keys) {
@@ -4629,6 +4838,179 @@ export class AuthService {
             message: 'emailOtpRegistrationProof is required for Email OTP registration',
           };
         }
+        if (proof.proofKind === 'google_sso_registration') {
+          if (proof.registrationIntentDigestB64u !== input.registrationIntentDigestB64u) {
+            return {
+              ok: false,
+              code: 'registration_intent_digest_mismatch',
+              message: 'Email OTP registration proof is not bound to this registration intent',
+            };
+          }
+          if (proof.email !== input.intent.authMethod.email.toLowerCase()) {
+            return {
+              ok: false,
+              code: 'email_mismatch',
+              message: 'Email OTP registration proof email does not match the intent',
+            };
+          }
+          if (input.intent.authMethod.proofKind !== 'google_sso_registration') {
+            return {
+              ok: false,
+              code: 'invalid_body',
+              message: 'Google SSO registration proof requires a Google SSO registration intent',
+            };
+          }
+          if (
+            proof.googleEmailOtpRegistrationAttemptId !==
+            input.intent.authMethod.googleEmailOtpRegistrationAttemptId
+          ) {
+            return {
+              ok: false,
+              code: 'registration_attempt_mismatch',
+              message: 'Google SSO registration proof does not match the registration attempt',
+            };
+          }
+          if (
+            proof.googleEmailOtpRegistrationOfferId !==
+              input.intent.authMethod.googleEmailOtpRegistrationOfferId ||
+            proof.googleEmailOtpRegistrationCandidateId !==
+              input.intent.authMethod.googleEmailOtpRegistrationCandidateId
+          ) {
+            return {
+              ok: false,
+              code: 'registration_offer_mismatch',
+              message: 'Google SSO registration proof does not match the selected offer candidate',
+            };
+          }
+          const attempt = await this.getEmailOtpRegistrationAttemptStore().get(
+            proof.googleEmailOtpRegistrationAttemptId,
+          );
+          if (!attempt) {
+            return {
+              ok: false,
+              code: 'registration_attempt_missing',
+              message: 'Google Email OTP registration attempt expired or was not found',
+            };
+          }
+          if (attempt.state !== 'started' && attempt.state !== 'key_finalized') {
+            return {
+              ok: false,
+              code: 'registration_attempt_not_started',
+              message: 'Google Email OTP registration attempt is not active',
+            };
+          }
+          if (attempt.expiresAtMs <= Date.now()) {
+            await this.getEmailOtpRegistrationAttemptStore().put({
+              ...attempt,
+              state: 'expired',
+              updatedAtMs: Date.now(),
+            });
+            return {
+              ok: false,
+              code: 'registration_attempt_expired',
+              message: 'Google Email OTP registration attempt expired',
+            };
+          }
+          if (attempt.providerSubject !== proof.providerSubject) {
+            return {
+              ok: false,
+              code: 'challenge_subject_mismatch',
+              message: 'Email OTP registration attempt does not match the provider subject',
+            };
+          }
+          if (attempt.email.toLowerCase() !== proof.email) {
+            return {
+              ok: false,
+              code: 'email_mismatch',
+              message: 'Google Email OTP registration attempt email does not match the proof',
+            };
+          }
+          if (attempt.appSessionVersion !== proof.appSessionVersion) {
+            return {
+              ok: false,
+              code: 'app_session_version_mismatch',
+              message: 'Google Email OTP registration attempt does not match the app session',
+            };
+          }
+          if (attempt.offerId !== proof.googleEmailOtpRegistrationOfferId) {
+            return {
+              ok: false,
+              code: 'registration_offer_mismatch',
+              message: 'Google Email OTP registration attempt does not match the selected offer',
+            };
+          }
+          const selectedOfferCandidate = attempt.offerCandidates.find(
+            (candidate) => candidate.candidateId === proof.googleEmailOtpRegistrationCandidateId,
+          );
+          if (
+            !selectedOfferCandidate ||
+            selectedOfferCandidate.walletId !== input.intent.walletId
+          ) {
+            return {
+              ok: false,
+              code: 'registration_candidate_mismatch',
+              message: 'Google Email OTP registration candidate does not match walletId',
+            };
+          }
+          if (
+            attempt.walletId !== selectedOfferCandidate.walletId ||
+            attempt.selectedCandidateId !== selectedOfferCandidate.candidateId ||
+            attempt.collisionCounter !== selectedOfferCandidate.collisionCounter
+          ) {
+            await this.getEmailOtpRegistrationAttemptStore().put({
+              ...attempt,
+              walletId: selectedOfferCandidate.walletId,
+              collisionCounter: selectedOfferCandidate.collisionCounter,
+              selectedCandidateId: selectedOfferCandidate.candidateId,
+              updatedAtMs: Date.now(),
+            });
+          }
+          if (
+            attempt.runtimePolicyScope &&
+            !thresholdRuntimePolicyScopesEqual(
+              attempt.runtimePolicyScope,
+              input.intent.runtimePolicyScope,
+            )
+          ) {
+            return {
+              ok: false,
+              code: 'runtime_policy_scope_mismatch',
+              message: 'Google Email OTP registration attempt does not match runtime policy scope',
+            };
+          }
+          const providerSubject = parseProviderSubject(proof.providerSubject);
+          const finalWalletId = parseWalletId(input.intent.walletId);
+          const orgId = parseOrgId(input.orgId);
+          const appSessionVersion = parseAppSessionVersion(proof.appSessionVersion);
+          if (!providerSubject.ok || !finalWalletId.ok || !orgId.ok || !appSessionVersion.ok) {
+            return {
+              ok: false,
+              code: 'invalid_body',
+              message: 'Google SSO registration proof contains invalid domain fields',
+            };
+          }
+          const emailHashHex = bytesToHex(await sha256BytesUtf8(attempt.email.toLowerCase()));
+          return {
+            ok: true,
+            authority: {
+              kind: 'email_otp',
+              proofKind: 'google_sso_registration',
+              walletId: finalWalletId.value,
+              rpId: input.intent.rpId,
+              providerSubject: providerSubject.value,
+              email: attempt.email.toLowerCase(),
+              emailHashHex,
+              googleEmailOtpRegistrationAttemptId: attempt.attemptId,
+              googleEmailOtpRegistrationOfferId: attempt.offerId,
+              googleEmailOtpRegistrationCandidateId: selectedOfferCandidate.candidateId,
+              registrationAuthorityId: attempt.attemptId,
+              finalWalletId: finalWalletId.value,
+              orgId: orgId.value,
+              appSessionVersion: appSessionVersion.value,
+              registrationIntentDigestB64u: input.registrationIntentDigestB64u,
+            },
+          };
+        }
         if (proof.registrationIntentDigestB64u !== input.registrationIntentDigestB64u) {
           return {
             ok: false,
@@ -4688,6 +5070,7 @@ export class AuthService {
           ok: true,
           authority: {
             kind: 'email_otp',
+            proofKind: 'otp_challenge',
             walletId: challengeProof.finalWalletId,
             rpId: input.intent.rpId,
             providerSubject: challengeProof.providerSubject,
@@ -4695,6 +5078,7 @@ export class AuthService {
             email: challengeProof.challengeEmail,
             emailHashHex,
             challengeId: challengeProof.challengeId,
+            registrationAuthorityId: challengeProof.challengeId,
             originalWalletId: challengeProof.originalWalletId,
             finalWalletId: challengeProof.finalWalletId,
             orgId: challengeProof.orgId,
@@ -4786,9 +5170,7 @@ export class AuthService {
     expectedOrigin?: string;
   }): Promise<CreateAddSignerIntentResponse> {
     try {
-      const walletId = walletIdFromString(
-        String(input.request?.walletId || '').trim(),
-      );
+      const walletId = walletIdFromString(String(input.request?.walletId || '').trim());
       if (!walletId) {
         return { ok: false, code: 'invalid_body', message: 'walletId is required' };
       }
@@ -5057,9 +5439,7 @@ export class AuthService {
             ? request.authority.emailOtpRegistrationProof
             : undefined,
         webauthnRegistration:
-          request.authority.kind === 'passkey'
-            ? request.authority.webauthnRegistration
-            : undefined,
+          request.authority.kind === 'passkey' ? request.authority.webauthnRegistration : undefined,
       });
       if (!verifiedAuthority.ok) return verifiedAuthority;
       const authority = verifiedAuthority.authority;
@@ -5359,7 +5739,11 @@ export class AuthService {
         };
       }
       if (!response.ed25519 && !response.ecdsa) {
-        return { ok: false, code: 'invalid_body', message: 'registration HSS response is required' };
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'registration HSS response is required',
+        };
       }
       await this.getRegistrationCeremonyStore().updateCeremony({
         ...ceremony,
@@ -5514,7 +5898,7 @@ export class AuthService {
     walletId: WalletId;
     rpId: string;
     emailHashHex: string;
-    challengeId: string;
+    registrationAuthorityId: string;
     now: number;
   }): WalletAuthMethodRecord {
     return {
@@ -5524,7 +5908,7 @@ export class AuthService {
       walletId: input.walletId,
       rpId: input.rpId,
       emailHashHex: input.emailHashHex,
-      challengeId: input.challengeId,
+      registrationAuthorityId: input.registrationAuthorityId,
       createdAtMs: input.now,
       updatedAtMs: input.now,
     };
@@ -5571,7 +5955,7 @@ export class AuthService {
               walletId: input.authority.walletId,
               rpId: input.authority.rpId,
               emailHashHex: input.authority.emailHashHex,
-              challengeId: input.authority.challengeId,
+              registrationAuthorityId: input.authority.registrationAuthorityId,
               now: input.now,
             }),
           ],
@@ -5640,13 +6024,85 @@ export class AuthService {
               walletId: input.walletId,
               rpId: input.rpId,
               emailHashHex: input.authority.emailHashHex,
-              challengeId: input.authority.challengeId,
+              registrationAuthorityId: input.authority.registrationAuthorityId,
               now: input.now,
             }),
           ],
         };
     }
     return assertNever(input.authority);
+  }
+
+  private async completeGoogleEmailOtpRegistrationAuthority(input: {
+    authority: RegistrationAuthority;
+    walletId: WalletId;
+  }): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
+    if (
+      input.authority.kind !== 'email_otp' ||
+      input.authority.proofKind !== 'google_sso_registration'
+    ) {
+      return { ok: true };
+    }
+    return await this.completeGoogleEmailOtpRegistrationAttempt({
+      registrationAttemptId: input.authority.googleEmailOtpRegistrationAttemptId,
+      walletId: input.walletId,
+    });
+  }
+
+  private googleEmailOtpRegistrationFinalizeIdempotencyKey(input: {
+    authority: RegistrationAuthority;
+    idempotencyKey?: unknown;
+  }): { ok: true; idempotencyKey?: string } | { ok: false; code: string; message: string } {
+    if (
+      input.authority.kind !== 'email_otp' ||
+      input.authority.proofKind !== 'google_sso_registration'
+    ) {
+      return { ok: true };
+    }
+    const idempotencyKey = toOptionalTrimmedString(input.idempotencyKey);
+    if (!idempotencyKey) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Google Email OTP registration finalize requires idempotencyKey',
+      };
+    }
+    return { ok: true, idempotencyKey };
+  }
+
+  private nonSecretWalletRegistrationFinalizeReplay(
+    response: Extract<WalletRegistrationFinalizeResponse, { ok: true }>,
+  ): Extract<WalletRegistrationFinalizeResponse, { ok: true }> {
+    if (!response.ed25519) return response;
+    const { session: _session, ...ed25519 } = response.ed25519;
+    return {
+      ...response,
+      ed25519,
+    };
+  }
+
+  private async cacheGoogleEmailOtpRegistrationFinalizeReplay(input: {
+    authority: RegistrationAuthority;
+    registrationCeremonyId: string;
+    idempotencyKey?: string;
+    expiresAtMs: number;
+    response: Extract<WalletRegistrationFinalizeResponse, { ok: true }>;
+  }): Promise<void> {
+    if (
+      input.authority.kind !== 'email_otp' ||
+      input.authority.proofKind !== 'google_sso_registration' ||
+      !input.idempotencyKey
+    ) {
+      return;
+    }
+    await this.getRegistrationCeremonyStore().putFinalizeReplay({
+      kind: 'wallet_registration_finalize_replay_v1',
+      registrationCeremonyId: input.registrationCeremonyId,
+      idempotencyKey: input.idempotencyKey,
+      response: this.nonSecretWalletRegistrationFinalizeReplay(input.response),
+      createdAtMs: Date.now(),
+      expiresAtMs: input.expiresAtMs,
+    });
   }
 
   private buildWalletEd25519SignerRecord(input: {
@@ -5747,26 +6203,7 @@ export class AuthService {
       }
       await this.getEmailOtpWalletEnrollmentStore().put(emailOtpEnrollment.enrollment);
       const recoveryStore = this.getEmailOtpRecoveryWrappedEnrollmentEscrowStore();
-      const stalePendingRecoveryBackups = (await recoveryStore.listByWallet(
-        emailOtpEnrollment.enrollment.walletId,
-      ))
-        .filter(
-          (
-            record,
-          ): record is PendingBackupEmailOtpRecoveryWrappedEnrollmentEscrowRecord =>
-            record.recoveryKeyStatus === 'pending_backup',
-        )
-        .map((record) =>
-          this.abandonEmailOtpPendingBackupEscrow(
-            record,
-            emailOtpEnrollment.enrollment.updatedAtMs,
-            'registration_restarted',
-          ),
-        );
-      await recoveryStore.putMany([
-        ...stalePendingRecoveryBackups,
-        ...emailOtpEnrollment.recoveryWrappedEnrollmentEscrows,
-      ]);
+      await recoveryStore.putMany(emailOtpEnrollment.recoveryWrappedEnrollmentEscrows);
       await this.getEmailOtpAuthStateStore().put(emailOtpEnrollment.authState);
     }
   }
@@ -5783,7 +6220,9 @@ export class AuthService {
   }
 
   private async writeRegistrationPersistenceWithExecutor(input: {
-    executor: { query: (text: string, values?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }> };
+    executor: {
+      query: (text: string, values?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }>;
+    };
     namespaces: {
       webAuthnAuthenticatorNamespace: string;
       webAuthnCredentialBindingNamespace: string;
@@ -5898,35 +6337,7 @@ export class AuthService {
         enrollment.updatedAtMs,
       ],
     );
-    const stalePendingRows = await input.executor.query(
-      `
-        SELECT record_json
-        FROM email_otp_recovery_wrapped_enrollment_escrows
-        WHERE namespace = $1
-          AND wallet_id = $2
-          AND recovery_key_status = 'pending_backup'
-      `,
-      [input.namespace, enrollment.walletId],
-    );
-    const stalePendingRecoveryBackups = stalePendingRows.rows
-      .map((row) => normalizeEmailOtpRecoveryWrappedEnrollmentEscrowRecord(row.record_json))
-      .filter(
-        (
-          record,
-        ): record is PendingBackupEmailOtpRecoveryWrappedEnrollmentEscrowRecord =>
-          record !== null && record.recoveryKeyStatus === 'pending_backup',
-      )
-      .map((record) =>
-        this.abandonEmailOtpPendingBackupEscrow(
-          record,
-          enrollment.updatedAtMs,
-          'registration_restarted',
-        ),
-      );
-    for (const record of [
-      ...stalePendingRecoveryBackups,
-      ...input.enrollment.recoveryWrappedEnrollmentEscrows,
-    ]) {
+    for (const record of input.enrollment.recoveryWrappedEnrollmentEscrows) {
       await input.executor.query(
         `
           INSERT INTO email_otp_recovery_wrapped_enrollment_escrows (
@@ -6126,12 +6537,24 @@ export class AuthService {
   async finalizeWalletRegistration(
     request: WalletRegistrationFinalizeRequest,
   ): Promise<WalletRegistrationFinalizeResponse> {
-    const ceremony = await this.getRegistrationCeremonyStore().getCeremony(
-      request.registrationCeremonyId,
-    );
+    const ceremonyStore = this.getRegistrationCeremonyStore();
+    const requestIdempotencyKey = toOptionalTrimmedString(request.idempotencyKey);
+    if (requestIdempotencyKey) {
+      const replay = await ceremonyStore.getFinalizeReplay({
+        registrationCeremonyId: request.registrationCeremonyId,
+        idempotencyKey: requestIdempotencyKey,
+      });
+      if (replay) return replay.response;
+    }
+    const ceremony = await ceremonyStore.getCeremony(request.registrationCeremonyId);
     if (!ceremony) {
       return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
     }
+    const finalizeIdempotency = this.googleEmailOtpRegistrationFinalizeIdempotencyKey({
+      authority: ceremony.authority,
+      idempotencyKey: request.idempotencyKey,
+    });
+    if (!finalizeIdempotency.ok) return finalizeIdempotency;
     if (ceremony.signerState.kind === 'combined_registration') {
       if (ceremony.intent.signerSelection.mode !== 'ed25519_and_ecdsa') {
         return { ok: false, code: 'invalid_state', message: 'combined ceremony scope mismatch' };
@@ -6241,14 +6664,13 @@ export class AuthService {
       const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(
         ceremony.intent.runtimePolicyScope,
       );
-      const emailOtpEnrollment =
-        await this.emailOtpEnrollmentPersistenceForRegistrationFinalize({
-          authority: ceremony.authority,
-          request,
-          walletId: ceremony.intent.walletId,
-          orgId: ceremony.orgId,
-          nowMs: now,
-        });
+      const emailOtpEnrollment = await this.emailOtpEnrollmentPersistenceForRegistrationFinalize({
+        authority: ceremony.authority,
+        request,
+        walletId: ceremony.intent.walletId,
+        orgId: ceremony.orgId,
+        nowMs: now,
+      });
       if (!emailOtpEnrollment.ok) return emailOtpEnrollment;
       let thresholdEd25519Session: ThresholdEd25519BootstrapSession | undefined;
       const requestedSessionPolicy = request.ed25519.sessionPolicy;
@@ -6356,8 +6778,13 @@ export class AuthService {
       if (!persisted) {
         return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
       }
+      const completedGoogleEmailOtp = await this.completeGoogleEmailOtpRegistrationAuthority({
+        authority: ceremony.authority,
+        walletId: ceremony.intent.walletId,
+      });
+      if (!completedGoogleEmailOtp.ok) return completedGoogleEmailOtp;
 
-      return {
+      const response: Extract<WalletRegistrationFinalizeResponse, { ok: true }> = {
         ok: true,
         walletId: ceremony.intent.walletId,
         rpId: ceremony.intent.rpId,
@@ -6376,6 +6803,14 @@ export class AuthService {
           walletKeys: walletKeyResult.walletKeys,
         },
       };
+      await this.cacheGoogleEmailOtpRegistrationFinalizeReplay({
+        authority: ceremony.authority,
+        registrationCeremonyId: ceremony.registrationCeremonyId,
+        idempotencyKey: finalizeIdempotency.idempotencyKey,
+        expiresAtMs: ceremony.expiresAtMs,
+        response,
+      });
+      return response;
     }
     if (ceremony.intent.signerSelection.mode === 'ecdsa_only') {
       if (!request.ecdsa) {
@@ -6418,14 +6853,13 @@ export class AuthService {
       if (!walletKeyResult.ok) return walletKeyResult;
       const walletKeys = walletKeyResult.walletKeys;
       const now = Date.now();
-      const emailOtpEnrollment =
-        await this.emailOtpEnrollmentPersistenceForRegistrationFinalize({
-          authority: ceremony.authority,
-          request,
-          walletId: ceremony.intent.walletId,
-          orgId: ceremony.orgId,
-          nowMs: now,
-        });
+      const emailOtpEnrollment = await this.emailOtpEnrollmentPersistenceForRegistrationFinalize({
+        authority: ceremony.authority,
+        request,
+        walletId: ceremony.intent.walletId,
+        orgId: ceremony.orgId,
+        nowMs: now,
+      });
       if (!emailOtpEnrollment.ok) return emailOtpEnrollment;
       const wallet = this.buildWalletRecord({
         walletId: ceremony.intent.walletId,
@@ -6459,7 +6893,12 @@ export class AuthService {
       if (!persisted) {
         return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
       }
-      return {
+      const completedGoogleEmailOtp = await this.completeGoogleEmailOtpRegistrationAuthority({
+        authority: ceremony.authority,
+        walletId: ceremony.intent.walletId,
+      });
+      if (!completedGoogleEmailOtp.ok) return completedGoogleEmailOtp;
+      const response: Extract<WalletRegistrationFinalizeResponse, { ok: true }> = {
         ok: true,
         walletId: ceremony.intent.walletId,
         rpId: ceremony.intent.rpId,
@@ -6467,6 +6906,14 @@ export class AuthService {
           walletKeys,
         },
       };
+      await this.cacheGoogleEmailOtpRegistrationFinalizeReplay({
+        authority: ceremony.authority,
+        registrationCeremonyId: ceremony.registrationCeremonyId,
+        idempotencyKey: finalizeIdempotency.idempotencyKey,
+        expiresAtMs: ceremony.expiresAtMs,
+        response,
+      });
+      return response;
     }
     if (!request.ed25519) {
       return { ok: false, code: 'invalid_body', message: 'missing Ed25519 finalize input' };
@@ -6658,8 +7105,13 @@ export class AuthService {
     if (!persisted) {
       return { ok: false, code: 'not_found', message: 'registration ceremony not found' };
     }
+    const completedGoogleEmailOtp = await this.completeGoogleEmailOtpRegistrationAuthority({
+      authority: ceremony.authority,
+      walletId: ceremony.intent.walletId,
+    });
+    if (!completedGoogleEmailOtp.ok) return completedGoogleEmailOtp;
 
-    return {
+    const response: Extract<WalletRegistrationFinalizeResponse, { ok: true }> = {
       ok: true,
       walletId: ceremony.intent.walletId,
       rpId: ceremony.intent.rpId,
@@ -6675,6 +7127,14 @@ export class AuthService {
         ...(thresholdEd25519Session ? { session: thresholdEd25519Session } : {}),
       },
     };
+    await this.cacheGoogleEmailOtpRegistrationFinalizeReplay({
+      authority: ceremony.authority,
+      registrationCeremonyId: ceremony.registrationCeremonyId,
+      idempotencyKey: finalizeIdempotency.idempotencyKey,
+      expiresAtMs: ceremony.expiresAtMs,
+      response,
+    });
+    return response;
   }
 
   private async verifyNearAccountOwnershipProofForAddSigner(input: {
@@ -6774,13 +7234,13 @@ export class AuthService {
     request: WalletAddSignerStartRequest,
   ): Promise<WalletAddSignerStartResponse> {
     try {
-      const walletId = walletIdFromString(
-        String(request.walletId || '').trim(),
-      );
+      const walletId = walletIdFromString(String(request.walletId || '').trim());
       if (!walletId) {
         return { ok: false, code: 'invalid_body', message: 'walletId is required' };
       }
-      const grant = addSignerIntentGrantFromString(String(request.addSignerIntentGrant || '').trim());
+      const grant = addSignerIntentGrantFromString(
+        String(request.addSignerIntentGrant || '').trim(),
+      );
       if (!grant) {
         return { ok: false, code: 'invalid_grant', message: 'add-signer intent grant is required' };
       }
@@ -7040,6 +7500,13 @@ export class AuthService {
       }
       case 'email_otp': {
         const proof = input.authority.emailOtpRegistrationProof;
+        if (proof.proofKind !== 'otp_challenge') {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'Email OTP add-auth-method requires an OTP challenge proof',
+          };
+        }
         if (proof.registrationIntentDigestB64u !== input.expectedDigestB64u) {
           return {
             ok: false,
@@ -7118,6 +7585,7 @@ export class AuthService {
           ok: true,
           authority: {
             kind: 'email_otp',
+            proofKind: 'otp_challenge',
             walletId: challengeProof.finalWalletId,
             rpId: input.intent.rpId,
             providerSubject: challengeProof.providerSubject,
@@ -7125,6 +7593,7 @@ export class AuthService {
             email: challengeProof.challengeEmail,
             emailHashHex,
             challengeId: challengeProof.challengeId,
+            registrationAuthorityId: challengeProof.challengeId,
             originalWalletId: challengeProof.originalWalletId,
             finalWalletId: challengeProof.finalWalletId,
             orgId: challengeProof.orgId,
@@ -7229,7 +7698,9 @@ export class AuthService {
       }
       let authorizationCredentialId: string | null = null;
       if (request.auth.kind === 'webauthn_assertion') {
-        authorizationCredentialId = credentialIdB64uFromAuthenticationCredential(request.auth.credential);
+        authorizationCredentialId = credentialIdB64uFromAuthenticationCredential(
+          request.auth.credential,
+        );
         if (!authorizationCredentialId) {
           return {
             ok: false,
@@ -9221,6 +9692,7 @@ export class AuthService {
     appSessionVersion?: unknown;
     clientIp?: unknown;
     operation?: unknown;
+    reuseActiveChallenge?: unknown;
     action: EmailOtpChallengeAction;
   }): Promise<
     | {
@@ -9239,6 +9711,7 @@ export class AuthService {
           operation: EmailOtpChallengeOperation;
         };
         delivery: {
+          status: 'sent' | 'reused';
           mode: 'email_provider' | 'log' | 'memory';
           emailHint: string;
         };
@@ -9261,6 +9734,7 @@ export class AuthService {
       const sessionHash = toOptionalTrimmedString(request.sessionHash);
       const appSessionVersion = toOptionalTrimmedString(request.appSessionVersion);
       const clientIp = toOptionalTrimmedString(request.clientIp) || undefined;
+      const reuseActiveChallenge = request.reuseActiveChallenge === true;
       const action = request.action;
       const operationRaw = toOptionalTrimmedString(request.operation);
       let operation: EmailOtpChallengeOperation;
@@ -9320,6 +9794,45 @@ export class AuthService {
           lockedUntilMs: existingAuthState.otpLockedUntilMs,
         };
       }
+      const issuedAtMs = Date.now();
+      const challengeStore = this.getEmailOtpChallengeStore();
+      await this.pruneExpiredEmailOtpChallenges(challengeStore, issuedAtMs);
+      if (reuseActiveChallenge) {
+        const existingChallenge = await challengeStore.findLatestActiveByContext({
+          challengeSubjectId,
+          walletId,
+          orgId,
+          otpChannel: EMAIL_OTP_CHANNEL,
+          sessionHash,
+          appSessionVersion,
+          action,
+          operation,
+          nowMs: issuedAtMs,
+        });
+        if (existingChallenge) {
+          return {
+            ok: true,
+            challenge: {
+              challengeId: existingChallenge.challengeId,
+              issuedAtMs: existingChallenge.createdAtMs,
+              expiresAtMs: existingChallenge.expiresAtMs,
+              challengeSubjectId,
+              walletId,
+              orgId,
+              otpChannel: EMAIL_OTP_CHANNEL,
+              sessionHash,
+              appSessionVersion,
+              action,
+              operation,
+            },
+            delivery: {
+              status: 'reused',
+              mode: 'memory',
+              emailHint: this.maskEmail(existingChallenge.email),
+            },
+          };
+        }
+      }
       const rateLimit = await this.consumeEmailOtpRateLimit({
         scope: 'challenge',
         action,
@@ -9338,12 +9851,9 @@ export class AuthService {
       }
 
       const otpConfig = this.resolveEmailOtpConfig();
-      const issuedAtMs = Date.now();
       const expiresAtMs = issuedAtMs + otpConfig.challengeTtlMs;
       const challengeId = base64UrlEncode(crypto.getRandomValues(new Uint8Array(16)));
       const otpCode = this.generateNumericOtp(otpConfig.codeLength);
-      const challengeStore = this.getEmailOtpChallengeStore();
-      await this.pruneExpiredEmailOtpChallenges(challengeStore, issuedAtMs);
       await this.enforceEmailOtpActiveChallengeLimit({
         challengeStore,
         challengeSubjectId,
@@ -9419,6 +9929,7 @@ export class AuthService {
           operation,
         },
         delivery: {
+          status: 'sent',
           mode: delivery.deliveryMode,
           emailHint: delivery.emailHint,
         },
@@ -9442,6 +9953,7 @@ export class AuthService {
     appSessionVersion?: unknown;
     clientIp?: unknown;
     operation?: unknown;
+    reuseActiveChallenge?: unknown;
   }): Promise<
     | {
         ok: true;
@@ -9459,6 +9971,7 @@ export class AuthService {
           operation: EmailOtpLoginChallengeOperation;
         };
         delivery: {
+          status: 'sent' | 'reused';
           mode: 'email_provider' | 'log' | 'memory';
           emailHint: string;
         };
@@ -9469,6 +9982,7 @@ export class AuthService {
       ...request,
       challengeSubjectId: request.userId,
       action: WALLET_EMAIL_OTP_ACTIONS.login,
+      reuseActiveChallenge: request.reuseActiveChallenge,
     });
     if (!result.ok) return result;
     const operation =
@@ -9643,7 +10157,8 @@ export class AuthService {
       }
       if (!walletId.ok) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
       if (!orgId.ok) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
-      if (!challengeId.ok) return { ok: false, code: 'invalid_body', message: 'Missing challengeId' };
+      if (!challengeId.ok)
+        return { ok: false, code: 'invalid_body', message: 'Missing challengeId' };
       if (
         request.registrationChallengeProof &&
         request.registrationChallengeProof.challengeId !== challengeId.value
@@ -9708,7 +10223,10 @@ export class AuthService {
 
       const activeEnrollment =
         expectedAction !== WALLET_EMAIL_OTP_ACTIONS.registration
-          ? await this.readActiveEmailOtpEnrollment({ walletId: walletId.value, orgId: orgId.value })
+          ? await this.readActiveEmailOtpEnrollment({
+              walletId: walletId.value,
+              orgId: orgId.value,
+            })
           : null;
       if (activeEnrollment && !activeEnrollment.ok) return activeEnrollment;
       const enrollment = activeEnrollment?.ok
@@ -9814,12 +10332,8 @@ export class AuthService {
       const walletMismatch = registrationChallengeCanFollowReroll
         ? false
         : record.walletId !== walletId.value;
-      const actionMismatch = registrationChallengeCanFollowReroll
-        ? false
-        : !purposeMatches;
-      const operationMismatch = registrationChallengeCanFollowReroll
-        ? false
-        : !purposeMatches;
+      const actionMismatch = registrationChallengeCanFollowReroll ? false : !purposeMatches;
+      const operationMismatch = registrationChallengeCanFollowReroll ? false : !purposeMatches;
       const sessionHashMismatch = registrationChallengeCanFollowReroll
         ? false
         : record.sessionHash !== sessionHash;
@@ -9901,7 +10415,8 @@ export class AuthService {
           proofEmailMatches: registrationChallengeEmailMatches,
           appSessionVersionMatches:
             record.appSessionVersion === verifiedRegistrationChallengeProof.appSessionVersion,
-          orgMatches: String(record.orgId || '') === String(verifiedRegistrationChallengeProof.orgId),
+          orgMatches:
+            String(record.orgId || '') === String(verifiedRegistrationChallengeProof.orgId),
           purpose: verifiedRegistrationChallengeProof.purpose,
           expectedPurpose,
           storedPurpose,
@@ -10162,7 +10677,11 @@ export class AuthService {
         verified.walletId,
       );
     const scopedRecoveryWrappedEnrollmentEscrows = recoveryWrappedEnrollmentEscrows.filter(
-      (record) => this.emailOtpRecoveryEscrowMatchesEnrollment(record, enrollment.enrollment),
+      (record) =>
+        this.emailOtpRecoveryEscrowMatchesEnrollment(
+          emailOtpRecoveryWrappedEnrollmentEscrowBoundaryFromRecord(record),
+          enrollment.enrollment,
+        ),
     );
     if (scopedRecoveryWrappedEnrollmentEscrows.length <= 0) {
       return {
@@ -10241,9 +10760,14 @@ export class AuthService {
     )
       ? request.recoveryWrappedEnrollmentEscrows
       : [];
-    const recoveryWrappedEnrollmentEscrows = rawRecoveryWrappedEnrollmentEscrows
-      .map((record) => normalizeEmailOtpRecoveryWrappedEnrollmentEscrowRecord(record))
-      .filter((record): record is EmailOtpRecoveryWrappedEnrollmentEscrowRecord => Boolean(record));
+    const parsedRecoveryWrappedEnrollmentEscrows = rawRecoveryWrappedEnrollmentEscrows
+      .map((record) => parseEmailOtpRecoveryWrappedEnrollmentEscrowBoundary(record))
+      .filter((record): record is EmailOtpRecoveryWrappedEnrollmentEscrowBoundary =>
+        Boolean(record),
+      );
+    const recoveryWrappedEnrollmentEscrows = parsedRecoveryWrappedEnrollmentEscrows.map(
+      (parsed) => parsed.record,
+    );
     const clientUnlockPublicKeyB64u = toOptionalTrimmedString(request.clientUnlockPublicKeyB64u);
     const unlockKeyVersion = toOptionalTrimmedString(request.unlockKeyVersion);
     const thresholdEcdsaClientVerifyingShareB64u = toOptionalTrimmedString(
@@ -10267,7 +10791,7 @@ export class AuthService {
       };
     }
     const escrowSetValidation = await this.validateEmailOtpRecoveryWrappedEnrollmentEscrowSet(
-      recoveryWrappedEnrollmentEscrows,
+      parsedRecoveryWrappedEnrollmentEscrows,
     );
     if (!escrowSetValidation.ok) return escrowSetValidation;
     if (!clientUnlockPublicKeyB64u) {
@@ -10350,7 +10874,7 @@ export class AuthService {
   }
 
   private async validateEmailOtpRecoveryWrappedEnrollmentEscrowSet(
-    records: EmailOtpRecoveryWrappedEnrollmentEscrowRecord[],
+    records: EmailOtpRecoveryWrappedEnrollmentEscrowBoundary[],
   ): Promise<{ ok: true } | { ok: false; code: string; message: string }> {
     const recoveryKeyIds = new Set<string>();
     const nonceB64us = new Set<string>();
@@ -10363,7 +10887,15 @@ export class AuthService {
       };
     }
 
-    for (const record of records) {
+    for (const boundary of records) {
+      if (boundary.lifecycle.status !== 'active') {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Recovery-wrapped enrollment escrows must be active at enrollment',
+        };
+      }
+      const record = boundary.record;
       if (recoveryKeyIds.has(record.recoveryKeyId)) {
         return {
           ok: false,
@@ -10383,15 +10915,15 @@ export class AuthService {
       nonceB64us.add(record.nonceB64u);
 
       if (
-        record.walletId !== first.walletId ||
-        record.userId !== first.userId ||
-        record.authSubjectId !== first.authSubjectId ||
-        record.authMethod !== first.authMethod ||
-        record.enrollmentId !== first.enrollmentId ||
-        record.enrollmentVersion !== first.enrollmentVersion ||
-        record.enrollmentSealKeyVersion !== first.enrollmentSealKeyVersion ||
-        record.signingRootId !== first.signingRootId ||
-        record.signingRootVersion !== first.signingRootVersion
+        record.walletId !== first.record.walletId ||
+        record.userId !== first.record.userId ||
+        record.authSubjectId !== first.record.authSubjectId ||
+        record.authMethod !== first.record.authMethod ||
+        record.enrollmentId !== first.record.enrollmentId ||
+        record.enrollmentVersion !== first.record.enrollmentVersion ||
+        record.enrollmentSealKeyVersion !== first.record.enrollmentSealKeyVersion ||
+        record.signingRootId !== first.record.signingRootId ||
+        record.signingRootVersion !== first.record.signingRootVersion
       ) {
         return {
           ok: false,
@@ -10401,20 +10933,7 @@ export class AuthService {
       }
 
       const expectedAadHashB64u = base64UrlEncode(
-        await sha256BytesPortable(
-          encodeEmailOtpRecoveryWrappedEnrollmentAad({
-            walletId: record.walletId,
-            userId: record.userId,
-            authSubjectId: record.authSubjectId,
-            authMethod: record.authMethod,
-            enrollmentId: record.enrollmentId,
-            enrollmentVersion: record.enrollmentVersion,
-            enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
-            signingRootId: record.signingRootId,
-            signingRootVersion: record.signingRootVersion,
-            recoveryKeyId: record.recoveryKeyId,
-          }),
-        ),
+        await sha256BytesPortable(encodeEmailOtpRecoveryWrappedEnrollmentAad(boundary.binding)),
       );
       if (record.aadHashB64u !== expectedAadHashB64u) {
         return {
@@ -10440,81 +10959,21 @@ export class AuthService {
   }
 
   private emailOtpRecoveryEscrowMatchesEnrollment(
-    record: EmailOtpRecoveryWrappedEnrollmentEscrowRecord,
+    boundary: EmailOtpRecoveryWrappedEnrollmentEscrowBoundary,
     enrollment: EmailOtpWalletEnrollmentRecord,
   ): boolean {
+    if (boundary.lifecycle.status !== 'active') return false;
+    const { auth, enrollment: bindingEnrollment, signingRoot } = boundary.binding;
     return (
-      record.walletId === enrollment.walletId &&
-      record.userId === enrollment.providerUserId &&
-      record.authSubjectId === enrollment.providerUserId &&
-      record.enrollmentId === enrollment.enrollmentId &&
-      record.enrollmentVersion === enrollment.enrollmentVersion &&
-      record.enrollmentSealKeyVersion === enrollment.enrollmentSealKeyVersion &&
-      record.signingRootId === enrollment.signingRootId &&
-      record.signingRootVersion === enrollment.signingRootVersion
+      auth.walletId === enrollment.walletId &&
+      auth.userId === enrollment.providerUserId &&
+      auth.authSubjectId === enrollment.providerUserId &&
+      bindingEnrollment.enrollmentId === enrollment.enrollmentId &&
+      bindingEnrollment.enrollmentVersion === enrollment.enrollmentVersion &&
+      bindingEnrollment.enrollmentSealKeyVersion === enrollment.enrollmentSealKeyVersion &&
+      signingRoot.signingRootId === enrollment.signingRootId &&
+      signingRoot.signingRootVersion === enrollment.signingRootVersion
     );
-  }
-
-  private activateEmailOtpPendingBackupEscrow(
-    record: PendingBackupEmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-    acknowledgedAtMs: number,
-  ): ActiveEmailOtpRecoveryWrappedEnrollmentEscrowRecord {
-    return {
-      version: record.version,
-      alg: record.alg,
-      secretKind: record.secretKind,
-      escrowKind: record.escrowKind,
-      walletId: record.walletId,
-      userId: record.userId,
-      authSubjectId: record.authSubjectId,
-      authMethod: record.authMethod,
-      enrollmentId: record.enrollmentId,
-      enrollmentVersion: record.enrollmentVersion,
-      enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
-      signingRootId: record.signingRootId,
-      signingRootVersion: record.signingRootVersion,
-      recoveryKeyId: record.recoveryKeyId,
-      ...(record.recoveryKeyLabel ? { recoveryKeyLabel: record.recoveryKeyLabel } : {}),
-      recoveryKeyStatus: 'active',
-      nonceB64u: record.nonceB64u,
-      wrappedDeviceEnrollmentEscrowB64u: record.wrappedDeviceEnrollmentEscrowB64u,
-      aadHashB64u: record.aadHashB64u,
-      issuedAtMs: record.issuedAtMs,
-      updatedAtMs: acknowledgedAtMs,
-      acknowledgedAtMs,
-    };
-  }
-
-  private abandonEmailOtpPendingBackupEscrow(
-    record: PendingBackupEmailOtpRecoveryWrappedEnrollmentEscrowRecord,
-    abandonedAtMs: number,
-    cleanupReason: AbandonedEmailOtpRecoveryWrappedEnrollmentEscrowRecord['cleanupReason'],
-  ): AbandonedEmailOtpRecoveryWrappedEnrollmentEscrowRecord {
-    return {
-      version: record.version,
-      alg: record.alg,
-      secretKind: record.secretKind,
-      escrowKind: record.escrowKind,
-      walletId: record.walletId,
-      userId: record.userId,
-      authSubjectId: record.authSubjectId,
-      authMethod: record.authMethod,
-      enrollmentId: record.enrollmentId,
-      enrollmentVersion: record.enrollmentVersion,
-      enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
-      signingRootId: record.signingRootId,
-      signingRootVersion: record.signingRootVersion,
-      recoveryKeyId: record.recoveryKeyId,
-      ...(record.recoveryKeyLabel ? { recoveryKeyLabel: record.recoveryKeyLabel } : {}),
-      recoveryKeyStatus: 'abandoned',
-      nonceB64u: record.nonceB64u,
-      wrappedDeviceEnrollmentEscrowB64u: record.wrappedDeviceEnrollmentEscrowB64u,
-      aadHashB64u: record.aadHashB64u,
-      issuedAtMs: record.issuedAtMs,
-      updatedAtMs: abandonedAtMs,
-      abandonedAtMs,
-      cleanupReason,
-    };
   }
 
   private async buildEmailOtpRegistrationEnrollmentPersistence(input: {
@@ -10557,7 +11016,7 @@ export class AuthService {
         record.userId !== authSubjectId ||
         record.authSubjectId !== authSubjectId ||
         record.enrollmentSealKeyVersion !== enrollmentMaterial.enrollmentSealKeyVersion ||
-        record.recoveryKeyStatus !== 'pending_backup'
+        record.recoveryKeyStatus !== 'active'
       ) {
         return {
           ok: false,
@@ -10591,12 +11050,11 @@ export class AuthService {
         providerUserId: enrollment.providerUserId,
         orgId: enrollment.orgId,
       });
-    const recoveryWrappedEnrollmentEscrows = enrollmentMaterial.recoveryWrappedEnrollmentEscrows.map(
-      (record) => ({
+    const recoveryWrappedEnrollmentEscrows =
+      enrollmentMaterial.recoveryWrappedEnrollmentEscrows.map((record) => ({
         ...record,
         updatedAtMs: input.nowMs,
-      }),
-    );
+      }));
     const authState: EmailOtpAuthStateRecord = {
       version: 'email_otp_auth_state_v1',
       walletId: enrollment.walletId,
@@ -10664,6 +11122,14 @@ export class AuthService {
         message: 'Email OTP registration finalize requires emailOtpEnrollment',
       };
     }
+    const backupAck = input.request.emailOtpBackupAck;
+    if (!backupAck) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Email OTP registration finalize requires emailOtpBackupAck',
+      };
+    }
     if (
       input.authority.walletId !== input.walletId ||
       input.authority.finalWalletId !== input.walletId ||
@@ -10673,6 +11139,34 @@ export class AuthService {
         ok: false,
         code: 'authority_binding_mismatch',
         message: 'Email OTP registration authority does not match finalize scope',
+      };
+    }
+    if (
+      input.authority.proofKind === 'google_sso_registration' &&
+      (backupAck.offerId !== input.authority.googleEmailOtpRegistrationOfferId ||
+        backupAck.candidateId !== input.authority.googleEmailOtpRegistrationCandidateId)
+    ) {
+      return {
+        ok: false,
+        code: 'backup_ack_binding_mismatch',
+        message: 'Email OTP recovery-code backup acknowledgement does not match the offer',
+      };
+    }
+    if (
+      input.authority.proofKind !== 'google_sso_registration' &&
+      (backupAck.offerId || backupAck.candidateId)
+    ) {
+      return {
+        ok: false,
+        code: 'backup_ack_binding_mismatch',
+        message: 'Email OTP recovery-code backup acknowledgement has unexpected offer metadata',
+      };
+    }
+    if (backupAck.acknowledgedAtMs < backupAck.recoveryCodesIssuedAtMs) {
+      return {
+        ok: false,
+        code: 'backup_ack_invalid',
+        message: 'Email OTP recovery-code backup acknowledgement predates code issuance',
       };
     }
     const authSubjectId = toOptionalTrimmedString(input.authority.providerSubject) || '';
@@ -10686,6 +11180,15 @@ export class AuthService {
       nowMs: input.nowMs,
     });
     if (!enrollment.ok) return enrollment;
+    const firstEscrow = enrollment.persistence.recoveryWrappedEnrollmentEscrows[0];
+    if (!firstEscrow || firstEscrow.issuedAtMs !== backupAck.recoveryCodesIssuedAtMs) {
+      return {
+        ok: false,
+        code: 'backup_ack_binding_mismatch',
+        message:
+          'Email OTP recovery-code backup acknowledgement timestamp does not match enrollment',
+      };
+    }
     return { ok: true, persistence: enrollment.persistence };
   }
 
@@ -10799,9 +11302,7 @@ export class AuthService {
   > {
     const proofInput = parseRawEmailOtpRegistrationChallengeProofInput(request);
     if (!proofInput.ok) return proofInput;
-    const proofResult = await this.resolveEmailOtpRegistrationChallengeProof(
-      proofInput.input,
-    );
+    const proofResult = await this.resolveEmailOtpRegistrationChallengeProof(proofInput.input);
     if (!proofResult.ok) return proofResult;
     const verified = await this.verifyEmailOtpChallengeCode({
       ...request,
@@ -10857,7 +11358,7 @@ export class AuthService {
         record.userId !== verified.challengeSubjectId ||
         record.authSubjectId !== verified.challengeSubjectId ||
         record.enrollmentSealKeyVersion !== enrollmentMaterial.enrollmentSealKeyVersion ||
-        record.recoveryKeyStatus !== 'pending_backup'
+        record.recoveryKeyStatus !== 'active'
       ) {
         return {
           ok: false,
@@ -10900,39 +11401,27 @@ export class AuthService {
     await this.getEmailOtpWalletEnrollmentStore().put(enrollmentRecord);
     const recoveryWrappedEnrollmentEscrowStore =
       this.getEmailOtpRecoveryWrappedEnrollmentEscrowStore();
-    const stalePendingRecoveryBackups = (
-      await recoveryWrappedEnrollmentEscrowStore.listByWallet(verified.walletId)
-    )
-      .filter(
-        (
-          record,
-        ): record is PendingBackupEmailOtpRecoveryWrappedEnrollmentEscrowRecord =>
-          record.recoveryKeyStatus === 'pending_backup',
-      )
-      .map((record) =>
-        this.abandonEmailOtpPendingBackupEscrow(record, nowMs, 'registration_restarted'),
-      );
-    if (stalePendingRecoveryBackups.length > 0) {
-      await recoveryWrappedEnrollmentEscrowStore.putMany(stalePendingRecoveryBackups);
-    }
     await recoveryWrappedEnrollmentEscrowStore.putMany(
       enrollmentMaterial.recoveryWrappedEnrollmentEscrows.map((record) => ({
         ...record,
         updatedAtMs: nowMs,
       })),
     );
-    const pendingRecoveryWrappedEnrollmentEscrowCount = (
+    const activeRecoveryWrappedEnrollmentEscrowCount = (
       await recoveryWrappedEnrollmentEscrowStore.listByWallet(verified.walletId)
     ).filter(
       (record) =>
-        record.recoveryKeyStatus === 'pending_backup' &&
-        this.emailOtpRecoveryEscrowMatchesEnrollment(record, enrollmentRecord),
+        record.recoveryKeyStatus === 'active' &&
+        this.emailOtpRecoveryEscrowMatchesEnrollment(
+          emailOtpRecoveryWrappedEnrollmentEscrowBoundaryFromRecord(record),
+          enrollmentRecord,
+        ),
     ).length;
-    if (pendingRecoveryWrappedEnrollmentEscrowCount !== EMAIL_OTP_RECOVERY_KEY_COUNT) {
+    if (activeRecoveryWrappedEnrollmentEscrowCount !== EMAIL_OTP_RECOVERY_KEY_COUNT) {
       return {
         ok: false,
         code: 'internal',
-        message: `Email OTP enrollment persisted ${pendingRecoveryWrappedEnrollmentEscrowCount} pending backup recovery-wrapped escrows; expected ${EMAIL_OTP_RECOVERY_KEY_COUNT}`,
+        message: `Email OTP enrollment persisted ${activeRecoveryWrappedEnrollmentEscrowCount} active recovery-wrapped escrows; expected ${EMAIL_OTP_RECOVERY_KEY_COUNT}`,
       };
     }
     await this.getEmailOtpAuthStateStore().put({
@@ -11201,145 +11690,6 @@ export class AuthService {
     }
   }
 
-  async acknowledgeEmailOtpRecoveryCodeBackup(request: {
-    userId?: unknown;
-    walletId?: unknown;
-    orgId?: unknown;
-    enrollmentId?: unknown;
-    enrollmentSealKeyVersion?: unknown;
-    clientIp?: unknown;
-  }): Promise<
-    | {
-        ok: true;
-        status: 'active';
-        walletId: string;
-        enrollmentId: string;
-        recoveryCodeCount: number;
-        issuedAtMs: number;
-        acknowledgedAtMs: number;
-        activeRecoveryCodeCountAtAcknowledgement: number;
-      }
-    | { ok: false; code: string; message: string }
-  > {
-    try {
-      const userId = toOptionalTrimmedString(request.userId);
-      const walletId = toOptionalTrimmedString(request.walletId);
-      const orgId = toOptionalTrimmedString(request.orgId) || '';
-      const enrollmentId = toOptionalTrimmedString(request.enrollmentId);
-      const enrollmentSealKeyVersion = toOptionalTrimmedString(request.enrollmentSealKeyVersion);
-      const clientIp = toOptionalTrimmedString(request.clientIp) || undefined;
-      if (!userId) return { ok: false, code: 'invalid_body', message: 'Missing userId' };
-      if (!walletId) return { ok: false, code: 'invalid_body', message: 'Missing walletId' };
-      if (!orgId) return { ok: false, code: 'invalid_body', message: 'Missing orgId' };
-      if (!enrollmentId) {
-        return { ok: false, code: 'invalid_body', message: 'Missing enrollmentId' };
-      }
-      if (!enrollmentSealKeyVersion) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'Missing enrollmentSealKeyVersion',
-        };
-      }
-
-      const rateLimit = await this.consumeEmailOtpRateLimit({
-        scope: 'grant',
-        userId,
-        walletId,
-        orgId,
-        clientIp,
-      });
-      if (!rateLimit.ok) return rateLimit;
-
-      const enrollment = await this.readActiveEmailOtpEnrollment({
-        walletId,
-        orgId,
-        providerUserId: userId,
-      });
-      if (!enrollment.ok) return enrollment;
-      if (
-        enrollment.enrollment.enrollmentId !== enrollmentId ||
-        enrollment.enrollment.enrollmentSealKeyVersion !== enrollmentSealKeyVersion
-      ) {
-        return {
-          ok: false,
-          code: 'enrollment_binding_mismatch',
-          message: 'Recovery-code backup acknowledgement does not match Email OTP enrollment',
-        };
-      }
-
-      const store = this.getEmailOtpRecoveryWrappedEnrollmentEscrowStore();
-      const walletRecords = (await store.listByWallet(walletId)).filter((record) =>
-        this.emailOtpRecoveryEscrowMatchesEnrollment(record, enrollment.enrollment),
-      );
-      const pendingRecords = walletRecords.filter(
-        (
-          record,
-        ): record is PendingBackupEmailOtpRecoveryWrappedEnrollmentEscrowRecord =>
-          record.recoveryKeyStatus === 'pending_backup',
-      );
-      const activeRecords = walletRecords.filter(
-        (record) => record.recoveryKeyStatus === 'active',
-      );
-      if (pendingRecords.length === 0 && activeRecords.length === EMAIL_OTP_RECOVERY_KEY_COUNT) {
-        const acknowledgedAtMs = Math.max(
-          ...activeRecords.map((record) => record.acknowledgedAtMs),
-        );
-        const issuedAtMs = Math.min(...activeRecords.map((record) => record.issuedAtMs));
-        return {
-          ok: true,
-          status: 'active',
-          walletId,
-          enrollmentId,
-          recoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
-          issuedAtMs,
-          acknowledgedAtMs,
-          activeRecoveryCodeCountAtAcknowledgement: EMAIL_OTP_RECOVERY_KEY_COUNT,
-        };
-      }
-      if (pendingRecords.length !== EMAIL_OTP_RECOVERY_KEY_COUNT) {
-        return {
-          ok: false,
-          code: 'pending_backup_set_missing',
-          message: `Expected ${EMAIL_OTP_RECOVERY_KEY_COUNT} pending backup recovery-wrapped escrows`,
-        };
-      }
-
-      const acknowledgedAtMs = Date.now();
-      await store.putMany(
-        pendingRecords.map((record) =>
-          this.activateEmailOtpPendingBackupEscrow(record, acknowledgedAtMs),
-        ),
-      );
-      const acknowledgedActiveRecords = (await store.listActiveByWallet(walletId)).filter(
-        (record) => this.emailOtpRecoveryEscrowMatchesEnrollment(record, enrollment.enrollment),
-      );
-      if (acknowledgedActiveRecords.length !== EMAIL_OTP_RECOVERY_KEY_COUNT) {
-        return {
-          ok: false,
-          code: 'internal',
-          message: `Email OTP backup acknowledgement activated ${acknowledgedActiveRecords.length} recovery-wrapped escrows; expected ${EMAIL_OTP_RECOVERY_KEY_COUNT}`,
-        };
-      }
-      return {
-        ok: true,
-        status: 'active',
-        walletId,
-        enrollmentId,
-        recoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
-        issuedAtMs: Math.min(...acknowledgedActiveRecords.map((record) => record.issuedAtMs)),
-        acknowledgedAtMs,
-        activeRecoveryCodeCountAtAcknowledgement: EMAIL_OTP_RECOVERY_KEY_COUNT,
-      };
-    } catch (e: unknown) {
-      return {
-        ok: false,
-        code: 'internal',
-        message: errorMessage(e) || 'Failed to acknowledge Email OTP recovery-code backup',
-      };
-    }
-  }
-
   async getEmailOtpRecoveryCodeStatus(request: {
     userId?: unknown;
     walletId?: unknown;
@@ -11347,19 +11697,16 @@ export class AuthService {
   }): Promise<
     | {
         ok: true;
-        status: 'ready' | 'pending_backup' | 'incomplete' | 'not_enrolled';
+        status: 'ready' | 'incomplete' | 'not_enrolled';
         walletId: string;
         enrollmentId: string;
         enrollmentSealKeyVersion: string;
         expectedRecoveryCodeCount: number;
         activeRecoveryCodeCount: number;
-        pendingBackupRecoveryCodeCount: number;
         consumedRecoveryCodeCount: number;
         revokedRecoveryCodeCount: number;
-        abandonedRecoveryCodeCount: number;
         totalRecoveryCodeCount: number;
         issuedAtMs: number | null;
-        acknowledgedAtMs: number | null;
       }
     | { ok: false; code: string; message: string }
   > {
@@ -11386,13 +11733,10 @@ export class AuthService {
             enrollmentSealKeyVersion: '',
             expectedRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
             activeRecoveryCodeCount: 0,
-            pendingBackupRecoveryCodeCount: 0,
             consumedRecoveryCodeCount: 0,
             revokedRecoveryCodeCount: 0,
-            abandonedRecoveryCodeCount: 0,
             totalRecoveryCodeCount: 0,
             issuedAtMs: null,
-            acknowledgedAtMs: null,
           };
         }
         return enrollment;
@@ -11400,30 +11744,17 @@ export class AuthService {
 
       const records = (
         await this.getEmailOtpRecoveryWrappedEnrollmentEscrowStore().listByWallet(walletId)
-      ).filter((record) =>
-        this.emailOtpRecoveryEscrowMatchesEnrollment(record, enrollment.enrollment),
-      );
+      )
+        .map((record) => emailOtpRecoveryWrappedEnrollmentEscrowBoundaryFromRecord(record))
+        .filter((record) =>
+          this.emailOtpRecoveryEscrowMatchesEnrollment(record, enrollment.enrollment),
+        )
+        .map((boundary) => boundary.record);
       const activeRecords = records.filter((record) => record.recoveryKeyStatus === 'active');
-      const pendingBackupRecords = records.filter(
-        (record) => record.recoveryKeyStatus === 'pending_backup',
-      );
       const consumedRecords = records.filter((record) => record.recoveryKeyStatus === 'consumed');
       const revokedRecords = records.filter((record) => record.recoveryKeyStatus === 'revoked');
-      const abandonedRecords = records.filter((record) => record.recoveryKeyStatus === 'abandoned');
       const issuedAtValues = records.map((record) => record.issuedAtMs);
-      const acknowledgedAtValues = records
-        .map((record) =>
-          'acknowledgedAtMs' in record && typeof record.acknowledgedAtMs === 'number'
-            ? record.acknowledgedAtMs
-            : null,
-        )
-        .filter((value): value is number => typeof value === 'number');
-      const status =
-        activeRecords.length === EMAIL_OTP_RECOVERY_KEY_COUNT
-          ? 'ready'
-          : pendingBackupRecords.length > 0
-            ? 'pending_backup'
-            : 'incomplete';
+      const status = activeRecords.length === EMAIL_OTP_RECOVERY_KEY_COUNT ? 'ready' : 'incomplete';
       return {
         ok: true,
         status,
@@ -11432,14 +11763,10 @@ export class AuthService {
         enrollmentSealKeyVersion: enrollment.enrollment.enrollmentSealKeyVersion,
         expectedRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
         activeRecoveryCodeCount: activeRecords.length,
-        pendingBackupRecoveryCodeCount: pendingBackupRecords.length,
         consumedRecoveryCodeCount: consumedRecords.length,
         revokedRecoveryCodeCount: revokedRecords.length,
-        abandonedRecoveryCodeCount: abandonedRecords.length,
         totalRecoveryCodeCount: records.length,
         issuedAtMs: issuedAtValues.length > 0 ? Math.min(...issuedAtValues) : null,
-        acknowledgedAtMs:
-          acknowledgedAtValues.length > 0 ? Math.max(...acknowledgedAtValues) : null,
       };
     } catch (e: unknown) {
       return {
@@ -11551,7 +11878,12 @@ export class AuthService {
           message: 'Recovery key is not active',
         };
       }
-      if (!this.emailOtpRecoveryEscrowMatchesEnrollment(recoveryRecord, enrollment.enrollment)) {
+      if (
+        !this.emailOtpRecoveryEscrowMatchesEnrollment(
+          emailOtpRecoveryWrappedEnrollmentEscrowBoundaryFromRecord(recoveryRecord),
+          enrollment.enrollment,
+        )
+      ) {
         return {
           ok: false,
           code: 'recovery_key_binding_mismatch',
@@ -11569,7 +11901,10 @@ export class AuthService {
       const activeRecoveryWrappedEnrollmentEscrowCount = (
         await recoveryWrappedEnrollmentEscrowStore.listActiveByWallet(walletId)
       ).filter((activeRecord) =>
-        this.emailOtpRecoveryEscrowMatchesEnrollment(activeRecord, enrollment.enrollment),
+        this.emailOtpRecoveryEscrowMatchesEnrollment(
+          emailOtpRecoveryWrappedEnrollmentEscrowBoundaryFromRecord(activeRecord),
+          enrollment.enrollment,
+        ),
       ).length;
 
       return {
@@ -11677,7 +12012,10 @@ export class AuthService {
       const activeRecoveryWrappedEnrollmentEscrowCount = (
         await this.getEmailOtpRecoveryWrappedEnrollmentEscrowStore().listActiveByWallet(walletId)
       ).filter((activeRecord) =>
-        this.emailOtpRecoveryEscrowMatchesEnrollment(activeRecord, enrollment.enrollment),
+        this.emailOtpRecoveryEscrowMatchesEnrollment(
+          emailOtpRecoveryWrappedEnrollmentEscrowBoundaryFromRecord(activeRecord),
+          enrollment.enrollment,
+        ),
       ).length;
       if (activeRecoveryWrappedEnrollmentEscrowCount <= 0) {
         return {

@@ -100,6 +100,14 @@
   overflow-wrap: anywhere;
 }
 
+.w3a-recovery-codes-note {
+  margin: 0;
+  color: var(--w3a-colors-textSecondary);
+  font-size: 0.86rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
 .w3a-recovery-codes-list {
   display: grid;
   gap: 0.5rem;

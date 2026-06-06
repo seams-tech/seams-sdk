@@ -3,55 +3,51 @@ import type {
   RecoveryCapability,
 } from '@/SeamsWeb/signingSurface/types';
 import type {
-  emailOtpPendingRecoveryCodeBackupRepository,
-  PendingEmailOtpRecoveryCodeBackupRecord,
-} from '@/core/indexedDB/seamsWalletDB/emailOtpPendingRecoveryCodeBackups';
+  emailOtpRecoveryCodeBackupRepository,
+  StoredEmailOtpRecoveryCodeBackupRecord,
+} from '@/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups';
 
 export type RecoveryCodesLoadedState = {
   kind: 'loaded';
   status: EmailOtpRecoveryCodeStatus;
-  localBackup: PendingEmailOtpRecoveryCodeBackupRecord | null;
+  localBackup: StoredEmailOtpRecoveryCodeBackupRecord | null;
   actionError: string;
 };
 
 type RecoveryCodesModalRepository = Pick<
-  typeof emailOtpPendingRecoveryCodeBackupRepository,
-  'deleteInvalid' | 'readMatching'
+  typeof emailOtpRecoveryCodeBackupRepository,
+  'deleteInvalid' | 'markDisplayed' | 'readMatching'
 >;
 
-type ShowEmailOtpPendingBackupForAccountMenu = (args: {
+type ShowEmailOtpRecoveryCodesForAccountMenu = (args: {
   walletId: string;
 }) => Promise<EmailOtpRecoveryCodeStatus>;
 
-type EmailOtpPendingBackupPresenter = {
-  showEmailOtpPendingRecoveryCodeBackupForAccountMenu?: ShowEmailOtpPendingBackupForAccountMenu;
-};
-
-export function getEmailOtpPendingBackupPresenter(
+export function getEmailOtpRecoveryCodePresenter(
   seams: unknown,
-): ShowEmailOtpPendingBackupForAccountMenu | null {
+): ShowEmailOtpRecoveryCodesForAccountMenu | null {
   const method =
     seams && typeof seams === 'object'
-      ? Reflect.get(seams, 'showEmailOtpPendingRecoveryCodeBackupForAccountMenu')
+      ? Reflect.get(seams, 'showEmailOtpRecoveryCodesForAccountMenu')
       : null;
   if (typeof method !== 'function') return null;
-  return method.bind(seams) as ShowEmailOtpPendingBackupForAccountMenu;
+  return method.bind(seams) as ShowEmailOtpRecoveryCodesForAccountMenu;
 }
 
 export async function loadRecoveryCodesModalLoadedState(args: {
   walletId: string;
   recovery: Pick<RecoveryCapability, 'getEmailOtpRecoveryCodeStatus'>;
-  pendingBackupRepository: RecoveryCodesModalRepository;
-  showPendingBackup: ShowEmailOtpPendingBackupForAccountMenu | null;
+  recoveryCodeBackupRepository: RecoveryCodesModalRepository;
+  showRecoveryCodes: ShowEmailOtpRecoveryCodesForAccountMenu | null;
 }): Promise<RecoveryCodesLoadedState> {
-  await args.pendingBackupRepository.deleteInvalid().catch(() => undefined);
+  await args.recoveryCodeBackupRepository.deleteInvalid().catch(() => undefined);
   let status = await args.recovery.getEmailOtpRecoveryCodeStatus({
     walletId: args.walletId,
   });
-  let localBackup: PendingEmailOtpRecoveryCodeBackupRecord | null = null;
+  let localBackup: StoredEmailOtpRecoveryCodeBackupRecord | null = null;
   if (status.enrollmentId && status.enrollmentSealKeyVersion) {
     try {
-      localBackup = await args.pendingBackupRepository.readMatching({
+      localBackup = await args.recoveryCodeBackupRepository.readMatching({
         walletId: status.walletId,
         enrollmentId: status.enrollmentId,
         enrollmentSealKeyVersion: status.enrollmentSealKeyVersion,
@@ -59,11 +55,17 @@ export async function loadRecoveryCodesModalLoadedState(args: {
     } catch {
       localBackup = null;
     }
-    if (!localBackup && status.status === 'pending_backup' && args.showPendingBackup) {
-      status = await args.showPendingBackup({ walletId: status.walletId });
-      if (status.status === 'pending_backup') {
-        localBackup = null;
-      }
+    if (localBackup) {
+      localBackup =
+        (await args.recoveryCodeBackupRepository
+          .markDisplayed({
+            walletId: localBackup.walletId,
+            enrollmentId: localBackup.enrollmentId,
+            enrollmentSealKeyVersion: localBackup.enrollmentSealKeyVersion,
+          })
+          .catch(() => null)) || localBackup;
+    } else if (args.showRecoveryCodes) {
+      status = await args.showRecoveryCodes({ walletId: status.walletId });
     }
   }
   return { kind: 'loaded', status, localBackup, actionError: '' };

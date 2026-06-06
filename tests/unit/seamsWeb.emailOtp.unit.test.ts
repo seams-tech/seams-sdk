@@ -305,6 +305,7 @@ test.describe('SeamsWeb Email OTP runtime', () => {
     const authority = await collectEmailOtpRegistrationAuthority({
       authMethod: {
         kind: 'email_otp',
+        proofKind: 'otp_challenge',
         email: ' Alice@Example.Test ',
         otpCode: ' 123456 ',
         appSessionJwt,

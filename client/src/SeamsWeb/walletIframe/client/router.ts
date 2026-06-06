@@ -134,11 +134,23 @@ import type {
   EmailOtpEcdsaEnrollmentCapabilityResult,
   EmailOtpBackedUpEnrollmentResult,
   EmailOtpEnrollmentResult,
-  EmailOtpRecoveryCodeBackupStatus,
   EmailOtpRecoveryCodeStatus,
   GoogleEmailOtpSessionExchangeResult,
+  GoogleEmailOtpWalletAuthFlow,
+  GoogleEmailOtpWalletAuthRegistrationCompleted,
+  GoogleEmailOtpWalletAuthRegistrationFlow,
+  GoogleEmailOtpWalletAuthResult,
+  GoogleEmailOtpWalletAuthStartInput,
+  GoogleEmailOtpWalletAuthSubmitSuccess,
   RegistrationCapability,
 } from '@/SeamsWeb/signingSurface/types';
+import type {
+  PMGoogleEmailOtpWalletAuthCompleteRegistrationWireResult,
+  PMGoogleEmailOtpWalletAuthRegistrationWireResult,
+  PMGoogleEmailOtpWalletAuthSubmitWireResult,
+  PMGoogleEmailOtpWalletAuthWireFlow,
+  PMGoogleEmailOtpWalletAuthWireResult,
+} from '../shared/messages';
 import { ActionArgs, TransactionInput, TxExecutionStatus } from '@/core/types';
 import type { DelegateActionInput } from '@/core/types/delegate';
 import { IframeTransport } from './transport/IframeTransport';
@@ -153,6 +165,7 @@ import {
 import type { WalletUIRegistry } from '../host/lit-ui/iframe-lit-element-registry';
 import { toError } from '@shared/utils/errors';
 import { secureRandomBase36 } from '@shared/utils/secureRandomId';
+import { walletIdFromString } from '@shared/utils/registrationIntent';
 import type { AuthenticatorOptions } from '@/core/types/authenticatorOptions';
 import { type ConfirmationConfig } from '@/core/types/signer-worker';
 import type { AccessKeyList } from '@/core/rpcClients/near/NearClient';
@@ -1092,7 +1105,6 @@ export class WalletIframeRouter {
     accountMode: 'register' | 'login';
     relayUrl?: string;
     sessionKind?: 'jwt' | 'cookie';
-    rerollRegistrationAttempt?: boolean;
     onEvent?: (ev: RegistrationFlowEvent | UnlockFlowEvent) => void;
   }): Promise<GoogleEmailOtpSessionExchangeResult> {
     const { onEvent, ...wirePayload } = payload;
@@ -1107,6 +1119,159 @@ export class WalletIframeRouter {
       },
     });
     return res.result;
+  }
+
+  private googleEmailOtpWalletAuthFlowFromWire(
+    wire: PMGoogleEmailOtpWalletAuthWireFlow,
+  ): GoogleEmailOtpWalletAuthFlow {
+    const cancel = async (): Promise<void> => {
+      await this.post<void>({
+        type: 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_CANCEL',
+        payload: {
+          flowHandleId: wire.flowHandleId,
+          flowId: wire.flowId,
+          walletId: wire.walletId,
+          mode: wire.mode,
+        },
+      });
+    };
+    if (wire.mode === 'register') {
+      return {
+        kind: 'google_email_otp_wallet_auth_flow_v1',
+        state: 'registration_ready',
+        flowId: wire.flowId,
+        requestedMode: wire.requestedMode,
+        mode: 'register',
+        walletId: walletIdFromString(wire.walletId),
+        emailHint: wire.emailHint,
+        prompt: wire.prompt,
+        expiresAtMs: wire.expiresAtMs,
+        completeRegistration: async (): Promise<
+          GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthRegistrationCompleted>
+        > => {
+          const res = await this.post<PMGoogleEmailOtpWalletAuthCompleteRegistrationWireResult>(
+            {
+              type: 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_COMPLETE_REGISTRATION',
+              payload: {
+                flowHandleId: wire.flowHandleId,
+                flowId: wire.flowId,
+                walletId: wire.walletId,
+                mode: wire.mode,
+              },
+            },
+            {
+              timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
+              progressTimeoutExtensionFactor: 1,
+            },
+          );
+          if (res.result.ok) {
+            const { login: st } = await this.getWalletSession(res.result.value.walletId);
+            this.emitLoginStatusChanged({
+              isLoggedIn: !!st.isLoggedIn,
+              walletId: st.nearAccountId,
+            });
+          }
+          return res.result;
+        },
+        rerollWalletId: async (): Promise<
+          GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthRegistrationFlow>
+        > => {
+          const res = await this.post<PMGoogleEmailOtpWalletAuthRegistrationWireResult>({
+            type: 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_REROLL_WALLET_ID',
+            payload: {
+              flowHandleId: wire.flowHandleId,
+              flowId: wire.flowId,
+              walletId: wire.walletId,
+              mode: wire.mode,
+            },
+          });
+          if (!res.result.ok) return res.result;
+          const flow = this.googleEmailOtpWalletAuthFlowFromWire(res.result.value);
+          if (flow.mode !== 'register') {
+            throw new Error('Google Email OTP registration reroll returned a login flow');
+          }
+          return { ok: true, value: flow };
+        },
+        cancel,
+      };
+    }
+    return {
+      kind: 'google_email_otp_wallet_auth_flow_v1' as const,
+      state: 'challenge_sent' as const,
+      flowId: wire.flowId,
+      requestedMode: wire.requestedMode,
+      mode: 'login' as const,
+      walletId: walletIdFromString(wire.walletId),
+      emailHint: wire.emailHint,
+      prompt: wire.prompt,
+      delivery: wire.delivery,
+      expiresAtMs: wire.expiresAtMs,
+      resend: async (): Promise<GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthFlow>> => {
+        const res = await this.post<PMGoogleEmailOtpWalletAuthWireResult<PMGoogleEmailOtpWalletAuthWireFlow>>({
+          type: 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_RESEND',
+          payload: {
+            flowHandleId: wire.flowHandleId,
+            flowId: wire.flowId,
+            walletId: wire.walletId,
+            mode: wire.mode,
+          },
+        });
+        return res.result.ok
+          ? { ok: true, value: this.googleEmailOtpWalletAuthFlowFromWire(res.result.value) }
+          : res.result;
+      },
+      submit: async (input: {
+        otpCode: string;
+      }): Promise<GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthSubmitSuccess>> => {
+        const res = await this.post<PMGoogleEmailOtpWalletAuthSubmitWireResult>(
+          {
+            type: 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_SUBMIT',
+            payload: {
+              flowHandleId: wire.flowHandleId,
+              flowId: wire.flowId,
+              walletId: wire.walletId,
+              mode: wire.mode,
+              otpCode: input.otpCode,
+            },
+          },
+          {
+            timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
+            progressTimeoutExtensionFactor: 1,
+          },
+        );
+        if (res.result.ok) {
+          const { login: st } = await this.getWalletSession(res.result.value.walletId);
+          this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
+        }
+        return res.result;
+      },
+      cancel,
+    };
+  }
+
+  async beginGoogleEmailOtpWalletAuth(
+    payload: GoogleEmailOtpWalletAuthStartInput,
+  ): Promise<GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthFlow>> {
+    const { onEvent, ...wirePayload } = payload;
+    const res = await this.post<PMGoogleEmailOtpWalletAuthWireResult<PMGoogleEmailOtpWalletAuthWireFlow>>(
+      {
+        type: 'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH',
+        payload: wirePayload,
+        options: {
+          onProgress:
+            payload.mode === 'register'
+              ? this.wrapOnEvent(onEvent, isRegistrationFlowEvent)
+              : this.wrapOnEvent(onEvent, isUnlockFlowEvent),
+        },
+      },
+      {
+        timeoutMs: WALLET_IFRAME_THRESHOLD_SIGNING_TIMEOUT_MS,
+        progressTimeoutExtensionFactor: 1,
+      },
+    );
+    return res.result.ok
+      ? { ok: true, value: this.googleEmailOtpWalletAuthFlowFromWire(res.result.value) }
+      : res.result;
   }
 
   async enrollEmailOtp(payload: {
@@ -1179,20 +1344,6 @@ export class WalletIframeRouter {
     return sanitizeEmailOtpIframeResult(res.result);
   }
 
-  async acknowledgeEmailOtpRecoveryCodeBackup(payload: {
-    walletId: string;
-    enrollmentId: string;
-    enrollmentSealKeyVersion: string;
-    relayUrl?: string;
-    appSessionJwt?: string;
-  }): Promise<EmailOtpRecoveryCodeBackupStatus> {
-    const res = await this.post<EmailOtpRecoveryCodeBackupStatus>({
-      type: 'PM_ACKNOWLEDGE_EMAIL_OTP_RECOVERY_CODE_BACKUP',
-      payload,
-    });
-    return res.result;
-  }
-
   async getEmailOtpRecoveryCodeStatus(payload: {
     walletId: string;
     relayUrl?: string;
@@ -1205,14 +1356,14 @@ export class WalletIframeRouter {
     return res.result;
   }
 
-  async showEmailOtpPendingRecoveryCodeBackup(payload: {
+  async showEmailOtpRecoveryCodes(payload: {
     walletId: string;
     relayUrl?: string;
     appSessionJwt?: string;
   }): Promise<EmailOtpRecoveryCodeStatus> {
     const res = await this.post<EmailOtpRecoveryCodeStatus>(
       {
-        type: 'PM_SHOW_EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP',
+        type: 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES',
         payload,
       },
       {
@@ -2106,7 +2257,7 @@ export class WalletIframeRouter {
       case 'PM_SIGN_TEMPO':
       case 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION':
       case 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA':
-      case 'PM_SHOW_EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP':
+      case 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES':
         return { mode: 'fullscreen' };
 
       // All other operations (background/read-only) don't need overlay

@@ -45,60 +45,91 @@ Store these codes somewhere private. Each code can be used once.
 10  9123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ
 `;
 
-async function mountBackupUi(page: import('@playwright/test').Page): Promise<void> {
-  await page.evaluate(
-    async ({ enrollment }) => {
-      const indexedDbMod = await import('/sdk/esm/core/indexedDB/index.js');
-      indexedDbMod.seamsWalletDB.setDisabled(false);
-      indexedDbMod.seamsWalletDB.setDbName(
-        indexedDbMod.createSeamsTestWalletDbName(`otp-backup-${crypto.randomUUID()}`),
-      );
-      const mod = await import(
-        '/sdk/esm/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.js'
-      );
-      (window as any).__backupPromise = mod.backupEmailOtpRecoveryCodes({
-        relayUrl: 'https://relay.example',
-        walletId: 'alice.testnet',
-        enrollment,
-        acknowledge: async (args: Record<string, unknown>) => {
-          (window as any).__acknowledgeArgs = args;
-          return {
-            status: 'active',
-            walletId: 'alice.testnet',
-            enrollmentId: enrollment.enrollmentId,
-            recoveryCodeCount: 10,
-            issuedAtMs: enrollment.recoveryCodesIssuedAtMs,
-            acknowledgedAtMs: 1_700_000_100_000,
-            activeRecoveryCodeCountAtAcknowledgement: 10,
-          };
-        },
-      });
-    },
-    { enrollment: ENROLLMENT },
-  );
+async function configureTestDb(page: import('@playwright/test').Page): Promise<void> {
+  await page.evaluate(async () => {
+    const indexedDbMod = await import('/sdk/esm/core/indexedDB/index.js');
+    indexedDbMod.seamsWalletDB.setDisabled(false);
+    indexedDbMod.seamsWalletDB.setDbName(
+      indexedDbMod.createSeamsTestWalletDbName(`otp-backup-${crypto.randomUUID()}`),
+    );
+  });
 }
 
-async function readPendingBackup(page: import('@playwright/test').Page): Promise<unknown> {
+async function readStoredBackup(page: import('@playwright/test').Page): Promise<unknown> {
   return await page.evaluate(async ({ enrollment }) => {
     const mod = await import(
-      '/sdk/esm/core/indexedDB/seamsWalletDB/emailOtpPendingRecoveryCodeBackups.js'
+      '/sdk/esm/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.js'
     );
-    return await mod.emailOtpPendingRecoveryCodeBackupRepository.readMatching({
+    return await mod.emailOtpRecoveryCodeBackupRepository.readMatching({
       walletId: 'alice.testnet',
       enrollmentId: enrollment.enrollmentId,
       enrollmentSealKeyVersion: enrollment.enrollmentSealKeyVersion,
-      nowMs: 1_700_000_000_001,
     });
   }, { enrollment: ENROLLMENT });
 }
 
-test.describe('SeamsWeb Email OTP recovery-code backup UI', () => {
+test.describe('SeamsWeb Email OTP recovery-code backup persistence', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
+    await configureTestDb(page);
   });
 
-  test('renders all codes and acknowledges backup after download', async ({ page }) => {
-    await page.evaluate(() => {
+  test('stores recovery codes without showing a blocking registration modal', async ({ page }) => {
+    const result = await page.evaluate(async ({ enrollment }) => {
+      const mod = await import(
+        '/sdk/esm/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.js'
+      );
+      const beforeDialogs = document.querySelectorAll('[role="dialog"]').length;
+      const enrollmentResult = await mod.backupEmailOtpRecoveryCodes({
+        relayUrl: 'https://relay.example',
+        walletId: 'alice.testnet',
+        enrollment,
+      });
+      const afterDialogs = document.querySelectorAll('[role="dialog"]').length;
+      return { enrollmentResult, beforeDialogs, afterDialogs };
+    }, { enrollment: ENROLLMENT });
+
+    expect(result.beforeDialogs).toBe(0);
+    expect(result.afterDialogs).toBe(0);
+    expect(result.enrollmentResult).toMatchObject({
+      challengeId: 'enroll-1',
+      enrollmentId: ENROLLMENT.enrollmentId,
+      recoveryCodeBackup: {
+        status: 'active',
+        walletId: 'alice.testnet',
+        enrollmentId: ENROLLMENT.enrollmentId,
+        recoveryCodeCount: 10,
+        activeRecoveryCodeCountAtBackup: 10,
+      },
+    });
+    expect(result.enrollmentResult.recoveryCodeBackup.storedAtMs).toBeGreaterThanOrEqual(
+      ENROLLMENT.recoveryCodesIssuedAtMs,
+    );
+    expect(JSON.stringify(result.enrollmentResult)).not.toContain('recoveryKeys');
+    expect(await readStoredBackup(page)).toMatchObject({
+      status: 'stored',
+      secretKind: 'email_otp_recovery_codes_backup',
+      walletId: 'alice.testnet',
+      enrollmentId: ENROLLMENT.enrollmentId,
+      recoveryKeys: RECOVERY_CODES,
+      lastDisplayedAtMs: null,
+      lastDownloadedAtMs: null,
+    });
+  });
+
+  test('download helper builds the recovery-code file without deleting storage', async ({ page }) => {
+    await page.evaluate(async ({ enrollment }) => {
+      const mod = await import(
+        '/sdk/esm/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.js'
+      );
+      const reactMod = await import(
+        '/sdk/esm/react/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.js'
+      );
+      await mod.backupEmailOtpRecoveryCodes({
+        relayUrl: 'https://relay.example',
+        walletId: 'alice.testnet',
+        enrollment,
+      });
       (window as any).__downloadClicks = 0;
       (window as any).__downloadBlobText = null;
       (window as any).__downloadFilename = null;
@@ -114,31 +145,14 @@ test.describe('SeamsWeb Email OTP recovery-code backup UI', () => {
         (window as any).__downloadClicks += 1;
         (window as any).__downloadFilename = this.download;
       };
-    });
-    await mountBackupUi(page);
-
-    const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByRole('listitem')).toHaveCount(10);
-    const downloadButton = dialog.getByRole('button', { name: 'Download' });
-    await expect(dialog.getByRole('button').first()).toHaveText('Download');
-    await expect(dialog.getByRole('button')).toHaveCount(1);
-    const downloadStyle = await downloadButton.evaluate((button) => {
-      const style = window.getComputedStyle(button);
-      return {
-        backgroundColor: style.backgroundColor,
-        color: style.color,
-        fontWeight: style.fontWeight,
-      };
-    });
-    expect(downloadStyle).toEqual({
-      backgroundColor: 'rgb(86, 81, 119)',
-      color: 'rgb(255, 250, 243)',
-      fontWeight: '700',
-    });
-
-    await downloadButton.click();
-    await expect(page.getByRole('dialog')).toHaveCount(0);
+      reactMod.downloadRecoveryCodes({
+        walletId: 'alice.testnet',
+        enrollmentId: enrollment.enrollmentId,
+        enrollmentSealKeyVersion: enrollment.enrollmentSealKeyVersion,
+        recoveryCodesIssuedAtMs: enrollment.recoveryCodesIssuedAtMs,
+        recoveryKeys: enrollment.recoveryKeys,
+      });
+    }, { enrollment: ENROLLMENT });
 
     const download = await page.evaluate(async () => ({
       clicks: (window as any).__downloadClicks,
@@ -152,66 +166,9 @@ test.describe('SeamsWeb Email OTP recovery-code backup UI', () => {
       text: EXPECTED_BACKUP_TEXT,
       revokedUrl: 'blob:email-otp-recovery-codes',
     });
-    expect(await readPendingBackup(page)).toMatchObject({
-      status: 'pending_backup',
-      walletId: 'alice.testnet',
-      enrollmentId: ENROLLMENT.enrollmentId,
-      enrollmentSealKeyVersion: ENROLLMENT.enrollmentSealKeyVersion,
+    expect(await readStoredBackup(page)).toMatchObject({
       recoveryKeys: RECOVERY_CODES,
+      lastDownloadedAtMs: null,
     });
-
-    const finalResult = await page.evaluate(async () => await (window as any).__backupPromise);
-    expect(finalResult).toEqual({
-      thresholdEcdsaClientVerifyingShareB64u: 'threshold-verifier-b64u',
-      recoveryCodesIssuedAtMs: 1_700_000_000_000,
-      challengeId: 'enroll-1',
-      otpChannel: 'email_otp',
-      enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:google:alice',
-      enrollmentSealKeyVersion: 'email-otp-kv-1',
-      clientUnlockPublicKeyB64u: 'unlock-public-key-b64u',
-      unlockKeyVersion: 'email-otp-unlock-v1',
-      recoveryCodeBackup: {
-        status: 'active',
-        walletId: 'alice.testnet',
-        enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:google:alice',
-        recoveryCodeCount: 10,
-        issuedAtMs: 1_700_000_000_000,
-        acknowledgedAtMs: 1_700_000_100_000,
-        activeRecoveryCodeCountAtAcknowledgement: 10,
-      },
-    });
-    expect(JSON.stringify(finalResult)).not.toContain('recoveryKeys');
-    const acknowledgeArgs = await page.evaluate(() => (window as any).__acknowledgeArgs);
-    expect(acknowledgeArgs).toEqual({
-      relayUrl: 'https://relay.example',
-      walletId: 'alice.testnet',
-      enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:google:alice',
-      enrollmentSealKeyVersion: 'email-otp-kv-1',
-    });
-  });
-
-  test('keeps the dialog open when download fails', async ({ page }) => {
-    await page.evaluate(() => {
-      URL.createObjectURL = (() => {
-        throw new Error('blob denied');
-      }) as typeof URL.createObjectURL;
-    });
-    await mountBackupUi(page);
-
-    const dialog = page.getByRole('dialog');
-    await dialog.getByRole('button', { name: 'Download' }).click();
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByText('Download failed. Try again.')).toBeVisible();
-    await expect(page.getByRole('dialog')).toHaveCount(1);
-    expect(await readPendingBackup(page)).toMatchObject({
-      status: 'pending_backup',
-      walletId: 'alice.testnet',
-      enrollmentId: ENROLLMENT.enrollmentId,
-      enrollmentSealKeyVersion: ENROLLMENT.enrollmentSealKeyVersion,
-      recoveryKeys: RECOVERY_CODES,
-    });
-    await expect
-      .poll(async () => await page.evaluate(() => (window as any).__acknowledgeArgs || null))
-      .toBeNull();
   });
 });

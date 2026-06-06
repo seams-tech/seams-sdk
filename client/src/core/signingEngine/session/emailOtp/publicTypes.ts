@@ -20,15 +20,11 @@ export type EmailOtpRecoveryCodeBackupStatus = {
   enrollmentId: string;
   recoveryCodeCount: number;
   issuedAtMs: number;
-  acknowledgedAtMs: number;
-  activeRecoveryCodeCountAtAcknowledgement: number;
+  storedAtMs: number;
+  activeRecoveryCodeCountAtBackup: number;
 };
 
-export type EmailOtpRecoveryCodeLifecycleStatus =
-  | 'ready'
-  | 'pending_backup'
-  | 'incomplete'
-  | 'not_enrolled';
+export type EmailOtpRecoveryCodeLifecycleStatus = 'ready' | 'incomplete' | 'not_enrolled';
 
 export type EmailOtpRecoveryCodeStatus = {
   status: EmailOtpRecoveryCodeLifecycleStatus;
@@ -37,13 +33,10 @@ export type EmailOtpRecoveryCodeStatus = {
   enrollmentSealKeyVersion: string;
   expectedRecoveryCodeCount: number;
   activeRecoveryCodeCount: number;
-  pendingBackupRecoveryCodeCount: number;
   consumedRecoveryCodeCount: number;
   revokedRecoveryCodeCount: number;
-  abandonedRecoveryCodeCount: number;
   totalRecoveryCodeCount: number;
   issuedAtMs: number | null;
-  acknowledgedAtMs: number | null;
 };
 
 export type EmailOtpDeviceEnrollmentRestoreResult = {
@@ -75,6 +68,27 @@ export type GoogleEmailOtpSessionExchangeResult = {
       mode: 'existing_wallet' | 'register_started';
       registrationAttemptId?: string;
       expiresAt?: string;
+      loginChallenge?:
+        | {
+            delivery: 'sent' | 'reused';
+            challengeId: string;
+            emailHint?: string;
+            expiresAt?: string;
+            expiresAtMs?: number;
+          }
+        | {
+            delivery: 'rate_limited';
+            retryAfterMs?: number;
+            resetAtMs?: number;
+          };
+      offer?: {
+        offerId: string;
+        selectedCandidateId: string;
+        candidates: readonly [
+          { candidateId: string; walletId: string },
+          ...{ candidateId: string; walletId: string }[],
+        ];
+      };
     };
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
   };

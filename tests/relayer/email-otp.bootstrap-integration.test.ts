@@ -8,6 +8,7 @@ import { createCloudflareRouter } from '@server/router/cloudflare-adaptor';
 import { createRelayRouter } from '@server/router/express-adaptor';
 import { createSigningSessionSealShamir3PassBigIntRuntime } from '@server/threshold/session/signingSessionSeal';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
+import { generateEmailOtpRecoveryKeySet } from '@shared/utils/emailOtpRecoveryKey';
 import {
   deriveEmailOtpEcdsaClientRootShare32B64u,
   deriveEmailOtpUnlockAuthSeed,
@@ -447,22 +448,14 @@ function createEmailOtpRouteWorkerCtx(args: { fetchImpl: typeof fetch; relayUrl:
             thresholdEcdsaClientVerifyingShareB64u,
           },
         });
-        await postWorkerJson({
-          fetchImpl: args.fetchImpl,
-          relayUrl: args.relayUrl,
-          path: '/wallet/email-otp/recovery-key/backup-acknowledge',
-          appSessionJwt,
-          body: {
-            walletId,
-            enrollmentId: `email-otp-device-enrollment-v1:${walletId}:${userId}`,
-            enrollmentSealKeyVersion: String(enrollSeal.enrollmentSealKeyVersion || ''),
-          },
-        });
         return {
           clientRootShare32B64u,
           thresholdEcdsaClientVerifyingShareB64u,
+          recoveryKeys: generateEmailOtpRecoveryKeySet(),
+          recoveryCodesIssuedAtMs: Date.now(),
           challengeId: String(payload.challengeId || ''),
           otpChannel: 'email_otp',
+          enrollmentId: `email-otp-device-enrollment-v1:${walletId}:${userId}`,
           enrollmentSealKeyVersion: String(enrollSeal.enrollmentSealKeyVersion || ''),
           clientUnlockPublicKeyB64u,
           unlockKeyVersion: 'email-otp-unlock-v1',
@@ -1039,19 +1032,6 @@ test.describe('Email OTP bootstrap integration', () => {
         },
       );
       expect(enrollVerify.status).toBe(200);
-      const acknowledge = await fetchJson(
-        `${srv.baseUrl}/wallet/email-otp/recovery-key/backup-acknowledge`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
-          body: JSON.stringify({
-            walletId: 'alice.testnet',
-            enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:alice.testnet',
-            enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
-          }),
-        },
-      );
-      expect(acknowledge.status).toBe(200);
 
       const bootstrapCalls: Array<Record<string, unknown>> = [];
       const recoveryOtp = await requestEmailOtpWithOutbox({

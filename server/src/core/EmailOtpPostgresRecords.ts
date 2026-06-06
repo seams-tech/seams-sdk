@@ -20,6 +20,8 @@ import type {
   EmailOtpUnlockChallengeRecord,
   EmailOtpWalletEnrollmentRecord,
   GoogleEmailOtpRegistrationAttemptRecord,
+  GoogleEmailOtpRegistrationOfferCandidateRecord,
+  NonEmptyGoogleEmailOtpRegistrationOfferCandidates,
 } from './EmailOtpStores';
 
 function parseJsonRecord(raw: unknown): unknown {
@@ -84,9 +86,30 @@ function isB64uString(value: string): boolean {
   return /^[A-Za-z0-9_-]+$/.test(value);
 }
 
-export function parseCurrentEmailOtpChallengeRecord(
+function parseGoogleEmailOtpRegistrationOfferCandidates(
   raw: unknown,
-): EmailOtpChallengeRecord | null {
+): NonEmptyGoogleEmailOtpRegistrationOfferCandidates | null {
+  if (!Array.isArray(raw) || raw.length < 1) return null;
+  const candidates: GoogleEmailOtpRegistrationOfferCandidateRecord[] = [];
+  for (const candidate of raw) {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return null;
+    const candidateRecord = candidate as Record<string, unknown>;
+    const candidateId = toOptionalTrimmedString(candidateRecord.candidateId);
+    const candidateWalletId = toOptionalTrimmedString(candidateRecord.walletId);
+    const candidateCollisionCounter = toNonNegativeSafeInt(candidateRecord.collisionCounter);
+    if (!candidateId || !candidateWalletId || candidateCollisionCounter == null) return null;
+    candidates.push({
+      candidateId,
+      walletId: candidateWalletId,
+      collisionCounter: candidateCollisionCounter,
+    });
+  }
+  const [firstCandidate, ...remainingCandidates] = candidates;
+  if (!firstCandidate) return null;
+  return [firstCandidate, ...remainingCandidates];
+}
+
+export function parseCurrentEmailOtpChallengeRecord(raw: unknown): EmailOtpChallengeRecord | null {
   const parsed = parseJsonRecord(raw);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
   const obj = parsed as Record<string, unknown>;
@@ -293,6 +316,10 @@ export function parseCurrentGoogleEmailOtpRegistrationAttemptRecord(
   const providerSubject = toOptionalTrimmedString(obj.providerSubject);
   const email = toOptionalTrimmedString(obj.email);
   const walletId = toOptionalTrimmedString(obj.walletId);
+  const offerId = toOptionalTrimmedString(obj.offerId);
+  const offerCandidates = parseGoogleEmailOtpRegistrationOfferCandidates(obj.offerCandidates);
+  const selectedCandidateId = toOptionalTrimmedString(obj.selectedCandidateId);
+  const appSessionVersion = toOptionalTrimmedString(obj.appSessionVersion);
   const authProvider = toOptionalTrimmedString(obj.authProvider);
   const accountIdSlugVersion = toOptionalTrimmedString(obj.accountIdSlugVersion);
   const walletIdDerivationNonce = toOptionalTrimmedString(obj.walletIdDerivationNonce);
@@ -310,6 +337,11 @@ export function parseCurrentGoogleEmailOtpRegistrationAttemptRecord(
     !providerSubject ||
     !email ||
     !walletId ||
+    !offerId ||
+    !offerCandidates ||
+    !selectedCandidateId ||
+    !offerCandidates.some((candidate) => candidate.candidateId === selectedCandidateId) ||
+    !appSessionVersion ||
     !authProvider ||
     accountIdSlugVersion !== 'hmac_readable_v1' ||
     !walletIdDerivationNonce ||
@@ -326,30 +358,61 @@ export function parseCurrentGoogleEmailOtpRegistrationAttemptRecord(
     state !== 'started' &&
     state !== 'key_finalized' &&
     state !== 'active' &&
+    state !== 'abandoned' &&
     state !== 'failed' &&
     state !== 'expired'
   ) {
     return null;
   }
   if (updatedAtMs < createdAtMs) return null;
-  return {
-    version: 'google_email_otp_registration_attempt_v1',
+  if (state === 'key_finalized' && !finalizedPublicKey) return null;
+  if ((state === 'abandoned' || state === 'failed') && !failureCode) return null;
+  const base = {
+    version: 'google_email_otp_registration_attempt_v1' as const,
     attemptId,
     providerSubject,
     email,
     walletId,
+    offerId,
+    offerCandidates,
+    selectedCandidateId,
+    appSessionVersion,
     authProvider,
-    accountIdSlugVersion: 'hmac_readable_v1',
+    accountIdSlugVersion: 'hmac_readable_v1' as const,
     walletIdDerivationNonce,
     collisionCounter,
-    state,
     createdAtMs,
     updatedAtMs,
     expiresAtMs,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-    ...(finalizedPublicKey ? { finalizedPublicKey } : {}),
-    ...(failureCode ? { failureCode } : {}),
   };
+  switch (state) {
+    case 'started':
+      return { ...base, state };
+    case 'key_finalized': {
+      if (!finalizedPublicKey) return null;
+      return { ...base, state, finalizedPublicKey };
+    }
+    case 'active':
+      return { ...base, state, ...(finalizedPublicKey ? { finalizedPublicKey } : {}) };
+    case 'abandoned':
+    case 'failed': {
+      if (!failureCode) return null;
+      return {
+        ...base,
+        state,
+        ...(finalizedPublicKey ? { finalizedPublicKey } : {}),
+        failureCode,
+      };
+    }
+    case 'expired':
+      return {
+        ...base,
+        state,
+        ...(finalizedPublicKey ? { finalizedPublicKey } : {}),
+        ...(failureCode ? { failureCode } : {}),
+      };
+  }
 }
 
 export function parseCurrentGoogleEmailOtpRegistrationAttemptRow(input: {
@@ -476,15 +539,10 @@ export function parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(
   const aadHashB64u = toOptionalTrimmedString(obj.aadHashB64u);
   const issuedAtMs = toPositiveSafeInt(obj.issuedAtMs);
   const updatedAtMs = toPositiveSafeInt(obj.updatedAtMs);
-  const acknowledgedAtMs =
-    obj.acknowledgedAtMs == null ? undefined : toPositiveSafeInt(obj.acknowledgedAtMs) || undefined;
   const consumedAtMs =
     obj.consumedAtMs == null ? undefined : toPositiveSafeInt(obj.consumedAtMs) || undefined;
   const revokedAtMs =
     obj.revokedAtMs == null ? undefined : toPositiveSafeInt(obj.revokedAtMs) || undefined;
-  const abandonedAtMs =
-    obj.abandonedAtMs == null ? undefined : toPositiveSafeInt(obj.abandonedAtMs) || undefined;
-  const cleanupReason = toOptionalTrimmedString(obj.cleanupReason);
   if (
     version !== 'email_otp_recovery_wrapped_enrollment_escrow_v1' ||
     alg !== EMAIL_OTP_RECOVERY_WRAP_ALG ||
@@ -509,6 +567,7 @@ export function parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(
   ) {
     return null;
   }
+  if (userId !== authSubjectId) return null;
   if (
     !isB64uString(nonceB64u) ||
     !isB64uString(wrappedDeviceEnrollmentEscrowB64u) ||
@@ -517,12 +576,13 @@ export function parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(
     return null;
   }
   if (
-    recoveryKeyStatus !== 'pending_backup' &&
     recoveryKeyStatus !== 'active' &&
     recoveryKeyStatus !== 'consumed' &&
-    recoveryKeyStatus !== 'revoked' &&
-    recoveryKeyStatus !== 'abandoned'
+    recoveryKeyStatus !== 'revoked'
   ) {
+    return null;
+  }
+  if ('acknowledgedAtMs' in obj || 'abandonedAtMs' in obj || 'cleanupReason' in obj) {
     return null;
   }
   if (updatedAtMs < issuedAtMs) return null;
@@ -550,78 +610,21 @@ export function parseCurrentEmailOtpRecoveryWrappedEnrollmentEscrowRecord(
     updatedAtMs,
   };
   switch (recoveryKeyStatus) {
-    case 'pending_backup':
-      if (
-        acknowledgedAtMs !== undefined ||
-        consumedAtMs !== undefined ||
-        revokedAtMs !== undefined ||
-        abandonedAtMs !== undefined ||
-        cleanupReason
-      ) {
+    case 'active':
+      if (consumedAtMs !== undefined || revokedAtMs !== undefined) {
         return null;
       }
       return { ...base, recoveryKeyStatus };
-    case 'active':
-      if (
-        acknowledgedAtMs === undefined ||
-        consumedAtMs !== undefined ||
-        revokedAtMs !== undefined ||
-        abandonedAtMs !== undefined ||
-        cleanupReason
-      ) {
-        return null;
-      }
-      return { ...base, recoveryKeyStatus, acknowledgedAtMs };
     case 'consumed':
-      if (
-        acknowledgedAtMs === undefined ||
-        consumedAtMs === undefined ||
-        revokedAtMs !== undefined ||
-        abandonedAtMs !== undefined ||
-        cleanupReason
-      ) {
+      if (consumedAtMs === undefined || revokedAtMs !== undefined) {
         return null;
       }
-      return { ...base, recoveryKeyStatus, acknowledgedAtMs, consumedAtMs };
+      return { ...base, recoveryKeyStatus, consumedAtMs };
     case 'revoked':
-      if (
-        acknowledgedAtMs === undefined ||
-        consumedAtMs !== undefined ||
-        revokedAtMs === undefined ||
-        abandonedAtMs !== undefined ||
-        cleanupReason
-      ) {
+      if (consumedAtMs !== undefined || revokedAtMs === undefined) {
         return null;
       }
-      return { ...base, recoveryKeyStatus, acknowledgedAtMs, revokedAtMs };
-    case 'abandoned':
-      const abandonedCleanupReason = cleanupReason as
-        | 'registration_cancelled'
-        | 'registration_restarted'
-        | 'rotation_restarted'
-        | 'pending_backup_expired'
-        | undefined;
-      if (
-        acknowledgedAtMs !== undefined ||
-        consumedAtMs !== undefined ||
-        revokedAtMs !== undefined ||
-        abandonedAtMs === undefined ||
-        !abandonedCleanupReason ||
-        ![
-          'registration_cancelled',
-          'registration_restarted',
-          'rotation_restarted',
-          'pending_backup_expired',
-        ].includes(abandonedCleanupReason)
-      ) {
-        return null;
-      }
-      return {
-        ...base,
-        recoveryKeyStatus,
-        abandonedAtMs,
-        cleanupReason: abandonedCleanupReason,
-      };
+      return { ...base, recoveryKeyStatus, revokedAtMs };
     default:
       return null;
   }

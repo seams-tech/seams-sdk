@@ -23,6 +23,16 @@ import type { EmailOtpAuthPolicy, SeamsConfigsInput } from '@/core/types/seams';
 import type { WalletEmailOtpLoginOperation } from '@shared/utils/emailOtpDomain';
 import type { WalletFlowEvent } from '@/core/types/sdkSentEvents';
 import type {
+  GoogleEmailOtpWalletAuthDelivery,
+  GoogleEmailOtpWalletAuthEcdsaTargets,
+  GoogleEmailOtpWalletAuthFailure,
+  GoogleEmailOtpWalletAuthPromptCopy,
+  GoogleEmailOtpWalletAuthRegistrationCompleted,
+  GoogleEmailOtpWalletAuthResolvedMode,
+  GoogleEmailOtpWalletAuthRequestedMode,
+  GoogleEmailOtpWalletAuthSubmitSuccess,
+} from '@/SeamsWeb/publicApi/types';
+import type {
   AddSignerSelection,
   RegistrationAuthMethodInput,
   RegisterWalletInput,
@@ -48,13 +58,18 @@ export type ParentToChildType =
   | 'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE'
   | 'PM_REQUEST_EMAIL_OTP_SIGNING_SESSION_CHALLENGE'
   | 'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION'
+  | 'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH'
+  | 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_RESEND'
+  | 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_REROLL_WALLET_ID'
+  | 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_SUBMIT'
+  | 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_COMPLETE_REGISTRATION'
+  | 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_CANCEL'
   | 'PM_ENROLL_EMAIL_OTP'
   | 'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
   | 'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION'
   | 'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY'
-  | 'PM_ACKNOWLEDGE_EMAIL_OTP_RECOVERY_CODE_BACKUP'
   | 'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS'
-  | 'PM_SHOW_EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP'
+  | 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES'
   | 'PM_GET_RECOVERY_EMAILS'
   | 'PM_SET_RECOVERY_EMAILS'
   | 'PM_SIGN_TXS_WITH_ACTIONS'
@@ -161,6 +176,71 @@ export interface PMUnlockPayload {
   nearAccountId: string;
   options?: Record<string, unknown>;
 }
+
+export type PMGoogleEmailOtpWalletAuthStartPayload = {
+  idToken: string;
+  mode: GoogleEmailOtpWalletAuthRequestedMode;
+  relayUrl?: string;
+  sessionKind?: 'jwt' | 'cookie';
+  ecdsaTargets?: GoogleEmailOtpWalletAuthEcdsaTargets;
+  emailOtpAuthPolicy?: EmailOtpAuthPolicy;
+};
+
+export type PMGoogleEmailOtpWalletAuthHandlePayload = {
+  flowHandleId: string;
+  flowId: string;
+  walletId: string;
+  mode: GoogleEmailOtpWalletAuthResolvedMode;
+};
+
+export type PMGoogleEmailOtpWalletAuthSubmitPayload =
+  PMGoogleEmailOtpWalletAuthHandlePayload & {
+    otpCode: string;
+  };
+
+export type PMGoogleEmailOtpWalletAuthRegistrationWireFlow = {
+  kind: 'google_email_otp_wallet_auth_flow_v1';
+  state: 'registration_ready';
+  flowHandleId: string;
+  flowId: string;
+  requestedMode: GoogleEmailOtpWalletAuthRequestedMode;
+  mode: 'register';
+  walletId: string;
+  emailHint: string;
+  prompt: GoogleEmailOtpWalletAuthPromptCopy;
+  expiresAtMs: number;
+};
+
+export type PMGoogleEmailOtpWalletAuthLoginWireFlow = {
+  kind: 'google_email_otp_wallet_auth_flow_v1';
+  state: 'challenge_sent';
+  flowHandleId: string;
+  flowId: string;
+  requestedMode: GoogleEmailOtpWalletAuthRequestedMode;
+  mode: 'login';
+  walletId: string;
+  emailHint: string;
+  prompt: GoogleEmailOtpWalletAuthPromptCopy;
+  delivery: GoogleEmailOtpWalletAuthDelivery;
+  expiresAtMs: number;
+};
+
+export type PMGoogleEmailOtpWalletAuthWireFlow =
+  | PMGoogleEmailOtpWalletAuthRegistrationWireFlow
+  | PMGoogleEmailOtpWalletAuthLoginWireFlow;
+
+export type PMGoogleEmailOtpWalletAuthWireResult<T> =
+  | { ok: true; value: T }
+  | { ok: false; error: GoogleEmailOtpWalletAuthFailure };
+
+export type PMGoogleEmailOtpWalletAuthRegistrationWireResult =
+  PMGoogleEmailOtpWalletAuthWireResult<PMGoogleEmailOtpWalletAuthRegistrationWireFlow>;
+
+export type PMGoogleEmailOtpWalletAuthSubmitWireResult =
+  PMGoogleEmailOtpWalletAuthWireResult<GoogleEmailOtpWalletAuthSubmitSuccess>;
+
+export type PMGoogleEmailOtpWalletAuthCompleteRegistrationWireResult =
+  PMGoogleEmailOtpWalletAuthWireResult<GoogleEmailOtpWalletAuthRegistrationCompleted>;
 
 export interface PMSignTxsPayload {
   nearAccountId: string;
@@ -331,7 +411,6 @@ export interface PMExchangeGoogleEmailOtpSessionPayload {
   accountMode: 'register' | 'login';
   relayUrl?: string;
   sessionKind?: 'jwt' | 'cookie';
-  rerollRegistrationAttempt?: boolean;
 }
 
 export interface PMEnrollEmailOtpPayload {
@@ -343,21 +422,13 @@ export interface PMEnrollEmailOtpPayload {
   appSessionJwt?: string;
 }
 
-export interface PMAcknowledgeEmailOtpRecoveryCodeBackupPayload {
-  walletId: string;
-  enrollmentId: string;
-  enrollmentSealKeyVersion: string;
-  relayUrl?: string;
-  appSessionJwt?: string;
-}
-
 export interface PMGetEmailOtpRecoveryCodeStatusPayload {
   walletId: string;
   relayUrl?: string;
   appSessionJwt?: string;
 }
 
-export interface PMShowEmailOtpPendingRecoveryCodeBackupPayload {
+export interface PMShowEmailOtpRecoveryCodesPayload {
   walletId: string;
   relayUrl?: string;
   appSessionJwt?: string;
@@ -482,6 +553,27 @@ export type ParentToChildEnvelope =
       PMEmailOtpSigningSessionChallengePayload
     >
   | RpcEnvelope<'PM_EXCHANGE_GOOGLE_EMAIL_OTP_SESSION', PMExchangeGoogleEmailOtpSessionPayload>
+  | RpcEnvelope<'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH', PMGoogleEmailOtpWalletAuthStartPayload>
+  | RpcEnvelope<
+      'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_RESEND',
+      PMGoogleEmailOtpWalletAuthHandlePayload
+    >
+  | RpcEnvelope<
+      'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_REROLL_WALLET_ID',
+      PMGoogleEmailOtpWalletAuthHandlePayload
+    >
+  | RpcEnvelope<
+      'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_SUBMIT',
+      PMGoogleEmailOtpWalletAuthSubmitPayload
+    >
+  | RpcEnvelope<
+      'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_COMPLETE_REGISTRATION',
+      PMGoogleEmailOtpWalletAuthHandlePayload
+    >
+  | RpcEnvelope<
+      'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_CANCEL',
+      PMGoogleEmailOtpWalletAuthHandlePayload
+    >
   | RpcEnvelope<'PM_ENROLL_EMAIL_OTP', PMEnrollEmailOtpPayload>
   | RpcEnvelope<'PM_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY', PMEmailOtpEcdsaCapabilityPayload>
   | RpcEnvelope<'PM_REFRESH_EMAIL_OTP_SIGNING_SESSION', PMRefreshEmailOtpSigningSessionPayload>
@@ -490,16 +582,12 @@ export type ParentToChildEnvelope =
       PMEmailOtpEcdsaEnrollmentCapabilityPayload
     >
   | RpcEnvelope<
-      'PM_ACKNOWLEDGE_EMAIL_OTP_RECOVERY_CODE_BACKUP',
-      PMAcknowledgeEmailOtpRecoveryCodeBackupPayload
-    >
-  | RpcEnvelope<
       'PM_GET_EMAIL_OTP_RECOVERY_CODE_STATUS',
       PMGetEmailOtpRecoveryCodeStatusPayload
     >
   | RpcEnvelope<
-      'PM_SHOW_EMAIL_OTP_PENDING_RECOVERY_CODE_BACKUP',
-      PMShowEmailOtpPendingRecoveryCodeBackupPayload
+      'PM_SHOW_EMAIL_OTP_RECOVERY_CODES',
+      PMShowEmailOtpRecoveryCodesPayload
     >
   | RpcEnvelope<'PM_GET_RECOVERY_EMAILS', PMGetRecoveryEmailsPayload>
   | RpcEnvelope<'PM_SET_RECOVERY_EMAILS', PMSetRecoveryEmailsPayload>

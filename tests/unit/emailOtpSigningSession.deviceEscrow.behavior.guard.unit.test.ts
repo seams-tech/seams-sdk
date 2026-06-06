@@ -41,7 +41,7 @@ test.describe('Email OTP signing-session device escrow guard', () => {
       storesSource.indexOf('export interface EmailOtpWalletEnrollmentStore'),
     );
     const recoveryWrappedType = storesSource.slice(
-      storesSource.indexOf('export type EmailOtpRecoveryWrappedEnrollmentEscrowRecord'),
+      storesSource.indexOf('type EmailOtpRecoveryWrappedEnrollmentEscrowBase'),
       storesSource.indexOf('export interface EmailOtpRecoveryWrappedEnrollmentEscrowStore'),
     );
     const verifyEnrollmentRequest = authServiceSource.slice(

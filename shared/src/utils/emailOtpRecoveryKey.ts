@@ -37,18 +37,56 @@ export type EmailOtpRecoveryCodeSet = readonly [
   EmailOtpRecoveryCode,
 ];
 
-export type EmailOtpRecoveryWrapMetadata = {
+export type EmailOtpRecoveryWrapBinding = {
+  auth: {
+    authMethod: 'google_sso_email_otp';
+    walletId: string;
+    userId: string;
+    authSubjectId: string;
+  };
+  enrollment: {
+    enrollmentId: string;
+    enrollmentVersion: string;
+    enrollmentSealKeyVersion: string;
+  };
+  signingRoot: {
+    signingRootId: string;
+    signingRootVersion: string;
+  };
+  recoveryKeyId: string;
+};
+
+export function buildEmailOtpRecoveryWrapBinding(args: {
   walletId: string;
   userId: string;
   authSubjectId: string;
-  authMethod: string;
+  authMethod: 'google_sso_email_otp';
   enrollmentId: string;
   enrollmentVersion: string;
   enrollmentSealKeyVersion: string;
   signingRootId: string;
   signingRootVersion: string;
   recoveryKeyId: string;
-};
+}): EmailOtpRecoveryWrapBinding {
+  return {
+    auth: {
+      authMethod: args.authMethod,
+      walletId: args.walletId,
+      userId: args.userId,
+      authSubjectId: args.authSubjectId,
+    },
+    enrollment: {
+      enrollmentId: args.enrollmentId,
+      enrollmentVersion: args.enrollmentVersion,
+      enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
+    },
+    signingRoot: {
+      signingRootId: args.signingRootId,
+      signingRootVersion: args.signingRootVersion,
+    },
+    recoveryKeyId: args.recoveryKeyId,
+  };
+}
 
 export type EmailOtpRecoveryChaCha20Poly1305 = {
   encrypt(input: {
@@ -221,53 +259,53 @@ export function decodeEmailOtpRecoveryKey(input: string): Uint8Array {
   return out;
 }
 
-export function emailOtpRecoveryKekInfoFields(args: EmailOtpRecoveryWrapMetadata): string[] {
+export function emailOtpRecoveryKekInfoFields(args: EmailOtpRecoveryWrapBinding): string[] {
   return [
-    trimString(args.walletId),
-    trimString(args.userId),
-    trimString(args.authSubjectId),
-    trimString(args.enrollmentId),
-    trimString(args.enrollmentVersion),
+    trimString(args.auth.walletId),
+    trimString(args.auth.userId),
+    trimString(args.auth.authSubjectId),
+    trimString(args.enrollment.enrollmentId),
+    trimString(args.enrollment.enrollmentVersion),
     trimString(args.recoveryKeyId),
   ];
 }
 
 export function emailOtpRecoveryWrappedEnrollmentAadFields(
-  args: EmailOtpRecoveryWrapMetadata,
+  args: EmailOtpRecoveryWrapBinding,
 ): string[] {
   return [
     EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_AAD_CONTEXT,
-    trimString(args.walletId),
-    trimString(args.userId),
-    trimString(args.authSubjectId),
-    trimString(args.authMethod),
-    trimString(args.enrollmentId),
-    trimString(args.enrollmentVersion),
-    trimString(args.enrollmentSealKeyVersion),
-    trimString(args.signingRootId),
-    trimString(args.signingRootVersion),
+    trimString(args.auth.walletId),
+    trimString(args.auth.userId),
+    trimString(args.auth.authSubjectId),
+    trimString(args.auth.authMethod),
+    trimString(args.enrollment.enrollmentId),
+    trimString(args.enrollment.enrollmentVersion),
+    trimString(args.enrollment.enrollmentSealKeyVersion),
+    trimString(args.signingRoot.signingRootId),
+    trimString(args.signingRoot.signingRootVersion),
     trimString(args.recoveryKeyId),
   ];
 }
 
-export function encodeEmailOtpRecoveryKekInfo(args: EmailOtpRecoveryWrapMetadata): Uint8Array {
+export function encodeEmailOtpRecoveryKekInfo(args: EmailOtpRecoveryWrapBinding): Uint8Array {
   return encodeSigningSessionHkdfTuple(emailOtpRecoveryKekInfoFields(args));
 }
 
 export function encodeEmailOtpRecoveryWrappedEnrollmentAad(
-  args: EmailOtpRecoveryWrapMetadata,
+  args: EmailOtpRecoveryWrapBinding,
 ): Uint8Array {
   return encodeSigningSessionHkdfTuple(emailOtpRecoveryWrappedEnrollmentAadFields(args));
 }
 
 export async function deriveEmailOtpRecoveryKek32(args: {
   recoveryKey: string;
-  metadata: EmailOtpRecoveryWrapMetadata;
+  binding: EmailOtpRecoveryWrapBinding;
 }): Promise<Uint8Array> {
   const subtle = requireSubtleCrypto();
   const recoveryKeyBytes = decodeEmailOtpRecoveryKey(args.recoveryKey);
   const salt = new TextEncoder().encode(EMAIL_OTP_RECOVERY_WRAP_HKDF_SALT);
-  const info = encodeEmailOtpRecoveryKekInfo(args.metadata);
+  const info = encodeEmailOtpRecoveryKekInfo(args.binding);
   try {
     const key = await subtle.importKey('raw', recoveryKeyBytes, 'HKDF', false, ['deriveBits']);
     return new Uint8Array(
@@ -291,7 +329,7 @@ export async function deriveEmailOtpRecoveryKek32(args: {
 
 export async function wrapEmailOtpDeviceEnrollmentEscrow(args: {
   recoveryKey: string;
-  metadata: EmailOtpRecoveryWrapMetadata;
+  binding: EmailOtpRecoveryWrapBinding;
   encS: Uint8Array;
   chacha20poly1305: EmailOtpRecoveryChaCha20Poly1305;
   nonce12?: Uint8Array;
@@ -304,12 +342,12 @@ export async function wrapEmailOtpDeviceEnrollmentEscrow(args: {
       )
     : cryptoRandomBytes(EMAIL_OTP_RECOVERY_WRAP_NONCE_LENGTH);
   let key32: Uint8Array | null = null;
-  const aad = encodeEmailOtpRecoveryWrappedEnrollmentAad(args.metadata);
+  const aad = encodeEmailOtpRecoveryWrappedEnrollmentAad(args.binding);
   const plaintext = copyBytes(args.encS, 'encS');
   try {
     key32 = await deriveEmailOtpRecoveryKek32({
       recoveryKey: args.recoveryKey,
-      metadata: args.metadata,
+      binding: args.binding,
     });
     const ciphertext = await args.chacha20poly1305.encrypt({
       key32,
@@ -331,7 +369,7 @@ export async function wrapEmailOtpDeviceEnrollmentEscrow(args: {
 
 export async function unwrapEmailOtpDeviceEnrollmentEscrow(args: {
   recoveryKey: string;
-  metadata: EmailOtpRecoveryWrapMetadata;
+  binding: EmailOtpRecoveryWrapBinding;
   wrapped: EmailOtpRecoveryWrappedEncS;
   chacha20poly1305: EmailOtpRecoveryChaCha20Poly1305;
 }): Promise<Uint8Array> {
@@ -345,11 +383,11 @@ export async function unwrapEmailOtpDeviceEnrollmentEscrow(args: {
   );
   const ciphertext = copyBytes(args.wrapped.ciphertext, 'wrapped.ciphertext');
   let key32: Uint8Array | null = null;
-  const aad = encodeEmailOtpRecoveryWrappedEnrollmentAad(args.metadata);
+  const aad = encodeEmailOtpRecoveryWrappedEnrollmentAad(args.binding);
   try {
     key32 = await deriveEmailOtpRecoveryKek32({
       recoveryKey: args.recoveryKey,
-      metadata: args.metadata,
+      binding: args.binding,
     });
     try {
       return await args.chacha20poly1305.decrypt({

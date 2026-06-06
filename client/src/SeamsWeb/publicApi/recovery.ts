@@ -6,7 +6,6 @@ import type {
 import type { WalletIframeCoordinator } from '@/SeamsWeb/walletIframe/coordinator';
 
 export type RecoveryCapabilityDomainMethods = {
-  acknowledgeEmailOtpRecoveryCodeBackup: RecoveryCapability['acknowledgeEmailOtpRecoveryCodeBackup'];
   getEmailOtpRecoveryCodeStatus: RecoveryCapability['getEmailOtpRecoveryCodeStatus'];
 };
 
@@ -26,7 +25,6 @@ export function createRecoveryCapability(deps: {
     startEmailRecovery: async (args) => await emailRecovery.startEmailRecovery(args),
     finalizeEmailRecovery: async (args) => await emailRecovery.finalizeEmailRecovery(args),
     cancelEmailRecovery: async (args) => await emailRecovery.cancelEmailRecovery(args),
-    acknowledgeEmailOtpRecoveryCodeBackup: deps.domain.acknowledgeEmailOtpRecoveryCodeBackup,
     getEmailOtpRecoveryCodeStatus: deps.domain.getEmailOtpRecoveryCodeStatus,
   } satisfies RecoveryCapability;
 }

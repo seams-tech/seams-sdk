@@ -101,7 +101,7 @@ import type {
 import { executeEvmFamilyTransactionLifecycle } from '@/SeamsWeb/operations/tempo/executeEvmFamilyTransaction';
 import { toAccountId } from '@/core/types/accountIds';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
-import { buildPasskeyNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
+import { buildNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
 
 export class SeamsWebIframe {
   readonly configs: SeamsConfigsReadonly;
@@ -221,6 +221,8 @@ export class SeamsWebIframe {
         await this.router.exchangeGoogleEmailOtpSession(args),
       loginWithEmailOtpEcdsaCapability: async (args) =>
         await this.router.loginWithEmailOtpEcdsaCapability(args),
+      beginGoogleEmailOtpWalletAuth: async (args) =>
+        await this.router.beginGoogleEmailOtpWalletAuth(args),
     };
     this.registration = {
       addWalletSigner: async (args) => await this.addWalletSignerDomain(args),
@@ -268,7 +270,7 @@ export class SeamsWebIframe {
           },
           rpId,
           authMethod: args.authMethod || { kind: 'passkey' as const },
-          signerSelection: buildPasskeyNearWalletRegistrationSignerSelection({
+          signerSelection: buildNearWalletRegistrationSignerSelection({
             configs: this.configs,
             nearAccountId: String(accountId),
             options: args.options || {},
@@ -382,14 +384,6 @@ export class SeamsWebIframe {
         await this.requireRouterReady();
         await this.router.stopEmailRecovery(args);
       },
-      acknowledgeEmailOtpRecoveryCodeBackup: async (args) =>
-        await this.router.acknowledgeEmailOtpRecoveryCodeBackup({
-          walletId: args.walletId,
-          enrollmentId: args.enrollmentId,
-          enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
-          relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
-          ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
-        }),
       getEmailOtpRecoveryCodeStatus: async (args) =>
         await this.router.getEmailOtpRecoveryCodeStatus({
           walletId: args.walletId,
@@ -464,11 +458,11 @@ export class SeamsWebIframe {
     return this.router;
   }
 
-  async showEmailOtpPendingRecoveryCodeBackupForAccountMenu(args: {
+  async showEmailOtpRecoveryCodesForAccountMenu(args: {
     walletId: string;
   }): Promise<Awaited<ReturnType<RecoveryCapability['getEmailOtpRecoveryCodeStatus']>>> {
     await this.requireRouterReady();
-    return await this.router.showEmailOtpPendingRecoveryCodeBackup({
+    return await this.router.showEmailOtpRecoveryCodes({
       walletId: args.walletId,
       relayUrl: String(this.configs.network.relayer.url || '').trim(),
     });

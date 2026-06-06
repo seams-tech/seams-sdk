@@ -15,7 +15,7 @@ export const SEAMS_WALLET_STORES = {
   signingSessionSeals: 'signing_session_seals',
   signingSessionRestoreLeases: 'signing_session_restore_leases',
   emailOtpDeviceEnrollmentEscrows: 'email_otp_escrows',
-  emailOtpPendingRecoveryCodeBackups: 'email_otp_pending_recovery_code_backups',
+  emailOtpRecoveryCodeBackups: 'email_otp_pending_recovery_code_backups',
 } as const;
 
 export const SEAMS_WALLET_INDEXES = {
@@ -51,6 +51,7 @@ export const SEAMS_WALLET_INDEXES = {
   accountId: 'account_id',
   state: 'state',
   expiresAtMs: 'expires_at_ms',
+  recoveryCodesIssuedAtMs: 'recovery_codes_issued_at_ms',
   laneState: 'lane_state',
   accountExpiresAt: 'account_expires_at',
   ownerId: 'owner_id',
@@ -328,7 +329,7 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
     ],
   },
   {
-    store: SEAMS_WALLET_STORES.emailOtpPendingRecoveryCodeBackups,
+    store: SEAMS_WALLET_STORES.emailOtpRecoveryCodeBackups,
     keyPath: ['wallet_id', 'enrollment_id'],
     indexes: [
       { name: SEAMS_WALLET_INDEXES.walletId, keyPath: 'wallet_id', unique: false },
@@ -338,7 +339,11 @@ export const SEAMS_WALLET_SCHEMA_MANIFEST = [
         keyPath: ['wallet_id', 'enrollment_id'],
         unique: true,
       },
-      { name: SEAMS_WALLET_INDEXES.expiresAtMs, keyPath: 'expires_at_ms', unique: false },
+      {
+        name: SEAMS_WALLET_INDEXES.recoveryCodesIssuedAtMs,
+        keyPath: 'recovery_codes_issued_at_ms',
+        unique: false,
+      },
       { name: SEAMS_WALLET_INDEXES.status, keyPath: 'status', unique: false },
     ],
   },

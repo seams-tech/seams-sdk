@@ -11,7 +11,7 @@ type FetchLike = typeof fetch;
 export type EmailOtpRegistrationAuthorityMaterial = {
   kind: 'email_otp';
   proof: EmailOtpRegistrationProof;
-  challengeId: string;
+  registrationAuthorityId: string;
   appSessionVersion: string;
   providerSubject: string;
   email: string;
@@ -45,7 +45,6 @@ export async function collectEmailOtpRegistrationAuthority(args: {
   fetchImpl?: FetchLike;
 }): Promise<EmailOtpRegistrationAuthorityMaterial> {
   const email = requireTrimmedField(args.authMethod.email, 'email').toLowerCase();
-  const otpCode = requireTrimmedField(args.authMethod.otpCode, 'otpCode');
   const relayUrl = requireTrimmedField(args.relayUrl, 'relayUrl');
   const walletId = requireTrimmedField(args.walletId, 'walletId');
   const registrationIntentDigestB64u = requireTrimmedField(
@@ -57,6 +56,46 @@ export async function collectEmailOtpRegistrationAuthority(args: {
     emailOtpRegistrationProviderSubjectFromJwt(appSessionJwt),
     'providerSubject',
   );
+  const jwtAppSessionVersion = appSessionVersionFromJwt(appSessionJwt);
+  const explicitAppSessionVersion =
+    typeof args.appSessionVersion === 'string' ? args.appSessionVersion.trim() : '';
+  if (args.authMethod.proofKind === 'google_sso_registration') {
+    const registrationAttemptId = requireTrimmedField(
+      args.authMethod.googleEmailOtpRegistrationAttemptId,
+      'googleEmailOtpRegistrationAttemptId',
+    );
+    const registrationOfferId = requireTrimmedField(
+      args.authMethod.googleEmailOtpRegistrationOfferId,
+      'googleEmailOtpRegistrationOfferId',
+    );
+    const registrationCandidateId = requireTrimmedField(
+      args.authMethod.googleEmailOtpRegistrationCandidateId,
+      'googleEmailOtpRegistrationCandidateId',
+    );
+    const appSessionVersion = explicitAppSessionVersion || jwtAppSessionVersion;
+    if (!appSessionVersion) {
+      throw new Error('appSessionVersion is required for Email OTP registration authority');
+    }
+    return {
+      kind: 'email_otp',
+      proof: {
+        version: 'email_otp_registration_proof_v1',
+        proofKind: 'google_sso_registration',
+        providerSubject,
+        email,
+        googleEmailOtpRegistrationAttemptId: registrationAttemptId,
+        googleEmailOtpRegistrationOfferId: registrationOfferId,
+        googleEmailOtpRegistrationCandidateId: registrationCandidateId,
+        registrationIntentDigestB64u,
+        appSessionVersion,
+      },
+      registrationAuthorityId: registrationAttemptId,
+      appSessionVersion,
+      providerSubject,
+      email,
+    };
+  }
+  const otpCode = requireTrimmedField(args.authMethod.otpCode, 'otpCode');
   const inputChallengeId =
     typeof args.authMethod.challengeId === 'string' ? args.authMethod.challengeId.trim() : '';
   const challenge = inputChallengeId
@@ -69,9 +108,9 @@ export async function collectEmailOtpRegistrationAuthority(args: {
       });
   const challengeId = inputChallengeId || requireTrimmedField(challenge?.challengeId, 'challengeId');
   const appSessionVersion =
-    (typeof args.appSessionVersion === 'string' ? args.appSessionVersion.trim() : '') ||
+    explicitAppSessionVersion ||
     (typeof challenge?.appSessionVersion === 'string' ? challenge.appSessionVersion.trim() : '') ||
-    appSessionVersionFromJwt(appSessionJwt);
+    jwtAppSessionVersion;
   if (!appSessionVersion) {
     throw new Error('appSessionVersion is required for Email OTP registration authority');
   }
@@ -79,6 +118,7 @@ export async function collectEmailOtpRegistrationAuthority(args: {
     kind: 'email_otp',
     proof: {
       version: 'email_otp_registration_proof_v1',
+      proofKind: 'otp_challenge',
       providerSubject,
       email,
       challengeId,
@@ -87,7 +127,7 @@ export async function collectEmailOtpRegistrationAuthority(args: {
       registrationIntentDigestB64u,
       appSessionVersion,
     },
-    challengeId,
+    registrationAuthorityId: challengeId,
     appSessionVersion,
     providerSubject,
     email,

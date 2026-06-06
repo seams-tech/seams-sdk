@@ -7,11 +7,11 @@ import {
   type EmailOtpRecoveryCodeBackupUiInput,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup';
 import {
-  emailOtpPendingRecoveryCodeBackupRepository,
-  type PendingEmailOtpRecoveryCodeBackupRecord,
-} from '@/core/indexedDB/seamsWalletDB/emailOtpPendingRecoveryCodeBackups';
+  emailOtpRecoveryCodeBackupRepository,
+  type StoredEmailOtpRecoveryCodeBackupRecord,
+} from '@/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups';
 import {
-  getEmailOtpPendingBackupPresenter,
+  getEmailOtpRecoveryCodePresenter,
   loadRecoveryCodesModalLoadedState,
   type RecoveryCodesLoadedState,
 } from './RecoveryCodesModalState';
@@ -27,19 +27,12 @@ type RecoveryCodesLoadState =
   | { kind: 'idle' }
   | { kind: 'loading' }
   | RecoveryCodesLoadedState
-  | {
-      kind: 'acknowledging_pending_backup';
-      status: EmailOtpRecoveryCodeStatus;
-      pendingBackup: PendingEmailOtpRecoveryCodeBackupRecord;
-    }
   | { kind: 'error'; message: string };
 
 function statusLabel(status: EmailOtpRecoveryCodeStatus['status']): string {
   switch (status) {
     case 'ready':
       return 'Backed up';
-    case 'pending_backup':
-      return 'Backup pending';
     case 'incomplete':
       return 'Rotation needed';
     case 'not_enrolled':
@@ -52,15 +45,15 @@ function formatTimestamp(value: number | null): string {
   return new Date(value).toLocaleString();
 }
 
-function pendingBackupUiInput(
-  pendingBackup: PendingEmailOtpRecoveryCodeBackupRecord,
+function recoveryCodeBackupUiInput(
+  backup: StoredEmailOtpRecoveryCodeBackupRecord,
 ): EmailOtpRecoveryCodeBackupUiInput {
   return {
-    walletId: pendingBackup.walletId,
-    enrollmentId: pendingBackup.enrollmentId,
-    enrollmentSealKeyVersion: pendingBackup.enrollmentSealKeyVersion,
-    recoveryCodesIssuedAtMs: pendingBackup.recoveryCodesIssuedAtMs,
-    recoveryKeys: pendingBackup.recoveryKeys,
+    walletId: backup.walletId,
+    enrollmentId: backup.enrollmentId,
+    enrollmentSealKeyVersion: backup.enrollmentSealKeyVersion,
+    recoveryCodesIssuedAtMs: backup.recoveryCodesIssuedAtMs,
+    recoveryKeys: backup.recoveryKeys,
   };
 }
 
@@ -87,8 +80,8 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
         const loaded = await loadRecoveryCodesModalLoadedState({
           walletId: nearAccountId,
           recovery: seams.recovery,
-          pendingBackupRepository: emailOtpPendingRecoveryCodeBackupRepository,
-          showPendingBackup: getEmailOtpPendingBackupPresenter(seams),
+          recoveryCodeBackupRepository: emailOtpRecoveryCodeBackupRepository,
+          showRecoveryCodes: getEmailOtpRecoveryCodePresenter(seams),
         });
         if (loadStatusSeq.current !== requestSeq) return;
         setLoadState(loaded);
@@ -124,38 +117,34 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
     void loadRecoveryCodeStatus();
   }, [isOpen, loadRecoveryCodeStatus]);
 
-  const downloadPendingBackup = React.useCallback(async () => {
+  const downloadRecoveryCodeBackup = React.useCallback(async () => {
     const current = loadState;
     if (current.kind !== 'loaded' || !current.localBackup) return;
-    const { status, localBackup } = current;
+    const { localBackup } = current;
     try {
-      downloadRecoveryCodes(pendingBackupUiInput(localBackup));
+      downloadRecoveryCodes(recoveryCodeBackupUiInput(localBackup));
     } catch {
       setLoadState({ ...current, actionError: 'Download failed. Try again.' });
       return;
     }
-    if (status.status !== 'pending_backup') {
-      setLoadState({ ...current, actionError: '' });
-      return;
-    }
-    setLoadState({ kind: 'acknowledging_pending_backup', status, pendingBackup: localBackup });
     try {
-      await seams.recovery.acknowledgeEmailOtpRecoveryCodeBackup({
+      const updated = await emailOtpRecoveryCodeBackupRepository.markDownloaded({
         walletId: localBackup.walletId,
         enrollmentId: localBackup.enrollmentId,
         enrollmentSealKeyVersion: localBackup.enrollmentSealKeyVersion,
       });
-      await loadRecoveryCodeStatus();
-    } catch (error: unknown) {
       setLoadState({
-        kind: 'loaded',
-        status,
-        localBackup,
-        actionError:
-          error instanceof Error ? error.message : 'Could not confirm backup. Try again.',
+        ...current,
+        localBackup: updated || localBackup,
+        actionError: '',
+      });
+    } catch {
+      setLoadState({
+        ...current,
+        actionError: '',
       });
     }
-  }, [loadRecoveryCodeStatus, loadState, seams.recovery]);
+  }, [loadState]);
 
   if (!isOpen) return null;
 
@@ -201,8 +190,6 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
               <span className="w3a-recovery-codes-status-value">
                 {loadState.kind === 'loaded'
                   ? statusLabel(loadState.status.status)
-                  : loadState.kind === 'acknowledging_pending_backup'
-                    ? 'Confirming backup'
                   : loadState.kind === 'error'
                     ? 'Could not load'
                     : 'Loading'}
@@ -212,6 +199,9 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
               <>
                 {loadState.localBackup ? (
                   <>
+                    <p className="w3a-recovery-codes-note">
+                      Each code can be used once. Store them somewhere private.
+                    </p>
                     <ol className="w3a-recovery-codes-list">
                       {loadState.localBackup.recoveryKeys.map((code, index) => (
                         <li className="w3a-recovery-codes-list-item" key={code}>
@@ -223,7 +213,7 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
                     <button
                       type="button"
                       className="w3a-recovery-codes-primary-action"
-                      onClick={() => void downloadPendingBackup()}
+                      onClick={() => void downloadRecoveryCodeBackup()}
                     >
                       Download
                     </button>
@@ -233,7 +223,7 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
                       </div>
                     ) : null}
                   </>
-                ) : loadState.status.status === 'pending_backup' ? (
+                ) : loadState.status.status !== 'not_enrolled' ? (
                   <div className="w3a-recovery-codes-status-row">
                     <span className="w3a-recovery-codes-status-label">Backup</span>
                     <span className="w3a-recovery-codes-status-value">
@@ -249,18 +239,12 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
                   </span>
                 </div>
                 <div className="w3a-recovery-codes-status-row">
-                  <span className="w3a-recovery-codes-status-label">Last backup</span>
+                  <span className="w3a-recovery-codes-status-label">Last download</span>
                   <span className="w3a-recovery-codes-status-value">
-                    {formatTimestamp(loadState.status.acknowledgedAtMs)}
+                    {formatTimestamp(loadState.localBackup?.lastDownloadedAtMs ?? null)}
                   </span>
                 </div>
               </>
-            ) : null}
-            {loadState.kind === 'acknowledging_pending_backup' ? (
-              <div className="w3a-recovery-codes-status-row">
-                <span className="w3a-recovery-codes-status-label">Backup</span>
-                <span className="w3a-recovery-codes-status-value">Confirming backup...</span>
-              </div>
             ) : null}
             {loadState.kind === 'error' ? (
               <div className="w3a-recovery-codes-status-row">

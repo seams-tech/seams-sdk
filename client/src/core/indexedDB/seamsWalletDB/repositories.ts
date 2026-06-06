@@ -504,7 +504,7 @@ function walletAuthMethodFields(
     throw new Error('[SeamsWalletDB] auth-method binding updatedAtMs is invalid');
   }
   if (record.kind === 'passkey') {
-    if (record.emailHashHex != null || record.challengeId != null) {
+    if (record.emailHashHex != null) {
       throw new Error('[SeamsWalletDB] passkey auth-method binding has Email OTP fields');
     }
     if (!toTrimmedString(record.credentialPublicKeyB64u || '')) {
@@ -522,8 +522,8 @@ function walletAuthMethodFields(
     ) {
       throw new Error('[SeamsWalletDB] Email OTP auth-method binding has passkey fields');
     }
-    if (!toTrimmedString(record.challengeId || '')) {
-      throw new Error('[SeamsWalletDB] Email OTP auth-method binding requires challengeId');
+    if (!toTrimmedString(record.registrationAuthorityId || '')) {
+      throw new Error('[SeamsWalletDB] Email OTP auth-method binding requires registrationAuthorityId');
     }
   }
   return {
@@ -670,7 +670,7 @@ function emailOtpAuthMethodRow(
     auth_method: 'email_otp',
     record,
     email_hash_hex: record.emailHashHex,
-    challenge_id: record.challengeId,
+    challenge_id: record.registrationAuthorityId,
   };
 }
 

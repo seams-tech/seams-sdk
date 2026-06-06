@@ -113,6 +113,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
       providerSubject,
       email: 'alice@example.com',
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
 
@@ -155,6 +156,16 @@ test.describe('hosted Google Email OTP account privacy', () => {
       providerSubject,
       email: 'alice@example.com',
       walletId: 'alice-example-com-1776502017920.relayer.testnet',
+      offerId: 'offer-non-hmac-attempt',
+      offerCandidates: [
+        {
+          candidateId: 'candidate-non-hmac-attempt',
+          walletId: 'alice-example-com-1776502017920.relayer.testnet',
+          collisionCounter: 0,
+        },
+      ],
+      selectedCandidateId: 'candidate-non-hmac-attempt',
+      appSessionVersion: 'app-session-v1',
       authProvider: 'google_oidc',
       accountIdSlugVersion: 'hmac_readable_v1',
       walletIdDerivationNonce: 'seededNonceA0123456789',
@@ -169,6 +180,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
       providerSubject,
       email: 'alice@example.com',
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
 
@@ -185,7 +197,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
     });
   });
 
-  test('registration reroll retires the current attempt and allocates a different HMAC-readable wallet', async () => {
+  test('registration offer restart retires the current attempt and allocates a different HMAC-readable wallet', async () => {
     const service = makeService();
     const attemptStore = (service as any).getEmailOtpRegistrationAttemptStore();
     const providerSubject = 'google:subject-reroll';
@@ -194,6 +206,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
       providerSubject,
       email: 'reroll@example.com',
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(first.ok).toBe(true);
@@ -205,7 +218,8 @@ test.describe('hosted Google Email OTP account privacy', () => {
       providerSubject,
       email: 'reroll@example.com',
       accountMode: 'register',
-      rerollRegistrationAttempt: true,
+      appSessionVersion: 'app-session-v1',
+      restartRegistrationOffer: true,
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(second.ok).toBe(true);
@@ -219,8 +233,8 @@ test.describe('hosted Google Email OTP account privacy', () => {
     const failedFirstAttempt = await attemptStore.get(first.registrationAttemptId);
     const secondAttempt = await attemptStore.get(second.registrationAttemptId);
     expect(failedFirstAttempt).toMatchObject({
-      state: 'failed',
-      failureCode: 'rerolled_by_user',
+      state: 'abandoned',
+      failureCode: 'offer_restarted_by_user',
     });
     expect(secondAttempt).toMatchObject({
       walletId: second.walletId,
@@ -233,13 +247,14 @@ test.describe('hosted Google Email OTP account privacy', () => {
     );
   });
 
-  test('registration reroll can allocate a new wallet when the Google account already has an Email OTP wallet', async () => {
+  test('registration offer restart can allocate a new wallet when the Google account already has an Email OTP wallet', async () => {
     const service = makeService();
     const providerSubject = 'google:subject-reroll-existing';
     const first = await service.resolveGoogleEmailOtpSession({
       providerSubject,
       email: 'reroll-existing@example.com',
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(first.ok).toBe(true);
@@ -275,6 +290,7 @@ test.describe('hosted Google Email OTP account privacy', () => {
       providerSubject,
       email: 'reroll-existing@example.com',
       accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
     expect(existing.ok).toBe(true);
@@ -282,23 +298,24 @@ test.describe('hosted Google Email OTP account privacy', () => {
     expect(existing.mode).toBe('existing_wallet');
     expect(existing.walletId).toBe(first.walletId);
 
-    const rerolled = await service.resolveGoogleEmailOtpSession({
+    const restarted = await service.resolveGoogleEmailOtpSession({
       providerSubject,
       email: 'reroll-existing@example.com',
       accountMode: 'register',
-      rerollRegistrationAttempt: true,
+      appSessionVersion: 'app-session-v1',
+      restartRegistrationOffer: true,
       runtimePolicyScope: RUNTIME_POLICY_SCOPE,
     });
-    expect(rerolled.ok).toBe(true);
-    if (!rerolled.ok) return;
-    expect(rerolled.mode).toBe('register_started');
-    if (rerolled.mode !== 'register_started') return;
-    expect(rerolled.walletId).not.toBe(first.walletId);
-    expect(rerolled.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
+    expect(restarted.ok).toBe(true);
+    if (!restarted.ok) return;
+    expect(restarted.mode).toBe('register_started');
+    if (restarted.mode !== 'register_started') return;
+    expect(restarted.walletId).not.toBe(first.walletId);
+    expect(restarted.walletId).toMatch(/^[a-z]+-[a-z]+-[a-z0-9]{10}\.relayer\.testnet$/);
     await expect(
-      (service as any).getEmailOtpRegistrationAttemptStore().get(rerolled.registrationAttemptId),
+      (service as any).getEmailOtpRegistrationAttemptStore().get(restarted.registrationAttemptId),
     ).resolves.toMatchObject({
-      walletId: rerolled.walletId,
+      walletId: restarted.walletId,
       walletIdDerivationNonce: expect.any(String),
       collisionCounter: 0,
     });
@@ -619,6 +636,12 @@ test.describe('hosted Google Email OTP account privacy', () => {
       providerSubject,
       email: 'expired-attempt@example.com',
       walletId,
+      offerId: 'offer-expired-registration-attempt',
+      offerCandidates: [
+        { candidateId: 'candidate-expired-registration-attempt', walletId, collisionCounter: 0 },
+      ],
+      selectedCandidateId: 'candidate-expired-registration-attempt',
+      appSessionVersion: 'app-session-v1',
       authProvider: 'google_oidc',
       accountIdSlugVersion: 'hmac_readable_v1',
       walletIdDerivationNonce: 'expiredNonceA0123456789',
@@ -655,6 +678,16 @@ test.describe('hosted Google Email OTP account privacy', () => {
       providerSubject,
       email: 'wallet-drift@example.com',
       walletId: 'attempt-wallet.w3a-relayer.testnet',
+      offerId: 'offer-wallet-drift-registration-attempt',
+      offerCandidates: [
+        {
+          candidateId: 'candidate-wallet-drift-registration-attempt',
+          walletId: 'attempt-wallet.w3a-relayer.testnet',
+          collisionCounter: 0,
+        },
+      ],
+      selectedCandidateId: 'candidate-wallet-drift-registration-attempt',
+      appSessionVersion: 'app-session-v1',
       authProvider: 'google_oidc',
       accountIdSlugVersion: 'hmac_readable_v1',
       walletIdDerivationNonce: 'walletDriftNonceA0123456789',
