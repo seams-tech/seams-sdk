@@ -921,6 +921,8 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
         clientRequest: {
           clientRequestMessageB64u: 'client-request',
           evaluatorOtStateB64u: 'evaluator-ot-state',
+          sessionResidence: 'worker_handle',
+          workerSessionHandle: 'worker-session',
         },
         serverInputDelivery: { serverInputDeliveryB64u: 'server-input-delivery' },
         clientOutputMaskB64u: Buffer.alloc(31, 0x5a).toString('base64url'),
@@ -941,6 +943,8 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
       clientRequest: {
         clientRequestMessageB64u: 'client-request',
         evaluatorOtStateB64u: 'evaluator-ot-state',
+        sessionResidence: 'worker_handle',
+        workerSessionHandle: 'worker-session',
       },
       serverInputDelivery: { serverInputDeliveryB64u: 'server-input-delivery' },
       clientOutputMaskB64u: TEST_CLIENT_OUTPUT_MASK_B64U,
@@ -955,13 +959,15 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
 
     expect(requests).toHaveLength(2);
     expect(requests[0].payload).toMatchObject({
-      evaluatorDriverStateB64u: 'evaluator-state',
+      sessionSource: 'worker_handle',
+      workerSessionHandle: 'worker-session',
       clientRequestMessageB64u: 'client-request',
       evaluatorOtStateB64u: 'evaluator-ot-state',
       serverInputDeliveryB64u: 'server-input-delivery',
       clientOutputMaskB64u: TEST_CLIENT_OUTPUT_MASK_B64U,
     });
     expect(requests[1].payload).toMatchObject({
+      sessionSource: 'serialized_state',
       evaluatorDriverStateB64u: 'evaluator-state',
       clientOutputMessageB64u: 'client-output',
       clientOutputMaskB64u: TEST_CLIENT_OUTPUT_MASK_B64U,

@@ -1,6 +1,7 @@
 import {
   WorkerRequestType,
   WorkerResponseType,
+  type WorkerResponseDiagnostics,
   type WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactResult,
   type WasmBuildThresholdEd25519SeedExportArtifactResult,
   type WasmOpenThresholdEcdsaHssRoleLocalSigningShareResult,
@@ -44,6 +45,79 @@ import { toRpId, type RpId } from '../../session/identity/evmFamilyEcdsaIdentity
 const HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS = 20_000;
 const ED25519_HSS_CLIENT_OUTPUT_MASK_BYTES = 32;
 
+function emitHssClientWorkerDiagnostics(
+  operation: string,
+  diagnostics: WorkerResponseDiagnostics | undefined,
+): void {
+  if (!diagnostics) return;
+  console.info('[threshold-ed25519][client-worker] hss command diagnostics', {
+    operation,
+    diagnostics,
+  });
+}
+
+function readFiniteDiagnosticsNumber(value: unknown): number | undefined {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : undefined;
+}
+
+function readDiagnosticsNumberRecord(value: unknown): Record<string, number> | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const out: Record<string, number> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    const numberValue = readFiniteDiagnosticsNumber(entry);
+    if (numberValue === undefined) return undefined;
+    out[key] = numberValue;
+  }
+  return out;
+}
+
+function readHssClientWorkerDiagnostics(response: unknown): WorkerResponseDiagnostics | undefined {
+  if (!response || typeof response !== 'object') return undefined;
+  const diagnostics = (response as { diagnostics?: unknown }).diagnostics;
+  if (!diagnostics || typeof diagnostics !== 'object') return undefined;
+  const value = diagnostics as Record<string, unknown>;
+  if (value.kind !== 'worker_response_diagnostics_v1') return undefined;
+  if (value.worker !== 'hssClient') return undefined;
+  const requestType = readFiniteDiagnosticsNumber(value.requestType);
+  const queueWaitMs = readFiniteDiagnosticsNumber(value.queueWaitMs);
+  const wasmInitWaitMs = readFiniteDiagnosticsNumber(value.wasmInitWaitMs);
+  const wasmCallMs = readFiniteDiagnosticsNumber(value.wasmCallMs);
+  const totalMs = readFiniteDiagnosticsNumber(value.totalMs);
+  const requestPayloadBytes = readFiniteDiagnosticsNumber(value.requestPayloadBytes);
+  const responsePayloadBytes = readFiniteDiagnosticsNumber(value.responsePayloadBytes);
+  const requestPayloadBreakdown = readDiagnosticsNumberRecord(value.requestPayloadBreakdown);
+  const responsePayloadBreakdown = readDiagnosticsNumberRecord(value.responsePayloadBreakdown);
+  const wasmOperationTimings = readDiagnosticsNumberRecord(value.wasmOperationTimings);
+  if (
+    requestType === undefined ||
+    queueWaitMs === undefined ||
+    wasmInitWaitMs === undefined ||
+    wasmCallMs === undefined ||
+    totalMs === undefined ||
+    requestPayloadBytes === undefined ||
+    responsePayloadBytes === undefined ||
+    requestPayloadBreakdown === undefined ||
+    responsePayloadBreakdown === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    kind: 'worker_response_diagnostics_v1',
+    worker: 'hssClient',
+    requestType,
+    queueWaitMs,
+    wasmInitWaitMs,
+    wasmCallMs,
+    totalMs,
+    requestPayloadBytes,
+    responsePayloadBytes,
+    requestPayloadBreakdown,
+    responsePayloadBreakdown,
+    ...(wasmOperationTimings !== undefined ? { wasmOperationTimings } : {}),
+  };
+}
+
 export type ThresholdEd25519HssCanonicalContext = {
   signingRootId: string;
   nearAccountId: string;
@@ -77,10 +151,95 @@ export type ThresholdEd25519HssPreparedSessionEnvelope = {
   evaluatorDriverStateB64u: string;
 };
 
-export type ThresholdEd25519HssClientRequestEnvelope = {
+type ThresholdEd25519HssWorkerPreparedSession = {
+  workerSessionHandle: string;
+};
+
+type ThresholdEd25519HssSerializedPreparedSession = Pick<
+  ThresholdEd25519HssPreparedSessionEnvelope,
+  'evaluatorDriverStateB64u'
+>;
+
+type ThresholdEd25519HssWorkerSessionSource =
+  | {
+      sessionSource: 'worker_handle';
+      workerSessionHandle: string;
+      evaluatorDriverStateB64u?: never;
+    }
+  | {
+      sessionSource: 'serialized_state';
+      evaluatorDriverStateB64u: string;
+      workerSessionHandle?: never;
+    };
+
+type ThresholdEd25519HssWorkerHandleSessionSource = Extract<
+  ThresholdEd25519HssWorkerSessionSource,
+  { sessionSource: 'worker_handle' }
+>;
+
+type ThresholdEd25519HssSerializedSessionSource = Extract<
+  ThresholdEd25519HssWorkerSessionSource,
+  { sessionSource: 'serialized_state' }
+>;
+
+function hssWorkerSessionSourceFromPreparedSession(
+  preparedSession: ThresholdEd25519HssWorkerPreparedSession,
+): ThresholdEd25519HssWorkerHandleSessionSource {
+  const workerSessionHandle = String(preparedSession.workerSessionHandle || '').trim();
+  if (!workerSessionHandle) {
+    throw new Error('workerSessionHandle is required for Ed25519 HSS worker calls');
+  }
+  return {
+    sessionSource: 'worker_handle',
+    workerSessionHandle,
+  };
+}
+
+function assertNeverHssClientSessionResidence(_value: never): never {
+  throw new Error('Unexpected Ed25519 HSS client request session residence');
+}
+
+function hssSessionSourceFromClientRequest(input: {
+  preparedSession: ThresholdEd25519HssSerializedPreparedSession;
+  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
+}): ThresholdEd25519HssWorkerSessionSource {
+  switch (input.clientRequest.sessionResidence) {
+    case 'worker_handle':
+      return hssWorkerSessionSourceFromPreparedSession(input.clientRequest);
+    case 'serialized_state':
+      return hssSerializedSessionSourceFromPreparedSession(input.preparedSession);
+    default:
+      return assertNeverHssClientSessionResidence(input.clientRequest);
+  }
+}
+
+function hssSerializedSessionSourceFromPreparedSession(
+  preparedSession: ThresholdEd25519HssSerializedPreparedSession,
+): ThresholdEd25519HssSerializedSessionSource {
+  const evaluatorDriverStateB64u = String(preparedSession.evaluatorDriverStateB64u || '').trim();
+  if (!evaluatorDriverStateB64u) {
+    throw new Error('evaluatorDriverStateB64u is required for Ed25519 HSS serialized calls');
+  }
+  return {
+    sessionSource: 'serialized_state',
+    evaluatorDriverStateB64u,
+  };
+}
+
+type ThresholdEd25519HssClientRequestEnvelopeBase = {
   clientRequestMessageB64u: string;
   evaluatorOtStateB64u: string;
 };
+
+export type ThresholdEd25519HssClientRequestEnvelope =
+  | (ThresholdEd25519HssClientRequestEnvelopeBase & {
+      sessionResidence: 'worker_handle';
+      workerSessionHandle: string;
+    })
+  | (ThresholdEd25519HssClientRequestEnvelopeBase & {
+      sessionResidence: 'serialized_state';
+      workerSessionHandle?: never;
+    });
 
 export type ThresholdEd25519HssServerVisibleClientRequestEnvelope = {
   clientRequestMessageB64u: string;
@@ -320,6 +479,7 @@ export async function prepareThresholdEd25519HssSessionWasm(input: {
   if (response.type !== WorkerResponseType.PrepareThresholdEd25519HssSessionSuccess) {
     throw new Error('PrepareThresholdEd25519HssSession failed');
   }
+  emitHssClientWorkerDiagnostics('prepare_session', readHssClientWorkerDiagnostics(response));
 
   const result = response.payload as WasmPrepareThresholdEd25519HssSessionResult;
   return {
@@ -341,7 +501,9 @@ export async function prepareThresholdEd25519HssClientRequestWasm(input: {
       type: WorkerRequestType.PrepareThresholdEd25519HssClientRequest,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
-        evaluatorDriverStateB64u: input.evaluatorDriverStateB64u,
+        ...hssSerializedSessionSourceFromPreparedSession({
+          evaluatorDriverStateB64u: input.evaluatorDriverStateB64u,
+        }),
         clientOtOfferMessageB64u: input.clientOtOfferMessageB64u,
         yClientB64u: input.clientInputs.yClientB64u,
         tauClientB64u: input.clientInputs.tauClientB64u,
@@ -352,11 +514,27 @@ export async function prepareThresholdEd25519HssClientRequestWasm(input: {
   if (response.type !== WorkerResponseType.PrepareThresholdEd25519HssClientRequestSuccess) {
     throw new Error('PrepareThresholdEd25519HssClientRequest failed');
   }
+  emitHssClientWorkerDiagnostics(
+    'prepare_client_request',
+    readHssClientWorkerDiagnostics(response),
+  );
 
   const result = response.payload as WasmPrepareThresholdEd25519HssClientRequestResult;
-  return {
+  const clientRequestBase = {
     clientRequestMessageB64u: String(result.clientRequestMessageB64u || '').trim(),
     evaluatorOtStateB64u: String(result.evaluatorOtStateB64u || '').trim(),
+  };
+  const workerSessionHandle = String(result.workerSessionHandle || '').trim();
+  if (workerSessionHandle) {
+    return {
+      ...clientRequestBase,
+      sessionResidence: 'worker_handle',
+      workerSessionHandle,
+    };
+  }
+  return {
+    ...clientRequestBase,
+    sessionResidence: 'serialized_state',
   };
 }
 
@@ -417,7 +595,10 @@ export async function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
       type: WorkerRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
-        evaluatorDriverStateB64u: input.preparedSession.evaluatorDriverStateB64u,
+        ...hssSessionSourceFromClientRequest({
+          preparedSession: input.preparedSession,
+          clientRequest: input.clientRequest,
+        }),
         clientRequestMessageB64u: input.clientRequest.clientRequestMessageB64u,
         evaluatorOtStateB64u: input.clientRequest.evaluatorOtStateB64u,
         serverInputDeliveryB64u: input.serverInputDelivery.serverInputDeliveryB64u,
@@ -432,6 +613,10 @@ export async function buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
   ) {
     throw new Error('BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact failed');
   }
+  emitHssClientWorkerDiagnostics(
+    'build_client_owned_staged_evaluator_artifact',
+    readHssClientWorkerDiagnostics(response),
+  );
 
   const result =
     response.payload as WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactResult;
@@ -455,7 +640,7 @@ export async function openThresholdEd25519HssClientOutputWasm(input: {
       type: WorkerRequestType.OpenThresholdEd25519HssClientOutput,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
-        evaluatorDriverStateB64u: input.preparedSession.evaluatorDriverStateB64u,
+        ...hssSerializedSessionSourceFromPreparedSession(input.preparedSession),
         clientOutputMessageB64u: input.finalizedReport.clientOutputMessageB64u,
         clientOutputMaskB64u,
       },
@@ -465,6 +650,7 @@ export async function openThresholdEd25519HssClientOutputWasm(input: {
   if (response.type !== WorkerResponseType.OpenThresholdEd25519HssClientOutputSuccess) {
     throw new Error('OpenThresholdEd25519HssClientOutput failed');
   }
+  emitHssClientWorkerDiagnostics('open_client_output', readHssClientWorkerDiagnostics(response));
 
   const result = response.payload as WasmOpenThresholdEd25519HssClientOutputResult;
   return {
@@ -485,7 +671,7 @@ export async function openThresholdEd25519HssSeedOutputWasm(input: {
       type: WorkerRequestType.OpenThresholdEd25519HssSeedOutput,
       timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
       payload: {
-        evaluatorDriverStateB64u: input.preparedSession.evaluatorDriverStateB64u,
+        ...hssSerializedSessionSourceFromPreparedSession(input.preparedSession),
         seedOutputMessageB64u: input.finalizedReport.seedOutputMessageB64u,
       },
     },

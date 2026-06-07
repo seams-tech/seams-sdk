@@ -3,12 +3,13 @@ use crate::client::{
     ClientSession, ClientSessionState, SeedOutputOpener,
 };
 use crate::ddh::hidden_eval_executor::{
-    trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_client_output_projection_with_pool,
+    trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_client_output_projection_profiled_with_pool,
     DdhHiddenEvalConstantPool, DdhHiddenEvalServerInputBundle, DdhHiddenEvalServerInputs,
 };
 use crate::ddh::{
-    DdhHiddenEvalClientOutputProjection, DdhHiddenEvalRun, DdhHssInputShareBundle, DdhHssShareSide,
-    DdhHssTransportBundle, DdhHssTransportPurpose, HiddenEvalInputOwner,
+    DdhHiddenEvalClientOutputProjection, DdhHiddenEvalRun, DdhHiddenEvalStageProfile,
+    DdhHssInputShareBundle, DdhHssShareSide, DdhHssTransportBundle, DdhHssTransportPurpose,
+    HiddenEvalInputOwner,
 };
 use crate::runtime::{
     evaluation::{elapsed_ns_u64, monotonic_now_ns},
@@ -280,6 +281,23 @@ impl ClientSession {
         )
     }
 
+    pub fn build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_profiled(
+        &self,
+        runtime: &SharedRuntime,
+        client_packet: &ClientPacket,
+        evaluator_ot_state: &ClientOtState,
+        packet: &RoleSeparatedServerInputDeliveryPacket,
+        client_output_mask: [u8; 32],
+    ) -> ProtoResult<(StagedEvaluatorArtifact, DdhHiddenEvalStageProfile)> {
+        self.build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_with_projection_profiled(
+            runtime,
+            client_packet,
+            evaluator_ot_state,
+            packet,
+            DdhHiddenEvalClientOutputProjection::client_masked_projection(client_output_mask),
+        )
+    }
+
     fn build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_with_projection(
         &self,
         runtime: &SharedRuntime,
@@ -288,6 +306,24 @@ impl ClientSession {
         packet: &RoleSeparatedServerInputDeliveryPacket,
         client_output_projection: DdhHiddenEvalClientOutputProjection,
     ) -> ProtoResult<StagedEvaluatorArtifact> {
+        self.build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_with_projection_profiled(
+            runtime,
+            client_packet,
+            evaluator_ot_state,
+            packet,
+            client_output_projection,
+        )
+        .map(|(artifact, _)| artifact)
+    }
+
+    fn build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_with_projection_profiled(
+        &self,
+        runtime: &SharedRuntime,
+        client_packet: &ClientPacket,
+        evaluator_ot_state: &ClientOtState,
+        packet: &RoleSeparatedServerInputDeliveryPacket,
+        client_output_projection: DdhHiddenEvalClientOutputProjection,
+    ) -> ProtoResult<(StagedEvaluatorArtifact, DdhHiddenEvalStageProfile)> {
         let assist = Self::server_assist_init_from_role_separated_delivery(packet);
         self.validate_server_assist_init_packet(client_packet, evaluator_ot_state, &assist)?;
         let (y_client_bundle, tau_client_bundle) = self
@@ -297,8 +333,8 @@ impl ClientSession {
             )?;
         let server_inputs = self.open_role_separated_server_inputs(&packet.server_inputs)?;
         let hidden_eval_constants = self.hidden_eval_constant_pool()?;
-        let trace =
-            trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_client_output_projection_with_pool(
+        let (trace, stage_profile) =
+            trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_client_output_projection_profiled_with_pool(
             &runtime.hidden_eval_program,
             &self.ddh_evaluator,
             &hidden_eval_constants,
@@ -331,7 +367,7 @@ impl ClientSession {
             trace.run.output,
             client_output_projection.client_output_mask(),
         )
-        .map(|(artifact, _, _)| artifact)
+        .map(|(artifact, _, _)| (artifact, stage_profile))
     }
 
     pub fn build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_message(
@@ -348,6 +384,28 @@ impl ClientSession {
             client_request_message,
         )?;
         self.build_client_owned_staged_evaluator_artifact_from_role_separated_delivery(
+            runtime,
+            &client_packet,
+            evaluator_ot_state,
+            packet,
+            client_output_mask,
+        )
+    }
+
+    pub fn build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_message_profiled(
+        &self,
+        runtime: &SharedRuntime,
+        client_request_message: &WireMessage,
+        evaluator_ot_state: &ClientOtState,
+        packet: &RoleSeparatedServerInputDeliveryPacket,
+        client_output_mask: [u8; 32],
+    ) -> ProtoResult<(StagedEvaluatorArtifact, DdhHiddenEvalStageProfile)> {
+        let client_packet: ClientPacket = crate::wire::decode_transport_message(
+            self.context_binding,
+            TransportKind::ClientOtRequest,
+            client_request_message,
+        )?;
+        self.build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_profiled(
             runtime,
             &client_packet,
             evaluator_ot_state,

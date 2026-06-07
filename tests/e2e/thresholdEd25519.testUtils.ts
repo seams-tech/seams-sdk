@@ -391,6 +391,7 @@ export async function setupManagedThresholdRegistrationHarness(args: {
       },
     }),
     bootstrapTokenStore,
+    orgProjectEnv,
     signingSessionSeal: args.signingSessionSeal || undefined,
   });
   const server = await startExpressRouter(router);
@@ -425,7 +426,8 @@ export function corsHeadersForRoute(route: Route): Record<string, string> {
       : { 'Access-Control-Allow-Origin': '*' }),
     'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Methods': 'POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+    'Access-Control-Allow-Headers':
+      'Content-Type,Authorization,X-Seams-Benchmark-Diagnostics',
   };
 }
 

@@ -11,6 +11,18 @@ pub fn get_required_string(value: &JsValue, field_name: &str) -> Result<String, 
         .ok_or_else(|| JsValue::from_str(&format!("Invalid args: missing {field_name}")))
 }
 
+pub fn get_optional_string(value: &JsValue, field_name: &str) -> Result<Option<String>, JsValue> {
+    let field = Reflect::get(value, &JsValue::from_str(field_name))
+        .map_err(|_| JsValue::from_str(&format!("Invalid args: invalid {field_name}")))?;
+    if field.is_undefined() || field.is_null() {
+        return Ok(None);
+    }
+    Ok(field
+        .as_string()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty()))
+}
+
 pub fn get_required_u32(value: &JsValue, field_name: &str) -> Result<u32, JsValue> {
     let field = Reflect::get(value, &JsValue::from_str(field_name))
         .map_err(|_| JsValue::from_str(&format!("Invalid args: missing {field_name}")))?;
@@ -69,6 +81,16 @@ pub fn set_u32(target: &Object, field_name: &str, value: u32) -> Result<(), JsVa
         target,
         &JsValue::from_str(field_name),
         &JsValue::from_f64(value as f64),
+    )
+    .map_err(|_| JsValue::from_str(&format!("Failed to serialize field {field_name}")))?;
+    Ok(())
+}
+
+pub fn set_f64(target: &Object, field_name: &str, value: f64) -> Result<(), JsValue> {
+    Reflect::set(
+        target,
+        &JsValue::from_str(field_name),
+        &JsValue::from_f64(value),
     )
     .map_err(|_| JsValue::from_str(&format!("Failed to serialize field {field_name}")))?;
     Ok(())

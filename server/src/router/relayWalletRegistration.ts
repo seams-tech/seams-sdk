@@ -104,6 +104,22 @@ type RelayWalletRegistrationInput = {
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false; code: 'invalid_body'; message: string };
 
+function exposesRegistrationRouteDiagnostics(input: RelayWalletRegistrationInput): boolean {
+  const raw =
+    input.headers['x-seams-benchmark-diagnostics'] ??
+    input.headers['X-Seams-Benchmark-Diagnostics'];
+  return String(raw || '').trim() === 'registration-flow';
+}
+
+function stripRegistrationRouteDiagnostics<T>(response: T): T {
+  if (!isPlainObject(response) || !Object.prototype.hasOwnProperty.call(response, 'registrationDiagnostics')) {
+    return response;
+  }
+  const copy = { ...response };
+  delete copy.registrationDiagnostics;
+  return copy as T;
+}
+
 function requireWebAuthnExpectedOrigin(
   input: RelayWalletRegistrationInput,
 ): { ok: true; expectedOrigin: string } | { ok: false; response: RouteResponse<RouteErrorBody> } {
@@ -2042,7 +2058,10 @@ export async function handleRelayWalletRegistrationStart(
   const request = await parseWalletRegistrationStartBody(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
   const result = await input.services.authService.startWalletRegistration(request.value);
-  return routeJson(result.ok ? 200 : 400, result);
+  const response = exposesRegistrationRouteDiagnostics(input)
+    ? result
+    : stripRegistrationRouteDiagnostics(result);
+  return routeJson(result.ok ? 200 : 400, response);
 }
 
 export async function handleRelayWalletRegistrationHssRespond(
@@ -2078,7 +2097,10 @@ export async function handleRelayWalletRegistrationFinalize(
     const signingError = await attachEd25519ThresholdSessionJwt(input, result);
     if (signingError) return signingError;
   }
-  return routeJson(result.ok ? 200 : 400, result, {
+  const response = exposesRegistrationRouteDiagnostics(input)
+    ? result
+    : stripRegistrationRouteDiagnostics(result);
+  return routeJson(result.ok ? 200 : 400, response, {
     usage: result.ok ? { walletId: result.walletId } : undefined,
   });
 }

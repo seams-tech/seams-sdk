@@ -1,7 +1,7 @@
 use crate::encoders::{base64_url_decode, base64_url_encode};
 use crate::js::{
-    get_required_string, get_required_u16_vec, get_required_u32, object, set_string, set_u16_vec,
-    set_u32,
+    get_optional_string, get_required_string, get_required_u16_vec, get_required_u32, object,
+    set_f64, set_string, set_u16_vec, set_u32,
 };
 use ecdsa_hss::EcdsaHssStableKeyContext;
 use ed25519_hss::{
@@ -9,13 +9,14 @@ use ed25519_hss::{
         output_mask::{
             derive_client_output_mask, ClientOutputMaskContext, ClientOutputMaskOperation,
         },
-        ClientDriverState, ClientOtState,
+        ClientDriverState, ClientOtState, ClientSession,
     },
     protocol::prepare_prime_order_succinct_hss_client,
+    runtime::SharedRuntime,
     shared::CanonicalContext,
     wire::{RoleSeparatedServerInputDeliveryPacket, WireMessage},
 };
-use js_sys::Reflect;
+use js_sys::{Date, Reflect};
 use serde::{Deserialize, Serialize};
 use signer_core::commands::{
     Base64UrlEncodingV1, EcdsaClientBootstrapAlgorithmV1, EcdsaClientBootstrapContextV1,
@@ -32,13 +33,204 @@ use signer_core::threshold_ecdsa_hss::{
     FinalizeEcdsaClientBootstrapCommand, PrepareEcdsaClientBootstrapCommand,
     RelayerPublicIdentityInput,
 };
+use std::{cell::RefCell, collections::HashMap};
 use wasm_bindgen::prelude::*;
+
+const HSS_CLIENT_SESSION_HANDLE_PREFIX: &str = "ed25519-hss-client-session";
+const HSS_CLIENT_SESSION_HANDLE_LIMIT: usize = 32;
+const HSS_CLIENT_SESSION_HANDLE_TTL_MS: f64 = 5.0 * 60.0 * 1000.0;
+
+struct HssClientSessionHandleEntry {
+    issued_id: u64,
+    issued_at_ms: f64,
+    context_binding: [u8; 32],
+    driver_state: ClientDriverState,
+    materialized: Option<(SharedRuntime, ClientSession)>,
+}
+
+#[derive(Default)]
+struct HssClientSessionHandleStore {
+    next_id: u64,
+    entries: HashMap<String, HssClientSessionHandleEntry>,
+}
+
+thread_local! {
+    static HSS_CLIENT_SESSION_HANDLES: RefCell<HssClientSessionHandleStore> =
+        RefCell::new(HssClientSessionHandleStore::default());
+}
+
+enum HssClientSessionSource {
+    WorkerHandle(String),
+    SerializedState(ClientDriverState),
+}
+
+fn elapsed_ms(started_at: f64) -> f64 {
+    (Date::now() - started_at).max(0.0)
+}
+
+fn ns_to_ms(value: u128) -> f64 {
+    value as f64 / 1_000_000.0
+}
+
+fn insert_hss_client_session_handle(
+    driver_state: ClientDriverState,
+    materialized: Option<(SharedRuntime, ClientSession)>,
+) -> String {
+    HSS_CLIENT_SESSION_HANDLES.with(|store_cell| {
+        let mut store = store_cell.borrow_mut();
+        let now_ms = Date::now();
+        prune_expired_hss_client_session_handles(&mut store, now_ms);
+        store.next_id = store.next_id.saturating_add(1);
+        let issued_id = store.next_id;
+        let handle = format!("{HSS_CLIENT_SESSION_HANDLE_PREFIX}-{issued_id}");
+        if store.entries.len() >= HSS_CLIENT_SESSION_HANDLE_LIMIT {
+            if let Some(oldest_handle) = store
+                .entries
+                .iter()
+                .min_by_key(|(_, entry)| entry.issued_id)
+                .map(|(handle, _)| handle.clone())
+            {
+                store.entries.remove(&oldest_handle);
+            }
+        }
+        store.entries.insert(
+            handle.clone(),
+            HssClientSessionHandleEntry {
+                issued_id,
+                issued_at_ms: now_ms,
+                context_binding: driver_state.evaluator_session.context_binding,
+                driver_state,
+                materialized,
+            },
+        );
+        handle
+    })
+}
+
+fn prune_expired_hss_client_session_handles(store: &mut HssClientSessionHandleStore, now_ms: f64) {
+    store
+        .entries
+        .retain(|_, entry| now_ms - entry.issued_at_ms <= HSS_CLIENT_SESSION_HANDLE_TTL_MS);
+}
+
+fn remove_hss_client_session_handle(handle: &str) {
+    HSS_CLIENT_SESSION_HANDLES.with(|store_cell| {
+        store_cell.borrow_mut().entries.remove(handle);
+    });
+}
+
+fn hss_client_session_source_from_js(args: &JsValue) -> Result<HssClientSessionSource, JsValue> {
+    match get_optional_string(args, "sessionSource")?.as_deref() {
+        Some("worker_handle") => Ok(HssClientSessionSource::WorkerHandle(get_required_string(
+            args,
+            "workerSessionHandle",
+        )?)),
+        Some("serialized_state") | None => {
+            let evaluator_driver_state_b64u =
+                get_required_string(args, "evaluatorDriverStateB64u")?;
+            Ok(HssClientSessionSource::SerializedState(decode_state_blob(
+                &evaluator_driver_state_b64u,
+                "evaluatorDriverStateB64u",
+            )?))
+        }
+        Some(other) => Err(JsValue::from_str(&format!(
+            "Invalid args: unsupported sessionSource {other}"
+        ))),
+    }
+}
+
+fn serialized_hss_client_driver_state_from_js(
+    args: &JsValue,
+) -> Result<ClientDriverState, JsValue> {
+    match get_optional_string(args, "sessionSource")?.as_deref() {
+        Some("worker_handle") => Err(JsValue::from_str(
+            "Invalid args: workerSessionHandle is only supported for staged artifact build",
+        )),
+        Some("serialized_state") | None => {
+            let evaluator_driver_state_b64u =
+                get_required_string(args, "evaluatorDriverStateB64u")?;
+            decode_state_blob(&evaluator_driver_state_b64u, "evaluatorDriverStateB64u")
+        }
+        Some(other) => Err(JsValue::from_str(&format!(
+            "Invalid args: unsupported sessionSource {other}"
+        ))),
+    }
+}
+
+fn with_serialized_hss_client_session_handle<T>(
+    driver_state: ClientDriverState,
+    f: impl FnOnce([u8; 32], &SharedRuntime, &ClientSession) -> Result<T, JsValue>,
+) -> Result<(T, String), JsValue> {
+    let context_binding = driver_state.evaluator_session.context_binding;
+    let (runtime, evaluator_session) = driver_state
+        .materialize()
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let out = f(context_binding, &runtime, &evaluator_session)?;
+    let handle = insert_hss_client_session_handle(driver_state, Some((runtime, evaluator_session)));
+    Ok((out, handle))
+}
+
+fn with_serialized_hss_client_session<T>(
+    driver_state: ClientDriverState,
+    f: impl FnOnce([u8; 32], &SharedRuntime, &ClientSession) -> Result<T, JsValue>,
+) -> Result<T, JsValue> {
+    let context_binding = driver_state.evaluator_session.context_binding;
+    let (runtime, evaluator_session) = driver_state
+        .materialize()
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    f(context_binding, &runtime, &evaluator_session)
+}
+
+fn with_materialized_hss_client_session_timed<T>(
+    source: HssClientSessionSource,
+    f: impl FnOnce([u8; 32], &SharedRuntime, &ClientSession) -> Result<T, JsValue>,
+) -> Result<(T, f64), JsValue> {
+    match source {
+        HssClientSessionSource::SerializedState(driver_state) => {
+            let context_binding = driver_state.evaluator_session.context_binding;
+            let materialize_started_at = Date::now();
+            let (runtime, evaluator_session) = driver_state
+                .materialize()
+                .map_err(|e| JsValue::from_str(&e.to_string()))?;
+            let materialize_ms = elapsed_ms(materialize_started_at);
+            f(context_binding, &runtime, &evaluator_session).map(|out| (out, materialize_ms))
+        }
+        HssClientSessionSource::WorkerHandle(handle) => {
+            HSS_CLIENT_SESSION_HANDLES.with(|store_cell| {
+                let mut store = store_cell.borrow_mut();
+                prune_expired_hss_client_session_handles(&mut store, Date::now());
+                let entry = store.entries.get_mut(&handle).ok_or_else(|| {
+                    JsValue::from_str("Invalid args: unknown workerSessionHandle")
+                })?;
+                let materialize_started_at = Date::now();
+                if entry.materialized.is_none() {
+                    entry.materialized = Some(
+                        entry
+                            .driver_state
+                            .materialize()
+                            .map_err(|e| JsValue::from_str(&e.to_string()))?,
+                    );
+                }
+                let materialize_ms = elapsed_ms(materialize_started_at);
+                let (runtime, evaluator_session) =
+                    entry.materialized.as_ref().ok_or_else(|| {
+                        JsValue::from_str("Invalid args: workerSessionHandle is not materialized")
+                    })?;
+                f(entry.context_binding, runtime, evaluator_session)
+                    .map(|out| (out, materialize_ms))
+            })
+        }
+    }
+}
 
 #[wasm_bindgen]
 pub fn threshold_ed25519_hss_prepare_session(args: JsValue) -> Result<JsValue, JsValue> {
     let context = canonical_context_from_js(&args)?;
     let evaluator_driver_state = prepare_prime_order_succinct_hss_client(&context)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let context_binding = evaluator_driver_state.evaluator_session.context_binding;
+    let evaluator_driver_state_b64u = encode_state_blob(&evaluator_driver_state, "evaluator state")
+        .map_err(|e| JsValue::from_str(&e))?;
 
     let out = object();
     set_string(&out, "signingRootId", &context.org_id)?;
@@ -50,13 +242,12 @@ pub fn threshold_ed25519_hss_prepare_session(args: JsValue) -> Result<JsValue, J
     set_string(
         &out,
         "contextBindingB64u",
-        &base64_url_encode(&evaluator_driver_state.evaluator_session.context_binding),
+        &base64_url_encode(&context_binding),
     )?;
     set_string(
         &out,
         "evaluatorDriverStateB64u",
-        &encode_state_blob(&evaluator_driver_state, "evaluator state")
-            .map_err(|e| JsValue::from_str(&e))?,
+        &evaluator_driver_state_b64u,
     )?;
     Ok(out.into())
 }
@@ -92,23 +283,28 @@ pub fn threshold_ed25519_hss_derive_client_output_mask(args: JsValue) -> Result<
 
 #[wasm_bindgen]
 pub fn threshold_ed25519_hss_prepare_client_request(args: JsValue) -> Result<JsValue, JsValue> {
-    let evaluator_driver_state_b64u = get_required_string(&args, "evaluatorDriverStateB64u")?;
+    let evaluator_state = serialized_hss_client_driver_state_from_js(&args)?;
     let client_ot_offer_message_b64u = get_required_string(&args, "clientOtOfferMessageB64u")?;
     let y_client_b64u = get_required_string(&args, "yClientB64u")?;
     let tau_client_b64u = get_required_string(&args, "tauClientB64u")?;
 
-    let evaluator_state: ClientDriverState =
-        decode_state_blob(&evaluator_driver_state_b64u, "evaluatorDriverStateB64u")?;
-    let (_runtime, evaluator_session) = evaluator_state
-        .materialize()
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let offer_message =
         decode_wire_message(&client_ot_offer_message_b64u, "clientOtOfferMessageB64u")?;
     let y_client = decode_fixed_32(&y_client_b64u, "yClientB64u")?;
     let tau_client = decode_fixed_32(&tau_client_b64u, "tauClientB64u")?;
-    let (client_request_message, evaluator_ot_state) = evaluator_session
-        .prepare_client_ot_request_from_offer_message(&offer_message, y_client, tau_client)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let ((client_request_message, evaluator_ot_state), worker_session_handle) =
+        with_serialized_hss_client_session_handle(
+            evaluator_state,
+            |_context_binding, _runtime, evaluator_session| {
+                evaluator_session
+                    .prepare_client_ot_request_from_offer_message(
+                        &offer_message,
+                        y_client,
+                        tau_client,
+                    )
+                    .map_err(|e| JsValue::from_str(&e.to_string()))
+            },
+        )?;
 
     let out = object();
     set_string(
@@ -122,6 +318,7 @@ pub fn threshold_ed25519_hss_prepare_client_request(args: JsValue) -> Result<JsV
         &encode_state_blob(&evaluator_ot_state, "evaluator OT state")
             .map_err(|e| JsValue::from_str(&e))?,
     )?;
+    set_string(&out, "workerSessionHandle", &worker_session_handle)?;
     Ok(out.into())
 }
 
@@ -129,76 +326,273 @@ pub fn threshold_ed25519_hss_prepare_client_request(args: JsValue) -> Result<JsV
 pub fn threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(
     args: JsValue,
 ) -> Result<JsValue, JsValue> {
-    let evaluator_driver_state_b64u = get_required_string(&args, "evaluatorDriverStateB64u")?;
     let client_request_message_b64u = get_required_string(&args, "clientRequestMessageB64u")?;
     let evaluator_ot_state_b64u = get_required_string(&args, "evaluatorOtStateB64u")?;
     let server_input_delivery_b64u = get_required_string(&args, "serverInputDeliveryB64u")?;
+    let decode_client_output_mask_started_at = Date::now();
     let client_output_mask = decode_fixed_32(
         &get_required_string(&args, "clientOutputMaskB64u")?,
         "clientOutputMaskB64u",
     )?;
+    let decode_client_output_mask_ms = elapsed_ms(decode_client_output_mask_started_at);
 
-    let evaluator_state: ClientDriverState =
-        decode_state_blob(&evaluator_driver_state_b64u, "evaluatorDriverStateB64u")?;
+    let decode_evaluator_ot_state_started_at = Date::now();
     let evaluator_ot_state: ClientOtState =
         decode_state_blob(&evaluator_ot_state_b64u, "evaluatorOtStateB64u")?;
+    let decode_evaluator_ot_state_ms = elapsed_ms(decode_evaluator_ot_state_started_at);
+
+    let decode_server_input_delivery_started_at = Date::now();
     let server_input_delivery: RoleSeparatedServerInputDeliveryPacket =
         decode_state_blob(&server_input_delivery_b64u, "serverInputDeliveryB64u")?;
+    let decode_server_input_delivery_ms = elapsed_ms(decode_server_input_delivery_started_at);
+
+    let decode_client_request_message_started_at = Date::now();
     let client_request_message =
         decode_wire_message(&client_request_message_b64u, "clientRequestMessageB64u")?;
-    let (runtime, evaluator_session) = evaluator_state
-        .materialize()
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let artifact = evaluator_session
-        .build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_message(
-            &runtime,
-            &client_request_message,
-            &evaluator_ot_state,
-            &server_input_delivery,
-            client_output_mask,
-        )
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let decode_client_request_message_ms = elapsed_ms(decode_client_request_message_started_at);
+
+    let decode_evaluator_driver_state_started_at = Date::now();
+    let session_source = hss_client_session_source_from_js(&args)?;
+    let release_handle = match &session_source {
+        HssClientSessionSource::WorkerHandle(handle) => Some(handle.clone()),
+        HssClientSessionSource::SerializedState(_) => None,
+    };
+    let decode_evaluator_driver_state_ms = elapsed_ms(decode_evaluator_driver_state_started_at);
+
+    let built = with_materialized_hss_client_session_timed(
+        session_source,
+        |context_binding, runtime, evaluator_session| {
+            let build_artifact_started_at = Date::now();
+            let (artifact, stage_profile) = evaluator_session
+                .build_client_owned_staged_evaluator_artifact_from_role_separated_delivery_message_profiled(
+                    runtime,
+                    &client_request_message,
+                    &evaluator_ot_state,
+                    &server_input_delivery,
+                    client_output_mask,
+                )
+                .map_err(|e| JsValue::from_str(&e.to_string()))?;
+            Ok((
+                context_binding,
+                artifact,
+                stage_profile,
+                elapsed_ms(build_artifact_started_at),
+            ))
+        },
+    );
+    if let Some(handle) = release_handle.as_deref() {
+        remove_hss_client_session_handle(handle);
+    }
+    let ((context_binding, artifact, stage_profile, build_artifact_ms), materialize_session_ms) =
+        built?;
+
+    let encode_artifact_started_at = Date::now();
+    let staged_evaluator_artifact_b64u = encode_state_blob(&artifact, "staged evaluator artifact")
+        .map_err(|e| JsValue::from_str(&e))?;
+    let encode_artifact_ms = elapsed_ms(encode_artifact_started_at);
+
+    let timings = object();
+    set_f64(
+        &timings,
+        "decodeClientOutputMaskMs",
+        decode_client_output_mask_ms,
+    )?;
+    set_f64(
+        &timings,
+        "decodeEvaluatorDriverStateMs",
+        decode_evaluator_driver_state_ms,
+    )?;
+    set_f64(
+        &timings,
+        "decodeEvaluatorOtStateMs",
+        decode_evaluator_ot_state_ms,
+    )?;
+    set_f64(
+        &timings,
+        "decodeServerInputDeliveryMs",
+        decode_server_input_delivery_ms,
+    )?;
+    set_f64(
+        &timings,
+        "decodeClientRequestMessageMs",
+        decode_client_request_message_ms,
+    )?;
+    set_f64(&timings, "materializeSessionMs", materialize_session_ms)?;
+    set_f64(&timings, "buildArtifactMs", build_artifact_ms)?;
+    set_f64(&timings, "encodeArtifactMs", encode_artifact_ms)?;
+    set_f64(
+        &timings,
+        "hiddenEvalInputSharingMs",
+        ns_to_ms(stage_profile.input_sharing_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalAddStageMs",
+        ns_to_ms(stage_profile.add_stage_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalMessageScheduleMs",
+        ns_to_ms(stage_profile.message_schedule_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalMessageScheduleAccumulationMs",
+        ns_to_ms(stage_profile.message_schedule_accumulation_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalMessageScheduleAccumulationXorAbMs",
+        ns_to_ms(stage_profile.message_schedule_accumulation_xor_ab_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalMessageScheduleAccumulationSumMs",
+        ns_to_ms(stage_profile.message_schedule_accumulation_sum_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalMessageScheduleAccumulationAXorCarryMs",
+        ns_to_ms(stage_profile.message_schedule_accumulation_a_xor_carry_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalMessageScheduleAccumulationCarryGateMs",
+        ns_to_ms(stage_profile.message_schedule_accumulation_carry_gate_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalMessageScheduleAccumulationNextCarryMs",
+        ns_to_ms(stage_profile.message_schedule_accumulation_next_carry_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalRoundCoreMs",
+        ns_to_ms(stage_profile.round_core_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalRoundSigma0Ms",
+        ns_to_ms(stage_profile.round_sigma0_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalRoundSigma1Ms",
+        ns_to_ms(stage_profile.round_sigma1_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalRoundChMs",
+        ns_to_ms(stage_profile.round_ch_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalRoundMajMs",
+        ns_to_ms(stage_profile.round_maj_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalRoundState3Ms",
+        ns_to_ms(stage_profile.round_state3_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalRoundTemp1Ms",
+        ns_to_ms(stage_profile.round_temp1_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalRoundTemp1XorAbMs",
+        ns_to_ms(stage_profile.round_temp1_xor_ab_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalRoundTemp1SumMs",
+        ns_to_ms(stage_profile.round_temp1_sum_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalRoundTemp1AXorCarryMs",
+        ns_to_ms(stage_profile.round_temp1_a_xor_carry_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalRoundTemp1CarryGateMs",
+        ns_to_ms(stage_profile.round_temp1_carry_gate_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalRoundTemp1NextCarryMs",
+        ns_to_ms(stage_profile.round_temp1_next_carry_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalRoundTemp2Ms",
+        ns_to_ms(stage_profile.round_temp2_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalRoundNewABitsMs",
+        ns_to_ms(stage_profile.round_new_a_bits_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalRoundNewEBitsMs",
+        ns_to_ms(stage_profile.round_new_e_bits_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalOutputProjectorMs",
+        ns_to_ms(stage_profile.output_projector_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalTotalMs",
+        ns_to_ms(stage_profile.total_duration_ns),
+    )?;
 
     let out = object();
     set_string(
         &out,
         "contextBindingB64u",
-        &base64_url_encode(&evaluator_state.evaluator_session.context_binding),
+        &base64_url_encode(&context_binding),
     )?;
     set_string(
         &out,
         "stagedEvaluatorArtifactB64u",
-        &encode_state_blob(&artifact, "staged evaluator artifact")
-            .map_err(|e| JsValue::from_str(&e))?,
+        &staged_evaluator_artifact_b64u,
     )?;
+    Reflect::set(&out, &JsValue::from_str("timings"), &timings)
+        .map_err(|_| JsValue::from_str("Failed to serialize field timings"))?;
     Ok(out.into())
 }
 
 #[wasm_bindgen]
 pub fn threshold_ed25519_hss_open_client_output(args: JsValue) -> Result<JsValue, JsValue> {
-    let evaluator_driver_state_b64u = get_required_string(&args, "evaluatorDriverStateB64u")?;
+    let evaluator_state = serialized_hss_client_driver_state_from_js(&args)?;
     let client_output_message_b64u = get_required_string(&args, "clientOutputMessageB64u")?;
     let client_output_mask = decode_fixed_32(
         &get_required_string(&args, "clientOutputMaskB64u")?,
         "clientOutputMaskB64u",
     )?;
-    let evaluator_state: ClientDriverState =
-        decode_state_blob(&evaluator_driver_state_b64u, "evaluatorDriverStateB64u")?;
-    let (_runtime, evaluator_session) = evaluator_state
-        .materialize()
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let client_output_message =
         decode_wire_message(&client_output_message_b64u, "clientOutputMessageB64u")?;
-    let opener = evaluator_session.client_output_opener();
-    let x_client_base = opener
-        .open_masked(&client_output_message, client_output_mask)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let (context_binding, x_client_base) = with_serialized_hss_client_session(
+        evaluator_state,
+        |context_binding, _runtime, evaluator_session| {
+            let opener = evaluator_session.client_output_opener();
+            let x_client_base = opener
+                .open_masked(&client_output_message, client_output_mask)
+                .map_err(|e| JsValue::from_str(&e.to_string()))?;
+            Ok((context_binding, x_client_base))
+        },
+    )?;
 
     let out = object();
     set_string(
         &out,
         "contextBindingB64u",
-        &base64_url_encode(&evaluator_state.evaluator_session.context_binding),
+        &base64_url_encode(&context_binding),
     )?;
     set_string(&out, "xClientBaseB64u", &base64_url_encode(&x_client_base))?;
     Ok(out.into())
@@ -206,25 +600,26 @@ pub fn threshold_ed25519_hss_open_client_output(args: JsValue) -> Result<JsValue
 
 #[wasm_bindgen]
 pub fn threshold_ed25519_hss_open_seed_output(args: JsValue) -> Result<JsValue, JsValue> {
-    let evaluator_driver_state_b64u = get_required_string(&args, "evaluatorDriverStateB64u")?;
+    let evaluator_state = serialized_hss_client_driver_state_from_js(&args)?;
     let seed_output_message_b64u = get_required_string(&args, "seedOutputMessageB64u")?;
-    let evaluator_state: ClientDriverState =
-        decode_state_blob(&evaluator_driver_state_b64u, "evaluatorDriverStateB64u")?;
-    let (_runtime, evaluator_session) = evaluator_state
-        .materialize()
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let seed_output_message =
         decode_wire_message(&seed_output_message_b64u, "seedOutputMessageB64u")?;
-    let canonical_seed = evaluator_session
-        .seed_output_opener()
-        .open(&seed_output_message)
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let (context_binding, canonical_seed) = with_serialized_hss_client_session(
+        evaluator_state,
+        |context_binding, _runtime, evaluator_session| {
+            let canonical_seed = evaluator_session
+                .seed_output_opener()
+                .open(&seed_output_message)
+                .map_err(|e| JsValue::from_str(&e.to_string()))?;
+            Ok((context_binding, canonical_seed))
+        },
+    )?;
 
     let out = object();
     set_string(
         &out,
         "contextBindingB64u",
-        &base64_url_encode(&evaluator_state.evaluator_session.context_binding),
+        &base64_url_encode(&context_binding),
     )?;
     set_string(
         &out,

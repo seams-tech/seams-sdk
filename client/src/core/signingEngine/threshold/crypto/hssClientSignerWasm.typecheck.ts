@@ -24,6 +24,7 @@ import type {
   WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest,
   WasmDeriveThresholdEd25519HssClientOutputMaskRequest,
   WasmOpenThresholdEd25519HssClientOutputRequest,
+  WasmPrepareThresholdEd25519HssClientRequestRequest,
 } from '../../../types/signer-worker';
 
 const serverPlannedContext = parseServerPlannedEcdsaHssContext({
@@ -221,7 +222,29 @@ void assertRoleLocalBootstrapShape;
 void assertRoleLocalFinalizeShape;
 void assertRoleLocalExportShape;
 
+const serializedPrepareClientRequest = {
+  sessionSource: 'serialized_state',
+  evaluatorDriverStateB64u: 'evaluator-state',
+  clientOtOfferMessageB64u: 'client-ot-offer',
+  yClientB64u: 'y-client',
+  tauClientB64u: 'tau-client',
+} satisfies WasmPrepareThresholdEd25519HssClientRequestRequest;
+void serializedPrepareClientRequest;
+
+const workerHandlePrepareClientRequest: WasmPrepareThresholdEd25519HssClientRequestRequest = {
+  // @ts-expect-error prepare_client_request creates the worker handle from
+  // serialized state; caller-provided handles are only valid for staged build.
+  sessionSource: 'worker_handle',
+  // @ts-expect-error caller-provided handles are only valid for staged build.
+  workerSessionHandle: 'ed25519-hss-client-session-1',
+  clientOtOfferMessageB64u: 'client-ot-offer',
+  yClientB64u: 'y-client',
+  tauClientB64u: 'tau-client',
+};
+void workerHandlePrepareClientRequest;
+
 const maskedStagedArtifactRequest = {
+  sessionSource: 'serialized_state',
   evaluatorDriverStateB64u: 'evaluator-state',
   clientRequestMessageB64u: 'client-request',
   evaluatorOtStateB64u: 'evaluator-ot-state',
@@ -230,9 +253,20 @@ const maskedStagedArtifactRequest = {
 } satisfies WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest;
 void maskedStagedArtifactRequest;
 
+const workerHandleStagedArtifactRequest = {
+  sessionSource: 'worker_handle',
+  workerSessionHandle: 'ed25519-hss-client-session-1',
+  clientRequestMessageB64u: 'client-request',
+  evaluatorOtStateB64u: 'evaluator-ot-state',
+  serverInputDeliveryB64u: 'server-input-delivery',
+  clientOutputMaskB64u: 'client-mask',
+} satisfies WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest;
+void workerHandleStagedArtifactRequest;
+
 // @ts-expect-error client-owned HSS artifact construction requires a client output mask.
 const missingStagedArtifactMask: WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest =
   {
+    sessionSource: 'serialized_state',
     evaluatorDriverStateB64u: 'evaluator-state',
     clientRequestMessageB64u: 'client-request',
     evaluatorOtStateB64u: 'evaluator-ot-state',
@@ -270,14 +304,27 @@ const missingClientOutputMaskDerivationSecret: WasmDeriveThresholdEd25519HssClie
 void missingClientOutputMaskDerivationSecret;
 
 const maskedClientOutputOpenRequest = {
+  sessionSource: 'serialized_state',
   evaluatorDriverStateB64u: 'evaluator-state',
   clientOutputMessageB64u: 'client-output',
   clientOutputMaskB64u: 'client-mask',
 } satisfies WasmOpenThresholdEd25519HssClientOutputRequest;
 void maskedClientOutputOpenRequest;
 
+const workerHandleClientOutputOpenRequest: WasmOpenThresholdEd25519HssClientOutputRequest = {
+  // @ts-expect-error client output opening stays on serialized state until
+  // handle lifecycle is explicitly extended to the open phase.
+  sessionSource: 'worker_handle',
+  // @ts-expect-error caller-provided handles are only valid for staged build.
+  workerSessionHandle: 'ed25519-hss-client-session-1',
+  clientOutputMessageB64u: 'client-output',
+  clientOutputMaskB64u: 'client-mask',
+};
+void workerHandleClientOutputOpenRequest;
+
 // @ts-expect-error client output opening requires the client output mask.
 const missingOpenClientOutputMask: WasmOpenThresholdEd25519HssClientOutputRequest = {
+  sessionSource: 'serialized_state',
   evaluatorDriverStateB64u: 'evaluator-state',
   clientOutputMessageB64u: 'client-output',
 };

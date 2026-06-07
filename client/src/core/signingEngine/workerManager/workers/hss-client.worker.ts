@@ -1,6 +1,7 @@
 import {
   type SignerWorkerRequestType,
   type WasmRequestPayload,
+  type WorkerResponseDiagnostics,
   WorkerRequestType,
   WorkerResponseType,
 } from '@/core/types/signer-worker';
@@ -26,6 +27,110 @@ const hssClientSignerWasmUrl = resolveWasmUrl('hss_client_signer_bg.wasm', 'HSS 
 
 let hssClientSignerInitPromise: Promise<void> | null = null;
 let messageQueue: Promise<void> = Promise.resolve();
+const DIAGNOSTIC_BREAKDOWN_MAX_DEPTH = 2;
+const DIAGNOSTIC_BREAKDOWN_MAX_FIELDS = 64;
+
+type HssWorkerResponse = {
+  type: WorkerResponseType;
+  payload: unknown;
+};
+
+type HssWorkerCommandResult = HssWorkerResponse & {
+  wasmInitWaitMs: number;
+  wasmCallMs: number;
+};
+
+function nowMs(): number {
+  return performance.now();
+}
+
+function roundMs(value: number): number {
+  return Math.max(0, Math.round(value));
+}
+
+function collectSizeBreakdown(input: {
+  value: unknown;
+  out: Record<string, number>;
+  path: string;
+  depth: number;
+}): void {
+  if (!input.value || typeof input.value !== 'object' || Array.isArray(input.value)) return;
+  if (Object.keys(input.out).length >= DIAGNOSTIC_BREAKDOWN_MAX_FIELDS) return;
+
+  for (const [key, entry] of Object.entries(input.value as Record<string, unknown>)) {
+    if (Object.keys(input.out).length >= DIAGNOSTIC_BREAKDOWN_MAX_FIELDS) return;
+    const fieldPath = input.path ? `${input.path}.${key}` : key;
+    if (typeof entry === 'string') {
+      input.out[`${fieldPath}Bytes`] = entry.length;
+    } else if (Array.isArray(entry)) {
+      input.out[`${fieldPath}Count`] = entry.length;
+    } else if (input.depth > 0 && entry && typeof entry === 'object') {
+      collectSizeBreakdown({
+        value: entry,
+        out: input.out,
+        path: fieldPath,
+        depth: input.depth - 1,
+      });
+    }
+  }
+}
+
+function sizeBreakdown(value: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  collectSizeBreakdown({
+    value,
+    out,
+    path: '',
+    depth: DIAGNOSTIC_BREAKDOWN_MAX_DEPTH,
+  });
+  return out;
+}
+
+function totalBreakdownBytes(breakdown: Record<string, number>): number {
+  return Object.entries(breakdown).reduce(
+    (total, [key, value]) => (key.endsWith('Bytes') ? total + value : total),
+    0,
+  );
+}
+
+function operationTimingsFromPayload(payload: unknown): Record<string, number> | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  const timings = (payload as { timings?: unknown }).timings;
+  if (!timings || typeof timings !== 'object' || Array.isArray(timings)) return null;
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(timings)) {
+    const numberValue = Number(value);
+    if (Number.isFinite(numberValue)) out[key] = roundMs(numberValue);
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+function workerDiagnostics(input: {
+  requestType: number;
+  queuedAt: number;
+  startedAt: number;
+  completedAt: number;
+  command: HssWorkerCommandResult;
+  requestPayload: unknown;
+}): WorkerResponseDiagnostics {
+  const requestPayloadBreakdown = sizeBreakdown(input.requestPayload);
+  const responsePayloadBreakdown = sizeBreakdown(input.command.payload);
+  const wasmOperationTimings = operationTimingsFromPayload(input.command.payload);
+  return {
+    kind: 'worker_response_diagnostics_v1',
+    worker: 'hssClient',
+    requestType: input.requestType,
+    queueWaitMs: roundMs(input.startedAt - input.queuedAt),
+    wasmInitWaitMs: input.command.wasmInitWaitMs,
+    wasmCallMs: input.command.wasmCallMs,
+    totalMs: roundMs(input.completedAt - input.queuedAt),
+    requestPayloadBytes: totalBreakdownBytes(requestPayloadBreakdown),
+    responsePayloadBytes: totalBreakdownBytes(responsePayloadBreakdown),
+    requestPayloadBreakdown,
+    responsePayloadBreakdown,
+    ...(wasmOperationTimings ? { wasmOperationTimings } : {}),
+  };
+}
 
 function isHssWasmInitFailureMessage(message: string): boolean {
   return /hss client wasm initialization failed|wasm initialization failed|failed to instantiate|module_or_path|webassembly/i.test(
@@ -106,79 +211,86 @@ async function initializeHssClientSignerWasm(): Promise<void> {
   return hssClientSignerInitPromise;
 }
 
-async function handleHssClientMessage(data: unknown): Promise<{
-  type: WorkerResponseType;
-  payload: unknown;
-}> {
+async function handleHssClientMessage(data: unknown): Promise<HssWorkerCommandResult> {
   const request = data as { type?: unknown; payload?: unknown };
   const requestType = Number(request?.type);
   const payload = request?.payload;
+  const initStartedAt = nowMs();
   await initializeHssClientSignerWasm();
+  const wasmInitWaitMs = roundMs(nowMs() - initStartedAt);
+  const wasmCallStartedAt = nowMs();
 
-  switch (requestType) {
-    case WorkerRequestType.DeriveThresholdEd25519HssClientInputs:
-      return {
-        type: WorkerResponseType.DeriveThresholdEd25519HssClientInputsSuccess,
-        payload: derive_threshold_ed25519_hss_client_inputs(payload),
-      };
-    case WorkerRequestType.PrepareThresholdEd25519HssSession:
-      return {
-        type: WorkerResponseType.PrepareThresholdEd25519HssSessionSuccess,
-        payload: threshold_ed25519_hss_prepare_session(payload),
-      };
-    case WorkerRequestType.PrepareThresholdEd25519HssClientRequest:
-      return {
-        type: WorkerResponseType.PrepareThresholdEd25519HssClientRequestSuccess,
-        payload: threshold_ed25519_hss_prepare_client_request(payload),
-      };
-    case WorkerRequestType.DeriveThresholdEd25519HssClientOutputMask:
-      return {
-        type: WorkerResponseType.DeriveThresholdEd25519HssClientOutputMaskSuccess,
-        payload: threshold_ed25519_hss_derive_client_output_mask(payload),
-      };
-    case WorkerRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact:
-      return {
-        type: WorkerResponseType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess,
-        payload: threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(payload),
-      };
-    case WorkerRequestType.OpenThresholdEd25519HssClientOutput:
-      return {
-        type: WorkerResponseType.OpenThresholdEd25519HssClientOutputSuccess,
-        payload: threshold_ed25519_hss_open_client_output(payload),
-      };
-    case WorkerRequestType.OpenThresholdEd25519HssSeedOutput:
-      return {
-        type: WorkerResponseType.OpenThresholdEd25519HssSeedOutputSuccess,
-        payload: threshold_ed25519_hss_open_seed_output(payload),
-      };
-    case WorkerRequestType.BuildThresholdEd25519SeedExportArtifact:
-      return {
-        type: WorkerResponseType.BuildThresholdEd25519SeedExportArtifactSuccess,
-        payload: threshold_ed25519_seed_export_artifact_from_seed(payload),
-      };
-    case WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare:
-      return {
-        type: WorkerResponseType.OpenThresholdEcdsaHssRoleLocalSigningShareSuccess,
-        payload: open_ecdsa_role_local_signing_share_v1(payload),
-      };
-    case WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap:
-      return {
-        type: WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
-        payload: JSON.parse(prepare_ecdsa_client_bootstrap_v1(JSON.stringify(payload))),
-      };
-    case WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap:
-      return {
-        type: WorkerResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
-        payload: JSON.parse(finalize_ecdsa_client_bootstrap_v1(JSON.stringify(payload))),
-      };
-    case WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact:
-      return {
-        type: WorkerResponseType.BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess,
-        payload: JSON.parse(build_ecdsa_role_local_export_artifact_v1(JSON.stringify(payload))),
-      };
-    default:
-      throw new Error(`Unsupported HSS client request type: ${requestType}`);
-  }
+  const response: HssWorkerResponse = (() => {
+    switch (requestType) {
+      case WorkerRequestType.DeriveThresholdEd25519HssClientInputs:
+        return {
+          type: WorkerResponseType.DeriveThresholdEd25519HssClientInputsSuccess,
+          payload: derive_threshold_ed25519_hss_client_inputs(payload),
+        };
+      case WorkerRequestType.PrepareThresholdEd25519HssSession:
+        return {
+          type: WorkerResponseType.PrepareThresholdEd25519HssSessionSuccess,
+          payload: threshold_ed25519_hss_prepare_session(payload),
+        };
+      case WorkerRequestType.PrepareThresholdEd25519HssClientRequest:
+        return {
+          type: WorkerResponseType.PrepareThresholdEd25519HssClientRequestSuccess,
+          payload: threshold_ed25519_hss_prepare_client_request(payload),
+        };
+      case WorkerRequestType.DeriveThresholdEd25519HssClientOutputMask:
+        return {
+          type: WorkerResponseType.DeriveThresholdEd25519HssClientOutputMaskSuccess,
+          payload: threshold_ed25519_hss_derive_client_output_mask(payload),
+        };
+      case WorkerRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact:
+        return {
+          type: WorkerResponseType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess,
+          payload: threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(payload),
+        };
+      case WorkerRequestType.OpenThresholdEd25519HssClientOutput:
+        return {
+          type: WorkerResponseType.OpenThresholdEd25519HssClientOutputSuccess,
+          payload: threshold_ed25519_hss_open_client_output(payload),
+        };
+      case WorkerRequestType.OpenThresholdEd25519HssSeedOutput:
+        return {
+          type: WorkerResponseType.OpenThresholdEd25519HssSeedOutputSuccess,
+          payload: threshold_ed25519_hss_open_seed_output(payload),
+        };
+      case WorkerRequestType.BuildThresholdEd25519SeedExportArtifact:
+        return {
+          type: WorkerResponseType.BuildThresholdEd25519SeedExportArtifactSuccess,
+          payload: threshold_ed25519_seed_export_artifact_from_seed(payload),
+        };
+      case WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare:
+        return {
+          type: WorkerResponseType.OpenThresholdEcdsaHssRoleLocalSigningShareSuccess,
+          payload: open_ecdsa_role_local_signing_share_v1(payload),
+        };
+      case WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap:
+        return {
+          type: WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
+          payload: JSON.parse(prepare_ecdsa_client_bootstrap_v1(JSON.stringify(payload))),
+        };
+      case WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap:
+        return {
+          type: WorkerResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
+          payload: JSON.parse(finalize_ecdsa_client_bootstrap_v1(JSON.stringify(payload))),
+        };
+      case WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact:
+        return {
+          type: WorkerResponseType.BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess,
+          payload: JSON.parse(build_ecdsa_role_local_export_artifact_v1(JSON.stringify(payload))),
+        };
+      default:
+        throw new Error(`Unsupported HSS client request type: ${requestType}`);
+    }
+  })();
+  return {
+    ...response,
+    wasmInitWaitMs,
+    wasmCallMs: roundMs(nowMs() - wasmCallStartedAt),
+  };
 }
 
 setTimeout(() => {
@@ -186,24 +298,38 @@ setTimeout(() => {
 }, 0);
 
 async function processWorkerMessage(event: MessageEvent): Promise<void> {
-  const requestId = String((event.data as { id?: unknown })?.id || '').trim();
+  const eventData = event.data as HssClientWorkerRpcRequest & { queuedAtMs?: unknown };
+  const requestId = String(eventData.id || '').trim();
   if (!requestId) {
     throw new Error('HSS client worker request is missing RPC id');
   }
 
   try {
-    const startedAt = Date.now();
-    assertNoPrfSecretsInSignerPayload(event.data);
-    const response = await handleHssClientMessage(event.data);
+    const startedAt = nowMs();
+    const requestType = Number(eventData.type);
+    assertNoPrfSecretsInSignerPayload(eventData);
+    const response = await handleHssClientMessage(eventData);
+    const completedAt = nowMs();
     self.postMessage({
       id: requestId,
       ok: true,
-      result: response,
+      result: {
+        type: response.type,
+        payload: response.payload,
+        diagnostics: workerDiagnostics({
+          requestType,
+          queuedAt: Number(eventData.queuedAtMs ?? startedAt),
+          startedAt,
+          completedAt,
+          command: response,
+          requestPayload: eventData.payload,
+        }),
+      },
     });
     console.info('[hss-client-worker]: request complete', {
       requestId,
-      requestType: Number((event.data as { type?: unknown })?.type),
-      durationMs: Date.now() - startedAt,
+      requestType,
+      durationMs: roundMs(completedAt - startedAt),
     });
   } catch (error: unknown) {
     console.error('[hss-client-worker]: Message processing failed:', error);
@@ -237,7 +363,15 @@ self.onmessage = async (event: MessageEvent<HssClientWorkerRpcRequest>): Promise
     return;
   }
 
-  messageQueue = messageQueue.catch(() => undefined).then(() => processWorkerMessage(event));
+  const queuedAtMs = nowMs();
+  const queuedEvent = {
+    ...event,
+    data: {
+      ...event.data,
+      queuedAtMs,
+    },
+  } as MessageEvent<HssClientWorkerRpcRequest & { queuedAtMs: number }>;
+  messageQueue = messageQueue.catch(() => undefined).then(() => processWorkerMessage(queuedEvent));
   await messageQueue;
 };
 

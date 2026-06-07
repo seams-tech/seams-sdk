@@ -364,15 +364,34 @@ export interface WasmPrepareThresholdEd25519HssSessionResult {
   contextBindingB64u: string;
   evaluatorDriverStateB64u: string;
 }
-export interface WasmPrepareThresholdEd25519HssClientRequestRequest {
-  evaluatorDriverStateB64u: string;
+
+export type WasmThresholdEd25519HssWorkerSessionSource =
+  | {
+      sessionSource: 'worker_handle';
+      workerSessionHandle: string;
+      evaluatorDriverStateB64u?: never;
+    }
+  | {
+      sessionSource: 'serialized_state';
+      evaluatorDriverStateB64u: string;
+      workerSessionHandle?: never;
+    };
+
+export type WasmThresholdEd25519HssSerializedSessionSource = Extract<
+  WasmThresholdEd25519HssWorkerSessionSource,
+  { sessionSource: 'serialized_state' }
+>;
+
+export type WasmPrepareThresholdEd25519HssClientRequestRequest =
+  WasmThresholdEd25519HssSerializedSessionSource & {
   clientOtOfferMessageB64u: string;
   yClientB64u: string;
   tauClientB64u: string;
-}
+};
 export interface WasmPrepareThresholdEd25519HssClientRequestResult {
   clientRequestMessageB64u: string;
   evaluatorOtStateB64u: string;
+  workerSessionHandle?: string;
 }
 export interface WasmDeriveThresholdEd25519HssClientOutputMaskRequest {
   signingRootId: string;
@@ -389,30 +408,31 @@ export interface WasmDeriveThresholdEd25519HssClientOutputMaskRequest {
 export interface WasmDeriveThresholdEd25519HssClientOutputMaskResult {
   clientOutputMaskB64u: string;
 }
-export interface WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest {
-  evaluatorDriverStateB64u: string;
+export type WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest =
+  WasmThresholdEd25519HssWorkerSessionSource & {
   clientRequestMessageB64u: string;
   evaluatorOtStateB64u: string;
   serverInputDeliveryB64u: string;
   clientOutputMaskB64u: string;
-}
+};
 export interface WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactResult {
   contextBindingB64u: string;
   stagedEvaluatorArtifactB64u: string;
+  timings?: Record<string, number>;
 }
-export interface WasmOpenThresholdEd25519HssClientOutputRequest {
-  evaluatorDriverStateB64u: string;
+export type WasmOpenThresholdEd25519HssClientOutputRequest =
+  WasmThresholdEd25519HssSerializedSessionSource & {
   clientOutputMessageB64u: string;
   clientOutputMaskB64u: string;
-}
+};
 export interface WasmOpenThresholdEd25519HssClientOutputResult {
   contextBindingB64u: string;
   xClientBaseB64u: string;
 }
-export interface WasmOpenThresholdEd25519HssSeedOutputRequest {
-  evaluatorDriverStateB64u: string;
+export type WasmOpenThresholdEd25519HssSeedOutputRequest =
+  WasmThresholdEd25519HssSerializedSessionSource & {
   seedOutputMessageB64u: string;
-}
+};
 export interface WasmOpenThresholdEd25519HssSeedOutputResult {
   contextBindingB64u: string;
   canonicalSeedB64u: string;
@@ -836,7 +856,23 @@ export interface WorkerSuccessResponse<T extends RequestTypeKey> extends BaseWor
   RequestResponseMap[T]
 > {
   type: SignerWorkerResponseType;
+  diagnostics?: WorkerResponseDiagnostics;
 }
+
+export type WorkerResponseDiagnostics = {
+  kind: 'worker_response_diagnostics_v1';
+  worker: 'hssClient';
+  requestType: number;
+  queueWaitMs: number;
+  wasmInitWaitMs: number;
+  wasmCallMs: number;
+  totalMs: number;
+  requestPayloadBytes: number;
+  responsePayloadBytes: number;
+  requestPayloadBreakdown: Record<string, number>;
+  responsePayloadBreakdown: Record<string, number>;
+  wasmOperationTimings?: Record<string, number>;
+};
 
 // Generic error response type
 export interface WorkerErrorResponse extends BaseWorkerResponse<{

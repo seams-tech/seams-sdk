@@ -995,7 +995,12 @@ test('registerWallet orchestrates combined Ed25519 and ECDSA wallet registration
   const captures: Record<string, unknown> = {};
   const fetchMock = installRegisterWalletFetch(captures);
   const originalWindow = (globalThis as any).window;
+  const originalConsoleInfo = console.info;
+  const consoleInfoCalls: unknown[][] = [];
   (globalThis as any).window = { isSecureContext: true };
+  console.info = (...args: unknown[]) => {
+    consoleInfoCalls.push(args);
+  };
   try {
     const result = await withMockedIndexedDb(() =>
       registerWallet({
@@ -1087,7 +1092,49 @@ test('registerWallet orchestrates combined Ed25519 and ECDSA wallet registration
         },
       ],
     });
+    const timingSummaries = consoleInfoCalls
+      .filter((call) => call[0] === '[Registration] wallet timing summary')
+      .map((call) => call[1]);
+    expect(timingSummaries).toHaveLength(1);
+    expect(timingSummaries[0]).toMatchObject({
+      kind: 'registration_timing_summary_v1',
+      status: 'succeeded',
+      authMethod: 'passkey',
+      signerMode: 'ed25519_and_ecdsa',
+      timings: {
+        inputValidationMs: expect.any(Number),
+        managedRegistrationGrantMs: expect.any(Number),
+        registrationIntentMs: expect.any(Number),
+        registrationIntentDigestMs: expect.any(Number),
+        authProofMs: expect.any(Number),
+        ed25519ClientMaterialMs: expect.any(Number),
+        walletRegisterStartMs: expect.any(Number),
+        ed25519ClientRequestMs: expect.any(Number),
+        ecdsaClientBootstrapMs: expect.any(Number),
+        walletRegisterHssRespondMs: expect.any(Number),
+        ed25519EvaluationArtifactMs: expect.any(Number),
+        walletRegisterFinalizeMs: expect.any(Number),
+        ed25519CompletionParseMs: expect.any(Number),
+        localWalletRegistrationPersistenceMs: expect.any(Number),
+        thresholdEd25519SessionPersistenceMs: expect.any(Number),
+        ecdsaRegistrationPersistenceMs: expect.any(Number),
+        walletStateActivationMs: expect.any(Number),
+        immediateSigningLaneAssertionMs: expect.any(Number),
+        auth: {
+          kind: 'passkey',
+          emailOtpEnrollmentMaterialMs: 0,
+          emailOtpRecoveryCodeBackupMs: 0,
+        },
+        ed25519: {
+          kind: 'ed25519_enabled',
+        },
+        ecdsa: {
+          kind: 'ecdsa_enabled',
+        },
+      },
+    });
   } finally {
+    console.info = originalConsoleInfo;
     (globalThis as any).window = originalWindow;
     fetchMock.restore();
   }

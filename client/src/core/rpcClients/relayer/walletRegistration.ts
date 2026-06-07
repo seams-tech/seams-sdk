@@ -88,10 +88,42 @@ export type CreateRegistrationIntentResponse = {
   expiresAtMs: number;
 };
 
+export type WalletRegistrationRouteTimingName =
+  | 'registrationIntentLoadMs'
+  | 'registrationIntentDigestMs'
+  | 'registrationIntentConsumeMs'
+  | 'registrationAuthorityVerifyMs'
+  | 'registrationHssPrepareMs'
+  | 'registrationEcdsaPrepareMs'
+  | 'registrationCeremonyPersistMs'
+  | 'registerStartTotalMs'
+  | 'registrationFinalizeReplayLoadMs'
+  | 'registrationCeremonyLoadMs'
+  | 'registrationHssFinalizeMs'
+  | 'registrationEcdsaBootstrapVerifyMs'
+  | 'nearAccountCreateMs'
+  | 'registrationKeygenMs'
+  | 'registrationEmailOtpEnrollmentPlanMs'
+  | 'relaySessionMintMs'
+  | 'relayGoogleEmailOtpActivationPlanMs'
+  | 'relayPersistenceMs'
+  | 'registrationFinalizeReplayCacheMs'
+  | 'registerFinalizeTotalMs';
+
+export type WalletRegistrationRouteDiagnostics = {
+  kind: 'wallet_registration_route_diagnostics_v1';
+  route: 'wallets_register_start' | 'wallets_register_finalize';
+  entries: {
+    name: WalletRegistrationRouteTimingName;
+    durationMs: number;
+  }[];
+};
+
 export type WalletRegistrationStartResponse = {
   ok: true;
   registrationCeremonyId: string;
   intent: RegistrationIntentV1;
+  registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
   ed25519?: {
     ceremonyHandle: string;
     preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
@@ -120,6 +152,7 @@ export type WalletRegistrationFinalizeResponse = {
   ok: true;
   walletId: WalletId;
   rpId: string;
+  registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
   ed25519?: {
     nearAccountId: string;
     publicKey: string;
@@ -150,6 +183,7 @@ export type WalletRegistrationFinalizeResponse = {
   walletId: WalletId;
   rpId: string;
   reason: 'replay_without_session_material';
+  registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
   ed25519?: never;
   ecdsa?: never;
 };
@@ -767,6 +801,7 @@ function walletRegistrationStartAuthorityBody(
 export async function startWalletRegistration(
   args: {
     relayerUrl: string;
+    headers?: Record<string, string>;
     registrationIntentGrant: RegistrationIntentGrant;
     registrationIntentDigestB64u: string;
     intent: RegistrationIntentV1;
@@ -781,6 +816,7 @@ export async function startWalletRegistration(
   return await postJson<WalletRegistrationStartResponse>({
     relayerUrl: args.relayerUrl,
     path: '/wallets/register/start',
+    headers: args.headers,
     body,
   });
 }
@@ -808,6 +844,7 @@ export async function respondWalletRegistrationHss(args: {
 
 export async function finalizeWalletRegistration(args: {
   relayerUrl: string;
+  headers?: Record<string, string>;
   registrationCeremonyId: string;
   idempotencyKey?: string;
   ed25519?: {
@@ -824,6 +861,7 @@ export async function finalizeWalletRegistration(args: {
   return await postJson<WalletRegistrationFinalizeResponse>({
     relayerUrl: args.relayerUrl,
     path: '/wallets/register/finalize',
+    headers: args.headers,
     body: {
       registrationCeremonyId: args.registrationCeremonyId,
       ...(args.idempotencyKey ? { idempotencyKey: args.idempotencyKey } : {}),

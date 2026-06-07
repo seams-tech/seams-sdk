@@ -31,6 +31,7 @@ import {
   deriveThresholdEd25519HssClientInputsWasm,
   prepareThresholdEd25519HssClientRequestWasm,
   prepareThresholdEd25519HssSessionWasm,
+  type ThresholdEd25519HssClientRequestEnvelope,
 } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
 import {
   callCf,
@@ -597,7 +598,7 @@ const TEST_NEAR_SIGNER_WORKER_CTX = {
 
 async function buildClientOwnedHssEvaluationResultForTest(args: {
   preparedSession: Record<string, unknown>;
-  clientRequest: { clientRequestMessageB64u: string; evaluatorOtStateB64u: string };
+  clientRequest: ThresholdEd25519HssClientRequestEnvelope;
   respondedJson: Record<string, unknown> | null | undefined;
 }) {
   return await buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm({

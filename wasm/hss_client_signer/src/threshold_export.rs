@@ -16,12 +16,11 @@ pub fn threshold_ed25519_seed_export_artifact_from_seed(args: JsValue) -> Result
     }
     let mut seed32 = [0u8; 32];
     seed32.copy_from_slice(seed.as_slice());
-    let artifact =
-        signer_core::near_ed25519_recovery::build_near_ed25519_seed_export_artifact_v1(
-            seed32,
-            expected_public_key.as_str(),
-        )
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let artifact = signer_core::near_ed25519_recovery::build_near_ed25519_seed_export_artifact_v1(
+        seed32,
+        expected_public_key.as_str(),
+    )
+    .map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let out = object();
     set_string(&out, "artifactKind", &artifact.artifact_kind)?;

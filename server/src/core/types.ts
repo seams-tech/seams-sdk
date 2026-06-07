@@ -682,11 +682,43 @@ export type WalletRegistrationEcdsaWalletKey = {
   participantIds: number[];
 };
 
+export type WalletRegistrationRouteTimingName =
+  | 'registrationIntentLoadMs'
+  | 'registrationIntentDigestMs'
+  | 'registrationIntentConsumeMs'
+  | 'registrationAuthorityVerifyMs'
+  | 'registrationHssPrepareMs'
+  | 'registrationEcdsaPrepareMs'
+  | 'registrationCeremonyPersistMs'
+  | 'registerStartTotalMs'
+  | 'registrationFinalizeReplayLoadMs'
+  | 'registrationCeremonyLoadMs'
+  | 'registrationHssFinalizeMs'
+  | 'registrationEcdsaBootstrapVerifyMs'
+  | 'nearAccountCreateMs'
+  | 'registrationKeygenMs'
+  | 'registrationEmailOtpEnrollmentPlanMs'
+  | 'relaySessionMintMs'
+  | 'relayGoogleEmailOtpActivationPlanMs'
+  | 'relayPersistenceMs'
+  | 'registrationFinalizeReplayCacheMs'
+  | 'registerFinalizeTotalMs';
+
+export type WalletRegistrationRouteDiagnostics = {
+  kind: 'wallet_registration_route_diagnostics_v1';
+  route: 'wallets_register_start' | 'wallets_register_finalize';
+  entries: {
+    name: WalletRegistrationRouteTimingName;
+    durationMs: number;
+  }[];
+};
+
 export type WalletRegistrationStartResponse =
   | {
       ok: true;
       registrationCeremonyId: string;
       intent: RegistrationIntentV1;
+      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
       ed25519?: {
         ceremonyHandle: string;
         preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
@@ -762,6 +794,7 @@ export type WalletRegistrationFinalizeResponse =
       ok: true;
       walletId: WalletId;
       rpId: string;
+      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
       ed25519?: {
         nearAccountId: string;
         publicKey: string;
@@ -783,6 +816,7 @@ export type WalletRegistrationFinalizeResponse =
       walletId: WalletId;
       rpId: string;
       reason: 'replay_without_session_material';
+      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
       ed25519?: never;
       ecdsa?: never;
     }

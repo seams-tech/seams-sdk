@@ -1672,10 +1672,36 @@ pub fn trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_cl
     tau_relayer_bits: &DdhHiddenEvalServerInputBundle,
     client_output_projection: DdhHiddenEvalClientOutputProjection,
 ) -> ProtoResult<DdhHiddenEvalExecutionTrace> {
+    let (trace, _) =
+        trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_client_output_projection_profiled_with_pool(
+            program,
+            backend,
+            constant_pool,
+            y_client_bits,
+            y_relayer_bits,
+            tau_client_bits,
+            tau_relayer_bits,
+            client_output_projection,
+        )?;
+    Ok(trace)
+}
+
+pub fn trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_client_output_projection_profiled_with_pool<
+    B: DdhHssArithmeticBackend,
+>(
+    program: &HiddenEvalProgram,
+    backend: &B,
+    constant_pool: &DdhHiddenEvalConstantPool,
+    y_client_bits: &DdhHssInputShareBundle,
+    y_relayer_bits: &DdhHiddenEvalServerInputBundle,
+    tau_client_bits: &DdhHssInputShareBundle,
+    tau_relayer_bits: &DdhHiddenEvalServerInputBundle,
+    client_output_projection: DdhHiddenEvalClientOutputProjection,
+) -> ProtoResult<(DdhHiddenEvalExecutionTrace, DdhHiddenEvalStageProfile)> {
     let ExecutionUntilOutputProjector {
         run,
         checkpoint_digests,
-        ..
+        stage_profile,
     } = execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs_validated(
         program,
         backend,
@@ -1686,10 +1712,13 @@ pub fn trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_cl
         tau_relayer_bits,
         client_output_projection,
     )?;
-    Ok(DdhHiddenEvalExecutionTrace {
-        run,
-        checkpoint_digests,
-    })
+    Ok((
+        DdhHiddenEvalExecutionTrace {
+            run,
+            checkpoint_digests,
+        },
+        stage_profile,
+    ))
 }
 
 pub fn materialize_message_schedule_continuation_with_split_server_inputs_with_pool<
@@ -3696,10 +3725,12 @@ fn arithmetic_word_pair_to_split_local_bits_secure<B: DdhHssArithmeticBackend>(
     label: &str,
     word: &LocalArithmeticWordPair,
 ) -> ProtoResult<SplitLocalBitWord> {
+    let mut child_label = String::with_capacity(label.len() + 16);
+    set_child_label(&mut child_label, label, "zero");
     let (zero_left, zero_right) = build_local_word_pair_public(
         backend.evaluation_key(),
         b"phase-a-arith-to-bool-zero",
-        format!("{label}/zero").as_bytes(),
+        child_label.as_bytes(),
         1,
         0,
         0,
@@ -3713,9 +3744,10 @@ fn arithmetic_word_pair_to_split_local_bits_secure<B: DdhHssArithmeticBackend>(
     let width = usize::from(word.left.width_bits);
     let mut out_left = empty_local_bit_slice(DdhHssShareSide::Left, width);
     let mut out_right = empty_local_bit_slice(DdhHssShareSide::Right, width);
+    set_child_label(&mut child_label, label, "sum");
     eval_add_cross_share_local_arithmetic_word_bits_secure_public_into(
         backend.evaluation_key(),
-        &format!("{label}/sum"),
+        &child_label,
         &word.left,
         &word.right,
         &zero_left,
@@ -3735,10 +3767,11 @@ fn add_two_local_bit_pairs_to_arithmetic_naive<B: DdhHssArithmeticBackend>(
     a: LocalBitWordPairRef<'_>,
     b: LocalBitWordPairRef<'_>,
 ) -> ProtoResult<(LocalArithmeticWordPair, LocalBitWordAddTiming)> {
-    let a_arith =
-        split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &format!("{label}/a"), a)?;
-    let b_arith =
-        split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &format!("{label}/b"), b)?;
+    let mut child_label = String::with_capacity(label.len() + 8);
+    set_child_label(&mut child_label, label, "a");
+    let a_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &child_label, a)?;
+    set_child_label(&mut child_label, label, "b");
+    let b_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &child_label, b)?;
     Ok((
         add_local_arithmetic_word_pairs(backend.evaluation_key(), label, &a_arith, &b_arith)?,
         LocalBitWordAddTiming::default(),
@@ -3753,32 +3786,28 @@ fn add_four_local_bit_pairs_to_arithmetic_naive<B: DdhHssArithmeticBackend>(
     c: LocalBitWordPairRef<'_>,
     d: LocalBitWordPairRef<'_>,
 ) -> ProtoResult<(LocalArithmeticWordPair, LocalBitWordAddTiming)> {
-    let a_arith =
-        split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &format!("{label}/a"), a)?;
-    let b_arith =
-        split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &format!("{label}/b"), b)?;
-    let c_arith =
-        split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &format!("{label}/c"), c)?;
-    let d_arith =
-        split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &format!("{label}/d"), d)?;
+    let mut child_label = String::with_capacity(label.len() + 8);
+    set_child_label(&mut child_label, label, "a");
+    let a_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &child_label, a)?;
+    set_child_label(&mut child_label, label, "b");
+    let b_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &child_label, b)?;
+    set_child_label(&mut child_label, label, "c");
+    let c_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &child_label, c)?;
+    set_child_label(&mut child_label, label, "d");
+    let d_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &child_label, d)?;
+    set_child_label(&mut child_label, label, "ab");
     let ab = add_local_arithmetic_word_pairs(
         backend.evaluation_key(),
-        &format!("{label}/ab"),
+        &child_label,
         &a_arith,
         &b_arith,
     )?;
-    let abc = add_local_arithmetic_word_pairs(
-        backend.evaluation_key(),
-        &format!("{label}/abc"),
-        &ab,
-        &c_arith,
-    )?;
-    let abcd = add_local_arithmetic_word_pairs(
-        backend.evaluation_key(),
-        &format!("{label}/abcd"),
-        &abc,
-        &d_arith,
-    )?;
+    set_child_label(&mut child_label, label, "abc");
+    let abc =
+        add_local_arithmetic_word_pairs(backend.evaluation_key(), &child_label, &ab, &c_arith)?;
+    set_child_label(&mut child_label, label, "abcd");
+    let abcd =
+        add_local_arithmetic_word_pairs(backend.evaluation_key(), &child_label, &abc, &d_arith)?;
     Ok((abcd, LocalBitWordAddTiming::default()))
 }
 
@@ -3792,14 +3821,12 @@ fn add_five_local_bit_pairs_to_arithmetic_naive<B: DdhHssArithmeticBackend>(
     e: LocalBitWordPairRef<'_>,
 ) -> ProtoResult<(LocalArithmeticWordPair, LocalBitWordAddTiming)> {
     let (abcd, timing) = add_four_local_bit_pairs_to_arithmetic_naive(backend, label, a, b, c, d)?;
-    let e_arith =
-        split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &format!("{label}/e"), e)?;
-    let abcde = add_local_arithmetic_word_pairs(
-        backend.evaluation_key(),
-        &format!("{label}/abcde"),
-        &abcd,
-        &e_arith,
-    )?;
+    let mut child_label = String::with_capacity(label.len() + 8);
+    set_child_label(&mut child_label, label, "e");
+    let e_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &child_label, e)?;
+    set_child_label(&mut child_label, label, "abcde");
+    let abcde =
+        add_local_arithmetic_word_pairs(backend.evaluation_key(), &child_label, &abcd, &e_arith)?;
     Ok((abcde, timing))
 }
 
@@ -3834,16 +3861,17 @@ fn add_two_local_bit_words_profiled<B: DdhHssArithmeticBackend>(
     let mut carry_left = zero_left.clone();
     let mut carry_right = zero_right.clone();
     let mut timing = LocalBitWordAddTiming::default();
+    let mut bit_label = String::with_capacity(label.len() + 32);
     for idx in 0..left.len() {
         let left_left_word = left.left.local_word(idx)?;
         let left_right_word = left.right.local_word(idx)?;
         let right_left_word = right.left.local_word(idx)?;
         let right_right_word = right.right.local_word(idx)?;
-        let xor_ab_label = format!("{label}/xor_ab/{idx}");
+        set_indexed_child_label(&mut bit_label, label, "xor_ab", idx);
         let xor_ab_started_ns = monotonic_now_ns();
         let (xor_ab_left, xor_ab_right) = xor_local_word_pairs_public(
             backend.evaluation_key(),
-            xor_ab_label.as_bytes(),
+            bit_label.as_bytes(),
             &left_left_word,
             &left_right_word,
             &right_left_word,
@@ -3852,11 +3880,11 @@ fn add_two_local_bit_words_profiled<B: DdhHssArithmeticBackend>(
         timing.xor_ab_duration_ns = timing
             .xor_ab_duration_ns
             .saturating_add(elapsed_ns(xor_ab_started_ns));
-        let sum_label = format!("{label}/sum/{idx}");
+        set_indexed_child_label(&mut bit_label, label, "sum", idx);
         let sum_started_ns = monotonic_now_ns();
         let (sum_left, sum_right) = xor_local_word_pairs_public(
             backend.evaluation_key(),
-            sum_label.as_bytes(),
+            bit_label.as_bytes(),
             &xor_ab_left,
             &xor_ab_right,
             &carry_left,
@@ -3865,11 +3893,11 @@ fn add_two_local_bit_words_profiled<B: DdhHssArithmeticBackend>(
         timing.sum_duration_ns = timing
             .sum_duration_ns
             .saturating_add(elapsed_ns(sum_started_ns));
-        let a_xor_carry_label = format!("{label}/a_xor_carry/{idx}");
+        set_indexed_child_label(&mut bit_label, label, "a_xor_carry", idx);
         let a_xor_carry_started_ns = monotonic_now_ns();
         let (a_xor_carry_left, a_xor_carry_right) = xor_local_word_pairs_public(
             backend.evaluation_key(),
-            a_xor_carry_label.as_bytes(),
+            bit_label.as_bytes(),
             &left_left_word,
             &left_right_word,
             &carry_left,
@@ -3878,11 +3906,11 @@ fn add_two_local_bit_words_profiled<B: DdhHssArithmeticBackend>(
         timing.a_xor_carry_duration_ns = timing
             .a_xor_carry_duration_ns
             .saturating_add(elapsed_ns(a_xor_carry_started_ns));
-        let carry_gate_label = format!("{label}/carry/{idx}");
+        set_indexed_child_label(&mut bit_label, label, "carry", idx);
         let carry_gate_started_ns = monotonic_now_ns();
         let (carry_gate_left, carry_gate_right) = eval_mul_local_word_pairs_public(
             backend.evaluation_key(),
-            carry_gate_label.as_bytes(),
+            bit_label.as_bytes(),
             &xor_ab_left,
             &xor_ab_right,
             &a_xor_carry_left,
@@ -3891,11 +3919,11 @@ fn add_two_local_bit_words_profiled<B: DdhHssArithmeticBackend>(
         timing.carry_gate_duration_ns = timing
             .carry_gate_duration_ns
             .saturating_add(elapsed_ns(carry_gate_started_ns));
-        let next_carry_label = format!("{label}/next_carry/{idx}");
+        set_indexed_child_label(&mut bit_label, label, "next_carry", idx);
         let next_carry_started_ns = monotonic_now_ns();
         (carry_left, carry_right) = xor_local_word_pairs_public(
             backend.evaluation_key(),
-            next_carry_label.as_bytes(),
+            bit_label.as_bytes(),
             &left_left_word,
             &left_right_word,
             &carry_gate_left,
@@ -3934,6 +3962,7 @@ fn add_two_local_bit_words_right_transport_bundles<B: DdhHssArithmeticBackend>(
     let mut out_right = empty_local_bit_slice(DdhHssShareSide::Right, left.len());
     let mut carry_left = zero_left.clone();
     let mut carry_right = zero_right.clone();
+    let mut bit_label = String::with_capacity(label.len() + 32);
     for idx in 0..left.len() {
         validate_transport_word_pair_public(
             HiddenEvalInputOwner::Server,
@@ -3945,46 +3974,46 @@ fn add_two_local_bit_words_right_transport_bundles<B: DdhHssArithmeticBackend>(
         let left_right_word = left.right.local_word(idx)?;
         let right_left_word = local_word_from_transport_public(&right_left[idx])?;
         let right_right_word = local_word_from_transport_public(&right_right[idx])?;
-        let xor_ab_label = format!("{label}/xor_ab/{idx}");
+        set_indexed_child_label(&mut bit_label, label, "xor_ab", idx);
         let (xor_ab_left, xor_ab_right) = xor_local_word_pairs_public(
             backend.evaluation_key(),
-            xor_ab_label.as_bytes(),
+            bit_label.as_bytes(),
             &left_left_word,
             &left_right_word,
             &right_left_word,
             &right_right_word,
         )?;
-        let sum_label = format!("{label}/sum/{idx}");
+        set_indexed_child_label(&mut bit_label, label, "sum", idx);
         let (sum_left, sum_right) = xor_local_word_pairs_public(
             backend.evaluation_key(),
-            sum_label.as_bytes(),
+            bit_label.as_bytes(),
             &xor_ab_left,
             &xor_ab_right,
             &carry_left,
             &carry_right,
         )?;
-        let a_xor_carry_label = format!("{label}/a_xor_carry/{idx}");
+        set_indexed_child_label(&mut bit_label, label, "a_xor_carry", idx);
         let (a_xor_carry_left, a_xor_carry_right) = xor_local_word_pairs_public(
             backend.evaluation_key(),
-            a_xor_carry_label.as_bytes(),
+            bit_label.as_bytes(),
             &left_left_word,
             &left_right_word,
             &carry_left,
             &carry_right,
         )?;
-        let carry_gate_label = format!("{label}/carry/{idx}");
+        set_indexed_child_label(&mut bit_label, label, "carry", idx);
         let (carry_gate_left, carry_gate_right) = eval_mul_local_word_pairs_public(
             backend.evaluation_key(),
-            carry_gate_label.as_bytes(),
+            bit_label.as_bytes(),
             &xor_ab_left,
             &xor_ab_right,
             &a_xor_carry_left,
             &a_xor_carry_right,
         )?;
-        let next_carry_label = format!("{label}/next_carry/{idx}");
+        set_indexed_child_label(&mut bit_label, label, "next_carry", idx);
         (carry_left, carry_right) = xor_local_word_pairs_public(
             backend.evaluation_key(),
-            next_carry_label.as_bytes(),
+            bit_label.as_bytes(),
             &left_left_word,
             &left_right_word,
             &carry_gate_left,

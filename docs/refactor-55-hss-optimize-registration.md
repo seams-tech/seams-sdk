@@ -1,6 +1,12 @@
 # HSS Optimize Registration
 
-Date updated: May 23, 2026
+Date updated: June 7, 2026
+
+Status: HSS client speed-profile optimization, scoped worker-resident client
+HSS handles, two label-buffer executor cleanups, and fine-grained hidden-eval
+worker diagnostics have been benchmarked and kept.
+Full registration benchmark results are tracked in
+`docs/refactor-59-optimize.md`.
 
 ## Summary
 
@@ -16,9 +22,105 @@ The rule for this work is simple:
 
 This is a performance plan, not a speculative redesign doc.
 
-## May 2026 Active-Path Plan
+## Relationship To Refactor 59
 
-Recent full active-path test runs show the Ed25519 HSS ceremony at roughly
+`docs/refactor-59-optimize.md` owns the full registration benchmark:
+
+- SDK call start through usable wallet state
+- auth proof collection
+- HSS registration ceremony
+- optional ECDSA bootstrap
+- NEAR account creation and key visibility
+- relay persistence
+- client IndexedDB/session persistence
+- post-registration readiness checks
+
+This plan owns the HSS slice of that benchmark. Resume this plan when
+`refactor-59` can report the registration HSS buckets clearly enough to rank
+them against the full flow.
+
+Keep non-HSS work in `refactor-59` or a focused follow-up plan. Examples:
+
+- account-exists preflight
+- managed registration grant timing
+- NEAR account creation and key visibility
+- relay persistence outside HSS ceremony state
+- client local persistence after HSS completes
+- ECDSA registration bootstrap and storage
+
+## Current State
+
+Current code state:
+
+- `wasm/hss_client_signer` now uses release `opt-level = 3` to prioritize
+  registration and HSS active-path latency over bundle size.
+- Server-side HSS ceremony handles are implemented for session and registration
+  paths. Finalize no longer reposts the full prepared server session.
+- Registration HSS routes currently use `/wallets/register/start`,
+  `/wallets/register/hss/respond`, and `/wallets/register/finalize`.
+- Server HSS prepare/respond/finalize timing logs exist for registration.
+- Client-side HSS worker calls now cache the materialized client session across
+  `prepare_client_request` and `build_client_owned_staged_evaluator_artifact`
+  with an ephemeral worker handle. The worker consumes the build handle after
+  use, expires stale handles after five minutes, and falls back to serialized
+  state for direct/script runtimes.
+- Browser worker payloads still use base64url strings for the large
+  one-shot artifacts. Binary worker payloads are not implemented.
+- Browser registration benchmarking now captures sanitized HSS client timings,
+  HSS worker-boundary diagnostics, and gated relay route diagnostics from the
+  wallet-iframe path. The full prepared-SDK 5-run smoke baseline measured
+  Ed25519-only wallet-iframe registration at:
+  - full browser registration duration: p50 `3,812ms`, p95 `4,624ms`
+  - SDK registration duration: p50 `2,435ms`, p95 `2,932ms`
+  - HSS client `prepare`: p50 `380ms`, p95 `385ms`, `23,046` response bytes
+  - HSS client `respond`: p50 `106ms`, p95 `117ms`, `419,361` response bytes
+  - HSS worker `build_client_owned_staged_evaluator_artifact`: p50 `738ms`,
+    p95 `748ms`, `464,999` request bytes, `154,567` response bytes
+  - HSS worker `prepare_client_request`: p50 `126ms`, p95 `135ms`
+  - relay `/wallets/register/start`: p50 `376ms`, p95 `544ms`, dominated by
+    server `registrationHssPrepareMs`
+  - relay `/wallets/register/finalize`: p50 `457ms`, p95 `467ms`, dominated by
+    server `registrationHssFinalizeMs`
+- Registration-start prepare pipelining is not implemented as a public route
+  shape change. Treat it as a future optimization candidate only after a fresh
+  baseline.
+- The retained worker-handle benchmark (`20260607-142520Z`) measured
+  `materializeSessionMs` p50/p95 at `0ms` across all four smoke scenarios.
+  Staged-artifact build p50 moved `736ms -> 688ms` for wallet-iframe
+  Ed25519-only, `736ms -> 718ms` for wallet-iframe Ed25519+ECDSA,
+  `734ms -> 686ms` for host-origin Ed25519-only, and `736ms -> 686ms` for
+  host-origin Ed25519+ECDSA versus the label-buffer baseline.
+- A follow-up hidden-eval helper-label cleanup was retained after a forced
+  SDK/WASM rebuild and two smoke runs (`20260607-144442Z` and
+  `20260607-144642Z`). The repeat run improved `hiddenEvalTotalMs` p50/p95 in
+  all four scenarios versus the worker-handle baseline while preserving label
+  bytes and arithmetic shape. The largest repeat win was wallet-iframe
+  Ed25519+ECDSA, where `hiddenEvalTotalMs` moved p50 `670ms -> 638ms` and p95
+  `676ms -> 642ms`.
+- The output-projector reduce/select label-buffer candidate was rejected after
+  smoke run `20260607-150450Z`. It passed the HSS protocol suite, but benchmark
+  results were weak and noisy, with regressions in the ECDSA scenarios. The
+  candidate was reverted.
+- Fine-grained hidden-eval worker diagnostics were exposed and benchmarked in
+  smoke run `20260607-152114Z`. The run passed all four scenarios and ranked the
+  remaining HSS client-owned hidden-eval cost as:
+  - round core: p50 roughly `296ms` to `301ms`
+  - output projector: p50 roughly `270ms` to `281ms`
+  - message schedule: p50 roughly `58ms` to `59ms`
+  - round-core A2B conversion for `new_a_bits` and `new_e_bits`: about
+    `45ms` to `46ms` p50 each
+  - round-core `maj`: about `38ms` to `39ms` p50
+  - round-core `ch`: about `31ms` to `32ms` p50
+- Binary worker payloads are now lower priority for latency because worker
+  decode, materialization, and encode are near noise on the retained
+  worker-handle path. Keep binary payloads as transport cleanup, and prioritize
+  a spec-backed hidden-eval core patch for the next latency experiment.
+- The next HSS arithmetic change must be designed before implementation. The
+  target is the round-core A2B/carry conversion path first, then the `maj`/`ch`
+  boolean batch helpers. The spec needs to pin transcript labels, provenance
+  digests, gate schedule, output equivalence, and constant-time constraints.
+
+Historical full active-path test runs showed the Ed25519 HSS ceremony at roughly
 `2.8s` to `3.3s` total. The main buckets are:
 
 - server `prepare`: about `380ms` to `480ms`
@@ -31,7 +133,9 @@ Native release profiling still points to the HSS hidden-eval core as the
 dominant protocol cost, with the browser active path adding worker, WASM
 boundary, serialization, and route overhead around it.
 
-The optimization work should proceed in this order.
+The older HSS-specific phase notes below are retained for context. The current
+canonical registration checklist starts at
+`Current Registration Optimization Plan`.
 
 ### Completed Phase 0: HSS Client Wasm Build Profile
 
@@ -71,13 +175,23 @@ Latency impact from `pnpm -C tests test:threshold-ed25519:active-path`:
 
 Decision:
 
-- use `opt-level = "s"` as the default balanced profile; it keeps most of the
-  bundle-size advantage of `"z"` while still cutting mean ceremony latency by
-  about `345ms`
-- use `opt-level = 3` only if registration latency becomes more important than
-  the extra `56.7KB` gzipped WASM delta
+- June 7, 2026 update: use `opt-level = 3` as the active profile for now.
+  Current-code benchmarking showed a stable HSS active-path win of about
+  `231ms` median ceremony time, while adding about `78.7KB` gzipped WASM versus
+  the previously tracked artifact.
+- Revisit this if the full registration benchmark shows HSS is no longer a
+  top-three registration latency bucket, or if bundle size becomes the dominant
+  product constraint.
 
-### Phase A: Add Evaluate Substage Instrumentation
+Current-code active-path comparison:
+
+| Profile | Raw WASM | Gzipped WASM | Ceremony median | Ceremony mean | Ceremony p95 | Evaluate median | Complete median |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `opt-level = "s"` tracked baseline | `710,803` bytes | `301,937` bytes | `2,445.5ms` | `2,445.8ms` | `2,476ms` | `828.5ms` | `153ms` |
+| `opt-level = 3` | `1,000,422` bytes | `380,674` bytes | `2,214.5ms` | `2,214.2ms` | `2,234ms` | `759ms` | `92ms` |
+| Delta | `+289,619` bytes | `+78,737` bytes | `-231ms` (`-9.4%`) | `-231.6ms` (`-9.5%`) | `-242ms` | `-69.5ms` | `-61ms` |
+
+### Historical Phase A: Add Evaluate Substage Instrumentation
 
 Goal:
 
@@ -89,6 +203,7 @@ Work:
 - add worker-side timing fields around:
   - worker queue wait
   - WASM initialization
+  - worker request and response payload byte counts
   - request payload normalization
   - base64 decode
   - bincode/state decode
@@ -101,6 +216,18 @@ Work:
   that cannot influence control flow
 - log total request and response byte counts for the worker message
 
+Current state:
+
+- implemented browser HSS client worker-boundary diagnostics for queue wait,
+  WASM initialization, WASM call duration, total duration, and request/response
+  payload field sizes
+- SDK type-check and the script-level HSS active-path suite pass with the
+  diagnostics path present
+- the script-level suite does not emit the browser-worker diagnostics because it
+  exercises the script/direct worker path; capture from a browser-worker
+  registration benchmark before choosing worker-resident handles or binary
+  payloads
+
 Keep rule:
 
 - always keep if the instrumentation stays boundary-local and does not alter
@@ -110,7 +237,7 @@ Validation:
 
 - `pnpm -C tests test:threshold-ed25519:active-path`
 
-### Phase B: Worker-Resident HSS Session Handles
+### Historical Phase B: Worker-Resident HSS Session Handles
 
 Goal:
 
@@ -128,14 +255,18 @@ type HssClientWorkerSession =
 
 Work:
 
-- change `threshold_ed25519_hss_prepare_session` worker handling so the worker
-  stores materialized runtime/session state behind a short-lived handle
-- make `prepare_client_request`, `build_client_owned_staged_evaluator_artifact`,
-  `open_client_output`, and seed export consume the handle where possible
+- [x] make `prepare_client_request` store the materialized runtime/session state
+      behind a short-lived worker handle
+- [x] make `build_client_owned_staged_evaluator_artifact` consume the handle on
+      the browser-worker path
+- [x] keep direct/script runtimes on the serialized-state branch through a
+      discriminated client-request envelope
+- [x] add handle expiry and build-time handle cleanup
+- [ ] extend handle use to output opening only after a fresh benchmark shows the
+      complete/open path is worth moving
+- [ ] add explicit browser-worker tests for handle expiry and build-time cleanup
 - keep durable and HTTP boundaries encoded as today; the worker-local path can
   use handles because it is process-local and ephemeral
-- add TTL cleanup and explicit cleanup on success, failure, cancellation, and
-  worker reset
 - encode lifecycle with discriminated unions so call sites cannot evaluate with
   an unprepared or completed handle
 
@@ -160,7 +291,7 @@ Validation:
 - `pnpm -C tests test:threshold-ed25519:active-path`
 - `pnpm check:formal-verification` if boundary shapes change
 
-### Phase C: Binary Worker Payloads
+### Historical Phase C: Binary Worker Payloads
 
 Goal:
 
@@ -196,7 +327,7 @@ Validation:
 - active-path timing comparison before and after
 - browser worker tests for transferable ownership behavior
 
-### Phase D: Wallet Registration Start Prepare Pipelining
+### Historical Phase D: Wallet Registration Start Prepare Pipelining
 
 Goal:
 
@@ -230,7 +361,7 @@ Validation:
 - active-path timing comparison before and after
 - wallet registration ceremony grant tests
 
-### Phase E: Executor Core Cleanup
+### Historical Phase E: Executor Core Cleanup
 
 Goal:
 
@@ -263,17 +394,49 @@ Validation:
 - formal verification updates for any algebraic projector or carry conversion
   change
 
-## Current Todo
+## HSS Protocol Todo
 
 - [x] Capture a fresh active-path baseline with the size-optimized WASM profile.
 - [x] Trial speed-optimized HSS client WASM and record size/latency impact.
-- [ ] Implement Phase A instrumentation.
-- [ ] Implement Phase B worker-resident HSS handles.
-- [ ] Implement Phase C binary worker payloads.
-- [ ] Implement Phase D wallet registration start prepare pipelining.
+- [x] Switch `wasm/hss_client_signer` release profile to `opt-level = 3` after
+      current-code active-path benchmarking.
+- [x] Implement relay-side HSS ceremony handles to reduce finalize payload size.
+- [x] Add server-side HSS prepare/respond/finalize timing logs for registration.
+- [x] Add HSS client worker-boundary diagnostics for queue/init/WASM-call time
+      and payload sizes.
+- [x] Capture sanitized HSS client prepare/respond timings from a browser
+      wallet-iframe registration probe.
+- [x] Capture HSS client worker-boundary diagnostics from a browser-worker
+      registration benchmark.
+- [x] Decide whether the browser registration path should emit worker-boundary
+      diagnostics, or whether route-level HSS client timings are sufficient for
+      the next optimization decision.
+- [x] Add Rust/WASM internal evaluate substage instrumentation if browser-worker
+      diagnostics show `wasmCallMs` dominates.
+- [x] Keep the first tiny executor cleanup: replace per-bit local-addition
+      `format!` allocations with reusable label buffers after protocol tests and
+      the `refactor-59` smoke benchmark passed.
+- [x] Implement scoped historical Phase B worker-resident client HSS handles for
+      the registration staged-artifact build path.
+- [x] Keep the second tiny executor cleanup: reuse child-label buffers in
+      Boolean-to-arithmetic conversion helpers after protocol tests and two
+      `refactor-59` smoke runs passed.
+- [x] Reject the output-projector reduce/select label-buffer cleanup after the
+      smoke benchmark showed weak/noisy results.
+- [x] Expose fine-grained hidden-eval substage timings through worker
+      diagnostics and benchmark smoke run `20260607-152114Z`.
+- [x] Decide whether binary worker payloads should precede deeper executor
+      work. They should not lead the latency path now; keep them as transport
+      cleanup.
+- [x] Write a focused round-core A2B/boolean-helper optimization spec before
+      changing protocol arithmetic.
+- [ ] Implement one spec-backed round-core A2B or `maj`/`ch` helper candidate.
+- [ ] Implement historical Phase C binary worker payloads only if transport
+      cleanup becomes product-relevant or a fresh benchmark makes payload
+      transfer dominant again.
 - [ ] Re-benchmark after each phase and keep only meaningful wins.
-- [ ] Implement Phase E executor cleanup only after wrapper/transport overhead is
-      quantified.
+- [ ] Pick any further Phase E executor cleanup only after the round-core spec
+      and first candidate are complete.
 - [ ] Update security and README language if any public timing or boundary claim
       changes.
 
@@ -281,15 +444,17 @@ Validation:
 
 The current registration flow does this:
 
-1. validate account input and run a best-effort account existence check
-2. complete WebAuthn registration
-3. run Ed25519 single-key HSS registration prepare/finalize
-4. submit atomic relay registration
-5. create the NEAR account on-chain
-6. run optimistic access-key visibility verification
-7. persist relay-side authenticator, binding, and warm-session data
-8. persist client-side wallet/session data
-9. start background ECDSA provisioning and Ed25519 prewarm
+1. validate account input and registration intent
+2. complete the auth-method proof (`webauthn_registration` or Email OTP
+   registration proof)
+3. call `/wallets/register/start`
+4. run Ed25519 single-key HSS through `/wallets/register/hss/respond`
+5. call `/wallets/register/finalize`
+6. create the NEAR account on-chain inside the relay registration path
+7. run optimistic access-key visibility verification
+8. persist relay-side authenticator, binding, session, and registration metadata
+9. persist client-side wallet/session data
+10. start background ECDSA provisioning and Ed25519 prewarm where configured
 
 Recent timings show:
 
@@ -355,7 +520,278 @@ Needed timing buckets:
 - client local persistence subtasks
 - total end-to-end duration
 
-## Optimization Phases
+## Implementation Prep: Phase 0
+
+Phase 0 is observability-only. It should preserve registration behavior and
+produce one canonical timing summary for every registration attempt.
+
+Primary files:
+
+- `client/src/SeamsWeb/operations/registration/registration.ts`
+- `client/src/SeamsWeb/operations/registration/createAccountRelayServer.ts`
+- `client/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts`
+- `client/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts`
+
+Current code already has a coarse summary in
+`client/src/SeamsWeb/operations/registration/registration.ts`, but the existing
+`thresholdEd25519PrepareMs` bucket covers most of the visible flow from start to
+finalize. The first implementation pass should split that bucket into explicit
+awaited boundaries:
+
+- managed registration grant
+- registration intent creation and digest check
+- auth-method proof collection
+- Email OTP enrollment material resolution
+- Ed25519 HSS client material derivation
+- `/wallets/register/start`
+- Ed25519 client request preparation
+- `/wallets/register/hss/respond`
+- Ed25519 evaluation artifact build
+- Email OTP recovery-code backup
+- `/wallets/register/finalize`
+- Ed25519 registration completion parsing
+- local wallet/authenticator persistence
+- threshold Ed25519 session persistence
+- ECDSA registration finalization and signer-record persistence
+- wallet-state activation
+- immediate signing-lane assertion
+- total end-to-end duration
+
+Use a typed diagnostics shape instead of a loose `Record<string, number>`:
+
+```ts
+type RegistrationTimingSummary =
+  | {
+      kind: 'registration_timing_summary_v1';
+      status: 'succeeded';
+      authMethod: 'passkey' | 'email_otp';
+      signerMode: 'ed25519_only' | 'ed25519_and_ecdsa';
+      totalMs: number;
+      timings: RegistrationTimingBuckets;
+    }
+  | {
+      kind: 'registration_timing_summary_v1';
+      status: 'failed';
+      authMethod: 'passkey' | 'email_otp';
+      signerMode: 'ed25519_only' | 'ed25519_and_ecdsa';
+      totalMs: number;
+      errorCode: string | null;
+      timings: RegistrationTimingBuckets;
+    };
+```
+
+`RegistrationTimingBuckets` should use required numeric fields for shared
+phases. Auth-method-specific buckets should live in a discriminated nested
+object so passkey and Email OTP timings cannot be mixed accidentally. Use
+branch-specific summary builders for success and failure logs.
+
+Phase 0 should log through one console line:
+
+```text
+[Registration] wallet timing summary
+```
+
+Keep existing server-side HSS timing logs as separate relay diagnostics for now.
+After the client summary is stable, decide whether `/wallets/register/finalize`
+should return structured relay subtask diagnostics. That is a second step
+because it changes the route response surface.
+
+Implementation checklist:
+
+- [x] Map the current registration flow and existing timing logs.
+- [x] Replace loose registration timing records with a typed summary builder.
+- [x] Wrap the awaited registration boundaries listed above.
+- [x] Emit success and failure summaries with the same top-level shape.
+- [x] Keep diagnostics observational; they must not influence control flow.
+- [x] Add or update focused tests around timing-summary shape if existing
+      orchestration tests can observe console output cheaply.
+- [x] Run `pnpm -C sdk type-check`.
+- [x] Run a focused registration orchestration test if the timing summary is
+      covered there.
+- [ ] Run `pnpm -C tests test:threshold-ed25519:active-path` before keeping any
+      behavior-changing optimization phase.
+- [ ] Capture at least `5` local full-registration baseline runs and record
+      median/p95 before Phase 1.
+
+## Current Registration Optimization Plan
+
+This is the canonical checklist for registration latency work. It replaces the
+older HSS-only Phase A/B/C/D list for registration-flow decisions.
+
+Before implementing any unchecked phase, capture a fresh baseline from the
+current codebase. The historical May timings above are useful context, but they
+are not sufficient to justify new behavior changes.
+
+## HSS Resume Gate
+
+Before changing HSS behavior again:
+
+- [x] Finish the `refactor-59` registration timing summary enough to split
+      Ed25519 HSS client and relay buckets.
+- [x] Run the `refactor-59` smoke benchmark and record the HSS slice for
+      passkey `ed25519_only` and passkey `ed25519_and_ecdsa`.
+- [ ] Run `pnpm -C tests test:threshold-ed25519:active-path` as the HSS-only
+      comparison baseline.
+- [x] Decide whether HSS is still a top-three full-flow latency bucket by p50 or
+      p95.
+- [ ] If HSS is outside the top three, pause this plan and optimize the larger
+      full-flow bucket first.
+
+## Narrowed HSS Next Steps
+
+Once the resume gate passes, proceed in this order:
+
+1. Capture browser-worker HSS diagnostics from the full registration benchmark.
+2. Add Rust/WASM internal evaluate substage diagnostics only if `wasmCallMs`
+   dominates.
+3. Re-run the full registration benchmark and HSS active-path benchmark.
+4. Rank the measured HSS sub-buckets:
+   - worker/WASM initialization
+   - base64 and bincode decode
+   - evaluator runtime materialization
+   - hidden-eval execution
+   - staged artifact assembly and encode
+   - worker message transfer bytes
+   - relay prepare/respond/finalize time
+5. Pick exactly one HSS optimization from the largest stable bucket.
+6. Re-benchmark before/after with the same scenarios.
+7. Keep the change only if it clears the existing speed threshold or produces a
+   clear p95 win with very small complexity.
+
+Likely HSS optimization order after measurement:
+
+- hidden-eval round-core A2B/carry conversion high: write the protocol-level
+  optimization spec, then implement one candidate behind protocol validation and
+  smoke benchmarking
+- hidden-eval boolean batch helpers high: inspect `maj`/`ch` helper structure
+  after the A2B candidate is measured
+- worker transfer or encode/decode high in a fresh benchmark: move worker-local
+  payloads to binary buffers and transferables
+- relay prepare route sequencing high: prototype registration-start prepare
+  pipelining
+- finalize payload/transport high: investigate compact evaluation-result
+  encoding or binary transport
+- low-risk hidden-eval helper allocation high: retain only small label-buffer or
+  recomputation cleanups that preserve transcript labels and gate shape
+
+## Phase E1: Round-Core A2B And Boolean Helper Spec
+
+Status: specced; implementation pending.
+
+Measured basis:
+
+- benchmark run `20260607-152114Z`
+- top client-owned hidden-eval bucket: `hiddenEvalRoundCoreMs` p50 roughly
+  `296ms` to `301ms`, p95 up to `308ms`
+- largest visible round-core sub-buckets:
+  - `hiddenEvalRoundNewABitsMs`: about `45ms` to `46ms` p50
+  - `hiddenEvalRoundNewEBitsMs`: about `45ms` to `46ms` p50
+  - `hiddenEvalRoundMajMs`: about `38ms` to `39ms` p50
+  - `hiddenEvalRoundChMs`: about `31ms` to `32ms` p50
+
+Implementation scope:
+
+- `crates/ed25519-hss/src/ddh/hidden_eval_executor.rs`
+  - `execute_round_stages`
+  - `arithmetic_word_pair_to_split_local_bits_secure`
+  - `ch_local_bits_into`
+  - `maj_local_bits_into`
+- `crates/ed25519-hss/src/ddh/ddh_hss.rs`
+  - `eval_add_cross_share_local_arithmetic_word_bits_secure_public_into`
+  - `eval_mul_local_bit_pair_batch_raw_xor_base_public_into`
+  - `eval_maj_local_bit_pair_batch_raw_public_into`
+
+Protocol invariants:
+
+- Preserve all existing transcript label bytes unless the candidate explicitly
+  changes `DDH_HSS_BACKEND_VERSION` and updates protocol fixtures.
+- Preserve round labels generated by `set_round_label`:
+  - `round_core/{round}/new_a_bits`
+  - `round_core/{round}/new_e_bits`
+  - `round_core/{round}/ch`
+  - `round_core/{round}/maj`
+- Preserve A2B child-label structure for each `new_a_bits` and `new_e_bits`
+  conversion:
+  - `{label}/zero`
+  - `{label}/sum/left/{idx}`
+  - `{label}/sum/right/{idx}`
+  - `{label}/sum/xor_ab/{idx}`
+  - `{label}/sum/sum/{idx}`
+  - `{label}/sum/a_xor_carry/{idx}`
+  - `{label}/sum/carry/{idx}`
+  - `{label}/sum/next_carry/{idx}`
+- Preserve `ch` labels:
+  - `{label}/yz`
+  - `{label}/gate/...`
+  - `{label}/out/{idx}`
+- Preserve `maj` labels:
+  - `{label}/xy_left/{idx}`
+  - `{label}/xy_right/{idx}`
+  - `{label}/xz_left/{idx}`
+  - `{label}/xz_right/{idx}`
+  - `{label}/gate/{idx}`
+  - `{label}/out/{idx}`
+- Preserve provenance digest inputs, share commitments, output share sides, word
+  widths, and carry chain order.
+- Preserve the current gate schedule and number of local multiplication gates
+  unless the candidate includes a formal protocol argument and a backend-version
+  change.
+- Diagnostics must remain observational. Timing fields cannot influence
+  arithmetic, labels, branch selection, retries, or error handling.
+
+Constant-time constraints:
+
+- Loops must remain fixed by public widths: 64-bit SHA-512 words, 80 rounds, and
+  stage/window counts validated at the boundary.
+- No secret-dependent branches, secret-dependent indexing, or secret-dependent
+  allocation sizes.
+- No new variable-time arithmetic on secret-derived values. Reuse existing field
+  and word helpers, or justify any replacement with a constant-time review.
+- No early return based on secret share contents. Shape errors may still return
+  at validation boundaries.
+
+Candidate order:
+
+1. A2B destination-writer candidate:
+   - add an internal `arithmetic_word_pair_to_split_local_bits_secure_into`
+     helper that writes into a caller-provided boolean word destination
+   - keep the same `{label}/zero` and `{label}/sum/...` child labels
+   - avoid per-call output-slice allocation where possible
+   - reject the candidate if preserving owned `RoundKernelState` words forces
+     equivalent allocation elsewhere
+2. A2B raw carry-gadget candidate:
+   - specialize the secure A2B path for already-local arithmetic word pairs
+   - reduce temporary `DdhHssLocalWord` construction only if provenance digest
+     and commitment inputs remain byte-identical
+   - require protocol validation before benchmarking
+3. Boolean batch-helper candidate:
+   - inspect `ch` and `maj` helpers after A2B is measured
+   - prefer destination-writing or scratch reuse over algebra changes
+   - preserve `gate` and `out` labels exactly
+
+Required validation for each candidate:
+
+- `cargo fmt --manifest-path crates/ed25519-hss/Cargo.toml`
+- `cargo test --manifest-path crates/ed25519-hss/Cargo.toml`
+- `CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang cargo check --manifest-path wasm/hss_client_signer/Cargo.toml --target wasm32-unknown-unknown`
+- `pnpm -C sdk type-check`
+- `CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang pnpm benchmark:registration-flow:smoke`
+
+Benchmark comparison:
+
+- compare against retained run `20260607-152114Z`
+- inspect at least:
+  - `hiddenEvalRoundCoreMs`
+  - `hiddenEvalRoundNewABitsMs`
+  - `hiddenEvalRoundNewEBitsMs`
+  - `hiddenEvalRoundMajMs`
+  - `hiddenEvalRoundChMs`
+  - `hiddenEvalTotalMs`
+  - SDK p50/p95
+- keep the candidate only if it gives a stable HSS p95 win with small
+  complexity or clears the broader `refactor-59` keep threshold
+- revert if protocol validation fails, labels/provenance drift unexpectedly, or
+  smoke results are weak/noisy
 
 ### Phase 0: Establish Baseline
 
@@ -399,7 +835,7 @@ Keep only if:
 
 ### Phase 2: Shrink HSS Transport Overhead
 
-Candidate optimization:
+Completed optimization:
 
 - stop resending large HSS ceremony state on finalize
 - replace full finalize payload state with a short-lived relay-side ceremony
@@ -413,22 +849,12 @@ Possible implementation direction:
   - evaluation result
   - minimal bound context
 
-Hypothesis:
-
-- this should reduce JSON serialization cost, request bytes, and browser/relay
-  overhead
-
-Measurement:
+Measured:
 
 - request payload size before/after
 - HSS prepare/finalize client timing
 - HSS total ceremony timing
 - total registration time
-
-Keep only if:
-
-- the handle-based design gives a clear speed win and does not complicate scope
-  binding in a risky way
 
 Result:
 
@@ -470,6 +896,15 @@ Keep only if:
 
 If first-use reliability regresses, revert.
 
+Spec clarification required before implementation:
+
+- define whether UI success means account creation broadcast accepted, final key
+  visibility confirmed, or background audit queued
+- define first-use tolerance for immediate post-registration signing
+- define the retry/error copy when key visibility is still pending
+- keep this phase out of implementation until those acceptance criteria are
+  written
+
 ### Phase 4: Parallelize Relay Persistence
 
 Candidate optimization:
@@ -494,6 +929,13 @@ Keep only if:
 - the parallel version is measurably faster and preserves deterministic error
   behavior
 
+Spec clarification required before implementation:
+
+- list the exact relay writes that are independent
+- define rollback/compensation behavior if one parallel write fails
+- keep identity, authenticator, binding, and wallet publication ordering
+  explicit
+
 ### Phase 5: Parallelize Client Local Persistence
 
 Candidate optimization:
@@ -515,6 +957,12 @@ Keep only if:
 
 - there is a measurable user-visible reduction
 
+Spec clarification required before implementation:
+
+- list exact IndexedDB/session writes that can run in parallel
+- define which writes must complete before resolving registration success
+- keep recovery-code backup persistence ordering explicit for Email OTP accounts
+
 ### Phase 6: Reassess Background Work Placement
 
 Candidate optimization:
@@ -534,6 +982,31 @@ Keep only if:
 - immediate registration correctness is unchanged
 - total registration time gets meaningfully better
 
+### Phase 7: Registration Start Prepare Pipelining
+
+Candidate optimization:
+
+- move Ed25519 HSS server prepare work earlier by returning the prepared branch
+  from `/wallets/register/start`
+- delete any separate registration-specific client prepare call if this route
+  shape lands
+
+Spec required before implementation:
+
+- bind prepared sessions to `registrationCeremonyId`, wallet/account id,
+  registration intent digest, signer spec, runtime policy scope, participant ids,
+  and expiry
+- prove prepared sessions cannot cross wallet, account, signing root, intent
+  digest, or participant scope
+- define cleanup for abandoned registration ceremonies
+
+Keep only if:
+
+- the route-shape change removes a visible round trip and produces a measurable
+  registration win
+- the scope-binding tests are strict enough to make invalid reuse
+  unrepresentable
+
 ## Do Not Optimize Blindly
 
 Do not keep an optimization just because it sounds cleaner.
@@ -549,9 +1022,15 @@ Revert any change that:
 
 ### Baseline
 
-- [ ] Add one canonical registration timing summary for all major client and
+- [x] Add one canonical registration timing summary for all major client and
       relay substeps
-- [ ] Capture baseline runs and record median/p95 registration timing
+- [x] Extract the Ed25519 HSS slice from the `refactor-59` full-flow benchmark
+- [x] Capture baseline runs and record median/p95 registration timing
+- [x] Capture an HSS-only script-level active-path baseline with
+      `pnpm -C tests exec playwright test -c playwright.scripts.config.ts ./unit/thresholdEd25519.singleKeyHssActivePath.script.unit.test.ts ./unit/thresholdEd25519.separatedRoles.script.unit.test.ts --reporter=line`
+- [ ] Restore the broad `pnpm -C tests test:threshold-ed25519:active-path`
+      validation after updating stale relayer fixtures for the required
+      WebAuthn `Origin`/`expected_origin` contract.
 
 ### Phase 1
 
@@ -592,6 +1071,14 @@ Revert any change that:
 - [ ] Move any non-critical work to background where safe
 - [ ] Benchmark final registration flow again
 - [ ] Keep only the background moves that produce a real speed improvement
+
+### Phase 7
+
+- [ ] Specify registration-start prepare pipelining scope bindings
+- [ ] Prototype returning prepared HSS material from `/wallets/register/start`
+- [ ] Add route and ceremony tests for invalid prepared-session reuse
+- [ ] Benchmark against the current registration baseline
+- [ ] Keep only if visible latency improves without weakening scope binding
 
 ### Final Decision
 

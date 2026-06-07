@@ -608,13 +608,17 @@ fn prime_order_succinct_hss_rejects_client_output_with_mismatched_value_kind() {
     let mut staged_evaluator_artifact =
         build_client_owned_staged_evaluator_artifact(&session, &fixture.input)
             .expect("staged evaluator artifact");
+    assert_eq!(
+        staged_evaluator_artifact.client_output_value_kind,
+        ed25519_hss::wire::ClientOutputValueKind::ClientBlindedBase
+    );
     let mut client_output_packet: ed25519_hss::wire::ClientOutputPacket =
         decode_runtime_client_output_message(
             fixture.output.context_binding,
             &staged_evaluator_artifact.client_output,
         )
         .expect("decode client output packet");
-    client_output_packet.value_kind = ed25519_hss::wire::ClientOutputValueKind::ClientBlindedBase;
+    client_output_packet.value_kind = ed25519_hss::wire::ClientOutputValueKind::UnmaskedClientBase;
     staged_evaluator_artifact.client_output =
         encode_runtime_client_output_message(fixture.output.context_binding, &client_output_packet)
             .expect("encode mismatched value-kind client output");

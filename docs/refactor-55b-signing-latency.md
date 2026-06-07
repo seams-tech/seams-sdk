@@ -1,8 +1,8 @@
 # Threshold Signing Latency Optimization Plan
 
-Date updated: May 7, 2026
+Date updated: June 7, 2026
 
-Status: implementation plan.
+Status: future implementation plan; current-state refresh complete.
 
 ## Goal
 
@@ -20,6 +20,33 @@ The primary user-visible target is the extra warm-path
 `/threshold-ed25519/authorize` round trip before Ed25519 signing. The same SDK
 surface should also support ECDSA transaction signing, where the useful work may
 include ECDSA session readiness and presign-pool prefill.
+
+## Current Code State
+
+This plan is still largely unimplemented at the public SDK layer.
+
+Implemented today:
+
+- `/threshold-ed25519/authorize` exists on Express and Cloudflare router paths.
+- The signer worker accepts optional `mpcSessionId`; when omitted, it authorizes
+  on demand before signing.
+- Threshold Ed25519 route tests cover digest binding, one-shot `mpcSessionId`
+  scope, unauthorized authorize handling, and no-broadcast failure paths.
+- ECDSA signing already has an authorize/presign-pool path, but it is not exposed
+  through a shared public signing-prefetch API.
+
+Not implemented today:
+
+- `seams.signing.preconnectThresholdSigning(...)`
+- `seams.signing.prepareThresholdSigningIntent(...)`
+- `seams.signing.cancelThresholdSigningPrefetch(...)`
+- `signingPrefetchId` on public signing options
+- `useThresholdSigningPrefetch(...)`
+- wallet-iframe prefetch messages
+
+Keep the public API below as a proposed API. Before implementation, decide
+whether `seams.signing.*` is still the right public namespace or whether this
+should attach to the current `near`, EVM-family, and Tempo signing capabilities.
 
 ## Current Latency Shape
 
@@ -59,13 +86,13 @@ Cold, expired, missing, or exhausted sessions add:
 
 This plan focuses on moving safe warm-up work earlier in the user interaction.
 
-## SDK Design
+## Proposed SDK Design
 
 Expose intent-driven prefetch APIs. App developers should never pass or inspect
 `thresholdSessionAuthToken`, `mpcSessionId`, lane ids, restore ids, or budget
 receipts.
 
-### New Public Capability
+### Proposed Public Capability
 
 Add a new top-level capability:
 
@@ -313,8 +340,8 @@ file ownership and detailed implementation notes.
 Files:
 
 - `client/src/react/hooks/usePreconnectWalletAssets.ts`
-- `client/src/SeamsWeb/authSessions.ts`
-- `client/src/SeamsWeb/interfaces.ts`
+- `client/src/SeamsWeb/SeamsWeb.ts`
+- `client/src/SeamsWeb/publicApi/types.ts`
 - `client/src/SeamsWeb/index.ts`
 
 Tasks:
@@ -329,11 +356,11 @@ Tasks:
 
 Files:
 
-- `client/src/core/signingEngine/session/signingSession/`
-- `client/src/core/signingEngine/orchestration/near/transactionsFlow.ts`
-- `client/src/core/signingEngine/orchestration/near/delegateFlow.ts`
-- `client/src/core/signingEngine/orchestration/near/nep413Flow.ts`
-- `client/src/core/signingEngine/SigningEngine.ts`
+- `client/src/core/signingEngine/session/operationState/`
+- `client/src/core/signingEngine/flows/signNear/signTransactions.ts`
+- `client/src/core/signingEngine/flows/signNear/signNear.ts`
+- `client/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts`
+- `client/src/core/signingEngine/assembly/`
 
 Tasks:
 
@@ -347,9 +374,11 @@ Tasks:
 
 Files:
 
-- `client/src/core/signingEngine/orchestration/near/shared/workerRequestAssembly.ts`
-- `client/src/core/signingEngine/orchestration/near/shared/thresholdSessionAuth.ts`
+- `client/src/core/signingEngine/flows/signNear/signTransactions.ts`
+- `client/src/core/signingEngine/flows/signNear/signNear.ts`
+- `client/src/core/signingEngine/session/operationState/transactionState.ts`
 - `client/src/core/signingEngine/threshold/session/ed25519AuthSession.ts`
+- `client/src/core/types/signer-worker.ts`
 - `wasm/near_signer/src/threshold/signer_backend.rs`
 - `wasm/near_signer/src/types/signing.rs`
 
@@ -369,13 +398,14 @@ Tasks:
 
 Files:
 
-- `client/src/SeamsWeb/interfaces.ts`
-- `client/src/SeamsWeb/index.ts`
+- `client/src/SeamsWeb/SeamsWeb.ts`
+- `client/src/SeamsWeb/publicApi/types.ts`
 - `client/src/index.ts`
 - `client/src/react/index.ts`
-- `client/src/core/WalletIframe/shared/messages.ts`
-- `client/src/core/WalletIframe/client/router.ts`
-- `client/src/core/WalletIframe/host/wallet-iframe-handlers.ts`
+- `client/src/SeamsWeb/walletIframe/shared/messages.ts`
+- `client/src/SeamsWeb/walletIframe/client/router.ts`
+- `client/src/SeamsWeb/walletIframe/host/requestRouter.ts`
+- `client/src/SeamsWeb/walletIframe/host/handlers/`
 
 Tasks:
 
@@ -407,12 +437,12 @@ Tasks:
 
 Files:
 
-- `client/src/core/signingEngine/api/evmFamily/preparedSigning.ts`
-- `client/src/core/signingEngine/api/evmSigning.ts`
-- `client/src/core/signingEngine/api/tempoSigning.ts`
-- `client/src/core/signingEngine/orchestration/walletOrigin/thresholdEcdsaCoordinator.ts`
-- `client/src/SeamsWeb/tempo/index.ts`
-- `client/src/SeamsWeb/evm/index.ts`
+- `client/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts`
+- `client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts`
+- `client/src/core/signingEngine/flows/signEvmFamily/signers/secp256k1.ts`
+- `client/src/core/signingEngine/threshold/ecdsa/authorize.ts`
+- `client/src/core/signingEngine/threshold/ecdsa/presignPool.ts`
+- `client/src/SeamsWeb/operations/tempo/index.ts`
 
 Tasks:
 
