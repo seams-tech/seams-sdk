@@ -1,6 +1,6 @@
 import type {
-  EmailOtpBackedUpEnrollmentResult,
   EmailOtpRecoveryCodeBackupAck,
+  GoogleEmailOtpRegistrationBackedUpEnrollmentResult,
   GoogleEmailOtpRegistrationBackupActionKind,
   GoogleEmailOtpRegistrationCandidate,
   GoogleEmailOtpRegistrationCandidateId,
@@ -135,8 +135,9 @@ function parseBackupAck(value: unknown): EmailOtpRecoveryCodeBackupAck {
   };
 }
 
-function parseBackedUpEnrollment(value: unknown): EmailOtpBackedUpEnrollmentResult {
+function parseBackedUpEnrollment(value: unknown): GoogleEmailOtpRegistrationBackedUpEnrollmentResult {
   const record = requireRecord(value, 'emailOtpEnrollment');
+  rejectFields(record, OTP_ONLY_FORBIDDEN_FIELDS, 'emailOtpEnrollment');
   rejectFields(record, SECRET_MATERIAL_FIELDS, 'emailOtpEnrollment');
   const recoveryCodeBackup = requireRecord(
     record.recoveryCodeBackup,
@@ -151,7 +152,10 @@ function parseBackedUpEnrollment(value: unknown): EmailOtpBackedUpEnrollmentResu
       record.recoveryCodesIssuedAtMs,
       'emailOtpEnrollment.recoveryCodesIssuedAtMs',
     ),
-    challengeId: requireString(record.challengeId, 'emailOtpEnrollment.challengeId'),
+    registrationAuthorityId: requireString(
+      record.registrationAuthorityId,
+      'emailOtpEnrollment.registrationAuthorityId',
+    ),
     otpChannel: parseEmailOtpChannel(record.otpChannel),
     enrollmentId: requireString(record.enrollmentId, 'emailOtpEnrollment.enrollmentId'),
     enrollmentSealKeyVersion: requireString(

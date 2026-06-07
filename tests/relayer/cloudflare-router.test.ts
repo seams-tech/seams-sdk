@@ -27,7 +27,14 @@ import {
 import {
   THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
 } from '@server/core/ThresholdService/schemes/schemeIds';
-import { callCf, getPath, makeCfCtx, makeFakeAuthService, makeSessionAdapter } from './helpers';
+import {
+  callCf,
+  getPath,
+  makeCfCtx,
+  makeFakeAuthService,
+  makeGoogleEmailOtpRegistrationOffer,
+  makeSessionAdapter,
+} from './helpers';
 import { buildEcdsaCurveCollisionBudgetStatusFixture } from './signingBudgetStatus.fixtures';
 
 type IssuedAppSessionClaims = {
@@ -1635,6 +1642,9 @@ test.describe('relayer router (cloudflare) – P0', () => {
           email: 'alice@example.com',
           registrationAttemptId: 'attempt-google-register-cf',
           expiresAtMs: 1_893_456_000_000,
+          offer: makeGoogleEmailOtpRegistrationOffer({
+            walletId: 'brisk-maple-k7q9yh.testnet',
+          }),
         };
       },
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
@@ -1922,6 +1932,9 @@ test.describe('relayer router (cloudflare) – P0', () => {
         email: 'scoped@example.com',
         registrationAttemptId: 'attempt-google-scoped-cf',
         expiresAtMs: 1_893_456_000_000,
+        offer: makeGoogleEmailOtpRegistrationOffer({
+          walletId: 'scoped-example-com-1712345678901.testnet',
+        }),
       }),
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
     });
@@ -2066,6 +2079,7 @@ test.describe('relayer router (cloudflare) – P0', () => {
           walletId: 'login-send-cf.relayer.testnet',
           providerSubject: 'google:user-cf-login-send',
           email: 'login-send-cf@example.com',
+          hasEmailOtpEnrollment: true,
         };
       },
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),

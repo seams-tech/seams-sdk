@@ -70,8 +70,11 @@ import {
 import { buildNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
 import { collectPasskeyRegistrationAuthority } from '@/SeamsWeb/operations/authMethods/passkey/registrationAuthority';
 import { backupEmailOtpRecoveryCodes } from '@/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup';
-import type { EmailOtpEnrollmentResult } from '@/SeamsWeb/signingSurface/types';
-import type { RegistrationFinalizeIdempotencyKey } from '@/SeamsWeb/publicApi/types';
+import type { GoogleEmailOtpRegistrationBackupEnrollmentInput } from '@/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup';
+import type {
+  GoogleEmailOtpRegistrationBackedUpEnrollmentResult,
+  RegistrationFinalizeIdempotencyKey,
+} from '@/SeamsWeb/publicApi/types';
 import { collectEmailOtpRegistrationAuthority } from '@/SeamsWeb/operations/authMethods/emailOtp/registrationAuthority';
 import {
   readEmailOtpPrewarmedRegistrationMaterial,
@@ -140,10 +143,10 @@ function emailOtpBackupAckFromStoredBackup(input: {
   };
 }
 
-function emailOtpRegistrationMaterialToEnrollmentResult(input: {
+function googleEmailOtpRegistrationMaterialToBackupEnrollment(input: {
   material: EmailOtpRegistrationEnrollmentMaterial;
   registrationAuthorityId: string;
-}): EmailOtpEnrollmentResult {
+}): GoogleEmailOtpRegistrationBackupEnrollmentInput {
   const recoveryEscrow =
     input.material.emailOtpEnrollment.recoveryWrappedEnrollmentEscrows[0] &&
     typeof input.material.emailOtpEnrollment.recoveryWrappedEnrollmentEscrows[0] === 'object'
@@ -157,7 +160,7 @@ function emailOtpRegistrationMaterialToEnrollmentResult(input: {
       input.material.emailOtpEnrollment.thresholdEcdsaClientVerifyingShareB64u,
     recoveryKeys: input.material.recoveryKeys,
     recoveryCodesIssuedAtMs: input.material.recoveryCodesIssuedAtMs,
-    challengeId: input.registrationAuthorityId,
+    registrationAuthorityId: input.registrationAuthorityId,
     otpChannel: EMAIL_OTP_CHANNEL,
     enrollmentId: String(recoveryEscrow.enrollmentId || '').trim(),
     enrollmentSealKeyVersion: input.material.emailOtpEnrollment.enrollmentSealKeyVersion,
@@ -230,6 +233,15 @@ function registrationErrorCodeFromUnknown(error: unknown): string {
 
 function registrationErrorWithCode(message: string, errorCode: string): Error & { code?: string } {
   return Object.assign(new Error(message), errorCode ? { code: errorCode } : {});
+}
+
+function alreadyFinalizedRestoreRequiredResult(_walletId: string): RegistrationResult {
+  return {
+    success: false,
+    error:
+      'Wallet registration was already finalized. Restore or unlock the wallet to continue.',
+    errorCode: 'already_finalized_restore_required',
+  };
 }
 
 function webAuthnTransportsFromRaw(value: unknown): AuthenticatorTransport[] {
@@ -598,7 +610,7 @@ async function registerEcdsaWalletOnly(args: {
               relayUrl: relayerUrl,
               walletId: String(intentResponse.intent.walletId),
               appSessionJwt: args.authMethod.appSessionJwt,
-              enrollment: emailOtpRegistrationMaterialToEnrollmentResult({
+              enrollment: googleEmailOtpRegistrationMaterialToBackupEnrollment({
                 material: emailOtpEnrollmentMaterial,
                 registrationAuthorityId: emailOtpRegistrationAuthorityId,
               }),
@@ -615,6 +627,11 @@ async function registerEcdsaWalletOnly(args: {
       ...(emailOtpEnrollment ? { emailOtpEnrollment } : {}),
       ...(emailOtpBackupAck ? { emailOtpBackupAck } : {}),
     });
+    if ('kind' in finalized && finalized.kind === 'already_finalized_restore_required') {
+      const result = alreadyFinalizedRestoreRequiredResult(finalized.walletId);
+      afterCall?.(false);
+      return result;
+    }
     const walletKeys = finalized.ecdsa?.walletKeys || [];
     if (walletKeys.length === 0) {
       throw new Error('Wallet registration finalize did not return ECDSA wallet keys');
@@ -1060,7 +1077,7 @@ export async function registerWallet(args: {
               relayUrl: relayerUrl,
               walletId: String(intentResponse.intent.walletId),
               appSessionJwt: args.authMethod.appSessionJwt,
-              enrollment: emailOtpRegistrationMaterialToEnrollmentResult({
+              enrollment: googleEmailOtpRegistrationMaterialToBackupEnrollment({
                 material: emailOtpEnrollmentMaterial,
                 registrationAuthorityId: emailOtpRegistrationAuthorityId,
               }),
@@ -1090,6 +1107,11 @@ export async function registerWallet(args: {
       ...(emailOtpEnrollment ? { emailOtpEnrollment } : {}),
       ...(emailOtpBackupAck ? { emailOtpBackupAck } : {}),
     });
+    if ('kind' in finalized && finalized.kind === 'already_finalized_restore_required') {
+      const result = alreadyFinalizedRestoreRequiredResult(finalized.walletId);
+      afterCall?.(false);
+      return result;
+    }
     if (!finalized.ed25519) {
       throw new Error('Wallet registration finalize did not return Ed25519 key material');
     }

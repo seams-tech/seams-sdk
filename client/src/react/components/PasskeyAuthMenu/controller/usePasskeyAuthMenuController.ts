@@ -3,6 +3,7 @@ import type { LinkDeviceFlowEvent } from '@/core/types/sdkSentEvents';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import type { StoredAccountOption } from '@/react/types';
 import {
+  EMAIL_OTP_RECOVERY_KEY_COUNT,
   EMAIL_OTP_RECOVERY_KEY_CHAR_LENGTH,
   EMAIL_OTP_RECOVERY_KEY_GROUP_LENGTH,
   formatEmailOtpRecoveryKey,
@@ -80,6 +81,16 @@ export interface PasskeyAuthMenuRegistrationPromptController {
   onBack: () => void;
 }
 
+export interface PasskeyAuthMenuPostRecoveryRotationPromptController {
+  walletId: string;
+  activeRecoveryCodeCount: number;
+  expectedRecoveryCodeCount: number;
+  rotating: boolean;
+  error?: string;
+  onRotate: () => void;
+  onDismiss: () => void;
+}
+
 export interface PasskeyAuthMenuController {
   mode: AuthMenuMode;
   title: { title: string; subtitle: string };
@@ -88,6 +99,7 @@ export interface PasskeyAuthMenuController {
   showScanDevice: boolean;
   otpPrompt: PasskeyAuthMenuOtpPromptController | null;
   registrationPrompt: PasskeyAuthMenuRegistrationPromptController | null;
+  postRecoveryRotationPrompt: PasskeyAuthMenuPostRecoveryRotationPromptController | null;
   methodError?: string;
   currentValue: string;
   passkeyAccountOptions: StoredAccountOption[];
@@ -142,6 +154,13 @@ type ActiveRegistrationPromptState = {
   onSubmit: PasskeyAuthMenuRegistrationPrompt['onSubmit'];
   onRerollAccount: NonNullable<PasskeyAuthMenuRegistrationPrompt['onRerollAccount']>;
   onCancel?: PasskeyAuthMenuRegistrationPrompt['onCancel'];
+};
+
+type ActivePostRecoveryRotationPromptState = {
+  kind: 'post_recovery_rotation_prompt';
+  walletId: string;
+  activeRecoveryCodeCount: number;
+  expectedRecoveryCodeCount: number;
 };
 
 function resolveOtpPrompt(
@@ -331,6 +350,32 @@ function isRecoveryKeyReady(input: string): boolean {
   }
 }
 
+function postRecoveryRotationPromptFromSubmitResult(input: {
+  result: unknown;
+  fallbackWalletId: string;
+}): ActivePostRecoveryRotationPromptState | null {
+  const obj =
+    input.result && typeof input.result === 'object' && !Array.isArray(input.result)
+      ? (input.result as Record<string, unknown>)
+      : null;
+  if (!obj) return null;
+  const activeRecoveryCodeCount = Number(obj.activeRecoveryWrappedEnrollmentEscrowCount);
+  if (
+    !Number.isFinite(activeRecoveryCodeCount) ||
+    activeRecoveryCodeCount >= EMAIL_OTP_RECOVERY_KEY_COUNT
+  ) {
+    return null;
+  }
+  const walletId = String(obj.walletId || input.fallbackWalletId || '').trim();
+  if (!walletId) return null;
+  return {
+    kind: 'post_recovery_rotation_prompt',
+    walletId,
+    activeRecoveryCodeCount: Math.max(0, Math.floor(activeRecoveryCodeCount)),
+    expectedRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
+  };
+}
+
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
@@ -408,6 +453,8 @@ export function usePasskeyAuthMenuController(
   const [otpPromptState, setOtpPromptState] = React.useState<ActiveOtpPromptState | null>(null);
   const [registrationPromptState, setRegistrationPromptState] =
     React.useState<ActiveRegistrationPromptState | null>(null);
+  const [postRecoveryRotationPromptState, setPostRecoveryRotationPromptState] =
+    React.useState<ActivePostRecoveryRotationPromptState | null>(null);
   const [otpCode, setOtpCode] = React.useState('');
   const [otpRecoveryKey, setOtpRecoveryKey] = React.useState('');
   const [otpSubmitting, setOtpSubmitting] = React.useState(false);
@@ -421,6 +468,8 @@ export function usePasskeyAuthMenuController(
   const [otpResendUntilMs, setOtpResendUntilMs] = React.useState(0);
   const [otpResendStatus, setOtpResendStatus] = React.useState('');
   const [otpResendNowMs, setOtpResendNowMs] = React.useState(() => Date.now());
+  const [postRecoveryRotationBusy, setPostRecoveryRotationBusy] = React.useState(false);
+  const [postRecoveryRotationError, setPostRecoveryRotationError] = React.useState('');
   const [methodError, setMethodError] = React.useState<string>('');
 
   React.useEffect(() => {
@@ -567,6 +616,7 @@ export function usePasskeyAuthMenuController(
     setWaitingReason(null);
     setOtpPromptState(null);
     setRegistrationPromptState(null);
+    setPostRecoveryRotationPromptState(null);
     setOtpCode('');
     setOtpRecoveryKey('');
     setOtpError('');
@@ -580,6 +630,8 @@ export function usePasskeyAuthMenuController(
     setOtpResendBusy(false);
     setOtpResendUntilMs(0);
     setOtpResendStatus('');
+    setPostRecoveryRotationBusy(false);
+    setPostRecoveryRotationError('');
     if (showScanDevice) {
       closeLinkDeviceView('user');
     } else {
@@ -615,6 +667,8 @@ export function usePasskeyAuthMenuController(
 
     setWaiting(true);
     setWaitingReason(mode === AuthMenuMode.Sync ? 'sync' : 'passkey');
+    setPostRecoveryRotationPromptState(null);
+    setPostRecoveryRotationError('');
 
     void (async () => {
       try {
@@ -674,6 +728,8 @@ export function usePasskeyAuthMenuController(
       setWaitingReason('social');
       setOtpError('');
       setMethodError('');
+      setPostRecoveryRotationPromptState(null);
+      setPostRecoveryRotationError('');
       void (async () => {
         try {
           const result = await handler({ mode: socialMode, emailOtpAuthPolicy });
@@ -775,6 +831,32 @@ export function usePasskeyAuthMenuController(
     setOtpResendUntilMs(0);
     setOtpResendStatus('');
   }, [otpPromptState]);
+
+  const onPostRecoveryRotationDismiss = React.useCallback(() => {
+    setPostRecoveryRotationPromptState(null);
+    setPostRecoveryRotationBusy(false);
+    setPostRecoveryRotationError('');
+  }, []);
+
+  const onPostRecoveryRotationSubmit = React.useCallback(() => {
+    const prompt = postRecoveryRotationPromptState;
+    if (!prompt || postRecoveryRotationBusy) return;
+    setPostRecoveryRotationBusy(true);
+    setPostRecoveryRotationError('');
+    void (async () => {
+      try {
+        await runtime.seamsWeb.recovery.rotateEmailOtpRecoveryCodes({ walletId: prompt.walletId });
+        await runtime.refreshLoginState(prompt.walletId).catch(() => {});
+        setPostRecoveryRotationPromptState(null);
+      } catch (error: unknown) {
+        setPostRecoveryRotationError(
+          getErrorMessage(error, 'Could not rotate recovery codes. Try again later.'),
+        );
+      } finally {
+        setPostRecoveryRotationBusy(false);
+      }
+    })();
+  }, [postRecoveryRotationBusy, postRecoveryRotationPromptState, runtime]);
 
   const onRegistrationPromptBack = React.useCallback(() => {
     const cancel = registrationPromptState?.onCancel;
@@ -955,14 +1037,23 @@ export function usePasskeyAuthMenuController(
     setOtpError('');
     void (async () => {
       try {
-        await activePrompt.onSubmit(otpCode, recoveryKey ? { recoveryKey } : undefined);
+        const submitResult = await activePrompt.onSubmit(
+          otpCode,
+          recoveryKey ? { recoveryKey } : undefined,
+        );
         const username = String(activePrompt.username || '').trim();
         if (username && activePrompt.refreshLoginStateAfterSubmit) {
           await runtime.refreshLoginState(username).catch(() => {});
         }
+        const postRecoveryRotationPrompt = postRecoveryRotationPromptFromSubmitResult({
+          result: submitResult,
+          fallbackWalletId: String(activePrompt.accountId || activePrompt.username || '').trim(),
+        });
         setOtpPromptState(null);
         setOtpCode('');
         setOtpRecoveryKey('');
+        setPostRecoveryRotationError('');
+        setPostRecoveryRotationPromptState(postRecoveryRotationPrompt);
       } catch (error: unknown) {
         const message =
           error instanceof Error && error.message
@@ -1093,6 +1184,26 @@ export function usePasskeyAuthMenuController(
       onRegistrationPromptBack,
     ]);
 
+  const postRecoveryRotationPrompt: PasskeyAuthMenuPostRecoveryRotationPromptController | null =
+    React.useMemo(() => {
+      if (!postRecoveryRotationPromptState) return null;
+      return {
+        walletId: postRecoveryRotationPromptState.walletId,
+        activeRecoveryCodeCount: postRecoveryRotationPromptState.activeRecoveryCodeCount,
+        expectedRecoveryCodeCount: postRecoveryRotationPromptState.expectedRecoveryCodeCount,
+        rotating: postRecoveryRotationBusy,
+        ...(postRecoveryRotationError ? { error: postRecoveryRotationError } : {}),
+        onRotate: onPostRecoveryRotationSubmit,
+        onDismiss: onPostRecoveryRotationDismiss,
+      };
+    }, [
+      postRecoveryRotationBusy,
+      postRecoveryRotationError,
+      postRecoveryRotationPromptState,
+      onPostRecoveryRotationSubmit,
+      onPostRecoveryRotationDismiss,
+    ]);
+
   const linkDevice: PasskeyAuthMenuLinkDeviceController = React.useMemo(
     () => ({
       isOpen: showScanDevice,
@@ -1111,6 +1222,7 @@ export function usePasskeyAuthMenuController(
     showScanDevice,
     otpPrompt,
     registrationPrompt,
+    postRecoveryRotationPrompt,
     ...(methodError ? { methodError } : {}),
     currentValue,
     passkeyAccountOptions,

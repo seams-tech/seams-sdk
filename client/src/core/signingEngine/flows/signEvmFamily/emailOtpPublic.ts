@@ -1,6 +1,7 @@
 import {
   enrollEmailOtpWallet,
   prepareEmailOtpRegistrationEnrollmentMaterial,
+  rotateEmailOtpRecoveryCodesWithWorker,
 } from '../../session/emailOtp/workerEnrollment';
 import type { EmailOtpAuthPolicy } from '@/core/types/seams';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
@@ -69,6 +70,12 @@ export type EnrollEmailOtpInternalArgs = {
   otpChannel?: WalletEmailOtpChannel;
 };
 
+export type RotateEmailOtpRecoveryCodesInternalArgs = {
+  walletId: WalletId;
+  relayUrl?: string;
+  appSessionJwt?: string;
+};
+
 export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   walletSession: WalletSessionRef;
   subjectId?: never;
@@ -94,6 +101,10 @@ export type EnrollAndLoginWithEmailOtpEcdsaCapabilityInternalArgs = {
 };
 
 export type EnrollEmailOtpInternalResult = Awaited<ReturnType<typeof enrollEmailOtpWallet>>;
+
+export type RotateEmailOtpRecoveryCodesInternalResult = Awaited<
+  ReturnType<typeof rotateEmailOtpRecoveryCodesWithWorker>
+>;
 
 export type PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs = {
   walletId: WalletId;
@@ -240,6 +251,24 @@ export async function enrollEmailOtpInternal(
     appSessionJwt: args.appSessionJwt,
     otpChannel: args.otpChannel,
     ...(args.clientSecret32 ? { clientSecret32: args.clientSecret32 } : {}),
+  });
+}
+
+export async function rotateEmailOtpRecoveryCodesInternal(
+  deps: EmailOtpPublicDeps,
+  args: RotateEmailOtpRecoveryCodesInternalArgs,
+): Promise<RotateEmailOtpRecoveryCodesInternalResult> {
+  const walletId = toWalletId(args.walletId);
+  const relayUrl = String(args.relayUrl || deps.relayerUrl || '').trim();
+  if (!relayUrl) {
+    throw new Error('Missing relayer url (configs.network.relayer.url)');
+  }
+  return await rotateEmailOtpRecoveryCodesWithWorker({
+    relayUrl,
+    walletId: String(walletId),
+    userId: String(walletId),
+    workerCtx: deps.getSignerWorkerContext(),
+    appSessionJwt: args.appSessionJwt,
   });
 }
 

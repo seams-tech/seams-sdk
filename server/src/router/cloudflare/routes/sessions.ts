@@ -17,6 +17,7 @@ import {
   handleEmailOtpLoginVerifyAndUnsealRoute,
   handleEmailOtpRecoveryKeyAttemptFailedRoute,
   handleEmailOtpRecoveryKeyConsumeRoute,
+  handleEmailOtpRecoveryKeyRotateRoute,
   handleEmailOtpRecoveryKeyStatusRoute,
   handleEmailOtpRecoveryWrappedEscrowsRoute,
   handleEmailOtpSigningSessionChallengeRoute,
@@ -976,7 +977,10 @@ export async function handleSessionExchange(ctx: CloudflareRelayContext): Promis
                   ? { registrationAttemptId: googleEmailOtpResolution.registrationAttemptId }
                   : {}),
                 ...(googleEmailOtpResolution.expiresAtMs
-                  ? { expiresAt: new Date(googleEmailOtpResolution.expiresAtMs).toISOString() }
+                  ? {
+                      expiresAt: new Date(googleEmailOtpResolution.expiresAtMs).toISOString(),
+                      expiresAtMs: googleEmailOtpResolution.expiresAtMs,
+                    }
                   : {}),
                 ...(googleEmailOtpResolution.offer
                   ? { offer: googleEmailOtpResolution.offer }
@@ -1643,6 +1647,33 @@ export async function handleWalletEmailOtpRecoveryKeyStatus(
     return validated.response;
   }
   const response = await handleEmailOtpRecoveryKeyStatusRoute({
+    body,
+    claims: validated.claims,
+    userId: validated.userId,
+    appSessionVersion: validated.appSessionVersion,
+    clientIp: resolveSourceIpFromFetchHeaders(ctx.request.headers) || undefined,
+    service: ctx.service,
+  });
+  return json(response.body, { status: response.status });
+}
+
+export async function handleWalletEmailOtpRecoveryKeyRotate(
+  ctx: CloudflareRelayContext,
+): Promise<Response | null> {
+  if (ctx.method !== 'POST' || ctx.pathname !== '/wallet/email-otp/recovery-key/rotate') {
+    return null;
+  }
+  const body = await readJson(ctx.request);
+  const validated = await readAndValidateAppSession(ctx);
+  if (!validated.ok) {
+    await maybeEmitWarmExpiredFromValidationFailure({
+      ctx,
+      validated,
+      source: 'wallet.email_otp.recovery_key.rotate',
+    });
+    return validated.response;
+  }
+  const response = await handleEmailOtpRecoveryKeyRotateRoute({
     body,
     claims: validated.claims,
     userId: validated.userId,

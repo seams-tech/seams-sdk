@@ -325,6 +325,18 @@ export type EmailOtpBackedUpEnrollmentResult = Omit<EmailOtpEnrollmentResult, 'r
   recoveryCodeBackup: EmailOtpRecoveryCodeBackupStatus;
 };
 
+export type GoogleEmailOtpRegistrationBackedUpEnrollmentResult = Omit<
+  EmailOtpBackedUpEnrollmentResult,
+  'challengeId'
+> & {
+  registrationAuthorityId: string;
+  challengeId?: never;
+  otpCode?: never;
+  delivery?: never;
+  webauthn?: never;
+  passkey?: never;
+};
+
 export type EmailOtpEcdsaCapabilityArgs = {
   walletSession: WalletSessionRef;
   chainTarget: ThresholdEcdsaChainTarget;
@@ -392,6 +404,11 @@ export type EmailOtpRecoveryCodeBackupAck = {
   passkey?: never;
 };
 
+export type EmailOtpRecoveryCodeRotationResult = {
+  status: EmailOtpRecoveryCodeStatus;
+  recoveryCodeBackup: EmailOtpRecoveryCodeBackupStatus;
+};
+
 export type GoogleEmailOtpRegistrationCandidate = {
   candidateId: GoogleEmailOtpRegistrationCandidateId;
   walletId: WalletId;
@@ -419,7 +436,7 @@ export type GoogleEmailOtpRegistrationFinalizeInput = {
   offerId: GoogleEmailOtpRegistrationOfferId;
   candidateId: GoogleEmailOtpRegistrationCandidateId;
   idempotencyKey: RegistrationFinalizeIdempotencyKey;
-  emailOtpEnrollment: EmailOtpBackedUpEnrollmentResult;
+  emailOtpEnrollment: GoogleEmailOtpRegistrationBackedUpEnrollmentResult;
   backupAck: EmailOtpRecoveryCodeBackupAck;
   walletId?: never;
   otpCode?: never;
@@ -444,6 +461,7 @@ export type GoogleEmailOtpWalletAuthFailureCode =
   | 'email_otp_expired'
   | 'email_otp_rate_limited'
   | 'registration_failed'
+  | 'registration_restore_required'
   | 'unlock_failed'
   | 'recovery_code_backup_incomplete'
   | 'local_signing_session_not_ready'
@@ -744,6 +762,12 @@ export interface RecoveryCapability {
     relayUrl?: string;
     appSessionJwt?: string;
   }): Promise<EmailOtpRecoveryCodeStatus>;
+
+  rotateEmailOtpRecoveryCodes(args: {
+    walletId: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }): Promise<EmailOtpRecoveryCodeRotationResult>;
 }
 
 export interface DevicesCapability {

@@ -1294,7 +1294,6 @@ test.describe('AuthService OIDC exchange verification', () => {
       service.resolveOidcWalletId({
         providerSubject: 'google:subject-without-email',
         accountMode: 'register',
-        appSessionVersion: 'app-session-v1',
         runtimePolicyScope: RUNTIME_POLICY_SCOPE,
       }),
     ).rejects.toThrow('Email is required to register a Google Email OTP wallet id');

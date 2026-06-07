@@ -1,4 +1,5 @@
 import { encodeSigningSessionHkdfTuple } from './signingSessionSeal';
+import { base64UrlEncode } from './encoders';
 
 export const EMAIL_OTP_RECOVERY_KEY_COUNT = 10 as const;
 export const EMAIL_OTP_RECOVERY_KEY_BYTE_LENGTH = 20 as const;
@@ -11,6 +12,8 @@ export const EMAIL_OTP_RECOVERY_WRAP_NONCE_LENGTH = 12 as const;
 
 export const EMAIL_OTP_RECOVERY_WRAP_ALG = 'chacha20poly1305-hkdf-sha256-v1' as const;
 export const EMAIL_OTP_RECOVERY_WRAP_HKDF_SALT = 'seams/email-otp/recovery-wrap/v1' as const;
+export const EMAIL_OTP_RECOVERY_KEY_ID_CONTEXT =
+  'seams/email-otp/recovery-key-id/v1' as const;
 export const EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_AAD_CONTEXT =
   'seams/email-otp/recovery-wrapped-enrollment/v1' as const;
 export const EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND =
@@ -22,6 +25,12 @@ declare const emailOtpRecoveryCodeBrand: unique symbol;
 
 export type EmailOtpRecoveryCode = string & {
   readonly [emailOtpRecoveryCodeBrand]: 'EmailOtpRecoveryCode';
+};
+
+declare const emailOtpRecoveryKeyIdBrand: unique symbol;
+
+export type DerivedEmailOtpRecoveryKeyId = string & {
+  readonly [emailOtpRecoveryKeyIdBrand]: 'DerivedEmailOtpRecoveryKeyId';
 };
 
 export type EmailOtpRecoveryCodeSet = readonly [
@@ -55,6 +64,8 @@ export type EmailOtpRecoveryWrapBinding = {
   };
   recoveryKeyId: string;
 };
+
+export type EmailOtpRecoveryKeyIdBinding = Omit<EmailOtpRecoveryWrapBinding, 'recoveryKeyId'>;
 
 export function buildEmailOtpRecoveryWrapBinding(args: {
   walletId: string;
@@ -129,7 +140,8 @@ function requireSubtleCrypto(): SubtleCrypto {
   if (
     !subtle ||
     typeof subtle.importKey !== 'function' ||
-    typeof subtle.deriveBits !== 'function'
+    typeof subtle.deriveBits !== 'function' ||
+    typeof subtle.digest !== 'function'
   ) {
     throw new Error('crypto.subtle HKDF support is required for Email OTP recovery keys');
   }
@@ -257,6 +269,50 @@ export function decodeEmailOtpRecoveryKey(input: string): Uint8Array {
   }
 
   return out;
+}
+
+async function sha256Bytes(input: Uint8Array): Promise<Uint8Array> {
+  const subtle = requireSubtleCrypto();
+  return new Uint8Array(await subtle.digest('SHA-256', input));
+}
+
+export function emailOtpRecoveryKeyIdFields(args: {
+  recoveryKeyBytesB64u: string;
+  binding: EmailOtpRecoveryKeyIdBinding;
+}): string[] {
+  return [
+    EMAIL_OTP_RECOVERY_KEY_ID_CONTEXT,
+    trimString(args.recoveryKeyBytesB64u),
+    trimString(args.binding.auth.walletId),
+    trimString(args.binding.auth.userId),
+    trimString(args.binding.auth.authSubjectId),
+    trimString(args.binding.auth.authMethod),
+    trimString(args.binding.enrollment.enrollmentId),
+    trimString(args.binding.enrollment.enrollmentVersion),
+    trimString(args.binding.enrollment.enrollmentSealKeyVersion),
+    trimString(args.binding.signingRoot.signingRootId),
+    trimString(args.binding.signingRoot.signingRootVersion),
+  ];
+}
+
+export async function deriveEmailOtpRecoveryKeyId(args: {
+  recoveryKey: string;
+  binding: EmailOtpRecoveryKeyIdBinding;
+}): Promise<DerivedEmailOtpRecoveryKeyId> {
+  const recoveryKeyBytes = decodeEmailOtpRecoveryKey(args.recoveryKey);
+  const tuple = encodeSigningSessionHkdfTuple(
+    emailOtpRecoveryKeyIdFields({
+      recoveryKeyBytesB64u: base64UrlEncode(recoveryKeyBytes),
+      binding: args.binding,
+    }),
+  );
+  try {
+    const digest = await sha256Bytes(tuple);
+    return `email-otp-rkid-v1-${base64UrlEncode(digest)}` as DerivedEmailOtpRecoveryKeyId;
+  } finally {
+    zeroizeBytes(recoveryKeyBytes);
+    zeroizeBytes(tuple);
+  }
 }
 
 export function emailOtpRecoveryKekInfoFields(args: EmailOtpRecoveryWrapBinding): string[] {

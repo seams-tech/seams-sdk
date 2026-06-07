@@ -35,7 +35,7 @@ export type PasskeyAuthMenuOtpPrompt = {
   onSubmit: (
     otpCode: string,
     context?: { recoveryKey?: string },
-  ) => void | Promise<unknown>;
+  ) => void | Promise<unknown> | PasskeyAuthMenuOtpSubmitResult;
   onRerollAccount?: () =>
     | Promise<
         | {
@@ -67,6 +67,11 @@ export type PasskeyAuthMenuOtpPrompt = {
     | void;
   onCancel?: () => void | Promise<void>;
   resendDebounceMs?: number;
+};
+
+export type PasskeyAuthMenuOtpSubmitResult = {
+  walletId?: string;
+  activeRecoveryWrappedEnrollmentEscrowCount?: number;
 };
 
 export type PasskeyAuthMenuRegistrationPrompt = {

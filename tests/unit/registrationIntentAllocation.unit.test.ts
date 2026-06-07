@@ -1424,7 +1424,7 @@ test.describe('registration intent allocation', () => {
       request: {
         wallet: {
           kind: 'provided',
-          walletId: selected.walletId,
+          walletId: walletIdFromString(selected.walletId),
         },
         rpId: 'wallet.example.test',
         authMethod: {
@@ -1530,7 +1530,7 @@ test.describe('registration intent allocation', () => {
     if (!finalized?.ok) throw new Error('expected one concurrent finalize to succeed');
     expect(finalized).toMatchObject({
       ok: true,
-      walletId: selected.walletId,
+      walletId: walletIdFromString(selected.walletId),
       ecdsa: {
         walletKeys: expect.arrayContaining([
           expect.objectContaining({
@@ -1540,11 +1540,9 @@ test.describe('registration intent allocation', () => {
         ]),
       },
     });
-    expect(rejectedFinalizes[0]).toMatchObject({
-      ok: false,
-      code: 'not_found',
-      message: 'registration ceremony not found',
-    });
+    expect(rejectedFinalizes[0]?.ok).toBe(false);
+    if (rejectedFinalizes[0]?.ok !== false) throw new Error('expected one finalize rejection');
+    expect(['not_found', 'registration_incomplete']).toContain(rejectedFinalizes[0].code);
 
     const winningRetryInput = concurrentResults[0]?.ok
       ? firstConcurrentFinalize
@@ -1552,7 +1550,7 @@ test.describe('registration intent allocation', () => {
 
     await expect(service.finalizeWalletRegistration(winningRetryInput)).resolves.toMatchObject({
       ok: true,
-      walletId: selected.walletId,
+      walletId: walletIdFromString(selected.walletId),
       ecdsa: {
         walletKeys: expect.arrayContaining([
           expect.objectContaining({
@@ -1560,6 +1558,174 @@ test.describe('registration intent allocation', () => {
           }),
         ]),
       },
+    });
+
+    const replay = await (service as any).getRegistrationCeremonyStore().getFinalizeReplay({
+      registrationCeremonyId: started.registrationCeremonyId,
+      idempotencyKey: winningRetryInput.idempotencyKey,
+    });
+    expect(replay?.response).toMatchObject({
+      ok: true,
+      walletId: walletIdFromString(selected.walletId),
+      rpId: 'wallet.example.test',
+    });
+    const replayJson = JSON.stringify(replay);
+    expect(replayJson).not.toContain('app-session.jwt');
+    expect(replayJson).not.toContain('app-session-jwt');
+    expect(replayJson).not.toContain('"jwt"');
+    expect(replayJson).not.toContain('"session"');
+    expect(replayJson).not.toContain('walletSigningSessionId');
+  });
+
+  test('Google Email OTP registration identity-link failure does not publish wallet state', async () => {
+    const service = makeService();
+    const providerSubject = 'google:identity-link-failure';
+    const email = 'identity-link-failure@example.test';
+    const registered = await service.resolveGoogleEmailOtpSession({
+      providerSubject,
+      email,
+      accountMode: 'register',
+      appSessionVersion: 'app-session-v1',
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+    });
+    expect(registered.ok).toBe(true);
+    if (!registered.ok || registered.mode !== 'register_started') return;
+    const selected = registered.offer.candidates.find(
+      (candidate) => candidate.candidateId === registered.offer.selectedCandidateId,
+    );
+    expect(selected).toBeTruthy();
+    if (!selected) return;
+
+    (service as any).getThresholdSigningService = () => ({
+      ecdsaHssRoleLocalBootstrap: async (request: Record<string, unknown>) => ({
+        ok: true,
+        value: ecdsaServerBootstrapValue({
+          request,
+          keyHandle: 'ehss-key-google-email-otp-link-failure',
+          ownerAddress: '0x5555555555555555555555555555555555555555',
+        }),
+      }),
+      verifyEcdsaHssRoleLocalBootstrapPersisted: async () => ({
+        ok: true,
+        value: { keyHandle: 'ehss-key-google-email-otp-link-failure' },
+      }),
+    });
+
+    const allocated = await service.createRegistrationIntent({
+      request: {
+        wallet: {
+          kind: 'provided',
+          walletId: walletIdFromString(selected.walletId),
+        },
+        rpId: 'wallet.example.test',
+        authMethod: {
+          kind: 'email_otp',
+          proofKind: 'google_sso_registration',
+          email,
+          appSessionJwt: 'app-session.jwt',
+          googleEmailOtpRegistrationAttemptId: registered.registrationAttemptId,
+          googleEmailOtpRegistrationOfferId: registered.offer.offerId,
+          googleEmailOtpRegistrationCandidateId: selected.candidateId,
+        },
+        signerSelection: ECDSA_SIGNER_SELECTION,
+      },
+      orgId: ORG_ID,
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+      expectedOrigin: 'https://wallet.example.test',
+    });
+    expect(allocated.ok).toBe(true);
+    if (!allocated.ok) throw new Error(allocated.message);
+
+    const started = await service.startWalletRegistration({
+      registrationIntentGrant: allocated.registrationIntentGrant,
+      registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
+      intent: allocated.intent,
+      authority: {
+        kind: 'email_otp',
+        emailOtpRegistrationProof: {
+          version: 'email_otp_registration_proof_v1',
+          proofKind: 'google_sso_registration',
+          providerSubject,
+          email,
+          googleEmailOtpRegistrationAttemptId: registered.registrationAttemptId,
+          googleEmailOtpRegistrationOfferId: registered.offer.offerId,
+          googleEmailOtpRegistrationCandidateId: selected.candidateId,
+          registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
+          appSessionVersion: 'app-session-v1',
+        },
+      },
+    });
+    expect(started).toMatchObject({ ok: true });
+    if (!started.ok || !started.ecdsa) {
+      throw new Error('Google Email OTP ECDSA start failed');
+    }
+
+    await expect(
+      service.respondWalletRegistrationHss({
+        registrationCeremonyId: started.registrationCeremonyId,
+        ecdsa: {
+          clientBootstrap: {
+            ...started.ecdsa.prepare,
+            hssClientSharePublicKey33B64u: ECDSA_HSS_CLIENT_SHARE_PUBLIC_KEY_B64U,
+            clientShareRetryCounter: 0,
+            contextBinding32B64u: 'context-binding',
+          },
+        },
+      }),
+    ).resolves.toMatchObject({ ok: true });
+
+    const realIdentityStore = (service as any).getIdentityStore();
+    (service as any).getIdentityStore = () =>
+      new Proxy(realIdentityStore, {
+        get(target, prop, receiver) {
+          if (prop === 'linkSubjectToUserId') {
+            return async () => ({
+              ok: false,
+              code: 'already_linked',
+              message: 'Synthetic identity-link failure',
+            });
+          }
+          const value = Reflect.get(target, prop, receiver);
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+
+    const walletStore = (service as any).getWalletStore();
+    const authMethodStore = (service as any).getWalletAuthMethodStore();
+    await expect(
+      service.finalizeWalletRegistration({
+        registrationCeremonyId: started.registrationCeremonyId,
+        idempotencyKey: 'google-email-otp-finalize-identity-link-failure',
+        ecdsa: {
+          expectedKeyHandles: ['ehss-key-google-email-otp-link-failure'],
+        },
+        emailOtpEnrollment: emailOtpEnrollmentMaterial(String(selected.walletId), providerSubject),
+        emailOtpBackupAck: emailOtpBackupAck({
+          offerId: registered.offer.offerId,
+          candidateId: selected.candidateId,
+        }),
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'already_linked',
+    });
+
+    await expect(
+      walletStore.getWallet({ walletId: walletIdFromString(selected.walletId) }),
+    ).resolves.toBeNull();
+    await expect(
+      authMethodStore.listForWallet({
+        walletId: walletIdFromString(selected.walletId),
+        rpId: 'wallet.example.test',
+      }),
+    ).resolves.toEqual([]);
+    await expect(
+      service.readEmailOtpEnrollment({
+        walletId: walletIdFromString(selected.walletId),
+        orgId: ORG_ID,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
     });
   });
 

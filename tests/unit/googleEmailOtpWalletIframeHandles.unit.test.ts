@@ -486,4 +486,25 @@ test.describe('Google Email OTP wallet iframe flow handles', () => {
       (posted.at(-1) as { payload: { result: { ok: boolean } } }).payload.result.ok,
     ).toBe(true);
   });
+
+  test('cancels registration flow when handle expires', async () => {
+    let cancelCalls = 0;
+    const { handlers, wireFlow } = await beginFlow({
+      flow: makeRegistrationFlow({
+        expiresAtMs: Date.now() - 1,
+        cancel: async () => {
+          cancelCalls += 1;
+        },
+      }),
+    });
+
+    await expect(
+      handlers.PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_COMPLETE_REGISTRATION?.({
+        type: 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_COMPLETE_REGISTRATION',
+        requestId: 'complete-expired-registration',
+        payload: handlePayload(wireFlow),
+      }),
+    ).rejects.toThrow(/expired/);
+    expect(cancelCalls).toBe(1);
+  });
 });

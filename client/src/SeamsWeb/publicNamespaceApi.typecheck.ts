@@ -67,6 +67,13 @@ void seams.tempo.signTempo({
 
 void seams.recovery.syncAccount({ accountId: 'alice.testnet' });
 void seams.recovery.getEmailOtpRecoveryCodeStatus({ walletId: 'alice.testnet' });
+void seams.recovery.rotateEmailOtpRecoveryCodes({ walletId: 'alice.testnet' });
+// @ts-expect-error public recovery status reads cannot accept plaintext recovery codes.
+void seams.recovery.getEmailOtpRecoveryCodeStatus({ walletId: 'alice.testnet', recoveryKeys: ['secret-code'] });
+// @ts-expect-error public recovery rotation cannot accept caller-supplied recovery codes.
+void seams.recovery.rotateEmailOtpRecoveryCodes({ walletId: 'alice.testnet', recoveryCodes: ['secret-code'] });
+// @ts-expect-error public recovery rotation cannot accept optional recovery-code material.
+void seams.recovery.rotateEmailOtpRecoveryCodes({ walletId: 'alice.testnet', recoveryKey: 'secret-code' });
 
 void seams.devices.stopDevice2LinkingFlow();
 

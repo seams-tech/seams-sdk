@@ -79,7 +79,7 @@ test.describe('Email OTP recovery-code backup repository', () => {
     });
   });
 
-  test('rejects raw recovery-code arrays and mismatched enrollment seals', async ({ page }) => {
+  test('rejects raw recovery-code arrays and leaves mismatched enrollment seals intact', async ({ page }) => {
     const result = await page.evaluate(async ({ recoveryCodes }) => {
       const indexedDbMod = await import('/sdk/esm/core/indexedDB/index.js');
       const mod = await import(
@@ -137,11 +137,69 @@ test.describe('Email OTP recovery-code backup repository', () => {
         enrollmentId: 'enrollment-1',
         enrollmentSealKeyVersion: 'seal-v1',
       });
-      return { invalidCodes, sealMismatch, afterMismatch };
+      const rawInvalidAfterRead = await db.get(storeName, ['alice.testnet', 'bad-codes']);
+      return { invalidCodes, sealMismatch, afterMismatch, rawInvalidAfterRead };
     }, { recoveryCodes: RECOVERY_CODES });
 
     expect(result.invalidCodes).toBeNull();
     expect(result.sealMismatch).toBeNull();
-    expect(result.afterMismatch).toBeNull();
+    expect(result.afterMismatch).toMatchObject({
+      walletId: 'alice.testnet',
+      enrollmentId: 'enrollment-1',
+      enrollmentSealKeyVersion: 'seal-v1',
+      recoveryKeys: RECOVERY_CODES,
+    });
+    expect(result.rawInvalidAfterRead).toMatchObject({
+      wallet_id: 'alice.testnet',
+      enrollment_id: 'bad-codes',
+    });
+  });
+
+  test('explicit deletion removes plaintext rows without leaving tombstones', async ({ page }) => {
+    const result = await page.evaluate(async ({ recoveryCodes }) => {
+      const indexedDbMod = await import('/sdk/esm/core/indexedDB/index.js');
+      const mod = await import(
+        '/sdk/esm/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.js'
+      );
+      indexedDbMod.seamsWalletDB.setDisabled(false);
+      indexedDbMod.seamsWalletDB.setDbName(
+        indexedDbMod.createSeamsTestWalletDbName(`otp-codes-delete-${crypto.randomUUID()}`),
+      );
+      const repository = mod.emailOtpRecoveryCodeBackupRepository;
+      const db = await indexedDbMod.seamsWalletDB.getDB();
+      const storeName = 'email_otp_pending_recovery_code_backups';
+
+      await repository.write({
+        storageScope: 'iframe_origin_indexeddb',
+        walletId: 'alice.testnet',
+        enrollmentId: 'enrollment-1',
+        enrollmentSealKeyVersion: 'seal-v1',
+        recoveryCodesIssuedAtMs: 1_700_000_000_000,
+        recoveryKeys: recoveryCodes,
+        createdAtMs: 1_700_000_000_000,
+      });
+      await repository.delete({
+        walletId: 'alice.testnet',
+        enrollmentId: 'enrollment-1',
+      });
+      const afterExplicitDelete = await db.get(storeName, ['alice.testnet', 'enrollment-1']);
+
+      await repository.write({
+        storageScope: 'iframe_origin_indexeddb',
+        walletId: 'alice.testnet',
+        enrollmentId: 'enrollment-2',
+        enrollmentSealKeyVersion: 'seal-v1',
+        recoveryCodesIssuedAtMs: 1_700_000_000_000,
+        recoveryKeys: recoveryCodes,
+        createdAtMs: 1_700_000_000_000,
+      });
+      await repository.deleteForWallet({ walletId: 'alice.testnet' });
+      const afterWalletDelete = await db.get(storeName, ['alice.testnet', 'enrollment-2']);
+
+      return { afterExplicitDelete, afterWalletDelete };
+    }, { recoveryCodes: RECOVERY_CODES });
+
+    expect(result.afterExplicitDelete).toBeUndefined();
+    expect(result.afterWalletDelete).toBeUndefined();
   });
 });

@@ -287,6 +287,9 @@ export function useSeamsWithSdkFlow(args: {
             getEmailOtpRecoveryCodeStatus: (
               ...args: Parameters<RecoveryCapability['getEmailOtpRecoveryCodeStatus']>
             ) => recovery.getEmailOtpRecoveryCodeStatus(...args),
+            rotateEmailOtpRecoveryCodes: (
+              ...args: Parameters<RecoveryCapability['rotateEmailOtpRecoveryCodes']>
+            ) => recovery.rotateEmailOtpRecoveryCodes(...args),
           } satisfies RecoveryCapability;
         }
 

@@ -167,7 +167,6 @@ export class EmailOtpRecoveryCodeBackupRepository {
     args: WriteEmailOtpRecoveryCodeBackupInput,
   ): Promise<StoredEmailOtpRecoveryCodeBackupRecord> {
     const nowMs = args.createdAtMs ?? Date.now();
-    await this.deleteInvalid();
     const record = normalizeEmailOtpRecoveryCodeBackupRecord({
       v: EMAIL_OTP_RECOVERY_CODE_BACKUP_RECORD_VERSION,
       secretKind: EMAIL_OTP_RECOVERY_CODE_BACKUP_SECRET_KIND,
@@ -214,7 +213,6 @@ export class EmailOtpRecoveryCodeBackupRepository {
     ]);
     const record = normalizeEmailOtpRecoveryCodeBackupRecord(value);
     if (!record || record.enrollmentSealKeyVersion !== enrollmentSealKeyVersion) {
-      await this.delete({ walletId, enrollmentId });
       return null;
     }
     return record;
@@ -296,27 +294,6 @@ export class EmailOtpRecoveryCodeBackupRepository {
         for (const row of rows) {
           const key = emailOtpRecoveryCodeBackupStorageKey(row);
           if (key) await store.delete(key);
-        }
-      },
-    );
-  }
-
-  async deleteInvalid(): Promise<void> {
-    await this.manager.runTransaction(
-      [EMAIL_OTP_RECOVERY_CODE_BACKUP_STORE_NAME],
-      'readwrite',
-      async (ctx) => {
-        const store = ctx.store(EMAIL_OTP_RECOVERY_CODE_BACKUP_STORE_NAME);
-        const rows = await store.getAll();
-        for (const row of rows) {
-          const key = emailOtpRecoveryCodeBackupStorageKey(row);
-          if (!key) continue;
-          const record = normalizeEmailOtpRecoveryCodeBackupRecord(row);
-          if (!record) {
-            await store.delete(key);
-            continue;
-          }
-          await store.put(emailOtpRecoveryCodeBackupStorageRow(record));
         }
       },
     );

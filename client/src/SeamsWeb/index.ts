@@ -12,6 +12,7 @@ export type {
   EmailOtpEcdsaEnrollmentCapabilityResult,
   EmailOtpEnrollmentResult,
   EmailOtpRecoveryCodeBackupStatus,
+  EmailOtpRecoveryCodeRotationResult,
   EmailOtpRecoveryCodeStatus,
   ExportKeypairWithUIInput,
   GoogleEmailOtpSessionExchangeResult,

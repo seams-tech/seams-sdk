@@ -174,6 +174,7 @@ function takeFlow(value: unknown): GoogleEmailOtpWalletAuthFlow {
   }
   if (Date.now() > record.expiresAtMs) {
     googleEmailOtpWalletAuthFlows.delete(flowHandleId);
+    void record.flow.cancel().catch(() => undefined);
     throw new Error('Google Email OTP wallet auth flow handle expired');
   }
   assertFlowHandleMatchesPayload(record.flow, payload);
@@ -209,21 +210,20 @@ async function showEmailOtpRecoveryCodesInIframe(input: {
   relayUrl?: string;
   appSessionJwt?: string;
 }) {
-  await emailOtpRecoveryCodeBackupRepository.deleteInvalid().catch(() => undefined);
   const status = await input.pm.recovery.getEmailOtpRecoveryCodeStatus({
     walletId: input.walletId,
     ...(input.relayUrl ? { relayUrl: input.relayUrl } : {}),
     ...(input.appSessionJwt ? { appSessionJwt: input.appSessionJwt } : {}),
   });
   if (!status.enrollmentId || !status.enrollmentSealKeyVersion) {
-    return status;
+    return { status, displayedStoredCodes: false };
   }
   const backup = await emailOtpRecoveryCodeBackupRepository.readMatching({
     walletId: status.walletId,
     enrollmentId: status.enrollmentId,
     enrollmentSealKeyVersion: status.enrollmentSealKeyVersion,
   });
-  if (!backup) return status;
+  if (!backup) return { status, displayedStoredCodes: false };
   const displayed =
     (await emailOtpRecoveryCodeBackupRepository
       .markDisplayed({
@@ -232,14 +232,25 @@ async function showEmailOtpRecoveryCodesInIframe(input: {
         enrollmentSealKeyVersion: backup.enrollmentSealKeyVersion,
       })
       .catch(() => null)) || backup;
-  showEmailOtpRecoveryCodeBackupUi({
-    walletId: displayed.walletId,
-    enrollmentId: displayed.enrollmentId,
-    enrollmentSealKeyVersion: displayed.enrollmentSealKeyVersion,
-    recoveryCodesIssuedAtMs: displayed.recoveryCodesIssuedAtMs,
-    recoveryKeys: displayed.recoveryKeys,
-  });
-  return status;
+  showEmailOtpRecoveryCodeBackupUi(
+    {
+      walletId: displayed.walletId,
+      enrollmentId: displayed.enrollmentId,
+      enrollmentSealKeyVersion: displayed.enrollmentSealKeyVersion,
+      recoveryCodesIssuedAtMs: displayed.recoveryCodesIssuedAtMs,
+      recoveryKeys: displayed.recoveryKeys,
+    },
+    {
+      onDownloaded: async () => {
+        await emailOtpRecoveryCodeBackupRepository.markDownloaded({
+          walletId: displayed.walletId,
+          enrollmentId: displayed.enrollmentId,
+          enrollmentSealKeyVersion: displayed.enrollmentSealKeyVersion,
+        });
+      },
+    },
+  );
+  return { status, displayedStoredCodes: true };
 }
 
 async function storeEmailOtpRecoveryCodeBackupInIframe(input: {
@@ -450,6 +461,16 @@ export function createEmailOtpWalletIframeHandlers(deps: HandlerDeps): HandlerMa
         ...(payload.relayUrl ? { relayUrl: payload.relayUrl } : {}),
         ...(payload.appSessionJwt ? { appSessionJwt: payload.appSessionJwt } : {}),
       });
+      respondOkResult(deps, req.requestId, result);
+    },
+
+    PM_ROTATE_EMAIL_OTP_RECOVERY_CODES: async (
+      req: Req<'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES'>,
+    ) => {
+      const pm = deps.getSeamsWeb();
+      const result = await pm.recovery.rotateEmailOtpRecoveryCodes(
+        parseGetEmailOtpRecoveryCodeStatusPayload(req.payload),
+      );
       respondOkResult(deps, req.requestId, result);
     },
 

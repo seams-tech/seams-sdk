@@ -29,6 +29,10 @@ type RecoveryCodesLoadState =
   | RecoveryCodesLoadedState
   | { kind: 'error'; message: string };
 
+function assertNever(value: never): never {
+  throw new Error(`Unhandled recovery-code modal state: ${String(value)}`);
+}
+
 function statusLabel(status: EmailOtpRecoveryCodeStatus['status']): string {
   switch (status) {
     case 'ready':
@@ -37,6 +41,8 @@ function statusLabel(status: EmailOtpRecoveryCodeStatus['status']): string {
       return 'Rotation needed';
     case 'not_enrolled':
       return 'No Email OTP enrollment';
+    default:
+      return assertNever(status);
   }
 }
 
@@ -57,6 +63,20 @@ function recoveryCodeBackupUiInput(
   };
 }
 
+function loadedStatus(loadState: RecoveryCodesLoadState): EmailOtpRecoveryCodeStatus | null {
+  switch (loadState.kind) {
+    case 'loaded':
+    case 'delegated_to_iframe':
+      return loadState.status;
+    case 'idle':
+    case 'loading':
+    case 'error':
+      return null;
+    default:
+      return assertNever(loadState);
+  }
+}
+
 export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
   nearAccountId,
   isOpen,
@@ -64,6 +84,7 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
 }) => {
   const { seams } = useSeams();
   const [loadState, setLoadState] = React.useState<RecoveryCodesLoadState>({ kind: 'idle' });
+  const [isRotating, setIsRotating] = React.useState(false);
   const loadStatusSeq = React.useRef(0);
   const { theme, tokens } = useTheme();
   const scopedTokens = React.useMemo(
@@ -112,6 +133,7 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
     if (!isOpen) {
       loadStatusSeq.current += 1;
       setLoadState({ kind: 'idle' });
+      setIsRotating(false);
       return;
     }
     void loadRecoveryCodeStatus();
@@ -146,7 +168,29 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
     }
   }, [loadState]);
 
+  const rotateRecoveryCodes = React.useCallback(async () => {
+    const current = loadState;
+    if (current.kind !== 'loaded' || current.status.status === 'not_enrolled' || isRotating) {
+      return;
+    }
+    setIsRotating(true);
+    setLoadState({ ...current, actionError: '' });
+    try {
+      await seams.recovery.rotateEmailOtpRecoveryCodes({ walletId: nearAccountId });
+      await loadRecoveryCodeStatus();
+    } catch (error: unknown) {
+      setLoadState({
+        ...current,
+        actionError:
+          error instanceof Error ? error.message : 'Could not rotate recovery codes. Try again.',
+      });
+    } finally {
+      setIsRotating(false);
+    }
+  }, [isRotating, loadRecoveryCodeStatus, loadState, nearAccountId, seams.recovery]);
+
   if (!isOpen) return null;
+  const status = loadedStatus(loadState);
 
   return (
     <Theme theme={theme} tokens={scopedTokens}>
@@ -188,13 +232,21 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
             <div className="w3a-recovery-codes-status-row">
               <span className="w3a-recovery-codes-status-label">Status</span>
               <span className="w3a-recovery-codes-status-value">
-                {loadState.kind === 'loaded'
-                  ? statusLabel(loadState.status.status)
+                {status
+                  ? statusLabel(status.status)
                   : loadState.kind === 'error'
                     ? 'Could not load'
                     : 'Loading'}
               </span>
             </div>
+            {loadState.kind === 'delegated_to_iframe' ? (
+              <div className="w3a-recovery-codes-status-row">
+                <span className="w3a-recovery-codes-status-label">Backup</span>
+                <span className="w3a-recovery-codes-status-value">
+                  Recovery codes opened in the wallet.
+                </span>
+              </div>
+            ) : null}
             {loadState.kind === 'loaded' ? (
               <>
                 {loadState.localBackup ? (
@@ -213,6 +265,7 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
                     <button
                       type="button"
                       className="w3a-recovery-codes-primary-action"
+                      disabled={isRotating}
                       onClick={() => void downloadRecoveryCodeBackup()}
                     >
                       Download
@@ -230,6 +283,16 @@ export const RecoveryCodesModal: React.FC<RecoveryCodesModalProps> = ({
                       Recovery codes are unavailable on this device.
                     </span>
                   </div>
+                ) : null}
+                {loadState.status.status !== 'not_enrolled' ? (
+                  <button
+                    type="button"
+                    className="w3a-recovery-codes-secondary-action"
+                    disabled={isRotating}
+                    onClick={() => void rotateRecoveryCodes()}
+                  >
+                    {isRotating ? 'Rotating codes...' : 'Rotate codes'}
+                  </button>
                 ) : null}
                 <div className="w3a-recovery-codes-status-row">
                   <span className="w3a-recovery-codes-status-label">Active codes</span>

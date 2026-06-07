@@ -168,11 +168,13 @@ import {
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND,
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
   buildEmailOtpRecoveryWrapBinding,
+  deriveEmailOtpRecoveryKeyId,
   encodeEmailOtpRecoveryWrappedEnrollmentAad,
   generateEmailOtpRecoveryKeySet,
   unwrapEmailOtpDeviceEnrollmentEscrow,
   wrapEmailOtpDeviceEnrollmentEscrow,
   type EmailOtpRecoveryCodeSet,
+  type EmailOtpRecoveryKeyIdBinding,
   type EmailOtpRecoveryWrapBinding,
 } from '@shared/utils/emailOtpRecoveryKey';
 
@@ -249,8 +251,15 @@ type EmailOtpRecoveryWrappedEnrollmentEscrowPayload = {
   updatedAtMs: number;
 };
 
+type EmailOtpRecoveryChallengeEscrowPayload = Omit<
+  EmailOtpRecoveryWrappedEnrollmentEscrowPayload,
+  'recoveryKeyId' | 'recoveryKeyStatus' | 'issuedAtMs' | 'updatedAtMs'
+> & {
+  recoveryKeyId: string;
+};
+
 type ParsedEmailOtpRecoveryWrappedEnrollmentEscrowPayload = {
-  payload: EmailOtpRecoveryWrappedEnrollmentEscrowPayload;
+  payload: EmailOtpRecoveryChallengeEscrowPayload;
   binding: EmailOtpRecoveryWrapBinding;
   lifecycle: {
     status: 'active';
@@ -1647,16 +1656,6 @@ function generateRandomSecret32(): Uint8Array {
   return cryptoApi.getRandomValues(new Uint8Array(32));
 }
 
-function generateEmailOtpRecoveryKeyId(index: number): string {
-  const cryptoApi = globalThis.crypto;
-  const random = new Uint8Array(16);
-  if (!cryptoApi || typeof cryptoApi.getRandomValues !== 'function') {
-    throw new Error('crypto.getRandomValues is unavailable in this runtime');
-  }
-  cryptoApi.getRandomValues(random);
-  return `email-otp-recovery-key-v1-${index + 1}-${base64UrlEncode(random)}`;
-}
-
 async function sha256Bytes(input: Uint8Array): Promise<Uint8Array> {
   const digest = await globalThis.crypto.subtle.digest('SHA-256', input);
   return new Uint8Array(digest);
@@ -1748,7 +1747,27 @@ async function createEmailOtpRecoveryWrappedEnrollmentEscrows(args: {
   const recoveryWrappedEnrollmentEscrows: EmailOtpRecoveryWrappedEnrollmentEscrowPayload[] = [];
   try {
     for (let index = 0; index < recoveryKeys.length; index += 1) {
-      const recoveryKeyId = generateEmailOtpRecoveryKeyId(index);
+      const keyIdBinding: EmailOtpRecoveryKeyIdBinding = {
+        auth: {
+          walletId: args.walletId,
+          userId: args.userId,
+          authSubjectId: args.userId,
+          authMethod: 'google_sso_email_otp',
+        },
+        enrollment: {
+          enrollmentId: args.enrollmentId,
+          enrollmentVersion: args.enrollmentVersion,
+          enrollmentSealKeyVersion: args.enrollmentSealKeyVersion,
+        },
+        signingRoot: {
+          signingRootId: args.signingRootId,
+          signingRootVersion: args.signingRootVersion,
+        },
+      };
+      const recoveryKeyId = await deriveEmailOtpRecoveryKeyId({
+        recoveryKey: recoveryKeys[index],
+        binding: keyIdBinding,
+      });
       const binding = buildEmailOtpRecoveryWrapBinding({
         walletId: args.walletId,
         userId: args.userId,
@@ -1812,15 +1831,26 @@ async function createEmailOtpRecoveryWrappedEnrollmentEscrows(args: {
   }
 }
 
-function parseEmailOtpRecoveryWrappedEnrollmentEscrowPayload(
+async function parseEmailOtpRecoveryWrappedEnrollmentEscrowPayload(
   value: unknown,
-): ParsedEmailOtpRecoveryWrappedEnrollmentEscrowPayload | null {
+  recoveryKey: string,
+): Promise<ParsedEmailOtpRecoveryWrappedEnrollmentEscrowPayload | null> {
   const obj =
     value && typeof value === 'object' && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
   if (!obj) return null;
-  const record: EmailOtpRecoveryWrappedEnrollmentEscrowPayload = {
+  if (
+    'recoveryKeyId' in obj ||
+    'recoveryKeyStatus' in obj ||
+    'issuedAtMs' in obj ||
+    'updatedAtMs' in obj ||
+    'consumedAtMs' in obj ||
+    'revokedAtMs' in obj
+  ) {
+    return null;
+  }
+  const baseRecord = {
     version: readString(
       obj.version,
       'recoveryWrappedEnrollmentEscrow.version',
@@ -1858,29 +1888,44 @@ function parseEmailOtpRecoveryWrappedEnrollmentEscrowPayload(
       obj.signingRootVersion,
       'recoveryWrappedEnrollmentEscrow.signingRootVersion',
     ),
-    recoveryKeyId: readString(obj.recoveryKeyId, 'recoveryWrappedEnrollmentEscrow.recoveryKeyId'),
-    recoveryKeyStatus: readString(
-      obj.recoveryKeyStatus,
-      'recoveryWrappedEnrollmentEscrow.recoveryKeyStatus',
-    ) as 'active',
     nonceB64u: readString(obj.nonceB64u, 'recoveryWrappedEnrollmentEscrow.nonceB64u'),
     wrappedDeviceEnrollmentEscrowB64u: readString(
       obj.wrappedDeviceEnrollmentEscrowB64u,
       'recoveryWrappedEnrollmentEscrow.wrappedDeviceEnrollmentEscrowB64u',
     ),
     aadHashB64u: readString(obj.aadHashB64u, 'recoveryWrappedEnrollmentEscrow.aadHashB64u'),
-    issuedAtMs: Math.floor(Number(obj.issuedAtMs)),
-    updatedAtMs: Math.floor(Number(obj.updatedAtMs)),
   };
-  if (record.version !== 'email_otp_recovery_wrapped_enrollment_escrow_v1') return null;
-  if (record.alg !== EMAIL_OTP_RECOVERY_WRAP_ALG) return null;
-  if (record.secretKind !== EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND) return null;
-  if (record.escrowKind !== EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND) return null;
-  if (record.authMethod !== 'google_sso_email_otp') return null;
-  if (record.recoveryKeyStatus !== 'active') return null;
-  if (!Number.isFinite(record.issuedAtMs) || record.issuedAtMs <= 0) return null;
-  if (!Number.isFinite(record.updatedAtMs) || record.updatedAtMs <= 0) return null;
+  if (baseRecord.version !== 'email_otp_recovery_wrapped_enrollment_escrow_v1') return null;
+  if (baseRecord.alg !== EMAIL_OTP_RECOVERY_WRAP_ALG) return null;
+  if (baseRecord.secretKind !== EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND) return null;
+  if (baseRecord.escrowKind !== EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_ESCROW_KIND) return null;
+  if (baseRecord.authMethod !== 'google_sso_email_otp') return null;
   if ('acknowledgedAtMs' in obj || 'abandonedAtMs' in obj || 'cleanupReason' in obj) return null;
+  const keyIdBinding: EmailOtpRecoveryKeyIdBinding = {
+    auth: {
+      walletId: baseRecord.walletId,
+      userId: baseRecord.userId,
+      authSubjectId: baseRecord.authSubjectId,
+      authMethod: baseRecord.authMethod,
+    },
+    enrollment: {
+      enrollmentId: baseRecord.enrollmentId,
+      enrollmentVersion: baseRecord.enrollmentVersion,
+      enrollmentSealKeyVersion: baseRecord.enrollmentSealKeyVersion,
+    },
+    signingRoot: {
+      signingRootId: baseRecord.signingRootId,
+      signingRootVersion: baseRecord.signingRootVersion,
+    },
+  };
+  const recoveryKeyId = await deriveEmailOtpRecoveryKeyId({
+    recoveryKey,
+    binding: keyIdBinding,
+  });
+  const record: EmailOtpRecoveryChallengeEscrowPayload = {
+    ...baseRecord,
+    recoveryKeyId,
+  };
   return {
     payload: record,
     binding: buildEmailOtpRecoveryWrapBinding({
@@ -1984,11 +2029,15 @@ async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
     ? response.recoveryWrappedEnrollmentEscrows
     : [];
   const recoveryConsumeGrant = readString(response.recoveryConsumeGrant, 'recoveryConsumeGrant');
-  const records = rawRecords
-    .map((record) => parseEmailOtpRecoveryWrappedEnrollmentEscrowPayload(record))
-    .filter((record): record is ParsedEmailOtpRecoveryWrappedEnrollmentEscrowPayload =>
-      Boolean(record),
+  const recoveryKey = readString(args.recoveryKey, 'recoveryKey');
+  const records: ParsedEmailOtpRecoveryWrappedEnrollmentEscrowPayload[] = [];
+  for (const rawRecord of rawRecords) {
+    const parsed = await parseEmailOtpRecoveryWrappedEnrollmentEscrowPayload(
+      rawRecord,
+      recoveryKey,
     );
+    if (parsed) records.push(parsed);
+  }
   if (records.length <= 0) {
     throw new Error('No active Email OTP recovery-wrapped enrollment escrows are available');
   }
@@ -2004,7 +2053,7 @@ async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
       const aadHashB64u = base64UrlEncode(await sha256Bytes(aad));
       if (aadHashB64u !== record.aadHashB64u) continue;
       encS = await unwrapEmailOtpDeviceEnrollmentEscrow({
-        recoveryKey: readString(args.recoveryKey, 'recoveryKey'),
+        recoveryKey,
         binding,
         wrapped: {
           alg: record.alg,
@@ -2089,6 +2138,92 @@ async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey(args: {
     });
   }
   throw new Error('Email OTP recovery unwrap failed');
+}
+
+async function rotateEmailOtpRecoveryCodesFromLocalDeviceEnrollment(args: {
+  relayUrl: string;
+  walletId: string;
+  userId?: unknown;
+  routePlan: EmailOtpRoutePlan;
+}): Promise<{
+  walletId: string;
+  userId: string;
+  authSubjectId: string;
+  enrollmentId: string;
+  enrollmentVersion: string;
+  enrollmentSealKeyVersion: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  recoveryKeys: EmailOtpRecoveryCodeSet;
+  recoveryCodesIssuedAtMs: number;
+  activeRecoveryCodeCount: number;
+  revokedRecoveryCodeCount: number;
+  totalRecoveryCodeCount: number;
+}> {
+  const relayUrl = readString(args.relayUrl, 'relayUrl');
+  const walletId = readString(args.walletId, 'walletId');
+  const requestedUserId = readOptionalString(args.userId);
+  const routePlan = readRoutePlan(args.routePlan, 'rotateEmailOtpRecoveryCodes');
+  const routeAuth = routePlanSessionAuth(routePlan);
+  const record = await readSingleEmailOtpDeviceEnrollmentEscrowRecordForWallet({ walletId });
+  if (!record) {
+    throw new Error('Email OTP device enrollment escrow is unavailable on this device');
+  }
+  const localUserId = readOptionalString(record.userId) || record.authSubjectId;
+  if (
+    requestedUserId &&
+    record.authSubjectId !== requestedUserId &&
+    localUserId !== requestedUserId
+  ) {
+    throw new Error('Email OTP device enrollment escrow does not match the requested user');
+  }
+
+  const { recoveryKeys, recoveryWrappedEnrollmentEscrows } =
+    await createEmailOtpRecoveryWrappedEnrollmentEscrows({
+      walletId: record.walletId,
+      userId: record.authSubjectId,
+      enrollmentId: record.enrollmentId,
+      enrollmentVersion: record.enrollmentVersion,
+      enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
+      signingRootId: record.signingRootId,
+      signingRootVersion: record.signingRootVersion,
+      encSB64u: record.encSB64u,
+    });
+  const response = await postEmailOtpJson({
+    relayUrl,
+    route: '/wallet/email-otp/recovery-key/rotate',
+    ...(routeAuth ? { sessionAuth: routeAuth } : {}),
+    body: {
+      walletId: record.walletId,
+      enrollmentId: record.enrollmentId,
+      enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
+      recoveryWrappedEnrollmentEscrows: recoveryWrappedEnrollmentEscrows.map((escrow) => ({
+        recoveryKeyId: escrow.recoveryKeyId,
+        nonceB64u: escrow.nonceB64u,
+        wrappedDeviceEnrollmentEscrowB64u: escrow.wrappedDeviceEnrollmentEscrowB64u,
+        aadHashB64u: escrow.aadHashB64u,
+      })),
+    },
+  });
+  const recoveryCodesIssuedAtMs = Math.floor(Number(response.issuedAtMs));
+  if (!Number.isFinite(recoveryCodesIssuedAtMs) || recoveryCodesIssuedAtMs <= 0) {
+    throw new Error('Email OTP recovery-code rotation response did not include issuedAtMs');
+  }
+  return {
+    walletId: record.walletId,
+    userId: localUserId,
+    authSubjectId: record.authSubjectId,
+    enrollmentId: record.enrollmentId,
+    enrollmentVersion: record.enrollmentVersion,
+    enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
+    signingRootId: record.signingRootId,
+    signingRootVersion: record.signingRootVersion,
+    recoveryKeys,
+    recoveryCodesIssuedAtMs,
+    activeRecoveryCodeCount: Math.floor(Number(response.activeRecoveryCodeCount)),
+    revokedRecoveryCodeCount: Math.floor(Number(response.revokedRecoveryCodeCount)),
+    totalRecoveryCodeCount: Math.floor(Number(response.totalRecoveryCodeCount)),
+  };
 }
 
 async function removeEmailOtpDeviceEnrollmentEscrowFromDevice(args: {
@@ -4128,6 +4263,19 @@ function parseEmailOtpWorkerRequest(raw: unknown): EmailOtpWorkerRequest | null 
             : {}),
         },
       };
+    case 'rotateEmailOtpRecoveryCodes':
+      return {
+        id,
+        type,
+        payload: {
+          relayUrl: readString(payload.relayUrl, 'relayUrl'),
+          walletId: readString(payload.walletId, 'walletId'),
+          ...(optionalWorkerString(payload.userId)
+            ? { userId: optionalWorkerString(payload.userId)! }
+            : {}),
+          routePlan: readRoutePlan(payload.routePlan, type),
+        },
+      };
     case 'removeEmailOtpDeviceEnrollmentEscrowFromDevice':
       return {
         id,
@@ -4752,6 +4900,21 @@ self.addEventListener('message', async (event: MessageEvent) => {
           otpCode: readString(msg.payload.otpCode, 'otpCode'),
           recoveryKey: readString(msg.payload.recoveryKey, 'recoveryKey'),
           shamirPrimeB64u: readString(msg.payload.shamirPrimeB64u, 'shamirPrimeB64u'),
+          routePlan,
+        });
+        postToMainThread({
+          id: msg.id,
+          ok: true,
+          result,
+        });
+        return;
+      }
+      case 'rotateEmailOtpRecoveryCodes': {
+        const routePlan = readRoutePlan(msg.payload.routePlan, 'rotateEmailOtpRecoveryCodes');
+        const result = await rotateEmailOtpRecoveryCodesFromLocalDeviceEnrollment({
+          relayUrl: readString(msg.payload.relayUrl, 'relayUrl'),
+          walletId: readString(msg.payload.walletId, 'walletId'),
+          userId: msg.payload.userId,
           routePlan,
         });
         postToMainThread({

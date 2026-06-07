@@ -154,8 +154,30 @@
   cursor: pointer;
 }
 
+.w3a-recovery-codes-secondary-action {
+  min-height: 40px;
+  border: 1px solid var(--w3a-colors-borderPrimary);
+  border-radius: 0.75rem;
+  background: var(--w3a-colors-surface);
+  color: var(--w3a-colors-textPrimary);
+  padding: 0.55rem 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .w3a-recovery-codes-primary-action:hover {
   filter: brightness(1.05);
+}
+
+.w3a-recovery-codes-secondary-action:hover {
+  background: var(--w3a-colors-colorBackground);
+}
+
+.w3a-recovery-codes-primary-action:disabled,
+.w3a-recovery-codes-secondary-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .w3a-recovery-codes-inline-error {

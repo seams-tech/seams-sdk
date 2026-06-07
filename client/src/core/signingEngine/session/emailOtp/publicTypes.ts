@@ -39,6 +39,22 @@ export type EmailOtpRecoveryCodeStatus = {
   issuedAtMs: number | null;
 };
 
+export type EmailOtpRecoveryCodeRotationMaterial = {
+  walletId: string;
+  userId: string;
+  authSubjectId: string;
+  enrollmentId: string;
+  enrollmentVersion: string;
+  enrollmentSealKeyVersion: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  recoveryKeys: EmailOtpRecoveryCodeSet;
+  recoveryCodesIssuedAtMs: number;
+  activeRecoveryCodeCount: number;
+  revokedRecoveryCodeCount: number;
+  totalRecoveryCodeCount: number;
+};
+
 export type EmailOtpDeviceEnrollmentRestoreResult = {
   walletId: string;
   userId: string;
@@ -68,6 +84,7 @@ export type GoogleEmailOtpSessionExchangeResult = {
       mode: 'existing_wallet' | 'register_started';
       registrationAttemptId?: string;
       expiresAt?: string;
+      expiresAtMs?: number;
       loginChallenge?:
         | {
             delivery: 'sent' | 'reused';

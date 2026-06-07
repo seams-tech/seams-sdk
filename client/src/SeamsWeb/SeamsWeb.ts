@@ -109,6 +109,7 @@ import {
 } from '@/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow';
 import {
   getEmailOtpRecoveryCodeStatus,
+  storeRotatedEmailOtpRecoveryCodes,
 } from '@/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup';
 import { walletIdFromString } from '@shared/utils/registrationIntent';
 import { buildNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
@@ -403,6 +404,8 @@ export class SeamsWeb {
       recovery: {
         getEmailOtpRecoveryCodeStatus: async (args) =>
           await this.getEmailOtpRecoveryCodeStatusDomain(args),
+        rotateEmailOtpRecoveryCodes: async (args) =>
+          await this.rotateEmailOtpRecoveryCodesDomain(args),
       },
       devices: {
         viewAccessKeyList: async (accountId) => await this.viewAccessKeyListDomain(accountId),
@@ -1339,7 +1342,45 @@ export class SeamsWeb {
         ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
       });
     }
-    return await this.getEmailOtpRecoveryCodeStatusDomain(args);
+    const status = await this.getEmailOtpRecoveryCodeStatusDomain(args);
+    return { status, displayedStoredCodes: false };
+  }
+
+  private async rotateEmailOtpRecoveryCodesDomain(args: {
+    walletId: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }) {
+    const relayUrl = String(args.relayUrl || this.configs.network.relayer.url || '').trim();
+    if (this.walletIframe.shouldUseWalletIframe()) {
+      const router = await this.walletIframe.requireRouter(args.walletId);
+      return await router.rotateEmailOtpRecoveryCodes({
+        walletId: args.walletId,
+        relayUrl,
+        ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+      });
+    }
+    const appSessionJwt = await this.resolveEmailOtpRecoveryCodeAppSessionJwt({
+      walletId: args.walletId,
+      relayUrl,
+      appSessionJwt: args.appSessionJwt,
+    });
+    const rotation = await this.signingEngine.rotateEmailOtpRecoveryCodesInternal({
+      walletId: toWalletId(args.walletId),
+      relayUrl,
+      ...(appSessionJwt ? { appSessionJwt } : {}),
+    });
+    const recoveryCodeBackup = await storeRotatedEmailOtpRecoveryCodes({
+      walletId: args.walletId,
+      rotation,
+      storageScope: 'host_origin_indexeddb',
+    });
+    const status = await this.getEmailOtpRecoveryCodeStatusDomain({
+      walletId: args.walletId,
+      relayUrl,
+      ...(appSessionJwt ? { appSessionJwt } : {}),
+    });
+    return { status, recoveryCodeBackup };
   }
 
   private async resolveEmailOtpRecoveryCodeAppSessionJwt(args: {

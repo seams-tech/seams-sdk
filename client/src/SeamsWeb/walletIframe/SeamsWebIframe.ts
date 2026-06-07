@@ -390,6 +390,12 @@ export class SeamsWebIframe {
           relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
           ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
         }),
+      rotateEmailOtpRecoveryCodes: async (args) =>
+        await this.router.rotateEmailOtpRecoveryCodes({
+          walletId: args.walletId,
+          relayUrl: String(args.relayUrl || this.configs.network.relayer.url || '').trim(),
+          ...(args.appSessionJwt ? { appSessionJwt: args.appSessionJwt } : {}),
+        }),
     } satisfies RecoveryCapability;
     this.devices = {
       startDevice2LinkingFlow: async (args) => {
@@ -460,7 +466,10 @@ export class SeamsWebIframe {
 
   async showEmailOtpRecoveryCodesForAccountMenu(args: {
     walletId: string;
-  }): Promise<Awaited<ReturnType<RecoveryCapability['getEmailOtpRecoveryCodeStatus']>>> {
+  }): Promise<{
+    status: Awaited<ReturnType<RecoveryCapability['getEmailOtpRecoveryCodeStatus']>>;
+    displayedStoredCodes: boolean;
+  }> {
     await this.requireRouterReady();
     return await this.router.showEmailOtpRecoveryCodes({
       walletId: args.walletId,

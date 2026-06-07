@@ -96,3 +96,15 @@ void finalize;
   // @ts-expect-error finalize cannot carry passkey registration output
   passkey: { credentialId: 'credential' },
 }) satisfies GoogleEmailOtpRegistrationFinalizeInput;
+
+({
+  ...backedUpEnrollment,
+  // @ts-expect-error Google SSO registration enrollment uses registrationAuthorityId
+  challengeId: 'otp-challenge-1',
+}) satisfies GoogleEmailOtpRegistrationFinalizeInput['emailOtpEnrollment'];
+
+({
+  ...backedUpEnrollment,
+  // @ts-expect-error Google SSO registration enrollment cannot carry OTP codes
+  otpCode: '123456',
+}) satisfies GoogleEmailOtpRegistrationFinalizeInput['emailOtpEnrollment'];

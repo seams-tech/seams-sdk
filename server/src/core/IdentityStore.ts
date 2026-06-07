@@ -10,7 +10,11 @@ import {
   redisGetJson,
   redisSetJson,
 } from './ThresholdService/kv';
-import { getPostgresPool, getPostgresUrlFromConfig } from '../storage/postgres';
+import {
+  getPostgresPool,
+  getPostgresUrlFromConfig,
+  type PgQueryExecutor,
+} from '../storage/postgres';
 
 export type IdentitySubjectRecord = {
   version: 'identity_subject_v1';
@@ -85,7 +89,7 @@ function toPrefixWithColon(prefix: unknown, defaultPrefix: string): string {
   return p.endsWith(':') ? p : `${p}:`;
 }
 
-function toIdentityPrefix(config: Record<string, unknown>): string {
+export function resolveIdentityStoreNamespace(config: Record<string, unknown>): string {
   const explicit =
     toOptionalTrimmedString(config.IDENTITY_PREFIX) ||
     toOptionalTrimmedString(config.IDENTITY_MAP_PREFIX);
@@ -94,6 +98,120 @@ function toIdentityPrefix(config: Record<string, unknown>): string {
   const base = toOptionalTrimmedString(config.THRESHOLD_PREFIX) || THRESHOLD_PREFIX_DEFAULT;
   const baseWithColon = toPrefixWithColon(base, `${THRESHOLD_PREFIX_DEFAULT}:`);
   return `${baseWithColon}identity:`;
+}
+
+export async function linkIdentitySubjectToUserIdWithExecutor(input: {
+  executor: PgQueryExecutor;
+  namespace: string;
+  userId: string;
+  subject: string;
+  allowMoveIfSoleIdentity?: boolean;
+}): Promise<LinkIdentityResult> {
+  const userId = toOptionalTrimmedString(input.userId);
+  const subject = toOptionalTrimmedString(input.subject);
+  if (!userId) return { ok: false, code: 'invalid_args', message: 'Missing userId' };
+  if (!subject) return { ok: false, code: 'invalid_args', message: 'Missing subject' };
+  const namespace = toOptionalTrimmedString(input.namespace);
+  if (!namespace) return { ok: false, code: 'invalid_args', message: 'Missing namespace' };
+
+  const now = Date.now();
+  try {
+    const existing = await input.executor.query(
+      'SELECT user_id, created_at_ms FROM identity_links WHERE namespace = $1 AND subject = $2 LIMIT 1',
+      [namespace, subject],
+    );
+    const existingUserId = toOptionalTrimmedString(existing.rows[0]?.user_id);
+    const createdAtMsExisting =
+      typeof existing.rows[0]?.created_at_ms === 'number'
+        ? existing.rows[0].created_at_ms
+        : Number(existing.rows[0]?.created_at_ms);
+
+    if (existingUserId && existingUserId !== userId) {
+      if (!input.allowMoveIfSoleIdentity) {
+        return {
+          ok: false,
+          code: 'already_linked',
+          message: 'Subject is already linked to a different user',
+        };
+      }
+
+      const count = await input.executor.query(
+        'SELECT COUNT(*)::bigint AS c FROM identity_links WHERE namespace = $1 AND user_id = $2',
+        [namespace, existingUserId],
+      );
+      const cRaw = count.rows[0]?.c;
+      const c = typeof cRaw === 'number' ? cRaw : Number(cRaw);
+      if (!Number.isFinite(c) || c !== 1) {
+        return {
+          ok: false,
+          code: 'already_linked',
+          message:
+            'Subject is linked to a different user with other identities; merge is not allowed',
+        };
+      }
+
+      await input.executor.query(
+        `
+          UPDATE identity_links
+          SET user_id = $3, record_json = $4::jsonb, updated_at_ms = $5
+          WHERE namespace = $1 AND subject = $2
+        `,
+        [
+          namespace,
+          subject,
+          userId,
+          JSON.stringify({
+            version: 'identity_subject_v1',
+            subject,
+            userId,
+            createdAtMs:
+              Number.isFinite(createdAtMsExisting) && createdAtMsExisting > 0
+                ? Math.floor(createdAtMsExisting)
+                : now,
+            updatedAtMs: now,
+          } satisfies IdentitySubjectRecord),
+          now,
+        ],
+      );
+
+      return { ok: true, movedFromUserId: existingUserId };
+    }
+
+    await input.executor.query(
+      `
+        INSERT INTO identity_links (namespace, subject, user_id, record_json, created_at_ms, updated_at_ms)
+        VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+        ON CONFLICT (namespace, subject)
+        DO UPDATE SET user_id = EXCLUDED.user_id, record_json = EXCLUDED.record_json, updated_at_ms = EXCLUDED.updated_at_ms
+      `,
+      [
+        namespace,
+        subject,
+        userId,
+        JSON.stringify({
+          version: 'identity_subject_v1',
+          subject,
+          userId,
+          createdAtMs:
+            Number.isFinite(createdAtMsExisting) && createdAtMsExisting > 0
+              ? Math.floor(createdAtMsExisting)
+              : now,
+          updatedAtMs: now,
+        } satisfies IdentitySubjectRecord),
+        Number.isFinite(createdAtMsExisting) && createdAtMsExisting > 0
+          ? Math.floor(createdAtMsExisting)
+          : now,
+        now,
+      ],
+    );
+    return { ok: true };
+  } catch (e: unknown) {
+    return {
+      ok: false,
+      code: 'internal',
+      message: e instanceof Error ? e.message : 'Failed to link identity',
+    };
+  }
 }
 
 function generateAppSessionVersion(): string {
@@ -1094,7 +1212,7 @@ export function createIdentityStore(input: {
   isNode: boolean;
 }): IdentityStore {
   const config = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
-  const prefix = toIdentityPrefix(config);
+  const prefix = resolveIdentityStoreNamespace(config);
 
   const kind = toOptionalTrimmedString(config.kind);
   if (kind === 'cloudflare-do') {

@@ -144,6 +144,14 @@ export type WalletRegistrationFinalizeResponse = {
   ecdsa?: {
     walletKeys: WalletRegistrationEcdsaWalletKey[];
   };
+} | {
+  ok: true;
+  kind: 'already_finalized_restore_required';
+  walletId: WalletId;
+  rpId: string;
+  reason: 'replay_without_session_material';
+  ed25519?: never;
+  ecdsa?: never;
 };
 
 export type WalletRegistrationEmailOtpEnrollmentMaterial = {

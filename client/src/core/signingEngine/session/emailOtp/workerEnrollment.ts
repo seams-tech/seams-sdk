@@ -18,6 +18,7 @@ import {
   type EmailOtpRouteFamily,
 } from '@/core/signingEngine/stepUpConfirmation/otpPrompt/authLane';
 import type { EmailOtpEnrollmentResult } from './publicTypes';
+import type { EmailOtpRecoveryCodeRotationMaterial } from './publicTypes';
 
 type JsonObject = Record<string, unknown>;
 
@@ -241,4 +242,29 @@ export async function prepareEmailOtpRegistrationEnrollmentMaterial(args: {
   } finally {
     zeroizeBytes(workerClientSecret32);
   }
+}
+
+export async function rotateEmailOtpRecoveryCodesWithWorker(args: {
+  relayUrl: string;
+  walletId: string;
+  userId?: string;
+  workerCtx: WorkerOperationContext;
+  appSessionJwt?: string;
+}): Promise<EmailOtpRecoveryCodeRotationMaterial> {
+  const workerCtx = requireWorkerCtx(args.workerCtx);
+  return await workerCtx.requestWorkerOperation({
+    kind: 'emailOtp',
+    request: {
+      type: 'rotateEmailOtpRecoveryCodes',
+      payload: {
+        relayUrl: readString(args.relayUrl, 'relayUrl'),
+        walletId: readString(args.walletId, 'walletId'),
+        ...(readOptionalString(args.userId) ? { userId: readOptionalString(args.userId) } : {}),
+        routePlan: buildWorkerEmailOtpRoutePlan({
+          routeFamily: 'login',
+          appSessionJwt: args.appSessionJwt,
+        }),
+      },
+    },
+  });
 }

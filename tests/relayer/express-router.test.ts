@@ -25,6 +25,7 @@ import {
   fetchJson,
   getPath,
   makeFakeAuthService,
+  makeGoogleEmailOtpRegistrationOffer,
   makeSessionAdapter,
   startExpressRouter,
 } from './helpers';
@@ -1801,6 +1802,9 @@ test.describe('relayer router (express) – P0', () => {
         email: 'scoped@example.com',
         registrationAttemptId: 'attempt-google-scoped',
         expiresAtMs: 1_893_456_000_000,
+        offer: makeGoogleEmailOtpRegistrationOffer({
+          walletId: 'scoped-example-com-1712345678901.testnet',
+        }),
       }),
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),
       createEmailOtpChallenge: async () => {
@@ -1955,6 +1959,7 @@ test.describe('relayer router (express) – P0', () => {
           walletId: 'login-send.relayer.testnet',
           providerSubject: 'google:user-login-send',
           email: 'login-send@example.com',
+          hasEmailOtpEnrollment: true,
         };
       },
       getOrCreateAppSessionVersion: async () => ({ ok: true, appSessionVersion: 'app-v1' }),

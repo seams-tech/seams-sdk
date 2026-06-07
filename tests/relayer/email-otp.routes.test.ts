@@ -13,6 +13,7 @@ import {
   callCf,
   fetchJson,
   makeCfCtx,
+  makeEmailOtpRecoveryRotationEscrowInputs,
   makeEmailOtpRecoveryWrappedEnrollmentEscrows,
   makeSessionAdapter,
   startExpressRouter,
@@ -704,13 +705,19 @@ test.describe('Email OTP routes', () => {
       const records = recovered.json?.recoveryWrappedEnrollmentEscrows;
       expect(Array.isArray(records) && records.length).toBe(10);
       expect(JSON.stringify(records)).not.toContain('encSB64u');
+      expect(JSON.stringify(records)).not.toContain('recoveryKeyId');
+      expect(JSON.stringify(records)).not.toContain('recoveryKeyStatus');
       expect(records?.[0]).toMatchObject({
         version: 'email_otp_recovery_wrapped_enrollment_escrow_v1',
         walletId: 'alice.testnet',
-        recoveryKeyStatus: 'active',
       });
       expect(typeof records?.[0]?.nonceB64u).toBe('string');
       expect(typeof records?.[0]?.wrappedDeviceEnrollmentEscrowB64u).toBe('string');
+      const activeRecords = await (
+        service as any
+      ).getEmailOtpRecoveryWrappedEnrollmentEscrowStore().listActiveByWallet('alice.testnet');
+      const recoveryKeyId = activeRecords[0]?.recoveryKeyId;
+      expect(typeof recoveryKeyId).toBe('string');
       const rejectedFailureReport = await fetchJson(
         `${srv.baseUrl}/wallet/email-otp/recovery-key/attempt-failed`,
         {
@@ -748,7 +755,7 @@ test.describe('Email OTP routes', () => {
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
           walletId: 'alice.testnet',
-          recoveryKeyId: records?.[0]?.recoveryKeyId,
+          recoveryKeyId,
           recoveryConsumeGrant: recovered.json?.recoveryConsumeGrant,
         }),
       });
@@ -756,15 +763,55 @@ test.describe('Email OTP routes', () => {
       expect(consume.json).toMatchObject({
         ok: true,
         walletId: 'alice.testnet',
-        recoveryKeyId: records?.[0]?.recoveryKeyId,
+        recoveryKeyId,
         activeRecoveryWrappedEnrollmentEscrowCount: 9,
+      });
+      const rotate = await fetchJson(`${srv.baseUrl}/wallet/email-otp/recovery-key/rotate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+        body: JSON.stringify({
+          walletId: 'alice.testnet',
+          enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:alice.testnet',
+          enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+          recoveryWrappedEnrollmentEscrows: makeEmailOtpRecoveryRotationEscrowInputs({
+            walletId: 'alice.testnet',
+            userId: 'alice.testnet',
+            enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+          }),
+        }),
+      });
+      expect(rotate.status).toBe(200);
+      expect(rotate.json).toMatchObject({
+        ok: true,
+        walletId: 'alice.testnet',
+        activeRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
+        revokedRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT - 1,
+        totalRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT * 2,
+      });
+      const rotatedStatus = await fetchJson(
+        `${srv.baseUrl}/wallet/email-otp/recovery-key/status`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
+          body: JSON.stringify({
+            walletId: 'alice.testnet',
+          }),
+        },
+      );
+      expect(rotatedStatus.status).toBe(200);
+      expect(rotatedStatus.json).toMatchObject({
+        status: 'ready',
+        activeRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
+        consumedRecoveryCodeCount: 1,
+        revokedRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT - 1,
+        totalRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT * 2,
       });
       const consumeAgain = await fetchJson(`${srv.baseUrl}/wallet/email-otp/recovery-key/consume`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer app-session' },
         body: JSON.stringify({
           walletId: 'alice.testnet',
-          recoveryKeyId: records?.[0]?.recoveryKeyId,
+          recoveryKeyId,
           recoveryConsumeGrant: recovered.json?.recoveryConsumeGrant,
         }),
       });
@@ -822,19 +869,65 @@ test.describe('Email OTP routes', () => {
     const records = recovered.json?.recoveryWrappedEnrollmentEscrows;
     expect(Array.isArray(records) && records.length).toBe(10);
     expect(JSON.stringify(records)).not.toContain('encSB64u');
+    expect(JSON.stringify(records)).not.toContain('recoveryKeyId');
+    const activeRecords = await (service as any)
+      .getEmailOtpRecoveryWrappedEnrollmentEscrowStore()
+      .listActiveByWallet('alice.testnet');
+    const recoveryKeyId = activeRecords[0]?.recoveryKeyId;
+    expect(typeof recoveryKeyId).toBe('string');
     const consume = await callCf(handler, {
       method: 'POST',
       path: '/wallet/email-otp/recovery-key/consume',
       headers: { Authorization: 'Bearer app-session' },
       body: {
         walletId: 'alice.testnet',
-        recoveryKeyId: records?.[0]?.recoveryKeyId,
+        recoveryKeyId,
         recoveryConsumeGrant: recovered.json?.recoveryConsumeGrant,
       },
       ctx: cf.ctx,
     });
     expect(consume.status).toBe(200);
     expect(consume.json?.activeRecoveryWrappedEnrollmentEscrowCount).toBe(9);
+    const rotate = await callCf(handler, {
+      method: 'POST',
+      path: '/wallet/email-otp/recovery-key/rotate',
+      headers: { Authorization: 'Bearer app-session' },
+      body: {
+        walletId: 'alice.testnet',
+        enrollmentId: 'email-otp-device-enrollment-v1:alice.testnet:alice.testnet',
+        enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+        recoveryWrappedEnrollmentEscrows: makeEmailOtpRecoveryRotationEscrowInputs({
+          walletId: 'alice.testnet',
+          userId: 'alice.testnet',
+          enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+        }),
+      },
+      ctx: cf.ctx,
+    });
+    expect(rotate.status).toBe(200);
+    expect(rotate.json).toMatchObject({
+      ok: true,
+      activeRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
+      revokedRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT - 1,
+      totalRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT * 2,
+    });
+    const rotatedStatus = await callCf(handler, {
+      method: 'POST',
+      path: '/wallet/email-otp/recovery-key/status',
+      headers: { Authorization: 'Bearer app-session' },
+      body: {
+        walletId: 'alice.testnet',
+      },
+      ctx: cf.ctx,
+    });
+    expect(rotatedStatus.status).toBe(200);
+    expect(rotatedStatus.json).toMatchObject({
+      status: 'ready',
+      activeRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
+      consumedRecoveryCodeCount: 1,
+      revokedRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT - 1,
+      totalRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT * 2,
+    });
   });
 
   test('Express: export_key Email OTP challenge and verify use route policy and emit export audit events', async () => {

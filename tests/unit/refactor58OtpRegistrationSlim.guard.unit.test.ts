@@ -41,6 +41,20 @@ test.describe('refactor 58 OTP registration slim guards', () => {
     expect(registrationFlow).not.toMatch(/\bchallengeId\b/);
   });
 
+  test('direct Google SSO Email OTP registration backup does not manufacture a challenge id', () => {
+    const source = readRepoSource('client/src/SeamsWeb/operations/registration/registration.ts');
+    const start = source.indexOf('function googleEmailOtpRegistrationMaterialToBackupEnrollment');
+    const end = source.indexOf('async function resolveEmailOtpRegistrationEnrollmentMaterial', start);
+    if (start < 0 || end < start) {
+      throw new Error('Missing Google Email OTP registration backup material adapter');
+    }
+    const backupMaterialAdapter = source.slice(start, end);
+
+    expect(backupMaterialAdapter).toMatch(/\bregistrationAuthorityId:\s*input\.registrationAuthorityId\b/);
+    expect(backupMaterialAdapter).not.toMatch(/\bchallengeId\b/);
+    expect(source).not.toMatch(/\bchallengeId:\s*input\.registrationAuthorityId\b/);
+  });
+
   test('Google SSO Email OTP registration reroll stays local to the active offer', () => {
     const source = readRepoSource(
       'client/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
@@ -77,6 +91,45 @@ test.describe('refactor 58 OTP registration slim guards', () => {
     for (const relativePath of checkedPaths) {
       expect(readRepoSource(relativePath), relativePath).not.toMatch(LEGACY_REROLL_FIELD);
     }
+  });
+
+  test('non-Postgres Google SSO Email OTP registration activates identity before wallet visibility', () => {
+    const source = readRepoSource('server/src/core/AuthService.ts');
+    const consumeStart = source.indexOf('private async consumeRegistrationCeremonyAndPersist');
+    const consumeEnd = source.indexOf('const pool = await getPostgresPool', consumeStart);
+    if (consumeStart < 0 || consumeEnd < consumeStart) {
+      throw new Error('Missing non-Postgres registration ceremony persistence block');
+    }
+    const genericStorePath = source.slice(consumeStart, consumeEnd);
+
+    const preflightIndex = genericStorePath.indexOf(
+      'preflightGoogleEmailOtpRegistrationActivationForStores',
+    );
+    const activationIndex = genericStorePath.indexOf(
+      'persistGoogleEmailOtpRegistrationActivationToStores',
+    );
+    const persistenceIndex = genericStorePath.indexOf('writeRegistrationPersistenceToStores({');
+    expect(preflightIndex).toBeGreaterThan(-1);
+    expect(activationIndex).toBeGreaterThan(preflightIndex);
+    expect(persistenceIndex).toBeGreaterThan(activationIndex);
+    expect(genericStorePath).toContain('walletSubjectLast: !!input.googleEmailOtpActivation');
+  });
+
+  test('generic Google SSO Email OTP registration persistence writes wallet subject last', () => {
+    const source = readRepoSource('server/src/core/AuthService.ts');
+    const writeStart = source.indexOf('private async writeRegistrationPersistenceToStores');
+    const writeEnd = source.indexOf('private async writeAddAuthMethodPersistenceToStores', writeStart);
+    if (writeStart < 0 || writeEnd < writeStart) {
+      throw new Error('Missing generic registration persistence writer');
+    }
+    const writer = source.slice(writeStart, writeEnd);
+
+    const earlyWalletWriteIndex = writer.indexOf('if (!input.walletSubjectLast)');
+    const emailOtpEnrollmentIndex = writer.indexOf('if (records.emailOtpEnrollment)');
+    const lateWalletWriteIndex = writer.lastIndexOf('if (input.walletSubjectLast)');
+    expect(earlyWalletWriteIndex).toBeGreaterThan(-1);
+    expect(emailOtpEnrollmentIndex).toBeGreaterThan(earlyWalletWriteIndex);
+    expect(lateWalletWriteIndex).toBeGreaterThan(emailOtpEnrollmentIndex);
   });
 
   test('OTP-only registration offer parser rejects mixed protocol fields', () => {

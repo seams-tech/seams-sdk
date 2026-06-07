@@ -134,6 +134,7 @@ import type {
   EmailOtpEcdsaEnrollmentCapabilityResult,
   EmailOtpBackedUpEnrollmentResult,
   EmailOtpEnrollmentResult,
+  EmailOtpRecoveryCodeRotationResult,
   EmailOtpRecoveryCodeStatus,
   GoogleEmailOtpSessionExchangeResult,
   GoogleEmailOtpWalletAuthFlow,
@@ -1360,10 +1361,34 @@ export class WalletIframeRouter {
     walletId: string;
     relayUrl?: string;
     appSessionJwt?: string;
-  }): Promise<EmailOtpRecoveryCodeStatus> {
-    const res = await this.post<EmailOtpRecoveryCodeStatus>(
+  }): Promise<{
+    status: EmailOtpRecoveryCodeStatus;
+    displayedStoredCodes: boolean;
+  }> {
+    const res = await this.post<{
+      status: EmailOtpRecoveryCodeStatus;
+      displayedStoredCodes: boolean;
+    }>(
       {
         type: 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES',
+        payload,
+      },
+      {
+        timeoutMs: WALLET_IFRAME_EMAIL_OTP_BACKUP_TIMEOUT_MS,
+        progressTimeoutExtensionFactor: 1,
+      },
+    );
+    return res.result;
+  }
+
+  async rotateEmailOtpRecoveryCodes(payload: {
+    walletId: string;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }): Promise<EmailOtpRecoveryCodeRotationResult> {
+    const res = await this.post<EmailOtpRecoveryCodeRotationResult>(
+      {
+        type: 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES',
         payload,
       },
       {
@@ -2258,6 +2283,7 @@ export class WalletIframeRouter {
       case 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION':
       case 'PM_LINK_DEVICE_WITH_SCANNED_QR_DATA':
       case 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES':
+      case 'PM_ROTATE_EMAIL_OTP_RECOVERY_CODES':
         return { mode: 'fullscreen' };
 
       // All other operations (background/read-only) don't need overlay

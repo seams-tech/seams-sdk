@@ -129,6 +129,38 @@ test.describe('Email OTP signing-session device escrow guard', () => {
     expect(restoreSlice).not.toContain('loginGrant');
   });
 
+  test('Email OTP worker derives recovery key ids consistently for enrollment, recovery, and rotation', () => {
+    const workerSource = readFileSync(
+      join(REPO_ROOT, 'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
+      'utf8',
+    );
+    const wrapSlice = workerSource.slice(
+      workerSource.indexOf('async function createEmailOtpRecoveryWrappedEnrollmentEscrows'),
+      workerSource.indexOf('async function parseEmailOtpRecoveryWrappedEnrollmentEscrowPayload'),
+    );
+    const parseSlice = workerSource.slice(
+      workerSource.indexOf('async function parseEmailOtpRecoveryWrappedEnrollmentEscrowPayload'),
+      workerSource.indexOf('async function reportEmailOtpRecoveryKeyAttemptFailure'),
+    );
+    const restoreSlice = workerSource.slice(
+      workerSource.indexOf('async function restoreEmailOtpDeviceEnrollmentEscrowFromRecoveryKey'),
+      workerSource.indexOf('async function rotateEmailOtpRecoveryCodesFromLocalDeviceEnrollment'),
+    );
+    const rotateSlice = workerSource.slice(
+      workerSource.indexOf('async function rotateEmailOtpRecoveryCodesFromLocalDeviceEnrollment'),
+      workerSource.indexOf('async function removeEmailOtpDeviceEnrollmentEscrowFromDevice'),
+    );
+
+    expect(wrapSlice).toContain('deriveEmailOtpRecoveryKeyId({');
+    expect(wrapSlice).toContain('recoveryKey: recoveryKeys[index]');
+    expect(parseSlice).toContain('deriveEmailOtpRecoveryKeyId({');
+    expect(parseSlice).toContain('recoveryKey,');
+    expect(restoreSlice).toContain('parseEmailOtpRecoveryWrappedEnrollmentEscrowPayload(');
+    expect(restoreSlice).toContain('rawRecord,');
+    expect(restoreSlice).toContain('recoveryKey,');
+    expect(rotateSlice).toContain('createEmailOtpRecoveryWrappedEnrollmentEscrows({');
+  });
+
   test('Email OTP worker zeroizes unwrapped enc_s(S) byte buffers', () => {
     const workerSource = readFileSync(
       join(REPO_ROOT, 'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
@@ -149,7 +181,7 @@ test.describe('Email OTP signing-session device escrow guard', () => {
     expect(restoreSlice).toContain('zeroizeBytes(encS)');
   });
 
-  test('logout lock path does not delete device-local Email OTP enc_s(S)', () => {
+  test('logout lock path does not delete device-local Email OTP recovery material', () => {
     const loginSource = readFileSync(
       join(REPO_ROOT, 'client/src/SeamsWeb/operations/auth/login.ts'),
       'utf8',
@@ -166,6 +198,7 @@ test.describe('Email OTP signing-session device escrow guard', () => {
     expect(lockSlice).toContain('clearLastProfileSelection');
     expect(lockSlice).not.toContain('deleteEmailOtpDeviceEnrollmentEscrowRecord');
     expect(lockSlice).not.toContain('clearAllEmailOtpDeviceEnrollmentEscrowRecords');
+    expect(lockSlice).not.toContain('emailOtpRecoveryCodeBackupRepository');
     expect(workerSource).toContain("case 'removeEmailOtpDeviceEnrollmentEscrowFromDevice'");
     expect(workerSource).toContain('deleteEmailOtpDeviceEnrollmentEscrowRecord');
   });

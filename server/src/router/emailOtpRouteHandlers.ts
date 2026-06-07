@@ -613,6 +613,28 @@ export async function handleEmailOtpRecoveryKeyConsumeRoute(input: {
   });
   if (!walletValidation.ok) return { status: walletValidation.status, body: walletValidation.body };
 
+  for (const field of [
+    'recoveryKey',
+    'recoveryKeys',
+    'recoveryKeyB64u',
+    'recoveryKek',
+    'encS',
+    'encSB64u',
+    'S',
+    'emailOtpSecretS',
+  ]) {
+    if (Object.prototype.hasOwnProperty.call(body, field)) {
+      return {
+        status: 400,
+        body: {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Recovery-key consume requests must not include recovery-key material',
+        },
+      };
+    }
+  }
+
   const recoveryKeyIdValidation = validateEmailOtpRequiredString(body, 'recoveryKeyId');
   if (!recoveryKeyIdValidation.ok) {
     return { status: recoveryKeyIdValidation.status, body: recoveryKeyIdValidation.body };
@@ -670,6 +692,58 @@ export async function handleEmailOtpRecoveryKeyStatusRoute(input: {
     userId: providerUser.providerUserId,
     walletId: walletValidation.walletId,
     orgId: readEmailOtpOrgIdFromClaims(input.claims),
+  });
+  return { status: emailOtpResultStatus(result), body: result };
+}
+
+export async function handleEmailOtpRecoveryKeyRotateRoute(input: {
+  body: unknown;
+  claims: Record<string, unknown>;
+  userId: string;
+  appSessionVersion: string;
+  clientIp?: string;
+  service: AuthService;
+}): Promise<EmailOtpRouteResponse> {
+  const bodyValidation = validateEmailOtpJsonObjectBody(input.body);
+  if (!bodyValidation.ok) return { status: bodyValidation.status, body: bodyValidation.body };
+
+  const body = bodyValidation.body;
+  for (const field of [
+    'recoveryKey',
+    'recoveryKeys',
+    'recoveryKeyB64u',
+    'recoveryKek',
+    'encS',
+    'encSB64u',
+    'S',
+    'emailOtpSecretS',
+  ]) {
+    if (Object.prototype.hasOwnProperty.call(body, field)) {
+      return {
+        status: 400,
+        body: {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Recovery-code rotation requests must not include recovery-code material',
+        },
+      };
+    }
+  }
+
+  const walletValidation = validateEmailOtpWalletId({
+    body,
+    claims: input.claims,
+    userId: input.userId,
+  });
+  if (!walletValidation.ok) return { status: walletValidation.status, body: walletValidation.body };
+
+  const result = await input.service.rotateEmailOtpRecoveryKeys({
+    userId: input.userId,
+    walletId: walletValidation.walletId,
+    orgId: readEmailOtpOrgIdFromClaims(input.claims),
+    enrollmentId: body.enrollmentId,
+    enrollmentSealKeyVersion: body.enrollmentSealKeyVersion,
+    recoveryWrappedEnrollmentEscrows: body.recoveryWrappedEnrollmentEscrows,
   });
   return { status: emailOtpResultStatus(result), body: result };
 }

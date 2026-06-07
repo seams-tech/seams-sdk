@@ -696,6 +696,223 @@ Validation:
 - Type fixture rejecting mixed OTP/passkey registration payloads.
 - `pnpm -C sdk exec tsc -p tsconfig.build.json --noEmit`
 
+## Phase 8: Slim Registration Correctness Hardening
+
+Goal: close the correctness gaps found after the slim registration
+implementation. These fixes should preserve the two-backend-phase registration
+shape while making activation atomic, retries explicit, offer expiry fail
+closed, and Email OTP registration types unambiguous.
+
+This phase should avoid broad new facades. Put validation at route and store
+boundaries, keep core functions on narrow domain states, and delete stale
+fixtures that encode the old OTP-challenge registration behavior.
+
+### Atomic Activation
+
+Spec:
+
+- Wallet creation, Email OTP enrollment persistence, recovery-code backup ACK
+  activation, stale pending cleanup, Google identity-link creation, registration
+  attempt activation, and ceremony consume must be one service-owned commit
+  boundary.
+- In Postgres-backed deployments, the above writes must happen inside the same
+  transaction as ceremony consume.
+- Non-Postgres stores may remain best-effort, but the service API must expose a
+  single persistence boundary and run conflict checks before making the wallet
+  visible.
+- A failure to link `wallet:${providerSubject}` or activate the Google
+  registration attempt must not leave a visible active wallet without the
+  matching Google Email OTP identity state.
+
+Tasks:
+
+- [x] Move Google Email OTP registration authority completion into
+      `consumeRegistrationCeremonyAndPersist(...)` or an equivalent single
+      persistence boundary.
+- [x] Add executor-backed Postgres helpers for identity-link creation and
+      Google registration-attempt activation, then call them in the same
+      transaction as wallet/enrollment persistence.
+- [x] Keep generic store behavior behind the same service method and reorder
+      conflict-prone checks before wallet/enrollment writes where transactional
+      rollback is unavailable.
+- [x] Remove the post-persist `completeGoogleEmailOtpRegistrationAuthority(...)`
+      calls from each finalize branch.
+- [x] Add service coverage where identity-link creation fails and assert the
+      wallet/enrollment is not visible in the transactional path.
+- [x] Fixed non-Postgres activation ordering: generic-store registration now
+      preflights Google identity-link conflicts, activates the Google identity
+      link and registration attempt before publishing registration persistence,
+      and writes the wallet subject last for Google Email OTP activation. This
+      was a real consistency/security issue because a non-Postgres store failure
+      could previously leave a visible wallet without the matching Google
+      identity-link or active registration attempt.
+- [x] Added a focused Refactor 58 source guard proving the non-Postgres path
+      activates Google Email OTP registration before generic persistence and
+      keeps wallet subject visibility as the final generic-store write.
+
+### Finalize Retry Semantics
+
+Spec:
+
+- Idempotency replay must not return a generic successful registration result
+  when the replay response lacks the session material needed by the SDK to
+  finish local login/session setup.
+- Server replay responses must be typed as either a full first-time finalize
+  success or an already-finalized state that requires session restoration.
+- Client code must handle already-finalized replay as a recoverable state,
+  routing through the existing login/session restore path or returning a typed
+  recoverable result to React.
+- Session JWT or other secret session material must not be stored in long-lived
+  replay records.
+
+Tasks:
+
+- [x] Replace stripped success replay with an explicit
+      `already_finalized_restore_required` finalize result for Google Email OTP
+      registration replay when session material cannot be replayed.
+- [x] Update direct SDK and wallet-iframe registration handling so replay after
+      a lost response recovers through session restore or reports the typed
+      recoverable state.
+- [x] Add direct-flow coverage for lost-response retry after server finalize.
+- [x] Add a route/service test proving replay records do not retain session
+      secrets.
+      - Added service coverage to the Google Email OTP finalize idempotency path:
+        the cached replay record is inspected through the registration ceremony
+        store and asserted to exclude app-session JWTs, session objects, and
+        wallet signing session identifiers.
+
+### Offer Expiry And Scope
+
+Spec:
+
+- Registration offers require a valid server-provided expiry. The SDK must fail
+  closed when the expiry is missing, malformed, or already expired.
+- Expired or invalid offers must clear prewarmed Email OTP enrollment material
+  and recovery-code references.
+- Pending offer reuse must be scoped to the intended registration boundary:
+  provider subject, verified email, org id, app session version, and runtime
+  policy scope.
+- Cross-session or cross-scope stale cleanup must be explicit, with a lifecycle
+  state such as `abandoned` and a clear failure code.
+
+Tasks:
+
+- [x] Replace the local TTL fallback for registration offers with strict parsing
+      of the server expiry.
+- [x] Normalize route responses to one canonical expiry field before SDK
+      parsing, preferably `expiresAtMs`.
+- [x] Clear prewarmed material immediately when a registration offer parses as
+      expired or invalid.
+- [x] Scope `findStartedGoogleEmailOtpRegistrationAttempt(...)` by org id, app
+      session version, and runtime policy scope, or update the spec if global
+      one-pending-offer-per-Google-identity behavior is deliberately chosen.
+- [x] Add tests for missing expiry, malformed expiry, expired offer cleanup, and
+      cross-session offer isolation or explicit abandonment.
+      - Added SDK coverage for missing expiry, malformed expiry, expired-flow
+        prewarmed material disposal, and reroll disposal of stale prewarmed
+        recovery-code material.
+      - Cross-session isolation already has AuthService coverage in
+        `oidc-exchange.authservice.test.ts`: starting a second Google Email OTP
+        registration for the same identity abandons the first attempt and the
+        old authority verifies as `registration_attempt_not_started`.
+
+### Domain Naming And Invalid States
+
+Spec:
+
+- `challengeId` must mean an actual Email OTP challenge id.
+- Slim Google SSO registration must use a registration authority id, attempt id,
+  or enrollment authority id for its authority binding.
+- Google SSO registration finalize payloads must reject OTP challenge ids, OTP
+  codes, resend metadata, passkey fields, and WebAuthn fields at the route
+  boundary.
+- Type fixtures must make mixed OTP challenge registration and Google SSO
+  registration finalize states unrepresentable.
+
+Tasks:
+
+- [x] Split Email OTP backed-up enrollment types into challenge-backed and
+      Google SSO registration-backed variants.
+- [x] Rename the slim registration field from `challengeId` to
+      `registrationAuthorityId` or `enrollmentAuthorityId`.
+- [x] Update `parseGoogleEmailOtpRegistrationFinalizeInput(...)` and route
+      parsing to reject challenge fields except at compatibility/request
+      boundaries that immediately normalize to the new type.
+- [x] Delete or update fixtures that use `challengeId` as a generic authority id.
+      Remaining `challengeId` fixture hits are actual OTP challenge proofs,
+      login challenges, or route-boundary rejection cases.
+- [x] Add type fixtures proving Google SSO registration enrollment cannot be
+      constructed with `challengeId`, `otpCode`, passkey, or WebAuthn fields.
+- [x] Add route parser tests proving slim Google SSO registration finalize
+      rejects OTP challenge fields before service execution.
+- [x] Fixed direct SDK backup material construction so Google SSO registration
+      carries `registrationAuthorityId` and rejects `challengeId` at the type
+      boundary with `challengeId?: never`. This was a real design bug because
+      `challengeId` must represent an actual Email OTP challenge, and using a
+      registration authority id in that field made future challenge-backed
+      control flow ambiguous.
+- [x] Added a focused Refactor 58 source guard proving direct Google SSO Email
+      OTP registration backup does not manufacture `challengeId` from
+      `registrationAuthorityId`.
+
+### Local Material Disposal
+
+Spec:
+
+- Prewarmed Email OTP registration material must have one producer-owned
+  disposer that clears all SDK-held references to recovery codes, wrapped
+  enrollment escrows, client handles, and other retained registration material.
+- The disposer must be invoked on cancel, iframe close, offer expiry, candidate
+  replacement, failed finalize, successful finalize, and already-finalized
+  replay recovery.
+- The code should state that JavaScript string contents cannot be reliably
+  zeroized; this cleanup drops SDK references and clears mutable containers.
+
+Tasks:
+
+- [x] Move disposal logic next to the Email OTP material producer and expose a
+      domain-specific disposer instead of casting branded recovery-code tuples
+      to `string[]`.
+- [x] Make the prewarmed-material holder transition to a disposed state so
+      disposed material cannot be reused.
+- [x] Call the disposer on every cancellation, expiry, candidate replacement,
+      failed finalize, successful finalize, and replay-recovery path.
+- [x] Add focused tests proving disposed prewarmed material cannot be read or
+      reused after cleanup.
+- [x] Fixed wallet-iframe expired handle cleanup so `takeFlow(...)` invokes the
+      flow-owned `cancel()` disposer before rejecting an expired handle. This was
+      a real lifecycle leak because the handle was burned while registration
+      prewarm disposal was skipped.
+- [x] Added wallet-iframe handle coverage proving an expired registration
+      handle calls `flow.cancel()`.
+
+Acceptance:
+
+- A Google SSO Email OTP registration cannot create a visible wallet unless the
+  Google identity link and registration attempt activation succeed in the same
+  persistence boundary.
+- Retry after a lost finalize response produces either full session-restorable
+  success or a typed recoverable state, never a stripped generic success that
+  later fails an SDK login assertion.
+- Registration offers fail closed on missing, malformed, expired, or
+  cross-scope expiry/attempt data.
+- `challengeId` is used only for real OTP challenges.
+- Local prewarmed registration material is disposed on every terminal or
+  replacement path.
+- No passkey/WebAuthn or OTP challenge fields are accepted in slim Google SSO
+  registration finalize payloads.
+
+Validation:
+
+- Focused AuthService transactional registration tests for Google Email OTP
+  identity-link failure and one-time activation.
+- Focused direct-flow test for lost-response finalize replay.
+- Direct/iframe tests for offer expiry cleanup and prewarmed-material disposal.
+- Route parser tests for forbidden challenge/passkey/WebAuthn fields.
+- Type fixtures for Google SSO registration enrollment invalid states.
+- `pnpm -C sdk exec tsc -p tsconfig.build.json --noEmit`
+- `git diff --check`
+
 ## Validation
 
 - `tests/unit/googleEmailOtpWalletAuthFlow.unit.test.ts`

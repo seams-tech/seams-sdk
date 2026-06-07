@@ -218,6 +218,40 @@ const EMAIL_OTP_BACKUP_ACK_FORBIDDEN_FIELDS = [
   'clientSecret32',
 ] as const;
 
+const WALLET_REGISTRATION_FINALIZE_FORBIDDEN_FIELDS = [
+  'delivery',
+  'challengeId',
+  'otpCode',
+  'resend',
+  'walletId',
+  'webauthn',
+  'webauthnRegistration',
+  'webauthn_registration',
+  'authenticatorOptions',
+  'publicKey',
+  'passkey',
+  'passkeyPrfFirstB64u',
+] as const;
+
+const EMAIL_OTP_ENROLLMENT_ALLOWED_FIELDS = [
+  'recoveryWrappedEnrollmentEscrows',
+  'enrollmentSealKeyVersion',
+  'clientUnlockPublicKeyB64u',
+  'unlockKeyVersion',
+  'thresholdEcdsaClientVerifyingShareB64u',
+] as const;
+
+const EMAIL_OTP_ENROLLMENT_FORBIDDEN_FIELDS = [
+  ...WALLET_REGISTRATION_FINALIZE_FORBIDDEN_FIELDS,
+  'recoveryKeys',
+  'recoveryCodes',
+  'appSessionJwt',
+  'bootstrap',
+  'bootstrapMaterial',
+  'clientSecret32',
+  'registrationAuthorityId',
+] as const;
+
 const ECDSA_REGISTRATION_HSS_RESPOND_FORBIDDEN_FIELDS = [
   'clientRootProof',
   'passkeyBootstrapAuthorization',
@@ -1518,6 +1552,14 @@ function parseWalletRegistrationFinalizeRequest(
       message: 'registration finalize input is required',
     };
   }
+  const forbiddenTopLevelField = findOwnField(body, WALLET_REGISTRATION_FINALIZE_FORBIDDEN_FIELDS);
+  if (forbiddenTopLevelField) {
+    return {
+      ok: false,
+      code: 'invalid_body',
+      message: `${forbiddenTopLevelField} must not be included in wallet registration finalize`,
+    };
+  }
   const value: WalletRegistrationFinalizeRequest = {
     registrationCeremonyId: registrationCeremonyId.value,
   };
@@ -1615,6 +1657,22 @@ function parseWalletRegistrationFinalizeRequest(
         ok: false,
         code: 'invalid_body',
         message: 'emailOtpEnrollment finalize input is invalid',
+      };
+    }
+    const forbiddenEnrollmentField = findOwnField(enrollment, EMAIL_OTP_ENROLLMENT_FORBIDDEN_FIELDS);
+    if (forbiddenEnrollmentField) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: `emailOtpEnrollment.${forbiddenEnrollmentField} must not be included`,
+      };
+    }
+    const unknownEnrollmentField = findUnknownField(enrollment, EMAIL_OTP_ENROLLMENT_ALLOWED_FIELDS);
+    if (unknownEnrollmentField) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: `emailOtpEnrollment.${unknownEnrollmentField} is not supported`,
       };
     }
     if (!Array.isArray(enrollment.recoveryWrappedEnrollmentEscrows)) {

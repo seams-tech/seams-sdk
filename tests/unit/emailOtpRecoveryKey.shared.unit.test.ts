@@ -4,6 +4,7 @@ import {
   EMAIL_OTP_RECOVERY_KEY_BYTE_LENGTH,
   EMAIL_OTP_RECOVERY_KEY_CHAR_LENGTH,
   EMAIL_OTP_RECOVERY_KEY_COUNT,
+  EMAIL_OTP_RECOVERY_KEY_ID_CONTEXT,
   EMAIL_OTP_RECOVERY_KEY_GROUP_COUNT,
   EMAIL_OTP_RECOVERY_KEY_GROUP_LENGTH,
   EMAIL_OTP_RECOVERY_WRAP_ALG,
@@ -15,7 +16,9 @@ import {
   EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_SECRET_KIND,
   buildEmailOtpRecoveryWrapBinding,
   decodeEmailOtpRecoveryKey,
+  deriveEmailOtpRecoveryKeyId,
   deriveEmailOtpRecoveryKek32,
+  emailOtpRecoveryKeyIdFields,
   encodeEmailOtpRecoveryKeyBytes,
   encodeEmailOtpRecoveryKekInfo,
   encodeEmailOtpRecoveryWrappedEnrollmentAad,
@@ -65,6 +68,7 @@ test.describe('shared Email OTP recovery key specs', () => {
     expect(EMAIL_OTP_RECOVERY_WRAP_NONCE_LENGTH).toBe(12);
     expect(EMAIL_OTP_RECOVERY_WRAP_ALG).toBe('chacha20poly1305-hkdf-sha256-v1');
     expect(EMAIL_OTP_RECOVERY_WRAP_HKDF_SALT).toBe('seams/email-otp/recovery-wrap/v1');
+    expect(EMAIL_OTP_RECOVERY_KEY_ID_CONTEXT).toBe('seams/email-otp/recovery-key-id/v1');
     expect(EMAIL_OTP_RECOVERY_WRAPPED_ENROLLMENT_AAD_CONTEXT).toBe(
       'seams/email-otp/recovery-wrapped-enrollment/v1',
     );
@@ -155,6 +159,54 @@ test.describe('shared Email OTP recovery key specs', () => {
     expect(Array.from(await deriveEmailOtpRecoveryKek32({ recoveryKey, binding }))).toEqual(
       Array.from(expected),
     );
+  });
+
+  test('derives stable recovery-key ids from normalized code and enrollment binding', async () => {
+    const keyIdBinding = {
+      auth: binding.auth,
+      enrollment: binding.enrollment,
+      signingRoot: binding.signingRoot,
+    };
+    const keyId = await deriveEmailOtpRecoveryKeyId({
+      recoveryKey,
+      binding: keyIdBinding,
+    });
+    const sameKeyId = await deriveEmailOtpRecoveryKeyId({
+      recoveryKey: '008j 4ct4 ank7 f24s naxw sqfe zw83 4n3p',
+      binding: keyIdBinding,
+    });
+    const otherEnrollmentKeyId = await deriveEmailOtpRecoveryKeyId({
+      recoveryKey,
+      binding: {
+        ...keyIdBinding,
+        enrollment: {
+          ...keyIdBinding.enrollment,
+          enrollmentId: 'enrollment-2',
+        },
+      },
+    });
+
+    expect(keyId).toMatch(/^email-otp-rkid-v1-[A-Za-z0-9_-]+$/);
+    expect(sameKeyId).toBe(keyId);
+    expect(otherEnrollmentKeyId).not.toBe(keyId);
+    expect(
+      emailOtpRecoveryKeyIdFields({
+        recoveryKeyBytesB64u: 'test-key-bytes',
+        binding: keyIdBinding,
+      }),
+    ).toEqual([
+      EMAIL_OTP_RECOVERY_KEY_ID_CONTEXT,
+      'test-key-bytes',
+      'alice.testnet',
+      'user-1',
+      'google-sub-1',
+      'google_sso_email_otp',
+      'enrollment-1',
+      '1',
+      'seal-v1',
+      'root-1',
+      'root-v1',
+    ]);
   });
 
   test('wraps and unwraps enc_s(S) with ChaCha20-Poly1305 and bound AAD', async () => {

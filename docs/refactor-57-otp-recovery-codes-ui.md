@@ -1,6 +1,6 @@
 # Email OTP Recovery Codes UI Plan
 
-Status: implementation plan.
+Status: implemented; broad cleanup and commit pending.
 
 This plan adds the product UI for backing up the 10 Email OTP recovery codes
 generated during Email OTP enrollment. The cryptographic recovery mechanism
@@ -690,8 +690,10 @@ Files:
 - [x] Add a boundary parser/builder that validates exactly 10 normalized recovery
    codes and `recoveryCodesIssuedAtMs`.
 - [x] Replace raw `string[]` recovery-code public result types.
-- [ ] Add type fixtures rejecting raw arrays, optional recovery-code fields, broad
-   spreads, and direct casts from worker output.
+- [x] Add public SDK type fixtures rejecting raw recovery-code arrays and optional
+   recovery-code fields.
+- [x] Add type/source fixtures rejecting broad spreads and direct casts from
+   worker output into core recovery-code domain types.
 - [x] Change wallet-iframe enrollment routes so generated recovery codes remain
    inside the iframe boundary.
 - [x] Add an SDK operation that lets frontend code ask the owning boundary to open
@@ -815,10 +817,10 @@ Implementation steps:
     record.
 - [x] After the modal is displayed, update `lastDisplayedAtMs`; do not delete the
     record.
-- [ ] Delete records only for explicit user deletion, wallet reset, account reset,
+- [x] Delete records only for explicit user deletion, wallet reset, account reset,
     or rotation replacement. Deletion removes the row instead of keeping a
     plaintext tombstone.
-- [ ] Never sync this store, export it, include it in diagnostics, or expose it
+- [x] Never sync this store, export it, include it in diagnostics, or expose it
     through public API payloads.
 
 Files:
@@ -867,17 +869,17 @@ Validation:
 ### Phase 7: Settings And Rotation
 
 - [x] Add recovery-code status route.
-- [ ] Harden existing status, consume, and attempt-failed routes against the
+- [x] Harden existing status, consume, and attempt-failed routes against the
    Phase 10 route contracts and boundary parsers.
-- [ ] Derive `recoveryKeyId` from the normalized recovery code and enrollment
+- [x] Derive `recoveryKeyId` from the normalized recovery code and enrollment
    binding, then remove `recoveryKeyId` from recovery challenge payloads.
-- [ ] Add internal revoke transition for rotation, account reset, and wallet reset.
-- [ ] Add rotate route.
+- [x] Add internal revoke transition for rotation.
+- [x] Add rotate route.
 - [x] Add `PROFILE_MENU_ITEM_IDS.RECOVERY_CODES`.
 - [x] Add a `Recovery Codes` menu item in `AccountMenuButton`.
 - [x] Add compact recovery-code modal UI reachable from that menu item.
-- [ ] Add rotate flow using the same modal component.
-- [ ] Prompt rotation after recovery when active count is below 10.
+- [x] Add rotate flow using the same modal component.
+- [x] Prompt rotation after recovery when active count is below 10.
 
 Server files:
 
@@ -913,28 +915,28 @@ Add tests for:
 - [x] SDK progress events never include `recoveryKeys`.
 - [x] logs and error objects redact `recoveryKeys`.
 - [x] wallet-iframe host RPC payloads never include generated `recoveryKeys`.
-- [ ] recovery-code entry normalizes lowercase, spaces, and dashes.
-- [ ] recovery challenge payloads do not expose `recoveryKeyId`.
-- [ ] worker derives the same `recoveryKeyId` during enrollment, recovery consume,
+- [x] recovery-code entry normalizes lowercase, spaces, and dashes.
+- [x] recovery challenge payloads do not expose `recoveryKeyId`.
+- [x] worker derives the same `recoveryKeyId` during enrollment, recovery consume,
     and rotation for a normalized recovery code plus binding.
-- [ ] used recovery code consumes exactly one active server record.
-- [ ] post-recovery active count below 10 triggers rotation prompt.
-- [ ] rotate replaces active recovery codes with 10 new active records and marks
+- [x] used recovery code consumes exactly one active server record.
+- [x] post-recovery active count below 10 triggers rotation prompt.
+- [x] rotate replaces active recovery codes with 10 new active records and marks
     old active records revoked.
-- [ ] status counts active, consumed, and revoked records after multiple
+- [x] status counts active, consumed, and revoked records after multiple
     recoveries and rotations.
 - [x] IndexedDB receives generated recovery codes only through the dedicated
     wallet-owned recovery-code store.
 - [x] localStorage and sessionStorage never receive generated recovery codes.
 - [x] backup-completion fixtures are gone or limited to boundary rejection
     coverage.
-- [ ] public SDK type fixtures reject raw recovery-code arrays and optional
+- [x] public SDK type fixtures reject raw recovery-code arrays and optional
     recovery-code fields.
 - [x] wallet-iframe enrollment host responses contain no generated `recoveryKeys`.
 - [x] route-backed enrollment/bootstrap tests keep plaintext recovery codes inside
     the worker/mock-worker boundary and out of relayer route payloads.
-- [x] `AccountMenuButton` exposes the `Recovery Codes` menu item only for logged-in
-    OTP accounts with saved recovery codes.
+- [x] `AccountMenuButton` exposes the `Recovery Codes` menu item for logged-in
+    OTP accounts.
 - [x] profile-menu recovery-code modal renders plaintext codes only from a
     matching stored recovery-code backup record.
 
@@ -1013,10 +1015,10 @@ Validation:
 
 ### Phase 10: Recovery And Rotation Spec
 
-Status: spec filled; implementation pending.
+Status: implemented; targeted recovery-code and OTP registration validation is
+passing.
 
-The account-menu redisplay path is implemented. The remaining recovery and
-rotation work must follow this contract.
+The account-menu redisplay, recovery, and rotation paths follow this contract.
 
 #### Trust Model
 
@@ -1495,14 +1497,23 @@ Audit notes:
   role-local identities and recovery restore validate signing-root scope. A
   signing-root rotation must reject otherwise matching recovery escrows.
 
-1. Implement the Phase 10 consume hardening first: deterministic
-   `recoveryKeyId` derivation, redacted recovery challenge payloads, and current
-   boundary parsers for status, consume, and attempt-failed.
-2. Implement rotation next: fresh-auth gate, internal revoke transition, atomic
-   active-set replacement, local backup replacement, and post-recovery rotation
-   prompt.
-3. Run the narrowest affected unit tests for each step, then run `pnpm run build`
-   from `sdk` after shared SDK or server lifecycle changes.
+1. [x] Implement the Phase 10 consume hardening first: deterministic
+   `recoveryKeyId` derivation, redacted recovery challenge payloads, and consume
+   route rejection for recovery-code material.
+2. [x] Add rotation client plumbing: worker-generated replacement escrows,
+   wallet-iframe/public SDK method, and local backup replacement.
+3. [x] Add the post-recovery rotation prompt.
+4. [x] Add route-level rotation coverage for Express and Cloudflare dispatch,
+   plus the remaining active/consumed/revoked status-count regression.
+5. [x] Run the narrowest affected unit tests for the server/client plumbing, then
+   run `pnpm run build` from `sdk` after shared SDK or server lifecycle changes.
+6. [x] Resolve the remaining "account settings" acceptance as the existing
+   account-menu recovery-code surface instead of a separate settings screen.
+7. [x] Add the remaining broad-spread/direct-cast type fixtures around
+   recovery-code domain objects.
+8. [x] Add an explicit local deletion/reset policy test for wallet-owned
+   recovery-code backup records, then wire any visible delete action only if the
+   product still wants one.
 
 ## Acceptance Criteria
 
@@ -1520,14 +1531,14 @@ Audit notes:
 - [x] Server-side recovery-wrapped escrows are active after enrollment.
 - [x] The account menu can redisplay saved codes from the wallet-owned IndexedDB
     store for logged-in OTP accounts.
-- [ ] Existing device-recovery prompt normalizes one formatted recovery code and
+- [x] Existing device-recovery prompt normalizes one formatted recovery code and
    derives `recoveryKeyId` without sending plaintext code material to the server.
-- [ ] Recovery challenge payloads do not expose stored `recoveryKeyId` values.
-- [ ] Successful recovery consumes exactly one active code and surfaces the
+- [x] Recovery challenge payloads do not expose stored `recoveryKeyId` values.
+- [x] Successful recovery consumes exactly one active code and surfaces the
    remaining active count.
-- [ ] Account settings can show recovery-code status, detect stale local backups,
-   and rotate back to 10 active codes.
-- [ ] Rotation marks old active records revoked and keeps consumed/revoked records
+- [x] The account-menu recovery-code surface can show recovery-code status, detect
+   stale local backups, and rotate back to 10 active codes.
+- [x] Rotation marks old active records revoked and keeps consumed/revoked records
    for status counts.
 - [x] Tests prove recovery codes are redacted from events, logs, server state, and
    every persistent store outside the dedicated wallet-owned recovery-code store.

@@ -1,7 +1,12 @@
 import type { NormalizedLogger } from './logger';
 import type { ThresholdRuntimePolicyScope, ThresholdStoreConfigInput } from './types';
 import { THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
-import { getPostgresPool, getPostgresUrlFromConfig, parsePostgresRow } from '../storage/postgres';
+import {
+  getPostgresPool,
+  getPostgresUrlFromConfig,
+  parsePostgresRow,
+  type PgQueryExecutor,
+} from '../storage/postgres';
 import { isPlainObject, toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   parseCurrentEmailOtpAuthStateRecord,
@@ -403,10 +408,118 @@ export interface EmailOtpRegistrationAttemptStore {
   findStartedBySubjectEmail(input: {
     providerSubject: string;
     email: string;
+    orgId: string;
+    appSessionVersion: string;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
   }): Promise<PendingGoogleEmailOtpRegistrationAttemptRecord | null>;
+  abandonStartedBySubjectEmailExceptAppSession(input: {
+    providerSubject: string;
+    email: string;
+    orgId: string;
+    appSessionVersion: string;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    nowMs: number;
+    failureCode: 'app_session_version_replaced';
+  }): Promise<number>;
   hasLiveStartedWalletAttempt(input: { walletId: string; nowMs: number }): Promise<boolean>;
   deleteExpired(nowMs: number): Promise<number>;
+}
+
+function runtimePolicyScopeKey(scope: ThresholdRuntimePolicyScope | undefined): string {
+  if (!scope) return '';
+  return `${scope.orgId}\n${scope.projectId}\n${scope.envId}\n${scope.signingRootVersion}`;
+}
+
+function registrationAttemptMatchesStartedScope(
+  record: GoogleEmailOtpRegistrationAttemptRecord,
+  input: {
+    providerSubject: string;
+    email: string;
+    orgId: string;
+    appSessionVersion: string;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    nowMs: number;
+  },
+): record is PendingGoogleEmailOtpRegistrationAttemptRecord {
+  return (
+    record.providerSubject === input.providerSubject &&
+    record.email === input.email &&
+    record.appSessionVersion === input.appSessionVersion &&
+    record.runtimePolicyScope?.orgId === input.orgId &&
+    runtimePolicyScopeKey(record.runtimePolicyScope) ===
+      runtimePolicyScopeKey(input.runtimePolicyScope) &&
+    (record.state === 'started' || record.state === 'key_finalized') &&
+    record.expiresAtMs > input.nowMs
+  );
+}
+
+function registrationAttemptMatchesReplacementScope(
+  record: GoogleEmailOtpRegistrationAttemptRecord,
+  input: {
+    providerSubject: string;
+    email: string;
+    orgId: string;
+    appSessionVersion: string;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    nowMs: number;
+  },
+): record is PendingGoogleEmailOtpRegistrationAttemptRecord {
+  return (
+    record.providerSubject === input.providerSubject &&
+    record.email === input.email &&
+    record.appSessionVersion !== input.appSessionVersion &&
+    record.runtimePolicyScope?.orgId === input.orgId &&
+    runtimePolicyScopeKey(record.runtimePolicyScope) ===
+      runtimePolicyScopeKey(input.runtimePolicyScope) &&
+    (record.state === 'started' || record.state === 'key_finalized') &&
+    record.expiresAtMs > input.nowMs
+  );
+}
+
+export async function putGoogleEmailOtpRegistrationAttemptWithExecutor(input: {
+  executor: PgQueryExecutor;
+  namespace: string;
+  record: GoogleEmailOtpRegistrationAttemptRecord;
+}): Promise<void> {
+  const parsed = parseCurrentGoogleEmailOtpRegistrationAttemptRecord(input.record);
+  if (!parsed) throw new Error('Invalid Google Email OTP registration attempt record');
+  await input.executor.query(
+    `
+      INSERT INTO email_otp_registration_attempts (
+        namespace,
+        attempt_id,
+        provider_subject,
+        email,
+        wallet_id,
+        state,
+        record_json,
+        expires_at_ms,
+        updated_at_ms
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
+      ON CONFLICT (namespace, attempt_id)
+      DO UPDATE SET
+        provider_subject = EXCLUDED.provider_subject,
+        email = EXCLUDED.email,
+        wallet_id = EXCLUDED.wallet_id,
+        state = EXCLUDED.state,
+        record_json = EXCLUDED.record_json,
+        expires_at_ms = EXCLUDED.expires_at_ms,
+        updated_at_ms = EXCLUDED.updated_at_ms
+    `,
+    [
+      input.namespace,
+      parsed.attemptId,
+      parsed.providerSubject,
+      parsed.email,
+      parsed.walletId,
+      parsed.state,
+      JSON.stringify(parsed),
+      parsed.expiresAtMs,
+      parsed.updatedAtMs,
+    ],
+  );
 }
 
 type EmailOtpStoreFactoryInput = {
@@ -1229,19 +1342,40 @@ class InMemoryEmailOtpRegistrationAttemptStore implements EmailOtpRegistrationAt
   async findStartedBySubjectEmail(input: {
     providerSubject: string;
     email: string;
+    orgId: string;
+    appSessionVersion: string;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
   }): Promise<PendingGoogleEmailOtpRegistrationAttemptRecord | null> {
     for (const record of this.map.values()) {
-      if (
-        record.providerSubject === input.providerSubject &&
-        record.email === input.email &&
-        (record.state === 'started' || record.state === 'key_finalized') &&
-        record.expiresAtMs > input.nowMs
-      ) {
+      if (registrationAttemptMatchesStartedScope(record, input)) {
         return cloneRecord(record);
       }
     }
     return null;
+  }
+
+  async abandonStartedBySubjectEmailExceptAppSession(input: {
+    providerSubject: string;
+    email: string;
+    orgId: string;
+    appSessionVersion: string;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    nowMs: number;
+    failureCode: 'app_session_version_replaced';
+  }): Promise<number> {
+    let abandoned = 0;
+    for (const record of this.map.values()) {
+      if (!registrationAttemptMatchesReplacementScope(record, input)) continue;
+      this.map.set(record.attemptId, {
+        ...cloneRecord(record),
+        state: 'abandoned',
+        failureCode: input.failureCode,
+        updatedAtMs: input.nowMs,
+      });
+      abandoned += 1;
+    }
+    return abandoned;
   }
 
   async hasLiveStartedWalletAttempt(input: { walletId: string; nowMs: number }): Promise<boolean> {
@@ -2191,6 +2325,9 @@ class PostgresEmailOtpRegistrationAttemptStore implements EmailOtpRegistrationAt
   async findStartedBySubjectEmail(input: {
     providerSubject: string;
     email: string;
+    orgId: string;
+    appSessionVersion: string;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
     nowMs: number;
   }): Promise<PendingGoogleEmailOtpRegistrationAttemptRecord | null> {
     const pool = await this.poolPromise;
@@ -2203,10 +2340,19 @@ class PostgresEmailOtpRegistrationAttemptStore implements EmailOtpRegistrationAt
           AND email = $3
           AND state IN ('started', 'key_finalized')
           AND expires_at_ms > $4
+          AND record_json->>'appSessionVersion' = $5
+          AND record_json->'runtimePolicyScope'->>'orgId' = $6
         ORDER BY updated_at_ms DESC
         LIMIT 1
       `,
-      [this.namespace, input.providerSubject, input.email, input.nowMs],
+      [
+        this.namespace,
+        input.providerSubject,
+        input.email,
+        input.nowMs,
+        input.appSessionVersion,
+        input.orgId,
+      ],
     );
     const parsed = parsePostgresRow({
       row: rows[0],
@@ -2227,8 +2373,63 @@ class PostgresEmailOtpRegistrationAttemptStore implements EmailOtpRegistrationAt
       if (attemptId) await this.deleteAttempt(attemptId);
       return null;
     }
-    if (parsed.value.state !== 'started' && parsed.value.state !== 'key_finalized') return null;
+    if (!registrationAttemptMatchesStartedScope(parsed.value, input)) return null;
     return cloneRecord(parsed.value);
+  }
+
+  async abandonStartedBySubjectEmailExceptAppSession(input: {
+    providerSubject: string;
+    email: string;
+    orgId: string;
+    appSessionVersion: string;
+    runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    nowMs: number;
+    failureCode: 'app_session_version_replaced';
+  }): Promise<number> {
+    const pool = await this.poolPromise;
+    const { rows } = await pool.query(
+      `
+        SELECT record_json, expires_at_ms, updated_at_ms, attempt_id
+        FROM email_otp_registration_attempts
+        WHERE namespace = $1
+          AND provider_subject = $2
+          AND email = $3
+          AND state IN ('started', 'key_finalized')
+          AND expires_at_ms > $4
+      `,
+      [this.namespace, input.providerSubject, input.email, input.nowMs],
+    );
+    let abandoned = 0;
+    for (const row of rows) {
+      const parsed = parsePostgresRow({
+        row,
+        parser: (candidate) =>
+          parseCurrentGoogleEmailOtpRegistrationAttemptRow({
+            recordJson: candidate.record_json,
+            expiresAtMs: candidate.expires_at_ms,
+            updatedAtMs: candidate.updated_at_ms,
+          }),
+      });
+      if (parsed.kind === 'malformed') {
+        const attemptId = toOptionalTrimmedString((row as { attempt_id?: unknown }).attempt_id);
+        if (attemptId) await this.deleteAttempt(attemptId);
+        continue;
+      }
+      if (
+        parsed.kind !== 'current' ||
+        !registrationAttemptMatchesReplacementScope(parsed.value, input)
+      ) {
+        continue;
+      }
+      await this.put({
+        ...parsed.value,
+        state: 'abandoned',
+        failureCode: input.failureCode,
+        updatedAtMs: input.nowMs,
+      });
+      abandoned += 1;
+    }
+    return abandoned;
   }
 
   async hasLiveStartedWalletAttempt(input: { walletId: string; nowMs: number }): Promise<boolean> {

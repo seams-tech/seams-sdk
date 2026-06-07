@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test';
+import fs from 'node:fs';
+import path from 'node:path';
 import { setupBasicPasskeyTest } from '../setup';
+
+const repoRoot = fs.existsSync(path.join(process.cwd(), 'client'))
+  ? process.cwd()
+  : path.resolve(process.cwd(), '..');
 
 const RECOVERY_CODES = [
   '0123-4567-89AB-CDEF-GHJK-MNPQ-RSTV-WXYZ',
@@ -153,6 +159,7 @@ test.describe('SeamsWeb Email OTP recovery-code backup persistence', () => {
         recoveryKeys: enrollment.recoveryKeys,
       });
     }, { enrollment: ENROLLMENT });
+    await page.waitForFunction(() => (window as any).__revokedUrl === 'blob:email-otp-recovery-codes');
 
     const download = await page.evaluate(async () => ({
       clicks: (window as any).__downloadClicks,
@@ -170,5 +177,21 @@ test.describe('SeamsWeb Email OTP recovery-code backup persistence', () => {
       recoveryKeys: RECOVERY_CODES,
       lastDownloadedAtMs: null,
     });
+  });
+
+  test('compact modal distinguishes download failure from download-status update failure', () => {
+    const source = fs.readFileSync(
+      path.join(
+        repoRoot,
+        'client/src/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.ts',
+      ),
+      'utf8',
+    );
+
+    expect(source).toContain("status.textContent = 'Download failed. Try again.';");
+    expect(source).toContain('await options.onDownloaded?.();');
+    expect(source).toContain(
+      "status.textContent = 'Recovery codes downloaded. Last download status was not updated.';",
+    );
   });
 });

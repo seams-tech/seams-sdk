@@ -735,6 +735,14 @@ export class BrowserSigningSurface {
     return await emailOtpPublic.enrollEmailOtpInternal(this.emailOtpPublicDeps, args);
   }
 
+  async rotateEmailOtpRecoveryCodesInternal(args: {
+    walletId: WalletId;
+    relayUrl?: string;
+    appSessionJwt?: string;
+  }): Promise<Awaited<ReturnType<typeof emailOtpPublic.rotateEmailOtpRecoveryCodesInternal>>> {
+    return await emailOtpPublic.rotateEmailOtpRecoveryCodesInternal(this.emailOtpPublicDeps, args);
+  }
+
   async prepareEmailOtpRegistrationEnrollmentMaterialInternal(
     args: PrepareEmailOtpRegistrationEnrollmentMaterialInternalArgs,
   ): Promise<PrepareEmailOtpRegistrationEnrollmentMaterialInternalResult> {

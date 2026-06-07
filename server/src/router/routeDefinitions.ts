@@ -2078,6 +2078,13 @@ export function createRelayRouteDefinitions(
       ['authService', 'session'],
     ),
     userSessionRoute(
+      'wallet_email_otp_recovery_key_rotate',
+      'POST',
+      '/wallet/email-otp/recovery-key/rotate',
+      'Replace active Email OTP recovery codes after fresh account authentication',
+      ['authService', 'session'],
+    ),
+    userSessionRoute(
       'wallet_email_otp_recovery_key_attempt_failed',
       'POST',
       '/wallet/email-otp/recovery-key/attempt-failed',

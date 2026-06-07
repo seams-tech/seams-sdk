@@ -162,6 +162,19 @@ export function getPath(json: unknown, ...path: Array<string | number>): unknown
   return cursor;
 }
 
+export function makeGoogleEmailOtpRegistrationOffer(input: {
+  walletId: string;
+  candidateId?: string;
+  offerId?: string;
+}) {
+  const candidateId = input.candidateId || 'registration-candidate-1';
+  return {
+    offerId: input.offerId || 'registration-offer-1',
+    selectedCandidateId: candidateId,
+    candidates: [{ candidateId, walletId: input.walletId }] as const,
+  };
+}
+
 export function makeEmailOtpRecoveryWrappedEnrollmentEscrows(input: {
   walletId: string;
   userId: string;
@@ -204,6 +217,51 @@ export function makeEmailOtpRecoveryWrappedEnrollmentEscrows(input: {
       ),
       issuedAtMs: nowMs,
       updatedAtMs: nowMs,
+    };
+  });
+}
+
+export function makeEmailOtpRecoveryRotationEscrowInputs(input: {
+  walletId: string;
+  userId: string;
+  authSubjectId?: string;
+  enrollmentSealKeyVersion: string;
+  nowMs?: number;
+}): Array<{
+  recoveryKeyId: string;
+  nonceB64u: string;
+  wrappedDeviceEnrollmentEscrowB64u: string;
+  aadHashB64u: string;
+}> {
+  return makeEmailOtpRecoveryWrappedEnrollmentEscrows(input).map((record, index) => {
+    const recoveryKeyId = `rotated-recovery-key-${index + 1}`;
+    const metadata = {
+      walletId: record.walletId,
+      userId: record.userId,
+      authSubjectId: record.authSubjectId,
+      authMethod: record.authMethod,
+      enrollmentId: record.enrollmentId,
+      enrollmentVersion: record.enrollmentVersion,
+      enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
+      signingRootId: record.signingRootId,
+      signingRootVersion: record.signingRootVersion,
+      recoveryKeyId,
+    };
+    return {
+      recoveryKeyId,
+      nonceB64u: base64UrlEncode(
+        Uint8Array.from(Array.from({ length: 12 }, (_, offset) => offset + index + 32)),
+      ),
+      wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(
+        Uint8Array.from(Array.from({ length: 48 }, (_, offset) => offset + index + 64)),
+      ),
+      aadHashB64u: base64UrlEncode(
+        createHash('sha256')
+          .update(
+            encodeEmailOtpRecoveryWrappedEnrollmentAad(buildEmailOtpRecoveryWrapBinding(metadata)),
+          )
+          .digest(),
+      ),
     };
   });
 }

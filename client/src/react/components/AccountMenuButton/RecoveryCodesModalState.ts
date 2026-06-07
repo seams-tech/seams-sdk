@@ -7,21 +7,30 @@ import type {
   StoredEmailOtpRecoveryCodeBackupRecord,
 } from '@/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups';
 
-export type RecoveryCodesLoadedState = {
-  kind: 'loaded';
-  status: EmailOtpRecoveryCodeStatus;
-  localBackup: StoredEmailOtpRecoveryCodeBackupRecord | null;
-  actionError: string;
-};
+export type RecoveryCodesLoadedState =
+  | {
+      kind: 'loaded';
+      status: EmailOtpRecoveryCodeStatus;
+      localBackup: StoredEmailOtpRecoveryCodeBackupRecord | null;
+      actionError: string;
+    }
+  | {
+      kind: 'delegated_to_iframe';
+      status: EmailOtpRecoveryCodeStatus;
+      actionError: string;
+    };
 
 type RecoveryCodesModalRepository = Pick<
   typeof emailOtpRecoveryCodeBackupRepository,
-  'deleteInvalid' | 'markDisplayed' | 'readMatching'
+  'markDisplayed' | 'readMatching'
 >;
 
 type ShowEmailOtpRecoveryCodesForAccountMenu = (args: {
   walletId: string;
-}) => Promise<EmailOtpRecoveryCodeStatus>;
+}) => Promise<{
+  status: EmailOtpRecoveryCodeStatus;
+  displayedStoredCodes: boolean;
+}>;
 
 export function getEmailOtpRecoveryCodePresenter(
   seams: unknown,
@@ -40,7 +49,6 @@ export async function loadRecoveryCodesModalLoadedState(args: {
   recoveryCodeBackupRepository: RecoveryCodesModalRepository;
   showRecoveryCodes: ShowEmailOtpRecoveryCodesForAccountMenu | null;
 }): Promise<RecoveryCodesLoadedState> {
-  await args.recoveryCodeBackupRepository.deleteInvalid().catch(() => undefined);
   let status = await args.recovery.getEmailOtpRecoveryCodeStatus({
     walletId: args.walletId,
   });
@@ -65,7 +73,11 @@ export async function loadRecoveryCodesModalLoadedState(args: {
           })
           .catch(() => null)) || localBackup;
     } else if (args.showRecoveryCodes) {
-      status = await args.showRecoveryCodes({ walletId: status.walletId });
+      const presented = await args.showRecoveryCodes({ walletId: status.walletId });
+      if (presented.displayedStoredCodes) {
+        return { kind: 'delegated_to_iframe', status: presented.status, actionError: '' };
+      }
+      status = presented.status;
     }
   }
   return { kind: 'loaded', status, localBackup, actionError: '' };

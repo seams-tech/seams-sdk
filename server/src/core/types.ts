@@ -778,6 +778,15 @@ export type WalletRegistrationFinalizeResponse =
       };
     }
   | {
+      ok: true;
+      kind: 'already_finalized_restore_required';
+      walletId: WalletId;
+      rpId: string;
+      reason: 'replay_without_session_material';
+      ed25519?: never;
+      ecdsa?: never;
+    }
+  | {
       ok: false;
       code: string;
       message: string;

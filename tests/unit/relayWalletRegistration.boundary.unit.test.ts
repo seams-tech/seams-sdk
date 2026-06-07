@@ -867,6 +867,73 @@ test.describe('wallet registration route boundaries', () => {
     });
   });
 
+  test('finalize rejects OTP challenge fields at the top level', async () => {
+    let called = false;
+    const response = await handleRelayWalletRegistrationFinalize(
+      inputFor(
+        'wallet_registration_finalize',
+        {
+          registrationCeremonyId: 'wrc_123',
+          ecdsa: {
+            expectedKeyHandles: ['ehss-key-alice'],
+          },
+          challengeId: 'otp-challenge-1',
+        },
+        {
+          finalizeWalletRegistration: async () => {
+            called = true;
+            return { ok: true };
+          },
+        },
+      ),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+      message: 'challengeId must not be included in wallet registration finalize',
+    });
+  });
+
+  test('finalize rejects OTP challenge fields inside Email OTP enrollment', async () => {
+    let called = false;
+    const response = await handleRelayWalletRegistrationFinalize(
+      inputFor(
+        'wallet_registration_finalize',
+        {
+          registrationCeremonyId: 'wrc_123',
+          ecdsa: {
+            expectedKeyHandles: ['ehss-key-alice'],
+          },
+          emailOtpEnrollment: {
+            recoveryWrappedEnrollmentEscrows: [{ enrollmentId: 'enrollment-1' }],
+            enrollmentSealKeyVersion: 'email-otp-v1',
+            clientUnlockPublicKeyB64u: 'client-unlock-public-key',
+            unlockKeyVersion: 'unlock-v1',
+            thresholdEcdsaClientVerifyingShareB64u: 'threshold-ecdsa-share',
+            challengeId: 'otp-challenge-1',
+          },
+        },
+        {
+          finalizeWalletRegistration: async () => {
+            called = true;
+            return { ok: true };
+          },
+        },
+      ),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+      message: 'emailOtpEnrollment.challengeId must not be included',
+    });
+  });
+
   test('finalize rejects invalid ECDSA expected key handles', async () => {
     let called = false;
     const response = await handleRelayWalletRegistrationFinalize(

@@ -445,6 +445,29 @@ export interface EmailOtpWorkerOperationMap {
       activeRecoveryWrappedEnrollmentEscrowCount: number;
     };
   };
+  rotateEmailOtpRecoveryCodes: {
+    payload: {
+      relayUrl: string;
+      walletId: string;
+      userId?: string;
+      routePlan: EmailOtpRoutePlan;
+    };
+    result: {
+      walletId: string;
+      userId: string;
+      authSubjectId: string;
+      enrollmentId: string;
+      enrollmentVersion: string;
+      enrollmentSealKeyVersion: string;
+      signingRootId: string;
+      signingRootVersion: string;
+      recoveryKeys: EmailOtpRecoveryCodeSet;
+      recoveryCodesIssuedAtMs: number;
+      activeRecoveryCodeCount: number;
+      revokedRecoveryCodeCount: number;
+      totalRecoveryCodeCount: number;
+    };
+  };
   removeEmailOtpDeviceEnrollmentEscrowFromDevice: {
     payload: {
       walletId: string;

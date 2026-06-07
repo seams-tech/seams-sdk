@@ -29,14 +29,17 @@ const recoveryKeysAllowedSourceFiles = new Set([
   'client/src/SeamsWeb/googleEmailOtpWalletAuth.typecheck.ts',
   'client/src/SeamsWeb/operations/authMethods/emailOtp/challenge.ts',
   'client/src/SeamsWeb/operations/authMethods/emailOtp/enrollment.ts',
+  'client/src/SeamsWeb/operations/authMethods/emailOtp/registrationOffer.ts',
   'client/src/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.ts',
   'client/src/SeamsWeb/operations/registration/registration.ts',
+  'client/src/SeamsWeb/publicNamespaceApi.typecheck.ts',
   'client/src/SeamsWeb/publicApi/types.ts',
   'client/src/SeamsWeb/walletIframe/client/router.ts',
   'client/src/SeamsWeb/walletIframe/host/handlers/emailOtp.ts',
   'client/src/core/indexedDB/seamsWalletDB/emailOtpDeviceEnrollmentEscrows.ts',
   'client/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.ts',
   'client/src/core/signingEngine/session/emailOtp/publicTypes.ts',
+  'client/src/core/signingEngine/session/emailOtp/publicTypes.typecheck.ts',
   'client/src/core/signingEngine/session/emailOtp/workerEnrollment.ts',
   'client/src/core/signingEngine/workerManager/workerTypes.ts',
   'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
@@ -45,6 +48,7 @@ const recoveryKeysAllowedSourceFiles = new Set([
   'server/src/core/EmailOtpPostgresRecords.ts',
   'server/src/core/EmailOtpStores.ts',
   'server/src/router/emailOtpRouteHandlers.ts',
+  'server/src/router/relayWalletRegistration.ts',
 ]);
 
 const retainedBackupRecordAllowedSourceFiles = new Set([
@@ -55,6 +59,17 @@ const retainedBackupRecordAllowedSourceFiles = new Set([
 
 const recoveryBackupSecretKindAllowedSourceFiles = new Set([
   'client/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.ts',
+]);
+
+const recoveryCodeCastAllowedSourceFiles = new Set([
+  'shared/src/utils/emailOtpRecoveryKey.ts',
+]);
+
+const recoveryCodeBackupRepositoryAllowedSourceFiles = new Set([
+  'client/src/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.ts',
+  'client/src/SeamsWeb/walletIframe/host/handlers/emailOtp.ts',
+  'client/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx',
+  'client/src/react/components/AccountMenuButton/RecoveryCodesModalState.ts',
 ]);
 
 function listSourceFiles(): string[] {
@@ -144,6 +159,25 @@ test.describe('Email OTP recovery-code leakage guards', () => {
       .filter((relativePath) => relativePath.startsWith('client/src/'))
       .filter((relativePath) => fs.existsSync(path.join(repoRoot, relativePath)))
       .filter((relativePath) => /\b(?:localStorage|sessionStorage)\b/.test(readRepoSource(relativePath)));
+
+    expect(offenders).toEqual([]);
+  });
+
+  test('recovery-code brand casts stay confined to the shared parser and formatter boundary', () => {
+    const offenders = filesContaining(/\bas\s+EmailOtpRecoveryCode(?:Set)?\b/).filter(
+      (relativePath) => !recoveryCodeCastAllowedSourceFiles.has(relativePath),
+    );
+
+    expect(offenders).toEqual([]);
+  });
+
+  test('plaintext backup repository stays confined to wallet-owned UI and backup operations', () => {
+    const offenders = filesContaining(/\bemailOtpRecoveryCodeBackupRepository\b/).filter(
+      (relativePath) =>
+        relativePath !==
+          'client/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.ts' &&
+        !recoveryCodeBackupRepositoryAllowedSourceFiles.has(relativePath),
+    );
 
     expect(offenders).toEqual([]);
   });

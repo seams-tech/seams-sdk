@@ -69,9 +69,6 @@ test.describe('RecoveryCodesModal behavior', () => {
           },
         },
         recoveryCodeBackupRepository: {
-          deleteInvalid: async () => {
-            calls.push('deleteInvalid');
-          },
           readMatching: async (args: unknown) => {
             calls.push(['readMatching', args]);
             return backup;
@@ -101,7 +98,6 @@ test.describe('RecoveryCodesModal behavior', () => {
       actionError: '',
     });
     expect(result.calls).toEqual([
-      'deleteInvalid',
       ['status', { walletId: 'alice.testnet' }],
       [
         'readMatching',
@@ -149,9 +145,6 @@ test.describe('RecoveryCodesModal behavior', () => {
           },
         },
         recoveryCodeBackupRepository: {
-          deleteInvalid: async () => {
-            calls.push('deleteInvalid');
-          },
           readMatching: async (args: unknown) => {
             calls.push(['readMatching', args]);
             return null;
@@ -163,7 +156,70 @@ test.describe('RecoveryCodesModal behavior', () => {
         },
         showRecoveryCodes: async (args: unknown) => {
           calls.push(['presenter', args]);
-          return status;
+          return { status, displayedStoredCodes: true };
+        },
+      });
+      return { loaded, calls };
+    });
+
+    expect(result.loaded).toMatchObject({
+      kind: 'delegated_to_iframe',
+      status: { status: 'ready', walletId: 'alice.testnet' },
+      actionError: '',
+    });
+    expect(result.calls).toEqual([
+      ['status', { walletId: 'alice.testnet' }],
+      [
+        'readMatching',
+        {
+          walletId: 'alice.testnet',
+          enrollmentId: 'enrollment-1',
+          enrollmentSealKeyVersion: 'seal-v1',
+        },
+      ],
+      ['presenter', { walletId: 'alice.testnet' }],
+    ]);
+  });
+
+  test('keeps local unavailable state when iframe has no stored backup to display', async ({ page }) => {
+    const result = await page.evaluate(async () => {
+      const mod = await import(
+        '/sdk/esm/react/components/AccountMenuButton/RecoveryCodesModalState.js'
+      );
+      const calls: Array<string | [string, unknown]> = [];
+      const status = {
+        status: 'ready',
+        walletId: 'alice.testnet',
+        enrollmentId: 'enrollment-1',
+        enrollmentSealKeyVersion: 'seal-v1',
+        expectedRecoveryCodeCount: 10,
+        activeRecoveryCodeCount: 10,
+        consumedRecoveryCodeCount: 0,
+        revokedRecoveryCodeCount: 0,
+        totalRecoveryCodeCount: 10,
+        issuedAtMs: 1_700_000_000_000,
+      };
+      const loaded = await mod.loadRecoveryCodesModalLoadedState({
+        walletId: 'alice.testnet',
+        recovery: {
+          getEmailOtpRecoveryCodeStatus: async (args: unknown) => {
+            calls.push(['status', args]);
+            return status;
+          },
+        },
+        recoveryCodeBackupRepository: {
+          readMatching: async (args: unknown) => {
+            calls.push(['readMatching', args]);
+            return null;
+          },
+          markDisplayed: async (args: unknown) => {
+            calls.push(['markDisplayed', args]);
+            return null;
+          },
+        },
+        showRecoveryCodes: async (args: unknown) => {
+          calls.push(['presenter', args]);
+          return { status, displayedStoredCodes: false };
         },
       });
       return { loaded, calls };
@@ -176,7 +232,6 @@ test.describe('RecoveryCodesModal behavior', () => {
       actionError: '',
     });
     expect(result.calls).toEqual([
-      'deleteInvalid',
       ['status', { walletId: 'alice.testnet' }],
       [
         'readMatching',
@@ -201,8 +256,12 @@ test.describe('RecoveryCodesModal behavior', () => {
     expect(router).toContain('showEmailOtpRecoveryCodes(payload');
     expect(router).toContain("type: 'PM_SHOW_EMAIL_OTP_RECOVERY_CODES'");
     expect(handler).toContain('showEmailOtpRecoveryCodesInIframe');
-    expect(handler).toContain('showEmailOtpRecoveryCodeBackupUi({');
+    expect(handler).toContain('displayedStoredCodes: true');
+    expect(handler).toContain('displayedStoredCodes: false');
+    expect(handler).toContain('showEmailOtpRecoveryCodeBackupUi(');
     expect(handler).toContain('emailOtpRecoveryCodeBackupRepository.readMatching({');
+    expect(handler).toContain('onDownloaded: async () =>');
+    expect(handler).toContain('emailOtpRecoveryCodeBackupRepository.markDownloaded({');
   });
 
   test('iframe recovery-code display stays out of the public recovery capability', () => {
@@ -221,5 +280,29 @@ test.describe('RecoveryCodesModal behavior', () => {
     );
 
     expect(modal).toContain('Each code can be used once.');
+  });
+
+  test('account-menu modal exposes recovery-code rotation through the public SDK method', () => {
+    const modal = readRepoFile(
+      'client/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx',
+    );
+
+    expect(modal).toContain('Rotate codes');
+    expect(modal).toContain('seams.recovery.rotateEmailOtpRecoveryCodes');
+    expect(modal).not.toContain('deleteRecovery');
+  });
+
+  test('PasskeyAuthMenu prompts rotation after recovery consumes a code', () => {
+    const controller = readRepoFile(
+      'client/src/react/components/PasskeyAuthMenu/controller/usePasskeyAuthMenuController.ts',
+    );
+    const client = readRepoFile('client/src/react/components/PasskeyAuthMenu/client.tsx');
+
+    expect(controller).toContain('postRecoveryRotationPromptFromSubmitResult');
+    expect(controller).toContain('activeRecoveryWrappedEnrollmentEscrowCount');
+    expect(controller).toContain('EMAIL_OTP_RECOVERY_KEY_COUNT');
+    expect(controller).toContain('rotateEmailOtpRecoveryCodes({ walletId: prompt.walletId })');
+    expect(client).toContain('Rotate recovery codes');
+    expect(client).toContain('data-post-recovery-rotation-prompt');
   });
 });

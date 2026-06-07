@@ -147,7 +147,15 @@ function classifyEmailOtpSubmitError(error: unknown): GoogleEmailOtpWalletAuthFa
 }
 
 function classifyRegistrationError(error: unknown): GoogleEmailOtpWalletAuthFailureCode {
+  const code =
+    error && typeof error === 'object' && 'code' in error
+      ? String((error as { code?: unknown }).code || '')
+      : '';
+  if (code === 'already_finalized_restore_required') return 'registration_restore_required';
   const message = error instanceof Error ? error.message.toLowerCase() : '';
+  if (message.includes('already finalized') || message.includes('restore or unlock')) {
+    return 'registration_restore_required';
+  }
   if (message.includes('backup')) return 'recovery_code_backup_incomplete';
   if (message.includes('expired')) return 'flow_expired';
   return 'registration_failed';
@@ -169,9 +177,27 @@ function requireEmail(exchange: GoogleEmailOtpSessionExchangeResult): string {
   return email;
 }
 
-function parseExpiresAtMs(value?: string): number {
-  const parsed = value ? Date.parse(value) : NaN;
+function parseOptionalExpiresAtMs(value?: number | string): number {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Date.parse(value)
+        : NaN;
   return Number.isFinite(parsed) && parsed > Date.now() ? parsed : Date.now() + DEFAULT_FLOW_TTL_MS;
+}
+
+function requireRegistrationExpiresAtMs(value: unknown): number {
+  const parsed =
+    typeof value === 'number'
+      ? value
+      : typeof value === 'string'
+        ? Date.parse(value)
+        : NaN;
+  if (!Number.isFinite(parsed) || parsed <= Date.now()) {
+    throw new Error('Google Email OTP registration offer is expired or missing expiry');
+  }
+  return Math.floor(parsed);
 }
 
 function buildPrompt(input: {
@@ -212,7 +238,9 @@ function resolveSessionState(input: {
       ? parseGoogleEmailOtpRegistrationOffer({
           kind: 'google_email_otp_registration_offer_v1',
           offerId: resolution?.offer?.offerId,
-          expiresAtMs: parseExpiresAtMs(resolution?.expiresAt),
+          expiresAtMs: requireRegistrationExpiresAtMs(
+            resolution?.expiresAtMs ?? resolution?.expiresAt,
+          ),
           emailHint,
           candidates: resolution?.offer?.candidates,
           selectedCandidateId: resolution?.offer?.selectedCandidateId,
@@ -247,7 +275,10 @@ function resolveSessionState(input: {
     emailHint,
     requestedMode: input.requestedMode,
     mode,
-    expiresAtMs: parseExpiresAtMs(resolution?.expiresAt),
+    expiresAtMs:
+      mode === 'register'
+        ? requireRegistrationExpiresAtMs(resolution?.expiresAtMs ?? resolution?.expiresAt)
+        : parseOptionalExpiresAtMs(resolution?.expiresAtMs ?? resolution?.expiresAt),
     ...(input.exchange.jwt ? { appSessionJwt: input.exchange.jwt } : {}),
     ...(resolution?.registrationAttemptId
       ? { registrationAttemptId: resolution.registrationAttemptId }
@@ -445,7 +476,7 @@ function createRegistrationMaterialPrewarm(args: {
   input: GoogleEmailOtpWalletAuthStartInput;
   offer: GoogleEmailOtpRegistrationOffer;
 }): {
-  read(): Promise<EmailOtpPrewarmedRegistrationMaterial>;
+  read(): Promise<Extract<EmailOtpPrewarmedRegistrationMaterial, { state: 'active' }>>;
   dispose(): void;
 } {
   let disposed = false;
@@ -475,6 +506,7 @@ function createRegistrationMaterialPrewarm(args: {
     .then((material) => {
       const prewarmed: EmailOtpPrewarmedRegistrationMaterial = {
         kind: 'email_otp_prewarmed_registration_material_v1',
+        state: 'active',
         offerId: args.offer.offerId,
         candidateId: selectedCandidate.candidateId,
         walletId: selectedCandidate.walletId,
@@ -492,7 +524,7 @@ function createRegistrationMaterialPrewarm(args: {
   return {
     async read() {
       const prewarmed = await promise;
-      if (disposed) {
+      if (disposed || prewarmed.state !== 'active') {
         throw new Error('Google Email OTP registration material is no longer active');
       }
       return prewarmed;
@@ -588,7 +620,9 @@ function createGoogleEmailOtpWalletRegistrationFlow(
           options: registrationOptions,
         });
         if (!result.success) {
-          const error = new Error(result.error || 'Wallet registration failed');
+          const error = Object.assign(new Error(result.error || 'Wallet registration failed'), {
+            code: result.errorCode,
+          });
           return fail(classifyRegistrationError(error), error);
         }
         liveness.burn();

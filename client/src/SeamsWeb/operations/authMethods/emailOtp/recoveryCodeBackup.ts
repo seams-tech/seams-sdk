@@ -3,12 +3,15 @@ import type { EmailOtpRecoveryCodeSet } from '@shared/utils/emailOtpRecoveryKey'
 import type {
   EmailOtpBackedUpEnrollmentResult,
   EmailOtpEnrollmentResult,
+  EmailOtpRecoveryCodeBackupStatus,
+  GoogleEmailOtpRegistrationBackedUpEnrollmentResult,
 } from '@/SeamsWeb/signingSurface/types';
 import {
   type EmailOtpRecoveryCodeBackupStorageScope,
   emailOtpRecoveryCodeBackupRepository,
 } from '@/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups';
 import type { EmailOtpRecoveryCodeStatus } from './challenge';
+import type { EmailOtpRecoveryCodeRotationMaterial } from '@/core/signingEngine/session/emailOtp/publicTypes';
 import {
   postJson,
   readString,
@@ -23,21 +26,47 @@ export type EmailOtpRecoveryCodeBackupUiInput = {
   recoveryCodesIssuedAtMs: number;
 };
 
+export type EmailOtpRecoveryCodeBackupUiOptions = {
+  onDownloaded?: () => Promise<void> | void;
+};
+
+export type GoogleEmailOtpRegistrationBackupEnrollmentInput = Omit<
+  EmailOtpEnrollmentResult,
+  'challengeId'
+> & {
+  registrationAuthorityId: string;
+  challengeId?: never;
+};
+
+type EmailOtpRecoveryCodeBackupEnrollmentInput =
+  | EmailOtpEnrollmentResult
+  | GoogleEmailOtpRegistrationBackupEnrollmentInput;
+
 function stripEmailOtpRecoveryKeysAfterBackup(
-  result: EmailOtpEnrollmentResult,
-): EmailOtpBackedUpEnrollmentResult {
+  result: EmailOtpRecoveryCodeBackupEnrollmentInput,
+): EmailOtpBackedUpEnrollmentResult | GoogleEmailOtpRegistrationBackedUpEnrollmentResult {
+  const recoveryCodeBackup: EmailOtpRecoveryCodeBackupStatus = {
+    status: 'active',
+    walletId: '',
+    enrollmentId: result.enrollmentId,
+    recoveryCodeCount: result.recoveryKeys.length,
+    issuedAtMs: result.recoveryCodesIssuedAtMs,
+    storedAtMs: result.recoveryCodesIssuedAtMs,
+    activeRecoveryCodeCountAtBackup: result.recoveryKeys.length,
+  };
+
+  if ('registrationAuthorityId' in result) {
+    const { recoveryKeys: _recoveryKeys, ...metadata } = result;
+    return {
+      ...metadata,
+      recoveryCodeBackup,
+    };
+  }
+
   const { recoveryKeys: _recoveryKeys, ...metadata } = result;
   return {
     ...metadata,
-    recoveryCodeBackup: {
-      status: 'active',
-      walletId: '',
-      enrollmentId: result.enrollmentId,
-      recoveryCodeCount: result.recoveryKeys.length,
-      issuedAtMs: result.recoveryCodesIssuedAtMs,
-      storedAtMs: result.recoveryCodesIssuedAtMs,
-      activeRecoveryCodeCountAtBackup: result.recoveryKeys.length,
-    },
+    recoveryCodeBackup,
   };
 }
 
@@ -81,11 +110,14 @@ export function downloadRecoveryCodes(input: EmailOtpRecoveryCodeBackupUiInput):
   try {
     anchor.click();
   } finally {
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 }
 
-export function showEmailOtpRecoveryCodeBackupUi(input: EmailOtpRecoveryCodeBackupUiInput): void {
+export function showEmailOtpRecoveryCodeBackupUi(
+  input: EmailOtpRecoveryCodeBackupUiInput,
+  options: EmailOtpRecoveryCodeBackupUiOptions = {},
+): void {
   if (typeof document === 'undefined') {
     throw new Error('Email OTP recovery code backup UI requires document');
   }
@@ -196,11 +228,17 @@ export function showEmailOtpRecoveryCodeBackupUi(input: EmailOtpRecoveryCodeBack
 
   download.focus();
 
-  download.addEventListener('click', () => {
+  download.addEventListener('click', async () => {
     try {
       downloadRecoveryCodes(input);
     } catch {
       status.textContent = 'Download failed. Try again.';
+      return;
+    }
+    try {
+      await options.onDownloaded?.();
+    } catch {
+      status.textContent = 'Recovery codes downloaded. Last download status was not updated.';
       return;
     }
     status.textContent = 'Recovery codes downloaded.';
@@ -213,7 +251,21 @@ export async function backupEmailOtpRecoveryCodes(input: {
   appSessionJwt?: string;
   enrollment: EmailOtpEnrollmentResult;
   storageScope?: EmailOtpRecoveryCodeBackupStorageScope;
-}): Promise<EmailOtpBackedUpEnrollmentResult> {
+}): Promise<EmailOtpBackedUpEnrollmentResult>;
+export async function backupEmailOtpRecoveryCodes(input: {
+  relayUrl: string;
+  walletId: string;
+  appSessionJwt?: string;
+  enrollment: GoogleEmailOtpRegistrationBackupEnrollmentInput;
+  storageScope?: EmailOtpRecoveryCodeBackupStorageScope;
+}): Promise<GoogleEmailOtpRegistrationBackedUpEnrollmentResult>;
+export async function backupEmailOtpRecoveryCodes(input: {
+  relayUrl: string;
+  walletId: string;
+  appSessionJwt?: string;
+  enrollment: EmailOtpRecoveryCodeBackupEnrollmentInput;
+  storageScope?: EmailOtpRecoveryCodeBackupStorageScope;
+}): Promise<EmailOtpBackedUpEnrollmentResult | GoogleEmailOtpRegistrationBackedUpEnrollmentResult> {
   const storageScope = input.storageScope || 'host_origin_indexeddb';
   await emailOtpRecoveryCodeBackupRepository.write({
     storageScope,
@@ -239,6 +291,31 @@ export async function backupEmailOtpRecoveryCodes(input: {
       walletId: input.walletId,
       storedAtMs: stored.createdAtMs,
     },
+  };
+}
+
+export async function storeRotatedEmailOtpRecoveryCodes(input: {
+  walletId: string;
+  rotation: EmailOtpRecoveryCodeRotationMaterial;
+  storageScope?: EmailOtpRecoveryCodeBackupStorageScope;
+}): Promise<EmailOtpRecoveryCodeBackupStatus> {
+  const storageScope = input.storageScope || 'host_origin_indexeddb';
+  const stored = await emailOtpRecoveryCodeBackupRepository.write({
+    storageScope,
+    walletId: input.walletId,
+    enrollmentId: input.rotation.enrollmentId,
+    enrollmentSealKeyVersion: input.rotation.enrollmentSealKeyVersion,
+    recoveryCodesIssuedAtMs: input.rotation.recoveryCodesIssuedAtMs,
+    recoveryKeys: input.rotation.recoveryKeys,
+  });
+  return {
+    status: 'active',
+    walletId: input.walletId,
+    enrollmentId: input.rotation.enrollmentId,
+    recoveryCodeCount: input.rotation.recoveryKeys.length,
+    issuedAtMs: input.rotation.recoveryCodesIssuedAtMs,
+    storedAtMs: stored.createdAtMs,
+    activeRecoveryCodeCountAtBackup: input.rotation.activeRecoveryCodeCount,
   };
 }
 

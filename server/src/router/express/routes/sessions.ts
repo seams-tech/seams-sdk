@@ -17,6 +17,7 @@ import {
   handleEmailOtpLoginVerifyAndUnsealRoute,
   handleEmailOtpRecoveryKeyAttemptFailedRoute,
   handleEmailOtpRecoveryKeyConsumeRoute,
+  handleEmailOtpRecoveryKeyRotateRoute,
   handleEmailOtpRecoveryKeyStatusRoute,
   handleEmailOtpRecoveryWrappedEscrowsRoute,
   handleEmailOtpSigningSessionChallengeRoute,
@@ -975,7 +976,10 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
                   ? { registrationAttemptId: googleEmailOtpResolution.registrationAttemptId }
                   : {}),
                 ...(googleEmailOtpResolution.expiresAtMs
-                  ? { expiresAt: new Date(googleEmailOtpResolution.expiresAtMs).toISOString() }
+                  ? {
+                      expiresAt: new Date(googleEmailOtpResolution.expiresAtMs).toISOString(),
+                      expiresAtMs: googleEmailOtpResolution.expiresAtMs,
+                    }
                   : {}),
                 ...(googleEmailOtpResolution.offer
                   ? { offer: googleEmailOtpResolution.offer }
@@ -1608,6 +1612,33 @@ export function registerSessionRoutes(router: ExpressRouter, ctx: ExpressRelayCo
       const clientIp =
         resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
       const response = await handleEmailOtpRecoveryKeyStatusRoute({
+        body: req?.body,
+        claims: validated.claims,
+        userId: validated.userId,
+        appSessionVersion: validated.appSessionVersion,
+        clientIp,
+        service: ctx.service,
+      });
+      res.status(response.status).json(response.body);
+    } catch (e: any) {
+      res.status(500).json(emailOtpInternalErrorBody(e));
+    }
+  });
+
+  router.post('/wallet/email-otp/recovery-key/rotate', async (req: any, res: any) => {
+    try {
+      const validated = await readAndValidateAppSession(req.headers || {});
+      if (!validated.ok) {
+        await maybeEmitWarmExpiredFromValidationFailure({
+          validated,
+          source: 'wallet.email_otp.recovery_key.rotate',
+        });
+        res.status(validated.status).json(validated.body);
+        return;
+      }
+      const clientIp =
+        resolveSourceIpFromExpressRequest({ headers: req.headers || {}, ip: req.ip }) || undefined;
+      const response = await handleEmailOtpRecoveryKeyRotateRoute({
         body: req?.body,
         claims: validated.claims,
         userId: validated.userId,

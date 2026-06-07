@@ -278,6 +278,40 @@ function makeRecoveryWrappedEnrollmentEscrows(
   });
 }
 
+function makeRecoveryRotationEscrowInputs(
+  nowMs = Date.now(),
+): Array<{
+  recoveryKeyId: string;
+  nonceB64u: string;
+  wrappedDeviceEnrollmentEscrowB64u: string;
+  aadHashB64u: string;
+}> {
+  return makeRecoveryWrappedEnrollmentEscrows(nowMs).map((record, index) => {
+    const recoveryKeyId = `rotated-recovery-key-${index + 1}`;
+    return {
+      recoveryKeyId,
+      nonceB64u: base64UrlEncode(
+        Uint8Array.from(Array.from({ length: 12 }, (_, offset) => offset + index + 32)),
+      ),
+      wrappedDeviceEnrollmentEscrowB64u: base64UrlEncode(
+        Uint8Array.from(Array.from({ length: 48 }, (_, offset) => offset + index + 64)),
+      ),
+      aadHashB64u: recoveryEscrowAadHashB64u({
+        walletId: record.walletId,
+        userId: record.userId,
+        authSubjectId: record.authSubjectId,
+        authMethod: record.authMethod,
+        enrollmentId: record.enrollmentId,
+        enrollmentVersion: record.enrollmentVersion,
+        enrollmentSealKeyVersion: record.enrollmentSealKeyVersion,
+        signingRootId: record.signingRootId,
+        signingRootVersion: record.signingRootVersion,
+        recoveryKeyId,
+      }),
+    };
+  });
+}
+
 async function consumeEmailOtpChallengeRateLimit(service: AuthService, clientIp: string) {
   return (service as any).consumeEmailOtpRateLimit({
     scope: 'challenge',
@@ -798,11 +832,12 @@ test.describe('AuthService Email OTP policy', () => {
     expect(recovered?.ok).toBe(true);
     if (!recovered?.ok) return;
     expect(recovered.recoveryWrappedEnrollmentEscrows).toHaveLength(EMAIL_OTP_RECOVERY_KEY_COUNT);
-    expect(
-      recovered.recoveryWrappedEnrollmentEscrows.some(
-        (record) => record.recoveryKeyId === 'stale-recovery-key',
-      ),
-    ).toBe(false);
+    expect(JSON.stringify(recovered.recoveryWrappedEnrollmentEscrows)).not.toContain(
+      'recoveryKeyId',
+    );
+    expect(JSON.stringify(recovered.recoveryWrappedEnrollmentEscrows)).not.toContain(
+      'stale-recovery-key',
+    );
     expect(recovered.enrollment).toMatchObject({
       enrollmentId: RECOVERY_ENROLLMENT_ID,
       enrollmentVersion: RECOVERY_ENROLLMENT_VERSION,
@@ -822,6 +857,70 @@ test.describe('AuthService Email OTP policy', () => {
     expect(staleConsume.ok).toBe(false);
     if (staleConsume.ok) return;
     expect(staleConsume.code).toBe('recovery_key_binding_mismatch');
+  });
+
+  test('Email OTP recovery-code rotation replaces active records and revokes the old set after fresh auth', async () => {
+    const service = makeService();
+    await enrollRecoveryWallet(service);
+
+    const unauthenticatedRotate = await service.rotateEmailOtpRecoveryKeys({
+      userId: USER_ID,
+      walletId: WALLET_ID,
+      orgId: ORG_ID,
+      enrollmentId: RECOVERY_ENROLLMENT_ID,
+      enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+      recoveryWrappedEnrollmentEscrows: makeRecoveryRotationEscrowInputs(),
+    });
+    expect(unauthenticatedRotate.ok).toBe(false);
+    if (unauthenticatedRotate.ok) return;
+    expect(unauthenticatedRotate.code).toBe('fresh_auth_required');
+
+    const freshAuth = await service.markEmailOtpStrongAuthSatisfied({ walletId: WALLET_ID });
+    expect(freshAuth.ok).toBe(true);
+    const rotated = await service.rotateEmailOtpRecoveryKeys({
+      userId: USER_ID,
+      walletId: WALLET_ID,
+      orgId: ORG_ID,
+      enrollmentId: RECOVERY_ENROLLMENT_ID,
+      enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+      recoveryWrappedEnrollmentEscrows: makeRecoveryRotationEscrowInputs(),
+    });
+    expect(rotated).toMatchObject({
+      ok: true,
+      walletId: WALLET_ID,
+      enrollmentId: RECOVERY_ENROLLMENT_ID,
+      enrollmentSealKeyVersion: EMAIL_OTP_KEY_VERSION,
+      activeRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
+      revokedRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
+      totalRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT * 2,
+    });
+
+    const records = await (service as any)
+      .getEmailOtpRecoveryWrappedEnrollmentEscrowStore()
+      .listByWallet(WALLET_ID);
+    expect(records.filter((record: any) => record.recoveryKeyStatus === 'active')).toHaveLength(
+      EMAIL_OTP_RECOVERY_KEY_COUNT,
+    );
+    expect(records.filter((record: any) => record.recoveryKeyStatus === 'revoked')).toHaveLength(
+      EMAIL_OTP_RECOVERY_KEY_COUNT,
+    );
+    expect(records.some((record: any) => record.recoveryKeyId === 'recovery-key-1')).toBe(true);
+    expect(records.some((record: any) => record.recoveryKeyId === 'rotated-recovery-key-1')).toBe(
+      true,
+    );
+
+    const status = await service.getEmailOtpRecoveryCodeStatus({
+      userId: USER_ID,
+      walletId: WALLET_ID,
+      orgId: ORG_ID,
+    });
+    expect(status).toMatchObject({
+      ok: true,
+      status: 'ready',
+      activeRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
+      revokedRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT,
+      totalRecoveryCodeCount: EMAIL_OTP_RECOVERY_KEY_COUNT * 2,
+    });
   });
 
   test('Email OTP login challenges bind export_key operation through verification', async () => {
@@ -1981,9 +2080,14 @@ test.describe('AuthService Email OTP policy', () => {
         });
         expect(failureReport.ok).toBe(true);
 
+        const activeRecords = await (
+          service as any
+        ).getEmailOtpRecoveryWrappedEnrollmentEscrowStore().listActiveByWallet(WALLET_ID);
+        const recoveryKeyId = activeRecords[0]?.recoveryKeyId;
+        expect(typeof recoveryKeyId).toBe('string');
         const consume = await service.consumeEmailOtpRecoveryKey({
           recoveryConsumeGrant: recovered.recoveryConsumeGrant,
-          recoveryKeyId: recovered.recoveryWrappedEnrollmentEscrows[0]?.recoveryKeyId,
+          recoveryKeyId,
           userId: USER_ID,
           walletId: WALLET_ID,
           orgId: ORG_ID,
