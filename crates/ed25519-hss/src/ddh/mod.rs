@@ -22,6 +22,7 @@ pub use hidden_eval_executor::{
     execute_prime_order_ddh_hidden_eval_program_for_clear_input_profiled,
     execute_prime_order_ddh_hidden_eval_program_profiled,
     probe_prime_order_ddh_hidden_eval_program, DdhHiddenEvalCheckpoint,
-    DdhHiddenEvalClientOutputProjection, DdhHiddenEvalInputBundles, DdhHiddenEvalOutputBundles,
-    DdhHiddenEvalProbe, DdhHiddenEvalProfile, DdhHiddenEvalRun, DdhHiddenEvalStageProfile,
+    DdhHiddenEvalClientOutputProjection, DdhHiddenEvalInputBundles, DdhHiddenEvalOperationCounts,
+    DdhHiddenEvalOutputBundles, DdhHiddenEvalProbe, DdhHiddenEvalProfile, DdhHiddenEvalRun,
+    DdhHiddenEvalStageProfile,
 };

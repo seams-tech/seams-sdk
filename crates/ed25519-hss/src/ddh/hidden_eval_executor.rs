@@ -298,9 +298,42 @@ pub struct DdhHiddenEvalStageProfile {
     pub round_new_a_bits_duration_ns: u128,
     pub round_new_e_bits_duration_ns: u128,
     pub output_projector_duration_ns: u128,
+    pub output_projector_core_duration_ns: u128,
+    pub output_projector_clamp_a_duration_ns: u128,
+    pub output_projector_reduce_a_duration_ns: u128,
+    pub output_projector_tau_duration_ns: u128,
+    pub output_projector_mask_share_duration_ns: u128,
+    pub output_projector_mask_add_duration_ns: u128,
+    pub output_projector_client_base_duration_ns: u128,
+    pub output_projector_client_output_duration_ns: u128,
+    pub output_projector_tau_double_duration_ns: u128,
+    pub output_projector_relayer_output_duration_ns: u128,
+    pub output_projector_bundle_build_duration_ns: u128,
+    pub output_projector_local_word_materializations: u64,
     pub total_duration_ns: u128,
     #[serde(default)]
     pub operation_counts: DdhHiddenEvalOperationCounts,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct OutputProjectorProfile {
+    core_duration_ns: u128,
+    clamp_a_duration_ns: u128,
+    reduce_a_duration_ns: u128,
+    tau_duration_ns: u128,
+    mask_share_duration_ns: u128,
+    mask_add_duration_ns: u128,
+    client_base_duration_ns: u128,
+    client_output_duration_ns: u128,
+    tau_double_duration_ns: u128,
+    relayer_output_duration_ns: u128,
+    bundle_build_duration_ns: u128,
+    local_word_materializations: u64,
+}
+
+struct OutputProjectorExecution {
+    output: DdhHiddenEvalOutputBundles,
+    profile: OutputProjectorProfile,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -1298,6 +1331,18 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 round_new_a_bits_duration_ns: 0,
                 round_new_e_bits_duration_ns: 0,
                 output_projector_duration_ns: 0,
+                output_projector_core_duration_ns: 0,
+                output_projector_clamp_a_duration_ns: 0,
+                output_projector_reduce_a_duration_ns: 0,
+                output_projector_tau_duration_ns: 0,
+                output_projector_mask_share_duration_ns: 0,
+                output_projector_mask_add_duration_ns: 0,
+                output_projector_client_base_duration_ns: 0,
+                output_projector_client_output_duration_ns: 0,
+                output_projector_tau_double_duration_ns: 0,
+                output_projector_relayer_output_duration_ns: 0,
+                output_projector_bundle_build_duration_ns: 0,
+                output_projector_local_word_materializations: 0,
                 total_duration_ns: elapsed_ns(total_started_ns),
                 operation_counts: DdhHiddenEvalOperationCounts::default(),
             },
@@ -1346,6 +1391,18 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 round_new_a_bits_duration_ns: 0,
                 round_new_e_bits_duration_ns: 0,
                 output_projector_duration_ns: 0,
+                output_projector_core_duration_ns: 0,
+                output_projector_clamp_a_duration_ns: 0,
+                output_projector_reduce_a_duration_ns: 0,
+                output_projector_tau_duration_ns: 0,
+                output_projector_mask_share_duration_ns: 0,
+                output_projector_mask_add_duration_ns: 0,
+                output_projector_client_base_duration_ns: 0,
+                output_projector_client_output_duration_ns: 0,
+                output_projector_tau_double_duration_ns: 0,
+                output_projector_relayer_output_duration_ns: 0,
+                output_projector_bundle_build_duration_ns: 0,
+                output_projector_local_word_materializations: 0,
                 total_duration_ns: elapsed_ns(total_started_ns),
                 operation_counts: DdhHiddenEvalOperationCounts::default(),
             },
@@ -1394,6 +1451,18 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 round_new_a_bits_duration_ns: 0,
                 round_new_e_bits_duration_ns: 0,
                 output_projector_duration_ns: 0,
+                output_projector_core_duration_ns: 0,
+                output_projector_clamp_a_duration_ns: 0,
+                output_projector_reduce_a_duration_ns: 0,
+                output_projector_tau_duration_ns: 0,
+                output_projector_mask_share_duration_ns: 0,
+                output_projector_mask_add_duration_ns: 0,
+                output_projector_client_base_duration_ns: 0,
+                output_projector_client_output_duration_ns: 0,
+                output_projector_tau_double_duration_ns: 0,
+                output_projector_relayer_output_duration_ns: 0,
+                output_projector_bundle_build_duration_ns: 0,
+                output_projector_local_word_materializations: 0,
                 total_duration_ns: elapsed_ns(total_started_ns),
                 operation_counts: DdhHiddenEvalOperationCounts::default(),
             },
@@ -1455,6 +1524,18 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 round_new_a_bits_duration_ns,
                 round_new_e_bits_duration_ns,
                 output_projector_duration_ns: 0,
+                output_projector_core_duration_ns: 0,
+                output_projector_clamp_a_duration_ns: 0,
+                output_projector_reduce_a_duration_ns: 0,
+                output_projector_tau_duration_ns: 0,
+                output_projector_mask_share_duration_ns: 0,
+                output_projector_mask_add_duration_ns: 0,
+                output_projector_client_base_duration_ns: 0,
+                output_projector_client_output_duration_ns: 0,
+                output_projector_tau_double_duration_ns: 0,
+                output_projector_relayer_output_duration_ns: 0,
+                output_projector_bundle_build_duration_ns: 0,
+                output_projector_local_word_materializations: 0,
                 total_duration_ns: elapsed_ns(total_started_ns),
                 operation_counts: DdhHiddenEvalOperationCounts::default(),
             },
@@ -1464,7 +1545,7 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
     }
 
     let output_started_ns = monotonic_now_ns();
-    let _ = execute_output_projector_stage(
+    let output_execution = execute_output_projector_stage(
         backend,
         constant_pool,
         &program.stages[6],
@@ -1475,6 +1556,7 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
         &input_bundles.server_inputs.tau_relayer_bits.right_words,
         DdhHiddenEvalClientOutputProjection::trusted_server_projection(),
     )?;
+    let output_projector_profile = output_execution.profile;
     let output_projector_duration_ns = elapsed_ns(output_started_ns);
 
     Ok(DdhHiddenEvalProbe {
@@ -1510,6 +1592,25 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
             round_new_a_bits_duration_ns,
             round_new_e_bits_duration_ns,
             output_projector_duration_ns,
+            output_projector_core_duration_ns: output_projector_profile.core_duration_ns,
+            output_projector_clamp_a_duration_ns: output_projector_profile.clamp_a_duration_ns,
+            output_projector_reduce_a_duration_ns: output_projector_profile.reduce_a_duration_ns,
+            output_projector_tau_duration_ns: output_projector_profile.tau_duration_ns,
+            output_projector_mask_share_duration_ns: output_projector_profile
+                .mask_share_duration_ns,
+            output_projector_mask_add_duration_ns: output_projector_profile.mask_add_duration_ns,
+            output_projector_client_base_duration_ns: output_projector_profile
+                .client_base_duration_ns,
+            output_projector_client_output_duration_ns: output_projector_profile
+                .client_output_duration_ns,
+            output_projector_tau_double_duration_ns: output_projector_profile
+                .tau_double_duration_ns,
+            output_projector_relayer_output_duration_ns: output_projector_profile
+                .relayer_output_duration_ns,
+            output_projector_bundle_build_duration_ns: output_projector_profile
+                .bundle_build_duration_ns,
+            output_projector_local_word_materializations: output_projector_profile
+                .local_word_materializations,
             total_duration_ns: elapsed_ns(total_started_ns),
             operation_counts: DdhHiddenEvalOperationCounts::default(),
         },
@@ -1713,7 +1814,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
     checkpoints.record_round_core(&hash_core.final_words)?;
 
     let output_started_ns = monotonic_now_ns();
-    let output = execute_output_projector_stage(
+    let output_execution = execute_output_projector_stage(
         backend,
         constant_pool,
         &program.stages[6],
@@ -1724,6 +1825,8 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
         &input_bundles.server_inputs.tau_relayer_bits.right_words,
         DdhHiddenEvalClientOutputProjection::trusted_server_projection(),
     )?;
+    let output = output_execution.output;
+    let output_projector_profile = output_execution.profile;
     let output_projector_duration_ns = elapsed_ns(output_started_ns);
     checkpoints.record_output_projection(&output);
     let operation_counts = count_hidden_eval_operation_shape(
@@ -1771,6 +1874,25 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
             round_new_a_bits_duration_ns,
             round_new_e_bits_duration_ns,
             output_projector_duration_ns,
+            output_projector_core_duration_ns: output_projector_profile.core_duration_ns,
+            output_projector_clamp_a_duration_ns: output_projector_profile.clamp_a_duration_ns,
+            output_projector_reduce_a_duration_ns: output_projector_profile.reduce_a_duration_ns,
+            output_projector_tau_duration_ns: output_projector_profile.tau_duration_ns,
+            output_projector_mask_share_duration_ns: output_projector_profile
+                .mask_share_duration_ns,
+            output_projector_mask_add_duration_ns: output_projector_profile.mask_add_duration_ns,
+            output_projector_client_base_duration_ns: output_projector_profile
+                .client_base_duration_ns,
+            output_projector_client_output_duration_ns: output_projector_profile
+                .client_output_duration_ns,
+            output_projector_tau_double_duration_ns: output_projector_profile
+                .tau_double_duration_ns,
+            output_projector_relayer_output_duration_ns: output_projector_profile
+                .relayer_output_duration_ns,
+            output_projector_bundle_build_duration_ns: output_projector_profile
+                .bundle_build_duration_ns,
+            output_projector_local_word_materializations: output_projector_profile
+                .local_word_materializations,
             total_duration_ns: elapsed_ns(total_started_ns),
             operation_counts,
         },
@@ -1856,7 +1978,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
     checkpoints.record_round_core(&hash_core.final_words)?;
 
     let output_started_ns = monotonic_now_ns();
-    let output = execute_output_projector_stage(
+    let output_execution = execute_output_projector_stage(
         backend,
         constant_pool,
         &program.stages[6],
@@ -1867,6 +1989,8 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
         &tau_relayer_bits.right_words,
         client_output_projection,
     )?;
+    let output = output_execution.output;
+    let output_projector_profile = output_execution.profile;
     let output_projector_duration_ns = elapsed_ns(output_started_ns);
     checkpoints.record_output_projection(&output);
     let operation_counts = count_hidden_eval_operation_shape(
@@ -1914,6 +2038,25 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
             round_new_a_bits_duration_ns,
             round_new_e_bits_duration_ns,
             output_projector_duration_ns,
+            output_projector_core_duration_ns: output_projector_profile.core_duration_ns,
+            output_projector_clamp_a_duration_ns: output_projector_profile.clamp_a_duration_ns,
+            output_projector_reduce_a_duration_ns: output_projector_profile.reduce_a_duration_ns,
+            output_projector_tau_duration_ns: output_projector_profile.tau_duration_ns,
+            output_projector_mask_share_duration_ns: output_projector_profile
+                .mask_share_duration_ns,
+            output_projector_mask_add_duration_ns: output_projector_profile.mask_add_duration_ns,
+            output_projector_client_base_duration_ns: output_projector_profile
+                .client_base_duration_ns,
+            output_projector_client_output_duration_ns: output_projector_profile
+                .client_output_duration_ns,
+            output_projector_tau_double_duration_ns: output_projector_profile
+                .tau_double_duration_ns,
+            output_projector_relayer_output_duration_ns: output_projector_profile
+                .relayer_output_duration_ns,
+            output_projector_bundle_build_duration_ns: output_projector_profile
+                .bundle_build_duration_ns,
+            output_projector_local_word_materializations: output_projector_profile
+                .local_word_materializations,
             total_duration_ns: elapsed_ns(total_started_ns),
             operation_counts,
         },
@@ -2334,6 +2477,7 @@ pub fn materialize_output_bundles_from_continuations_with_pool<B: DdhHssArithmet
         &projector_inputs.tau_relayer_right_bits,
         DdhHiddenEvalClientOutputProjection::trusted_server_projection(),
     )
+    .map(|execution| execution.output)
 }
 
 pub fn materialize_server_output_bundles_from_continuations_with_pool<
@@ -2395,6 +2539,7 @@ pub fn materialize_output_bundles_from_projector_inputs_with_pool<B: DdhHssArith
         &projector_inputs.tau_relayer_right_bits,
         DdhHiddenEvalClientOutputProjection::trusted_server_projection(),
     )
+    .map(|execution| execution.output)
 }
 
 pub fn materialize_staged_server_execution_with_split_server_inputs_with_pool<
@@ -2794,7 +2939,7 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
     tau_relayer_left_bits: &[DdhHssTransportWord],
     tau_relayer_right_bits: &[DdhHssTransportWord],
     client_output_projection: DdhHiddenEvalClientOutputProjection,
-) -> ProtoResult<DdhHiddenEvalOutputBundles> {
+) -> ProtoResult<OutputProjectorExecution> {
     if stage.kind != HiddenEvalStageKind::OutputProjector {
         return Err(ProtoError::InvalidInput(
             "unexpected output-projector stage kind".to_string(),
@@ -2804,6 +2949,7 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
     let OutputProjectorCoreBits {
         reduced_a_bits,
         tau_bits,
+        profile: core_profile,
     } = compute_output_projector_core_bits(
         backend,
         constant_pool,
@@ -2812,8 +2958,10 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
         tau_relayer_left_bits,
         tau_relayer_right_bits,
     )?;
+    let mut profile = core_profile;
     let (client_output_bits, x_relayer_base_bits) = match client_output_projection {
         DdhHiddenEvalClientOutputProjection::TrustedServerProjection => {
+            let client_base_started_ns = monotonic_now_ns();
             let client_base_bits = add_words_bits_mod_l_canonical_inputs_local(
                 backend,
                 &reduced_a_bits,
@@ -2823,6 +2971,13 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
                 &constant_pool.one_left,
                 &constant_pool.one_right,
             )?;
+            profile.client_base_duration_ns = elapsed_ns(client_base_started_ns);
+            profile.local_word_materializations =
+                profile.local_word_materializations.saturating_add(
+                    split_local_bit_word_materialization_count(&client_base_bits),
+                );
+            profile.client_output_duration_ns = profile.client_base_duration_ns;
+            let relayer_output_started_ns = monotonic_now_ns();
             let relayer_base_bits = add_words_bits_mod_l_canonical_inputs_local(
                 backend,
                 &client_base_bits,
@@ -2832,58 +2987,75 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
                 &constant_pool.one_left,
                 &constant_pool.one_right,
             )?;
+            profile.relayer_output_duration_ns = elapsed_ns(relayer_output_started_ns);
+            profile.local_word_materializations =
+                profile.local_word_materializations.saturating_add(
+                    split_local_bit_word_materialization_count(&relayer_base_bits),
+                );
             (client_base_bits, relayer_base_bits)
         }
         DdhHiddenEvalClientOutputProjection::ClientMaskedProjection { client_output_mask } => {
             let canonical_mask = Scalar::from_bytes_mod_order(client_output_mask).to_bytes();
+            let mask_share_started_ns = monotonic_now_ns();
             let mask_bundle = backend.share_input_bit_bundle(
                 HiddenEvalInputOwner::Client,
                 "client_output_mask",
                 &canonical_mask,
             )?;
-            let mask_bits = SplitLocalBitWord::from_shared_bits(&mask_bundle.words)?;
-            let tau_plus_mask_bits = add_words_bits_mod_l_canonical_inputs_local(
-                backend,
-                &tau_bits,
-                &mask_bits,
-                &constant_pool.zero_left,
-                &constant_pool.zero_right,
-                &constant_pool.one_left,
-                &constant_pool.one_right,
-            )?;
-            let client_blinded_bits = add_words_bits_mod_l_canonical_inputs_local(
+            profile.mask_share_duration_ns = elapsed_ns(mask_share_started_ns);
+            let client_base_started_ns = monotonic_now_ns();
+            let client_base_bits = add_words_bits_mod_l_canonical_inputs_local(
                 backend,
                 &reduced_a_bits,
-                &tau_plus_mask_bits,
-                &constant_pool.zero_left,
-                &constant_pool.zero_right,
-                &constant_pool.one_left,
-                &constant_pool.one_right,
-            )?;
-            let two_tau_bits = add_words_bits_mod_l_canonical_inputs_local(
-                backend,
-                &tau_bits,
                 &tau_bits,
                 &constant_pool.zero_left,
                 &constant_pool.zero_right,
                 &constant_pool.one_left,
                 &constant_pool.one_right,
             )?;
+            profile.client_base_duration_ns = elapsed_ns(client_base_started_ns);
+            profile.local_word_materializations =
+                profile.local_word_materializations.saturating_add(
+                    split_local_bit_word_materialization_count(&client_base_bits),
+                );
+            let client_output_started_ns = monotonic_now_ns();
+            let client_blinded_bits =
+                add_words_bits_mod_l_canonical_inputs_right_shared_bits_local(
+                    backend,
+                    &client_base_bits,
+                    &mask_bundle.words,
+                    &constant_pool.zero_left,
+                    &constant_pool.zero_right,
+                    &constant_pool.one_left,
+                    &constant_pool.one_right,
+                )?;
+            profile.client_output_duration_ns = elapsed_ns(client_output_started_ns);
+            profile.local_word_materializations =
+                profile.local_word_materializations.saturating_add(
+                    split_local_bit_word_materialization_count(&client_blinded_bits),
+                );
+            let relayer_output_started_ns = monotonic_now_ns();
             let relayer_base_bits = add_words_bits_mod_l_canonical_inputs_local(
                 backend,
-                &reduced_a_bits,
-                &two_tau_bits,
+                &client_base_bits,
+                &tau_bits,
                 &constant_pool.zero_left,
                 &constant_pool.zero_right,
                 &constant_pool.one_left,
                 &constant_pool.one_right,
             )?;
+            profile.relayer_output_duration_ns = elapsed_ns(relayer_output_started_ns);
+            profile.local_word_materializations =
+                profile.local_word_materializations.saturating_add(
+                    split_local_bit_word_materialization_count(&relayer_base_bits),
+                );
             (client_blinded_bits, relayer_base_bits)
         }
     };
     let client_output_value_kind = client_output_projection.value_kind();
 
-    Ok(DdhHiddenEvalOutputBundles {
+    let bundle_build_started_ns = monotonic_now_ns();
+    let output = DdhHiddenEvalOutputBundles {
         canonical_seed: build_hidden_bit_output_bundle(
             backend,
             HiddenEvalInputOwner::Client,
@@ -2913,7 +3085,18 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
             &x_relayer_base_bits,
             DdhHssShareSide::Right,
         )?,
-    })
+    };
+    profile.bundle_build_duration_ns = elapsed_ns(bundle_build_started_ns);
+
+    Ok(OutputProjectorExecution { output, profile })
+}
+
+fn split_local_bit_word_materialization_count(word: &SplitLocalBitWord) -> u64 {
+    word.left
+        .len()
+        .saturating_add(word.right.len())
+        .try_into()
+        .unwrap_or(u64::MAX)
 }
 
 fn execute_server_output_projector_stage<B: DdhHssArithmeticBackend>(
@@ -2935,6 +3118,7 @@ fn execute_server_output_projector_stage<B: DdhHssArithmeticBackend>(
     let OutputProjectorCoreBits {
         reduced_a_bits,
         tau_bits,
+        profile: _,
     } = compute_output_projector_core_bits(
         backend,
         constant_pool,
@@ -2989,6 +3173,7 @@ fn execute_server_output_projector_stage<B: DdhHssArithmeticBackend>(
 struct OutputProjectorCoreBits {
     reduced_a_bits: SplitLocalBitWord,
     tau_bits: SplitLocalBitWord,
+    profile: OutputProjectorProfile,
 }
 
 fn compute_output_projector_core_bits<B: DdhHssArithmeticBackend>(
@@ -2999,6 +3184,8 @@ fn compute_output_projector_core_bits<B: DdhHssArithmeticBackend>(
     tau_relayer_left_bits: &[DdhHssTransportWord],
     tau_relayer_right_bits: &[DdhHssTransportWord],
 ) -> ProtoResult<OutputProjectorCoreBits> {
+    let core_started_ns = monotonic_now_ns();
+    let clamp_started_ns = monotonic_now_ns();
     let clamped_a_bits = extract_clamped_a_bits_local(
         final_words,
         &constant_pool.zero_left,
@@ -3006,6 +3193,8 @@ fn compute_output_projector_core_bits<B: DdhHssArithmeticBackend>(
         &constant_pool.one_left,
         &constant_pool.one_right,
     )?;
+    let clamp_a_duration_ns = elapsed_ns(clamp_started_ns);
+    let reduce_started_ns = monotonic_now_ns();
     let reduced_a_bits = reduce_scalar_bits_mod_l_with_constants_local(
         backend,
         "scalar_a",
@@ -3016,6 +3205,8 @@ fn compute_output_projector_core_bits<B: DdhHssArithmeticBackend>(
         &constant_pool.one_right,
         7,
     )?;
+    let reduce_a_duration_ns = elapsed_ns(reduce_started_ns);
+    let tau_started_ns = monotonic_now_ns();
     let tau_bits = add_words_bits_mod_l_canonical_inputs_right_transport_bundles_local(
         backend,
         tau_client_bits,
@@ -3026,9 +3217,20 @@ fn compute_output_projector_core_bits<B: DdhHssArithmeticBackend>(
         &constant_pool.one_left,
         &constant_pool.one_right,
     )?;
+    let tau_duration_ns = elapsed_ns(tau_started_ns);
+    let local_word_materializations = split_local_bit_word_materialization_count(&reduced_a_bits)
+        .saturating_add(split_local_bit_word_materialization_count(&tau_bits));
     Ok(OutputProjectorCoreBits {
         reduced_a_bits,
         tau_bits,
+        profile: OutputProjectorProfile {
+            core_duration_ns: elapsed_ns(core_started_ns),
+            clamp_a_duration_ns,
+            reduce_a_duration_ns,
+            tau_duration_ns,
+            local_word_materializations,
+            ..OutputProjectorProfile::default()
+        },
     })
 }
 
@@ -3243,6 +3445,50 @@ fn add_words_bits_mod_l_canonical_inputs_right_transport_bundles_local<
     let (geq_modulus_left, geq_modulus_right) = xor_local_word_pairs_public(
         backend.evaluation_key(),
         b"reduce_mod_l/server_input/geq",
+        &borrow_left,
+        &borrow_right,
+        one_left,
+        one_right,
+    )?;
+    select_local_bit_words(
+        backend,
+        "reduce_mod_l/select",
+        &geq_modulus_left,
+        &geq_modulus_right,
+        &difference,
+        &sum,
+    )
+}
+
+fn add_words_bits_mod_l_canonical_inputs_right_shared_bits_local<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    left: &SplitLocalBitWord,
+    right: &[DdhHssSharedWord],
+    zero_left: &DdhHssLocalWord,
+    zero_right: &DdhHssLocalWord,
+    one_left: &DdhHssLocalWord,
+    one_right: &DdhHssLocalWord,
+) -> ProtoResult<SplitLocalBitWord> {
+    let sum = add_two_local_bit_words_right_shared_bits(
+        backend,
+        "reduce_mod_l/canonical/sum",
+        left,
+        right,
+        zero_left,
+        zero_right,
+    )?;
+    let (difference, borrow_left, borrow_right) = sub_local_bit_words_with_ed25519_l(
+        backend,
+        "reduce_mod_l/canonical/sub",
+        &sum,
+        zero_left,
+        zero_right,
+        one_left,
+        one_right,
+    )?;
+    let (geq_modulus_left, geq_modulus_right) = xor_local_word_pairs_public(
+        backend.evaluation_key(),
+        b"reduce_mod_l/geq",
         &borrow_left,
         &borrow_right,
         one_left,
@@ -4293,6 +4539,88 @@ fn add_two_local_bit_words_right_transport_bundles<B: DdhHssArithmeticBackend>(
         let left_right_word = left.right.local_word(idx)?;
         let right_left_word = local_word_from_transport_public(&right_left[idx])?;
         let right_right_word = local_word_from_transport_public(&right_right[idx])?;
+        set_indexed_child_label(&mut bit_label, label, "xor_ab", idx);
+        let (xor_ab_left, xor_ab_right) = xor_local_word_pairs_public(
+            backend.evaluation_key(),
+            bit_label.as_bytes(),
+            &left_left_word,
+            &left_right_word,
+            &right_left_word,
+            &right_right_word,
+        )?;
+        set_indexed_child_label(&mut bit_label, label, "sum", idx);
+        let (sum_left, sum_right) = xor_local_word_pairs_public(
+            backend.evaluation_key(),
+            bit_label.as_bytes(),
+            &xor_ab_left,
+            &xor_ab_right,
+            &carry_left,
+            &carry_right,
+        )?;
+        set_indexed_child_label(&mut bit_label, label, "a_xor_carry", idx);
+        let (a_xor_carry_left, a_xor_carry_right) = xor_local_word_pairs_public(
+            backend.evaluation_key(),
+            bit_label.as_bytes(),
+            &left_left_word,
+            &left_right_word,
+            &carry_left,
+            &carry_right,
+        )?;
+        set_indexed_child_label(&mut bit_label, label, "carry", idx);
+        let (carry_gate_left, carry_gate_right) = eval_mul_local_word_pairs_public(
+            backend.evaluation_key(),
+            bit_label.as_bytes(),
+            &xor_ab_left,
+            &xor_ab_right,
+            &a_xor_carry_left,
+            &a_xor_carry_right,
+        )?;
+        set_indexed_child_label(&mut bit_label, label, "next_carry", idx);
+        (carry_left, carry_right) = xor_local_word_pairs_public(
+            backend.evaluation_key(),
+            bit_label.as_bytes(),
+            &left_left_word,
+            &left_right_word,
+            &carry_gate_left,
+            &carry_gate_right,
+        )?;
+        out_left.push_local_word(&sum_left)?;
+        out_right.push_local_word(&sum_right)?;
+    }
+    SplitLocalBitWord::from_local_sides(out_left, out_right)
+}
+
+fn add_two_local_bit_words_right_shared_bits<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    label: &str,
+    left: &SplitLocalBitWord,
+    right: &[DdhHssSharedWord],
+    zero_left: &DdhHssLocalWord,
+    zero_right: &DdhHssLocalWord,
+) -> ProtoResult<SplitLocalBitWord> {
+    if left.len() != right.len() {
+        return Err(ProtoError::InvalidInput(format!(
+            "word addition requires same-width bit slices, got {} and {}",
+            left.len(),
+            right.len()
+        )));
+    }
+    let mut out_left = empty_local_bit_slice(DdhHssShareSide::Left, left.len());
+    let mut out_right = empty_local_bit_slice(DdhHssShareSide::Right, left.len());
+    let mut carry_left = zero_left.clone();
+    let mut carry_right = zero_right.clone();
+    let mut bit_label = String::with_capacity(label.len() + 32);
+    for (idx, right_word) in right.iter().enumerate() {
+        if right_word.width_bits != 1 {
+            return Err(ProtoError::InvalidInput(format!(
+                "word addition requires width-1 shared bits, got {} at index {idx}",
+                right_word.width_bits
+            )));
+        }
+        let left_left_word = left.left.local_word(idx)?;
+        let left_right_word = left.right.local_word(idx)?;
+        let right_left_word = local_word_from_shared(right_word, DdhHssShareSide::Left);
+        let right_right_word = local_word_from_shared(right_word, DdhHssShareSide::Right);
         set_indexed_child_label(&mut bit_label, label, "xor_ab", idx);
         let (xor_ab_left, xor_ab_right) = xor_local_word_pairs_public(
             backend.evaluation_key(),

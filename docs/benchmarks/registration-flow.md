@@ -1,16 +1,16 @@
 # Registration Flow Benchmark Report
 
-Generated: 2026-06-08T05:32:04.303Z
-Run ID: `20260608-053047Z`
+Generated: 2026-06-08T09:23:12.305Z
+Run ID: `20260608-092157Z`
 
 ## Scenario Summary
 
 | Scenario | Description | Status | Successful Runs | browser p50 (ms) | browser p95 (ms) | SDK p50 (ms) | SDK p95 (ms) | Relay diagnostics | HSS client timings | HSS worker diagnostics |
 |---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `passkey_ed25519_only_wallet_iframe` | Passkey registration, Ed25519 only, wallet iframe runtime | ok | 5 / 5 | 3210.0 | 4314.0 | 2112.0 | 2625.0 | 15 | 10 | 15 |
-| `passkey_ed25519_and_ecdsa_wallet_iframe` | Passkey registration, Ed25519 plus ECDSA, wallet iframe runtime | ok | 5 / 5 | 3228.0 | 3981.0 | 2134.0 | 2359.0 | 15 | 10 | 15 |
-| `passkey_ed25519_only_host_origin` | Passkey registration, Ed25519 only, host-origin runtime | ok | 5 / 5 | 2816.0 | 2969.0 | 1933.0 | 2076.0 | 15 | 18 | 23 |
-| `passkey_ed25519_and_ecdsa_host_origin` | Passkey registration, Ed25519 plus ECDSA, host-origin runtime | ok | 5 / 5 | 2845.0 | 2978.0 | 1958.0 | 2079.0 | 15 | 18 | 23 |
+| `passkey_ed25519_only_wallet_iframe` | Passkey registration, Ed25519 only, wallet iframe runtime | ok | 5 / 5 | 3334.0 | 4177.0 | 1997.0 | 2548.0 | 15 | 10 | 15 |
+| `passkey_ed25519_and_ecdsa_wallet_iframe` | Passkey registration, Ed25519 plus ECDSA, wallet iframe runtime | ok | 5 / 5 | 3115.0 | 3890.0 | 2036.0 | 2265.0 | 15 | 10 | 15 |
+| `passkey_ed25519_only_host_origin` | Passkey registration, Ed25519 only, host-origin runtime | ok | 5 / 5 | 2594.0 | 2797.0 | 1717.0 | 1973.0 | 15 | 18 | 23 |
+| `passkey_ed25519_and_ecdsa_host_origin` | Passkey registration, Ed25519 plus ECDSA, host-origin runtime | ok | 5 / 5 | 2635.0 | 2902.0 | 1750.0 | 2014.0 | 15 | 18 | 23 |
 
 ## passkey_ed25519_only_wallet_iframe
 
@@ -29,28 +29,28 @@ Run ID: `20260608-053047Z`
 
 | Bucket | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Max (ms) |
 |---|---:|---:|---:|---:|---:|---:|
-| `authProofMs` | 5 | 552.0 | 837.0 | 837.0 | 655.0 | 837.0 |
-| `browserRunDurationMs` | 5 | 3210.0 | 4314.0 | 4314.0 | 3526.0 | 4314.0 |
+| `authProofMs` | 5 | 517.0 | 856.0 | 856.0 | 637.4 | 856.0 |
+| `browserRunDurationMs` | 5 | 3334.0 | 4177.0 | 4177.0 | 3470.2 | 4177.0 |
 | `ecdsaClientBootstrapMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `ecdsaRegistrationPersistenceMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `ed25519ClientMaterialMs` | 5 | 25.0 | 27.0 | 27.0 | 23.6 | 27.0 |
-| `ed25519ClientRequestMs` | 5 | 133.0 | 141.0 | 141.0 | 134.2 | 141.0 |
+| `ed25519ClientMaterialMs` | 5 | 22.0 | 26.0 | 26.0 | 22.4 | 26.0 |
+| `ed25519ClientRequestMs` | 5 | 134.0 | 140.0 | 140.0 | 135.0 | 140.0 |
 | `ed25519CompletionParseMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `ed25519EvaluationArtifactMs` | 5 | 668.0 | 677.0 | 677.0 | 669.0 | 677.0 |
+| `ed25519EvaluationArtifactMs` | 5 | 573.0 | 574.0 | 574.0 | 572.8 | 574.0 |
 | `emailOtpEnrollmentMaterialMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `emailOtpRecoveryCodeBackupMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `immediateSigningLaneAssertionMs` | 5 | 5.0 | 8.0 | 8.0 | 5.4 | 8.0 |
-| `inputValidationMs` | 5 | 2.0 | 6.0 | 6.0 | 3.0 | 6.0 |
-| `localWalletRegistrationPersistenceMs` | 5 | 19.0 | 24.0 | 24.0 | 19.6 | 24.0 |
-| `managedRegistrationGrantMs` | 5 | 6.0 | 14.0 | 14.0 | 6.6 | 14.0 |
+| `immediateSigningLaneAssertionMs` | 5 | 5.0 | 11.0 | 11.0 | 6.6 | 11.0 |
+| `inputValidationMs` | 5 | 3.0 | 7.0 | 7.0 | 4.2 | 7.0 |
+| `localWalletRegistrationPersistenceMs` | 5 | 18.0 | 23.0 | 23.0 | 19.6 | 23.0 |
+| `managedRegistrationGrantMs` | 5 | 3.0 | 11.0 | 11.0 | 5.4 | 11.0 |
 | `registrationIntentDigestMs` | 5 | 0.0 | 2.0 | 2.0 | 0.4 | 2.0 |
-| `registrationIntentMs` | 5 | 4.0 | 6.0 | 6.0 | 4.0 | 6.0 |
-| `sdkTotalMs` | 5 | 2112.0 | 2625.0 | 2625.0 | 2263.8 | 2625.0 |
-| `thresholdEd25519SessionPersistenceMs` | 5 | 1.0 | 1.0 | 1.0 | 0.8 | 1.0 |
-| `totalMs` | 5 | 3210.0 | 4314.0 | 4314.0 | 3526.0 | 4314.0 |
-| `walletRegisterFinalizeMs` | 5 | 224.0 | 225.0 | 225.0 | 223.4 | 225.0 |
-| `walletRegisterHssRespondMs` | 5 | 107.0 | 113.0 | 113.0 | 108.0 | 113.0 |
-| `walletRegisterStartMs` | 5 | 376.0 | 551.0 | 551.0 | 411.2 | 551.0 |
+| `registrationIntentMs` | 5 | 4.0 | 5.0 | 5.0 | 3.8 | 5.0 |
+| `sdkTotalMs` | 5 | 1997.0 | 2548.0 | 2548.0 | 2162.2 | 2548.0 |
+| `thresholdEd25519SessionPersistenceMs` | 5 | 0.0 | 1.0 | 1.0 | 0.4 | 1.0 |
+| `totalMs` | 5 | 3334.0 | 4177.0 | 4177.0 | 3470.2 | 4177.0 |
+| `walletRegisterFinalizeMs` | 5 | 226.0 | 229.0 | 229.0 | 225.4 | 229.0 |
+| `walletRegisterHssRespondMs` | 5 | 109.0 | 115.0 | 115.0 | 109.0 | 115.0 |
+| `walletRegisterStartMs` | 5 | 383.0 | 565.0 | 565.0 | 418.6 | 565.0 |
 | `walletStateActivationMs` | 5 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 |
 
 ### Relay Route Diagnostics: wallets_register_finalize
@@ -58,46 +58,46 @@ Run ID: `20260608-053047Z`
 | Bucket | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Max (ms) |
 |---|---:|---:|---:|---:|---:|---:|
 | `nearAccountCreateMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registerFinalizeTotalMs` | 5 | 213.0 | 217.0 | 217.0 | 213.8 | 217.0 |
-| `registrationCeremonyLoadMs` | 5 | 0.0 | 1.0 | 1.0 | 0.2 | 1.0 |
+| `registerFinalizeTotalMs` | 5 | 216.0 | 220.0 | 220.0 | 216.0 | 220.0 |
+| `registrationCeremonyLoadMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `registrationEmailOtpEnrollmentPlanMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `registrationFinalizeReplayCacheMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssFinalizeDecodeArtifactMs` | 5 | 1.0 | 2.0 | 2.0 | 1.2 | 2.0 |
-| `registrationHssFinalizeEncodeReportMs` | 5 | 3.0 | 4.0 | 4.0 | 3.4 | 4.0 |
-| `registrationHssFinalizeSerializedSessionMaterializeMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssFinalizeMs` | 5 | 213.0 | 216.0 | 216.0 | 213.0 | 216.0 |
+| `registrationHssFinalizeDecodeArtifactMs` | 5 | 1.0 | 1.0 | 1.0 | 0.8 | 1.0 |
+| `registrationHssFinalizeEncodeReportMs` | 5 | 3.0 | 4.0 | 4.0 | 3.2 | 4.0 |
+| `registrationHssFinalizeMs` | 5 | 216.0 | 220.0 | 220.0 | 215.8 | 220.0 |
 | `registrationHssFinalizeReportMs` | 5 | 5.0 | 5.0 | 5.0 | 4.8 | 5.0 |
-| `registrationKeygenMs` | 5 | 0.0 | 1.0 | 1.0 | 0.2 | 1.0 |
+| `registrationHssFinalizeSerializedSessionMaterializeMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `registrationKeygenMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `relayGoogleEmailOtpActivationPlanMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `relayPersistenceMs` | 5 | 0.0 | 1.0 | 1.0 | 0.4 | 1.0 |
+| `relayPersistenceMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `relaySessionMintMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 
 ### Relay Route Diagnostics: wallets_register_hss_respond
 
 | Bucket | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Max (ms) |
 |---|---:|---:|---:|---:|---:|---:|
-| `registerHssRespondTotalMs` | 5 | 94.0 | 100.0 | 100.0 | 95.2 | 100.0 |
+| `registerHssRespondTotalMs` | 5 | 95.0 | 99.0 | 99.0 | 95.4 | 99.0 |
 | `registrationHssRespondDecodeMessagesMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssRespondEncodeDeliveryMs` | 5 | 5.0 | 6.0 | 6.0 | 5.4 | 6.0 |
+| `registrationHssRespondEncodeDeliveryMs` | 5 | 5.0 | 6.0 | 6.0 | 5.2 | 6.0 |
 | `registrationHssRespondMaterializeSessionMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssRespondMs` | 5 | 94.0 | 100.0 | 100.0 | 95.2 | 100.0 |
-| `registrationHssRespondPrepareDeliveryMs` | 5 | 73.0 | 76.0 | 76.0 | 73.4 | 76.0 |
+| `registrationHssRespondMs` | 5 | 94.0 | 99.0 | 99.0 | 95.2 | 99.0 |
+| `registrationHssRespondPrepareDeliveryMs` | 5 | 73.0 | 76.0 | 76.0 | 73.8 | 76.0 |
 
 ### Relay Route Diagnostics: wallets_register_start
 
 | Bucket | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Max (ms) |
 |---|---:|---:|---:|---:|---:|---:|
-| `registerStartTotalMs` | 5 | 371.0 | 545.0 | 545.0 | 405.4 | 545.0 |
-| `registrationAuthorityVerifyMs` | 5 | 1.0 | 92.0 | 92.0 | 19.2 | 92.0 |
+| `registerStartTotalMs` | 5 | 376.0 | 560.0 | 560.0 | 412.4 | 560.0 |
+| `registrationAuthorityVerifyMs` | 5 | 1.0 | 114.0 | 114.0 | 23.4 | 114.0 |
 | `registrationCeremonyPersistMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `registrationHssPrepareCachePreparedSessionMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssPrepareClientOfferMessageMs` | 5 | 1.0 | 1.0 | 1.0 | 0.6 | 1.0 |
-| `registrationHssPrepareEncodeStatesMs` | 5 | 1.0 | 2.0 | 2.0 | 1.4 | 2.0 |
-| `registrationHssPrepareExtractDriverStatesMs` | 5 | 0.0 | 1.0 | 1.0 | 0.2 | 1.0 |
-| `registrationHssPrepareMs` | 5 | 370.0 | 453.0 | 453.0 | 386.2 | 453.0 |
-| `registrationHssPrepareSessionMs` | 5 | 354.0 | 363.0 | 363.0 | 355.8 | 363.0 |
-| `registrationHssServerInputDeriveMs` | 5 | 366.0 | 444.0 | 444.0 | 381.2 | 444.0 |
-| `registrationHssServerSessionPrepareTotalMs` | 5 | 356.0 | 372.0 | 372.0 | 359.2 | 372.0 |
+| `registrationHssPrepareClientOfferMessageMs` | 5 | 0.0 | 1.0 | 1.0 | 0.4 | 1.0 |
+| `registrationHssPrepareEncodeStatesMs` | 5 | 2.0 | 2.0 | 2.0 | 1.6 | 2.0 |
+| `registrationHssPrepareExtractDriverStatesMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `registrationHssPrepareMs` | 5 | 375.0 | 446.0 | 446.0 | 389.0 | 446.0 |
+| `registrationHssPrepareSessionMs` | 5 | 359.0 | 365.0 | 365.0 | 360.0 | 365.0 |
+| `registrationHssServerInputDeriveMs` | 5 | 371.0 | 434.0 | 434.0 | 383.0 | 434.0 |
+| `registrationHssServerSessionPrepareTotalMs` | 5 | 361.0 | 373.0 | 373.0 | 363.2 | 373.0 |
 | `registrationIntentConsumeMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `registrationIntentDigestMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `registrationIntentLoadMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
@@ -106,26 +106,26 @@ Run ID: `20260608-053047Z`
 
 | Operation | Count | total p50 | total p95 | fetch p50 | fetch p95 | request bytes p50 | response bytes p50 |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| `prepare` | 5 | 376.0 | 389.0 | 376.0 | 389.0 | 383 | 23046 |
-| `respond` | 5 | 102.0 | 114.0 | 102.0 | 109.0 | 22268 | 419361 |
+| `prepare` | 5 | 380.0 | 382.0 | 379.0 | 382.0 | 383 | 23046 |
+| `respond` | 5 | 107.0 | 109.0 | 106.0 | 107.0 | 22268 | 419361 |
 
 ### HSS Worker Diagnostics
 
 | Operation | Count | total p50 | total p95 | wasm p50 | wasm p95 | queue p95 | request bytes p50 | response bytes p50 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `build_client_owned_staged_evaluator_artifact` | 5 | 667.0 | 674.0 | 667.0 | 674.0 | 0.0 | 464361 | 154567 |
-| `prepare_client_request` | 10 | 126.0 | 139.0 | 126.0 | 139.0 | 0.0 | 22956 | 45041 |
+| `build_client_owned_staged_evaluator_artifact` | 5 | 571.0 | 574.0 | 571.0 | 574.0 | 0.0 | 464361 | 154567 |
+| `prepare_client_request` | 10 | 125.0 | 133.0 | 125.0 | 133.0 | 0.0 | 22956 | 45041 |
 
 ### HSS Worker WASM Substep Timings
 
 | Operation | Substep | Count | p50 (ms) | p95 (ms) | Mean (ms) | Max (ms) |
 |---|---|---:|---:|---:|---:|---:|
-| `build_client_owned_staged_evaluator_artifact` | `buildArtifactMs` | 5 | 661.0 | 669.0 | 662.0 | 669.0 |
+| `build_client_owned_staged_evaluator_artifact` | `buildArtifactMs` | 5 | 565.0 | 568.0 | 565.8 | 568.0 |
 | `build_client_owned_staged_evaluator_artifact` | `decodeClientOutputMaskMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `decodeClientRequestMessageMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `decodeEvaluatorDriverStateMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `decodeEvaluatorOtStateMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `decodeServerInputDeliveryMs` | 5 | 2.0 | 2.0 | 1.6 | 2.0 |
+| `build_client_owned_staged_evaluator_artifact` | `decodeEvaluatorOtStateMs` | 5 | 0.0 | 1.0 | 0.2 | 1.0 |
+| `build_client_owned_staged_evaluator_artifact` | `decodeServerInputDeliveryMs` | 5 | 2.0 | 2.0 | 1.8 | 2.0 |
 | `build_client_owned_staged_evaluator_artifact` | `encodeArtifactMs` | 5 | 1.0 | 1.0 | 0.6 | 1.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalAddStageMs` | 5 | 5.0 | 5.0 | 5.0 | 5.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalInputSharingMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
@@ -140,28 +140,40 @@ Run ID: `20260608-053047Z`
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalLogicalTransportWordMaterializations` | 5 | 1536.0 | 1536.0 | 1536.0 | 1536.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationAXorCarryMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationCarryGateMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationMs` | 5 | 41.0 | 41.0 | 40.6 | 41.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationMs` | 5 | 41.0 | 42.0 | 41.4 | 42.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationNextCarryMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationSumMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationXorAbMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleMs` | 5 | 58.0 | 58.0 | 57.8 | 58.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorMs` | 5 | 267.0 | 273.0 | 268.0 | 273.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundChMs` | 5 | 31.0 | 32.0 | 31.0 | 32.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundCoreMs` | 5 | 292.0 | 299.0 | 293.4 | 299.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundMajMs` | 5 | 38.0 | 39.0 | 38.0 | 39.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundNewABitsMs` | 5 | 45.0 | 47.0 | 45.6 | 47.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundNewEBitsMs` | 5 | 46.0 | 47.0 | 45.6 | 47.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundSigma0Ms` | 5 | 8.0 | 8.0 | 7.8 | 8.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundSigma1Ms` | 5 | 8.0 | 9.0 | 8.2 | 9.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundState3Ms` | 5 | 2.0 | 3.0 | 2.4 | 3.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleMs` | 5 | 58.0 | 60.0 | 58.6 | 60.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorBundleBuildMs` | 5 | 6.0 | 6.0 | 6.0 | 6.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorClampAMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorClientBaseMs` | 5 | 55.0 | 56.0 | 55.4 | 56.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorClientOutputMs` | 5 | 7.0 | 7.0 | 7.0 | 7.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorCoreMs` | 5 | 40.0 | 40.0 | 40.0 | 40.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorLocalWordMaterializations` | 5 | 2560.0 | 2560.0 | 2560.0 | 2560.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorMaskAddMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorMaskShareMs` | 5 | 2.0 | 2.0 | 2.0 | 2.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorMs` | 5 | 169.0 | 170.0 | 169.2 | 170.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorReduceAMs` | 5 | 31.0 | 32.0 | 31.4 | 32.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorRelayerOutputMs` | 5 | 58.0 | 59.0 | 58.2 | 59.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorTauDoubleMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorTauMs` | 5 | 8.0 | 9.0 | 8.4 | 9.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundChMs` | 5 | 32.0 | 32.0 | 31.8 | 32.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundCoreMs` | 5 | 294.0 | 297.0 | 294.8 | 297.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundMajMs` | 5 | 39.0 | 39.0 | 38.6 | 39.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundNewABitsMs` | 5 | 46.0 | 47.0 | 45.8 | 47.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundNewEBitsMs` | 5 | 46.0 | 46.0 | 45.8 | 46.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundSigma0Ms` | 5 | 8.0 | 9.0 | 8.0 | 9.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundSigma1Ms` | 5 | 7.0 | 8.0 | 7.4 | 8.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundState3Ms` | 5 | 2.0 | 3.0 | 2.2 | 3.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1AXorCarryMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1CarryGateMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1Ms` | 5 | 8.0 | 9.0 | 7.8 | 9.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1Ms` | 5 | 8.0 | 8.0 | 8.0 | 8.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1NextCarryMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1SumMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1XorAbMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp2Ms` | 5 | 4.0 | 4.0 | 4.0 | 4.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalTotalMs` | 5 | 624.0 | 629.0 | 624.4 | 629.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp2Ms` | 5 | 4.0 | 5.0 | 4.2 | 5.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalTotalMs` | 5 | 526.0 | 530.0 | 527.4 | 530.0 |
 | `build_client_owned_staged_evaluator_artifact` | `materializeSessionMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
 
 ## passkey_ed25519_and_ecdsa_wallet_iframe
@@ -181,28 +193,28 @@ Run ID: `20260608-053047Z`
 
 | Bucket | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Max (ms) |
 |---|---:|---:|---:|---:|---:|---:|
-| `authProofMs` | 5 | 520.0 | 540.0 | 540.0 | 525.6 | 540.0 |
-| `browserRunDurationMs` | 5 | 3228.0 | 3981.0 | 3981.0 | 3378.6 | 3981.0 |
-| `ecdsaClientBootstrapMs` | 5 | 4.0 | 7.0 | 7.0 | 4.4 | 7.0 |
-| `ecdsaRegistrationPersistenceMs` | 5 | 8.0 | 10.0 | 10.0 | 8.2 | 10.0 |
-| `ed25519ClientMaterialMs` | 5 | 24.0 | 25.0 | 25.0 | 23.0 | 25.0 |
-| `ed25519ClientRequestMs` | 5 | 139.0 | 141.0 | 141.0 | 138.2 | 141.0 |
+| `authProofMs` | 5 | 538.0 | 540.0 | 540.0 | 528.4 | 540.0 |
+| `browserRunDurationMs` | 5 | 3115.0 | 3890.0 | 3890.0 | 3271.0 | 3890.0 |
+| `ecdsaClientBootstrapMs` | 5 | 3.0 | 5.0 | 5.0 | 3.4 | 5.0 |
+| `ecdsaRegistrationPersistenceMs` | 5 | 12.0 | 28.0 | 28.0 | 13.2 | 28.0 |
+| `ed25519ClientMaterialMs` | 5 | 21.0 | 28.0 | 28.0 | 23.0 | 28.0 |
+| `ed25519ClientRequestMs` | 5 | 136.0 | 139.0 | 139.0 | 136.6 | 139.0 |
 | `ed25519CompletionParseMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `ed25519EvaluationArtifactMs` | 5 | 673.0 | 683.0 | 683.0 | 674.2 | 683.0 |
+| `ed25519EvaluationArtifactMs` | 5 | 569.0 | 591.0 | 591.0 | 573.2 | 591.0 |
 | `emailOtpEnrollmentMaterialMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `emailOtpRecoveryCodeBackupMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `immediateSigningLaneAssertionMs` | 5 | 11.0 | 13.0 | 13.0 | 10.6 | 13.0 |
-| `inputValidationMs` | 5 | 3.0 | 6.0 | 6.0 | 3.4 | 6.0 |
-| `localWalletRegistrationPersistenceMs` | 5 | 18.0 | 20.0 | 20.0 | 18.2 | 20.0 |
-| `managedRegistrationGrantMs` | 5 | 4.0 | 12.0 | 12.0 | 5.6 | 12.0 |
+| `immediateSigningLaneAssertionMs` | 5 | 12.0 | 14.0 | 14.0 | 10.6 | 14.0 |
+| `inputValidationMs` | 5 | 2.0 | 3.0 | 3.0 | 2.2 | 3.0 |
+| `localWalletRegistrationPersistenceMs` | 5 | 18.0 | 22.0 | 22.0 | 19.4 | 22.0 |
+| `managedRegistrationGrantMs` | 5 | 3.0 | 9.0 | 9.0 | 4.2 | 9.0 |
 | `registrationIntentDigestMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationIntentMs` | 5 | 4.0 | 5.0 | 5.0 | 4.0 | 5.0 |
-| `sdkTotalMs` | 5 | 2134.0 | 2359.0 | 2359.0 | 2177.8 | 2359.0 |
-| `thresholdEd25519SessionPersistenceMs` | 5 | 1.0 | 5.0 | 5.0 | 1.6 | 5.0 |
-| `totalMs` | 5 | 3228.0 | 3981.0 | 3981.0 | 3378.6 | 3981.0 |
-| `walletRegisterFinalizeMs` | 5 | 222.0 | 230.0 | 230.0 | 222.2 | 230.0 |
-| `walletRegisterHssRespondMs` | 5 | 119.0 | 184.0 | 184.0 | 132.2 | 184.0 |
-| `walletRegisterStartMs` | 5 | 377.0 | 535.0 | 535.0 | 409.0 | 535.0 |
+| `registrationIntentMs` | 5 | 6.0 | 6.0 | 6.0 | 5.6 | 6.0 |
+| `sdkTotalMs` | 5 | 2036.0 | 2265.0 | 2265.0 | 2080.8 | 2265.0 |
+| `thresholdEd25519SessionPersistenceMs` | 5 | 1.0 | 2.0 | 2.0 | 1.0 | 2.0 |
+| `totalMs` | 5 | 3115.0 | 3890.0 | 3890.0 | 3271.0 | 3890.0 |
+| `walletRegisterFinalizeMs` | 5 | 221.0 | 230.0 | 230.0 | 223.4 | 230.0 |
+| `walletRegisterHssRespondMs` | 5 | 118.0 | 186.0 | 186.0 | 130.6 | 186.0 |
+| `walletRegisterStartMs` | 5 | 377.0 | 537.0 | 537.0 | 409.2 | 537.0 |
 | `walletStateActivationMs` | 5 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 |
 
 ### Relay Route Diagnostics: wallets_register_finalize
@@ -210,79 +222,79 @@ Run ID: `20260608-053047Z`
 | Bucket | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Max (ms) |
 |---|---:|---:|---:|---:|---:|---:|
 | `nearAccountCreateMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registerFinalizeTotalMs` | 5 | 215.0 | 221.0 | 221.0 | 214.8 | 221.0 |
+| `registerFinalizeTotalMs` | 5 | 213.0 | 221.0 | 221.0 | 215.0 | 221.0 |
 | `registrationCeremonyLoadMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationEcdsaBootstrapVerifyMs` | 5 | 1.0 | 1.0 | 1.0 | 0.6 | 1.0 |
+| `registrationEcdsaBootstrapVerifyMs` | 5 | 1.0 | 1.0 | 1.0 | 0.8 | 1.0 |
 | `registrationEmailOtpEnrollmentPlanMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `registrationFinalizeReplayCacheMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `registrationHssFinalizeDecodeArtifactMs` | 5 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 |
 | `registrationHssFinalizeEncodeReportMs` | 5 | 3.0 | 4.0 | 4.0 | 3.2 | 4.0 |
+| `registrationHssFinalizeMs` | 5 | 212.0 | 218.0 | 218.0 | 213.4 | 218.0 |
+| `registrationHssFinalizeReportMs` | 5 | 5.0 | 5.0 | 5.0 | 4.6 | 5.0 |
 | `registrationHssFinalizeSerializedSessionMaterializeMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssFinalizeMs` | 5 | 214.0 | 218.0 | 218.0 | 213.4 | 218.0 |
-| `registrationHssFinalizeReportMs` | 5 | 5.0 | 5.0 | 5.0 | 4.8 | 5.0 |
 | `registrationKeygenMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `relayGoogleEmailOtpActivationPlanMs` | 5 | 0.0 | 1.0 | 1.0 | 0.2 | 1.0 |
+| `relayGoogleEmailOtpActivationPlanMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `relayPersistenceMs` | 5 | 0.0 | 1.0 | 1.0 | 0.2 | 1.0 |
-| `relaySessionMintMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `relaySessionMintMs` | 5 | 0.0 | 1.0 | 1.0 | 0.2 | 1.0 |
 
 ### Relay Route Diagnostics: wallets_register_hss_respond
 
 | Bucket | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Max (ms) |
 |---|---:|---:|---:|---:|---:|---:|
-| `registerHssRespondTotalMs` | 5 | 106.0 | 170.0 | 170.0 | 118.4 | 170.0 |
-| `registrationEcdsaRespondMs` | 5 | 12.0 | 73.0 | 73.0 | 24.0 | 73.0 |
+| `registerHssRespondTotalMs` | 5 | 106.0 | 174.0 | 174.0 | 118.8 | 174.0 |
+| `registrationEcdsaRespondMs` | 5 | 11.0 | 77.0 | 77.0 | 24.2 | 77.0 |
 | `registrationHssRespondDecodeMessagesMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `registrationHssRespondEncodeDeliveryMs` | 5 | 5.0 | 6.0 | 6.0 | 5.2 | 6.0 |
 | `registrationHssRespondMaterializeSessionMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssRespondMs` | 5 | 94.0 | 97.0 | 97.0 | 94.4 | 97.0 |
-| `registrationHssRespondPrepareDeliveryMs` | 5 | 74.0 | 75.0 | 75.0 | 73.8 | 75.0 |
+| `registrationHssRespondMs` | 5 | 94.0 | 97.0 | 97.0 | 94.6 | 97.0 |
+| `registrationHssRespondPrepareDeliveryMs` | 5 | 74.0 | 75.0 | 75.0 | 74.4 | 75.0 |
 
 ### Relay Route Diagnostics: wallets_register_start
 
 | Bucket | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Max (ms) |
 |---|---:|---:|---:|---:|---:|---:|
-| `registerStartTotalMs` | 5 | 373.0 | 530.0 | 530.0 | 404.4 | 530.0 |
-| `registrationAuthorityVerifyMs` | 5 | 1.0 | 93.0 | 93.0 | 19.4 | 93.0 |
+| `registerStartTotalMs` | 5 | 372.0 | 532.0 | 532.0 | 404.2 | 532.0 |
+| `registrationAuthorityVerifyMs` | 5 | 1.0 | 90.0 | 90.0 | 18.8 | 90.0 |
 | `registrationCeremonyPersistMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationEcdsaPrepareMs` | 5 | 371.0 | 374.0 | 374.0 | 297.8 | 374.0 |
+| `registrationEcdsaPrepareMs` | 5 | 370.0 | 373.0 | 373.0 | 296.8 | 373.0 |
 | `registrationHssPrepareCachePreparedSessionMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssPrepareClientOfferMessageMs` | 5 | 0.0 | 1.0 | 1.0 | 0.2 | 1.0 |
+| `registrationHssPrepareClientOfferMessageMs` | 5 | 1.0 | 1.0 | 1.0 | 0.6 | 1.0 |
 | `registrationHssPrepareEncodeStatesMs` | 5 | 1.0 | 2.0 | 2.0 | 1.4 | 2.0 |
 | `registrationHssPrepareExtractDriverStatesMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssPrepareMs` | 5 | 371.0 | 437.0 | 437.0 | 384.2 | 437.0 |
-| `registrationHssPrepareSessionMs` | 5 | 356.0 | 363.0 | 363.0 | 357.2 | 363.0 |
-| `registrationHssServerInputDeriveMs` | 5 | 367.0 | 428.0 | 428.0 | 379.4 | 428.0 |
-| `registrationHssServerSessionPrepareTotalMs` | 5 | 357.0 | 371.0 | 371.0 | 360.0 | 371.0 |
+| `registrationHssPrepareMs` | 5 | 370.0 | 441.0 | 441.0 | 384.6 | 441.0 |
+| `registrationHssPrepareSessionMs` | 5 | 356.0 | 365.0 | 365.0 | 357.2 | 365.0 |
+| `registrationHssServerInputDeriveMs` | 5 | 366.0 | 431.0 | 431.0 | 379.2 | 431.0 |
+| `registrationHssServerSessionPrepareTotalMs` | 5 | 357.0 | 372.0 | 372.0 | 360.0 | 372.0 |
 | `registrationIntentConsumeMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationIntentDigestMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `registrationIntentDigestMs` | 5 | 0.0 | 1.0 | 1.0 | 0.2 | 1.0 |
 | `registrationIntentLoadMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 
 ### HSS Client Timings
 
 | Operation | Count | total p50 | total p95 | fetch p50 | fetch p95 | request bytes p50 | response bytes p50 |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| `prepare` | 5 | 378.0 | 380.0 | 378.0 | 380.0 | 388 | 23053 |
-| `respond` | 5 | 104.0 | 110.0 | 103.0 | 104.0 | 22268 | 419361 |
+| `prepare` | 5 | 379.0 | 381.0 | 379.0 | 380.0 | 388 | 23053 |
+| `respond` | 5 | 103.0 | 105.0 | 102.0 | 104.0 | 22268 | 419361 |
 
 ### HSS Worker Diagnostics
 
 | Operation | Count | total p50 | total p95 | wasm p50 | wasm p95 | queue p95 | request bytes p50 | response bytes p50 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `build_client_owned_staged_evaluator_artifact` | 5 | 672.0 | 678.0 | 672.0 | 678.0 | 0.0 | 464361 | 154567 |
-| `prepare_client_request` | 10 | 124.0 | 135.0 | 124.0 | 135.0 | 0.0 | 22963 | 45041 |
+| `build_client_owned_staged_evaluator_artifact` | 5 | 569.0 | 589.0 | 569.0 | 589.0 | 0.0 | 464361 | 154567 |
+| `prepare_client_request` | 10 | 125.0 | 133.0 | 125.0 | 133.0 | 0.0 | 22963 | 45041 |
 
 ### HSS Worker WASM Substep Timings
 
 | Operation | Substep | Count | p50 (ms) | p95 (ms) | Mean (ms) | Max (ms) |
 |---|---|---:|---:|---:|---:|---:|
-| `build_client_owned_staged_evaluator_artifact` | `buildArtifactMs` | 5 | 667.0 | 672.0 | 667.0 | 672.0 |
+| `build_client_owned_staged_evaluator_artifact` | `buildArtifactMs` | 5 | 563.0 | 583.0 | 566.4 | 583.0 |
 | `build_client_owned_staged_evaluator_artifact` | `decodeClientOutputMaskMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `decodeClientRequestMessageMs` | 5 | 0.0 | 1.0 | 0.2 | 1.0 |
+| `build_client_owned_staged_evaluator_artifact` | `decodeClientRequestMessageMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `decodeEvaluatorDriverStateMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `decodeEvaluatorOtStateMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `decodeServerInputDeliveryMs` | 5 | 1.0 | 2.0 | 1.2 | 2.0 |
-| `build_client_owned_staged_evaluator_artifact` | `encodeArtifactMs` | 5 | 0.0 | 1.0 | 0.2 | 1.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalAddStageMs` | 5 | 5.0 | 5.0 | 5.0 | 5.0 |
+| `build_client_owned_staged_evaluator_artifact` | `decodeEvaluatorOtStateMs` | 5 | 0.0 | 1.0 | 0.4 | 1.0 |
+| `build_client_owned_staged_evaluator_artifact` | `decodeServerInputDeliveryMs` | 5 | 1.0 | 2.0 | 1.4 | 2.0 |
+| `build_client_owned_staged_evaluator_artifact` | `encodeArtifactMs` | 5 | 1.0 | 1.0 | 0.8 | 1.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalAddStageMs` | 5 | 5.0 | 5.0 | 4.8 | 5.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalInputSharingMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalLogicalCommitmentDerivations` | 5 | 2048.0 | 2048.0 | 2048.0 | 2048.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalLogicalCommitmentMaterializations` | 5 | 17928.0 | 17928.0 | 17928.0 | 17928.0 |
@@ -295,28 +307,40 @@ Run ID: `20260608-053047Z`
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalLogicalTransportWordMaterializations` | 5 | 1536.0 | 1536.0 | 1536.0 | 1536.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationAXorCarryMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationCarryGateMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationMs` | 5 | 41.0 | 45.0 | 41.6 | 45.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationMs` | 5 | 41.0 | 41.0 | 40.6 | 41.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationNextCarryMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationSumMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationXorAbMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleMs` | 5 | 58.0 | 65.0 | 59.4 | 65.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorMs` | 5 | 268.0 | 270.0 | 268.8 | 270.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundChMs` | 5 | 32.0 | 32.0 | 31.6 | 32.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundCoreMs` | 5 | 296.0 | 303.0 | 296.8 | 303.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundMajMs` | 5 | 39.0 | 40.0 | 38.6 | 40.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundNewABitsMs` | 5 | 46.0 | 48.0 | 46.2 | 48.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundNewEBitsMs` | 5 | 45.0 | 46.0 | 45.0 | 46.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundSigma0Ms` | 5 | 8.0 | 9.0 | 8.0 | 9.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleMs` | 5 | 58.0 | 58.0 | 58.0 | 58.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorBundleBuildMs` | 5 | 6.0 | 6.0 | 6.0 | 6.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorClampAMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorClientBaseMs` | 5 | 56.0 | 57.0 | 56.0 | 57.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorClientOutputMs` | 5 | 7.0 | 7.0 | 7.0 | 7.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorCoreMs` | 5 | 40.0 | 41.0 | 40.2 | 41.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorLocalWordMaterializations` | 5 | 2560.0 | 2560.0 | 2560.0 | 2560.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorMaskAddMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorMaskShareMs` | 5 | 2.0 | 2.0 | 2.0 | 2.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorMs` | 5 | 168.0 | 172.0 | 169.0 | 172.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorReduceAMs` | 5 | 31.0 | 32.0 | 31.2 | 32.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorRelayerOutputMs` | 5 | 58.0 | 60.0 | 58.6 | 60.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorTauDoubleMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorTauMs` | 5 | 8.0 | 9.0 | 8.4 | 9.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundChMs` | 5 | 31.0 | 33.0 | 31.8 | 33.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundCoreMs` | 5 | 294.0 | 310.0 | 296.8 | 310.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundMajMs` | 5 | 38.0 | 41.0 | 38.6 | 41.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundNewABitsMs` | 5 | 46.0 | 47.0 | 45.6 | 47.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundNewEBitsMs` | 5 | 45.0 | 47.0 | 45.6 | 47.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundSigma0Ms` | 5 | 8.0 | 9.0 | 8.2 | 9.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundSigma1Ms` | 5 | 8.0 | 9.0 | 8.2 | 9.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundState3Ms` | 5 | 3.0 | 3.0 | 2.8 | 3.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundState3Ms` | 5 | 2.0 | 3.0 | 2.4 | 3.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1AXorCarryMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1CarryGateMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1Ms` | 5 | 8.0 | 9.0 | 7.8 | 9.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1Ms` | 5 | 8.0 | 9.0 | 8.0 | 9.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1NextCarryMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1SumMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1XorAbMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp2Ms` | 5 | 4.0 | 5.0 | 4.0 | 5.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalTotalMs` | 5 | 629.0 | 635.0 | 629.4 | 635.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp2Ms` | 5 | 4.0 | 4.0 | 3.6 | 4.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalTotalMs` | 5 | 525.0 | 544.0 | 528.8 | 544.0 |
 | `build_client_owned_staged_evaluator_artifact` | `materializeSessionMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 |
 
 ## passkey_ed25519_only_host_origin
@@ -336,28 +360,28 @@ Run ID: `20260608-053047Z`
 
 | Bucket | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Max (ms) |
 |---|---:|---:|---:|---:|---:|---:|
-| `authProofMs` | 5 | 210.0 | 216.0 | 216.0 | 211.6 | 216.0 |
-| `browserRunDurationMs` | 5 | 2816.0 | 2969.0 | 2969.0 | 2841.4 | 2969.0 |
+| `authProofMs` | 5 | 208.0 | 261.0 | 261.0 | 218.0 | 261.0 |
+| `browserRunDurationMs` | 5 | 2594.0 | 2797.0 | 2797.0 | 2583.4 | 2797.0 |
 | `ecdsaClientBootstrapMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `ecdsaRegistrationPersistenceMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `ed25519ClientMaterialMs` | 5 | 161.0 | 176.0 | 176.0 | 135.2 | 176.0 |
-| `ed25519ClientRequestMs` | 5 | 124.0 | 133.0 | 133.0 | 125.4 | 133.0 |
+| `ed25519ClientMaterialMs` | 5 | 56.0 | 318.0 | 318.0 | 102.2 | 318.0 |
+| `ed25519ClientRequestMs` | 5 | 123.0 | 132.0 | 132.0 | 125.0 | 132.0 |
 | `ed25519CompletionParseMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `ed25519EvaluationArtifactMs` | 5 | 666.0 | 688.0 | 688.0 | 668.6 | 688.0 |
+| `ed25519EvaluationArtifactMs` | 5 | 563.0 | 568.0 | 568.0 | 564.2 | 568.0 |
 | `emailOtpEnrollmentMaterialMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `emailOtpRecoveryCodeBackupMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `immediateSigningLaneAssertionMs` | 5 | 6.0 | 16.0 | 16.0 | 7.0 | 16.0 |
-| `inputValidationMs` | 5 | 2.0 | 18.0 | 18.0 | 6.0 | 18.0 |
-| `localWalletRegistrationPersistenceMs` | 5 | 7.0 | 17.0 | 17.0 | 8.6 | 17.0 |
-| `managedRegistrationGrantMs` | 5 | 2.0 | 57.0 | 57.0 | 13.2 | 57.0 |
-| `registrationIntentDigestMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationIntentMs` | 5 | 2.0 | 8.0 | 8.0 | 3.4 | 8.0 |
-| `sdkTotalMs` | 5 | 1933.0 | 2076.0 | 2076.0 | 1956.0 | 2076.0 |
+| `immediateSigningLaneAssertionMs` | 5 | 4.0 | 12.0 | 12.0 | 5.4 | 12.0 |
+| `inputValidationMs` | 5 | 2.0 | 4.0 | 4.0 | 2.2 | 4.0 |
+| `localWalletRegistrationPersistenceMs` | 5 | 3.0 | 13.0 | 13.0 | 6.0 | 13.0 |
+| `managedRegistrationGrantMs` | 5 | 3.0 | 10.0 | 10.0 | 4.0 | 10.0 |
+| `registrationIntentDigestMs` | 5 | 0.0 | 1.0 | 1.0 | 0.2 | 1.0 |
+| `registrationIntentMs` | 5 | 2.0 | 27.0 | 27.0 | 7.6 | 27.0 |
+| `sdkTotalMs` | 5 | 1717.0 | 1973.0 | 1973.0 | 1802.6 | 1973.0 |
 | `thresholdEd25519SessionPersistenceMs` | 5 | 1.0 | 1.0 | 1.0 | 0.8 | 1.0 |
-| `totalMs` | 5 | 2816.0 | 2969.0 | 2969.0 | 2841.4 | 2969.0 |
-| `walletRegisterFinalizeMs` | 5 | 219.0 | 225.0 | 225.0 | 219.6 | 225.0 |
-| `walletRegisterHssRespondMs` | 5 | 101.0 | 105.0 | 105.0 | 101.0 | 105.0 |
-| `walletRegisterStartMs` | 5 | 424.0 | 573.0 | 573.0 | 454.2 | 573.0 |
+| `totalMs` | 5 | 2594.0 | 2797.0 | 2797.0 | 2583.4 | 2797.0 |
+| `walletRegisterFinalizeMs` | 5 | 220.0 | 223.0 | 223.0 | 219.6 | 223.0 |
+| `walletRegisterHssRespondMs` | 5 | 99.0 | 107.0 | 107.0 | 100.2 | 107.0 |
+| `walletRegisterStartMs` | 5 | 424.0 | 535.0 | 535.0 | 445.6 | 535.0 |
 | `walletStateActivationMs` | 5 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 |
 
 ### Relay Route Diagnostics: wallets_register_finalize
@@ -365,78 +389,78 @@ Run ID: `20260608-053047Z`
 | Bucket | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Max (ms) |
 |---|---:|---:|---:|---:|---:|---:|
 | `nearAccountCreateMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registerFinalizeTotalMs` | 5 | 214.0 | 219.0 | 219.0 | 213.6 | 219.0 |
-| `registrationCeremonyLoadMs` | 5 | 0.0 | 1.0 | 1.0 | 0.2 | 1.0 |
-| `registrationEmailOtpEnrollmentPlanMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `registerFinalizeTotalMs` | 5 | 213.0 | 218.0 | 218.0 | 213.4 | 218.0 |
+| `registrationCeremonyLoadMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `registrationEmailOtpEnrollmentPlanMs` | 5 | 0.0 | 1.0 | 1.0 | 0.2 | 1.0 |
 | `registrationFinalizeReplayCacheMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssFinalizeDecodeArtifactMs` | 5 | 1.0 | 2.0 | 2.0 | 1.2 | 2.0 |
-| `registrationHssFinalizeEncodeReportMs` | 5 | 3.0 | 4.0 | 4.0 | 3.2 | 4.0 |
+| `registrationHssFinalizeDecodeArtifactMs` | 5 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 |
+| `registrationHssFinalizeEncodeReportMs` | 5 | 3.0 | 4.0 | 4.0 | 3.4 | 4.0 |
+| `registrationHssFinalizeMs` | 5 | 212.0 | 217.0 | 217.0 | 212.6 | 217.0 |
+| `registrationHssFinalizeReportMs` | 5 | 4.0 | 5.0 | 5.0 | 4.4 | 5.0 |
 | `registrationHssFinalizeSerializedSessionMaterializeMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssFinalizeMs` | 5 | 213.0 | 217.0 | 217.0 | 212.8 | 217.0 |
-| `registrationHssFinalizeReportMs` | 5 | 5.0 | 5.0 | 5.0 | 4.6 | 5.0 |
 | `registrationKeygenMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `relayGoogleEmailOtpActivationPlanMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `relayPersistenceMs` | 5 | 0.0 | 1.0 | 1.0 | 0.2 | 1.0 |
-| `relaySessionMintMs` | 5 | 0.0 | 1.0 | 1.0 | 0.4 | 1.0 |
+| `relaySessionMintMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 
 ### Relay Route Diagnostics: wallets_register_hss_respond
 
 | Bucket | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Max (ms) |
 |---|---:|---:|---:|---:|---:|---:|
-| `registerHssRespondTotalMs` | 5 | 94.0 | 98.0 | 98.0 | 94.6 | 98.0 |
+| `registerHssRespondTotalMs` | 5 | 92.0 | 99.0 | 99.0 | 93.6 | 99.0 |
 | `registrationHssRespondDecodeMessagesMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssRespondEncodeDeliveryMs` | 5 | 5.0 | 6.0 | 6.0 | 5.2 | 6.0 |
+| `registrationHssRespondEncodeDeliveryMs` | 5 | 5.0 | 6.0 | 6.0 | 5.4 | 6.0 |
 | `registrationHssRespondMaterializeSessionMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssRespondMs` | 5 | 93.0 | 98.0 | 98.0 | 94.4 | 98.0 |
-| `registrationHssRespondPrepareDeliveryMs` | 5 | 73.0 | 75.0 | 75.0 | 73.4 | 75.0 |
+| `registrationHssRespondMs` | 5 | 92.0 | 99.0 | 99.0 | 93.6 | 99.0 |
+| `registrationHssRespondPrepareDeliveryMs` | 5 | 73.0 | 76.0 | 76.0 | 73.4 | 76.0 |
 
 ### Relay Route Diagnostics: wallets_register_start
 
 | Bucket | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Max (ms) |
 |---|---:|---:|---:|---:|---:|---:|
-| `registerStartTotalMs` | 5 | 373.0 | 545.0 | 545.0 | 407.2 | 545.0 |
-| `registrationAuthorityVerifyMs` | 5 | 2.0 | 102.0 | 102.0 | 21.6 | 102.0 |
+| `registerStartTotalMs` | 5 | 374.0 | 531.0 | 531.0 | 404.2 | 531.0 |
+| `registrationAuthorityVerifyMs` | 5 | 1.0 | 94.0 | 94.0 | 19.6 | 94.0 |
 | `registrationCeremonyPersistMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `registrationHssPrepareCachePreparedSessionMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssPrepareClientOfferMessageMs` | 5 | 1.0 | 1.0 | 1.0 | 0.8 | 1.0 |
-| `registrationHssPrepareEncodeStatesMs` | 5 | 1.0 | 2.0 | 2.0 | 1.2 | 2.0 |
-| `registrationHssPrepareExtractDriverStatesMs` | 5 | 0.0 | 1.0 | 1.0 | 0.2 | 1.0 |
-| `registrationHssPrepareMs` | 5 | 372.0 | 443.0 | 443.0 | 385.6 | 443.0 |
-| `registrationHssPrepareSessionMs` | 5 | 357.0 | 365.0 | 365.0 | 357.8 | 365.0 |
-| `registrationHssServerInputDeriveMs` | 5 | 368.0 | 430.0 | 430.0 | 380.0 | 430.0 |
-| `registrationHssServerSessionPrepareTotalMs` | 5 | 359.0 | 372.0 | 372.0 | 360.8 | 372.0 |
+| `registrationHssPrepareClientOfferMessageMs` | 5 | 1.0 | 1.0 | 1.0 | 0.6 | 1.0 |
+| `registrationHssPrepareEncodeStatesMs` | 5 | 1.0 | 2.0 | 2.0 | 1.4 | 2.0 |
+| `registrationHssPrepareExtractDriverStatesMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `registrationHssPrepareMs` | 5 | 372.0 | 437.0 | 437.0 | 384.2 | 437.0 |
+| `registrationHssPrepareSessionMs` | 5 | 356.0 | 361.0 | 361.0 | 357.0 | 361.0 |
+| `registrationHssServerInputDeriveMs` | 5 | 367.0 | 370.0 | 370.0 | 306.4 | 370.0 |
+| `registrationHssServerSessionPrepareTotalMs` | 5 | 358.0 | 427.0 | 427.0 | 371.6 | 427.0 |
 | `registrationIntentConsumeMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationIntentDigestMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationIntentLoadMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `registrationIntentDigestMs` | 5 | 0.0 | 1.0 | 1.0 | 0.2 | 1.0 |
+| `registrationIntentLoadMs` | 5 | 0.0 | 1.0 | 1.0 | 0.2 | 1.0 |
 
 ### HSS Client Timings
 
 | Operation | Count | total p50 | total p95 | fetch p50 | fetch p95 | request bytes p50 | response bytes p50 |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| `ceremony` | 4 | 1407.0 | 1416.0 | n/a | n/a | n/a | n/a |
-| `finalize` | 4 | 52.0 | 55.0 | 51.0 | 55.0 | 154690 | 39461 |
-| `prepare` | 5 | 374.0 | 377.0 | 373.0 | 376.0 | 381 | 23043 |
-| `respond` | 5 | 98.0 | 102.0 | 97.0 | 101.0 | 22268 | 419361 |
+| `ceremony` | 4 | 1297.0 | 1301.0 | n/a | n/a | n/a | n/a |
+| `finalize` | 4 | 51.0 | 52.0 | 50.0 | 52.0 | 154690 | 39461 |
+| `prepare` | 5 | 375.0 | 377.0 | 374.0 | 375.0 | 381 | 23043 |
+| `respond` | 5 | 98.0 | 100.0 | 97.0 | 99.0 | 22268 | 419361 |
 
 ### HSS Worker Diagnostics
 
 | Operation | Count | total p50 | total p95 | wasm p50 | wasm p95 | queue p95 | request bytes p50 | response bytes p50 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `build_client_owned_staged_evaluator_artifact` | 9 | 666.0 | 687.0 | 666.0 | 687.0 | 0.0 | 464361 | 154567 |
-| `open_client_output` | 4 | 90.0 | 91.0 | 90.0 | 91.0 | 0.0 | 40079 | 86 |
-| `prepare_client_request` | 10 | 122.0 | 132.0 | 122.0 | 132.0 | 0.0 | 22953 | 45041 |
+| `build_client_owned_staged_evaluator_artifact` | 9 | 562.0 | 568.0 | 562.0 | 568.0 | 0.0 | 464361 | 154567 |
+| `open_client_output` | 4 | 91.0 | 92.0 | 91.0 | 92.0 | 0.0 | 40079 | 86 |
+| `prepare_client_request` | 10 | 123.0 | 131.0 | 123.0 | 131.0 | 0.0 | 22953 | 45041 |
 
 ### HSS Worker WASM Substep Timings
 
 | Operation | Substep | Count | p50 (ms) | p95 (ms) | Mean (ms) | Max (ms) |
 |---|---|---:|---:|---:|---:|---:|
-| `build_client_owned_staged_evaluator_artifact` | `buildArtifactMs` | 9 | 664.0 | 681.0 | 665.4 | 681.0 |
+| `build_client_owned_staged_evaluator_artifact` | `buildArtifactMs` | 9 | 560.0 | 564.0 | 558.4 | 564.0 |
 | `build_client_owned_staged_evaluator_artifact` | `decodeClientOutputMaskMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `decodeClientRequestMessageMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `decodeEvaluatorDriverStateMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `decodeEvaluatorOtStateMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `decodeServerInputDeliveryMs` | 9 | 1.0 | 2.0 | 1.1 | 2.0 |
-| `build_client_owned_staged_evaluator_artifact` | `encodeArtifactMs` | 9 | 0.0 | 1.0 | 0.3 | 1.0 |
+| `build_client_owned_staged_evaluator_artifact` | `encodeArtifactMs` | 9 | 1.0 | 1.0 | 0.6 | 1.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalAddStageMs` | 9 | 4.0 | 5.0 | 4.1 | 5.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalInputSharingMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalLogicalCommitmentDerivations` | 9 | 2048.0 | 2048.0 | 2048.0 | 2048.0 |
@@ -450,28 +474,40 @@ Run ID: `20260608-053047Z`
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalLogicalTransportWordMaterializations` | 9 | 1536.0 | 1536.0 | 1536.0 | 1536.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationAXorCarryMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationCarryGateMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationMs` | 9 | 40.0 | 42.0 | 40.2 | 42.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationMs` | 9 | 40.0 | 41.0 | 40.0 | 41.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationNextCarryMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationSumMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationXorAbMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleMs` | 9 | 57.0 | 59.0 | 57.0 | 59.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorMs` | 9 | 274.0 | 281.0 | 274.7 | 281.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundChMs` | 9 | 31.0 | 32.0 | 31.2 | 32.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundCoreMs` | 9 | 294.0 | 300.0 | 294.9 | 300.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleMs` | 9 | 56.0 | 58.0 | 56.6 | 58.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorBundleBuildMs` | 9 | 6.0 | 6.0 | 6.0 | 6.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorClampAMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorClientBaseMs` | 9 | 57.0 | 58.0 | 56.9 | 58.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorClientOutputMs` | 9 | 7.0 | 7.0 | 7.0 | 7.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorCoreMs` | 9 | 39.0 | 39.0 | 38.8 | 39.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorLocalWordMaterializations` | 9 | 2560.0 | 2560.0 | 2560.0 | 2560.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorMaskAddMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorMaskShareMs` | 9 | 2.0 | 2.0 | 2.0 | 2.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorMs` | 9 | 170.0 | 172.0 | 169.7 | 172.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorReduceAMs` | 9 | 30.0 | 31.0 | 30.1 | 31.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorRelayerOutputMs` | 9 | 60.0 | 60.0 | 59.3 | 60.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorTauDoubleMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorTauMs` | 9 | 8.0 | 8.0 | 8.0 | 8.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundChMs` | 9 | 31.0 | 33.0 | 31.1 | 33.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundCoreMs` | 9 | 293.0 | 298.0 | 293.3 | 298.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundMajMs` | 9 | 38.0 | 39.0 | 38.0 | 39.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundNewABitsMs` | 9 | 46.0 | 47.0 | 45.8 | 47.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundNewEBitsMs` | 9 | 46.0 | 47.0 | 45.7 | 47.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundNewABitsMs` | 9 | 45.0 | 47.0 | 45.3 | 47.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundNewEBitsMs` | 9 | 45.0 | 47.0 | 45.4 | 47.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundSigma0Ms` | 9 | 8.0 | 8.0 | 8.0 | 8.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundSigma1Ms` | 9 | 8.0 | 8.0 | 8.0 | 8.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundState3Ms` | 9 | 3.0 | 3.0 | 2.9 | 3.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1AXorCarryMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1CarryGateMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1Ms` | 9 | 8.0 | 8.0 | 8.0 | 8.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1Ms` | 9 | 8.0 | 8.0 | 7.7 | 8.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1NextCarryMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1SumMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1XorAbMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp2Ms` | 9 | 4.0 | 4.0 | 4.0 | 4.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalTotalMs` | 9 | 629.0 | 643.0 | 630.8 | 643.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalTotalMs` | 9 | 525.0 | 528.0 | 523.9 | 528.0 |
 | `build_client_owned_staged_evaluator_artifact` | `materializeSessionMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 
 ## passkey_ed25519_and_ecdsa_host_origin
@@ -491,109 +527,109 @@ Run ID: `20260608-053047Z`
 
 | Bucket | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Max (ms) |
 |---|---:|---:|---:|---:|---:|---:|
-| `authProofMs` | 5 | 210.0 | 215.0 | 215.0 | 210.4 | 215.0 |
-| `browserRunDurationMs` | 5 | 2845.0 | 2978.0 | 2978.0 | 2873.4 | 2978.0 |
-| `ecdsaClientBootstrapMs` | 5 | 0.0 | 3.0 | 3.0 | 0.8 | 3.0 |
-| `ecdsaRegistrationPersistenceMs` | 5 | 6.0 | 13.0 | 13.0 | 7.0 | 13.0 |
-| `ed25519ClientMaterialMs` | 5 | 158.0 | 177.0 | 177.0 | 136.6 | 177.0 |
-| `ed25519ClientRequestMs` | 5 | 126.0 | 136.0 | 136.0 | 127.2 | 136.0 |
+| `authProofMs` | 5 | 208.0 | 211.0 | 211.0 | 208.6 | 211.0 |
+| `browserRunDurationMs` | 5 | 2635.0 | 2902.0 | 2902.0 | 2679.6 | 2902.0 |
+| `ecdsaClientBootstrapMs` | 5 | 1.0 | 4.0 | 4.0 | 2.0 | 4.0 |
+| `ecdsaRegistrationPersistenceMs` | 5 | 10.0 | 11.0 | 11.0 | 10.4 | 11.0 |
+| `ed25519ClientMaterialMs` | 5 | 58.0 | 68.0 | 68.0 | 51.8 | 68.0 |
+| `ed25519ClientRequestMs` | 5 | 123.0 | 140.0 | 140.0 | 126.8 | 140.0 |
 | `ed25519CompletionParseMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `ed25519EvaluationArtifactMs` | 5 | 668.0 | 671.0 | 671.0 | 668.0 | 671.0 |
+| `ed25519EvaluationArtifactMs` | 5 | 563.0 | 567.0 | 567.0 | 561.6 | 567.0 |
 | `emailOtpEnrollmentMaterialMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `emailOtpRecoveryCodeBackupMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `immediateSigningLaneAssertionMs` | 5 | 9.0 | 20.0 | 20.0 | 10.0 | 20.0 |
-| `inputValidationMs` | 5 | 2.0 | 4.0 | 4.0 | 2.4 | 4.0 |
-| `localWalletRegistrationPersistenceMs` | 5 | 10.0 | 18.0 | 18.0 | 10.2 | 18.0 |
-| `managedRegistrationGrantMs` | 5 | 2.0 | 8.0 | 8.0 | 3.2 | 8.0 |
+| `immediateSigningLaneAssertionMs` | 5 | 5.0 | 19.0 | 19.0 | 7.8 | 19.0 |
+| `inputValidationMs` | 5 | 2.0 | 20.0 | 20.0 | 5.8 | 20.0 |
+| `localWalletRegistrationPersistenceMs` | 5 | 5.0 | 19.0 | 19.0 | 7.2 | 19.0 |
+| `managedRegistrationGrantMs` | 5 | 6.0 | 33.0 | 33.0 | 10.2 | 33.0 |
 | `registrationIntentDigestMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationIntentMs` | 5 | 3.0 | 7.0 | 7.0 | 4.2 | 7.0 |
-| `sdkTotalMs` | 5 | 1958.0 | 2079.0 | 2079.0 | 1984.0 | 2079.0 |
-| `thresholdEd25519SessionPersistenceMs` | 5 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 |
-| `totalMs` | 5 | 2845.0 | 2978.0 | 2978.0 | 2873.4 | 2978.0 |
-| `walletRegisterFinalizeMs` | 5 | 220.0 | 229.0 | 229.0 | 221.4 | 229.0 |
-| `walletRegisterHssRespondMs` | 5 | 112.0 | 181.0 | 181.0 | 125.4 | 181.0 |
-| `walletRegisterStartMs` | 5 | 427.0 | 559.0 | 559.0 | 454.4 | 559.0 |
-| `walletStateActivationMs` | 5 | 1.0 | 6.0 | 6.0 | 2.0 | 6.0 |
+| `registrationIntentMs` | 5 | 3.0 | 9.0 | 9.0 | 4.2 | 9.0 |
+| `sdkTotalMs` | 5 | 1750.0 | 2014.0 | 2014.0 | 1796.8 | 2014.0 |
+| `thresholdEd25519SessionPersistenceMs` | 5 | 1.0 | 1.0 | 1.0 | 0.8 | 1.0 |
+| `totalMs` | 5 | 2635.0 | 2902.0 | 2902.0 | 2679.6 | 2902.0 |
+| `walletRegisterFinalizeMs` | 5 | 219.0 | 258.0 | 258.0 | 227.8 | 258.0 |
+| `walletRegisterHssRespondMs` | 5 | 111.0 | 175.0 | 175.0 | 123.4 | 175.0 |
+| `walletRegisterStartMs` | 5 | 428.0 | 536.0 | 536.0 | 449.0 | 536.0 |
+| `walletStateActivationMs` | 5 | 1.0 | 2.0 | 2.0 | 1.4 | 2.0 |
 
 ### Relay Route Diagnostics: wallets_register_finalize
 
 | Bucket | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Max (ms) |
 |---|---:|---:|---:|---:|---:|---:|
 | `nearAccountCreateMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registerFinalizeTotalMs` | 5 | 213.0 | 220.0 | 220.0 | 214.8 | 220.0 |
+| `registerFinalizeTotalMs` | 5 | 213.0 | 238.0 | 238.0 | 218.0 | 238.0 |
 | `registrationCeremonyLoadMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationEcdsaBootstrapVerifyMs` | 5 | 1.0 | 1.0 | 1.0 | 0.6 | 1.0 |
+| `registrationEcdsaBootstrapVerifyMs` | 5 | 0.0 | 1.0 | 1.0 | 0.4 | 1.0 |
 | `registrationEmailOtpEnrollmentPlanMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `registrationFinalizeReplayCacheMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssFinalizeDecodeArtifactMs` | 5 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 |
-| `registrationHssFinalizeEncodeReportMs` | 5 | 3.0 | 4.0 | 4.0 | 3.4 | 4.0 |
+| `registrationHssFinalizeDecodeArtifactMs` | 5 | 1.0 | 1.0 | 1.0 | 0.8 | 1.0 |
+| `registrationHssFinalizeEncodeReportMs` | 5 | 3.0 | 4.0 | 4.0 | 3.2 | 4.0 |
+| `registrationHssFinalizeMs` | 5 | 212.0 | 236.0 | 236.0 | 217.2 | 236.0 |
+| `registrationHssFinalizeReportMs` | 5 | 5.0 | 5.0 | 5.0 | 4.8 | 5.0 |
 | `registrationHssFinalizeSerializedSessionMaterializeMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssFinalizeMs` | 5 | 213.0 | 218.0 | 218.0 | 213.6 | 218.0 |
-| `registrationHssFinalizeReportMs` | 5 | 4.0 | 5.0 | 5.0 | 4.4 | 5.0 |
 | `registrationKeygenMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `relayGoogleEmailOtpActivationPlanMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `relayPersistenceMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `relaySessionMintMs` | 5 | 0.0 | 1.0 | 1.0 | 0.2 | 1.0 |
+| `relayPersistenceMs` | 5 | 0.0 | 1.0 | 1.0 | 0.2 | 1.0 |
+| `relaySessionMintMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 
 ### Relay Route Diagnostics: wallets_register_hss_respond
 
 | Bucket | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Max (ms) |
 |---|---:|---:|---:|---:|---:|---:|
-| `registerHssRespondTotalMs` | 5 | 107.0 | 176.0 | 176.0 | 120.0 | 176.0 |
-| `registrationEcdsaRespondMs` | 5 | 12.0 | 76.0 | 76.0 | 24.2 | 76.0 |
+| `registerHssRespondTotalMs` | 5 | 104.0 | 169.0 | 169.0 | 117.0 | 169.0 |
+| `registrationEcdsaRespondMs` | 5 | 11.0 | 72.0 | 72.0 | 23.4 | 72.0 |
 | `registrationHssRespondDecodeMessagesMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `registrationHssRespondEncodeDeliveryMs` | 5 | 5.0 | 6.0 | 6.0 | 5.2 | 6.0 |
 | `registrationHssRespondMaterializeSessionMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssRespondMs` | 5 | 94.0 | 100.0 | 100.0 | 95.6 | 100.0 |
-| `registrationHssRespondPrepareDeliveryMs` | 5 | 75.0 | 77.0 | 77.0 | 74.2 | 77.0 |
+| `registrationHssRespondMs` | 5 | 93.0 | 97.0 | 97.0 | 93.6 | 97.0 |
+| `registrationHssRespondPrepareDeliveryMs` | 5 | 72.0 | 75.0 | 75.0 | 72.8 | 75.0 |
 
 ### Relay Route Diagnostics: wallets_register_start
 
 | Bucket | Count | p50 (ms) | p95 (ms) | p99 (ms) | Mean (ms) | Max (ms) |
 |---|---:|---:|---:|---:|---:|---:|
-| `registerStartTotalMs` | 5 | 373.0 | 554.0 | 554.0 | 410.2 | 554.0 |
-| `registrationAuthorityVerifyMs` | 5 | 1.0 | 113.0 | 113.0 | 23.4 | 113.0 |
+| `registerStartTotalMs` | 5 | 375.0 | 531.0 | 531.0 | 405.6 | 531.0 |
+| `registrationAuthorityVerifyMs` | 5 | 1.0 | 96.0 | 96.0 | 19.8 | 96.0 |
 | `registrationCeremonyPersistMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationEcdsaPrepareMs` | 5 | 371.0 | 378.0 | 378.0 | 298.6 | 378.0 |
+| `registrationEcdsaPrepareMs` | 5 | 372.0 | 375.0 | 375.0 | 298.6 | 375.0 |
 | `registrationHssPrepareCachePreparedSessionMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssPrepareClientOfferMessageMs` | 5 | 1.0 | 1.0 | 1.0 | 0.6 | 1.0 |
-| `registrationHssPrepareEncodeStatesMs` | 5 | 2.0 | 2.0 | 2.0 | 1.6 | 2.0 |
+| `registrationHssPrepareClientOfferMessageMs` | 5 | 0.0 | 1.0 | 1.0 | 0.4 | 1.0 |
+| `registrationHssPrepareEncodeStatesMs` | 5 | 1.0 | 3.0 | 3.0 | 1.6 | 3.0 |
 | `registrationHssPrepareExtractDriverStatesMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationHssPrepareMs` | 5 | 371.0 | 441.0 | 441.0 | 385.8 | 441.0 |
-| `registrationHssPrepareSessionMs` | 5 | 356.0 | 364.0 | 364.0 | 358.2 | 364.0 |
-| `registrationHssServerInputDeriveMs` | 5 | 367.0 | 431.0 | 431.0 | 380.8 | 431.0 |
-| `registrationHssServerSessionPrepareTotalMs` | 5 | 358.0 | 371.0 | 371.0 | 361.2 | 371.0 |
+| `registrationHssPrepareMs` | 5 | 371.0 | 435.0 | 435.0 | 384.4 | 435.0 |
+| `registrationHssPrepareSessionMs` | 5 | 356.0 | 362.0 | 362.0 | 357.8 | 362.0 |
+| `registrationHssServerInputDeriveMs` | 5 | 367.0 | 426.0 | 426.0 | 379.4 | 426.0 |
+| `registrationHssServerSessionPrepareTotalMs` | 5 | 358.0 | 370.0 | 370.0 | 360.8 | 370.0 |
 | `registrationIntentConsumeMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `registrationIntentDigestMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `registrationIntentDigestMs` | 5 | 0.0 | 1.0 | 1.0 | 0.4 | 1.0 |
 | `registrationIntentLoadMs` | 5 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 
 ### HSS Client Timings
 
 | Operation | Count | total p50 | total p95 | fetch p50 | fetch p95 | request bytes p50 | response bytes p50 |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| `ceremony` | 4 | 1418.0 | 1422.0 | n/a | n/a | n/a | n/a |
-| `finalize` | 4 | 53.0 | 57.0 | 52.0 | 56.0 | 154690 | 39461 |
-| `prepare` | 5 | 379.0 | 389.0 | 379.0 | 388.0 | 386 | 23050 |
-| `respond` | 5 | 100.0 | 102.0 | 99.0 | 101.0 | 22268 | 419361 |
+| `ceremony` | 4 | 1300.0 | 1311.0 | n/a | n/a | n/a | n/a |
+| `finalize` | 4 | 52.0 | 52.0 | 51.0 | 52.0 | 154690 | 39461 |
+| `prepare` | 5 | 376.0 | 380.0 | 376.0 | 379.0 | 386 | 23050 |
+| `respond` | 5 | 98.0 | 99.0 | 97.0 | 98.0 | 22268 | 419361 |
 
 ### HSS Worker Diagnostics
 
 | Operation | Count | total p50 | total p95 | wasm p50 | wasm p95 | queue p95 | request bytes p50 | response bytes p50 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| `build_client_owned_staged_evaluator_artifact` | 9 | 667.0 | 670.0 | 667.0 | 670.0 | 0.0 | 464361 | 154567 |
-| `open_client_output` | 4 | 91.0 | 92.0 | 91.0 | 92.0 | 0.0 | 40086 | 86 |
-| `prepare_client_request` | 10 | 123.0 | 132.0 | 123.0 | 132.0 | 0.0 | 22960 | 45041 |
+| `build_client_owned_staged_evaluator_artifact` | 9 | 561.0 | 567.0 | 561.0 | 567.0 | 0.0 | 464361 | 154567 |
+| `open_client_output` | 4 | 90.0 | 91.0 | 90.0 | 91.0 | 0.0 | 40086 | 86 |
+| `prepare_client_request` | 10 | 122.0 | 136.0 | 122.0 | 136.0 | 0.0 | 22960 | 45041 |
 
 ### HSS Worker WASM Substep Timings
 
 | Operation | Substep | Count | p50 (ms) | p95 (ms) | Mean (ms) | Max (ms) |
 |---|---|---:|---:|---:|---:|---:|
-| `build_client_owned_staged_evaluator_artifact` | `buildArtifactMs` | 9 | 665.0 | 668.0 | 663.9 | 668.0 |
+| `build_client_owned_staged_evaluator_artifact` | `buildArtifactMs` | 9 | 559.0 | 565.0 | 558.0 | 565.0 |
 | `build_client_owned_staged_evaluator_artifact` | `decodeClientOutputMaskMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `decodeClientRequestMessageMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `build_client_owned_staged_evaluator_artifact` | `decodeClientRequestMessageMs` | 9 | 0.0 | 1.0 | 0.1 | 1.0 |
 | `build_client_owned_staged_evaluator_artifact` | `decodeEvaluatorDriverStateMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `decodeEvaluatorOtStateMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `decodeServerInputDeliveryMs` | 9 | 1.0 | 2.0 | 1.1 | 2.0 |
+| `build_client_owned_staged_evaluator_artifact` | `decodeEvaluatorOtStateMs` | 9 | 0.0 | 1.0 | 0.1 | 1.0 |
+| `build_client_owned_staged_evaluator_artifact` | `decodeServerInputDeliveryMs` | 9 | 1.0 | 2.0 | 1.0 | 2.0 |
 | `build_client_owned_staged_evaluator_artifact` | `encodeArtifactMs` | 9 | 0.0 | 1.0 | 0.2 | 1.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalAddStageMs` | 9 | 4.0 | 5.0 | 4.1 | 5.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalInputSharingMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
@@ -608,28 +644,40 @@ Run ID: `20260608-053047Z`
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalLogicalTransportWordMaterializations` | 9 | 1536.0 | 1536.0 | 1536.0 | 1536.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationAXorCarryMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationCarryGateMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationMs` | 9 | 40.0 | 41.0 | 40.2 | 41.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationMs` | 9 | 40.0 | 40.0 | 39.8 | 40.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationNextCarryMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationSumMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleAccumulationXorAbMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleMs` | 9 | 57.0 | 58.0 | 56.9 | 58.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorMs` | 9 | 275.0 | 276.0 | 273.4 | 276.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundChMs` | 9 | 31.0 | 32.0 | 31.0 | 32.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundCoreMs` | 9 | 294.0 | 297.0 | 294.3 | 297.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundMajMs` | 9 | 38.0 | 38.0 | 37.8 | 38.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundNewABitsMs` | 9 | 45.0 | 46.0 | 45.2 | 46.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundNewEBitsMs` | 9 | 45.0 | 45.0 | 45.0 | 45.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundSigma0Ms` | 9 | 8.0 | 9.0 | 8.1 | 9.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundSigma1Ms` | 9 | 8.0 | 11.0 | 8.3 | 11.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundState3Ms` | 9 | 3.0 | 3.0 | 2.9 | 3.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalMessageScheduleMs` | 9 | 56.0 | 57.0 | 56.4 | 57.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorBundleBuildMs` | 9 | 6.0 | 6.0 | 6.0 | 6.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorClampAMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorClientBaseMs` | 9 | 57.0 | 63.0 | 57.7 | 63.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorClientOutputMs` | 9 | 7.0 | 7.0 | 7.0 | 7.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorCoreMs` | 9 | 38.0 | 39.0 | 38.3 | 39.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorLocalWordMaterializations` | 9 | 2560.0 | 2560.0 | 2560.0 | 2560.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorMaskAddMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorMaskShareMs` | 9 | 2.0 | 2.0 | 2.0 | 2.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorMs` | 9 | 170.0 | 176.0 | 170.4 | 176.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorReduceAMs` | 9 | 30.0 | 31.0 | 30.1 | 31.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorRelayerOutputMs` | 9 | 60.0 | 60.0 | 59.8 | 60.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorTauDoubleMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalOutputProjectorTauMs` | 9 | 8.0 | 9.0 | 8.1 | 9.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundChMs` | 9 | 31.0 | 32.0 | 31.2 | 32.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundCoreMs` | 9 | 292.0 | 297.0 | 292.9 | 297.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundMajMs` | 9 | 38.0 | 38.0 | 37.7 | 38.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundNewABitsMs` | 9 | 45.0 | 45.0 | 44.8 | 45.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundNewEBitsMs` | 9 | 45.0 | 46.0 | 45.1 | 46.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundSigma0Ms` | 9 | 8.0 | 8.0 | 8.0 | 8.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundSigma1Ms` | 9 | 8.0 | 8.0 | 8.0 | 8.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundState3Ms` | 9 | 3.0 | 3.0 | 2.7 | 3.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1AXorCarryMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1CarryGateMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1Ms` | 9 | 8.0 | 8.0 | 7.9 | 8.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1Ms` | 9 | 8.0 | 8.0 | 7.8 | 8.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1NextCarryMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1SumMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp1XorAbMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 | `build_client_owned_staged_evaluator_artifact` | `hiddenEvalRoundTemp2Ms` | 9 | 4.0 | 4.0 | 4.0 | 4.0 |
-| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalTotalMs` | 9 | 631.0 | 634.0 | 629.0 | 634.0 |
+| `build_client_owned_staged_evaluator_artifact` | `hiddenEvalTotalMs` | 9 | 523.0 | 532.0 | 523.7 | 532.0 |
 | `build_client_owned_staged_evaluator_artifact` | `materializeSessionMs` | 9 | 0.0 | 0.0 | 0.0 | 0.0 |
 
 ## Notes

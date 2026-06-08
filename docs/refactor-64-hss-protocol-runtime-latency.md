@@ -2,7 +2,8 @@
 
 Date created: June 8, 2026
 
-Status: active; first hot-loop candidate benchmarked and rejected; direct WASM
+Status: active; first hot-loop candidate benchmarked and rejected; output
+projector client-base and mixed shared-mask candidates retained; direct WASM
 artifact benchmark, logical object counters, and server ceremony sub-bucket
 timings added.
 
@@ -33,6 +34,23 @@ temporarily knows the full export seed and signing scalar.
   runtimes where HSS should not be mandatory.
 - This plan owns deeper HSS protocol/runtime performance work.
 
+Historical `ed25519-hss` optimization notes:
+
+- `crates/ed25519-hss/optimization.md` is the crate-level optimization
+  entrypoint and must be checked before adding new refactor-64 candidates.
+- `crates/ed25519-hss/docs/plans/optimization-v3.md` records the durable kernel
+  lesson: helper-level `Ch`/`Maj` rewrites at the old abstraction boundary were
+  poor trades; the kept wins came from kernel shape, denser local storage, and
+  fused local kernels.
+- `crates/ed25519-hss/docs/plans/optimization-v4.md` records the accepted
+  Worker-path and wasm-isolate wins: transport trimming, prepared-session reuse,
+  constant-pool reuse, staged-artifact handles, direct same-process hidden eval,
+  and pair-wise round-core boolean helpers.
+- New refactor-64 work should avoid repeating route-envelope cleanup,
+  helper-level boolean rewrites, native-only fast paths, or browser-only payload
+  shaping. Treat packed/arena representation and fused local kernels as the
+  next non-duplicative direction.
+
 ## Current Read
 
 Latest retained registration benchmark:
@@ -41,16 +59,18 @@ Latest retained registration benchmark:
 - baseline before finalize cache fast path: `20260608-030241Z`
 - latest retained run after finalize cache fast path: `20260608-051326Z`
 - latest instrumentation run: `20260608-053047Z`
-- SDK registration total: `1933ms` to `2134ms` p50 across the smoke scenarios
-- browser-observed total: `2816ms` to `3228ms` p50 across the smoke scenarios
-- HSS client evaluation artifact: `666ms` to `673ms` p50
-- `/wallets/register/start`: server total `371ms` to `373ms` p50, dominated by
-  HSS prepare at `370ms` to `372ms` p50
-- start-route split: signing-root server-input derivation is `366ms` to
-  `368ms` p50 and server-session preparation is `356ms` to `359ms` p50; they
+- latest output-projector client-base run: `20260608-065437Z`
+- latest mixed shared-mask output-projector run: `20260608-092157Z`
+- SDK registration total: `1717ms` to `2036ms` p50 across the smoke scenarios
+- browser-observed total: `2594ms` to `3334ms` p50 across the smoke scenarios
+- HSS client evaluation artifact: `563ms` to `573ms` p50
+- `/wallets/register/start`: server total `377ms` to `380ms` p50, dominated by
+  HSS prepare at `376ms` to `378ms` p50
+- start-route split: signing-root server-input derivation is `372ms` to
+  `374ms` p50 and server-session preparation is `362ms` to `365ms` p50; they
   run in parallel, so both branches matter
 - server-session preparation split: `prepare_prime_order_succinct_hss` accounts
-  for `354ms` to `357ms` p50; driver-state extraction, client offer creation,
+  for `360ms` to `363ms` p50; driver-state extraction, client offer creation,
   caching, and state encoding are each single-digit milliseconds
 - `/wallets/register/hss/respond`: server total `94ms` to `109ms` p50,
   dominated by server-input delivery preparation at `73ms` to `74ms` p50
@@ -64,7 +84,8 @@ Latest retained registration benchmark:
 Latest fine-grained client-owned hidden-eval ranking:
 
 - `hiddenEvalRoundCoreMs`: p50 roughly `296ms` to `301ms`
-- `hiddenEvalOutputProjectorMs`: p50 roughly `270ms` to `281ms`
+- `hiddenEvalOutputProjectorMs`: p50 roughly `168ms` to `170ms` after the
+  retained mixed shared-mask candidate
 - `hiddenEvalMessageScheduleMs`: p50 roughly `58ms` to `59ms`
 - inside round core:
   - `hiddenEvalRoundNewABitsMs`: about `45ms` to `46ms` p50
@@ -83,6 +104,14 @@ Interpretation:
 - the first A2B destination-reuse experiment improved native p50 but did not
   improve the browser/WASM HSS worker path, so no code from that candidate is
   retained
+- the output-projector client-base candidate is retained; it computes
+  `a + tau` once and derives client and relayer outputs from that shared base,
+  removing one masked-path modular addition and one tau-doubling modular
+  addition while preserving output values
+- the output-projector mixed shared-mask candidate is retained; it computes
+  `client_base + mask` directly from the shared mask bits instead of first
+  materializing a split local mask word, reducing masked output-projector
+  local-word materializations from `3072` to `2560`
 - a direct Ed25519 HSS WASM artifact benchmark now exists at
   `benchmarks/ed25519-hss-wasm`; baseline run
   `2026-06-08T01-36-06-388Z` measured `node_client_artifact_worker_handle_wasm`
@@ -93,6 +122,11 @@ Interpretation:
   materializations, 1,024 shared-word materializations, 1,536 transport-word
   materializations, 17,928 commitment materializations, 15,360 provenance digest
   materializations, and 57,128 logical label writes per artifact
+- `hidden_eval_equivalence` now provides the representation-rewrite gate:
+  production execution must match checkpoint-capturing trace execution for
+  trusted-server and client-masked output projection, and the current
+  materialization fixture pins the aggregate logical shape plus masked
+  output-projector local-word materializations at `2560`
 - the client-owned artifact path now uses a one-shot production hidden-eval
   helper that skips checkpoint digest retention; smoke run
   `2026-06-08T02-11-25-255Z` was mixed and should not be treated as a latency
@@ -292,7 +326,9 @@ Candidates:
 
 - A2B destination-writer helper for `new_a_bits` and `new_e_bits`
 - A2B raw carry-gadget specialization for already-local arithmetic word pairs
-- `maj` and `ch` destination-writing scratch reuse
+- `maj` and `ch` destination-writing scratch reuse only as part of a fused
+  round-core kernel or packed representation; standalone helper-level rewrites
+  duplicate rejected/low-value historical work
 - output-projector scratch reuse
 - fewer temporary `DdhHssLocalWord` objects
 - fewer intermediate `Vec` allocations in round state and schedule state
@@ -311,8 +347,9 @@ Implementation order:
 3. Production representation audit.
 4. A2B raw carry-gadget candidate only if counters show object churn inside the
    carry conversion is material in browser/WASM.
-5. `maj`/`ch` helper candidate.
-6. output-projector scratch candidate.
+5. output-projector client-base candidate. Landed and retained.
+6. output-projector mixed shared-mask candidate. Landed and retained.
+7. packed/arena representation harness before more helper-level boolean work.
 
 Keep rule:
 
@@ -522,10 +559,11 @@ Risk:
 3. Production representation audit.
 4. Native allocator or heap-profiler evidence if packed representation is still
    ambiguous.
-5. `maj`/`ch` and output-projector scratch candidates only where counters show
-   browser/WASM object churn.
-6. Structured label and prefix-hasher work.
-7. Packed/arena representation if profiling supports it.
+5. Output-projector scratch candidates only where counters show browser/WASM
+   object churn.
+6. Packed/arena representation harness.
+7. Structured label or boolean-helper work only when folded into the new
+   representation and guarded by byte-equivalence fixtures.
 8. Native/SIMD/parallel runtime experiments.
 9. Protocol-level redesign only if the above cannot meet targets.
 
@@ -591,15 +629,32 @@ For protocol-shape changes:
 - [ ] Add native HSS registration benchmark.
 - [x] Add WASM-only HSS artifact benchmark.
 - [x] Add hidden-eval logical allocation and object-construction counters.
+- [x] Add byte-equivalence harness before packed/arena representation work.
+- [x] Add output-projector local-word materialization evidence for
+      scratch/materialization keep-reject decisions.
 - [x] Split one-shot client artifact evaluation from checkpoint-retaining trace
       evaluation.
 - [x] Split server HSS prepare/finalize into protocol sub-buckets.
 - [x] Complete production representation audit.
 - [x] Benchmark A2B candidate against `20260607-152114Z`.
-- [ ] Implement `maj`/`ch` scratch candidate only if A2B results justify more
-      local hot-loop work.
+- [x] Split output-projector timing into core, reduction, tau, mask, client,
+      relayer, and bundle-build sub-buckets.
+- [x] Retain output-projector shared client-base candidate after direct artifact
+      and registration-flow smoke benchmarks.
+- [x] Retain output-projector mixed shared-mask candidate after
+      byte-equivalence, direct artifact, and registration-flow smoke
+      benchmarks.
+- [x] Review historical `ed25519-hss` optimization notes for duplicate
+      candidates before continuing refactor-64.
+- [ ] Avoid standalone `maj`/`ch` scratch candidates unless they are part of a
+      fused round-core or packed-representation rewrite.
+- [x] Design the first mixed local/shared output-projector kernel against the
+      new equivalence harness.
+- [ ] Design the first packed round-core or arena-backed representation
+      candidate against the equivalence harness.
 - [ ] Decide whether structured labels/prefix hashers are still worth doing
-      after allocation and object counters land.
+      only after confirming they are part of a new representation shape rather
+      than repeating retained label-buffer reuse.
 - [ ] Decide whether packed/arena representation is justified.
 - [ ] Decide whether a protocol-level redesign is necessary.
 

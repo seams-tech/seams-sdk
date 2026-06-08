@@ -547,6 +547,66 @@ pub fn threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(
     )?;
     set_f64(
         &timings,
+        "hiddenEvalOutputProjectorCoreMs",
+        ns_to_ms(stage_profile.output_projector_core_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalOutputProjectorClampAMs",
+        ns_to_ms(stage_profile.output_projector_clamp_a_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalOutputProjectorReduceAMs",
+        ns_to_ms(stage_profile.output_projector_reduce_a_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalOutputProjectorTauMs",
+        ns_to_ms(stage_profile.output_projector_tau_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalOutputProjectorMaskShareMs",
+        ns_to_ms(stage_profile.output_projector_mask_share_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalOutputProjectorMaskAddMs",
+        ns_to_ms(stage_profile.output_projector_mask_add_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalOutputProjectorClientBaseMs",
+        ns_to_ms(stage_profile.output_projector_client_base_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalOutputProjectorClientOutputMs",
+        ns_to_ms(stage_profile.output_projector_client_output_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalOutputProjectorTauDoubleMs",
+        ns_to_ms(stage_profile.output_projector_tau_double_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalOutputProjectorRelayerOutputMs",
+        ns_to_ms(stage_profile.output_projector_relayer_output_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalOutputProjectorBundleBuildMs",
+        ns_to_ms(stage_profile.output_projector_bundle_build_duration_ns),
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalOutputProjectorLocalWordMaterializations",
+        stage_profile.output_projector_local_word_materializations as f64,
+    )?;
+    set_f64(
+        &timings,
         "hiddenEvalTotalMs",
         ns_to_ms(stage_profile.total_duration_ns),
     )?;

@@ -295,3 +295,183 @@ Interpretation:
 - The next start-route work must address threshold-PRF server-input derivation,
   HSS session preparation itself, or move one/both branches off the post-auth
   critical path.
+
+## Direct Ed25519 HSS Output-Projector Sub-Buckets
+
+Benchmark:
+
+- Command:
+  `pnpm -C sdk build:wasm && node ./benchmarks/ed25519-hss-wasm/src/runner.mjs --warmup 1 --iterations 4 --browser-warmup 1 --browser-iterations 2`
+- Run ID: `2026-06-08T06-47-28-133Z`
+- Local output:
+  `benchmarks/ed25519-hss-wasm/out/2026-06-08T06-47-28-133Z/summary.md`
+- Scope: direct WASM artifact benchmark after adding output-projector
+  sub-bucket instrumentation
+
+Selected p50 buckets:
+
+| Path | Wall p50 | Hidden eval p50 | Output projector p50 | Core p50 | Mask add p50 | Client output p50 | Tau double p50 | Relayer output p50 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `node_client_artifact_serialized_state_wasm` | 763.722ms | 630.937ms | 272.041ms | 37.723ms | 57.778ms | 57.696ms | 57.800ms | 57.855ms |
+| `node_client_artifact_worker_handle_wasm` | 695.211ms | 658.556ms | 292.192ms | 39.794ms | 61.105ms | 60.915ms | 61.439ms | 60.861ms |
+| `browser_client_artifact_worker_handle_wasm` | 335.000ms | 322.050ms | 77.650ms | 38.450ms | 7.850ms | 7.850ms | 7.850ms | 7.850ms |
+
+Interpretation:
+
+- The masked output-projector path was spending four modular additions after
+  reduction: `a + tau`, `(a + tau) + mask`, `tau + tau`, and
+  `a + (tau + tau)`.
+- The direct Node worker-handle path showed roughly 244ms p50 in those four
+  additions; the browser lower-bound path showed roughly 31ms p50.
+- This made the output projector a good candidate for a semantics-preserving
+  algebra cleanup before deeper representation work.
+
+## Direct Ed25519 HSS Shared Client-Base Candidate
+
+Candidate:
+
+- Compute `client_base = a + tau` once in the output projector.
+- In client-masked mode, compute `client_output = client_base + mask` and
+  `x_relayer_base = client_base + tau`.
+- Remove the separate `mask + tau` and `tau + tau` intermediates.
+- Keep projection-mode branching public, fixed-width loop bounds, output
+  labels, commitments, and bundle labels.
+
+Benchmark:
+
+- Command:
+  `pnpm -C sdk build:wasm && node ./benchmarks/ed25519-hss-wasm/src/runner.mjs --warmup 1 --iterations 4 --browser-warmup 1 --browser-iterations 2`
+- Baseline run ID: `2026-06-08T06-47-28-133Z`
+- Candidate run ID: `2026-06-08T06-53-24-480Z`
+- Local output:
+  `benchmarks/ed25519-hss-wasm/out/2026-06-08T06-53-24-480Z/summary.md`
+
+| Path | Wall p50 before | Wall p50 after | Hidden eval p50 before | Hidden eval p50 after | Output projector p50 before | Output projector p50 after |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `node_client_artifact_serialized_state_wasm` | 763.722ms | 703.604ms | 630.937ms | 577.723ms | 272.041ms | 219.694ms |
+| `node_client_artifact_worker_handle_wasm` | 695.211ms | 624.634ms | 658.556ms | 588.499ms | 292.192ms | 228.596ms |
+| `browser_client_artifact_worker_handle_wasm` | 335.000ms | 329.050ms | 322.050ms | 315.900ms | 77.650ms | 69.900ms |
+
+Validation:
+
+- `cargo fmt --manifest-path crates/ed25519-hss/Cargo.toml`
+- `CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang cargo check --manifest-path wasm/hss_client_signer/Cargo.toml --target wasm32-unknown-unknown`
+- `cargo test --manifest-path crates/ed25519-hss/Cargo.toml --test mod protocol_validation`
+
+Interpretation:
+
+- Keep. The direct artifact benchmark shows a clear client-artifact win,
+  especially on the Node worker-handle path used for fast candidate iteration.
+- The candidate removes two modular additions from the masked output-projector
+  path. Product registration still spends most time in hidden-eval round core,
+  server-input derivation, and HSS prepare.
+- Constant-time review: no new secret-dependent branch, index, allocation size,
+  or loop bound was introduced. The only branch remains the public client
+  output projection mode.
+
+## Registration Flow Smoke With Shared Client-Base Candidate
+
+Benchmark:
+
+- Command:
+  `CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang pnpm benchmark:registration-flow:smoke`
+- Baseline run ID: `20260608-053047Z`
+- Candidate run ID: `20260608-065437Z`
+- Local output:
+  `benchmarks/registration-flow/out/20260608-065437Z/summary.md`
+- Docs mirror: `docs/benchmarks/registration-flow.md`
+
+| Scenario | SDK p50 before | SDK p50 after | Browser p50 before | Browser p50 after | Client artifact p50 before | Client artifact p50 after |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| `passkey_ed25519_only_wallet_iframe` | 2112ms | 2060ms | 3210ms | 3166ms | 668ms | 624ms |
+| `passkey_ed25519_and_ecdsa_wallet_iframe` | 2134ms | 2103ms | 3228ms | 3207ms | 673ms | 627ms |
+| `passkey_ed25519_only_host_origin` | 1933ms | 1842ms | 2816ms | 2730ms | 666ms | 617ms |
+| `passkey_ed25519_and_ecdsa_host_origin` | 1958ms | 1871ms | 2845ms | 2761ms | 668ms | 617ms |
+
+Interpretation:
+
+- Keep. All four smoke scenarios passed, and the targeted client artifact
+  bucket improved by 44ms-51ms p50.
+- Product total p50 improved by 31ms-91ms SDK-side and 21ms-116ms
+  browser-observed, with normal benchmark noise still visible in auth and
+  start-route buckets.
+- Output projector p50 in the product worker diagnostics is now roughly
+  217ms-221ms, down from roughly 267ms-273ms in the previous retained run.
+
+## Direct Ed25519 HSS Mixed Shared-Mask Candidate
+
+Candidate:
+
+- Keep `client_base = a + tau` from the retained shared client-base candidate.
+- In client-masked mode, compute `client_output = client_base + mask` directly
+  from the shared mask bits.
+- Avoid materializing the shared mask as a split local word before the modular
+  addition.
+- Keep projection-mode branching public, fixed-width loop bounds, output
+  labels, commitments, and bundle labels.
+
+Benchmark:
+
+- Command:
+  `pnpm -C sdk build:wasm && node ./benchmarks/ed25519-hss-wasm/src/runner.mjs --warmup 1 --iterations 4 --browser-warmup 1 --browser-iterations 2`
+- Baseline run ID: `2026-06-08T06-53-24-480Z`
+- Candidate run ID: `2026-06-08T09-19-30-202Z`
+- Local output:
+  `benchmarks/ed25519-hss-wasm/out/2026-06-08T09-19-30-202Z/summary.md`
+
+| Path | Wall p50 before | Wall p50 after | Hidden eval p50 before | Hidden eval p50 after | Output projector p50 before | Output projector p50 after | Output-projector local words before | Output-projector local words after |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `node_client_artifact_serialized_state_wasm` | 703.604ms | 654.719ms | 577.723ms | 527.669ms | 219.694ms | 170.220ms | 3072 | 2560 |
+| `node_client_artifact_worker_handle_wasm` | 624.634ms | 573.910ms | 588.499ms | 537.080ms | 228.596ms | 176.670ms | 3072 | 2560 |
+| `browser_client_artifact_worker_handle_wasm` | 329.050ms | 329.450ms | 315.900ms | 316.600ms | 69.900ms | 70.500ms | 3072 | 2560 |
+
+Interpretation:
+
+- Keep, pending the registration-flow smoke confirmation below. The direct Node
+  paths improve by about 49ms-51ms wall p50 and about 50ms-51ms hidden-eval p50.
+- The direct browser lower-bound path is effectively flat, which means this is
+  primarily a Node/WASM worker-handle and product-worker win.
+- The materialization counter moves in the intended direction: masked
+  output-projector local-word materializations fall from `3072` to `2560`.
+- Constant-time review: the new loop iterates over public fixed-width mask bits
+  and validates public word widths. It introduces no secret-dependent branch,
+  index, allocation size, or loop bound.
+
+Validation:
+
+- `cargo fmt --manifest-path crates/ed25519-hss/Cargo.toml`
+- `cargo test --manifest-path crates/ed25519-hss/Cargo.toml --test mod hidden_eval_equivalence`
+- `cargo check --manifest-path crates/ed25519-hss/Cargo.toml`
+- `CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang cargo check --manifest-path wasm/hss_client_signer/Cargo.toml --target wasm32-unknown-unknown`
+
+## Registration Flow Smoke With Mixed Shared-Mask Candidate
+
+Benchmark:
+
+- Command:
+  `CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang pnpm benchmark:registration-flow:smoke`
+- Baseline run ID: `20260608-065437Z`
+- Candidate run ID: `20260608-092157Z`
+- Local output:
+  `benchmarks/registration-flow/out/20260608-092157Z/summary.md`
+- Docs mirror: `docs/benchmarks/registration-flow.md`
+
+| Scenario | SDK p50 before | SDK p50 after | Browser p50 before | Browser p50 after | Client artifact p50 before | Client artifact p50 after | Output projector p50 before | Output projector p50 after |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| `passkey_ed25519_only_wallet_iframe` | 2060ms | 1997ms | 3166ms | 3334ms | 624ms | 573ms | 217ms | 169ms |
+| `passkey_ed25519_and_ecdsa_wallet_iframe` | 2103ms | 2036ms | 3207ms | 3115ms | 627ms | 569ms | 217ms | 168ms |
+| `passkey_ed25519_only_host_origin` | 1842ms | 1717ms | 2730ms | 2594ms | 617ms | 563ms | 220ms | 170ms |
+| `passkey_ed25519_and_ecdsa_host_origin` | 1871ms | 1750ms | 2761ms | 2635ms | 617ms | 563ms | 221ms | 170ms |
+
+Interpretation:
+
+- Keep. All four smoke scenarios passed, and the targeted client artifact
+  bucket improved by 51ms-58ms p50.
+- Product output-projector p50 improved by 48ms-51ms, matching the direct
+  Node/WASM signal.
+- SDK total p50 improved by 63ms-125ms. Browser-observed totals improved in
+  three scenarios and regressed in the first wallet-iframe scenario, so browser
+  total should still be treated as noisy auth/setup timing rather than the
+  primary keep signal for this narrow HSS executor change.
+- The next worthwhile HSS executor step is a packed or arena-backed
+  representation candidate gated by the byte-equivalence harness.
