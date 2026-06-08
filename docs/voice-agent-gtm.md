@@ -1,28 +1,40 @@
-# Voice Agent Ecommerce Wallet GTM Plan
+# Smart Personal Shopper Japan GTM Plan
 
 Date created: 2026-06-06
 Status: proposed
 
 ## Goal
 
-Launch a voice-first Japan ecommerce assistant backed by a passkey-controlled
-wallet and bounded spending mandates.
+Launch an English-first smart personal shopper and life-admin purchasing agent
+for Japan, backed by a passkey-controlled wallet and bounded spending mandates.
 
-The product lets English-speaking users in Japan say what they need, approve a
-specific task budget, and let an agent buy, book, or arrange local Japanese
-commerce tasks without giving the agent broad card or account access.
+The product lets English-speaking users in Japan describe what they need,
+approve a specific task budget, and let an agent find, ask, fill, buy, book, or
+arrange local Japanese commerce tasks without giving the agent broad card or
+account access.
+
+Voice is an input mode. The core product is delegated execution with constrained
+payment authority.
 
 Positioning:
 
 ```text
-Talk in English. Get Japan errands bought, booked, delivered, or handled.
-Your agent can only spend what you approve.
+Your English-speaking personal shopper for Japan.
+Say what you need. Approve a budget.
+The agent handles Japanese listings, forms, vendor questions, payment, delivery,
+and follow-up within the limits you set.
+```
+
+Short pitch:
+
+```text
+Translation helps you understand. This gets the thing done.
 ```
 
 ## Core Thesis
 
 Japan is a strong wedge because the pain is local, recurring, and hard to solve
-with a generic shopping agent:
+with translation alone:
 
 - product labels, checkout forms, delivery rules, and service bookings are
   Japanese-first
@@ -31,6 +43,24 @@ with a generic shopping agent:
 - tourists and new residents have urgent needs before they have local fluency
 - commerce tasks often cross ecommerce, phone calls, delivery, and municipal
   workflows
+
+Translation-only tools are enough when the user just needs to understand a
+label, sign, phrase, or short conversation. They break down when the task
+requires multiple steps, merchant judgment, form completion, payment, delivery,
+or post-purchase handling.
+
+The product boundary is execution. A task belongs in this product when it ends
+in an action:
+
+- compare Japanese listings and pick the right local substitute
+- ask seller or staff follow-up questions
+- fill Japanese checkout, booking, or municipal forms
+- format a hotel or apartment delivery address correctly
+- call, message, book, buy, return, cancel, or reschedule
+- pay from a user-approved budget and produce an audit trail
+
+Tasks that only require text comprehension should stay outside the core funnel.
+The product should intentionally avoid becoming a generic translation app.
 
 The wallet is the trust primitive. The agent receives bounded authority:
 
@@ -69,9 +99,9 @@ Relevant market signals:
 - Japan had 42,683,600 inbound visitors in 2025, according to JNTO.
 - Japan's foreign resident population reached about 4.125 million at the end of
   2025, according to Immigration Services Agency figures reported by Nippon.com.
-- Major commerce platforms are moving toward agentic shopping. Amazon has
-  Alexa for Shopping, and OpenAI plus Stripe launched Instant Checkout with the
-  Agentic Commerce Protocol.
+- LLMs and browser agents are now good enough to complete multi-step commerce
+  workflows with human review, especially when the merchant set and task
+  categories are narrow.
 - JPYC EX is live as an official yen stablecoin service. User onboarding still
   requires account opening, My Number/JPKI identity verification, wallet
   address registration, bank-transfer funding, and minimum issuance/redemption
@@ -82,13 +112,16 @@ become an optional settlement or refund rail after the core experience works.
 
 ## Product Shape
 
-The user-facing app is a mobile voice and chat assistant.
+The user-facing app is an English-first mobile assistant with voice, chat, and a
+visual approval surface. Voice should make intake fast. Chat should make review
+and corrections precise. The final commitment should happen through a clear
+quote and passkey approval screen.
 
 Core surfaces:
 
 - passkey wallet creation
 - payment method or task-budget funding
-- voice request intake
+- voice and chat request intake
 - agent clarification
 - quote comparison
 - passkey approval
@@ -121,7 +154,7 @@ type AgentPurchaseMandate = {
 1. User opens app and creates a passkey wallet.
 2. User adds a payment method or creates a small task budget, for example
    JPY 5,000 or JPY 10,000.
-3. User speaks in English:
+3. User says or types in English:
 
    ```text
    I need unscented cat litter delivered to my hotel tomorrow under JPY 3,000.
@@ -143,6 +176,27 @@ Buy this same cat food every two weeks, max JPY 4,000, cheapest reliable seller.
 
 Repeat tasks require explicit recurrence terms, spend caps, expiry, and easy
 revocation from the wallet.
+
+Representative execution tasks:
+
+```text
+Find me the right pet litter, confirm it works with this automatic litter box,
+buy two bags, and ship them to my apartment.
+```
+
+```text
+Buy this shelf, confirm delivery includes stair carry-up, and schedule it for
+Saturday afternoon.
+```
+
+```text
+Book oversized garbage pickup for this item and pay the disposal fee.
+```
+
+```text
+Find a replacement part for this appliance and ask the seller if it fits my
+model number.
+```
 
 ## MVP Categories
 
@@ -203,6 +257,32 @@ JPYC roadmap:
 JPYC is useful as infrastructure once the product has demand. Activation should
 use the lowest-friction payment path available to the target segment.
 
+## Standards-Led GTM Rejection
+
+Do not build the Japan MVP around emerging agentic-commerce protocols.
+
+Protocols from card networks, large platforms, or AI commerce consortia may
+become useful later, and they may also be early attempts to control agentic
+commerce distribution before merchant demand is proven. Their value to Japanese
+merchants is unclear today. A merchant already accepts cards and already has an
+online checkout. The near-term merchant problem is completed orders, lower fraud,
+lower support cost, and fewer broken checkouts, not support for a new agent
+protocol.
+
+Revisit external agentic-payment protocols only when one of these conditions is
+true:
+
+- a target Japanese merchant or PSP already supports the protocol
+- the protocol reduces checkout failure, fraud review, or customer-support load
+- the protocol unlocks a merchant relationship that cannot be accessed through
+  PSP, virtual card, affiliate, or direct partnership paths
+- a card issuer or processor requires the protocol for real-time agent
+  authorization
+
+Until then, the wallet mandate model should stay provider-neutral and practical:
+signed user intent, bounded spend, exact cart and delivery approval, virtual card
+or PSP execution, and human fallback for fragile flows.
+
 ## Wallet SDK Role
 
 The wallet SDK should provide:
@@ -215,6 +295,8 @@ The wallet SDK should provide:
 - recovery through the existing wallet recovery model
 - signed receipts and refund authorization
 - audit logs for agent actions
+- mandate enforcement for PSP-backed checkout, virtual card controls, manual
+  review, and refund/cancellation authority
 
 Relevant existing architecture fit:
 
@@ -321,22 +403,26 @@ Initial merchant targets:
 
 Objective:
 
-- prove that users pay for English voice-assisted Japan task completion
+- prove that users pay for English-first Japan task completion where translation
+  alone leaves the task unfinished
 
 Todo:
 
-- [ ] create a landing page with 5 target tasks
+- [ ] create a landing page with 5 action-oriented target tasks
 - [ ] recruit 30-50 users from expat and traveler communities
 - [ ] run tasks manually with AI assistance and human review
 - [ ] capture task taxonomy, merchant paths, failure reasons, and price
       sensitivity
 - [ ] measure willingness to prefund a small wallet budget
+- [ ] classify failed leads as translation-only, execution-needed, payment-risk,
+      merchant-fragile, or regulated-category
 
 Exit criteria:
 
 - 100 completed paid or high-intent tasks
 - at least 40 percent of users request a second task
 - human intervention reasons are well understood
+- translation-only tasks are filtered out of the product funnel
 
 ### Phase 1: Wallet Mandate MVP
 
@@ -353,6 +439,8 @@ Todo:
 - [ ] require passkey approval before execution
 - [ ] store signed receipts and task logs
 - [ ] add refund and cancellation flows
+- [ ] define the canonical `PaymentMandate` shape used by PSP, virtual-card,
+      manual-review, refund, and cancellation flows
 
 Exit criteria:
 
@@ -489,6 +577,8 @@ Merchant execution:
 - merchant automation can be brittle
 - account-based checkout can violate terms or trigger fraud controls
 - return and cancellation handling can consume support time
+- translation-only tasks can pollute the funnel and make the product feel like a
+  wrapper around existing tools
 
 Product liability:
 
@@ -502,6 +592,8 @@ Trust and safety:
 - translation mistakes can create bad product matches
 - address mistakes are expensive in hotels and apartment buildings
 - users need visible control over agent spend and cancellation
+- users need a visual approval surface before irreversible payment or booking
+  actions
 
 Unit economics:
 
@@ -517,12 +609,14 @@ Unit economics:
 - Is the company merchant of record, agent of the user, or a checkout
   facilitator?
 - Which 3 merchants produce the highest completion rate in MVP categories?
-- Should the first app be voice-first with text fallback, or chat-first with
-  voice input?
+- Should the first app lead with chat and visual approval, voice intake, or an
+  equal split?
 - What support SLA is required for hotel delivery and urgent medicine-adjacent
   requests?
 - What is the minimum signed receipt artifact merchants, users, and support
   need?
+- Which payment execution path should be tested first: PSP checkout, single-use
+  virtual card, manual concierge purchase, or direct merchant partnership?
 
 ## Source References
 
@@ -532,9 +626,3 @@ Unit economics:
   https://www.nippon.com/en/japan-data/h02750/
 - JPYC EX service details:
   https://jpyc.co.jp/
-- Amazon Alexa for Shopping:
-  https://www.aboutamazon.com/news/retail/how-to-use-amazon-shopping-ai-assistant
-- OpenAI Instant Checkout:
-  https://openai.com/index/buy-it-in-chatgpt/
-- Stripe Agentic Commerce Protocol:
-  https://stripe.com/newsroom/news/stripe-openai-instant-checkout

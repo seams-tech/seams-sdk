@@ -384,6 +384,42 @@ Goal: keep Google SSO registration server-owned while reducing the happy path to
 one registration offer RTT plus one finalize RTT after Google token acquisition.
 User account-name shuffle must not require another relayer round trip.
 
+Architecture delta from the old flow:
+
+- Old standard Google SSO registration still behaved like an unlock-style Email
+  OTP flow. After Google verification, register mode could create or submit an
+  Email OTP challenge, render wallet-unlock UI, and treat account-name reroll as
+  another backend lifecycle step.
+- The new flow makes Google SSO registration an offer-plus-finalize lifecycle.
+  After the app obtains a Google ID token, the first backend RTT is
+  `session/exchange`: the relayer verifies Google SSO, creates a Google Email
+  OTP registration attempt, and returns a short-lived registration offer with
+  server-owned wallet candidates.
+- The middle phase is local. The SDK prewarms Email OTP registration material,
+  React displays registration UI, account-name shuffle rotates only through
+  candidates already present in the active offer, and recovery-code backup is
+  completed in wallet-owned UI. This phase must not call the relayer for reroll.
+- The second backend RTT is finalize. The SDK sends the selected `candidateId`,
+  typed Google SSO registration authority, Email OTP enrollment material, and
+  backup acknowledgement. The server revalidates the offer binding and activates
+  wallet, enrollment, backup, identity-link, and registration-attempt state.
+- Register mode no longer borrows login's OTP lifecycle. Registration exposes
+  `completeRegistration` and optional local `rerollWalletId`; login/existing
+  wallet unlock remains the branch that exposes `delivery`, `resend`, and
+  `submit` for Email OTP.
+- Google SSO Email OTP registration is Email OTP-only by type and route
+  boundary. It must not return passkey/WebAuthn registration options, OTP
+  challenge ids, OTP codes, or raw runtime/app-session internals.
+
+Backend round-trip target:
+
+```text
+Google token acquired
+  -> RTT 1: exchange token, receive registration offer
+  -> local: choose/shuffle wallet id, backup recovery codes
+  -> RTT 2: finalize wallet registration
+```
+
 Target registration shape:
 
 1. App obtains Google ID token.
