@@ -823,10 +823,21 @@ function summarizeThresholdEd25519HssWasmBreakdown(
         materializeRuntimeMs: number;
         materializeSessionsMs: number;
         ceremonyCoreMs: number;
+        ceremonyOtOpenJoinMs?: number;
+        ceremonyOtBranchKeyDerivationMs?: number;
+        ceremonyOtBranchDecryptMs?: number;
+        ceremonyOtPointScalarReconstructionMs?: number;
+        ceremonyOtCommitmentVerificationMs?: number;
+        ceremonyServerInputOpenMs?: number;
+        ceremonyServerInputShareMs?: number;
+        ceremonyServerInputCommitmentMs?: number;
+        ceremonyServerInputTranscriptMs?: number;
         ceremonyAddStageMs?: number;
         ceremonyMessageScheduleMs?: number;
         ceremonyRoundCoreMs?: number;
         ceremonyOutputProjectorMs?: number;
+        ceremonyResultAssemblyMs?: number;
+        ceremonyOutputSealingFinalizationMs?: number;
         encodeArtifactMs: number;
       }
     | undefined,
@@ -848,6 +859,23 @@ function summarizeThresholdEd25519HssWasmBreakdown(
     ['ceremonyMessageScheduleMs', Number(timings.ceremonyMessageScheduleMs || 0)],
     ['ceremonyRoundCoreMs', Number(timings.ceremonyRoundCoreMs || 0)],
     ['ceremonyOutputProjectorMs', Number(timings.ceremonyOutputProjectorMs || 0)],
+    ['ceremonyOtOpenJoinMs', Number(timings.ceremonyOtOpenJoinMs || 0)],
+    ['ceremonyOtBranchKeyDerivationMs', Number(timings.ceremonyOtBranchKeyDerivationMs || 0)],
+    ['ceremonyOtBranchDecryptMs', Number(timings.ceremonyOtBranchDecryptMs || 0)],
+    [
+      'ceremonyOtPointScalarReconstructionMs',
+      Number(timings.ceremonyOtPointScalarReconstructionMs || 0),
+    ],
+    ['ceremonyOtCommitmentVerificationMs', Number(timings.ceremonyOtCommitmentVerificationMs || 0)],
+    ['ceremonyServerInputOpenMs', Number(timings.ceremonyServerInputOpenMs || 0)],
+    ['ceremonyServerInputShareMs', Number(timings.ceremonyServerInputShareMs || 0)],
+    ['ceremonyServerInputCommitmentMs', Number(timings.ceremonyServerInputCommitmentMs || 0)],
+    ['ceremonyServerInputTranscriptMs', Number(timings.ceremonyServerInputTranscriptMs || 0)],
+    ['ceremonyResultAssemblyMs', Number(timings.ceremonyResultAssemblyMs || 0)],
+    [
+      'ceremonyOutputSealingFinalizationMs',
+      Number(timings.ceremonyOutputSealingFinalizationMs || 0),
+    ],
   ] as const;
   const [dominantCeremonyStage, dominantCeremonyStageMs] = ceremonyBuckets.reduce((best, next) =>
     next[1] > best[1] ? next : best,
@@ -1633,9 +1661,9 @@ export class ThresholdSigningService {
       coordinatorInstanceId: coordinatorInstanceId || null,
       coordinatorPeers,
       sessionStore: {
-        takeMpcSession: async (sessionId) => await this.takeEcdsaMpcSession(sessionId),
-        putMpcSession: async (sessionId, record, ttlMs) =>
-          await this.putEcdsaMpcSession(sessionId, record, ttlMs),
+        readMpcSession: async (sessionId) => await this.readEcdsaMpcSession(sessionId),
+        claimMpcSession: async (sessionId, version) =>
+          await this.claimEcdsaMpcSession(sessionId, version),
       },
       signingSessionStore: this.ecdsaSigningSessionStore,
       presignSessionStore: this.ecdsaPresignSessionStore,
@@ -2899,11 +2927,29 @@ export class ThresholdSigningService {
     );
   }
 
-  private async takeEcdsaMpcSession(
+  private async readEcdsaMpcSession(
     sessionId: string,
-  ): Promise<ThresholdEcdsaMpcSessionRecord | null> {
-    const record = await this.ecdsaSessionStore.takeMpcSession(sessionId);
-    return record ? this.toThresholdEcdsaMpcSessionRecord(record) : null;
+  ): Promise<{ record: ThresholdEcdsaMpcSessionRecord; version: string } | null> {
+    const result = await this.ecdsaSessionStore.readMpcSession(sessionId);
+    return result
+      ? {
+          record: this.toThresholdEcdsaMpcSessionRecord(result.record),
+          version: result.version,
+        }
+      : null;
+  }
+
+  private async claimEcdsaMpcSession(
+    sessionId: string,
+    version: string,
+  ): Promise<
+    | { ok: true; record: ThresholdEcdsaMpcSessionRecord }
+    | { ok: false; code: 'not_found' | 'expired' | 'version_mismatch' | 'invalid_record' }
+  > {
+    const result = await this.ecdsaSessionStore.claimMpcSession(sessionId, version);
+    return result.ok
+      ? { ok: true, record: this.toThresholdEcdsaMpcSessionRecord(result.record) }
+      : result;
   }
 
   private walletSigningBudgetSessionId(input: {
@@ -5159,11 +5205,30 @@ export class ThresholdSigningService {
       }
 
       const wasmStartedAt = Date.now();
+      let serverInputDeriveMs = 0;
+      let serverSessionPrepareTotalMs = 0;
       const [serverInputs, preparedServerSession] = await Promise.all([
-        this.deriveSigningRootEd25519HssServerInputsForContext(context.value, expectedSigningRoot),
-        prepareThresholdEd25519HssServerSession({
-          context: context.value,
-        }),
+        (async () => {
+          const startedAt = Date.now();
+          try {
+            return await this.deriveSigningRootEd25519HssServerInputsForContext(
+              context.value,
+              expectedSigningRoot,
+            );
+          } finally {
+            serverInputDeriveMs = Date.now() - startedAt;
+          }
+        })(),
+        (async () => {
+          const startedAt = Date.now();
+          try {
+            return await prepareThresholdEd25519HssServerSession({
+              context: context.value,
+            });
+          } finally {
+            serverSessionPrepareTotalMs = Date.now() - startedAt;
+          }
+        })(),
       ]);
       const resolvedPreparedSession: ThresholdEd25519HssPreparedSessionEnvelope = {
         contextBindingB64u: preparedServerSession.contextBindingB64u,
@@ -5234,6 +5299,9 @@ export class ThresholdSigningService {
         ceremonyHandle,
         preparedSession: resolvedPreparedSession,
         clientOtOfferMessageB64u: preparedServerSession.clientOtOfferMessageB64u,
+        serverInputDeriveMs,
+        serverSessionPrepareTotalMs,
+        serverSessionTimings: preparedServerSession.timings,
       };
     } catch (e: unknown) {
       const msg = errorMessage(e);
@@ -5280,13 +5348,29 @@ export class ThresholdSigningService {
       }
 
       const wasmStartedAt = Date.now();
+      let serverInputDeriveMs = 0;
+      let serverSessionPrepareTotalMs = 0;
       const [serverInputs, preparedServerSession] = await Promise.all([
-        this.deriveSigningRootEd25519HssServerInputsForContext(context.value, {
-          signingRootVersion: input.signingRootVersion,
-        }),
-        prepareThresholdEd25519HssServerSession({
-          context: context.value,
-        }),
+        (async () => {
+          const startedAt = Date.now();
+          try {
+            return await this.deriveSigningRootEd25519HssServerInputsForContext(context.value, {
+              signingRootVersion: input.signingRootVersion,
+            });
+          } finally {
+            serverInputDeriveMs = Date.now() - startedAt;
+          }
+        })(),
+        (async () => {
+          const startedAt = Date.now();
+          try {
+            return await prepareThresholdEd25519HssServerSession({
+              context: context.value,
+            });
+          } finally {
+            serverSessionPrepareTotalMs = Date.now() - startedAt;
+          }
+        })(),
       ]);
       const resolvedPreparedSession: ThresholdEd25519HssPreparedSessionEnvelope = {
         contextBindingB64u: preparedServerSession.contextBindingB64u,
@@ -5357,6 +5441,9 @@ export class ThresholdSigningService {
         ceremonyHandle,
         preparedSession: resolvedPreparedSession,
         clientOtOfferMessageB64u: preparedServerSession.clientOtOfferMessageB64u,
+        serverInputDeriveMs,
+        serverSessionPrepareTotalMs,
+        serverSessionTimings: preparedServerSession.timings,
       };
     } catch (e: unknown) {
       const msg = errorMessage(e);
@@ -5449,6 +5536,7 @@ export class ThresholdSigningService {
         ok: true,
         contextBindingB64u: result.serverInputDelivery.contextBindingB64u,
         serverInputDeliveryB64u: result.serverInputDelivery.serverInputDeliveryB64u,
+        ...(result.timings ? { serverInputDeliveryTimings: result.timings } : {}),
       };
     } catch (e: unknown) {
       const msg = errorMessage(e);
@@ -5553,6 +5641,7 @@ export class ThresholdSigningService {
         ok: true,
         contextBindingB64u: result.serverInputDelivery.contextBindingB64u,
         serverInputDeliveryB64u: result.serverInputDelivery.serverInputDeliveryB64u,
+        ...(result.timings ? { serverInputDeliveryTimings: result.timings } : {}),
       };
     } catch (e: unknown) {
       const msg = errorMessage(e);
@@ -5778,6 +5867,9 @@ export class ThresholdSigningService {
           publicKey: registrationMaterial.publicKey,
           relayerKeyId: registrationMaterial.relayerKeyId,
           finalizedReport: result.finalizedReport,
+          ...(result.finalizeReportTimings
+            ? { finalizeReportTimings: result.finalizeReportTimings }
+            : {}),
         };
       } finally {
         this.releaseThresholdEd25519HssCeremonyResources(takenCeremony.value);

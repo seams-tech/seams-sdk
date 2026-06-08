@@ -36,6 +36,8 @@ type DoReq =
   | { op: 'get'; key: string }
   | { op: 'set'; key: string; value: unknown; ttlMs?: number }
   | { op: 'del'; key: string }
+  | { op: 'readVersioned'; key: string }
+  | { op: 'claimVersioned'; key: string; expectedVersion: string }
   | {
       op: 'setWithIdentityGuard';
       key: string;
@@ -212,6 +214,10 @@ function toTtlSeconds(ttlMs: unknown): number | null {
   return Math.max(1, Math.ceil(n / 1000));
 }
 
+function stableStoreVersion(value: unknown): string {
+  return JSON.stringify(value);
+}
+
 function signingRootRecordKey(input: {
   readonly signingRootId: string;
   readonly signingRootVersion: string;
@@ -313,7 +319,11 @@ async function writeSigningRootRecord(
   );
   for (const share of record.sealedSigningRootSecretShares) {
     await store.put(
-      signingRootSecretShareRecordKey({ signingRootId, signingRootVersion, shareId: share.shareId }),
+      signingRootSecretShareRecordKey({
+        signingRootId,
+        signingRootVersion,
+        shareId: share.shareId,
+      }),
       {
         signingRootId,
         signingRootVersionKey: signingRootVersion,
@@ -489,6 +499,13 @@ export class ThresholdStoreDurableObject {
       const value = await this.state.storage.get(key);
       return json(ok(value ?? null));
     }
+    if (op === 'readVersioned') {
+      const key = toKey((req as { key?: unknown }).key);
+      if (!key) return json(err('invalid_body', 'Missing key'));
+      const value = await this.state.storage.get(key);
+      if (value === null || value === undefined) return json(ok(null));
+      return json(ok({ value, version: stableStoreVersion(value) }));
+    }
     if (op === 'set') {
       const key = toKey((req as { key?: unknown }).key);
       if (!key) return json(err('invalid_body', 'Missing key'));
@@ -499,6 +516,26 @@ export class ThresholdStoreDurableObject {
         ttl ? { expirationTtl: ttl } : undefined,
       );
       return json(ok(true));
+    }
+    if (op === 'claimVersioned') {
+      const key = toKey((req as { key?: unknown }).key);
+      const expectedVersion = toKey((req as { expectedVersion?: unknown }).expectedVersion);
+      if (!key) return json(err('invalid_body', 'Missing key'));
+      if (!expectedVersion) return json(err('invalid_body', 'Missing expectedVersion'));
+      const result = await withTxn(this.state, async (store) => {
+        const value = await store.get(key);
+        if (value === null || value === undefined) return { status: 'not_found' };
+        const expiresAtMs =
+          isPlainObject(value) && typeof value.expiresAtMs === 'number' ? value.expiresAtMs : NaN;
+        if (Number.isFinite(expiresAtMs) && expiresAtMs <= Date.now()) {
+          await store.delete(key);
+          return { status: 'expired' };
+        }
+        if (stableStoreVersion(value) !== expectedVersion) return { status: 'version_mismatch' };
+        await store.delete(key);
+        return { status: 'ok', value };
+      });
+      return json(ok(result));
     }
     if (op === 'setWithIdentityGuard') {
       const key = toKey((req as { key?: unknown }).key);
@@ -904,9 +941,7 @@ export class ThresholdStoreDurableObject {
       const walletMax = isPlainObject(capacity)
         ? parsePositiveInteger(capacity.walletSigningSessionMax)
         : null;
-      const globalMax = isPlainObject(capacity)
-        ? parsePositiveInteger(capacity.globalMax)
-        : null;
+      const globalMax = isPlainObject(capacity) ? parsePositiveInteger(capacity.globalMax) : null;
       if (!walletIndexKey) return json(err('invalid_body', 'Missing walletIndexKey'));
       if (!globalIndexKey) return json(err('invalid_body', 'Missing globalIndexKey'));
       if (!walletMax || !globalMax) return json(err('invalid_body', 'Invalid capacity'));
@@ -968,9 +1003,7 @@ export class ThresholdStoreDurableObject {
       const walletMax = isPlainObject(capacity)
         ? parsePositiveInteger(capacity.walletSigningSessionMax)
         : null;
-      const globalMax = isPlainObject(capacity)
-        ? parsePositiveInteger(capacity.globalMax)
-        : null;
+      const globalMax = isPlainObject(capacity) ? parsePositiveInteger(capacity.globalMax) : null;
       if (!key) return json(err('invalid_body', 'Missing key'));
       if (!presignId) return json(err('invalid_body', 'Missing presignId'));
       if (!walletIndexKey) return json(err('invalid_body', 'Missing walletIndexKey'));
@@ -994,8 +1027,16 @@ export class ThresholdStoreDurableObject {
         const nextWalletIndex = [...withoutEd25519PresignIndexEntry(walletIndex, presignId), entry];
         const nextGlobalIndex = [...withoutEd25519PresignIndexEntry(globalIndex, presignId), entry];
         await store.put(key, parsed, ttlSeconds ? { expirationTtl: ttlSeconds } : undefined);
-        await store.put(walletIndexKey, nextWalletIndex, ttlSeconds ? { expirationTtl: ttlSeconds } : undefined);
-        await store.put(globalIndexKey, nextGlobalIndex, ttlSeconds ? { expirationTtl: ttlSeconds } : undefined);
+        await store.put(
+          walletIndexKey,
+          nextWalletIndex,
+          ttlSeconds ? { expirationTtl: ttlSeconds } : undefined,
+        );
+        await store.put(
+          globalIndexKey,
+          nextGlobalIndex,
+          ttlSeconds ? { expirationTtl: ttlSeconds } : undefined,
+        );
         return { ok: true as const };
       });
 

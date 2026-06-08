@@ -55,6 +55,15 @@ type ThresholdEcdsaMpcSessionRecord = {
   participantIds: number[];
 } & Partial<ThresholdEcdsaSigningRootMetadata>;
 
+type ThresholdEcdsaReadMpcSessionResult = {
+  record: ThresholdEcdsaMpcSessionRecord;
+  version: string;
+};
+
+type ThresholdEcdsaClaimMpcSessionResult =
+  | { ok: true; record: ThresholdEcdsaMpcSessionRecord }
+  | { ok: false; code: 'not_found' | 'expired' | 'version_mismatch' | 'invalid_record' };
+
 type ParseOk<T> = { ok: true; value: T };
 type ParseErr = { ok: false; code: string; message: string };
 type ParseResult<T> = ParseOk<T> | ParseErr;
@@ -401,8 +410,8 @@ export class ThresholdEcdsaSigningHandlers {
   private readonly clientParticipantId: number;
   private readonly relayerParticipantId: number;
   private readonly sessionStore: {
-    takeMpcSession(id: string): Promise<ThresholdEcdsaMpcSessionRecord | null>;
-    putMpcSession(id: string, record: ThresholdEcdsaMpcSessionRecord, ttlMs: number): Promise<void>;
+    readMpcSession(id: string): Promise<ThresholdEcdsaReadMpcSessionResult | null>;
+    claimMpcSession(id: string, version: string): Promise<ThresholdEcdsaClaimMpcSessionResult>;
   };
   private readonly signingSessionStore: ThresholdEcdsaSigningSessionStore;
   private readonly presignSessionStore: ThresholdEcdsaPresignSessionStore;
@@ -428,12 +437,8 @@ export class ThresholdEcdsaSigningHandlers {
     coordinatorInstanceId?: string | null;
     coordinatorPeers?: ThresholdCoordinatorPeer[];
     sessionStore: {
-      takeMpcSession(id: string): Promise<ThresholdEcdsaMpcSessionRecord | null>;
-      putMpcSession(
-        id: string,
-        record: ThresholdEcdsaMpcSessionRecord,
-        ttlMs: number,
-      ): Promise<void>;
+      readMpcSession(id: string): Promise<ThresholdEcdsaReadMpcSessionResult | null>;
+      claimMpcSession(id: string, version: string): Promise<ThresholdEcdsaClaimMpcSessionResult>;
     };
     signingSessionStore: ThresholdEcdsaSigningSessionStore;
     presignSessionStore: ThresholdEcdsaPresignSessionStore;
@@ -507,10 +512,7 @@ export class ThresholdEcdsaSigningHandlers {
         message: 'keyHandle does not match threshold session scope',
       };
     }
-    if (
-      roleLocalKey.walletId !== input.walletSessionUserId ||
-      roleLocalKey.rpId !== input.rpId
-    ) {
+    if (roleLocalKey.walletId !== input.walletSessionUserId || roleLocalKey.rpId !== input.rpId) {
       return {
         ok: false,
         code: 'unauthorized',
@@ -582,6 +584,29 @@ export class ThresholdEcdsaSigningHandlers {
       freePresignSession(existing.session);
     }
     this.livePresignSessionById.set(presignSessionId, entry);
+  }
+
+  private emitPresignSecurityEvent(input: {
+    event: string;
+    presignSessionId: string;
+    record?: ThresholdEcdsaPresignSessionRecord | null;
+    code?: string;
+    message?: string;
+    requestOrigin?: string;
+  }): void {
+    const record = input.record || null;
+    this.logger.warn('[threshold-ecdsa-security]', {
+      event: input.event,
+      presignSessionId: input.presignSessionId,
+      walletSessionUserId: record?.walletSessionUserId || null,
+      rpId: record?.rpId || null,
+      relayerKeyId: record?.relayerKeyId || null,
+      ecdsaThresholdKeyId: null,
+      presignPoolKey: record?.presignPoolKey || null,
+      requestOrigin: input.requestOrigin || null,
+      code: input.code || null,
+      message: input.message || null,
+    });
   }
 
   private isPresignSessionOwnedLocally(record: ThresholdEcdsaPresignSessionRecord): boolean {
@@ -971,6 +996,12 @@ export class ThresholdEcdsaSigningHandlers {
       perf.storeGetSessionMs = Math.max(0, Date.now() - storeGetStartedAtMs);
       if (!record) {
         this.evictLivePresignSession(presignSessionId);
+        this.emitPresignSecurityEvent({
+          event: 'presign_session_replay_or_missing',
+          presignSessionId,
+          code: 'unauthorized',
+          message: 'presignSessionId expired or invalid',
+        });
         perf.resultCode = 'unauthorized';
         return { ok: false, code: 'unauthorized', message: 'presignSessionId expired or invalid' };
       }
@@ -995,6 +1026,13 @@ export class ThresholdEcdsaSigningHandlers {
       if (!tokenUserId || !tokenRpId || !tokenParticipantIds) {
         await maybeDeleteOwnedSession();
         this.evictLivePresignSession(presignSessionId);
+        this.emitPresignSecurityEvent({
+          event: 'presign_scope_mismatch',
+          presignSessionId,
+          record,
+          code: 'unauthorized',
+          message: 'Invalid threshold session token claims',
+        });
         perf.resultCode = 'unauthorized';
         return {
           ok: false,
@@ -1009,6 +1047,13 @@ export class ThresholdEcdsaSigningHandlers {
       ) {
         await maybeDeleteOwnedSession();
         this.evictLivePresignSession(presignSessionId);
+        this.emitPresignSecurityEvent({
+          event: 'presign_scope_mismatch',
+          presignSessionId,
+          record,
+          code: 'unauthorized',
+          message: 'presignSessionId does not match threshold session scope',
+        });
         perf.resultCode = 'unauthorized';
         return {
           ok: false,
@@ -1019,6 +1064,13 @@ export class ThresholdEcdsaSigningHandlers {
       if (toOptionalTrimmedString(claims?.relayerKeyId) !== record.relayerKeyId) {
         await maybeDeleteOwnedSession();
         this.evictLivePresignSession(presignSessionId);
+        this.emitPresignSecurityEvent({
+          event: 'presign_scope_mismatch',
+          presignSessionId,
+          record,
+          code: 'unauthorized',
+          message: 'presignSessionId does not match threshold session scope',
+        });
         perf.resultCode = 'unauthorized';
         return {
           ok: false,
@@ -1302,6 +1354,16 @@ export class ThresholdEcdsaSigningHandlers {
         if (ownedLocally) {
           await this.presignSessionStore.deleteSession(presignSessionId);
         }
+        this.emitPresignSecurityEvent({
+          event:
+            prepared.code === 'invalid_body'
+              ? 'presign_protocol_rejected'
+              : 'presign_terminal_failure',
+          presignSessionId,
+          record,
+          code: prepared.code,
+          message: prepared.message,
+        });
         perf.resultCode = prepared.code;
         return prepared;
       }
@@ -1452,10 +1514,11 @@ export class ThresholdEcdsaSigningHandlers {
     const { mpcSessionId, relayerKeyId, signingDigestB64u, clientPresignatureId } =
       parsedRequest.value;
 
-    const sess = await this.sessionStore.takeMpcSession(mpcSessionId);
-    if (!sess) {
+    const sessionRead = await this.sessionStore.readMpcSession(mpcSessionId);
+    if (!sessionRead) {
       return { ok: false, code: 'unauthorized', message: 'mpcSessionId expired or invalid' };
     }
+    const sess = sessionRead.record;
     if (Date.now() > sess.expiresAtMs) {
       return { ok: false, code: 'unauthorized', message: 'mpcSessionId expired' };
     }
@@ -1569,7 +1632,6 @@ export class ThresholdEcdsaSigningHandlers {
       clientPresignatureId,
     );
     if (!presignature) {
-      await this.sessionStore.putMpcSession(mpcSessionId, sess, ttlMs);
       if (clientPresignatureId) {
         return {
           ok: false,
@@ -1582,6 +1644,21 @@ export class ThresholdEcdsaSigningHandlers {
         code: 'pool_empty',
         message: 'presignature pool is empty; refill required',
       };
+    }
+
+    const claimed = await this.sessionStore.claimMpcSession(mpcSessionId, sessionRead.version);
+    if (!claimed.ok) {
+      await this.presignaturePool.discard(
+        signingMaterial.presignPoolKey,
+        presignature.presignatureId,
+      );
+      const message =
+        claimed.code === 'version_mismatch'
+          ? 'mpcSessionId was claimed concurrently'
+          : claimed.code === 'expired'
+            ? 'mpcSessionId expired'
+            : 'mpcSessionId expired or invalid';
+      return { ok: false, code: 'unauthorized', message };
     }
 
     const signingSessionId = this.createSigningSessionId();

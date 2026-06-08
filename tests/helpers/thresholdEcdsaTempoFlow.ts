@@ -1050,13 +1050,13 @@ export async function runThresholdEcdsaTempoFlow(
             pm,
             accountId,
             relayerUrl: input.relayerUrl,
-            ttlMs: 100,
+            ttlMs: 1_000,
             remainingUses: 1,
             chainTarget: signingChainTarget,
           });
           keygen = boot.keygen;
           session = normalizeTempoFlowSession(boot.session);
-          await new Promise((resolve) => setTimeout(resolve, 150));
+          await new Promise((resolve) => setTimeout(resolve, 1_100));
         } catch (e: unknown) {
           const stack =
             e && typeof e === 'object' && 'stack' in e

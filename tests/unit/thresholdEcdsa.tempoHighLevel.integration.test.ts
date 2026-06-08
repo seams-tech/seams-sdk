@@ -902,9 +902,7 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
     }
   });
 
-  test('passkey wallet session and Ed25519 export succeed for one account', async ({
-    page,
-  }) => {
+  test('passkey wallet session and Ed25519 export succeed for one account', async ({ page }) => {
     const harness = await setupThresholdEcdsaTempoHarness(page);
 
     try {
@@ -1027,13 +1025,8 @@ test.describe('Threshold ECDSA Tempo high-level API', () => {
       expect(forcedPoolEmpty).toBe(true);
       expect(counters.signInit).toBeGreaterThanOrEqual(2);
       expect(counters.presignInit).toBeGreaterThanOrEqual(2);
-      if (!result.ok) {
-        expect(String(result.error || '')).toMatch(
-          /bigR mismatch|mpcSessionId expired or invalid/i,
-        );
-      } else {
-        expect(counters.signFinalize).toBeGreaterThanOrEqual(1);
-      }
+      expect(result.ok, result.error || JSON.stringify(result)).toBe(true);
+      expect(counters.signFinalize).toBeGreaterThanOrEqual(1);
     } finally {
       await harness.close();
     }

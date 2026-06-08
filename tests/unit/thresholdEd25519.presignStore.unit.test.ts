@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { createThresholdEd25519SessionStore } from '../../server/src/core/ThresholdService/stores/SessionStore';
 import type {
+  ThresholdEd25519MpcSessionRecord,
   ThresholdEd25519PresignExpectedScope,
   ThresholdEd25519PresignRecord,
 } from '../../server/src/core/ThresholdService/stores/SessionStore';
@@ -52,6 +53,26 @@ function createPresignRecord(): ThresholdEd25519PresignRecord {
   };
 }
 
+function createMpcSessionRecord(): ThresholdEd25519MpcSessionRecord {
+  return {
+    expiresAtMs: Date.now() + 60_000,
+    ecdsaThresholdKeyId: 'ecdsa-threshold-key',
+    keyHandle: 'wallet-key-handle',
+    relayerKeyId: 'relayer-key',
+    purpose: 'threshold-ecdsa-sign',
+    intentDigestB64u: 'intent-digest',
+    signingDigestB64u: 'signing-digest',
+    userId: 'wallet-user',
+    rpId: 'example.localhost',
+    clientVerifyingShareB64u: 'client-verifying-share',
+    participantIds: [1, 2],
+    signingRootId: 'project-presign:test',
+    signingRootVersion: 'root-v1',
+    walletKeyVersion: 'v1',
+    derivationVersion: 1,
+  };
+}
+
 function createPresignRecordForWalletSession(
   walletSigningSessionId: string,
 ): ThresholdEd25519PresignRecord {
@@ -77,6 +98,49 @@ function expectedScopeForRecord(
 }
 
 test.describe('threshold Ed25519 presign session store', () => {
+  test('versioned MPC session claim preserves stale versions and consumes once', async () => {
+    const store = createStore();
+    const record = createMpcSessionRecord();
+
+    await store.putMpcSession('mpc-versioned-1', record, 60_000);
+
+    const read = await store.readMpcSession('mpc-versioned-1');
+    expect(read?.record.signingDigestB64u).toBe(record.signingDigestB64u);
+    expect(typeof read?.version).toBe('string');
+
+    await expect(
+      store.claimMpcSession('mpc-versioned-1', `${read?.version}:stale`),
+    ).resolves.toEqual({ ok: false, code: 'version_mismatch' });
+    await expect(store.readMpcSession('mpc-versioned-1')).resolves.toMatchObject({
+      record: { signingDigestB64u: record.signingDigestB64u },
+    });
+
+    if (!read) throw new Error('expected versioned MPC read');
+    const claimed = await store.claimMpcSession('mpc-versioned-1', read.version);
+    expect(claimed).toMatchObject({ ok: true });
+    if (!claimed.ok) throw new Error(`expected MPC claim, got ${claimed.code}`);
+    expect(claimed.record.signingDigestB64u).toBe(record.signingDigestB64u);
+
+    await expect(store.claimMpcSession('mpc-versioned-1', read.version)).resolves.toEqual({
+      ok: false,
+      code: 'not_found',
+    });
+  });
+
+  test('versioned MPC session read and claim expire by store ttl', async () => {
+    const store = createStore();
+    const record = createMpcSessionRecord();
+
+    await store.putMpcSession('mpc-versioned-expired', record, 1);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    await expect(store.readMpcSession('mpc-versioned-expired')).resolves.toBeNull();
+    await expect(store.claimMpcSession('mpc-versioned-expired', 'any-version')).resolves.toEqual({
+      ok: false,
+      code: 'not_found',
+    });
+  });
+
   test('atomically consumes a matching presign once', async () => {
     const store = createStore();
     const record = createPresignRecord();

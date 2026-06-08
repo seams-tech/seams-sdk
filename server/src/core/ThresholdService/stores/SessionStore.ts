@@ -52,6 +52,15 @@ export type ThresholdEd25519MpcSessionRecord = {
   participantIds: number[];
 } & Partial<ThresholdEcdsaSigningRootMetadata>;
 
+export type ThresholdEd25519ReadMpcSessionResult = {
+  record: ThresholdEd25519MpcSessionRecord;
+  version: string;
+};
+
+export type ThresholdEd25519ClaimMpcSessionResult =
+  | { ok: true; record: ThresholdEd25519MpcSessionRecord }
+  | { ok: false; code: 'not_found' | 'expired' | 'version_mismatch' | 'invalid_record' };
+
 export type ThresholdEd25519SigningSessionRecord = {
   expiresAtMs: number;
   mpcSessionId: string;
@@ -120,11 +129,7 @@ export type ThresholdEd25519CheckPresignCapacityResult =
   | { ok: false; code: 'capacity_exceeded' };
 
 export type ThresholdEd25519PresignRefillRateLimitBucket = {
-  kind:
-    | 'wallet_signing_session'
-    | 'threshold_session'
-    | 'account_relayer_key'
-    | 'request_origin';
+  kind: 'wallet_signing_session' | 'threshold_session' | 'account_relayer_key' | 'request_origin';
   key: string;
 };
 
@@ -139,6 +144,8 @@ export type ThresholdEd25519ConsumePresignRefillRateLimitResult =
 
 export interface ThresholdEd25519SessionStore {
   putMpcSession(id: string, record: ThresholdEd25519MpcSessionRecord, ttlMs: number): Promise<void>;
+  readMpcSession(id: string): Promise<ThresholdEd25519ReadMpcSessionResult | null>;
+  claimMpcSession(id: string, version: string): Promise<ThresholdEd25519ClaimMpcSessionResult>;
   takeMpcSession(id: string): Promise<ThresholdEd25519MpcSessionRecord | null>;
   putSigningSession(
     id: string,
@@ -224,6 +231,10 @@ function parseRawJson(raw: string | null): unknown | null {
   }
 }
 
+function stableStoreVersion(value: unknown): string {
+  return JSON.stringify(value);
+}
+
 function positiveIntegerCapacity(value: number, fieldName: string): number {
   const normalized = Math.floor(Number(value));
   if (!Number.isSafeInteger(normalized) || normalized < 1) {
@@ -301,7 +312,10 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     }
   }
 
-  private presignCounts(walletSigningSessionId: string, nowMs: number): {
+  private presignCounts(
+    walletSigningSessionId: string,
+    nowMs: number,
+  ): {
     wallet: number;
     global: number;
   } {
@@ -336,6 +350,32 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     const key = this.key(id);
     const expiresAtMs = Date.now() + Math.max(0, Number(ttlMs) || 0);
     this.map.set(key, { value: record, expiresAtMs });
+  }
+
+  async readMpcSession(id: string): Promise<ThresholdEd25519ReadMpcSessionResult | null> {
+    const key = this.key(id);
+    const raw = this.getRaw(key);
+    const record = parseThresholdEd25519MpcSessionRecord(raw);
+    return record ? { record, version: stableStoreVersion(raw) } : null;
+  }
+
+  async claimMpcSession(
+    id: string,
+    version: string,
+  ): Promise<ThresholdEd25519ClaimMpcSessionResult> {
+    const key = this.key(id);
+    const entry = this.map.get(key);
+    if (!entry) return { ok: false, code: 'not_found' };
+    if (Date.now() > entry.expiresAtMs) {
+      this.map.delete(key);
+      return { ok: false, code: 'expired' };
+    }
+    if (stableStoreVersion(entry.value) !== version) {
+      return { ok: false, code: 'version_mismatch' };
+    }
+    const record = parseThresholdEd25519MpcSessionRecord(entry.value);
+    this.map.delete(key);
+    return record ? { ok: true, record } : { ok: false, code: 'invalid_record' };
   }
 
   async takeMpcSession(id: string): Promise<ThresholdEd25519MpcSessionRecord | null> {
@@ -447,7 +487,8 @@ class InMemoryThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
       nowMs,
     });
     const entry = this.map.get(key);
-    const current = entry && entry.expiresAtMs > nowMs && typeof entry.value === 'number' ? entry.value : 0;
+    const current =
+      entry && entry.expiresAtMs > nowMs && typeof entry.value === 'number' ? entry.value : 0;
     const next = current + costInt;
     if (next > maxCost) return { ok: false, code: 'rate_limited' };
     this.map.set(key, { value: next, expiresAtMs: nowMs + windowMs });
@@ -527,6 +568,37 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
     await this.client.setJson(this.key(k), record, ttlMs);
   }
 
+  async readMpcSession(id: string): Promise<ThresholdEd25519ReadMpcSessionResult | null> {
+    const k = id;
+    if (!k) return null;
+    const raw = await this.client.getRaw(this.key(k));
+    const version = typeof raw === 'string' ? raw : stableStoreVersion(raw);
+    const record = parseThresholdEd25519MpcSessionRecord(
+      typeof raw === 'string' ? parseRawJson(raw) : raw,
+    );
+    return record ? { record, version } : null;
+  }
+
+  async claimMpcSession(
+    id: string,
+    version: string,
+  ): Promise<ThresholdEd25519ClaimMpcSessionResult> {
+    const k = id;
+    if (!k) return { ok: false, code: 'not_found' };
+    const raw = await this.client.eval(
+      "local v=redis.call('GET', KEYS[1]); if not v then return '__err__:not_found' end; local decoded=cjson.decode(v); local expires=tonumber(decoded['expiresAtMs']) or 0; if expires <= tonumber(ARGV[2]) then redis.call('DEL', KEYS[1]); return '__err__:expired' end; if v ~= ARGV[1] then return '__err__:version_mismatch' end; redis.call('DEL', KEYS[1]); return v",
+      [this.key(k)],
+      [version, String(Date.now())],
+    );
+    if (raw === '__err__:not_found') return { ok: false, code: 'not_found' };
+    if (raw === '__err__:expired') return { ok: false, code: 'expired' };
+    if (raw === '__err__:version_mismatch') return { ok: false, code: 'version_mismatch' };
+    const parsed = parseThresholdEd25519MpcSessionRecord(
+      parseRawJson(typeof raw === 'string' ? raw : null),
+    );
+    return parsed ? { ok: true, record: parsed } : { ok: false, code: 'invalid_record' };
+  }
+
   async takeMpcSession(id: string): Promise<ThresholdEd25519MpcSessionRecord | null> {
     const k = id;
     if (!k) return null;
@@ -601,22 +673,22 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
     const globalMax = positiveIntegerCapacity(capacity.globalMax, 'globalMax');
     const result = await this.client.eval(
       [
-        "local presignKey = KEYS[1]",
-        "local walletIndexKey = KEYS[2]",
-        "local globalIndexKey = KEYS[3]",
-        "local recordJson = ARGV[1]",
-        "local ttlSeconds = tonumber(ARGV[2])",
-        "local expiresAtMs = tonumber(ARGV[3])",
-        "local nowMs = tonumber(ARGV[4])",
-        "local walletMax = tonumber(ARGV[5])",
-        "local globalMax = tonumber(ARGV[6])",
-        "local presignId = ARGV[7]",
+        'local presignKey = KEYS[1]',
+        'local walletIndexKey = KEYS[2]',
+        'local globalIndexKey = KEYS[3]',
+        'local recordJson = ARGV[1]',
+        'local ttlSeconds = tonumber(ARGV[2])',
+        'local expiresAtMs = tonumber(ARGV[3])',
+        'local nowMs = tonumber(ARGV[4])',
+        'local walletMax = tonumber(ARGV[5])',
+        'local globalMax = tonumber(ARGV[6])',
+        'local presignId = ARGV[7]',
         "redis.call('ZREMRANGEBYSCORE', walletIndexKey, '-inf', nowMs)",
         "redis.call('ZREMRANGEBYSCORE', globalIndexKey, '-inf', nowMs)",
         "if redis.call('EXISTS', presignKey) == 0 then",
         "  if redis.call('ZCARD', walletIndexKey) >= walletMax then return 'capacity_exceeded' end",
         "  if redis.call('ZCARD', globalIndexKey) >= globalMax then return 'capacity_exceeded' end",
-        "end",
+        'end',
         "redis.call('SET', presignKey, recordJson, 'EX', ttlSeconds)",
         "redis.call('ZADD', walletIndexKey, expiresAtMs, presignId)",
         "redis.call('ZADD', globalIndexKey, expiresAtMs, presignId)",
@@ -655,11 +727,11 @@ class UpstashRedisRestThresholdEd25519SessionStore implements ThresholdEd25519Se
     const globalMax = positiveIntegerCapacity(capacity.globalMax, 'globalMax');
     const result = await this.client.eval(
       [
-        "local walletIndexKey = KEYS[1]",
-        "local globalIndexKey = KEYS[2]",
-        "local nowMs = tonumber(ARGV[1])",
-        "local walletMax = tonumber(ARGV[2])",
-        "local globalMax = tonumber(ARGV[3])",
+        'local walletIndexKey = KEYS[1]',
+        'local globalIndexKey = KEYS[2]',
+        'local nowMs = tonumber(ARGV[1])',
+        'local walletMax = tonumber(ARGV[2])',
+        'local globalMax = tonumber(ARGV[3])',
         "redis.call('ZREMRANGEBYSCORE', walletIndexKey, '-inf', nowMs)",
         "redis.call('ZREMRANGEBYSCORE', globalIndexKey, '-inf', nowMs)",
         "if redis.call('ZCARD', walletIndexKey) >= walletMax then return 'capacity_exceeded' end",
@@ -784,6 +856,34 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     await redisSetJson(this.client, this.key(k), record, ttlMs);
   }
 
+  async readMpcSession(id: string): Promise<ThresholdEd25519ReadMpcSessionResult | null> {
+    const k = id;
+    if (!k) return null;
+    const raw = await redisGetRaw(this.client, this.key(k));
+    const record = parseThresholdEd25519MpcSessionRecord(parseRawJson(raw));
+    return record && raw ? { record, version: raw } : null;
+  }
+
+  async claimMpcSession(
+    id: string,
+    version: string,
+  ): Promise<ThresholdEd25519ClaimMpcSessionResult> {
+    const k = id;
+    if (!k) return { ok: false, code: 'not_found' };
+    const raw = await redisEval(
+      this.client,
+      "local v=redis.call('GET', KEYS[1]); if not v then return '__err__:not_found' end; local decoded=cjson.decode(v); local expires=tonumber(decoded['expiresAtMs']) or 0; if expires <= tonumber(ARGV[2]) then redis.call('DEL', KEYS[1]); return '__err__:expired' end; if v ~= ARGV[1] then return '__err__:version_mismatch' end; redis.call('DEL', KEYS[1]); return v",
+      [this.key(k)],
+      [version, String(Date.now())],
+    );
+    const value = raw.type === 'bulk' ? raw.value : raw.type === 'simple' ? raw.value : null;
+    if (value === '__err__:not_found') return { ok: false, code: 'not_found' };
+    if (value === '__err__:expired') return { ok: false, code: 'expired' };
+    if (value === '__err__:version_mismatch') return { ok: false, code: 'version_mismatch' };
+    const parsed = parseThresholdEd25519MpcSessionRecord(parseRawJson(value));
+    return parsed ? { ok: true, record: parsed } : { ok: false, code: 'invalid_record' };
+  }
+
   async takeMpcSession(id: string): Promise<ThresholdEd25519MpcSessionRecord | null> {
     const k = id;
     if (!k) return null;
@@ -859,22 +959,22 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     const result = await redisEval(
       this.client,
       [
-        "local presignKey = KEYS[1]",
-        "local walletIndexKey = KEYS[2]",
-        "local globalIndexKey = KEYS[3]",
-        "local recordJson = ARGV[1]",
-        "local ttlSeconds = tonumber(ARGV[2])",
-        "local expiresAtMs = tonumber(ARGV[3])",
-        "local nowMs = tonumber(ARGV[4])",
-        "local walletMax = tonumber(ARGV[5])",
-        "local globalMax = tonumber(ARGV[6])",
-        "local presignId = ARGV[7]",
+        'local presignKey = KEYS[1]',
+        'local walletIndexKey = KEYS[2]',
+        'local globalIndexKey = KEYS[3]',
+        'local recordJson = ARGV[1]',
+        'local ttlSeconds = tonumber(ARGV[2])',
+        'local expiresAtMs = tonumber(ARGV[3])',
+        'local nowMs = tonumber(ARGV[4])',
+        'local walletMax = tonumber(ARGV[5])',
+        'local globalMax = tonumber(ARGV[6])',
+        'local presignId = ARGV[7]',
         "redis.call('ZREMRANGEBYSCORE', walletIndexKey, '-inf', nowMs)",
         "redis.call('ZREMRANGEBYSCORE', globalIndexKey, '-inf', nowMs)",
         "if redis.call('EXISTS', presignKey) == 0 then",
         "  if redis.call('ZCARD', walletIndexKey) >= walletMax then return 'capacity_exceeded' end",
         "  if redis.call('ZCARD', globalIndexKey) >= globalMax then return 'capacity_exceeded' end",
-        "end",
+        'end',
         "redis.call('SET', presignKey, recordJson, 'EX', ttlSeconds)",
         "redis.call('ZADD', walletIndexKey, expiresAtMs, presignId)",
         "redis.call('ZADD', globalIndexKey, expiresAtMs, presignId)",
@@ -916,11 +1016,11 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     const result = await redisEval(
       this.client,
       [
-        "local walletIndexKey = KEYS[1]",
-        "local globalIndexKey = KEYS[2]",
-        "local nowMs = tonumber(ARGV[1])",
-        "local walletMax = tonumber(ARGV[2])",
-        "local globalMax = tonumber(ARGV[3])",
+        'local walletIndexKey = KEYS[1]',
+        'local globalIndexKey = KEYS[2]',
+        'local nowMs = tonumber(ARGV[1])',
+        'local walletMax = tonumber(ARGV[2])',
+        'local globalMax = tonumber(ARGV[3])',
         "redis.call('ZREMRANGEBYSCORE', walletIndexKey, '-inf', nowMs)",
         "redis.call('ZREMRANGEBYSCORE', globalIndexKey, '-inf', nowMs)",
         "if redis.call('ZCARD', walletIndexKey) >= walletMax then return 'capacity_exceeded' end",
@@ -981,7 +1081,11 @@ class RedisTcpThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
       await redisEval(
         this.client,
         "redis.call('DEL', KEYS[1]); redis.call('ZREM', KEYS[2], ARGV[1]); redis.call('ZREM', KEYS[3], ARGV[1]); return nil",
-        [key, this.presignWalletIndexKey(parsed.walletSigningSessionId), this.presignGlobalIndexKey()],
+        [
+          key,
+          this.presignWalletIndexKey(parsed.walletSigningSessionId),
+          this.presignGlobalIndexKey(),
+        ],
         [k],
       );
       return { ok: false, code: 'expired' };
@@ -1072,6 +1176,69 @@ class PostgresThresholdEd25519SessionStore implements ThresholdEd25519SessionSto
     if (!parsed) throw new Error('Invalid threshold ed25519 mpc session record');
     const storedRecord = { ...parsed, expiresAtMs } satisfies ThresholdEd25519MpcSessionRecord;
     await this.insertOrUpdate({ kind: 'mpc', sessionId: k, record: storedRecord, expiresAtMs });
+  }
+
+  async readMpcSession(id: string): Promise<ThresholdEd25519ReadMpcSessionResult | null> {
+    const k = id;
+    if (!k) return null;
+    const pool = await this.poolPromise;
+    const nowMs = Date.now();
+    const { rows } = await pool.query(
+      `
+        SELECT record_json, record_json::text AS version, expires_at_ms
+        FROM threshold_ed25519_sessions
+        WHERE namespace = $1 AND kind = $2 AND session_id = $3 AND expires_at_ms > $4
+        LIMIT 1
+      `,
+      [this.namespace, 'mpc', k, nowMs],
+    );
+    const row = rows[0] as
+      | { record_json?: unknown; version?: unknown; expires_at_ms?: unknown }
+      | undefined;
+    const parsed = row
+      ? parseCurrentThresholdEd25519StoreSessionRow({
+          kind: 'mpc',
+          recordJson: row.record_json,
+          expiresAtMs: row.expires_at_ms,
+        })
+      : null;
+    const version = typeof row?.version === 'string' ? row.version : null;
+    return parsed?.kind === 'mpc' && version ? { record: parsed.record, version } : null;
+  }
+
+  async claimMpcSession(
+    id: string,
+    version: string,
+  ): Promise<ThresholdEd25519ClaimMpcSessionResult> {
+    const k = id;
+    if (!k) return { ok: false, code: 'not_found' };
+    const pool = await this.poolPromise;
+    const nowMs = Date.now();
+    const { rows } = await pool.query(
+      `
+        DELETE FROM threshold_ed25519_sessions
+        WHERE namespace = $1
+          AND kind = $2
+          AND session_id = $3
+          AND expires_at_ms > $4
+          AND record_json::text = $5
+        RETURNING record_json, expires_at_ms
+      `,
+      [this.namespace, 'mpc', k, nowMs, version],
+    );
+    const row = rows[0] as { record_json?: unknown; expires_at_ms?: unknown } | undefined;
+    if (!row) {
+      const current = await this.readMpcSession(k);
+      return current ? { ok: false, code: 'version_mismatch' } : { ok: false, code: 'not_found' };
+    }
+    const parsed = parseCurrentThresholdEd25519StoreSessionRow({
+      kind: 'mpc',
+      recordJson: row.record_json,
+      expiresAtMs: row.expires_at_ms,
+    });
+    return parsed?.kind === 'mpc'
+      ? { ok: true, record: parsed.record }
+      : { ok: false, code: 'invalid_record' };
   }
 
   async takeMpcSession(id: string): Promise<ThresholdEd25519MpcSessionRecord | null> {

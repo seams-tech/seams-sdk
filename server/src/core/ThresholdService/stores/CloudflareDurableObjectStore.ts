@@ -49,6 +49,8 @@ import type {
   ThresholdEd25519PresignRefillRateLimitPolicy,
   ThresholdEd25519PutPresignWithCapacityResult,
   ThresholdEd25519PresignRecord,
+  ThresholdEd25519ClaimMpcSessionResult,
+  ThresholdEd25519ReadMpcSessionResult,
   ThresholdEd25519SessionStore,
   ThresholdEd25519SigningSessionRecord,
   ThresholdEd25519TakePresignForFinalizeResult,
@@ -72,6 +74,8 @@ type DoResp<T> = DoOk<T> | DoErr;
 type DoGetRequest = { op: 'get'; key: string };
 type DoSetRequest = { op: 'set'; key: string; value: unknown; ttlMs?: number };
 type DoDelRequest = { op: 'del'; key: string };
+type DoReadVersionedRequest = { op: 'readVersioned'; key: string };
+type DoClaimVersionedRequest = { op: 'claimVersioned'; key: string; expectedVersion: string };
 type DoSetWithIdentityGuardRequest = {
   op: 'setWithIdentityGuard';
   key: string;
@@ -168,6 +172,8 @@ type DoRequest =
   | DoGetRequest
   | DoSetRequest
   | DoDelRequest
+  | DoReadVersionedRequest
+  | DoClaimVersionedRequest
   | DoSetWithIdentityGuardRequest
   | DoDelWithIdentityGuardRequest
   | DoGetDelRequest
@@ -577,6 +583,37 @@ export class CloudflareDurableObjectThresholdEd25519SessionStore implements Thre
       ttlMs,
     });
     if (!resp.ok) throw new Error(resp.message);
+  }
+
+  async readMpcSession(id: string): Promise<ThresholdEd25519ReadMpcSessionResult | null> {
+    const resp = await callDo<{ value?: unknown; version?: unknown } | null>(this.stub, {
+      op: 'readVersioned',
+      key: this.key(id),
+    });
+    if (!resp.ok || !resp.value) return null;
+    const record = parseThresholdEd25519MpcSessionRecord(resp.value.value);
+    const version = toOptionalTrimmedString(resp.value.version);
+    return record && version ? { record, version } : null;
+  }
+
+  async claimMpcSession(
+    id: string,
+    version: string,
+  ): Promise<ThresholdEd25519ClaimMpcSessionResult> {
+    const expectedVersion = toOptionalTrimmedString(version);
+    if (!expectedVersion) return { ok: false, code: 'version_mismatch' };
+    const resp = await callDo<{ status?: unknown; value?: unknown }>(this.stub, {
+      op: 'claimVersioned',
+      key: this.key(id),
+      expectedVersion,
+    });
+    if (!resp.ok) return { ok: false, code: 'not_found' };
+    const status = toOptionalTrimmedString(resp.value?.status);
+    if (status === 'not_found') return { ok: false, code: 'not_found' };
+    if (status === 'expired') return { ok: false, code: 'expired' };
+    if (status === 'version_mismatch') return { ok: false, code: 'version_mismatch' };
+    const record = parseThresholdEd25519MpcSessionRecord(resp.value?.value);
+    return record ? { ok: true, record } : { ok: false, code: 'invalid_record' };
   }
 
   async takeMpcSession(id: string): Promise<ThresholdEd25519MpcSessionRecord | null> {

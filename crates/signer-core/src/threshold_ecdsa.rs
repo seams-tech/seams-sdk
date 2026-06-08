@@ -521,6 +521,36 @@ mod tests {
     use super::*;
     use crate::error::SignerCoreErrorCode;
 
+    fn scalar_from_u64(value: u64) -> TsScalar {
+        let mut bytes = [0u8; 32];
+        bytes[24..].copy_from_slice(&value.to_be_bytes());
+        Option::<TsScalar>::from(TsScalar::from_repr(bytes.into()))
+            .expect("small u64 should be a valid secp256k1 scalar")
+    }
+
+    #[test]
+    fn threshold_signatures_participant_mapping_matches_two_party_ecdsa_assumptions() {
+        let client = Participant::from(1u32);
+        let relayer = Participant::from(2u32);
+        let participants = ParticipantList::new(&[client, relayer])
+            .expect("distinct participants should build a list");
+
+        assert_eq!(client.scalar::<Secp256K1Sha256>(), scalar_from_u64(2));
+        assert_eq!(relayer.scalar::<Secp256K1Sha256>(), scalar_from_u64(3));
+        assert_eq!(
+            participants
+                .lagrange::<Secp256K1Sha256>(client)
+                .expect("client lagrange coefficient should exist"),
+            scalar_from_u64(3)
+        );
+        assert_eq!(
+            participants
+                .lagrange::<Secp256K1Sha256>(relayer)
+                .expect("relayer lagrange coefficient should exist"),
+            -scalar_from_u64(2)
+        );
+    }
+
     #[test]
     fn compute_signature_share_requires_participants() {
         let err = threshold_ecdsa_compute_signature_share(&[], 1, &[], &[], &[], &[], &[], &[])

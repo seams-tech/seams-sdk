@@ -199,11 +199,43 @@ function presignPoolKeyForRoleLocalKey(
       TEST_ECDSA_ROLE_LOCAL_DERIVATION_VERSION,
       'derivationVersion',
     )}`,
-    `groupPublicKey=${presignPoolKeyPart(
-      roleLocalKey.groupPublicKey33B64u,
-      'groupPublicKey',
-    )}`,
+    `groupPublicKey=${presignPoolKeyPart(roleLocalKey.groupPublicKey33B64u, 'groupPublicKey')}`,
   ].join('|');
+}
+
+type TestEcdsaMpcSessionRecord = Record<string, unknown> & { expiresAtMs: number };
+
+function createEmptyEcdsaMpcSessionStore() {
+  return {
+    readMpcSession: async () => null,
+    claimMpcSession: async () => ({ ok: false, code: 'not_found' as const }),
+  };
+}
+
+function createMapEcdsaMpcSessionStore(
+  sessions: Map<string, TestEcdsaMpcSessionRecord>,
+  counters?: { claim?: number },
+) {
+  return {
+    readMpcSession: async (id: string) => {
+      const record = sessions.get(id) || null;
+      return record ? { record, version: JSON.stringify(record) } : null;
+    },
+    claimMpcSession: async (id: string, version: string) => {
+      counters && (counters.claim = (counters.claim || 0) + 1);
+      const record = sessions.get(id) || null;
+      if (!record) return { ok: false, code: 'not_found' as const };
+      if (Date.now() > record.expiresAtMs) {
+        sessions.delete(id);
+        return { ok: false, code: 'expired' as const };
+      }
+      if (JSON.stringify(record) !== version) {
+        return { ok: false, code: 'version_mismatch' as const };
+      }
+      sessions.delete(id);
+      return { ok: true, record };
+    },
+  };
 }
 
 function pollSession(session: ThresholdEcdsaPresignSession): {
@@ -291,14 +323,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();
     const sharedSigningSessionStore = new InMemoryThresholdEcdsaSigningSessionStore();
 
-    const fakeSessionStore = {
-      putMpcSession: async () => {},
-      takeMpcSession: async () => null,
-      putSigningSession: async () => {},
-      takeSigningSession: async () => null,
-      putCoordinatorSigningSession: async () => {},
-      takeCoordinatorSigningSession: async () => null,
-    } as const;
+    const fakeSessionStore = createEmptyEcdsaMpcSessionStore();
 
     let presignIdCounter = 0;
     const makeLogger = () => ({
@@ -473,14 +498,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();
     const sharedSigningSessionStore = new InMemoryThresholdEcdsaSigningSessionStore();
 
-    const fakeSessionStore = {
-      putMpcSession: async () => {},
-      takeMpcSession: async () => null,
-      putSigningSession: async () => {},
-      takeSigningSession: async () => null,
-      putCoordinatorSigningSession: async () => {},
-      takeCoordinatorSigningSession: async () => null,
-    } as const;
+    const fakeSessionStore = createEmptyEcdsaMpcSessionStore();
 
     let presignIdCounter = 0;
     const makeHandler = () =>
@@ -577,14 +595,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();
     const sharedSigningSessionStore = new InMemoryThresholdEcdsaSigningSessionStore();
 
-    const fakeSessionStore = {
-      putMpcSession: async () => {},
-      takeMpcSession: async () => null,
-      putSigningSession: async () => {},
-      takeSigningSession: async () => null,
-      putCoordinatorSigningSession: async () => {},
-      takeCoordinatorSigningSession: async () => null,
-    } as const;
+    const fakeSessionStore = createEmptyEcdsaMpcSessionStore();
 
     let presignIdCounter = 0;
     const makeHandler = (input: {
@@ -717,14 +728,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();
     const sharedSigningSessionStore = new InMemoryThresholdEcdsaSigningSessionStore();
 
-    const fakeSessionStore = {
-      putMpcSession: async () => {},
-      takeMpcSession: async () => null,
-      putSigningSession: async () => {},
-      takeSigningSession: async () => null,
-      putCoordinatorSigningSession: async () => {},
-      takeCoordinatorSigningSession: async () => null,
-    } as const;
+    const fakeSessionStore = createEmptyEcdsaMpcSessionStore();
 
     let presignIdCounter = 0;
     const makeHandler = (input: {
@@ -833,14 +837,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();
     const sharedSigningSessionStore = new InMemoryThresholdEcdsaSigningSessionStore();
 
-    const fakeSessionStore = {
-      putMpcSession: async () => {},
-      takeMpcSession: async () => null,
-      putSigningSession: async () => {},
-      takeSigningSession: async () => null,
-      putCoordinatorSigningSession: async () => {},
-      takeCoordinatorSigningSession: async () => null,
-    } as const;
+    const fakeSessionStore = createEmptyEcdsaMpcSessionStore();
 
     let presignIdCounter = 0;
     const makeHandler = () =>
@@ -940,10 +937,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const sharedPresignSessionStore = new InMemoryThresholdEcdsaPresignSessionStore();
     const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();
     const sharedSigningSessionStore = new InMemoryThresholdEcdsaSigningSessionStore();
-    const fakeSessionStore = {
-      putMpcSession: async () => {},
-      takeMpcSession: async () => null,
-    } as const;
+    const fakeSessionStore = createEmptyEcdsaMpcSessionStore();
     let presignIdCounter = 0;
     const handler = new ThresholdEcdsaSigningHandlers({
       logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } as any,
@@ -1025,13 +1019,19 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const sharedPresignSessionStore = new InMemoryThresholdEcdsaPresignSessionStore();
     const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();
     const sharedSigningSessionStore = new InMemoryThresholdEcdsaSigningSessionStore();
+    const securityEvents: unknown[] = [];
     const handler = new ThresholdEcdsaSigningHandlers({
-      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } as any,
+      logger: {
+        debug: () => {},
+        info: () => {},
+        warn: (...args: unknown[]) => securityEvents.push(args),
+        error: () => {},
+      } as any,
       nodeRole: 'coordinator',
       participantIds2p: participantIds,
       clientParticipantId,
       relayerParticipantId,
-      sessionStore: { putMpcSession: async () => {}, takeMpcSession: async () => null } as any,
+      sessionStore: createEmptyEcdsaMpcSessionStore() as any,
       signingSessionStore: sharedSigningSessionStore,
       presignSessionStore: sharedPresignSessionStore,
       presignaturePool: sharedPresignaturePool,
@@ -1071,6 +1071,19 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     expect(step.code).toBe('invalid_body');
     expect(String(step.message || '')).toContain('invalid base64url');
     expect(await sharedPresignSessionStore.getSession(presignSessionId)).toBeNull();
+    expect(JSON.stringify(securityEvents)).toContain('presign_protocol_rejected');
+
+    const replay = await handler.ecdsaPresignStep({
+      claims: claims as any,
+      request: {
+        presignSessionId,
+        stage: 'triples',
+        outgoingMessagesB64u: [],
+      },
+    });
+    expect(replay.ok).toBe(false);
+    expect(replay.code).toBe('unauthorized');
+    expect(JSON.stringify(securityEvents)).toContain('presign_session_replay_or_missing');
   });
 
   test('rejects stage regression once presign stage has started', async () => {
@@ -1119,14 +1132,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();
     const sharedSigningSessionStore = new InMemoryThresholdEcdsaSigningSessionStore();
 
-    const fakeSessionStore = {
-      putMpcSession: async () => {},
-      takeMpcSession: async () => null,
-      putSigningSession: async () => {},
-      takeSigningSession: async () => null,
-      putCoordinatorSigningSession: async () => {},
-      takeCoordinatorSigningSession: async () => null,
-    } as const;
+    const fakeSessionStore = createEmptyEcdsaMpcSessionStore();
 
     let presignIdCounter = 0;
     const handler = new ThresholdEcdsaSigningHandlers({
@@ -1295,7 +1301,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     const sharedSigningSessionStore = new InMemoryThresholdEcdsaSigningSessionStore();
     const sharedPresignSessionStore = new InMemoryThresholdEcdsaPresignSessionStore();
 
-    const mpcSessions = new Map<string, unknown>([
+    const mpcSessions = new Map<string, TestEcdsaMpcSessionRecord>([
       [
         mpcSessionId,
         {
@@ -1318,18 +1324,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
       ],
     ]);
 
-    const fakeSessionStore = {
-      putMpcSession: async () => {},
-      takeMpcSession: async (id: string) => {
-        const rec = mpcSessions.get(id) || null;
-        mpcSessions.delete(id);
-        return rec as any;
-      },
-      putSigningSession: async () => {},
-      takeSigningSession: async () => null,
-      putCoordinatorSigningSession: async () => {},
-      takeCoordinatorSigningSession: async () => null,
-    } as const;
+    const fakeSessionStore = createMapEcdsaMpcSessionStore(mpcSessions);
 
     const handler = new ThresholdEcdsaSigningHandlers({
       logger: console as any,
@@ -1349,8 +1344,10 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     });
 
     const relayerMismatchMpcSessionId = 'mpc-signinit-relayer-mismatch';
+    const relayerMismatchMpcSession = mpcSessions.get(mpcSessionId);
+    if (!relayerMismatchMpcSession) throw new Error('missing base MPC session fixture');
     mpcSessions.set(relayerMismatchMpcSessionId, {
-      ...(mpcSessions.get(mpcSessionId) as Record<string, unknown>),
+      ...relayerMismatchMpcSession,
       purpose: 'test-sign-init-relayer-mismatch',
     });
     const relayerMismatch = await handler.ecdsaSignInit({
@@ -1385,6 +1382,192 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
 
     const remaining = await sharedPresignaturePool.reserve(presignPoolKey);
     expect(remaining?.presignatureId).toBe(firstRecord.presignatureId);
+  });
+
+  test('sign/init preserves MPC authorization on pool_empty and claims it after refill', async () => {
+    const relayerKeyId = 'secp-test-pool-empty';
+    const ecdsaThresholdKeyId = 'ecdsa-hss-test-pool-empty';
+    const userId = 'user-pool-empty';
+    const rpId = 'example.localhost';
+    const participantIds = [1, 2];
+    const clientSigningShare32 = randomSecpSecretKey32();
+    const clientVerifyingShareB64u = base64UrlEncode(
+      secp256k1.getPublicKey(clientSigningShare32, true),
+    );
+    const digest32 = new Uint8Array(32).fill(51);
+    const signingDigestB64u = base64UrlEncode(digest32);
+    const mpcSessionId = 'mpc-pool-empty-preserved';
+    const roleLocalKeyRecord = buildRoleLocalKeyRecord({
+      ecdsaThresholdKeyId,
+      userId,
+      rpId,
+      participantIds,
+      relayerKeyId,
+      clientVerifyingShareB64u,
+    });
+    const presignPoolKey = presignPoolKeyForRoleLocalKey(roleLocalKeyRecord);
+    const mpcSessions = new Map<string, TestEcdsaMpcSessionRecord>([
+      [
+        mpcSessionId,
+        {
+          expiresAtMs: Date.now() + 120_000,
+          relayerKeyId,
+          ecdsaThresholdKeyId,
+          keyHandle: roleLocalKeyRecord.keyHandle,
+          purpose: 'test-pool-empty-preserved',
+          intentDigestB64u: signingDigestB64u,
+          signingDigestB64u,
+          walletSessionUserId: userId,
+          rpId,
+          clientVerifyingShareB64u,
+          participantIds,
+          signingRootId: TEST_SIGNING_ROOT_ID,
+          signingRootVersion: TEST_RUNTIME_SCOPE.signingRootVersion,
+          walletKeyVersion: 'v1',
+          derivationVersion: 1,
+        },
+      ],
+    ]);
+    const counters = { claim: 0 };
+    const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();
+    const handler = new ThresholdEcdsaSigningHandlers({
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } as any,
+      nodeRole: 'coordinator',
+      participantIds2p: participantIds,
+      clientParticipantId: 1,
+      relayerParticipantId: 2,
+      sessionStore: createMapEcdsaMpcSessionStore(mpcSessions, counters) as any,
+      signingSessionStore: new InMemoryThresholdEcdsaSigningSessionStore(),
+      presignSessionStore: new InMemoryThresholdEcdsaPresignSessionStore(),
+      presignaturePool: sharedPresignaturePool,
+      resolveRoleLocalKeyRecord: async ({ keyHandle: requested }) =>
+        requested === roleLocalKeyRecord.keyHandle ? roleLocalKeyRecord : null,
+      ensureReady: async () => {},
+      createSigningSessionId: () => `sign-pool-empty-${Date.now()}`,
+      createPresignSessionId: () => `presign-pool-empty-${Date.now()}`,
+    });
+
+    const first = await handler.ecdsaSignInit({
+      mpcSessionId,
+      relayerKeyId,
+      signingDigestB64u,
+      clientRound1: { presignatureId: 'ps-after-refill' },
+    });
+    expect(first.ok).toBe(false);
+    expect(first.code).toBe('pool_empty');
+    expect(counters.claim || 0).toBe(0);
+    expect(mpcSessions.has(mpcSessionId)).toBe(true);
+
+    await sharedPresignaturePool.put({
+      relayerKeyId: presignPoolKey,
+      presignatureId: 'ps-after-refill',
+      bigRB64u: base64UrlEncode(new Uint8Array(33).fill(61)),
+      kShareB64u: base64UrlEncode(new Uint8Array(32).fill(62)),
+      sigmaShareB64u: base64UrlEncode(new Uint8Array(32).fill(63)),
+      createdAtMs: Date.now(),
+    });
+    const retry = await handler.ecdsaSignInit({
+      mpcSessionId,
+      relayerKeyId,
+      signingDigestB64u,
+      clientRound1: { presignatureId: 'ps-after-refill' },
+    });
+    expect(retry.ok, JSON.stringify(retry)).toBe(true);
+    expect(retry.relayerRound1?.presignatureId).toBe('ps-after-refill');
+    expect(counters.claim).toBe(1);
+    expect(mpcSessions.has(mpcSessionId)).toBe(false);
+  });
+
+  test('sign/init discards reserved presignature when MPC claim loses a race', async () => {
+    const relayerKeyId = 'secp-test-claim-race';
+    const ecdsaThresholdKeyId = 'ecdsa-hss-test-claim-race';
+    const userId = 'user-claim-race';
+    const rpId = 'example.localhost';
+    const participantIds = [1, 2];
+    const clientSigningShare32 = randomSecpSecretKey32();
+    const clientVerifyingShareB64u = base64UrlEncode(
+      secp256k1.getPublicKey(clientSigningShare32, true),
+    );
+    const digest32 = new Uint8Array(32).fill(71);
+    const signingDigestB64u = base64UrlEncode(digest32);
+    const mpcSessionId = 'mpc-claim-race';
+    const roleLocalKeyRecord = buildRoleLocalKeyRecord({
+      ecdsaThresholdKeyId,
+      userId,
+      rpId,
+      participantIds,
+      relayerKeyId,
+      clientVerifyingShareB64u,
+    });
+    const presignPoolKey = presignPoolKeyForRoleLocalKey(roleLocalKeyRecord);
+    const record = {
+      expiresAtMs: Date.now() + 120_000,
+      relayerKeyId,
+      ecdsaThresholdKeyId,
+      keyHandle: roleLocalKeyRecord.keyHandle,
+      purpose: 'test-claim-race',
+      intentDigestB64u: signingDigestB64u,
+      signingDigestB64u,
+      walletSessionUserId: userId,
+      rpId,
+      clientVerifyingShareB64u,
+      participantIds,
+      signingRootId: TEST_SIGNING_ROOT_ID,
+      signingRootVersion: TEST_RUNTIME_SCOPE.signingRootVersion,
+      walletKeyVersion: 'v1',
+      derivationVersion: 1,
+    };
+    const mpcSessions = new Map<string, TestEcdsaMpcSessionRecord>([[mpcSessionId, record]]);
+    const sharedPresignaturePool = new InMemoryThresholdEcdsaPresignaturePool();
+    for (const id of ['ps-race-a', 'ps-race-b']) {
+      await sharedPresignaturePool.put({
+        relayerKeyId: presignPoolKey,
+        presignatureId: id,
+        bigRB64u: base64UrlEncode(new Uint8Array(33).fill(id === 'ps-race-a' ? 81 : 82)),
+        kShareB64u: base64UrlEncode(new Uint8Array(32).fill(id === 'ps-race-a' ? 83 : 84)),
+        sigmaShareB64u: base64UrlEncode(new Uint8Array(32).fill(id === 'ps-race-a' ? 85 : 86)),
+        createdAtMs: Date.now(),
+      });
+    }
+    const handler = new ThresholdEcdsaSigningHandlers({
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } as any,
+      nodeRole: 'coordinator',
+      participantIds2p: participantIds,
+      clientParticipantId: 1,
+      relayerParticipantId: 2,
+      sessionStore: createMapEcdsaMpcSessionStore(mpcSessions) as any,
+      signingSessionStore: new InMemoryThresholdEcdsaSigningSessionStore(),
+      presignSessionStore: new InMemoryThresholdEcdsaPresignSessionStore(),
+      presignaturePool: sharedPresignaturePool,
+      resolveRoleLocalKeyRecord: async ({ keyHandle: requested }) =>
+        requested === roleLocalKeyRecord.keyHandle ? roleLocalKeyRecord : null,
+      ensureReady: async () => {},
+      createSigningSessionId: () => `sign-claim-race-${Date.now()}-${Math.random()}`,
+      createPresignSessionId: () => `presign-claim-race-${Date.now()}`,
+    });
+
+    const [first, second] = await Promise.all([
+      handler.ecdsaSignInit({
+        mpcSessionId,
+        relayerKeyId,
+        signingDigestB64u,
+        clientRound1: { presignatureId: 'ps-race-a' },
+      }),
+      handler.ecdsaSignInit({
+        mpcSessionId,
+        relayerKeyId,
+        signingDigestB64u,
+        clientRound1: { presignatureId: 'ps-race-b' },
+      }),
+    ]);
+    const results = [first, second];
+    expect(results.filter((result) => result.ok)).toHaveLength(1);
+    expect(results.filter((result) => !result.ok && result.code === 'unauthorized')).toHaveLength(
+      1,
+    );
+    const failedPresignatureId = first.ok ? 'ps-race-b' : 'ps-race-a';
+    const discarded = await sharedPresignaturePool.consume(presignPoolKey, failedPresignatureId);
+    expect(discarded).toBeNull();
   });
 
   test('sign/init cannot consume presignature from key-only namespace with same key handle', async () => {
@@ -1451,24 +1634,14 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
         },
       ],
     ]);
-    let restoredMpcSession = false;
+    const mpcSessionStoreCounters = { claim: 0 };
     const handler = new ThresholdEcdsaSigningHandlers({
       logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} } as any,
       nodeRole: 'coordinator',
       participantIds2p: participantIds,
       clientParticipantId: 1,
       relayerParticipantId: 2,
-      sessionStore: {
-        takeMpcSession: async (id: string) => {
-          const record = mpcSessions.get(id) || null;
-          mpcSessions.delete(id);
-          return record;
-        },
-        putMpcSession: async (id: string, record: any) => {
-          restoredMpcSession = true;
-          mpcSessions.set(id, record);
-        },
-      },
+      sessionStore: createMapEcdsaMpcSessionStore(mpcSessions, mpcSessionStoreCounters) as any,
       signingSessionStore: new InMemoryThresholdEcdsaSigningSessionStore(),
       presignSessionStore: new InMemoryThresholdEcdsaPresignSessionStore(),
       presignaturePool: sharedPresignaturePool,
@@ -1489,7 +1662,7 @@ test.describe('threshold-ecdsa presign distributed session store', () => {
     });
     expect(signInit.ok).toBe(false);
     expect(signInit.code).toBe('pool_empty');
-    expect(restoredMpcSession).toBe(true);
+    expect(mpcSessionStoreCounters.claim || 0).toBe(0);
     expect(mpcSessions.has(mpcSessionId)).toBe(true);
 
     const stillAvailableForKeyA = await sharedPresignaturePool.reserve(
