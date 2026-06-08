@@ -25,19 +25,23 @@ fn read_workspace_file(path: &str) -> String {
     fs::read_to_string(workspace_root().join(path)).expect("workspace file should be readable")
 }
 
-fn assert_ts_interface_has_required_string_field(source: &str, interface_name: &str, field: &str) {
-    let marker = format!("export interface {interface_name}");
-    let start = source.find(&marker).expect("interface should exist");
+fn assert_ts_export_has_required_string_field(source: &str, export_name: &str, field: &str) {
+    let interface_marker = format!("export interface {export_name}");
+    let type_marker = format!("export type {export_name}");
+    let start = source
+        .find(&interface_marker)
+        .or_else(|| source.find(&type_marker))
+        .expect("exported TypeScript shape should exist");
     let rest = &source[start..];
-    let next_interface = rest.find("\nexport interface ").unwrap_or(rest.len());
-    let body = &rest[..next_interface];
+    let next_export = rest.find("\nexport ").unwrap_or(rest.len());
+    let body = &rest[..next_export];
     assert!(
         body.contains(&format!("{field}: string;")),
-        "{interface_name} should require {field}: string"
+        "{export_name} should require {field}: string"
     );
     assert!(
         !body.contains(&format!("{field}?:")),
-        "{interface_name} should not make {field} optional"
+        "{export_name} should not make {field} optional"
     );
 }
 
@@ -583,12 +587,12 @@ fn anti_drift_client_owned_wasm_boundary_requires_fixed_client_output_mask() {
     assert_eq!(open_shape.client_output_mask_len, 32);
 
     let signer_worker_types = read_workspace_file("client/src/core/types/signer-worker.ts");
-    assert_ts_interface_has_required_string_field(
+    assert_ts_export_has_required_string_field(
         &signer_worker_types,
         "WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest",
         "clientOutputMaskB64u",
     );
-    assert_ts_interface_has_required_string_field(
+    assert_ts_export_has_required_string_field(
         &signer_worker_types,
         "WasmOpenThresholdEd25519HssClientOutputRequest",
         "clientOutputMaskB64u",
