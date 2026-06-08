@@ -223,12 +223,30 @@ function parseWalletRegistrationRouteTimingName(
     case 'registrationIntentConsumeMs':
     case 'registrationAuthorityVerifyMs':
     case 'registrationHssPrepareMs':
+    case 'registrationHssServerInputDeriveMs':
+    case 'registrationHssServerSessionPrepareTotalMs':
+    case 'registrationHssPrepareSessionMs':
+    case 'registrationHssPrepareExtractDriverStatesMs':
+    case 'registrationHssPrepareClientOfferMessageMs':
+    case 'registrationHssPrepareCachePreparedSessionMs':
+    case 'registrationHssPrepareEncodeStatesMs':
     case 'registrationEcdsaPrepareMs':
     case 'registrationCeremonyPersistMs':
     case 'registerStartTotalMs':
+    case 'registrationHssRespondMs':
+    case 'registrationHssRespondDecodeMessagesMs':
+    case 'registrationHssRespondMaterializeSessionMs':
+    case 'registrationHssRespondPrepareDeliveryMs':
+    case 'registrationHssRespondEncodeDeliveryMs':
+    case 'registrationEcdsaRespondMs':
+    case 'registerHssRespondTotalMs':
     case 'registrationFinalizeReplayLoadMs':
     case 'registrationCeremonyLoadMs':
     case 'registrationHssFinalizeMs':
+    case 'registrationHssFinalizeDecodeArtifactMs':
+    case 'registrationHssFinalizeSerializedSessionMaterializeMs':
+    case 'registrationHssFinalizeReportMs':
+    case 'registrationHssFinalizeEncodeReportMs':
     case 'registrationEcdsaBootstrapVerifyMs':
     case 'nearAccountCreateMs':
     case 'registrationKeygenMs':
@@ -249,7 +267,9 @@ function sanitizeWalletRegistrationRouteDiagnostics(
 ): WalletRegistrationRouteDiagnostics | null {
   if (!isObject(value) || value.kind !== 'wallet_registration_route_diagnostics_v1') return null;
   const route =
-    value.route === 'wallets_register_start' || value.route === 'wallets_register_finalize'
+    value.route === 'wallets_register_start' ||
+    value.route === 'wallets_register_hss_respond' ||
+    value.route === 'wallets_register_finalize'
       ? value.route
       : null;
   if (!route || !Array.isArray(value.entries)) return null;
@@ -1078,6 +1098,7 @@ async function registerEcdsaWalletOnly(args: {
     const responded = await registrationTiming.measure('walletRegisterHssRespondMs', () =>
       respondWalletRegistrationHss({
         relayerUrl,
+        headers: registrationRouteDiagnosticsHeaders(),
         registrationCeremonyId: startedCeremony.registrationCeremonyId,
         ecdsa: { clientBootstrap: preparedClientBootstrap.clientBootstrap },
       }),
@@ -1085,6 +1106,7 @@ async function registerEcdsaWalletOnly(args: {
     if (!responded.ecdsa?.bootstrap) {
       throw new Error('Wallet registration HSS respond did not return ECDSA bootstrap material');
     }
+    registrationTiming.captureRouteDiagnostics(responded.registrationDiagnostics);
     const ecdsaBootstrap = parseWalletRegistrationEcdsaHssRespond({
       clientBootstrap: preparedClientBootstrap.clientBootstrap,
       serverBootstrap: responded.ecdsa.bootstrap,
@@ -1568,6 +1590,7 @@ export async function registerWallet(args: {
     const responded = await registrationTiming.measure('walletRegisterHssRespondMs', () =>
       respondWalletRegistrationHss({
         relayerUrl,
+        headers: registrationRouteDiagnosticsHeaders(),
         registrationCeremonyId: startedCeremony.registrationCeremonyId,
         ed25519: {
           clientRequest: {
@@ -1582,6 +1605,7 @@ export async function registerWallet(args: {
     if (!responded.ed25519) {
       throw new Error('Wallet registration HSS respond did not return Ed25519 server input');
     }
+    registrationTiming.captureRouteDiagnostics(responded.registrationDiagnostics);
     const respondedEd25519 = responded.ed25519;
     if (ecdsaSelection && !responded.ecdsa?.bootstrap) {
       throw new Error('Wallet registration HSS respond did not return ECDSA bootstrap material');

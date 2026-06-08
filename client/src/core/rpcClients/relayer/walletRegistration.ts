@@ -94,12 +94,30 @@ export type WalletRegistrationRouteTimingName =
   | 'registrationIntentConsumeMs'
   | 'registrationAuthorityVerifyMs'
   | 'registrationHssPrepareMs'
+  | 'registrationHssServerInputDeriveMs'
+  | 'registrationHssServerSessionPrepareTotalMs'
+  | 'registrationHssPrepareSessionMs'
+  | 'registrationHssPrepareExtractDriverStatesMs'
+  | 'registrationHssPrepareClientOfferMessageMs'
+  | 'registrationHssPrepareCachePreparedSessionMs'
+  | 'registrationHssPrepareEncodeStatesMs'
   | 'registrationEcdsaPrepareMs'
   | 'registrationCeremonyPersistMs'
   | 'registerStartTotalMs'
+  | 'registrationHssRespondMs'
+  | 'registrationHssRespondDecodeMessagesMs'
+  | 'registrationHssRespondMaterializeSessionMs'
+  | 'registrationHssRespondPrepareDeliveryMs'
+  | 'registrationHssRespondEncodeDeliveryMs'
+  | 'registrationEcdsaRespondMs'
+  | 'registerHssRespondTotalMs'
   | 'registrationFinalizeReplayLoadMs'
   | 'registrationCeremonyLoadMs'
   | 'registrationHssFinalizeMs'
+  | 'registrationHssFinalizeDecodeArtifactMs'
+  | 'registrationHssFinalizeSerializedSessionMaterializeMs'
+  | 'registrationHssFinalizeReportMs'
+  | 'registrationHssFinalizeEncodeReportMs'
   | 'registrationEcdsaBootstrapVerifyMs'
   | 'nearAccountCreateMs'
   | 'registrationKeygenMs'
@@ -112,7 +130,7 @@ export type WalletRegistrationRouteTimingName =
 
 export type WalletRegistrationRouteDiagnostics = {
   kind: 'wallet_registration_route_diagnostics_v1';
-  route: 'wallets_register_start' | 'wallets_register_finalize';
+  route: 'wallets_register_start' | 'wallets_register_hss_respond' | 'wallets_register_finalize';
   entries: {
     name: WalletRegistrationRouteTimingName;
     durationMs: number;
@@ -139,6 +157,7 @@ export type WalletRegistrationStartResponse = {
 export type WalletRegistrationHssRespondResponse = {
   ok: true;
   registrationCeremonyId: string;
+  registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
   ed25519?: {
     contextBindingB64u: string;
     serverInputDeliveryB64u: string;
@@ -823,6 +842,7 @@ export async function startWalletRegistration(
 
 export async function respondWalletRegistrationHss(args: {
   relayerUrl: string;
+  headers?: Record<string, string>;
   registrationCeremonyId: string;
   ed25519?: {
     clientRequest: ThresholdEd25519HssServerVisibleClientRequestEnvelope;
@@ -834,6 +854,7 @@ export async function respondWalletRegistrationHss(args: {
   return await postJson<WalletRegistrationHssRespondResponse>({
     relayerUrl: args.relayerUrl,
     path: '/wallets/register/hss/respond',
+    headers: args.headers,
     body: {
       registrationCeremonyId: args.registrationCeremonyId,
       ...(args.ed25519 ? { ed25519: args.ed25519 } : {}),

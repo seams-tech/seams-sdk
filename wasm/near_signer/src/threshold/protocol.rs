@@ -17,8 +17,7 @@ pub(super) fn client_round1_commit(
 pub(super) fn commitments_from_wire(
     wire: &CommitmentsWire,
 ) -> Result<frost_ed25519::round1::SigningCommitments, String> {
-    signer_core::near_threshold_ed25519::commitments_from_wire(wire)
-        .map_err(|e| e.to_string())
+    signer_core::near_threshold_ed25519::commitments_from_wire(wire).map_err(|e| e.to_string())
 }
 
 pub(super) fn build_signing_package(
@@ -47,22 +46,19 @@ pub(super) fn client_round2_signature_share(
 pub(super) fn signature_share_to_b64u(
     share: &frost_ed25519::round2::SignatureShare,
 ) -> Result<String, String> {
-    signer_core::near_threshold_ed25519::signature_share_to_b64u(share)
-        .map_err(|e| e.to_string())
+    signer_core::near_threshold_ed25519::signature_share_to_b64u(share).map_err(|e| e.to_string())
 }
 
 pub(super) fn signature_share_from_b64u(
     b64u: &str,
 ) -> Result<frost_ed25519::round2::SignatureShare, String> {
-    signer_core::near_threshold_ed25519::signature_share_from_b64u(b64u)
-        .map_err(|e| e.to_string())
+    signer_core::near_threshold_ed25519::signature_share_from_b64u(b64u).map_err(|e| e.to_string())
 }
 
 pub(super) fn verifying_share_from_b64u(
     b64u: &str,
 ) -> Result<frost_ed25519::keys::VerifyingShare, String> {
-    signer_core::near_threshold_ed25519::verifying_share_from_b64u(b64u)
-        .map_err(|e| e.to_string())
+    signer_core::near_threshold_ed25519::verifying_share_from_b64u(b64u).map_err(|e| e.to_string())
 }
 
 pub(super) fn aggregate_signature(

@@ -550,6 +550,52 @@ pub fn threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(
         "hiddenEvalTotalMs",
         ns_to_ms(stage_profile.total_duration_ns),
     )?;
+    let operation_counts = stage_profile.operation_counts;
+    set_f64(
+        &timings,
+        "hiddenEvalLogicalLocalWordMaterializations",
+        operation_counts.logical_local_word_materializations as f64,
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalLogicalSharedWordMaterializations",
+        operation_counts.logical_shared_word_materializations as f64,
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalLogicalTransportWordMaterializations",
+        operation_counts.logical_transport_word_materializations as f64,
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalLogicalCommitmentMaterializations",
+        operation_counts.logical_commitment_materializations as f64,
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalLogicalProvenanceDigestMaterializations",
+        operation_counts.logical_provenance_digest_materializations as f64,
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalLogicalCommitmentDerivations",
+        operation_counts.logical_commitment_derivations as f64,
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalLogicalProvenanceDigestDerivations",
+        operation_counts.logical_provenance_digest_derivations as f64,
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalLogicalLabelWrites",
+        operation_counts.logical_label_writes as f64,
+    )?;
+    set_f64(
+        &timings,
+        "hiddenEvalLogicalLabelFormatAllocations",
+        operation_counts.logical_label_format_allocations as f64,
+    )?;
 
     let out = object();
     set_string(

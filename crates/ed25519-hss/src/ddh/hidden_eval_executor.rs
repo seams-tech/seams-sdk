@@ -299,6 +299,21 @@ pub struct DdhHiddenEvalStageProfile {
     pub round_new_e_bits_duration_ns: u128,
     pub output_projector_duration_ns: u128,
     pub total_duration_ns: u128,
+    #[serde(default)]
+    pub operation_counts: DdhHiddenEvalOperationCounts,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DdhHiddenEvalOperationCounts {
+    pub logical_local_word_materializations: u64,
+    pub logical_shared_word_materializations: u64,
+    pub logical_transport_word_materializations: u64,
+    pub logical_commitment_materializations: u64,
+    pub logical_provenance_digest_materializations: u64,
+    pub logical_commitment_derivations: u64,
+    pub logical_provenance_digest_derivations: u64,
+    pub logical_label_writes: u64,
+    pub logical_label_format_allocations: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -562,6 +577,155 @@ impl SplitLocalBitWord {
             right: &self.right,
         }
     }
+}
+
+impl DdhHiddenEvalOperationCounts {
+    fn add_input_share_bundle(&mut self, bundle: &DdhHssInputShareBundle) {
+        self.add_shared_words(bundle.words.len());
+        self.logical_commitment_materializations =
+            self.logical_commitment_materializations.saturating_add(1);
+        self.logical_label_writes = self.logical_label_writes.saturating_add(1);
+    }
+
+    fn add_server_input_bundle(&mut self, bundle: &DdhHiddenEvalServerInputBundle) {
+        self.add_transport_words(bundle.left_words.len());
+        self.add_transport_words(bundle.right_words.len());
+        self.logical_commitment_materializations =
+            self.logical_commitment_materializations.saturating_add(1);
+        self.logical_label_writes = self.logical_label_writes.saturating_add(1);
+    }
+
+    fn add_transport_bundle(&mut self, bundle: &DdhHssTransportBundle) {
+        self.add_transport_words(bundle.words.len());
+        self.logical_commitment_materializations =
+            self.logical_commitment_materializations.saturating_add(1);
+        self.logical_label_writes = self.logical_label_writes.saturating_add(1);
+    }
+
+    fn add_split_local_bit_word(&mut self, word: &SplitLocalBitWord) {
+        self.add_local_words(word.left.len());
+        self.add_local_words(word.right.len());
+    }
+
+    fn add_split_local_bit_words(&mut self, words: &[SplitLocalBitWord]) {
+        for word in words {
+            self.add_split_local_bit_word(word);
+        }
+    }
+
+    fn add_hidden_eval_output_bundles(&mut self, output: &DdhHiddenEvalOutputBundles) {
+        self.add_input_share_bundle(&output.canonical_seed);
+        self.add_input_share_bundle(&output.client_output.bundle);
+        self.add_transport_bundle(&output.x_relayer_base_left);
+        self.add_transport_bundle(&output.x_relayer_base_right);
+
+        let output_word_count = output
+            .canonical_seed
+            .words
+            .len()
+            .saturating_add(output.client_output.bundle.words.len())
+            .saturating_add(output.x_relayer_base_left.words.len())
+            .saturating_add(output.x_relayer_base_right.words.len());
+        let side_commitments = output_word_count.saturating_mul(2) as u64;
+        self.logical_commitment_derivations = self
+            .logical_commitment_derivations
+            .saturating_add(side_commitments);
+        self.logical_provenance_digest_derivations = self
+            .logical_provenance_digest_derivations
+            .saturating_add(output_word_count as u64);
+    }
+
+    fn add_stage_label_shape(&mut self, schedule_word_count: usize, round_word_count: usize) {
+        // Public-shape label counts estimate executor label assembly without allocator hooks.
+        let add_stage_labels = 256u64.saturating_mul(5);
+        let schedule_extensions = schedule_word_count.saturating_sub(16) as u64;
+        let message_schedule_format_allocations = schedule_extensions.saturating_mul(4);
+        let message_schedule_labels = schedule_extensions.saturating_mul(521);
+        let round_count = 80u64;
+        let round_labels = round_count
+            .saturating_mul(281)
+            .saturating_add((round_word_count as u64).saturating_mul(2));
+        let projector_format_allocations = 9u64;
+
+        self.logical_label_writes = self
+            .logical_label_writes
+            .saturating_add(add_stage_labels)
+            .saturating_add(message_schedule_labels)
+            .saturating_add(round_labels);
+        self.logical_label_format_allocations = self
+            .logical_label_format_allocations
+            .saturating_add(message_schedule_format_allocations)
+            .saturating_add(projector_format_allocations);
+    }
+
+    fn add_local_words(&mut self, count: usize) {
+        let count = count as u64;
+        self.logical_local_word_materializations = self
+            .logical_local_word_materializations
+            .saturating_add(count);
+        self.logical_commitment_materializations = self
+            .logical_commitment_materializations
+            .saturating_add(count);
+        self.logical_provenance_digest_materializations = self
+            .logical_provenance_digest_materializations
+            .saturating_add(count);
+        self.logical_provenance_digest_derivations = self
+            .logical_provenance_digest_derivations
+            .saturating_add(count);
+    }
+
+    fn add_shared_words(&mut self, count: usize) {
+        let count = count as u64;
+        self.logical_shared_word_materializations = self
+            .logical_shared_word_materializations
+            .saturating_add(count);
+        self.logical_commitment_materializations = self
+            .logical_commitment_materializations
+            .saturating_add(count.saturating_mul(2));
+        self.logical_provenance_digest_materializations = self
+            .logical_provenance_digest_materializations
+            .saturating_add(count);
+    }
+
+    fn add_transport_words(&mut self, count: usize) {
+        let count = count as u64;
+        self.logical_transport_word_materializations = self
+            .logical_transport_word_materializations
+            .saturating_add(count);
+        self.logical_commitment_materializations = self
+            .logical_commitment_materializations
+            .saturating_add(count.saturating_mul(2));
+        self.logical_provenance_digest_materializations = self
+            .logical_provenance_digest_materializations
+            .saturating_add(count);
+    }
+}
+
+fn count_hidden_eval_operation_shape(
+    y_client_bits: &DdhHssInputShareBundle,
+    y_relayer_bits: &DdhHiddenEvalServerInputBundle,
+    tau_client_bits: &DdhHssInputShareBundle,
+    tau_relayer_bits: &DdhHiddenEvalServerInputBundle,
+    y_client_bits_local: &SplitLocalBitWord,
+    tau_client_bits_local: &SplitLocalBitWord,
+    d_bits: &SplitLocalBitWord,
+    schedule_words: &[SplitLocalBitWord],
+    round_final_words: &[SplitLocalBitWord],
+    output: &DdhHiddenEvalOutputBundles,
+) -> DdhHiddenEvalOperationCounts {
+    let mut counts = DdhHiddenEvalOperationCounts::default();
+    counts.add_input_share_bundle(y_client_bits);
+    counts.add_server_input_bundle(y_relayer_bits);
+    counts.add_input_share_bundle(tau_client_bits);
+    counts.add_server_input_bundle(tau_relayer_bits);
+    counts.add_split_local_bit_word(y_client_bits_local);
+    counts.add_split_local_bit_word(tau_client_bits_local);
+    counts.add_split_local_bit_word(d_bits);
+    counts.add_split_local_bit_words(schedule_words);
+    counts.add_split_local_bit_words(round_final_words);
+    counts.add_hidden_eval_output_bundles(output);
+    counts.add_stage_label_shape(schedule_words.len(), round_final_words.len());
+    counts
 }
 
 #[derive(Debug, Clone)]
@@ -972,6 +1136,7 @@ pub fn execute_prime_order_ddh_hidden_eval_program_profiled_with_pool<
         backend,
         constant_pool,
         input_bundles,
+        DdhHiddenEvalCheckpointCapture::Skip,
     )?;
     Ok(DdhHiddenEvalProfile { stage_profile, run })
 }
@@ -1098,10 +1263,10 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
         HiddenEvalInputOwner::Server,
         "tau_relayer_bits",
     )?;
-    let y_client_bits = input_bundles.y_client_bits.words.clone();
-    let tau_client_bits = input_bundles.tau_client_bits.words.clone();
-    let y_client_bits_local = SplitLocalBitWord::from_shared_bits(&y_client_bits)?;
-    let tau_client_bits_local = SplitLocalBitWord::from_shared_bits(&tau_client_bits)?;
+    let y_client_bit_words = input_bundles.y_client_bits.words.clone();
+    let tau_client_bit_words = input_bundles.tau_client_bits.words.clone();
+    let y_client_bits_local = SplitLocalBitWord::from_shared_bits(&y_client_bit_words)?;
+    let tau_client_bits_local = SplitLocalBitWord::from_shared_bits(&tau_client_bit_words)?;
     let input_sharing_duration_ns = elapsed_ns(input_sharing_started_ns);
 
     if stop_after == DdhHiddenEvalCheckpoint::InputSharing {
@@ -1134,6 +1299,7 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 round_new_e_bits_duration_ns: 0,
                 output_projector_duration_ns: 0,
                 total_duration_ns: elapsed_ns(total_started_ns),
+                operation_counts: DdhHiddenEvalOperationCounts::default(),
             },
             schedule_word_count: None,
             hash_prefix_hex: None,
@@ -1181,6 +1347,7 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 round_new_e_bits_duration_ns: 0,
                 output_projector_duration_ns: 0,
                 total_duration_ns: elapsed_ns(total_started_ns),
+                operation_counts: DdhHiddenEvalOperationCounts::default(),
             },
             schedule_word_count: None,
             hash_prefix_hex: None,
@@ -1228,6 +1395,7 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 round_new_e_bits_duration_ns: 0,
                 output_projector_duration_ns: 0,
                 total_duration_ns: elapsed_ns(total_started_ns),
+                operation_counts: DdhHiddenEvalOperationCounts::default(),
             },
             schedule_word_count: Some(schedule_output.words.len()),
             hash_prefix_hex: None,
@@ -1288,6 +1456,7 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 round_new_e_bits_duration_ns,
                 output_projector_duration_ns: 0,
                 total_duration_ns: elapsed_ns(total_started_ns),
+                operation_counts: DdhHiddenEvalOperationCounts::default(),
             },
             schedule_word_count: Some(schedule_output.words.len()),
             hash_prefix_hex: None,
@@ -1342,6 +1511,7 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
             round_new_e_bits_duration_ns,
             output_projector_duration_ns,
             total_duration_ns: elapsed_ns(total_started_ns),
+            operation_counts: DdhHiddenEvalOperationCounts::default(),
         },
         schedule_word_count: Some(schedule_output.words.len()),
         hash_prefix_hex: None,
@@ -1351,7 +1521,108 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
 struct ExecutionUntilOutputProjector {
     stage_profile: DdhHiddenEvalStageProfile,
     run: DdhHiddenEvalRun,
-    checkpoint_digests: DdhHiddenEvalCheckpointDigests,
+    checkpoint_digests: DdhHiddenEvalCheckpointResult,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DdhHiddenEvalCheckpointCapture {
+    Skip,
+    Capture,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DdhHiddenEvalCheckpointResult {
+    Skipped,
+    Captured(DdhHiddenEvalCheckpointDigests),
+}
+
+impl DdhHiddenEvalCheckpointResult {
+    fn into_captured(self) -> ProtoResult<DdhHiddenEvalCheckpointDigests> {
+        match self {
+            Self::Captured(checkpoint_digests) => Ok(checkpoint_digests),
+            Self::Skipped => Err(ProtoError::InvalidInput(
+                "hidden-eval checkpoints were not captured".to_string(),
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DdhHiddenEvalCheckpointAccumulator {
+    mode: DdhHiddenEvalCheckpointCapture,
+    add_stage: Option<[u8; 32]>,
+    message_schedule: Option<[u8; 32]>,
+    round_core: Option<[u8; 32]>,
+    output_projection: Option<[u8; 32]>,
+}
+
+impl DdhHiddenEvalCheckpointAccumulator {
+    fn new(mode: DdhHiddenEvalCheckpointCapture) -> Self {
+        Self {
+            mode,
+            add_stage: None,
+            message_schedule: None,
+            round_core: None,
+            output_projection: None,
+        }
+    }
+
+    fn record_add_stage(&mut self, d_bits: &SplitLocalBitWord) -> ProtoResult<()> {
+        if self.mode == DdhHiddenEvalCheckpointCapture::Capture {
+            self.add_stage = Some(digest_split_local_bit_word(b"add_stage", d_bits)?);
+        }
+        Ok(())
+    }
+
+    fn record_message_schedule(&mut self, words: &[SplitLocalBitWord]) -> ProtoResult<()> {
+        if self.mode == DdhHiddenEvalCheckpointCapture::Capture {
+            self.message_schedule = Some(digest_split_local_bit_words(b"message_schedule", words)?);
+        }
+        Ok(())
+    }
+
+    fn record_round_core(&mut self, words: &[SplitLocalBitWord]) -> ProtoResult<()> {
+        if self.mode == DdhHiddenEvalCheckpointCapture::Capture {
+            self.round_core = Some(digest_split_local_bit_words(b"round_core", words)?);
+        }
+        Ok(())
+    }
+
+    fn record_output_projection(&mut self, output: &DdhHiddenEvalOutputBundles) {
+        if self.mode == DdhHiddenEvalCheckpointCapture::Capture {
+            self.output_projection = Some(compute_output_projection_output_digest(output));
+        }
+    }
+
+    fn finish(self) -> ProtoResult<DdhHiddenEvalCheckpointResult> {
+        match self.mode {
+            DdhHiddenEvalCheckpointCapture::Skip => Ok(DdhHiddenEvalCheckpointResult::Skipped),
+            DdhHiddenEvalCheckpointCapture::Capture => Ok(DdhHiddenEvalCheckpointResult::Captured(
+                DdhHiddenEvalCheckpointDigests {
+                    add_stage: self.add_stage.ok_or_else(|| {
+                        ProtoError::InvalidInput(
+                            "hidden-eval add-stage checkpoint was not captured".to_string(),
+                        )
+                    })?,
+                    message_schedule: self.message_schedule.ok_or_else(|| {
+                        ProtoError::InvalidInput(
+                            "hidden-eval message-schedule checkpoint was not captured".to_string(),
+                        )
+                    })?,
+                    round_core: self.round_core.ok_or_else(|| {
+                        ProtoError::InvalidInput(
+                            "hidden-eval round-core checkpoint was not captured".to_string(),
+                        )
+                    })?,
+                    output_projection: self.output_projection.ok_or_else(|| {
+                        ProtoError::InvalidInput(
+                            "hidden-eval output-projection checkpoint was not captured".to_string(),
+                        )
+                    })?,
+                },
+            )),
+        }
+    }
 }
 
 fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBackend>(
@@ -1359,8 +1630,10 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
     backend: &B,
     constant_pool: &DdhHiddenEvalConstantPool,
     input_bundles: &DdhHiddenEvalInputBundles,
+    checkpoint_capture: DdhHiddenEvalCheckpointCapture,
 ) -> ProtoResult<ExecutionUntilOutputProjector> {
     ensure_program_shape(program)?;
+    let mut checkpoints = DdhHiddenEvalCheckpointAccumulator::new(checkpoint_capture);
     let total_started_ns = monotonic_now_ns();
     let input_sharing_started_ns = monotonic_now_ns();
     validate_input_bit_bundle(
@@ -1391,10 +1664,10 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
     );
     let server_input_commitment =
         combine_server_input_commitments(backend, &input_bundles.server_inputs);
-    let y_client_bits = input_bundles.y_client_bits.words.clone();
-    let tau_client_bits = input_bundles.tau_client_bits.words.clone();
-    let y_client_bits_local = SplitLocalBitWord::from_shared_bits(&y_client_bits)?;
-    let tau_client_bits_local = SplitLocalBitWord::from_shared_bits(&tau_client_bits)?;
+    let y_client_bit_words = input_bundles.y_client_bits.words.clone();
+    let tau_client_bit_words = input_bundles.tau_client_bits.words.clone();
+    let y_client_bits_local = SplitLocalBitWord::from_shared_bits(&y_client_bit_words)?;
+    let tau_client_bits_local = SplitLocalBitWord::from_shared_bits(&tau_client_bit_words)?;
     let input_sharing_duration_ns = elapsed_ns(input_sharing_started_ns);
 
     let add_started_ns = monotonic_now_ns();
@@ -1408,7 +1681,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
         &constant_pool.zero_right,
     )?;
     let add_stage_duration_ns = elapsed_ns(add_started_ns);
-    let add_stage_digest = digest_split_local_bit_word(b"add_stage", &d_bits)?;
+    checkpoints.record_add_stage(&d_bits)?;
 
     let schedule_started_ns = monotonic_now_ns();
     let schedule_output =
@@ -1416,8 +1689,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
     let message_schedule_duration_ns = elapsed_ns(schedule_started_ns);
     let message_schedule_accumulation_duration_ns = schedule_output.accumulation_duration_ns;
     let message_schedule_accumulation_add_timing = schedule_output.accumulation_add_timing;
-    let message_schedule_digest =
-        digest_split_local_bit_words(b"message_schedule", &schedule_output.words)?;
+    checkpoints.record_message_schedule(&schedule_output.words)?;
 
     let round_started_ns = monotonic_now_ns();
     let round_output = execute_round_stages(
@@ -1438,7 +1710,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
     let round_temp2_duration_ns = round_output.temp2_duration_ns;
     let round_new_a_bits_duration_ns = round_output.new_a_bits_duration_ns;
     let round_new_e_bits_duration_ns = round_output.new_e_bits_duration_ns;
-    let round_core_digest = digest_split_local_bit_words(b"round_core", &hash_core.final_words)?;
+    checkpoints.record_round_core(&hash_core.final_words)?;
 
     let output_started_ns = monotonic_now_ns();
     let output = execute_output_projector_stage(
@@ -1453,7 +1725,19 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
         DdhHiddenEvalClientOutputProjection::trusted_server_projection(),
     )?;
     let output_projector_duration_ns = elapsed_ns(output_started_ns);
-    let output_projection_digest = compute_output_projection_output_digest(&output);
+    checkpoints.record_output_projection(&output);
+    let operation_counts = count_hidden_eval_operation_shape(
+        &input_bundles.y_client_bits,
+        &input_bundles.server_inputs.y_relayer_bits,
+        &input_bundles.tau_client_bits,
+        &input_bundles.server_inputs.tau_relayer_bits,
+        &y_client_bits_local,
+        &tau_client_bits_local,
+        &d_bits,
+        &schedule_output.words,
+        &hash_core.final_words,
+        &output,
+    );
 
     Ok(ExecutionUntilOutputProjector {
         stage_profile: DdhHiddenEvalStageProfile {
@@ -1488,18 +1772,14 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
             round_new_e_bits_duration_ns,
             output_projector_duration_ns,
             total_duration_ns: elapsed_ns(total_started_ns),
+            operation_counts,
         },
         run: DdhHiddenEvalRun {
             client_input_commitment,
             server_input_commitment,
             output,
         },
-        checkpoint_digests: DdhHiddenEvalCheckpointDigests {
-            add_stage: add_stage_digest,
-            message_schedule: message_schedule_digest,
-            round_core: round_core_digest,
-            output_projection: output_projection_digest,
-        },
+        checkpoint_digests: checkpoints.finish()?,
     })
 }
 
@@ -1514,7 +1794,9 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
     tau_client_bits: &DdhHssInputShareBundle,
     tau_relayer_bits: &DdhHiddenEvalServerInputBundle,
     client_output_projection: DdhHiddenEvalClientOutputProjection,
+    checkpoint_capture: DdhHiddenEvalCheckpointCapture,
 ) -> ProtoResult<ExecutionUntilOutputProjector> {
+    let mut checkpoints = DdhHiddenEvalCheckpointAccumulator::new(checkpoint_capture);
     let total_started_ns = monotonic_now_ns();
     let input_sharing_started_ns = monotonic_now_ns();
 
@@ -1525,10 +1807,10 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
     );
     let server_input_commitment =
         combine_server_input_bundle_commitments(backend, y_relayer_bits, tau_relayer_bits);
-    let y_client_bits = y_client_bits.words.clone();
-    let tau_client_bits = tau_client_bits.words.clone();
-    let y_client_bits_local = SplitLocalBitWord::from_shared_bits(&y_client_bits)?;
-    let tau_client_bits_local = SplitLocalBitWord::from_shared_bits(&tau_client_bits)?;
+    let y_client_bit_words = y_client_bits.words.clone();
+    let tau_client_bit_words = tau_client_bits.words.clone();
+    let y_client_bits_local = SplitLocalBitWord::from_shared_bits(&y_client_bit_words)?;
+    let tau_client_bits_local = SplitLocalBitWord::from_shared_bits(&tau_client_bit_words)?;
     let input_sharing_duration_ns = elapsed_ns(input_sharing_started_ns);
 
     let add_started_ns = monotonic_now_ns();
@@ -1542,7 +1824,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
         &constant_pool.zero_right,
     )?;
     let add_stage_duration_ns = elapsed_ns(add_started_ns);
-    let add_stage_digest = digest_split_local_bit_word(b"add_stage", &d_bits)?;
+    checkpoints.record_add_stage(&d_bits)?;
 
     let schedule_started_ns = monotonic_now_ns();
     let schedule_output =
@@ -1550,8 +1832,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
     let message_schedule_duration_ns = elapsed_ns(schedule_started_ns);
     let message_schedule_accumulation_duration_ns = schedule_output.accumulation_duration_ns;
     let message_schedule_accumulation_add_timing = schedule_output.accumulation_add_timing;
-    let message_schedule_digest =
-        digest_split_local_bit_words(b"message_schedule", &schedule_output.words)?;
+    checkpoints.record_message_schedule(&schedule_output.words)?;
 
     let round_started_ns = monotonic_now_ns();
     let round_output = execute_round_stages(
@@ -1572,7 +1853,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
     let round_temp2_duration_ns = round_output.temp2_duration_ns;
     let round_new_a_bits_duration_ns = round_output.new_a_bits_duration_ns;
     let round_new_e_bits_duration_ns = round_output.new_e_bits_duration_ns;
-    let round_core_digest = digest_split_local_bit_words(b"round_core", &hash_core.final_words)?;
+    checkpoints.record_round_core(&hash_core.final_words)?;
 
     let output_started_ns = monotonic_now_ns();
     let output = execute_output_projector_stage(
@@ -1587,7 +1868,19 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
         client_output_projection,
     )?;
     let output_projector_duration_ns = elapsed_ns(output_started_ns);
-    let output_projection_digest = compute_output_projection_output_digest(&output);
+    checkpoints.record_output_projection(&output);
+    let operation_counts = count_hidden_eval_operation_shape(
+        y_client_bits,
+        y_relayer_bits,
+        tau_client_bits,
+        tau_relayer_bits,
+        &y_client_bits_local,
+        &tau_client_bits_local,
+        &d_bits,
+        &schedule_output.words,
+        &hash_core.final_words,
+        &output,
+    );
 
     Ok(ExecutionUntilOutputProjector {
         stage_profile: DdhHiddenEvalStageProfile {
@@ -1622,18 +1915,14 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
             round_new_e_bits_duration_ns,
             output_projector_duration_ns,
             total_duration_ns: elapsed_ns(total_started_ns),
+            operation_counts,
         },
         run: DdhHiddenEvalRun {
             client_input_commitment,
             server_input_commitment,
             output,
         },
-        checkpoint_digests: DdhHiddenEvalCheckpointDigests {
-            add_stage: add_stage_digest,
-            message_schedule: message_schedule_digest,
-            round_core: round_core_digest,
-            output_projection: output_projection_digest,
-        },
+        checkpoint_digests: checkpoints.finish()?,
     })
 }
 
@@ -1711,7 +2000,9 @@ pub fn trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_cl
         tau_client_bits,
         tau_relayer_bits,
         client_output_projection,
+        DdhHiddenEvalCheckpointCapture::Capture,
     )?;
+    let checkpoint_digests = checkpoint_digests.into_captured()?;
     Ok((
         DdhHiddenEvalExecutionTrace {
             run,
@@ -1719,6 +2010,34 @@ pub fn trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_cl
         },
         stage_profile,
     ))
+}
+
+pub fn execute_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_client_output_projection_profiled_with_pool<
+    B: DdhHssArithmeticBackend,
+>(
+    program: &HiddenEvalProgram,
+    backend: &B,
+    constant_pool: &DdhHiddenEvalConstantPool,
+    y_client_bits: &DdhHssInputShareBundle,
+    y_relayer_bits: &DdhHiddenEvalServerInputBundle,
+    tau_client_bits: &DdhHssInputShareBundle,
+    tau_relayer_bits: &DdhHiddenEvalServerInputBundle,
+    client_output_projection: DdhHiddenEvalClientOutputProjection,
+) -> ProtoResult<(DdhHiddenEvalRun, DdhHiddenEvalStageProfile)> {
+    let ExecutionUntilOutputProjector {
+        run, stage_profile, ..
+    } = execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs_validated(
+        program,
+        backend,
+        constant_pool,
+        y_client_bits,
+        y_relayer_bits,
+        tau_client_bits,
+        tau_relayer_bits,
+        client_output_projection,
+        DdhHiddenEvalCheckpointCapture::Skip,
+    )?;
+    Ok((run, stage_profile))
 }
 
 pub fn materialize_message_schedule_continuation_with_split_server_inputs_with_pool<

@@ -2081,7 +2081,10 @@ export async function handleRelayWalletRegistrationHssRespond(
     );
     if (signingError) return signingError;
   }
-  return routeJson(result.ok ? 200 : 400, result);
+  const response = exposesRegistrationRouteDiagnostics(input)
+    ? result
+    : stripRegistrationRouteDiagnostics(result);
+  return routeJson(result.ok ? 200 : 400, response);
 }
 
 export async function handleRelayWalletRegistrationFinalize(

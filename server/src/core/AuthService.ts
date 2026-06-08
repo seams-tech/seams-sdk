@@ -396,6 +396,79 @@ function pushRegistrationRouteTiming(
   entries.push({ name, durationMs: Math.max(0, Date.now() - startedAtMs) });
 }
 
+function pushRegistrationRouteDuration(
+  entries: WalletRegistrationRouteTimingEntry[],
+  name: WalletRegistrationRouteTimingEntry['name'],
+  durationMs: number,
+): void {
+  if (!Number.isFinite(durationMs)) return;
+  entries.push({ name, durationMs: Math.max(0, durationMs) });
+}
+
+function pushRegistrationHssPrepareTimingEntries(
+  entries: WalletRegistrationRouteTimingEntry[],
+  timings: {
+    prepareSessionMs: number;
+    extractDriverStatesMs: number;
+    clientOfferMessageMs: number;
+    cachePreparedSessionMs: number;
+    encodeStatesMs: number;
+  },
+): void {
+  pushRegistrationRouteDuration(entries, 'registrationHssPrepareSessionMs', timings.prepareSessionMs);
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssPrepareExtractDriverStatesMs',
+    timings.extractDriverStatesMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssPrepareClientOfferMessageMs',
+    timings.clientOfferMessageMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssPrepareCachePreparedSessionMs',
+    timings.cachePreparedSessionMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssPrepareEncodeStatesMs',
+    timings.encodeStatesMs,
+  );
+}
+
+function pushRegistrationHssFinalizeTimingEntries(
+  entries: WalletRegistrationRouteTimingEntry[],
+  timings: {
+    decodeArtifactMs: number;
+    serializedSessionMaterializeMs: number;
+    finalizeReportMs: number;
+    encodeReportMs: number;
+  },
+): void {
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssFinalizeDecodeArtifactMs',
+    timings.decodeArtifactMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssFinalizeSerializedSessionMaterializeMs',
+    timings.serializedSessionMaterializeMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssFinalizeReportMs',
+    timings.finalizeReportMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssFinalizeEncodeReportMs',
+    timings.encodeReportMs,
+  );
+}
+
 async function measureRegistrationRouteTiming<T>(
   entries: WalletRegistrationRouteTimingEntry[],
   name: WalletRegistrationRouteTimingEntry['name'],
@@ -5705,6 +5778,17 @@ export class AuthService {
           message: prepared.message || 'Ed25519 HSS prepare failed',
         };
       }
+      pushRegistrationRouteDuration(
+        routeTimings,
+        'registrationHssServerInputDeriveMs',
+        prepared.serverInputDeriveMs,
+      );
+      pushRegistrationRouteDuration(
+        routeTimings,
+        'registrationHssServerSessionPrepareTotalMs',
+        prepared.serverSessionPrepareTotalMs,
+      );
+      pushRegistrationHssPrepareTimingEntries(routeTimings, prepared.serverSessionTimings);
 
       const responseEd25519 = {
         ceremonyHandle: prepared.ceremonyHandle,
@@ -5796,6 +5880,15 @@ export class AuthService {
   async respondWalletRegistrationHss(
     request: WalletRegistrationHssRespondRequest,
   ): Promise<WalletRegistrationHssRespondResponse> {
+    const routeStartedAtMs = Date.now();
+    const routeTimings = registrationRouteTimingEntries();
+    const respondDiagnostics = () =>
+      buildRegistrationRouteDiagnostics({
+        route: 'wallets_register_hss_respond',
+        entries: routeTimings,
+        totalName: 'registerHssRespondTotalMs',
+        startedAtMs: routeStartedAtMs,
+      });
     const ceremony = await this.getRegistrationCeremonyStore().getCeremony(
       request.registrationCeremonyId,
     );
@@ -5814,17 +5907,20 @@ export class AuthService {
           message: 'threshold signing is not configured on this server',
         };
       }
+      const combinedSignerState = ceremony.signerState;
       const nextSignerState: StoredCombinedRegistrationState = {
         kind: 'combined_registration',
-        ed25519: ceremony.signerState.ed25519,
-        ecdsa: ceremony.signerState.ecdsa,
+        ed25519: combinedSignerState.ed25519,
+        ecdsa: combinedSignerState.ecdsa,
       };
       const response: Extract<WalletRegistrationHssRespondResponse, { ok: true }> = {
         ok: true,
         registrationCeremonyId: ceremony.registrationCeremonyId,
       };
-      if (request.ed25519) {
-        if (ceremony.signerState.ed25519.kind !== 'ed25519_prepared') {
+      const requestEd25519 = request.ed25519;
+      if (requestEd25519) {
+        const preparedEd25519 = combinedSignerState.ed25519;
+        if (preparedEd25519.kind !== 'ed25519_prepared') {
           return {
             ok: false,
             code: 'invalid_state',
@@ -5832,15 +5928,20 @@ export class AuthService {
           };
         }
         const ed25519 = ceremony.intent.signerSelection.ed25519;
-        const responded = await threshold.ed25519Hss.respondForRegistration({
-          orgId: ceremony.orgId,
-          request: {
-            new_account_id: ed25519.nearAccountId,
-            rp_id: ceremony.intent.rpId,
-            ceremonyHandle: ceremony.signerState.ed25519.ceremonyHandle,
-            clientRequest: request.ed25519.clientRequest,
-          },
-        });
+        const responded = await measureRegistrationRouteTiming(
+          routeTimings,
+          'registrationHssRespondMs',
+          () =>
+            threshold.ed25519Hss.respondForRegistration({
+              orgId: ceremony.orgId,
+              request: {
+                new_account_id: ed25519.nearAccountId,
+                rp_id: ceremony.intent.rpId,
+                ceremonyHandle: preparedEd25519.ceremonyHandle,
+                clientRequest: requestEd25519.clientRequest,
+              },
+            }),
+        );
         if (!responded.ok) {
           return {
             ok: false,
@@ -5848,15 +5949,37 @@ export class AuthService {
             message: responded.message || 'Ed25519 HSS respond failed',
           };
         }
+        if (responded.serverInputDeliveryTimings) {
+          pushRegistrationRouteDuration(
+            routeTimings,
+            'registrationHssRespondDecodeMessagesMs',
+            responded.serverInputDeliveryTimings.decodeMessagesMs,
+          );
+          pushRegistrationRouteDuration(
+            routeTimings,
+            'registrationHssRespondMaterializeSessionMs',
+            responded.serverInputDeliveryTimings.materializeSessionMs,
+          );
+          pushRegistrationRouteDuration(
+            routeTimings,
+            'registrationHssRespondPrepareDeliveryMs',
+            responded.serverInputDeliveryTimings.prepareDeliveryMs,
+          );
+          pushRegistrationRouteDuration(
+            routeTimings,
+            'registrationHssRespondEncodeDeliveryMs',
+            responded.serverInputDeliveryTimings.encodeDeliveryMs,
+          );
+        }
         const respondedEd25519 = {
           contextBindingB64u: responded.contextBindingB64u,
           serverInputDeliveryB64u: responded.serverInputDeliveryB64u,
         };
         nextSignerState.ed25519 = {
           kind: 'ed25519_responded',
-          ceremonyHandle: ceremony.signerState.ed25519.ceremonyHandle,
-          preparedSession: ceremony.signerState.ed25519.preparedSession,
-          clientOtOfferMessageB64u: ceremony.signerState.ed25519.clientOtOfferMessageB64u,
+          ceremonyHandle: preparedEd25519.ceremonyHandle,
+          preparedSession: preparedEd25519.preparedSession,
+          clientOtOfferMessageB64u: preparedEd25519.clientOtOfferMessageB64u,
           responded: respondedEd25519,
         };
         response.ed25519 = respondedEd25519;
@@ -5874,11 +5997,16 @@ export class AuthService {
         if (!isMatchingEcdsaClientBootstrap(expected, actual)) {
           return { ok: false, code: 'invalid_body', message: 'ECDSA bootstrap identity mismatch' };
         }
-        const bootstrap = await this.bootstrapEcdsaRegistrationHss({
-          threshold,
-          clientBootstrap: actual,
-          walletId: ceremony.intent.walletId,
-        });
+        const bootstrap = await measureRegistrationRouteTiming(
+          routeTimings,
+          'registrationEcdsaRespondMs',
+          () =>
+            this.bootstrapEcdsaRegistrationHss({
+              threshold,
+              clientBootstrap: actual,
+              walletId: ceremony.intent.walletId,
+            }),
+        );
         if (!bootstrap.ok) {
           return {
             ok: false,
@@ -5910,6 +6038,7 @@ export class AuthService {
         ...ceremony,
         signerState: nextSignerState,
       });
+      response.registrationDiagnostics = respondDiagnostics();
       return response;
     }
     if (ceremony.intent.signerSelection.mode === 'ecdsa_only') {
@@ -5936,11 +6065,16 @@ export class AuthService {
           message: 'threshold signing is not configured on this server',
         };
       }
-      const bootstrap = await this.bootstrapEcdsaRegistrationHss({
-        threshold,
-        clientBootstrap: actual,
-        walletId: ceremony.intent.walletId,
-      });
+      const bootstrap = await measureRegistrationRouteTiming(
+        routeTimings,
+        'registrationEcdsaRespondMs',
+        () =>
+          this.bootstrapEcdsaRegistrationHss({
+            threshold,
+            clientBootstrap: actual,
+            walletId: ceremony.intent.walletId,
+          }),
+      );
       if (!bootstrap.ok) {
         return {
           ok: false,
@@ -5961,6 +6095,7 @@ export class AuthService {
       return {
         ok: true,
         registrationCeremonyId: ceremony.registrationCeremonyId,
+        registrationDiagnostics: respondDiagnostics(),
         ecdsa: {
           bootstrap: bootstrap.value,
         },
@@ -5983,22 +6118,51 @@ export class AuthService {
         message: 'threshold signing is not configured on this server',
       };
     }
+    const requestEd25519 = request.ed25519;
+    const preparedEd25519 = ceremony.signerState;
     const ed25519 = ceremony.intent.signerSelection.ed25519;
-    const responded = await threshold.ed25519Hss.respondForRegistration({
-      orgId: ceremony.orgId,
-      request: {
-        new_account_id: ed25519.nearAccountId,
-        rp_id: ceremony.intent.rpId,
-        ceremonyHandle: ceremony.signerState.ceremonyHandle,
-        clientRequest: request.ed25519.clientRequest,
-      },
-    });
+    const responded = await measureRegistrationRouteTiming(
+      routeTimings,
+      'registrationHssRespondMs',
+      () =>
+        threshold.ed25519Hss.respondForRegistration({
+          orgId: ceremony.orgId,
+          request: {
+            new_account_id: ed25519.nearAccountId,
+            rp_id: ceremony.intent.rpId,
+            ceremonyHandle: preparedEd25519.ceremonyHandle,
+            clientRequest: requestEd25519.clientRequest,
+          },
+        }),
+    );
     if (!responded.ok) {
       return {
         ok: false,
         code: responded.code || 'hss_respond_failed',
         message: responded.message || 'Ed25519 HSS respond failed',
       };
+    }
+    if (responded.serverInputDeliveryTimings) {
+      pushRegistrationRouteDuration(
+        routeTimings,
+        'registrationHssRespondDecodeMessagesMs',
+        responded.serverInputDeliveryTimings.decodeMessagesMs,
+      );
+      pushRegistrationRouteDuration(
+        routeTimings,
+        'registrationHssRespondMaterializeSessionMs',
+        responded.serverInputDeliveryTimings.materializeSessionMs,
+      );
+      pushRegistrationRouteDuration(
+        routeTimings,
+        'registrationHssRespondPrepareDeliveryMs',
+        responded.serverInputDeliveryTimings.prepareDeliveryMs,
+      );
+      pushRegistrationRouteDuration(
+        routeTimings,
+        'registrationHssRespondEncodeDeliveryMs',
+        responded.serverInputDeliveryTimings.encodeDeliveryMs,
+      );
     }
     const respondedEd25519 = {
       contextBindingB64u: responded.contextBindingB64u,
@@ -6015,6 +6179,7 @@ export class AuthService {
     return {
       ok: true,
       registrationCeremonyId: ceremony.registrationCeremonyId,
+      registrationDiagnostics: respondDiagnostics(),
       ed25519: respondedEd25519,
     };
   }
@@ -6967,6 +7132,9 @@ export class AuthService {
           message: finalized.message || 'Ed25519 HSS finalize failed',
         };
       }
+      if (finalized.finalizeReportTimings) {
+        pushRegistrationHssFinalizeTimingEntries(routeTimings, finalized.finalizeReportTimings);
+      }
       const bootstrap = ceremony.signerState.ecdsa.responded.bootstrap;
       const expectedKeyHandles = request.ecdsa.expectedKeyHandles || [];
       if (expectedKeyHandles.some((keyHandle) => keyHandle !== bootstrap.keyHandle)) {
@@ -7387,6 +7555,9 @@ export class AuthService {
         code: finalized.code || 'hss_finalize_failed',
         message: finalized.message || 'Ed25519 HSS finalize failed',
       };
+    }
+    if (finalized.finalizeReportTimings) {
+      pushRegistrationHssFinalizeTimingEntries(routeTimings, finalized.finalizeReportTimings);
     }
 
     if (ed25519.createNearAccount) {

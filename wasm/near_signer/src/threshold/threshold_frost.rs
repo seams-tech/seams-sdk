@@ -124,14 +124,12 @@ pub fn threshold_ed25519_recovery_keypair_from_seed(args: JsValue) -> Result<JsV
     let mut seed32 = [0u8; 32];
     seed32.copy_from_slice(seed.as_slice());
     serde_wasm_bindgen::to_value(&ThresholdEd25519RecoveryKeypairFromSeedOutput {
-        public_key:
-            signer_core::near_ed25519_recovery::encode_near_ed25519_public_key_from_seed(
-                seed32,
-            ),
-        private_key:
-            signer_core::near_ed25519_recovery::encode_near_ed25519_private_key_from_seed(
-                seed32,
-            ),
+        public_key: signer_core::near_ed25519_recovery::encode_near_ed25519_public_key_from_seed(
+            seed32,
+        ),
+        private_key: signer_core::near_ed25519_recovery::encode_near_ed25519_private_key_from_seed(
+            seed32,
+        ),
     })
     .map_err(|e| JsValue::from_str(&format!("Failed to serialize recovery keypair: {e}")))
 }
@@ -201,8 +199,10 @@ pub fn threshold_ed25519_keygen_from_client_verifying_share(
         serde_wasm_bindgen::from_value(args)
             .map_err(|e| JsValue::from_str(&format!("Invalid keygen args: {e}")))?;
     let out =
-        signer_core::near_threshold_frost::threshold_ed25519_keygen_from_client_verifying_share(args)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        signer_core::near_threshold_frost::threshold_ed25519_keygen_from_client_verifying_share(
+            args,
+        )
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
     serde_wasm_bindgen::to_value(&out)
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize keygen output: {e}")))
 }
@@ -289,14 +289,12 @@ pub fn threshold_ed25519_client_presign_sign(args: JsValue) -> Result<JsValue, J
         client_identifier,
     )
     .map_err(|e| JsValue::from_str(&e))?;
-    let client_commitments = signer_core::near_threshold_ed25519::commitments_from_wire(
-        &args.client_commitments,
-    )
-    .map_err(|e| JsValue::from_str(&e.to_string()))?;
-    let relayer_commitments = signer_core::near_threshold_ed25519::commitments_from_wire(
-        &args.relayer_commitments,
-    )
-    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let client_commitments =
+        signer_core::near_threshold_ed25519::commitments_from_wire(&args.client_commitments)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let relayer_commitments =
+        signer_core::near_threshold_ed25519::commitments_from_wire(&args.relayer_commitments)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let mut commitments_by_id = BTreeMap::new();
     commitments_by_id.insert(client_identifier, client_commitments);
     commitments_by_id.insert(relayer_identifier, relayer_commitments);
@@ -312,10 +310,8 @@ pub fn threshold_ed25519_client_presign_sign(args: JsValue) -> Result<JsValue, J
         )
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
     let client_signature_share_b64u =
-        signer_core::near_threshold_ed25519::signature_share_to_b64u(
-            &client_signature_share,
-        )
-        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        signer_core::near_threshold_ed25519::signature_share_to_b64u(&client_signature_share)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
     serde_wasm_bindgen::to_value(&ThresholdEd25519ClientPresignSignOutput {
         client_signature_share_b64u,
     })
@@ -352,9 +348,8 @@ pub fn threshold_ed25519_round2_sign_cosigner(args: JsValue) -> Result<JsValue, 
     let args: signer_core::near_threshold_frost::ThresholdEd25519Round2SignArgs =
         serde_wasm_bindgen::from_value(args)
             .map_err(|e| JsValue::from_str(&format!("Invalid round2 args: {e}")))?;
-    let out =
-        signer_core::near_threshold_frost::threshold_ed25519_round2_sign_cosigner(args)
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let out = signer_core::near_threshold_frost::threshold_ed25519_round2_sign_cosigner(args)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
     serde_wasm_bindgen::to_value(&out)
         .map_err(|e| JsValue::from_str(&format!("Failed to serialize round2 output: {e}")))
 }
@@ -422,12 +417,11 @@ pub(crate) fn build_threshold_ed25519_seed_export_artifact_from_seed(
     }
     let mut seed32 = [0u8; 32];
     seed32.copy_from_slice(seed.as_slice());
-    let artifact =
-        signer_core::near_ed25519_recovery::build_near_ed25519_seed_export_artifact_v1(
-            seed32,
-            args.expected_public_key.as_str(),
-        )
-        .map_err(|e| e.to_string())?;
+    let artifact = signer_core::near_ed25519_recovery::build_near_ed25519_seed_export_artifact_v1(
+        seed32,
+        args.expected_public_key.as_str(),
+    )
+    .map_err(|e| e.to_string())?;
     Ok(ThresholdEd25519SeedExportArtifactFromSeedOutput {
         artifact_kind: artifact.artifact_kind,
         seed_b64u: artifact.seed_b64u,

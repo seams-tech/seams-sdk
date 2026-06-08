@@ -2431,6 +2431,22 @@ impl DdhHssEvaluator {
         .0)
     }
 
+    pub(crate) fn reconstruct_client_ot_bundle_timed(
+        &self,
+        expected_context_binding: [u8; 32],
+        response: &DdhHssOtResponseBundle,
+        local_state: &DdhHssOtReceiverStateBundle,
+        remote: &DdhHssOtReleasedRemoteBundle,
+    ) -> ProtoResult<(DdhHssInputShareBundle, DdhHssOtReconstructTiming)> {
+        reconstruct_client_ot_bundle_timed_public(
+            &self.public_state.evaluation_key,
+            expected_context_binding,
+            response,
+            local_state,
+            remote,
+        )
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn reconstruct_client_ot_bundle_timed_trusted(
         &self,

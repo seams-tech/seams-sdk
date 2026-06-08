@@ -111,13 +111,12 @@ mod tests {
             client_identifier,
         )
         .expect("client base should decode");
-        let direct =
-            signer_core::near_threshold_ed25519::key_package_from_signing_share_bytes(
-                &signing_share_bytes,
-                &near_public_key_bytes,
-                client_identifier,
-            )
-            .expect("generic constructor should succeed");
+        let direct = signer_core::near_threshold_ed25519::key_package_from_signing_share_bytes(
+            &signing_share_bytes,
+            &near_public_key_bytes,
+            client_identifier,
+        )
+        .expect("generic constructor should succeed");
 
         assert_eq!(from_b64u.identifier(), direct.identifier());
         assert_eq!(from_b64u.signing_share(), direct.signing_share());

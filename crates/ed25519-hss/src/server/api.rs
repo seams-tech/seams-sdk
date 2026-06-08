@@ -281,7 +281,11 @@ impl ServerSession {
         y_relayer: [u8; 32],
         tau_relayer: [u8; 32],
         operation: ServerEvalOperation,
-    ) -> ProtoResult<(StagedEvaluatorArtifact, DdhHiddenEvalStageProfile)> {
+    ) -> ProtoResult<(
+        StagedEvaluatorArtifact,
+        DdhHiddenEvalStageProfile,
+        EvaluateTiming,
+    )> {
         let constant_pool = prepare_ddh_hidden_eval_constant_pool(self.ddh_garbler.backend())?;
         self.build_staged_evaluator_artifact_from_transport_messages_profiled_with_pool(
             runtime,
@@ -330,31 +334,37 @@ impl ServerSession {
         tau_relayer: [u8; 32],
         _operation: ServerEvalOperation,
         constant_pool: &DdhHiddenEvalConstantPool,
-    ) -> ProtoResult<(StagedEvaluatorArtifact, DdhHiddenEvalStageProfile)> {
+    ) -> ProtoResult<(
+        StagedEvaluatorArtifact,
+        DdhHiddenEvalStageProfile,
+        EvaluateTiming,
+    )> {
         let client_packet: ClientPacket = crate::wire::decode_transport_message(
             self.context_binding,
             TransportKind::ClientOtRequest,
             client_request_message,
         )?;
-        let (run, stage_profile) = self.build_hidden_eval_run_from_transport_messages_with_pool(
-            evaluator_session,
-            evaluator_ot_state,
-            &client_packet,
-            &runtime.hidden_eval_program,
-            y_relayer,
-            tau_relayer,
-            constant_pool,
-        )?;
-        let artifact = evaluator_session
-            .build_staged_evaluator_artifact_from_hidden_eval_outputs(
+        let (run, stage_profile, mut timing) = self
+            .build_hidden_eval_run_from_transport_messages_with_pool(
+                evaluator_session,
+                evaluator_ot_state,
+                &client_packet,
+                &runtime.hidden_eval_program,
+                y_relayer,
+                tau_relayer,
+                constant_pool,
+            )?;
+        let (artifact, result_assembly_duration_ns, output_sealing_finalization_duration_ns) =
+            evaluator_session.build_staged_evaluator_artifact_from_hidden_eval_outputs(
                 runtime,
                 run.client_input_commitment,
                 run.server_input_commitment,
                 run.output,
                 None,
-            )
-            .map(|(artifact, _, _)| artifact)?;
-        Ok((artifact, stage_profile))
+            )?;
+        timing.result_assembly_duration_ns = result_assembly_duration_ns;
+        timing.output_sealing_finalization_duration_ns = output_sealing_finalization_duration_ns;
+        Ok((artifact, stage_profile, timing))
     }
 
     fn build_hidden_eval_run_from_transport_messages_with_pool(
@@ -366,25 +376,31 @@ impl ServerSession {
         y_relayer: [u8; 32],
         tau_relayer: [u8; 32],
         constant_pool: &DdhHiddenEvalConstantPool,
-    ) -> ProtoResult<(DdhHiddenEvalRun, DdhHiddenEvalStageProfile)> {
-        let (trusted_server_eval, _timing) =
+    ) -> ProtoResult<(DdhHiddenEvalRun, DdhHiddenEvalStageProfile, EvaluateTiming)> {
+        let (trusted_server_eval, mut timing) =
             self.prepare_trusted_server_eval_timed(client_packet, y_relayer, tau_relayer)?;
-        let y_client_bundle = evaluator_session
+        let ot_reconstruct_started = monotonic_now_ns();
+        let (y_client_bundle, y_timing) = evaluator_session
             .ddh_evaluator
-            .reconstruct_client_ot_bundle(
+            .reconstruct_client_ot_bundle_timed(
                 evaluator_session.context_binding,
                 &trusted_server_eval.y_client_response,
                 &evaluator_ot_state.y_client_local_state,
                 &trusted_server_eval.y_client_remote_release,
             )?;
-        let tau_client_bundle = evaluator_session
+        let (tau_client_bundle, tau_timing) = evaluator_session
             .ddh_evaluator
-            .reconstruct_client_ot_bundle(
+            .reconstruct_client_ot_bundle_timed(
                 evaluator_session.context_binding,
                 &trusted_server_eval.tau_client_response,
                 &evaluator_ot_state.tau_client_local_state,
                 &trusted_server_eval.tau_client_remote_release,
             )?;
+        timing.ot_open_join_duration_ns = timing
+            .ot_open_join_duration_ns
+            .saturating_add(elapsed_ns_u64(ot_reconstruct_started));
+        timing.add_ot_reconstruct_timing(y_timing);
+        timing.add_ot_reconstruct_timing(tau_timing);
         let expected_client_input_commitment =
             evaluator_session.ddh_evaluator.combined_input_commitment(
                 crate::ddh::HiddenEvalInputOwner::Client,
@@ -412,7 +428,7 @@ impl ServerSession {
                 "server delivery packet commitment does not match evaluated run".to_string(),
             ));
         }
-        Ok((run, profile.stage_profile))
+        Ok((run, profile.stage_profile, timing))
     }
 
     pub fn prepare_server_ceremony_from_transport_messages(

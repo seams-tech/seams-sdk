@@ -1,10 +1,11 @@
 # HSS Optimize Registration
 
-Date updated: June 7, 2026
+Date updated: June 8, 2026
 
 Status: HSS client speed-profile optimization, scoped worker-resident client
-HSS handles, two label-buffer executor cleanups, and fine-grained hidden-eval
-worker diagnostics have been benchmarked and kept.
+HSS handles, two label-buffer executor cleanups, fine-grained hidden-eval worker
+diagnostics, and the finalize cached-session fast path have been benchmarked and
+kept.
 Full registration benchmark results are tracked in
 `docs/refactor-59-optimize.md`.
 
@@ -39,6 +40,11 @@ This plan owns the HSS slice of that benchmark. Resume this plan when
 `refactor-59` can report the registration HSS buckets clearly enough to rank
 them against the full flow.
 
+`docs/refactor-64-hss-protocol-runtime-latency.md` owns deeper HSS runtime and
+protocol performance work that is not registration-route-specific. Keep this
+plan focused on registration measurements, route-level registration impact, and
+the current Phase E1 candidate handoff.
+
 Keep non-HSS work in `refactor-59` or a focused follow-up plan. Examples:
 
 - account-exists preflight
@@ -59,6 +65,10 @@ Current code state:
 - Registration HSS routes currently use `/wallets/register/start`,
   `/wallets/register/hss/respond`, and `/wallets/register/finalize`.
 - Server HSS prepare/respond/finalize timing logs exist for registration.
+  Server-owned ceremony diagnostics now split prepare into OT reconstruction,
+  server input, result assembly, and output sealing buckets, and split finalize
+  into artifact decode, serialized server-session materialization, report
+  finalization, and report encoding buckets.
 - Client-side HSS worker calls now cache the materialized client session across
   `prepare_client_request` and `build_client_owned_staged_evaluator_artifact`
   with an ephemeral worker handle. The worker consumes the build handle after
@@ -115,6 +125,24 @@ Current code state:
   decode, materialization, and encode are near noise on the retained
   worker-handle path. Keep binary payloads as transport cleanup, and prioritize
   a spec-backed hidden-eval core patch for the next latency experiment.
+- The finalize cached-session fast path was benchmarked and retained in
+  registration smoke run `20260608-051326Z`, then remeasured with start-route
+  branch diagnostics in `20260608-053047Z`. It reuses the cached prepared server
+  session when finalize receives a staged artifact as bytes, while preserving
+  the serialized-state fallback if the cache entry is gone. The retained result:
+  - `registrationHssFinalizeSerializedSessionMaterializeMs` moved from about
+    `241ms` to `244ms` p50 to `0ms` p50 in all four smoke scenarios
+  - `/wallets/register/finalize` moved from about `455ms` to `462ms` p50 to
+    `216ms` to `222ms` p50
+  - SDK registration p50 improved by `266ms` to `484ms` versus the
+    `20260608-030241Z` pre-finalize-cache baseline
+  - latest retained SDK registration p50 is `1933ms` to `2134ms`; latest
+    browser-observed p50 is `2816ms` to `3228ms`
+- Start-route branch diagnostics from `20260608-053047Z` show
+  `/wallets/register/start` remains `371ms` to `373ms` p50 because signing-root
+  server-input derivation (`366ms` to `368ms` p50) and server-session
+  preparation (`356ms` to `359ms` p50) run in parallel. Inside preparation,
+  `prepare_prime_order_succinct_hss` accounts for `354ms` to `357ms` p50.
 - The next HSS arithmetic change must be designed before implementation. The
   target is the round-core A2B/carry conversion path first, then the `maj`/`ch`
   boolean batch helpers. The spec needs to pin transcript labels, provenance
@@ -425,18 +453,29 @@ Validation:
       smoke benchmark showed weak/noisy results.
 - [x] Expose fine-grained hidden-eval substage timings through worker
       diagnostics and benchmark smoke run `20260607-152114Z`.
+- [x] Expose fine-grained server-owned HSS prepare/finalize sub-bucket
+      diagnostics through the server ceremony WASM export.
 - [x] Decide whether binary worker payloads should precede deeper executor
       work. They should not lead the latency path now; keep them as transport
       cleanup.
 - [x] Write a focused round-core A2B/boolean-helper optimization spec before
       changing protocol arithmetic.
-- [ ] Implement one spec-backed round-core A2B or `maj`/`ch` helper candidate.
+- [x] Implement and reject the first spec-backed round-core A2B destination
+      reuse candidate. Native p50 improved, but browser/WASM smoke run
+      `20260607-171754Z` showed no HSS worker improvement, so no code was
+      retained.
 - [ ] Implement historical Phase C binary worker payloads only if transport
       cleanup becomes product-relevant or a fresh benchmark makes payload
       transfer dominant again.
-- [ ] Re-benchmark after each phase and keep only meaningful wins.
-- [ ] Pick any further Phase E executor cleanup only after the round-core spec
-      and first candidate are complete.
+- [x] Re-benchmark the rejected A2B destination-reuse candidate against retained
+      run `20260607-152114Z`.
+- [x] Add direct Ed25519 HSS WASM artifact benchmark for faster candidate
+      comparisons before full registration smoke runs.
+- [x] Add logical hidden-eval object counters to the direct Ed25519 HSS WASM
+      artifact benchmark.
+- [ ] Pick any further Phase E executor cleanup after the logical counters,
+      allocator evidence, or a representation audit identify browser/WASM
+      object churn as the limiting factor.
 - [ ] Update security and README language if any public timing or boundary claim
       changes.
 
@@ -759,6 +798,8 @@ Candidate order:
    - avoid per-call output-slice allocation where possible
    - reject the candidate if preserving owned `RoundKernelState` words forces
      equivalent allocation elsewhere
+   - status: rejected after native and browser/WASM benchmarking; no code
+     retained
 2. A2B raw carry-gadget candidate:
    - specialize the secure A2B path for already-local arithmetic word pairs
    - reduce temporary `DdhHssLocalWord` construction only if provenance digest

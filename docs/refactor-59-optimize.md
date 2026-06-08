@@ -4,8 +4,9 @@ Date created: June 7, 2026
 
 Status: browser benchmark harness implemented; full 5-run passkey smoke
 baseline recorded with SDK, HSS, gated relay route substep timings, and
-fine-grained hidden-eval worker diagnostics; first HSS worker hot-path
-optimizations benchmarked and retained.
+fine-grained hidden-eval worker diagnostics; retained HSS worker/session-handle
+and finalize cached-session optimizations now bring SDK registration p50 to
+about `1.9s` to `2.1s` across the smoke scenarios.
 
 ## Goal
 
@@ -42,6 +43,33 @@ The repo already has useful partial signals:
 The current benchmark now separates the browser, SDK, HSS client worker, HSS
 client fetch, and relay route substeps well enough to choose the next
 optimization target without guessing.
+
+June 8 latest retained read:
+
+- Latest instrumentation run: `20260608-053047Z`, four smoke scenarios, five
+  successful runs each.
+- SDK registration total is now `1933ms` to `2134ms` p50 across the smoke
+  scenarios.
+- Browser-observed total is now `2816ms` to `3228ms` p50 across the smoke
+  scenarios.
+- The retained finalize cached-session fast path removed serialized
+  server-session materialization from the normal product finalize path:
+  `registrationHssFinalizeSerializedSessionMaterializeMs` moved from about
+  `241ms` to `244ms` p50 to `0ms` p50.
+- `/wallets/register/finalize` moved from about `455ms` to `462ms` p50 to
+  `216ms` to `222ms` p50.
+- SDK registration p50 improved by `266ms` to `484ms` versus the
+  `20260608-030241Z` pre-finalize-cache baseline.
+- Current HSS client artifact construction is `666ms` to `673ms` p50.
+- `/wallets/register/start` remains `371ms` to `373ms` p50 because signing-root
+  server-input derivation (`366ms` to `368ms` p50) and server-session
+  preparation (`356ms` to `359ms` p50) run in parallel.
+- `/wallets/register/hss/respond` is now visible and comparatively small at
+  `94ms` to `109ms` p50.
+- Next target: reduce client artifact construction, reduce both start-route
+  branches together, or move one of those branches off the post-auth critical
+  path. Optimizing only one start branch is unlikely to move the route p50 much
+  because the sibling branch still dominates.
 
 June 7 update:
 

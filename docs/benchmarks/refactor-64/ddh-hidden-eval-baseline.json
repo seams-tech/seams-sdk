@@ -1,0 +1,763 @@
+{
+  "report_version": "ddh_hidden_eval_benchmark_v1",
+  "metadata": {
+    "generated_at_unix_secs": 1780851583,
+    "host_os": "macos",
+    "host_arch": "aarch64",
+    "logical_cores": 14
+  },
+  "fixture_name": "wraparound-seed",
+  "artifact_bytes": 138256,
+  "active_window_records": 180,
+  "total_steps": 180,
+  "curve_cost_units": 62748,
+  "evaluator_ops": {
+    "recoded_scalar_digits": 1248,
+    "precomputed_window_bits_loaded": 16576,
+    "bucket_accumulations": 3296,
+    "bucket_reductions": 3980,
+    "accumulator_curve_additions": 712,
+    "dependency_merges": 448,
+    "point_normalizations": 184
+  },
+  "prepare_duration_ns": 123507916,
+  "config": {
+    "fixture_name": "wraparound-seed",
+    "primitive_warmup_iterations": 0,
+    "primitive_sample_iterations": 1,
+    "stage_warmup_iterations": 0,
+    "stage_sample_iterations": 1,
+    "sample_count": 8
+  },
+  "primitive_timings": [
+    {
+      "name": "share_bit",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 5292.0,
+        "median": 5375.0,
+        "mean": 5364.5,
+        "p95": 5416.0,
+        "max": 5416.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 184638.1093057607,
+        "median": 186046.51162790696,
+        "mean": 186421.06413572395,
+        "p95": 188964.4746787604,
+        "max": 188964.4746787604
+      }
+    },
+    {
+      "name": "share_byte",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 37500.0,
+        "median": 37708.0,
+        "mean": 37708.375,
+        "p95": 37917.0,
+        "max": 37917.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 26373.39451960862,
+        "median": 26519.57144372547,
+        "mean": 26519.534865401794,
+        "p95": 26666.666666666668,
+        "max": 26666.666666666668
+      }
+    },
+    {
+      "name": "eval_add_bit",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 375.0,
+        "median": 437.5,
+        "mean": 463.5,
+        "p95": 709.0,
+        "max": 709.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 1410437.2355430184,
+        "median": 2290743.82415465,
+        "mean": 2228542.401152647,
+        "p95": 2666666.6666666665,
+        "max": 2666666.6666666665
+      }
+    },
+    {
+      "name": "eval_mul_bit",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 1833.0,
+        "median": 1834.0,
+        "mean": 1844.0,
+        "p95": 1916.0,
+        "max": 1916.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 521920.6680584551,
+        "median": 545256.2704471102,
+        "mean": 542413.6867975255,
+        "p95": 545553.7370430988,
+        "max": 545553.7370430988
+      }
+    },
+    {
+      "name": "eval_add_byte",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 1500.0,
+        "median": 1500.0,
+        "mean": 1541.625,
+        "p95": 1833.0,
+        "max": 1833.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 545553.7370430988,
+        "median": 666666.6666666666,
+        "mean": 651527.5504637207,
+        "p95": 666666.6666666666,
+        "max": 666666.6666666666
+      }
+    },
+    {
+      "name": "eval_mul_byte",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 1792.0,
+        "median": 1833.0,
+        "mean": 1827.875,
+        "p95": 1833.0,
+        "max": 1833.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 545553.7370430988,
+        "median": 545553.7370430988,
+        "mean": 547113.9841984257,
+        "p95": 558035.7142857143,
+        "max": 558035.7142857143
+      }
+    }
+  ],
+  "stage_timings": [
+    {
+      "name": "input_sharing",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 1992917.0,
+        "median": 2065854.0,
+        "mean": 2079166.5,
+        "p95": 2206791.0,
+        "max": 2206791.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 453.146673155727,
+        "median": 484.1136462094637,
+        "mean": 481.56456408141025,
+        "p95": 501.77704339919825,
+        "max": 501.77704339919825
+      }
+    },
+    {
+      "name": "add_stage",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 2559625.0,
+        "median": 2784958.0,
+        "mean": 2827437.375,
+        "p95": 3103333.0,
+        "max": 3103333.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 322.23419143224396,
+        "median": 359.2873562655359,
+        "mean": 355.0290138256419,
+        "p95": 390.68222884211553,
+        "max": 390.68222884211553
+      }
+    },
+    {
+      "name": "message_schedule",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 40719458.0,
+        "median": 41223312.5,
+        "mean": 41259926.875,
+        "p95": 41986875.0,
+        "max": 41986875.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 23.81696661158993,
+        "median": 24.25811927331951,
+        "mean": 24.238878824488438,
+        "p95": 24.55828365888367,
+        "max": 24.55828365888367
+      }
+    },
+    {
+      "name": "round_core",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 134806042.0,
+        "median": 135558271.0,
+        "mean": 135699781.5,
+        "p95": 136587542.0,
+        "max": 136587542.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 7.3213119246263325,
+        "median": 7.376905104546237,
+        "mean": 7.36935982643068,
+        "p95": 7.418065133905497,
+        "max": 7.418065133905497
+      }
+    },
+    {
+      "name": "output_projector",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 42511209.0,
+        "median": 43060625.0,
+        "mean": 42993468.875,
+        "p95": 43482583.0,
+        "max": 43482583.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 22.997713820266842,
+        "median": 23.22309425953043,
+        "mean": 23.260598240950948,
+        "p95": 23.523207726225806,
+        "max": 23.523207726225806
+      }
+    },
+    {
+      "name": "total_hidden_eval",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 224492500.0,
+        "median": 225885541.5,
+        "mean": 226172708.125,
+        "p95": 228609791.0,
+        "max": 228609791.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 4.374265842358431,
+        "median": 4.427021048698752,
+        "mean": 4.421531334907639,
+        "p95": 4.454491798166977,
+        "max": 4.454491798166977
+      }
+    },
+    {
+      "name": "direct_executor_unbucketed",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 1197751.0,
+        "median": 1320874.5,
+        "mean": 1312927.0,
+        "p95": 1425333.0,
+        "max": 1425333.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 701.5904353579128,
+        "median": 757.1597599884134,
+        "mean": 763.5760777482835,
+        "p95": 834.8980714689447,
+        "max": 834.8980714689447
+      }
+    }
+  ],
+  "substage_timings": [
+    {
+      "name": "message_schedule_accumulation",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 29287459.0,
+        "median": 29439253.0,
+        "mean": 29500902.375,
+        "p95": 29880838.0,
+        "max": 29880838.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 33.466263563290966,
+        "median": 33.968471734468636,
+        "mean": 33.89891501826108,
+        "p95": 34.144307295487806,
+        "max": 34.144307295487806
+      }
+    },
+    {
+      "name": "round_sigma1",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 4664835.0,
+        "median": 4800228.5,
+        "mean": 4806010.125,
+        "p95": 4995159.0,
+        "max": 4995159.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 200.19382766394423,
+        "median": 208.32367528763876,
+        "mean": 208.1503202642591,
+        "p95": 214.36985445358732,
+        "max": 214.36985445358732
+      }
+    },
+    {
+      "name": "round_sigma0",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 4730963.0,
+        "median": 4812314.5,
+        "mean": 4858985.125,
+        "p95": 5102332.0,
+        "max": 5102332.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 195.98881452637735,
+        "median": 207.80294503303762,
+        "mean": 205.92396068411531,
+        "p95": 211.37345610185494,
+        "max": 211.37345610185494
+      }
+    },
+    {
+      "name": "round_ch",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 21822374.0,
+        "median": 22050184.5,
+        "mean": 22048035.125,
+        "p95": 22204999.0,
+        "max": 22204999.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 45.034904077230536,
+        "median": 45.35137085985252,
+        "mean": 45.356914116270815,
+        "p95": 45.82452853204697,
+        "max": 45.82452853204697
+      }
+    },
+    {
+      "name": "round_maj",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 26802463.0,
+        "median": 27061623.0,
+        "mean": 27040354.875,
+        "p95": 27263290.0,
+        "max": 27263290.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 36.6793589475078,
+        "median": 36.95284464705233,
+        "mean": 36.98315607339591,
+        "p95": 37.310003935086115,
+        "max": 37.310003935086115
+      }
+    },
+    {
+      "name": "round_state3",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 881875.0,
+        "median": 935147.5,
+        "mean": 937541.5,
+        "p95": 1047334.0,
+        "max": 1047334.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 954.8052483734892,
+        "median": 1069.4449729635085,
+        "mean": 1069.3674232219278,
+        "p95": 1133.9475549255847,
+        "max": 1133.9475549255847
+      }
+    },
+    {
+      "name": "round_temp1",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 4586245.0,
+        "median": 4665297.0,
+        "mean": 4662861.25,
+        "p95": 4789047.0,
+        "max": 4789047.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 208.80981122131396,
+        "median": 214.3489900242061,
+        "mean": 214.49831522175933,
+        "p95": 218.04330121918912,
+        "max": 218.04330121918912
+      }
+    },
+    {
+      "name": "round_temp2",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 1791795.0,
+        "median": 1827772.0,
+        "mean": 1825532.625,
+        "p95": 1876709.0,
+        "max": 1876709.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 532.8476604524196,
+        "median": 547.1191096037758,
+        "mean": 547.9124645554533,
+        "p95": 558.0995593803979,
+        "max": 558.0995593803979
+      }
+    },
+    {
+      "name": "round_new_a_bits",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 32472630.0,
+        "median": 32864167.0,
+        "mean": 32951881.125,
+        "p95": 33612876.0,
+        "max": 33612876.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 29.750503943786303,
+        "median": 30.42851336061041,
+        "mean": 30.352119920775976,
+        "p95": 30.795165035908703,
+        "max": 30.795165035908703
+      }
+    },
+    {
+      "name": "round_new_e_bits",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 32225160.0,
+        "median": 32897271.5,
+        "mean": 32795786.75,
+        "p95": 33119043.0,
+        "max": 33119043.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 30.19410917157238,
+        "median": 30.39770963627774,
+        "mean": 30.493941692547622,
+        "p95": 31.031653527864563,
+        "max": 31.031653527864563
+      }
+    }
+  ],
+  "delivery_timings": [
+    {
+      "name": "delivery_total",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 266017292.0,
+        "median": 268960458.5,
+        "mean": 272339406.25,
+        "p95": 283869625.0,
+        "max": 283869625.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 3.5227439357064005,
+        "median": 3.718061462749921,
+        "mean": 3.673872264176249,
+        "p95": 3.7591541229582925,
+        "max": 3.7591541229582925
+      }
+    },
+    {
+      "name": "delivery_unbucketed",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 13876584.0,
+        "median": 17063271.5,
+        "mean": 19817104.625,
+        "p95": 32697709.0,
+        "max": 32697709.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 30.583182448654124,
+        "median": 58.81087449220384,
+        "mean": 54.65319310588769,
+        "p95": 72.06384510770086,
+        "max": 72.06384510770086
+      }
+    },
+    {
+      "name": "ot_open_join",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 22308500.0,
+        "median": 22624750.5,
+        "mean": 22690369.875,
+        "p95": 23093584.0,
+        "max": 23093584.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 43.3020703932313,
+        "median": 44.19940642669428,
+        "mean": 44.07821835680556,
+        "p95": 44.825963197884214,
+        "max": 44.825963197884214
+      }
+    },
+    {
+      "name": "ot_branch_key_derivation",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 491207.0,
+        "median": 518899.0,
+        "mean": 518432.5,
+        "p95": 543548.0,
+        "max": 543548.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 1839.763921493594,
+        "median": 1927.2316594206973,
+        "mean": 1930.607594352346,
+        "p95": 2035.8016070617887,
+        "max": 2035.8016070617887
+      }
+    },
+    {
+      "name": "ot_branch_decrypt",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 831373.0,
+        "median": 873282.5,
+        "mean": 868837.625,
+        "p95": 892155.0,
+        "max": 892155.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 1120.8814611810728,
+        "median": 1145.145508942972,
+        "mean": 1151.5226793080124,
+        "p95": 1202.8295362009592,
+        "max": 1202.8295362009592
+      }
+    },
+    {
+      "name": "ot_point_scalar_reconstruction",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 0.0,
+        "median": 0.0,
+        "mean": 0.0,
+        "p95": 0.0,
+        "max": 0.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 0.0,
+        "median": 0.0,
+        "mean": 0.0,
+        "p95": 0.0,
+        "max": 0.0
+      }
+    },
+    {
+      "name": "ot_commitment_verification",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 1160834.0,
+        "median": 1216830.0,
+        "mean": 1217663.875,
+        "p95": 1258706.0,
+        "max": 1258706.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 794.4666983394058,
+        "median": 821.8235186271255,
+        "mean": 821.7005335960927,
+        "p95": 861.4496129506889,
+        "max": 861.4496129506889
+      }
+    },
+    {
+      "name": "server_input_open",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 3144166.0,
+        "median": 3257229.0,
+        "mean": 3269046.75,
+        "p95": 3449583.0,
+        "max": 3449583.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 289.8901113554885,
+        "median": 307.00942438314814,
+        "mean": 306.125998419885,
+        "p95": 318.0493650780525,
+        "max": 318.0493650780525
+      }
+    },
+    {
+      "name": "server_input_share",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 3138750.0,
+        "median": 3246729.0,
+        "mean": 3262161.375,
+        "p95": 3444250.0,
+        "max": 3444250.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 290.3389707483487,
+        "median": 308.00280241260907,
+        "mean": 306.77231150814674,
+        "p95": 318.5981680605336,
+        "max": 318.5981680605336
+      }
+    },
+    {
+      "name": "server_input_commitment",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 500.0,
+        "median": 667.0,
+        "mean": 1067.75,
+        "p95": 2375.0,
+        "max": 2375.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 421052.63157894736,
+        "median": 1499250.3748125937,
+        "mean": 1300795.6378597687,
+        "p95": 2000000.0,
+        "max": 2000000.0
+      }
+    },
+    {
+      "name": "server_input_transcript",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 750.0,
+        "median": 895.5,
+        "mean": 927.0,
+        "p95": 1292.0,
+        "max": 1292.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 773993.8080495356,
+        "median": 1117280.0998128508,
+        "mean": 1102447.3191192094,
+        "p95": 1333333.3333333333,
+        "max": 1333333.3333333333
+      }
+    },
+    {
+      "name": "result_assembly",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 2125.0,
+        "median": 2500.0,
+        "mean": 2739.625,
+        "p95": 4959.0,
+        "max": 4959.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 201653.5591853196,
+        "median": 400000.0,
+        "mean": 388374.61436867947,
+        "p95": 470588.23529411765,
+        "max": 470588.23529411765
+      }
+    },
+    {
+      "name": "output_sealing_finalization",
+      "sample_count": 8,
+      "iterations_per_sample": 1,
+      "total_iterations": 8,
+      "latency_ns_per_op": {
+        "min": 351166.0,
+        "median": 388416.0,
+        "mean": 387437.25,
+        "p95": 446541.0,
+        "max": 446541.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 2239.4360204326144,
+        "median": 2574.5592354588894,
+        "mean": 2593.2836487885043,
+        "p95": 2847.6560942688075,
+        "max": 2847.6560942688075
+      }
+    }
+  ],
+  "reference_match": true,
+  "output_public_key_hex": "3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29",
+  "output_x_client_base_hex": "c9c5ee7fe5f78c57c8c4d14c227b84c7107a0e45927f385e349989a64a2ef308"
+}

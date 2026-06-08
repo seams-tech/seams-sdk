@@ -22,6 +22,7 @@ import type {
   ThresholdEd25519HssOpenedServerOutput,
   ThresholdEd25519HssPreparedSessionEnvelope,
   ThresholdEd25519HssPreparedServerSessionEnvelope,
+  ThresholdEd25519HssPrepareServerSessionTimings,
   ThresholdEd25519HssServerInputDeliveryEnvelope,
   ThresholdEd25519HssServerVisibleClientRequestEnvelope,
   ThresholdEd25519HssSessionOperation,
@@ -87,6 +88,44 @@ const threshold_ed25519_hss_prepare_role_separated_server_input_delivery_server 
     prepareDeliveryMs?: number;
     encodeDeliveryMs?: number;
   };
+};
+
+type ThresholdEd25519HssServerCeremonyTimings = {
+  decodeStatesMs: number;
+  decodeMessagesMs: number;
+  materializeRuntimeMs: number;
+  materializeSessionsMs: number;
+  ceremonyCoreMs: number;
+  ceremonyOtOpenJoinMs: number;
+  ceremonyOtBranchKeyDerivationMs: number;
+  ceremonyOtBranchDecryptMs: number;
+  ceremonyOtPointScalarReconstructionMs: number;
+  ceremonyOtCommitmentVerificationMs: number;
+  ceremonyServerInputOpenMs: number;
+  ceremonyServerInputShareMs: number;
+  ceremonyServerInputCommitmentMs: number;
+  ceremonyServerInputTranscriptMs: number;
+  ceremonyAddStageMs: number;
+  ceremonyMessageScheduleMs: number;
+  ceremonyRoundCoreMs: number;
+  ceremonyOutputProjectorMs: number;
+  ceremonyResultAssemblyMs: number;
+  ceremonyOutputSealingFinalizationMs: number;
+  encodeArtifactMs: number;
+};
+
+type ThresholdEd25519HssServerInputDeliveryTimings = {
+  decodeMessagesMs: number;
+  materializeSessionMs: number;
+  prepareDeliveryMs: number;
+  encodeDeliveryMs: number;
+};
+
+type ThresholdEd25519HssFinalizeReportTimings = {
+  decodeArtifactMs: number;
+  serializedSessionMaterializeMs: number;
+  finalizeReportMs: number;
+  encodeReportMs: number;
 };
 
 function getSignerWasmUrls(): URL[] {
@@ -320,18 +359,7 @@ async function prepareThresholdEd25519HssServerCeremonyNative(input: {
   serverInputs: ThresholdEd25519HssStoredServerInputs;
 }): Promise<{
   evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
-  timings?: {
-    decodeStatesMs: number;
-    decodeMessagesMs: number;
-    materializeRuntimeMs: number;
-    materializeSessionsMs: number;
-    ceremonyCoreMs: number;
-    ceremonyAddStageMs: number;
-    ceremonyMessageScheduleMs: number;
-    ceremonyRoundCoreMs: number;
-    ceremonyOutputProjectorMs: number;
-    encodeArtifactMs: number;
-  };
+  timings?: ThresholdEd25519HssServerCeremonyTimings;
 }> {
   const driverPath = await ensureThresholdEd25519HssNativeDriverPath();
   if (!driverPath) {
@@ -435,6 +463,20 @@ export async function prepareThresholdEd25519HssServerSession(input: {
     garblerDriverStateB64u: string;
     clientOtOfferMessageB64u: string;
     preparedSessionHandle: string;
+    timings?: {
+      prepareSessionMs?: number;
+      extractDriverStatesMs?: number;
+      clientOfferMessageMs?: number;
+      cachePreparedSessionMs?: number;
+      encodeStatesMs?: number;
+    };
+  };
+  const timings: ThresholdEd25519HssPrepareServerSessionTimings = {
+    prepareSessionMs: Number(result.timings?.prepareSessionMs || 0),
+    extractDriverStatesMs: Number(result.timings?.extractDriverStatesMs || 0),
+    clientOfferMessageMs: Number(result.timings?.clientOfferMessageMs || 0),
+    cachePreparedSessionMs: Number(result.timings?.cachePreparedSessionMs || 0),
+    encodeStatesMs: Number(result.timings?.encodeStatesMs || 0),
   };
 
   return {
@@ -443,6 +485,7 @@ export async function prepareThresholdEd25519HssServerSession(input: {
     garblerDriverStateB64u: String(result.garblerDriverStateB64u || '').trim(),
     clientOtOfferMessageB64u: String(result.clientOtOfferMessageB64u || '').trim(),
     preparedSessionHandle: String(result.preparedSessionHandle || '').trim(),
+    timings,
   };
 }
 
@@ -467,18 +510,7 @@ export async function prepareThresholdEd25519HssServerCeremony(input: {
 }): Promise<{
   engine: 'native' | 'wasm';
   evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
-  timings?: {
-    decodeStatesMs: number;
-    decodeMessagesMs: number;
-    materializeRuntimeMs: number;
-    materializeSessionsMs: number;
-    ceremonyCoreMs: number;
-    ceremonyAddStageMs: number;
-    ceremonyMessageScheduleMs: number;
-    ceremonyRoundCoreMs: number;
-    ceremonyOutputProjectorMs: number;
-    encodeArtifactMs: number;
-  };
+  timings?: ThresholdEd25519HssServerCeremonyTimings;
 }> {
   const expectedBinding = String(input.expectedContextBindingB64u || '').trim();
   if (!expectedBinding) {
@@ -519,10 +551,21 @@ export async function prepareThresholdEd25519HssServerCeremony(input: {
       materializeRuntimeMs?: number;
       materializeSessionsMs?: number;
       ceremonyCoreMs?: number;
+      ceremonyOtOpenJoinMs?: number;
+      ceremonyOtBranchKeyDerivationMs?: number;
+      ceremonyOtBranchDecryptMs?: number;
+      ceremonyOtPointScalarReconstructionMs?: number;
+      ceremonyOtCommitmentVerificationMs?: number;
+      ceremonyServerInputOpenMs?: number;
+      ceremonyServerInputShareMs?: number;
+      ceremonyServerInputCommitmentMs?: number;
+      ceremonyServerInputTranscriptMs?: number;
       ceremonyAddStageMs?: number;
       ceremonyMessageScheduleMs?: number;
       ceremonyRoundCoreMs?: number;
       ceremonyOutputProjectorMs?: number;
+      ceremonyResultAssemblyMs?: number;
+      ceremonyOutputSealingFinalizationMs?: number;
       encodeArtifactMs?: number;
     };
   };
@@ -545,10 +588,33 @@ export async function prepareThresholdEd25519HssServerCeremony(input: {
           materializeRuntimeMs: Number(result.timings.materializeRuntimeMs || 0),
           materializeSessionsMs: Number(result.timings.materializeSessionsMs || 0),
           ceremonyCoreMs: Number(result.timings.ceremonyCoreMs || 0),
+          ceremonyOtOpenJoinMs: Number(result.timings.ceremonyOtOpenJoinMs || 0),
+          ceremonyOtBranchKeyDerivationMs: Number(
+            result.timings.ceremonyOtBranchKeyDerivationMs || 0,
+          ),
+          ceremonyOtBranchDecryptMs: Number(result.timings.ceremonyOtBranchDecryptMs || 0),
+          ceremonyOtPointScalarReconstructionMs: Number(
+            result.timings.ceremonyOtPointScalarReconstructionMs || 0,
+          ),
+          ceremonyOtCommitmentVerificationMs: Number(
+            result.timings.ceremonyOtCommitmentVerificationMs || 0,
+          ),
+          ceremonyServerInputOpenMs: Number(result.timings.ceremonyServerInputOpenMs || 0),
+          ceremonyServerInputShareMs: Number(result.timings.ceremonyServerInputShareMs || 0),
+          ceremonyServerInputCommitmentMs: Number(
+            result.timings.ceremonyServerInputCommitmentMs || 0,
+          ),
+          ceremonyServerInputTranscriptMs: Number(
+            result.timings.ceremonyServerInputTranscriptMs || 0,
+          ),
           ceremonyAddStageMs: Number(result.timings.ceremonyAddStageMs || 0),
           ceremonyMessageScheduleMs: Number(result.timings.ceremonyMessageScheduleMs || 0),
           ceremonyRoundCoreMs: Number(result.timings.ceremonyRoundCoreMs || 0),
           ceremonyOutputProjectorMs: Number(result.timings.ceremonyOutputProjectorMs || 0),
+          ceremonyResultAssemblyMs: Number(result.timings.ceremonyResultAssemblyMs || 0),
+          ceremonyOutputSealingFinalizationMs: Number(
+            result.timings.ceremonyOutputSealingFinalizationMs || 0,
+          ),
           encodeArtifactMs: Number(result.timings.encodeArtifactMs || 0),
         }
       : undefined,
@@ -564,12 +630,7 @@ export async function prepareThresholdEd25519HssRoleSeparatedServerInputDelivery
 }): Promise<{
   engine: 'wasm';
   serverInputDelivery: ThresholdEd25519HssServerInputDeliveryEnvelope;
-  timings?: {
-    decodeMessagesMs: number;
-    materializeSessionMs: number;
-    prepareDeliveryMs: number;
-    encodeDeliveryMs: number;
-  };
+  timings?: ThresholdEd25519HssServerInputDeliveryTimings;
 }> {
   const expectedBinding = String(input.expectedContextBindingB64u || '').trim();
   if (!expectedBinding) {
@@ -635,6 +696,7 @@ export async function finalizeThresholdEd25519HssReport(input: {
   clientOutputMessageB64u: string;
   seedOutputMessageB64u: string;
   serverOutputMessageB64u: string;
+  timings?: ThresholdEd25519HssFinalizeReportTimings;
 }> {
   await ensureThresholdEd25519HssWasm();
   requireThresholdEd25519HssWasmReady();
@@ -653,6 +715,12 @@ export async function finalizeThresholdEd25519HssReport(input: {
     clientOutputMessageB64u: string;
     seedOutputMessageB64u: string;
     serverOutputMessageB64u: string;
+    timings?: {
+      decodeArtifactMs?: number;
+      serializedSessionMaterializeMs?: number;
+      finalizeReportMs?: number;
+      encodeReportMs?: number;
+    };
   };
 
   return {
@@ -660,6 +728,14 @@ export async function finalizeThresholdEd25519HssReport(input: {
     clientOutputMessageB64u: String(result.clientOutputMessageB64u || '').trim(),
     seedOutputMessageB64u: String(result.seedOutputMessageB64u || '').trim(),
     serverOutputMessageB64u: String(result.serverOutputMessageB64u || '').trim(),
+    timings: result.timings
+      ? {
+          decodeArtifactMs: Number(result.timings.decodeArtifactMs || 0),
+          serializedSessionMaterializeMs: Number(result.timings.serializedSessionMaterializeMs || 0),
+          finalizeReportMs: Number(result.timings.finalizeReportMs || 0),
+          encodeReportMs: Number(result.timings.encodeReportMs || 0),
+        }
+      : undefined,
   };
 }
 
@@ -718,6 +794,7 @@ export async function finalizeThresholdEd25519HssServerCeremony(input: {
 }): Promise<{
   finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
   serverOutput: ThresholdEd25519HssOpenedServerOutput;
+  finalizeReportTimings?: ThresholdEd25519HssFinalizeReportTimings;
 }> {
   const expectedBinding = String(
     input.expectedContextBindingB64u || input.preparedSession.contextBindingB64u || '',
@@ -755,6 +832,7 @@ export async function finalizeThresholdEd25519HssServerCeremony(input: {
         : {}),
     },
     serverOutput,
+    finalizeReportTimings: finalizedReport.timings,
   };
 }
 

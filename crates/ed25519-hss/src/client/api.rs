@@ -3,7 +3,7 @@ use crate::client::{
     ClientSession, ClientSessionState, SeedOutputOpener,
 };
 use crate::ddh::hidden_eval_executor::{
-    trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_client_output_projection_profiled_with_pool,
+    execute_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_client_output_projection_profiled_with_pool,
     DdhHiddenEvalConstantPool, DdhHiddenEvalServerInputBundle, DdhHiddenEvalServerInputs,
 };
 use crate::ddh::{
@@ -333,8 +333,8 @@ impl ClientSession {
             )?;
         let server_inputs = self.open_role_separated_server_inputs(&packet.server_inputs)?;
         let hidden_eval_constants = self.hidden_eval_constant_pool()?;
-        let (trace, stage_profile) =
-            trace_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_client_output_projection_profiled_with_pool(
+        let (run, stage_profile) =
+            execute_prime_order_ddh_hidden_eval_program_with_split_server_inputs_and_client_output_projection_profiled_with_pool(
             &runtime.hidden_eval_program,
             &self.ddh_evaluator,
             &hidden_eval_constants,
@@ -348,13 +348,13 @@ impl ClientSession {
             HiddenEvalInputOwner::Client,
             &[&y_client_bundle, &tau_client_bundle],
         );
-        if trace.run.client_input_commitment != expected_client_input_commitment {
+        if run.client_input_commitment != expected_client_input_commitment {
             return Err(ProtoError::InvalidInput(
                 "role-separated client materialization commitment does not match client inputs"
                     .to_string(),
             ));
         }
-        if trace.run.server_input_commitment != packet.server_input_commitment {
+        if run.server_input_commitment != packet.server_input_commitment {
             return Err(ProtoError::InvalidInput(
                 "role-separated client materialization commitment does not match server inputs"
                     .to_string(),
@@ -362,9 +362,9 @@ impl ClientSession {
         }
         self.build_staged_evaluator_artifact_from_hidden_eval_outputs(
             runtime,
-            trace.run.client_input_commitment,
-            trace.run.server_input_commitment,
-            trace.run.output,
+            run.client_input_commitment,
+            run.server_input_commitment,
+            run.output,
             client_output_projection.client_output_mask(),
         )
         .map(|(artifact, _, _)| (artifact, stage_profile))

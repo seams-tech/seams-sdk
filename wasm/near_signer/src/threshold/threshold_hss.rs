@@ -14,6 +14,8 @@ use ed25519_hss::protocol::prepare_prime_order_succinct_hss_client;
 #[cfg(feature = "hss-server-exports")]
 use ed25519_hss::protocol::PreparedSession;
 #[cfg(feature = "hss-server-exports")]
+use ed25519_hss::runtime::EvaluateTiming;
+#[cfg(feature = "hss-server-exports")]
 use ed25519_hss::server::ServerDriverState;
 #[cfg(feature = "hss-server-exports")]
 use ed25519_hss::server::ServerEvalOperation;
@@ -163,6 +165,18 @@ pub(crate) struct ThresholdEd25519HssPrepareServerSessionOutput {
     garbler_driver_state_b64u: String,
     client_ot_offer_message_b64u: String,
     prepared_session_handle: String,
+    timings: ThresholdEd25519HssPrepareServerSessionTimings,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
+struct ThresholdEd25519HssPrepareServerSessionTimings {
+    prepare_session_ms: f64,
+    extract_driver_states_ms: f64,
+    client_offer_message_ms: f64,
+    cache_prepared_session_ms: f64,
+    encode_states_ms: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -230,11 +244,78 @@ struct ThresholdEd25519HssPrepareServerCeremonyTimings {
     materialize_runtime_ms: f64,
     materialize_sessions_ms: f64,
     ceremony_core_ms: f64,
+    ceremony_ot_open_join_ms: f64,
+    ceremony_ot_branch_key_derivation_ms: f64,
+    ceremony_ot_branch_decrypt_ms: f64,
+    ceremony_ot_point_scalar_reconstruction_ms: f64,
+    ceremony_ot_commitment_verification_ms: f64,
+    ceremony_server_input_open_ms: f64,
+    ceremony_server_input_share_ms: f64,
+    ceremony_server_input_commitment_ms: f64,
+    ceremony_server_input_transcript_ms: f64,
     ceremony_add_stage_ms: f64,
     ceremony_message_schedule_ms: f64,
     ceremony_round_core_ms: f64,
     ceremony_output_projector_ms: f64,
+    ceremony_result_assembly_ms: f64,
+    ceremony_output_sealing_finalization_ms: f64,
     encode_artifact_ms: f64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[cfg(feature = "hss-server-exports")]
+struct ThresholdEd25519HssFinalizeReportTimings {
+    decode_artifact_ms: f64,
+    serialized_session_materialize_ms: f64,
+    finalize_report_ms: f64,
+    encode_report_ms: f64,
+}
+
+#[cfg(feature = "hss-server-exports")]
+fn ns_to_ms(ns: u64) -> f64 {
+    ns as f64 / 1_000_000.0
+}
+
+#[cfg(feature = "hss-server-exports")]
+fn ceremony_timing_fields(
+    timing: EvaluateTiming,
+) -> ThresholdEd25519HssPrepareServerCeremonyTimingFields {
+    ThresholdEd25519HssPrepareServerCeremonyTimingFields {
+        ceremony_ot_open_join_ms: ns_to_ms(timing.ot_open_join_duration_ns),
+        ceremony_ot_branch_key_derivation_ms: ns_to_ms(timing.ot_branch_key_derivation_duration_ns),
+        ceremony_ot_branch_decrypt_ms: ns_to_ms(timing.ot_branch_decrypt_duration_ns),
+        ceremony_ot_point_scalar_reconstruction_ms: ns_to_ms(
+            timing.ot_point_scalar_reconstruction_duration_ns,
+        ),
+        ceremony_ot_commitment_verification_ms: ns_to_ms(
+            timing.ot_commitment_verification_duration_ns,
+        ),
+        ceremony_server_input_open_ms: ns_to_ms(timing.server_input_open_duration_ns),
+        ceremony_server_input_share_ms: ns_to_ms(timing.server_input_share_duration_ns),
+        ceremony_server_input_commitment_ms: ns_to_ms(timing.server_input_commitment_duration_ns),
+        ceremony_server_input_transcript_ms: ns_to_ms(timing.server_input_transcript_duration_ns),
+        ceremony_result_assembly_ms: ns_to_ms(timing.result_assembly_duration_ns),
+        ceremony_output_sealing_finalization_ms: ns_to_ms(
+            timing.output_sealing_finalization_duration_ns,
+        ),
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+#[cfg(feature = "hss-server-exports")]
+struct ThresholdEd25519HssPrepareServerCeremonyTimingFields {
+    ceremony_ot_open_join_ms: f64,
+    ceremony_ot_branch_key_derivation_ms: f64,
+    ceremony_ot_branch_decrypt_ms: f64,
+    ceremony_ot_point_scalar_reconstruction_ms: f64,
+    ceremony_ot_commitment_verification_ms: f64,
+    ceremony_server_input_open_ms: f64,
+    ceremony_server_input_share_ms: f64,
+    ceremony_server_input_commitment_ms: f64,
+    ceremony_server_input_transcript_ms: f64,
+    ceremony_result_assembly_ms: f64,
+    ceremony_output_sealing_finalization_ms: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -258,6 +339,7 @@ struct ThresholdEd25519HssFinalizeReportOutput {
     client_output_message_b64u: String,
     seed_output_message_b64u: String,
     server_output_message_b64u: String,
+    timings: ThresholdEd25519HssFinalizeReportTimings,
 }
 
 #[derive(Debug, Deserialize)]
@@ -505,6 +587,13 @@ pub fn threshold_ed25519_hss_prepare_server_session(args: JsValue) -> Result<JsV
         &JsValue::from_str(&output.prepared_session_handle),
     )
     .map_err(|_| JsValue::from_str("Failed to set preparedSessionHandle"))?;
+    let timings = serde_wasm_bindgen::to_value(&output.timings).map_err(|e| {
+        JsValue::from_str(&format!(
+            "Failed to serialize HSS prepared server-session timings: {e}"
+        ))
+    })?;
+    Reflect::set(&js_output, &JsValue::from_str("timings"), &timings)
+        .map_err(|_| JsValue::from_str("Failed to set timings"))?;
     Ok(js_output.into())
 }
 
@@ -537,51 +626,114 @@ pub fn threshold_ed25519_hss_release_staged_evaluator_artifact(handle: String) {
 pub fn threshold_ed25519_hss_finalize_report(args: JsValue) -> Result<JsValue, JsValue> {
     let args: ThresholdEd25519HssFinalizeReportArgs = serde_wasm_bindgen::from_value(args)
         .map_err(|e| JsValue::from_str(&format!("Invalid args: {e}")))?;
-    let report = if let Some(report) =
-        with_cached_staged_evaluator_artifact(&args.staged_evaluator_artifact_handle, |artifact| {
-            with_cached_prepared_server_session(&args.prepared_session_handle, |session| {
-                session
-                    .shared_runtime()
-                    .finalize_report_from_staged_evaluator_artifact(
-                        &session.garbler_session(),
-                        artifact,
-                    )
-                    .map_err(|e| e.to_string())
-            })?
-            .ok_or_else(|| {
-                "missing prepared-session cache entry for staged evaluator artifact".to_string()
-            })
-        })
+    let (report, decode_artifact_ms, serialized_session_materialize_ms, finalize_report_ms) =
+        if let Some(report) = with_cached_staged_evaluator_artifact(
+            &args.staged_evaluator_artifact_handle,
+            |artifact| {
+                with_cached_prepared_server_session(&args.prepared_session_handle, |session| {
+                    let finalize_report_started = Date::now();
+                    session
+                        .shared_runtime()
+                        .finalize_report_from_staged_evaluator_artifact(
+                            &session.garbler_session(),
+                            artifact,
+                        )
+                        .map(|report| {
+                            (
+                                report,
+                                0.0,
+                                0.0,
+                                (Date::now() - finalize_report_started).max(0.0),
+                            )
+                        })
+                        .map_err(|e| e.to_string())
+                })?
+                .ok_or_else(|| {
+                    "missing prepared-session cache entry for staged evaluator artifact".to_string()
+                })
+            },
+        )
         .map_err(|e| JsValue::from_str(&e))?
-    {
-        report
-    } else {
-        let staged_evaluator_artifact: StagedEvaluatorArtifact = decode_state_blob_bytes(
-            &args.staged_evaluator_artifact_bytes,
-            "stagedEvaluatorArtifactBytes",
-        )?;
-        let garbler_state: ServerDriverState =
-            decode_state_blob_bytes(&args.garbler_driver_state_bytes, "garblerDriverStateBytes")
+        {
+            report
+        } else {
+            let decode_artifact_started = Date::now();
+            let staged_evaluator_artifact: StagedEvaluatorArtifact = decode_state_blob_bytes(
+                &args.staged_evaluator_artifact_bytes,
+                "stagedEvaluatorArtifactBytes",
+            )?;
+            let decode_artifact_ms = (Date::now() - decode_artifact_started).max(0.0);
+            if let Some(report) =
+                with_cached_prepared_server_session(&args.prepared_session_handle, |session| {
+                    let finalize_report_started = Date::now();
+                    session
+                        .shared_runtime()
+                        .finalize_report_from_staged_evaluator_artifact(
+                            &session.garbler_session(),
+                            &staged_evaluator_artifact,
+                        )
+                        .map(|report| {
+                            (
+                                report,
+                                decode_artifact_ms,
+                                0.0,
+                                (Date::now() - finalize_report_started).max(0.0),
+                            )
+                        })
+                        .map_err(|e| e.to_string())
+                })
+                .map_err(|e| JsValue::from_str(&e))?
+            {
+                report
+            } else {
+                let serialized_session_materialize_started = Date::now();
+                let garbler_state: ServerDriverState = decode_state_blob_bytes(
+                    &args.garbler_driver_state_bytes,
+                    "garblerDriverStateBytes",
+                )
                 .map_err(js_value_to_string)?;
-        let (runtime, garbler_session) = garbler_state
-            .materialize()
-            .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        runtime
-            .finalize_report_from_staged_evaluator_artifact(
-                &garbler_session,
-                &staged_evaluator_artifact,
-            )
-            .map_err(|e| JsValue::from_str(&e.to_string()))?
-    };
+                let (runtime, garbler_session) = garbler_state
+                    .materialize()
+                    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+                let serialized_session_materialize_ms =
+                    (Date::now() - serialized_session_materialize_started).max(0.0);
+                let finalize_report_started = Date::now();
+                let report = runtime
+                    .finalize_report_from_staged_evaluator_artifact(
+                        &garbler_session,
+                        &staged_evaluator_artifact,
+                    )
+                    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+                let finalize_report_ms = (Date::now() - finalize_report_started).max(0.0);
+                (
+                    report,
+                    decode_artifact_ms,
+                    serialized_session_materialize_ms,
+                    finalize_report_ms,
+                )
+            }
+        };
+
+    let encode_report_started = Date::now();
+    let evaluation_report_json = serde_json::to_string(&report)
+        .map_err(|e| JsValue::from_str(&format!("Failed to serialize evaluation report: {e}")))?;
+    let client_output_message_b64u = encode_wire_message(&report.output_delivery.client);
+    let seed_output_message_b64u = encode_wire_message(&report.output_delivery.seed);
+    let server_output_message_b64u = encode_wire_message(&report.output_delivery.server);
+    let encode_report_ms = (Date::now() - encode_report_started).max(0.0);
 
     serde_wasm_bindgen::to_value(&ThresholdEd25519HssFinalizeReportOutput {
         context_binding_b64u: base64_url_encode(&report.artifact.context_binding),
-        evaluation_report_json: serde_json::to_string(&report).map_err(|e| {
-            JsValue::from_str(&format!("Failed to serialize evaluation report: {e}"))
-        })?,
-        client_output_message_b64u: encode_wire_message(&report.output_delivery.client),
-        seed_output_message_b64u: encode_wire_message(&report.output_delivery.seed),
-        server_output_message_b64u: encode_wire_message(&report.output_delivery.server),
+        evaluation_report_json,
+        client_output_message_b64u,
+        seed_output_message_b64u,
+        server_output_message_b64u,
+        timings: ThresholdEd25519HssFinalizeReportTimings {
+            decode_artifact_ms,
+            serialized_session_materialize_ms,
+            finalize_report_ms,
+            encode_report_ms,
+        },
     })
     .map_err(|e| JsValue::from_str(&format!("Failed to serialize HSS finalization output: {e}")))
 }
@@ -891,23 +1043,44 @@ pub(crate) fn prepare_threshold_ed25519_hss_server_session(
         derivation_version: args.derivation_version,
     })
     .map_err(js_value_to_string)?;
+    let prepare_session_started = Date::now();
     let session = prepare_prime_order_succinct_hss(&context).map_err(|e| e.to_string())?;
+    let prepare_session_ms = (Date::now() - prepare_session_started).max(0.0);
+    let extract_driver_states_started = Date::now();
     let evaluator_driver_state = session.evaluator_driver_state();
     let garbler_driver_state = session.garbler_driver_state();
+    let extract_driver_states_ms = (Date::now() - extract_driver_states_started).max(0.0);
+    let client_offer_message_started = Date::now();
     let client_ot_offer_message = session
         .garbler_session()
         .client_ot_offer_message()
         .map_err(|e| e.to_string())?;
+    let client_offer_message_ms = (Date::now() - client_offer_message_started).max(0.0);
+    let cache_prepared_session_started = Date::now();
     let prepared_session_handle = cache_prepared_server_session(session);
+    let cache_prepared_session_ms = (Date::now() - cache_prepared_session_started).max(0.0);
+    let encode_states_started = Date::now();
+    let evaluator_driver_state_b64u =
+        encode_state_blob(&evaluator_driver_state, "evaluator state")?;
+    let garbler_driver_state_b64u = encode_state_blob(&garbler_driver_state, "garbler state")?;
+    let client_ot_offer_message_b64u = encode_wire_message(&client_ot_offer_message);
+    let encode_states_ms = (Date::now() - encode_states_started).max(0.0);
 
     Ok(ThresholdEd25519HssPrepareServerSessionOutput {
         context_binding_b64u: base64_url_encode(
             &garbler_driver_state.garbler_session.context_binding,
         ),
-        evaluator_driver_state_b64u: encode_state_blob(&evaluator_driver_state, "evaluator state")?,
-        garbler_driver_state_b64u: encode_state_blob(&garbler_driver_state, "garbler state")?,
-        client_ot_offer_message_b64u: encode_wire_message(&client_ot_offer_message),
+        evaluator_driver_state_b64u,
+        garbler_driver_state_b64u,
+        client_ot_offer_message_b64u,
         prepared_session_handle,
+        timings: ThresholdEd25519HssPrepareServerSessionTimings {
+            prepare_session_ms,
+            extract_driver_states_ms,
+            client_offer_message_ms,
+            cache_prepared_session_ms,
+            encode_states_ms,
+        },
     })
 }
 
@@ -1045,7 +1218,7 @@ fn prepare_threshold_ed25519_hss_server_ceremony(
             let decode_messages_ms = (Date::now() - decode_messages_started).max(0.0);
 
             let ceremony_core_started = Date::now();
-            let (staged_evaluator_artifact, stage_profile) = session
+            let (staged_evaluator_artifact, stage_profile, evaluate_timing) = session
                 .garbler_session()
                 .build_staged_evaluator_artifact_from_transport_messages_profiled_with_pool(
                     &session.shared_runtime(),
@@ -1059,6 +1232,7 @@ fn prepare_threshold_ed25519_hss_server_ceremony(
                 )
                 .map_err(|e| e.to_string())?;
             let ceremony_core_ms = (Date::now() - ceremony_core_started).max(0.0);
+            let timing_fields = ceremony_timing_fields(evaluate_timing);
 
             let encode_artifact_started = Date::now();
             let staged_evaluator_artifact_handle =
@@ -1074,6 +1248,20 @@ fn prepare_threshold_ed25519_hss_server_ceremony(
                     materialize_runtime_ms: 0.0,
                     materialize_sessions_ms: 0.0,
                     ceremony_core_ms,
+                    ceremony_ot_open_join_ms: timing_fields.ceremony_ot_open_join_ms,
+                    ceremony_ot_branch_key_derivation_ms: timing_fields
+                        .ceremony_ot_branch_key_derivation_ms,
+                    ceremony_ot_branch_decrypt_ms: timing_fields.ceremony_ot_branch_decrypt_ms,
+                    ceremony_ot_point_scalar_reconstruction_ms: timing_fields
+                        .ceremony_ot_point_scalar_reconstruction_ms,
+                    ceremony_ot_commitment_verification_ms: timing_fields
+                        .ceremony_ot_commitment_verification_ms,
+                    ceremony_server_input_open_ms: timing_fields.ceremony_server_input_open_ms,
+                    ceremony_server_input_share_ms: timing_fields.ceremony_server_input_share_ms,
+                    ceremony_server_input_commitment_ms: timing_fields
+                        .ceremony_server_input_commitment_ms,
+                    ceremony_server_input_transcript_ms: timing_fields
+                        .ceremony_server_input_transcript_ms,
                     ceremony_add_stage_ms: (stage_profile.add_stage_duration_ns as f64)
                         / 1_000_000.0,
                     ceremony_message_schedule_ms: (stage_profile.message_schedule_duration_ns
@@ -1084,6 +1272,9 @@ fn prepare_threshold_ed25519_hss_server_ceremony(
                     ceremony_output_projector_ms: (stage_profile.output_projector_duration_ns
                         as f64)
                         / 1_000_000.0,
+                    ceremony_result_assembly_ms: timing_fields.ceremony_result_assembly_ms,
+                    ceremony_output_sealing_finalization_ms: timing_fields
+                        .ceremony_output_sealing_finalization_ms,
                     encode_artifact_ms,
                 },
             })
@@ -1141,7 +1332,7 @@ fn prepare_threshold_ed25519_hss_server_ceremony(
     let materialize_sessions_ms = (Date::now() - materialize_sessions_started).max(0.0);
 
     let ceremony_core_started = Date::now();
-    let (staged_evaluator_artifact, stage_profile) = garbler_session
+    let (staged_evaluator_artifact, stage_profile, evaluate_timing) = garbler_session
         .build_staged_evaluator_artifact_from_transport_messages_profiled(
             &runtime,
             &evaluator_session,
@@ -1153,6 +1344,7 @@ fn prepare_threshold_ed25519_hss_server_ceremony(
         )
         .map_err(|e| e.to_string())?;
     let ceremony_core_ms = (Date::now() - ceremony_core_started).max(0.0);
+    let timing_fields = ceremony_timing_fields(evaluate_timing);
 
     let encode_artifact_started = Date::now();
     let staged_evaluator_artifact_handle =
@@ -1168,12 +1360,27 @@ fn prepare_threshold_ed25519_hss_server_ceremony(
             materialize_runtime_ms,
             materialize_sessions_ms,
             ceremony_core_ms,
+            ceremony_ot_open_join_ms: timing_fields.ceremony_ot_open_join_ms,
+            ceremony_ot_branch_key_derivation_ms: timing_fields
+                .ceremony_ot_branch_key_derivation_ms,
+            ceremony_ot_branch_decrypt_ms: timing_fields.ceremony_ot_branch_decrypt_ms,
+            ceremony_ot_point_scalar_reconstruction_ms: timing_fields
+                .ceremony_ot_point_scalar_reconstruction_ms,
+            ceremony_ot_commitment_verification_ms: timing_fields
+                .ceremony_ot_commitment_verification_ms,
+            ceremony_server_input_open_ms: timing_fields.ceremony_server_input_open_ms,
+            ceremony_server_input_share_ms: timing_fields.ceremony_server_input_share_ms,
+            ceremony_server_input_commitment_ms: timing_fields.ceremony_server_input_commitment_ms,
+            ceremony_server_input_transcript_ms: timing_fields.ceremony_server_input_transcript_ms,
             ceremony_add_stage_ms: (stage_profile.add_stage_duration_ns as f64) / 1_000_000.0,
             ceremony_message_schedule_ms: (stage_profile.message_schedule_duration_ns as f64)
                 / 1_000_000.0,
             ceremony_round_core_ms: (stage_profile.round_core_duration_ns as f64) / 1_000_000.0,
             ceremony_output_projector_ms: (stage_profile.output_projector_duration_ns as f64)
                 / 1_000_000.0,
+            ceremony_result_assembly_ms: timing_fields.ceremony_result_assembly_ms,
+            ceremony_output_sealing_finalization_ms: timing_fields
+                .ceremony_output_sealing_finalization_ms,
             encode_artifact_ms,
         },
     })

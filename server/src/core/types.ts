@@ -121,6 +121,15 @@ export interface ThresholdEd25519HssPreparedServerSessionEnvelope {
   garblerDriverStateB64u: string;
   clientOtOfferMessageB64u: string;
   preparedSessionHandle: string;
+  timings: ThresholdEd25519HssPrepareServerSessionTimings;
+}
+
+export interface ThresholdEd25519HssPrepareServerSessionTimings {
+  prepareSessionMs: number;
+  extractDriverStatesMs: number;
+  clientOfferMessageMs: number;
+  cachePreparedSessionMs: number;
+  encodeStatesMs: number;
 }
 
 export interface ThresholdEd25519HssStoredPreparedServerSession {
@@ -688,12 +697,30 @@ export type WalletRegistrationRouteTimingName =
   | 'registrationIntentConsumeMs'
   | 'registrationAuthorityVerifyMs'
   | 'registrationHssPrepareMs'
+  | 'registrationHssServerInputDeriveMs'
+  | 'registrationHssServerSessionPrepareTotalMs'
+  | 'registrationHssPrepareSessionMs'
+  | 'registrationHssPrepareExtractDriverStatesMs'
+  | 'registrationHssPrepareClientOfferMessageMs'
+  | 'registrationHssPrepareCachePreparedSessionMs'
+  | 'registrationHssPrepareEncodeStatesMs'
   | 'registrationEcdsaPrepareMs'
   | 'registrationCeremonyPersistMs'
   | 'registerStartTotalMs'
+  | 'registrationHssRespondMs'
+  | 'registrationHssRespondDecodeMessagesMs'
+  | 'registrationHssRespondMaterializeSessionMs'
+  | 'registrationHssRespondPrepareDeliveryMs'
+  | 'registrationHssRespondEncodeDeliveryMs'
+  | 'registrationEcdsaRespondMs'
+  | 'registerHssRespondTotalMs'
   | 'registrationFinalizeReplayLoadMs'
   | 'registrationCeremonyLoadMs'
   | 'registrationHssFinalizeMs'
+  | 'registrationHssFinalizeDecodeArtifactMs'
+  | 'registrationHssFinalizeSerializedSessionMaterializeMs'
+  | 'registrationHssFinalizeReportMs'
+  | 'registrationHssFinalizeEncodeReportMs'
   | 'registrationEcdsaBootstrapVerifyMs'
   | 'nearAccountCreateMs'
   | 'registrationKeygenMs'
@@ -706,7 +733,7 @@ export type WalletRegistrationRouteTimingName =
 
 export type WalletRegistrationRouteDiagnostics = {
   kind: 'wallet_registration_route_diagnostics_v1';
-  route: 'wallets_register_start' | 'wallets_register_finalize';
+  route: 'wallets_register_start' | 'wallets_register_hss_respond' | 'wallets_register_finalize';
   entries: {
     name: WalletRegistrationRouteTimingName;
     durationMs: number;
@@ -746,6 +773,7 @@ export type WalletRegistrationHssRespondResponse =
   | {
       ok: true;
       registrationCeremonyId: string;
+      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
       ed25519?: {
         contextBindingB64u: string;
         serverInputDeliveryB64u: string;
@@ -875,6 +903,9 @@ export type ThresholdEd25519HssPrepareWithSessionResponse =
       ceremonyHandle: string;
       preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
       clientOtOfferMessageB64u: string;
+      serverInputDeriveMs: number;
+      serverSessionPrepareTotalMs: number;
+      serverSessionTimings: ThresholdEd25519HssPrepareServerSessionTimings;
     }
   | {
       ok: false;
@@ -888,6 +919,9 @@ export type ThresholdEd25519HssPrepareForRegistrationResponse =
       ceremonyHandle: string;
       preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
       clientOtOfferMessageB64u: string;
+      serverInputDeriveMs: number;
+      serverSessionPrepareTotalMs: number;
+      serverSessionTimings: ThresholdEd25519HssPrepareServerSessionTimings;
     }
   | {
       ok: false;
@@ -912,6 +946,12 @@ export type ThresholdEd25519HssRespondForRegistrationResponse =
       ok: true;
       contextBindingB64u: string;
       serverInputDeliveryB64u: string;
+      serverInputDeliveryTimings?: {
+        decodeMessagesMs: number;
+        materializeSessionMs: number;
+        prepareDeliveryMs: number;
+        encodeDeliveryMs: number;
+      };
     }
   | {
       ok: false;
@@ -951,6 +991,12 @@ export type ThresholdEd25519HssFinalizeForRegistrationResponse =
       publicKey: string;
       relayerKeyId: string;
       finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
+      finalizeReportTimings?: {
+        decodeArtifactMs: number;
+        serializedSessionMaterializeMs: number;
+        finalizeReportMs: number;
+        encodeReportMs: number;
+      };
       accountProvisioning?: {
         mode: 'create_if_missing';
         status: 'created' | 'already_ready';
