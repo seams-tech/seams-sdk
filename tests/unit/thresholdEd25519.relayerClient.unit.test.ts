@@ -3,8 +3,8 @@ import {
   finalizeThresholdEd25519Presign,
   refillThresholdEd25519PresignPool,
   type ThresholdEd25519FinalizeAndDispatchRequestWire,
-} from '../../client/src/core/rpcClients/relayer/thresholdEd25519Presign';
-import type { PrepareThresholdEd25519PresignPoolPayload } from '../../client/src/core/types/signer-worker';
+} from '../../packages/sdk-web/src/core/rpcClients/relayer/thresholdEd25519Presign';
+import type { PrepareThresholdEd25519PresignPoolPayload } from '../../packages/sdk-web/src/core/types/signer-worker';
 
 const runtimePolicyScope = {
   orgId: 'org-client',

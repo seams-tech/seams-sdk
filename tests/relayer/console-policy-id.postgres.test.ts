@@ -1,17 +1,17 @@
 import { expect, test } from '@playwright/test';
-import { ensureConsoleApprovalsPostgresSchema } from '../../server/src/console/approvals';
-import { ensureConsoleAuditPostgresSchema } from '../../server/src/console/audit';
-import { ensureConsolePoliciesPostgresSchema } from '../../server/src/console/policies';
+import { ensureConsoleApprovalsPostgresSchema } from '../../packages/sdk-server-ts/src/console/approvals';
+import { ensureConsoleAuditPostgresSchema } from '../../packages/sdk-server-ts/src/console/audit';
+import { ensureConsolePoliciesPostgresSchema } from '../../packages/sdk-server-ts/src/console/policies';
 import {
   createPostgresConsoleSponsoredCallService,
   ensureConsoleSponsoredCallPostgresSchema,
-} from '../../server/src/console/sponsoredCalls';
+} from '../../packages/sdk-server-ts/src/console/sponsoredCalls';
 import {
   createPostgresConsoleSponsorshipSpendCapService,
   ensureConsoleSponsorshipSpendCapPostgresSchema,
-} from '../../server/src/console/sponsorshipSpendCaps';
-import { withConsoleTenantContextTx } from '../../server/src/console/shared/postgresTenantContext';
-import { getPostgresPool } from '../../server/src/storage/postgres';
+} from '../../packages/sdk-server-ts/src/console/sponsorshipSpendCaps';
+import { withConsoleTenantContextTx } from '../../packages/sdk-server-ts/src/console/shared/postgresTenantContext';
+import { getPostgresPool } from '../../packages/sdk-server-ts/src/storage/postgres';
 
 function randomNamespace(prefix: string): string {
   return `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`;

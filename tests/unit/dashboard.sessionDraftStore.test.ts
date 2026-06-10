@@ -5,7 +5,7 @@ import {
   readSessionDashboardDraft,
   writeSessionDashboardDraft,
   type DashboardDraftIdentity,
-} from '../../examples/seams-site/src/pages/dashboard/drafts/sessionDraftStore';
+} from '../../apps/web-client/src/pages/dashboard/drafts/sessionDraftStore';
 
 class MemoryStorage implements Storage {
   private readonly entries = new Map<string, string>();

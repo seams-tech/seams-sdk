@@ -1,29 +1,29 @@
 import { expect, test } from '@playwright/test';
-import { toAccountId } from '../../client/src/core/types/accountIds';
+import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
   toWalletId,
   type TempoChainTarget,
-} from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import { selectedEcdsaLane, type SelectedEcdsaLane } from '../../client/src/core/signingEngine/session/identity/laneIdentity';
-import { buildTempoTransactionSigningLane } from '../../client/src/core/signingEngine/session/operationState/lanes';
-import { SigningSessionCoordinator } from '../../client/src/core/signingEngine/session/SigningSessionCoordinator';
+} from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import { selectedEcdsaLane, type SelectedEcdsaLane } from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
+import { buildTempoTransactionSigningLane } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
+import { SigningSessionCoordinator } from '../../packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator';
 import {
   SigningOperationIntent,
   SigningSessionIds,
-} from '../../client/src/core/signingEngine/session/operationState/types';
-import { requireResolvedEvmFamilyEcdsaSigningLane } from '../../client/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes';
+} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
+import { requireResolvedEvmFamilyEcdsaSigningLane } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaLanes';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
-} from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+} from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   recordSuccessfulEvmFamilyWalletSigningSessionSpend,
   reserveEvmFamilyWalletSigningSessionBudget,
-} from '../../client/src/core/signingEngine/flows/signEvmFamily/budgetSpending';
-import { SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR } from '../../client/src/core/signingEngine/session/budget/budget';
-import type { BudgetAdmittedOperation } from '../../client/src/core/signingEngine/session/operationState/transactionState';
-import type { SigningSessionStatus } from '../../client/src/core/types/seams';
+} from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/budgetSpending';
+import { SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR } from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
+import type { BudgetAdmittedOperation } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/transactionState';
+import type { SigningSessionStatus } from '../../packages/sdk-web/src/core/types/seams';
 
 const WALLET_ID = toAccountId('budget-refresh.testnet');
 const CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({

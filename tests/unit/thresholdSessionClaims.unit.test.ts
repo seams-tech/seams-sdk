@@ -4,8 +4,8 @@ import {
   parseThresholdEcdsaSessionClaims,
   parseThresholdEd25519SessionClaims,
 } from '@server/core/ThresholdService/validation';
-import { signThresholdSessionAuthToken } from '../../server/src/router/commonRouterUtils';
-import type { SessionAdapter } from '../../server/src/router/relay';
+import { signThresholdSessionAuthToken } from '../../packages/sdk-server-ts/src/router/commonRouterUtils';
+import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/relay';
 
 function baseClaims(kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v2') {
   const claims = {

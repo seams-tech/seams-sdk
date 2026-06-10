@@ -11,13 +11,13 @@ import {
   type SigningRootSecretResolver,
   type SigningRootSecretShareSource,
   type ResolveSigningRootSecretSharesInput,
-} from '../../server/src/core/ThresholdService/signingRootSecretResolverAdapters';
-import { signingRootScopeFromRuntimePolicyScope } from '../../shared/src/threshold/signingRootScope';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretResolverAdapters';
+import { signingRootScopeFromRuntimePolicyScope } from '../../packages/shared-ts/src/threshold/signingRootScope';
 import type {
   SigningRootSecretShareId,
   SigningRootSecretShareWireResult,
   SealedSigningRootSecretShare,
-} from '../../server/src/core/ThresholdService/signingRootSecretShareWires';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretShareWires';
 
 type ThresholdPrfFixtureShare = {
   readonly id: SigningRootSecretShareId;

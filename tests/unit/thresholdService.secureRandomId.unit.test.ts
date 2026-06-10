@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { base64UrlEncode } from '../../shared/src/utils/encoders';
-import { secureRandomIdFragment } from '../../server/src/core/ThresholdService/secureRandomId';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
+import { secureRandomIdFragment } from '../../packages/sdk-server-ts/src/core/ThresholdService/secureRandomId';
 
 function restoreGlobalCrypto(original: PropertyDescriptor | undefined): void {
   if (original) {

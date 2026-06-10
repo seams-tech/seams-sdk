@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { parseCosePublicKeyBytesFromWorker } from '../../client/src/core/signingEngine/chains/near/nearSignerWasm';
+import { parseCosePublicKeyBytesFromWorker } from '../../packages/sdk-web/src/core/signingEngine/chains/near/nearSignerWasm';
 
 test('COSE public key worker parser accepts Uint8Array bytes', () => {
   const parsed = parseCosePublicKeyBytesFromWorker(new Uint8Array([1, 2, 3]));

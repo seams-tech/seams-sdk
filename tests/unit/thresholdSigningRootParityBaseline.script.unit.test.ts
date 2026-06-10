@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { deriveEcdsaHssYRelayerFromSigningRootSecretShares } from '../../server/src/core/ThresholdService/thresholdPrfWasm';
+import { deriveEcdsaHssYRelayerFromSigningRootSecretShares } from '../../packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm';
 import {
   parseSigningRootSecretShareWireV1,
   type SigningRootSecretShareWirePair,
-} from '../../server/src/core/ThresholdService/signingRootSecretShareWires';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretShareWires';
 
 const BASELINE_ECDSA_HSS_CONTEXT = {
   signingRootId: 'project-alpha:dev',

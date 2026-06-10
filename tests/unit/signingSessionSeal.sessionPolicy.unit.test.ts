@@ -3,9 +3,9 @@ import type {
   Ed25519AuthSessionStatus,
   Ed25519AuthSessionStore,
   ThresholdEd25519AuthConsumeUsesResult,
-} from '../../server/src/core/ThresholdService/stores/AuthSessionStore';
-import { signerBoundWalletSigningBudgetSessionId } from '../../server/src/core/ThresholdService/walletSigningBudget';
-import { createSigningSessionSealPolicyFromThresholdAuthSessionStores } from '../../server/src/threshold/session/signingSessionSeal/policy/sessionPolicy';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/AuthSessionStore';
+import { signerBoundWalletSigningBudgetSessionId } from '../../packages/sdk-server-ts/src/core/ThresholdService/walletSigningBudget';
+import { createSigningSessionSealPolicyFromThresholdAuthSessionStores } from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/policy/sessionPolicy';
 
 function makeStatus(input: {
   userId: string;

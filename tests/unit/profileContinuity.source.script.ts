@@ -1,11 +1,11 @@
 import {
   getNearAccountIdForProfile,
   resolveNearAccountProfileContinuity,
-} from '../../client/src/core/accountData/near/accountProjection.ts';
+} from '../../packages/sdk-web/src/core/accountData/near/accountProjection.ts';
 import type {
   AccountSignerRecord,
   ChainAccountRecord,
-} from '../../client/src/core/indexedDB/passkeyClientDB.types.ts';
+} from '../../packages/sdk-web/src/core/indexedDB/passkeyClientDB.types.ts';
 
 const chainAccounts: ChainAccountRecord[] = [
   {

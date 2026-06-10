@@ -8,7 +8,7 @@ test.describe('key export behavior guard', () => {
     const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
     const accountMenuPath = path.join(
       repoRoot,
-      'client/src/react/components/AccountMenuButton/index.tsx',
+      'packages/sdk-web/src/react/components/AccountMenuButton/index.tsx',
     );
     const content = fs.readFileSync(accountMenuPath, 'utf8');
     expect(content.includes('.keys.exportKeypairWithUI(')).toBe(true);
@@ -19,11 +19,11 @@ test.describe('key export behavior guard', () => {
     const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
     const accountMenuPath = path.join(
       repoRoot,
-      'client/src/react/components/AccountMenuButton/index.tsx',
+      'packages/sdk-web/src/react/components/AccountMenuButton/index.tsx',
     );
     const modalPath = path.join(
       repoRoot,
-      'client/src/react/components/AccountMenuButton/ExportKeyTypeModal.tsx',
+      'packages/sdk-web/src/react/components/AccountMenuButton/ExportKeyTypeModal.tsx',
     );
     const accountMenu = fs.readFileSync(accountMenuPath, 'utf8');
     const modal = fs.readFileSync(modalPath, 'utf8');
@@ -42,7 +42,7 @@ test.describe('key export behavior guard', () => {
     const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
     const accountMenuPath = path.join(
       repoRoot,
-      'client/src/react/components/AccountMenuButton/index.tsx',
+      'packages/sdk-web/src/react/components/AccountMenuButton/index.tsx',
     );
     const content = fs.readFileSync(accountMenuPath, 'utf8');
 
@@ -56,7 +56,7 @@ test.describe('key export behavior guard', () => {
 
   test('react styles include export modal stylesheet', () => {
     const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-    const reactStylesPath = path.join(repoRoot, 'client/src/react/styles.css');
+    const reactStylesPath = path.join(repoRoot, 'packages/sdk-web/src/react/styles.css');
     const content = fs.readFileSync(reactStylesPath, 'utf8');
 
     expect(

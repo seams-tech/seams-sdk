@@ -4,9 +4,9 @@ import {
   normalizeRuntimePolicyScope,
   normalizeSigningRootScope,
   signingRootScopeFromRuntimePolicyScope,
-} from '../../shared/src/threshold/signingRootScope';
-import { createInMemoryConsoleOrgProjectEnvService } from '../../server/src/console/orgProjectEnv';
-import { resolveThresholdRuntimePolicyScope } from '../../server/src/router/commonRouterUtils';
+} from '../../packages/shared-ts/src/threshold/signingRootScope';
+import { createInMemoryConsoleOrgProjectEnvService } from '../../packages/sdk-server-ts/src/console/orgProjectEnv';
+import { resolveThresholdRuntimePolicyScope } from '../../packages/sdk-server-ts/src/router/commonRouterUtils';
 
 test('deriveSigningRootId composes projectId and envId without orgId', () => {
   expect(deriveSigningRootId({ projectId: 'proj_alpha', envId: 'dev' })).toBe(

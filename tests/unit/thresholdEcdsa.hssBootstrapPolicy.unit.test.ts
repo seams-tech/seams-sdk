@@ -7,7 +7,7 @@ import {
   type EcdsaHssClientSharePublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { createThresholdSigningServiceForUnitTests } from '../helpers/thresholdEd25519TestUtils';
-import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../server/src/core/ThresholdService/schemes/schemeIds';
+import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../packages/sdk-server-ts/src/core/ThresholdService/schemes/schemeIds';
 import {
   initSync as initHssClientSignerWasmSync,
 } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';

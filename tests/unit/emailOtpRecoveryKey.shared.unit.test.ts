@@ -34,7 +34,7 @@ import { hkdfSync } from 'node:crypto';
 import {
   chacha20poly1305Decrypt,
   chacha20poly1305Encrypt,
-} from '../../server/src/email-recovery/nearSignerWasm';
+} from '../../packages/sdk-server-ts/src/email-recovery/nearSignerWasm';
 
 const recoveryKey = '008J-4CT4-ANK7-F24S-NAXW-SQFE-ZW83-4N3P';
 

@@ -15,7 +15,7 @@ import {
 import {
   thresholdEd25519FinalizeRequestIntegrityHash,
   thresholdEd25519NearTransactionOperationFingerprint,
-} from '../../../../shared/src/threshold/ed25519OperationFingerprint.ts';
+} from '../../../../packages/shared-ts/src/threshold/ed25519OperationFingerprint.ts';
 
 const THRESHOLD_ED25519_KEY_VERSION_V1 = 'threshold-ed25519-hss-v1';
 const NEAR_NETWORK_ID = 'testnet';

@@ -13,8 +13,8 @@ import {
   type ConsoleSponsoredCallService,
 } from '@server/router/express-adaptor';
 import { createCloudflareConsoleRouter } from '@server/router/cloudflare-adaptor';
-import { withConsoleTenantContextTx } from '../../server/src/console/shared/postgresTenantContext';
-import { getPostgresPool } from '../../server/src/storage/postgres';
+import { withConsoleTenantContextTx } from '../../packages/sdk-server-ts/src/console/shared/postgresTenantContext';
+import { getPostgresPool } from '../../packages/sdk-server-ts/src/storage/postgres';
 import { callCf, fetchJson, startExpressRouter } from './helpers';
 
 const baseNow = new Date('2026-03-19T00:00:00.000Z');

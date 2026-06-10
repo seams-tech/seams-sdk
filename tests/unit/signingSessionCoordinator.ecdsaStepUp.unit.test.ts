@@ -1,21 +1,21 @@
 import { expect, test } from '@playwright/test';
-import { toAccountId } from '../../client/src/core/types/accountIds';
+import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
-} from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
+} from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
-} from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+} from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   buildEcdsaEmailOtpSigningLane,
   buildEcdsaPasskeySigningLane,
-} from '../../client/src/core/signingEngine/session/operationState/lanes';
+} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
 import {
   SigningSessionIds,
   SigningSessionPlanKind,
-} from '../../client/src/core/signingEngine/session/operationState/types';
-import { SigningSessionCoordinator } from '../../client/src/core/signingEngine/session/SigningSessionCoordinator';
+} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
+import { SigningSessionCoordinator } from '../../packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator';
 
 const walletId = toAccountId('ecdsa-step-up-budget.testnet');
 const chainTarget = thresholdEcdsaChainTargetFromChainFamily({

@@ -2,28 +2,28 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { base64UrlEncode } from '../../shared/src/utils/encoders';
-import type { AuthService } from '../../server/src/core/AuthService';
-import { SIGNING_ROOT_RECORD_VERSION_V1 } from '../../server/src/core/ThresholdService/signingRootRecords';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
+import type { AuthService } from '../../packages/sdk-server-ts/src/core/AuthService';
+import { SIGNING_ROOT_RECORD_VERSION_V1 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootRecords';
 import {
   THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
   THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-} from '../../server/src/core/ThresholdService/schemes/schemeIds';
-import type { ThresholdAnySchemeModule } from '../../server/src/core/ThresholdService/schemes/types';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/schemes/schemeIds';
+import type { ThresholdAnySchemeModule } from '../../packages/sdk-server-ts/src/core/ThresholdService/schemes/types';
 import {
   createSelfHostedCloudflareSigningRouter,
   createSelfHostedCloudflareSigningWorker,
-} from '../../server/src/router/cloudflare/createSelfHostedCloudflareSigningWorker';
-import { createCloudflareRouter } from '../../server/src/router/cloudflare/createCloudflareRouter';
-import { ThresholdStoreDurableObject } from '../../server/src/router/cloudflare/durableObjects/thresholdStore';
-import type { CfExecutionContext } from '../../server/src/router/cloudflare/types';
-import type { ThresholdSigningAdapter } from '../../server/src/router/relay';
+} from '../../packages/sdk-server-ts/src/router/cloudflare/createSelfHostedCloudflareSigningWorker';
+import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
+import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
+import type { CfExecutionContext } from '../../packages/sdk-server-ts/src/router/cloudflare/types';
+import type { ThresholdSigningAdapter } from '../../packages/sdk-server-ts/src/router/relay';
 
 const fakeCtx = {} as CfExecutionContext;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const selfHostedRouterSourcePath = resolve(
   __dirname,
-  '../../server/src/router/cloudflare/createSelfHostedCloudflareSigningWorker.ts',
+  '../../packages/sdk-server-ts/src/router/cloudflare/createSelfHostedCloudflareSigningWorker.ts',
 );
 const PROJECT_ID = 'project-alpha';
 const ENV_ID = 'env-alpha';

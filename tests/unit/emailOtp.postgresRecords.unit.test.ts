@@ -7,7 +7,7 @@ import {
   parseCurrentEmailOtpUnlockChallengeRow,
   parseCurrentEmailOtpWalletEnrollmentRow,
   parseCurrentGoogleEmailOtpRegistrationAttemptRow,
-} from '../../server/src/core/EmailOtpPostgresRecords';
+} from '../../packages/sdk-server-ts/src/core/EmailOtpPostgresRecords';
 
 test.describe('email otp postgres records', () => {
   test('requires current challenge rows with explicit operation and matching expiry', () => {

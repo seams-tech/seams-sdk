@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { createThresholdEd25519SessionStore } from '../../server/src/core/ThresholdService/stores/SessionStore';
+import { createThresholdEd25519SessionStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore';
 import type {
   ThresholdEd25519MpcSessionRecord,
   ThresholdEd25519PresignExpectedScope,
   ThresholdEd25519PresignRecord,
-} from '../../server/src/core/ThresholdService/stores/SessionStore';
-import type { NormalizedLogger } from '../../server/src/core/logger';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SessionStore';
+import type { NormalizedLogger } from '../../packages/sdk-server-ts/src/core/logger';
 
 const noopLogger: NormalizedLogger = {
   debug: () => {},

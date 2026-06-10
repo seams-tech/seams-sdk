@@ -8,20 +8,16 @@ node_modules
 **/.env
 **/.env.*
 
-examples/seams-docs/certs
-
-examples/seams-docs/public
-examples/seams-docs/dist
-examples/seams-docs/docs/dist
-examples/seams-docs/src/.vitepress/cache
-examples/seams-site/.caddy.log
-
-examples/.vitepress-cache/
-
-examples/relay-server/dist
-examples/relay-server/dist/*
-examples/relay-server/grace-keys.json
-examples/relay-server/.provision-cache.json
+apps/docs/certs
+apps/docs/public
+apps/docs/dist
+apps/docs/docs/dist
+apps/docs/src/.vitepress/cache
+apps/web-client/.caddy.log
+apps/web-server/dist
+apps/web-server/grace-keys.json
+apps/web-server/.provision-cache.json
+clients/ios/.build
 
 examples/relay-cloudflare-worker/.wrangler
 

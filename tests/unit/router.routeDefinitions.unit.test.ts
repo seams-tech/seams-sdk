@@ -1,18 +1,18 @@
 import { expect, test } from '@playwright/test';
-import { applyRouteMetering } from '../../server/src/router/applyRouteMetering';
-import { authorizeConsoleRouteRequest } from '../../server/src/router/consoleRoutePolicy';
-import { registerCloudflareRoute } from '../../server/src/router/cloudflare/registerCloudflareRoute';
-import { enforceRoutePolicy } from '../../server/src/router/enforceRoutePolicy';
-import { registerExpressRoute } from '../../server/src/router/express/registerExpressRoute';
-import { API_CREDENTIAL_ROUTE_SCOPES } from '../../server/src/router/routeAuthPolicy';
-import { ROUTE_SERVICE_KEYS } from '../../server/src/router/routeExecutionContext';
+import { applyRouteMetering } from '../../packages/sdk-server-ts/src/router/applyRouteMetering';
+import { authorizeConsoleRouteRequest } from '../../packages/sdk-server-ts/src/router/consoleRoutePolicy';
+import { registerCloudflareRoute } from '../../packages/sdk-server-ts/src/router/cloudflare/registerCloudflareRoute';
+import { enforceRoutePolicy } from '../../packages/sdk-server-ts/src/router/enforceRoutePolicy';
+import { registerExpressRoute } from '../../packages/sdk-server-ts/src/router/express/registerExpressRoute';
+import { API_CREDENTIAL_ROUTE_SCOPES } from '../../packages/sdk-server-ts/src/router/routeAuthPolicy';
+import { ROUTE_SERVICE_KEYS } from '../../packages/sdk-server-ts/src/router/routeExecutionContext';
 import {
   createConsoleRouteDefinitions,
   createRelayRouteDefinitions,
   defineRoute,
   findRouteDefinitionForRequest,
   type RouteDefinition,
-} from '../../server/src/router/routeDefinitions';
+} from '../../packages/sdk-server-ts/src/router/routeDefinitions';
 
 const THRESHOLD_CONTINUATION_ROUTE_IDS = [
   'threshold_ed25519_sign_init',

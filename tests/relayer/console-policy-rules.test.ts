@@ -6,14 +6,14 @@ import {
   parseConsolePolicyRulesInput,
   parseStoredConsolePolicyRules,
   validateGasSponsorshipPolicyRulesForPublish,
-} from '../../server/src/console/policies/rules';
+} from '../../packages/sdk-server-ts/src/console/policies/rules';
 import {
   parseCreateConsolePolicyRequest,
   parseListConsolePoliciesRequest,
   parseSimulateConsolePolicyRequest,
   parseUpdateConsolePolicyRequest,
-} from '../../server/src/console/policies/requests';
-import { createInMemoryConsolePolicyService } from '../../server/src/console/policies/service';
+} from '../../packages/sdk-server-ts/src/console/policies/requests';
+import { createInMemoryConsolePolicyService } from '../../packages/sdk-server-ts/src/console/policies/service';
 
 async function expectPolicyError(
   fn: () => unknown | Promise<unknown>,

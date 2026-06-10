@@ -8,7 +8,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 test('runtime package entry bundle avoids browser implementation modules', () => {
   const output = execFileSync(
     'node',
-    ['sdk/scripts/checks/assert-runtime-entry-bundles.mjs'],
+    ['packages/sdk-web/scripts/checks/assert-runtime-entry-bundles.mjs'],
     {
       cwd: repoRoot,
       encoding: 'utf8',

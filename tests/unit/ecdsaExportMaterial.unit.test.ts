@@ -1,36 +1,36 @@
 import { expect, test } from '@playwright/test';
 import { base64UrlEncode } from '@shared/utils/base64';
-import { toAccountId } from '../../client/src/core/types/accountIds';
-import type { ThresholdEcdsaChainTarget } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
+import type { ThresholdEcdsaChainTarget } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEcdsaRoleLocalEmailOtpAuthMethod,
   buildEcdsaRoleLocalPasskeyAuthMethod,
   buildEcdsaRoleLocalPublicFacts,
   buildEcdsaRoleLocalReadyRecord,
-} from '../../client/src/core/platform';
+} from '../../packages/sdk-web/src/core/platform';
 import {
   buildEvmFamilyEcdsaKeyIdentityFromRecord,
   toEvmFamilyEcdsaKeyHandle,
   toThresholdOwnerAddress,
   toVerifiedEcdsaPublicFactsFromRecord,
-} from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { SigningSessionIds } from '../../client/src/core/signingEngine/session/operationState/types';
+} from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
 import {
   deriveThresholdEcdsaRuntimeLaneKey,
   type ThresholdEcdsaSessionRecord,
-} from '../../client/src/core/signingEngine/session/persistence/records';
+} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEcdsaSessionStoreSource,
-} from '../../client/src/core/signingEngine/session/identity/laneIdentity';
+} from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
 import {
   resolveEcdsaExportMaterialForLane,
   resolveFreshEmailOtpEcdsaExportMaterialForLane,
   type EcdsaExportSessionStoreDeps,
   type ExactEcdsaExportLane,
-} from '../../client/src/core/signingEngine/flows/recovery/ecdsaExportMaterial';
-import { exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth } from '../../client/src/core/signingEngine/flows/recovery/ecdsaExportFlow';
-import type { ThresholdEcdsaCanonicalExportArtifact } from '../../client/src/core/signingEngine/interfaces/signing';
+} from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportMaterial';
+import { exportThresholdEcdsaKeyWithFreshEmailOtpRouteAuth } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportFlow';
+import type { ThresholdEcdsaCanonicalExportArtifact } from '../../packages/sdk-web/src/core/signingEngine/interfaces/signing';
 
 const WALLET_ID = toAccountId('alice.testnet');
 const RP_ID = 'localhost';

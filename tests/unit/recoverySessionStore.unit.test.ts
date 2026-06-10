@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test';
 import {
   buildPreparedRecoverySessionRecord,
   DEFAULT_RECOVERY_SESSION_TTL_MS,
-} from '../../server/src/core/recoverySessionRecords';
-import { createRecoverySessionStore } from '../../server/src/core/RecoverySessionStore';
+} from '../../packages/sdk-server-ts/src/core/recoverySessionRecords';
+import { createRecoverySessionStore } from '../../packages/sdk-server-ts/src/core/RecoverySessionStore';
 
 test.describe('recovery session canonical store', () => {
   test('builds and round-trips prepared recovery sessions in the in-memory store', async () => {

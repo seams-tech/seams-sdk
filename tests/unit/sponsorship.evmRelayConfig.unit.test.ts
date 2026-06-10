@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { resolveSponsoredEvmCallConfigFromEnv } from '../../server/src/sponsorship/evmRelay';
+import { resolveSponsoredEvmCallConfigFromEnv } from '../../packages/sdk-server-ts/src/sponsorship/evmRelay';
 
 test.describe('sponsored EVM executor registry parsing', () => {
   test('derives sponsorAddress from sponsorPrivateKeyHex', async () => {

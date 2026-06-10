@@ -3,16 +3,16 @@ import { base64UrlEncode } from '@shared/utils/base64';
 import {
   secp256k1PrivateKey32ToPublicKey33,
   signSecp256k1Recoverable,
-} from '../../server/src/core/ThresholdService/ethSignerWasm';
-import { verifyEcdsaClientRootProof } from '../../server/src/core/ThresholdService/ecdsaClientRootProof';
-import type { EcdsaHssClientRootProof } from '../../server/src/core/types';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/ethSignerWasm';
+import { verifyEcdsaClientRootProof } from '../../packages/sdk-server-ts/src/core/ThresholdService/ecdsaClientRootProof';
+import type { EcdsaHssClientRootProof } from '../../packages/sdk-server-ts/src/core/types';
 import { bootstrapEcdsaSession } from '@/core/signingEngine/threshold/ecdsa/bootstrapSession';
 import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   buildEvmFamilyEcdsaKeyIdentity,
   buildEvmFamilyEcdsaSessionLanePolicy,
   toEvmFamilyEcdsaKeyHandle,
-} from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+} from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { WorkerRequestType, WorkerResponseType } from '@/core/types/signer-worker';
 
 const TEST_CHAIN_TARGET = thresholdEcdsaChainTargetFromChainFamily({

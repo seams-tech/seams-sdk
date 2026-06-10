@@ -19,7 +19,7 @@ import {
 test.describe('signing-engine flow architecture guardrails', () => {
   test('shared signing state machine owns the signing operation runner', () => {
     const source = readRepoSource(
-      'client/src/core/signingEngine/flows/shared/signingStateMachine.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/shared/signingStateMachine.ts',
     );
 
     expect(source).not.toContain('plan?: SigningSessionPlan');
@@ -36,13 +36,13 @@ test.describe('signing-engine flow architecture guardrails', () => {
 
   test('EVM-family runtime command tracing uses the shared machine port directly', () => {
     const runtime = readRepoSource(
-      'client/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlowRuntime.ts',
     );
     const uiConfirmFlow = readRepoSource(
-      'client/src/core/signingEngine/flows/signEvmFamily/signingFlow.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlow.ts',
     );
     const stateMachine = readRepoSource(
-      'client/src/core/signingEngine/flows/shared/signingStateMachine.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/shared/signingStateMachine.ts',
     );
 
     expect(runtime).not.toContain("from '../passkey/runtimeCommandExecutor'");
@@ -55,12 +55,12 @@ test.describe('signing-engine flow architecture guardrails', () => {
 
   test('NEAR signing flows use shared machine command steps', () => {
     const transactionFlow = readRepoSource(
-      'client/src/core/signingEngine/flows/signNear/signTransactions.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
     );
     const delegateFlow = readRepoSource(
-      'client/src/core/signingEngine/flows/signNear/signDelegate.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts',
     );
-    const nep413Flow = readRepoSource('client/src/core/signingEngine/flows/signNear/signNep413.ts');
+    const nep413Flow = readRepoSource('packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts');
     for (const flow of [transactionFlow, delegateFlow, nep413Flow]) {
       expect(flow).not.toContain('runNearSigningOperationCommand');
       expect(flow).not.toContain('SigningOperationCommandKind.ShowConfirmation');
@@ -100,13 +100,13 @@ test.describe('signing-engine flow architecture guardrails', () => {
 
   test('confirmation shared contracts are owned outside uiConfirm runtime internals', () => {
     const confirmationChannelTypes = readRepoSource(
-      'client/src/core/signingEngine/stepUpConfirmation/channel/confirmTypes.ts',
+      'packages/sdk-web/src/core/signingEngine/stepUpConfirmation/channel/confirmTypes.ts',
     );
     const signingConfirmation = readRepoSource(
-      'client/src/core/signingEngine/flows/shared/signingConfirmation.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/shared/signingConfirmation.ts',
     );
     const emailOtpCoordinator = readRepoSource(
-      'client/src/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
+      'packages/sdk-web/src/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
     );
 
     expect(confirmationChannelTypes).not.toContain('export const SigningAuthPlanKind');
@@ -138,10 +138,10 @@ test.describe('signing-engine flow architecture guardrails', () => {
 
   test('EVM-family post-sign finalization commands live under flows', () => {
     const transactionExecutor = readRepoSource(
-      'client/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
     );
     const postSignFinalization = readRepoSource(
-      'client/src/core/signingEngine/flows/signEvmFamily/postSignFinalization.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/postSignFinalization.ts',
     );
 
     expect(transactionExecutor).not.toContain('thresholdEcdsaRecord?:');
@@ -160,7 +160,7 @@ test.describe('signing-engine flow architecture guardrails', () => {
 
   test('EVM-family threshold admission lives under flows', () => {
     const admission = readRepoSource(
-      'client/src/core/signingEngine/flows/signEvmFamily/thresholdAdmission.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/thresholdAdmission.ts',
     );
 
     expect(admission).not.toMatch(/from ['"][.\/]+api\//);
@@ -176,11 +176,11 @@ test.describe('signing-engine flow architecture guardrails', () => {
       for (const specifier of extractImportSpecifiers(source)) {
         const resolved = resolveSigningEngineImport(relativePath, specifier);
         if (
-          resolved === 'client/src/core/signingEngine' ||
-          resolved === 'client/src/core/signingEngine/SigningEngine' ||
-          resolved === 'client/src/core/signingEngine/SigningEngine.ts' ||
-          resolved === 'client/src/SeamsWeb/assembly/BrowserSigningSurface' ||
-          resolved?.startsWith('client/src/core/signingEngine/assembly')
+          resolved === 'packages/sdk-web/src/core/signingEngine' ||
+          resolved === 'packages/sdk-web/src/core/signingEngine/SigningEngine' ||
+          resolved === 'packages/sdk-web/src/core/signingEngine/SigningEngine.ts' ||
+          resolved === 'packages/sdk-web/src/SeamsWeb/assembly/BrowserSigningSurface' ||
+          resolved?.startsWith('packages/sdk-web/src/core/signingEngine/assembly')
         ) {
           offenders.push(`${relativePath} -> ${specifier}`);
         }
@@ -191,7 +191,7 @@ test.describe('signing-engine flow architecture guardrails', () => {
   });
 
   test('assembly createPorts stays a thin typed aggregator', () => {
-    const aggregator = readRepoSource('client/src/core/signingEngine/assembly/createPorts.ts');
+    const aggregator = readRepoSource('packages/sdk-web/src/core/signingEngine/assembly/createPorts.ts');
     const operationSpecificMarkers = [
       'resolveThresholdEd25519SessionId',
       'getEmailOtpThresholdEcdsaKeyRefForSigning',
@@ -333,8 +333,8 @@ test.describe('signing-engine flow architecture guardrails', () => {
 
   test('operation flows use uiConfirm only through documented runtime ports', () => {
     const allowedUiConfirmImports = [
-      'client/src/core/signingEngine/uiConfirm/types',
-      'client/src/core/signingEngine/uiConfirm/ui/export-viewer-host',
+      'packages/sdk-web/src/core/signingEngine/uiConfirm/types',
+      'packages/sdk-web/src/core/signingEngine/uiConfirm/ui/export-viewer-host',
     ] as const;
     const offenders: string[] = [];
 
@@ -344,7 +344,7 @@ test.describe('signing-engine flow architecture guardrails', () => {
       const source = readRepoSource(relativePath);
       for (const specifier of extractImportSpecifiers(source)) {
         const resolved = resolveSigningEngineImport(relativePath, specifier);
-        if (!resolved?.startsWith('client/src/core/signingEngine/uiConfirm')) continue;
+        if (!resolved?.startsWith('packages/sdk-web/src/core/signingEngine/uiConfirm')) continue;
         if (!allowedUiConfirmImports.includes(resolved as never)) {
           offenders.push(`${relativePath} -> ${specifier}`);
         }

@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, expect } from '@playwright/test';
-import { findStableExperimentalExportBoundaryViolations } from '../../sdk/scripts/lib/stable-experimental-export-boundaries.mjs';
+import { findStableExperimentalExportBoundaryViolations } from '../../packages/sdk-web/scripts/lib/stable-experimental-export-boundaries.mjs';
 
 test.describe('stable/experimental export boundary guard', () => {
   test('keeps root stable boundaries and forbids experimental entrypoints', async () => {

@@ -43,7 +43,7 @@ test.describe('refactor 56 headless auth guards', () => {
   });
 
   test('React UI code does not branch on relay Google Email OTP resolution', () => {
-    const offenders = listTypeScriptFiles('client/src/react').filter((relativePath) =>
+    const offenders = listTypeScriptFiles('packages/sdk-web/src/react').filter((relativePath) =>
       /\bgoogleEmailOtpResolution\b/.test(readRepoSource(relativePath)),
     );
 
@@ -52,7 +52,7 @@ test.describe('refactor 56 headless auth guards', () => {
 
   test('headless flow operation depends on narrow ports', () => {
     const source = readRepoSource(
-      'client/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
     );
 
     expect(source).not.toMatch(/\bSeamsWebContext\b/);
@@ -63,7 +63,7 @@ test.describe('refactor 56 headless auth guards', () => {
 
   test('standard Google Email OTP registration branch cannot issue OTP challenges', () => {
     const source = readRepoSource(
-      'client/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
     );
     const start = source.indexOf('function createGoogleEmailOtpWalletRegistrationFlow');
     const end = source.indexOf('function createGoogleEmailOtpWalletLoginFlow');
@@ -79,7 +79,7 @@ test.describe('refactor 56 headless auth guards', () => {
   });
 
   test('public API layer does not own wallet iframe flow handles', () => {
-    const offenders = listTypeScriptFiles('client/src/SeamsWeb/publicApi').filter((relativePath) =>
+    const offenders = listTypeScriptFiles('packages/sdk-web/src/SeamsWeb/publicApi').filter((relativePath) =>
       /\bflowHandleId\b|googleEmailOtpWalletAuthFlows\b/.test(readRepoSource(relativePath)),
     );
 
@@ -88,10 +88,10 @@ test.describe('refactor 56 headless auth guards', () => {
 
   test('wallet iframe Email OTP flow handles are bound before consume', () => {
     const hostSource = readRepoSource(
-      'client/src/SeamsWeb/walletIframe/host/handlers/emailOtp.ts',
+      'packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/emailOtp.ts',
     );
-    const messagesSource = readRepoSource('client/src/SeamsWeb/walletIframe/shared/messages.ts');
-    const clientSource = readRepoSource('client/src/SeamsWeb/walletIframe/client/router.ts');
+    const messagesSource = readRepoSource('packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts');
+    const clientSource = readRepoSource('packages/sdk-web/src/SeamsWeb/walletIframe/client/router.ts');
 
     expect(messagesSource).toMatch(/flowId: string/);
     expect(messagesSource).toMatch(/walletId: string/);

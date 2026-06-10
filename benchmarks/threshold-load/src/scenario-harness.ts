@@ -2,14 +2,14 @@
 import http from 'node:http';
 import expressImport from 'express';
 import { performance } from 'node:perf_hooks';
-import { AuthService } from '../../../server/src/core/AuthService.ts';
+import { AuthService } from '../../../packages/sdk-server-ts/src/core/AuthService.ts';
 import {
   createThresholdSigningService,
   type SigningRootShareId,
   type SigningRootShareProvider,
   type SealedSigningRootShareRecord,
-} from '../../../server/src/core/ThresholdService/index.ts';
-import { createRelayRouter } from '../../../server/src/router/express-adaptor.ts';
+} from '../../../packages/sdk-server-ts/src/core/ThresholdService/index.ts';
+import { createRelayRouter } from '../../../packages/sdk-server-ts/src/router/express-adaptor.ts';
 import { Ed25519WalletActor } from './actors/ed25519Wallet.mjs';
 import { startSystemStatsCollector, summarizeNumbers } from './system-stats.mjs';
 

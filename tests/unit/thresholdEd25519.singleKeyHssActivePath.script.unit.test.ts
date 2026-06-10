@@ -46,13 +46,13 @@ import {
   finalizeThresholdEd25519HssServerCeremony,
   prepareThresholdEd25519HssRoleSeparatedServerInputDelivery,
   prepareThresholdEd25519HssServerSession,
-} from '../../server/src/core/ThresholdService/ed25519HssWasm';
-import type { ThresholdEd25519HssSessionOperation } from '../../server/src/core/types';
-import { deriveEd25519HssServerInputsFromSigningRootSecretShares } from '../../server/src/core/ThresholdService/thresholdPrfWasm';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/ed25519HssWasm';
+import type { ThresholdEd25519HssSessionOperation } from '../../packages/sdk-server-ts/src/core/types';
+import { deriveEd25519HssServerInputsFromSigningRootSecretShares } from '../../packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm';
 import {
   parseSigningRootSecretShareWireV1,
   type SigningRootSecretShareWirePair,
-} from '../../server/src/core/ThresholdService/signingRootSecretShareWires';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretShareWires';
 import {
   handle_signer_message,
   initSync as initNearSignerWasmSync,

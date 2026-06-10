@@ -22,10 +22,10 @@ import {
 test.describe('signing engine ECDSA export and fixture identity guards', () => {
   test('Email OTP ECDSA export authorization uses wallet-session identity', () => {
     const confirmationSource = readRepoFile(
-      'client/src/core/signingEngine/flows/recovery/keyExportConfirmation.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/recovery/keyExportConfirmation.ts',
     );
     const ecdsaExportSource = readRepoFile(
-      'client/src/core/signingEngine/flows/recovery/ecdsaExportFlow.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportFlow.ts',
     );
     const nearAccountBranchIndex = confirmationSource.indexOf("kind: 'near_account_export_auth'");
     const nearAccountBranch =
@@ -46,7 +46,7 @@ test.describe('signing engine ECDSA export and fixture identity guards', () => {
 
   test('budget status lookup avoids subject-wide ECDSA scan fallback', () => {
     const source = readRepoFile(
-      'client/src/core/signingEngine/session/budget/budgetStatusReader.ts',
+      'packages/sdk-web/src/core/signingEngine/session/budget/budgetStatusReader.ts',
     );
     const offenders: string[] = [];
     for (const forbidden of ['listThresholdEcdsaRuntimeLanesForSubject', 'toWalletId(walletId)']) {
@@ -59,7 +59,7 @@ test.describe('signing engine ECDSA export and fixture identity guards', () => {
   });
 
   test('browser signing surface ECDSA methods do not derive subject identity from accounts', () => {
-    const source = readRepoFile('client/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts');
+    const source = readRepoFile('packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts');
     const methodNames = [
       'signEvmFamily',
       'bootstrapEcdsaSession',

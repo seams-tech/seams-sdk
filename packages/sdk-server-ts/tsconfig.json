@@ -1,0 +1,19 @@
+{
+  "extends": "../sdk-web/tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/core/runtime": ["../sdk-runtime-ts/src/runtime/index.ts"],
+      "@/core/runtime/*": ["../sdk-runtime-ts/src/runtime/*"],
+      "@seams-internal/runtime": ["../sdk-runtime-ts/src/index.ts"],
+      "@seams-internal/runtime/*": ["../sdk-runtime-ts/src/*"],
+      "@/*": ["../sdk-web/src/*"],
+      "@shared/*": ["../shared-ts/src/*"],
+      "@server": ["src/index.ts"],
+      "@server/*": ["src/*"],
+      "@build-paths": ["../sdk-web/build-paths.ts"]
+    }
+  },
+  "include": ["src/**/*", "../shared-ts/src/**/*", "../sdk-web/src/core/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

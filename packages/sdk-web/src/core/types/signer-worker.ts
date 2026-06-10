@@ -1,0 +1,1016 @@
+// === IMPORT AUTO-GENERATED WASM TYPES ===
+// These are the source of truth generated from Rust structs via wasm-bindgen
+// Import as instance types from the WASM module classes
+import * as wasmModule from '../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
+import {
+  WorkerRequestType,
+  WorkerResponseType,
+} from '../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
+export { WorkerRequestType, WorkerResponseType }; // Export the WASM enums directly
+
+import type { StripFree } from './index.js';
+import type { TransactionContext } from './rpc.js';
+import type { ActionArgsWasm } from './actions.js';
+import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
+import type {
+  BuildEcdsaRoleLocalExportArtifactCommand as GeneratedBuildEcdsaRoleLocalExportArtifactCommand,
+  BuildEcdsaRoleLocalExportArtifactOutput as GeneratedBuildEcdsaRoleLocalExportArtifactOutput,
+  FinalizeEcdsaClientBootstrapCommand as GeneratedFinalizeEcdsaClientBootstrapCommand,
+  FinalizeEcdsaClientBootstrapOutput as GeneratedFinalizeEcdsaClientBootstrapOutput,
+  PrepareEcdsaClientBootstrapCommand as GeneratedPrepareEcdsaClientBootstrapCommand,
+  PrepareEcdsaClientBootstrapOutput as GeneratedPrepareEcdsaClientBootstrapOutput,
+} from '../platform/generated/signerCoreCommands.js';
+
+export type WasmTransaction = wasmModule.WasmTransaction;
+export type WasmSignature = wasmModule.WasmSignature;
+
+export type ThresholdBehavior = 'strict' | 'fallback';
+export const DEFAULT_THRESHOLD_BEHAVIOR: ThresholdBehavior = 'strict';
+
+export function isThresholdBehavior(input: unknown): input is ThresholdBehavior {
+  return input === 'fallback' || input === 'strict';
+}
+
+export function resolveThresholdBehavior(
+  input?: ThresholdBehavior | null,
+  fallback: ThresholdBehavior = DEFAULT_THRESHOLD_BEHAVIOR,
+): ThresholdBehavior {
+  return isThresholdBehavior(input) ? input : fallback;
+}
+
+export const NearSignerWorkerCustomRequestType = {
+  ThresholdEd25519ClientPresignCreate: 'thresholdEd25519ClientPresignCreate',
+  ThresholdEd25519ClientPresignSign: 'thresholdEd25519ClientPresignSign',
+  ThresholdEd25519ClientPresignBurn: 'thresholdEd25519ClientPresignBurn',
+  ThresholdEd25519ComputeNep413SigningDigest: 'thresholdEd25519ComputeNep413SigningDigest',
+  ThresholdEd25519ComputeDelegateSigningDigest: 'thresholdEd25519ComputeDelegateSigningDigest',
+  ThresholdEd25519FinalizeDelegateFromSignature:
+    'thresholdEd25519FinalizeDelegateFromSignature',
+  ThresholdEd25519BuildNearTxUnsignedBorsh:
+    'thresholdEd25519BuildNearTxUnsignedBorsh',
+  ThresholdEd25519DecodeSignedNearTxBorsh:
+    'thresholdEd25519DecodeSignedNearTxBorsh',
+} as const;
+
+export type NearSignerWorkerCustomRequestType =
+  (typeof NearSignerWorkerCustomRequestType)[keyof typeof NearSignerWorkerCustomRequestType];
+
+export type SignerWorkerRequestType = WorkerRequestType | NearSignerWorkerCustomRequestType;
+export type SignerWorkerResponseType = WorkerResponseType;
+
+export interface ThresholdSignerConfig {
+  /** Base URL of the relayer server (e.g. https://relay.example.com) */
+  relayerUrl: string;
+  /** Identifies which relayer-held key share to use */
+  relayerKeyId: string;
+  /** Client base share reconstructed from the single-key ed25519-hss ceremony. */
+  xClientBaseB64u?: string;
+  /** FROST participant identifier used for the client share (2P only, optional). */
+  clientParticipantId?: number;
+  /** FROST participant identifier used for the relayer share (2P only, optional). */
+  relayerParticipantId?: number;
+  /** Optional participant ids (signer set) associated with this threshold key/session. */
+  participantIds?: number[];
+  /**
+   * Optional short-lived authorization token returned by `/threshold-ed25519/authorize`.
+   * When omitted, the signer worker will call `/threshold-ed25519/authorize` on-demand per signature.
+   */
+  mpcSessionId?: string;
+  /**
+   * Optional session policy JSON (serialized) used to mint a relayer threshold session token.
+   * When provided alongside a WebAuthn credential whose challenge is `sessionPolicyDigest32`,
+   * the signer worker may call `/threshold-ed25519/session` to obtain a JWT/cookie for session-style signing.
+   */
+  thresholdSessionPolicyJson?: string;
+  /**
+   * Optional bearer token returned by `POST /threshold-ed25519/session`.
+   * When present, the signer worker uses it to authenticate `/threshold-ed25519/authorize` requests.
+   */
+  thresholdSessionAuthToken?: string;
+  /**
+   * Preferred session token delivery mechanism for `/threshold-ed25519/session`.
+   * - `jwt` (default): return token in JSON and use Authorization: Bearer on subsequent requests.
+   * - `cookie`: set HttpOnly cookie (same-site only).
+   */
+  thresholdSessionKind?: 'jwt' | 'cookie';
+  /** Optional client-side policy for the Ed25519 background presign pool. */
+  ed25519PresignPoolPolicy?: ThresholdEd25519PresignPoolPolicyConfig;
+}
+
+export type ThresholdEd25519PresignPoolPolicyConfig = {
+  targetDepth?: number;
+  lowWatermark?: number;
+  maxAcceptedRefillCount?: number;
+  ttlMs?: number;
+};
+
+export type ThresholdEd25519PresignPoolPolicy = {
+  targetDepth: number;
+  lowWatermark: number;
+  maxAcceptedRefillCount: number;
+  ttlMs: number;
+};
+
+export type ThresholdEd25519PresignPoolRouteAuth =
+  | {
+      sessionKind: 'jwt';
+      thresholdSessionAuthToken: string;
+      useThresholdSessionCookie?: never;
+    }
+  | {
+      sessionKind: 'cookie';
+      useThresholdSessionCookie: true;
+      thresholdSessionAuthToken?: never;
+    };
+
+export type ThresholdEd25519PresignCommitmentsWire = {
+  hiding: string;
+  binding: string;
+};
+
+export type ThresholdEd25519ClientPresignCreateRequest = {
+  clientParticipantId?: number;
+  relayerParticipantId?: number;
+  xClientBaseB64u: string;
+  groupPublicKey: string;
+};
+
+export type ThresholdEd25519ClientPresignCreateResult = {
+  clientNonceHandleB64u: string;
+  clientVerifyingShareB64u: string;
+  clientCommitments: ThresholdEd25519PresignCommitmentsWire;
+};
+
+export type ThresholdEd25519ClientPresignSignRequest = {
+  clientParticipantId?: number;
+  relayerParticipantId?: number;
+  xClientBaseB64u: string;
+  groupPublicKey: string;
+  signingDigestB64u: string;
+  clientNonceHandleB64u: string;
+  clientCommitments: ThresholdEd25519PresignCommitmentsWire;
+  relayerCommitments: ThresholdEd25519PresignCommitmentsWire;
+};
+
+export type ThresholdEd25519ClientPresignSignResult = {
+  clientSignatureShareB64u: string;
+};
+
+export type ThresholdEd25519ClientPresignBurnRequest = {
+  clientNonceHandleB64u: string;
+};
+
+export type ThresholdEd25519ClientPresignBurnResult = {
+  burned: true;
+};
+
+export type ThresholdEd25519ComputeNep413SigningDigestRequest = {
+  message: string;
+  recipient: string;
+  nonce: string;
+  state?: string;
+};
+
+export type ThresholdEd25519ComputeSigningDigestResult = {
+  signingDigestB64u: string;
+};
+
+export type ThresholdEd25519FinalizeDelegateFromSignatureRequest = {
+  delegate: DelegatePayload;
+  signingDigestB64u: string;
+  signatureB64u: string;
+};
+
+export type ThresholdEd25519BuildNearTxUnsignedBorshRequest = {
+  txSigningRequests: readonly TransactionPayload[];
+  transactionContext: TransactionContext;
+};
+
+export type ThresholdEd25519NearTxUnsignedBorsh = {
+  unsignedTransactionBorshB64u: string;
+  signingDigestB64u: string;
+};
+
+export type ThresholdEd25519DecodeSignedNearTxBorshRequest = {
+  signedTransactionBorshB64u: string;
+};
+
+export type ThresholdEd25519DecodeSignedNearTxBorshResult = {
+  signedTransaction: WasmSignedTransaction;
+  transactionHash: string;
+};
+
+export type ThresholdEd25519ClientPresignWorkerOffer = {
+  clientPresignId: string;
+  nonceHandle: string;
+  clientVerifyingShareB64u: string;
+  clientCommitments: ThresholdEd25519PresignCommitmentsWire;
+  nonceSecretB64u?: never;
+  hidingNonceB64u?: never;
+  bindingNonceB64u?: never;
+};
+
+export type PrepareThresholdEd25519PresignPoolPayload =
+  ThresholdEd25519PresignPoolRouteAuth & {
+    kind: 'prepare_threshold_ed25519_presign_pool_v1';
+    relayUrl: string;
+    thresholdSessionId: string;
+    walletSigningSessionId: string;
+    relayerKeyId: string;
+    nearAccountId: string;
+    nearNetworkId: string;
+    signerPublicKey: string;
+    participantIds: readonly number[];
+    runtimePolicyScope: RuntimePolicyScope;
+    policy: ThresholdEd25519PresignPoolPolicy;
+    requestTag: 'background_presign_pool_refill' | 'foreground_presign_pool_refill';
+    generation: number;
+    clientPresigns: readonly ThresholdEd25519ClientPresignWorkerOffer[];
+    xClientBaseB64u?: never;
+    clientSigningShareB64u?: never;
+    prfFirstB64u?: never;
+  };
+
+export type PrepareThresholdEd25519PresignPoolResult =
+  | {
+      ok: true;
+      kind: 'prepare_threshold_ed25519_presign_pool_result_v1';
+      generation: number;
+      accepted: readonly ThresholdEd25519PresignPoolAcceptedPair[];
+      rejectedClientPresignIds: readonly string[];
+      expiresAtMs: number;
+    }
+  | {
+      ok: false;
+      kind: 'prepare_threshold_ed25519_presign_pool_result_v1';
+      code: string;
+      message: string;
+      generation: number;
+      accepted?: never;
+      rejectedClientPresignIds?: never;
+      expiresAtMs?: never;
+    };
+
+export type ThresholdEd25519PresignPoolAcceptedPair = {
+  presignId: string;
+  clientPresignId: string;
+  relayerCommitments: ThresholdEd25519PresignCommitmentsWire;
+  relayerVerifyingShareB64u: string;
+  expiresAtMs: number;
+};
+
+export type GetThresholdEd25519PresignPoolStatusPayload = {
+  kind: 'get_threshold_ed25519_presign_pool_status_v1';
+  scopeKey: string;
+};
+
+export type GetThresholdEd25519PresignPoolStatusResult = {
+  kind: 'get_threshold_ed25519_presign_pool_status_result_v1';
+  scopeKey: string;
+  generation: number;
+  offeredCount: number;
+  readyCount: number;
+  burnedCount: number;
+  refillInFlight: boolean;
+  nextExpiryAtMs: number | null;
+};
+
+export type ClearThresholdEd25519PresignPoolPayload = {
+  kind: 'clear_threshold_ed25519_presign_pool_v1';
+  scopeKey: string;
+  generation: number;
+  reason:
+    | 'worker_restart'
+    | 'page_reload'
+    | 'logout'
+    | 'account_switch'
+    | 'threshold_session_change'
+    | 'wallet_signing_session_change'
+    | 'relayer_key_change'
+    | 'participant_change'
+    | 'client_base_change';
+};
+
+export type ClearThresholdEd25519PresignPoolResult = {
+  ok: true;
+  kind: 'clear_threshold_ed25519_presign_pool_result_v1';
+  scopeKey: string;
+  previousGeneration: number;
+  nextGeneration: number;
+  clearedEntries: number;
+};
+
+export interface TransactionPayload {
+  nearAccountId: string;
+  receiverId: string;
+  actions: ActionArgsWasm[];
+}
+export interface RpcCallPayload {
+  nearRpcUrl: string;
+  nearAccountId: string;
+}
+/**
+ * RPC call parameters for NEAR operations
+ * Used to pass essential parameters for background operations
+ * export interface RpcCallPayload {
+ *    nearRpcUrl: string;    // NEAR RPC endpoint URL
+ *    nearAccountId: string; // Account ID for the current user/session
+ * }
+ */
+
+type DirectPrfFields = {
+  prfFirstB64u?: string;
+  wrapKeySalt?: string;
+};
+
+export type WasmDeriveThresholdEd25519ClientVerifyingShareRequest =
+  StripFree<wasmModule.DeriveThresholdEd25519ClientVerifyingShareRequest> & DirectPrfFields;
+export interface WasmDeriveThresholdEd25519HssClientInputsRequest {
+  signingRootId: string;
+  nearAccountId: string;
+  keyPurpose: string;
+  keyVersion: string;
+  participantIds: number[];
+  derivationVersion: number;
+  sessionId: string;
+  prfFirstB64u?: string;
+}
+export interface WasmDeriveThresholdEd25519HssClientInputsResult {
+  signingRootId: string;
+  nearAccountId: string;
+  keyPurpose: string;
+  keyVersion: string;
+  participantIds: number[];
+  derivationVersion: number;
+  contextBindingB64u: string;
+  yClientB64u: string;
+  tauClientB64u: string;
+}
+export interface WasmPrepareThresholdEd25519HssSessionRequest {
+  signingRootId: string;
+  nearAccountId: string;
+  keyPurpose: string;
+  keyVersion: string;
+  participantIds: number[];
+  derivationVersion: number;
+}
+export interface WasmPrepareThresholdEd25519HssSessionResult {
+  signingRootId: string;
+  nearAccountId: string;
+  keyPurpose: string;
+  keyVersion: string;
+  participantIds: number[];
+  derivationVersion: number;
+  contextBindingB64u: string;
+  evaluatorDriverStateB64u: string;
+}
+
+export type WasmThresholdEd25519HssWorkerSessionSource =
+  | {
+      sessionSource: 'worker_handle';
+      workerSessionHandle: string;
+      evaluatorDriverStateB64u?: never;
+    }
+  | {
+      sessionSource: 'serialized_state';
+      evaluatorDriverStateB64u: string;
+      workerSessionHandle?: never;
+    };
+
+export type WasmThresholdEd25519HssSerializedSessionSource = Extract<
+  WasmThresholdEd25519HssWorkerSessionSource,
+  { sessionSource: 'serialized_state' }
+>;
+
+export type WasmPrepareThresholdEd25519HssClientRequestRequest =
+  WasmThresholdEd25519HssSerializedSessionSource & {
+  clientOtOfferMessageB64u: string;
+  yClientB64u: string;
+  tauClientB64u: string;
+};
+export interface WasmPrepareThresholdEd25519HssClientRequestResult {
+  clientRequestMessageB64u: string;
+  evaluatorOtStateB64u: string;
+  workerSessionHandle?: string;
+}
+export interface WasmDeriveThresholdEd25519HssClientOutputMaskRequest {
+  signingRootId: string;
+  nearAccountId: string;
+  keyPurpose: string;
+  keyVersion: string;
+  participantIds: number[];
+  derivationVersion: number;
+  contextBindingB64u: string;
+  operation: string;
+  relayerKeyId: string;
+  clientRecoverableSecretB64u: string;
+}
+export interface WasmDeriveThresholdEd25519HssClientOutputMaskResult {
+  clientOutputMaskB64u: string;
+}
+export type WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest =
+  WasmThresholdEd25519HssWorkerSessionSource & {
+  clientRequestMessageB64u: string;
+  evaluatorOtStateB64u: string;
+  serverInputDeliveryB64u: string;
+  clientOutputMaskB64u: string;
+};
+export interface WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactResult {
+  contextBindingB64u: string;
+  stagedEvaluatorArtifactB64u: string;
+  timings?: Record<string, number>;
+}
+export type WasmOpenThresholdEd25519HssClientOutputRequest =
+  WasmThresholdEd25519HssSerializedSessionSource & {
+  clientOutputMessageB64u: string;
+  clientOutputMaskB64u: string;
+};
+export interface WasmOpenThresholdEd25519HssClientOutputResult {
+  contextBindingB64u: string;
+  xClientBaseB64u: string;
+}
+export type WasmOpenThresholdEd25519HssSeedOutputRequest =
+  WasmThresholdEd25519HssSerializedSessionSource & {
+  seedOutputMessageB64u: string;
+};
+export interface WasmOpenThresholdEd25519HssSeedOutputResult {
+  contextBindingB64u: string;
+  canonicalSeedB64u: string;
+}
+export interface WasmBuildThresholdEd25519SeedExportArtifactRequest {
+  seedB64u: string;
+  expectedPublicKey: string;
+}
+export interface WasmBuildThresholdEd25519SeedExportArtifactResult {
+  artifactKind: string;
+  seedB64u: string;
+  publicKey: string;
+  privateKey: string;
+}
+export interface WasmOpenThresholdEcdsaHssRoleLocalSigningShareRequest {
+  stateBlobB64u: string;
+}
+export interface WasmOpenThresholdEcdsaHssRoleLocalSigningShareResult {
+  signingShare32B64u: string;
+}
+export type WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest =
+  GeneratedPrepareEcdsaClientBootstrapCommand;
+export type WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapResult =
+  GeneratedPrepareEcdsaClientBootstrapOutput;
+export type WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest =
+  GeneratedFinalizeEcdsaClientBootstrapCommand;
+export type WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapResult =
+  GeneratedFinalizeEcdsaClientBootstrapOutput;
+export type WasmBuildThresholdEcdsaHssRoleLocalExportArtifactRequest =
+  GeneratedBuildEcdsaRoleLocalExportArtifactCommand;
+export type WasmBuildThresholdEcdsaHssRoleLocalExportArtifactResult =
+  GeneratedBuildEcdsaRoleLocalExportArtifactOutput;
+export interface WasmSignTransactionsWithActionsRequest {
+  rpcCall: RpcCallPayload;
+  sessionId: string;
+  createdAt?: number;
+  threshold: ThresholdSignerConfig;
+  txSigningRequests: TransactionPayload[];
+  intentDigest?: string;
+  transactionContext?: TransactionContext;
+  credential?: string;
+}
+
+export type WasmGenerateEphemeralNearKeypairRequest = Record<string, never>;
+
+export interface WasmGenerateEphemeralNearKeypairResult {
+  publicKey: string;
+  privateKey: string;
+}
+
+export interface WasmSignDelegateActionRequest {
+  rpcCall: RpcCallPayload;
+  sessionId: string;
+  createdAt?: number;
+  threshold: ThresholdSignerConfig;
+  delegate: DelegatePayload;
+  intentDigest?: string;
+  transactionContext?: TransactionContext;
+  credential?: string;
+}
+export interface DelegatePayload {
+  senderId: string;
+  receiverId: string;
+  actions: ActionArgsWasm[];
+  nonce: string;
+  maxBlockHeight: string;
+  publicKey: string;
+}
+export type WasmExtractCosePublicKeyRequest = StripFree<wasmModule.ExtractCoseRequest>;
+export interface WasmSignNep413MessageRequest {
+  sessionId: string;
+  accountId: string;
+  nearPublicKey: string;
+  threshold: ThresholdSignerConfig;
+  message: string;
+  recipient: string;
+  nonce: string;
+  state?: string;
+  credential?: string;
+}
+export interface WasmSignTransactionWithKeyPairRequest {
+  nearPrivateKey: string;
+  signerAccountId: string;
+  receiverId: string;
+  nonce: string;
+  blockHash: string;
+  actions: ActionArgsWasm[];
+}
+
+export type WasmRequestPayload =
+  | WasmDeriveThresholdEd25519ClientVerifyingShareRequest
+  | WasmDeriveThresholdEd25519HssClientInputsRequest
+  | WasmPrepareThresholdEd25519HssSessionRequest
+  | WasmPrepareThresholdEd25519HssClientRequestRequest
+  | WasmDeriveThresholdEd25519HssClientOutputMaskRequest
+  | WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest
+  | WasmOpenThresholdEd25519HssClientOutputRequest
+  | WasmOpenThresholdEd25519HssSeedOutputRequest
+  | WasmBuildThresholdEd25519SeedExportArtifactRequest
+  | WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest
+  | WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest
+  | WasmBuildThresholdEcdsaHssRoleLocalExportArtifactRequest
+  | WasmSignTransactionsWithActionsRequest
+  | WasmGenerateEphemeralNearKeypairRequest
+  | WasmSignDelegateActionRequest
+  | WasmExtractCosePublicKeyRequest
+  | WasmSignNep413MessageRequest
+  | WasmSignTransactionWithKeyPairRequest;
+
+// WASM Worker Response Types
+export type WasmSignedTransaction = InstanceType<typeof wasmModule.WasmSignedTransaction>;
+export type WasmSignedDelegate = wasmModule.WasmSignedDelegate;
+export type WasmDelegateAction = wasmModule.WasmDelegateAction;
+export type WasmTransactionSignResult = InstanceType<typeof wasmModule.TransactionSignResult>;
+export type WasmDelegateSignResult = wasmModule.DelegateSignResult;
+// wasm-bindgen may generate classes with private constructors, which breaks
+// `InstanceType<typeof Class>`. Use the class name directly for the instance type.
+export type WasmDeriveThresholdEd25519ClientVerifyingShareResult =
+  wasmModule.DeriveThresholdEd25519ClientVerifyingShareResult;
+
+// === WORKER REQUEST TYPE MAPPING ===
+// Define the complete type mapping for each worker request
+export interface WorkerRequestTypeMap {
+  [WorkerRequestType.DeriveThresholdEd25519ClientVerifyingShare]: {
+    type: WorkerRequestType.DeriveThresholdEd25519ClientVerifyingShare;
+    request: WasmDeriveThresholdEd25519ClientVerifyingShareRequest;
+    result: WasmDeriveThresholdEd25519ClientVerifyingShareResult;
+  };
+  [WorkerRequestType.DeriveThresholdEd25519HssClientInputs]: {
+    type: WorkerRequestType.DeriveThresholdEd25519HssClientInputs;
+    request: WasmDeriveThresholdEd25519HssClientInputsRequest;
+    result: WasmDeriveThresholdEd25519HssClientInputsResult;
+  };
+  [WorkerRequestType.PrepareThresholdEd25519HssSession]: {
+    type: WorkerRequestType.PrepareThresholdEd25519HssSession;
+    request: WasmPrepareThresholdEd25519HssSessionRequest;
+    result: WasmPrepareThresholdEd25519HssSessionResult;
+  };
+  [WorkerRequestType.PrepareThresholdEd25519HssClientRequest]: {
+    type: WorkerRequestType.PrepareThresholdEd25519HssClientRequest;
+    request: WasmPrepareThresholdEd25519HssClientRequestRequest;
+    result: WasmPrepareThresholdEd25519HssClientRequestResult;
+  };
+  [WorkerRequestType.DeriveThresholdEd25519HssClientOutputMask]: {
+    type: WorkerRequestType.DeriveThresholdEd25519HssClientOutputMask;
+    request: WasmDeriveThresholdEd25519HssClientOutputMaskRequest;
+    result: WasmDeriveThresholdEd25519HssClientOutputMaskResult;
+  };
+  [WorkerRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact]: {
+    type: WorkerRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact;
+    request: WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest;
+    result: WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactResult;
+  };
+  [WorkerRequestType.OpenThresholdEd25519HssClientOutput]: {
+    type: WorkerRequestType.OpenThresholdEd25519HssClientOutput;
+    request: WasmOpenThresholdEd25519HssClientOutputRequest;
+    result: WasmOpenThresholdEd25519HssClientOutputResult;
+  };
+  [WorkerRequestType.OpenThresholdEd25519HssSeedOutput]: {
+    type: WorkerRequestType.OpenThresholdEd25519HssSeedOutput;
+    request: WasmOpenThresholdEd25519HssSeedOutputRequest;
+    result: WasmOpenThresholdEd25519HssSeedOutputResult;
+  };
+  [WorkerRequestType.BuildThresholdEd25519SeedExportArtifact]: {
+    type: WorkerRequestType.BuildThresholdEd25519SeedExportArtifact;
+    request: WasmBuildThresholdEd25519SeedExportArtifactRequest;
+    result: WasmBuildThresholdEd25519SeedExportArtifactResult;
+  };
+  [WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare]: {
+    type: WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare;
+    request: WasmOpenThresholdEcdsaHssRoleLocalSigningShareRequest;
+    result: WasmOpenThresholdEcdsaHssRoleLocalSigningShareResult;
+  };
+  [WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap]: {
+    type: WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap;
+    request: WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest;
+    result: WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapResult;
+  };
+  [WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap]: {
+    type: WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap;
+    request: WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest;
+    result: WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapResult;
+  };
+  [WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact]: {
+    type: WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact;
+    request: WasmBuildThresholdEcdsaHssRoleLocalExportArtifactRequest;
+    result: WasmBuildThresholdEcdsaHssRoleLocalExportArtifactResult;
+  };
+  [WorkerRequestType.SignTransactionsWithActions]: {
+    type: WorkerRequestType.SignTransactionsWithActions;
+    request: WasmSignTransactionsWithActionsRequest;
+    result: WasmTransactionSignResult;
+  };
+  [WorkerRequestType.GenerateEphemeralNearKeypair]: {
+    type: WorkerRequestType.GenerateEphemeralNearKeypair;
+    request: WasmGenerateEphemeralNearKeypairRequest;
+    result: WasmGenerateEphemeralNearKeypairResult;
+  };
+  [WorkerRequestType.SignDelegateAction]: {
+    type: WorkerRequestType.SignDelegateAction;
+    request: WasmSignDelegateActionRequest;
+    result: WasmDelegateSignResult;
+  };
+  [WorkerRequestType.ExtractCosePublicKey]: {
+    type: WorkerRequestType.ExtractCosePublicKey;
+    request: WasmExtractCosePublicKeyRequest;
+    result: wasmModule.CoseExtractionResult;
+  };
+  [WorkerRequestType.SignTransactionWithKeyPair]: {
+    type: WorkerRequestType.SignTransactionWithKeyPair;
+    request: WasmSignTransactionWithKeyPairRequest;
+    result: WasmTransactionSignResult;
+  };
+  [WorkerRequestType.SignNep413Message]: {
+    type: WorkerRequestType.SignNep413Message;
+    request: WasmSignNep413MessageRequest;
+    result: wasmModule.SignNep413Result;
+  };
+}
+
+/**
+ * Validation rules for ConfirmationConfig to ensure behavior conforms to UI mode:
+ *
+ * - uiMode: 'none' → behavior is ignored, autoProceedDelay is ignored
+ * - uiMode: 'modal' | 'drawer' → behavior: 'requireClick' | 'skipClick', autoProceedDelay only used with 'skipClick'
+ *
+ * The WASM worker automatically validates and overrides these settings:
+ * - For 'none' mode: behavior is set to 'skipClick' with autoProceedDelay: 0
+ * - For 'modal' and 'drawer' modes: behavior and autoProceedDelay are used as specified
+ *
+ * The actual type would be the following, but we use the flat interface for simplicity:
+ * export interface ConfirmationConfig {
+ *   uiMode: 'none' | 'modal' | 'drawer'
+ *
+ * }
+ */
+export type ConfirmationUIMode = 'none' | 'modal' | 'drawer';
+export type ConfirmationBehavior = 'requireClick' | 'skipClick';
+export interface ConfirmationConfig {
+  /** Type of UI to display for confirmation: 'none' | 'modal' | 'drawer' */
+  uiMode: ConfirmationUIMode;
+  /** How the confirmation UI behaves: 'requireClick' | 'skipClick' */
+  behavior: ConfirmationBehavior;
+  /** Delay in milliseconds before auto-proceeding (only used with skipClick) */
+  autoProceedDelay?: number;
+}
+
+export const DEFAULT_CONFIRMATION_CONFIG: ConfirmationConfig = {
+  uiMode: 'modal',
+  behavior: 'requireClick',
+  autoProceedDelay: 0,
+};
+
+const WASM_CONFIRMATION_UI_MODE = {
+  Skip: 0,
+  Modal: 1,
+  Drawer: 2,
+} as const;
+
+const WASM_CONFIRMATION_BEHAVIOR = {
+  RequireClick: 0,
+  AutoProceed: 1,
+} as const;
+
+// WASM enum values for confirmation configuration.
+export type WasmConfirmationUIMode =
+  (typeof WASM_CONFIRMATION_UI_MODE)[keyof typeof WASM_CONFIRMATION_UI_MODE];
+export type WasmConfirmationBehavior =
+  (typeof WASM_CONFIRMATION_BEHAVIOR)[keyof typeof WASM_CONFIRMATION_BEHAVIOR];
+
+// Mapping functions to convert string literals to numeric enum values
+export const mapUIModeToWasm = (uiMode: ConfirmationUIMode): number => {
+  switch (uiMode) {
+    case 'none':
+      return WASM_CONFIRMATION_UI_MODE.Skip;
+    case 'modal':
+      return WASM_CONFIRMATION_UI_MODE.Modal;
+    // Drawer now has a dedicated WASM enum variant
+    case 'drawer':
+      return WASM_CONFIRMATION_UI_MODE.Drawer;
+    default:
+      return WASM_CONFIRMATION_UI_MODE.Modal;
+  }
+};
+
+export const mapBehaviorToWasm = (behavior: ConfirmationBehavior): number => {
+  switch (behavior) {
+    case 'requireClick':
+      return WASM_CONFIRMATION_BEHAVIOR.RequireClick;
+    case 'skipClick':
+      return WASM_CONFIRMATION_BEHAVIOR.AutoProceed;
+    default:
+      return WASM_CONFIRMATION_BEHAVIOR.RequireClick;
+  }
+};
+export type WasmRequestResult =
+  | WasmSignedTransaction
+  | WasmSignedDelegate
+  | WasmTransactionSignResult
+  | WasmDelegateSignResult;
+
+export interface SignerWorkerMessage<
+  T extends SignerWorkerRequestType,
+  R extends WasmRequestPayload,
+> {
+  type: T;
+  payload: R;
+}
+
+/**
+ * =============================
+ * Worker Progress Message Types
+ * =============================
+ *
+ * 1. PROGRESS MESSAGES (During Operation):
+ *    Rust WASM → send_typed_progress_message() → TypeScript sendProgressMessage() → postMessage() → Main Thread
+ *    - Used for real-time updates during long operations
+ *    - Multiple progress messages can be sent per operation
+ *    - Does not affect the final result
+ *    - Types: ProgressMessageType, ProgressStep, ProgressStatus (auto-generated from Rust)
+ *
+ * 2. FINAL RESULTS (Operation Complete):
+ *    Rust WASM → return value from handle_signer_message() → TypeScript worker → postMessage() → Main Thread
+ *    - Contains the actual operation result (success/error)
+ *    - Only one result message per operation
+ *    - This is what the main thread awaits for completion
+ */
+
+// === PROGRESS MESSAGE TYPES ===
+
+// Basic interface for development - actual types are auto-generated from Rust
+export type ProgressMessage = wasmModule.WorkerProgressMessage;
+
+// Type guard for basic progress message validation during development
+export function isProgressMessage(obj: unknown): obj is ProgressMessage {
+  return (
+    typeof obj === 'object' &&
+    obj !== null &&
+    typeof (obj as { message_type?: unknown }).message_type === 'string' &&
+    typeof (obj as { step?: unknown }).step === 'string' &&
+    typeof (obj as { message?: unknown }).message === 'string' &&
+    typeof (obj as { status?: unknown }).status === 'string'
+  );
+}
+
+export enum ProgressMessageType {
+  REGISTRATION_PROGRESS = 'REGISTRATION_PROGRESS',
+  REGISTRATION_COMPLETE = 'REGISTRATION_COMPLETE',
+  EXECUTE_ACTIONS_PROGRESS = 'EXECUTE_ACTIONS_PROGRESS',
+  EXECUTE_ACTIONS_COMPLETE = 'EXECUTE_ACTIONS_COMPLETE',
+}
+
+// Step identifiers for progress tracking
+// This enum exactly matches the Rust WASM ProgressStep enum from:
+// packages/passkey/wasm/near_signer/src/types/progress.rs
+// The string values come from the progress_step_name() function in that file
+export enum ProgressStep {
+  PREPARATION = 'preparation', // Rust: Preparation
+  WEBAUTHN_AUTHENTICATION = 'webauthn-authentication', // Rust: WebauthnAuthentication
+  AUTHENTICATION_COMPLETE = 'authentication-complete', // Rust: AuthenticationComplete
+  TRANSACTION_SIGNING_PROGRESS = 'transaction-signing-progress', // Rust: TransactionSigningProgress
+  TRANSACTION_SIGNING_COMPLETE = 'transaction-signing-complete', // Rust: TransactionSigningComplete
+  ERROR = 'error', // Rust: Error
+}
+
+export type NearWorkerProgressStatus = 'progress' | 'success' | 'error';
+
+export interface NearWorkerProgressEvent {
+  step: number;
+  phase: string;
+  status: NearWorkerProgressStatus;
+  message: string;
+  data?: Record<string, unknown>;
+  logs?: string[];
+}
+
+export interface ProgressStepMap {
+  [wasmModule.ProgressStep.Preparation]: ProgressStep.PREPARATION;
+  [wasmModule.ProgressStep.WebauthnAuthentication]: ProgressStep.WEBAUTHN_AUTHENTICATION;
+  [wasmModule.ProgressStep.AuthenticationComplete]: ProgressStep.AUTHENTICATION_COMPLETE;
+  [wasmModule.ProgressStep.TransactionSigningProgress]: ProgressStep.TRANSACTION_SIGNING_PROGRESS;
+  [wasmModule.ProgressStep.TransactionSigningComplete]: ProgressStep.TRANSACTION_SIGNING_COMPLETE;
+  [wasmModule.ProgressStep.Error]: ProgressStep.ERROR;
+}
+
+// === RESPONSE MESSAGE INTERFACES ===
+
+// Base interface for all worker responses
+export interface BaseWorkerResponse<TPayload = unknown> {
+  type: SignerWorkerResponseType;
+  payload: TPayload;
+}
+
+// Map request types to their expected success response payloads (WASM types)
+export interface RequestResponseMap {
+  [WorkerRequestType.DeriveThresholdEd25519ClientVerifyingShare]: WasmDeriveThresholdEd25519ClientVerifyingShareResult;
+  [WorkerRequestType.DeriveThresholdEd25519HssClientInputs]: WasmDeriveThresholdEd25519HssClientInputsResult;
+  [WorkerRequestType.PrepareThresholdEd25519HssSession]: WasmPrepareThresholdEd25519HssSessionResult;
+  [WorkerRequestType.PrepareThresholdEd25519HssClientRequest]: WasmPrepareThresholdEd25519HssClientRequestResult;
+  [WorkerRequestType.DeriveThresholdEd25519HssClientOutputMask]: WasmDeriveThresholdEd25519HssClientOutputMaskResult;
+  [WorkerRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact]: WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactResult;
+  [WorkerRequestType.OpenThresholdEd25519HssClientOutput]: WasmOpenThresholdEd25519HssClientOutputResult;
+  [WorkerRequestType.OpenThresholdEd25519HssSeedOutput]: WasmOpenThresholdEd25519HssSeedOutputResult;
+  [WorkerRequestType.BuildThresholdEd25519SeedExportArtifact]: WasmBuildThresholdEd25519SeedExportArtifactResult;
+  [WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare]: WasmOpenThresholdEcdsaHssRoleLocalSigningShareResult;
+  [WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap]: WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapResult;
+  [WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap]: WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapResult;
+  [WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact]: WasmBuildThresholdEcdsaHssRoleLocalExportArtifactResult;
+  [WorkerRequestType.SignTransactionsWithActions]: WasmTransactionSignResult;
+  [WorkerRequestType.GenerateEphemeralNearKeypair]: WasmGenerateEphemeralNearKeypairResult;
+  [WorkerRequestType.SignDelegateAction]: WasmDelegateSignResult;
+  [WorkerRequestType.ExtractCosePublicKey]: wasmModule.CoseExtractionResult;
+  [WorkerRequestType.SignTransactionWithKeyPair]: WasmTransactionSignResult;
+  [WorkerRequestType.SignNep413Message]: wasmModule.SignNep413Result;
+}
+
+export type RequestTypeKey = keyof RequestResponseMap;
+
+// Generic success response type that uses WASM types
+export interface WorkerSuccessResponse<T extends RequestTypeKey> extends BaseWorkerResponse<
+  RequestResponseMap[T]
+> {
+  type: SignerWorkerResponseType;
+  diagnostics?: WorkerResponseDiagnostics;
+}
+
+export type WorkerResponseDiagnostics = {
+  kind: 'worker_response_diagnostics_v1';
+  worker: 'hssClient';
+  requestType: number;
+  queueWaitMs: number;
+  wasmInitWaitMs: number;
+  wasmCallMs: number;
+  totalMs: number;
+  requestPayloadBytes: number;
+  responsePayloadBytes: number;
+  requestPayloadBreakdown: Record<string, number>;
+  responsePayloadBreakdown: Record<string, number>;
+  wasmOperationTimings?: Record<string, number>;
+};
+
+// Generic error response type
+export interface WorkerErrorResponse extends BaseWorkerResponse<{
+  error: string;
+  errorCode?: WorkerErrorCode;
+  context?: Record<string, unknown>;
+}> {
+  type: SignerWorkerResponseType;
+}
+
+export enum WorkerErrorCode {
+  WASM_INIT_FAILED = 'WASM_INIT_FAILED',
+  INVALID_REQUEST = 'INVALID_REQUEST',
+  TIMEOUT = 'TIMEOUT',
+  ENCRYPTION_FAILED = 'ENCRYPTION_FAILED',
+  DECRYPTION_FAILED = 'DECRYPTION_FAILED',
+  SIGNING_FAILED = 'SIGNING_FAILED',
+  STORAGE_FAILED = 'STORAGE_FAILED',
+  UNKNOWN_ERROR = 'UNKNOWN_ERROR',
+}
+
+export interface WorkerProgressResponse extends BaseWorkerResponse<NearWorkerProgressEvent> {
+  type: SignerWorkerResponseType;
+}
+
+// === MAIN RESPONSE TYPE ===
+
+export type WorkerResponseForRequest<T extends RequestTypeKey> =
+  | WorkerSuccessResponse<T>
+  | WorkerErrorResponse
+  | WorkerProgressResponse;
+
+// === CONVENIENCE TYPE ALIASES ===
+
+export type TransactionResponse = WorkerResponseForRequest<
+  typeof WorkerRequestType.SignTransactionsWithActions
+>;
+export type DelegateSignResponse = WorkerResponseForRequest<
+  typeof WorkerRequestType.SignDelegateAction
+>;
+export type CoseExtractionResponse = WorkerResponseForRequest<
+  typeof WorkerRequestType.ExtractCosePublicKey
+>;
+export type Nep413SigningResponse = WorkerResponseForRequest<
+  typeof WorkerRequestType.SignNep413Message
+>;
+
+// === TYPE GUARDS FOR GENERIC RESPONSES ===
+
+export function isWorkerProgress<T extends RequestTypeKey>(
+  response: WorkerResponseForRequest<T>,
+): response is WorkerProgressResponse {
+  return (
+    response.type === WorkerResponseType.RegistrationProgress ||
+    response.type === WorkerResponseType.RegistrationComplete ||
+    response.type === WorkerResponseType.ExecuteActionsProgress ||
+    response.type === WorkerResponseType.ExecuteActionsComplete
+  );
+}
+
+export function isWorkerSuccess<T extends RequestTypeKey>(
+  response: WorkerResponseForRequest<T>,
+): response is WorkerSuccessResponse<T> {
+  return (
+    response.type === WorkerResponseType.SignTransactionsWithActionsSuccess ||
+    response.type === WorkerResponseType.SignDelegateActionSuccess ||
+    response.type === WorkerResponseType.ExtractCosePublicKeySuccess ||
+    response.type === WorkerResponseType.SignTransactionWithKeyPairSuccess ||
+    response.type === WorkerResponseType.SignNep413MessageSuccess ||
+    response.type === WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareSuccess ||
+    response.type === WorkerResponseType.DeriveThresholdEd25519HssClientInputsSuccess ||
+    response.type === WorkerResponseType.GenerateEphemeralNearKeypairSuccess ||
+    response.type === WorkerResponseType.PrepareThresholdEd25519HssSessionSuccess ||
+    response.type === WorkerResponseType.PrepareThresholdEd25519HssClientRequestSuccess ||
+    response.type === WorkerResponseType.DeriveThresholdEd25519HssClientOutputMaskSuccess ||
+    response.type === WorkerResponseType.OpenThresholdEd25519HssClientOutputSuccess ||
+    response.type === WorkerResponseType.OpenThresholdEd25519HssSeedOutputSuccess ||
+    response.type === WorkerResponseType.BuildThresholdEd25519SeedExportArtifactSuccess ||
+    response.type === WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess ||
+    response.type === WorkerResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess ||
+    response.type === WorkerResponseType.BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess ||
+    response.type === WorkerResponseType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess
+  );
+}
+
+export function isWorkerError<T extends RequestTypeKey>(
+  response: WorkerResponseForRequest<T>,
+): response is WorkerErrorResponse {
+  return (
+    response.type === WorkerResponseType.SignTransactionsWithActionsFailure ||
+    response.type === WorkerResponseType.SignDelegateActionFailure ||
+    response.type === WorkerResponseType.ExtractCosePublicKeyFailure ||
+    response.type === WorkerResponseType.SignTransactionWithKeyPairFailure ||
+    response.type === WorkerResponseType.SignNep413MessageFailure ||
+    response.type === WorkerResponseType.DeriveThresholdEd25519ClientVerifyingShareFailure ||
+    response.type === WorkerResponseType.DeriveThresholdEd25519HssClientInputsFailure ||
+    response.type === WorkerResponseType.GenerateEphemeralNearKeypairFailure ||
+    response.type === WorkerResponseType.PrepareThresholdEd25519HssSessionFailure ||
+    response.type === WorkerResponseType.PrepareThresholdEd25519HssClientRequestFailure ||
+    response.type === WorkerResponseType.DeriveThresholdEd25519HssClientOutputMaskFailure ||
+    response.type === WorkerResponseType.OpenThresholdEd25519HssClientOutputFailure ||
+    response.type === WorkerResponseType.OpenThresholdEd25519HssSeedOutputFailure ||
+    response.type === WorkerResponseType.BuildThresholdEd25519SeedExportArtifactFailure ||
+    response.type === WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapFailure ||
+    response.type === WorkerResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure ||
+    response.type === WorkerResponseType.BuildThresholdEcdsaHssRoleLocalExportArtifactFailure ||
+    response.type === WorkerResponseType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFailure
+  );
+}
+
+// === SPECIFIC TYPE GUARDS FOR COMMON OPERATIONS ===
+
+export function isSignTransactionsWithActionsSuccess(
+  response: TransactionResponse,
+): response is WorkerSuccessResponse<typeof WorkerRequestType.SignTransactionsWithActions> {
+  return response.type === WorkerResponseType.SignTransactionsWithActionsSuccess;
+}
+
+export function isGenerateEphemeralNearKeypairSuccess(
+  response: WorkerResponseForRequest<typeof WorkerRequestType.GenerateEphemeralNearKeypair>,
+): response is WorkerSuccessResponse<typeof WorkerRequestType.GenerateEphemeralNearKeypair> {
+  return response.type === WorkerResponseType.GenerateEphemeralNearKeypairSuccess;
+}
+
+export function isSignDelegateActionSuccess(
+  response: DelegateSignResponse,
+): response is WorkerSuccessResponse<typeof WorkerRequestType.SignDelegateAction> {
+  return response.type === WorkerResponseType.SignDelegateActionSuccess;
+}
+
+export function isExtractCosePublicKeySuccess(
+  response: CoseExtractionResponse,
+): response is WorkerSuccessResponse<typeof WorkerRequestType.ExtractCosePublicKey> {
+  return response.type === WorkerResponseType.ExtractCosePublicKeySuccess;
+}
+
+export function isSignNep413MessageSuccess(
+  response: Nep413SigningResponse,
+): response is WorkerSuccessResponse<typeof WorkerRequestType.SignNep413Message> {
+  return response.type === WorkerResponseType.SignNep413MessageSuccess;
+}

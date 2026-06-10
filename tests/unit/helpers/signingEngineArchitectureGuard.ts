@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
-const signingEngineRoot = path.join(repoRoot, 'client/src/core/signingEngine');
+const signingEngineRoot = path.join(repoRoot, 'packages/sdk-web/src/core/signingEngine');
 
 const targetTopLevelFolders = [
   'assembly',
@@ -64,25 +64,25 @@ function extractImportSpecifiers(source: string): string[] {
 
 function resolveSigningEngineImport(fromRelativePath: string, specifier: string): string | null {
   if (specifier === '@/SeamsWeb/signingSurface/BrowserSigningSurface') {
-    return 'client/src/SeamsWeb/assembly/BrowserSigningSurface';
+    return 'packages/sdk-web/src/SeamsWeb/assembly/BrowserSigningSurface';
   }
   if (specifier.startsWith('@/core/signingEngine/')) {
-    return `client/src/core/signingEngine/${specifier.slice('@/core/signingEngine/'.length)}`;
+    return `packages/sdk-web/src/core/signingEngine/${specifier.slice('@/core/signingEngine/'.length)}`;
   }
   if (specifier === '@/core/signingEngine') {
-    return 'client/src/core/signingEngine';
+    return 'packages/sdk-web/src/core/signingEngine';
   }
   if (!specifier.startsWith('.')) return null;
 
   const resolved = path.resolve(path.join(repoRoot, path.dirname(fromRelativePath)), specifier);
   const relative = path.relative(repoRoot, resolved).replaceAll(path.sep, '/');
-  if (relative === 'client/src/SeamsWeb/assembly/BrowserSigningSurface') return relative;
-  if (!relative.startsWith('client/src/core/signingEngine')) return null;
+  if (relative === 'packages/sdk-web/src/SeamsWeb/assembly/BrowserSigningSurface') return relative;
+  if (!relative.startsWith('packages/sdk-web/src/core/signingEngine')) return null;
   return relative;
 }
 
 function signingEngineTopLevel(relativePath: string): string | null {
-  const prefix = 'client/src/core/signingEngine/';
+  const prefix = 'packages/sdk-web/src/core/signingEngine/';
   if (!relativePath.startsWith(prefix)) return null;
   const first = relativePath.slice(prefix.length).split('/')[0] || null;
   if (first === 'SigningEngine') return 'SigningEngine.ts';

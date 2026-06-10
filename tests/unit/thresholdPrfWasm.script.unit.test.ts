@@ -5,11 +5,11 @@ import { fileURLToPath } from 'node:url';
 import {
   parseSigningRootSecretShareWireV1,
   type SigningRootSecretShareWirePair,
-} from '../../server/src/core/ThresholdService/signingRootSecretShareWires';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretShareWires';
 import {
   deriveEcdsaHssYRelayerFromSigningRootSecretShares,
   deriveEd25519HssServerInputsFromSigningRootSecretShares,
-} from '../../server/src/core/ThresholdService/thresholdPrfWasm';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm';
 
 type ThresholdPrfFixtureShare = {
   readonly id: number;

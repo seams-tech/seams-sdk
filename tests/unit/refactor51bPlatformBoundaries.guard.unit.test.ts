@@ -100,12 +100,12 @@ const runtimeForbiddenPatterns = [
 
 const getBrowserPlatformIndexedDBAllowList = guardBoundaryEntries([
   {
-    file: 'client/src/core/platform/index.ts',
+    file: 'packages/sdk-web/src/core/platform/index.ts',
     owner: 'platform browser adapter barrel',
     reason: 'exports the browser IndexedDB adapter for web assembly consumers',
   },
   {
-    file: 'client/src/core/platform/browser/createBrowserPlatformRuntime.ts',
+    file: 'packages/sdk-web/src/core/platform/browser/createBrowserPlatformRuntime.ts',
     owner: 'browser platform adapter',
     reason: 'defines the browser IndexedDB accessor until browser store adapters replace it',
   },
@@ -113,17 +113,17 @@ const getBrowserPlatformIndexedDBAllowList = guardBoundaryEntries([
 
 const browserRuntimeConstructionAllowList = guardBoundaryEntries([
   {
-    file: 'client/src/core/platform/index.ts',
+    file: 'packages/sdk-web/src/core/platform/index.ts',
     owner: 'platform browser adapter barrel',
     reason: 'exports the browser platform runtime for web assembly consumers',
   },
   {
-    file: 'client/src/core/platform/browser/createBrowserPlatformRuntime.ts',
+    file: 'packages/sdk-web/src/core/platform/browser/createBrowserPlatformRuntime.ts',
     owner: 'browser platform adapter',
     reason: 'defines current browser platform runtime',
   },
   {
-    file: 'client/src/SeamsWeb/assembly/createBrowserSigningRuntime.ts',
+    file: 'packages/sdk-web/src/SeamsWeb/assembly/createBrowserSigningRuntime.ts',
     owner: 'browser runtime assembly',
     reason: 'browser web assembly constructs the browser platform runtime for SeamsWeb',
   },
@@ -131,60 +131,60 @@ const browserRuntimeConstructionAllowList = guardBoundaryEntries([
 
 const walletIframeCoreImportAllowList = guardBoundaryEntries([
   {
-    file: 'client/src/core/config/configBuilder.ts',
+    file: 'packages/sdk-web/src/core/config/configBuilder.ts',
     owner: 'runtime/web config split',
     reason: 'current resolved SDK config still normalizes iframe wallet fields in core config',
   },
   {
-    file: 'client/src/core/types/seams.ts',
+    file: 'packages/sdk-web/src/core/types/seams.ts',
     owner: 'runtime/web config split',
     reason: 'current shared config types still include iframe wallet fields',
   },
   {
-    file: 'client/src/core/rpcClients/relayer/sealedRefreshCapabilities.ts',
+    file: 'packages/sdk-web/src/core/rpcClients/relayer/sealedRefreshCapabilities.ts',
     owner: 'web sealed-refresh boundary',
     reason: 'current sealed-refresh exchange types still carry wallet iframe expected-origin data',
   },
   {
-    file: 'client/src/core/browser/walletIframe/events.ts',
+    file: 'packages/sdk-web/src/core/browser/walletIframe/events.ts',
     owner: 'browser wallet iframe primitive',
     reason: 'shared browser-platform event constants stay outside wallet iframe implementation',
   },
   {
-    file: 'client/src/core/browser/walletIframe/host-mode.ts',
+    file: 'packages/sdk-web/src/core/browser/walletIframe/host-mode.ts',
     owner: 'browser wallet iframe primitive',
     reason: 'shared browser-platform host-mode state stays outside wallet iframe implementation',
   },
   {
-    prefix: 'client/src/SeamsWeb/',
+    prefix: 'packages/sdk-web/src/SeamsWeb/',
     owner: 'browser web facade',
     reason: 'current browser facade owns wallet iframe routing',
   },
   {
-    prefix: 'client/src/SeamsWeb/walletIframe/',
+    prefix: 'packages/sdk-web/src/SeamsWeb/walletIframe/',
     owner: 'browser wallet iframe implementation',
     reason: 'current wallet iframe implementation imports within its own browser-only tree',
   },
   {
-    prefix: 'client/src/react/',
+    prefix: 'packages/sdk-web/src/react/',
     owner: 'browser React entrypoint',
     reason: 'current React hooks coordinate wallet iframe readiness and assets',
   },
   {
-    prefix: 'client/src/plugins/',
+    prefix: 'packages/sdk-web/src/plugins/',
     owner: 'browser plugin entrypoints',
     reason: 'current browser plugins import wallet iframe host variants',
   },
   {
-    prefix: 'client/src/core/signingEngine/uiConfirm/',
+    prefix: 'packages/sdk-web/src/core/signingEngine/uiConfirm/',
     owner: 'browser confirmation UI',
     reason: 'current confirmation UI modules include iframe-hosted browser UI surfaces',
   },
 ]);
 
 const nativeAndEmbeddedRoots = [
-  'client/src/core/platform/ios',
-  'client/src/core/platform/embedded',
+  'packages/sdk-web/src/core/platform/ios',
+  'packages/sdk-web/src/core/platform/embedded',
 ];
 
 const nativeAndEmbeddedForbiddenPatterns = [
@@ -211,7 +211,7 @@ const useCaseIndexedDBForbiddenPatterns = [
 test.describe('refactor 51b platform boundary guards', () => {
   test('keeps core runtime free of browser, DOM, React, iframe, and IndexedDB imports', () => {
     const violations: string[] = [];
-    for (const file of listTypeScriptFiles('client/src/core/runtime')) {
+    for (const file of listTypeScriptFiles('packages/sdk-runtime-ts/src/runtime')) {
       const source = readRepoFile(file);
       for (const pattern of runtimeForbiddenPatterns) {
         if (pattern.test(source)) {
@@ -223,7 +223,7 @@ test.describe('refactor 51b platform boundary guards', () => {
   });
 
   test('keeps shared signing warmup free of browser worker globals', () => {
-    const source = readRepoFile('client/src/core/signingEngine/assembly/warmup.ts');
+    const source = readRepoFile('packages/sdk-web/src/core/signingEngine/assembly/warmup.ts');
 
     expect(source).toContain('shouldPrewarmWorkers');
     expect(source).not.toContain('window');
@@ -233,7 +233,7 @@ test.describe('refactor 51b platform boundary guards', () => {
 
   test('keeps signing use cases free of IndexedDB persistence implementations', () => {
     const violations: string[] = [];
-    for (const file of listTypeScriptFiles('client/src/core/signingEngine/useCases')) {
+    for (const file of listTypeScriptFiles('packages/sdk-web/src/core/signingEngine/useCases')) {
       const source = readRepoFile(file);
       for (const pattern of useCaseIndexedDBForbiddenPatterns) {
         if (pattern.test(source)) {
@@ -245,7 +245,7 @@ test.describe('refactor 51b platform boundary guards', () => {
   });
 
   test('keeps getBrowserPlatformIndexedDB confined to owned Phase 3 boundaries', () => {
-    const roots = ['client/src'];
+    const roots = ['packages/sdk-web/src'];
     const violations: string[] = [];
     for (const file of listTypeScriptFilesInRoots(roots)) {
       const source = readRepoFile(file);
@@ -257,7 +257,7 @@ test.describe('refactor 51b platform boundary guards', () => {
   });
 
   test('keeps createBrowserPlatformRuntime confined to owned browser assembly boundaries', () => {
-    const roots = ['client/src'];
+    const roots = ['packages/sdk-web/src'];
     const violations: string[] = [];
     for (const file of listTypeScriptFilesInRoots(roots)) {
       const source = readRepoFile(file);
@@ -283,10 +283,10 @@ test.describe('refactor 51b platform boundary guards', () => {
 
   test('does not grow TypeScript native SDK facades', () => {
     const forbiddenPaths = [
-      'client/src/ios',
-      'client/src/embedded',
-      'client/src/ios.ts',
-      'client/src/embedded.ts',
+      'packages/sdk-web/src/ios',
+      'packages/sdk-web/src/embedded',
+      'packages/sdk-web/src/ios.ts',
+      'packages/sdk-web/src/embedded.ts',
     ];
     const existing = forbiddenPaths.filter((relativePath) =>
       fs.existsSync(path.join(repoRoot, relativePath)),
@@ -294,7 +294,7 @@ test.describe('refactor 51b platform boundary guards', () => {
 
     const forbiddenNamePattern =
       /(?:SeamsIOS|IoSSigningSurface|SeamsEmbedded|EmbeddedSigningSurface)/;
-    const namedOffenders = listTypeScriptFilesInRoots(['client/src']).filter((file) =>
+    const namedOffenders = listTypeScriptFilesInRoots(['packages/sdk-web/src']).filter((file) =>
       forbiddenNamePattern.test(file),
     );
 
@@ -302,7 +302,7 @@ test.describe('refactor 51b platform boundary guards', () => {
   });
 
   test('tracks current core WalletIframe imports as web-owned Phase 4 work', () => {
-    const roots = ['client/src'];
+    const roots = ['packages/sdk-web/src'];
     const violations: string[] = [];
     for (const file of listTypeScriptFilesInRoots(roots)) {
       const source = readRepoFile(file);
@@ -315,9 +315,9 @@ test.describe('refactor 51b platform boundary guards', () => {
 
   test('keeps chain signer modules local-only after SeamsWeb owns iframe routing', () => {
     const signerFiles = [
-      'client/src/SeamsWeb/operations/near/index.ts',
-      'client/src/SeamsWeb/operations/tempo/index.ts',
-      'client/src/SeamsWeb/operations/evm/index.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/near/index.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/tempo/index.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/evm/index.ts',
     ];
     const violations: string[] = [];
     for (const file of signerFiles) {
@@ -336,7 +336,7 @@ test.describe('refactor 51b platform boundary guards', () => {
     }
 
     expect(violations, violations.join('\n')).toEqual([]);
-    expect(fs.existsSync(path.join(repoRoot, 'client/src/SeamsWeb/walletIframeRoute.ts'))).toBe(
+    expect(fs.existsSync(path.join(repoRoot, 'packages/sdk-web/src/SeamsWeb/walletIframeRoute.ts'))).toBe(
       false,
     );
   });

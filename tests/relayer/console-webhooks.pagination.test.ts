@@ -4,7 +4,7 @@ import {
   normalizePaginationLimit,
   paginateByCursor,
   parsePaginationCursor,
-} from '../../server/src/console/webhooks/pagination';
+} from '../../packages/sdk-server-ts/src/console/webhooks/pagination';
 
 test.describe('console webhook pagination utilities', () => {
   test('cursor encode/parse roundtrip preserves sort key and id', () => {

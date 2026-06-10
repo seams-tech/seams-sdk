@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { toAccountId } from '../../client/src/core/types/accountIds';
-import { BudgetCoordinator } from '../../client/src/core/signingEngine/session/budget/BudgetCoordinator';
+import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
+import { BudgetCoordinator } from '../../packages/sdk-web/src/core/signingEngine/session/budget/BudgetCoordinator';
 import type {
   BudgetFinalizationSpend,
   ExternallyConsumedBudgetFinalizationSpend,
@@ -14,33 +14,33 @@ import type {
   UnreservedBudgetFinalizationSpend,
   ZeroBudgetFinalizationSpend,
   ZeroWalletBudgetSpend,
-} from '../../client/src/core/signingEngine/session/budget/budget';
+} from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
 import {
   buildSigningBudgetReservationIdentity,
   walletBudgetOwnerId,
-} from '../../client/src/core/signingEngine/session/budget/budget';
-import { createSigningSessionBudgetFinalizer } from '../../client/src/core/signingEngine/session/budget/budgetFinalizer';
+} from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
+import { createSigningSessionBudgetFinalizer } from '../../packages/sdk-web/src/core/signingEngine/session/budget/budgetFinalizer';
 import {
   createNonceCoordinator,
   NonceCoordinatorTraceEventName,
   type EvmNonceLane,
   type NonceCoordinatorTraceEvent,
-} from '../../client/src/core/signingEngine/nonce/NonceCoordinator';
+} from '../../packages/sdk-web/src/core/signingEngine/nonce/NonceCoordinator';
 import {
   SigningOperationIntent,
   SigningSessionIds,
   type WalletSigningSpendPlan,
-} from '../../client/src/core/signingEngine/session/operationState/types';
+} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
 import {
   buildNearTransactionSigningLane,
   buildTempoTransactionSigningLane,
   type NearTransactionSigningLane,
-} from '../../client/src/core/signingEngine/session/operationState/lanes';
+} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   toEvmFamilyEcdsaKeyHandle,
-} from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { toWalletId } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
+} from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 
 type ReservedSuccessInput = Extract<SigningSessionBudgetSuccessInput, { kind: 'reserved_success' }>;
 type UnreservedSuccessInput = Extract<

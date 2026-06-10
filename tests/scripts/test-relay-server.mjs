@@ -9,7 +9,7 @@ import {
   AuthService,
   createHostedSigningRootShareResolver,
   createThresholdSigningService,
-} from '../../sdk/dist/esm/server/index.js';
+} from '../../packages/sdk-web/dist/esm/server/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

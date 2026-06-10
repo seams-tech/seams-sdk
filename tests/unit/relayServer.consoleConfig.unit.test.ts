@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { resolveRelayServerConsoleConfig, toOptionalSecret } from '../../examples/relay-server/src/consoleConfig';
+import { resolveRelayServerConsoleConfig, toOptionalSecret } from '../../apps/web-server/src/consoleConfig';
 
 test.describe('relay-server console config resolution', () => {
   test('uses CONSOLE_POSTGRES_URL when provided', async () => {

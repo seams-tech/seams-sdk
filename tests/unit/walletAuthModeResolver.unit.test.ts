@@ -4,8 +4,8 @@ import {
   createPasskeyWalletAuthAdapter,
   createWalletAuthModeResolver,
   WalletAuthModeResolutionError,
-} from '../../client/src/core/signingEngine/stepUpConfirmation/walletAuthModeResolver';
-import { resolveAccountAuthMetadataForSignerSource } from '../../client/src/core/signingEngine/interfaces/accountAuthMetadata';
+} from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/walletAuthModeResolver';
+import { resolveAccountAuthMetadataForSignerSource } from '../../packages/sdk-web/src/core/signingEngine/interfaces/accountAuthMetadata';
 import {
   accountAuthFixtures,
   type AccountAuthFixture,

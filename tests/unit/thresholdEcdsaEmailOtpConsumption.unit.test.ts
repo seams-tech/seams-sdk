@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { toAccountId } from '../../client/src/core/types/accountIds';
-import type { EvmEip155ChainTarget } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
+import type { EvmEip155ChainTarget } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   clearAllThresholdEcdsaSessionRecords,
   consumeSingleUseEmailOtpEcdsaLane,
@@ -11,16 +11,16 @@ import {
   type ConsumeSingleUseEmailOtpEcdsaLaneCommand,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreDeps,
-} from '../../client/src/core/signingEngine/session/persistence/records';
+} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 import {
   buildVerifiedEcdsaPublicFacts,
   toEvmFamilyEcdsaKeyHandle,
-} from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+} from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   buildEcdsaRoleLocalEmailOtpAuthMethod,
   buildEcdsaRoleLocalPublicFacts,
   buildEcdsaRoleLocalReadyRecord,
-} from '../../client/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 
 const WALLET_ID = toAccountId('alice.testnet');
 const EVM_TARGET: EvmEip155ChainTarget = {

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { base64UrlEncode } from '../../shared/src/utils/encoders';
-import { parseCurrentSigningRootSecretShareRecord } from '../../server/src/core/ThresholdService/postgresRecords';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
+import { parseCurrentSigningRootSecretShareRecord } from '../../packages/sdk-server-ts/src/core/ThresholdService/postgresRecords';
 
 test.describe('signing root secret share postgres records', () => {
   test('parses only current signing-root secret share rows', () => {

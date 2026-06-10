@@ -1,7 +1,7 @@
 import type {
   PrepareEcdsaClientBootstrapOutput,
   ThresholdEcdsaChainTarget,
-} from '../../client/src/core/platform/generated/signerCoreCommands';
+} from '../../packages/sdk-web/src/core/platform/generated/signerCoreCommands';
 import {
   prepare_ecdsa_client_bootstrap_from_resolved_email_otp_root_v1,
   prepare_ecdsa_client_bootstrap_v1,

@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const clientSrcRoot = path.join(repoRoot, 'client/src');
+const clientSrcRoot = path.join(repoRoot, 'packages/sdk-web/src');
 
 function readRepoFile(relativePath: string): string {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
@@ -75,13 +75,13 @@ test.describe('account signer lifecycle domain guard', () => {
 
   test('production signer lifecycle code uses shared signer domain constants', () => {
     const guardedFiles = [
-      'client/src/core/indexedDB/accountSignerLifecycle.ts',
-      'client/src/core/indexedDB/passkeyClientDB.types.ts',
-      'client/src/core/indexedDB/unifiedIndexedDBManager.ts',
-      'client/src/core/accountData/near/accountProjection.ts',
-      'client/src/SeamsWeb/operations/devices/linkDevice.ts',
-      'client/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
-      'client/src/core/signingEngine/flows/registration/accountLifecycle.ts',
+      'packages/sdk-web/src/core/indexedDB/accountSignerLifecycle.ts',
+      'packages/sdk-web/src/core/indexedDB/passkeyClientDB.types.ts',
+      'packages/sdk-web/src/core/indexedDB/unifiedIndexedDBManager.ts',
+      'packages/sdk-web/src/core/accountData/near/accountProjection.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/devices/linkDevice.ts',
+      'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/registration/accountLifecycle.ts',
     ];
     const forbidden = [
       /export\s+type\s+SignerKind\s*=\s*['"]threshold-ed25519['"]/,

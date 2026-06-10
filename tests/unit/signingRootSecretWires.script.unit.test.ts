@@ -6,7 +6,7 @@ import {
   parseSigningRootSecretShareWireV1,
   signingRootSecretShareIdFromWire,
   resolveSigningRootSecretShareWirePair,
-} from '../../server/src/core/ThresholdService/signingRootSecretShareWires';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretShareWires';
 
 const PROJECT_ID = 'project_test_123';
 

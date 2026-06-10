@@ -2,17 +2,17 @@ import { test, expect } from '@playwright/test';
 import { createHash, hkdfSync } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
-import { bytesToNumberBE, numberToBytesBE } from '../../shared/src/utils/bigint';
-import { alphabetizeStringify, sha256BytesUtf8 } from '../../shared/src/utils/digests';
-import { base64UrlDecode, base64UrlEncode } from '../../shared/src/utils/encoders';
-import { SECP256K1_ORDER } from '../../shared/src/threshold/secp256k1';
-import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../server/src/core/ThresholdService/schemes/schemeIds';
-import { ThresholdEcdsaSigningHandlers } from '../../server/src/core/ThresholdService/ecdsaSigningHandlers';
+import { bytesToNumberBE, numberToBytesBE } from '../../packages/shared-ts/src/utils/bigint';
+import { alphabetizeStringify, sha256BytesUtf8 } from '../../packages/shared-ts/src/utils/digests';
+import { base64UrlDecode, base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
+import { SECP256K1_ORDER } from '../../packages/shared-ts/src/threshold/secp256k1';
+import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../packages/sdk-server-ts/src/core/ThresholdService/schemes/schemeIds';
+import { ThresholdEcdsaSigningHandlers } from '../../packages/sdk-server-ts/src/core/ThresholdService/ecdsaSigningHandlers';
 import {
   InMemoryThresholdEcdsaPresignSessionStore,
   InMemoryThresholdEcdsaPresignaturePool,
   InMemoryThresholdEcdsaSigningSessionStore,
-} from '../../server/src/core/ThresholdService/stores/EcdsaSigningStore';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore';
 import {
   ThresholdEcdsaPresignSession,
   initSync as initEthSignerWasmSync,

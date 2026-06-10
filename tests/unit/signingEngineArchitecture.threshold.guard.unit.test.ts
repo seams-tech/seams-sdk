@@ -19,7 +19,7 @@ import {
 test.describe('signing-engine threshold architecture guardrails', () => {
   test('Ed25519 HSS lifecycle leaves persistence to caller boundaries', () => {
     const source = readRepoSource(
-      'client/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts',
+      'packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts',
     );
 
     expect(source).not.toContain('session/records');
@@ -29,9 +29,9 @@ test.describe('signing-engine threshold architecture guardrails', () => {
   });
 
   test('threshold session identity types live outside persistence records', () => {
-    const records = readRepoSource('client/src/core/signingEngine/session/persistence/records.ts');
+    const records = readRepoSource('packages/sdk-web/src/core/signingEngine/session/persistence/records.ts');
     const activation = readRepoSource(
-      'client/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
+      'packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
     );
 
     expect(records).not.toContain('export type ThresholdEcdsaSessionStoreSource');
@@ -41,7 +41,7 @@ test.describe('signing-engine threshold architecture guardrails', () => {
   });
 
   test('Ed25519 auth session mint helper has no session lifecycle cache', () => {
-    const source = readRepoSource('client/src/core/signingEngine/threshold/ed25519/authSession.ts');
+    const source = readRepoSource('packages/sdk-web/src/core/signingEngine/threshold/ed25519/authSession.ts');
 
     expect(source).not.toContain('session/records');
     expect(source).not.toContain('persistWarmSessionEd25519Capability');
@@ -52,7 +52,7 @@ test.describe('signing-engine threshold architecture guardrails', () => {
 
   test('Ed25519 connect-session protocol leaves warm-session persistence to callers', () => {
     const source = readRepoSource(
-      'client/src/core/signingEngine/threshold/ed25519/connectSession.ts',
+      'packages/sdk-web/src/core/signingEngine/threshold/ed25519/connectSession.ts',
     );
 
     expect(source).not.toContain('persistWarmSessionEd25519Capability');

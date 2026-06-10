@@ -7,7 +7,7 @@ test.describe('WebAuthnP256Engine wasm boundary', () => {
     const engineSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signingEngine/flows/signEvmFamily/signers/webauthnP256.ts',
+        '../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signers/webauthnP256.ts',
       ),
       'utf8',
     );
@@ -22,7 +22,7 @@ test.describe('WebAuthnP256Engine wasm boundary', () => {
     const workerSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signingEngine/workerManager/workers/eth-signer.worker.ts',
+        '../packages/sdk-web/src/core/signingEngine/workerManager/workers/eth-signer.worker.ts',
       ),
       'utf8',
     );
@@ -35,14 +35,14 @@ test.describe('WebAuthnP256Engine wasm boundary', () => {
     const workerSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signingEngine/workerManager/workers/eth-signer.worker.ts',
+        '../packages/sdk-web/src/core/signingEngine/workerManager/workers/eth-signer.worker.ts',
       ),
       'utf8',
     );
     const keyRefSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signingEngine/flows/signEvmFamily/webauthnP256KeyRef.ts',
+        '../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/webauthnP256KeyRef.ts',
       ),
       'utf8',
     );

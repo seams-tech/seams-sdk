@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { createInMemoryConsoleApiKeyService } from '../../server/src/console/apiKeys';
-import { createInMemoryConsoleRuntimeSnapshotService } from '../../server/src/console/runtimeSnapshots';
-import { createInMemoryConsoleSponsoredCallService } from '../../server/src/console/sponsoredCalls';
-import { createCloudflareRouter } from '../../server/src/router/cloudflare/createCloudflareRouter';
-import { createRelayRouter } from '../../server/src/router/express/createRelayRouter';
-import { getRelayRouteSurface } from '../../server/src/router/relayRouteSurface';
+import { createInMemoryConsoleApiKeyService } from '../../packages/sdk-server-ts/src/console/apiKeys';
+import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots';
+import { createInMemoryConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls';
+import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
+import { createRelayRouter } from '../../packages/sdk-server-ts/src/router/express/createRelayRouter';
+import { getRelayRouteSurface } from '../../packages/sdk-server-ts/src/router/relayRouteSurface';
 import { callCf } from '../relayer/helpers';
 import { makeFakeAuthService } from '../relayer/helpers';
 

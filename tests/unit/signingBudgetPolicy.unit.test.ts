@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { SigningSessionIds } from '../../client/src/core/signingEngine/session/operationState/types';
+import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
 import {
   DEV_DEFAULT_UNLOCK_REMAINING_USES,
   buildWalletUnlockBudgetPolicy,
@@ -7,7 +7,7 @@ import {
   resolvePostExhaustionStepUpBudgetPolicy,
   resolveSigningBudgetPolicyRemainingUses,
   resolveWalletUnlockBudgetPolicyFromRequestedUses,
-} from '../../client/src/core/signingEngine/session/budget/policy';
+} from '../../packages/sdk-web/src/core/signingEngine/session/budget/policy';
 
 test.describe('signing budget policy', () => {
   test('uses literal dev-default unlock budget of three uses', () => {

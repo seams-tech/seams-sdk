@@ -1,14 +1,14 @@
 import { expect, test } from '@playwright/test';
-import { createInMemoryConsoleOrgProjectEnvService } from '../../server/src/console/orgProjectEnv/service';
-import { createInMemoryConsoleTeamRbacService } from '../../server/src/console/teamRbac/service';
-import { isConsoleAccountError } from '../../server/src/console/account/errors';
+import { createInMemoryConsoleOrgProjectEnvService } from '../../packages/sdk-server-ts/src/console/orgProjectEnv/service';
+import { createInMemoryConsoleTeamRbacService } from '../../packages/sdk-server-ts/src/console/teamRbac/service';
+import { isConsoleAccountError } from '../../packages/sdk-server-ts/src/console/account/errors';
 import {
   parseCreateConsoleAccountOrganizationRequest,
   parsePatchConsoleAccountProfileRequest,
   parseTransferConsoleAccountOrganizationOwnerRequest,
   parseUpdateConsoleAccountOrganizationRequest,
-} from '../../server/src/console/account/requests';
-import { createInMemoryConsoleAccountService } from '../../server/src/console/account/service';
+} from '../../packages/sdk-server-ts/src/console/account/requests';
+import { createInMemoryConsoleAccountService } from '../../packages/sdk-server-ts/src/console/account/service';
 
 async function expectAccountError(
   fn: () => unknown | Promise<unknown>,

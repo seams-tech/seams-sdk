@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { getConsoleRouteSurface } from '../../server/src/router/consoleRouteSurface';
-import { createCloudflareConsoleRouter } from '../../server/src/router/cloudflare/createCloudflareConsoleRouter';
-import { createConsoleRouter } from '../../server/src/router/express/createConsoleRouter';
-import { findRouteDefinitionForRequest } from '../../server/src/router/routeDefinitions';
+import { getConsoleRouteSurface } from '../../packages/sdk-server-ts/src/router/consoleRouteSurface';
+import { createCloudflareConsoleRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareConsoleRouter';
+import { createConsoleRouter } from '../../packages/sdk-server-ts/src/router/express/createConsoleRouter';
+import { findRouteDefinitionForRequest } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
 
 type ExpressRouteEntry = {
   method: string;

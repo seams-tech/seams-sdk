@@ -6,7 +6,7 @@ const REPO_ROOT = new URL('../..', import.meta.url).pathname;
 test.describe('Email OTP signing-session device escrow guard', () => {
   test('normal Email OTP login requires device-local enc_s(S)', () => {
     const workerSource = readFileSync(
-      join(REPO_ROOT, 'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
+      join(REPO_ROOT, 'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
       'utf8',
     );
     const loginSlice = workerSource.slice(
@@ -22,17 +22,17 @@ test.describe('Email OTP signing-session device escrow guard', () => {
   });
 
   test('server enrollment APIs and records do not expose direct enrollment escrow storage', () => {
-    const storesSource = readFileSync(join(REPO_ROOT, 'server/src/core/EmailOtpStores.ts'), 'utf8');
+    const storesSource = readFileSync(join(REPO_ROOT, 'packages/sdk-server-ts/src/core/EmailOtpStores.ts'), 'utf8');
     const authServiceSource = readFileSync(
-      join(REPO_ROOT, 'server/src/core/AuthService.ts'),
+      join(REPO_ROOT, 'packages/sdk-server-ts/src/core/AuthService.ts'),
       'utf8',
     );
     const routeHandlersSource = readFileSync(
-      join(REPO_ROOT, 'server/src/router/emailOtpRouteHandlers.ts'),
+      join(REPO_ROOT, 'packages/sdk-server-ts/src/router/emailOtpRouteHandlers.ts'),
       'utf8',
     );
     const routeHelpersSource = readFileSync(
-      join(REPO_ROOT, 'server/src/router/emailOtpSessionRouteHelpers.ts'),
+      join(REPO_ROOT, 'packages/sdk-server-ts/src/router/emailOtpSessionRouteHelpers.ts'),
       'utf8',
     );
 
@@ -83,7 +83,7 @@ test.describe('Email OTP signing-session device escrow guard', () => {
 
   test('Email OTP enrollment persists device-local enc_s(S) before server finalization', () => {
     const workerSource = readFileSync(
-      join(REPO_ROOT, 'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
+      join(REPO_ROOT, 'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
       'utf8',
     );
     const enrollSlice = workerSource.slice(
@@ -109,7 +109,7 @@ test.describe('Email OTP signing-session device escrow guard', () => {
 
   test('Email OTP recovery restore unwraps C_i and persists device-local enc_s(S)', () => {
     const workerSource = readFileSync(
-      join(REPO_ROOT, 'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
+      join(REPO_ROOT, 'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
       'utf8',
     );
     const restoreSlice = workerSource.slice(
@@ -131,7 +131,7 @@ test.describe('Email OTP signing-session device escrow guard', () => {
 
   test('Email OTP worker derives recovery key ids consistently for enrollment, recovery, and rotation', () => {
     const workerSource = readFileSync(
-      join(REPO_ROOT, 'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
+      join(REPO_ROOT, 'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
       'utf8',
     );
     const wrapSlice = workerSource.slice(
@@ -163,7 +163,7 @@ test.describe('Email OTP signing-session device escrow guard', () => {
 
   test('Email OTP worker zeroizes unwrapped enc_s(S) byte buffers', () => {
     const workerSource = readFileSync(
-      join(REPO_ROOT, 'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
+      join(REPO_ROOT, 'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
       'utf8',
     );
     const wrapSlice = workerSource.slice(
@@ -183,7 +183,7 @@ test.describe('Email OTP signing-session device escrow guard', () => {
 
   test('logout lock path does not delete device-local Email OTP recovery material', () => {
     const loginSource = readFileSync(
-      join(REPO_ROOT, 'client/src/SeamsWeb/operations/auth/login.ts'),
+      join(REPO_ROOT, 'packages/sdk-web/src/SeamsWeb/operations/auth/login.ts'),
       'utf8',
     );
     const lockSlice = loginSource.slice(
@@ -191,7 +191,7 @@ test.describe('Email OTP signing-session device escrow guard', () => {
       loginSource.indexOf('\n}', loginSource.indexOf('export async function lock(')) + 2,
     );
     const workerSource = readFileSync(
-      join(REPO_ROOT, 'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
+      join(REPO_ROOT, 'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts'),
       'utf8',
     );
 

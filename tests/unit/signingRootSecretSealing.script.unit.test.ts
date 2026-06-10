@@ -2,19 +2,19 @@ import { expect, test } from '@playwright/test';
 import {
   createSigningRootSecretResolver,
   resolveSigningRootSecretShareWirePairFromResolver,
-} from '../../server/src/core/ThresholdService/signingRootSecretResolverAdapters';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretResolverAdapters';
 import {
   createSigningRootSecretAesGcmDecryptAdapter,
   openSigningRootSecretShareWireV1,
   sealSigningRootSecretShareWireV1,
   type SigningRootSecretShareKekResolutionInput,
-} from '../../server/src/core/ThresholdService/signingRootSecretSealing';
-import { InMemorySigningRootSecretStore } from '../../server/src/core/ThresholdService/stores/SigningRootSecretStore';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretSealing';
+import { InMemorySigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
 import type {
   SigningRootSecretShareId,
   SigningRootSecretShareWireV1,
   SealedSigningRootSecretShare,
-} from '../../server/src/core/ThresholdService/signingRootSecretShareWires';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretShareWires';
 
 const PROJECT_ID = 'project-alpha';
 const SIGNING_ROOT_VERSION = 'root-v1';

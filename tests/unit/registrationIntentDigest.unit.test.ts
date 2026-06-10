@@ -9,11 +9,11 @@ import {
   type RegistrationIntentV1,
   type RuntimePolicyScopeLike,
   type ThresholdEd25519RegistrationSpec,
-} from '../../shared/src/utils/registrationIntent';
+} from '../../packages/shared-ts/src/utils/registrationIntent';
 import {
   computeAddSignerIntentDigest,
   computeRegistrationIntentDigest,
-} from '../../client/src/utils/intentDigest';
+} from '../../packages/sdk-web/src/utils/intentDigest';
 
 const runtimePolicyScope: RuntimePolicyScopeLike = {
   orgId: 'org_1',

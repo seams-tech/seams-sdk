@@ -4,40 +4,40 @@ import type {
   OrchestrateSigningConfirmationParams,
   SigningConfirmationResultIntentDigest,
   SigningConfirmationResultWithTxContext,
-} from '../../client/src/core/signingEngine/stepUpConfirmation/confirmOperation';
-import { SigningAuthPlanKind, type SigningAuthPlan } from '../../client/src/core/signingEngine/stepUpConfirmation/types';
+} from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/confirmOperation';
+import { SigningAuthPlanKind, type SigningAuthPlan } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types';
 import type {
   KeyRef,
   SignRequest,
   SignatureBytes,
   Signer,
   ThresholdEcdsaSecp256k1KeyRef,
-} from '../../client/src/core/signingEngine/interfaces/signing';
+} from '../../packages/sdk-web/src/core/signingEngine/interfaces/signing';
 import {
   toWalletId,
-} from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { UiConfirmContext } from '../../client/src/core/signingEngine/uiConfirm/types';
-import type { WorkerOperationContext } from '../../client/src/core/signingEngine/workerManager/executeWorkerOperation';
+} from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { UiConfirmContext } from '../../packages/sdk-web/src/core/signingEngine/uiConfirm/types';
+import type { WorkerOperationContext } from '../../packages/sdk-web/src/core/signingEngine/workerManager/executeWorkerOperation';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildKnownReadyThresholdEcdsaSessionPolicy,
   buildReadyEcdsaSignerSession,
   toVerifiedEcdsaPublicFactsFromKeyRef,
-} from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { selectedEcdsaLane } from '../../client/src/core/signingEngine/session/identity/laneIdentity';
-import { SigningOperationIntent } from '../../client/src/core/signingEngine/session/operationState/types';
-import { signEvmFamilyWithUiConfirm } from '../../client/src/core/signingEngine/flows/signEvmFamily/signingFlow';
-import type { EvmFamilyThresholdEcdsaOperation } from '../../client/src/core/signingEngine/flows/signEvmFamily/thresholdAdmission';
+} from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { selectedEcdsaLane } from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
+import { SigningOperationIntent } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
+import { signEvmFamilyWithUiConfirm } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlow';
+import type { EvmFamilyThresholdEcdsaOperation } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/thresholdAdmission';
 import {
   buildReadySecp256k1SigningMaterialFromKeyRef,
   type ReadySecp256k1Signer,
   type ReadySecp256k1SigningMaterial,
-} from '../../client/src/core/signingEngine/flows/signEvmFamily/signers/secp256k1';
+} from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signers/secp256k1';
 import {
   buildEcdsaRoleLocalPasskeyAuthMethod,
   buildEcdsaRoleLocalPublicFacts,
   buildEcdsaRoleLocalReadyRecord,
-} from '../../client/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 
 const WALLET_ID = 'alice.testnet';
 const SUBJECT_ID = toWalletId(WALLET_ID);

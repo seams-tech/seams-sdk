@@ -13,7 +13,7 @@ function readRepoSource(relativePath: string): string {
 test.describe('refactor 58 OTP registration slim guards', () => {
   test('Google SSO Email OTP registration operation stays out of passkey and WebAuthn registration code', () => {
     const source = readRepoSource(
-      'client/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
     );
     const importStatements = source.match(/import[\s\S]*?;\n/g) ?? [];
 
@@ -25,7 +25,7 @@ test.describe('refactor 58 OTP registration slim guards', () => {
 
   test('Google SSO Email OTP registration branch does not issue OTP login challenges', () => {
     const source = readRepoSource(
-      'client/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
     );
     const start = source.indexOf('function createGoogleEmailOtpWalletRegistrationFlow');
     const end = source.indexOf('function createGoogleEmailOtpWalletLoginFlow');
@@ -42,7 +42,7 @@ test.describe('refactor 58 OTP registration slim guards', () => {
   });
 
   test('direct Google SSO Email OTP registration backup does not manufacture a challenge id', () => {
-    const source = readRepoSource('client/src/SeamsWeb/operations/registration/registration.ts');
+    const source = readRepoSource('packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts');
     const start = source.indexOf('function googleEmailOtpRegistrationMaterialToBackupEnrollment');
     const end = source.indexOf('async function resolveEmailOtpRegistrationEnrollmentMaterial', start);
     if (start < 0 || end < start) {
@@ -57,7 +57,7 @@ test.describe('refactor 58 OTP registration slim guards', () => {
 
   test('Google SSO Email OTP registration reroll stays local to the active offer', () => {
     const source = readRepoSource(
-      'client/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
     );
     const start = source.indexOf('rerollWalletId: async');
     const end = source.indexOf('cancel: async', start);
@@ -79,13 +79,13 @@ test.describe('refactor 58 OTP registration slim guards', () => {
 
   test('legacy register-mode reroll flag stays out of client and service surfaces', () => {
     const checkedPaths = [
-      'client/src/SeamsWeb/operations/authMethods/emailOtp/challenge.ts',
-      'client/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
-      'client/src/SeamsWeb/SeamsWeb.ts',
-      'client/src/SeamsWeb/publicApi/types.ts',
-      'client/src/SeamsWeb/walletIframe/client/router.ts',
-      'client/src/SeamsWeb/walletIframe/shared/messages.ts',
-      'server/src/core/AuthService.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/challenge.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/googleEmailOtpWalletAuthFlow.ts',
+      'packages/sdk-web/src/SeamsWeb/SeamsWeb.ts',
+      'packages/sdk-web/src/SeamsWeb/publicApi/types.ts',
+      'packages/sdk-web/src/SeamsWeb/walletIframe/client/router.ts',
+      'packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts',
+      'packages/sdk-server-ts/src/core/AuthService.ts',
     ];
 
     for (const relativePath of checkedPaths) {
@@ -94,7 +94,7 @@ test.describe('refactor 58 OTP registration slim guards', () => {
   });
 
   test('non-Postgres Google SSO Email OTP registration activates identity before wallet visibility', () => {
-    const source = readRepoSource('server/src/core/AuthService.ts');
+    const source = readRepoSource('packages/sdk-server-ts/src/core/AuthService.ts');
     const consumeStart = source.indexOf('private async consumeRegistrationCeremonyAndPersist');
     const consumeEnd = source.indexOf('const pool = await getPostgresPool', consumeStart);
     if (consumeStart < 0 || consumeEnd < consumeStart) {
@@ -118,7 +118,7 @@ test.describe('refactor 58 OTP registration slim guards', () => {
   });
 
   test('generic Google SSO Email OTP registration persistence defers wallet visibility', () => {
-    const source = readRepoSource('server/src/core/AuthService.ts');
+    const source = readRepoSource('packages/sdk-server-ts/src/core/AuthService.ts');
     const writeStart = source.indexOf('private async writeRegistrationPersistenceToStores');
     const writeEnd = source.indexOf('private async writeAddAuthMethodPersistenceToStores', writeStart);
     if (writeStart < 0 || writeEnd < writeStart) {
@@ -136,7 +136,7 @@ test.describe('refactor 58 OTP registration slim guards', () => {
 
   test('OTP-only registration offer parser rejects mixed protocol fields', () => {
     const source = readRepoSource(
-      'client/src/SeamsWeb/operations/authMethods/emailOtp/registrationOffer.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/registrationOffer.ts',
     );
 
     expect(source).toContain("'webauthn'");

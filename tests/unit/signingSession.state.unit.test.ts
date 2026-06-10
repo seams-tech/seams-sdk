@@ -106,7 +106,7 @@ test.describe('signing session PRF cache utilities', () => {
     const source = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts',
+        '../packages/sdk-web/src/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.ts',
       ),
       'utf8',
     );
@@ -121,7 +121,7 @@ test.describe('signing session PRF cache utilities', () => {
     const source = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signingEngine/session/warmCapabilities/clearVolatileWarmSigningMaterial.ts',
+        '../packages/sdk-web/src/core/signingEngine/session/warmCapabilities/clearVolatileWarmSigningMaterial.ts',
       ),
       'utf8',
     );
@@ -134,7 +134,7 @@ test.describe('signing session PRF cache utilities', () => {
 
   test('single warm material clear leaves durable Shamir3pass restore records intact', () => {
     const source = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signingEngine/uiConfirm/UiConfirmManager.ts'),
+      path.resolve(process.cwd(), '../packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts'),
       'utf8',
     );
     const clearStart = source.indexOf('clearVolatileWarmSessionMaterial = async');
@@ -156,7 +156,7 @@ test.describe('signing session PRF cache utilities', () => {
 
   test('volatile all-clear cannot delete durable sealed records', () => {
     const source = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signingEngine/uiConfirm/UiConfirmManager.ts'),
+      path.resolve(process.cwd(), '../packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts'),
       'utf8',
     );
     const allClearStart = source.indexOf('clearAllVolatileWarmSessionMaterial = async');
@@ -171,11 +171,11 @@ test.describe('signing session PRF cache utilities', () => {
 
   test('durable sealed-session delete no longer uses session-id-only worker payloads', () => {
     const workerTypesSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/types/secure-confirm-worker.ts'),
+      path.resolve(process.cwd(), '../packages/sdk-web/src/core/types/secure-confirm-worker.ts'),
       'utf8',
     );
     const uiConfirmTypesSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signingEngine/uiConfirm/types.ts'),
+      path.resolve(process.cwd(), '../packages/sdk-web/src/core/signingEngine/uiConfirm/types.ts'),
       'utf8',
     );
 
@@ -190,14 +190,14 @@ test.describe('signing session PRF cache utilities', () => {
     const durableCommandSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signingEngine/session/persistence/durableSealedSessionCommands.ts',
+        '../packages/sdk-web/src/core/signingEngine/session/persistence/durableSealedSessionCommands.ts',
       ),
       'utf8',
     );
     const volatileCommandSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signingEngine/session/warmCapabilities/volatileWarmMaterialCommands.ts',
+        '../packages/sdk-web/src/core/signingEngine/session/warmCapabilities/volatileWarmMaterialCommands.ts',
       ),
       'utf8',
     );
@@ -214,14 +214,14 @@ test.describe('signing session PRF cache utilities', () => {
     const workerSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts',
+        '../packages/sdk-web/src/core/signingEngine/workerManager/workers/passkey-confirm.worker.ts',
       ),
       'utf8',
     );
     const volatileCommandSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signingEngine/session/warmCapabilities/volatileWarmMaterialCommands.ts',
+        '../packages/sdk-web/src/core/signingEngine/session/warmCapabilities/volatileWarmMaterialCommands.ts',
       ),
       'utf8',
     );
@@ -235,7 +235,7 @@ test.describe('signing session PRF cache utilities', () => {
     const source = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signingEngine/session/passkey/ecdsaWarmCapabilityBootstrap.ts',
+        '../packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaWarmCapabilityBootstrap.ts',
       ),
       'utf8',
     );
@@ -258,7 +258,7 @@ test.describe('signing session PRF cache utilities', () => {
 
   test('missing ECDSA seal transport reports the session and transport target at the boundary', () => {
     const source = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signingEngine/uiConfirm/UiConfirmManager.ts'),
+      path.resolve(process.cwd(), '../packages/sdk-web/src/core/signingEngine/uiConfirm/UiConfirmManager.ts'),
       'utf8',
     );
 
@@ -271,7 +271,7 @@ test.describe('signing session PRF cache utilities', () => {
     const source = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../examples/seams-site/src/flows/demo/hooks/useDemoThresholdAccountState.ts',
+        '../apps/web-client/src/flows/demo/hooks/useDemoThresholdAccountState.ts',
       ),
       'utf8',
     );

@@ -6,12 +6,12 @@ import { createThresholdSigningServiceForUnitTests } from '../helpers/thresholdE
 import type {
   EcdsaHssExportShareRequest,
   EcdsaHssPublicIdentity,
-} from '../../server/src/core/types';
-import type { ThresholdEcdsaSessionClaims } from '../../server/src/core/ThresholdService/validation';
+} from '../../packages/sdk-server-ts/src/core/types';
+import type { ThresholdEcdsaSessionClaims } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import {
   parseEcdsaHssClientBootstrapRequest,
   parseEcdsaHssExportShareRequest,
-} from '../../server/src/core/ThresholdService/validation';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import {
   initSync as initHssClientSignerWasmSync,
 } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
@@ -22,7 +22,7 @@ const HSS_CLIENT_SIGNER_WASM_URL = new URL(
   import.meta.url,
 );
 const EXPRESS_THRESHOLD_ECDSA_ROUTE_URL = new URL(
-  '../../server/src/router/express/routes/thresholdEcdsa.ts',
+  '../../packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts',
   import.meta.url,
 );
 const EXPORT_CONFIRMATION_DIGEST_VERSION = 'ecdsa-hss:role-local:product-export-confirmation:v2';

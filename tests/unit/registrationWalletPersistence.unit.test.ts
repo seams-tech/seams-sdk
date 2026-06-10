@@ -5,13 +5,13 @@ import {
   storeWalletEcdsaSignerRecords,
   finalizeWalletEd25519SignerRegistration,
   storeWalletEd25519RegistrationData,
-} from '../../client/src/core/signingEngine/flows/registration/accountLifecycle';
+} from '../../packages/sdk-web/src/core/signingEngine/flows/registration/accountLifecycle';
 import type {
   WebAuthnAuthenticationCredential,
   WebAuthnRegistrationCredential,
-} from '../../client/src/core/types/webauthn';
-import { toAccountId } from '../../client/src/core/types/accountIds';
-import { walletIdFromString } from '../../shared/src/utils/registrationIntent';
+} from '../../packages/sdk-web/src/core/types/webauthn';
+import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
+import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 
 const credential = {
   id: 'credential-id',

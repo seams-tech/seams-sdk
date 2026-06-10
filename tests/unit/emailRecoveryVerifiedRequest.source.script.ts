@@ -1,7 +1,7 @@
 import {
   buildEncryptedEmailRecoveryActions,
   buildVerifiedEmailRecoveryRequest,
-} from '../../server/src/email-recovery/rpcCalls.ts';
+} from '../../packages/sdk-server-ts/src/email-recovery/rpcCalls.ts';
 
 const recoveryPayload = {
   version: 'recovery_email_payload_v1' as const,

@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
-import type { AuthService } from '../../server/src/core/AuthService';
+import type { AuthService } from '../../packages/sdk-server-ts/src/core/AuthService';
 import {
   createConfiguredSigningRootShareResolver,
   createThresholdSigningService,
-} from '../../server/src/core/ThresholdService';
-import { createConfiguredSigningRootSecretResolver } from '../../server/src/core/ThresholdService/signingRootSecretConfig';
-import type { SigningRootSecretShareKekResolutionInput } from '../../server/src/core/ThresholdService/signingRootSecretSealing';
-import { InMemorySigningRootSecretStore } from '../../server/src/core/ThresholdService/stores/SigningRootSecretStore';
-import type { ThresholdStoreConfigInput } from '../../server/src/core/types';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService';
+import { createConfiguredSigningRootSecretResolver } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretConfig';
+import type { SigningRootSecretShareKekResolutionInput } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretSealing';
+import { InMemorySigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
+import type { ThresholdStoreConfigInput } from '../../packages/sdk-server-ts/src/core/types';
 
 function createAuthServiceMock(): AuthService {
   return {

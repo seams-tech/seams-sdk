@@ -2,25 +2,25 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AuthService } from '../../server/src/core/AuthService';
-import { createThresholdSigningService } from '../../server/src/core/ThresholdService';
+import type { AuthService } from '../../packages/sdk-server-ts/src/core/AuthService';
+import { createThresholdSigningService } from '../../packages/sdk-server-ts/src/core/ThresholdService';
 import {
   deriveEcdsaHssYRelayerFromSigningRootSecretResolver,
   type SigningRootSecretDecryptAdapter,
   type SigningRootSecretShareSource,
-} from '../../server/src/core/ThresholdService/signingRootSecretResolverAdapters';
-import { createSelfHostedSigningRootShareResolver } from '../../server/src/core/ThresholdService/signingRootShareResolver';
-import { deriveEcdsaHssYRelayerFromSigningRootSecretShares } from '../../server/src/core/ThresholdService/thresholdPrfWasm';
-import { parseSigningRootSecretShareWireV1 } from '../../server/src/core/ThresholdService/signingRootSecretShareWires';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretResolverAdapters';
+import { createSelfHostedSigningRootShareResolver } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootShareResolver';
+import { deriveEcdsaHssYRelayerFromSigningRootSecretShares } from '../../packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm';
+import { parseSigningRootSecretShareWireV1 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretShareWires';
 import {
   sealSigningRootSecretShareWireV1,
   type SigningRootSecretShareKekResolutionInput,
-} from '../../server/src/core/ThresholdService/signingRootSecretSealing';
-import { InMemorySigningRootSecretStore } from '../../server/src/core/ThresholdService/stores/SigningRootSecretStore';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretSealing';
+import { InMemorySigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
 import {
   roleLocalThresholdEcdsaHssRelayerBootstrap,
   secp256k1PrivateKey32ToPublicKey33,
-} from '../../server/src/core/ThresholdService/ethSignerWasm';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/ethSignerWasm';
 import {
   build_ecdsa_role_local_export_artifact_v1,
   threshold_ecdsa_hss_role_local_finalize_client_bootstrap,
@@ -31,8 +31,8 @@ import type { EcdsaHssClientSharePublicKey33B64u } from '@shared/threshold/ecdsa
 import type {
   SigningRootSecretShareId,
   SealedSigningRootSecretShare,
-} from '../../server/src/core/ThresholdService/signingRootSecretShareWires';
-import type { ThresholdStoreConfigInput } from '../../server/src/core/types';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretShareWires';
+import type { ThresholdStoreConfigInput } from '../../packages/sdk-server-ts/src/core/types';
 
 type ThresholdPrfFixtureShare = {
   readonly id: SigningRootSecretShareId;

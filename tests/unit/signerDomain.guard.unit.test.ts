@@ -12,10 +12,10 @@ function readRepoFile(relativePath: string): string {
 test.describe('signer domain guard', () => {
   test('wallet auth and signer metadata domains are imported from shared domain constants', () => {
     const guardedFiles = [
-      'client/src/core/types/seams.ts',
-      'client/src/core/signingEngine/stepUpConfirmation/walletAuthModeResolver.ts',
-      'client/src/core/indexedDB/passkeyClientDB.types.ts',
-      'client/src/core/indexedDB/accountSignerLifecycle.ts',
+      'packages/sdk-web/src/core/types/seams.ts',
+      'packages/sdk-web/src/core/signingEngine/stepUpConfirmation/walletAuthModeResolver.ts',
+      'packages/sdk-web/src/core/indexedDB/passkeyClientDB.types.ts',
+      'packages/sdk-web/src/core/indexedDB/accountSignerLifecycle.ts',
     ];
     const forbidden = [
       /export type WalletAuthMethod\s*=\s*['"]passkey['"]/,

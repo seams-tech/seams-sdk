@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { EcdsaHssErrorCode } from '../../server/src/core/types';
+import type { EcdsaHssErrorCode } from '../../packages/sdk-server-ts/src/core/types';
 
 const ECDSA_HSS_ERROR_CODES = [
   'invalid_body',

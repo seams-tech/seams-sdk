@@ -1,18 +1,18 @@
 import { expect, test } from '@playwright/test';
-import { toAccountId } from '../../client/src/core/types/accountIds';
+import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import {
   toWalletId,
   walletSessionRefFromSession,
-} from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
+} from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   EmailOtpAppSessionJwtCache,
   emailOtpRefreshIdentity,
   refreshEmailOtpAppSessionJwt,
-} from '../../client/src/core/signingEngine/session/emailOtp/appSessionJwtCache';
-import { exactSigningLaneIdentity } from '../../client/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
-import { buildNearTransactionSigningLane } from '../../client/src/core/signingEngine/session/operationState/lanes';
-import { SigningSessionIds } from '../../client/src/core/signingEngine/session/operationState/types';
-import { buildFreshStepUpRequiredFromEmailOtpRefreshRejection } from '../../client/src/core/signingEngine/session/operationState/stepUpFreshness';
+} from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/appSessionJwtCache';
+import { exactSigningLaneIdentity } from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
+import { buildNearTransactionSigningLane } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
+import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
+import { buildFreshStepUpRequiredFromEmailOtpRefreshRejection } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/stepUpFreshness';
 
 function appSessionJwt(args?: { expSeconds?: number; sub?: string }): string {
   const payload = {

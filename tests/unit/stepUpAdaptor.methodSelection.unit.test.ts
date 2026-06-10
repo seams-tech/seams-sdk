@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
-import type { WebAuthnAuthenticationCredential } from '../../client/src/core/types/webauthn';
+import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
 import {
   prepareStepUpAuth,
   requireStepUpAuth,
-} from '../../client/src/core/signingEngine/stepUpConfirmation/requireStepUpAuth';
+} from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/requireStepUpAuth';
 import {
   selectStepUpMethod,
   StepUpMethodSelectionError,
-} from '../../client/src/core/signingEngine/stepUpConfirmation/methodSelection';
+} from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/methodSelection';
 
 const TEST_WEBAUTHN_CREDENTIAL = {
   id: 'credential-id',

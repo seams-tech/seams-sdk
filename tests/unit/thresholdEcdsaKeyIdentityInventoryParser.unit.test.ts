@@ -2,13 +2,13 @@ import { expect, test } from '@playwright/test';
 import {
   parseProfileContinuityEcdsaWarmKey,
   parseThresholdEcdsaKeyIdentityTargets,
-} from '../../client/src/core/signingEngine/session/passkey/ecdsaKeyFactsInventory';
-import { toAccountId } from '../../client/src/core/types/accountIds';
+} from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaKeyFactsInventory';
+import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
-} from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { AccountSignerRecord } from '../../client/src/core/indexedDB/passkeyClientDB.types';
+} from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { AccountSignerRecord } from '../../packages/sdk-web/src/core/indexedDB/passkeyClientDB.types';
 
 const WALLET_ID = toAccountId('alice.testnet');
 const SUBJECT_ID = toWalletId(WALLET_ID);

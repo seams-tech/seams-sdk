@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const seamsWebImplementationPath = 'client/src/SeamsWeb/SeamsWeb.ts';
+const seamsWebImplementationPath = 'packages/sdk-web/src/SeamsWeb/SeamsWeb.ts';
 
 function readRepoSource(relativePath: string): string {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
@@ -26,10 +26,10 @@ function listTypeScriptFiles(relativeDir: string): string[] {
 
 test.describe('refactor 54 web signing surface guards', () => {
   test('web modules reach runtime services only from SeamsWeb assembly', () => {
-    const allowedPrefixes = ['client/src/SeamsWeb/assembly/'];
+    const allowedPrefixes = ['packages/sdk-web/src/SeamsWeb/assembly/'];
     const sourceFiles = [
-      ...listTypeScriptFiles('client/src/SeamsWeb'),
-      ...listTypeScriptFiles('client/src/SeamsWeb/walletIframe'),
+      ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb'),
+      ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb/walletIframe'),
     ].filter((relativePath) => !allowedPrefixes.some((prefix) => relativePath.startsWith(prefix)));
 
     const offenders = sourceFiles.filter((relativePath) =>
@@ -40,7 +40,7 @@ test.describe('refactor 54 web signing surface guards', () => {
   });
 
   test('SeamsWebContext does not expose the runtime service graph', () => {
-    const source = readRepoSource('client/src/SeamsWeb/signingSurface/types.ts');
+    const source = readRepoSource('packages/sdk-web/src/SeamsWeb/signingSurface/types.ts');
     const contextBlock = source.match(/export type SeamsWebContext\s*=[^;]+;/m)?.[0];
 
     expect(contextBlock).toBeTruthy();
@@ -48,7 +48,7 @@ test.describe('refactor 54 web signing surface guards', () => {
   });
 
   test('web signing surface does not expose SigningRuntime escape hatches', () => {
-    const interfacesSource = readRepoSource('client/src/SeamsWeb/signingSurface/types.ts');
+    const interfacesSource = readRepoSource('packages/sdk-web/src/SeamsWeb/signingSurface/types.ts');
     const surfaceBlock = interfacesSource.match(
       /export interface SeamsWebSigningSurface[\s\S]*?^}/m,
     )?.[0];
@@ -57,18 +57,18 @@ test.describe('refactor 54 web signing surface guards', () => {
     expect(surfaceBlock).not.toMatch(/\bsigningRuntime\b/);
 
     const assemblySource = readRepoSource(
-      'client/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
+      'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
     );
     expect(assemblySource).not.toMatch(/^\s*readonly\s+signingRuntime\b/m);
     expect(assemblySource).toMatch(/\bprivate\s+readonly\s+signingRuntime\b/);
 
     const sourceFiles = [
-      ...listTypeScriptFiles('client/src/SeamsWeb'),
-      ...listTypeScriptFiles('client/src/SeamsWeb/walletIframe'),
+      ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb'),
+      ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb/walletIframe'),
     ].filter(
       (relativePath) =>
-        !relativePath.startsWith('client/src/SeamsWeb/assembly/') &&
-        relativePath !== 'client/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
+        !relativePath.startsWith('packages/sdk-web/src/SeamsWeb/assembly/') &&
+        relativePath !== 'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
     );
 
     const runtimeAccessOffenders = sourceFiles.filter((relativePath) =>
@@ -84,7 +84,7 @@ test.describe('refactor 54 web signing surface guards', () => {
 
   test('public registration surfaces do not expose internal registration methods', () => {
     const legacyRegistrationMethodPattern = new RegExp(`\\bregisterPasskey${'Internal'}\\b`);
-    const interfacesSource = readRepoSource('client/src/SeamsWeb/publicApi/types.ts');
+    const interfacesSource = readRepoSource('packages/sdk-web/src/SeamsWeb/publicApi/types.ts');
     const registrationCapabilityBlock = interfacesSource.match(
       /export interface RegistrationCapability\s*{[\s\S]*?^}/m,
     )?.[0];
@@ -95,13 +95,13 @@ test.describe('refactor 54 web signing surface guards', () => {
     const seamsWebSource = readRepoSource(seamsWebImplementationPath);
     expect(seamsWebSource).not.toMatch(legacyRegistrationMethodPattern);
 
-    const iframeFacadeSource = readRepoSource('client/src/SeamsWeb/walletIframe/SeamsWebIframe.ts');
+    const iframeFacadeSource = readRepoSource('packages/sdk-web/src/SeamsWeb/walletIframe/SeamsWebIframe.ts');
     expect(iframeFacadeSource).not.toMatch(legacyRegistrationMethodPattern);
   });
 
   test('SeamsWeb auth session methods live under the auth namespace', () => {
     const seamsWebSource = readRepoSource(seamsWebImplementationPath);
-    const iframeFacadeSource = readRepoSource('client/src/SeamsWeb/walletIframe/SeamsWebIframe.ts');
+    const iframeFacadeSource = readRepoSource('packages/sdk-web/src/SeamsWeb/walletIframe/SeamsWebIframe.ts');
     const topLevelAuthSessionMethods = [
       'unlock',
       'lock',
@@ -121,7 +121,7 @@ test.describe('refactor 54 web signing surface guards', () => {
 
   test('SeamsWeb registration methods live under the registration namespace', () => {
     const seamsWebSource = readRepoSource(seamsWebImplementationPath);
-    const iframeFacadeSource = readRepoSource('client/src/SeamsWeb/walletIframe/SeamsWebIframe.ts');
+    const iframeFacadeSource = readRepoSource('packages/sdk-web/src/SeamsWeb/walletIframe/SeamsWebIframe.ts');
     const topLevelRegistrationMethods = [
       'registerWallet',
       'addWalletSigner',
@@ -139,7 +139,7 @@ test.describe('refactor 54 web signing surface guards', () => {
 
   test('Email OTP methods live under task namespaces', () => {
     const seamsWebSource = readRepoSource(seamsWebImplementationPath);
-    const interfacesSource = readRepoSource('client/src/SeamsWeb/publicApi/types.ts');
+    const interfacesSource = readRepoSource('packages/sdk-web/src/SeamsWeb/publicApi/types.ts');
     const authCapabilityBlock = interfacesSource.match(
       /export interface AuthCapability\s*{[\s\S]*?^}/m,
     )?.[0];
@@ -184,7 +184,7 @@ test.describe('refactor 54 web signing surface guards', () => {
 
   test('device lifecycle methods live under the devices namespace', () => {
     const seamsWebSource = readRepoSource(seamsWebImplementationPath);
-    const interfacesSource = readRepoSource('client/src/SeamsWeb/publicApi/types.ts');
+    const interfacesSource = readRepoSource('packages/sdk-web/src/SeamsWeb/publicApi/types.ts');
     const recoveryCapabilityBlock = interfacesSource.match(
       /export interface RecoveryCapability\s*{[\s\S]*?^}/m,
     )?.[0];
@@ -211,7 +211,7 @@ test.describe('refactor 54 web signing surface guards', () => {
 
   test('confirmation preference methods live under the preferences namespace', () => {
     const seamsWebSource = readRepoSource(seamsWebImplementationPath);
-    const iframeFacadeSource = readRepoSource('client/src/SeamsWeb/walletIframe/SeamsWebIframe.ts');
+    const iframeFacadeSource = readRepoSource('packages/sdk-web/src/SeamsWeb/walletIframe/SeamsWebIframe.ts');
     const preferencesMethodFragments = [
       'setConfirmBehavior',
       'setConfirmationConfig',
@@ -228,9 +228,9 @@ test.describe('refactor 54 web signing surface guards', () => {
   });
 
   test('root SDK export surface stays small and advanced helpers use the advanced subpath', () => {
-    const rootSource = readRepoSource('client/src/index.ts');
-    const advancedSource = readRepoSource('client/src/advanced.ts');
-    const packageJson = JSON.parse(readRepoSource('sdk/package.json')) as {
+    const rootSource = readRepoSource('packages/sdk-web/src/index.ts');
+    const advancedSource = readRepoSource('packages/sdk-web/src/advanced.ts');
+    const packageJson = JSON.parse(readRepoSource('packages/sdk-web/package.json')) as {
       exports?: Record<string, unknown>;
     };
     const advancedSymbols = [
@@ -257,7 +257,7 @@ test.describe('refactor 54 web signing surface guards', () => {
   });
 
   test('core RPC modules do not import SeamsWeb facade types', () => {
-    const sourceFiles = listTypeScriptFiles('client/src/core/rpcClients');
+    const sourceFiles = listTypeScriptFiles('packages/sdk-web/src/core/rpcClients');
 
     const offenders = sourceFiles.filter((relativePath) =>
       /from\s+['"]@\/SeamsWeb(?:['"/])/.test(readRepoSource(relativePath)),
@@ -268,12 +268,12 @@ test.describe('refactor 54 web signing surface guards', () => {
 
   test('signing namespaces do not reintroduce local signer classes', () => {
     const sourceFiles = [
-      ...listTypeScriptFiles('client/src/SeamsWeb/operations/near'),
-      ...listTypeScriptFiles('client/src/SeamsWeb/operations/tempo'),
-      ...listTypeScriptFiles('client/src/SeamsWeb/operations/evm'),
-      'client/src/SeamsWeb/publicApi/near.ts',
-      'client/src/SeamsWeb/publicApi/tempo.ts',
-      'client/src/SeamsWeb/publicApi/evm.ts',
+      ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb/operations/near'),
+      ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb/operations/tempo'),
+      ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb/operations/evm'),
+      'packages/sdk-web/src/SeamsWeb/publicApi/near.ts',
+      'packages/sdk-web/src/SeamsWeb/publicApi/tempo.ts',
+      'packages/sdk-web/src/SeamsWeb/publicApi/evm.ts',
     ];
 
     const offenders = sourceFiles.filter((relativePath) =>
@@ -291,8 +291,8 @@ test.describe('refactor 54 web signing surface guards', () => {
       'persistWalletRegistrationEcdsaSessions',
     ];
     const sourceFiles = [
-      ...listTypeScriptFiles('client/src/SeamsWeb'),
-      ...listTypeScriptFiles('client/src/core/signingEngine/flows/registration'),
+      ...listTypeScriptFiles('packages/sdk-web/src/SeamsWeb'),
+      ...listTypeScriptFiles('packages/sdk-web/src/core/signingEngine/flows/registration'),
     ];
     const offenders = sourceFiles.flatMap((relativePath) => {
       const source = readRepoSource(relativePath);
@@ -304,12 +304,12 @@ test.describe('refactor 54 web signing surface guards', () => {
     expect(offenders).toEqual([]);
 
     const browserSurfaceSource = readRepoSource(
-      'client/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
+      'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
     );
     expect(browserSurfaceSource).toMatch(/\basync\s+signEvmFamily\s*\(/);
     expect(browserSurfaceSource).not.toMatch(/\basync\s+signTempo\s*\(/);
 
-    const tempoCapabilitySource = readRepoSource('client/src/SeamsWeb/publicApi/tempo.ts');
+    const tempoCapabilitySource = readRepoSource('packages/sdk-web/src/SeamsWeb/publicApi/tempo.ts');
     expect(tempoCapabilitySource).toContain('TempoSigningSurface');
     expect(tempoCapabilitySource).not.toContain("SeamsWebContext['signingEngine']");
     expect(tempoCapabilitySource).toContain('deps.signingEngine.signEvmFamily');
@@ -318,7 +318,7 @@ test.describe('refactor 54 web signing surface guards', () => {
 
   test('broad browser signing-surface dependencies stay limited to documented remaining domains', () => {
     const allowedRemainingBroadDeps: string[] = [];
-    const sourceFiles = listTypeScriptFiles('client/src/SeamsWeb');
+    const sourceFiles = listTypeScriptFiles('packages/sdk-web/src/SeamsWeb');
     const offenders = sourceFiles.filter((relativePath) => {
       if (allowedRemainingBroadDeps.includes(relativePath)) return false;
       return /SeamsWebContext\['signingEngine'\]/.test(readRepoSource(relativePath));
@@ -329,8 +329,8 @@ test.describe('refactor 54 web signing surface guards', () => {
 
   test('web operations and public API use narrow signing-surface ports', () => {
     const operationRoots = [
-      'client/src/SeamsWeb/operations',
-      'client/src/SeamsWeb/publicApi',
+      'packages/sdk-web/src/SeamsWeb/operations',
+      'packages/sdk-web/src/SeamsWeb/publicApi',
     ];
     const offenders = operationRoots.flatMap((root) =>
       listTypeScriptFiles(root).flatMap((relativePath) => {
@@ -346,8 +346,8 @@ test.describe('refactor 54 web signing surface guards', () => {
 
     expect(offenders).toEqual([]);
 
-    const signingSurfaceTypes = readRepoSource('client/src/SeamsWeb/signingSurface/types.ts');
-    const signingSurfacePorts = readRepoSource('client/src/SeamsWeb/signingSurface/ports.ts');
+    const signingSurfaceTypes = readRepoSource('packages/sdk-web/src/SeamsWeb/signingSurface/types.ts');
+    const signingSurfacePorts = readRepoSource('packages/sdk-web/src/SeamsWeb/signingSurface/ports.ts');
     const aggregateMatch = signingSurfaceTypes.match(
       /export interface SeamsWebSigningSurface[\s\S]*?^}/m,
     );
@@ -363,9 +363,9 @@ test.describe('refactor 54 web signing surface guards', () => {
   test('web helpers do not accept raw SeamsWebContext inputs', () => {
     const allowedRawContextFiles = [
       seamsWebImplementationPath,
-      'client/src/SeamsWeb/signingSurface/types.ts',
+      'packages/sdk-web/src/SeamsWeb/signingSurface/types.ts',
     ];
-    const sourceFiles = listTypeScriptFiles('client/src/SeamsWeb').filter(
+    const sourceFiles = listTypeScriptFiles('packages/sdk-web/src/SeamsWeb').filter(
       (relativePath) => !allowedRawContextFiles.includes(relativePath),
     );
     const rawContextPatterns = [
@@ -385,9 +385,9 @@ test.describe('refactor 54 web signing surface guards', () => {
   test('broad SeamsWebContext stays facade-only', () => {
     const allowedFiles = [
       seamsWebImplementationPath,
-      'client/src/SeamsWeb/signingSurface/types.ts',
+      'packages/sdk-web/src/SeamsWeb/signingSurface/types.ts',
     ];
-    const offenders = listTypeScriptFiles('client/src/SeamsWeb')
+    const offenders = listTypeScriptFiles('packages/sdk-web/src/SeamsWeb')
       .filter((relativePath) => !allowedFiles.includes(relativePath))
       .filter((relativePath) => /\bSeamsWebContext\b/.test(readRepoSource(relativePath)));
 
@@ -395,13 +395,13 @@ test.describe('refactor 54 web signing surface guards', () => {
   });
 
   test('linear SeamsWeb layout enforces import direction', () => {
-    const coreWebImportOffenders = listTypeScriptFiles('client/src/core').filter((relativePath) =>
+    const coreWebImportOffenders = listTypeScriptFiles('packages/sdk-web/src/core').filter((relativePath) =>
       /from\s+['"](?:@\/web\/|\.\.?\/.*web\/)/.test(readRepoSource(relativePath)),
     );
     expect(coreWebImportOffenders).toEqual([]);
 
     const operationsFacadeOffenders = listTypeScriptFiles(
-      'client/src/SeamsWeb/operations',
+      'packages/sdk-web/src/SeamsWeb/operations',
     ).filter((relativePath) =>
       /from\s+['"](?:@\/SeamsWeb\/facade\/|\.\.?\/.*facade\/)/.test(
         readRepoSource(relativePath),
@@ -410,9 +410,9 @@ test.describe('refactor 54 web signing surface guards', () => {
     expect(operationsFacadeOffenders).toEqual([]);
 
     const surfacePublicApiOffenders = listTypeScriptFiles(
-      'client/src/SeamsWeb/signingSurface',
+      'packages/sdk-web/src/SeamsWeb/signingSurface',
     )
-      .filter((relativePath) => relativePath !== 'client/src/SeamsWeb/signingSurface/types.ts')
+      .filter((relativePath) => relativePath !== 'packages/sdk-web/src/SeamsWeb/signingSurface/types.ts')
       .filter((relativePath) =>
         /from\s+['"](?:@\/SeamsWeb\/publicApi\/|\.\.?\/.*publicApi\/)/.test(
           readRepoSource(relativePath),
@@ -421,7 +421,7 @@ test.describe('refactor 54 web signing surface guards', () => {
     expect(surfacePublicApiOffenders).toEqual([]);
 
     const publicApiAssemblyOffenders = listTypeScriptFiles(
-      'client/src/SeamsWeb/publicApi',
+      'packages/sdk-web/src/SeamsWeb/publicApi',
     ).filter((relativePath) =>
       /from\s+['"](?:@\/SeamsWeb\/assembly\/|\.\.?\/.*assembly\/)/.test(
         readRepoSource(relativePath),
@@ -429,19 +429,19 @@ test.describe('refactor 54 web signing surface guards', () => {
     );
     expect(publicApiAssemblyOffenders).toEqual([]);
 
-    expect(fs.existsSync(path.join(repoRoot, 'client/src/core/WalletIframe'))).toBe(false);
-    expect(fs.existsSync(path.join(repoRoot, 'client/src/SeamsWeb/walletIframe'))).toBe(true);
+    expect(fs.existsSync(path.join(repoRoot, 'packages/sdk-web/src/core/WalletIframe'))).toBe(false);
+    expect(fs.existsSync(path.join(repoRoot, 'packages/sdk-web/src/SeamsWeb/walletIframe'))).toBe(true);
   });
 
   test('core wallet iframe browser primitives stay limited', () => {
     const allowedPrimitiveFiles = [
-      'client/src/core/browser/walletIframe/csp-stylesheet.ts',
-      'client/src/core/browser/walletIframe/events.ts',
-      'client/src/core/browser/walletIframe/host-mode.ts',
-      'client/src/core/browser/walletIframe/hostVariant.ts',
+      'packages/sdk-web/src/core/browser/walletIframe/csp-stylesheet.ts',
+      'packages/sdk-web/src/core/browser/walletIframe/events.ts',
+      'packages/sdk-web/src/core/browser/walletIframe/host-mode.ts',
+      'packages/sdk-web/src/core/browser/walletIframe/hostVariant.ts',
     ];
 
-    expect(listTypeScriptFiles('client/src/core/browser/walletIframe').sort()).toEqual(
+    expect(listTypeScriptFiles('packages/sdk-web/src/core/browser/walletIframe').sort()).toEqual(
       allowedPrimitiveFiles,
     );
 
@@ -465,23 +465,23 @@ test.describe('refactor 54 web signing surface guards', () => {
 
   test('auth method browser operations stay under symmetric authMethods folders', () => {
     const authMethodRoots = [
-      'client/src/SeamsWeb/operations/authMethods/emailOtp',
-      'client/src/SeamsWeb/operations/authMethods/passkey',
+      'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp',
+      'packages/sdk-web/src/SeamsWeb/operations/authMethods/passkey',
     ];
     for (const relativePath of authMethodRoots) {
       expect(fs.existsSync(path.join(repoRoot, relativePath))).toBe(true);
     }
 
     const forbiddenPaths = [
-      'client/src/SeamsWeb/operations/emailOtp',
-      'client/src/SeamsWeb/operations/registration/emailOtpRegistrationAuthority.ts',
-      'client/src/SeamsWeb/operations/registration/passkeyRegistrationAuthority.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/emailOtp',
+      'packages/sdk-web/src/SeamsWeb/operations/registration/emailOtpRegistrationAuthority.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/registration/passkeyRegistrationAuthority.ts',
     ];
     for (const relativePath of forbiddenPaths) {
       expect(fs.existsSync(path.join(repoRoot, relativePath))).toBe(false);
     }
 
-    const sourceFiles = listTypeScriptFiles('client/src/SeamsWeb');
+    const sourceFiles = listTypeScriptFiles('packages/sdk-web/src/SeamsWeb');
     const forbiddenImportPatterns = [
       /from\s+['"]@\/SeamsWeb\/operations\/emailOtp\//,
       /from\s+['"]@\/SeamsWeb\/operations\/registration\/(?:emailOtpRegistrationAuthority|passkeyRegistrationAuthority)['"]/,
@@ -498,24 +498,24 @@ test.describe('refactor 54 web signing surface guards', () => {
 
   test('pure public API forwarding modules stay deleted', () => {
     const deletedForwarderFiles = [
-      'client/src/SeamsWeb/publicApi/keys.ts',
-      'client/src/SeamsWeb/publicApi/registration.ts',
-      'client/src/SeamsWeb/publicApi/walletIframe.ts',
+      'packages/sdk-web/src/SeamsWeb/publicApi/keys.ts',
+      'packages/sdk-web/src/SeamsWeb/publicApi/registration.ts',
+      'packages/sdk-web/src/SeamsWeb/publicApi/walletIframe.ts',
     ];
     const existingDeletedForwarders = deletedForwarderFiles.filter((relativePath) =>
       fs.existsSync(path.join(repoRoot, relativePath)),
     );
     expect(existingDeletedForwarders).toEqual([]);
 
-    const createPublicApiPath = 'client/src/SeamsWeb/publicApi/createPublicApi.ts';
+    const createPublicApiPath = 'packages/sdk-web/src/SeamsWeb/publicApi/createPublicApi.ts';
     expect(fs.existsSync(path.join(repoRoot, createPublicApiPath))).toBe(true);
-    expect(fs.existsSync(path.join(repoRoot, 'client/src/SeamsWeb/createPublicApi.ts'))).toBe(
+    expect(fs.existsSync(path.join(repoRoot, 'packages/sdk-web/src/SeamsWeb/createPublicApi.ts'))).toBe(
       false,
     );
   });
 
   test('native SDKs are not modeled as TypeScript npm facades', () => {
-    const packageJson = readRepoJson('sdk/package.json');
+    const packageJson = readRepoJson('packages/sdk-web/package.json');
     expect(packageJson.exports['./ios']).toBeUndefined();
     expect(packageJson.exports['./embedded']).toBeUndefined();
     expect(packageJson.typesVersions?.['*']?.ios).toBeUndefined();
@@ -524,10 +524,10 @@ test.describe('refactor 54 web signing surface guards', () => {
     expect(packageJson.keywords).not.toContain('embedded');
 
     const forbiddenPaths = [
-      'client/src/ios',
-      'client/src/embedded',
-      'client/src/ios.ts',
-      'client/src/embedded.ts',
+      'packages/sdk-web/src/ios',
+      'packages/sdk-web/src/embedded',
+      'packages/sdk-web/src/ios.ts',
+      'packages/sdk-web/src/embedded.ts',
     ];
     const existingForbiddenPaths = forbiddenPaths.filter((relativePath) =>
       fs.existsSync(path.join(repoRoot, relativePath)),
@@ -536,18 +536,18 @@ test.describe('refactor 54 web signing surface guards', () => {
 
     const forbiddenNativeFacadeNamePattern =
       /(?:SeamsIOS|IoSSigningSurface|SeamsEmbedded|EmbeddedSigningSurface)/;
-    const fakeNativeFacadeFiles = listTypeScriptFiles('client/src').filter((relativePath) =>
+    const fakeNativeFacadeFiles = listTypeScriptFiles('packages/sdk-web/src').filter((relativePath) =>
       forbiddenNativeFacadeNamePattern.test(relativePath),
     );
     expect(fakeNativeFacadeFiles).toEqual([]);
 
-    const runtimePortsSource = readRepoSource('client/src/core/platform/runtime.ts');
+    const runtimePortsSource = readRepoSource('packages/sdk-web/src/core/platform/runtime.ts');
     expect(runtimePortsSource).toContain("export type RuntimePortsKind = 'browser';");
     expect(runtimePortsSource).not.toContain('EmbeddedPlatformRuntime');
     expect(runtimePortsSource).not.toContain('linux_embedded');
     expect(runtimePortsSource).not.toContain("'ios'");
 
-    const runtimeEntrySource = readRepoSource('client/src/runtime.ts');
+    const runtimeEntrySource = readRepoSource('packages/sdk-web/src/runtime.ts');
     expect(runtimeEntrySource).not.toContain('EmbeddedPlatformRuntime');
   });
 });

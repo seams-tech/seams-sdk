@@ -5,12 +5,12 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const EMAIL_OTP_ECDSA_SOURCE_URLS = [
-  '../../client/src/core/signingEngine/session/emailOtp/ecdsaEnrollment.ts',
-  '../../client/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts',
-  '../../client/src/core/signingEngine/session/emailOtp/ecdsaPublication.ts',
-  '../../client/src/core/signingEngine/session/emailOtp/exportRecovery.ts',
-  '../../client/src/core/signingEngine/session/emailOtp/workerRequests.ts',
-  '../../client/src/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit.ts',
+  '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaEnrollment.ts',
+  '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaLogin.ts',
+  '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaPublication.ts',
+  '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery.ts',
+  '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/workerRequests.ts',
+  '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaBootstrapCommit.ts',
 ].map((relativePath) => new URL(relativePath, import.meta.url));
 
 const TEMPORARY_DIAGNOSTIC_STRINGS = [
@@ -50,9 +50,9 @@ test.describe('Email OTP ECDSA branch isolation guards', () => {
     const duplicateBrandDeclaration = new RegExp(
       `export\\s+type\\s+(?:${centralBrandNames.join('|')})\\s*=`,
     );
-    const duplicateBrandFiles = ['client/src', 'server/src', 'shared/src']
+    const duplicateBrandFiles = ['packages/sdk-web/src', 'packages/sdk-server-ts/src', 'packages/shared-ts/src']
       .flatMap(listSourceFiles)
-      .filter((relativePath) => relativePath !== 'shared/src/utils/domainIds.ts')
+      .filter((relativePath) => relativePath !== 'packages/shared-ts/src/utils/domainIds.ts')
       .filter((relativePath) =>
         duplicateBrandDeclaration.test(readFileSync(path.join(repoRoot, relativePath), 'utf8')),
       );
@@ -73,10 +73,10 @@ test.describe('Email OTP ECDSA branch isolation guards', () => {
 
   test('wallet-subject vocabulary is isolated to migration and delete-only boundaries', () => {
     const allowedFiles = new Set([
-      'client/src/core/indexedDB/seamsWalletDB/schema.ts',
-      'server/src/storage/postgres.ts',
+      'packages/sdk-web/src/core/indexedDB/seamsWalletDB/schema.ts',
+      'packages/sdk-server-ts/src/storage/postgres.ts',
     ]);
-    const offenders = ['client/src', 'server/src', 'shared/src']
+    const offenders = ['packages/sdk-web/src', 'packages/sdk-server-ts/src', 'packages/shared-ts/src']
       .flatMap(listSourceFiles)
       .filter((relativePath) => !allowedFiles.has(relativePath))
       .filter((relativePath) => /walletSubject|wallet_subject/.test(readFileSync(path.join(repoRoot, relativePath), 'utf8')));
@@ -85,7 +85,7 @@ test.describe('Email OTP ECDSA branch isolation guards', () => {
   });
 
   test('temporary registration and unlock diagnostics stay out of runtime source', () => {
-    const offenders = ['client/src', 'server/src', 'shared/src']
+    const offenders = ['packages/sdk-web/src', 'packages/sdk-server-ts/src', 'packages/shared-ts/src']
       .flatMap(listSourceFiles)
       .flatMap((relativePath) => {
         const source = readFileSync(path.join(repoRoot, relativePath), 'utf8');

@@ -6,16 +6,16 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 const guardedRoots = [
-  'client/src/core/signingEngine/session',
-  'client/src/core/signingEngine/flows',
-  'client/src/core/signingEngine/threshold',
-  'client/src/core/signingEngine/interfaces',
-  'client/src/core/signingEngine/useCases',
+  'packages/sdk-web/src/core/signingEngine/session',
+  'packages/sdk-web/src/core/signingEngine/flows',
+  'packages/sdk-web/src/core/signingEngine/threshold',
+  'packages/sdk-web/src/core/signingEngine/interfaces',
+  'packages/sdk-web/src/core/signingEngine/useCases',
 ];
 
 const activeCoreSigningRoots = [
   ...guardedRoots,
-  'client/src/core/signingEngine/chains',
+  'packages/sdk-web/src/core/signingEngine/chains',
 ];
 
 function listFiles(relativeDir: string, predicate: (fileName: string) => boolean): string[] {
@@ -89,62 +89,62 @@ function guardBoundaryFiles(entries: readonly GuardBoundaryEntry[]): ReadonlySet
 
 const platformBoundaryFiles = guardBoundaryFiles([
   {
-    file: 'client/src/core/signingEngine/flows/signEvmFamily/events.ts',
+    file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/events.ts',
     owner: 'EVM-family diagnostics boundary',
     reason: 'reads browser diagnostics storage for signing event traces',
   },
   {
-    file: 'client/src/core/signingEngine/flows/signEvmFamily/accountAuth.ts',
+    file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/accountAuth.ts',
     owner: 'EVM-family auth boundary',
     reason: 'checks browser credential availability before WebAuthn authentication',
   },
   {
-    file: 'client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
+    file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
     owner: 'EVM-family public signing boundary',
     reason: 'coordinates browser diagnostics and runtime signing checks at the public flow edge',
   },
   {
-    file: 'client/src/core/signingEngine/flows/signEvmFamily/signers/webauthnP256.ts',
+    file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signers/webauthnP256.ts',
     owner: 'WebAuthn P-256 signer boundary',
     reason: 'performs direct WebAuthn P-256 assertions',
   },
   {
-    file: 'client/src/core/signingEngine/flows/signEvmFamily/webauthnP256KeyRef.ts',
+    file: 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/webauthnP256KeyRef.ts',
     owner: 'WebAuthn P-256 key-ref boundary',
     reason: 'reads browser credential state for P-256 key references',
   },
   {
-    file: 'client/src/core/signingEngine/interfaces/operationDeps.ts',
+    file: 'packages/sdk-web/src/core/signingEngine/interfaces/operationDeps.ts',
     owner: 'operation dependency port boundary',
     reason: 'types runtime dependencies injected at signing operation edges',
   },
   {
-    file: 'client/src/core/signingEngine/interfaces/runtime.ts',
+    file: 'packages/sdk-web/src/core/signingEngine/interfaces/runtime.ts',
     owner: 'runtime dependency port boundary',
     reason: 'types platform runtime dependencies injected by assembly',
   },
   {
-    file: 'client/src/core/signingEngine/session/availability/availableSigningLanes.ts',
+    file: 'packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts',
     owner: 'signing lane availability boundary',
     reason: 'checks browser persistence availability before reading lane state',
   },
   {
-    file: 'client/src/core/signingEngine/session/budget/budgetFinalizer.ts',
+    file: 'packages/sdk-web/src/core/signingEngine/session/budget/budgetFinalizer.ts',
     owner: 'budget finalization diagnostics boundary',
     reason: 'reads browser diagnostics storage while finalizing signing budgets',
   },
   {
-    file: 'client/src/core/signingEngine/session/operationState/trace.ts',
+    file: 'packages/sdk-web/src/core/signingEngine/session/operationState/trace.ts',
     owner: 'operation trace diagnostics boundary',
     reason: 'reads browser diagnostics storage for operation traces',
   },
   {
-    file: 'client/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
+    file: 'packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
     owner: 'passkey ECDSA bootstrap boundary',
     reason: 'receives browser storage and prompt ports for ECDSA bootstrap',
   },
   {
-    file: 'client/src/core/signingEngine/session/userPreferences.ts',
+    file: 'packages/sdk-web/src/core/signingEngine/session/userPreferences.ts',
     owner: 'session preference persistence boundary',
     reason: 'reads browser local storage for user preferences',
   },
@@ -178,7 +178,7 @@ const rawClientRootSharePatterns = [
   /\bclientRootShare32B64u\b/,
 ];
 
-const secretSourceCastBoundaryFiles = new Set(['client/src/core/platform/types.typecheck.ts']);
+const secretSourceCastBoundaryFiles = new Set(['packages/sdk-web/src/core/platform/types.typecheck.ts']);
 
 const secretSourceCastPatterns = [
   /\bas\s+ClientSecretSource\b/,
@@ -191,8 +191,8 @@ const secretSourceCastPatterns = [
 
 function isRuntimePortsAssemblyFile(file: string): boolean {
   return (
-    file === 'client/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts' ||
-    file.startsWith('client/src/core/signingEngine/assembly/')
+    file === 'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts' ||
+    file.startsWith('packages/sdk-web/src/core/signingEngine/assembly/')
   );
 }
 
@@ -215,26 +215,26 @@ const hssClientWorkerConstructionPatterns = [
 
 const signerCommandSchemaBoundaryFiles = guardBoundaryFiles([
   {
-    file: 'client/src/core/platform/generated/signerCoreCommands.ts',
+    file: 'packages/sdk-web/src/core/platform/generated/signerCoreCommands.ts',
     owner: 'generated signer-core schemas',
     reason: 'this is the committed Rust-generated command schema file',
   },
   {
-    file: 'client/src/core/platform/signerCoreCommandAdapters.ts',
+    file: 'packages/sdk-web/src/core/platform/signerCoreCommandAdapters.ts',
     owner: 'signer-core schema adapter',
     reason: 'this module is the only TypeScript wrapper layer for generated command schemas',
   },
   {
-    file: 'client/src/core/platform/signerCoreCommandAdapters.typecheck.ts',
+    file: 'packages/sdk-web/src/core/platform/signerCoreCommandAdapters.typecheck.ts',
     owner: 'signer-core schema type fixtures',
     reason: 'type fixtures intentionally reference generated command schema names',
   },
 ]);
 
 const signerCommandSchemaRoots = [
-  'client/src/core/platform',
-  'client/src/core/signingEngine/threshold',
-  'client/src/core/signingEngine/workerManager',
+  'packages/sdk-web/src/core/platform',
+  'packages/sdk-web/src/core/signingEngine/threshold',
+  'packages/sdk-web/src/core/signingEngine/workerManager',
 ];
 
 const handWrittenSignerCommandSchemaPatterns = [
@@ -288,7 +288,7 @@ test.describe('cross-platform boundary guards', () => {
 
   test('keeps client secret sources builder-only', () => {
     const violations: string[] = [];
-    for (const file of listTypeScriptFilesInRoots(['client/src/core/platform', ...guardedRoots])) {
+    for (const file of listTypeScriptFilesInRoots(['packages/sdk-web/src/core/platform', ...guardedRoots])) {
       if (secretSourceCastBoundaryFiles.has(file)) continue;
       const source = readRepoFile(file);
       for (const pattern of secretSourceCastPatterns) {
@@ -302,7 +302,7 @@ test.describe('cross-platform boundary guards', () => {
 
   test('keeps RuntimePorts as an assembly-only aggregate', () => {
     const violations: string[] = [];
-    for (const file of listTypeScriptFiles('client/src/core/signingEngine')) {
+    for (const file of listTypeScriptFiles('packages/sdk-web/src/core/signingEngine')) {
       if (isRuntimePortsAssemblyFile(file)) continue;
       const source = readRepoFile(file);
       if (/\bRuntimePorts\b/.test(source) || /\bcreateBrowserPlatformRuntime\b/.test(source)) {
@@ -314,7 +314,7 @@ test.describe('cross-platform boundary guards', () => {
 
   test('keeps use-case services from depending on RuntimePorts', () => {
     const violations: string[] = [];
-    for (const file of listTypeScriptFiles('client/src/core/signingEngine/useCases')) {
+    for (const file of listTypeScriptFiles('packages/sdk-web/src/core/signingEngine/useCases')) {
       const source = readRepoFile(file);
       if (/\bRuntimePorts\b/.test(source) || /\bcreateBrowserPlatformRuntime\b/.test(source)) {
         violations.push(file);
@@ -327,8 +327,8 @@ test.describe('cross-platform boundary guards', () => {
     const violations: string[] = [];
     for (const file of listTypeScriptFilesInRoots([
       ...activeCoreSigningRoots,
-      'client/src/core/platform',
-      'client/src/SeamsWeb',
+      'packages/sdk-web/src/core/platform',
+      'packages/sdk-web/src/SeamsWeb',
     ])) {
       if (rawDbRecordBoundaryFiles.has(file)) continue;
       const source = readRepoFile(file);
@@ -342,7 +342,7 @@ test.describe('cross-platform boundary guards', () => {
   });
 
   test('keeps the ECDSA role-local parser on the canonical persistence path', () => {
-    const platformTypes = 'client/src/core/platform/ecdsaRoleLocalRecords.ts';
+    const platformTypes = 'packages/sdk-web/src/core/platform/ecdsaRoleLocalRecords.ts';
     const violations: string[] = [];
     if (fs.existsSync(path.join(repoRoot, platformTypes))) {
       const source = readRepoFile(platformTypes);
@@ -350,8 +350,8 @@ test.describe('cross-platform boundary guards', () => {
         violations.push(`${platformTypes}: parser implementation belongs in the persistence boundary`);
       }
     }
-    for (const file of listTypeScriptFilesInRoots(['client/src/core'])) {
-      if (file.startsWith('client/src/core/platform/')) continue;
+    for (const file of listTypeScriptFilesInRoots(['packages/sdk-web/src/core'])) {
+      if (file.startsWith('packages/sdk-web/src/core/platform/')) continue;
       const source = readRepoFile(file);
       if (/platform\/ecdsaRoleLocalRecords/.test(source)) {
         violations.push(`${file}: imports platform role-local types outside the platform barrel`);
@@ -376,7 +376,7 @@ test.describe('cross-platform boundary guards', () => {
 
   test('keeps the legacy root-share ECDSA prepare FFI out of production surfaces', () => {
     const emailOtpWorkerSource = readRepoFile(
-      'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
+      'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
     );
     const clientDts = readRepoFile('wasm/hss_client_signer/pkg/hss_client_signer.d.ts');
 
@@ -402,13 +402,13 @@ test.describe('cross-platform boundary guards', () => {
 
   test('keeps Email OTP registration ECDSA prep behind worker-issued handles', () => {
     const registrationSource = readRepoFile(
-      'client/src/SeamsWeb/operations/registration/registration.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
     );
     const emailOtpSource = readRepoFile(
-      'client/src/SeamsWeb/operations/authMethods/emailOtp/enrollment.ts',
+      'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/enrollment.ts',
     );
     const workerTypesSource = readRepoFile(
-      'client/src/core/signingEngine/workerManager/workerTypes.ts',
+      'packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts',
     );
 
     expect(registrationSource).not.toContain('enrollment.clientRootShare32B64u');
@@ -418,10 +418,10 @@ test.describe('cross-platform boundary guards', () => {
 
   test('keeps ECDSA export flow from transporting client-root share strings', () => {
     const exportFlowSource = readRepoFile(
-      'client/src/core/signingEngine/flows/recovery/ecdsaExportFlow.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaExportFlow.ts',
     );
     const exportBoundarySource = readRepoFile(
-      'client/src/core/signingEngine/flows/recovery/ecdsaHssExport.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/recovery/ecdsaHssExport.ts',
     );
 
     expect(exportFlowSource).not.toContain('clientRootShare32B64u');
@@ -430,13 +430,13 @@ test.describe('cross-platform boundary guards', () => {
 
   test('keeps Email OTP Ed25519 export material inside the Email OTP worker', () => {
     const workerTypesSource = readRepoFile(
-      'client/src/core/signingEngine/workerManager/workerTypes.ts',
+      'packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts',
     );
     const exportRecoverySource = readRepoFile(
-      'client/src/core/signingEngine/session/emailOtp/exportRecovery.ts',
+      'packages/sdk-web/src/core/signingEngine/session/emailOtp/exportRecovery.ts',
     );
     const nearExportSource = readRepoFile(
-      'client/src/core/signingEngine/flows/recovery/nearEd25519ExportFlow.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/recovery/nearEd25519ExportFlow.ts',
     );
 
     expect(workerTypesSource).not.toContain('recoverEmailOtpEd25519ExportPrfFirst');
@@ -447,7 +447,7 @@ test.describe('cross-platform boundary guards', () => {
 
   test('keeps lifecycle worker results out of boolean success bags', () => {
     const workerTypesSource = readRepoFile(
-      'client/src/core/signingEngine/workerManager/workerTypes.ts',
+      'packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts',
     );
 
     expect(workerTypesSource).not.toContain('result: { ok: boolean }');

@@ -41,7 +41,7 @@ curl -X POST "$WORKER_URL/self-host/signing-root/import" \
 Check import status:
 
 ```sh
-curl "$WORKER_URL/self-host/signing-root/status?projectId=$PROJECT_ID&signingRootVersion=$ROOT_VERSION" \
+curl "$WORKER_URL/self-host/signing-root/status?signingRootId=$SIGNING_ROOT_ID&signingRootVersion=$ROOT_VERSION" \
   -H "authorization: Bearer $SELF_HOST_ADMIN_TOKEN"
 ```
 

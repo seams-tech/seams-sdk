@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { createRegistrationLifecycleEvent } from '../../client/src/SeamsWeb/operations/registration/registration';
-import { RegistrationEventPhase } from '../../client/src/core/types/sdkSentEvents';
+import { createRegistrationLifecycleEvent } from '../../packages/sdk-web/src/SeamsWeb/operations/registration/registration';
+import { RegistrationEventPhase } from '../../packages/sdk-web/src/core/types/sdkSentEvents';
 
 test.describe('registration flow events', () => {
   test('passkey events use passkey-scoped registration flow identity by default', () => {

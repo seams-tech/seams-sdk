@@ -2,12 +2,12 @@ import { expect, test } from '@playwright/test';
 import {
   thresholdEcdsaHssRoleLocalBootstrap,
   type ThresholdEcdsaHssRoleLocalBootstrapRequest,
-} from '../../client/src/core/rpcClients/relayer/thresholdEcdsa';
+} from '../../packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa';
 import type { EcdsaHssClientSharePublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import {
   toEcdsaHssThresholdKeyId,
-} from '../../client/src/core/signingEngine/session/identity/emailOtpHssIdentity';
-import { toWalletId } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
+} from '../../packages/sdk-web/src/core/signingEngine/session/identity/emailOtpHssIdentity';
+import { toWalletId } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 
 function toHssClientSharePublicKey33B64uForTest(value: string): EcdsaHssClientSharePublicKey33B64u {
   return value as EcdsaHssClientSharePublicKey33B64u;

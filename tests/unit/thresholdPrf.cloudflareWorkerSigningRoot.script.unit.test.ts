@@ -2,19 +2,19 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { base64UrlEncode } from '../../shared/src/utils/encoders';
-import { SIGNING_ROOT_RECORD_VERSION_V1 } from '../../server/src/core/ThresholdService/signingRootRecords';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
+import { SIGNING_ROOT_RECORD_VERSION_V1 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootRecords';
 import {
   createSigningRootSecretResolver,
   deriveEcdsaHssYRelayerFromSigningRootSecretResolver,
-} from '../../server/src/core/ThresholdService/signingRootSecretResolverAdapters';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretResolverAdapters';
 import {
   createSigningRootSecretAesGcmDecryptAdapter,
   sealSigningRootSecretShareWireV1,
   type SigningRootSecretShareKekResolutionInput,
-} from '../../server/src/core/ThresholdService/signingRootSecretSealing';
-import { CloudflareDurableObjectSigningRootSecretStore } from '../../server/src/core/ThresholdService/stores/SigningRootSecretStore';
-import { roleLocalThresholdEcdsaHssRelayerBootstrap } from '../../server/src/core/ThresholdService/ethSignerWasm';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretSealing';
+import { CloudflareDurableObjectSigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
+import { roleLocalThresholdEcdsaHssRelayerBootstrap } from '../../packages/sdk-server-ts/src/core/ThresholdService/ethSignerWasm';
 import {
   build_ecdsa_role_local_export_artifact_v1,
   threshold_ecdsa_hss_role_local_finalize_client_bootstrap,
@@ -24,12 +24,12 @@ import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpe
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
-} from '../../server/src/core/types';
+} from '../../packages/sdk-server-ts/src/core/types';
 import type {
   SigningRootSecretShareId,
   SigningRootSecretShareWireV1,
-} from '../../server/src/core/ThresholdService/signingRootSecretShareWires';
-import { ThresholdStoreDurableObject } from '../../server/src/router/cloudflare/durableObjects/thresholdStore';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretShareWires';
+import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
 
 type ThresholdPrfFixtureShare = {
   readonly id: SigningRootSecretShareId;

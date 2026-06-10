@@ -21,7 +21,7 @@ import {
 
 test.describe('signing engine ECDSA public surface identity guards', () => {
   test('public SDK ECDSA inputs stay wallet-session shaped', () => {
-    const source = readRepoFile('client/src/SeamsWeb/publicApi/types.ts');
+    const source = readRepoFile('packages/sdk-web/src/SeamsWeb/publicApi/types.ts');
     const namedDeclarations = [
       {
         name: 'SignTempoArgs',
@@ -102,7 +102,7 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
   });
 
   test('ECDSA iframe payloads stay wallet-session shaped', () => {
-    const source = readRepoFile('client/src/SeamsWeb/walletIframe/shared/messages.ts');
+    const source = readRepoFile('packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts');
     const namedDeclarations = [
       {
         name: 'PMSignTempoPayload',
@@ -154,14 +154,14 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
   });
 
   test('ECDSA HSS role-local bootstrap types keep lane identity explicit', () => {
-    const clientSource = readRepoFile('client/src/core/rpcClients/relayer/thresholdEcdsa.ts');
+    const clientSource = readRepoFile('packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts');
     const clientSessionPolicySource = readRepoFile(
-      'client/src/core/signingEngine/threshold/sessionPolicy.ts',
+      'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts',
     );
-    const serverSource = readRepoFile('server/src/core/types.ts');
-    const thresholdPrfSource = readRepoFile('server/src/core/ThresholdService/thresholdPrfWasm.ts');
+    const serverSource = readRepoFile('packages/sdk-server-ts/src/core/types.ts');
+    const thresholdPrfSource = readRepoFile('packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts');
     const hssClientSource = readRepoFile(
-      'client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts',
+      'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts',
     );
     const offenders: string[] = [];
     const requiredRoleLocalBootstrapFields = [
@@ -182,17 +182,17 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
     for (const { source, file, typeName } of [
       {
         source: clientSource,
-        file: 'client/src/core/rpcClients/relayer/thresholdEcdsa.ts',
+        file: 'packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts',
         typeName: 'ThresholdEcdsaHssRoleLocalBootstrapRequest',
       },
       {
         source: clientSource,
-        file: 'client/src/core/rpcClients/relayer/thresholdEcdsa.ts',
+        file: 'packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts',
         typeName: 'ThresholdEcdsaHssRoleLocalBootstrapBody',
       },
       {
         source: serverSource,
-        file: 'server/src/core/types.ts',
+        file: 'packages/sdk-server-ts/src/core/types.ts',
         typeName: 'EcdsaHssClientBootstrapRequestBase',
       },
     ]) {
@@ -227,16 +227,16 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
           'relayerShare32B64u',
           'relayerCaitSithInput',
         ],
-        'server/src/core/types.ts EcdsaHssRoleLocalKeyRecord',
+        'packages/sdk-server-ts/src/core/types.ts EcdsaHssRoleLocalKeyRecord',
       ),
       ...expectNoField(
         serverRoleLocalRecordBlock,
         'chainTarget',
-        'server/src/core/types.ts EcdsaHssRoleLocalKeyRecord',
+        'packages/sdk-server-ts/src/core/types.ts EcdsaHssRoleLocalKeyRecord',
       ),
       ...expectNoNearAccountId(
         serverRoleLocalRecordBlock,
-        'server/src/core/types.ts EcdsaHssRoleLocalKeyRecord',
+        'packages/sdk-server-ts/src/core/types.ts EcdsaHssRoleLocalKeyRecord',
       ),
     );
 
@@ -248,16 +248,16 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
       ...expectRequiredFields(
         clientEcdsaPolicyBlock,
         ['walletId', 'rpId', 'chainTarget', 'sessionId'],
-        'client/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaHssSessionPolicy',
+        'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaHssSessionPolicy',
       ),
       ...expectNoField(
         clientEcdsaPolicyBlock,
         'userId',
-        'client/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaHssSessionPolicy',
+        'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaHssSessionPolicy',
       ),
       ...expectNoNearAccountId(
         clientEcdsaPolicyBlock,
-        'client/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaHssSessionPolicy',
+        'packages/sdk-web/src/core/signingEngine/threshold/sessionPolicy.ts EcdsaHssSessionPolicy',
       ),
     );
 
@@ -269,11 +269,11 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
       ...expectRequiredFields(
         signingRootContextBlock,
         ['walletId', 'rpId', 'signingRootId', 'keyPurpose', 'keyVersion'],
-        'server/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
+        'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
       ),
       ...expectNoNearAccountId(
         signingRootContextBlock,
-        'server/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
+        'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
       ),
     );
 
@@ -285,22 +285,22 @@ test.describe('signing engine ECDSA public surface identity guards', () => {
       ...expectRequiredFields(
         ecdsaClientContextBlock,
         ['walletId', 'rpId', 'chainTarget', 'keyPurpose', 'keyVersion'],
-        'client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+        'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
       ),
       ...expectNoNearAccountId(
         ecdsaClientContextBlock,
-        'client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+        'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
       ),
     );
 
     for (const [block, context] of [
       [
         signingRootContextBlock,
-        'server/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
+        'packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm.ts EcdsaHssStableKeyPrfContext',
       ],
       [
         ecdsaClientContextBlock,
-        'client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
+        'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts ThresholdEcdsaHssStableKeyContext',
       ],
     ] as const) {
       for (const field of ['walletSigningSessionId', 'thresholdSessionId']) {

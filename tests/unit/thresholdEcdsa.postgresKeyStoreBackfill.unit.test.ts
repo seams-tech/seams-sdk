@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
 import { createRequire } from 'module';
-import { normalizeLogger } from '../../server/src/core/logger';
-import { createThresholdEcdsaKeyStore } from '../../server/src/core/ThresholdService/stores/KeyStore';
-import type { EcdsaHssRoleLocalKeyRecord } from '../../server/src/core/types';
+import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
+import { createThresholdEcdsaKeyStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/KeyStore';
+import type { EcdsaHssRoleLocalKeyRecord } from '../../packages/sdk-server-ts/src/core/types';
 
 type FakeQueryResult = { rows: any[]; rowCount?: number };
 type FakePool = {

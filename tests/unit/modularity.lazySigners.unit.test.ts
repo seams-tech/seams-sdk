@@ -5,27 +5,27 @@ import path from 'node:path';
 test.describe('modularity lazy signer loading', () => {
   test('signing wiring stays dynamic-import based', async () => {
     const nearSigningSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signingEngine/flows/signNear/signNear.ts'),
+      path.resolve(process.cwd(), '../packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts'),
       'utf8',
     );
     const nearSigningFlowSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signingEngine/flows/signNear/nearSigningFlow.ts',
+        '../packages/sdk-web/src/core/signingEngine/flows/signNear/nearSigningFlow.ts',
       ),
       'utf8',
     );
     const evmSigningSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
+        '../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
       ),
       'utf8',
     );
     const signerLoaderSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signingEngine/flows/signEvmFamily/signerLoader.ts',
+        '../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signerLoader.ts',
       ),
       'utf8',
     );
@@ -56,17 +56,17 @@ test.describe('modularity lazy signer loading', () => {
 
   test('evm and tempo adapters keep chain-specific wasm facades isolated', async () => {
     const evmAdapterSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signingEngine/chains/evm/evmAdapter.ts'),
+      path.resolve(process.cwd(), '../packages/sdk-web/src/core/signingEngine/chains/evm/evmAdapter.ts'),
       'utf8',
     );
     const tempoAdapterSource = fs.readFileSync(
-      path.resolve(process.cwd(), '../client/src/core/signingEngine/chains/tempo/tempoAdapter.ts'),
+      path.resolve(process.cwd(), '../packages/sdk-web/src/core/signingEngine/chains/tempo/tempoAdapter.ts'),
       'utf8',
     );
     const signerLoaderSource = fs.readFileSync(
       path.resolve(
         process.cwd(),
-        '../client/src/core/signingEngine/flows/signEvmFamily/signerLoader.ts',
+        '../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signerLoader.ts',
       ),
       'utf8',
     );

@@ -43,8 +43,8 @@ import {
 } from '@server/router/express-adaptor';
 import { createCloudflareConsoleRouter } from '@server/router/cloudflare-adaptor';
 import { callCf, fetchJson, getPath, startExpressRouter } from './helpers';
-import { getPostgresPool } from '../../server/src/storage/postgres';
-import { withConsoleTenantContextTx } from '../../server/src/console/shared/postgresTenantContext';
+import { getPostgresPool } from '../../packages/sdk-server-ts/src/storage/postgres';
+import { withConsoleTenantContextTx } from '../../packages/sdk-server-ts/src/console/shared/postgresTenantContext';
 
 function makeConsoleAuthAdapter(
   roles: string[],

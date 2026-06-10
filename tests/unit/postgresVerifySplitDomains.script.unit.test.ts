@@ -28,7 +28,7 @@ function runNodeScript(scriptPath: string, env: NodeJS.ProcessEnv): Promise<{
 test.describe('postgres-verify-split-domains script', () => {
   test('fails fast on invalid SQL identifier overrides', async () => {
     const scriptPath = fileURLToPath(
-      new URL('../../examples/relay-server/scripts/postgres-verify-split-domains.mjs', import.meta.url),
+      new URL('../../apps/web-server/scripts/postgres-verify-split-domains.mjs', import.meta.url),
     );
     const result = await runNodeScript(scriptPath, {
       ...process.env,
@@ -43,7 +43,7 @@ test.describe('postgres-verify-split-domains script', () => {
 
   test('validates console role overrides before any docker/sql execution', async () => {
     const scriptPath = fileURLToPath(
-      new URL('../../examples/relay-server/scripts/postgres-verify-split-domains.mjs', import.meta.url),
+      new URL('../../apps/web-server/scripts/postgres-verify-split-domains.mjs', import.meta.url),
     );
     const result = await runNodeScript(scriptPath, {
       ...process.env,

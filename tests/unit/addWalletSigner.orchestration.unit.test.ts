@@ -2,18 +2,18 @@ import { expect, test } from '@playwright/test';
 import {
   addWalletSigner,
   registerWallet,
-} from '../../client/src/SeamsWeb/operations/registration/registration';
-import { createEvmSignerCapability } from '../../client/src/SeamsWeb/publicApi/evm';
-import { createNearSignerCapability } from '../../client/src/SeamsWeb/publicApi/near';
-import { IndexedDBManager } from '../../client/src/core/indexedDB';
-import { UserVerificationPolicy } from '../../client/src/core/types/authenticatorOptions';
+} from '../../packages/sdk-web/src/SeamsWeb/operations/registration/registration';
+import { createEvmSignerCapability } from '../../packages/sdk-web/src/SeamsWeb/publicApi/evm';
+import { createNearSignerCapability } from '../../packages/sdk-web/src/SeamsWeb/publicApi/near';
+import { IndexedDBManager } from '../../packages/sdk-web/src/core/indexedDB';
+import { UserVerificationPolicy } from '../../packages/sdk-web/src/core/types/authenticatorOptions';
 import {
   computeAddSignerIntentDigestB64u,
   computeRegistrationIntentDigestB64u,
   walletIdFromString,
-} from '../../shared/src/utils/registrationIntent';
-import { thresholdEcdsaChainTargetKey } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
-import type { EcdsaHssClientSharePublicKey33B64u } from '../../shared/src/threshold/ecdsaHssRoleLocalBootstrap';
+} from '../../packages/shared-ts/src/utils/registrationIntent';
+import { thresholdEcdsaChainTargetKey } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { EcdsaHssClientSharePublicKey33B64u } from '../../packages/shared-ts/src/threshold/ecdsaHssRoleLocalBootstrap';
 
 const RELAYER_URL = 'https://relay.example.test';
 const WALLET_SUBJECT_ID = walletIdFromString('wallet_matrix');

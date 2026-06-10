@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
-import { requireNearStepUpAuth } from '../../client/src/core/signingEngine/flows/signNear/requireNearStepUpAuth';
+import { requireNearStepUpAuth } from '../../packages/sdk-web/src/core/signingEngine/flows/signNear/requireNearStepUpAuth';
 import {
   buildEd25519EmailOtpSigningLane,
   buildEd25519PasskeySigningLane,
-} from '../../client/src/core/signingEngine/session/operationState/lanes';
-import { SigningSessionIds } from '../../client/src/core/signingEngine/session/operationState/types';
-import { SigningAuthPlanKind } from '../../client/src/core/signingEngine/stepUpConfirmation/types';
+} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
+import { SigningSessionIds } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
+import { SigningAuthPlanKind } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types';
 
 test.describe('requireNearStepUpAuth', () => {
   test('returns a warm-session branch without prompt wrappers', async () => {

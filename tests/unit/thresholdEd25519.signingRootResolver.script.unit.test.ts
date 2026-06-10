@@ -2,18 +2,18 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AuthService } from '../../server/src/core/AuthService';
-import { createThresholdSigningService } from '../../server/src/core/ThresholdService';
+import type { AuthService } from '../../packages/sdk-server-ts/src/core/AuthService';
+import { createThresholdSigningService } from '../../packages/sdk-server-ts/src/core/ThresholdService';
 import {
   parseSigningRootSecretShareWireV1,
   type SigningRootSecretShareId,
-} from '../../server/src/core/ThresholdService/signingRootSecretShareWires';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretShareWires';
 import {
   sealSigningRootSecretShareWireV1,
   type SigningRootSecretShareKekResolutionInput,
-} from '../../server/src/core/ThresholdService/signingRootSecretSealing';
-import { InMemorySigningRootSecretStore } from '../../server/src/core/ThresholdService/stores/SigningRootSecretStore';
-import type { ThresholdStoreConfigInput } from '../../server/src/core/types';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretSealing';
+import { InMemorySigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
+import type { ThresholdStoreConfigInput } from '../../packages/sdk-server-ts/src/core/types';
 
 type ThresholdPrfFixtureShare = {
   readonly id: SigningRootSecretShareId;

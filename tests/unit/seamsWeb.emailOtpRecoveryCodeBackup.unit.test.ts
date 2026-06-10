@@ -183,7 +183,7 @@ test.describe('SeamsWeb Email OTP recovery-code backup persistence', () => {
     const source = fs.readFileSync(
       path.join(
         repoRoot,
-        'client/src/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.ts',
+        'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.ts',
       ),
       'utf8',
     );

@@ -1,0 +1,249 @@
+{
+  "name": "@seams/sdk",
+  "version": "0.46.0",
+  "type": "module",
+  "description": "Seams web, runtime, and server TypeScript SDK for NEAR and EVM-family wallets",
+  "main": "./dist/esm/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/types/sdk-web/src/index.d.ts",
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "import": "./dist/esm/index.js",
+      "default": "./dist/esm/index.js",
+      "types": "./dist/types/sdk-web/src/index.d.ts"
+    },
+    "./advanced": {
+      "import": "./dist/esm/advanced.js",
+      "default": "./dist/esm/advanced.js",
+      "types": "./dist/types/sdk-web/src/advanced.d.ts"
+    },
+    "./threshold": {
+      "import": "./dist/esm/threshold.js",
+      "default": "./dist/esm/threshold.js",
+      "types": "./dist/types/sdk-web/src/threshold.d.ts"
+    },
+    "./runtime": {
+      "import": "./dist/esm/runtime.js",
+      "default": "./dist/esm/runtime.js",
+      "types": "./dist/types/sdk-web/src/runtime.d.ts"
+    },
+    "./plugins/headers": {
+      "import": "./dist/esm/plugins/headers.js",
+      "default": "./dist/esm/plugins/headers.js",
+      "types": "./dist/types/sdk-web/src/plugins/headers.d.ts"
+    },
+    "./plugins/next": {
+      "import": "./dist/esm/plugins/next.js",
+      "default": "./dist/esm/plugins/next.js",
+      "types": "./dist/types/sdk-web/src/plugins/next.d.ts"
+    },
+    "./plugins/vite": {
+      "import": "./dist/esm/plugins/vite.js",
+      "default": "./dist/esm/plugins/vite.js",
+      "types": "./dist/types/sdk-web/src/plugins/vite.d.ts"
+    },
+    "./server": {
+      "import": "./dist/esm/server/index.js",
+      "default": "./dist/esm/server/index.js",
+      "types": "./dist/types/sdk-server-ts/src/index.d.ts"
+    },
+    "./server/router/express": {
+      "import": "./dist/esm/server/router/express.js",
+      "default": "./dist/esm/server/router/express.js",
+      "types": "./dist/types/sdk-server-ts/src/router/express-adaptor.d.ts"
+    },
+    "./server/router/cloudflare": {
+      "import": "./dist/esm/server/router/cloudflare.js",
+      "default": "./dist/esm/server/router/cloudflare.js",
+      "types": "./dist/types/sdk-server-ts/src/router/cloudflare-adaptor.d.ts"
+    },
+    "./server/router/ror": {
+      "import": "./dist/esm/server/router/ror.js",
+      "default": "./dist/esm/server/router/ror.js",
+      "types": "./dist/types/sdk-server-ts/src/router/ror-adaptor.d.ts"
+    },
+    "./server/wasm/signer": {
+      "import": "./dist/esm/server/wasm/signer.js",
+      "default": "./dist/esm/server/wasm/signer.js",
+      "types": "./dist/types/sdk-server-ts/src/wasm/signer.d.ts"
+    },
+    "./react": {
+      "import": "./dist/esm/react/index.js",
+      "default": "./dist/esm/react/index.js",
+      "types": "./dist/types/sdk-web/src/react/index.d.ts"
+    },
+    "./react/profile": {
+      "import": "./dist/esm/react/components/AccountMenuButton/index.js",
+      "default": "./dist/esm/react/components/AccountMenuButton/index.js",
+      "types": "./dist/types/sdk-web/src/react/components/AccountMenuButton/index.d.ts"
+    },
+    "./react/passkey-auth-menu": {
+      "import": "./dist/esm/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js",
+      "default": "./dist/esm/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js",
+      "types": "./dist/types/sdk-web/src/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.d.ts"
+    },
+    "./react/passkey-auth-menu/client": {
+      "import": "./dist/esm/react/components/PasskeyAuthMenu/client.js",
+      "default": "./dist/esm/react/components/PasskeyAuthMenu/client.js",
+      "types": "./dist/types/sdk-web/src/react/components/PasskeyAuthMenu/client.d.ts"
+    },
+    "./react/passkey-auth-menu/skeleton": {
+      "import": "./dist/esm/react/components/PasskeyAuthMenu/skeleton.js",
+      "default": "./dist/esm/react/components/PasskeyAuthMenu/skeleton.js",
+      "types": "./dist/types/sdk-web/src/react/components/PasskeyAuthMenu/skeleton.d.ts"
+    },
+    "./react/passkey-auth-menu/preload": {
+      "import": "./dist/esm/react/components/PasskeyAuthMenu/preload.js",
+      "default": "./dist/esm/react/components/PasskeyAuthMenu/preload.js",
+      "types": "./dist/types/sdk-web/src/react/components/PasskeyAuthMenu/preload.d.ts"
+    },
+    "./react/provider": {
+      "import": "./dist/esm/react/context/SeamsWebProvider.js",
+      "default": "./dist/esm/react/context/SeamsWebProvider.js",
+      "types": "./dist/types/sdk-web/src/react/context/SeamsWebProvider.d.ts"
+    },
+    "./react/styles": "./dist/esm/react/styles/styles.css",
+    "./web/wallet-iframe-client-html": {
+      "import": "./dist/esm/SeamsWeb/walletIframe/client/html.js",
+      "default": "./dist/esm/SeamsWeb/walletIframe/client/html.js",
+      "types": "./dist/types/sdk-web/src/SeamsWeb/walletIframe/client/html.d.ts"
+    },
+    "./worker": "./dist/near-signer.worker.js",
+    "./wasm": "./dist/wasm_signer_worker_bg.wasm",
+    "./wasm-js": "./dist/wasm_signer_worker.js"
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "typesVersions": {
+    "*": {
+      "threshold": [
+        "dist/types/sdk-web/src/threshold.d.ts"
+      ],
+      "advanced": [
+        "dist/types/sdk-web/src/advanced.d.ts"
+      ],
+      "runtime": [
+        "dist/types/sdk-web/src/runtime.d.ts"
+      ],
+      "react": [
+        "dist/types/sdk-web/src/react/index.d.ts"
+      ],
+      "react/*": [
+        "dist/types/sdk-web/src/react/*"
+      ]
+    }
+  },
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "scripts": {
+    "build": "./scripts/build/build-sdk.sh",
+    "build:wasm": "./scripts/build/build-wasm.sh",
+    "build:sdk-full": "./scripts/build/build-full.sh",
+    "build:prod": "./scripts/build/build-prod.sh",
+    "build:prepare": "bash ./scripts/build/prepare-dev-build.sh",
+    "build:rolldown": "rolldown -c rolldown.config.ts",
+    "dev": "rolldown -c rolldown.config.ts -w",
+    "test": "pnpm -C ../../tests test",
+    "test:lite": "pnpm -C ../../tests test:lite",
+    "test:inline": "pnpm -C ../../tests test:inline",
+    "test:e2e": "pnpm -C ../../tests test:e2e",
+    "test:unit": "pnpm -C ../../tests test:unit",
+    "test:source-guards": "pnpm -C ../../tests test:source-guards",
+    "test:integration:signing": "pnpm -C ../../tests test:integration:signing",
+    "test:threshold-core": "pnpm -C ../../tests test:threshold-core",
+    "smoke:eth-signer:node-runtime": "node ./scripts/smoke/smoke-eth-signer-node-runtime.mjs",
+    "smoke:eth-signer:workers-runtime": "node ./scripts/smoke/smoke-eth-signer-workers-runtime.mjs",
+    "smoke:eth-signer:runtimes": "pnpm smoke:eth-signer:node-runtime && pnpm smoke:eth-signer:workers-runtime",
+    "test:wallet-iframe": "pnpm -C ../../tests test:wallet-iframe",
+    "test:lit-components": "pnpm -C ../../tests test:lit-components",
+    "test:relayer": "pnpm -C ../../tests test:relayer",
+    "build:check:fresh": "./scripts/build/check-build-freshness.sh",
+    "check:bundle-size": "node ./scripts/checks/report-wallet-iframe-bundle-size.mjs",
+    "check:runtime-entry-bundles": "node ./scripts/checks/assert-runtime-entry-bundles.mjs",
+    "check:wasm-exports": "node ./scripts/checks/report-wasm-export-surface.mjs",
+    "size:lite": "node ./scripts/reports/report-lite-bundle-sizes.mjs",
+    "size:lite:check": "node ./scripts/reports/report-lite-bundle-sizes.mjs --check",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "seams",
+    "wallet",
+    "signing-runtime",
+    "server",
+    "browser",
+    "NEAR",
+    "EVM",
+    "blockchain",
+    "passkey",
+    "react",
+    "typescript",
+    "sdk"
+  ],
+  "author": "web3authn.org",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/web3-authn/sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/web3-authn/sdk/issues"
+  },
+  "homepage": "https://github.com/web3-authn",
+  "peerDependencies": {
+    "express": ">=4.17.0",
+    "jsqr": ">=1.4.0",
+    "qrcode": ">=1.3.0",
+    "react": "^18.0.0 || ^19.0.0",
+    "react-dom": "^18.0.0 || ^19.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    },
+    "react-dom": {
+      "optional": true
+    },
+    "qrcode": {
+      "optional": true
+    },
+    "jsqr": {
+      "optional": true
+    },
+    "express": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@lit/react": "^1.0.8",
+    "@simplewebauthn/server": "^13.2.2",
+    "bs58": "^6.0.0",
+    "idb": "^8.0.3",
+    "lit": "^3.3.1",
+    "pg": "^8.17.2",
+    "tslib": "^2.8.1"
+  },
+  "devDependencies": {
+    "@near-js/types": "^2.4.0",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.19.9",
+    "@types/pg": "^8.16.0",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "borsh": "^2.0.0",
+    "express": "^4.21.2",
+    "js-sha256": "^0.11.1",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "rolldown": "^1.0.0-beta.27",
+    "rollup-plugin-css-only": "^4.5.2",
+    "typescript": "^5.8.3"
+  }
+}

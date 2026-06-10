@@ -4,7 +4,7 @@ import {
   createCoinGeckoSponsoredExecutionPricingService,
   isSponsorshipSpendCapEnforcementError,
   resolveSponsoredExecutionPricingFromEnv,
-} from '../../server/src/sponsorship';
+} from '../../packages/sdk-server-ts/src/sponsorship';
 
 function createMockFetch() {
   return async (input: string | URL | Request): Promise<Response> => {

@@ -28,7 +28,7 @@ function resolveDefaultFrontendUrlNoCaddy(): string {
   try {
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
-    const expectedSdkDistRoot = fs.realpathSync(path.resolve(path.join(__dirname, '../sdk/dist')));
+    const expectedSdkDistRoot = fs.realpathSync(path.resolve(path.join(__dirname, '../packages/sdk-web/dist')));
     const script = `
       const fs = require('node:fs');
       const ports = [3600, 5180, 5175, 5181, 5190, 5191];
@@ -171,13 +171,13 @@ try {
 } catch {}
 try {
   process.env.W3A_SDK_DIST_ROOT = fs.realpathSync(
-    path.resolve(path.join(__dirname, '../sdk/dist')),
+    path.resolve(path.join(__dirname, '../packages/sdk-web/dist')),
   );
 } catch {}
 function resolveExamplesFrontendDir(): string {
   // Prefer the historical examples/vite path when present, but fall back to the
   // current workspace frontend (examples/seams-site) when it's the only one.
-  const candidates = ['../examples/vite', '../examples/seams-site'].map((p) =>
+  const candidates = ['../examples/vite', '../apps/web-client'].map((p) =>
     path.resolve(path.join(__dirname, p)),
   );
   const existing = candidates.find(

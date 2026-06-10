@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
-import type { SigningSessionSealedStoreRecord } from '../../client/src/core/signingEngine/session/persistence/sealedSessionStore';
-import type { SealedRecoveryRecord } from '../../client/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
+import type { SigningSessionSealedStoreRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
+import type { SealedRecoveryRecord } from '../../packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import {
   createSigningSessionRestoreCache,
   restorePersistedSessionsForWalletCommand,
   restorePersistedSessionForSigningCommand,
-} from '../../client/src/core/signingEngine/session/sealedRecovery/restoreCoordinator';
+} from '../../packages/sdk-web/src/core/signingEngine/session/sealedRecovery/restoreCoordinator';
 
 const TEST_ECDSA_CHAIN_TARGETS = {
   tempo: { kind: 'tempo' as const, chainId: 42431, networkSlug: 'tempo-moderato' },

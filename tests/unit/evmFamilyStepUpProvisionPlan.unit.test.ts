@@ -1,29 +1,29 @@
 import { expect, test } from '@playwright/test';
-import { toAccountId } from '../../client/src/core/types/accountIds';
+import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import {
   toWalletId,
   type ThresholdEcdsaChainTarget,
-} from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
+} from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   thresholdEcdsaRecordRpId,
   type ThresholdEcdsaSessionRecord,
-} from '../../client/src/core/signingEngine/session/persistence/records';
+} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
 import {
   resolveReadyEvmFamilyEcdsaMaterial,
   toEvmFamilyEcdsaKeyHandle,
   type ReadyEvmFamilyEcdsaMaterial,
-} from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+} from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import {
   buildEvmFamilyPasskeyEcdsaProvisionPlan,
   buildEvmFamilyWarmSessionReconnectPlan,
-} from '../../client/src/core/signingEngine/flows/signEvmFamily/provisionPlan';
-import { SigningAuthPlanKind } from '../../client/src/core/signingEngine/stepUpConfirmation/types';
-import type { WebAuthnAuthenticationCredential } from '../../client/src/core/types/webauthn';
+} from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/provisionPlan';
+import { SigningAuthPlanKind } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types';
+import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
 import {
   buildEcdsaRoleLocalPasskeyAuthMethod,
   buildEcdsaRoleLocalPublicFacts,
   buildEcdsaRoleLocalReadyRecord,
-} from '../../client/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 
 const CHAIN_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'evm',

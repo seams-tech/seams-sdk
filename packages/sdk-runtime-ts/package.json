@@ -1,0 +1,10 @@
+{
+  "name": "@seams-internal/sdk-runtime-ts",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  }
+}

@@ -8,7 +8,7 @@ import {
   SEAMS_WALLET_STORES,
   assertCanonicalIndexedDBName,
   createSeamsTestWalletDbName,
-} from '../../client/src/core/indexedDB/schemaNames';
+} from '../../packages/sdk-web/src/core/indexedDB/schemaNames';
 
 const CANONICAL_NAME_PATTERN = /^seams_[a-z0-9]+(?:_[a-z0-9]+)*$/;
 const SNAKE_CASE_PATTERN = /^[a-z0-9]+(?:_[a-z0-9]+)*$/;

@@ -113,7 +113,7 @@ test.describe('EVM-family request boundaries', () => {
     const transactionExecutor = fs.readFileSync(
       path.join(
         repoRoot,
-        'client/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
+        'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
       ),
       'utf8',
     );
@@ -132,7 +132,7 @@ test.describe('EVM-family request boundaries', () => {
     const signEvmFamilyWithUiConfirmForTempo = fs.readFileSync(
       path.join(
         repoRoot,
-        'client/src/core/signingEngine/flows/signEvmFamily/signEvmFamilyWithUiConfirmForTempo.ts',
+        'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamilyWithUiConfirmForTempo.ts',
       ),
       'utf8',
     );
@@ -145,7 +145,7 @@ test.describe('EVM-family request boundaries', () => {
 
   test('refreshes step-up ECDSA lanes with the normalized signing target chain', () => {
     const signEvmFamily = fs.readFileSync(
-      path.join(repoRoot, 'client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts'),
+      path.join(repoRoot, 'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts'),
       'utf8',
     );
 

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { SigningAuthPlanKind } from '../../client/src/core/signingEngine/stepUpConfirmation/types';
-import { buildExportStepUpAuthorization } from '../../client/src/core/signingEngine/flows/recovery/stepUpAuthorization';
-import type { WebAuthnAuthenticationCredential } from '../../client/src/core/types/webauthn';
+import { SigningAuthPlanKind } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types';
+import { buildExportStepUpAuthorization } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/stepUpAuthorization';
+import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
 
 const TEST_WEBAUTHN_CREDENTIAL = {
   id: 'credential-id',

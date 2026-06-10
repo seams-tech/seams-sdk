@@ -3,8 +3,8 @@ import {
   createInMemoryConsoleSponsorshipSpendCapService,
   createPostgresConsoleSponsorshipSpendCapService,
 } from '@server/router/express-adaptor';
-import { withConsoleTenantContextTx } from '../../server/src/console/shared/postgresTenantContext';
-import { getPostgresPool } from '../../server/src/storage/postgres';
+import { withConsoleTenantContextTx } from '../../packages/sdk-server-ts/src/console/shared/postgresTenantContext';
+import { getPostgresPool } from '../../packages/sdk-server-ts/src/storage/postgres';
 
 function randomNamespace(prefix: string): string {
   return `${prefix}:${Date.now()}:${Math.random().toString(16).slice(2)}`;

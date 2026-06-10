@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { keccak256Bytes } from '../../shared/src/utils/keccak';
+import { keccak256Bytes } from '../../packages/shared-ts/src/utils/keccak';
 
 function utf8Bytes(value: string): Uint8Array {
   return new TextEncoder().encode(value);

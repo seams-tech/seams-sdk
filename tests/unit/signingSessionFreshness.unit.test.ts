@@ -1,23 +1,23 @@
 import { expect, test } from '@playwright/test';
-import { toAccountId } from '../../client/src/core/types/accountIds';
+import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import {
   buildBaseEvmFamilyEcdsaKeyIdentity,
   buildVerifiedEcdsaPublicFacts,
   toEvmFamilyEcdsaKeyHandle,
-} from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import { buildReauthAnchorIdentityFromAvailableLane } from '../../client/src/core/signingEngine/session/availability/availableSigningLanes';
+} from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { buildReauthAnchorIdentityFromAvailableLane } from '../../packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes';
 import {
   exactSigningLaneIdentity,
   exactSigningLaneIdentityKey,
-} from '../../client/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
+} from '../../packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity';
 import {
   buildEcdsaEmailOtpSigningLane,
   buildNearTransactionSigningLane,
-} from '../../client/src/core/signingEngine/session/operationState/lanes';
+} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/lanes';
 import {
   SigningOperationIntent,
   SigningSessionIds,
-} from '../../client/src/core/signingEngine/session/operationState/types';
+} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/types';
 import {
   assertFreshnessMatchesLane,
   buildFreshStepUpRequired,
@@ -26,13 +26,13 @@ import {
   buildStepUpFreshnessFromRestoredSealedRecord,
   buildStepUpFreshnessFromTrustedBudgetStatus,
   stepUpFreshnessDiagnostics,
-} from '../../client/src/core/signingEngine/session/operationState/stepUpFreshness';
-import { buildReauthAnchorIdentity } from '../../client/src/core/signingEngine/session/operationState/transactionState';
-import { recordPreparedTransactionBudgetAdmissionFromFreshness } from '../../client/src/core/signingEngine/session/operationState/transactionState';
+} from '../../packages/sdk-web/src/core/signingEngine/session/operationState/stepUpFreshness';
+import { buildReauthAnchorIdentity } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/transactionState';
+import { recordPreparedTransactionBudgetAdmissionFromFreshness } from '../../packages/sdk-web/src/core/signingEngine/session/operationState/transactionState';
 import {
   buildSigningBudgetReservationIdentity,
   signingBudgetReservationKey,
-} from '../../client/src/core/signingEngine/session/budget/budget';
+} from '../../packages/sdk-web/src/core/signingEngine/session/budget/budget';
 
 const tempoChainTarget = { kind: 'tempo', chainId: 4242, networkSlug: 'tempo-test' } as const;
 

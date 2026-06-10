@@ -2,17 +2,17 @@ import {
   buildRecoveryEmailBody,
   buildRecoveryEmailSubject,
   type RecoveryEmailPayload,
-} from '../../shared/src/utils/recoveryEmail.ts';
+} from '../../packages/shared-ts/src/utils/recoveryEmail.ts';
 import type {
   MultichainRecoveryPayloadFields,
   RecoverySubjectBinding,
   RecoveryTargetKeySet,
-} from '../../shared/src/utils/recoveryDomain.ts';
-import type { EmailRecoveryRequest } from '../../server/src/email-recovery/types.ts';
+} from '../../packages/shared-ts/src/utils/recoveryDomain.ts';
+import type { EmailRecoveryRequest } from '../../packages/sdk-server-ts/src/email-recovery/types.ts';
 import type {
   DerivedRecoveryKeys,
   PendingEmailRecovery,
-} from '../../client/src/core/types/emailRecovery.ts';
+} from '../../packages/sdk-web/src/core/types/emailRecovery.ts';
 
 const subject: RecoverySubjectBinding = {
   nearAccountId: 'alice.testnet',

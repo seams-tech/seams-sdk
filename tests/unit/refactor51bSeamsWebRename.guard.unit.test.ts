@@ -62,7 +62,7 @@ function readRepoFile(relativePath: string): string {
 }
 
 const sourceRoots = [
-  'client/src',
+  'packages/sdk-web/src',
   'sdk',
   'tests/unit',
   'tests/e2e',
@@ -111,7 +111,7 @@ test.describe('refactor 51b SeamsWeb rename guard', () => {
     const violations: string[] = [];
     for (const root of sourceRoots) {
       for (const file of listFiles(root, (fileName) => /\.(?:ts|tsx|md|json|sh)$/.test(fileName))) {
-        if (file.startsWith('sdk/dist/')) continue;
+        if (file.startsWith('packages/sdk-web/dist/')) continue;
         const source = readRepoFile(file);
         if (!legacyFacadePatterns.some((pattern) => pattern.test(source))) continue;
         if (isAllowed(file, allowedLegacyFacadeReferences)) continue;

@@ -246,9 +246,9 @@ test.describe('RecoveryCodesModal behavior', () => {
   });
 
   test('wallet iframe recovery-code command never sends recovery keys to the host', () => {
-    const messages = readRepoFile('client/src/SeamsWeb/walletIframe/shared/messages.ts');
-    const router = readRepoFile('client/src/SeamsWeb/walletIframe/client/router.ts');
-    const handler = readRepoFile('client/src/SeamsWeb/walletIframe/host/handlers/emailOtp.ts');
+    const messages = readRepoFile('packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts');
+    const router = readRepoFile('packages/sdk-web/src/SeamsWeb/walletIframe/client/router.ts');
+    const handler = readRepoFile('packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/emailOtp.ts');
 
     expect(messages).toContain('PM_SHOW_EMAIL_OTP_RECOVERY_CODES');
     expect(messages).toContain('PMShowEmailOtpRecoveryCodesPayload');
@@ -265,9 +265,9 @@ test.describe('RecoveryCodesModal behavior', () => {
   });
 
   test('iframe recovery-code display stays out of the public recovery capability', () => {
-    const publicTypes = readRepoFile('client/src/SeamsWeb/publicApi/types.ts');
-    const publicRecovery = readRepoFile('client/src/SeamsWeb/publicApi/recovery.ts');
-    const sdkFlowProxy = readRepoFile('client/src/react/context/useSeamsWithSdkFlow.ts');
+    const publicTypes = readRepoFile('packages/sdk-web/src/SeamsWeb/publicApi/types.ts');
+    const publicRecovery = readRepoFile('packages/sdk-web/src/SeamsWeb/publicApi/recovery.ts');
+    const sdkFlowProxy = readRepoFile('packages/sdk-web/src/react/context/useSeamsWithSdkFlow.ts');
 
     expect(publicTypes).not.toContain('showEmailOtpRecoveryCodes');
     expect(publicRecovery).not.toContain('showEmailOtpRecoveryCodes');
@@ -276,7 +276,7 @@ test.describe('RecoveryCodesModal behavior', () => {
 
   test('account-menu modal says recovery codes are single-use', () => {
     const modal = readRepoFile(
-      'client/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx',
+      'packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx',
     );
 
     expect(modal).toContain('Each code can be used once.');
@@ -284,7 +284,7 @@ test.describe('RecoveryCodesModal behavior', () => {
 
   test('account-menu modal exposes recovery-code rotation through the public SDK method', () => {
     const modal = readRepoFile(
-      'client/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx',
+      'packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx',
     );
 
     expect(modal).toContain('Rotate codes');
@@ -294,9 +294,9 @@ test.describe('RecoveryCodesModal behavior', () => {
 
   test('PasskeyAuthMenu prompts rotation after recovery consumes a code', () => {
     const controller = readRepoFile(
-      'client/src/react/components/PasskeyAuthMenu/controller/usePasskeyAuthMenuController.ts',
+      'packages/sdk-web/src/react/components/PasskeyAuthMenu/controller/usePasskeyAuthMenuController.ts',
     );
-    const client = readRepoFile('client/src/react/components/PasskeyAuthMenu/client.tsx');
+    const client = readRepoFile('packages/sdk-web/src/react/components/PasskeyAuthMenu/client.tsx');
 
     expect(controller).toContain('postRecoveryRotationPromptFromSubmitResult');
     expect(controller).toContain('activeRecoveryWrappedEnrollmentEscrowCount');

@@ -3,7 +3,7 @@ import {
   parseThresholdEd25519FinalizeAndDispatchRequest,
   parseThresholdEd25519PresignRecord,
   parseThresholdEd25519PresignRefillRequest,
-} from '../../server/src/core/ThresholdService/validation';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
 import {
   thresholdEd25519DelegateActionOperationFingerprint,
   thresholdEd25519NearTransactionOperationFingerprint,

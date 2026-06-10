@@ -1,8 +1,12 @@
 packages:
   - tests
-  - sdk
-  - examples/relay-server
-  - examples/seams-site
-  - examples/seams-docs
+  - packages/sdk-web
+  - packages/sdk-runtime-ts
+  - packages/sdk-server-ts
+  - packages/shared-ts
+  - voiceId
+  - apps/web-server
+  - apps/web-client
+  - apps/docs
   - examples/relay-cloudflare-worker
   - examples/self-host-cloudflare-worker

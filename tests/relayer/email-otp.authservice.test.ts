@@ -16,7 +16,7 @@ import {
   buildEmailOtpRecoveryWrapBinding,
   encodeEmailOtpRecoveryWrappedEnrollmentAad,
 } from '@shared/utils/emailOtpRecoveryKey';
-import { ensurePostgresSchema, getPostgresPool } from '../../server/src/storage/postgres';
+import { ensurePostgresSchema, getPostgresPool } from '../../packages/sdk-server-ts/src/storage/postgres';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 
 const EMAIL_OTP_KEY_VERSION = 'kek-s-email-otp-test';

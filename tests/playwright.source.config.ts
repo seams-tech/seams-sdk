@@ -2,6 +2,7 @@ import baseConfig from './playwright.config';
 
 export default {
   ...baseConfig,
+  webServer: undefined,
   testMatch: [
     '**/unit/**/*.guard.unit.test.ts',
     '**/unit/**/*.behavior.guard.unit.test.ts',

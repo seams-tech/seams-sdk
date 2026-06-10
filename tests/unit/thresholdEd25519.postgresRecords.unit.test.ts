@@ -3,7 +3,7 @@ import {
   parseCurrentThresholdEd25519StoreSessionRow,
   parseCurrentThresholdEd25519SessionRecord,
   parseCurrentThresholdEd25519SessionStatusRow,
-} from '../../server/src/core/ThresholdService/postgresRecords';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/postgresRecords';
 
 test.describe('threshold ed25519 postgres records', () => {
   test('parses current session records only when participant ids are explicit', () => {

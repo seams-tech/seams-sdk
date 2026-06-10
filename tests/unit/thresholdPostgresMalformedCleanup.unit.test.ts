@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { createRequire } from 'module';
-import { createEd25519AuthSessionStore } from '../../server/src/core/ThresholdService/stores/AuthSessionStore';
-import { createThresholdEcdsaSigningStores } from '../../server/src/core/ThresholdService/stores/EcdsaSigningStore';
+import { createEd25519AuthSessionStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/AuthSessionStore';
+import { createThresholdEcdsaSigningStores } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/EcdsaSigningStore';
 
 type FakeQueryResult = { rows: any[]; rowCount?: number };
 type FakePool = {

@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
-import { LEGACY_INDEXED_DB_NAMES } from '../../client/src/core/indexedDB/schemaNames';
+import { LEGACY_INDEXED_DB_NAMES } from '../../packages/sdk-web/src/core/indexedDB/schemaNames';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -21,14 +21,14 @@ function listSourceFiles(relativeDir: string): string[] {
 
 test.describe('IndexedDB consolidation source guards', () => {
   test('signing session persistence uses canonical wallet DB constants', () => {
-    const sharedSealSource = readRepoSource('shared/src/utils/signingSessionSeal.ts');
+    const sharedSealSource = readRepoSource('packages/shared-ts/src/utils/signingSessionSeal.ts');
     expect(sharedSealSource).not.toMatch(/SIGNING_SESSION_SEAL_DB_NAME/);
     expect(sharedSealSource).not.toMatch(/SIGNING_SESSION_SEAL_DB_VERSION/);
     expect(sharedSealSource).not.toMatch(/SIGNING_SESSION_SEAL_STORE_NAME/);
     expect(sharedSealSource).not.toMatch(/SIGNING_SESSION_RESTORE_LEASE_STORE_NAME/);
 
     const repositorySource = readRepoSource(
-      'client/src/core/indexedDB/seamsWalletDB/signingSessionSeals.ts',
+      'packages/sdk-web/src/core/indexedDB/seamsWalletDB/signingSessionSeals.ts',
     );
     expect(repositorySource).not.toMatch(/SIGNING_SESSION_SEAL_DB_NAME/);
     expect(repositorySource).not.toMatch(/SIGNING_SESSION_SEAL_DB_VERSION/);
@@ -36,15 +36,15 @@ test.describe('IndexedDB consolidation source guards', () => {
 
   test('legacy database name literals stay isolated to explicit boundary files', () => {
     const allowedLegacyReferences = new Set([
-      'client/src/core/indexedDB/index.ts',
-      'client/src/core/indexedDB/schemaNames.ts',
-      'client/src/core/signingEngine/session/persistence/sealedSessionStore.ts',
-      'client/src/core/signingEngine/workerManager/workers/email-otp/deviceEnrollmentEscrowStore.ts',
-      'shared/src/utils/signingSessionSeal.ts',
+      'packages/sdk-web/src/core/indexedDB/index.ts',
+      'packages/sdk-web/src/core/indexedDB/schemaNames.ts',
+      'packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore.ts',
+      'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp/deviceEnrollmentEscrowStore.ts',
+      'packages/shared-ts/src/utils/signingSessionSeal.ts',
     ]);
     const sourceFiles = [
-      ...listSourceFiles('client/src'),
-      ...listSourceFiles('shared/src'),
+      ...listSourceFiles('packages/sdk-web/src'),
+      ...listSourceFiles('packages/shared-ts/src'),
     ].filter((relativePath) => !allowedLegacyReferences.has(relativePath));
 
     for (const legacyName of LEGACY_INDEXED_DB_NAMES) {
@@ -61,10 +61,10 @@ test.describe('IndexedDB consolidation source guards', () => {
   test('raw IndexedDB APIs stay behind persistence boundaries', () => {
     const rawIndexedDbPattern =
       /\bIDB(?:Database|Transaction|ObjectStore|Request|OpenDBRequest|Factory|Index|KeyRange)\b|indexedDB\.open\(/;
-    const allowedRuntimePrefixes = ['client/src/core/indexedDB/'];
+    const allowedRuntimePrefixes = ['packages/sdk-web/src/core/indexedDB/'];
     const sourceFiles = [
-      ...listSourceFiles('client/src'),
-      ...listSourceFiles('shared/src'),
+      ...listSourceFiles('packages/sdk-web/src'),
+      ...listSourceFiles('packages/shared-ts/src'),
     ];
     const offenders = sourceFiles.filter((relativePath) => {
       if (allowedRuntimePrefixes.some((prefix) => relativePath.startsWith(prefix))) return false;
@@ -77,8 +77,8 @@ test.describe('IndexedDB consolidation source guards', () => {
   test('runtime code uses the unified manager instead of reaching through to clientDB', () => {
     const directClientDbPattern =
       /\b(?:IndexedDBManager|deps\.indexedDB|args\.indexedDB|args\.deps\.indexedDB|ctx\.indexedDB)\.clientDB\b/;
-    const sourceFiles = listSourceFiles('client/src').filter(
-      (relativePath) => relativePath !== 'client/src/core/indexedDB/unifiedIndexedDBManager.ts',
+    const sourceFiles = listSourceFiles('packages/sdk-web/src').filter(
+      (relativePath) => relativePath !== 'packages/sdk-web/src/core/indexedDB/unifiedIndexedDBManager.ts',
     );
     const offenders = sourceFiles.filter((relativePath) =>
       directClientDbPattern.test(readRepoSource(relativePath)),

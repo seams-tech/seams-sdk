@@ -20,57 +20,57 @@ function listTypeScriptFiles(relativeDir: string): string[] {
 }
 
 const sourceRoots = [
-  'client/src',
-  'server/src',
-  'shared/src',
+  'packages/sdk-web/src',
+  'packages/sdk-server-ts/src',
+  'packages/shared-ts/src',
 ] as const;
 
 const recoveryKeysAllowedSourceFiles = new Set([
-  'client/src/SeamsWeb/googleEmailOtpWalletAuth.typecheck.ts',
-  'client/src/SeamsWeb/operations/authMethods/emailOtp/challenge.ts',
-  'client/src/SeamsWeb/operations/authMethods/emailOtp/enrollment.ts',
-  'client/src/SeamsWeb/operations/authMethods/emailOtp/prewarmedRegistrationMaterial.ts',
-  'client/src/SeamsWeb/operations/authMethods/emailOtp/registrationOffer.ts',
-  'client/src/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.ts',
-  'client/src/SeamsWeb/operations/registration/registration.ts',
-  'client/src/SeamsWeb/publicNamespaceApi.typecheck.ts',
-  'client/src/SeamsWeb/publicApi/types.ts',
-  'client/src/SeamsWeb/walletIframe/client/router.ts',
-  'client/src/SeamsWeb/walletIframe/host/handlers/emailOtp.ts',
-  'client/src/core/indexedDB/seamsWalletDB/emailOtpDeviceEnrollmentEscrows.ts',
-  'client/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.ts',
-  'client/src/core/signingEngine/session/emailOtp/publicTypes.ts',
-  'client/src/core/signingEngine/session/emailOtp/publicTypes.typecheck.ts',
-  'client/src/core/signingEngine/session/emailOtp/workerEnrollment.ts',
-  'client/src/core/signingEngine/workerManager/workerTypes.ts',
-  'client/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
-  'client/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx',
-  'client/src/react/components/AccountMenuButton/RecoveryCodesModalState.ts',
-  'server/src/core/EmailOtpPostgresRecords.ts',
-  'server/src/core/EmailOtpStores.ts',
-  'server/src/router/emailOtpRouteHandlers.ts',
-  'server/src/router/relayWalletRegistration.ts',
+  'packages/sdk-web/src/SeamsWeb/googleEmailOtpWalletAuth.typecheck.ts',
+  'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/challenge.ts',
+  'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/enrollment.ts',
+  'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/prewarmedRegistrationMaterial.ts',
+  'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/registrationOffer.ts',
+  'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.ts',
+  'packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
+  'packages/sdk-web/src/SeamsWeb/publicNamespaceApi.typecheck.ts',
+  'packages/sdk-web/src/SeamsWeb/publicApi/types.ts',
+  'packages/sdk-web/src/SeamsWeb/walletIframe/client/router.ts',
+  'packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/emailOtp.ts',
+  'packages/sdk-web/src/core/indexedDB/seamsWalletDB/emailOtpDeviceEnrollmentEscrows.ts',
+  'packages/sdk-web/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.ts',
+  'packages/sdk-web/src/core/signingEngine/session/emailOtp/publicTypes.ts',
+  'packages/sdk-web/src/core/signingEngine/session/emailOtp/publicTypes.typecheck.ts',
+  'packages/sdk-web/src/core/signingEngine/session/emailOtp/workerEnrollment.ts',
+  'packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts',
+  'packages/sdk-web/src/core/signingEngine/workerManager/workers/email-otp.worker.ts',
+  'packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx',
+  'packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModalState.ts',
+  'packages/sdk-server-ts/src/core/EmailOtpPostgresRecords.ts',
+  'packages/sdk-server-ts/src/core/EmailOtpStores.ts',
+  'packages/sdk-server-ts/src/router/emailOtpRouteHandlers.ts',
+  'packages/sdk-server-ts/src/router/relayWalletRegistration.ts',
 ]);
 
 const retainedBackupRecordAllowedSourceFiles = new Set([
-  'client/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.ts',
-  'client/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx',
-  'client/src/react/components/AccountMenuButton/RecoveryCodesModalState.ts',
+  'packages/sdk-web/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.ts',
+  'packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx',
+  'packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModalState.ts',
 ]);
 
 const recoveryBackupSecretKindAllowedSourceFiles = new Set([
-  'client/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.ts',
+  'packages/sdk-web/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.ts',
 ]);
 
 const recoveryCodeCastAllowedSourceFiles = new Set([
-  'shared/src/utils/emailOtpRecoveryKey.ts',
+  'packages/shared-ts/src/utils/emailOtpRecoveryKey.ts',
 ]);
 
 const recoveryCodeBackupRepositoryAllowedSourceFiles = new Set([
-  'client/src/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.ts',
-  'client/src/SeamsWeb/walletIframe/host/handlers/emailOtp.ts',
-  'client/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx',
-  'client/src/react/components/AccountMenuButton/RecoveryCodesModalState.ts',
+  'packages/sdk-web/src/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.ts',
+  'packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/emailOtp.ts',
+  'packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModal.tsx',
+  'packages/sdk-web/src/react/components/AccountMenuButton/RecoveryCodesModalState.ts',
 ]);
 
 function listSourceFiles(): string[] {
@@ -111,7 +111,7 @@ test.describe('Email OTP recovery-code leakage guards', () => {
 
   test('server code may reject recoveryKeys but cannot construct or read them', () => {
     const offenders: string[] = [];
-    for (const relativePath of listTypeScriptFiles('server/src')) {
+    for (const relativePath of listTypeScriptFiles('packages/sdk-server-ts/src')) {
       const source = readRepoSource(relativePath);
       if (!/\brecoveryKeys\b/.test(source)) continue;
       for (const [patternName, pattern] of [
@@ -128,9 +128,9 @@ test.describe('Email OTP recovery-code leakage guards', () => {
 
   test('wallet iframe host messages and progress events cannot expose recoveryKeys', () => {
     const guardedFiles = [
-      'client/src/SeamsWeb/walletIframe/shared/messages.ts',
-      'client/src/SeamsWeb/walletIframe/host/requestRouter.ts',
-      'client/src/SeamsWeb/walletIframe/client/progress/on-events-progress-bus.ts',
+      'packages/sdk-web/src/SeamsWeb/walletIframe/shared/messages.ts',
+      'packages/sdk-web/src/SeamsWeb/walletIframe/host/requestRouter.ts',
+      'packages/sdk-web/src/SeamsWeb/walletIframe/client/progress/on-events-progress-bus.ts',
     ];
     const offenders = guardedFiles.filter((relativePath) =>
       /\brecoveryKeys\b/.test(readRepoSource(relativePath)),
@@ -157,7 +157,7 @@ test.describe('Email OTP recovery-code leakage guards', () => {
 
   test('recoveryKeys files do not use localStorage or sessionStorage', () => {
     const offenders = [...recoveryKeysAllowedSourceFiles]
-      .filter((relativePath) => relativePath.startsWith('client/src/'))
+      .filter((relativePath) => relativePath.startsWith('packages/sdk-web/src/'))
       .filter((relativePath) => fs.existsSync(path.join(repoRoot, relativePath)))
       .filter((relativePath) => /\b(?:localStorage|sessionStorage)\b/.test(readRepoSource(relativePath)));
 
@@ -176,7 +176,7 @@ test.describe('Email OTP recovery-code leakage guards', () => {
     const offenders = filesContaining(/\bemailOtpRecoveryCodeBackupRepository\b/).filter(
       (relativePath) =>
         relativePath !==
-          'client/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.ts' &&
+          'packages/sdk-web/src/core/indexedDB/seamsWalletDB/emailOtpRecoveryCodeBackups.ts' &&
         !recoveryCodeBackupRepositoryAllowedSourceFiles.has(relativePath),
     );
 

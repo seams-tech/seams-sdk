@@ -11,8 +11,8 @@ import {
   parseThresholdSessionId,
   parseWalletId,
   parseWalletSigningSessionId,
-} from '../../shared/src/utils/domainIds';
-import { walletIdFromString } from '../../shared/src/utils/registrationIntent';
+} from '../../packages/shared-ts/src/utils/domainIds';
+import { walletIdFromString } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const parsers = [

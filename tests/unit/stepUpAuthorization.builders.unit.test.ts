@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { SigningAuthPlanKind } from '../../client/src/core/signingEngine/stepUpConfirmation/types';
-import { confirmSigningOperation } from '../../client/src/core/signingEngine/stepUpConfirmation/confirmOperation';
-import { buildNearEd25519StepUpAuthorization } from '../../client/src/core/signingEngine/flows/signNear/stepUpAuthorization';
-import { buildEvmFamilyEcdsaStepUpAuthorization } from '../../client/src/core/signingEngine/flows/signEvmFamily/stepUpAuthorization';
-import type { WebAuthnAuthenticationCredential } from '../../client/src/core/types/webauthn';
+import { SigningAuthPlanKind } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types';
+import { confirmSigningOperation } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/confirmOperation';
+import { buildNearEd25519StepUpAuthorization } from '../../packages/sdk-web/src/core/signingEngine/flows/signNear/stepUpAuthorization';
+import { buildEvmFamilyEcdsaStepUpAuthorization } from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/stepUpAuthorization';
+import type { WebAuthnAuthenticationCredential } from '../../packages/sdk-web/src/core/types/webauthn';
 
 const TEST_WEBAUTHN_CREDENTIAL = {
   id: 'credential-id',

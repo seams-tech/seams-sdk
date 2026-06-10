@@ -9,7 +9,7 @@ function readRepoFile(relativePath: string): string {
   return fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
 }
 
-function listProductionCoreFiles(dir = path.join(repoRoot, 'client/src/core')): string[] {
+function listProductionCoreFiles(dir = path.join(repoRoot, 'packages/sdk-web/src/core')): string[] {
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   const files: string[] = [];
   for (const entry of entries) {
@@ -28,15 +28,15 @@ function listProductionCoreFiles(dir = path.join(repoRoot, 'client/src/core')): 
 test.describe('wallet-scoped lookup guards', () => {
   test('production wallet paths do not resolve wallet ids through NEAR projection helpers', () => {
     const allowedToAccountIdWalletFiles = new Set([
-      'client/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
-      'client/src/core/signingEngine/session/public.ts',
-      'client/src/core/signingEngine/session/availability/availableSigningLanes.ts',
-      'client/src/core/signingEngine/session/availability/readiness.ts',
-      'client/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts',
-      'client/src/core/signingEngine/session/emailOtp/persistedSnapshot.ts',
-      'client/src/core/signingEngine/session/emailOtp/sealedRestoreOrchestrator.ts',
-      'client/src/core/signingEngine/session/passkey/ecdsaRecovery.ts',
-      'client/src/core/signingEngine/session/persistence/records.ts',
+      'packages/sdk-web/src/SeamsWeb/signingSurface/BrowserSigningSurface.ts',
+      'packages/sdk-web/src/core/signingEngine/session/public.ts',
+      'packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes.ts',
+      'packages/sdk-web/src/core/signingEngine/session/availability/readiness.ts',
+      'packages/sdk-web/src/core/signingEngine/session/availability/persistedAvailableSigningLanes.ts',
+      'packages/sdk-web/src/core/signingEngine/session/emailOtp/persistedSnapshot.ts',
+      'packages/sdk-web/src/core/signingEngine/session/emailOtp/sealedRestoreOrchestrator.ts',
+      'packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaRecovery.ts',
+      'packages/sdk-web/src/core/signingEngine/session/persistence/records.ts',
     ]);
     const forbiddenGlobal = [
       'buildNearAccountRefs(walletId)',
@@ -67,7 +67,7 @@ test.describe('wallet-scoped lookup guards', () => {
 
   test('ECDSA bootstrap persistence writes wallet signers without NEAR compatibility mapping APIs', () => {
     const source = readRepoFile(
-      'client/src/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence.ts',
+      'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaBootstrapPersistence.ts',
     );
 
     expect(source).not.toContain('upsertChainAccount');
@@ -77,9 +77,9 @@ test.describe('wallet-scoped lookup guards', () => {
 
   test('core NEAR-account authenticator lookup has an explicit near-prefixed API only', () => {
     const lifecycle = readRepoFile(
-      'client/src/core/signingEngine/flows/registration/accountLifecycle.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/registration/accountLifecycle.ts',
     );
-    const publicApi = readRepoFile('client/src/core/signingEngine/flows/registration/public.ts');
+    const publicApi = readRepoFile('packages/sdk-web/src/core/signingEngine/flows/registration/public.ts');
 
     expect(lifecycle).not.toContain('export async function getAuthenticatorsByUser');
     expect(publicApi).not.toContain('export function getAuthenticatorsByUser');

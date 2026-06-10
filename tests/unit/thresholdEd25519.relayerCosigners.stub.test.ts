@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ed25519 } from '@noble/curves/ed25519.js';
-import { signThresholdEd25519CosignerGrantV1 } from '../../server/src/core/ThresholdService/coordinatorGrant';
+import { signThresholdEd25519CosignerGrantV1 } from '../../packages/sdk-server-ts/src/core/ThresholdService/coordinatorGrant';
 import {
   createThresholdSigningServiceForUnitTests,
   deriveThresholdEd25519VerifyingShareForUnitTests,

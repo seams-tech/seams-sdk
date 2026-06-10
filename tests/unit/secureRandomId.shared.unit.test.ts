@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { base64UrlEncode } from '../../shared/src/utils/encoders';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import {
   secureRandomBase36,
   secureRandomBase64Url,
   secureRandomId,
-} from '../../shared/src/utils/secureRandomId';
+} from '../../packages/shared-ts/src/utils/secureRandomId';
 
 function restoreGlobalCrypto(original: PropertyDescriptor | undefined): void {
   if (original) {

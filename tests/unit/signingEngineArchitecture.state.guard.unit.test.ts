@@ -20,7 +20,7 @@ test.describe('signing-engine state architecture guardrails', () => {
   test('ECDSA chain target primitives live in interfaces', () => {
     const offenders: string[] = [];
 
-    for (const relativePath of listProductionTypeScriptFiles(path.join(repoRoot, 'client/src'))) {
+    for (const relativePath of listProductionTypeScriptFiles(path.join(repoRoot, 'packages/sdk-web/src'))) {
       const source = readRepoSource(relativePath);
       if (source.includes('signingEngine/session/operationState/ecdsaChainTarget')) {
         offenders.push(relativePath);
@@ -32,24 +32,24 @@ test.describe('signing-engine state architecture guardrails', () => {
 
   test('canonical selected lanes and operation states do not use optional lifecycle fields', () => {
     const identity = readRepoSource(
-      'client/src/core/signingEngine/session/identity/laneIdentity.ts',
+      'packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity.ts',
     );
     const signingLanes = readRepoSource(
-      'client/src/core/signingEngine/session/operationState/lanes.ts',
+      'packages/sdk-web/src/core/signingEngine/session/operationState/lanes.ts',
     );
     const signingTypes = readRepoSource(
-      'client/src/core/signingEngine/session/operationState/types.ts',
+      'packages/sdk-web/src/core/signingEngine/session/operationState/types.ts',
     );
-    const signingBudget = readRepoSource('client/src/core/signingEngine/session/budget/budget.ts');
+    const signingBudget = readRepoSource('packages/sdk-web/src/core/signingEngine/session/budget/budget.ts');
     const operationState = readRepoSource(
-      'client/src/core/signingEngine/flows/shared/operationState.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/shared/operationState.ts',
     );
-    const planner = readRepoSource('client/src/core/signingEngine/session/planning/planner.ts');
+    const planner = readRepoSource('packages/sdk-web/src/core/signingEngine/session/planning/planner.ts');
     const restoreTypes = readRepoSource(
-      'client/src/core/signingEngine/session/sealedRecovery/types.ts',
+      'packages/sdk-web/src/core/signingEngine/session/sealedRecovery/types.ts',
     );
     const restoreCoordinator = readRepoSource(
-      'client/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts',
+      'packages/sdk-web/src/core/signingEngine/session/sealedRecovery/restoreCoordinator.ts',
     );
 
     for (const typeName of [
@@ -123,7 +123,7 @@ test.describe('signing-engine state architecture guardrails', () => {
 
     for (const relativePath of listProductionTypeScriptFiles(signingEngineRoot)) {
       if (isTypeFixture(relativePath)) continue;
-      if (relativePath === 'client/src/core/signingEngine/session/identity/laneIdentity.ts')
+      if (relativePath === 'packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity.ts')
         continue;
       const source = readRepoSource(relativePath);
       if (source.includes("kind: 'selected_lane'")) offenders.push(relativePath);
@@ -134,14 +134,14 @@ test.describe('signing-engine state architecture guardrails', () => {
 
   test('signing execution boundaries do not receive lane candidates or raw records', () => {
     const executionFiles = [
-      'client/src/core/signingEngine/interfaces/near.ts',
-      'client/src/core/signingEngine/flows/signNear/signTransactions.ts',
-      'client/src/core/signingEngine/flows/signNear/signDelegate.ts',
-      'client/src/core/signingEngine/flows/signNear/signNep413.ts',
-      'client/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
-      'client/src/core/signingEngine/flows/signEvmFamily/signingFlow.ts',
-      'client/src/core/signingEngine/flows/signEvmFamily/signEvmWithUiConfirm.ts',
-      'client/src/core/signingEngine/flows/signEvmFamily/signEvmFamilyWithUiConfirmForTempo.ts',
+      'packages/sdk-web/src/core/signingEngine/interfaces/near.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signingFlow.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmWithUiConfirm.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamilyWithUiConfirmForTempo.ts',
     ] as const;
     const forbiddenMarkers = [
       'LaneCandidate',
@@ -198,7 +198,7 @@ test.describe('signing-engine state architecture guardrails', () => {
   test('threshold session kind has one signing-engine owner', () => {
     const offenders: string[] = [];
 
-    for (const relativePath of listProductionTypeScriptFiles(path.join(repoRoot, 'client/src'))) {
+    for (const relativePath of listProductionTypeScriptFiles(path.join(repoRoot, 'packages/sdk-web/src'))) {
       const source = readRepoSource(relativePath);
       if (
         source.includes('Ed25519SessionKind') ||
@@ -218,11 +218,11 @@ test.describe('signing-engine state architecture guardrails', () => {
 
   test('threshold protocol entrypoints take protocol material instead of broad session shapes', () => {
     const protocolFiles = [
-      'client/src/core/signingEngine/threshold/ecdsa/authorize.ts',
-      'client/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
-      'client/src/core/signingEngine/threshold/ecdsa/presignPool.ts',
-      'client/src/core/signingEngine/threshold/ecdsa/sign.ts',
-      'client/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts',
+      'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/authorize.ts',
+      'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
+      'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/presignPool.ts',
+      'packages/sdk-web/src/core/signingEngine/threshold/ecdsa/sign.ts',
+      'packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssLifecycle.ts',
     ] as const;
     const broadShapeMarkers = [
       'ThresholdEcdsaSessionRecord',
@@ -243,7 +243,7 @@ test.describe('signing-engine state architecture guardrails', () => {
 
   test('Ed25519 HSS client-base reconstruction receives resolved protocol material', () => {
     const source = readRepoSource(
-      'client/src/core/signingEngine/threshold/ed25519/hssClientBase.ts',
+      'packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssClientBase.ts',
     );
 
     expect(source).not.toContain('session/records');

@@ -20,7 +20,7 @@ test.describe('threshold ECDSA behavior guard', () => {
     const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
     const secp256k1Path = path.join(
       repoRoot,
-      'client/src/core/signingEngine/flows/signEvmFamily/signers/secp256k1.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signers/secp256k1.ts',
     );
     const secp256k1Content = fs.readFileSync(secp256k1Path, 'utf8');
     const schedulerCallCount =
@@ -35,7 +35,7 @@ test.describe('threshold ECDSA behavior guard', () => {
     const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
     const servicePath = path.join(
       repoRoot,
-      'server/src/core/ThresholdService/ThresholdSigningService.ts',
+      'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
     );
     const source = fs.readFileSync(servicePath, 'utf8');
 
@@ -47,9 +47,9 @@ test.describe('threshold ECDSA behavior guard', () => {
   test('runtime ECDSA HSS code does not call v1 derivation surfaces', () => {
     const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
     const roots = [
-      'client/src',
-      'server/src',
-      'shared/src',
+      'packages/sdk-web/src',
+      'packages/sdk-server-ts/src',
+      'packages/shared-ts/src',
       'wasm/eth_signer/src',
       'wasm/hss_client_signer/src',
       'wasm/threshold_prf/src',

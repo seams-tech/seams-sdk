@@ -4,9 +4,9 @@ import {
   getStoredThresholdEd25519SessionRecordByThresholdSessionId,
   getStoredThresholdEd25519SessionRecordForAccount,
   upsertStoredThresholdEd25519SessionRecord,
-} from '../../client/src/core/signingEngine/session/persistence/records';
-import { reconnectPasskeyEd25519CapabilityForSigning } from '../../client/src/core/signingEngine/session/passkey/ed25519Recovery';
-import { buildThresholdEd25519WebAuthnPrfSecretSource } from '../../client/src/core/signingEngine/threshold/ed25519/authSession';
+} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
+import { reconnectPasskeyEd25519CapabilityForSigning } from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ed25519Recovery';
+import { buildThresholdEd25519WebAuthnPrfSecretSource } from '../../packages/sdk-web/src/core/signingEngine/threshold/ed25519/authSession';
 
 const ACCOUNT_ID = 'ed25519-reconnect-race.testnet';
 const RP_ID = 'localhost';

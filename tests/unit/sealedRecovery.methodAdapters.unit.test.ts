@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test';
-import { claimPasskeyEcdsaPrfFirst } from '../../client/src/core/signingEngine/session/passkey/ecdsaRecovery';
-import { restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord } from '../../client/src/core/signingEngine/session/emailOtp/ecdsaRecovery';
-import { restoreEmailOtpEd25519SealedRecordForAccount } from '../../client/src/core/signingEngine/session/emailOtp/ed25519Recovery';
-import type { SigningSessionSealedStoreRecord } from '../../client/src/core/signingEngine/session/persistence/sealedSessionStore';
+import { claimPasskeyEcdsaPrfFirst } from '../../packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaRecovery';
+import { restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRecovery';
+import { restoreEmailOtpEd25519SealedRecordForAccount } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ed25519Recovery';
+import type { SigningSessionSealedStoreRecord } from '../../packages/sdk-web/src/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   normalizeSealedRecoveryRecord,
   type EmailOtpEcdsaSealedRecoveryRecord,
   type EmailOtpEd25519SealedRecoveryRecord,
-} from '../../client/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
+} from '../../packages/sdk-web/src/core/signingEngine/session/sealedRecovery/recoveryRecord';
 
 const TEMPO_CHAIN_TARGET = {
   kind: 'tempo' as const,

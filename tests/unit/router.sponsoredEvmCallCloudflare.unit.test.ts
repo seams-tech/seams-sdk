@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { createInMemoryConsoleApiKeyService } from '../../server/src/console/apiKeys';
-import { createInMemoryConsoleRuntimeSnapshotService } from '../../server/src/console/runtimeSnapshots';
-import { createInMemoryConsoleSponsoredCallService } from '../../server/src/console/sponsoredCalls';
-import { createCloudflareRouter } from '../../server/src/router/cloudflare/createCloudflareRouter';
+import { createInMemoryConsoleApiKeyService } from '../../packages/sdk-server-ts/src/console/apiKeys';
+import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots';
+import { createInMemoryConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls';
+import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
 import { callCf, makeFakeAuthService } from '../relayer/helpers';
 
 function makeSponsoredOptions() {

@@ -7,11 +7,11 @@ import {
   createSealedSelfHostedSigningRootShareResolver,
   createSelfHostedSigningRootShareResolver,
   deriveEcdsaHssYRelayerFromSigningRootShareResolver,
-} from '../../server/src/core/ThresholdService/signingRootShareResolver';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootShareResolver';
 import type {
   SigningRootSecretShareId,
   SealedSigningRootSecretShare,
-} from '../../server/src/core/ThresholdService/signingRootSecretShareWires';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretShareWires';
 
 type ThresholdPrfFixtureShare = {
   readonly id: SigningRootSecretShareId;

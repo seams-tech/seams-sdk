@@ -6,18 +6,18 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
 const verifierCallFiles = [
-  'server/src/router/cloudflare/routes/auth.ts',
-  'server/src/router/cloudflare/routes/sessions.ts',
-  'server/src/router/cloudflare/routes/thresholdEcdsa.ts',
-  'server/src/router/cloudflare/routes/thresholdEd25519.ts',
-  'server/src/router/express/routes/auth.ts',
-  'server/src/router/express/routes/sessions.ts',
-  'server/src/router/express/routes/thresholdEcdsa.ts',
-  'server/src/router/express/routes/thresholdEd25519.ts',
-  'server/src/router/relayWalletRegistration.ts',
-  'server/src/router/walletUnlockRouteHandlers.ts',
-  'server/src/core/AuthService.ts',
-  'server/src/core/ThresholdService/ThresholdSigningService.ts',
+  'packages/sdk-server-ts/src/router/cloudflare/routes/auth.ts',
+  'packages/sdk-server-ts/src/router/cloudflare/routes/sessions.ts',
+  'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts',
+  'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts',
+  'packages/sdk-server-ts/src/router/express/routes/auth.ts',
+  'packages/sdk-server-ts/src/router/express/routes/sessions.ts',
+  'packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts',
+  'packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts',
+  'packages/sdk-server-ts/src/router/relayWalletRegistration.ts',
+  'packages/sdk-server-ts/src/router/walletUnlockRouteHandlers.ts',
+  'packages/sdk-server-ts/src/core/AuthService.ts',
+  'packages/sdk-server-ts/src/core/ThresholdService/ThresholdSigningService.ts',
 ] as const;
 
 function readRepoFile(relativePath: string): string {
@@ -82,7 +82,7 @@ test('WebAuthn verification calls carry an expected origin policy', () => {
 });
 
 test('WebAuthn verifier boundary does not infer expected origin from clientDataJSON', () => {
-  const source = readRepoFile('server/src/core/AuthService.ts');
+  const source = readRepoFile('packages/sdk-server-ts/src/core/AuthService.ts');
   expect(source).not.toMatch(/\bexpectedOrigin\s*:\s*[^,\n]*\|\|\s*clientData\.origin/);
   expect(source).not.toMatch(/\bconst\s+expectedOriginStrict\s*=\s*[^;\n]*\|\|\s*clientData\.origin/);
 });

@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { SigningAuthPlanKind } from '../../client/src/core/signingEngine/stepUpConfirmation/types';
+import { SigningAuthPlanKind } from '../../packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types';
 import {
   requireEvmFamilyStepUpAuth,
   type EvmFamilyThresholdEcdsaStepUp,
-} from '../../client/src/core/signingEngine/flows/signEvmFamily/requireEvmFamilyStepUpAuth';
+} from '../../packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/requireEvmFamilyStepUpAuth';
 
 test.describe('requireEvmFamilyStepUpAuth', () => {
   test('returns a warm-session branch without prompt wrappers', async () => {

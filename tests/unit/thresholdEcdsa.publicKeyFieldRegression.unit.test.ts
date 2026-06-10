@@ -6,19 +6,19 @@ const LEGACY_FIELD = 'groupPublicKeyB64u';
 const CANONICAL_FIELD = 'thresholdEcdsaPublicKeyB64u';
 
 const SOURCE_FILES = [
-  '../client/src/core/rpcClients/relayer/thresholdEcdsa.ts',
-  '../client/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
-  '../client/src/SeamsWeb/operations/auth/login.ts',
+  '../packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts',
+  '../packages/sdk-web/src/core/signingEngine/threshold/ecdsa/bootstrapSession.ts',
+  '../packages/sdk-web/src/SeamsWeb/operations/auth/login.ts',
 ];
 
 const DIST_FILES = [
-  '../sdk/dist/esm/core/rpcClients/relayer/thresholdEcdsa.js',
-  '../sdk/dist/esm/core/signingEngine/threshold/ecdsa/bootstrapSession.js',
+  '../packages/sdk-web/dist/esm/core/rpcClients/relayer/thresholdEcdsa.js',
+  '../packages/sdk-web/dist/esm/core/signingEngine/threshold/ecdsa/bootstrapSession.js',
 ];
 
 test.describe('threshold ECDSA public-key field regression', () => {
   test('source and built SDK surfaces use only thresholdEcdsaPublicKeyB64u', () => {
-    const sdkChunkDir = path.resolve(process.cwd(), '../sdk/dist/esm/sdk');
+    const sdkChunkDir = path.resolve(process.cwd(), '../packages/sdk-web/dist/esm/sdk');
     const sdkRuntimeChunks = fs
       .readdirSync(sdkChunkDir)
       .filter((name) => name.endsWith('.js'))

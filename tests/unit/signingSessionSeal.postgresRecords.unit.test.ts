@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   parseCurrentSigningSessionSealIdempotencyRouteResult,
   parseCurrentSigningSessionSealIdempotencyStoredEntry,
-} from '../../server/src/threshold/session/signingSessionSeal/postgresRecords';
+} from '../../packages/sdk-server-ts/src/threshold/session/signingSessionSeal/postgresRecords';
 
 test.describe('signing session seal postgres records', () => {
   test('preserves current success idempotency result fields including zero remaining uses', () => {

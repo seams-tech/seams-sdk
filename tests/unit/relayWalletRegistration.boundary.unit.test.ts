@@ -14,13 +14,13 @@ import {
   handleRelayWalletRegistrationFinalize,
   handleRelayWalletRegistrationHssRespond,
   handleRelayWalletEcdsaKeyFactsInventory,
-} from '../../server/src/router/relayWalletRegistration';
+} from '../../packages/sdk-server-ts/src/router/relayWalletRegistration';
 import {
   createRelayRouteDefinitions,
   findRouteDefinitionById,
   type RouteDefinition,
-} from '../../server/src/router/routeDefinitions';
-import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '../../shared/src/utils/ecdsaKeyFactsInventory';
+} from '../../packages/sdk-server-ts/src/router/routeDefinitions';
+import { computeWalletEcdsaKeyFactsInventoryChallengeDigestB64u } from '../../packages/shared-ts/src/utils/ecdsaKeyFactsInventory';
 import {
   computeAddAuthMethodIntentDigestB64u,
   computeAddSignerIntentDigestB64u,
@@ -29,7 +29,7 @@ import {
   type RegistrationIntentV1,
   walletIdFromString,
   type AddSignerIntentV1,
-} from '../../shared/src/utils/registrationIntent';
+} from '../../packages/shared-ts/src/utils/registrationIntent';
 
 const routeDefinitions = createRelayRouteDefinitions({
   enableHealthz: true,

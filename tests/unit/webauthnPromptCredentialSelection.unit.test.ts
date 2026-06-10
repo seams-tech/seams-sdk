@@ -3,7 +3,7 @@ import {
   collectAuthenticationCredentialForChallengeB64u,
   collectAuthenticationCredentialForWalletChallengeB64u,
   type WebAuthnAllowCredential,
-} from '../../client/src/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
+} from '../../packages/sdk-web/src/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 
 type Auth = { credentialId: string; signerSlot: number; transports: AuthenticatorTransport[] };
 

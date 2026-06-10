@@ -2,15 +2,15 @@ import { expect, test } from '@playwright/test';
 import {
   createSigningRootSecretResolver,
   resolveSigningRootSecretShareWirePairFromResolver,
-} from '../../server/src/core/ThresholdService/signingRootSecretResolverAdapters';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretResolverAdapters';
 import {
   InMemorySigningRootSecretStore,
   type SigningRootSecretStore,
-} from '../../server/src/core/ThresholdService/stores/SigningRootSecretStore';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
 import type {
   SigningRootSecretShareId,
   SealedSigningRootSecretShare,
-} from '../../server/src/core/ThresholdService/signingRootSecretShareWires';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretShareWires';
 
 const PROJECT_ID = 'project-alpha';
 const SIGNING_ROOT_VERSION = 'root-v1';

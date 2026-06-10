@@ -7,12 +7,12 @@ import {
   createThresholdEd25519ClientPresignWasm,
   decodeThresholdEd25519SignedNearTxBorshWasm,
   signThresholdEd25519ClientPresignWasm,
-} from '../../client/src/core/signingEngine/chains/near/nearSignerWasm';
+} from '../../packages/sdk-web/src/core/signingEngine/chains/near/nearSignerWasm';
 import {
   NearSignerWorkerCustomRequestType,
   type DelegatePayload,
-} from '../../client/src/core/types/signer-worker';
-import type { WorkerOperationContext } from '../../client/src/core/signingEngine/workerManager/executeWorkerOperation';
+} from '../../packages/sdk-web/src/core/types/signer-worker';
+import type { WorkerOperationContext } from '../../packages/sdk-web/src/core/signingEngine/workerManager/executeWorkerOperation';
 
 function recordingWorkerCtx(result: unknown, calls: unknown[]): WorkerOperationContext {
   return {

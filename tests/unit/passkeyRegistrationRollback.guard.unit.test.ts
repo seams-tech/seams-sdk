@@ -2,15 +2,15 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
 const REGISTRATION_URL = new URL(
-  '../../client/src/SeamsWeb/operations/registration/registration.ts',
+  '../../packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
   import.meta.url,
 );
 const PRODUCTION_CONTINUATION_SCAN_URLS = [
-  '../../client/src/SeamsWeb/operations/registration/registration.ts',
-  '../../client/src/core/rpcClients/relayer/thresholdEcdsa.ts',
-  '../../client/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
-  '../../server/src/core/types.ts',
-  '../../server/src/router/commonRouterUtils.ts',
+  '../../packages/sdk-web/src/SeamsWeb/operations/registration/registration.ts',
+  '../../packages/sdk-web/src/core/rpcClients/relayer/thresholdEcdsa.ts',
+  '../../packages/sdk-web/src/core/signingEngine/session/passkey/ecdsaBootstrap.ts',
+  '../../packages/sdk-server-ts/src/core/types.ts',
+  '../../packages/sdk-server-ts/src/router/commonRouterUtils.ts',
 ] as const;
 
 test.describe('Passkey registration rollback guard', () => {

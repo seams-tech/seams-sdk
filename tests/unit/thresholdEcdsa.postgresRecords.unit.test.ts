@@ -5,16 +5,16 @@ import {
   parseCurrentThresholdEcdsaPresignatureRecord,
   parseCurrentThresholdEcdsaSigningSessionRow,
   parseCurrentThresholdEd25519KeyRecord,
-} from '../../server/src/core/ThresholdService/postgresRecords';
-import { createThresholdEcdsaKeyStore } from '../../server/src/core/ThresholdService/stores/KeyStore';
-import { parseEcdsaHssRoleLocalKeyRecord } from '../../server/src/core/ThresholdService/validation';
-import { normalizeLogger } from '../../server/src/core/logger';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/postgresRecords';
+import { createThresholdEcdsaKeyStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/KeyStore';
+import { parseEcdsaHssRoleLocalKeyRecord } from '../../packages/sdk-server-ts/src/core/ThresholdService/validation';
+import { normalizeLogger } from '../../packages/sdk-server-ts/src/core/logger';
 import type {
   CloudflareDurableObjectNamespaceLike,
   CloudflareDurableObjectStubLike,
   EcdsaHssRoleLocalKeyRecord,
-} from '../../server/src/core/types';
-import { ThresholdStoreDurableObject } from '../../server/src/router/cloudflare/durableObjects/thresholdStore';
+} from '../../packages/sdk-server-ts/src/core/types';
+import { ThresholdStoreDurableObject } from '../../packages/sdk-server-ts/src/router/cloudflare/durableObjects/thresholdStore';
 
 type TestDurableObjectStorageLike = {
   get(key: string): Promise<unknown>;

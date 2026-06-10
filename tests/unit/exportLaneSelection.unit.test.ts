@@ -1,27 +1,27 @@
 import { expect, test } from '@playwright/test';
-import { toAccountId } from '../../client/src/core/types/accountIds';
+import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
 import {
   restoreEcdsaSessionForExport,
   restoreNearEd25519SessionForExport,
   type ExportLaneSelectionDeps,
-} from '../../client/src/core/signingEngine/flows/recovery/exportLaneSelection';
+} from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/exportLaneSelection';
 import {
   thresholdEcdsaChainTargetKey,
   type ThresholdEcdsaChainTarget,
-} from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
+} from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import type {
   AvailableSigningLanes,
   AvailableEd25519SigningLane,
   ConcreteAvailableEd25519SigningLane,
   ConcreteAvailableEcdsaSigningLane,
-} from '../../client/src/core/signingEngine/session/availability/availableSigningLanes';
+} from '../../packages/sdk-web/src/core/signingEngine/session/availability/availableSigningLanes';
 import {
   buildPasskeyEcdsaAuthBinding,
   buildEvmFamilyEcdsaKeyIdentity,
   buildResolvedEvmFamilyEcdsaKey,
   buildVerifiedEcdsaPublicFacts,
   type EvmFamilyEcdsaKeyHandle,
-} from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+} from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 
 const WALLET_ID = 'alice.testnet';
 const RP_ID = 'localhost';

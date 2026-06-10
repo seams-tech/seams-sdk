@@ -4,8 +4,8 @@ import {
   computeEcdsaHssRoleLocalThresholdKeyId,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import { resolveEmailOtpEcdsaRoleLocalKeyIdentityForHandle } from '../../client/src/core/signingEngine/session/emailOtp/ecdsaRoleLocalIdentity';
-import { deriveEvmFamilyEcdsaKeyHandle } from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { resolveEmailOtpEcdsaRoleLocalKeyIdentityForHandle } from '../../packages/sdk-web/src/core/signingEngine/session/emailOtp/ecdsaRoleLocalIdentity';
+import { deriveEvmFamilyEcdsaKeyHandle } from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 
 const runtimePolicyScope = {
   orgId: 'org-1',

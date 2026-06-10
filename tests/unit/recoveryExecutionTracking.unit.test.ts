@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { resolveTrackedNearRecoveryExecution } from '../../server/src/router/recoveryExecutionTracking';
+import { resolveTrackedNearRecoveryExecution } from '../../packages/sdk-server-ts/src/router/recoveryExecutionTracking';
 import {
   buildRecoveryEmailPayload,
   hashRecoveryEmailPayload,
-} from '../../shared/src/utils/recoveryEmail';
+} from '../../packages/shared-ts/src/utils/recoveryEmail';
 
 test.describe('recovery execution session reconciliation', () => {
   test('resolves tracked recovery only when the canonical payload matches the pending session', async () => {

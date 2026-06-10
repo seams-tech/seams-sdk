@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { resolveWasmUrl } from '../../client/src/core/walletRuntimePaths/wasm-loader';
+import { resolveWasmUrl } from '../../packages/sdk-web/src/core/walletRuntimePaths/wasm-loader';
 
 type GlobalWithWindow = any;
 

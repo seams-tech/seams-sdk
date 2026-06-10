@@ -12,9 +12,9 @@ function readRepoFile(relativePath: string): string {
 test.describe('Email OTP operation split guard', () => {
   test('transaction signing APIs cannot request export challenges', () => {
     const transactionApiFiles = [
-      'client/src/core/signingEngine/flows/signNear/signNear.ts',
-      'client/src/core/signingEngine/flows/signEvmFamily/authPlanning.ts',
-      'client/src/core/signingEngine/assembly/ports/evmFamily.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/signNear.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/authPlanning.ts',
+      'packages/sdk-web/src/core/signingEngine/assembly/ports/evmFamily.ts',
     ];
     const forbidden = [
       'requestEmailOtpChallengeForSigning',
@@ -41,7 +41,7 @@ test.describe('Email OTP operation split guard', () => {
 
   test('Email OTP coordinator keeps export challenge issuance separate from signing challenge issuance', () => {
     const source = readRepoFile(
-      'client/src/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
+      'packages/sdk-web/src/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
     );
     const forbidden = [
       'requestEmailOtpChallengeForSigning',
@@ -64,7 +64,7 @@ test.describe('Email OTP operation split guard', () => {
 
   test('Email OTP coordinator stays a thin runtime facade', () => {
     const source = readRepoFile(
-      'client/src/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
+      'packages/sdk-web/src/core/signingEngine/session/emailOtp/EmailOtpThresholdSessionCoordinator.ts',
     );
     const lineCount = source.split(/\r?\n/).length;
     const forbidden = [
@@ -85,9 +85,9 @@ test.describe('Email OTP operation split guard', () => {
   });
 
   test('ECDSA fresh Email OTP decisions stay planner-owned, not pre-sign guard-owned', () => {
-    const source = readRepoFile('client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts');
+    const source = readRepoFile('packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts');
     const executorSource = readRepoFile(
-      'client/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/transactionExecutor.ts',
     );
 
     expect(source).not.toContain('const assertEcdsaOperationAllowedForAttempt');
@@ -97,7 +97,7 @@ test.describe('Email OTP operation split guard', () => {
 
   test('ECDSA transaction signing selects an exact lane before material lookup', () => {
     const selectionModule = readRepoFile(
-      'client/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts',
     );
     const selectionModuleResolver = selectionModule.indexOf(
       'export async function resolveEvmFamilyEcdsaSigningSelection',
@@ -112,15 +112,15 @@ test.describe('Email OTP operation split guard', () => {
   });
 
   test('Email OTP ECDSA helpers require the Email OTP source lane', () => {
-    const evmSigning = readRepoFile('client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts');
+    const evmSigning = readRepoFile('packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts');
     const authPlanning = readRepoFile(
-      'client/src/core/signingEngine/flows/signEvmFamily/authPlanning.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/authPlanning.ts',
     );
     const ecdsaSelection = readRepoFile(
-      'client/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts',
     );
     const preparedSigning = readRepoFile(
-      'client/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
     );
 
     expect(preparedSigning).not.toContain('getThresholdEcdsaKeyRefForLookup');
@@ -136,7 +136,7 @@ test.describe('Email OTP operation split guard', () => {
 
   test('EVM-family ECDSA signing does not use legacy read-side restore fallback paths', () => {
     const preparedSigning = readRepoFile(
-      'client/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
     );
     const depsStart = preparedSigning.indexOf('export type PrepareEvmFamilyEcdsaSigningDeps');
 
@@ -147,9 +147,9 @@ test.describe('Email OTP operation split guard', () => {
   });
 
   test('EVM-family exhausted ECDSA lanes defer ready-material requirements until reauth', () => {
-    const evmSigning = readRepoFile('client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts');
+    const evmSigning = readRepoFile('packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts');
     const evmFamilyEcdsaIdentity = readRepoFile(
-      'client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts',
+      'packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts',
     );
     const executorStart = evmSigning.indexOf('const preparedExecutorSession =');
     const executorEnd = evmSigning.indexOf('const executePayload =', executorStart);
@@ -169,9 +169,9 @@ test.describe('Email OTP operation split guard', () => {
 
   test('EVM-family selection diagnostics remain observational', () => {
     const files = [
-      'client/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts',
-      'client/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
-      'client/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/ecdsaSelection.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/preparedSigning.ts',
+      'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signEvmFamily.ts',
     ];
     const violations: string[] = [];
     for (const file of files) {

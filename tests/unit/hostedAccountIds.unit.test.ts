@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { deriveHostedNearAccountId } from '../../server/src/core/hostedAccountIds';
+import { deriveHostedNearAccountId } from '../../packages/sdk-server-ts/src/core/hostedAccountIds';
 
 const BASE_INPUT = {
   accountIdDerivationSecret: 'unit-test-account-id-secret',

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { base64UrlEncode } from '../../shared/src/utils/encoders';
+import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
 import {
   SIGNING_ROOT_MIGRATION_BUNDLE_VERSION_V1,
   SIGNING_ROOT_MIGRATION_EXPORT_ARTIFACT_VERSION_V1,
@@ -13,7 +13,7 @@ import {
   signingRootRecordToMigrationBundle,
   type SigningRootMigrationBundleV1,
   type SigningRootRecord,
-} from '../../server/src/core/ThresholdService/signingRootRecords';
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootRecords';
 
 function sealedShareBytes(shareId: 1 | 2 | 3): Uint8Array {
   return new Uint8Array([shareId, 0xaa, 0xbb, 0xcc]);

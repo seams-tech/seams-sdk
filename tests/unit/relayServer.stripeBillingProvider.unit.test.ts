@@ -3,7 +3,7 @@ import {
   createStripeBillingProviderAdapter,
   normalizeOptionalStripePublishableKey,
   normalizeStripeSecretKey,
-} from '../../examples/relay-server/src/stripeBillingProvider';
+} from '../../apps/web-server/src/stripeBillingProvider';
 
 test.describe('relay-server stripe billing provider config', () => {
   test('accepts Stripe secret and restricted keys for server-side billing', async () => {

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { toAccountId } from '../../client/src/core/types/accountIds';
-import { showThresholdEcdsaExportViewer } from '../../client/src/core/signingEngine/flows/recovery/keyExportConfirmation';
-import type { ThresholdEcdsaChainTarget } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
+import { showThresholdEcdsaExportViewer } from '../../packages/sdk-web/src/core/signingEngine/flows/recovery/keyExportConfirmation';
+import type { ThresholdEcdsaChainTarget } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 
 const EVM_TARGET: ThresholdEcdsaChainTarget = {
   kind: 'evm',

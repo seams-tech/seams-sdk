@@ -19,16 +19,16 @@ import {
 test.describe('signing-engine ownership architecture guardrails', () => {
   test('session child domains declare ownership READMEs', () => {
     for (const relativePath of [
-      'client/src/core/signingEngine/session/identity/README.md',
-      'client/src/core/signingEngine/session/availability/README.md',
-      'client/src/core/signingEngine/session/persistence/README.md',
-      'client/src/core/signingEngine/session/sealedRecovery/README.md',
-      'client/src/core/signingEngine/session/warmCapabilities/README.md',
-      'client/src/core/signingEngine/session/passkey/README.md',
-      'client/src/core/signingEngine/session/emailOtp/README.md',
-      'client/src/core/signingEngine/session/operationState/README.md',
-      'client/src/core/signingEngine/session/budget/README.md',
-      'client/src/core/signingEngine/session/planning/README.md',
+      'packages/sdk-web/src/core/signingEngine/session/identity/README.md',
+      'packages/sdk-web/src/core/signingEngine/session/availability/README.md',
+      'packages/sdk-web/src/core/signingEngine/session/persistence/README.md',
+      'packages/sdk-web/src/core/signingEngine/session/sealedRecovery/README.md',
+      'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/README.md',
+      'packages/sdk-web/src/core/signingEngine/session/passkey/README.md',
+      'packages/sdk-web/src/core/signingEngine/session/emailOtp/README.md',
+      'packages/sdk-web/src/core/signingEngine/session/operationState/README.md',
+      'packages/sdk-web/src/core/signingEngine/session/budget/README.md',
+      'packages/sdk-web/src/core/signingEngine/session/planning/README.md',
     ]) {
       const source = readRepoSource(relativePath);
       for (const heading of ['## Owns', '## May Import', '## Must Not Import', '## Entrypoints']) {
@@ -62,7 +62,7 @@ test.describe('signing-engine ownership architecture guardrails', () => {
       const source = readRepoSource(relativePath);
       for (const specifier of extractImportSpecifiers(source)) {
         const resolved = resolveSigningEngineImport(relativePath, specifier);
-        if (resolved?.startsWith('client/src/core/signingEngine/flows')) {
+        if (resolved?.startsWith('packages/sdk-web/src/core/signingEngine/flows')) {
           offenders.push(`${relativePath} -> ${specifier}`);
         }
       }
@@ -73,16 +73,16 @@ test.describe('signing-engine ownership architecture guardrails', () => {
 
   test('session child domains avoid flow and assembly imports', () => {
     const domains = [
-      'client/src/core/signingEngine/session/identity',
-      'client/src/core/signingEngine/session/availability',
-      'client/src/core/signingEngine/session/planning',
-      'client/src/core/signingEngine/session/budget',
-      'client/src/core/signingEngine/session/persistence',
-      'client/src/core/signingEngine/session/sealedRecovery',
-      'client/src/core/signingEngine/session/operationState',
-      'client/src/core/signingEngine/session/warmCapabilities',
-      'client/src/core/signingEngine/session/passkey',
-      'client/src/core/signingEngine/session/emailOtp',
+      'packages/sdk-web/src/core/signingEngine/session/identity',
+      'packages/sdk-web/src/core/signingEngine/session/availability',
+      'packages/sdk-web/src/core/signingEngine/session/planning',
+      'packages/sdk-web/src/core/signingEngine/session/budget',
+      'packages/sdk-web/src/core/signingEngine/session/persistence',
+      'packages/sdk-web/src/core/signingEngine/session/sealedRecovery',
+      'packages/sdk-web/src/core/signingEngine/session/operationState',
+      'packages/sdk-web/src/core/signingEngine/session/warmCapabilities',
+      'packages/sdk-web/src/core/signingEngine/session/passkey',
+      'packages/sdk-web/src/core/signingEngine/session/emailOtp',
     ] as const;
     const forbiddenMarkers = [
       '/flows/',
@@ -106,7 +106,7 @@ test.describe('signing-engine ownership architecture guardrails', () => {
   });
 
   test('sealedRecovery stays free of method folders, flows, and assembly surfaces', () => {
-    const domainRoot = path.join(repoRoot, 'client/src/core/signingEngine/session/sealedRecovery');
+    const domainRoot = path.join(repoRoot, 'packages/sdk-web/src/core/signingEngine/session/sealedRecovery');
     const offenders: string[] = [];
 
     for (const relativePath of listProductionTypeScriptFiles(domainRoot)) {
@@ -115,11 +115,11 @@ test.describe('signing-engine ownership architecture guardrails', () => {
         const resolved = resolveSigningEngineImport(relativePath, specifier);
         if (!resolved) continue;
         if (
-          resolved.startsWith('client/src/core/signingEngine/session/passkey/') ||
-          resolved.startsWith('client/src/core/signingEngine/session/emailOtp/') ||
-          resolved.startsWith('client/src/core/signingEngine/flows/') ||
-          resolved.startsWith('client/src/core/signingEngine/assembly/') ||
-          resolved === 'client/src/SeamsWeb/assembly/BrowserSigningSurface'
+          resolved.startsWith('packages/sdk-web/src/core/signingEngine/session/passkey/') ||
+          resolved.startsWith('packages/sdk-web/src/core/signingEngine/session/emailOtp/') ||
+          resolved.startsWith('packages/sdk-web/src/core/signingEngine/flows/') ||
+          resolved.startsWith('packages/sdk-web/src/core/signingEngine/assembly/') ||
+          resolved === 'packages/sdk-web/src/SeamsWeb/assembly/BrowserSigningSurface'
         ) {
           offenders.push(`${relativePath} -> ${specifier}`);
         }
@@ -163,7 +163,7 @@ test.describe('signing-engine ownership architecture guardrails', () => {
     for (const [sourceDomain, allowedTargets] of Object.entries(allowedSiblingDomains)) {
       const domainRoot = path.join(
         repoRoot,
-        `client/src/core/signingEngine/session/${sourceDomain}`,
+        `packages/sdk-web/src/core/signingEngine/session/${sourceDomain}`,
       );
 
       for (const relativePath of listProductionTypeScriptFiles(domainRoot)) {
@@ -171,9 +171,9 @@ test.describe('signing-engine ownership architecture guardrails', () => {
         const source = readRepoSource(relativePath);
         for (const specifier of extractImportSpecifiers(source)) {
           const resolved = resolveSigningEngineImport(relativePath, specifier);
-          if (!resolved?.startsWith('client/src/core/signingEngine/session/')) continue;
+          if (!resolved?.startsWith('packages/sdk-web/src/core/signingEngine/session/')) continue;
 
-          const tail = resolved.slice('client/src/core/signingEngine/session/'.length);
+          const tail = resolved.slice('packages/sdk-web/src/core/signingEngine/session/'.length);
           const targetDomain = tail.split('/')[0];
           if (!targetDomain || targetDomain === sourceDomain) continue;
           if (targetDomain === 'public.ts') continue;
@@ -200,11 +200,11 @@ test.describe('signing-engine ownership architecture guardrails', () => {
       'passkey',
       'emailOtp',
     ] as const;
-    const coordinatorPath = 'client/src/core/signingEngine/session/SigningSessionCoordinator.ts';
+    const coordinatorPath = 'packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator.ts';
     const offenders: string[] = [];
 
     for (const domain of childDomains) {
-      const domainRoot = path.join(repoRoot, `client/src/core/signingEngine/session/${domain}`);
+      const domainRoot = path.join(repoRoot, `packages/sdk-web/src/core/signingEngine/session/${domain}`);
       for (const relativePath of listProductionTypeScriptFiles(domainRoot)) {
         const source = readRepoSource(relativePath);
         for (const specifier of extractImportSpecifiers(source)) {
@@ -221,19 +221,19 @@ test.describe('signing-engine ownership architecture guardrails', () => {
 
   test('SigningSessionCoordinator.ts stays free of method-specific session domains', () => {
     const source = readRepoSource(
-      'client/src/core/signingEngine/session/SigningSessionCoordinator.ts',
+      'packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator.ts',
     );
     const offenders: string[] = [];
 
     for (const specifier of extractImportSpecifiers(source)) {
       const resolved = resolveSigningEngineImport(
-        'client/src/core/signingEngine/session/SigningSessionCoordinator.ts',
+        'packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator.ts',
         specifier,
       );
-      if (!resolved?.startsWith('client/src/core/signingEngine/session/')) continue;
+      if (!resolved?.startsWith('packages/sdk-web/src/core/signingEngine/session/')) continue;
       if (
-        resolved.startsWith('client/src/core/signingEngine/session/passkey/') ||
-        resolved.startsWith('client/src/core/signingEngine/session/emailOtp/')
+        resolved.startsWith('packages/sdk-web/src/core/signingEngine/session/passkey/') ||
+        resolved.startsWith('packages/sdk-web/src/core/signingEngine/session/emailOtp/')
       ) {
         offenders.push(`${specifier} -> ${resolved}`);
       }
@@ -243,7 +243,7 @@ test.describe('signing-engine ownership architecture guardrails', () => {
   });
 
   test('SigningSessionCoordinator.ts only imports orchestration session domains', () => {
-    const relativePath = 'client/src/core/signingEngine/session/SigningSessionCoordinator.ts';
+    const relativePath = 'packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator.ts';
     const source = readRepoSource(relativePath);
     const allowedSessionDomains = new Set([
       'planning',
@@ -257,8 +257,8 @@ test.describe('signing-engine ownership architecture guardrails', () => {
 
     for (const specifier of extractImportSpecifiers(source)) {
       const resolved = resolveSigningEngineImport(relativePath, specifier);
-      if (!resolved?.startsWith('client/src/core/signingEngine/session/')) continue;
-      const tail = resolved.slice('client/src/core/signingEngine/session/'.length);
+      if (!resolved?.startsWith('packages/sdk-web/src/core/signingEngine/session/')) continue;
+      const tail = resolved.slice('packages/sdk-web/src/core/signingEngine/session/'.length);
       const targetDomain = tail.split('/')[0];
       if (!targetDomain || targetDomain === 'SigningSessionCoordinator.ts') continue;
       if (targetDomain === 'public.ts') continue;
@@ -273,7 +273,7 @@ test.describe('signing-engine ownership architecture guardrails', () => {
   test('signing flows only import session/SigningSessionCoordinator.ts as a session coordinator', () => {
     const offenders: string[] = [];
     const allowedCoordinatorPrefix =
-      'client/src/core/signingEngine/session/SigningSessionCoordinator';
+      'packages/sdk-web/src/core/signingEngine/session/SigningSessionCoordinator';
 
     for (const relativePath of listProductionTypeScriptFiles(
       path.join(signingEngineRoot, 'flows'),
@@ -281,7 +281,7 @@ test.describe('signing-engine ownership architecture guardrails', () => {
       const source = readRepoSource(relativePath);
       for (const specifier of extractImportSpecifiers(source)) {
         const resolved = resolveSigningEngineImport(relativePath, specifier);
-        if (!resolved?.startsWith('client/src/core/signingEngine/session/')) continue;
+        if (!resolved?.startsWith('packages/sdk-web/src/core/signingEngine/session/')) continue;
         if (!resolved.includes('Coordinator')) continue;
         if (
           resolved !== allowedCoordinatorPrefix &&

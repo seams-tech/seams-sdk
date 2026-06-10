@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { parsePostgresRow } from '../../server/src/storage/postgres';
+import { parsePostgresRow } from '../../packages/sdk-server-ts/src/storage/postgres';
 
 test.describe('postgres read helpers', () => {
   test('returns typed missing, malformed, and current row results', () => {

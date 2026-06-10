@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { deriveThresholdEcdsaKeyHandle } from '@shared/utils/thresholdEcdsaKeyHandle';
-import { toAccountId } from '../../client/src/core/types/accountIds';
-import type { ThresholdEcdsaSecp256k1KeyRef } from '../../client/src/core/signingEngine/interfaces/signing';
+import { toAccountId } from '../../packages/sdk-web/src/core/types/accountIds';
+import type { ThresholdEcdsaSecp256k1KeyRef } from '../../packages/sdk-web/src/core/signingEngine/interfaces/signing';
 import {
   buildEmailOtpEcdsaAuthBinding,
   buildEvmFamilyEcdsaKeyIdentityFromKeyRef,
@@ -23,8 +23,8 @@ import {
   toVerifiedEcdsaPublicFactsFromKeyRef,
   toVerifiedEcdsaPublicFactsFromReadyMaterial,
   toVerifiedEcdsaPublicFactsFromRecord,
-} from '../../client/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
-import type { ThresholdEcdsaChainTarget } from '../../client/src/core/signingEngine/interfaces/ecdsaChainTarget';
+} from '../../packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import type { ThresholdEcdsaChainTarget } from '../../packages/sdk-web/src/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
   clearStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget,
   clearStoredThresholdEcdsaSessionRecordsForWalletKeyHandle,
@@ -39,15 +39,15 @@ import {
   upsertStoredThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionRecord,
   type ThresholdEcdsaSessionStoreDeps,
-} from '../../client/src/core/signingEngine/session/persistence/records';
-import { selectedEcdsaLane } from '../../client/src/core/signingEngine/session/identity/laneIdentity';
+} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/records';
+import { selectedEcdsaLane } from '../../packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity';
 import {
   buildEcdsaRoleLocalEmailOtpAuthMethod,
   buildEcdsaRoleLocalPasskeyAuthMethod,
   buildEcdsaRoleLocalPublicFacts,
   buildEcdsaRoleLocalReadyRecord,
   parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
-} from '../../client/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
+} from '../../packages/sdk-web/src/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 
 const WALLET_ID = toAccountId('alice.testnet');
 const OWNER_ADDRESS = '0x1111111111111111111111111111111111111111';

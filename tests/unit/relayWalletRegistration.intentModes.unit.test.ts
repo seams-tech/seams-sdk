@@ -1,14 +1,14 @@
 import { expect, test } from '@playwright/test';
 import { AuthService } from '@server/core/AuthService';
 import { createInMemoryConsoleOrgProjectEnvService } from '@server/console/orgProjectEnv';
-import { handleRelayWalletRegistrationIntent } from '../../server/src/router/relayWalletRegistration';
+import { handleRelayWalletRegistrationIntent } from '../../packages/sdk-server-ts/src/router/relayWalletRegistration';
 import {
   createRelayRouteDefinitions,
   findRouteDefinitionById,
   type RouteDefinition,
-} from '../../server/src/router/routeDefinitions';
-import type { RelayApiKeyAuthAdapter } from '../../server/src/router/relay';
-import type { RegistrationSignerSelection } from '../../shared/src/utils/registrationIntent';
+} from '../../packages/sdk-server-ts/src/router/routeDefinitions';
+import type { RelayApiKeyAuthAdapter } from '../../packages/sdk-server-ts/src/router/relay';
+import type { RegistrationSignerSelection } from '../../packages/shared-ts/src/utils/registrationIntent';
 import { DEFAULT_TEST_CONFIG } from '../setup/config';
 
 const ORG_ID = 'org_registration_intent_modes';
