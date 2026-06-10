@@ -109,7 +109,7 @@ The main proof burden is:
 
 This aligns well with the existing proof inventory item around additive-share
 mapping in
-[proof-inventory.md](/Users/pta/Dev/rust/simple-threshold-signer/formal-verification/docs/proof-inventory.md).
+[proof-inventory.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/docs/proof-inventory.md).
 
 ### Performance Expectation
 
@@ -349,4 +349,4 @@ That gives:
   - [ethSignerWasm.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/core/ThresholdService/ethSignerWasm.ts)
   - [threshold_ecdsa.rs](/Users/pta/Dev/rust/simple-threshold-signer/crates/signer-core/src/threshold_ecdsa.rs)
   - [ecdsa_threshold_signing.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/ecdsa_threshold_signing.md)
-  - [proof-inventory.md](/Users/pta/Dev/rust/simple-threshold-signer/formal-verification/docs/proof-inventory.md)
+  - [proof-inventory.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/ecdsa-hss/formal-verification/docs/proof-inventory.md)
