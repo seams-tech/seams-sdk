@@ -39,6 +39,12 @@ type DoReq =
   | { op: 'readVersioned'; key: string }
   | { op: 'claimVersioned'; key: string; expectedVersion: string }
   | {
+      op: 'getdelIfRelatedMatches';
+      key: string;
+      relatedKey: string;
+      expectedRelated: unknown;
+    }
+  | {
       op: 'setWithIdentityGuard';
       key: string;
       identityKey: string;
@@ -212,6 +218,23 @@ function toTtlSeconds(ttlMs: unknown): number | null {
   const n = Number(ttlMs);
   if (!Number.isFinite(n) || n <= 0) return null;
   return Math.max(1, Math.ceil(n / 1000));
+}
+
+function jsonValueContains(actual: unknown, expected: unknown): boolean {
+  if (Array.isArray(expected)) {
+    return (
+      Array.isArray(actual) &&
+      actual.length === expected.length &&
+      expected.every((value, index) => jsonValueContains(actual[index], value))
+    );
+  }
+  if (isPlainObject(expected)) {
+    if (!isPlainObject(actual)) return false;
+    return Object.entries(expected).every(([key, value]) =>
+      jsonValueContains((actual as Record<string, unknown>)[key], value),
+    );
+  }
+  return Object.is(actual, expected);
 }
 
 function stableStoreVersion(value: unknown): string {
@@ -608,6 +631,29 @@ export class ThresholdStoreDurableObject {
         const v = await store.get(key);
         await store.delete(key);
         return v ?? null;
+      });
+      return json(ok(value));
+    }
+    if (op === 'getdelIfRelatedMatches') {
+      const key = toKey((req as { key?: unknown }).key);
+      const relatedKey = toKey((req as { relatedKey?: unknown }).relatedKey);
+      if (!key) return json(err('invalid_body', 'Missing key'));
+      if (!relatedKey) return json(err('invalid_body', 'Missing relatedKey'));
+      const expectedRelated = (req as { expectedRelated?: unknown }).expectedRelated;
+      const value = await withTxn(this.state, async (store) => {
+        const related = await store.get(relatedKey);
+        if (!jsonValueContains(related, expectedRelated)) {
+          return {
+            matched: false,
+            value: null,
+          };
+        }
+        const v = await store.get(key);
+        await store.delete(key);
+        return {
+          matched: true,
+          value: v ?? null,
+        };
       });
       return json(ok(value));
     }

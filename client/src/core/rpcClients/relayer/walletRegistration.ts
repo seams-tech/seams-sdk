@@ -73,6 +73,29 @@ async function postJson<TResponse>(args: {
   return data as TResponse;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function requireResponseString(args: { responseName: string; field: string; value: unknown }): string {
+  const value = String(args.value || '').trim();
+  if (!value) {
+    throw new Error(`${args.responseName} response missing ${args.field}`);
+  }
+  return value;
+}
+
+function requireResponseRecord(args: {
+  responseName: string;
+  field: string;
+  value: unknown;
+}): Record<string, unknown> {
+  if (!isRecord(args.value)) {
+    throw new Error(`${args.responseName} response missing ${args.field}`);
+  }
+  return args.value;
+}
+
 export type CreateRegistrationIntentRequest = {
   wallet: RegisterWalletInput;
   rpId: string;
@@ -88,12 +111,27 @@ export type CreateRegistrationIntentResponse = {
   expiresAtMs: number;
 };
 
+export type RegistrationPreparationId = string & { readonly __brand: 'RegistrationPreparationId' };
+
+export function registrationPreparationIdFromString(value: string): RegistrationPreparationId {
+  const normalized = String(value || '').trim();
+  if (!normalized) {
+    throw new Error('Registration preparation id is required');
+  }
+  return normalized as RegistrationPreparationId;
+}
+
 export type WalletRegistrationRouteTimingName =
   | 'registrationIntentLoadMs'
   | 'registrationIntentDigestMs'
   | 'registrationIntentConsumeMs'
+  | 'registrationPreparationPersistMs'
+  | 'registrationPreparationLoadMs'
+  | 'registrationPreparationConsumeMs'
+  | 'registrationPreparationScopeCheckMs'
   | 'registrationAuthorityVerifyMs'
   | 'registrationHssPrepareMs'
+  | 'registrationPreauthHssPrepareMs'
   | 'registrationHssServerInputDeriveMs'
   | 'registrationHssServerSessionPrepareTotalMs'
   | 'registrationHssPrepareSessionMs'
@@ -103,6 +141,7 @@ export type WalletRegistrationRouteTimingName =
   | 'registrationHssPrepareEncodeStatesMs'
   | 'registrationEcdsaPrepareMs'
   | 'registrationCeremonyPersistMs'
+  | 'registerPrepareTotalMs'
   | 'registerStartTotalMs'
   | 'registrationHssRespondMs'
   | 'registrationHssRespondDecodeMessagesMs'
@@ -130,12 +169,87 @@ export type WalletRegistrationRouteTimingName =
 
 export type WalletRegistrationRouteDiagnostics = {
   kind: 'wallet_registration_route_diagnostics_v1';
-  route: 'wallets_register_start' | 'wallets_register_hss_respond' | 'wallets_register_finalize';
+  route:
+    | 'wallets_register_prepare'
+    | 'wallets_register_start'
+    | 'wallets_register_hss_respond'
+    | 'wallets_register_finalize';
   entries: {
     name: WalletRegistrationRouteTimingName;
     durationMs: number;
   }[];
 };
+
+export type WalletRegistrationPrepareResponse = {
+  ok: true;
+  state: 'prepared';
+  registrationPreparationId: RegistrationPreparationId;
+  expiresAtMs: number;
+  registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
+  ed25519: {
+    ceremonyHandle: string;
+    preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+    clientOtOfferMessageB64u: string;
+  };
+};
+
+function parseWalletRegistrationPrepareResponse(value: unknown): WalletRegistrationPrepareResponse {
+  const responseName = 'wallet registration prepare';
+  const record = requireResponseRecord({
+    responseName,
+    field: 'body',
+    value,
+  });
+  if (record.ok !== true) {
+    throw new Error(`${responseName} response was not ok`);
+  }
+  if (record.state !== 'prepared') {
+    throw new Error(`${responseName} response was not prepared`);
+  }
+  const expiresAtMs = Number(record.expiresAtMs);
+  if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= 0) {
+    throw new Error(`${responseName} response missing expiresAtMs`);
+  }
+  const ed25519 = requireResponseRecord({
+    responseName,
+    field: 'ed25519',
+    value: record.ed25519,
+  });
+  const registrationDiagnostics = record.registrationDiagnostics;
+  const parsedRegistrationDiagnostics = isRecord(registrationDiagnostics)
+    ? (registrationDiagnostics as WalletRegistrationRouteDiagnostics)
+    : undefined;
+  return {
+    ok: true,
+    state: 'prepared',
+    registrationPreparationId: registrationPreparationIdFromString(
+      requireResponseString({
+        responseName,
+        field: 'registrationPreparationId',
+        value: record.registrationPreparationId,
+      }),
+    ),
+    expiresAtMs,
+    ...(parsedRegistrationDiagnostics ? { registrationDiagnostics: parsedRegistrationDiagnostics } : {}),
+    ed25519: {
+      ceremonyHandle: requireResponseString({
+        responseName,
+        field: 'ed25519.ceremonyHandle',
+        value: ed25519.ceremonyHandle,
+      }),
+      preparedSession: requireResponseRecord({
+        responseName,
+        field: 'ed25519.preparedSession',
+        value: ed25519.preparedSession,
+      }) as ThresholdEd25519HssPreparedSessionEnvelope,
+      clientOtOfferMessageB64u: requireResponseString({
+        responseName,
+        field: 'ed25519.clientOtOfferMessageB64u',
+        value: ed25519.clientOtOfferMessageB64u,
+      }),
+    },
+  };
+}
 
 export type WalletRegistrationStartResponse = {
   ok: true;
@@ -383,6 +497,7 @@ export type WalletRegistrationEcdsaPrepareContext = {
   signingRootVersion: string;
   keyScope: 'evm-family';
   relayerKeyId: string;
+  registrationPreparationId?: RegistrationPreparationId;
   requestId: string;
   sessionId: string;
   walletSigningSessionId: string;
@@ -774,6 +889,28 @@ export async function createWalletRegistrationIntent(args: {
   });
 }
 
+export async function prepareWalletRegistration(args: {
+  relayerUrl: string;
+  headers?: Record<string, string>;
+  registrationIntentGrant: RegistrationIntentGrant;
+  registrationIntentDigestB64u: string;
+  intent: RegistrationIntentV1;
+  work: { kind: 'ed25519_hss' | 'ed25519_hss_and_ecdsa' };
+}): Promise<WalletRegistrationPrepareResponse> {
+  const rawResponse = await postJson<unknown>({
+    relayerUrl: args.relayerUrl,
+    path: '/wallets/register/prepare',
+    headers: args.headers,
+    body: {
+      registrationIntentGrant: args.registrationIntentGrant,
+      registrationIntentDigestB64u: args.registrationIntentDigestB64u,
+      intent: args.intent,
+      work: args.work,
+    },
+  });
+  return parseWalletRegistrationPrepareResponse(rawResponse);
+}
+
 export async function createWalletAddSignerIntent(args: {
   relayerUrl: string;
   walletId: WalletId;
@@ -824,12 +961,16 @@ export async function startWalletRegistration(
     registrationIntentGrant: RegistrationIntentGrant;
     registrationIntentDigestB64u: string;
     intent: RegistrationIntentV1;
+    registrationPreparationId?: RegistrationPreparationId;
   } & WalletRegistrationStartAuthority,
 ): Promise<WalletRegistrationStartResponse> {
   const body = {
     registrationIntentGrant: args.registrationIntentGrant,
     registrationIntentDigestB64u: args.registrationIntentDigestB64u,
     intent: args.intent,
+    ...(args.registrationPreparationId
+      ? { registrationPreparationId: args.registrationPreparationId }
+      : {}),
     ...walletRegistrationStartAuthorityBody(args),
   };
   return await postJson<WalletRegistrationStartResponse>({

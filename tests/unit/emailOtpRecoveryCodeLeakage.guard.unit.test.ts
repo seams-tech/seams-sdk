@@ -29,6 +29,7 @@ const recoveryKeysAllowedSourceFiles = new Set([
   'client/src/SeamsWeb/googleEmailOtpWalletAuth.typecheck.ts',
   'client/src/SeamsWeb/operations/authMethods/emailOtp/challenge.ts',
   'client/src/SeamsWeb/operations/authMethods/emailOtp/enrollment.ts',
+  'client/src/SeamsWeb/operations/authMethods/emailOtp/prewarmedRegistrationMaterial.ts',
   'client/src/SeamsWeb/operations/authMethods/emailOtp/registrationOffer.ts',
   'client/src/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup.ts',
   'client/src/SeamsWeb/operations/registration/registration.ts',

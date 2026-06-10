@@ -24,6 +24,26 @@ export type SerializableCredential =
   | WebAuthnAuthenticationCredential
   | WebAuthnRegistrationCredential;
 
+export type RegistrationConfirmationDiagnostics = {
+  kind: 'registration_confirmation_diagnostics_v1';
+  workerReadyMs: number;
+  workerRequestRoundTripMs: number;
+  workerResponseValidationMs: number;
+  requestSetupMs: number;
+  promptUserMs: number;
+  promptElementDefineMs: number;
+  promptMountMs: number;
+  promptHostFirstUpdateMs: number;
+  promptHostInteractiveMs: number;
+  promptConfirmEventMs: number;
+  promptDecisionWaitMs: number;
+  credentialCreateStartMs: number;
+  credentialCreateMs: number;
+  credentialSerializeMs: number;
+  duplicateRetryCount: number;
+  mainThreadTotalMs: number;
+};
+
 export type ForbiddenMainThreadSecrets = {
   prfOutput?: never;
   prf_output?: never;
@@ -42,6 +62,7 @@ export interface UserConfirmDecision extends ForbiddenMainThreadSecrets {
   transactionContext?: TransactionContext;
   nonceLeases?: NonceLeaseRef[];
   _confirmHandle?: { close: (confirmed: boolean) => void };
+  registrationDiagnostics?: RegistrationConfirmationDiagnostics;
   error?: string;
 }
 

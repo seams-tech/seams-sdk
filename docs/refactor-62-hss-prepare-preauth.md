@@ -2,7 +2,7 @@
 
 Date created: June 8, 2026
 
-Status: planning.
+Status: route split and client overlap landed, benchmarked, and retained.
 
 ## Goal
 
@@ -29,7 +29,7 @@ the verified registration proof.
 
 ## Current State
 
-Current server flow in `AuthService.startWalletRegistration`:
+Original server flow in `AuthService.startWalletRegistration`:
 
 ```text
 load registration intent by grant
@@ -81,6 +81,11 @@ registration intent allocated
 
 The preauth record is inert. It must never create a wallet, signer, session,
 credential binding, NEAR account, or durable wallet key.
+
+Implementation note: the first landed slice executes synchronously and persists
+`hss_prepare_prepared`. The store boundary already models `preparing` and
+`failed` so an async/background prepare worker can be added without changing the
+record shape.
 
 ## HSS Preparation Record
 
@@ -199,80 +204,131 @@ the record is ready.
 
 ### Phase 1: Domain Types
 
-- [ ] Add `RegistrationPreparationId` as a branded id.
-- [ ] Add `StoredWalletRegistrationPreparation` union branches.
-- [ ] Add `StoredEd25519RegistrationPrepareScope` with required scope fields.
-- [ ] Add builders for `hss_prepare_preparing`, `hss_prepare_prepared`, and
+- [x] Add `RegistrationPreparationId` as a branded id.
+- [x] Add `StoredWalletRegistrationPreparation` union branches.
+- [x] Add the first `StoredWalletRegistrationHssPreparation` prepared branch.
+- [x] Add `StoredEd25519RegistrationPrepareScope` with required scope fields.
+- [x] Add builders for `hss_prepare_preparing`, `hss_prepare_prepared`, and
       `hss_prepare_failed`.
-- [ ] Add `assertNever` coverage for preparation lifecycle switches.
-- [ ] Add type fixtures rejecting missing identity fields, mixed prepared/failed
+- [x] Add `assertNever` coverage for preparation lifecycle switches.
+- [x] Add type fixtures rejecting missing identity fields, mixed prepared/failed
       branches, raw string ids, and broad-spread construction.
 
 ### Phase 2: Store Boundary
 
-- [ ] Extend `RegistrationCeremonyStore` with `putPreparation`,
-      `getPreparation`, `updatePreparation`, and `takePreparation`.
-- [ ] Add an atomic intent consume method that requires grant, digest,
+- [x] Extend `RegistrationCeremonyStore` with `putPreparation`,
+      `getPreparation`, and `takePreparation`.
+- [x] Add `updatePreparation` for async preparing/failed transitions.
+- [x] Add an atomic intent consume method that requires grant, digest,
       preparation id, and expected scope after authority verification.
-- [ ] Implement memory-store support first.
-- [ ] Implement Postgres and Cloudflare Durable Object parsing only at the store
+- [x] Implement memory-store support first.
+- [x] Implement Postgres and Cloudflare Durable Object parsing only at the store
       boundary.
-- [ ] Add aggressive expiry pruning for abandoned records.
-- [ ] Add tests for expired, consumed, failed, and scope-mismatched records.
+- [x] Add aggressive expiry pruning for abandoned records.
+- [x] Add tests for prepared record put/get/take consumption.
+- [x] Add tests for expired, failed, and scope-mismatched records.
 
 ### Phase 3: Prepare Route
 
-- [ ] Add `parseWalletRegistrationPrepareBody` beside
+- [x] Add `parseWalletRegistrationPrepareBody` beside
       `parseWalletRegistrationStartBody`.
-- [ ] Reject raw HSS payloads, authority proofs, client requests, session
+- [x] Reject raw HSS payloads, authority proofs, client requests, session
       policy, and finalization fields on the prepare route.
-- [ ] Load the intent by grant without consuming it.
-- [ ] Recompute and verify the canonical registration intent digest.
-- [ ] Normalize signing root and Ed25519 scope with the same helpers used by
+- [x] Load the intent by grant without consuming it.
+- [x] Recompute and verify the canonical registration intent digest.
+- [x] Normalize signing root and Ed25519 scope with the same helpers used by
       `startWalletRegistration`.
-- [ ] Run `threshold.ed25519Hss.prepareForRegistration`.
-- [ ] Persist the prepared branch with the generated
+- [x] Run `threshold.ed25519Hss.prepareForRegistration`.
+- [x] Persist the prepared branch with the generated
       `registrationPreparationId`.
-- [ ] Return only the prepared HSS client-facing fields and preparation id.
+- [x] Return only the prepared HSS client-facing fields and preparation id.
 
 ### Phase 4: Start Route Consumption
 
-- [ ] Require `registrationPreparationId` for Ed25519 registration modes.
-- [ ] Load the prepared HSS record before consuming the registration intent.
-- [ ] Load the registration intent without consuming it.
-- [ ] Verify passkey or Email OTP authority as the route does today.
-- [ ] Compare prepared scope with the loaded intent and verified authority.
-- [ ] Consume the registration intent only after authority verification and
+- [x] Require `registrationPreparationId` for Ed25519 registration modes.
+- [x] Load the prepared HSS record before consuming the registration intent.
+- [x] Load the registration intent without consuming it.
+- [x] Verify passkey or Email OTP authority as the route does today.
+- [x] Compare prepared scope with the loaded intent and verified authority.
+- [x] Consume the registration intent only after authority verification and
       scope comparison both pass.
-- [ ] Persist the registration ceremony using the preauth prepared HSS branch.
-- [ ] Consume the prepared record after ceremony persistence succeeds.
-- [ ] Do not rerun Ed25519 HSS prepare inside `/wallets/register/start`.
+- [x] Persist the registration ceremony using the preauth prepared HSS branch.
+- [x] Consume the prepared record after ceremony persistence succeeds.
+- [x] Do not rerun Ed25519 HSS prepare inside `/wallets/register/start`.
 
 ### Phase 5: Combined Ed25519 And ECDSA
 
-- [ ] Decide whether ECDSA prepare context lives in the same preparation record
+- [x] Decide whether ECDSA prepare context lives in the same preparation record
       or a sibling `ecdsa_prepare_prepared` branch.
-- [ ] Keep ECDSA client bootstrap after the user proof because it needs
+- [x] Keep ECDSA client bootstrap after the user proof because it needs
       passkey PRF or Email OTP root-share material.
-- [ ] Bind ECDSA prepare context to the same registration preparation id,
+- [x] Bind ECDSA prepare context to the same registration preparation id,
       intent digest, wallet id, rp id, signing root, key scope, and participant
       ids.
-- [ ] Add combined-mode tests proving Ed25519 and ECDSA prepared branches cannot
+- [x] Add combined-mode tests proving Ed25519 start uses the prepared branch in
+      combined registration mode.
+- [x] Add combined-mode coverage proving the prepared Ed25519 branch is consumed
+      after ceremony persistence.
+- [x] Add combined-mode tests proving Ed25519 and ECDSA prepared branches cannot
       be crossed between preparations.
+- [x] Preserve `registrationPreparationId` through the `/hss/respond` boundary
+      parser and Email OTP worker parser so the real combined flow carries the
+      same preparation binding that the service tests assert.
 
 ### Phase 6: Observability And Benchmark
 
-- [ ] Add route diagnostics for `registrationPreauthHssPrepareMs`,
+- [x] Add route diagnostics for `registrationPreauthHssPrepareMs`,
       `registrationPreparationPersistMs`, `registrationPreparationLoadMs`,
       `registrationPreparationScopeCheckMs`, and post-auth
       `registrationHssPrepareMs`.
-- [ ] Keep `registrationHssPrepareMs` in start diagnostics as `0ms` or absent
+- [x] Keep `registrationHssPrepareMs` in start diagnostics as `0ms` or absent
       only after benchmark code can distinguish preauth prepare from start
       prepare.
-- [ ] Update the registration benchmark summary with preauth prepare buckets.
-- [ ] Run `pnpm benchmark:registration-flow:smoke` before and after.
-- [ ] Keep the route-shape change only if `/wallets/register/start` p50/p95
-      drops materially and full registration improves.
+- [x] Update the registration benchmark summary with preauth prepare buckets.
+- [x] Run `pnpm benchmark:registration-flow:smoke` after the first slice.
+- [x] Keep the route-shape change because `/wallets/register/start` p50/p95
+      dropped materially.
+- [x] Re-run the two combined scenarios after tightening the ECDSA binding.
+- [x] Re-run the full smoke benchmark after fixing the combined-flow boundary
+      parser.
+- [x] Add `walletRegisterPrepareWaitMs` so benchmarks distinguish total preauth
+      prepare duration from the critical-path wait after authority collection
+      and Ed25519 client material construction.
+- [x] Add earlier or deeper overlap measurement so the benchmark can prove
+      whether preauth prepare remains on the SDK critical path. Current SDK flow
+      starts `prepareWalletRegistration` immediately after local intent digest
+      verification and records the critical-path wait separately; the latest
+      smoke run shows no remaining prepare wait in the measured passkey flows.
+
+Benchmark result:
+
+- Command:
+  `CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang pnpm benchmark:registration-flow:smoke`
+- Run ID: `20260609-032110Z`
+- Output:
+  `benchmarks/registration-flow/out/20260609-032110Z/summary.md`
+- Result: all four smoke scenarios passed.
+- Route effect: `walletRegisterStartMs` p50 is `6ms` for wallet iframe
+  Ed25519-only, `7ms` for wallet iframe combined, `4ms` for host-origin
+  Ed25519-only, and `5ms` for host-origin combined. The HSS server prepare work
+  is no longer on the post-auth start route.
+- New preauth bucket: `walletRegisterPrepareMs` p50 is `375ms` for wallet
+  iframe Ed25519-only, `377ms` for wallet iframe combined, `374ms` for
+  host-origin Ed25519-only, and `370ms` for host-origin combined. Relay
+  diagnostics include `wallets_register_prepare` with
+  `registrationPreauthHssPrepareMs`.
+- Client wait bucket: `walletRegisterPrepareWaitMs` p50 and p95 are `0ms` in
+  all four smoke scenarios. The current SDK orchestration fully overlaps
+  preauth prepare with authority collection and Ed25519 client material work in
+  these passkey flows.
+- Registration warmup wait bucket: `registrationWarmupWaitMs` p50 and p95 are
+  `0ms` in all four smoke scenarios.
+- Product effect in the latest smoke: SDK p50 is `1989ms` for wallet iframe
+  Ed25519-only, `2026ms` for wallet iframe combined, `1636ms` for host-origin
+  Ed25519-only, and `1692ms` for host-origin combined. The route split is
+  retained because it moves the expensive HSS prepare off the post-auth critical
+  path; further end-to-end gains should target client HSS artifact construction,
+  finalize, and wallet-iframe overhead.
 
 ## Abuse And Cleanup Rules
 
@@ -305,6 +361,15 @@ the record is ready.
 - Type fixtures make invalid preparation lifecycle states unrepresentable.
 - Benchmark evidence shows the retained route change moves
   `registrationHssPrepareMs` off the post-auth critical path.
+- Benchmark evidence shows `walletRegisterPrepareWaitMs` is `0ms` p50/p95 in
+  the current passkey smoke flows.
+- Latest retained smoke run `20260610-024516Z` keeps
+  `walletRegisterPrepareWaitMs` at `0ms` p50 in all four passkey scenarios.
+  `/wallets/register/prepare` is still roughly `365ms` to `371ms` p50 and
+  remains fully overlapped with passkey proof collection in the measured flow.
+  This confirms refactor-62 is doing its intended job; further registration
+  latency work belongs in refactor-64 client artifact construction or the
+  finalize route.
 
 ## Validation
 
@@ -312,9 +377,21 @@ Run focused checks while implementing:
 
 - `pnpm -C sdk type-check`
 - preparation lifecycle type fixtures
-- `pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/registrationIntentAllocation.unit.test.ts ./unit/registrationCeremonyStore.unit.test.ts ./unit/relayWalletRegistration.boundary.unit.test.ts --reporter=line`
+- `pnpm exec playwright test -c tests/playwright.unit.config.ts tests/unit/registrationIntentAllocation.unit.test.ts tests/unit/registrationCeremonyStore.unit.test.ts tests/unit/relayWalletRegistration.boundary.unit.test.ts --reporter=line`
 - `pnpm benchmark:registration-flow:smoke`
+- `pnpm test:source-guards`
 - `git diff --check`
+
+Current validation:
+
+- [x] `pnpm -C sdk type-check`
+- [x] `pnpm exec playwright test -c tests/playwright.unit.config.ts tests/unit/registrationIntentAllocation.unit.test.ts tests/unit/registrationCeremonyStore.unit.test.ts tests/unit/relayWalletRegistration.boundary.unit.test.ts --reporter=line`
+      (96 passed)
+- [x] `pnpm benchmark:registration-flow:smoke`
+      (`20260609-032110Z`, four scenarios passed)
+- [x] `pnpm test:source-guards`
+      (281 passed)
+- [x] `git diff --check`
 
 Run broad source guards after the store and route contracts land because this
 touches persistence, public route shapes, auth-adjacent state, and HSS scope

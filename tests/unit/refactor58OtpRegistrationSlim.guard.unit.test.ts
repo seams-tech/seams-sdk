@@ -112,10 +112,12 @@ test.describe('refactor 58 OTP registration slim guards', () => {
     expect(preflightIndex).toBeGreaterThan(-1);
     expect(activationIndex).toBeGreaterThan(preflightIndex);
     expect(persistenceIndex).toBeGreaterThan(activationIndex);
-    expect(genericStorePath).toContain('walletSubjectLast: !!input.googleEmailOtpActivation');
+    expect(genericStorePath).toContain(
+      'deferWalletRecordUntilActivation: !!input.googleEmailOtpActivation',
+    );
   });
 
-  test('generic Google SSO Email OTP registration persistence writes wallet subject last', () => {
+  test('generic Google SSO Email OTP registration persistence defers wallet visibility', () => {
     const source = readRepoSource('server/src/core/AuthService.ts');
     const writeStart = source.indexOf('private async writeRegistrationPersistenceToStores');
     const writeEnd = source.indexOf('private async writeAddAuthMethodPersistenceToStores', writeStart);
@@ -124,9 +126,9 @@ test.describe('refactor 58 OTP registration slim guards', () => {
     }
     const writer = source.slice(writeStart, writeEnd);
 
-    const earlyWalletWriteIndex = writer.indexOf('if (!input.walletSubjectLast)');
+    const earlyWalletWriteIndex = writer.indexOf('if (!input.deferWalletRecordUntilActivation)');
     const emailOtpEnrollmentIndex = writer.indexOf('if (records.emailOtpEnrollment)');
-    const lateWalletWriteIndex = writer.lastIndexOf('if (input.walletSubjectLast)');
+    const lateWalletWriteIndex = writer.lastIndexOf('if (input.deferWalletRecordUntilActivation)');
     expect(earlyWalletWriteIndex).toBeGreaterThan(-1);
     expect(emailOtpEnrollmentIndex).toBeGreaterThan(earlyWalletWriteIndex);
     expect(lateWalletWriteIndex).toBeGreaterThan(emailOtpEnrollmentIndex);

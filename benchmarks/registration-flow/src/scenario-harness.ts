@@ -1,7 +1,10 @@
 import { expect, test, type ConsoleMessage, type Page } from '@playwright/test';
 import { setupBasicPasskeyTest, handleInfrastructureErrors } from '../../../tests/setup';
 import { DEFAULT_TEST_CONFIG } from '../../../tests/setup/config';
-import { autoConfirmWalletIframeUntil } from '../../../tests/setup/flows';
+import {
+  autoConfirmWalletIframeUntil,
+  type WalletIframeAutoConfirmDiagnostics,
+} from '../../../tests/setup/flows';
 import { installRelayServerProxyShim } from '../../../tests/setup/cross-origin-headers';
 import {
   installCreateAccountAndRegisterUserMock,
@@ -47,6 +50,7 @@ type BenchmarkRunResult = {
   registrationSummary: unknown | null;
   hssWorkerDiagnostics: unknown[];
   hssClientTimings: unknown[];
+  walletIframeAutoConfirmDiagnostics?: WalletIframeAutoConfirmDiagnostics;
   error?: string;
 };
 
@@ -151,6 +155,13 @@ function collectTimingStats(runs: BenchmarkRunResult[]) {
         ...(valuesByBucket.get('browserRunDurationMs') || []),
         run.durationMs,
       ]);
+    }
+    if (run.ok && run.walletIframeAutoConfirmDiagnostics) {
+      for (const [key, value] of Object.entries(run.walletIframeAutoConfirmDiagnostics)) {
+        if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+        const bucket = `walletIframeAutoConfirm${key[0]!.toUpperCase()}${key.slice(1)}`;
+        valuesByBucket.set(bucket, [...(valuesByBucket.get(bucket) || []), value]);
+      }
     }
     const summary = run.registrationSummary;
     if (!summary || typeof summary !== 'object' || Array.isArray(summary)) continue;
@@ -551,12 +562,24 @@ test.describe('registration flow benchmark scenario', () => {
             registrationOptions,
           },
         );
+        const walletIframeAutoConfirmDiagnostics =
+          walletIframeMode === 'wallet_iframe'
+            ? ({
+                attempts: 0,
+                clicked: false,
+              } satisfies WalletIframeAutoConfirmDiagnostics)
+            : undefined;
         const result = await autoConfirmWalletIframeUntil(page, resultPromise, {
           timeoutMs: 120_000,
-          intervalMs: 250,
+          intervalMs: 50,
+          retryDelayMs: 0,
+          stopAfterClick: true,
+          ...(walletIframeAutoConfirmDiagnostics
+            ? { diagnostics: walletIframeAutoConfirmDiagnostics }
+            : {}),
         });
-        await page.waitForTimeout(250);
         const durationMs = Math.max(0, Math.round(performance.now() - startedAt));
+        await page.waitForTimeout(250);
         const registrationSummaries = consumeNewEntries(capture.registrationSummaries, summaryCursor);
         const hssWorkerDiagnostics = consumeNewEntries(
           capture.hssWorkerDiagnostics,
@@ -572,6 +595,9 @@ test.describe('registration flow benchmark scenario', () => {
           registrationSummary: registrationSummaries.at(-1) ?? null,
           hssWorkerDiagnostics,
           hssClientTimings,
+          ...(walletIframeAutoConfirmDiagnostics
+            ? { walletIframeAutoConfirmDiagnostics }
+            : {}),
           ...(!result.ok ? { error: String(result.error || 'registration failed') } : {}),
         });
       }

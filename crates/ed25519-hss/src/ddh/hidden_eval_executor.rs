@@ -6,15 +6,18 @@ use sha2::{Digest, Sha256};
 use wasm_bindgen::JsCast;
 
 use crate::ddh::ddh_hss::{
-    build_local_word_pair_public,
+    build_local_word_pair_public, build_local_word_pair_public_from_extra_material,
     eval_add_cross_share_local_arithmetic_word_bits_secure_public_into,
     eval_add_local_word_pairs_mod_2_pow_n_public, eval_maj_local_bit_pair_batch_raw_public_into,
     eval_mul_local_bit_pair_batch_raw_xor_base_public_into, eval_mul_local_word_pair_batch_public,
-    eval_mul_local_word_pairs_public, local_word_from_shared, local_word_from_transport_public,
-    validate_transport_word_pair_public, xor_local_bit_from_raw_public,
-    xor_local_bit_pair_from_raw_public, xor_local_word_pairs_public, DdhHssArithmeticBackend,
-    DdhHssInputShareBundle, DdhHssLocalBitSliceView, DdhHssLocalWord, DdhHssShareSide,
-    DdhHssSharedWord, DdhHssTransportBundle, DdhHssTransportWord,
+    eval_mul_local_word_pairs_core_public, eval_mul_local_word_pairs_public,
+    local_word_from_shared, local_word_from_transport_public, reset_physical_hash_counters,
+    take_physical_hash_counters, validate_transport_word_pair_public,
+    xor_local_bit_from_raw_public, xor_local_bit_pair_from_raw_public,
+    xor_local_word_core_pairs_materialized_public, xor_local_word_core_pairs_public,
+    xor_local_word_pairs_public, DdhHssArithmeticBackend, DdhHssInputShareBundle,
+    DdhHssLocalBitSliceView, DdhHssLocalWord, DdhHssLocalWordCore, DdhHssPhysicalHashCounters,
+    DdhHssShareSide, DdhHssSharedWord, DdhHssTransportBundle, DdhHssTransportWord,
 };
 use crate::ddh::hidden_eval::{
     HiddenEvalInputOwner, HiddenEvalProgram, HiddenEvalStage, HiddenEvalStageKind,
@@ -347,6 +350,56 @@ pub struct DdhHiddenEvalOperationCounts {
     pub logical_provenance_digest_derivations: u64,
     pub logical_label_writes: u64,
     pub logical_label_format_allocations: u64,
+    #[serde(default)]
+    pub physical_keyed_digest_derivations: u64,
+    #[serde(default)]
+    pub physical_keyed_digest_eval_xor_local_word: u64,
+    #[serde(default)]
+    pub physical_keyed_digest_eval_add_local: u64,
+    #[serde(default)]
+    pub physical_keyed_digest_eval_mul_local_material: u64,
+    #[serde(default)]
+    pub physical_keyed_digest_eval_mul_local: u64,
+    #[serde(default)]
+    pub physical_keyed_digest_phase_a_arith_share_to_bool: u64,
+    #[serde(default)]
+    pub physical_keyed_digest_phase_a_bool_to_arith_base: u64,
+    #[serde(default)]
+    pub physical_keyed_digest_phase_a_arith_to_bool_zero: u64,
+    #[serde(default)]
+    pub physical_keyed_digest_compose_word_from_share_bits: u64,
+    #[serde(default)]
+    pub physical_keyed_digest_share_word: u64,
+    #[serde(default)]
+    pub physical_keyed_digest_other: u64,
+    #[serde(default)]
+    pub physical_derived_commitment_hashes: u64,
+    #[serde(default)]
+    pub physical_derived_commitment_eval_xor_local_word: u64,
+    #[serde(default)]
+    pub physical_derived_commitment_eval_add_local: u64,
+    #[serde(default)]
+    pub physical_derived_commitment_eval_mul_local_material: u64,
+    #[serde(default)]
+    pub physical_derived_commitment_eval_mul_local: u64,
+    #[serde(default)]
+    pub physical_derived_commitment_phase_a_arith_share_to_bool: u64,
+    #[serde(default)]
+    pub physical_derived_commitment_phase_a_bool_to_arith_base: u64,
+    #[serde(default)]
+    pub physical_derived_commitment_phase_a_arith_to_bool_zero: u64,
+    #[serde(default)]
+    pub physical_derived_commitment_compose_word_from_share_bits: u64,
+    #[serde(default)]
+    pub physical_derived_commitment_share_word: u64,
+    #[serde(default)]
+    pub physical_derived_commitment_other: u64,
+    #[serde(default)]
+    pub physical_add_bit_hashes: u64,
+    #[serde(default)]
+    pub physical_mul_material_hashes: u64,
+    #[serde(default)]
+    pub physical_mul_output_seed_hashes: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -613,6 +666,84 @@ impl SplitLocalBitWord {
 }
 
 impl DdhHiddenEvalOperationCounts {
+    fn add_physical_hash_counters(&mut self, counters: DdhHssPhysicalHashCounters) {
+        self.physical_keyed_digest_derivations = self
+            .physical_keyed_digest_derivations
+            .saturating_add(counters.keyed_digest_derivations);
+        self.physical_keyed_digest_eval_xor_local_word = self
+            .physical_keyed_digest_eval_xor_local_word
+            .saturating_add(counters.keyed_digest_eval_xor_local_word);
+        self.physical_keyed_digest_eval_add_local = self
+            .physical_keyed_digest_eval_add_local
+            .saturating_add(counters.keyed_digest_eval_add_local);
+        self.physical_keyed_digest_eval_mul_local_material = self
+            .physical_keyed_digest_eval_mul_local_material
+            .saturating_add(counters.keyed_digest_eval_mul_local_material);
+        self.physical_keyed_digest_eval_mul_local = self
+            .physical_keyed_digest_eval_mul_local
+            .saturating_add(counters.keyed_digest_eval_mul_local);
+        self.physical_keyed_digest_phase_a_arith_share_to_bool = self
+            .physical_keyed_digest_phase_a_arith_share_to_bool
+            .saturating_add(counters.keyed_digest_phase_a_arith_share_to_bool);
+        self.physical_keyed_digest_phase_a_bool_to_arith_base = self
+            .physical_keyed_digest_phase_a_bool_to_arith_base
+            .saturating_add(counters.keyed_digest_phase_a_bool_to_arith_base);
+        self.physical_keyed_digest_phase_a_arith_to_bool_zero = self
+            .physical_keyed_digest_phase_a_arith_to_bool_zero
+            .saturating_add(counters.keyed_digest_phase_a_arith_to_bool_zero);
+        self.physical_keyed_digest_compose_word_from_share_bits = self
+            .physical_keyed_digest_compose_word_from_share_bits
+            .saturating_add(counters.keyed_digest_compose_word_from_share_bits);
+        self.physical_keyed_digest_share_word = self
+            .physical_keyed_digest_share_word
+            .saturating_add(counters.keyed_digest_share_word);
+        self.physical_keyed_digest_other = self
+            .physical_keyed_digest_other
+            .saturating_add(counters.keyed_digest_other);
+        self.physical_derived_commitment_hashes = self
+            .physical_derived_commitment_hashes
+            .saturating_add(counters.derived_commitment_hashes);
+        self.physical_derived_commitment_eval_xor_local_word = self
+            .physical_derived_commitment_eval_xor_local_word
+            .saturating_add(counters.derived_commitment_eval_xor_local_word);
+        self.physical_derived_commitment_eval_add_local = self
+            .physical_derived_commitment_eval_add_local
+            .saturating_add(counters.derived_commitment_eval_add_local);
+        self.physical_derived_commitment_eval_mul_local_material = self
+            .physical_derived_commitment_eval_mul_local_material
+            .saturating_add(counters.derived_commitment_eval_mul_local_material);
+        self.physical_derived_commitment_eval_mul_local = self
+            .physical_derived_commitment_eval_mul_local
+            .saturating_add(counters.derived_commitment_eval_mul_local);
+        self.physical_derived_commitment_phase_a_arith_share_to_bool = self
+            .physical_derived_commitment_phase_a_arith_share_to_bool
+            .saturating_add(counters.derived_commitment_phase_a_arith_share_to_bool);
+        self.physical_derived_commitment_phase_a_bool_to_arith_base = self
+            .physical_derived_commitment_phase_a_bool_to_arith_base
+            .saturating_add(counters.derived_commitment_phase_a_bool_to_arith_base);
+        self.physical_derived_commitment_phase_a_arith_to_bool_zero = self
+            .physical_derived_commitment_phase_a_arith_to_bool_zero
+            .saturating_add(counters.derived_commitment_phase_a_arith_to_bool_zero);
+        self.physical_derived_commitment_compose_word_from_share_bits = self
+            .physical_derived_commitment_compose_word_from_share_bits
+            .saturating_add(counters.derived_commitment_compose_word_from_share_bits);
+        self.physical_derived_commitment_share_word = self
+            .physical_derived_commitment_share_word
+            .saturating_add(counters.derived_commitment_share_word);
+        self.physical_derived_commitment_other = self
+            .physical_derived_commitment_other
+            .saturating_add(counters.derived_commitment_other);
+        self.physical_add_bit_hashes = self
+            .physical_add_bit_hashes
+            .saturating_add(counters.add_bit_hashes);
+        self.physical_mul_material_hashes = self
+            .physical_mul_material_hashes
+            .saturating_add(counters.mul_material_hashes);
+        self.physical_mul_output_seed_hashes = self
+            .physical_mul_output_seed_hashes
+            .saturating_add(counters.mul_output_seed_hashes);
+    }
+
     fn add_input_share_bundle(&mut self, bundle: &DdhHssInputShareBundle) {
         self.add_shared_words(bundle.words.len());
         self.logical_commitment_materializations =
@@ -1734,6 +1865,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
     checkpoint_capture: DdhHiddenEvalCheckpointCapture,
 ) -> ProtoResult<ExecutionUntilOutputProjector> {
     ensure_program_shape(program)?;
+    reset_physical_hash_counters();
     let mut checkpoints = DdhHiddenEvalCheckpointAccumulator::new(checkpoint_capture);
     let total_started_ns = monotonic_now_ns();
     let input_sharing_started_ns = monotonic_now_ns();
@@ -1829,7 +1961,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
     let output_projector_profile = output_execution.profile;
     let output_projector_duration_ns = elapsed_ns(output_started_ns);
     checkpoints.record_output_projection(&output);
-    let operation_counts = count_hidden_eval_operation_shape(
+    let mut operation_counts = count_hidden_eval_operation_shape(
         &input_bundles.y_client_bits,
         &input_bundles.server_inputs.y_relayer_bits,
         &input_bundles.tau_client_bits,
@@ -1841,6 +1973,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
         &hash_core.final_words,
         &output,
     );
+    operation_counts.add_physical_hash_counters(take_physical_hash_counters());
 
     Ok(ExecutionUntilOutputProjector {
         stage_profile: DdhHiddenEvalStageProfile {
@@ -1918,6 +2051,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
     client_output_projection: DdhHiddenEvalClientOutputProjection,
     checkpoint_capture: DdhHiddenEvalCheckpointCapture,
 ) -> ProtoResult<ExecutionUntilOutputProjector> {
+    reset_physical_hash_counters();
     let mut checkpoints = DdhHiddenEvalCheckpointAccumulator::new(checkpoint_capture);
     let total_started_ns = monotonic_now_ns();
     let input_sharing_started_ns = monotonic_now_ns();
@@ -1993,7 +2127,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
     let output_projector_profile = output_execution.profile;
     let output_projector_duration_ns = elapsed_ns(output_started_ns);
     checkpoints.record_output_projection(&output);
-    let operation_counts = count_hidden_eval_operation_shape(
+    let mut operation_counts = count_hidden_eval_operation_shape(
         y_client_bits,
         y_relayer_bits,
         tau_client_bits,
@@ -2005,6 +2139,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
         &hash_core.final_words,
         &output,
     );
+    operation_counts.add_physical_hash_counters(take_physical_hash_counters());
 
     Ok(ExecutionUntilOutputProjector {
         stage_profile: DdhHiddenEvalStageProfile {
@@ -3055,6 +3190,13 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
     let client_output_value_kind = client_output_projection.value_kind();
 
     let bundle_build_started_ns = monotonic_now_ns();
+    let (x_relayer_base_left, x_relayer_base_right) =
+        build_hidden_bit_output_transport_bundle_pair(
+            backend,
+            HiddenEvalInputOwner::Server,
+            "x_relayer_base",
+            &x_relayer_base_bits,
+        )?;
     let output = DdhHiddenEvalOutputBundles {
         canonical_seed: build_hidden_bit_output_bundle(
             backend,
@@ -3071,20 +3213,8 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
                 &client_output_bits,
             )?,
         )?,
-        x_relayer_base_left: build_hidden_bit_output_transport_bundle(
-            backend,
-            HiddenEvalInputOwner::Server,
-            "x_relayer_base",
-            &x_relayer_base_bits,
-            DdhHssShareSide::Left,
-        )?,
-        x_relayer_base_right: build_hidden_bit_output_transport_bundle(
-            backend,
-            HiddenEvalInputOwner::Server,
-            "x_relayer_base",
-            &x_relayer_base_bits,
-            DdhHssShareSide::Right,
-        )?,
+        x_relayer_base_left,
+        x_relayer_base_right,
     };
     profile.bundle_build_duration_ns = elapsed_ns(bundle_build_started_ns);
 
@@ -3145,6 +3275,13 @@ fn execute_server_output_projector_stage<B: DdhHssArithmeticBackend>(
         &constant_pool.one_left,
         &constant_pool.one_right,
     )?;
+    let (x_relayer_base_left, x_relayer_base_right) =
+        build_hidden_bit_output_transport_bundle_pair(
+            backend,
+            HiddenEvalInputOwner::Server,
+            "x_relayer_base",
+            &x_relayer_base_bits,
+        )?;
 
     Ok(DdhHiddenEvalServerOutputBundles {
         canonical_seed_commitment: hidden_bit_output_commitment(
@@ -3153,20 +3290,8 @@ fn execute_server_output_projector_stage<B: DdhHssArithmeticBackend>(
             "canonical_seed",
             d_bits,
         )?,
-        x_relayer_base_left: build_hidden_bit_output_transport_bundle(
-            backend,
-            HiddenEvalInputOwner::Server,
-            "x_relayer_base",
-            &x_relayer_base_bits,
-            DdhHssShareSide::Left,
-        )?,
-        x_relayer_base_right: build_hidden_bit_output_transport_bundle(
-            backend,
-            HiddenEvalInputOwner::Server,
-            "x_relayer_base",
-            &x_relayer_base_bits,
-            DdhHssShareSide::Right,
-        )?,
+        x_relayer_base_left,
+        x_relayer_base_right,
     })
 }
 
@@ -3661,15 +3786,39 @@ fn hidden_bit_output_commitment<B: DdhHssArithmeticBackend>(
     Ok(backend.input_commitment(owner, label, &words))
 }
 
-fn build_hidden_bit_output_transport_bundle<B: DdhHssArithmeticBackend>(
+fn build_hidden_bit_output_transport_bundle_pair<B: DdhHssArithmeticBackend>(
     backend: &B,
     owner: HiddenEvalInputOwner,
     label: &str,
     bits: &SplitLocalBitWord,
-    share_side: DdhHssShareSide,
-) -> ProtoResult<DdhHssTransportBundle> {
+) -> ProtoResult<(DdhHssTransportBundle, DdhHssTransportBundle)> {
     let canonical_words = canonicalize_hidden_bit_output_words(owner, label, bits)?;
     let commitment = backend.input_commitment(owner, label, &canonical_words);
+    Ok((
+        build_hidden_bit_output_transport_bundle_from_canonical(
+            owner,
+            label,
+            DdhHssShareSide::Left,
+            &canonical_words,
+            commitment,
+        ),
+        build_hidden_bit_output_transport_bundle_from_canonical(
+            owner,
+            label,
+            DdhHssShareSide::Right,
+            &canonical_words,
+            commitment,
+        ),
+    ))
+}
+
+fn build_hidden_bit_output_transport_bundle_from_canonical(
+    owner: HiddenEvalInputOwner,
+    label: &str,
+    share_side: DdhHssShareSide,
+    canonical_words: &[DdhHssSharedWord],
+    commitment: [u8; 32],
+) -> DdhHssTransportBundle {
     let words = canonical_words
         .iter()
         .map(|bit| match share_side {
@@ -3691,13 +3840,13 @@ fn build_hidden_bit_output_transport_bundle<B: DdhHssArithmeticBackend>(
             },
         })
         .collect();
-    Ok(DdhHssTransportBundle {
+    DdhHssTransportBundle {
         owner,
         label: label.to_string(),
         share_side,
         words,
         commitment,
-    })
+    }
 }
 
 fn canonicalize_hidden_bit_output_words(
@@ -4263,21 +4412,22 @@ fn split_local_bit_pair_to_arithmetic_word_pair_naive<B: DdhHssArithmeticBackend
         let delta = (1u64 << (idx + 1)) & cross_mask;
         adjusted_right = adjusted_right.wrapping_sub(delta) & width_mask;
     }
-    let mut base_material = Vec::with_capacity(bits.len() * 5);
-    for idx in 0..bits.len() {
-        base_material.push(bits.left.provenance_digests[idx].as_slice());
-        base_material.push(bits.left.commitments[idx].as_slice());
-        base_material.push(bits.right.provenance_digests[idx].as_slice());
-        base_material.push(bits.right.commitments[idx].as_slice());
-    }
-    let (base_left, base_right) = build_local_word_pair_public(
+    let base_material = (0..bits.len()).flat_map(|idx| {
+        [
+            bits.left.provenance_digests[idx].as_slice(),
+            bits.left.commitments[idx].as_slice(),
+            bits.right.provenance_digests[idx].as_slice(),
+            bits.right.commitments[idx].as_slice(),
+        ]
+    });
+    let (base_left, base_right) = build_local_word_pair_public_from_extra_material(
         backend.evaluation_key(),
         b"phase-a-bool-to-arith-base",
         label.as_bytes(),
         width_bits,
         left_packed,
         adjusted_right,
-        &base_material,
+        base_material,
     );
     LocalArithmeticWordPair::new(base_left, base_right)
 }
@@ -4423,8 +4573,8 @@ fn add_two_local_bit_words_profiled<B: DdhHssArithmeticBackend>(
     }
     let mut out_left = empty_local_bit_slice(DdhHssShareSide::Left, left.len());
     let mut out_right = empty_local_bit_slice(DdhHssShareSide::Right, left.len());
-    let mut carry_left = zero_left.clone();
-    let mut carry_right = zero_right.clone();
+    let mut carry_left = DdhHssLocalWordCore::from_local_word(zero_left);
+    let mut carry_right = DdhHssLocalWordCore::from_local_word(zero_right);
     let mut timing = LocalBitWordAddTiming::default();
     let mut bit_label = String::with_capacity(label.len() + 32);
     for idx in 0..left.len() {
@@ -4432,6 +4582,8 @@ fn add_two_local_bit_words_profiled<B: DdhHssArithmeticBackend>(
         let left_right_word = left.right.local_word(idx)?;
         let right_left_word = right.left.local_word(idx)?;
         let right_right_word = right.right.local_word(idx)?;
+        let left_left_core = DdhHssLocalWordCore::from_local_word(&left_left_word);
+        let left_right_core = DdhHssLocalWordCore::from_local_word(&left_right_word);
         set_indexed_child_label(&mut bit_label, label, "xor_ab", idx);
         let xor_ab_started_ns = monotonic_now_ns();
         let (xor_ab_left, xor_ab_right) = xor_local_word_pairs_public(
@@ -4445,13 +4597,15 @@ fn add_two_local_bit_words_profiled<B: DdhHssArithmeticBackend>(
         timing.xor_ab_duration_ns = timing
             .xor_ab_duration_ns
             .saturating_add(elapsed_ns(xor_ab_started_ns));
+        let xor_ab_left_core = DdhHssLocalWordCore::from_local_word(&xor_ab_left);
+        let xor_ab_right_core = DdhHssLocalWordCore::from_local_word(&xor_ab_right);
         set_indexed_child_label(&mut bit_label, label, "sum", idx);
         let sum_started_ns = monotonic_now_ns();
-        let (sum_left, sum_right) = xor_local_word_pairs_public(
+        let (sum_left, sum_right) = xor_local_word_core_pairs_materialized_public(
             backend.evaluation_key(),
             bit_label.as_bytes(),
-            &xor_ab_left,
-            &xor_ab_right,
+            &xor_ab_left_core,
+            &xor_ab_right_core,
             &carry_left,
             &carry_right,
         )?;
@@ -4460,11 +4614,11 @@ fn add_two_local_bit_words_profiled<B: DdhHssArithmeticBackend>(
             .saturating_add(elapsed_ns(sum_started_ns));
         set_indexed_child_label(&mut bit_label, label, "a_xor_carry", idx);
         let a_xor_carry_started_ns = monotonic_now_ns();
-        let (a_xor_carry_left, a_xor_carry_right) = xor_local_word_pairs_public(
+        let (a_xor_carry_left, a_xor_carry_right) = xor_local_word_core_pairs_materialized_public(
             backend.evaluation_key(),
             bit_label.as_bytes(),
-            &left_left_word,
-            &left_right_word,
+            &left_left_core,
+            &left_right_core,
             &carry_left,
             &carry_right,
         )?;
@@ -4473,7 +4627,7 @@ fn add_two_local_bit_words_profiled<B: DdhHssArithmeticBackend>(
             .saturating_add(elapsed_ns(a_xor_carry_started_ns));
         set_indexed_child_label(&mut bit_label, label, "carry", idx);
         let carry_gate_started_ns = monotonic_now_ns();
-        let (carry_gate_left, carry_gate_right) = eval_mul_local_word_pairs_public(
+        let (carry_gate_left, carry_gate_right) = eval_mul_local_word_pairs_core_public(
             backend.evaluation_key(),
             bit_label.as_bytes(),
             &xor_ab_left,
@@ -4486,11 +4640,11 @@ fn add_two_local_bit_words_profiled<B: DdhHssArithmeticBackend>(
             .saturating_add(elapsed_ns(carry_gate_started_ns));
         set_indexed_child_label(&mut bit_label, label, "next_carry", idx);
         let next_carry_started_ns = monotonic_now_ns();
-        (carry_left, carry_right) = xor_local_word_pairs_public(
+        (carry_left, carry_right) = xor_local_word_core_pairs_public(
             backend.evaluation_key(),
             bit_label.as_bytes(),
-            &left_left_word,
-            &left_right_word,
+            &left_left_core,
+            &left_right_core,
             &carry_gate_left,
             &carry_gate_right,
         )?;
@@ -4525,8 +4679,8 @@ fn add_two_local_bit_words_right_transport_bundles<B: DdhHssArithmeticBackend>(
     }
     let mut out_left = empty_local_bit_slice(DdhHssShareSide::Left, left.len());
     let mut out_right = empty_local_bit_slice(DdhHssShareSide::Right, left.len());
-    let mut carry_left = zero_left.clone();
-    let mut carry_right = zero_right.clone();
+    let mut carry_left = DdhHssLocalWordCore::from_local_word(zero_left);
+    let mut carry_right = DdhHssLocalWordCore::from_local_word(zero_right);
     let mut bit_label = String::with_capacity(label.len() + 32);
     for idx in 0..left.len() {
         validate_transport_word_pair_public(
@@ -4539,6 +4693,8 @@ fn add_two_local_bit_words_right_transport_bundles<B: DdhHssArithmeticBackend>(
         let left_right_word = left.right.local_word(idx)?;
         let right_left_word = local_word_from_transport_public(&right_left[idx])?;
         let right_right_word = local_word_from_transport_public(&right_right[idx])?;
+        let left_left_core = DdhHssLocalWordCore::from_local_word(&left_left_word);
+        let left_right_core = DdhHssLocalWordCore::from_local_word(&left_right_word);
         set_indexed_child_label(&mut bit_label, label, "xor_ab", idx);
         let (xor_ab_left, xor_ab_right) = xor_local_word_pairs_public(
             backend.evaluation_key(),
@@ -4548,26 +4704,28 @@ fn add_two_local_bit_words_right_transport_bundles<B: DdhHssArithmeticBackend>(
             &right_left_word,
             &right_right_word,
         )?;
+        let xor_ab_left_core = DdhHssLocalWordCore::from_local_word(&xor_ab_left);
+        let xor_ab_right_core = DdhHssLocalWordCore::from_local_word(&xor_ab_right);
         set_indexed_child_label(&mut bit_label, label, "sum", idx);
-        let (sum_left, sum_right) = xor_local_word_pairs_public(
+        let (sum_left, sum_right) = xor_local_word_core_pairs_materialized_public(
             backend.evaluation_key(),
             bit_label.as_bytes(),
-            &xor_ab_left,
-            &xor_ab_right,
+            &xor_ab_left_core,
+            &xor_ab_right_core,
             &carry_left,
             &carry_right,
         )?;
         set_indexed_child_label(&mut bit_label, label, "a_xor_carry", idx);
-        let (a_xor_carry_left, a_xor_carry_right) = xor_local_word_pairs_public(
+        let (a_xor_carry_left, a_xor_carry_right) = xor_local_word_core_pairs_materialized_public(
             backend.evaluation_key(),
             bit_label.as_bytes(),
-            &left_left_word,
-            &left_right_word,
+            &left_left_core,
+            &left_right_core,
             &carry_left,
             &carry_right,
         )?;
         set_indexed_child_label(&mut bit_label, label, "carry", idx);
-        let (carry_gate_left, carry_gate_right) = eval_mul_local_word_pairs_public(
+        let (carry_gate_left, carry_gate_right) = eval_mul_local_word_pairs_core_public(
             backend.evaluation_key(),
             bit_label.as_bytes(),
             &xor_ab_left,
@@ -4576,11 +4734,11 @@ fn add_two_local_bit_words_right_transport_bundles<B: DdhHssArithmeticBackend>(
             &a_xor_carry_right,
         )?;
         set_indexed_child_label(&mut bit_label, label, "next_carry", idx);
-        (carry_left, carry_right) = xor_local_word_pairs_public(
+        (carry_left, carry_right) = xor_local_word_core_pairs_public(
             backend.evaluation_key(),
             bit_label.as_bytes(),
-            &left_left_word,
-            &left_right_word,
+            &left_left_core,
+            &left_right_core,
             &carry_gate_left,
             &carry_gate_right,
         )?;
@@ -4607,8 +4765,8 @@ fn add_two_local_bit_words_right_shared_bits<B: DdhHssArithmeticBackend>(
     }
     let mut out_left = empty_local_bit_slice(DdhHssShareSide::Left, left.len());
     let mut out_right = empty_local_bit_slice(DdhHssShareSide::Right, left.len());
-    let mut carry_left = zero_left.clone();
-    let mut carry_right = zero_right.clone();
+    let mut carry_left = DdhHssLocalWordCore::from_local_word(zero_left);
+    let mut carry_right = DdhHssLocalWordCore::from_local_word(zero_right);
     let mut bit_label = String::with_capacity(label.len() + 32);
     for (idx, right_word) in right.iter().enumerate() {
         if right_word.width_bits != 1 {
@@ -4621,6 +4779,8 @@ fn add_two_local_bit_words_right_shared_bits<B: DdhHssArithmeticBackend>(
         let left_right_word = left.right.local_word(idx)?;
         let right_left_word = local_word_from_shared(right_word, DdhHssShareSide::Left);
         let right_right_word = local_word_from_shared(right_word, DdhHssShareSide::Right);
+        let left_left_core = DdhHssLocalWordCore::from_local_word(&left_left_word);
+        let left_right_core = DdhHssLocalWordCore::from_local_word(&left_right_word);
         set_indexed_child_label(&mut bit_label, label, "xor_ab", idx);
         let (xor_ab_left, xor_ab_right) = xor_local_word_pairs_public(
             backend.evaluation_key(),
@@ -4630,26 +4790,28 @@ fn add_two_local_bit_words_right_shared_bits<B: DdhHssArithmeticBackend>(
             &right_left_word,
             &right_right_word,
         )?;
+        let xor_ab_left_core = DdhHssLocalWordCore::from_local_word(&xor_ab_left);
+        let xor_ab_right_core = DdhHssLocalWordCore::from_local_word(&xor_ab_right);
         set_indexed_child_label(&mut bit_label, label, "sum", idx);
-        let (sum_left, sum_right) = xor_local_word_pairs_public(
+        let (sum_left, sum_right) = xor_local_word_core_pairs_materialized_public(
             backend.evaluation_key(),
             bit_label.as_bytes(),
-            &xor_ab_left,
-            &xor_ab_right,
+            &xor_ab_left_core,
+            &xor_ab_right_core,
             &carry_left,
             &carry_right,
         )?;
         set_indexed_child_label(&mut bit_label, label, "a_xor_carry", idx);
-        let (a_xor_carry_left, a_xor_carry_right) = xor_local_word_pairs_public(
+        let (a_xor_carry_left, a_xor_carry_right) = xor_local_word_core_pairs_materialized_public(
             backend.evaluation_key(),
             bit_label.as_bytes(),
-            &left_left_word,
-            &left_right_word,
+            &left_left_core,
+            &left_right_core,
             &carry_left,
             &carry_right,
         )?;
         set_indexed_child_label(&mut bit_label, label, "carry", idx);
-        let (carry_gate_left, carry_gate_right) = eval_mul_local_word_pairs_public(
+        let (carry_gate_left, carry_gate_right) = eval_mul_local_word_pairs_core_public(
             backend.evaluation_key(),
             bit_label.as_bytes(),
             &xor_ab_left,
@@ -4658,11 +4820,11 @@ fn add_two_local_bit_words_right_shared_bits<B: DdhHssArithmeticBackend>(
             &a_xor_carry_right,
         )?;
         set_indexed_child_label(&mut bit_label, label, "next_carry", idx);
-        (carry_left, carry_right) = xor_local_word_pairs_public(
+        (carry_left, carry_right) = xor_local_word_core_pairs_public(
             backend.evaluation_key(),
             bit_label.as_bytes(),
-            &left_left_word,
-            &left_right_word,
+            &left_left_core,
+            &left_right_core,
             &carry_gate_left,
             &carry_gate_right,
         )?;

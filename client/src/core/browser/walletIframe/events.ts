@@ -4,6 +4,7 @@
 export const WalletIframeDomEvents = {
   TX_CONFIRMER_CONFIRM: 'w3a:tx-confirmer-confirm',
   TX_CONFIRMER_CANCEL: 'w3a:tx-confirmer-cancel',
+  TX_CONFIRMER_INTERACTIVE: 'w3a:tx-confirmer-interactive',
 } as const;
 
 export type WalletIframeDomEvent =

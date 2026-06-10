@@ -1,11 +1,19 @@
 import { expect, test } from '@playwright/test';
 import {
+  buildStoredWalletRegistrationHssPreparationFailed,
+  buildStoredWalletRegistrationHssPreparationPrepared,
+  buildStoredWalletRegistrationHssPreparationPreparing,
   createRegistrationCeremonyStore,
+  type StoredWalletRegistrationHssPreparationBase,
   type StoredWalletAddSignerCeremony,
   type StoredRegistrationIntent,
+  type StoredWalletRegistrationHssPreparation,
   type StoredWalletRegistrationCeremony,
 } from '@server/core/RegistrationCeremonyStore';
-import type { CloudflareDurableObjectNamespaceLike } from '@server/core/types';
+import {
+  registrationPreparationIdFromString,
+  type CloudflareDurableObjectNamespaceLike,
+} from '@server/core/types';
 import {
   registrationIntentGrantFromString,
   walletIdFromString,
@@ -34,6 +42,26 @@ class FakeDurableObjectStub {
       });
       return Response.json({ ok: true, value: null });
     }
+    if (request.op === 'getdelIfRelatedMatches') {
+      const relatedKey = String((request as { relatedKey?: unknown }).relatedKey || '');
+      const related = this.records.get(relatedKey) || null;
+      const relatedValue =
+        related && (!related.expiresAtMs || related.expiresAtMs > Date.now())
+          ? related.value
+          : null;
+      const matched = jsonValueContains(
+        relatedValue,
+        (request as { expectedRelated?: unknown }).expectedRelated,
+      );
+      if (!matched) {
+        return Response.json({ ok: true, value: { matched: false, value: null } });
+      }
+      const record = this.records.get(key) || null;
+      const value =
+        record && (!record.expiresAtMs || record.expiresAtMs > Date.now()) ? record.value : null;
+      this.records.delete(key);
+      return Response.json({ ok: true, value: { matched: true, value } });
+    }
 
     const record = this.records.get(key) || null;
     const value =
@@ -45,6 +73,23 @@ class FakeDurableObjectStub {
 
     return Response.json({ ok: false, code: 'invalid_op', message: 'invalid op' });
   }
+}
+
+function jsonValueContains(actual: unknown, expected: unknown): boolean {
+  if (Array.isArray(expected)) {
+    return (
+      Array.isArray(actual) &&
+      actual.length === expected.length &&
+      expected.every((value, index) => jsonValueContains(actual[index], value))
+    );
+  }
+  if (expected && typeof expected === 'object' && !Array.isArray(expected)) {
+    if (!actual || typeof actual !== 'object' || Array.isArray(actual)) return false;
+    return Object.entries(expected).every(([key, value]) =>
+      jsonValueContains((actual as Record<string, unknown>)[key], value),
+    );
+  }
+  return Object.is(actual, expected);
 }
 
 class FakeDurableObjectNamespace implements CloudflareDurableObjectNamespaceLike {
@@ -134,6 +179,54 @@ function makeCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletRegistrati
   };
 }
 
+function makePreparationBase(expiresAtMs = Date.now() + 60_000): StoredWalletRegistrationHssPreparationBase {
+  const registrationPreparationId = registrationPreparationIdFromString(
+    'wrp_registration_store_test',
+  );
+  const registrationIntentGrant = registrationIntentGrantFromString('rig_registration_store_test');
+  return {
+    registrationPreparationId,
+    registrationIntentGrant,
+    registrationIntentDigestB64u: 'digest',
+    intent: INTENT,
+    orgId: 'org_registration_store',
+    expectedOrigin: 'https://wallet.example.test',
+    signingRootId: 'project:dev',
+    signingRootVersion: 'default',
+    ed25519Scope: {
+      walletId: String(INTENT.walletId),
+      rpId: INTENT.rpId,
+      authMethodKind: INTENT.authMethod.kind,
+      expectedOrigin: 'https://wallet.example.test',
+      orgId: 'org_registration_store',
+      signingRootId: 'project:dev',
+      signingRootVersion: 'default',
+      nearAccountId: SIGNER_SELECTION.ed25519.nearAccountId,
+      keyPurpose: SIGNER_SELECTION.ed25519.keyPurpose,
+      keyVersion: SIGNER_SELECTION.ed25519.keyVersion,
+      derivationVersion: SIGNER_SELECTION.ed25519.derivationVersion,
+      participantIds: [...SIGNER_SELECTION.ed25519.participantIds],
+    },
+    createdAtMs: Date.now(),
+    expiresAtMs,
+  };
+}
+
+function makePreparation(expiresAtMs = Date.now() + 60_000): StoredWalletRegistrationHssPreparation {
+  return buildStoredWalletRegistrationHssPreparationPrepared({
+    ...makePreparationBase(expiresAtMs),
+    prepared: {
+      kind: 'ed25519_prepared',
+      ceremonyHandle: 'prepared-handle',
+      preparedSession: {
+        contextBindingB64u: 'context-binding',
+        evaluatorDriverStateB64u: 'driver-state',
+      },
+      clientOtOfferMessageB64u: 'client-ot-offer',
+    },
+  });
+}
+
 function makeAddSignerCeremony(expiresAtMs = Date.now() + 60_000): StoredWalletAddSignerCeremony {
   return {
     addSignerCeremonyId: 'wasc_registration_store_test',
@@ -188,6 +281,19 @@ test('Cloudflare Durable Object registration ceremony store consumes grants and 
     grant: intent.grant,
   });
   await expect(store.takeIntent(intent.grant)).resolves.toBeNull();
+
+  const preparation = makePreparation();
+  await store.putPreparation(preparation);
+  await expect(store.getPreparation(preparation.registrationPreparationId)).resolves.toMatchObject({
+    kind: 'hss_prepare_prepared',
+    registrationPreparationId: preparation.registrationPreparationId,
+    prepared: { kind: 'ed25519_prepared', ceremonyHandle: 'prepared-handle' },
+  });
+  await expect(store.takePreparation(preparation.registrationPreparationId)).resolves.toMatchObject({
+    kind: 'hss_prepare_prepared',
+    registrationPreparationId: preparation.registrationPreparationId,
+  });
+  await expect(store.takePreparation(preparation.registrationPreparationId)).resolves.toBeNull();
 
   const ceremony = makeCeremony();
   await store.putCeremony(ceremony);
@@ -336,4 +442,156 @@ test('registration ceremony store rejects finalize replay records with Ed25519 s
       },
     }),
   ).rejects.toThrow('Invalid wallet registration finalize replay record');
+});
+
+test('registration ceremony store preserves preparation lifecycle branches', async () => {
+  const store = createRegistrationCeremonyStore({
+    config: { kind: 'memory' },
+    logger: undefined,
+    isNode: true,
+  });
+
+  const preparing = buildStoredWalletRegistrationHssPreparationPreparing({
+    ...makePreparationBase(),
+    registrationPreparationId: registrationPreparationIdFromString('wrp_preparing'),
+  });
+  await store.putPreparation(preparing);
+  await expect(store.getPreparation(preparing.registrationPreparationId)).resolves.toMatchObject({
+    kind: 'hss_prepare_preparing',
+    registrationPreparationId: preparing.registrationPreparationId,
+  });
+
+  const failedFromPreparing = buildStoredWalletRegistrationHssPreparationFailed({
+    ...makePreparationBase(),
+    registrationPreparationId: preparing.registrationPreparationId,
+    failure: {
+      code: 'hss_prepare_failed',
+      message: 'prepare failed after start',
+    },
+  });
+  await store.updatePreparation(failedFromPreparing);
+  await expect(store.getPreparation(preparing.registrationPreparationId)).resolves.toMatchObject({
+    kind: 'hss_prepare_failed',
+    failure: {
+      code: 'hss_prepare_failed',
+      message: 'prepare failed after start',
+    },
+  });
+
+  const failed = buildStoredWalletRegistrationHssPreparationFailed({
+    ...makePreparationBase(),
+    registrationPreparationId: registrationPreparationIdFromString('wrp_failed'),
+    failure: {
+      code: 'hss_prepare_failed',
+      message: 'prepare failed',
+    },
+  });
+  await store.putPreparation(failed);
+  await expect(store.getPreparation(failed.registrationPreparationId)).resolves.toMatchObject({
+    kind: 'hss_prepare_failed',
+    failure: {
+      code: 'hss_prepare_failed',
+      message: 'prepare failed',
+    },
+  });
+});
+
+test('registration ceremony store consumes an intent only when the preparation scope matches', async () => {
+  const namespace = new FakeDurableObjectNamespace();
+  const store = createRegistrationCeremonyStore({
+    config: {
+      kind: 'cloudflare-do',
+      namespace,
+      name: 'registration-store-test',
+      keyPrefix: 'test-prefix',
+    },
+    logger: undefined,
+    isNode: false,
+  });
+
+  const mismatchedIntent = makeIntent();
+  const mismatchedPreparation = makePreparation();
+  await store.putIntent(mismatchedIntent);
+  await store.putPreparation(mismatchedPreparation);
+  await expect(
+    store.consumeRegistrationIntentForPreparation({
+      registrationIntentGrant: mismatchedIntent.grant,
+      registrationIntentDigestB64u: mismatchedIntent.digestB64u,
+      registrationPreparationId: mismatchedPreparation.registrationPreparationId,
+      ed25519Scope: {
+        ...mismatchedPreparation.ed25519Scope,
+        nearAccountId: 'different.testnet',
+      },
+    }),
+  ).resolves.toMatchObject({
+    ok: false,
+    code: 'scope_mismatch',
+  });
+  await expect(store.getIntent(mismatchedIntent.grant)).resolves.toMatchObject({
+    kind: 'intent_allocated',
+    grant: mismatchedIntent.grant,
+  });
+
+  const matchedPreparation = makePreparation();
+  await expect(
+    store.consumeRegistrationIntentForPreparation({
+      registrationIntentGrant: mismatchedIntent.grant,
+      registrationIntentDigestB64u: mismatchedIntent.digestB64u,
+      registrationPreparationId: matchedPreparation.registrationPreparationId,
+      ed25519Scope: matchedPreparation.ed25519Scope,
+    }),
+  ).resolves.toMatchObject({
+    ok: true,
+    intent: {
+      kind: 'intent_consumed',
+      grant: mismatchedIntent.grant,
+    },
+  });
+  await expect(store.getIntent(mismatchedIntent.grant)).resolves.toBeNull();
+});
+
+test('registration ceremony store rejects mixed preparation lifecycle records', async () => {
+  const namespace = new FakeDurableObjectNamespace();
+  const store = createRegistrationCeremonyStore({
+    config: {
+      kind: 'cloudflare-do',
+      namespace,
+      name: 'registration-store-test',
+      keyPrefix: 'test-prefix',
+    },
+    logger: undefined,
+    isNode: false,
+  });
+
+  const preparation = makePreparation();
+  await namespace.stub.fetch('https://durable-object.test', {
+    method: 'POST',
+    body: JSON.stringify({
+      op: 'set',
+      key: `test-prefix:wallet-registration:preparation:${preparation.registrationPreparationId}`,
+      value: {
+        ...preparation,
+        failure: {
+          code: 'mixed',
+          message: 'mixed lifecycle state',
+        },
+      },
+      ttlMs: 60_000,
+    }),
+  });
+
+  await expect(store.getPreparation(preparation.registrationPreparationId)).resolves.toBeNull();
+});
+
+test('registration ceremony store prunes expired preparation records', async () => {
+  const store = createRegistrationCeremonyStore({
+    config: { kind: 'memory' },
+    logger: undefined,
+    isNode: true,
+  });
+  const preparation = makePreparation(Date.now() - 1_000);
+  await store.putPreparation(preparation);
+
+  await expect(store.getPreparation(preparation.registrationPreparationId)).resolves.toBeNull();
+  await expect(store.takePreparation(preparation.registrationPreparationId)).resolves.toBeNull();
 });

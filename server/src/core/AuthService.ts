@@ -97,11 +97,15 @@ import type {
   WalletRegistrationEcdsaPreparePayload,
   WalletRegistrationHssRespondRequest,
   WalletRegistrationHssRespondResponse,
+  RegistrationPreparationId,
+  WalletRegistrationPrepareRequest,
+  WalletRegistrationPrepareResponse,
   WalletRegistrationRouteDiagnostics,
   WalletRegistrationStartRequest,
   WalletRegistrationStartResponse,
   SignerWasmModuleSupplier,
 } from './types';
+import { registrationPreparationIdFromString } from './types';
 import {
   parseEcdsaHssClientBootstrapRequest,
   type ThresholdEcdsaSessionClaims,
@@ -212,9 +216,13 @@ import {
 import {
   createRegistrationCeremonyStore,
   createWalletId,
+  buildStoredWalletRegistrationHssPreparationPrepared,
+  getPreparedWalletRegistrationHssPreparation,
   resolveRegistrationCeremonyPostgresNamespace,
+  storedEd25519RegistrationPrepareScopesMatch,
   type RegistrationCeremonyStore,
   type StoredCombinedRegistrationState,
+  type StoredEd25519RegistrationPrepareScope,
 } from './RegistrationCeremonyStore';
 import {
   buildWalletEcdsaSignerRecord,
@@ -413,8 +421,9 @@ function pushRegistrationHssPrepareTimingEntries(
     clientOfferMessageMs: number;
     cachePreparedSessionMs: number;
     encodeStatesMs: number;
-  },
+  } | null | undefined,
 ): void {
+  if (!timings) return;
   pushRegistrationRouteDuration(entries, 'registrationHssPrepareSessionMs', timings.prepareSessionMs);
   pushRegistrationRouteDuration(
     entries,
@@ -1309,6 +1318,7 @@ function isMatchingEcdsaClientBootstrap(
     actual.signingRootVersion === expected.signingRootVersion &&
     actual.keyScope === expected.keyScope &&
     actual.relayerKeyId === expected.relayerKeyId &&
+    actual.registrationPreparationId === expected.registrationPreparationId &&
     actual.requestId === expected.requestId &&
     actual.sessionId === expected.sessionId &&
     actual.walletSigningSessionId === expected.walletSigningSessionId &&
@@ -5463,6 +5473,7 @@ export class AuthService {
 
   private async prepareEcdsaRegistrationStartPayload(input: {
     registrationCeremonyId: string;
+    registrationPreparationId?: RegistrationPreparationId;
     walletId: WalletId;
     rpId: string;
     signingRootId: string;
@@ -5494,6 +5505,9 @@ export class AuthService {
         signingRootVersion: input.signingRootVersion,
         keyScope: 'evm-family',
         relayerKeyId,
+        ...(input.registrationPreparationId
+          ? { registrationPreparationId: input.registrationPreparationId }
+          : {}),
         requestId: `${input.registrationCeremonyId}:ecdsa`,
         sessionId: `tehss_${randomBase64Url(24)}`,
         walletSigningSessionId: `wss_${randomBase64Url(24)}`,
@@ -5540,6 +5554,203 @@ export class AuthService {
       };
     }
     return { ok: true };
+  }
+
+  private resolveEd25519RegistrationPrepareScope(input: {
+    intent: RegistrationIntentV1;
+    orgId: string;
+    signingRootId: string;
+    signingRootVersion: string;
+    expectedOrigin: string;
+  }):
+    | { ok: true; scope: StoredEd25519RegistrationPrepareScope }
+    | { ok: false; code: string; message: string } {
+    const selection = input.intent.signerSelection;
+    if (selection.mode === 'ecdsa_only') {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Ed25519 HSS preparation requires an Ed25519 signer selection',
+      };
+    }
+    const ed25519 = selection.ed25519;
+    return {
+      ok: true,
+      scope: {
+        walletId: input.intent.walletId,
+        rpId: input.intent.rpId,
+        authMethodKind: input.intent.authMethod.kind,
+        expectedOrigin: input.expectedOrigin,
+        orgId: input.orgId,
+        signingRootId: input.signingRootId,
+        signingRootVersion: input.signingRootVersion,
+        nearAccountId: ed25519.nearAccountId,
+        keyPurpose: ed25519.keyPurpose,
+        keyVersion: ed25519.keyVersion,
+        derivationVersion: ed25519.derivationVersion,
+        participantIds: [...ed25519.participantIds],
+      },
+    };
+  }
+
+  private async prepareEd25519RegistrationHss(input: {
+    scope: StoredEd25519RegistrationPrepareScope;
+  }) {
+    const threshold = this.getThresholdSigningService();
+    if (!threshold) {
+      return {
+        ok: false as const,
+        code: 'not_configured',
+        message: 'threshold signing is not configured on this server',
+      };
+    }
+    return await threshold.ed25519Hss.prepareForRegistration({
+      orgId: input.scope.orgId,
+      signingRootId: input.scope.signingRootId,
+      signingRootVersion: input.scope.signingRootVersion,
+      request: {
+        new_account_id: input.scope.nearAccountId,
+        rp_id: input.scope.rpId,
+        context: {
+          signingRootId: input.scope.signingRootId,
+          nearAccountId: input.scope.nearAccountId,
+          keyPurpose: input.scope.keyPurpose,
+          keyVersion: input.scope.keyVersion,
+          participantIds: input.scope.participantIds,
+          derivationVersion: input.scope.derivationVersion,
+        },
+      },
+    });
+  }
+
+  async prepareWalletRegistration(
+    request: WalletRegistrationPrepareRequest,
+  ): Promise<WalletRegistrationPrepareResponse> {
+    const routeStartedAtMs = Date.now();
+    const routeTimings = registrationRouteTimingEntries();
+    const prepareDiagnostics = () =>
+      buildRegistrationRouteDiagnostics({
+        route: 'wallets_register_prepare',
+        entries: routeTimings,
+        totalName: 'registerPrepareTotalMs',
+        startedAtMs: routeStartedAtMs,
+      });
+    try {
+      const grant = registrationIntentGrantFromString(request.registrationIntentGrant);
+      const ceremonyStore = this.getRegistrationCeremonyStore();
+      const storedIntent = await measureRegistrationRouteTiming(
+        routeTimings,
+        'registrationIntentLoadMs',
+        () => ceremonyStore.getIntent(grant),
+      );
+      if (!storedIntent) {
+        return { ok: false, code: 'invalid_grant', message: 'registration intent grant expired' };
+      }
+      if (storedIntent.intent.signerSelection.mode === 'ecdsa_only') {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Ed25519 HSS preparation requires an Ed25519 registration mode',
+        };
+      }
+      const digestB64u = toOptionalTrimmedString(request.registrationIntentDigestB64u);
+      if (!digestB64u || digestB64u !== storedIntent.digestB64u) {
+        return { ok: false, code: 'invalid_body', message: 'registration intent digest mismatch' };
+      }
+      const requestDigest = await measureRegistrationRouteTiming(
+        routeTimings,
+        'registrationIntentDigestMs',
+        () => computeRegistrationIntentDigestB64u(request.intent),
+      );
+      if (requestDigest !== storedIntent.digestB64u) {
+        return { ok: false, code: 'invalid_body', message: 'registration intent mismatch' };
+      }
+      const signingRootId =
+        storedIntent.signingRootId ||
+        (storedIntent.intent.runtimePolicyScope
+          ? deriveSigningRootId(storedIntent.intent.runtimePolicyScope)
+          : '');
+      const signingRootVersion =
+        storedIntent.signingRootVersion ||
+        storedIntent.intent.runtimePolicyScope?.signingRootVersion ||
+        'default';
+      const scopeResult = this.resolveEd25519RegistrationPrepareScope({
+        intent: storedIntent.intent,
+        orgId: storedIntent.orgId,
+        signingRootId,
+        signingRootVersion,
+        expectedOrigin: toOptionalTrimmedString(storedIntent.expectedOrigin) || '',
+      });
+      if (!scopeResult.ok) return scopeResult;
+      const prepared = await measureRegistrationRouteTiming(
+        routeTimings,
+        'registrationPreauthHssPrepareMs',
+        () => this.prepareEd25519RegistrationHss({ scope: scopeResult.scope }),
+      );
+      if (!prepared.ok) {
+        return {
+          ok: false,
+          code: prepared.code || 'hss_prepare_failed',
+          message: prepared.message || 'Ed25519 HSS prepare failed',
+        };
+      }
+      pushRegistrationRouteDuration(
+        routeTimings,
+        'registrationHssServerInputDeriveMs',
+        prepared.serverInputDeriveMs,
+      );
+      pushRegistrationRouteDuration(
+        routeTimings,
+        'registrationHssServerSessionPrepareTotalMs',
+        prepared.serverSessionPrepareTotalMs,
+      );
+      pushRegistrationHssPrepareTimingEntries(routeTimings, prepared.serverSessionTimings);
+      const registrationPreparationId = registrationPreparationIdFromString(
+        `wrp_${randomBase64Url(24)}`,
+      );
+      const preparedEd25519 = {
+        kind: 'ed25519_prepared' as const,
+        ceremonyHandle: prepared.ceremonyHandle,
+        preparedSession: prepared.preparedSession,
+        clientOtOfferMessageB64u: prepared.clientOtOfferMessageB64u,
+      };
+      const expiresAtMs = Math.min(storedIntent.expiresAtMs, Date.now() + 10 * 60_000);
+      const preparation = buildStoredWalletRegistrationHssPreparationPrepared({
+        registrationPreparationId,
+        registrationIntentGrant: grant,
+        registrationIntentDigestB64u: storedIntent.digestB64u,
+        intent: storedIntent.intent,
+        orgId: storedIntent.orgId,
+        expectedOrigin: toOptionalTrimmedString(storedIntent.expectedOrigin) || '',
+        signingRootId,
+        signingRootVersion,
+        ed25519Scope: scopeResult.scope,
+        prepared: preparedEd25519,
+        createdAtMs: Date.now(),
+        expiresAtMs,
+      });
+      await measureRegistrationRouteTiming(routeTimings, 'registrationPreparationPersistMs', () =>
+        ceremonyStore.putPreparation(preparation),
+      );
+      return {
+        ok: true,
+        state: 'prepared',
+        registrationPreparationId,
+        expiresAtMs,
+        registrationDiagnostics: prepareDiagnostics(),
+        ed25519: {
+          ceremonyHandle: preparedEd25519.ceremonyHandle,
+          preparedSession: preparedEd25519.preparedSession,
+          clientOtOfferMessageB64u: preparedEd25519.clientOtOfferMessageB64u,
+        },
+      };
+    } catch (error: unknown) {
+      return {
+        ok: false,
+        code: 'internal',
+        message: errorMessage(error) || 'Failed to prepare wallet registration',
+      };
+    }
   }
 
   async startWalletRegistration(
@@ -5605,15 +5816,7 @@ export class AuthService {
         };
       }
 
-      const storedIntent = await measureRegistrationRouteTiming(
-        routeTimings,
-        'registrationIntentConsumeMs',
-        () => ceremonyStore.takeIntent(grant),
-      );
-      if (!storedIntent) {
-        return { ok: false, code: 'invalid_grant', message: 'registration intent grant expired' };
-      }
-      const storedExpectedOrigin = toOptionalTrimmedString(storedIntent.expectedOrigin);
+      const storedExpectedOrigin = toOptionalTrimmedString(intentPreview.expectedOrigin);
       if (request.authority.kind === 'passkey' && !storedExpectedOrigin) {
         return {
           ok: false,
@@ -5627,9 +5830,9 @@ export class AuthService {
         'registrationAuthorityVerifyMs',
         () =>
           this.verifyRegistrationAuthorityForIntent({
-            intent: storedIntent.intent,
-            registrationIntentDigestB64u: storedIntent.digestB64u,
-            orgId: storedIntent.orgId,
+            intent: intentPreview.intent,
+            registrationIntentDigestB64u: intentPreview.digestB64u,
+            orgId: intentPreview.orgId,
             expectedOrigin: storedExpectedOrigin || '',
             emailOtpRegistrationProof:
               request.authority.kind === 'email_otp'
@@ -5643,6 +5846,100 @@ export class AuthService {
       );
       if (!verifiedAuthority.ok) return verifiedAuthority;
       const authority = verifiedAuthority.authority;
+      const preparedRegistration =
+        selection.mode === 'ecdsa_only'
+          ? null
+          : await measureRegistrationRouteTiming(routeTimings, 'registrationPreparationLoadMs', () =>
+              request.registrationPreparationId
+                ? ceremonyStore.getPreparation(request.registrationPreparationId)
+                : Promise.resolve(null),
+            );
+      if (selection.mode !== 'ecdsa_only' && !preparedRegistration) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'registrationPreparationId is required for Ed25519 registration',
+        };
+      }
+      const preparedRegistrationState = preparedRegistration
+        ? getPreparedWalletRegistrationHssPreparation(preparedRegistration)
+        : null;
+      if (preparedRegistrationState && !preparedRegistrationState.ok) {
+        return {
+          ok: false,
+          code: preparedRegistrationState.code,
+          message: preparedRegistrationState.message,
+        };
+      }
+      if (preparedRegistration) {
+        const preparedHss = getPreparedWalletRegistrationHssPreparation(preparedRegistration);
+        if (!preparedHss.ok) {
+          return {
+            ok: false,
+            code: preparedHss.code,
+            message: preparedHss.message,
+          };
+        }
+        const preparedScopeResult = this.resolveEd25519RegistrationPrepareScope({
+          intent: intentPreview.intent,
+          orgId: intentPreview.orgId,
+          signingRootId: signingRootId || '',
+          signingRootVersion,
+          expectedOrigin: storedExpectedOrigin || '',
+        });
+        if (!preparedScopeResult.ok) return preparedScopeResult;
+        const scopeMatches = await measureRegistrationRouteTiming(
+          routeTimings,
+          'registrationPreparationScopeCheckMs',
+          async () =>
+            preparedRegistration.registrationIntentGrant === grant &&
+            preparedRegistration.registrationIntentDigestB64u === intentPreview.digestB64u &&
+            storedEd25519RegistrationPrepareScopesMatch(
+              preparedHss.preparation.ed25519Scope,
+              preparedScopeResult.scope,
+            ),
+        );
+        if (!scopeMatches) {
+          return {
+            ok: false,
+            code: 'scope_mismatch',
+            message: 'registration preparation scope does not match verified intent',
+          };
+        }
+      }
+      const preparedScope =
+        preparedRegistrationState && preparedRegistrationState.ok
+          ? preparedRegistrationState.preparation.ed25519Scope
+          : null;
+      const storedIntentResult = await measureRegistrationRouteTiming(
+        routeTimings,
+        'registrationIntentConsumeMs',
+        () =>
+          selection.mode === 'ecdsa_only'
+            ? ceremonyStore.takeIntent(grant).then((intent) =>
+                intent
+                  ? ({ ok: true as const, intent })
+                  : ({
+                      ok: false as const,
+                      code: 'invalid_grant' as const,
+                      message: 'registration intent grant expired',
+                    }),
+              )
+            : ceremonyStore.consumeRegistrationIntentForPreparation({
+                registrationIntentGrant: grant,
+                registrationIntentDigestB64u: intentPreview.digestB64u,
+                registrationPreparationId: request.registrationPreparationId!,
+                ed25519Scope: preparedScope!,
+              }),
+      );
+      if (!storedIntentResult.ok) {
+        return {
+          ok: false,
+          code: storedIntentResult.code,
+          message: storedIntentResult.message,
+        };
+      }
+      const storedIntent = storedIntentResult.intent;
       const startDiagnostics = () =>
         buildRegistrationRouteDiagnostics({
           route: 'wallets_register_start',
@@ -5700,6 +5997,9 @@ export class AuthService {
             },
           }),
         );
+        await measureRegistrationRouteTiming(routeTimings, 'registrationPreparationConsumeMs', () =>
+          ceremonyStore.takePreparation(request.registrationPreparationId!),
+        );
         return {
           ok: true,
           registrationCeremonyId,
@@ -5717,42 +6017,16 @@ export class AuthService {
           message: 'threshold signing is not configured on this server',
         };
       }
-      const ed25519 = selection.ed25519;
-      const prepareEd25519 = () =>
-        threshold.ed25519Hss.prepareForRegistration({
-          orgId: storedIntent.orgId,
-          ...(signingRootId ? { signingRootId } : {}),
-          ...(storedIntent.signingRootVersion
-            ? { signingRootVersion: storedIntent.signingRootVersion }
-            : {}),
-          request: {
-            new_account_id: ed25519.nearAccountId,
-            rp_id: storedIntent.intent.rpId,
-            context: {
-              signingRootId: signingRootId || '',
-              nearAccountId: ed25519.nearAccountId,
-              keyPurpose: ed25519.keyPurpose,
-              keyVersion: ed25519.keyVersion,
-              participantIds: ed25519.participantIds,
-              derivationVersion: ed25519.derivationVersion,
-            },
-          },
-        });
       const runtimePolicyScope =
         selection.mode === 'ed25519_and_ecdsa'
           ? normalizeThresholdRuntimePolicyScope(storedIntent.intent.runtimePolicyScope)
           : undefined;
-      const [prepared, combinedEcdsaPrepare] =
+      const combinedEcdsaPrepare =
         selection.mode === 'ed25519_and_ecdsa'
-          ? await Promise.all([
-              measureRegistrationRouteTiming(
-                routeTimings,
-                'registrationHssPrepareMs',
-                prepareEd25519,
-              ),
-              measureRegistrationRouteTiming(routeTimings, 'registrationEcdsaPrepareMs', () =>
+          ? await measureRegistrationRouteTiming(routeTimings, 'registrationEcdsaPrepareMs', () =>
                 this.prepareEcdsaRegistrationStartPayload({
                   registrationCeremonyId,
+                  registrationPreparationId: request.registrationPreparationId!,
                   walletId: storedIntent.intent.walletId,
                   rpId: storedIntent.intent.rpId,
                   signingRootId: signingRootId!,
@@ -5761,39 +6035,14 @@ export class AuthService {
                   participantIds: selection.ecdsa.participantIds,
                   ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
                 }),
-              ),
-            ])
-          : [
-              await measureRegistrationRouteTiming(
-                routeTimings,
-                'registrationHssPrepareMs',
-                prepareEd25519,
-              ),
-              null,
-            ];
-      if (!prepared.ok) {
-        return {
-          ok: false,
-          code: prepared.code || 'hss_prepare_failed',
-          message: prepared.message || 'Ed25519 HSS prepare failed',
-        };
-      }
-      pushRegistrationRouteDuration(
-        routeTimings,
-        'registrationHssServerInputDeriveMs',
-        prepared.serverInputDeriveMs,
-      );
-      pushRegistrationRouteDuration(
-        routeTimings,
-        'registrationHssServerSessionPrepareTotalMs',
-        prepared.serverSessionPrepareTotalMs,
-      );
-      pushRegistrationHssPrepareTimingEntries(routeTimings, prepared.serverSessionTimings);
+              )
+          : null;
 
       const responseEd25519 = {
-        ceremonyHandle: prepared.ceremonyHandle,
-        preparedSession: prepared.preparedSession,
-        clientOtOfferMessageB64u: prepared.clientOtOfferMessageB64u,
+        ceremonyHandle: preparedRegistrationState!.preparation.prepared.ceremonyHandle,
+        preparedSession: preparedRegistrationState!.preparation.prepared.preparedSession,
+        clientOtOfferMessageB64u:
+          preparedRegistrationState!.preparation.prepared.clientOtOfferMessageB64u,
       };
       if (selection.mode === 'ed25519_and_ecdsa') {
         const responseEcdsa = combinedEcdsaPrepare;
@@ -5832,6 +6081,9 @@ export class AuthService {
             },
           }),
         );
+        await measureRegistrationRouteTiming(routeTimings, 'registrationPreparationConsumeMs', () =>
+          ceremonyStore.takePreparation(request.registrationPreparationId!),
+        );
         return {
           ok: true,
           registrationCeremonyId,
@@ -5860,6 +6112,9 @@ export class AuthService {
           authority,
           signerState,
         }),
+      );
+      await measureRegistrationRouteTiming(routeTimings, 'registrationPreparationConsumeMs', () =>
+        ceremonyStore.takePreparation(request.registrationPreparationId!),
       );
       return {
         ok: true,
@@ -6651,7 +6906,7 @@ export class AuthService {
 
   private async writeRegistrationPersistenceToStores(input: {
     records: RegistrationPersistenceRecords;
-    walletSubjectLast?: boolean;
+    deferWalletRecordUntilActivation?: boolean;
   }): Promise<void> {
     const { records } = input;
     for (const item of records.webAuthnAuthenticators) {
@@ -6660,7 +6915,7 @@ export class AuthService {
     for (const record of records.credentialBindings) {
       await this.getWebAuthnCredentialBindingStore().put(record);
     }
-    if (!input.walletSubjectLast) {
+    if (!input.deferWalletRecordUntilActivation) {
       await this.getWalletStore().putSubject(records.wallet);
     }
     for (const record of records.walletAuthMethods) {
@@ -6679,7 +6934,7 @@ export class AuthService {
       await recoveryStore.putMany(emailOtpEnrollment.recoveryWrappedEnrollmentEscrows);
       await this.getEmailOtpAuthStateStore().put(emailOtpEnrollment.authState);
     }
-    if (input.walletSubjectLast) {
+    if (input.deferWalletRecordUntilActivation) {
       await this.getWalletStore().putSubject(records.wallet);
     }
   }
@@ -6890,7 +7145,7 @@ export class AuthService {
       }
       await this.writeRegistrationPersistenceToStores({
         records: input.records,
-        walletSubjectLast: !!input.googleEmailOtpActivation,
+        deferWalletRecordUntilActivation: !!input.googleEmailOtpActivation,
       });
       return { ok: true };
     }

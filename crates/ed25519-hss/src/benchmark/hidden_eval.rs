@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::env;
 use std::hint::black_box;
 use std::thread;
@@ -7,7 +8,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::artifact::PrimeOrderEvaluatorOps;
 use crate::benchmark::{ComponentTimingReport, LatencyStats};
-use crate::ddh::{DdhHiddenEvalStageProfile, HiddenEvalInputOwner};
+use crate::ddh::hidden_eval_executor::{
+    prepare_ddh_hidden_eval_constant_pool, probe_prime_order_ddh_hidden_eval_program_with_pool,
+};
+use crate::ddh::{
+    DdhHiddenEvalCheckpoint, DdhHiddenEvalOperationCounts, DdhHiddenEvalStageProfile,
+    HiddenEvalInputOwner,
+};
 use crate::fixtures::{deterministic_fixture_corpus, FExpandFixture};
 use crate::protocol::prepare_prime_order_succinct_hss;
 use crate::runtime::EvaluateTiming;
@@ -15,6 +22,8 @@ use crate::shared::public_key_from_base_shares;
 use crate::shared::{ProtoError, ProtoResult};
 
 pub const DDH_HIDDEN_EVAL_BENCHMARK_REPORT_VERSION: &str = "ddh_hidden_eval_benchmark_v1";
+pub const DDH_HIDDEN_EVAL_ALLOCATION_PROBE_REPORT_VERSION: &str =
+    "ddh_hidden_eval_allocation_probe_v1";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DdhHiddenEvalBenchmarkConfig {
@@ -33,6 +42,20 @@ pub struct DdhHiddenEvalBenchmarkConfigRecord {
     pub primitive_sample_iterations: u64,
     pub stage_warmup_iterations: u64,
     pub stage_sample_iterations: u64,
+    pub sample_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DdhHiddenEvalAllocationProbeConfig {
+    pub fixture_name: Option<String>,
+    pub warmup_iterations: u64,
+    pub sample_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DdhHiddenEvalAllocationProbeConfigRecord {
+    pub fixture_name: String,
+    pub warmup_iterations: u64,
     pub sample_count: usize,
 }
 
@@ -60,9 +83,49 @@ pub struct DdhHiddenEvalBenchmarkReport {
     pub stage_timings: Vec<ComponentTimingReport>,
     pub substage_timings: Vec<ComponentTimingReport>,
     pub delivery_timings: Vec<ComponentTimingReport>,
+    pub operation_counts: DdhHiddenEvalOperationCounts,
     pub reference_match: bool,
     pub output_public_key_hex: String,
     pub output_x_client_base_hex: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DdhHiddenEvalAllocationMeasurement {
+    pub allocation_calls: u64,
+    pub deallocation_calls: u64,
+    pub reallocation_calls: u64,
+    pub allocated_bytes: u64,
+    pub deallocated_bytes: u64,
+    pub live_bytes_before: u64,
+    pub live_bytes_after: u64,
+    pub live_bytes_delta: i128,
+    pub peak_live_bytes_above_start: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DdhHiddenEvalAllocationProbeSample {
+    pub sample_index: usize,
+    pub operation: String,
+    pub measurement: DdhHiddenEvalAllocationMeasurement,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DdhHiddenEvalAllocationProbeReport {
+    pub report_version: String,
+    pub metadata: DdhHiddenEvalBenchmarkMetadata,
+    pub fixture_name: String,
+    pub config: DdhHiddenEvalAllocationProbeConfigRecord,
+    pub samples: Vec<DdhHiddenEvalAllocationProbeSample>,
+}
+
+pub trait DdhHiddenEvalAllocationRecorder {
+    fn measure<F>(
+        &mut self,
+        operation: &'static str,
+        op: F,
+    ) -> ProtoResult<DdhHiddenEvalAllocationMeasurement>
+    where
+        F: FnOnce() -> ProtoResult<()>;
 }
 
 pub fn default_ddh_hidden_eval_benchmark_config() -> DdhHiddenEvalBenchmarkConfig {
@@ -73,6 +136,14 @@ pub fn default_ddh_hidden_eval_benchmark_config() -> DdhHiddenEvalBenchmarkConfi
         stage_warmup_iterations: 0,
         stage_sample_iterations: 1,
         sample_count: 6,
+    }
+}
+
+pub fn default_ddh_hidden_eval_allocation_probe_config() -> DdhHiddenEvalAllocationProbeConfig {
+    DdhHiddenEvalAllocationProbeConfig {
+        fixture_name: None,
+        warmup_iterations: 1,
+        sample_count: 5,
     }
 }
 
@@ -161,6 +232,7 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
     let mut delivery_result_assembly_samples = Vec::with_capacity(config.sample_count);
     let mut delivery_output_sealing_finalization_samples = Vec::with_capacity(config.sample_count);
     let mut delivery_unbucketed_samples = Vec::with_capacity(config.sample_count);
+    let mut operation_counts = DdhHiddenEvalOperationCounts::default();
 
     for _ in 0..config.sample_count {
         let mut input_sharing_total_ns = 0f64;
@@ -228,6 +300,7 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
             output_projector_total_ns += profile.stage_profile.output_projector_duration_ns as f64;
             total_total_ns += direct_profile_total_ns;
             direct_unbucketed_total_ns += direct_executor_unbucketed_ns(&profile.stage_profile);
+            operation_counts = profile.stage_profile.operation_counts;
 
             let delivery_started = Instant::now();
             let (delivery_report, delivery_timing) =
@@ -501,9 +574,156 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
         stage_timings,
         substage_timings,
         delivery_timings,
+        operation_counts,
         reference_match: true,
         output_public_key_hex: hex::encode(baseline_public_key),
         output_x_client_base_hex: hex::encode(baseline_x_client_base),
+    })
+}
+
+pub fn generate_ddh_hidden_eval_allocation_probe_report<R>(
+    config: &DdhHiddenEvalAllocationProbeConfig,
+    recorder: &mut R,
+) -> ProtoResult<DdhHiddenEvalAllocationProbeReport>
+where
+    R: DdhHiddenEvalAllocationRecorder,
+{
+    let fixture = select_fixture(config.fixture_name.as_deref())?;
+    let metadata = capture_benchmark_metadata();
+    let checkpoint_operations = ddh_hidden_eval_allocation_checkpoint_operations();
+    let mut samples = Vec::with_capacity(
+        config
+            .sample_count
+            .saturating_mul(3usize.saturating_add(checkpoint_operations.len()))
+            .saturating_add(1),
+    );
+
+    let mut prepared_session = None;
+    let prepare_measurement = recorder.measure("prepare_prime_order_succinct_hss", || {
+        prepared_session = Some(prepare_prime_order_succinct_hss(&fixture.input.context)?);
+        Ok(())
+    })?;
+    samples.push(DdhHiddenEvalAllocationProbeSample {
+        sample_index: 0,
+        operation: "prepare_prime_order_succinct_hss".to_string(),
+        measurement: prepare_measurement,
+    });
+
+    let session = prepared_session.ok_or_else(|| {
+        ProtoError::InvalidInput("allocation probe did not prepare session".to_string())
+    })?;
+    let output_openers = session.output_openers();
+    let checkpoint_constant_pool = prepare_ddh_hidden_eval_constant_pool(session.ddh_backend())?;
+
+    for _ in 0..config.warmup_iterations {
+        let profile = session.profile_hidden_eval_for_clear_input(&fixture.input)?;
+        black_box(session.materialize_hidden_outputs_for_debug(&profile.run.output)?);
+        black_box(session.evaluate_for_clear_input_debug_timed(&fixture.input)?);
+    }
+
+    for sample_index in 0..config.sample_count {
+        let mut hidden_eval_profile = None;
+        let hidden_eval_measurement =
+            recorder.measure("profile_hidden_eval_for_clear_input", || {
+                hidden_eval_profile =
+                    Some(session.profile_hidden_eval_for_clear_input(&fixture.input)?);
+                Ok(())
+            })?;
+        samples.push(DdhHiddenEvalAllocationProbeSample {
+            sample_index,
+            operation: "profile_hidden_eval_for_clear_input".to_string(),
+            measurement: hidden_eval_measurement,
+        });
+
+        for (checkpoint, operation) in checkpoint_operations {
+            let checkpoint_measurement = recorder.measure(operation, || {
+                let probe = probe_prime_order_ddh_hidden_eval_program_with_pool(
+                    session.hidden_eval_program(),
+                    session.ddh_backend(),
+                    &checkpoint_constant_pool,
+                    &fixture.input,
+                    *checkpoint,
+                )?;
+                black_box(probe);
+                Ok(())
+            })?;
+            samples.push(DdhHiddenEvalAllocationProbeSample {
+                sample_index,
+                operation: (*operation).to_string(),
+                measurement: checkpoint_measurement,
+            });
+        }
+
+        let profile = hidden_eval_profile.ok_or_else(|| {
+            ProtoError::InvalidInput(
+                "allocation probe did not capture hidden-eval profile".to_string(),
+            )
+        })?;
+        let materialize_measurement =
+            recorder.measure("materialize_hidden_outputs_for_debug", || {
+                let (x_client_base, x_relayer_base, public_key) =
+                    session.materialize_hidden_outputs_for_debug(&profile.run.output)?;
+                validate_fixture_outputs(
+                    &fixture,
+                    x_client_base,
+                    x_relayer_base,
+                    public_key,
+                    "allocation probe materialized hidden output",
+                )?;
+                black_box((x_client_base, x_relayer_base, public_key));
+                Ok(())
+            })?;
+        samples.push(DdhHiddenEvalAllocationProbeSample {
+            sample_index,
+            operation: "materialize_hidden_outputs_for_debug".to_string(),
+            measurement: materialize_measurement,
+        });
+
+        let delivery_measurement =
+            recorder.measure("evaluate_for_clear_input_debug_timed", || {
+                let (delivery_report, delivery_timing) =
+                    session.evaluate_for_clear_input_debug_timed(&fixture.input)?;
+                let delivery_x_client_base = output_openers
+                    .client
+                    .open(&delivery_report.output_delivery.client)?;
+                let delivery_x_relayer_base = output_openers
+                    .server
+                    .open(&delivery_report.output_delivery.server)?;
+                let delivery_public_key =
+                    public_key_from_base_shares(delivery_x_client_base, delivery_x_relayer_base)?;
+                validate_fixture_outputs(
+                    &fixture,
+                    delivery_x_client_base,
+                    delivery_x_relayer_base,
+                    delivery_public_key,
+                    "allocation probe delivery output",
+                )?;
+                black_box((
+                    delivery_report,
+                    delivery_timing,
+                    delivery_x_client_base,
+                    delivery_x_relayer_base,
+                    delivery_public_key,
+                ));
+                Ok(())
+            })?;
+        samples.push(DdhHiddenEvalAllocationProbeSample {
+            sample_index,
+            operation: "evaluate_for_clear_input_debug_timed".to_string(),
+            measurement: delivery_measurement,
+        });
+    }
+
+    Ok(DdhHiddenEvalAllocationProbeReport {
+        report_version: DDH_HIDDEN_EVAL_ALLOCATION_PROBE_REPORT_VERSION.to_string(),
+        metadata,
+        fixture_name: fixture.name.clone(),
+        config: DdhHiddenEvalAllocationProbeConfigRecord {
+            fixture_name: fixture.name,
+            warmup_iterations: config.warmup_iterations,
+            sample_count: config.sample_count,
+        },
+        samples,
     })
 }
 
@@ -562,8 +782,136 @@ impl DdhHiddenEvalBenchmarkReport {
             ));
         }
 
+        if self.operation_counts.physical_keyed_digest_derivations > 0
+            || self.operation_counts.physical_derived_commitment_hashes > 0
+            || self.operation_counts.physical_add_bit_hashes > 0
+            || self.operation_counts.physical_mul_material_hashes > 0
+            || self.operation_counts.physical_mul_output_seed_hashes > 0
+        {
+            lines.push(format!(
+                "physical hashes: keyed_digest={} derived_commitment={} add_bit={} mul_material={} mul_output_seed={}",
+                self.operation_counts.physical_keyed_digest_derivations,
+                self.operation_counts.physical_derived_commitment_hashes,
+                self.operation_counts.physical_add_bit_hashes,
+                self.operation_counts.physical_mul_material_hashes,
+                self.operation_counts.physical_mul_output_seed_hashes,
+            ));
+            lines.push(format!(
+                "physical keyed digest domains: eval_xor_local_word={} eval_add_local={} eval_mul_local_material={} eval_mul_local={} phase_a_arith_share_to_bool={} phase_a_bool_to_arith_base={} phase_a_arith_to_bool_zero={} compose_word_from_share_bits={} share_word={} other={}",
+                self.operation_counts.physical_keyed_digest_eval_xor_local_word,
+                self.operation_counts.physical_keyed_digest_eval_add_local,
+                self.operation_counts.physical_keyed_digest_eval_mul_local_material,
+                self.operation_counts.physical_keyed_digest_eval_mul_local,
+                self.operation_counts.physical_keyed_digest_phase_a_arith_share_to_bool,
+                self.operation_counts.physical_keyed_digest_phase_a_bool_to_arith_base,
+                self.operation_counts.physical_keyed_digest_phase_a_arith_to_bool_zero,
+                self.operation_counts.physical_keyed_digest_compose_word_from_share_bits,
+                self.operation_counts.physical_keyed_digest_share_word,
+                self.operation_counts.physical_keyed_digest_other,
+            ));
+            lines.push(format!(
+                "physical derived commitment domains: eval_xor_local_word={} eval_add_local={} eval_mul_local_material={} eval_mul_local={} phase_a_arith_share_to_bool={} phase_a_bool_to_arith_base={} phase_a_arith_to_bool_zero={} compose_word_from_share_bits={} share_word={} other={}",
+                self.operation_counts.physical_derived_commitment_eval_xor_local_word,
+                self.operation_counts.physical_derived_commitment_eval_add_local,
+                self.operation_counts.physical_derived_commitment_eval_mul_local_material,
+                self.operation_counts.physical_derived_commitment_eval_mul_local,
+                self.operation_counts.physical_derived_commitment_phase_a_arith_share_to_bool,
+                self.operation_counts.physical_derived_commitment_phase_a_bool_to_arith_base,
+                self.operation_counts.physical_derived_commitment_phase_a_arith_to_bool_zero,
+                self.operation_counts.physical_derived_commitment_compose_word_from_share_bits,
+                self.operation_counts.physical_derived_commitment_share_word,
+                self.operation_counts.physical_derived_commitment_other,
+            ));
+        }
+
         lines
     }
+}
+
+impl DdhHiddenEvalAllocationProbeReport {
+    pub fn summary_lines(&self) -> Vec<String> {
+        let mut lines = vec![format!(
+            "ddh hidden eval allocation probe: fixture={} samples={} warmup={} generated_at={} host={}/{} cores={}",
+            self.fixture_name,
+            self.config.sample_count,
+            self.config.warmup_iterations,
+            self.metadata.generated_at_unix_secs,
+            self.metadata.host_os,
+            self.metadata.host_arch,
+            self.metadata.logical_cores,
+        )];
+
+        for (operation, samples) in allocation_samples_by_operation(&self.samples) {
+            let allocated_bytes = stats_from_samples(
+                samples
+                    .iter()
+                    .map(|sample| sample.allocated_bytes as f64)
+                    .collect(),
+            );
+            let allocation_calls = stats_from_samples(
+                samples
+                    .iter()
+                    .map(|sample| sample.allocation_calls as f64)
+                    .collect(),
+            );
+            let peak_live = stats_from_samples(
+                samples
+                    .iter()
+                    .map(|sample| sample.peak_live_bytes_above_start as f64)
+                    .collect(),
+            );
+            lines.push(format!(
+                "allocation {operation}: allocated_bytes median={:.0} p95={:.0} allocation_calls median={:.0} p95={:.0} peak_live_above_start median={:.0} p95={:.0}",
+                allocated_bytes.median,
+                allocated_bytes.p95,
+                allocation_calls.median,
+                allocation_calls.p95,
+                peak_live.median,
+                peak_live.p95,
+            ));
+        }
+
+        lines
+    }
+}
+
+fn allocation_samples_by_operation(
+    samples: &[DdhHiddenEvalAllocationProbeSample],
+) -> BTreeMap<&str, Vec<&DdhHiddenEvalAllocationMeasurement>> {
+    let mut grouped = BTreeMap::new();
+    for sample in samples {
+        grouped
+            .entry(sample.operation.as_str())
+            .or_insert_with(Vec::new)
+            .push(&sample.measurement);
+    }
+    grouped
+}
+
+fn ddh_hidden_eval_allocation_checkpoint_operations(
+) -> &'static [(DdhHiddenEvalCheckpoint, &'static str)] {
+    &[
+        (
+            DdhHiddenEvalCheckpoint::InputSharing,
+            "probe_checkpoint_input_sharing",
+        ),
+        (
+            DdhHiddenEvalCheckpoint::AddStage,
+            "probe_checkpoint_add_stage",
+        ),
+        (
+            DdhHiddenEvalCheckpoint::MessageSchedule,
+            "probe_checkpoint_message_schedule",
+        ),
+        (
+            DdhHiddenEvalCheckpoint::RoundCore,
+            "probe_checkpoint_round_core",
+        ),
+        (
+            DdhHiddenEvalCheckpoint::OutputProjector,
+            "probe_checkpoint_output_projector",
+        ),
+    ]
 }
 
 fn capture_benchmark_metadata() -> DdhHiddenEvalBenchmarkMetadata {
@@ -592,6 +940,24 @@ fn direct_executor_unbucketed_ns(stage_profile: &DdhHiddenEvalStageProfile) -> f
         .saturating_add(stage_profile.round_core_duration_ns)
         .saturating_add(stage_profile.output_projector_duration_ns);
     stage_profile.total_duration_ns.saturating_sub(accounted_ns) as f64
+}
+
+fn validate_fixture_outputs(
+    fixture: &FExpandFixture,
+    x_client_base: [u8; 32],
+    x_relayer_base: [u8; 32],
+    public_key: [u8; 32],
+    context: &str,
+) -> ProtoResult<()> {
+    if x_client_base != fixture.output.x_client_base
+        || x_relayer_base != fixture.output.x_relayer_base
+        || public_key != fixture.output.public_key
+    {
+        return Err(ProtoError::Decode(format!(
+            "{context} does not match frozen fixture"
+        )));
+    }
+    Ok(())
 }
 
 fn delivery_unbucketed_ns(

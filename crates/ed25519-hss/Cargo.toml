@@ -5,6 +5,10 @@ edition = "2021"
 description = "Fixed-function succinct garbling / HSS implementation for hidden Ed25519 seed expansion"
 license = "Apache-2.0"
 
+[features]
+default = []
+hss-physical-counters = []
+
 [lib]
 name = "ed25519_hss"
 path = "src/lib.rs"

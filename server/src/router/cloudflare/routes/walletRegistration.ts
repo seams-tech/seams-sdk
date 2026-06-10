@@ -11,6 +11,7 @@ import {
   handleRelayWalletRegistrationFinalize,
   handleRelayWalletRegistrationHssRespond,
   handleRelayWalletRegistrationIntent,
+  handleRelayWalletRegistrationPrepare,
   handleRelayWalletRegistrationStart,
   handleRelayWalletEcdsaKeyFactsInventory,
 } from '../../relayWalletRegistration';
@@ -26,6 +27,7 @@ import { readJson } from '../http';
 
 const ROUTE_IDS = [
   'wallet_registration_intent',
+  'wallet_registration_prepare',
   'wallet_registration_start',
   'wallet_registration_hss_respond',
   'wallet_registration_finalize',
@@ -88,6 +90,8 @@ export async function handleWalletRegistration(
   const response: RouteResponse<unknown> =
     route.id === 'wallet_registration_intent'
       ? await handleRelayWalletRegistrationIntent(common)
+      : route.id === 'wallet_registration_prepare'
+        ? await handleRelayWalletRegistrationPrepare(common)
       : route.id === 'wallet_registration_start'
         ? await handleRelayWalletRegistrationStart(common)
         : route.id === 'wallet_registration_hss_respond'

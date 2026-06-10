@@ -6,6 +6,7 @@ import type { TxDisplayModel } from '@/core/signingEngine/interfaces/display';
 import { isObject, isString } from '@shared/utils/validation';
 import type {
   EmailOtpConfirmPrompt,
+  RegistrationConfirmationDiagnostics,
   SerializableCredential,
   SigningAuthPlan,
   UserConfirmDecision,
@@ -15,6 +16,7 @@ import type {
 
 export type {
   ForbiddenMainThreadSecrets,
+  RegistrationConfirmationDiagnostics,
   SerializableCredential,
   UserConfirmDecision,
   WebAuthnChallenge,
@@ -82,6 +84,7 @@ export interface WorkerConfirmationResponse {
   otp_code?: string;
   email_otp_challenge_id?: string;
   transaction_context?: TransactionContext; // NEAR data fetched during confirmation
+  registration_diagnostics?: RegistrationConfirmationDiagnostics;
   error?: string;
 }
 

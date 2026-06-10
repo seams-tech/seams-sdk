@@ -32,12 +32,12 @@ function appendHssWorkerTable(lines, diagnosticsByOperation) {
   lines.push('### HSS Worker Diagnostics');
   lines.push('');
   lines.push(
-    '| Operation | Count | total p50 | total p95 | wasm p50 | wasm p95 | queue p95 | request bytes p50 | response bytes p50 |',
+    '| Operation | Count | total p50 | total p95 | wasm init p50 | wasm init p95 | wasm call p50 | wasm call p95 | queue p95 | request bytes p50 | response bytes p50 |',
   );
-  lines.push('|---|---:|---:|---:|---:|---:|---:|---:|---:|');
+  lines.push('|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|');
   for (const [operation, entry] of entries.sort(([left], [right]) => left.localeCompare(right))) {
     lines.push(
-      `| \`${operation}\` | ${fmtNum(entry.totalMs?.count, 0)} | ${fmtNum(entry.totalMs?.p50)} | ${fmtNum(entry.totalMs?.p95)} | ${fmtNum(entry.wasmCallMs?.p50)} | ${fmtNum(entry.wasmCallMs?.p95)} | ${fmtNum(entry.queueWaitMs?.p95)} | ${fmtNum(entry.requestPayloadBytes?.p50, 0)} | ${fmtNum(entry.responsePayloadBytes?.p50, 0)} |`,
+      `| \`${operation}\` | ${fmtNum(entry.totalMs?.count, 0)} | ${fmtNum(entry.totalMs?.p50)} | ${fmtNum(entry.totalMs?.p95)} | ${fmtNum(entry.wasmInitWaitMs?.p50)} | ${fmtNum(entry.wasmInitWaitMs?.p95)} | ${fmtNum(entry.wasmCallMs?.p50)} | ${fmtNum(entry.wasmCallMs?.p95)} | ${fmtNum(entry.queueWaitMs?.p95)} | ${fmtNum(entry.requestPayloadBytes?.p50, 0)} | ${fmtNum(entry.responsePayloadBytes?.p50, 0)} |`,
     );
   }
   lines.push('');
@@ -148,7 +148,9 @@ export function buildMarkdownReport(input) {
     lines.push(`- Failed runs: ${fmtNum(summary.failedRuns, 0)}`);
     lines.push(`- Relay diagnostics captured: ${fmtNum(summary.relayDiagnosticsCount, 0)}`);
     lines.push(`- HSS client timings captured: ${fmtNum(summary.hssClientTimingCount, 0)}`);
-    lines.push(`- HSS worker diagnostics captured: ${fmtNum(summary.hssWorkerDiagnosticsCount, 0)}`);
+    lines.push(
+      `- HSS worker diagnostics captured: ${fmtNum(summary.hssWorkerDiagnosticsCount, 0)}`,
+    );
     lines.push('');
     appendStatsTable(lines, 'Registration Timing Buckets', summary.timingStats || {});
     appendRelayRouteTables(lines, summary.relayStatsByRoute || {});
@@ -158,9 +160,15 @@ export function buildMarkdownReport(input) {
 
   lines.push('## Notes');
   lines.push('');
-  lines.push('- This benchmark uses browser Playwright flows, WebAuthn mocks, IndexedDB, and real HSS relay messages from the local managed-registration harness.');
-  lines.push('- Relay route diagnostics are observational response metadata and contain bucket durations only.');
-  lines.push('- HSS worker diagnostics are observational and contain durations plus field sizes, not payload values.');
+  lines.push(
+    '- This benchmark uses browser Playwright flows, WebAuthn mocks, IndexedDB, and real HSS relay messages from the local managed-registration harness.',
+  );
+  lines.push(
+    '- Relay route diagnostics are observational response metadata and contain bucket durations only.',
+  );
+  lines.push(
+    '- HSS worker diagnostics are observational and contain durations plus field sizes, not payload values.',
+  );
 
   return lines.join('\n');
 }

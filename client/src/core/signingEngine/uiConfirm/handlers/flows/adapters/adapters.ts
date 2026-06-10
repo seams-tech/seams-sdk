@@ -17,6 +17,7 @@ import {
   awaitConfirmUIDecision,
   mountConfirmUI,
   type ConfirmUIHandle,
+  type ConfirmUIPromptDiagnostics,
   type ConfirmUIUpdate,
 } from '../../../ui/confirm-ui';
 import {
@@ -29,7 +30,10 @@ import {
 import type { ThemeName } from '@/core/types/seams';
 import type { ProfileAuthenticatorRecord } from '@/core/indexedDB';
 import { collectAuthenticationCredentialForChallengeB64u } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
-import { sendConfirmResponse } from '@/core/signingEngine/stepUpConfirmation/channel/confirmCommon';
+import {
+  sendConfirmResponse,
+  type UserConfirmResponsePort,
+} from '@/core/signingEngine/stepUpConfirmation/channel/confirmCommon';
 import { toAccountId } from '@/core/types/accountIds';
 import {
   SigningOperationIntent,
@@ -318,6 +322,7 @@ async function renderConfirmUI({
   error?: string;
   otpCode?: string;
   emailOtpChallengeId?: string;
+  diagnostics: ConfirmUIPromptDiagnostics;
 }> {
   const nearAccountIdForUi = getNearAccountId(request);
 
@@ -332,6 +337,7 @@ async function renderConfirmUI({
 
   const renderDrawerOrModal = async (mode: 'drawer' | 'modal') => {
     if (confirmationConfig.behavior === 'skipClick') {
+      const mountStartedAt = performance.now();
       const handle = await mountConfirmUI({
         ctx,
         summary: transactionSummary,
@@ -345,14 +351,29 @@ async function renderConfirmUI({
         signingAuthMode,
         emailOtpPrompt,
       });
+      const mountMs = Math.max(0, Math.round(performance.now() - mountStartedAt));
       onMounted?.(handle);
       const delay = confirmationConfig.autoProceedDelay ?? 0;
+      const decisionWaitStartedAt = performance.now();
       await new Promise((r) => setTimeout(r, delay));
-      return { confirmed: true, confirmHandle: handle } as const;
+      const decisionWaitMs = Math.max(0, Math.round(performance.now() - decisionWaitStartedAt));
+      return {
+        confirmed: true,
+        confirmHandle: handle,
+        diagnostics: {
+          kind: 'confirm_ui_prompt_diagnostics_v1',
+          elementDefineMs: 0,
+          mountMs,
+          hostFirstUpdateMs: 0,
+          hostInteractiveMs: 0,
+          confirmEventMs: 0,
+          decisionWaitMs,
+        },
+      } as const;
     }
 
-    const { confirmed, handle, error, otpCode, emailOtpChallengeId } = await awaitConfirmUIDecision(
-      {
+    const { confirmed, handle, error, otpCode, emailOtpChallengeId, diagnostics } =
+      await awaitConfirmUIDecision({
         ctx,
         summary: transactionSummary,
         txSigningRequests,
@@ -365,14 +386,32 @@ async function renderConfirmUI({
         onMounted,
         signingAuthMode,
         emailOtpPrompt,
-      },
-    );
-    return { confirmed, confirmHandle: handle, error, otpCode, emailOtpChallengeId } as const;
+      });
+    return {
+      confirmed,
+      confirmHandle: handle,
+      error,
+      otpCode,
+      emailOtpChallengeId,
+      diagnostics,
+    } as const;
   };
 
   switch (uiMode) {
     case 'none': {
-      return { confirmed: true, confirmHandle: undefined };
+      return {
+        confirmed: true,
+        confirmHandle: undefined,
+        diagnostics: {
+          kind: 'confirm_ui_prompt_diagnostics_v1',
+          elementDefineMs: 0,
+          mountMs: 0,
+          hostFirstUpdateMs: 0,
+          hostInteractiveMs: 0,
+          confirmEventMs: 0,
+          decisionWaitMs: 0,
+        },
+      };
     }
     case 'drawer': {
       return await renderDrawerOrModal('drawer');
@@ -433,7 +472,7 @@ export function createConfirmSession({
   theme,
 }: {
   adapters: ConfirmTxFlowAdapters;
-  worker: Worker;
+  worker: UserConfirmResponsePort;
   request: KnownUserConfirmRequest;
   confirmationConfig: ConfirmationConfig;
   transactionSummary: TransactionSummary;
@@ -450,6 +489,7 @@ export function createConfirmSession({
     error?: string;
     otpCode?: string;
     emailOtpChallengeId?: string;
+    diagnostics: ConfirmUIPromptDiagnostics;
   }>;
   /**
    * Send decision back to worker and perform standard cleanup.
@@ -484,6 +524,7 @@ export function createConfirmSession({
       error,
       otpCode,
       emailOtpChallengeId,
+      diagnostics,
     } = await adapters.ui.renderConfirmUI({
       request,
       confirmationConfig,
@@ -497,7 +538,7 @@ export function createConfirmSession({
       },
     });
     confirmHandle = handle;
-    return { confirmed, error, otpCode, emailOtpChallengeId };
+    return { confirmed, error, otpCode, emailOtpChallengeId, diagnostics };
   };
 
   const confirmAndCloseModal = (decision: UserConfirmDecision) => {

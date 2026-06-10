@@ -13,11 +13,17 @@ import {
 import { toError } from '@shared/utils/errors';
 import { createConfirmSession, createConfirmTxFlowAdapters } from './adapters/adapters';
 import type { ThemeName } from '@/core/types/seams';
+import type { RegistrationConfirmationDiagnostics } from '@/core/signingEngine/stepUpConfirmation/types';
+import type { UserConfirmResponsePort } from '@/core/signingEngine/stepUpConfirmation/channel/confirmCommon';
+
+function roundDurationMs(startedAt: number): number {
+  return Math.max(0, Math.round(performance.now() - startedAt));
+}
 
 export async function handleRegistrationFlow(
   ctx: UiConfirmContext,
   request: RegistrationUserConfirmRequest,
-  worker: Worker,
+  worker: UserConfirmResponsePort,
   opts: {
     confirmationConfig: ConfirmationConfig;
     transactionSummary: TransactionSummary;
@@ -25,6 +31,40 @@ export async function handleRegistrationFlow(
   },
 ): Promise<void> {
   const { confirmationConfig, transactionSummary, theme } = opts;
+  const flowStartedAt = performance.now();
+  let requestSetupMs = 0;
+  let promptUserMs = 0;
+  let promptElementDefineMs = 0;
+  let promptMountMs = 0;
+  let promptHostFirstUpdateMs = 0;
+  let promptHostInteractiveMs = 0;
+  let promptConfirmEventMs = 0;
+  let promptDecisionWaitMs = 0;
+  let credentialCreateStartMs = 0;
+  let credentialCreateMs = 0;
+  let credentialSerializeMs = 0;
+  let duplicateRetryCount = 0;
+
+  const buildDiagnostics = (): RegistrationConfirmationDiagnostics => ({
+    kind: 'registration_confirmation_diagnostics_v1',
+    workerReadyMs: 0,
+    workerRequestRoundTripMs: 0,
+    workerResponseValidationMs: 0,
+    requestSetupMs,
+    promptUserMs,
+    promptElementDefineMs,
+    promptMountMs,
+    promptHostFirstUpdateMs,
+    promptHostInteractiveMs,
+    promptConfirmEventMs,
+    promptDecisionWaitMs,
+    credentialCreateStartMs,
+    credentialCreateMs,
+    credentialSerializeMs,
+    duplicateRetryCount,
+    mainThreadTotalMs: roundDurationMs(flowStartedAt),
+  });
+
   const adapters = createConfirmTxFlowAdapters(ctx);
   const session = createConfirmSession({
     adapters,
@@ -37,6 +77,7 @@ export async function handleRegistrationFlow(
   const nearAccountId = getNearAccountId(request);
 
   try {
+    const requestSetupStartedAt = performance.now();
     const requestedChallenge = request.payload.webauthnChallenge;
     const explicitChallengeB64u =
       requestedChallenge?.kind === 'intent_digest'
@@ -60,14 +101,25 @@ export async function handleRegistrationFlow(
     const securityContext: UserConfirmSecurityContext = {
       rpId,
     };
+    requestSetupMs = roundDurationMs(requestSetupStartedAt);
 
     // 3) UI confirm
-    const { confirmed, error: uiError } = await session.promptUser({ securityContext });
+    const promptUserStartedAt = performance.now();
+    const { confirmed, error: uiError, diagnostics: promptDiagnostics } =
+      await session.promptUser({ securityContext });
+    promptUserMs = roundDurationMs(promptUserStartedAt);
+    promptElementDefineMs = promptDiagnostics.elementDefineMs;
+    promptMountMs = promptDiagnostics.mountMs;
+    promptHostFirstUpdateMs = promptDiagnostics.hostFirstUpdateMs;
+    promptHostInteractiveMs = promptDiagnostics.hostInteractiveMs;
+    promptConfirmEventMs = promptDiagnostics.confirmEventMs;
+    promptDecisionWaitMs = promptDiagnostics.decisionWaitMs;
     if (!confirmed) {
       return session.confirmAndCloseModal({
         requestId: request.requestId,
         intentDigest: getIntentDigest(request),
         confirmed: false,
+        registrationDiagnostics: buildDiagnostics(),
         error: uiError,
       });
     }
@@ -84,45 +136,53 @@ export async function handleRegistrationFlow(
       });
     };
 
+    credentialCreateStartMs = roundDurationMs(flowStartedAt);
+    const credentialCreateStartedAt = performance.now();
     try {
-      credential = await tryCreate(signerSlot);
-    } catch (e: unknown) {
-      const err = toError(e);
-      const name = String(err?.name || '');
-      const msg = String(err?.message || '');
-      const isDuplicate =
-        name === 'InvalidStateError' || /excluded|already\s*registered/i.test(msg);
+      try {
+        credential = await tryCreate(signerSlot);
+      } catch (e: unknown) {
+        const err = toError(e);
+        const name = String(err?.name || '');
+        const msg = String(err?.message || '');
+        const isDuplicate =
+          name === 'InvalidStateError' || /excluded|already\s*registered/i.test(msg);
 
-      if (isDuplicate) {
-        if (explicitChallengeB64u) {
-          throw new Error(
-            'Registration credential already exists for this wallet registration intent; create a fresh intent before retrying',
-          );
+        if (isDuplicate) {
+          duplicateRetryCount += 1;
+          if (explicitChallengeB64u) {
+            throw new Error(
+              'Registration credential already exists for this wallet registration intent; create a fresh intent before retrying',
+            );
+          }
+          const nextSignerSlot =
+            signerSlot !== undefined && Number.isFinite(signerSlot) ? signerSlot + 1 : 2;
+          // Keep request payload and intentDigest in sync with the signer-slot retry.
+          signerSlot = nextSignerSlot;
+          getRegisterAccountPayload(request).signerSlot = nextSignerSlot;
+          request.intentDigest =
+            request.type === 'registerAccount'
+              ? `register:${nearAccountId}:${nextSignerSlot}`
+              : `device2-register:${nearAccountId}:${nextSignerSlot}`;
+
+          challengeB64u = await computeBoundIntentDigestB64u();
+
+          credential = await tryCreate(nextSignerSlot);
+        } else {
+          console.error('[RegistrationFlow] credentials.create failed (non-duplicate)', {
+            name,
+            msg,
+          });
+          throw err;
         }
-        const nextSignerSlot =
-          signerSlot !== undefined && Number.isFinite(signerSlot) ? signerSlot + 1 : 2;
-        // Keep request payload and intentDigest in sync with the signer-slot retry.
-        signerSlot = nextSignerSlot;
-        getRegisterAccountPayload(request).signerSlot = nextSignerSlot;
-        request.intentDigest =
-          request.type === 'registerAccount'
-            ? `register:${nearAccountId}:${nextSignerSlot}`
-            : `device2-register:${nearAccountId}:${nextSignerSlot}`;
-
-        challengeB64u = await computeBoundIntentDigestB64u();
-
-        credential = await tryCreate(nextSignerSlot);
-      } else {
-        console.error('[RegistrationFlow] credentials.create failed (non-duplicate)', {
-          name,
-          msg,
-        });
-        throw err;
       }
+    } finally {
+      credentialCreateMs = roundDurationMs(credentialCreateStartedAt);
     }
 
     // We require registration credentials to include dual PRF outputs (first + second)
     // so wallet-origin code can pass PRF outputs directly to signer workers when deriving keys.
+    const credentialSerializeStartedAt = performance.now();
     const serialized: WebAuthnRegistrationCredential = isSerializedRegistrationCredential(
       credential,
     )
@@ -132,6 +192,7 @@ export async function handleRegistrationFlow(
           firstPrfOutput: true,
           secondPrfOutput: true,
         });
+    credentialSerializeMs = roundDurationMs(credentialSerializeStartedAt);
 
     // 5) Respond + close
     session.confirmAndCloseModal({
@@ -139,6 +200,7 @@ export async function handleRegistrationFlow(
       intentDigest: getIntentDigest(request),
       confirmed: true,
       credential: serialized,
+      registrationDiagnostics: buildDiagnostics(),
     });
   } catch (err: unknown) {
     const cancelled = isUserCancelledUserConfirm(err);
@@ -156,6 +218,7 @@ export async function handleRegistrationFlow(
       requestId: request.requestId,
       intentDigest: getIntentDigest(request),
       confirmed: false,
+      registrationDiagnostics: buildDiagnostics(),
       error: cancelled
         ? ERROR_MESSAGES.cancelled
         : isPrfBrowserUnsupported

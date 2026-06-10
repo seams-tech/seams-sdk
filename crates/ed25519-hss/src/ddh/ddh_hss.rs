@@ -1,4 +1,6 @@
 use std::fmt::Write as _;
+#[cfg(feature = "hss-physical-counters")]
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use blake3::Hasher as Blake3Hasher;
 use chacha20poly1305::aead::{Aead, Payload};
@@ -19,6 +21,245 @@ use crate::ddh::hidden_eval::{
 use crate::shared::{ProtoError, ProtoResult};
 
 pub const DDH_HSS_BACKEND_VERSION: &str = "ddh_hss_backend_v0";
+
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_KEYED_DIGEST_DERIVATIONS: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_KEYED_DIGEST_EVAL_XOR_LOCAL_WORD: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_KEYED_DIGEST_EVAL_ADD_LOCAL: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_KEYED_DIGEST_EVAL_MUL_LOCAL_MATERIAL: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_KEYED_DIGEST_EVAL_MUL_LOCAL: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_KEYED_DIGEST_PHASE_A_ARITH_SHARE_TO_BOOL: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_KEYED_DIGEST_PHASE_A_BOOL_TO_ARITH_BASE: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_KEYED_DIGEST_PHASE_A_ARITH_TO_BOOL_ZERO: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_KEYED_DIGEST_COMPOSE_WORD_FROM_SHARE_BITS: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_KEYED_DIGEST_SHARE_WORD: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_KEYED_DIGEST_OTHER: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_DERIVED_COMMITMENT_HASHES: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_DERIVED_COMMITMENT_EVAL_XOR_LOCAL_WORD: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_DERIVED_COMMITMENT_EVAL_ADD_LOCAL: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_DERIVED_COMMITMENT_EVAL_MUL_LOCAL_MATERIAL: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_DERIVED_COMMITMENT_EVAL_MUL_LOCAL: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_DERIVED_COMMITMENT_PHASE_A_ARITH_SHARE_TO_BOOL: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_DERIVED_COMMITMENT_PHASE_A_BOOL_TO_ARITH_BASE: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_DERIVED_COMMITMENT_PHASE_A_ARITH_TO_BOOL_ZERO: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_DERIVED_COMMITMENT_COMPOSE_WORD_FROM_SHARE_BITS: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_DERIVED_COMMITMENT_SHARE_WORD: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_DERIVED_COMMITMENT_OTHER: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_ADD_BIT_HASHES: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_MUL_MATERIAL_HASHES: AtomicU64 = AtomicU64::new(0);
+#[cfg(feature = "hss-physical-counters")]
+static PHYSICAL_MUL_OUTPUT_SEED_HASHES: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DdhHssPhysicalHashCounters {
+    pub keyed_digest_derivations: u64,
+    pub keyed_digest_eval_xor_local_word: u64,
+    pub keyed_digest_eval_add_local: u64,
+    pub keyed_digest_eval_mul_local_material: u64,
+    pub keyed_digest_eval_mul_local: u64,
+    pub keyed_digest_phase_a_arith_share_to_bool: u64,
+    pub keyed_digest_phase_a_bool_to_arith_base: u64,
+    pub keyed_digest_phase_a_arith_to_bool_zero: u64,
+    pub keyed_digest_compose_word_from_share_bits: u64,
+    pub keyed_digest_share_word: u64,
+    pub keyed_digest_other: u64,
+    pub derived_commitment_hashes: u64,
+    pub derived_commitment_eval_xor_local_word: u64,
+    pub derived_commitment_eval_add_local: u64,
+    pub derived_commitment_eval_mul_local_material: u64,
+    pub derived_commitment_eval_mul_local: u64,
+    pub derived_commitment_phase_a_arith_share_to_bool: u64,
+    pub derived_commitment_phase_a_bool_to_arith_base: u64,
+    pub derived_commitment_phase_a_arith_to_bool_zero: u64,
+    pub derived_commitment_compose_word_from_share_bits: u64,
+    pub derived_commitment_share_word: u64,
+    pub derived_commitment_other: u64,
+    pub add_bit_hashes: u64,
+    pub mul_material_hashes: u64,
+    pub mul_output_seed_hashes: u64,
+}
+
+#[cfg(feature = "hss-physical-counters")]
+pub(crate) fn reset_physical_hash_counters() {
+    PHYSICAL_KEYED_DIGEST_DERIVATIONS.store(0, Ordering::Relaxed);
+    PHYSICAL_KEYED_DIGEST_EVAL_XOR_LOCAL_WORD.store(0, Ordering::Relaxed);
+    PHYSICAL_KEYED_DIGEST_EVAL_ADD_LOCAL.store(0, Ordering::Relaxed);
+    PHYSICAL_KEYED_DIGEST_EVAL_MUL_LOCAL_MATERIAL.store(0, Ordering::Relaxed);
+    PHYSICAL_KEYED_DIGEST_EVAL_MUL_LOCAL.store(0, Ordering::Relaxed);
+    PHYSICAL_KEYED_DIGEST_PHASE_A_ARITH_SHARE_TO_BOOL.store(0, Ordering::Relaxed);
+    PHYSICAL_KEYED_DIGEST_PHASE_A_BOOL_TO_ARITH_BASE.store(0, Ordering::Relaxed);
+    PHYSICAL_KEYED_DIGEST_PHASE_A_ARITH_TO_BOOL_ZERO.store(0, Ordering::Relaxed);
+    PHYSICAL_KEYED_DIGEST_COMPOSE_WORD_FROM_SHARE_BITS.store(0, Ordering::Relaxed);
+    PHYSICAL_KEYED_DIGEST_SHARE_WORD.store(0, Ordering::Relaxed);
+    PHYSICAL_KEYED_DIGEST_OTHER.store(0, Ordering::Relaxed);
+    PHYSICAL_DERIVED_COMMITMENT_HASHES.store(0, Ordering::Relaxed);
+    PHYSICAL_DERIVED_COMMITMENT_EVAL_XOR_LOCAL_WORD.store(0, Ordering::Relaxed);
+    PHYSICAL_DERIVED_COMMITMENT_EVAL_ADD_LOCAL.store(0, Ordering::Relaxed);
+    PHYSICAL_DERIVED_COMMITMENT_EVAL_MUL_LOCAL_MATERIAL.store(0, Ordering::Relaxed);
+    PHYSICAL_DERIVED_COMMITMENT_EVAL_MUL_LOCAL.store(0, Ordering::Relaxed);
+    PHYSICAL_DERIVED_COMMITMENT_PHASE_A_ARITH_SHARE_TO_BOOL.store(0, Ordering::Relaxed);
+    PHYSICAL_DERIVED_COMMITMENT_PHASE_A_BOOL_TO_ARITH_BASE.store(0, Ordering::Relaxed);
+    PHYSICAL_DERIVED_COMMITMENT_PHASE_A_ARITH_TO_BOOL_ZERO.store(0, Ordering::Relaxed);
+    PHYSICAL_DERIVED_COMMITMENT_COMPOSE_WORD_FROM_SHARE_BITS.store(0, Ordering::Relaxed);
+    PHYSICAL_DERIVED_COMMITMENT_SHARE_WORD.store(0, Ordering::Relaxed);
+    PHYSICAL_DERIVED_COMMITMENT_OTHER.store(0, Ordering::Relaxed);
+    PHYSICAL_ADD_BIT_HASHES.store(0, Ordering::Relaxed);
+    PHYSICAL_MUL_MATERIAL_HASHES.store(0, Ordering::Relaxed);
+    PHYSICAL_MUL_OUTPUT_SEED_HASHES.store(0, Ordering::Relaxed);
+}
+
+#[cfg(not(feature = "hss-physical-counters"))]
+pub(crate) fn reset_physical_hash_counters() {}
+
+#[cfg(feature = "hss-physical-counters")]
+pub(crate) fn take_physical_hash_counters() -> DdhHssPhysicalHashCounters {
+    DdhHssPhysicalHashCounters {
+        keyed_digest_derivations: PHYSICAL_KEYED_DIGEST_DERIVATIONS.swap(0, Ordering::Relaxed),
+        keyed_digest_eval_xor_local_word: PHYSICAL_KEYED_DIGEST_EVAL_XOR_LOCAL_WORD
+            .swap(0, Ordering::Relaxed),
+        keyed_digest_eval_add_local: PHYSICAL_KEYED_DIGEST_EVAL_ADD_LOCAL
+            .swap(0, Ordering::Relaxed),
+        keyed_digest_eval_mul_local_material: PHYSICAL_KEYED_DIGEST_EVAL_MUL_LOCAL_MATERIAL
+            .swap(0, Ordering::Relaxed),
+        keyed_digest_eval_mul_local: PHYSICAL_KEYED_DIGEST_EVAL_MUL_LOCAL
+            .swap(0, Ordering::Relaxed),
+        keyed_digest_phase_a_arith_share_to_bool: PHYSICAL_KEYED_DIGEST_PHASE_A_ARITH_SHARE_TO_BOOL
+            .swap(0, Ordering::Relaxed),
+        keyed_digest_phase_a_bool_to_arith_base: PHYSICAL_KEYED_DIGEST_PHASE_A_BOOL_TO_ARITH_BASE
+            .swap(0, Ordering::Relaxed),
+        keyed_digest_phase_a_arith_to_bool_zero: PHYSICAL_KEYED_DIGEST_PHASE_A_ARITH_TO_BOOL_ZERO
+            .swap(0, Ordering::Relaxed),
+        keyed_digest_compose_word_from_share_bits:
+            PHYSICAL_KEYED_DIGEST_COMPOSE_WORD_FROM_SHARE_BITS.swap(0, Ordering::Relaxed),
+        keyed_digest_share_word: PHYSICAL_KEYED_DIGEST_SHARE_WORD.swap(0, Ordering::Relaxed),
+        keyed_digest_other: PHYSICAL_KEYED_DIGEST_OTHER.swap(0, Ordering::Relaxed),
+        derived_commitment_hashes: PHYSICAL_DERIVED_COMMITMENT_HASHES.swap(0, Ordering::Relaxed),
+        derived_commitment_eval_xor_local_word: PHYSICAL_DERIVED_COMMITMENT_EVAL_XOR_LOCAL_WORD
+            .swap(0, Ordering::Relaxed),
+        derived_commitment_eval_add_local: PHYSICAL_DERIVED_COMMITMENT_EVAL_ADD_LOCAL
+            .swap(0, Ordering::Relaxed),
+        derived_commitment_eval_mul_local_material:
+            PHYSICAL_DERIVED_COMMITMENT_EVAL_MUL_LOCAL_MATERIAL.swap(0, Ordering::Relaxed),
+        derived_commitment_eval_mul_local: PHYSICAL_DERIVED_COMMITMENT_EVAL_MUL_LOCAL
+            .swap(0, Ordering::Relaxed),
+        derived_commitment_phase_a_arith_share_to_bool:
+            PHYSICAL_DERIVED_COMMITMENT_PHASE_A_ARITH_SHARE_TO_BOOL.swap(0, Ordering::Relaxed),
+        derived_commitment_phase_a_bool_to_arith_base:
+            PHYSICAL_DERIVED_COMMITMENT_PHASE_A_BOOL_TO_ARITH_BASE.swap(0, Ordering::Relaxed),
+        derived_commitment_phase_a_arith_to_bool_zero:
+            PHYSICAL_DERIVED_COMMITMENT_PHASE_A_ARITH_TO_BOOL_ZERO.swap(0, Ordering::Relaxed),
+        derived_commitment_compose_word_from_share_bits:
+            PHYSICAL_DERIVED_COMMITMENT_COMPOSE_WORD_FROM_SHARE_BITS.swap(0, Ordering::Relaxed),
+        derived_commitment_share_word: PHYSICAL_DERIVED_COMMITMENT_SHARE_WORD
+            .swap(0, Ordering::Relaxed),
+        derived_commitment_other: PHYSICAL_DERIVED_COMMITMENT_OTHER.swap(0, Ordering::Relaxed),
+        add_bit_hashes: PHYSICAL_ADD_BIT_HASHES.swap(0, Ordering::Relaxed),
+        mul_material_hashes: PHYSICAL_MUL_MATERIAL_HASHES.swap(0, Ordering::Relaxed),
+        mul_output_seed_hashes: PHYSICAL_MUL_OUTPUT_SEED_HASHES.swap(0, Ordering::Relaxed),
+    }
+}
+
+#[cfg(not(feature = "hss-physical-counters"))]
+pub(crate) fn take_physical_hash_counters() -> DdhHssPhysicalHashCounters {
+    DdhHssPhysicalHashCounters::default()
+}
+
+#[cfg(feature = "hss-physical-counters")]
+fn record_physical_keyed_digest_derivation(domain: &'static [u8]) {
+    PHYSICAL_KEYED_DIGEST_DERIVATIONS.fetch_add(1, Ordering::Relaxed);
+    let counter = match domain {
+        b"eval-xor-local-word" => &PHYSICAL_KEYED_DIGEST_EVAL_XOR_LOCAL_WORD,
+        b"eval-add-local" => &PHYSICAL_KEYED_DIGEST_EVAL_ADD_LOCAL,
+        b"eval-mul-local-material" => &PHYSICAL_KEYED_DIGEST_EVAL_MUL_LOCAL_MATERIAL,
+        b"eval-mul-local" => &PHYSICAL_KEYED_DIGEST_EVAL_MUL_LOCAL,
+        b"phase-a-arith-share-to-bool" => &PHYSICAL_KEYED_DIGEST_PHASE_A_ARITH_SHARE_TO_BOOL,
+        b"phase-a-bool-to-arith-base" => &PHYSICAL_KEYED_DIGEST_PHASE_A_BOOL_TO_ARITH_BASE,
+        b"phase-a-arith-to-bool-zero" => &PHYSICAL_KEYED_DIGEST_PHASE_A_ARITH_TO_BOOL_ZERO,
+        b"compose-word-from-share-bits" | b"compose-word-from-share-bits-public" => {
+            &PHYSICAL_KEYED_DIGEST_COMPOSE_WORD_FROM_SHARE_BITS
+        }
+        b"share-left" | b"share-word" | b"share-left-public" | b"share-word-public" => {
+            &PHYSICAL_KEYED_DIGEST_SHARE_WORD
+        }
+        _ => &PHYSICAL_KEYED_DIGEST_OTHER,
+    };
+    counter.fetch_add(1, Ordering::Relaxed);
+}
+
+#[cfg(not(feature = "hss-physical-counters"))]
+fn record_physical_keyed_digest_derivation(_domain: &'static [u8]) {}
+
+#[cfg(feature = "hss-physical-counters")]
+fn record_physical_derived_commitment_hash(domain: &'static [u8]) {
+    PHYSICAL_DERIVED_COMMITMENT_HASHES.fetch_add(1, Ordering::Relaxed);
+    let counter = match domain {
+        b"eval-xor-local-word" => &PHYSICAL_DERIVED_COMMITMENT_EVAL_XOR_LOCAL_WORD,
+        b"eval-add-local" => &PHYSICAL_DERIVED_COMMITMENT_EVAL_ADD_LOCAL,
+        b"eval-mul-local-material" => &PHYSICAL_DERIVED_COMMITMENT_EVAL_MUL_LOCAL_MATERIAL,
+        b"eval-mul-local" => &PHYSICAL_DERIVED_COMMITMENT_EVAL_MUL_LOCAL,
+        b"phase-a-arith-share-to-bool" => &PHYSICAL_DERIVED_COMMITMENT_PHASE_A_ARITH_SHARE_TO_BOOL,
+        b"phase-a-bool-to-arith-base" => &PHYSICAL_DERIVED_COMMITMENT_PHASE_A_BOOL_TO_ARITH_BASE,
+        b"phase-a-arith-to-bool-zero" => &PHYSICAL_DERIVED_COMMITMENT_PHASE_A_ARITH_TO_BOOL_ZERO,
+        b"compose-word-from-share-bits" | b"compose-word-from-share-bits-public" => {
+            &PHYSICAL_DERIVED_COMMITMENT_COMPOSE_WORD_FROM_SHARE_BITS
+        }
+        b"share-left" | b"share-word" | b"share-left-public" | b"share-word-public" => {
+            &PHYSICAL_DERIVED_COMMITMENT_SHARE_WORD
+        }
+        _ => &PHYSICAL_DERIVED_COMMITMENT_OTHER,
+    };
+    counter.fetch_add(1, Ordering::Relaxed);
+}
+
+#[cfg(not(feature = "hss-physical-counters"))]
+fn record_physical_derived_commitment_hash(_domain: &'static [u8]) {}
+
+#[cfg(feature = "hss-physical-counters")]
+fn record_physical_add_bit_hash() {
+    PHYSICAL_ADD_BIT_HASHES.fetch_add(1, Ordering::Relaxed);
+}
+
+#[cfg(not(feature = "hss-physical-counters"))]
+fn record_physical_add_bit_hash() {}
+
+#[cfg(feature = "hss-physical-counters")]
+fn record_physical_mul_material_hash() {
+    PHYSICAL_MUL_MATERIAL_HASHES.fetch_add(1, Ordering::Relaxed);
+}
+
+#[cfg(not(feature = "hss-physical-counters"))]
+fn record_physical_mul_material_hash() {}
+
+#[cfg(feature = "hss-physical-counters")]
+fn record_physical_mul_output_seed_hash() {
+    PHYSICAL_MUL_OUTPUT_SEED_HASHES.fetch_add(1, Ordering::Relaxed);
+}
+
+#[cfg(not(feature = "hss-physical-counters"))]
+fn record_physical_mul_output_seed_hash() {}
 
 fn set_indexed_label(buffer: &mut String, label_prefix: &str, idx: usize) {
     buffer.clear();
@@ -86,6 +327,25 @@ pub(crate) struct DdhHssLocalWord {
     pub provenance_digest: [u8; 32],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DdhHssLocalWordCore {
+    pub width_bits: u16,
+    pub share_side: DdhHssShareSide,
+    pub share_word: u64,
+    pub provenance_digest: [u8; 32],
+}
+
+impl DdhHssLocalWordCore {
+    pub(crate) fn from_local_word(word: &DdhHssLocalWord) -> Self {
+        Self {
+            width_bits: word.width_bits,
+            share_side: word.share_side,
+            share_word: word.share_word,
+            provenance_digest: word.provenance_digest,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DdhHssInputShareBundle {
     pub owner: HiddenEvalInputOwner,
@@ -145,6 +405,16 @@ pub(crate) struct DdhHssLocalMulMaterial {
     pub triple_b: DdhHssLocalWord,
     pub triple_c: DdhHssLocalWord,
     pub provenance_digest: [u8; 32],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DdhHssLocalMulMaterialCore {
+    width_bits: u16,
+    share_side: DdhHssShareSide,
+    triple_a_word: u64,
+    triple_b_word: u64,
+    triple_c_word: u64,
+    provenance_digest: [u8; 32],
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1689,8 +1959,20 @@ impl DdhHssBackend {
             right_word,
             extra_material,
         );
-        let left_commitment = commit_word(owner, b"left", left_word, &provenance_digest);
-        let right_commitment = commit_word(owner, b"right", right_word, &provenance_digest);
+        let left_commitment = commit_word_for_provenance_domain(
+            owner,
+            b"left",
+            left_word,
+            &provenance_digest,
+            domain,
+        );
+        let right_commitment = commit_word_for_provenance_domain(
+            owner,
+            b"right",
+            right_word,
+            &provenance_digest,
+            domain,
+        );
 
         DdhHssSharedWord {
             width_bits,
@@ -3108,6 +3390,16 @@ pub(crate) fn commit_word(
     word: u64,
     provenance_digest: &[u8; 32],
 ) -> [u8; 32] {
+    commit_word_for_provenance_domain(owner, side_label, word, provenance_digest, b"other")
+}
+
+fn commit_word_for_provenance_domain(
+    owner: HiddenEvalInputOwner,
+    side_label: &'static [u8],
+    word: u64,
+    provenance_digest: &[u8; 32],
+    provenance_domain: &'static [u8],
+) -> [u8; 32] {
     match owner {
         HiddenEvalInputOwner::Client | HiddenEvalInputOwner::Server => {
             if word == 0 {
@@ -3123,6 +3415,7 @@ pub(crate) fn commit_word(
                 .to_bytes()
         }
         HiddenEvalInputOwner::Derived => {
+            record_physical_derived_commitment_hash(provenance_domain);
             let mut hasher = Blake3Hasher::new();
             hasher.update(b"succinct-garbling-proto/ddh-hss/derived-commitment/v0");
             hasher.update(side_label);
@@ -3276,6 +3569,32 @@ fn derive_digest_for_key(
     right_word: u64,
     extra_material: &[&[u8]],
 ) -> [u8; 32] {
+    derive_digest_for_key_from_extra_material(
+        evaluation_key,
+        domain,
+        owner,
+        label,
+        width_bits,
+        left_word,
+        right_word,
+        extra_material.iter().copied(),
+    )
+}
+
+fn derive_digest_for_key_from_extra_material<'a, I>(
+    evaluation_key: &DdhHssEvaluationKey,
+    domain: &'static [u8],
+    owner: HiddenEvalInputOwner,
+    label: &[u8],
+    width_bits: u16,
+    left_word: u64,
+    right_word: u64,
+    extra_material: I,
+) -> [u8; 32]
+where
+    I: IntoIterator<Item = &'a [u8]>,
+{
+    record_physical_keyed_digest_derivation(domain);
     let mut hasher = Blake3Hasher::new();
     hasher.update(domain);
     hasher.update(&evaluation_key.key_id);
@@ -3334,8 +3653,10 @@ fn build_shared_word_for_key(
         right_word,
         extra_material,
     );
-    let left_commitment = commit_word(owner, b"left", left_word, &provenance_digest);
-    let right_commitment = commit_word(owner, b"right", right_word, &provenance_digest);
+    let left_commitment =
+        commit_word_for_provenance_domain(owner, b"left", left_word, &provenance_digest, domain);
+    let right_commitment =
+        commit_word_for_provenance_domain(owner, b"right", right_word, &provenance_digest, domain);
 
     DdhHssSharedWord {
         width_bits,
@@ -3356,7 +3677,30 @@ pub(crate) fn build_local_word_pair_public(
     right_word: u64,
     extra_material: &[&[u8]],
 ) -> (DdhHssLocalWord, DdhHssLocalWord) {
-    let provenance_digest = derive_digest_for_key(
+    build_local_word_pair_public_from_extra_material(
+        evaluation_key,
+        domain,
+        label,
+        width_bits,
+        left_word,
+        right_word,
+        extra_material.iter().copied(),
+    )
+}
+
+pub(crate) fn build_local_word_pair_public_from_extra_material<'a, I>(
+    evaluation_key: &DdhHssEvaluationKey,
+    domain: &'static [u8],
+    label: &[u8],
+    width_bits: u16,
+    left_word: u64,
+    right_word: u64,
+    extra_material: I,
+) -> (DdhHssLocalWord, DdhHssLocalWord)
+where
+    I: IntoIterator<Item = &'a [u8]>,
+{
+    let provenance_digest = derive_digest_for_key_from_extra_material(
         evaluation_key,
         domain,
         HiddenEvalInputOwner::Derived,
@@ -3371,11 +3715,12 @@ pub(crate) fn build_local_word_pair_public(
             width_bits,
             share_side: DdhHssShareSide::Left,
             share_word: left_word,
-            share_commitment: commit_word(
+            share_commitment: commit_word_for_provenance_domain(
                 HiddenEvalInputOwner::Derived,
                 b"left",
                 left_word,
                 &provenance_digest,
+                domain,
             ),
             provenance_digest,
         },
@@ -3383,11 +3728,12 @@ pub(crate) fn build_local_word_pair_public(
             width_bits,
             share_side: DdhHssShareSide::Right,
             share_word: right_word,
-            share_commitment: commit_word(
+            share_commitment: commit_word_for_provenance_domain(
                 HiddenEvalInputOwner::Derived,
                 b"right",
                 right_word,
                 &provenance_digest,
+                domain,
             ),
             provenance_digest,
         },
@@ -3496,23 +3842,87 @@ fn build_local_word_for_key(
         0,
         extra_material,
     );
-    let share_commitment = commit_word(
-        HiddenEvalInputOwner::Derived,
-        match share_side {
-            DdhHssShareSide::Left => b"left",
-            DdhHssShareSide::Right => b"right",
-        },
+    build_local_word_from_provenance(
+        width_bits,
+        share_side,
         share_word,
-        &provenance_digest,
-    );
+        provenance_digest,
+        domain,
+    )
+}
 
+fn build_local_word_core_for_key(
+    evaluation_key: &DdhHssEvaluationKey,
+    domain: &'static [u8],
+    label: &[u8],
+    width_bits: u16,
+    share_side: DdhHssShareSide,
+    share_word: u64,
+    extra_material: &[&[u8]],
+) -> DdhHssLocalWordCore {
+    let provenance_digest = derive_digest_for_key(
+        evaluation_key,
+        domain,
+        HiddenEvalInputOwner::Derived,
+        label,
+        width_bits,
+        0,
+        0,
+        extra_material,
+    );
+    local_word_core_from_provenance(width_bits, share_side, share_word, provenance_digest)
+}
+
+fn build_local_word_from_provenance(
+    width_bits: u16,
+    share_side: DdhHssShareSide,
+    share_word: u64,
+    provenance_digest: [u8; 32],
+    provenance_domain: &'static [u8],
+) -> DdhHssLocalWord {
     DdhHssLocalWord {
         width_bits,
         share_side,
         share_word,
-        share_commitment,
+        share_commitment: commit_word_for_provenance_domain(
+            HiddenEvalInputOwner::Derived,
+            match share_side {
+                DdhHssShareSide::Left => b"left",
+                DdhHssShareSide::Right => b"right",
+            },
+            share_word,
+            &provenance_digest,
+            provenance_domain,
+        ),
         provenance_digest,
     }
+}
+
+fn local_word_core_from_provenance(
+    width_bits: u16,
+    share_side: DdhHssShareSide,
+    share_word: u64,
+    provenance_digest: [u8; 32],
+) -> DdhHssLocalWordCore {
+    DdhHssLocalWordCore {
+        width_bits,
+        share_side,
+        share_word,
+        provenance_digest,
+    }
+}
+
+fn materialize_local_word_core(
+    core: &DdhHssLocalWordCore,
+    provenance_domain: &'static [u8],
+) -> DdhHssLocalWord {
+    build_local_word_from_provenance(
+        core.width_bits,
+        core.share_side,
+        core.share_word,
+        core.provenance_digest,
+        provenance_domain,
+    )
 }
 
 #[cfg(test)]
@@ -3594,11 +4004,12 @@ pub(crate) fn xor_local_bit_pair_from_raw_public(
             width_bits: 1,
             share_side: DdhHssShareSide::Left,
             share_word: left_word,
-            share_commitment: commit_word(
+            share_commitment: commit_word_for_provenance_domain(
                 HiddenEvalInputOwner::Derived,
                 b"left",
                 left_word,
                 &provenance_digest,
+                b"eval-xor-local-word",
             ),
             provenance_digest,
         },
@@ -3606,11 +4017,12 @@ pub(crate) fn xor_local_bit_pair_from_raw_public(
             width_bits: 1,
             share_side: DdhHssShareSide::Right,
             share_word: right_word,
-            share_commitment: commit_word(
+            share_commitment: commit_word_for_provenance_domain(
                 HiddenEvalInputOwner::Derived,
                 b"right",
                 right_word,
                 &provenance_digest,
+                b"eval-xor-local-word",
             ),
             provenance_digest,
         },
@@ -3658,11 +4070,12 @@ pub(crate) fn xor_local_word_pairs_public(
             width_bits,
             share_side: DdhHssShareSide::Left,
             share_word: left_word,
-            share_commitment: commit_word(
+            share_commitment: commit_word_for_provenance_domain(
                 HiddenEvalInputOwner::Derived,
                 b"left",
                 left_word,
                 &provenance_digest,
+                b"eval-xor-local-word",
             ),
             provenance_digest,
         },
@@ -3670,14 +4083,89 @@ pub(crate) fn xor_local_word_pairs_public(
             width_bits,
             share_side: DdhHssShareSide::Right,
             share_word: right_word,
-            share_commitment: commit_word(
+            share_commitment: commit_word_for_provenance_domain(
                 HiddenEvalInputOwner::Derived,
                 b"right",
                 right_word,
                 &provenance_digest,
+                b"eval-xor-local-word",
             ),
             provenance_digest,
         },
+    ))
+}
+
+pub(crate) fn xor_local_word_core_pairs_public(
+    evaluation_key: &DdhHssEvaluationKey,
+    label: &[u8],
+    left_left: &DdhHssLocalWordCore,
+    left_right: &DdhHssLocalWordCore,
+    right_left: &DdhHssLocalWordCore,
+    right_right: &DdhHssLocalWordCore,
+) -> ProtoResult<(DdhHssLocalWordCore, DdhHssLocalWordCore)> {
+    ensure_local_word_core_pair(left_left, left_right)?;
+    ensure_local_word_core_pair(right_left, right_right)?;
+    if left_left.width_bits != right_left.width_bits {
+        return Err(ProtoError::InvalidInput(format!(
+            "local xor core pair width mismatch: {} vs {}",
+            left_left.width_bits, right_left.width_bits
+        )));
+    }
+
+    let width_bits = left_left.width_bits;
+    let provenance_digest = derive_digest_for_key(
+        evaluation_key,
+        b"eval-xor-local-word",
+        HiddenEvalInputOwner::Derived,
+        label,
+        width_bits,
+        0,
+        0,
+        &[&left_left.provenance_digest, &right_left.provenance_digest],
+    );
+    let left_word = reduce_word(
+        u128::from(left_left.share_word) + u128::from(right_left.share_word),
+        width_bits,
+    );
+    let right_word = reduce_word(
+        u128::from(left_right.share_word) + u128::from(right_right.share_word),
+        width_bits,
+    );
+    Ok((
+        local_word_core_from_provenance(
+            width_bits,
+            DdhHssShareSide::Left,
+            left_word,
+            provenance_digest,
+        ),
+        local_word_core_from_provenance(
+            width_bits,
+            DdhHssShareSide::Right,
+            right_word,
+            provenance_digest,
+        ),
+    ))
+}
+
+pub(crate) fn xor_local_word_core_pairs_materialized_public(
+    evaluation_key: &DdhHssEvaluationKey,
+    label: &[u8],
+    left_left: &DdhHssLocalWordCore,
+    left_right: &DdhHssLocalWordCore,
+    right_left: &DdhHssLocalWordCore,
+    right_right: &DdhHssLocalWordCore,
+) -> ProtoResult<(DdhHssLocalWord, DdhHssLocalWord)> {
+    let (left_core, right_core) = xor_local_word_core_pairs_public(
+        evaluation_key,
+        label,
+        left_left,
+        left_right,
+        right_left,
+        right_right,
+    )?;
+    Ok((
+        materialize_local_word_core(&left_core, b"eval-xor-local-word"),
+        materialize_local_word_core(&right_core, b"eval-xor-local-word"),
     ))
 }
 
@@ -3767,11 +4255,12 @@ pub(crate) fn eval_add_local_word_pairs_mod_2_pow_n_public(
             width_bits,
             share_side: DdhHssShareSide::Left,
             share_word: left_word,
-            share_commitment: commit_word(
+            share_commitment: commit_word_for_provenance_domain(
                 HiddenEvalInputOwner::Derived,
                 b"left",
                 left_word,
                 &provenance_digest,
+                b"eval-add-local",
             ),
             provenance_digest,
         },
@@ -3779,11 +4268,12 @@ pub(crate) fn eval_add_local_word_pairs_mod_2_pow_n_public(
             width_bits,
             share_side: DdhHssShareSide::Right,
             share_word: right_word,
-            share_commitment: commit_word(
+            share_commitment: commit_word_for_provenance_domain(
                 HiddenEvalInputOwner::Derived,
                 b"right",
                 right_word,
                 &provenance_digest,
+                b"eval-add-local",
             ),
             provenance_digest,
         },
@@ -3831,6 +4321,29 @@ fn ensure_local_word_pair(left: &DdhHssLocalWord, right: &DdhHssLocalWord) -> Pr
     Ok(())
 }
 
+fn ensure_local_word_core_pair(
+    left: &DdhHssLocalWordCore,
+    right: &DdhHssLocalWordCore,
+) -> ProtoResult<()> {
+    if left.share_side != DdhHssShareSide::Left || right.share_side != DdhHssShareSide::Right {
+        return Err(ProtoError::InvalidInput(
+            "local core pair requires left/right share pair".to_string(),
+        ));
+    }
+    if left.width_bits != right.width_bits {
+        return Err(ProtoError::InvalidInput(format!(
+            "local core pair width mismatch: {} vs {}",
+            left.width_bits, right.width_bits
+        )));
+    }
+    if left.provenance_digest != right.provenance_digest {
+        return Err(ProtoError::InvalidInput(
+            "local core pair provenance mismatch".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn local_bit_mul_material_base_hasher(evaluation_key: &DdhHssEvaluationKey) -> Blake3Hasher {
     let mut material_hasher = Blake3Hasher::new();
     material_hasher.update(b"succinct-garbling-proto/ddh-hss/eval-mul-bit/v1");
@@ -3871,6 +4384,7 @@ fn finalize_local_bit_mul_material_digest(
     material_hasher.update(&left_right.share_commitment);
     material_hasher.update(&right_left.share_commitment);
     material_hasher.update(&right_right.share_commitment);
+    record_physical_mul_material_hash();
     *material_hasher.finalize().as_bytes()
 }
 
@@ -3880,80 +4394,11 @@ fn local_bit_mul_material_from_digest(
     right_left: &DdhHssLocalWord,
     material_digest: [u8; 32],
 ) -> (DdhHssLocalMulMaterial, DdhHssLocalMulMaterial) {
-    let triple_a_clear = u64::from(material_digest[0] & 1);
-    let triple_b_clear = u64::from(material_digest[1] & 1);
-    let triple_a_left = u64::from(material_digest[2] & 1);
-    let triple_b_left = u64::from(material_digest[3] & 1);
-    let triple_c_left = u64::from(material_digest[4] & 1);
-    let triple_a_right = triple_a_clear ^ triple_a_left;
-    let triple_b_right = triple_b_clear ^ triple_b_left;
-    let triple_c_clear = triple_a_clear & triple_b_clear;
-    let triple_c_right = triple_c_clear ^ triple_c_left;
-
-    let build_side = |share_side: DdhHssShareSide,
-                      triple_a_share: u64,
-                      triple_b_share: u64,
-                      triple_c_share: u64|
-     -> DdhHssLocalMulMaterial {
-        DdhHssLocalMulMaterial {
-            width_bits: 1,
-            share_side,
-            triple_a: build_local_word_for_key(
-                evaluation_key,
-                b"eval-mul-local-material",
-                b"triple-a",
-                1,
-                share_side,
-                triple_a_share,
-                &[
-                    &left_left.provenance_digest,
-                    &right_left.provenance_digest,
-                    &material_digest,
-                ],
-            ),
-            triple_b: build_local_word_for_key(
-                evaluation_key,
-                b"eval-mul-local-material",
-                b"triple-b",
-                1,
-                share_side,
-                triple_b_share,
-                &[
-                    &left_left.provenance_digest,
-                    &right_left.provenance_digest,
-                    &material_digest,
-                ],
-            ),
-            triple_c: build_local_word_for_key(
-                evaluation_key,
-                b"eval-mul-local-material",
-                b"triple-c",
-                1,
-                share_side,
-                triple_c_share,
-                &[
-                    &left_left.provenance_digest,
-                    &right_left.provenance_digest,
-                    &material_digest,
-                ],
-            ),
-            provenance_digest: material_digest,
-        }
-    };
-
-    (
-        build_side(
-            DdhHssShareSide::Left,
-            triple_a_left,
-            triple_b_left,
-            triple_c_left,
-        ),
-        build_side(
-            DdhHssShareSide::Right,
-            triple_a_right,
-            triple_b_right,
-            triple_c_right,
-        ),
+    local_bit_mul_material_from_raw_digest(
+        evaluation_key,
+        &left_left.provenance_digest,
+        &right_left.provenance_digest,
+        material_digest,
     )
 }
 
@@ -3972,6 +4417,48 @@ fn local_bit_mul_material_from_raw_digest(
     let triple_b_right = triple_b_clear ^ triple_b_left;
     let triple_c_clear = triple_a_clear & triple_b_clear;
     let triple_c_right = triple_c_clear ^ triple_c_left;
+    let triple_a_provenance = derive_digest_for_key(
+        evaluation_key,
+        b"eval-mul-local-material",
+        HiddenEvalInputOwner::Derived,
+        b"triple-a",
+        1,
+        0,
+        0,
+        &[
+            left_provenance_digest,
+            right_provenance_digest,
+            &material_digest,
+        ],
+    );
+    let triple_b_provenance = derive_digest_for_key(
+        evaluation_key,
+        b"eval-mul-local-material",
+        HiddenEvalInputOwner::Derived,
+        b"triple-b",
+        1,
+        0,
+        0,
+        &[
+            left_provenance_digest,
+            right_provenance_digest,
+            &material_digest,
+        ],
+    );
+    let triple_c_provenance = derive_digest_for_key(
+        evaluation_key,
+        b"eval-mul-local-material",
+        HiddenEvalInputOwner::Derived,
+        b"triple-c",
+        1,
+        0,
+        0,
+        &[
+            left_provenance_digest,
+            right_provenance_digest,
+            &material_digest,
+        ],
+    );
 
     let build_side = |share_side: DdhHssShareSide,
                       triple_a_share: u64,
@@ -3981,44 +4468,26 @@ fn local_bit_mul_material_from_raw_digest(
         DdhHssLocalMulMaterial {
             width_bits: 1,
             share_side,
-            triple_a: build_local_word_for_key(
-                evaluation_key,
-                b"eval-mul-local-material",
-                b"triple-a",
+            triple_a: build_local_word_from_provenance(
                 1,
                 share_side,
                 triple_a_share,
-                &[
-                    left_provenance_digest,
-                    right_provenance_digest,
-                    &material_digest,
-                ],
-            ),
-            triple_b: build_local_word_for_key(
-                evaluation_key,
+                triple_a_provenance,
                 b"eval-mul-local-material",
-                b"triple-b",
+            ),
+            triple_b: build_local_word_from_provenance(
                 1,
                 share_side,
                 triple_b_share,
-                &[
-                    left_provenance_digest,
-                    right_provenance_digest,
-                    &material_digest,
-                ],
-            ),
-            triple_c: build_local_word_for_key(
-                evaluation_key,
+                triple_b_provenance,
                 b"eval-mul-local-material",
-                b"triple-c",
+            ),
+            triple_c: build_local_word_from_provenance(
                 1,
                 share_side,
                 triple_c_share,
-                &[
-                    left_provenance_digest,
-                    right_provenance_digest,
-                    &material_digest,
-                ],
+                triple_c_provenance,
+                b"eval-mul-local-material",
             ),
             provenance_digest: material_digest,
         }
@@ -4040,7 +4509,50 @@ fn local_bit_mul_material_from_raw_digest(
     )
 }
 
-pub(crate) fn prepare_local_bit_mul_material_public(
+fn local_bit_mul_material_core_from_raw_digest(
+    material_digest: [u8; 32],
+) -> (DdhHssLocalMulMaterialCore, DdhHssLocalMulMaterialCore) {
+    let triple_a_clear = u64::from(material_digest[0] & 1);
+    let triple_b_clear = u64::from(material_digest[1] & 1);
+    let triple_a_left = u64::from(material_digest[2] & 1);
+    let triple_b_left = u64::from(material_digest[3] & 1);
+    let triple_c_left = u64::from(material_digest[4] & 1);
+    let triple_a_right = triple_a_clear ^ triple_a_left;
+    let triple_b_right = triple_b_clear ^ triple_b_left;
+    let triple_c_clear = triple_a_clear & triple_b_clear;
+    let triple_c_right = triple_c_clear ^ triple_c_left;
+    let build_side = |share_side: DdhHssShareSide,
+                      triple_a_word: u64,
+                      triple_b_word: u64,
+                      triple_c_word: u64|
+     -> DdhHssLocalMulMaterialCore {
+        DdhHssLocalMulMaterialCore {
+            width_bits: 1,
+            share_side,
+            triple_a_word,
+            triple_b_word,
+            triple_c_word,
+            provenance_digest: material_digest,
+        }
+    };
+    (
+        build_side(
+            DdhHssShareSide::Left,
+            triple_a_left,
+            triple_b_left,
+            triple_c_left,
+        ),
+        build_side(
+            DdhHssShareSide::Right,
+            triple_a_right,
+            triple_b_right,
+            triple_c_right,
+        ),
+    )
+}
+
+#[cfg(test)]
+fn prepare_local_bit_mul_material_public(
     evaluation_key: &DdhHssEvaluationKey,
     gate_key: &[u8],
     left_left: &DdhHssLocalWord,
@@ -4219,6 +4731,7 @@ where
             material_hasher.update(&left_right.commitments[idx]);
             material_hasher.update(&right_left.commitments[idx]);
             material_hasher.update(&right_right.commitments[idx]);
+            record_physical_mul_material_hash();
             *material_hasher.finalize().as_bytes()
         };
         let (material_left, material_right) = local_bit_mul_material_from_raw_digest(
@@ -4241,10 +4754,25 @@ where
                 + u128::from(material_right.triple_b.share_word),
             1,
         );
-        let out_left = build_local_word_for_key(
+        let d_open_bytes = d_open.to_le_bytes();
+        let e_open_bytes = e_open.to_le_bytes();
+        let output_provenance = derive_digest_for_key(
             evaluation_key,
             b"eval-mul-local",
+            HiddenEvalInputOwner::Derived,
             gate_label.as_bytes(),
+            1,
+            0,
+            0,
+            &[
+                &left_left.provenance_digests[idx],
+                &right_left.provenance_digests[idx],
+                &material_digest,
+                &d_open_bytes,
+                &e_open_bytes,
+            ],
+        );
+        let out_left = build_local_word_from_provenance(
             1,
             DdhHssShareSide::Left,
             reduce_word(
@@ -4254,18 +4782,10 @@ where
                     + (u128::from(d_open) * u128::from(e_open)),
                 1,
             ),
-            &[
-                &left_left.provenance_digests[idx],
-                &right_left.provenance_digests[idx],
-                &material_left.provenance_digest,
-                &d_open.to_le_bytes(),
-                &e_open.to_le_bytes(),
-            ],
-        );
-        let out_right = build_local_word_for_key(
-            evaluation_key,
+            output_provenance,
             b"eval-mul-local",
-            gate_label.as_bytes(),
+        );
+        let out_right = build_local_word_from_provenance(
             1,
             DdhHssShareSide::Right,
             reduce_word(
@@ -4274,105 +4794,12 @@ where
                     + (u128::from(e_open) * u128::from(material_right.triple_a.share_word)),
                 1,
             ),
-            &[
-                &left_right.provenance_digests[idx],
-                &right_right.provenance_digests[idx],
-                &material_right.provenance_digest,
-                &d_open.to_le_bytes(),
-                &e_open.to_le_bytes(),
-            ],
+            output_provenance,
+            b"eval-mul-local",
         );
         push_pair(out_left, out_right)?;
     }
     Ok(())
-}
-
-pub(crate) fn eval_mul_local_bit_pair_raw_public(
-    evaluation_key: &DdhHssEvaluationKey,
-    label: &[u8],
-    left_left_bit: u8,
-    left_right_bit: u8,
-    left_left_commitment: &[u8; 32],
-    left_right_commitment: &[u8; 32],
-    left_provenance_digest: &[u8; 32],
-    right_left_bit: u8,
-    right_right_bit: u8,
-    right_left_commitment: &[u8; 32],
-    right_right_commitment: &[u8; 32],
-    right_provenance_digest: &[u8; 32],
-) -> ProtoResult<(DdhHssLocalWord, DdhHssLocalWord)> {
-    let mut material_hasher = local_bit_mul_material_base_hasher(evaluation_key);
-    material_hasher.update(label);
-    material_hasher.update(left_provenance_digest);
-    material_hasher.update(right_provenance_digest);
-    material_hasher.update(left_left_commitment);
-    material_hasher.update(left_right_commitment);
-    material_hasher.update(right_left_commitment);
-    material_hasher.update(right_right_commitment);
-    let material_digest = *material_hasher.finalize().as_bytes();
-    let (material_left, material_right) = local_bit_mul_material_from_raw_digest(
-        evaluation_key,
-        left_provenance_digest,
-        right_provenance_digest,
-        material_digest,
-    );
-    let d_open = reduce_word(
-        u128::from(left_left_bit & 1)
-            + u128::from(material_left.triple_a.share_word)
-            + u128::from(left_right_bit & 1)
-            + u128::from(material_right.triple_a.share_word),
-        1,
-    );
-    let e_open = reduce_word(
-        u128::from(right_left_bit & 1)
-            + u128::from(material_left.triple_b.share_word)
-            + u128::from(right_right_bit & 1)
-            + u128::from(material_right.triple_b.share_word),
-        1,
-    );
-    Ok((
-        build_local_word_for_key(
-            evaluation_key,
-            b"eval-mul-local",
-            label,
-            1,
-            DdhHssShareSide::Left,
-            reduce_word(
-                u128::from(material_left.triple_c.share_word)
-                    + (u128::from(d_open) * u128::from(material_left.triple_b.share_word))
-                    + (u128::from(e_open) * u128::from(material_left.triple_a.share_word))
-                    + (u128::from(d_open) * u128::from(e_open)),
-                1,
-            ),
-            &[
-                left_provenance_digest,
-                right_provenance_digest,
-                &material_left.provenance_digest,
-                &d_open.to_le_bytes(),
-                &e_open.to_le_bytes(),
-            ],
-        ),
-        build_local_word_for_key(
-            evaluation_key,
-            b"eval-mul-local",
-            label,
-            1,
-            DdhHssShareSide::Right,
-            reduce_word(
-                u128::from(material_right.triple_c.share_word)
-                    + (u128::from(d_open) * u128::from(material_right.triple_b.share_word))
-                    + (u128::from(e_open) * u128::from(material_right.triple_a.share_word)),
-                1,
-            ),
-            &[
-                left_provenance_digest,
-                right_provenance_digest,
-                &material_right.provenance_digest,
-                &d_open.to_le_bytes(),
-                &e_open.to_le_bytes(),
-            ],
-        ),
-    ))
 }
 
 pub(crate) fn eval_add_cross_share_local_arithmetic_word_bits_secure_public_into<F>(
@@ -4388,14 +4815,14 @@ where
     F: FnMut(DdhHssLocalWord, DdhHssLocalWord) -> ProtoResult<()>,
 {
     let width = validate_cross_share_a2b_inputs(left_word, right_word, zero_left, zero_right)?;
-    let mut carry_left = zero_left.clone();
-    let mut carry_right = zero_right.clone();
+    let mut carry_left = DdhHssLocalWordCore::from_local_word(zero_left);
+    let mut carry_right = DdhHssLocalWordCore::from_local_word(zero_right);
     let mut bit_label = String::with_capacity(label_prefix.len() + 32);
     for idx in 0..width {
         let left_bit = (left_word.share_word >> idx) & 1;
         let right_bit = (right_word.share_word >> idx) & 1;
         set_indexed_child_label(&mut bit_label, label_prefix, "left", idx);
-        let left_bit_word = build_local_word_for_key(
+        let left_bit_word = build_local_word_core_for_key(
             evaluation_key,
             b"phase-a-arith-share-to-bool",
             bit_label.as_bytes(),
@@ -4409,7 +4836,7 @@ where
             ],
         );
         set_indexed_child_label(&mut bit_label, label_prefix, "right", idx);
-        let right_bit_word = build_local_word_for_key(
+        let right_bit_word = build_local_word_core_for_key(
             evaluation_key,
             b"phase-a-arith-share-to-bool",
             bit_label.as_bytes(),
@@ -4456,31 +4883,29 @@ where
             &carry_left.provenance_digest,
         );
         set_indexed_child_label(&mut bit_label, label_prefix, "carry", idx);
-        let (carry_gate_left, carry_gate_right) = eval_mul_local_bit_pair_raw_public(
+        let (carry_gate_left, carry_gate_right) = eval_mul_local_word_pairs_core_public(
             evaluation_key,
             bit_label.as_bytes(),
-            (xor_ab_left.share_word as u8) & 1,
-            (xor_ab_right.share_word as u8) & 1,
-            &xor_ab_left.share_commitment,
-            &xor_ab_right.share_commitment,
-            &xor_ab_left.provenance_digest,
-            (a_xor_carry_left.share_word as u8) & 1,
-            (a_xor_carry_right.share_word as u8) & 1,
-            &a_xor_carry_left.share_commitment,
-            &a_xor_carry_right.share_commitment,
-            &a_xor_carry_left.provenance_digest,
+            &xor_ab_left,
+            &xor_ab_right,
+            &a_xor_carry_left,
+            &a_xor_carry_right,
         )?;
         set_indexed_child_label(&mut bit_label, label_prefix, "next_carry", idx);
-        (carry_left, carry_right) = xor_local_bit_pair_from_raw_public(
+        let left_zero_right = local_word_core_from_provenance(
+            1,
+            DdhHssShareSide::Right,
+            0,
+            left_bit_word.provenance_digest,
+        );
+        (carry_left, carry_right) = xor_local_word_core_pairs_public(
             evaluation_key,
             bit_label.as_bytes(),
-            (left_bit_word.share_word as u8) & 1,
-            0,
-            &left_bit_word.provenance_digest,
-            (carry_gate_left.share_word as u8) & 1,
-            (carry_gate_right.share_word as u8) & 1,
-            &carry_gate_left.provenance_digest,
-        );
+            &left_bit_word,
+            &left_zero_right,
+            &carry_gate_left,
+            &carry_gate_right,
+        )?;
         push_bit_pair(sum_left, sum_right)?;
     }
     Ok(())
@@ -4586,11 +5011,12 @@ where
                 width_bits: 1,
                 share_side: DdhHssShareSide::Left,
                 share_word: left_word,
-                share_commitment: commit_word(
+                share_commitment: commit_word_for_provenance_domain(
                     HiddenEvalInputOwner::Derived,
                     b"left",
                     left_word,
                     &provenance_digest,
+                    b"eval-xor-local-word",
                 ),
                 provenance_digest,
             };
@@ -4598,11 +5024,12 @@ where
                 width_bits: 1,
                 share_side: DdhHssShareSide::Right,
                 share_word: right_word,
-                share_commitment: commit_word(
+                share_commitment: commit_word_for_provenance_domain(
                     HiddenEvalInputOwner::Derived,
                     b"right",
                     right_word,
                     &provenance_digest,
+                    b"eval-xor-local-word",
                 ),
                 provenance_digest,
             };
@@ -4711,6 +5138,7 @@ where
             material_hasher.update(&xy_right.share_commitment);
             material_hasher.update(&xz_left.share_commitment);
             material_hasher.update(&xz_right.share_commitment);
+            record_physical_mul_material_hash();
             *material_hasher.finalize().as_bytes()
         };
         let (material_left, material_right) = local_bit_mul_material_from_raw_digest(
@@ -4804,11 +5232,12 @@ where
             width_bits: 1,
             share_side: DdhHssShareSide::Left,
             share_word: left_word,
-            share_commitment: commit_word(
+            share_commitment: commit_word_for_provenance_domain(
                 HiddenEvalInputOwner::Derived,
                 b"left",
                 left_word,
                 &provenance_digest,
+                b"eval-xor-local-word",
             ),
             provenance_digest,
         };
@@ -4816,11 +5245,12 @@ where
             width_bits: 1,
             share_side: DdhHssShareSide::Right,
             share_word: right_word,
-            share_commitment: commit_word(
+            share_commitment: commit_word_for_provenance_domain(
                 HiddenEvalInputOwner::Derived,
                 b"right",
                 right_word,
                 &provenance_digest,
+                b"eval-xor-local-word",
             ),
             provenance_digest,
         };
@@ -4916,7 +5346,7 @@ pub(crate) fn eval_mul_local_word_pairs_public(
     right_left: &DdhHssLocalWord,
     right_right: &DdhHssLocalWord,
 ) -> ProtoResult<(DdhHssLocalWord, DdhHssLocalWord)> {
-    let (material_left, material_right) = prepare_local_bit_mul_material_public(
+    let (left_core, right_core) = eval_mul_local_word_pairs_core_public(
         evaluation_key,
         label,
         left_left,
@@ -4924,45 +5354,100 @@ pub(crate) fn eval_mul_local_word_pairs_public(
         right_left,
         right_right,
     )?;
-    let d_label = [label, b"/d"].concat();
-    let (d_left, d_right) = eval_add_local_word_pairs_mod_2_pow_n_public(
-        evaluation_key,
-        d_label.as_slice(),
+    Ok((
+        materialize_local_word_core(&left_core, b"eval-mul-local"),
+        materialize_local_word_core(&right_core, b"eval-mul-local"),
+    ))
+}
+
+pub(crate) fn eval_mul_local_word_pairs_core_public(
+    evaluation_key: &DdhHssEvaluationKey,
+    label: &[u8],
+    left_left: &DdhHssLocalWord,
+    left_right: &DdhHssLocalWord,
+    right_left: &DdhHssLocalWord,
+    right_right: &DdhHssLocalWord,
+) -> ProtoResult<(DdhHssLocalWordCore, DdhHssLocalWordCore)> {
+    ensure_local_word_pair(left_left, left_right)?;
+    ensure_local_word_pair(right_left, right_right)?;
+    if left_left.width_bits != right_left.width_bits {
+        return Err(ProtoError::InvalidInput(format!(
+            "bit multiplication requires same width, got {} and {}",
+            left_left.width_bits, right_left.width_bits
+        )));
+    }
+    if left_left.width_bits != 1 {
+        return Err(ProtoError::InvalidInput(format!(
+            "bit multiplication requires width 1, got {}",
+            left_left.width_bits
+        )));
+    }
+    let material_digest = finalize_local_bit_mul_material_digest(
+        &local_bit_mul_material_base_hasher(evaluation_key),
+        label,
         left_left,
         left_right,
-        &material_left.triple_a,
-        &material_right.triple_a,
-    )?;
-    let e_label = [label, b"/e"].concat();
-    let (e_left, e_right) = eval_add_local_word_pairs_mod_2_pow_n_public(
-        evaluation_key,
-        e_label.as_slice(),
         right_left,
         right_right,
-        &material_left.triple_b,
-        &material_right.triple_b,
-    )?;
-    let d_open = open_local_word_pair_public(&d_left, &d_right)?;
-    let e_open = open_local_word_pair_public(&e_left, &e_right)?;
+    );
+    let (material_left, material_right) =
+        local_bit_mul_material_core_from_raw_digest(material_digest);
+    let d_open = reduce_word(
+        u128::from(left_left.share_word)
+            + u128::from(material_left.triple_a_word)
+            + u128::from(left_right.share_word)
+            + u128::from(material_right.triple_a_word),
+        1,
+    );
+    let e_open = reduce_word(
+        u128::from(right_left.share_word)
+            + u128::from(material_left.triple_b_word)
+            + u128::from(right_right.share_word)
+            + u128::from(material_right.triple_b_word),
+        1,
+    );
+    let d_open_bytes = d_open.to_le_bytes();
+    let e_open_bytes = e_open.to_le_bytes();
+    let output_provenance = derive_digest_for_key(
+        evaluation_key,
+        b"eval-mul-local",
+        HiddenEvalInputOwner::Derived,
+        label,
+        1,
+        0,
+        0,
+        &[
+            &left_left.provenance_digest,
+            &right_left.provenance_digest,
+            &material_digest,
+            &d_open_bytes,
+            &e_open_bytes,
+        ],
+    );
     Ok((
-        eval_mul_local_with_open_public(
-            evaluation_key,
-            label,
-            left_left,
-            right_left,
-            &material_left,
-            d_open,
-            e_open,
-        )?,
-        eval_mul_local_with_open_public(
-            evaluation_key,
-            label,
-            left_right,
-            right_right,
-            &material_right,
-            d_open,
-            e_open,
-        )?,
+        local_word_core_from_provenance(
+            1,
+            DdhHssShareSide::Left,
+            reduce_word(
+                u128::from(material_left.triple_c_word)
+                    + (u128::from(d_open) * u128::from(material_left.triple_b_word))
+                    + (u128::from(e_open) * u128::from(material_left.triple_a_word))
+                    + (u128::from(d_open) * u128::from(e_open)),
+                1,
+            ),
+            output_provenance,
+        ),
+        local_word_core_from_provenance(
+            1,
+            DdhHssShareSide::Right,
+            reduce_word(
+                u128::from(material_right.triple_c_word)
+                    + (u128::from(d_open) * u128::from(material_right.triple_b_word))
+                    + (u128::from(e_open) * u128::from(material_right.triple_a_word)),
+                1,
+            ),
+            output_provenance,
+        ),
     ))
 }
 
@@ -5027,6 +5512,7 @@ fn eval_add_bit_for_key(
     hasher.update(&right.provenance_digest);
     hasher.update(&left.left_commitment);
     hasher.update(&right.left_commitment);
+    record_physical_add_bit_hash();
     let provenance_digest = *hasher.finalize().as_bytes();
 
     let left_commitment = commit_word(
@@ -5078,6 +5564,7 @@ fn eval_mul_bit_for_key(
     material_hasher.update(&left.right_commitment);
     material_hasher.update(&right.left_commitment);
     material_hasher.update(&right.right_commitment);
+    record_physical_mul_material_hash();
     let material_digest = material_hasher.finalize();
 
     let mut triple_bytes = [0u8; 5];
@@ -5097,6 +5584,7 @@ fn eval_mul_bit_for_key(
     let mut output_seed_hasher = Blake3Hasher::new();
     output_seed_hasher.update(b"succinct-garbling-proto/ddh-hss/eval-mul-bit-output/v1");
     output_seed_hasher.update(material_digest.as_bytes());
+    record_physical_mul_output_seed_hash();
     let output_seed = *output_seed_hasher.finalize().as_bytes();
 
     let d_left = reduce_word(

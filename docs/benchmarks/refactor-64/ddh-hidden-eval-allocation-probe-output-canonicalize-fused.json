@@ -1,0 +1,257 @@
+{
+  "report_version": "ddh_hidden_eval_allocation_probe_v1",
+  "metadata": {
+    "generated_at_unix_secs": 1780925624,
+    "host_os": "macos",
+    "host_arch": "aarch64",
+    "logical_cores": 14
+  },
+  "fixture_name": "wraparound-seed",
+  "config": {
+    "fixture_name": "wraparound-seed",
+    "warmup_iterations": 1,
+    "sample_count": 5
+  },
+  "samples": [
+    {
+      "sample_index": 0,
+      "operation": "prepare_prime_order_succinct_hss",
+      "measurement": {
+        "allocation_calls": 17409,
+        "deallocation_calls": 7394,
+        "reallocation_calls": 7305,
+        "allocated_bytes": 4593083,
+        "deallocated_bytes": 2614048,
+        "live_bytes_before": 1969,
+        "live_bytes_after": 1981004,
+        "live_bytes_delta": 1979035,
+        "peak_live_bytes_above_start": 2071815
+      }
+    },
+    {
+      "sample_index": 0,
+      "operation": "profile_hidden_eval_for_clear_input",
+      "measurement": {
+        "allocation_calls": 44959,
+        "deallocation_calls": 28924,
+        "reallocation_calls": 16027,
+        "allocated_bytes": 7572221,
+        "deallocated_bytes": 7453382,
+        "live_bytes_before": 1981144,
+        "live_bytes_after": 2099983,
+        "live_bytes_delta": 118839,
+        "peak_live_bytes_above_start": 1443232
+      }
+    },
+    {
+      "sample_index": 0,
+      "operation": "materialize_hidden_outputs_for_debug",
+      "measurement": {
+        "allocation_calls": 27,
+        "deallocation_calls": 21,
+        "reallocation_calls": 6,
+        "allocated_bytes": 235690,
+        "deallocated_bytes": 235690,
+        "live_bytes_before": 2100018,
+        "live_bytes_after": 2100018,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 204970
+      }
+    },
+    {
+      "sample_index": 0,
+      "operation": "evaluate_for_clear_input_debug_timed",
+      "measurement": {
+        "allocation_calls": 47730,
+        "deallocation_calls": 31695,
+        "reallocation_calls": 16035,
+        "allocated_bytes": 10229854,
+        "deallocated_bytes": 10229854,
+        "live_bytes_before": 2100054,
+        "live_bytes_after": 2100054,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 2285531
+      }
+    },
+    {
+      "sample_index": 1,
+      "operation": "profile_hidden_eval_for_clear_input",
+      "measurement": {
+        "allocation_calls": 44959,
+        "deallocation_calls": 28924,
+        "reallocation_calls": 16027,
+        "allocated_bytes": 7572221,
+        "deallocated_bytes": 7453382,
+        "live_bytes_before": 1981251,
+        "live_bytes_after": 2100090,
+        "live_bytes_delta": 118839,
+        "peak_live_bytes_above_start": 1443232
+      }
+    },
+    {
+      "sample_index": 1,
+      "operation": "materialize_hidden_outputs_for_debug",
+      "measurement": {
+        "allocation_calls": 27,
+        "deallocation_calls": 21,
+        "reallocation_calls": 6,
+        "allocated_bytes": 235690,
+        "deallocated_bytes": 235690,
+        "live_bytes_before": 2100125,
+        "live_bytes_after": 2100125,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 204970
+      }
+    },
+    {
+      "sample_index": 1,
+      "operation": "evaluate_for_clear_input_debug_timed",
+      "measurement": {
+        "allocation_calls": 47730,
+        "deallocation_calls": 31695,
+        "reallocation_calls": 16035,
+        "allocated_bytes": 10229854,
+        "deallocated_bytes": 10229854,
+        "live_bytes_before": 2100161,
+        "live_bytes_after": 2100161,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 2285531
+      }
+    },
+    {
+      "sample_index": 2,
+      "operation": "profile_hidden_eval_for_clear_input",
+      "measurement": {
+        "allocation_calls": 44959,
+        "deallocation_calls": 28924,
+        "reallocation_calls": 16027,
+        "allocated_bytes": 7572221,
+        "deallocated_bytes": 7453382,
+        "live_bytes_before": 1981358,
+        "live_bytes_after": 2100197,
+        "live_bytes_delta": 118839,
+        "peak_live_bytes_above_start": 1443232
+      }
+    },
+    {
+      "sample_index": 2,
+      "operation": "materialize_hidden_outputs_for_debug",
+      "measurement": {
+        "allocation_calls": 27,
+        "deallocation_calls": 21,
+        "reallocation_calls": 6,
+        "allocated_bytes": 235690,
+        "deallocated_bytes": 235690,
+        "live_bytes_before": 2100232,
+        "live_bytes_after": 2100232,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 204970
+      }
+    },
+    {
+      "sample_index": 2,
+      "operation": "evaluate_for_clear_input_debug_timed",
+      "measurement": {
+        "allocation_calls": 47730,
+        "deallocation_calls": 31695,
+        "reallocation_calls": 16035,
+        "allocated_bytes": 10229854,
+        "deallocated_bytes": 10229854,
+        "live_bytes_before": 2100268,
+        "live_bytes_after": 2100268,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 2285531
+      }
+    },
+    {
+      "sample_index": 3,
+      "operation": "profile_hidden_eval_for_clear_input",
+      "measurement": {
+        "allocation_calls": 44959,
+        "deallocation_calls": 28924,
+        "reallocation_calls": 16027,
+        "allocated_bytes": 7572221,
+        "deallocated_bytes": 7453382,
+        "live_bytes_before": 1981465,
+        "live_bytes_after": 2100304,
+        "live_bytes_delta": 118839,
+        "peak_live_bytes_above_start": 1443232
+      }
+    },
+    {
+      "sample_index": 3,
+      "operation": "materialize_hidden_outputs_for_debug",
+      "measurement": {
+        "allocation_calls": 27,
+        "deallocation_calls": 21,
+        "reallocation_calls": 6,
+        "allocated_bytes": 235690,
+        "deallocated_bytes": 235690,
+        "live_bytes_before": 2100339,
+        "live_bytes_after": 2100339,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 204970
+      }
+    },
+    {
+      "sample_index": 3,
+      "operation": "evaluate_for_clear_input_debug_timed",
+      "measurement": {
+        "allocation_calls": 47730,
+        "deallocation_calls": 31695,
+        "reallocation_calls": 16035,
+        "allocated_bytes": 10229854,
+        "deallocated_bytes": 10229854,
+        "live_bytes_before": 2100375,
+        "live_bytes_after": 2100375,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 2285531
+      }
+    },
+    {
+      "sample_index": 4,
+      "operation": "profile_hidden_eval_for_clear_input",
+      "measurement": {
+        "allocation_calls": 44959,
+        "deallocation_calls": 28924,
+        "reallocation_calls": 16027,
+        "allocated_bytes": 7572221,
+        "deallocated_bytes": 7453382,
+        "live_bytes_before": 1981572,
+        "live_bytes_after": 2100411,
+        "live_bytes_delta": 118839,
+        "peak_live_bytes_above_start": 1443232
+      }
+    },
+    {
+      "sample_index": 4,
+      "operation": "materialize_hidden_outputs_for_debug",
+      "measurement": {
+        "allocation_calls": 27,
+        "deallocation_calls": 21,
+        "reallocation_calls": 6,
+        "allocated_bytes": 235690,
+        "deallocated_bytes": 235690,
+        "live_bytes_before": 2100446,
+        "live_bytes_after": 2100446,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 204970
+      }
+    },
+    {
+      "sample_index": 4,
+      "operation": "evaluate_for_clear_input_debug_timed",
+      "measurement": {
+        "allocation_calls": 47730,
+        "deallocation_calls": 31695,
+        "reallocation_calls": 16035,
+        "allocated_bytes": 10229854,
+        "deallocated_bytes": 10229854,
+        "live_bytes_before": 2100482,
+        "live_bytes_after": 2100482,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 2285531
+      }
+    }
+  ]
+}

@@ -614,6 +614,24 @@ type WalletRegistrationStartRequestBase = {
   intent: RegistrationIntentV1;
 };
 
+export type RegistrationPreparationId = string & { readonly __brand: 'RegistrationPreparationId' };
+
+export function registrationPreparationIdFromString(value: string): RegistrationPreparationId {
+  return String(value || '').trim() as RegistrationPreparationId;
+}
+
+export type WalletRegistrationPrepareRequest = WalletRegistrationStartRequestBase & {
+  work:
+    | {
+        kind: 'ed25519_hss';
+        ecdsa?: never;
+      }
+    | {
+        kind: 'ed25519_hss_and_ecdsa';
+        ecdsa?: never;
+      };
+};
+
 export type WalletRegistrationStartAuthority =
   | {
       kind: 'passkey';
@@ -627,6 +645,7 @@ export type WalletRegistrationStartAuthority =
     };
 
 export type WalletRegistrationStartRequest = WalletRegistrationStartRequestBase & {
+  registrationPreparationId?: RegistrationPreparationId;
   authority: WalletRegistrationStartAuthority;
 };
 
@@ -642,6 +661,7 @@ export type WalletRegistrationEcdsaPreparePayload = {
     signingRootVersion: string;
     keyScope: EcdsaHssKeyScope;
     relayerKeyId: string;
+    registrationPreparationId?: RegistrationPreparationId;
     requestId: string;
     sessionId: string;
     walletSigningSessionId: string;
@@ -661,6 +681,7 @@ export type WalletRegistrationEcdsaClientBootstrap = {
   signingRootVersion: string;
   keyScope: EcdsaHssKeyScope;
   relayerKeyId: string;
+  registrationPreparationId?: RegistrationPreparationId;
   hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;
@@ -695,8 +716,13 @@ export type WalletRegistrationRouteTimingName =
   | 'registrationIntentLoadMs'
   | 'registrationIntentDigestMs'
   | 'registrationIntentConsumeMs'
+  | 'registrationPreparationPersistMs'
+  | 'registrationPreparationLoadMs'
+  | 'registrationPreparationConsumeMs'
+  | 'registrationPreparationScopeCheckMs'
   | 'registrationAuthorityVerifyMs'
   | 'registrationHssPrepareMs'
+  | 'registrationPreauthHssPrepareMs'
   | 'registrationHssServerInputDeriveMs'
   | 'registrationHssServerSessionPrepareTotalMs'
   | 'registrationHssPrepareSessionMs'
@@ -706,6 +732,7 @@ export type WalletRegistrationRouteTimingName =
   | 'registrationHssPrepareEncodeStatesMs'
   | 'registrationEcdsaPrepareMs'
   | 'registrationCeremonyPersistMs'
+  | 'registerPrepareTotalMs'
   | 'registerStartTotalMs'
   | 'registrationHssRespondMs'
   | 'registrationHssRespondDecodeMessagesMs'
@@ -733,12 +760,35 @@ export type WalletRegistrationRouteTimingName =
 
 export type WalletRegistrationRouteDiagnostics = {
   kind: 'wallet_registration_route_diagnostics_v1';
-  route: 'wallets_register_start' | 'wallets_register_hss_respond' | 'wallets_register_finalize';
+  route:
+    | 'wallets_register_prepare'
+    | 'wallets_register_start'
+    | 'wallets_register_hss_respond'
+    | 'wallets_register_finalize';
   entries: {
     name: WalletRegistrationRouteTimingName;
     durationMs: number;
   }[];
 };
+
+export type WalletRegistrationPrepareResponse =
+  | {
+      ok: true;
+      state: 'prepared';
+      registrationPreparationId: RegistrationPreparationId;
+      expiresAtMs: number;
+      registrationDiagnostics?: WalletRegistrationRouteDiagnostics;
+      ed25519: {
+        ceremonyHandle: string;
+        preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+        clientOtOfferMessageB64u: string;
+      };
+    }
+  | {
+      ok: false;
+      code: string;
+      message: string;
+    };
 
 export type WalletRegistrationStartResponse =
   | {
@@ -1954,6 +2004,7 @@ interface EcdsaHssClientBootstrapRequestBase {
   signingRootVersion: string;
   keyScope: EcdsaHssKeyScope;
   relayerKeyId: string;
+  registrationPreparationId?: RegistrationPreparationId;
   hssClientSharePublicKey33B64u: EcdsaHssClientSharePublicKey33B64u;
   clientShareRetryCounter: number;
   contextBinding32B64u: string;

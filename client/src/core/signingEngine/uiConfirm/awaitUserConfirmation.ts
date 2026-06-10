@@ -10,6 +10,7 @@ import {
   UserConfirmPromptEnvelope,
   UserConfirmRequest,
   UserConfirmResponseEnvelope,
+  RegistrationConfirmationDiagnostics,
   SerializableCredential,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import { isObject, isString, isBoolean } from '@shared/utils/validation';
@@ -27,6 +28,7 @@ type ConfirmResponsePayload = {
   otpCode?: string;
   emailOtpChallengeId?: string;
   transactionContext?: TransactionContext;
+  registrationDiagnostics?: RegistrationConfirmationDiagnostics;
   error?: string;
 };
 
@@ -103,6 +105,7 @@ export function awaitUserConfirmationV2(
         otp_code: env.data.otpCode,
         email_otp_challenge_id: env.data.emailOtpChallengeId,
         transaction_context: env.data.transactionContext,
+        registration_diagnostics: env.data.registrationDiagnostics,
         error: env.data.error,
       };
       return resolve(response);

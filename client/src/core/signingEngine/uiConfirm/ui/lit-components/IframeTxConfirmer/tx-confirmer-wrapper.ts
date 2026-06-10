@@ -92,6 +92,7 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
 
   private readonly childRef: Ref<TxConfirmerVariantElement> = createRef();
   private redispatchingEvent = false;
+  private interactiveAnnounced = false;
   private currentChild: TxConfirmerVariantElement | null = null;
   private boundConfirmListener = (event: Event) => {
     this.handleChildConfirm(event);
@@ -227,6 +228,15 @@ export class TxConfirmerWrapperElement extends LitElementWithProps {
       this.boundCancelListener as EventListener,
     );
     this.currentChild = child;
+    if (!this.interactiveAnnounced) {
+      this.interactiveAnnounced = true;
+      this.dispatchEvent(
+        new CustomEvent(WalletIframeDomEvents.TX_CONFIRMER_INTERACTIVE, {
+          bubbles: true,
+          composed: true,
+        }),
+      );
+    }
   }
 
   private detachChildListeners(): void {

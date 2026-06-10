@@ -1,5 +1,8 @@
 import { expect, test } from '@playwright/test';
-import { addWalletSigner, registerWallet } from '../../client/src/SeamsWeb/operations/registration/registration';
+import {
+  addWalletSigner,
+  registerWallet,
+} from '../../client/src/SeamsWeb/operations/registration/registration';
 import { createEvmSignerCapability } from '../../client/src/SeamsWeb/publicApi/evm';
 import { createNearSignerCapability } from '../../client/src/SeamsWeb/publicApi/near';
 import { IndexedDBManager } from '../../client/src/core/indexedDB';
@@ -487,6 +490,23 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
         expiresAtMs: Date.now() + 60_000,
       });
     }
+    if (path === '/wallets/register/prepare') {
+      captures.prepareBody = body;
+      return jsonResponse({
+        ok: true,
+        state: 'prepared',
+        registrationPreparationId: 'registration-preparation-id',
+        expiresAtMs: Date.now() + 60_000,
+        ed25519: {
+          ceremonyHandle: 'registration-ed25519-handle',
+          preparedSession: {
+            contextBindingB64u: 'prepared-context-binding',
+            evaluatorDriverStateB64u: 'evaluator-driver-state',
+          },
+          clientOtOfferMessageB64u: 'client-ot-offer',
+        },
+      });
+    }
     if (path === '/wallets/register/start') {
       captures.startBody = body;
       const mode = body.intent.signerSelection.mode;
@@ -522,6 +542,7 @@ function installRegisterWalletFetch(captures: Record<string, unknown>) {
                   signingRootVersion: RUNTIME_POLICY_SCOPE.signingRootVersion,
                   keyScope: 'evm-family',
                   relayerKeyId: 'relayer-ecdsa',
+                  registrationPreparationId: body.registrationPreparationId,
                   requestId: 'request-ecdsa',
                   sessionId: 'session-ecdsa',
                   walletSigningSessionId: 'wallet-session-ecdsa',
@@ -1045,6 +1066,7 @@ test('registerWallet orchestrates combined Ed25519 and ECDSA wallet registration
     expect(fetchMock.paths).toEqual([
       '/v1/registration/bootstrap-grants',
       '/wallets/register/intent',
+      '/wallets/register/prepare',
       '/wallets/register/start',
       '/wallets/register/hss/respond',
       '/wallets/register/finalize',
@@ -1103,11 +1125,39 @@ test('registerWallet orchestrates combined Ed25519 and ECDSA wallet registration
       signerMode: 'ed25519_and_ecdsa',
       timings: {
         inputValidationMs: expect.any(Number),
+        registrationWarmupMs: expect.any(Number),
+        registrationWarmupWaitMs: expect.any(Number),
+        registrationWarmupAuthenticatedWalletStateMs: expect.any(Number),
+        registrationWarmupNoncePrefetchMs: expect.any(Number),
+        registrationWarmupKeyMaterialReadMs: expect.any(Number),
+        registrationWarmupUiConfirmPrewarmMs: expect.any(Number),
+        registrationWarmupSignerWorkerPrewarmMs: expect.any(Number),
         managedRegistrationGrantMs: expect.any(Number),
         registrationIntentMs: expect.any(Number),
         registrationIntentDigestMs: expect.any(Number),
         authProofMs: expect.any(Number),
+        passkeyAuthConfirmationMs: expect.any(Number),
+        passkeyAuthPrfExtractionMs: expect.any(Number),
+        passkeyAuthCredentialRedactionMs: expect.any(Number),
+        passkeyAuthWorkerReadyMs: expect.any(Number),
+        passkeyAuthWorkerRequestRoundTripMs: expect.any(Number),
+        passkeyAuthWorkerResponseValidationMs: expect.any(Number),
+        passkeyAuthRequestSetupMs: expect.any(Number),
+        passkeyAuthPromptUserMs: expect.any(Number),
+        passkeyAuthPromptElementDefineMs: expect.any(Number),
+        passkeyAuthPromptMountMs: expect.any(Number),
+        passkeyAuthPromptHostFirstUpdateMs: expect.any(Number),
+        passkeyAuthPromptHostInteractiveMs: expect.any(Number),
+        passkeyAuthPromptConfirmEventMs: expect.any(Number),
+        passkeyAuthPromptDecisionWaitMs: expect.any(Number),
+        passkeyAuthCredentialCreateStartMs: expect.any(Number),
+        passkeyAuthCredentialCreateMs: expect.any(Number),
+        passkeyAuthCredentialSerializeMs: expect.any(Number),
+        passkeyAuthDuplicateRetryCount: expect.any(Number),
+        passkeyAuthMainThreadTotalMs: expect.any(Number),
         ed25519ClientMaterialMs: expect.any(Number),
+        walletRegisterPrepareMs: expect.any(Number),
+        walletRegisterPrepareWaitMs: expect.any(Number),
         walletRegisterStartMs: expect.any(Number),
         ed25519ClientRequestMs: expect.any(Number),
         ecdsaClientBootstrapMs: expect.any(Number),
@@ -1122,6 +1172,25 @@ test('registerWallet orchestrates combined Ed25519 and ECDSA wallet registration
         immediateSigningLaneAssertionMs: expect.any(Number),
         auth: {
           kind: 'passkey',
+          passkeyAuthConfirmationMs: expect.any(Number),
+          passkeyAuthPrfExtractionMs: expect.any(Number),
+          passkeyAuthCredentialRedactionMs: expect.any(Number),
+          passkeyAuthWorkerReadyMs: expect.any(Number),
+          passkeyAuthWorkerRequestRoundTripMs: expect.any(Number),
+          passkeyAuthWorkerResponseValidationMs: expect.any(Number),
+          passkeyAuthRequestSetupMs: expect.any(Number),
+          passkeyAuthPromptUserMs: expect.any(Number),
+          passkeyAuthPromptElementDefineMs: expect.any(Number),
+          passkeyAuthPromptMountMs: expect.any(Number),
+          passkeyAuthPromptHostFirstUpdateMs: expect.any(Number),
+          passkeyAuthPromptHostInteractiveMs: expect.any(Number),
+          passkeyAuthPromptConfirmEventMs: expect.any(Number),
+          passkeyAuthPromptDecisionWaitMs: expect.any(Number),
+          passkeyAuthCredentialCreateStartMs: expect.any(Number),
+          passkeyAuthCredentialCreateMs: expect.any(Number),
+          passkeyAuthCredentialSerializeMs: expect.any(Number),
+          passkeyAuthDuplicateRetryCount: expect.any(Number),
+          passkeyAuthMainThreadTotalMs: expect.any(Number),
           emailOtpEnrollmentMaterialMs: 0,
           emailOtpRecoveryCodeBackupMs: 0,
         },

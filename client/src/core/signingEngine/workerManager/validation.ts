@@ -1,6 +1,7 @@
 import { normalizeRegistrationCredential } from '@/core/signingEngine/webauthnAuth/credentials/helpers';
 import type { WebAuthnRegistrationCredential } from '@/core/types/webauthn';
 import type { TransactionContext } from '@/core/types/rpc';
+import type { RegistrationConfirmationDiagnostics } from '@/core/signingEngine/stepUpConfirmation/types';
 import { isObject, assertString, ensureEd25519Prefix } from '@shared/utils/validation';
 import { DelegateActionInput } from '@/core/types/delegate';
 import { base58Encode } from '@shared/utils/base58';
@@ -20,7 +21,81 @@ export interface RegistrationCredentialConfirmationPayload {
   intentDigest: string;
   credential: WebAuthnRegistrationCredential; // serialized PublicKeyCredential (no methods)
   transactionContext?: TransactionContext;
+  registrationDiagnostics?: RegistrationConfirmationDiagnostics;
   error?: string;
+}
+
+function sanitizeDiagnosticDuration(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return null;
+  return Math.round(value);
+}
+
+function sanitizeRegistrationConfirmationDiagnosticsMaybe(
+  input: unknown,
+): RegistrationConfirmationDiagnostics | undefined {
+  if (input == null) return undefined;
+  if (!isObject(input)) return undefined;
+
+  const record = input as Record<keyof RegistrationConfirmationDiagnostics, unknown>;
+  if (record.kind !== 'registration_confirmation_diagnostics_v1') return undefined;
+
+  const workerReadyMs = sanitizeDiagnosticDuration(record.workerReadyMs);
+  const workerRequestRoundTripMs = sanitizeDiagnosticDuration(record.workerRequestRoundTripMs);
+  const workerResponseValidationMs = sanitizeDiagnosticDuration(record.workerResponseValidationMs);
+  const requestSetupMs = sanitizeDiagnosticDuration(record.requestSetupMs);
+  const promptUserMs = sanitizeDiagnosticDuration(record.promptUserMs);
+  const promptElementDefineMs = sanitizeDiagnosticDuration(record.promptElementDefineMs);
+  const promptMountMs = sanitizeDiagnosticDuration(record.promptMountMs);
+  const promptHostFirstUpdateMs = sanitizeDiagnosticDuration(record.promptHostFirstUpdateMs);
+  const promptHostInteractiveMs = sanitizeDiagnosticDuration(record.promptHostInteractiveMs);
+  const promptConfirmEventMs = sanitizeDiagnosticDuration(record.promptConfirmEventMs);
+  const promptDecisionWaitMs = sanitizeDiagnosticDuration(record.promptDecisionWaitMs);
+  const credentialCreateStartMs = sanitizeDiagnosticDuration(record.credentialCreateStartMs);
+  const credentialCreateMs = sanitizeDiagnosticDuration(record.credentialCreateMs);
+  const credentialSerializeMs = sanitizeDiagnosticDuration(record.credentialSerializeMs);
+  const duplicateRetryCount = sanitizeDiagnosticDuration(record.duplicateRetryCount);
+  const mainThreadTotalMs = sanitizeDiagnosticDuration(record.mainThreadTotalMs);
+
+  if (
+    workerReadyMs == null ||
+    workerRequestRoundTripMs == null ||
+    workerResponseValidationMs == null ||
+    requestSetupMs == null ||
+    promptUserMs == null ||
+    promptElementDefineMs == null ||
+    promptMountMs == null ||
+    promptHostFirstUpdateMs == null ||
+    promptHostInteractiveMs == null ||
+    promptConfirmEventMs == null ||
+    promptDecisionWaitMs == null ||
+    credentialCreateStartMs == null ||
+    credentialCreateMs == null ||
+    credentialSerializeMs == null ||
+    duplicateRetryCount == null ||
+    mainThreadTotalMs == null
+  ) {
+    return undefined;
+  }
+
+  return {
+    kind: 'registration_confirmation_diagnostics_v1',
+    workerReadyMs,
+    workerRequestRoundTripMs,
+    workerResponseValidationMs,
+    requestSetupMs,
+    promptUserMs,
+    promptElementDefineMs,
+    promptMountMs,
+    promptHostFirstUpdateMs,
+    promptHostInteractiveMs,
+    promptConfirmEventMs,
+    promptDecisionWaitMs,
+    credentialCreateStartMs,
+    credentialCreateMs,
+    credentialSerializeMs,
+    duplicateRetryCount,
+    mainThreadTotalMs,
+  };
 }
 
 function validateTransactionContextMaybe(input: unknown): TransactionContext | undefined {
@@ -123,12 +198,21 @@ export function parseAndValidateRegistrationCredentialConfirmationPayload(
     throw new Error('Invalid response payload: expected object');
   }
 
-  const { confirmed, requestId, intentDigest, credential, transactionContext, error } = payload as {
+  const {
+    confirmed,
+    requestId,
+    intentDigest,
+    credential,
+    transactionContext,
+    registrationDiagnostics,
+    error,
+  } = payload as {
     confirmed?: unknown;
     requestId?: unknown;
     intentDigest?: unknown;
     credential?: unknown;
     transactionContext?: unknown;
+    registrationDiagnostics?: unknown;
     error?: unknown;
   };
 
@@ -146,6 +230,9 @@ export function parseAndValidateRegistrationCredentialConfirmationPayload(
 
   const normalizedTransactionContext =
     transactionContext != null ? validateTransactionContextMaybe(transactionContext) : undefined;
+  const normalizedRegistrationDiagnostics = sanitizeRegistrationConfirmationDiagnosticsMaybe(
+    registrationDiagnostics,
+  );
 
   const normalizedError = error == null ? undefined : assertString(error, 'error');
 
@@ -154,7 +241,10 @@ export function parseAndValidateRegistrationCredentialConfirmationPayload(
     requestId: normalizedRequestId,
     intentDigest: normalizedIntentDigest,
     credential: normalizedCredential,
-    transactionContext: normalizedTransactionContext,
-    error: normalizedError,
+    ...(normalizedTransactionContext ? { transactionContext: normalizedTransactionContext } : {}),
+    ...(normalizedRegistrationDiagnostics
+      ? { registrationDiagnostics: normalizedRegistrationDiagnostics }
+      : {}),
+    ...(normalizedError != null ? { error: normalizedError } : {}),
   };
 }

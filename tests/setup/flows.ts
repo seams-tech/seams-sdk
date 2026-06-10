@@ -4,20 +4,83 @@ import { printLog } from './logging';
 import { ActionType } from '@/core/types/actions';
 import type { Page } from '@playwright/test';
 
+export interface WalletIframeAutoConfirmDiagnostics {
+  attempts: number;
+  clicked: boolean;
+  firstIframeAttachedMs?: number;
+  firstFrameResolvedMs?: number;
+  firstButtonVisibleMs?: number;
+  firstClickDispatchMs?: number;
+  firstClickDurationMs?: number;
+  totalMs?: number;
+}
+
+function recordAutoConfirmMark(
+  diagnostics: WalletIframeAutoConfirmDiagnostics | undefined,
+  startedAtMs: number | undefined,
+  key: keyof Omit<WalletIframeAutoConfirmDiagnostics, 'attempts' | 'clicked'>,
+  valueMs?: number,
+): void {
+  if (!diagnostics || startedAtMs == null) return;
+  if (diagnostics[key] != null) return;
+  diagnostics[key] = Math.max(0, Math.round(valueMs ?? Date.now() - startedAtMs));
+}
+
 export async function clickWalletIframeConfirm(
   page: Page,
-  opts?: { timeoutMs?: number },
+  opts?: {
+    timeoutMs?: number;
+    diagnostics?: WalletIframeAutoConfirmDiagnostics;
+    diagnosticsStartedAtMs?: number;
+  },
 ): Promise<boolean> {
-  const timeoutMs = Math.max(250, Math.floor(opts?.timeoutMs ?? 15_000));
+  const timeoutMs = Math.max(50, Math.floor(opts?.timeoutMs ?? 15_000));
+  if (opts?.diagnostics) {
+    opts.diagnostics.attempts += 1;
+  }
   try {
     const iframeEl = page.locator('iframe[allow*="publickey-credentials-get"]').last();
-    await iframeEl.waitFor({ state: 'attached', timeout: timeoutMs }).catch(() => undefined);
+    const attached = await iframeEl
+      .waitFor({ state: 'attached', timeout: timeoutMs })
+      .then(() => true)
+      .catch(() => false);
+    if (!attached) return false;
+    recordAutoConfirmMark(
+      opts?.diagnostics,
+      opts?.diagnosticsStartedAtMs,
+      'firstIframeAttachedMs',
+    );
     const frame = await iframeEl.contentFrame();
     if (!frame) return false;
+    recordAutoConfirmMark(
+      opts?.diagnostics,
+      opts?.diagnosticsStartedAtMs,
+      'firstFrameResolvedMs',
+    );
 
     const confirmBtn = frame.locator('#w3a-confirm-portal button.confirm').first();
     await confirmBtn.waitFor({ state: 'visible', timeout: timeoutMs });
+    recordAutoConfirmMark(
+      opts?.diagnostics,
+      opts?.diagnosticsStartedAtMs,
+      'firstButtonVisibleMs',
+    );
+    const clickStartedAtMs = Date.now();
     await confirmBtn.click({ timeout: timeoutMs });
+    if (opts?.diagnostics) {
+      opts.diagnostics.clicked = true;
+    }
+    recordAutoConfirmMark(
+      opts?.diagnostics,
+      opts?.diagnosticsStartedAtMs,
+      'firstClickDispatchMs',
+    );
+    recordAutoConfirmMark(
+      opts?.diagnostics,
+      opts?.diagnosticsStartedAtMs,
+      'firstClickDurationMs',
+      Date.now() - clickStartedAtMs,
+    );
     return true;
   } catch {
     return false;
@@ -27,21 +90,43 @@ export async function clickWalletIframeConfirm(
 export async function autoConfirmWalletIframeUntil<T>(
   page: Page,
   task: Promise<T>,
-  opts?: { timeoutMs?: number; intervalMs?: number },
+  opts?: {
+    timeoutMs?: number;
+    intervalMs?: number;
+    retryDelayMs?: number;
+    stopAfterClick?: boolean;
+    diagnostics?: WalletIframeAutoConfirmDiagnostics;
+  },
 ): Promise<T> {
   const timeoutMs = Math.max(250, Math.floor(opts?.timeoutMs ?? 55_000));
   const intervalMs = Math.max(50, Math.floor(opts?.intervalMs ?? 250));
+  const retryDelayMs = Math.max(0, Math.floor(opts?.retryDelayMs ?? intervalMs));
+  const stopAfterClick = opts?.stopAfterClick === true;
 
   let done = false;
+  const startedAtMs = Date.now();
+  const diagnostics = opts?.diagnostics;
+  if (diagnostics) {
+    diagnostics.attempts = 0;
+    diagnostics.clicked = false;
+  }
 
   const loop = (async () => {
     const deadline = Date.now() + timeoutMs;
     while (!done && Date.now() < deadline) {
+      let clicked = false;
       try {
-        await clickWalletIframeConfirm(page, { timeoutMs: Math.min(500, intervalMs) });
+        clicked = await clickWalletIframeConfirm(page, {
+          timeoutMs: Math.min(500, intervalMs),
+          diagnostics,
+          diagnosticsStartedAtMs: startedAtMs,
+        });
       } catch {}
+      if (clicked && stopAfterClick) return;
       try {
-        await page.waitForTimeout(intervalMs);
+        if (retryDelayMs > 0) {
+          await page.waitForTimeout(retryDelayMs);
+        }
       } catch {}
     }
   })();
@@ -50,6 +135,9 @@ export async function autoConfirmWalletIframeUntil<T>(
     return await task;
   } finally {
     done = true;
+    if (diagnostics) {
+      diagnostics.totalMs = Math.max(0, Math.round(Date.now() - startedAtMs));
+    }
     await loop.catch(() => undefined);
   }
 }

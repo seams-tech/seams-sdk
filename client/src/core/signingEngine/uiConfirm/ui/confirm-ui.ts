@@ -16,6 +16,7 @@ import type { TransactionSummary } from '@/core/signingEngine/stepUpConfirmation
 import type { EmailOtpConfirmPrompt, SigningAuthMode } from '../../stepUpConfirmation/types';
 import type {
   ConfirmUIHandle,
+  ConfirmUIPromptDiagnostics,
   ConfirmUIUpdate,
   ConfirmationUIMode,
   ThemeName,
@@ -28,10 +29,19 @@ import {
   ensureDefined,
 } from './registry';
 
-export type { ConfirmUIHandle, ConfirmUIUpdate, ConfirmationUIMode } from './confirm-ui-types';
+export type {
+  ConfirmUIHandle,
+  ConfirmUIPromptDiagnostics,
+  ConfirmUIUpdate,
+  ConfirmationUIMode,
+} from './confirm-ui-types';
 
 const CONFIRM_STACK_CSS_VAR = '--w3a-confirm-stack-index';
 const MAX_STACK_DEPTH = 4;
+
+function roundConfirmUiDurationMs(startedAt: number): number {
+  return Math.max(0, Math.round(performance.now() - startedAt));
+}
 
 type ConfirmEventDetail = {
   confirmed?: boolean;
@@ -66,6 +76,7 @@ interface HostTxConfirmerElement extends HTMLElement {
   nearExplorerUrl?: string;
   tempoExplorerUrl?: string;
   evmExplorerUrl?: string;
+  updateComplete?: Promise<unknown>;
   close?: (confirmed: boolean) => void;
 }
 
@@ -406,13 +417,21 @@ export async function awaitConfirmUIDecision({
   onMounted?: (handle: ConfirmUIHandle) => void;
   signingAuthMode?: SigningAuthMode;
   emailOtpPrompt?: EmailOtpConfirmPrompt;
-}): Promise<ConfirmDecisionResult & { handle: ConfirmUIHandle }> {
+}): Promise<
+  ConfirmDecisionResult & {
+    handle: ConfirmUIHandle;
+    diagnostics: ConfirmUIPromptDiagnostics;
+  }
+> {
+  const elementDefineStartedAt = performance.now();
   await ensureTxConfirmerElementDefined();
+  const elementDefineMs = roundConfirmUiDurationMs(elementDefineStartedAt);
 
   const variant = uiModeToVariant(uiMode);
   const resolvedVariant: 'modal' | 'drawer' = variant || 'modal';
 
   return new Promise((resolve) => {
+    const mountStartedAt = performance.now();
     const { el, handle } = mountHostElement({
       ctx,
       summary,
@@ -426,17 +445,42 @@ export async function awaitConfirmUIDecision({
       signingAuthMode,
       emailOtpPrompt,
     });
+    const mountMs = roundConfirmUiDurationMs(mountStartedAt);
+    const decisionWaitStartedAt = performance.now();
+    let hostFirstUpdateMs = 0;
+    let hostInteractiveMs = 0;
+    let confirmEventMs = 0;
+    const markDecisionWaitOffset = (currentValue: number): number =>
+      currentValue > 0 ? currentValue : roundConfirmUiDurationMs(decisionWaitStartedAt);
+
+    if (el.updateComplete) {
+      void el.updateComplete
+        .then(() => {
+          hostFirstUpdateMs = markDecisionWaitOffset(hostFirstUpdateMs);
+        })
+        .catch(() => undefined);
+    }
 
     try {
       onMounted?.(handle);
     } catch {}
 
     const finalize = (result: ConfirmDecisionResult) => {
+      const diagnostics: ConfirmUIPromptDiagnostics = {
+        kind: 'confirm_ui_prompt_diagnostics_v1',
+        elementDefineMs,
+        mountMs,
+        hostFirstUpdateMs,
+        hostInteractiveMs,
+        confirmEventMs,
+        decisionWaitMs: roundConfirmUiDurationMs(decisionWaitStartedAt),
+      };
       cleanup();
-      resolve({ ...result, handle });
+      resolve({ ...result, handle, diagnostics });
     };
 
     const onConfirm = async (event: Event) => {
+      confirmEventMs = markDecisionWaitOffset(confirmEventMs);
       const detail = (event as CustomEvent<ConfirmEventDetail> | undefined)?.detail;
       let confirmed = detail?.confirmed !== false;
       let error = typeof detail?.error === 'string' ? detail.error : undefined;
@@ -483,16 +527,28 @@ export async function awaitConfirmUIDecision({
       finalize({ confirmed: false, error });
     };
 
+    const onInteractive = () => {
+      hostInteractiveMs = markDecisionWaitOffset(hostInteractiveMs);
+    };
+
     const cleanup = () => {
       el.removeEventListener(
         WalletIframeDomEvents.TX_CONFIRMER_CONFIRM,
         onConfirm as EventListener,
       );
       el.removeEventListener(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, onCancel as EventListener);
+      el.removeEventListener(
+        WalletIframeDomEvents.TX_CONFIRMER_INTERACTIVE,
+        onInteractive as EventListener,
+      );
     };
 
     el.addEventListener(WalletIframeDomEvents.TX_CONFIRMER_CONFIRM, onConfirm as EventListener);
     el.addEventListener(WalletIframeDomEvents.TX_CONFIRMER_CANCEL, onCancel as EventListener);
+    el.addEventListener(
+      WalletIframeDomEvents.TX_CONFIRMER_INTERACTIVE,
+      onInteractive as EventListener,
+    );
   });
 }
 

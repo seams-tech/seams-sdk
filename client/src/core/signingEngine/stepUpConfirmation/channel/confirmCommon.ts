@@ -65,11 +65,13 @@ export const ERROR_MESSAGES = {
 
 const WORKER_CHANNEL_TOKEN_FIELD = '__w3aSecureConfirmChannelToken';
 
-type UserConfirmWorkerChannelProxy = Worker & {
+export type UserConfirmResponsePort = Pick<Worker, 'postMessage'>;
+
+type UserConfirmWorkerChannelProxy = UserConfirmResponsePort & {
   [WORKER_CHANNEL_TOKEN_FIELD]?: string;
 };
 
-function getWorkerChannelToken(worker: Worker): string | undefined {
+function getWorkerChannelToken(worker: UserConfirmResponsePort): string | undefined {
   return normalizeOptionalNonEmptyString(
     (worker as UserConfirmWorkerChannelProxy)[WORKER_CHANNEL_TOKEN_FIELD],
   );
@@ -96,7 +98,7 @@ export function createUserConfirmScopedWorker(
 }
 
 export function sendConfirmResponse(
-  worker: Worker,
+  worker: UserConfirmResponsePort,
   response: UserConfirmDecision,
   options?: { channelToken?: string },
 ) {

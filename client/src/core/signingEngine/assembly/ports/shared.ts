@@ -52,9 +52,7 @@ import type { EmailOtpAuthLane } from '../../stepUpConfirmation/otpPrompt/authLa
 import type { TouchIdPrompt } from '../../stepUpConfirmation/passkeyPrompt/touchIdPrompt';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import type { ThresholdEd25519LifecycleDeps } from '../../threshold/ed25519/hssLifecycle';
-import type {
-  ThresholdSessionActivationDeps,
-} from '../../session/passkey/ecdsaBootstrap';
+import type { ThresholdSessionActivationDeps } from '../../session/passkey/ecdsaBootstrap';
 import type { PersistEmailOtpThresholdEd25519LocalMetadataDeps } from '../../session/emailOtp/ed25519LocalMetadata';
 import type { ThresholdEcdsaBootstrapStorePort } from '../../session/warmCapabilities/ecdsaBootstrapPersistence';
 import type { UiConfirmRuntimeBridgePort, WarmSessionStatusResult } from '../../uiConfirm/types';
@@ -63,6 +61,7 @@ import type { SignerWorkerManager } from '../../workerManager/SignerWorkerManage
 import {
   prewarmSignerWorkers as prewarmSignerWorkersValue,
   warmCriticalResources as warmCriticalResourcesValue,
+  type WorkerResourceWarmupDiagnostics,
   type WorkerResourceWarmupDeps,
   type WorkerResourceWarmupStorePort,
 } from '../warmup';
@@ -77,7 +76,7 @@ export type SignTempoPortInput = {
 export type SigningEngineConveniencePorts = {
   signTempo: (args: SignTempoPortInput) => Promise<TempoSignedResult | EvmSignedResult>;
   prewarmSignerWorkers: () => void;
-  warmCriticalResources: (nearAccountId?: string) => Promise<void>;
+  warmCriticalResources: (nearAccountId?: string) => Promise<WorkerResourceWarmupDiagnostics>;
   getWarmThresholdEd25519SessionStatus: (
     nearAccountId: AccountId | string,
   ) => Promise<SigningSessionStatus | null>;
@@ -149,13 +148,10 @@ export type CreateSigningEnginePortsArgs = {
     chainTarget: ThresholdEcdsaChainTarget;
     source: Exclude<ThresholdEcdsaSessionStoreSource, 'email_otp'>;
   }) => ThresholdEcdsaSessionRecord;
-  requestEmailOtpTransactionSigningChallenge?:
-    & NearSigningApiDeps['requestEmailOtpTransactionSigningChallenge']
-    & EvmFamilySigningDeps['requestEmailOtpTransactionSigningChallenge'];
+  requestEmailOtpTransactionSigningChallenge?: NearSigningApiDeps['requestEmailOtpTransactionSigningChallenge'] &
+    EvmFamilySigningDeps['requestEmailOtpTransactionSigningChallenge'];
   isEmailOtpEd25519WarmupPending?: (args: { nearAccountId: AccountId }) => boolean;
-  waitForPendingEmailOtpEd25519Warmup?: (args: {
-    nearAccountId: AccountId;
-  }) => Promise<boolean>;
+  waitForPendingEmailOtpEd25519Warmup?: (args: { nearAccountId: AccountId }) => Promise<boolean>;
   loginWithEmailOtpEd25519CapabilityForSigning?: (args: {
     nearAccountId: AccountId;
     challengeId: string;
@@ -289,7 +285,9 @@ export function createWorkerResourceWarmupDepsFactory(
     nonceCoordinator: args.nonceCoordinator,
     prewarmWorkers: args.signerWorkerManager.prewarmWorkers.bind(args.signerWorkerManager),
     shouldPrewarmWorkers: args.shouldPrewarmWorkers,
-    prewarmUiConfirmUi: prewarmTxConfirmerUi,
+    prewarmUiConfirmUi: async () => {
+      await Promise.all([args.touchConfirm.initialize(), prewarmTxConfirmerUi()]);
+    },
     activateAuthenticatedWalletState: args.activateAuthenticatedWalletState,
   });
 }

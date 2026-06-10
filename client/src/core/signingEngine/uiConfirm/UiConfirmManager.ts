@@ -60,7 +60,7 @@ import type {
   SigningConfirmationResultIntentDigest,
   SigningConfirmationResultWithTxContext,
 } from '../stepUpConfirmation/confirmOperation';
-import { requestRegistrationCredentialConfirmation as requestRegistrationCredentialConfirmationFlow } from './handlers/flows/requestRegistrationCredentialConfirmation';
+import { requestRegistrationCredentialConfirmationOnMainThread } from './handlers/flows/requestRegistrationCredentialConfirmation';
 import type {
   RequestRegistrationCredentialConfirmationParams,
   RequestUserConfirmationOptions,
@@ -109,6 +109,10 @@ type PendingWorkerRequest = {
 };
 
 const USER_CONFIRM_WORKER_STARTUP_PING_TIMEOUT_MS = 15_000;
+
+function roundUiConfirmDurationMs(startedAt: number): number {
+  return Math.max(0, Math.round(performance.now() - startedAt));
+}
 
 type PasskeySealedRecordAccountMetadata = {
   walletId?: string;
@@ -1852,7 +1856,9 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       throw new Error('Invalid secure confirmation request: missing requestId');
     }
 
+    const workerReadyStartedAt = performance.now();
     await this.ensureWorkerReady(false);
+    const workerReadyMs = roundUiConfirmDurationMs(workerReadyStartedAt);
     if (options?.onProgress) {
       this.userConfirmProgressListeners.set(requestId, options.onProgress);
     }
@@ -1860,11 +1866,14 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
     const workerSafeRequest = stripFunctionsForWorkerMessage(request);
 
     try {
+      const requestRoundTripStartedAt = performance.now();
       const response = await this.sendMessage({
         type: 'SECURE_CONFIRM_REQUEST',
         id: this.generateMessageId(),
         payload: { request: workerSafeRequest },
       });
+      const workerRequestRoundTripMs = roundUiConfirmDurationMs(requestRoundTripStartedAt);
+      const responseValidationStartedAt = performance.now();
       if (!response?.success) {
         throw new Error(String(response?.error || 'Secure confirmation request failed'));
       }
@@ -1875,7 +1884,19 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       if (String(decision.requestId || '').trim() !== requestId) {
         throw new Error('Secure confirmation request failed: response requestId mismatch');
       }
-      return decision;
+      const workerResponseValidationMs = roundUiConfirmDurationMs(responseValidationStartedAt);
+      if (decision.registrationDiagnostics?.kind !== 'registration_confirmation_diagnostics_v1') {
+        return decision;
+      }
+      return {
+        ...decision,
+        registrationDiagnostics: {
+          ...decision.registrationDiagnostics,
+          workerReadyMs,
+          workerRequestRoundTripMs,
+          workerResponseValidationMs,
+        },
+      };
     } finally {
       this.userConfirmProgressListeners.delete(requestId);
       this.pendingFunctionBearingConfirmRequests.delete(requestId);
@@ -1924,8 +1945,8 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
   async requestRegistrationCredentialConfirmation(
     params: RequestRegistrationCredentialConfirmationParams,
   ) {
-    return requestRegistrationCredentialConfirmationFlow({
-      touchConfirm: this,
+    return requestRegistrationCredentialConfirmationOnMainThread({
+      ctx: this.getContext(),
       nearAccountId: params.nearAccountId,
       signerSlot: params.signerSlot,
       confirmerText: params.confirmerText,

@@ -18,12 +18,17 @@ import type {
   StoredEd25519RegistrationPrepared,
   StoredEd25519RegistrationResponded,
   StoredRegistrationIntent,
+  StoredWalletRegistrationHssPreparationBase,
+  StoredWalletRegistrationHssPreparationFailed,
+  StoredWalletRegistrationHssPreparationPrepared,
+  StoredWalletRegistrationHssPreparationPreparing,
   StoredWalletAddAuthMethodCeremony,
   StoredWalletRegistrationFailed,
   StoredWalletRegistrationCeremony,
 } from './RegistrationCeremonyStore';
 import type {
   EcdsaHssServerBootstrapResponse,
+  RegistrationPreparationId,
   WalletRegistrationEcdsaPreparePayload,
   WalletRegistrationEcdsaWalletKey,
 } from './types';
@@ -132,6 +137,56 @@ const preparedEd25519 = {
   preparedSession,
   clientOtOfferMessageB64u: 'ot-offer',
 } satisfies StoredEd25519RegistrationPrepared;
+
+const preparationBase = {
+  registrationPreparationId: 'wrp_123' as RegistrationPreparationId,
+  registrationIntentGrant: allocatedIntent.grant,
+  registrationIntentDigestB64u: allocatedIntent.digestB64u,
+  intent,
+  orgId: allocatedIntent.orgId,
+  expectedOrigin: 'https://wallet.example.test',
+  signingRootId: 'project:env',
+  signingRootVersion: 'default',
+  ed25519Scope: {
+    walletId: String(intent.walletId),
+    rpId: intent.rpId,
+    authMethodKind: intent.authMethod.kind,
+    expectedOrigin: 'https://wallet.example.test',
+    orgId: allocatedIntent.orgId,
+    signingRootId: 'project:env',
+    signingRootVersion: 'default',
+    nearAccountId: intent.signerSelection.ed25519.nearAccountId,
+    keyPurpose: intent.signerSelection.ed25519.keyPurpose,
+    keyVersion: intent.signerSelection.ed25519.keyVersion,
+    derivationVersion: intent.signerSelection.ed25519.derivationVersion,
+    participantIds: intent.signerSelection.ed25519.participantIds,
+  },
+  createdAtMs: 1,
+  expiresAtMs: 2,
+} satisfies StoredWalletRegistrationHssPreparationBase;
+
+const preparedRegistrationHssPreparation = {
+  ...preparationBase,
+  kind: 'hss_prepare_prepared',
+  prepared: preparedEd25519,
+} satisfies StoredWalletRegistrationHssPreparationPrepared;
+void preparedRegistrationHssPreparation;
+
+const preparingRegistrationHssPreparation = {
+  ...preparationBase,
+  kind: 'hss_prepare_preparing',
+} satisfies StoredWalletRegistrationHssPreparationPreparing;
+void preparingRegistrationHssPreparation;
+
+const failedRegistrationHssPreparation = {
+  ...preparationBase,
+  kind: 'hss_prepare_failed',
+  failure: {
+    code: 'hss_prepare_failed',
+    message: 'prepare failed',
+  },
+} satisfies StoredWalletRegistrationHssPreparationFailed;
+void failedRegistrationHssPreparation;
 
 const respondedEd25519 = {
   kind: 'ed25519_responded',
@@ -325,6 +380,60 @@ void ({
   // @ts-expect-error allocated add-auth-method intents reject consumed timestamps
   consumedAtMs: 2,
 } satisfies StoredAddAuthMethodIntent);
+
+void ({
+  ...preparationBase,
+  // @ts-expect-error preparation ids must be normalized into branded ids at the boundary
+  registrationPreparationId: 'wrp_raw_string',
+} satisfies StoredWalletRegistrationHssPreparationBase);
+
+void ({
+  ...preparationBase,
+  ed25519Scope: {
+    ...preparationBase.ed25519Scope,
+    // @ts-expect-error preparation scope requires wallet identity
+    walletId: undefined,
+  },
+} satisfies StoredWalletRegistrationHssPreparationBase);
+
+void ({
+  ...preparationBase,
+  kind: 'hss_prepare_preparing',
+  // @ts-expect-error preparing records cannot carry prepared HSS payloads
+  prepared: preparedEd25519,
+} satisfies StoredWalletRegistrationHssPreparationPreparing);
+
+void ({
+  ...preparationBase,
+  kind: 'hss_prepare_prepared',
+  prepared: preparedEd25519,
+  // @ts-expect-error prepared records cannot carry failure data
+  failure: {
+    code: 'mixed',
+    message: 'mixed branch',
+  },
+} satisfies StoredWalletRegistrationHssPreparationPrepared);
+
+void ({
+  ...preparationBase,
+  kind: 'hss_prepare_failed',
+  failure: {
+    code: 'hss_prepare_failed',
+    message: 'prepare failed',
+  },
+  // @ts-expect-error failed records cannot carry prepared HSS payloads
+  prepared: preparedEd25519,
+} satisfies StoredWalletRegistrationHssPreparationFailed);
+
+void ({
+  ...preparedRegistrationHssPreparation,
+  kind: 'hss_prepare_failed',
+  failure: {
+    code: 'spread_mixed',
+    message: 'spread mixed lifecycle state',
+  },
+  // @ts-expect-error broad-spread construction cannot smuggle prepared payloads into failed records
+} satisfies StoredWalletRegistrationHssPreparationFailed);
 
 void ({
   ...consumedIntent,

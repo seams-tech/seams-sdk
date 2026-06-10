@@ -2,7 +2,9 @@
 
 Date created: June 8, 2026
 
-Status: planning.
+Status: route split, registration warmup instrumentation, passkey confirmation
+sub-buckets, and direct registration confirmation path landed, benchmarked, and
+retained.
 
 ## Goal
 
@@ -261,51 +263,66 @@ builders that require all identity, digest, preparation, and authority fields.
 
 ### Phase 1: Warmup Inventory
 
-- [ ] Identify wallet iframe warmup calls that are safe before authority proof.
-- [ ] Identify signing worker and HSS WASM init calls that can run without user
+- [x] Identify wallet iframe warmup calls that are safe before authority proof.
+- [x] Identify signing worker and HSS WASM init calls that can run without user
       secrets.
-- [ ] Identify Email OTP worker init paths that can run before proof.
-- [ ] Add diagnostics for warmup start, warmup ready, and warmup wait time.
-- [ ] Add tests proving diagnostics do not influence registration control flow.
+- [x] Identify Email OTP worker init paths that can run before proof.
+- [x] Add diagnostics for warmup start, warmup ready, and warmup wait time.
+- [x] Add tests proving diagnostics do not influence registration control flow.
+
+Notes:
+
+- Registration now starts `warmCriticalResources` before managed grant
+  creation and records `registrationWarmupMs` plus
+  `registrationWarmupWaitMs`.
+- `warmCriticalResources` uses the existing safe warmup boundary: UI prewarm,
+  worker creation, nonce context, and account-local IndexedDB/key-material
+  reads where an account id is available. Worker WASM initialization remains
+  operation-lazy unless the worker exposes a no-secret initialization command.
+- The orchestration fixture covers warmup diagnostics as observational timing
+  fields and keeps ECDSA-only registration off the Ed25519 preauth prepare
+  route.
 
 ### Phase 2: Preparation Route Client
 
-- [ ] Add `RegistrationPreparationId` as a branded domain id.
-- [ ] Add `createWalletRegistrationPreparation` to the relayer RPC client.
-- [ ] Parse prepare responses into discriminated result branches at the RPC
+- [x] Add `RegistrationPreparationId` as a branded domain id.
+- [x] Add `prepareWalletRegistration` to the relayer RPC client.
+- [x] Parse prepare responses into discriminated result branches at the RPC
       boundary.
-- [ ] Update `startWalletRegistration` to require
+- [x] Update `startWalletRegistration` callers for Ed25519 signer modes to pass
       `registrationPreparationId`.
-- [ ] Add type fixtures rejecting raw strings, missing preparation id, mixed
+- [x] Add type fixtures rejecting raw strings, missing preparation id, mixed
       work branches, and direct object-literal invalid lifecycle states.
 
 ### Phase 3: Registration Orchestration
 
-- [ ] Start iframe warmup and worker/WASM init before grant creation where the
+- [x] Start iframe warmup and worker/WASM init before grant creation where the
       current platform runtime can do so.
-- [ ] Start `/wallets/register/prepare` immediately after the registration
+- [x] Include UserConfirm worker initialization in registration warmup so host
+      origin passkey auth no longer pays worker startup on the proof path.
+- [x] Start `/wallets/register/prepare` immediately after the registration
       intent digest verifies locally.
-- [ ] Collect passkey create or Email OTP proof in parallel with preparation.
-- [ ] Wait for both `preauth_prepared` and `authority_collected` before calling
+- [x] Collect passkey create or Email OTP proof in parallel with preparation.
+- [x] Wait for both `preauth_prepared` and `authority_collected` before calling
       `/wallets/register/start`.
-- [ ] Keep user-visible progress events stable while moving internal work
+- [x] Keep user-visible progress events stable while moving internal work
       earlier.
-- [ ] Split timing buckets into preparation wait, proof wait, and start-route
+- [x] Split timing buckets into preparation wait, proof wait, and start-route
       execution.
 
 ### Phase 4: Server Route And Store Contract
 
-- [ ] Add a prepared-registration record to `RegistrationCeremonyStore`.
-- [ ] Persist preparation records separately from verified registration
+- [x] Add a prepared-registration record to `RegistrationCeremonyStore`.
+- [x] Persist preparation records separately from verified registration
       ceremonies.
-- [ ] Add an atomic consume method that consumes an intent only after the
+- [x] Add an atomic consume method that consumes an intent only after the
       caller supplies the verified digest, preparation id, and expected scope.
-- [ ] Bind preparation records to grant, digest, wallet id, rp id, signer
+- [x] Bind preparation records to grant, digest, wallet id, rp id, signer
       selection, signing root, expected origin, participant ids, and expiry.
-- [ ] Consume or invalidate the preparation record when
+- [x] Consume or invalidate the preparation record when
       `/wallets/register/start` succeeds.
-- [ ] Expire abandoned preparation records aggressively.
-- [ ] Keep raw DB parsing inside the store boundary.
+- [x] Expire abandoned preparation records aggressively.
+- [x] Keep raw DB parsing inside the store boundary.
 
 ### Phase 5: Optional Account Reservation
 
@@ -319,12 +336,156 @@ builders that require all identity, digest, preparation, and authority fields.
 
 ### Phase 6: Benchmark And Keep Decision
 
-- [ ] Add benchmark buckets for preparation route, preparation wait, iframe
-      warmup, worker init, WASM init, and account reservation.
-- [ ] Run `pnpm benchmark:registration-flow:smoke` before and after.
-- [ ] Keep the change only if the post-proof start path improves materially.
-- [ ] Record retained results in `docs/benchmarks/registration-flow.md`.
-- [ ] Update `docs/refactor-59-optimize.md` with the new bottleneck ranking.
+- [x] Add benchmark buckets for preparation route, preparation wait, and
+      start-route execution.
+- [x] Add benchmark buckets for registration warmup and warmup wait.
+- [x] Add benchmark sub-buckets for authenticated wallet-state activation,
+      nonce prefetch, key-material read, UI confirm prewarm, and signer worker
+      prewarm after the warmup surface exposes them.
+- [x] Expose HSS worker WASM init wait p50/p95 in the registration-flow HSS
+      worker diagnostics table.
+- [x] Add passkey auth proof sub-buckets for confirmation bridge, PRF
+      extraction, and credential redaction.
+- [x] Add passkey confirmation/WebAuthn bridge sub-buckets for UserConfirm
+      worker ready, worker round trip, prompt UI, credential create,
+      credential serialization, duplicate retry count, and main-thread total.
+- [x] Split prompt UI timing into element-definition, mount, and decision-wait
+      buckets so wallet-iframe prompt cost can be separated from credential
+      creation.
+- [x] Route registration credential confirmation directly on the main-thread UI
+      path, bypassing the UserConfirm worker bounce for registration while
+      preserving the worker-backed path for signing flows.
+- [x] Add benchmark-only wallet-iframe auto-confirm diagnostics for iframe
+      attachment, frame resolution, confirm-button visibility, click dispatch,
+      click duration, attempts, and total helper time.
+- [x] Retain stable benchmark auto-confirm retry hygiene: keep the `50ms`
+      locator timeout, remove the extra benchmark retry sleep, and stop the
+      benchmark helper after the first successful click.
+- [ ] Add benchmark sub-buckets for iframe load/handshake and account
+      reservation after those surfaces expose explicit no-secret timing hooks.
+- [x] Run `pnpm benchmark:registration-flow:smoke` before and after the route
+      split.
+- [x] Keep the change because the post-proof start path improves materially.
+- [x] Record retained results in `docs/benchmarks/registration-flow.md`.
+- [x] Update `docs/refactor-59-optimize.md` with the new bottleneck ranking.
+
+Notes:
+
+- Smoke run `20260609-170907Z` passed all four passkey scenarios and synced
+  `docs/benchmarks/registration-flow.md`. New warmup sub-buckets showed
+  `registrationWarmupMs` p50 at `1ms`, `1ms`, `3ms`, and `2ms`, with
+  `registrationWarmupWaitMs` p50 still `0ms` in every scenario. Wallet-state
+  activation accounts for nearly all measured warmup time, while nonce
+  prefetch, key-material read, UI prewarm, and signer-worker prewarm are
+  effectively zero in the smoke path.
+- The same report now exposes HSS worker `wasmInitWaitMs` p50/p95 in the HSS
+  worker diagnostics table. It was `0ms` p50 and p95 for
+  `prepare_client_request` and `build_client_owned_staged_evaluator_artifact`,
+  so lazy HSS WASM initialization is not currently a meaningful registration
+  bottleneck.
+- Smoke run `20260609-171626Z` added passkey auth proof sub-buckets and passed
+  all four passkey scenarios. `passkeyAuthConfirmationMs` matched
+  `authProofMs` in every scenario: `907ms`, `904ms`, `569ms`, and `573ms` p50.
+  PRF extraction and credential redaction were `0ms` p50/p95, so the wallet
+  iframe auth penalty sits inside the confirmation/WebAuthn bridge rather than
+  local passkey post-processing.
+- Smoke run `20260609-172910Z` added confirmation/WebAuthn bridge sub-buckets
+  and passed all four passkey scenarios. Host-origin auth proof was split into
+  about `377ms` p50 UserConfirm worker readiness plus `202ms` to `203ms` p50
+  WebAuthn credential creation. Wallet-iframe auth proof was about `870ms` p50:
+  roughly `369ms` to `372ms` worker readiness, `281ms` to `294ms` prompt/UI
+  handoff, and `203ms` credential creation. Response validation, request setup,
+  credential serialization, PRF extraction, and credential redaction were
+  `0ms` p50.
+- Smoke run `20260609-173305Z` included UserConfirm worker initialization in
+  registration warmup and passed all four passkey scenarios. Host-origin
+  `authProofMs` dropped from `578ms` to `580ms` p50 down to `203ms` to `206ms`
+  p50, with `passkeyAuthWorkerReadyMs` now `0ms`. Wallet-iframe SDK p50 stayed
+  roughly flat (`1851ms` and `1903ms`), because the remaining auth time sits in
+  worker request round trip plus prompt/UI handoff. This keeps the worker
+  prewarm because it removes host-origin critical-path startup without changing
+  the trust model.
+- Smoke run `20260609-174456Z` split prompt UI into element-definition, mount,
+  and decision-wait buckets. Element definition and mount were `0ms` p50 in the
+  passkey smoke path; wallet-iframe cost sat in decision wait plus WebAuthn
+  credential creation.
+- Smoke run `20260609-174752Z` tightened benchmark accounting by measuring
+  browser duration before the post-result log-settle sleep and lowering the
+  wallet-iframe auto-confirm polling interval from `250ms` to `50ms`. This was
+  retained as benchmark harness hygiene: browser-observed p50 dropped by
+  `185ms` to `874ms` depending on scenario, while SDK timing stayed comparable.
+- A CSS prewarm experiment (`20260609-175140Z`) was rejected. It produced only
+  noise-level movement in prompt decision timing and did not move the retained
+  registration bottlenecks.
+- Smoke run `20260609-180125Z` routed registration credential confirmation
+  directly through the main-thread UI path. This removed the redundant
+  UserConfirm worker round trip (`passkeyAuthWorkerRequestRoundTripMs` is now
+  `0ms`) and improved wallet-iframe SDK p50 by about `41ms` to `43ms` versus
+  `20260609-174752Z`. Host-origin p50 stayed essentially flat because it was
+  already dominated by WebAuthn credential creation. The direct path is retained
+  as a small, low-risk refactor-61 win.
+- A more aggressive `10ms` wallet-iframe auto-confirm polling experiment was
+  rejected because it made the registration benchmark unstable. Keep the stable
+  `50ms` benchmark helper floor unless a future event-driven auto-confirm
+  helper replaces polling.
+- Smoke run `20260609-181959Z` added benchmark-only wallet-iframe auto-confirm
+  diagnostics. The iframe was attached almost immediately (`2ms` p50), while
+  the confirm button was first observed at roughly `679ms` to `688ms` p50 and
+  the successful click was dispatched at roughly `871ms` to `899ms` p50. This
+  showed that browser-observed wallet-iframe timing still included benchmark
+  confirmation automation delay.
+- Smoke run `20260609-182306Z` kept the stable `50ms` locator timeout but
+  removed the extra benchmark retry sleep and stopped the helper after the first
+  successful click. It passed all four smoke scenarios and is retained as
+  benchmark harness hygiene: wallet-iframe browser p50 improved by `116ms` to
+  `147ms` versus `20260609-180125Z`, while SDK p50 changed by only `12ms` to
+  `40ms`. The remaining wallet-iframe auto-confirm p50 is button visible at
+  `639ms` to `645ms`, click dispatch at `843ms` to `849ms`, and click duration
+  at `35ms` to `41ms`.
+- Smoke run `20260609-032110Z` passed all four passkey scenarios and synced
+  `docs/benchmarks/registration-flow.md`.
+- `/wallets/register/start` is now out of the HSS prepare business for prepared
+  Ed25519 modes: p50 was `6ms` to `7ms` in wallet-iframe scenarios and
+  single-digit in host-origin scenarios.
+- `walletRegisterPrepareWaitMs` was `0ms` p50 and p95 in every smoke scenario,
+  so server HSS prepare is fully hidden under the measured passkey proof
+  window.
+- `registrationWarmupWaitMs` was also `0ms` p50 and p95 in every smoke
+  scenario. The current warmup is useful as coverage and instrumentation, but
+  it is not the limiting registration bucket in this smoke path.
+- Current retained SDK p50 is `1807ms` wallet-iframe Ed25519-only, `1869ms`
+  wallet-iframe combined, `1480ms` host-origin Ed25519-only, and `1511ms`
+  host-origin combined. Current browser-observed p50 is `2480ms`, `2502ms`,
+  `1852ms`, and `1895ms` respectively. Product-side wallet-iframe prompt
+  readiness is not the bottleneck: the confirmation host reaches first update
+  and interactive state in about `1ms` p50 after prompt start, while the
+  measured iframe prompt decision wait is `620ms` to `643ms` p50 in the
+  benchmark auto-confirm path. The next latency work should target client HSS
+  artifact construction first, then revisit finalize if it remains a visible
+  product bucket.
+
+## Next Optimization Steps
+
+1. [x] Add benchmark-side wallet-iframe confirmation observability for iframe
+   attachment, frame resolution, visible-button readiness, click dispatch,
+   click duration, attempts, and helper total time.
+2. [x] Tighten benchmark auto-confirm without aggressive polling. The retained
+   helper still uses a stable `50ms` locator timeout, but avoids an extra retry
+   sleep and stops after the first successful click.
+3. [x] Add product-side wallet-iframe UI readiness timing for host-message handoff,
+   first rendered/interactive state, confirm-event arrival, and WebAuthn-start
+   time. Smoke run `20260610-024516Z` shows host first-update and interactive
+   p50 at about `1ms`, so Lit rendering and prompt host attachment are not the
+   current p50 bottleneck.
+4. Resume refactor-64 HSS artifact work. The current product p50 gap is still
+   dominated by `ed25519EvaluationArtifactMs` at `466ms` to `471ms` p50 after
+   the benchmark-only prompt wait is separated from product rendering.
+5. Revisit `/wallets/register/finalize` after the next HSS artifact pass. It is
+   still roughly `216ms` to `219ms` p50 and is a real product-path bucket, unlike
+   benchmark-only click automation.
+6. Keep account reservation pending until account availability or route
+   contention appears in benchmarks; it is not currently in the p50 bottleneck
+   order.
 
 ## Acceptance Criteria
 

@@ -4,9 +4,10 @@ Date created: June 7, 2026
 
 Status: browser benchmark harness implemented; full 5-run passkey smoke
 baseline recorded with SDK, HSS, gated relay route substep timings, and
-fine-grained hidden-eval worker diagnostics; retained HSS worker/session-handle
-and finalize cached-session optimizations now bring SDK registration p50 to
-about `1.9s` to `2.1s` across the smoke scenarios.
+fine-grained hidden-eval worker diagnostics; retained HSS worker/session-handle,
+finalize cached-session, and preauth registration-prepare route optimizations
+now bring SDK registration p50 to about `1.6s` to `2.1s` across the smoke
+scenarios.
 
 ## Goal
 
@@ -229,6 +230,24 @@ June 7 update:
   required transcript labels, provenance digests, gate schedule, and
   constant-time constraints. Implement only one candidate at a time after that
   design is explicit.
+- The preauth HSS prepare route split and client overlap completed in smoke run
+  `20260609-032110Z`: all 4 scenarios passed, and
+  `docs/benchmarks/registration-flow.md` was synced. The server-side HSS
+  prepare route is now fully overlapped in the measured passkey flows:
+  - `walletRegisterPrepareWaitMs` is `0ms` p50 and p95 in all four smoke
+    scenarios.
+  - `registrationWarmupWaitMs` is `0ms` p50 and p95 in all four smoke
+    scenarios.
+  - `walletRegisterStartMs` remains single-digit p50 for the current
+    host-origin and wallet-iframe scenarios (`6ms` to `7ms` p50).
+  - `walletRegisterPrepareMs` is still roughly `375ms` to `377ms` p50, but it
+    is no longer observed as a post-authority wait in the SDK flow.
+  - current SDK p50 is `1989ms` wallet-iframe Ed25519-only, `2026ms`
+    wallet-iframe combined, `1636ms` host-origin Ed25519-only, and `1692ms`
+    host-origin combined.
+  - next latency work should target Ed25519 client artifact construction,
+    finalize, and wallet-iframe overhead rather than additional preauth HSS
+    prepare overlap for the current passkey smoke path.
 
 ## Benchmark Questions
 
@@ -252,12 +271,16 @@ Client-side buckets:
 
 - `totalMs`
 - `inputValidationMs`
+- `registrationWarmupMs`
+- `registrationWarmupWaitMs`
 - `managedRegistrationGrantMs`
 - `registrationIntentMs`
 - `registrationIntentDigestMs`
 - `authProofMs`
 - `emailOtpEnrollmentMaterialMs`
 - `ed25519ClientMaterialMs`
+- `walletRegisterPrepareMs`
+- `walletRegisterPrepareWaitMs`
 - `walletRegisterStartMs`
 - `ed25519ClientRequestMs`
 - `walletRegisterHssRespondMs`

@@ -64,9 +64,10 @@ import type {
   EmailOtpWorkerSessionHandleOperation,
   EmailOtpWorkerOperationRequestEnvelope,
 } from '@/core/signingEngine/workerManager/workerTypes';
-import type {
-  WalletRegistrationEcdsaClientBootstrap,
-  WalletRegistrationEcdsaPrepareContext,
+import {
+  registrationPreparationIdFromString,
+  type WalletRegistrationEcdsaClientBootstrap,
+  type WalletRegistrationEcdsaPrepareContext,
 } from '@/core/rpcClients/relayer/walletRegistration';
 import {
   thresholdEcdsaChainTargetFromRequest,
@@ -4049,6 +4050,8 @@ function parseWalletRegistrationEcdsaPrepareContext(
       'Email OTP wallet-registration ECDSA prepare requires ttl, uses, and participants',
     );
   }
+  const registrationPreparationIdRaw =
+    typeof obj.registrationPreparationId === 'string' ? obj.registrationPreparationId.trim() : '';
   return {
     formatVersion: 'ecdsa-hss-role-local',
     walletId: readString(obj.walletId, 'prepare.walletId'),
@@ -4058,6 +4061,12 @@ function parseWalletRegistrationEcdsaPrepareContext(
     signingRootVersion: readString(obj.signingRootVersion, 'prepare.signingRootVersion'),
     keyScope: 'evm-family',
     relayerKeyId: readString(obj.relayerKeyId, 'prepare.relayerKeyId'),
+    ...(registrationPreparationIdRaw
+      ? {
+          registrationPreparationId:
+            registrationPreparationIdFromString(registrationPreparationIdRaw),
+        }
+      : {}),
     requestId: readString(obj.requestId, 'prepare.requestId'),
     sessionId: readString(obj.sessionId, 'prepare.sessionId'),
     walletSigningSessionId: readString(

@@ -48,8 +48,79 @@ fn hidden_eval_operation_shape_records_current_materialization_baseline() {
             logical_provenance_digest_derivations: 13_824,
             logical_label_writes: 57_128,
             logical_label_format_allocations: 265,
+            physical_keyed_digest_derivations: counts.physical_keyed_digest_derivations,
+            physical_keyed_digest_eval_xor_local_word: counts
+                .physical_keyed_digest_eval_xor_local_word,
+            physical_keyed_digest_eval_add_local: counts.physical_keyed_digest_eval_add_local,
+            physical_keyed_digest_eval_mul_local_material: counts
+                .physical_keyed_digest_eval_mul_local_material,
+            physical_keyed_digest_eval_mul_local: counts.physical_keyed_digest_eval_mul_local,
+            physical_keyed_digest_phase_a_arith_share_to_bool: counts
+                .physical_keyed_digest_phase_a_arith_share_to_bool,
+            physical_keyed_digest_phase_a_bool_to_arith_base: counts
+                .physical_keyed_digest_phase_a_bool_to_arith_base,
+            physical_keyed_digest_phase_a_arith_to_bool_zero: counts
+                .physical_keyed_digest_phase_a_arith_to_bool_zero,
+            physical_keyed_digest_compose_word_from_share_bits: counts
+                .physical_keyed_digest_compose_word_from_share_bits,
+            physical_keyed_digest_share_word: counts.physical_keyed_digest_share_word,
+            physical_keyed_digest_other: counts.physical_keyed_digest_other,
+            physical_derived_commitment_hashes: counts.physical_derived_commitment_hashes,
+            physical_derived_commitment_eval_xor_local_word: counts
+                .physical_derived_commitment_eval_xor_local_word,
+            physical_derived_commitment_eval_add_local: counts
+                .physical_derived_commitment_eval_add_local,
+            physical_derived_commitment_eval_mul_local_material: counts
+                .physical_derived_commitment_eval_mul_local_material,
+            physical_derived_commitment_eval_mul_local: counts
+                .physical_derived_commitment_eval_mul_local,
+            physical_derived_commitment_phase_a_arith_share_to_bool: counts
+                .physical_derived_commitment_phase_a_arith_share_to_bool,
+            physical_derived_commitment_phase_a_bool_to_arith_base: counts
+                .physical_derived_commitment_phase_a_bool_to_arith_base,
+            physical_derived_commitment_phase_a_arith_to_bool_zero: counts
+                .physical_derived_commitment_phase_a_arith_to_bool_zero,
+            physical_derived_commitment_compose_word_from_share_bits: counts
+                .physical_derived_commitment_compose_word_from_share_bits,
+            physical_derived_commitment_share_word: counts.physical_derived_commitment_share_word,
+            physical_derived_commitment_other: counts.physical_derived_commitment_other,
+            physical_add_bit_hashes: counts.physical_add_bit_hashes,
+            physical_mul_material_hashes: counts.physical_mul_material_hashes,
+            physical_mul_output_seed_hashes: counts.physical_mul_output_seed_hashes,
         },
         "current hidden-eval materialization shape changed",
+    );
+    #[cfg(not(feature = "hss-physical-counters"))]
+    assert_eq!(
+        [
+            counts.physical_keyed_digest_derivations,
+            counts.physical_keyed_digest_eval_xor_local_word,
+            counts.physical_keyed_digest_eval_add_local,
+            counts.physical_keyed_digest_eval_mul_local_material,
+            counts.physical_keyed_digest_eval_mul_local,
+            counts.physical_keyed_digest_phase_a_arith_share_to_bool,
+            counts.physical_keyed_digest_phase_a_bool_to_arith_base,
+            counts.physical_keyed_digest_phase_a_arith_to_bool_zero,
+            counts.physical_keyed_digest_compose_word_from_share_bits,
+            counts.physical_keyed_digest_share_word,
+            counts.physical_keyed_digest_other,
+            counts.physical_derived_commitment_hashes,
+            counts.physical_derived_commitment_eval_xor_local_word,
+            counts.physical_derived_commitment_eval_add_local,
+            counts.physical_derived_commitment_eval_mul_local_material,
+            counts.physical_derived_commitment_eval_mul_local,
+            counts.physical_derived_commitment_phase_a_arith_share_to_bool,
+            counts.physical_derived_commitment_phase_a_bool_to_arith_base,
+            counts.physical_derived_commitment_phase_a_arith_to_bool_zero,
+            counts.physical_derived_commitment_compose_word_from_share_bits,
+            counts.physical_derived_commitment_share_word,
+            counts.physical_derived_commitment_other,
+            counts.physical_add_bit_hashes,
+            counts.physical_mul_material_hashes,
+            counts.physical_mul_output_seed_hashes,
+        ],
+        [0; 25],
+        "physical hash counters should stay disabled in default builds",
     );
     assert!(
         counts.logical_local_word_materializations
@@ -139,7 +210,8 @@ fn assert_hidden_eval_production_matches_checkpoint_trace(
 
     assert_run_equivalent(&production_run, &checkpoint_trace.run);
     assert_eq!(
-        production_profile.operation_counts, checkpoint_profile.operation_counts,
+        logical_operation_shape(production_profile.operation_counts),
+        logical_operation_shape(checkpoint_profile.operation_counts),
         "checkpoint capture must not change logical hidden-eval operation shape",
     );
     assert_ne!(
@@ -168,7 +240,8 @@ fn assert_hidden_eval_production_matches_checkpoint_trace(
         )?;
         assert_run_equivalent(&production_run, &joint_profile.run);
         assert_eq!(
-            production_profile.operation_counts, joint_profile.stage_profile.operation_counts,
+            logical_operation_shape(production_profile.operation_counts),
+            logical_operation_shape(joint_profile.stage_profile.operation_counts),
             "split and joint trusted-server execution must keep the same logical operation shape",
         );
     }
@@ -211,4 +284,20 @@ fn assert_run_equivalent(left: &DdhHiddenEvalRun, right: &DdhHiddenEvalRun) {
         "output projection digest changed",
     );
     assert_eq!(left, right, "hidden-eval run changed");
+}
+
+fn logical_operation_shape(
+    counts: DdhHiddenEvalOperationCounts,
+) -> (u64, u64, u64, u64, u64, u64, u64, u64, u64) {
+    (
+        counts.logical_local_word_materializations,
+        counts.logical_shared_word_materializations,
+        counts.logical_transport_word_materializations,
+        counts.logical_commitment_materializations,
+        counts.logical_provenance_digest_materializations,
+        counts.logical_commitment_derivations,
+        counts.logical_provenance_digest_derivations,
+        counts.logical_label_writes,
+        counts.logical_label_format_allocations,
+    )
 }

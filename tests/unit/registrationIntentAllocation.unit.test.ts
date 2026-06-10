@@ -2,6 +2,10 @@ import { expect, test } from '@playwright/test';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { AuthService } from '@server/core/AuthService';
 import {
+  registrationPreparationIdFromString,
+  type CreateRegistrationIntentResponse,
+} from '@server/core/types';
+import {
   serializeNearAccountOwnershipProofMessageV1,
   type AddAuthMethodIntentV1,
   walletIdFromString,
@@ -243,6 +247,27 @@ async function allocateEmailOtpIntent(service: AuthService) {
   });
 }
 
+async function prepareAllocatedEd25519Registration(
+  service: AuthService,
+  allocated: Extract<CreateRegistrationIntentResponse, { ok: true }>,
+) {
+  const selection = allocated.intent.signerSelection;
+  if (selection.mode === 'ecdsa_only') {
+    throw new Error('prepareAllocatedEd25519Registration requires an Ed25519 intent');
+  }
+  const prepared = await service.prepareWalletRegistration({
+    registrationIntentGrant: allocated.registrationIntentGrant,
+    registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
+    intent: allocated.intent,
+    work: {
+      kind: selection.mode === 'ed25519_and_ecdsa' ? 'ed25519_hss_and_ecdsa' : 'ed25519_hss',
+    },
+  });
+  if (!prepared.ok) throw new Error(`${prepared.code}: ${prepared.message}`);
+  expect(prepared).toMatchObject({ ok: true, state: 'prepared' });
+  return prepared;
+}
+
 async function allocateAddSignerIntent(
   service: AuthService,
   signerSelection: AddSignerIntentV1['signerSelection'] = ECDSA_ADD_SIGNER_INTENT.signerSelection,
@@ -418,7 +443,7 @@ test.describe('registration intent allocation', () => {
     expect(first.registrationIntentDigestB64u).not.toBe(second.registrationIntentDigestB64u);
   });
 
-  test('rejects replay after a registration intent grant is consumed', async () => {
+  test('does not consume a registration intent grant when authority verification fails', async () => {
     const service = makeService();
     const allocated = await allocateIntent(service);
 
@@ -445,7 +470,7 @@ test.describe('registration intent allocation', () => {
     });
     await expect(service.startWalletRegistration(startRequest)).resolves.toMatchObject({
       ok: false,
-      code: 'invalid_grant',
+      code: 'challenge_mismatch',
     });
   });
 
@@ -474,6 +499,75 @@ test.describe('registration intent allocation', () => {
       ok: false,
       code: 'challenge_mismatch',
       message: 'Registration challenge mismatch',
+    });
+  });
+
+  test('rejects Ed25519 registration when the preparation belongs to another intent', async () => {
+    const service = makeService();
+    (service as any).verifyRegistrationCredentialForIntent = async () => ({
+      ok: true,
+      credential: {
+        credentialIdB64u: 'credential-id',
+        credentialPublicKeyB64u: 'credential-public-key',
+        counter: 0,
+      },
+    });
+    (service as any).getThresholdSigningService = () => ({
+      ed25519Hss: {
+        prepareForRegistration: async () => ({
+          ok: true,
+          ceremonyHandle: 'crossed-ed25519-handle',
+          preparedSession: {
+            contextBindingB64u: 'context-binding',
+            evaluatorDriverStateB64u: 'evaluator-driver-state',
+          },
+          clientOtOfferMessageB64u: 'client-ot-offer',
+        }),
+      },
+    });
+
+    const allocated = await allocateIntent(service);
+    expect(allocated.ok).toBe(true);
+    if (!allocated.ok) throw new Error(allocated.message);
+
+    const otherIntent = await service.createRegistrationIntent({
+      request: {
+        wallet: {
+          kind: 'provided',
+          walletId: walletIdFromString('wallet_bob'),
+        },
+        rpId: 'wallet.example.test',
+        authMethod: { kind: 'passkey' },
+        signerSelection: SIGNER_SELECTION,
+      },
+      orgId: ORG_ID,
+      runtimePolicyScope: RUNTIME_POLICY_SCOPE,
+      expectedOrigin: 'https://wallet.example.test',
+    });
+    expect(otherIntent.ok).toBe(true);
+    if (!otherIntent.ok) throw new Error(otherIntent.message);
+    const otherPreparation = await prepareAllocatedEd25519Registration(service, otherIntent);
+
+    await expect(
+      service.startWalletRegistration({
+        registrationIntentGrant: allocated.registrationIntentGrant,
+        registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
+        intent: allocated.intent,
+        registrationPreparationId: otherPreparation.registrationPreparationId,
+        authority: {
+          kind: 'passkey',
+          webauthnRegistration: {
+            response: {
+              clientDataJSON: clientDataJsonB64u({
+                challenge: allocated.registrationIntentDigestB64u,
+              }),
+            },
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'scope_mismatch',
     });
   });
 
@@ -514,7 +608,10 @@ test.describe('registration intent allocation', () => {
           return {
             ok: true,
             ceremonyHandle: 'passkey-ed25519-handle',
-            preparedSession: { prepared: true },
+            preparedSession: {
+              contextBindingB64u: 'context-binding',
+              evaluatorDriverStateB64u: 'evaluator-driver-state',
+            },
             clientOtOfferMessageB64u: 'client-ot-offer',
           };
         },
@@ -555,11 +652,13 @@ test.describe('registration intent allocation', () => {
     const allocated = await allocateIntent(service);
     expect(allocated.ok).toBe(true);
     if (!allocated.ok) throw new Error(allocated.message);
+    const prepared = await prepareAllocatedEd25519Registration(service, allocated);
 
     const started = await service.startWalletRegistration({
       registrationIntentGrant: allocated.registrationIntentGrant,
       registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
       intent: allocated.intent,
+      registrationPreparationId: prepared.registrationPreparationId,
       authority: {
         kind: 'passkey' as const,
         webauthnRegistration: {
@@ -585,6 +684,11 @@ test.describe('registration intent allocation', () => {
         rp_id: 'wallet.example.test',
       },
     });
+    await expect(
+      (service as any)
+        .getRegistrationCeremonyStore()
+        .getPreparation(prepared.registrationPreparationId),
+    ).resolves.toBeNull();
 
     const responded = await service.respondWalletRegistrationHss({
       registrationCeremonyId: started.registrationCeremonyId,
@@ -662,7 +766,10 @@ test.describe('registration intent allocation', () => {
         prepareForRegistration: async () => ({
           ok: true,
           ceremonyHandle: 'email-otp-ed25519-handle',
-          preparedSession: { prepared: true },
+          preparedSession: {
+            contextBindingB64u: 'context-binding',
+            evaluatorDriverStateB64u: 'evaluator-driver-state',
+          },
           clientOtOfferMessageB64u: 'client-ot-offer',
         }),
       },
@@ -671,11 +778,13 @@ test.describe('registration intent allocation', () => {
     const allocated = await allocateEmailOtpIntent(service);
     expect(allocated.ok).toBe(true);
     if (!allocated.ok) throw new Error(allocated.message);
+    const prepared = await prepareAllocatedEd25519Registration(service, allocated);
 
     const started = await service.startWalletRegistration({
       registrationIntentGrant: allocated.registrationIntentGrant,
       registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
       intent: allocated.intent,
+      registrationPreparationId: prepared.registrationPreparationId,
       authority: {
         kind: 'email_otp',
         emailOtpRegistrationProof: {
@@ -771,7 +880,10 @@ test.describe('registration intent allocation', () => {
         prepareForRegistration: async () => ({
           ok: true,
           ceremonyHandle: 'email-otp-ed25519-handle',
-          preparedSession: { prepared: true },
+          preparedSession: {
+            contextBindingB64u: 'context-binding',
+            evaluatorDriverStateB64u: 'evaluator-driver-state',
+          },
           clientOtOfferMessageB64u: 'client-ot-offer',
         }),
         respondForRegistration: async () => ({
@@ -805,11 +917,13 @@ test.describe('registration intent allocation', () => {
     const allocated = await allocateEmailOtpIntent(service);
     expect(allocated.ok).toBe(true);
     if (!allocated.ok) throw new Error(allocated.message);
+    const prepared = await prepareAllocatedEd25519Registration(service, allocated);
 
     const started = await service.startWalletRegistration({
       registrationIntentGrant: allocated.registrationIntentGrant,
       registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
       intent: allocated.intent,
+      registrationPreparationId: prepared.registrationPreparationId,
       authority: {
         kind: 'email_otp',
         emailOtpRegistrationProof: {
@@ -1069,7 +1183,10 @@ test.describe('registration intent allocation', () => {
           return {
             ok: true,
             ceremonyHandle: 'combined-ed25519-handle',
-            preparedSession: { prepared: true },
+            preparedSession: {
+              contextBindingB64u: 'context-binding',
+              evaluatorDriverStateB64u: 'evaluator-driver-state',
+            },
             clientOtOfferMessageB64u: 'client-ot-offer',
           };
         },
@@ -1126,11 +1243,13 @@ test.describe('registration intent allocation', () => {
 
     expect(allocated.ok).toBe(true);
     if (!allocated.ok) throw new Error(allocated.message);
+    const prepared = await prepareAllocatedEd25519Registration(service, allocated);
 
     const startRequest = {
       registrationIntentGrant: allocated.registrationIntentGrant,
       registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
       intent: allocated.intent,
+      registrationPreparationId: prepared.registrationPreparationId,
       authority: {
         kind: 'passkey' as const,
         webauthnRegistration: {
@@ -1158,6 +1277,7 @@ test.describe('registration intent allocation', () => {
       throw new Error('combined registration start failed');
     }
     expect(started.ecdsa.prepare.remainingUses).toBe(3);
+    expect(started.ecdsa.prepare.registrationPreparationId).toBe(prepared.registrationPreparationId);
     expect(webAuthnCreateVerifications).toBe(1);
     expect(ed25519PrepareRequest).toMatchObject({
       orgId: ORG_ID,
@@ -1166,6 +1286,11 @@ test.describe('registration intent allocation', () => {
         rp_id: 'wallet.example.test',
       },
     });
+    await expect(
+      (service as any)
+        .getRegistrationCeremonyStore()
+        .getPreparation(prepared.registrationPreparationId),
+    ).resolves.toBeNull();
 
     const clientBootstrap = {
       ...started.ecdsa.prepare,
@@ -1179,6 +1304,22 @@ test.describe('registration intent allocation', () => {
       clientShareRetryCounter: 0,
       contextBinding32B64u: 'context-binding',
     };
+    await expect(
+      service.respondWalletRegistrationHss({
+        registrationCeremonyId: started.registrationCeremonyId,
+        ecdsa: {
+          clientBootstrap: {
+            ...clientBootstrap,
+            registrationPreparationId: registrationPreparationIdFromString('wrp_crossed'),
+          },
+        },
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+      message: 'ECDSA bootstrap identity mismatch',
+    });
+
     const responded = await service.respondWalletRegistrationHss({
       registrationCeremonyId: started.registrationCeremonyId,
       ed25519: {
@@ -2492,7 +2633,10 @@ test.describe('registration intent allocation', () => {
           return {
             ok: true,
             ceremonyHandle: 'ed25519-add-signer-handle',
-            preparedSession: { prepared: true },
+            preparedSession: {
+              contextBindingB64u: 'context-binding',
+              evaluatorDriverStateB64u: 'evaluator-driver-state',
+            },
             clientOtOfferMessageB64u: 'client-ot-offer',
           };
         },
@@ -2744,7 +2888,10 @@ test.describe('registration intent allocation', () => {
           return {
             ok: true,
             ceremonyHandle: 'ed25519-link-signer-handle',
-            preparedSession: { prepared: true },
+            preparedSession: {
+              contextBindingB64u: 'context-binding',
+              evaluatorDriverStateB64u: 'evaluator-driver-state',
+            },
             clientOtOfferMessageB64u: 'client-ot-offer',
           };
         },

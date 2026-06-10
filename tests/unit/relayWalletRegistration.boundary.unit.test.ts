@@ -9,6 +9,7 @@ import {
   handleRelayWalletAddSignerIntent,
   handleRelayWalletAddSignerStart,
   handleRelayWalletRegistrationIntent,
+  handleRelayWalletRegistrationPrepare,
   handleRelayWalletRegistrationStart,
   handleRelayWalletRegistrationFinalize,
   handleRelayWalletRegistrationHssRespond,
@@ -82,6 +83,7 @@ function route(id: string): RouteDefinition {
 
 function inputFor(
   routeId:
+    | 'wallet_registration_prepare'
     | 'wallet_registration_start'
     | 'wallet_registration_hss_respond'
     | 'wallet_registration_finalize',
@@ -108,6 +110,7 @@ function ecdsaInventoryInputFor(args: {
   authService: Record<string, unknown>;
   session: Record<string, unknown>;
   walletId?: string;
+  origin?: string;
 }) {
   return {
     body: args.body,
@@ -118,6 +121,7 @@ function ecdsaInventoryInputFor(args: {
       warn: () => {},
       error: () => {},
     },
+    origin: args.origin || 'https://wallet.example.test',
     pathParams: { walletId: args.walletId || 'wallet_alice' },
     route: route('wallet_ecdsa_key_facts_inventory'),
     services: {
@@ -152,7 +156,7 @@ function addSignerInputFor(args: {
       warn: () => {},
       error: () => {},
     },
-    origin: args.origin,
+    origin: args.origin || 'https://wallet.example.test',
     pathParams: { walletId: args.walletId || 'wallet_alice' },
     route: route(args.routeId),
     services: {
@@ -190,7 +194,7 @@ function addAuthMethodInputFor(args: {
       warn: () => {},
       error: () => {},
     },
-    origin: args.origin,
+    origin: args.origin || 'https://wallet.example.test',
     pathParams: { walletId: args.walletId || 'wallet_alice' },
     route: route(args.routeId),
     services: {
@@ -465,6 +469,90 @@ test.describe('wallet registration route boundaries', () => {
     });
   });
 
+  test('registration prepare forwards normalized Ed25519 work before service dispatch', async () => {
+    const intent = registrationIntent('email_otp');
+    const digest = await computeRegistrationIntentDigestB64u(intent);
+    let request: unknown = null;
+    const response = await handleRelayWalletRegistrationPrepare(
+      inputFor(
+        'wallet_registration_prepare',
+        {
+          registrationIntentGrant: 'rig_1',
+          registrationIntentDigestB64u: digest,
+          intent,
+          work: { kind: 'ed25519_hss' },
+        },
+        {
+          prepareWalletRegistration: async (value: unknown) => {
+            request = value;
+            return {
+              ok: true,
+              state: 'prepared',
+              registrationPreparationId: 'wrp_1',
+              expiresAtMs: Date.now() + 60_000,
+              ed25519: {
+                ceremonyHandle: 'handle',
+                preparedSession: {
+                  contextBindingB64u: 'context-binding',
+                  evaluatorDriverStateB64u: 'evaluator-driver-state',
+                },
+                clientOtOfferMessageB64u: 'client-ot-offer',
+              },
+            };
+          },
+        },
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(request).toMatchObject({
+      registrationIntentGrant: 'rig_1',
+      registrationIntentDigestB64u: digest,
+      intent: {
+        authMethod: { kind: 'email_otp', email: 'alice@example.test' },
+        signerSelection: { mode: 'ed25519_only' },
+      },
+      work: { kind: 'ed25519_hss' },
+    });
+  });
+
+  test('registration prepare rejects authority and HSS payload fields before service dispatch', async () => {
+    const intent = registrationIntent();
+    const digest = await computeRegistrationIntentDigestB64u(intent);
+    let called = false;
+    const response = await handleRelayWalletRegistrationPrepare(
+      inputFor(
+        'wallet_registration_prepare',
+        {
+          registrationIntentGrant: 'rig_1',
+          registrationIntentDigestB64u: digest,
+          intent,
+          work: { kind: 'ed25519_hss' },
+          webauthn_registration: {
+            response: { clientDataJSON: 'client-data' },
+          },
+          threshold_ed25519: {
+            clientRequest: { clientRequestMessageB64u: 'client-request' },
+          },
+        },
+        {
+          prepareWalletRegistration: async () => {
+            called = true;
+            return { ok: true };
+          },
+        },
+      ),
+    );
+
+    expect(called).toBe(false);
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({
+      ok: false,
+      code: 'invalid_body',
+      message: 'registration prepare does not accept authority or HSS payload fields',
+    });
+  });
+
   test('registration start forwards a normalized Email OTP authority request', async () => {
     const intent = registrationIntent('email_otp');
     const digest = await computeRegistrationIntentDigestB64u(intent);
@@ -478,6 +566,7 @@ test.describe('wallet registration route boundaries', () => {
           intent,
           emailOtpRegistrationProof: {
             version: 'email_otp_registration_proof_v1',
+            proofKind: 'otp_challenge',
             providerSubject: 'google:alice',
             email: 'Alice@Example.test',
             challengeId: 'challenge-1',
@@ -1043,6 +1132,7 @@ test.describe('wallet registration route boundaries', () => {
       nearAccountId: 'wallet_alice',
       rpId: 'wallet.example.test',
       expectedChallenge: digest,
+      expected_origin: 'https://wallet.example.test',
       webauthn_authentication: credential,
     });
     expect(serviceRequest).toMatchObject({
@@ -1477,6 +1567,7 @@ test.describe('wallet registration route boundaries', () => {
       nearAccountId: 'wallet_alice',
       rpId: 'wallet.example.test',
       expectedChallenge: digest,
+      expected_origin: 'https://wallet.example.test',
       webauthn_authentication: credential,
     });
     expect(serviceRequest).toMatchObject({
@@ -1517,6 +1608,7 @@ test.describe('wallet registration route boundaries', () => {
           },
           emailOtpRegistrationProof: {
             version: 'email_otp_registration_proof_v1',
+            proofKind: 'otp_challenge',
             providerSubject: 'google:alice',
             email: 'Alice@Example.test',
             challengeId: 'challenge-1',
@@ -1977,6 +2069,7 @@ test.describe('wallet registration route boundaries', () => {
       nearAccountId: 'wallet_alice',
       rpId: 'wallet.example.test',
       expectedChallenge,
+      expected_origin: 'https://wallet.example.test',
       webauthn_authentication: credential,
     });
     expect(inventoryRequest).toEqual({

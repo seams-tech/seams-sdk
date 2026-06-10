@@ -128,6 +128,7 @@ import {
   preparePasskeyWalletRegistrationEcdsaClientBootstrap,
 } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationBootstrap';
 import { finalizeWalletRegistrationEcdsaSessions as finalizeWalletRegistrationEcdsaSessionsOperation } from '@/core/signingEngine/flows/registration/services/ecdsaRegistrationSessions';
+import type { WorkerResourceWarmupDiagnostics } from '@/core/signingEngine/assembly/warmup';
 
 /**
  * BrowserSigningSurface owns browser signing assembly state and exposes the SeamsWeb signing surface.
@@ -348,9 +349,9 @@ export class BrowserSigningSurface {
     return await sessionPublic.readPersistedAvailableSigningLanes(this.sessionPublicDeps, args);
   }
 
-  async warmCriticalResources(nearAccountId?: string): Promise<void> {
+  async warmCriticalResources(nearAccountId?: string): Promise<WorkerResourceWarmupDiagnostics> {
     await this.ensureSealedRefreshStartupParity();
-    await this.enginePorts.getManagerConveniencePorts().warmCriticalResources(nearAccountId);
+    return await this.enginePorts.getManagerConveniencePorts().warmCriticalResources(nearAccountId);
   }
 
   getRpId(): string {

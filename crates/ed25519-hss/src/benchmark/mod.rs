@@ -9,10 +9,14 @@ pub use cache::{
     CacheTimingStats, CACHE_BENCHMARK_REPORT_VERSION, DEFAULT_CACHED_GC_BASELINE_BYTES,
 };
 pub use hidden_eval::{
-    default_ddh_hidden_eval_benchmark_config, generate_ddh_hidden_eval_benchmark_report,
+    default_ddh_hidden_eval_allocation_probe_config, default_ddh_hidden_eval_benchmark_config,
+    generate_ddh_hidden_eval_allocation_probe_report, generate_ddh_hidden_eval_benchmark_report,
+    DdhHiddenEvalAllocationMeasurement, DdhHiddenEvalAllocationProbeConfig,
+    DdhHiddenEvalAllocationProbeConfigRecord, DdhHiddenEvalAllocationProbeReport,
+    DdhHiddenEvalAllocationProbeSample, DdhHiddenEvalAllocationRecorder,
     DdhHiddenEvalBenchmarkConfig, DdhHiddenEvalBenchmarkConfigRecord,
     DdhHiddenEvalBenchmarkMetadata, DdhHiddenEvalBenchmarkReport,
-    DDH_HIDDEN_EVAL_BENCHMARK_REPORT_VERSION,
+    DDH_HIDDEN_EVAL_ALLOCATION_PROBE_REPORT_VERSION, DDH_HIDDEN_EVAL_BENCHMARK_REPORT_VERSION,
 };
 pub use phase1::{
     default_phase1_config, default_thread_counts, default_thread_counts_for,

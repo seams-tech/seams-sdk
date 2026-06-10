@@ -39,24 +39,15 @@ import type {
   NearEphemeralKeypair,
   NearTransactionKeyPairSigningInput,
 } from '@/core/signingEngine/useCases/nearKeyOperations';
-import type {
-  NearClient,
-  SignedTransaction,
-} from '@/core/rpcClients/near/NearClient';
+import type { NearClient, SignedTransaction } from '@/core/rpcClients/near/NearClient';
 import type { AccountId } from '@/core/types/accountIds';
 import type {
   ClientAuthenticatorData,
   ClientUserData,
   StoreUserDataInput,
 } from '@/core/accountData/near/types';
-import type {
-  SeamsConfigsReadonly,
-  SigningSessionStatus,
-  ThemeName,
-} from '@/core/types/seams';
-import type {
-  ConfirmationConfig,
-} from '@/core/types/signer-worker';
+import type { SeamsConfigsReadonly, SigningSessionStatus, ThemeName } from '@/core/types/seams';
+import type { ConfirmationConfig } from '@/core/types/signer-worker';
 import type {
   KeyExportEventCallback,
   SigningEngineExportKeypairWithUIInput,
@@ -105,6 +96,7 @@ import type {
 } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
 import type * as thresholdEd25519Public from '@/core/signingEngine/threshold/ed25519/public';
 import type { SigningFlowEvent } from '@/core/types/sdkSentEvents';
+import type { WorkerResourceWarmupDiagnostics } from '@/core/signingEngine/assembly/warmup';
 
 export interface RpIdSurface {
   getRpId(): string;
@@ -155,7 +147,7 @@ export type TempoSigningSurface = EvmFamilySigningSurface &
   EcdsaSessionBootstrapSurface;
 
 export interface WalletIframeWarmupSurface {
-  warmCriticalResources(nearAccountId?: string): Promise<void>;
+  warmCriticalResources(nearAccountId?: string): Promise<WorkerResourceWarmupDiagnostics>;
 }
 
 export interface RuntimeStartupSurface {
@@ -311,7 +303,10 @@ export type AccountSyncSigningSurface = LocalLoginStateSurface &
   Pick<SigningSessionSurface, 'hydrateSigningSession'> &
   RpIdSurface &
   PasskeyLoginAssertionSurface &
-  Pick<UserProfileStoreSurface & RegistrationAccountSurface, 'storeUserData' | 'storeAuthenticator'>;
+  Pick<
+    UserProfileStoreSurface & RegistrationAccountSurface,
+    'storeUserData' | 'storeAuthenticator'
+  >;
 
 export interface WebAuthnRegistrationConfirmationSurface {
   requestRegistrationCredentialConfirmation(params: {
@@ -433,14 +428,17 @@ export interface EmailOtpRegistrationEnrollmentSurface {
 }
 
 export type RegistrationSigningSurface = RpIdSurface &
+  Pick<WalletIframeWarmupSurface, 'warmCriticalResources'> &
   Pick<SigningSessionSurface, 'readPersistedAvailableSigningLanes' | 'hydrateSigningSession'> &
-  Pick<EmailOtpRegistrationEnrollmentSurface, 'prepareEmailOtpRegistrationEnrollmentMaterialInternal'> &
+  Pick<
+    EmailOtpRegistrationEnrollmentSurface,
+    'prepareEmailOtpRegistrationEnrollmentMaterialInternal'
+  > &
   PasskeyLoginAssertionSurface &
   Pick<UserProfileStoreSurface, 'getUserBySignerSlot'> &
   Pick<
     RegistrationAccountSurface,
-    | 'storeWalletEd25519RegistrationData'
-    | 'storeWalletEmailOtpEd25519RegistrationData'
+    'storeWalletEd25519RegistrationData' | 'storeWalletEmailOtpEd25519RegistrationData'
   > &
   Pick<
     EcdsaRegistrationSurface,
@@ -500,7 +498,10 @@ export type DeviceLinkingSigningSurface = LocalLoginStateSurface &
   RpIdSurface &
   WebAuthnRegistrationConfirmationSurface &
   WebAuthnAttestationSurface &
-  Pick<UserProfileStoreSurface & RegistrationAccountSurface, 'storeUserData' | 'storeAuthenticator'> &
+  Pick<
+    UserProfileStoreSurface & RegistrationAccountSurface,
+    'storeUserData' | 'storeAuthenticator'
+  > &
   Pick<EcdsaRegistrationSurface, 'preparePasskeyEcdsaBootstrap' | 'storeWalletEcdsaSignerRecords'>;
 
 export type DeviceLinkingWebContext = SeamsWebBaseContext<DeviceLinkingSigningSurface>;

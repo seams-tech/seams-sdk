@@ -26,6 +26,7 @@ export type ApiCredentialRouteScope = (typeof API_CREDENTIAL_ROUTE_SCOPES)[numbe
 
 export const PUBLIC_PROOF_TYPES = [
   'challenge_exchange',
+  'intent_grant',
   'recovery_proof',
   'signed_payload',
   'threshold_protocol_state',

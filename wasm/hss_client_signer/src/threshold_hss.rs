@@ -656,6 +656,181 @@ pub fn threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(
         "hiddenEvalLogicalLabelFormatAllocations",
         operation_counts.logical_label_format_allocations as f64,
     )?;
+    if operation_counts.physical_keyed_digest_derivations > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalKeyedDigestDerivations",
+            operation_counts.physical_keyed_digest_derivations as f64,
+        )?;
+    }
+    if operation_counts.physical_keyed_digest_eval_xor_local_word > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalKeyedDigestEvalXorLocalWord",
+            operation_counts.physical_keyed_digest_eval_xor_local_word as f64,
+        )?;
+    }
+    if operation_counts.physical_keyed_digest_eval_add_local > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalKeyedDigestEvalAddLocal",
+            operation_counts.physical_keyed_digest_eval_add_local as f64,
+        )?;
+    }
+    if operation_counts.physical_keyed_digest_eval_mul_local_material > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalKeyedDigestEvalMulLocalMaterial",
+            operation_counts.physical_keyed_digest_eval_mul_local_material as f64,
+        )?;
+    }
+    if operation_counts.physical_keyed_digest_eval_mul_local > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalKeyedDigestEvalMulLocal",
+            operation_counts.physical_keyed_digest_eval_mul_local as f64,
+        )?;
+    }
+    if operation_counts.physical_keyed_digest_phase_a_arith_share_to_bool > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalKeyedDigestPhaseAArithShareToBool",
+            operation_counts.physical_keyed_digest_phase_a_arith_share_to_bool as f64,
+        )?;
+    }
+    if operation_counts.physical_keyed_digest_phase_a_bool_to_arith_base > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalKeyedDigestPhaseABoolToArithBase",
+            operation_counts.physical_keyed_digest_phase_a_bool_to_arith_base as f64,
+        )?;
+    }
+    if operation_counts.physical_keyed_digest_phase_a_arith_to_bool_zero > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalKeyedDigestPhaseAArithToBoolZero",
+            operation_counts.physical_keyed_digest_phase_a_arith_to_bool_zero as f64,
+        )?;
+    }
+    if operation_counts.physical_keyed_digest_compose_word_from_share_bits > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalKeyedDigestComposeWordFromShareBits",
+            operation_counts.physical_keyed_digest_compose_word_from_share_bits as f64,
+        )?;
+    }
+    if operation_counts.physical_keyed_digest_share_word > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalKeyedDigestShareWord",
+            operation_counts.physical_keyed_digest_share_word as f64,
+        )?;
+    }
+    if operation_counts.physical_keyed_digest_other > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalKeyedDigestOther",
+            operation_counts.physical_keyed_digest_other as f64,
+        )?;
+    }
+    if operation_counts.physical_derived_commitment_hashes > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalDerivedCommitmentHashes",
+            operation_counts.physical_derived_commitment_hashes as f64,
+        )?;
+    }
+    if operation_counts.physical_derived_commitment_eval_xor_local_word > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalDerivedCommitmentEvalXorLocalWord",
+            operation_counts.physical_derived_commitment_eval_xor_local_word as f64,
+        )?;
+    }
+    if operation_counts.physical_derived_commitment_eval_add_local > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalDerivedCommitmentEvalAddLocal",
+            operation_counts.physical_derived_commitment_eval_add_local as f64,
+        )?;
+    }
+    if operation_counts.physical_derived_commitment_eval_mul_local_material > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalDerivedCommitmentEvalMulLocalMaterial",
+            operation_counts.physical_derived_commitment_eval_mul_local_material as f64,
+        )?;
+    }
+    if operation_counts.physical_derived_commitment_eval_mul_local > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalDerivedCommitmentEvalMulLocal",
+            operation_counts.physical_derived_commitment_eval_mul_local as f64,
+        )?;
+    }
+    if operation_counts.physical_derived_commitment_phase_a_arith_share_to_bool > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalDerivedCommitmentPhaseAArithShareToBool",
+            operation_counts.physical_derived_commitment_phase_a_arith_share_to_bool as f64,
+        )?;
+    }
+    if operation_counts.physical_derived_commitment_phase_a_bool_to_arith_base > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalDerivedCommitmentPhaseABoolToArithBase",
+            operation_counts.physical_derived_commitment_phase_a_bool_to_arith_base as f64,
+        )?;
+    }
+    if operation_counts.physical_derived_commitment_phase_a_arith_to_bool_zero > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalDerivedCommitmentPhaseAArithToBoolZero",
+            operation_counts.physical_derived_commitment_phase_a_arith_to_bool_zero as f64,
+        )?;
+    }
+    if operation_counts.physical_derived_commitment_compose_word_from_share_bits > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalDerivedCommitmentComposeWordFromShareBits",
+            operation_counts.physical_derived_commitment_compose_word_from_share_bits as f64,
+        )?;
+    }
+    if operation_counts.physical_derived_commitment_share_word > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalDerivedCommitmentShareWord",
+            operation_counts.physical_derived_commitment_share_word as f64,
+        )?;
+    }
+    if operation_counts.physical_derived_commitment_other > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalDerivedCommitmentOther",
+            operation_counts.physical_derived_commitment_other as f64,
+        )?;
+    }
+    if operation_counts.physical_add_bit_hashes > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalAddBitHashes",
+            operation_counts.physical_add_bit_hashes as f64,
+        )?;
+    }
+    if operation_counts.physical_mul_material_hashes > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalMulMaterialHashes",
+            operation_counts.physical_mul_material_hashes as f64,
+        )?;
+    }
+    if operation_counts.physical_mul_output_seed_hashes > 0 {
+        set_f64(
+            &timings,
+            "hiddenEvalPhysicalMulOutputSeedHashes",
+            operation_counts.physical_mul_output_seed_hashes as f64,
+        )?;
+    }
 
     let out = object();
     set_string(

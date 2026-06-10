@@ -32,6 +32,7 @@ import type {
   ThresholdEd25519PresignRefillRequest,
   ThresholdEd25519SigningOperation,
 } from '../types';
+import { registrationPreparationIdFromString } from '../types';
 
 export type ThresholdValidationOk = { ok: true };
 export type ThresholdValidationErr = { ok: false; code: string; message: string };
@@ -348,6 +349,7 @@ export function parseEcdsaHssClientBootstrapRequest(
   const signingRootId = toOptionalString(raw.signingRootId);
   const signingRootVersion = toOptionalString(raw.signingRootVersion);
   const relayerKeyId = toOptionalString(raw.relayerKeyId);
+  const registrationPreparationIdRaw = toOptionalString(raw.registrationPreparationId);
   const hssClientSharePublicKey33B64u = parseSec1CompressedPublicKey33B64u(
     raw.hssClientSharePublicKey33B64u,
   );
@@ -402,6 +404,9 @@ export function parseEcdsaHssClientBootstrapRequest(
     signingRootVersion,
     keyScope: 'evm-family' as const,
     relayerKeyId,
+    ...(registrationPreparationIdRaw
+      ? { registrationPreparationId: registrationPreparationIdFromString(registrationPreparationIdRaw) }
+      : {}),
     hssClientSharePublicKey33B64u:
       hssClientSharePublicKey33B64u as EcdsaHssClientSharePublicKey33B64u,
     clientShareRetryCounter,

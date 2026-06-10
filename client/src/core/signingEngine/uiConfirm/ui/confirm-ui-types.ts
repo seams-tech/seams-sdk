@@ -44,3 +44,13 @@ export interface ConfirmUIHandle {
    */
   onCancel?(listener: (detail: { error?: string }) => void): () => void;
 }
+
+export type ConfirmUIPromptDiagnostics = {
+  kind: 'confirm_ui_prompt_diagnostics_v1';
+  elementDefineMs: number;
+  mountMs: number;
+  hostFirstUpdateMs: number;
+  hostInteractiveMs: number;
+  confirmEventMs: number;
+  decisionWaitMs: number;
+};

@@ -1110,6 +1110,7 @@ function toDecisionFromWorkerResponse(
     otpCode: response.otp_code,
     emailOtpChallengeId: response.email_otp_challenge_id,
     transactionContext: response.transaction_context,
+    registrationDiagnostics: response.registration_diagnostics,
     error: response.error,
   };
 }

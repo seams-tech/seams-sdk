@@ -20,8 +20,34 @@ export type WorkerResourceWarmupDeps = {
   prewarmWorkers: () => Promise<void>;
   shouldPrewarmWorkers: (workerBaseOrigin: string) => boolean;
   prewarmUiConfirmUi: () => Promise<void>;
-  activateAuthenticatedWalletState: (nearAccountId: AccountId, nearClient?: NearClient) => Promise<void>;
+  activateAuthenticatedWalletState: (
+    nearAccountId: AccountId,
+    nearClient?: NearClient,
+  ) => Promise<void>;
 };
+
+export type WorkerResourceWarmupDiagnostics = {
+  kind: 'worker_resource_warmup_diagnostics_v1';
+  authenticatedWalletStateMs: number;
+  noncePrefetchMs: number;
+  keyMaterialReadMs: number;
+  uiConfirmPrewarmMs: number;
+  signerWorkerPrewarmMs: number;
+};
+
+function roundWarmupDurationMs(startedAt: number): number {
+  return Math.max(0, Math.round(performance.now() - startedAt));
+}
+
+async function measureBestEffortWarmupStep(operation: () => Promise<unknown>): Promise<number> {
+  const startedAt = performance.now();
+  try {
+    await operation();
+  } catch {
+    // Warmup is observational and must not influence registration control flow.
+  }
+  return roundWarmupDurationMs(startedAt);
+}
 
 export function prewarmSignerWorkers(deps: WorkerResourceWarmupDeps): void {
   if (!deps.shouldPrewarmWorkers(deps.workerBaseOrigin)) return;
@@ -31,37 +57,46 @@ export function prewarmSignerWorkers(deps: WorkerResourceWarmupDeps): void {
 export async function warmCriticalResources(
   deps: WorkerResourceWarmupDeps,
   nearAccountId?: string,
-): Promise<void> {
-  // Initialize current user first (best-effort).
-  if (nearAccountId) {
-    await deps.activateAuthenticatedWalletState(toAccountId(nearAccountId), deps.nearClient).catch(() => null);
-  }
+): Promise<WorkerResourceWarmupDiagnostics> {
+  const accountId = nearAccountId ? toAccountId(nearAccountId) : null;
+  const authenticatedWalletStateMs = accountId
+    ? await measureBestEffortWarmupStep(() =>
+        deps.activateAuthenticatedWalletState(accountId, deps.nearClient),
+      )
+    : 0;
 
-  // Prefetch latest block/nonce context through the coordinator (best-effort).
-  await deps.nonceCoordinator
-    .prefetchNearContext({ nearClient: deps.nearClient })
-    .catch(() => null);
+  const noncePrefetchMs = await measureBestEffortWarmupStep(() =>
+    deps.nonceCoordinator.prefetchNearContext({ nearClient: deps.nearClient }),
+  );
 
-  // Best-effort: open IndexedDB and warm key data for the account.
-  if (nearAccountId) {
-    const accountId = toAccountId(nearAccountId);
-    const signerSlot = await getLastLoggedInSignerSlot(
-      accountId,
-      deps.store,
-    ).catch(() => 1);
-    await getNearThresholdKeyMaterial(
-      {
-        clientDB: deps.store,
-        keyMaterialStore: deps.store,
-      },
-      accountId,
-      signerSlot,
-    ).catch(() => null);
-  }
+  const keyMaterialReadMs = accountId
+    ? await measureBestEffortWarmupStep(async () => {
+        const signerSlot = await getLastLoggedInSignerSlot(accountId, deps.store).catch(() => 1);
+        await getNearThresholdKeyMaterial(
+          {
+            clientDB: deps.store,
+            keyMaterialStore: deps.store,
+          },
+          accountId,
+          signerSlot,
+        ).catch(() => null);
+      })
+    : 0;
 
-  const warmupTasks: Promise<unknown>[] = [deps.prewarmUiConfirmUi().catch(() => null)];
-  if (deps.shouldPrewarmWorkers(deps.workerBaseOrigin)) {
-    warmupTasks.push(deps.prewarmWorkers().catch(() => null));
-  }
-  await Promise.all(warmupTasks);
+  const shouldPrewarmWorkers = deps.shouldPrewarmWorkers(deps.workerBaseOrigin);
+  const [uiConfirmPrewarmMs, signerWorkerPrewarmMs] = await Promise.all([
+    measureBestEffortWarmupStep(() => deps.prewarmUiConfirmUi()),
+    shouldPrewarmWorkers
+      ? measureBestEffortWarmupStep(() => deps.prewarmWorkers())
+      : Promise.resolve(0),
+  ]);
+
+  return {
+    kind: 'worker_resource_warmup_diagnostics_v1',
+    authenticatedWalletStateMs,
+    noncePrefetchMs,
+    keyMaterialReadMs,
+    uiConfirmPrewarmMs,
+    signerWorkerPrewarmMs,
+  };
 }

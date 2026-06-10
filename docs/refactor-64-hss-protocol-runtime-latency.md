@@ -3,9 +3,10 @@
 Date created: June 8, 2026
 
 Status: active; first hot-loop candidate benchmarked and rejected; output
-projector client-base and mixed shared-mask candidates retained; direct WASM
-artifact benchmark, logical object counters, and server ceremony sub-bucket
-timings added.
+projector client-base, mixed shared-mask, carry-core, A2B source/carry-core,
+and output-boundary paired transport candidates retained; direct WASM artifact
+benchmark, logical object counters, server ceremony sub-bucket timings, and
+physical hash/domain counters added.
 
 ## Goal
 
@@ -61,44 +62,76 @@ Latest retained registration benchmark:
 - latest instrumentation run: `20260608-053047Z`
 - latest output-projector client-base run: `20260608-065437Z`
 - latest mixed shared-mask output-projector run: `20260608-092157Z`
-- SDK registration total: `1717ms` to `2036ms` p50 across the smoke scenarios
-- browser-observed total: `2594ms` to `3334ms` p50 across the smoke scenarios
-- HSS client evaluation artifact: `563ms` to `573ms` p50
-- `/wallets/register/start`: server total `377ms` to `380ms` p50, dominated by
-  HSS prepare at `376ms` to `378ms` p50
-- start-route split: signing-root server-input derivation is `372ms` to
-  `374ms` p50 and server-session preparation is `362ms` to `365ms` p50; they
-  run in parallel, so both branches matter
-- server-session preparation split: `prepare_prime_order_succinct_hss` accounts
-  for `360ms` to `363ms` p50; driver-state extraction, client offer creation,
-  caching, and state encoding are each single-digit milliseconds
-- `/wallets/register/hss/respond`: server total `94ms` to `109ms` p50,
-  dominated by server-input delivery preparation at `73ms` to `74ms` p50
-- `/wallets/register/finalize`: server total `216ms` to `222ms` p50 after
-  reusing the cached prepared server session
+- latest A2B source/carry-core run: `20260609-162843Z`
+- latest output-boundary paired transport run: native
+  `docs/benchmarks/refactor-64/ddh-hidden-eval-output-transport-pair-native.json`,
+  direct WASM `2026-06-09T16-43-10-136Z`, product smoke `20260609-164356Z`
+- latest direct HSS artifact baseline after returning from refactor-61/62:
+  `2026-06-10T02-49-09-370Z`
+- latest registration smoke with product-side wallet-iframe confirmation
+  readiness timing: `20260610-024516Z`
+- SDK registration total: `1480ms` to `1869ms` p50 across the smoke scenarios
+- browser-observed total: `1852ms` to `2502ms` p50 across the smoke scenarios
+- HSS client evaluation artifact: `466ms` to `471ms` p50
+- `/wallets/register/start`: server route total is now roughly `1ms` p50 after
+  consuming a prepared registration package; client-side start timing still
+  includes authority verification and browser/Playwright noise
+- `/wallets/register/prepare`: server total is roughly `365ms` to `371ms` p50,
+  dominated by preauth HSS preparation
+- prepare-route split: signing-root server-input derivation is roughly
+  `357ms` to `365ms` p50 and server-session preparation is roughly `352ms` to
+  `356ms` p50; they run in parallel, so both branches matter
+- server-session preparation split: `prepare_prime_order_succinct_hss` still
+  accounts for almost all preparation time; driver-state extraction, client
+  offer creation, caching, and state encoding are each single-digit
+  milliseconds
+- `/wallets/register/hss/respond`: server total is roughly `90ms` p50,
+  dominated by server-input delivery preparation at `71ms` to `72ms` p50
+- `/wallets/register/finalize`: server total is roughly `216ms` to `219ms`
+  p50 after reusing the cached prepared server session
 - HSS finalize sub-buckets: serialized server-session materialization is now
   `0ms` p50 on the product path because the cached prepared server session is
   reused; artifact decode, report finalization, and report encoding are each
   single digit milliseconds
+- passkey auth proof is now split by confirmation bridge diagnostics.
+  UserConfirm worker prewarm removes host-origin worker startup from the proof
+- product-side wallet-iframe confirmation readiness is measured. Smoke run
+  `20260610-024516Z` reports prompt host first-update and interactive p50 at
+  about `1ms`, confirm-event p50 at `620ms` to `643ms`, and credential-create
+  start p50 at `621ms` to `644ms` in iframe scenarios. The iframe prompt
+  renderer is not the current product bottleneck; the benchmark still includes
+  auto-confirm wait and WebAuthn time.
+- current direct HSS artifact run `2026-06-10T02-49-09-370Z` reports:
+  Node serialized-state wall p50 `542.319ms`, Node worker-handle wall p50
+  `471.816ms`, and browser worker-handle wall p50 `220.35ms`. The browser
+  worker-handle split is hidden eval `207.6ms`, round core `124.6ms`, message
+  schedule `37.65ms`, and output projector `42.35ms`.
+  path, and the direct main-thread registration confirmation path removes the
+  registration-only UserConfirm worker bounce. Host-origin `authProofMs` is now
+  `203ms` p50, and wallet-iframe `authProofMs` is `824ms` to `828ms` p50. In
+  wallet-iframe mode, the remaining benchmarked cost is the required visible
+  click/prompt handoff plus WebAuthn credential creation, with
+  `passkeyAuthWorkerRequestRoundTripMs` now `0ms`.
 
 Latest fine-grained client-owned hidden-eval ranking:
 
-- `hiddenEvalRoundCoreMs`: p50 roughly `296ms` to `301ms`
-- `hiddenEvalOutputProjectorMs`: p50 roughly `168ms` to `170ms` after the
-  retained mixed shared-mask candidate
-- `hiddenEvalMessageScheduleMs`: p50 roughly `58ms` to `59ms`
+- `hiddenEvalRoundCoreMs`: p50 roughly `231ms` to `232ms`
+- `hiddenEvalOutputProjectorMs`: p50 roughly `145ms` to `148ms` after the
+  retained output-boundary paired transport candidate
+- `hiddenEvalMessageScheduleMs`: p50 roughly `39ms` to `40ms`
 - inside round core:
-  - `hiddenEvalRoundNewABitsMs`: about `45ms` to `46ms` p50
-  - `hiddenEvalRoundNewEBitsMs`: about `45ms` to `46ms` p50
-  - `hiddenEvalRoundMajMs`: about `38ms` to `39ms` p50
-  - `hiddenEvalRoundChMs`: about `31ms` to `32ms` p50
+  - `hiddenEvalRoundNewABitsMs`: about `23ms` to `24ms` p50
+  - `hiddenEvalRoundNewEBitsMs`: about `23ms` to `24ms` p50
+  - `hiddenEvalRoundMajMs`: about `32ms` p50
+  - `hiddenEvalRoundChMs`: about `23ms` to `24ms` p50
 
 Interpretation:
 
 - worker transport, decode, materialization, and encode are now secondary for
   the retained browser-worker path
-- small label-buffer cleanups helped, but they will not reach a `1500ms` full
-  registration target by themselves
+- standalone label-buffer cleanup is not a keep target after the
+  output-projector label-reuse candidate regressed product host-origin client
+  artifact p50 despite improving native allocation and direct artifact timings
 - significant wins require attacking hidden-eval representation, hashing,
   allocation, A2B/carry conversion, output projection, or protocol shape
 - the first A2B destination-reuse experiment improved native p50 but did not
@@ -122,6 +155,17 @@ Interpretation:
   materializations, 1,024 shared-word materializations, 1,536 transport-word
   materializations, 17,928 commitment materializations, 15,360 provenance digest
   materializations, and 57,128 logical label writes per artifact
+- native allocation probe
+  `docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe.json` reports
+  that `profile_hidden_eval_for_clear_input` allocates about `12.3MB` across
+  `45,859` allocation calls per hidden-eval execution in native release; the
+  same-process delivery path allocates about `14.9MB` across `48,630`
+  allocation calls
+- after the retained extra-material iterator candidate, the cumulative
+  checkpoint allocation probe
+  `docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-checkpoints.json`
+  shows output projection as the largest remaining allocation source:
+  `3.92MB` and `36.9k` allocation calls incremental over round core
 - `hidden_eval_equivalence` now provides the representation-rewrite gate:
   production execution must match checkpoint-capturing trace execution for
   trusted-server and client-masked output projection, and the current
@@ -148,6 +192,101 @@ Interpretation:
   respond is useful to keep instrumented, but it is already relatively small
 - treat the direct browser artifact benchmark as a per-artifact lower bound;
   keep `benchmark:registration-flow:smoke` as the product-path benchmark
+- native registration-path benchmark
+  `docs/benchmarks/refactor-64/prime-order-registration-native.json` now
+  measures the crate-local registration-style flow without browser, worker,
+  route, or WASM overhead. The first release run measured total p50 `359.445ms`,
+  prepare-session p50 `98.852ms`, client-request p50 `14.825ms`,
+  server-input-delivery p50 `25.258ms`, client-artifact p50 `220.099ms`, and
+  finalize-report p50 `0.497ms`. Hidden eval inside client artifact was
+  `212.261ms` p50, led by round core `125.912ms`, output projector
+  `45.984ms`, and message schedule `38.091ms`.
+- native CPU attribution captured with macOS `sample` at
+  `docs/benchmarks/refactor-64/profiles/ddh-hidden-eval-native-sample.txt`
+  showed BLAKE3 compression as the dominant top-of-stack bucket, ahead of
+  memcpy and curve25519 field arithmetic. The profile pointed to physical
+  commitment/provenance hashing as the next useful target, rather than another
+  allocation-only output-projector candidate.
+- the retained local-multiplication provenance-fold candidates compute
+  duplicated left/right provenance digests once for multiplication material,
+  single raw multiplication output pairs, and raw batch multiplication output
+  pairs while preserving labels, provenance inputs, commitments, protocol
+  structs, wire structs, fixed public loops, and backend version. Native hidden
+  eval p50 improved from `218.663ms` to `185.329ms`; direct browser WASM worker
+  artifact p50 improved from `324.600ms` to `285.200ms`; product smoke HSS
+  worker artifact p50 is now `517ms` to `528ms` across the four scenarios.
+- physical hash counters now exist behind the diagnostic
+  `hss-physical-counters` crate feature. The first counter run reported
+  `584,220` derived-owner commitment hashes, `344,846` keyed digest
+  derivations, and `31,232` multiplication-material hashes for one profiled
+  hidden-eval execution. This confirms that remaining physical hash work is
+  dominated by derived commitments and keyed digests. A derived-commitment
+  prefix-hasher experiment was rejected after native hidden eval regressed from
+  `185.329ms` to `192.030ms` p50.
+- the keyed-digest domain counter run
+  `docs/benchmarks/refactor-64/ddh-hidden-eval-keyed-domain-counters.json`
+  accounted for all `344,846` keyed digest derivations with `other=0`. The
+  largest domains are `eval_xor_local_word` at `164,286`,
+  `eval_mul_local_material` at `93,696`, `eval_mul_local` at `43,008`,
+  `phase_a_arith_share_to_bool` at `28,672`, and `eval_add_local` at `14,064`.
+  This makes `eval_xor_local_word` the next keyed-digest audit target before
+  another broad prefix-hasher or structured-label candidate.
+- manual audit of `eval_xor_local_word` found no immediate byte-identical quick
+  fold. `xor_local_word_pairs_public` already derives one provenance digest for
+  both sides of a pair. The remaining single-side raw XOR cases use
+  side-specific labels, so folding them would change transcript bytes under the
+  current backend version.
+- the derived-commitment domain counter run
+  `docs/benchmarks/refactor-64/ddh-hidden-eval-derived-commitment-domain-counters.json`
+  accounted for all `584,220` derived commitments with `other=0`. The largest
+  domains are `eval_xor_local_word` at `275,324`,
+  `eval_mul_local_material` at `187,392`, `eval_mul_local` at `62,464`,
+  `phase_a_arith_share_to_bool` at `28,672`, and `eval_add_local` at `28,128`.
+  This confirms that the largest remaining commitment work tracks the same XOR
+  and multiplication-material families as the keyed-digest counters.
+- manual audit of `eval_mul_local_material` and `eval_mul_local` found no
+  remaining byte-identical quick fold. The retained multiplication provenance
+  folds already derive shared left/right provenance once; the remaining
+  commitments use distinct side labels and word bytes. Reducing this family now
+  requires representation-level deferred/materialized commitments or a
+  backend-versioned transcript change.
+- the carry-core local adder candidate is retained. It keeps carry-chain
+  intermediates as share/provenance cores, computes local multiplication
+  material cores without triple commitments, and materializes commitments only
+  for values that leave the carry-only path. Native hidden eval p50 improved
+  from the previous retained `185.329ms` to `176.690ms`; direct browser worker
+  artifact p50 improved from `285.200ms` to `263.500ms`; product smoke client
+  artifact p50 is now `517ms`, `518ms`, `519ms`, and `507ms` across the four
+  scenarios.
+- the A2B source/carry-core candidate is retained. It applies the same
+  deferred-materialization rule to cross-share arithmetic-to-boolean
+  conversion: source bit words and carry-only products stay as
+  share/provenance cores, while `xor_ab`, `sum`, and `a_xor_carry` remain
+  materialized because their commitments are consumed or emitted. Native hidden
+  eval p50 improved from the carry-core `176.690ms` to `144.601ms`; direct
+  browser worker artifact p50 improved from `263.500ms` to `223.000ms`;
+  product smoke client artifact p50 is now `477ms`, `474ms`, `466ms`, and
+  `466ms` across the four scenarios.
+- the output-boundary paired transport materialization candidate is retained.
+  It builds the two `x_relayer_base` transport bundles from one canonical
+  shared-word list and one bundle commitment, preserving emitted bundle bytes
+  and transcript shape while avoiding duplicate canonicalization and
+  commitment work. Native hidden eval p50 improved from the A2B source/core
+  `144.601ms` to `138.394ms`; direct browser worker artifact p50 improved from
+  `223.000ms` to `215.650ms`; product smoke client artifact p50 is now
+  `467ms`, `466ms`, `455ms`, and `455ms` across the four scenarios. Product
+  worker p50 improved in three scenarios and regressed by `3ms` in the first
+  wallet-iframe scenario, while client artifact and hidden-eval p50 improved
+  in all four scenarios.
+- product smoke run `20260609-170907Z` added visible HSS worker
+  `wasmInitWaitMs` columns to the registration report. Init wait is `0ms`
+  p50/p95 for both `prepare_client_request` and
+  `build_client_owned_staged_evaluator_artifact`, confirming that the remaining
+  artifact bucket is WASM execution time rather than lazy HSS WASM startup.
+- current protocol-level decision: defer backend-versioned protocol redesign.
+  Runtime Path A has brought the client artifact under the near-term `500ms`
+  target, and the remaining registration gap is better attacked through
+  refactors 61/62 plus a larger stage-owned representation experiment.
 
 ## Constraints
 
@@ -192,18 +331,23 @@ Goal:
 
 Tasks:
 
-- [ ] add a native Rust HSS registration benchmark that bypasses browser/WASM
+- [x] add a native Rust HSS registration benchmark that bypasses browser/WASM
       and route overhead
+- [x] add CPU attribution for native hidden eval that separates hashing,
+      commitment derivation, provenance derivation, modular arithmetic, A2B
+      carry conversion, output projection, and allocator overhead
 - [x] add a WASM-only benchmark for
       `build_client_owned_staged_evaluator_artifact`
 - [x] add logical object/materialization counters for hidden-eval execution
 - [x] add counters for `DdhHssLocalWord`-shape materializations, commitments,
       provenance digest materializations, and logical label generation
-- [ ] add native allocator byte counters or heap-profiler instructions if
+- [x] add native allocator byte counters or heap-profiler instructions if
       logical counters make object churn the next limiting factor
-- [ ] add native flamegraph support for `crates/ed25519-hss`
-- [ ] add optional browser/WASM profiling instructions for Chrome performance
-      traces
+- [x] add native flamegraph support for `crates/ed25519-hss`
+- [x] add browser/WASM profiling instructions for Chrome Performance traces
+      around `build_client_owned_staged_evaluator_artifact`, including whether
+      time is in WASM compute, JS/WASM boundary calls, worker message handling,
+      GC, or memory growth
 - [ ] capture peak memory and payload sizes for client prepare, respond,
       evaluate, and finalize
 - [x] split server prepare/finalize timing into protocol sub-buckets
@@ -216,6 +360,67 @@ Keep rule:
 
 - always keep profiling if it is diagnostics-only and does not change protocol
   behavior
+
+### Native Flamegraph Support
+
+Run:
+
+```bash
+bash crates/ed25519-hss/scripts/profile_hidden_eval_flamegraph.sh
+```
+
+The script writes SVG flamegraphs to
+`docs/benchmarks/refactor-64/flamegraphs/` and profiles
+`benchmark_ddh_hidden_eval` in release mode with debug symbols enabled via
+`CARGO_PROFILE_RELEASE_DEBUG=true`.
+
+Useful overrides:
+
+```bash
+SAMPLES=32 STAGE_WARMUP=2 bash crates/ed25519-hss/scripts/profile_hidden_eval_flamegraph.sh
+bash crates/ed25519-hss/scripts/profile_hidden_eval_flamegraph.sh --fixture <fixture-name>
+```
+
+Interpretation target:
+
+- identify whether the largest CPU stacks are hashing/commitment derivation,
+  provenance derivation, modular arithmetic, A2B carry conversion, output
+  projection, allocator/runtime overhead, or benchmark harness work
+- use the flamegraph to choose between broader output-projector representation,
+  A2B carry-gadget specialization, structured label/prefix-hasher work, or a
+  true stage-owned arena representation
+- do not treat allocation-only wins as sufficient if the CPU flamegraph shows
+  arithmetic or hashing dominates
+
+### Browser/WASM Trace Instructions
+
+Use Chrome Performance traces on the direct artifact benchmark first, then
+confirm promising changes with `benchmark:registration-flow:smoke`.
+
+Procedure:
+
+1. Run the direct HSS WASM benchmark server/runner from
+   `benchmarks/ed25519-hss-wasm`.
+2. Open Chrome DevTools Performance for the benchmark page.
+3. Enable allocation instrumentation, WebAssembly stacks, memory timeline, and
+   worker profiling.
+4. Record one warm run and one measured run for
+   `browser_client_artifact_worker_handle_wasm`.
+5. Inspect the worker thread around
+   `build_client_owned_staged_evaluator_artifact`.
+6. Classify the largest slices as WASM compute, JS/WASM boundary calls, worker
+   message handling, GC, memory growth, or browser scheduling.
+7. Save the trace summary beside the direct benchmark run under
+   `docs/benchmarks/refactor-64/`.
+
+Keep evidence:
+
+- wall p50/p95 from the direct artifact benchmark
+- hidden-eval p50/p95 and sub-buckets
+- top worker-thread CPU stacks
+- GC and memory-growth events, if any
+- worker message payload size and transfer behavior
+- notes on whether the browser trace agrees with native flamegraph attribution
 
 ## Approach B: Production Representation Audit
 
@@ -267,21 +472,21 @@ Classification rule:
 
 Current field matrix:
 
-| Data | Current usage | Classification | Compatibility rule | Optimization direction |
-| --- | --- | --- | --- | --- |
-| `DdhHssSharedWord.left_word` / `right_word` | Actual additive shares consumed by hidden eval and output projection. | `protocol-critical` | Must preserve arithmetic value and word width. | Can move into packed fixed-width storage if accessors preserve value semantics. |
-| `DdhHssLocalWord.share_word` | Local share consumed by local DDH arithmetic helpers. | `protocol-critical` | Must preserve value, side, and width. | Strong candidate for packed local-side arrays or arenas. |
-| `DdhHssSharedWord.left_commitment` / `right_commitment` | Inputs to `input_commitment_for_key`, stage digests, transport validation, and output commitments. | `protocol-critical`, `transcript-binding` | Must stay byte-identical for current backend version. | Can be stored compactly or recomputed at validation boundaries only if all transcript bytes stay identical. |
-| `DdhHssLocalWord.share_commitment` | Carried through local operations and used to derive downstream provenance/commitments. | `protocol-critical`, `transcript-binding` | Must stay byte-identical for current backend version. | Can be represented as side arrays beside packed shares. |
-| `DdhHssTransportWord.share_commitment` / `counterparty_commitment` | Validated by `validate_transport_word_pair_public` and included in `transport_bundle_commitment`. | `protocol-critical`, `transcript-binding` | Must stay byte-identical in transport messages. | Do not remove from wire format without a backend-version change. |
-| `provenance_digest` on shared/local/transport words | Validates transport pairing, feeds `commit_word` for derived owners, and enters input/stage/bundle commitments. | `protocol-critical`, `transcript-binding` | Must stay byte-identical for current backend version. | Can be compacted in memory; cannot move behind debug/profile in the current protocol. |
-| `DdhHssInputShareBundle.commitment` | Bundle commitment used in combined input commitment and run binding. | `protocol-critical`, `transcript-binding` | Must stay byte-identical for current backend version. | Can be cached once per bundle; do not remove from persisted/wire boundary. |
-| `DdhHssTransportBundle.commitment` | Validates left/right transport bundle agreement and reconstructed input commitment. | `protocol-critical`, `transcript-binding` | Must stay byte-identical for current backend version. | Keep in transport boundary; internal packed form may carry one bundle-level commitment. |
-| `client_input_commitment` / `server_input_commitment` | Bound into `run_binding_for_key` with artifact digest, context binding, and candidate digest. | `protocol-critical`, `transcript-binding` | Must stay byte-identical for current backend version. | Keep as run summary fields. |
-| `DdhHiddenEvalCheckpointDigests` | Stage-by-stage trace validation and continuation checks. | `validation-only`, partly `transcript-binding` for current continuation APIs | Continuation APIs must preserve byte-identical digests. Full one-shot production evaluation can avoid retaining all checkpoint digests if outputs are validated elsewhere. | Separate trace/continuation profile from one-shot production profile. |
-| `DdhHiddenEvalStageProfile` / `DdhHiddenEvalOperationCounts` | Benchmark and profiling output. | `diagnostics-only` | Must never influence execution. Serialization shape can evolve as diagnostics. | Keep outside protocol structs and skip in production hot path where possible. |
-| Human-readable labels passed to gates and bundle builders | Domain separation for shares, provenance, commitments, OT payloads, and output bundles. | `transcript-binding` | Label bytes must stay byte-identical for current backend version. | Replace `format!` with structured label writers only when resulting bytes match exactly. |
-| Error strings and probe status values | Developer diagnostics. | `diagnostics-only` | No protocol compatibility requirement. | Can change with diagnostics. |
+| Data                                                               | Current usage                                                                                                   | Classification                                                               | Compatibility rule                                                                                                                                                         | Optimization direction                                                                                      |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `DdhHssSharedWord.left_word` / `right_word`                        | Actual additive shares consumed by hidden eval and output projection.                                           | `protocol-critical`                                                          | Must preserve arithmetic value and word width.                                                                                                                             | Can move into packed fixed-width storage if accessors preserve value semantics.                             |
+| `DdhHssLocalWord.share_word`                                       | Local share consumed by local DDH arithmetic helpers.                                                           | `protocol-critical`                                                          | Must preserve value, side, and width.                                                                                                                                      | Strong candidate for packed local-side arrays or arenas.                                                    |
+| `DdhHssSharedWord.left_commitment` / `right_commitment`            | Inputs to `input_commitment_for_key`, stage digests, transport validation, and output commitments.              | `protocol-critical`, `transcript-binding`                                    | Must stay byte-identical for current backend version.                                                                                                                      | Can be stored compactly or recomputed at validation boundaries only if all transcript bytes stay identical. |
+| `DdhHssLocalWord.share_commitment`                                 | Carried through local operations and used to derive downstream provenance/commitments.                          | `protocol-critical`, `transcript-binding`                                    | Must stay byte-identical for current backend version.                                                                                                                      | Can be represented as side arrays beside packed shares.                                                     |
+| `DdhHssTransportWord.share_commitment` / `counterparty_commitment` | Validated by `validate_transport_word_pair_public` and included in `transport_bundle_commitment`.               | `protocol-critical`, `transcript-binding`                                    | Must stay byte-identical in transport messages.                                                                                                                            | Do not remove from wire format without a backend-version change.                                            |
+| `provenance_digest` on shared/local/transport words                | Validates transport pairing, feeds `commit_word` for derived owners, and enters input/stage/bundle commitments. | `protocol-critical`, `transcript-binding`                                    | Must stay byte-identical for current backend version.                                                                                                                      | Can be compacted in memory; cannot move behind debug/profile in the current protocol.                       |
+| `DdhHssInputShareBundle.commitment`                                | Bundle commitment used in combined input commitment and run binding.                                            | `protocol-critical`, `transcript-binding`                                    | Must stay byte-identical for current backend version.                                                                                                                      | Can be cached once per bundle; do not remove from persisted/wire boundary.                                  |
+| `DdhHssTransportBundle.commitment`                                 | Validates left/right transport bundle agreement and reconstructed input commitment.                             | `protocol-critical`, `transcript-binding`                                    | Must stay byte-identical for current backend version.                                                                                                                      | Keep in transport boundary; internal packed form may carry one bundle-level commitment.                     |
+| `client_input_commitment` / `server_input_commitment`              | Bound into `run_binding_for_key` with artifact digest, context binding, and candidate digest.                   | `protocol-critical`, `transcript-binding`                                    | Must stay byte-identical for current backend version.                                                                                                                      | Keep as run summary fields.                                                                                 |
+| `DdhHiddenEvalCheckpointDigests`                                   | Stage-by-stage trace validation and continuation checks.                                                        | `validation-only`, partly `transcript-binding` for current continuation APIs | Continuation APIs must preserve byte-identical digests. Full one-shot production evaluation can avoid retaining all checkpoint digests if outputs are validated elsewhere. | Separate trace/continuation profile from one-shot production profile.                                       |
+| `DdhHiddenEvalStageProfile` / `DdhHiddenEvalOperationCounts`       | Benchmark and profiling output.                                                                                 | `diagnostics-only`                                                           | Must never influence execution. Serialization shape can evolve as diagnostics.                                                                                             | Keep outside protocol structs and skip in production hot path where possible.                               |
+| Human-readable labels passed to gates and bundle builders          | Domain separation for shares, provenance, commitments, OT payloads, and output bundles.                         | `transcript-binding`                                                         | Label bytes must stay byte-identical for current backend version.                                                                                                          | Replace `format!` with structured label writers only when resulting bytes match exactly.                    |
+| Error strings and probe status values                              | Developer diagnostics.                                                                                          | `diagnostics-only`                                                           | No protocol compatibility requirement.                                                                                                                                     | Can change with diagnostics.                                                                                |
 
 Production execution profile:
 
@@ -326,10 +531,16 @@ Candidates:
 
 - A2B destination-writer helper for `new_a_bits` and `new_e_bits`
 - A2B raw carry-gadget specialization for already-local arithmetic word pairs
+- A2B carry-gadget specialization around `xor_ab`, `sum`, `a_xor_carry`,
+  `carry`, and `next_carry`, with byte-identical labels and fixed public
+  widths
 - `maj` and `ch` destination-writing scratch reuse only as part of a fused
   round-core kernel or packed representation; standalone helper-level rewrites
   duplicate rejected/low-value historical work
 - output-projector scratch reuse
+- broader output-projector representation rewrite that reduces logical local
+  word construction, commitment derivations, or provenance derivations instead
+  of only reducing temporary allocation
 - fewer temporary `DdhHssLocalWord` objects
 - fewer intermediate `Vec` allocations in round state and schedule state
 - pre-sized arena-backed storage for fixed-width words
@@ -416,6 +627,154 @@ Required gate:
 - implement an equivalence harness before rewriting hot paths
 - compare final hidden-eval outputs, checkpoint digests, and public artifacts
   against the current representation
+
+### Candidate E1: Arena-Backed Local Bit-Side Storage
+
+Decision:
+
+- packed/arena representation work is justified. The native allocation probe
+  shows hidden-eval still performs about `45.9k` allocation calls and allocates
+  about `12.3MB` per profiled execution after the retained output-projector
+  wins.
+- a simple packed local metadata candidate was tried and rejected. It reduced
+  `profile_hidden_eval_for_clear_input` allocation calls from `45,859` to
+  `45,025`, but allocated bytes barely moved and the direct browser artifact
+  path regressed by about `5ms-6ms`.
+- a round-state scratch reuse candidate was tried and rejected. It reduced
+  native hidden-eval allocation from `12,282,621` bytes to `10,985,757` bytes,
+  but product `ed25519EvaluationArtifactMs` p50 regressed by `2ms-4ms` across
+  all four registration-flow smoke scenarios.
+- an extra-material iterator candidate was retained. It removed a temporary
+  `Vec<&[u8]>` allocation in Boolean-to-arithmetic conversion, reduced native
+  hidden-eval allocation from `12,282,621` bytes to `7,695,101` bytes, and
+  improved product `ed25519EvaluationArtifactMs` p50 by `1ms-5ms` across all
+  four registration-flow smoke scenarios.
+- a standalone output-projector label-reuse candidate was rejected. It reduced
+  native hidden-eval allocation to `6,419,990` bytes and `15,003` allocation
+  calls, and the direct artifact benchmark improved, but product host-origin
+  client-artifact p50 regressed by `22ms-24ms`.
+- an output-projector select-stream candidate was rejected. It reduced native
+  hidden-eval allocation to `6,658,481` bytes and `39,863` allocation calls,
+  and direct artifact p50 improved, but product client-artifact p50 regressed
+  by `15ms-30ms` across all registration-flow smoke scenarios.
+- an A2B output recycling candidate was rejected before product smoke. It
+  reduced native hidden-eval allocation to `6,398,237` bytes and `44,015`
+  allocation calls, but direct artifact p50 regressed on Node and browser.
+
+Starting scope:
+
+- keep protocol structs, wire structs, bundle commitments, provenance digests,
+  labels, and backend version unchanged
+- target only internal `hidden_eval_executor` local bit-side storage first
+- preserve the existing packed `share_blocks` representation for share bits
+- reduce repeated allocation of side-vector storage for commitments and
+  provenance digests in hot fixed-width helpers
+- start with round-core and modular-add helpers where fixed public widths make
+  arena sizing deterministic
+
+Implementation shape:
+
+- introduce a stage-local scratch/arena owner for `LocalBitWordSide` buffers
+  with public fixed capacities
+- make helpers write into borrowed scratch sides where the output does not need
+  to outlive the stage
+- materialize owned `SplitLocalBitWord` values only at stage boundaries,
+  checkpoint boundaries, output bundles, and validation boundaries
+- stream fixed public-shape extra material into digest builders without
+  allocating temporary material vectors
+- keep label generation and commitment/provenance derivation byte-identical
+- keep all arena indexing by public stage shape and public bit index only
+- avoid scratch designs that move owned state words through extra rotation
+  traffic unless product client-artifact p50 improves
+- avoid tiny output-side allocation fusions if direct artifact latency regresses
+  on Node
+- avoid A2B output recycling through SHA-512 state rotation unless a broader
+  representation rewrite removes the observed direct artifact regression
+- avoid standalone output-projector label-buffer reuse unless it is part of a
+  representation change that improves product client-artifact p50
+- avoid select-stream output-projector rewrites unless product smoke improves,
+  even when native allocation and direct artifact timing improve
+
+Keep gate:
+
+- `hidden_eval_equivalence` must pass before benchmarking
+- native allocation probe should show a meaningful reduction in
+  `profile_hidden_eval_for_clear_input` allocation calls or bytes
+- direct WASM artifact benchmark should show a clear `hiddenEvalRoundCoreMs` or
+  total hidden-eval p50 win on the target browser path without a material Node
+  regression
+- product smoke should confirm the client artifact bucket moves in the same
+  direction
+
+### Candidate E2: Stage-Owned Core Arena Design
+
+Status:
+
+- design complete; first tiny core-input bridge rejected; larger
+  `CoreBitWordSide` rewrite deferred while refactor-61/62 critical-path
+  measurement continues
+
+Goal:
+
+- move fixed-width hidden-eval internals toward stage-owned core values while
+  keeping materialized commitments only at protocol, checkpoint, output, and
+  validation boundaries
+
+Representation direction:
+
+- introduce a core bit-word side that mirrors `LocalBitWordSide` share storage
+  and provenance digests without per-bit commitments
+- keep bit indices, stage widths, and arena capacities public and fixed by the
+  SHA-512/HSS program shape
+- provide explicit materialization functions that take a provenance domain and
+  emit `DdhHssLocalWord` or `SplitLocalBitWord` only when a caller proves the
+  commitment is consumed or emitted
+- preserve existing `SplitLocalBitWord` for boundary and validation APIs
+- keep `DdhHssLocalWordCore` as the scalar/share-provenance record used by
+  core helpers
+
+First implementation slice:
+
+- add `LocalBitWordSide::local_word_core(idx)` and use it in fixed-width adder
+  helpers where the input commitment is only carried through to a helper that
+  already has a core equivalent
+- add core-input variants only where the provenance input set and output
+  commitment bytes stay byte-identical
+- keep `xor_ab`, `sum`, and `a_xor_carry` materialization rules unchanged until
+  a caller-specific proof shows their commitments are unused before the next
+  boundary
+- avoid changing transport/shared input validation or output bundle shape
+- benchmark this as a small bridge candidate before adding a larger
+  `CoreBitWordSide` arena
+
+First implementation result:
+
+- rejected. The core-input bridge preserved byte-equivalence, but native hidden
+  eval p50 regressed from `138.394ms` to `140.966ms`.
+- code from the bridge was reverted.
+- [x] choose the next product-latency step before a larger arena attempt:
+      continue refactor-61/62 critical-path measurement.
+- [ ] revisit a larger stage-owned `CoreBitWordSide` representation after the
+      registration warmup and remaining product-path bottlenecks are measured.
+- the next arena attempt should skip tiny local-word accessor bridges and move
+  directly to a larger stage-owned `CoreBitWordSide` representation.
+
+Expected signal:
+
+- small if the slice only avoids local temporary words
+- meaningful only if it also reduces physical commitment derivations,
+  allocation calls, or direct artifact p50
+- a flat or regressing result should push the next attempt directly to a larger
+  stage-owned `CoreBitWordSide` representation
+
+Validation:
+
+- `cargo fmt --manifest-path crates/ed25519-hss/Cargo.toml`
+- `cargo test --manifest-path crates/ed25519-hss/Cargo.toml hidden_eval_equivalence`
+- `cargo test --manifest-path crates/ed25519-hss/Cargo.toml --features hss-physical-counters hidden_eval_equivalence`
+- native hidden-eval benchmark
+- direct WASM artifact benchmark
+- product registration smoke before retention
 
 ## Approach F: Binary And Compact Payloads
 
@@ -555,17 +914,25 @@ Risk:
 ## Recommended Order
 
 1. Measurement and profiling.
-2. Logical allocation and object-construction counters.
-3. Production representation audit.
-4. Native allocator or heap-profiler evidence if packed representation is still
+2. Native flamegraph and CPU attribution across hashing, commitment derivation,
+   provenance derivation, arithmetic, A2B carry conversion, output projection,
+   and allocator overhead.
+3. Browser/WASM Chrome Performance trace for the direct client artifact path.
+4. Logical allocation and object-construction counters.
+5. Production representation audit.
+6. Native allocator or heap-profiler evidence if packed representation is still
    ambiguous.
-5. Output-projector scratch candidates only where counters show browser/WASM
+7. Broader output-projector representation rewrite only where it reduces
+   logical work or product client-artifact p50.
+8. A2B carry-gadget specialization only where profiling shows carry conversion
+   is material in browser/WASM.
+9. Output-projector scratch candidates only where counters show browser/WASM
    object churn.
-6. Packed/arena representation harness.
-7. Structured label or boolean-helper work only when folded into the new
-   representation and guarded by byte-equivalence fixtures.
-8. Native/SIMD/parallel runtime experiments.
-9. Protocol-level redesign only if the above cannot meet targets.
+10. Packed/arena representation harness.
+11. Structured label or prefix-hasher work only when folded into the new
+    representation and guarded by byte-equivalence fixtures.
+12. Native/SIMD/parallel runtime experiments.
+13. Protocol-level redesign only if the above cannot meet targets.
 
 Do not start with protocol redesign. First prove whether current HSS is slow
 because of unavoidable cryptographic work or because the implementation carries
@@ -618,6 +985,71 @@ For protocol-shape changes:
   downgrade behavior
 - full registration benchmark
 
+## Next Optimization Task Queue
+
+1. Native flamegraph support is in place via
+   `crates/ed25519-hss/scripts/profile_hidden_eval_flamegraph.sh`.
+2. Browser/WASM Chrome Performance trace instructions are in place for the
+   direct client artifact path.
+3. Native CPU attribution is captured. Browser trace capture remains useful for
+   JS/WASM boundary, worker message, GC, and memory-growth confirmation, but the
+   current hot path is physical DDH hash/provenance work.
+4. Continue with narrowly scoped duplicate hash/provenance reductions before a
+   broader output-projector or A2B representation rewrite.
+5. Physical hash-invocation counters are available behind
+   `hss-physical-counters`. Use them for diagnostic runs only; counter-enabled
+   latency is not a keep/reject signal because the atomic increments add
+   overhead.
+6. Physical keyed-digest domain counters show `eval_xor_local_word` and
+   `eval_mul_local_material` as the largest keyed-digest families. The
+   `eval_xor_local_word` quick-fold audit did not find a byte-identical fold,
+   so further XOR work should be representation-level or backend-versioned.
+7. Physical derived-commitment domain counters also point to
+   `eval_xor_local_word` and `eval_mul_local_material`. The narrow XOR and
+   multiplication audits found no byte-identical quick fold, so move to
+   representation-level commitment materialization work.
+8. The first two representation-level commitment materialization candidates
+   are retained for the carry-chain adder and cross-share A2B converter.
+   Continue with stage-owned cores only where callers can prove commitments are
+   not consumed before materialization.
+9. For output projection, target fewer logical local words, fewer commitment
+   derivations, or fewer provenance derivations. Allocation-only wins are not a
+   sufficient keep reason.
+10. A2B source/carry-core specialization is retained. Future A2B work should
+    target a larger stage-owned representation only if it preserves
+    byte-identical labels, provenance inputs, commitments, and fixed public
+    widths.
+11. Output-boundary paired transport materialization is retained. Future output
+    projection work should target a larger stage-owned representation or a
+    proven reduction in logical materialization, since narrow bundle-boundary
+    sharing is now exhausted.
+12. The E2 core-input bridge is rejected. Avoid tiny accessor-only core bridges;
+    they preserve bytes but do not reduce enough work to improve native latency.
+13. Revisit structured labels and prefix hashers only after a domain-specific
+    target is identified. Keep emitted transcript bytes identical unless the
+    backend version changes deliberately.
+14. Design the next true arena-backed representation as a stage-owned execution
+    model with explicit lifetimes and materialization only at stage, checkpoint,
+    output, and validation boundaries.
+15. Retain a candidate only after `hidden_eval_equivalence`, native profiling,
+    direct WASM artifact timing, and product registration smoke all move in a
+    compatible direction.
+16. Refactor-61 direct registration confirmation is retained as a product-path
+    win. It is not an HSS runtime optimization, but it lowers wallet-iframe SDK
+    p50 by about `41ms` to `43ms` and removes the registration-only
+    UserConfirm worker bounce.
+17. Current product-path bottleneck order is client HSS artifact construction,
+    `/wallets/register/finalize`, and preauth HSS prepare. Wallet-iframe prompt
+    host rendering is measured and is about `1ms` p50, so HSS-specific work
+    should continue with the larger stage-owned `CoreBitWordSide`
+    representation, keeping the product benchmark as the final keep gate.
+18. Benchmark wallet-iframe auto-confirm diagnostics are retained. The latest
+    smoke run shows the helper sees the confirm button at roughly `639ms` to
+    `645ms` p50 and dispatches the click at roughly `843ms` to `849ms` p50.
+    Treat browser-observed wallet-iframe p50 as partially benchmark-harness
+    dependent; use SDK p50 and product-side diagnostics for keep/reject
+    decisions.
+
 ## Current Checklist
 
 - [x] Choose Path A for this plan: preserve current HSS trust model,
@@ -626,9 +1058,18 @@ For protocol-shape changes:
 - [x] Run Phase E1 A2B destination-reuse experiment.
 - [x] Reject A2B destination-reuse candidate after browser/WASM smoke showed no
       HSS worker improvement.
-- [ ] Add native HSS registration benchmark.
+- [x] Add native HSS registration benchmark.
+- [x] Add native flamegraph support for `crates/ed25519-hss`.
+- [x] Run native CPU attribution for hashing, commitment derivation, provenance
+      derivation, modular arithmetic, A2B carry conversion, output projection,
+      and allocator overhead.
+- [x] Add browser/WASM Chrome Performance trace instructions for the direct
+      client artifact path.
 - [x] Add WASM-only HSS artifact benchmark.
 - [x] Add hidden-eval logical allocation and object-construction counters.
+- [x] Add native allocation probe for hidden-eval object churn.
+- [x] Add cumulative checkpoint allocation probes for hidden-eval stage
+      allocation attribution.
 - [x] Add byte-equivalence harness before packed/arena representation work.
 - [x] Add output-projector local-word materialization evidence for
       scratch/materialization keep-reject decisions.
@@ -646,17 +1087,101 @@ For protocol-shape changes:
       benchmarks.
 - [x] Review historical `ed25519-hss` optimization notes for duplicate
       candidates before continuing refactor-64.
-- [ ] Avoid standalone `maj`/`ch` scratch candidates unless they are part of a
+- [x] Avoid standalone `maj`/`ch` scratch candidates unless they are part of a
       fused round-core or packed-representation rewrite.
 - [x] Design the first mixed local/shared output-projector kernel against the
       new equivalence harness.
-- [ ] Design the first packed round-core or arena-backed representation
+- [x] Design the first packed round-core or arena-backed representation
       candidate against the equivalence harness.
-- [ ] Decide whether structured labels/prefix hashers are still worth doing
+- [x] Reject packed local metadata candidate after allocation and direct WASM
+      benchmarks showed too little allocation reduction and a browser direct
+      artifact regression.
+- [x] Implement a real stage-local scratch/arena lifetime candidate that avoids
+      temporary local side-vector allocation in fixed-width hot helpers.
+- [x] Reject round-state scratch reuse candidate after native allocation
+      improved but product client-artifact p50 regressed in registration-flow
+      smoke.
+- [x] Retain extra-material iterator candidate after byte-equivalence,
+      allocation, direct artifact, and registration-flow smoke benchmarks.
+- [x] Reject fused output canonicalization candidate after it saved only about
+      `123KB` per hidden-eval profile and regressed Node direct artifact timing.
+- [x] Reject standalone output-projector label-reuse candidate after it reduced
+      native allocation and direct artifact p50 but regressed product
+      host-origin client-artifact p50.
+- [x] Decide whether structured labels/prefix hashers are still worth doing
       only after confirming they are part of a new representation shape rather
       than repeating retained label-buffer reuse.
-- [ ] Decide whether packed/arena representation is justified.
-- [ ] Decide whether a protocol-level redesign is necessary.
+- [x] Design an arithmetic-kernel representation candidate that reduces owned
+      local word construction without adding state-rotation move traffic.
+- [x] Reject output-projector select-stream candidate after it reduced native
+      allocation and direct artifact p50 but regressed product client-artifact
+      p50 by `15ms-30ms`.
+- [x] Reject A2B output recycling candidate after native allocation improved
+      but direct artifact p50 regressed on Node and browser.
+- [x] Retain local multiplication provenance-fold candidate after
+      byte-equivalence, native benchmark, direct WASM artifact, and product
+      registration-flow smoke benchmarks.
+- [x] Retain raw batch multiplication output provenance-fold candidate after
+      byte-equivalence, native benchmark, direct WASM artifact, and product
+      registration-flow smoke benchmarks.
+- [x] Design the next representation-level candidate around a broader
+      output-projector or A2B representation rewrite, with product
+      client-artifact p50 as the keep gate.
+- [x] Decide from CPU attribution that duplicate hash/provenance reductions
+      should come before a broader output-projector or A2B representation
+      rewrite.
+- [x] Audit remaining physical hash invocations for more duplicated
+      left/right provenance derivations that preserve byte-identical outputs.
+- [x] Add physical hash-invocation counters if the next duplicated
+      hash/provenance candidate is not obvious from code inspection.
+- [x] Reject derived-commitment prefix-hasher candidate after native hidden eval
+      p50 regressed despite byte-equivalence.
+- [x] Add a physical keyed-digest domain breakdown before another keyed-digest
+      optimization, so the next candidate can target a specific domain family.
+- [x] Gate structured label and prefix-hasher work on profiling evidence that
+      identifies a specific material domain.
+- [x] Audit `eval_xor_local_word` for an immediate byte-identical fold; no quick
+      fold found because paired provenance is already folded and raw side cases
+      carry side-specific labels.
+- [x] Add a physical derived-commitment domain breakdown; all derived
+      commitments classified with `other=0`.
+- [x] Audit `eval_mul_local_material` and `eval_mul_local` for any remaining
+      byte-identical commitment/provenance folds.
+- [x] Retain carry-core local adder candidate after byte-equivalence, native
+      benchmark, direct WASM artifact, product registration-flow smoke, full
+      crate tests, and WASM signer check.
+- [x] Retain A2B source/carry-core candidate after byte-equivalence,
+      counter-enabled equivalence, native benchmark, direct WASM artifact, and
+      product registration-flow smoke.
+- [x] Retain output-boundary paired transport materialization candidate after
+      byte-equivalence, native benchmark, direct WASM artifact, and product
+      registration-flow smoke.
+- [x] Design the next true arena-backed execution model with stage-owned
+      lifetimes and materialization only at stage, checkpoint, output, and
+      validation boundaries.
+- [x] Reject Candidate E2 core-input bridge after byte-equivalence passed but
+      native hidden-eval p50 regressed.
+- [x] Switch back temporarily to refactor 61/62 registration-critical-path work
+      after the retained output-boundary paired transport and rejected E2
+      core-input bridge experiments.
+- [x] Decide whether to continue product-path work on wallet-iframe
+      confirmation/finalize next or resume the larger stage-owned
+      `CoreBitWordSide` HSS representation rewrite. Smoke run
+      `20260610-024516Z` showed prompt host rendering at about `1ms` p50, so
+      the next optimization lane resumes the larger stage-owned
+      `CoreBitWordSide` HSS representation rewrite before another finalize
+      pass.
+- [x] Decide whether packed/arena representation is justified.
+- [x] Defer protocol-level redesign until refactors 61/62 and stage-owned
+      representation work fail to close the remaining latency gap.
+- [ ] Implement the first stage-owned `CoreBitWordSide` representation slice
+      behind byte-equivalence checks, with stage widths and capacities derived
+      only from public circuit shape.
+- [ ] Benchmark that slice with native hidden-eval, direct HSS WASM artifact,
+      and product registration smoke before deciding whether to retain it.
+- [ ] If the first representation slice regresses direct artifact p50, reject it
+      and use the direct bucket split to choose between round-core local side
+      storage and message-schedule accumulation next.
 
 ## Open Questions
 

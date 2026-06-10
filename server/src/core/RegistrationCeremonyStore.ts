@@ -7,6 +7,7 @@ import type {
   AddSignerIntentV1,
   RegistrationIntentGrant,
   RegistrationIntentV1,
+  RegistrationPreparationId,
   WalletAddSignerStartResponse,
   WalletRegistrationEcdsaWalletKey,
   WalletRegistrationFinalizeResponse,
@@ -131,6 +132,182 @@ export type StoredEd25519RegistrationPrepared = WalletRegistrationEd25519StartPa
   responded?: never;
 };
 
+export type StoredEd25519RegistrationPrepareScope = {
+  walletId: string;
+  rpId: string;
+  authMethodKind: RegistrationIntentV1['authMethod']['kind'];
+  expectedOrigin: string;
+  orgId: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  nearAccountId: string;
+  keyPurpose: string;
+  keyVersion: string;
+  derivationVersion: number;
+  participantIds: number[];
+};
+
+export type StoredWalletRegistrationHssPreparationBase = {
+  registrationPreparationId: RegistrationPreparationId;
+  registrationIntentGrant: RegistrationIntentGrant;
+  registrationIntentDigestB64u: string;
+  intent: RegistrationIntentV1;
+  orgId: string;
+  expectedOrigin: string;
+  signingRootId: string;
+  signingRootVersion: string;
+  ed25519Scope: StoredEd25519RegistrationPrepareScope;
+  createdAtMs: number;
+  expiresAtMs: number;
+};
+
+export type StoredWalletRegistrationHssPreparationPreparing =
+  StoredWalletRegistrationHssPreparationBase & {
+    kind: 'hss_prepare_preparing';
+    prepared?: never;
+    failure?: never;
+    consumedAtMs?: never;
+  };
+
+export type StoredWalletRegistrationHssPreparationPrepared =
+  StoredWalletRegistrationHssPreparationBase & {
+    kind: 'hss_prepare_prepared';
+    prepared: StoredEd25519RegistrationPrepared;
+    failure?: never;
+    consumedAtMs?: never;
+  };
+
+export type StoredWalletRegistrationHssPreparationFailed =
+  StoredWalletRegistrationHssPreparationBase & {
+    kind: 'hss_prepare_failed';
+    failure: {
+      code: string;
+      message: string;
+    };
+    prepared?: never;
+    consumedAtMs?: never;
+  };
+
+export type StoredWalletRegistrationHssPreparation =
+  | StoredWalletRegistrationHssPreparationPreparing
+  | StoredWalletRegistrationHssPreparationPrepared
+  | StoredWalletRegistrationHssPreparationFailed;
+
+export type StoredWalletRegistrationPreparation = StoredWalletRegistrationHssPreparation;
+
+export function buildStoredWalletRegistrationHssPreparationPreparing(
+  input: StoredWalletRegistrationHssPreparationBase,
+): StoredWalletRegistrationHssPreparationPreparing {
+  return {
+    kind: 'hss_prepare_preparing',
+    ...input,
+  };
+}
+
+export function buildStoredWalletRegistrationHssPreparationPrepared(
+  input: StoredWalletRegistrationHssPreparationBase & {
+    prepared: StoredEd25519RegistrationPrepared;
+  },
+): StoredWalletRegistrationHssPreparationPrepared {
+  return {
+    kind: 'hss_prepare_prepared',
+    ...input,
+  };
+}
+
+export function buildStoredWalletRegistrationHssPreparationFailed(
+  input: StoredWalletRegistrationHssPreparationBase & {
+    failure: {
+      code: string;
+      message: string;
+    };
+  },
+): StoredWalletRegistrationHssPreparationFailed {
+  return {
+    kind: 'hss_prepare_failed',
+    ...input,
+  };
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unexpected registration ceremony store branch: ${String(value)}`);
+}
+
+export function getPreparedWalletRegistrationHssPreparation(
+  preparation: StoredWalletRegistrationHssPreparation,
+):
+  | { ok: true; preparation: StoredWalletRegistrationHssPreparationPrepared }
+  | { ok: false; code: 'registration_preparation_pending' | 'registration_preparation_failed'; message: string } {
+  switch (preparation.kind) {
+    case 'hss_prepare_prepared':
+      return { ok: true, preparation };
+    case 'hss_prepare_preparing':
+      return {
+        ok: false,
+        code: 'registration_preparation_pending',
+        message: 'registration preparation is still running',
+      };
+    case 'hss_prepare_failed':
+      return {
+        ok: false,
+        code: 'registration_preparation_failed',
+        message: preparation.failure.message || 'registration preparation failed',
+      };
+    default:
+      return assertNever(preparation);
+  }
+}
+
+export function storedEd25519RegistrationPrepareScopesMatch(
+  left: StoredEd25519RegistrationPrepareScope,
+  right: StoredEd25519RegistrationPrepareScope,
+): boolean {
+  return (
+    left.walletId === right.walletId &&
+    left.rpId === right.rpId &&
+    left.authMethodKind === right.authMethodKind &&
+    left.expectedOrigin === right.expectedOrigin &&
+    left.orgId === right.orgId &&
+    left.signingRootId === right.signingRootId &&
+    left.signingRootVersion === right.signingRootVersion &&
+    left.nearAccountId === right.nearAccountId &&
+    left.keyPurpose === right.keyPurpose &&
+    left.keyVersion === right.keyVersion &&
+    left.derivationVersion === right.derivationVersion &&
+    left.participantIds.length === right.participantIds.length &&
+    left.participantIds.every((id, index) => id === right.participantIds[index])
+  );
+}
+
+export type ConsumeRegistrationIntentForPreparationInput = {
+  registrationIntentGrant: RegistrationIntentGrant;
+  registrationIntentDigestB64u: string;
+  registrationPreparationId: RegistrationPreparationId;
+  ed25519Scope: StoredEd25519RegistrationPrepareScope;
+};
+
+export type ConsumeRegistrationIntentForPreparationResult =
+  | {
+      ok: true;
+      intent: ConsumedRegistrationIntent;
+    }
+  | {
+      ok: false;
+      code: 'invalid_grant' | 'scope_mismatch';
+      message: string;
+    };
+
+function registrationPreparationMatchesIntentConsume(
+  preparation: StoredWalletRegistrationHssPreparation,
+  input: ConsumeRegistrationIntentForPreparationInput,
+): boolean {
+  return (
+    preparation.kind === 'hss_prepare_prepared' &&
+    preparation.registrationIntentGrant === input.registrationIntentGrant &&
+    preparation.registrationIntentDigestB64u === input.registrationIntentDigestB64u &&
+    storedEd25519RegistrationPrepareScopesMatch(preparation.ed25519Scope, input.ed25519Scope)
+  );
+}
 export type StoredEd25519RegistrationResponded = WalletRegistrationEd25519StartPayload & {
   kind: 'ed25519_responded';
   responded: {
@@ -323,6 +500,17 @@ export interface RegistrationCeremonyStore {
   putIntent(intent: StoredRegistrationIntent): Promise<void>;
   getIntent(grant: RegistrationIntentGrant): Promise<StoredRegistrationIntent | null>;
   takeIntent(grant: RegistrationIntentGrant): Promise<ConsumedRegistrationIntent | null>;
+  consumeRegistrationIntentForPreparation(
+    input: ConsumeRegistrationIntentForPreparationInput,
+  ): Promise<ConsumeRegistrationIntentForPreparationResult>;
+  putPreparation(preparation: StoredWalletRegistrationHssPreparation): Promise<void>;
+  getPreparation(
+    registrationPreparationId: RegistrationPreparationId,
+  ): Promise<StoredWalletRegistrationHssPreparation | null>;
+  updatePreparation(preparation: StoredWalletRegistrationHssPreparation): Promise<void>;
+  takePreparation(
+    registrationPreparationId: RegistrationPreparationId,
+  ): Promise<StoredWalletRegistrationHssPreparation | null>;
   putAddAuthMethodIntent(intent: StoredAddAuthMethodIntent): Promise<void>;
   getAddAuthMethodIntent(grant: AddAuthMethodIntentGrant): Promise<StoredAddAuthMethodIntent | null>;
   takeAddAuthMethodIntent(
@@ -356,6 +544,7 @@ export interface RegistrationCeremonyStore {
 
 export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStore {
   private readonly intents = new Map<string, StoredRegistrationIntent>();
+  private readonly preparations = new Map<string, StoredWalletRegistrationHssPreparation>();
   private readonly addAuthMethodIntents = new Map<string, StoredAddAuthMethodIntent>();
   private readonly addSignerIntents = new Map<string, StoredAddSignerIntent>();
   private readonly ceremonies = new Map<string, StoredWalletRegistrationCeremony>();
@@ -383,6 +572,81 @@ export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStor
     this.intents.delete(key);
     if (intent.expiresAtMs <= Date.now()) return null;
     return { ...intent, kind: 'intent_consumed', consumedAtMs: Date.now() };
+  }
+
+  async consumeRegistrationIntentForPreparation(
+    input: ConsumeRegistrationIntentForPreparationInput,
+  ): Promise<ConsumeRegistrationIntentForPreparationResult> {
+    this.pruneExpired();
+    const grantKey = String(input.registrationIntentGrant || '').trim();
+    const intent = this.intents.get(grantKey) || null;
+    if (
+      !intent ||
+      intent.expiresAtMs <= Date.now() ||
+      intent.digestB64u !== input.registrationIntentDigestB64u
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_grant',
+        message: 'registration intent grant expired',
+      };
+    }
+    const preparation =
+      this.preparations.get(String(input.registrationPreparationId || '').trim()) || null;
+    if (
+      !preparation ||
+      preparation.expiresAtMs <= Date.now() ||
+      !registrationPreparationMatchesIntentConsume(preparation, input)
+    ) {
+      return {
+        ok: false,
+        code: 'scope_mismatch',
+        message: 'registration preparation scope does not match verified intent',
+      };
+    }
+    this.intents.delete(grantKey);
+    return {
+      ok: true,
+      intent: { ...intent, kind: 'intent_consumed', consumedAtMs: Date.now() },
+    };
+  }
+
+  async putPreparation(preparation: StoredWalletRegistrationHssPreparation): Promise<void> {
+    this.pruneExpired();
+    const parsed = parseStoredWalletRegistrationHssPreparation(preparation);
+    if (!parsed) throw new Error('Invalid wallet registration preparation record');
+    this.preparations.set(parsed.registrationPreparationId, parsed);
+  }
+
+  async getPreparation(
+    registrationPreparationId: RegistrationPreparationId,
+  ): Promise<StoredWalletRegistrationHssPreparation | null> {
+    this.pruneExpired();
+    const preparation =
+      this.preparations.get(String(registrationPreparationId || '').trim()) || null;
+    if (!preparation || preparation.expiresAtMs <= Date.now()) return null;
+    return preparation;
+  }
+
+  async updatePreparation(preparation: StoredWalletRegistrationHssPreparation): Promise<void> {
+    this.pruneExpired();
+    const parsed = parseStoredWalletRegistrationHssPreparation(preparation);
+    if (!parsed) throw new Error('Invalid wallet registration preparation record');
+    if (parsed.expiresAtMs <= Date.now()) return;
+    const key = String(parsed.registrationPreparationId || '').trim();
+    if (!this.preparations.has(key)) return;
+    this.preparations.set(key, parsed);
+  }
+
+  async takePreparation(
+    registrationPreparationId: RegistrationPreparationId,
+  ): Promise<StoredWalletRegistrationHssPreparation | null> {
+    this.pruneExpired();
+    const key = String(registrationPreparationId || '').trim();
+    const preparation = this.preparations.get(key) || null;
+    this.preparations.delete(key);
+    if (!preparation || preparation.expiresAtMs <= Date.now()) return null;
+    return preparation;
   }
 
   async putAddAuthMethodIntent(intent: StoredAddAuthMethodIntent): Promise<void> {
@@ -555,6 +819,9 @@ export class MemoryRegistrationCeremonyStore implements RegistrationCeremonyStor
     for (const [key, intent] of this.intents) {
       if (intent.expiresAtMs <= now) this.intents.delete(key);
     }
+    for (const [key, preparation] of this.preparations) {
+      if (preparation.expiresAtMs <= now) this.preparations.delete(key);
+    }
     for (const [key, intent] of this.addAuthMethodIntents) {
       if (intent.expiresAtMs <= now) this.addAuthMethodIntents.delete(key);
     }
@@ -695,6 +962,187 @@ function parseStoredRegistrationIntent(value: unknown): StoredRegistrationIntent
   if (typeof value.orgId !== 'string') return null;
   if (!Number.isFinite(Number(value.expiresAtMs))) return null;
   return value as StoredRegistrationIntent;
+}
+
+function parseStoredEd25519RegistrationPrepared(
+  value: unknown,
+): StoredEd25519RegistrationPrepared | null {
+  if (!isRecord(value) || value.kind !== 'ed25519_prepared') return null;
+  const ceremonyHandle = trimString(value.ceremonyHandle);
+  const clientOtOfferMessageB64u = trimString(value.clientOtOfferMessageB64u);
+  if (!ceremonyHandle || !clientOtOfferMessageB64u || !isRecord(value.preparedSession)) {
+    return null;
+  }
+  const contextBindingB64u = trimString(value.preparedSession.contextBindingB64u);
+  const evaluatorDriverStateB64u = trimString(value.preparedSession.evaluatorDriverStateB64u);
+  if (!contextBindingB64u || !evaluatorDriverStateB64u) return null;
+  return {
+    kind: 'ed25519_prepared',
+    ceremonyHandle,
+    preparedSession: {
+      contextBindingB64u,
+      evaluatorDriverStateB64u,
+    },
+    clientOtOfferMessageB64u,
+  };
+}
+
+function parseStoredEd25519RegistrationPrepareScope(
+  value: unknown,
+): StoredEd25519RegistrationPrepareScope | null {
+  if (!isRecord(value)) return null;
+  const walletId = trimString(value.walletId);
+  const rpId = trimString(value.rpId);
+  const authMethodKind = trimString(value.authMethodKind);
+  const expectedOrigin = trimString(value.expectedOrigin);
+  const orgId = typeof value.orgId === 'string' ? value.orgId : null;
+  const signingRootId = trimString(value.signingRootId);
+  const signingRootVersion = trimString(value.signingRootVersion);
+  const nearAccountId = trimString(value.nearAccountId);
+  const keyPurpose = trimString(value.keyPurpose);
+  const keyVersion = trimString(value.keyVersion);
+  const derivationVersion = Number(value.derivationVersion);
+  const participantIds = Array.isArray(value.participantIds)
+    ? value.participantIds.map((id) => Number(id))
+    : [];
+  if (
+    !walletId ||
+    !rpId ||
+    (authMethodKind !== 'passkey' && authMethodKind !== 'email_otp') ||
+    orgId === null ||
+    !signingRootVersion ||
+    !nearAccountId ||
+    !keyPurpose ||
+    !keyVersion ||
+    !Number.isSafeInteger(derivationVersion) ||
+    participantIds.length === 0 ||
+    participantIds.some((id) => !Number.isSafeInteger(id))
+  ) {
+    return null;
+  }
+  return {
+    walletId,
+    rpId,
+    authMethodKind: authMethodKind as RegistrationIntentV1['authMethod']['kind'],
+    expectedOrigin,
+    orgId,
+    signingRootId,
+    signingRootVersion,
+    nearAccountId,
+    keyPurpose,
+    keyVersion,
+    derivationVersion,
+    participantIds,
+  };
+}
+
+function parseStoredWalletRegistrationHssPreparationBase(
+  value: unknown,
+): StoredWalletRegistrationHssPreparationBase | null {
+  if (!isRecord(value)) return null;
+  const registrationPreparationId = trimString(value.registrationPreparationId);
+  const registrationIntentGrant = trimString(value.registrationIntentGrant);
+  const registrationIntentDigestB64u = trimString(value.registrationIntentDigestB64u);
+  const orgId = typeof value.orgId === 'string' ? value.orgId : null;
+  const expectedOrigin = trimString(value.expectedOrigin);
+  const signingRootId = trimString(value.signingRootId);
+  const signingRootVersion = trimString(value.signingRootVersion);
+  const createdAtMs = Number(value.createdAtMs);
+  const expiresAtMs = Number(value.expiresAtMs);
+  const intentRecord = parseStoredRegistrationIntent({
+    kind: 'intent_allocated',
+    grant: registrationIntentGrant,
+    intent: value.intent,
+    digestB64u: registrationIntentDigestB64u,
+    orgId: orgId || '',
+    signingRootId,
+    signingRootVersion,
+    expectedOrigin,
+    expiresAtMs,
+  });
+  const ed25519Scope = parseStoredEd25519RegistrationPrepareScope(value.ed25519Scope);
+  if (
+    !registrationPreparationId ||
+    !registrationIntentGrant ||
+    !registrationIntentDigestB64u ||
+    orgId === null ||
+    !signingRootVersion ||
+    !Number.isSafeInteger(createdAtMs) ||
+    createdAtMs <= 0 ||
+    !Number.isSafeInteger(expiresAtMs) ||
+    expiresAtMs <= 0 ||
+    !intentRecord ||
+    !ed25519Scope
+  ) {
+    return null;
+  }
+  return {
+    registrationPreparationId: registrationPreparationId as RegistrationPreparationId,
+    registrationIntentGrant: registrationIntentGrant as RegistrationIntentGrant,
+    registrationIntentDigestB64u,
+    intent: intentRecord.intent,
+    orgId,
+    expectedOrigin,
+    signingRootId,
+    signingRootVersion,
+    ed25519Scope,
+    createdAtMs,
+    expiresAtMs,
+  };
+}
+
+function parseStoredWalletRegistrationHssPreparationFailure(
+  value: unknown,
+): StoredWalletRegistrationHssPreparationFailed['failure'] | null {
+  if (!isRecord(value)) return null;
+  const code = trimString(value.code);
+  const message = trimString(value.message);
+  if (!code || !message) return null;
+  return { code, message };
+}
+
+function parseStoredWalletRegistrationHssPreparation(
+  value: unknown,
+): StoredWalletRegistrationHssPreparation | null {
+  value = parseJsonValue(value);
+  if (!isRecord(value)) return null;
+  const base = parseStoredWalletRegistrationHssPreparationBase(value);
+  if (!base) return null;
+  switch (value.kind) {
+    case 'hss_prepare_preparing':
+      if (
+        hasDefinedField(value, 'prepared') ||
+        hasDefinedField(value, 'failure') ||
+        hasDefinedField(value, 'consumedAtMs')
+      ) {
+        return null;
+      }
+      return buildStoredWalletRegistrationHssPreparationPreparing(base);
+    case 'hss_prepare_prepared': {
+      if (hasDefinedField(value, 'failure') || hasDefinedField(value, 'consumedAtMs')) {
+        return null;
+      }
+      const prepared = parseStoredEd25519RegistrationPrepared(value.prepared);
+      if (!prepared) return null;
+      return buildStoredWalletRegistrationHssPreparationPrepared({
+        ...base,
+        prepared,
+      });
+    }
+    case 'hss_prepare_failed': {
+      if (hasDefinedField(value, 'prepared') || hasDefinedField(value, 'consumedAtMs')) {
+        return null;
+      }
+      const failure = parseStoredWalletRegistrationHssPreparationFailure(value.failure);
+      if (!failure) return null;
+      return buildStoredWalletRegistrationHssPreparationFailed({
+        ...base,
+        failure,
+      });
+    }
+    default:
+      return null;
+  }
 }
 
 function parseStoredAddSignerIntent(value: unknown): StoredAddSignerIntent | null {
@@ -1098,6 +1546,180 @@ class PostgresRegistrationCeremonyStore implements RegistrationCeremonyStore {
     return { ...intent, kind: 'intent_consumed', consumedAtMs: Date.now() };
   }
 
+  async consumeRegistrationIntentForPreparation(
+    input: ConsumeRegistrationIntentForPreparationInput,
+  ): Promise<ConsumeRegistrationIntentForPreparationResult> {
+    const pool = await this.poolPromise;
+    const grantKey = String(input.registrationIntentGrant || '').trim();
+    const preparationKey = String(input.registrationPreparationId || '').trim();
+    const now = Date.now();
+    if (!grantKey || !preparationKey) {
+      return {
+        ok: false,
+        code: 'invalid_grant',
+        message: 'registration intent grant expired',
+      };
+    }
+    const result = await pool.query(
+      `
+        DELETE FROM wallet_registration_intents AS intent
+        WHERE intent.namespace = $1
+          AND intent.intent_grant = $2
+          AND intent.expires_at_ms > $3
+          AND intent.record_json->>'digestB64u' = $4
+          AND EXISTS (
+            SELECT 1
+            FROM wallet_registration_ceremonies AS preparation
+            WHERE preparation.namespace = $1
+              AND preparation.registration_ceremony_id = $5
+              AND preparation.expires_at_ms > $3
+              AND preparation.record_json->>'kind' = 'hss_prepare_prepared'
+              AND preparation.record_json->>'registrationIntentGrant' = $2
+              AND preparation.record_json->>'registrationIntentDigestB64u' = $4
+              AND preparation.record_json #>> '{ed25519Scope,walletId}' = $6
+              AND preparation.record_json #>> '{ed25519Scope,rpId}' = $7
+              AND preparation.record_json #>> '{ed25519Scope,authMethodKind}' = $8
+              AND preparation.record_json #>> '{ed25519Scope,expectedOrigin}' = $9
+              AND preparation.record_json #>> '{ed25519Scope,orgId}' = $10
+              AND preparation.record_json #>> '{ed25519Scope,signingRootId}' = $11
+              AND preparation.record_json #>> '{ed25519Scope,signingRootVersion}' = $12
+              AND preparation.record_json #>> '{ed25519Scope,nearAccountId}' = $13
+              AND preparation.record_json #>> '{ed25519Scope,keyPurpose}' = $14
+              AND preparation.record_json #>> '{ed25519Scope,keyVersion}' = $15
+              AND (preparation.record_json #>> '{ed25519Scope,derivationVersion}')::integer = $16
+              AND preparation.record_json #> '{ed25519Scope,participantIds}' = $17::jsonb
+          )
+        RETURNING intent.record_json
+      `,
+      [
+        this.namespace,
+        grantKey,
+        now,
+        input.registrationIntentDigestB64u,
+        preparationKey,
+        input.ed25519Scope.walletId,
+        input.ed25519Scope.rpId,
+        input.ed25519Scope.authMethodKind,
+        input.ed25519Scope.expectedOrigin,
+        input.ed25519Scope.orgId,
+        input.ed25519Scope.signingRootId,
+        input.ed25519Scope.signingRootVersion,
+        input.ed25519Scope.nearAccountId,
+        input.ed25519Scope.keyPurpose,
+        input.ed25519Scope.keyVersion,
+        input.ed25519Scope.derivationVersion,
+        JSON.stringify(input.ed25519Scope.participantIds),
+      ],
+    );
+    const intent = parseJsonRecord(result.rows[0], parseStoredRegistrationIntent);
+    if (intent) {
+      return {
+        ok: true,
+        intent: { ...intent, kind: 'intent_consumed', consumedAtMs: Date.now() },
+      };
+    }
+    const grantResult = await pool.query(
+      `
+        SELECT 1
+        FROM wallet_registration_intents
+        WHERE namespace = $1
+          AND intent_grant = $2
+          AND expires_at_ms > $3
+          AND record_json->>'digestB64u' = $4
+      `,
+      [this.namespace, grantKey, Date.now(), input.registrationIntentDigestB64u],
+    );
+    if (grantResult.rows[0]) {
+      return {
+        ok: false,
+        code: 'scope_mismatch',
+        message: 'registration preparation scope does not match verified intent',
+      };
+    }
+    return {
+      ok: false,
+      code: 'invalid_grant',
+      message: 'registration intent grant expired',
+    };
+  }
+
+  async putPreparation(preparation: StoredWalletRegistrationHssPreparation): Promise<void> {
+    const parsed = parseStoredWalletRegistrationHssPreparation(preparation);
+    if (!parsed) throw new Error('Invalid wallet registration preparation record');
+    const pool = await this.poolPromise;
+    await pool.query(
+      `
+        INSERT INTO wallet_registration_ceremonies
+          (namespace, registration_ceremony_id, record_json, expires_at_ms)
+        VALUES ($1, $2, $3::jsonb, $4)
+        ON CONFLICT (namespace, registration_ceremony_id) DO UPDATE SET
+          record_json = EXCLUDED.record_json,
+          expires_at_ms = EXCLUDED.expires_at_ms
+      `,
+      [
+        this.namespace,
+        parsed.registrationPreparationId,
+        JSON.stringify(parsed),
+        parsed.expiresAtMs,
+      ],
+    );
+  }
+
+  async getPreparation(
+    registrationPreparationId: RegistrationPreparationId,
+  ): Promise<StoredWalletRegistrationHssPreparation | null> {
+    const pool = await this.poolPromise;
+    const key = String(registrationPreparationId || '').trim();
+    if (!key) return null;
+    const result = await pool.query(
+      `
+        SELECT record_json
+        FROM wallet_registration_ceremonies
+        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $3
+      `,
+      [this.namespace, key, Date.now()],
+    );
+    return parseJsonRecord(result.rows[0], parseStoredWalletRegistrationHssPreparation);
+  }
+
+  async updatePreparation(preparation: StoredWalletRegistrationHssPreparation): Promise<void> {
+    const parsed = parseStoredWalletRegistrationHssPreparation(preparation);
+    if (!parsed) throw new Error('Invalid wallet registration preparation record');
+    if (parsed.expiresAtMs <= Date.now()) return;
+    const pool = await this.poolPromise;
+    await pool.query(
+      `
+        UPDATE wallet_registration_ceremonies
+        SET record_json = $3::jsonb, expires_at_ms = $4
+        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $5
+      `,
+      [
+        this.namespace,
+        parsed.registrationPreparationId,
+        JSON.stringify(parsed),
+        parsed.expiresAtMs,
+        Date.now(),
+      ],
+    );
+  }
+
+  async takePreparation(
+    registrationPreparationId: RegistrationPreparationId,
+  ): Promise<StoredWalletRegistrationHssPreparation | null> {
+    const pool = await this.poolPromise;
+    const key = String(registrationPreparationId || '').trim();
+    if (!key) return null;
+    const result = await pool.query(
+      `
+        DELETE FROM wallet_registration_ceremonies
+        WHERE namespace = $1 AND registration_ceremony_id = $2 AND expires_at_ms > $3
+        RETURNING record_json
+      `,
+      [this.namespace, key, Date.now()],
+    );
+    return parseJsonRecord(result.rows[0], parseStoredWalletRegistrationHssPreparation);
+  }
+
   async putAddAuthMethodIntent(intent: StoredAddAuthMethodIntent): Promise<void> {
     const pool = await this.poolPromise;
     await pool.query(
@@ -1466,7 +2088,29 @@ type DoResp<T> = DoOk<T> | DoErr;
 type DoRequest =
   | { op: 'get'; key: string }
   | { op: 'set'; key: string; value: unknown; ttlMs?: number }
-  | { op: 'getdel'; key: string };
+  | { op: 'getdel'; key: string }
+  | {
+      op: 'getdelIfRelatedMatches';
+      key: string;
+      relatedKey: string;
+      expectedRelated: unknown;
+    };
+
+type DoConditionalGetDelResponse = {
+  matched: boolean;
+  value: unknown | null;
+};
+
+function walletRegistrationPreparationConsumeExpectedRecord(
+  input: ConsumeRegistrationIntentForPreparationInput,
+): Record<string, unknown> {
+  return {
+    kind: 'hss_prepare_prepared',
+    registrationIntentGrant: input.registrationIntentGrant,
+    registrationIntentDigestB64u: input.registrationIntentDigestB64u,
+    ed25519Scope: input.ed25519Scope,
+  };
+}
 
 function isDurableObjectNamespaceLike(
   value: unknown,
@@ -1546,6 +2190,7 @@ class CloudflareDurableObjectRegistrationCeremonyStore implements RegistrationCe
   private key(
     scope:
       | 'intent'
+      | 'preparation'
       | 'add-auth-method-intent'
       | 'add-signer-intent'
       | 'ceremony'
@@ -1594,6 +2239,113 @@ class CloudflareDurableObjectRegistrationCeremonyStore implements RegistrationCe
     const intent = parseStoredRegistrationIntent(response.value);
     if (!intent || intent.expiresAtMs <= Date.now()) return null;
     return { ...intent, kind: 'intent_consumed', consumedAtMs: Date.now() };
+  }
+
+  async consumeRegistrationIntentForPreparation(
+    input: ConsumeRegistrationIntentForPreparationInput,
+  ): Promise<ConsumeRegistrationIntentForPreparationResult> {
+    const grantKey = trimString(input.registrationIntentGrant);
+    const preparationKey = trimString(input.registrationPreparationId);
+    if (!grantKey || !preparationKey) {
+      return {
+        ok: false,
+        code: 'invalid_grant',
+        message: 'registration intent grant expired',
+      };
+    }
+    const response = await callDo<DoConditionalGetDelResponse>(this.stub, {
+      op: 'getdelIfRelatedMatches',
+      key: this.key('intent', grantKey),
+      relatedKey: this.key('preparation', preparationKey),
+      expectedRelated: walletRegistrationPreparationConsumeExpectedRecord(input),
+    });
+    if (!response.ok) {
+      return {
+        ok: false,
+        code: 'invalid_grant',
+        message: 'registration intent grant expired',
+      };
+    }
+    if (!response.value.matched) {
+      return {
+        ok: false,
+        code: 'scope_mismatch',
+        message: 'registration preparation scope does not match verified intent',
+      };
+    }
+    const intent = parseStoredRegistrationIntent(response.value.value);
+    if (
+      !intent ||
+      intent.expiresAtMs <= Date.now() ||
+      intent.digestB64u !== input.registrationIntentDigestB64u
+    ) {
+      return {
+        ok: false,
+        code: 'invalid_grant',
+        message: 'registration intent grant expired',
+      };
+    }
+    return {
+      ok: true,
+      intent: { ...intent, kind: 'intent_consumed', consumedAtMs: Date.now() },
+    };
+  }
+
+  async putPreparation(preparation: StoredWalletRegistrationHssPreparation): Promise<void> {
+    const parsed = parseStoredWalletRegistrationHssPreparation(preparation);
+    if (!parsed) throw new Error('Invalid wallet registration preparation record');
+    const ttlMs = Math.max(1, parsed.expiresAtMs - Date.now());
+    const response = await callDo<void>(this.stub, {
+      op: 'set',
+      key: this.key('preparation', parsed.registrationPreparationId),
+      value: parsed,
+      ttlMs,
+    });
+    if (!response.ok) throw new Error(response.message);
+  }
+
+  async getPreparation(
+    registrationPreparationId: RegistrationPreparationId,
+  ): Promise<StoredWalletRegistrationHssPreparation | null> {
+    const key = trimString(registrationPreparationId);
+    if (!key) return null;
+    const response = await callDo<unknown | null>(this.stub, {
+      op: 'get',
+      key: this.key('preparation', key),
+    });
+    if (!response.ok) return null;
+    const preparation = parseStoredWalletRegistrationHssPreparation(response.value);
+    if (!preparation || preparation.expiresAtMs <= Date.now()) return null;
+    return preparation;
+  }
+
+  async updatePreparation(preparation: StoredWalletRegistrationHssPreparation): Promise<void> {
+    const parsed = parseStoredWalletRegistrationHssPreparation(preparation);
+    if (!parsed) throw new Error('Invalid wallet registration preparation record');
+    if (parsed.expiresAtMs <= Date.now()) return;
+    const ttlMs = Math.max(1, parsed.expiresAtMs - Date.now());
+    const response = await callDo<void>(this.stub, {
+      op: 'set',
+      key: this.key('preparation', parsed.registrationPreparationId),
+      value: parsed,
+      ttlMs,
+    });
+    if (!response.ok) throw new Error(response.message);
+  }
+
+  async takePreparation(
+    registrationPreparationId: RegistrationPreparationId,
+  ): Promise<StoredWalletRegistrationHssPreparation | null> {
+    const key = trimString(registrationPreparationId);
+    if (!key) return null;
+    const response = await callDo<unknown | null>(this.stub, {
+      op: 'getdel',
+      key: this.key('preparation', key),
+    });
+    if (!response.ok) return null;
+    const preparation = parseStoredWalletRegistrationHssPreparation(response.value);
+    if (!preparation || preparation.expiresAtMs <= Date.now()) return null;
+    return preparation;
   }
 
   async putAddSignerIntent(intent: StoredAddSignerIntent): Promise<void> {

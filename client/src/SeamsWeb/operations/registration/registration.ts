@@ -14,6 +14,7 @@ import type {
   RegistrationSigningSurface,
   RegistrationWebContext,
 } from '@/SeamsWeb/signingSurface/types';
+import type { WorkerResourceWarmupDiagnostics } from '@/core/signingEngine/assembly/warmup';
 import {
   buildThresholdWarmSessionRequestEnvelope,
   buildThresholdEd25519RegistrationHssClientOwnedArtifact,
@@ -61,6 +62,7 @@ import {
   finalizeWalletAddSigner,
   finalizeWalletRegistration,
   parseWalletRegistrationEcdsaHssRespond,
+  prepareWalletRegistration,
   respondWalletAddSignerHss,
   respondWalletRegistrationHss,
   startWalletAddSigner,
@@ -70,7 +72,10 @@ import {
   type WalletRegistrationRouteTimingName,
 } from '@/core/rpcClients/relayer/walletRegistration';
 import { buildNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
-import { collectPasskeyRegistrationAuthority } from '@/SeamsWeb/operations/authMethods/passkey/registrationAuthority';
+import {
+  collectPasskeyRegistrationAuthority,
+  type PasskeyRegistrationAuthorityDiagnostics,
+} from '@/SeamsWeb/operations/authMethods/passkey/registrationAuthority';
 import { backupEmailOtpRecoveryCodes } from '@/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup';
 import type { GoogleEmailOtpRegistrationBackupEnrollmentInput } from '@/SeamsWeb/operations/authMethods/emailOtp/recoveryCodeBackup';
 import type {
@@ -97,12 +102,40 @@ type RegistrationTimingSignerMode = RegistrationSignerSelection['mode'];
 
 type RegistrationTimingBucketValues = {
   inputValidationMs: number;
+  registrationWarmupMs: number;
+  registrationWarmupWaitMs: number;
+  registrationWarmupAuthenticatedWalletStateMs: number;
+  registrationWarmupNoncePrefetchMs: number;
+  registrationWarmupKeyMaterialReadMs: number;
+  registrationWarmupUiConfirmPrewarmMs: number;
+  registrationWarmupSignerWorkerPrewarmMs: number;
   managedRegistrationGrantMs: number;
   registrationIntentMs: number;
   registrationIntentDigestMs: number;
   authProofMs: number;
+  passkeyAuthConfirmationMs: number;
+  passkeyAuthPrfExtractionMs: number;
+  passkeyAuthCredentialRedactionMs: number;
+  passkeyAuthWorkerReadyMs: number;
+  passkeyAuthWorkerRequestRoundTripMs: number;
+  passkeyAuthWorkerResponseValidationMs: number;
+  passkeyAuthRequestSetupMs: number;
+  passkeyAuthPromptUserMs: number;
+  passkeyAuthPromptElementDefineMs: number;
+  passkeyAuthPromptMountMs: number;
+  passkeyAuthPromptHostFirstUpdateMs: number;
+  passkeyAuthPromptHostInteractiveMs: number;
+  passkeyAuthPromptConfirmEventMs: number;
+  passkeyAuthPromptDecisionWaitMs: number;
+  passkeyAuthCredentialCreateStartMs: number;
+  passkeyAuthCredentialCreateMs: number;
+  passkeyAuthCredentialSerializeMs: number;
+  passkeyAuthDuplicateRetryCount: number;
+  passkeyAuthMainThreadTotalMs: number;
   emailOtpEnrollmentMaterialMs: number;
   ed25519ClientMaterialMs: number;
+  walletRegisterPrepareMs: number;
+  walletRegisterPrepareWaitMs: number;
   walletRegisterStartMs: number;
   ed25519ClientRequestMs: number;
   ecdsaClientBootstrapMs: number;
@@ -123,6 +156,25 @@ type RegistrationTimingBucketName = keyof RegistrationTimingBucketValues;
 type PasskeyRegistrationAuthTiming = {
   kind: 'passkey';
   authProofMs: number;
+  passkeyAuthConfirmationMs: number;
+  passkeyAuthPrfExtractionMs: number;
+  passkeyAuthCredentialRedactionMs: number;
+  passkeyAuthWorkerReadyMs: number;
+  passkeyAuthWorkerRequestRoundTripMs: number;
+  passkeyAuthWorkerResponseValidationMs: number;
+  passkeyAuthRequestSetupMs: number;
+  passkeyAuthPromptUserMs: number;
+  passkeyAuthPromptElementDefineMs: number;
+  passkeyAuthPromptMountMs: number;
+  passkeyAuthPromptHostFirstUpdateMs: number;
+  passkeyAuthPromptHostInteractiveMs: number;
+  passkeyAuthPromptConfirmEventMs: number;
+  passkeyAuthPromptDecisionWaitMs: number;
+  passkeyAuthCredentialCreateStartMs: number;
+  passkeyAuthCredentialCreateMs: number;
+  passkeyAuthCredentialSerializeMs: number;
+  passkeyAuthDuplicateRetryCount: number;
+  passkeyAuthMainThreadTotalMs: number;
   emailOtpEnrollmentMaterialMs: 0;
   emailOtpRecoveryCodeBackupMs: 0;
 };
@@ -130,6 +182,25 @@ type PasskeyRegistrationAuthTiming = {
 type EmailOtpRegistrationAuthTiming = {
   kind: 'email_otp';
   authProofMs: number;
+  passkeyAuthConfirmationMs: 0;
+  passkeyAuthPrfExtractionMs: 0;
+  passkeyAuthCredentialRedactionMs: 0;
+  passkeyAuthWorkerReadyMs: 0;
+  passkeyAuthWorkerRequestRoundTripMs: 0;
+  passkeyAuthWorkerResponseValidationMs: 0;
+  passkeyAuthRequestSetupMs: 0;
+  passkeyAuthPromptUserMs: 0;
+  passkeyAuthPromptElementDefineMs: 0;
+  passkeyAuthPromptMountMs: 0;
+  passkeyAuthPromptHostFirstUpdateMs: 0;
+  passkeyAuthPromptHostInteractiveMs: 0;
+  passkeyAuthPromptConfirmEventMs: 0;
+  passkeyAuthPromptDecisionWaitMs: 0;
+  passkeyAuthCredentialCreateStartMs: 0;
+  passkeyAuthCredentialCreateMs: 0;
+  passkeyAuthCredentialSerializeMs: 0;
+  passkeyAuthDuplicateRetryCount: 0;
+  passkeyAuthMainThreadTotalMs: 0;
   emailOtpEnrollmentMaterialMs: number;
   emailOtpRecoveryCodeBackupMs: number;
 };
@@ -170,9 +241,7 @@ type EcdsaDisabledRegistrationTiming = {
   ecdsaRegistrationPersistenceMs: 0;
 };
 
-type RegistrationEcdsaTiming =
-  | EcdsaEnabledRegistrationTiming
-  | EcdsaDisabledRegistrationTiming;
+type RegistrationEcdsaTiming = EcdsaEnabledRegistrationTiming | EcdsaDisabledRegistrationTiming;
 
 type RegistrationTimingBuckets = RegistrationTimingBucketValues & {
   auth: RegistrationAuthTiming;
@@ -221,8 +290,13 @@ function parseWalletRegistrationRouteTimingName(
     case 'registrationIntentLoadMs':
     case 'registrationIntentDigestMs':
     case 'registrationIntentConsumeMs':
+    case 'registrationPreparationPersistMs':
+    case 'registrationPreparationLoadMs':
+    case 'registrationPreparationConsumeMs':
+    case 'registrationPreparationScopeCheckMs':
     case 'registrationAuthorityVerifyMs':
     case 'registrationHssPrepareMs':
+    case 'registrationPreauthHssPrepareMs':
     case 'registrationHssServerInputDeriveMs':
     case 'registrationHssServerSessionPrepareTotalMs':
     case 'registrationHssPrepareSessionMs':
@@ -232,6 +306,7 @@ function parseWalletRegistrationRouteTimingName(
     case 'registrationHssPrepareEncodeStatesMs':
     case 'registrationEcdsaPrepareMs':
     case 'registrationCeremonyPersistMs':
+    case 'registerPrepareTotalMs':
     case 'registerStartTotalMs':
     case 'registrationHssRespondMs':
     case 'registrationHssRespondDecodeMessagesMs':
@@ -267,6 +342,7 @@ function sanitizeWalletRegistrationRouteDiagnostics(
 ): WalletRegistrationRouteDiagnostics | null {
   if (!isObject(value) || value.kind !== 'wallet_registration_route_diagnostics_v1') return null;
   const route =
+    value.route === 'wallets_register_prepare' ||
     value.route === 'wallets_register_start' ||
     value.route === 'wallets_register_hss_respond' ||
     value.route === 'wallets_register_finalize'
@@ -292,12 +368,40 @@ function sanitizeWalletRegistrationRouteDiagnostics(
 function createZeroRegistrationTimingBucketValues(): RegistrationTimingBucketValues {
   return {
     inputValidationMs: 0,
+    registrationWarmupMs: 0,
+    registrationWarmupWaitMs: 0,
+    registrationWarmupAuthenticatedWalletStateMs: 0,
+    registrationWarmupNoncePrefetchMs: 0,
+    registrationWarmupKeyMaterialReadMs: 0,
+    registrationWarmupUiConfirmPrewarmMs: 0,
+    registrationWarmupSignerWorkerPrewarmMs: 0,
     managedRegistrationGrantMs: 0,
     registrationIntentMs: 0,
     registrationIntentDigestMs: 0,
     authProofMs: 0,
+    passkeyAuthConfirmationMs: 0,
+    passkeyAuthPrfExtractionMs: 0,
+    passkeyAuthCredentialRedactionMs: 0,
+    passkeyAuthWorkerReadyMs: 0,
+    passkeyAuthWorkerRequestRoundTripMs: 0,
+    passkeyAuthWorkerResponseValidationMs: 0,
+    passkeyAuthRequestSetupMs: 0,
+    passkeyAuthPromptUserMs: 0,
+    passkeyAuthPromptElementDefineMs: 0,
+    passkeyAuthPromptMountMs: 0,
+    passkeyAuthPromptHostFirstUpdateMs: 0,
+    passkeyAuthPromptHostInteractiveMs: 0,
+    passkeyAuthPromptConfirmEventMs: 0,
+    passkeyAuthPromptDecisionWaitMs: 0,
+    passkeyAuthCredentialCreateStartMs: 0,
+    passkeyAuthCredentialCreateMs: 0,
+    passkeyAuthCredentialSerializeMs: 0,
+    passkeyAuthDuplicateRetryCount: 0,
+    passkeyAuthMainThreadTotalMs: 0,
     emailOtpEnrollmentMaterialMs: 0,
     ed25519ClientMaterialMs: 0,
+    walletRegisterPrepareMs: 0,
+    walletRegisterPrepareWaitMs: 0,
     walletRegisterStartMs: 0,
     ed25519ClientRequestMs: 0,
     ecdsaClientBootstrapMs: 0,
@@ -319,12 +423,41 @@ function copyRegistrationTimingBucketValues(
 ): RegistrationTimingBucketValues {
   return {
     inputValidationMs: buckets.inputValidationMs,
+    registrationWarmupMs: buckets.registrationWarmupMs,
+    registrationWarmupWaitMs: buckets.registrationWarmupWaitMs,
+    registrationWarmupAuthenticatedWalletStateMs:
+      buckets.registrationWarmupAuthenticatedWalletStateMs,
+    registrationWarmupNoncePrefetchMs: buckets.registrationWarmupNoncePrefetchMs,
+    registrationWarmupKeyMaterialReadMs: buckets.registrationWarmupKeyMaterialReadMs,
+    registrationWarmupUiConfirmPrewarmMs: buckets.registrationWarmupUiConfirmPrewarmMs,
+    registrationWarmupSignerWorkerPrewarmMs: buckets.registrationWarmupSignerWorkerPrewarmMs,
     managedRegistrationGrantMs: buckets.managedRegistrationGrantMs,
     registrationIntentMs: buckets.registrationIntentMs,
     registrationIntentDigestMs: buckets.registrationIntentDigestMs,
     authProofMs: buckets.authProofMs,
+    passkeyAuthConfirmationMs: buckets.passkeyAuthConfirmationMs,
+    passkeyAuthPrfExtractionMs: buckets.passkeyAuthPrfExtractionMs,
+    passkeyAuthCredentialRedactionMs: buckets.passkeyAuthCredentialRedactionMs,
+    passkeyAuthWorkerReadyMs: buckets.passkeyAuthWorkerReadyMs,
+    passkeyAuthWorkerRequestRoundTripMs: buckets.passkeyAuthWorkerRequestRoundTripMs,
+    passkeyAuthWorkerResponseValidationMs: buckets.passkeyAuthWorkerResponseValidationMs,
+    passkeyAuthRequestSetupMs: buckets.passkeyAuthRequestSetupMs,
+    passkeyAuthPromptUserMs: buckets.passkeyAuthPromptUserMs,
+    passkeyAuthPromptElementDefineMs: buckets.passkeyAuthPromptElementDefineMs,
+    passkeyAuthPromptMountMs: buckets.passkeyAuthPromptMountMs,
+    passkeyAuthPromptHostFirstUpdateMs: buckets.passkeyAuthPromptHostFirstUpdateMs,
+    passkeyAuthPromptHostInteractiveMs: buckets.passkeyAuthPromptHostInteractiveMs,
+    passkeyAuthPromptConfirmEventMs: buckets.passkeyAuthPromptConfirmEventMs,
+    passkeyAuthPromptDecisionWaitMs: buckets.passkeyAuthPromptDecisionWaitMs,
+    passkeyAuthCredentialCreateStartMs: buckets.passkeyAuthCredentialCreateStartMs,
+    passkeyAuthCredentialCreateMs: buckets.passkeyAuthCredentialCreateMs,
+    passkeyAuthCredentialSerializeMs: buckets.passkeyAuthCredentialSerializeMs,
+    passkeyAuthDuplicateRetryCount: buckets.passkeyAuthDuplicateRetryCount,
+    passkeyAuthMainThreadTotalMs: buckets.passkeyAuthMainThreadTotalMs,
     emailOtpEnrollmentMaterialMs: buckets.emailOtpEnrollmentMaterialMs,
     ed25519ClientMaterialMs: buckets.ed25519ClientMaterialMs,
+    walletRegisterPrepareMs: buckets.walletRegisterPrepareMs,
+    walletRegisterPrepareWaitMs: buckets.walletRegisterPrepareWaitMs,
     walletRegisterStartMs: buckets.walletRegisterStartMs,
     ed25519ClientRequestMs: buckets.ed25519ClientRequestMs,
     ecdsaClientBootstrapMs: buckets.ecdsaClientBootstrapMs,
@@ -350,6 +483,25 @@ function buildRegistrationAuthTiming(input: {
       return {
         kind: 'passkey',
         authProofMs: input.buckets.authProofMs,
+        passkeyAuthConfirmationMs: input.buckets.passkeyAuthConfirmationMs,
+        passkeyAuthPrfExtractionMs: input.buckets.passkeyAuthPrfExtractionMs,
+        passkeyAuthCredentialRedactionMs: input.buckets.passkeyAuthCredentialRedactionMs,
+        passkeyAuthWorkerReadyMs: input.buckets.passkeyAuthWorkerReadyMs,
+        passkeyAuthWorkerRequestRoundTripMs: input.buckets.passkeyAuthWorkerRequestRoundTripMs,
+        passkeyAuthWorkerResponseValidationMs: input.buckets.passkeyAuthWorkerResponseValidationMs,
+        passkeyAuthRequestSetupMs: input.buckets.passkeyAuthRequestSetupMs,
+        passkeyAuthPromptUserMs: input.buckets.passkeyAuthPromptUserMs,
+        passkeyAuthPromptElementDefineMs: input.buckets.passkeyAuthPromptElementDefineMs,
+        passkeyAuthPromptMountMs: input.buckets.passkeyAuthPromptMountMs,
+        passkeyAuthPromptHostFirstUpdateMs: input.buckets.passkeyAuthPromptHostFirstUpdateMs,
+        passkeyAuthPromptHostInteractiveMs: input.buckets.passkeyAuthPromptHostInteractiveMs,
+        passkeyAuthPromptConfirmEventMs: input.buckets.passkeyAuthPromptConfirmEventMs,
+        passkeyAuthPromptDecisionWaitMs: input.buckets.passkeyAuthPromptDecisionWaitMs,
+        passkeyAuthCredentialCreateStartMs: input.buckets.passkeyAuthCredentialCreateStartMs,
+        passkeyAuthCredentialCreateMs: input.buckets.passkeyAuthCredentialCreateMs,
+        passkeyAuthCredentialSerializeMs: input.buckets.passkeyAuthCredentialSerializeMs,
+        passkeyAuthDuplicateRetryCount: input.buckets.passkeyAuthDuplicateRetryCount,
+        passkeyAuthMainThreadTotalMs: input.buckets.passkeyAuthMainThreadTotalMs,
         emailOtpEnrollmentMaterialMs: 0,
         emailOtpRecoveryCodeBackupMs: 0,
       };
@@ -357,6 +509,25 @@ function buildRegistrationAuthTiming(input: {
       return {
         kind: 'email_otp',
         authProofMs: input.buckets.authProofMs,
+        passkeyAuthConfirmationMs: 0,
+        passkeyAuthPrfExtractionMs: 0,
+        passkeyAuthCredentialRedactionMs: 0,
+        passkeyAuthWorkerReadyMs: 0,
+        passkeyAuthWorkerRequestRoundTripMs: 0,
+        passkeyAuthWorkerResponseValidationMs: 0,
+        passkeyAuthRequestSetupMs: 0,
+        passkeyAuthPromptUserMs: 0,
+        passkeyAuthPromptElementDefineMs: 0,
+        passkeyAuthPromptMountMs: 0,
+        passkeyAuthPromptHostFirstUpdateMs: 0,
+        passkeyAuthPromptHostInteractiveMs: 0,
+        passkeyAuthPromptConfirmEventMs: 0,
+        passkeyAuthPromptDecisionWaitMs: 0,
+        passkeyAuthCredentialCreateStartMs: 0,
+        passkeyAuthCredentialCreateMs: 0,
+        passkeyAuthCredentialSerializeMs: 0,
+        passkeyAuthDuplicateRetryCount: 0,
+        passkeyAuthMainThreadTotalMs: 0,
         emailOtpEnrollmentMaterialMs: input.buckets.emailOtpEnrollmentMaterialMs,
         emailOtpRecoveryCodeBackupMs: input.buckets.emailOtpRecoveryCodeBackupMs,
       };
@@ -378,8 +549,7 @@ function buildRegistrationEd25519Timing(input: {
         ed25519ClientRequestMs: input.buckets.ed25519ClientRequestMs,
         ed25519EvaluationArtifactMs: input.buckets.ed25519EvaluationArtifactMs,
         ed25519CompletionParseMs: input.buckets.ed25519CompletionParseMs,
-        thresholdEd25519SessionPersistenceMs:
-          input.buckets.thresholdEd25519SessionPersistenceMs,
+        thresholdEd25519SessionPersistenceMs: input.buckets.thresholdEd25519SessionPersistenceMs,
       };
     case 'ecdsa_only':
       return {
@@ -426,12 +596,41 @@ function buildRegistrationTimingBuckets(input: {
   const buckets = copyRegistrationTimingBucketValues(input.buckets);
   return {
     inputValidationMs: buckets.inputValidationMs,
+    registrationWarmupMs: buckets.registrationWarmupMs,
+    registrationWarmupWaitMs: buckets.registrationWarmupWaitMs,
+    registrationWarmupAuthenticatedWalletStateMs:
+      buckets.registrationWarmupAuthenticatedWalletStateMs,
+    registrationWarmupNoncePrefetchMs: buckets.registrationWarmupNoncePrefetchMs,
+    registrationWarmupKeyMaterialReadMs: buckets.registrationWarmupKeyMaterialReadMs,
+    registrationWarmupUiConfirmPrewarmMs: buckets.registrationWarmupUiConfirmPrewarmMs,
+    registrationWarmupSignerWorkerPrewarmMs: buckets.registrationWarmupSignerWorkerPrewarmMs,
     managedRegistrationGrantMs: buckets.managedRegistrationGrantMs,
     registrationIntentMs: buckets.registrationIntentMs,
     registrationIntentDigestMs: buckets.registrationIntentDigestMs,
     authProofMs: buckets.authProofMs,
+    passkeyAuthConfirmationMs: buckets.passkeyAuthConfirmationMs,
+    passkeyAuthPrfExtractionMs: buckets.passkeyAuthPrfExtractionMs,
+    passkeyAuthCredentialRedactionMs: buckets.passkeyAuthCredentialRedactionMs,
+    passkeyAuthWorkerReadyMs: buckets.passkeyAuthWorkerReadyMs,
+    passkeyAuthWorkerRequestRoundTripMs: buckets.passkeyAuthWorkerRequestRoundTripMs,
+    passkeyAuthWorkerResponseValidationMs: buckets.passkeyAuthWorkerResponseValidationMs,
+    passkeyAuthRequestSetupMs: buckets.passkeyAuthRequestSetupMs,
+    passkeyAuthPromptUserMs: buckets.passkeyAuthPromptUserMs,
+    passkeyAuthPromptElementDefineMs: buckets.passkeyAuthPromptElementDefineMs,
+    passkeyAuthPromptMountMs: buckets.passkeyAuthPromptMountMs,
+    passkeyAuthPromptHostFirstUpdateMs: buckets.passkeyAuthPromptHostFirstUpdateMs,
+    passkeyAuthPromptHostInteractiveMs: buckets.passkeyAuthPromptHostInteractiveMs,
+    passkeyAuthPromptConfirmEventMs: buckets.passkeyAuthPromptConfirmEventMs,
+    passkeyAuthPromptDecisionWaitMs: buckets.passkeyAuthPromptDecisionWaitMs,
+    passkeyAuthCredentialCreateStartMs: buckets.passkeyAuthCredentialCreateStartMs,
+    passkeyAuthCredentialCreateMs: buckets.passkeyAuthCredentialCreateMs,
+    passkeyAuthCredentialSerializeMs: buckets.passkeyAuthCredentialSerializeMs,
+    passkeyAuthDuplicateRetryCount: buckets.passkeyAuthDuplicateRetryCount,
+    passkeyAuthMainThreadTotalMs: buckets.passkeyAuthMainThreadTotalMs,
     emailOtpEnrollmentMaterialMs: buckets.emailOtpEnrollmentMaterialMs,
     ed25519ClientMaterialMs: buckets.ed25519ClientMaterialMs,
+    walletRegisterPrepareMs: buckets.walletRegisterPrepareMs,
+    walletRegisterPrepareWaitMs: buckets.walletRegisterPrepareWaitMs,
     walletRegisterStartMs: buckets.walletRegisterStartMs,
     ed25519ClientRequestMs: buckets.ed25519ClientRequestMs,
     ecdsaClientBootstrapMs: buckets.ecdsaClientBootstrapMs,
@@ -501,6 +700,44 @@ class RegistrationTimingRecorder {
     if (sanitized) this.relayDiagnostics.push(sanitized);
   }
 
+  captureWarmupDiagnostics(diagnostics: WorkerResourceWarmupDiagnostics): void {
+    this.buckets.registrationWarmupAuthenticatedWalletStateMs =
+      diagnostics.authenticatedWalletStateMs;
+    this.buckets.registrationWarmupNoncePrefetchMs = diagnostics.noncePrefetchMs;
+    this.buckets.registrationWarmupKeyMaterialReadMs = diagnostics.keyMaterialReadMs;
+    this.buckets.registrationWarmupUiConfirmPrewarmMs = diagnostics.uiConfirmPrewarmMs;
+    this.buckets.registrationWarmupSignerWorkerPrewarmMs = diagnostics.signerWorkerPrewarmMs;
+  }
+
+  capturePasskeyAuthDiagnostics(diagnostics: PasskeyRegistrationAuthorityDiagnostics): void {
+    this.buckets.passkeyAuthConfirmationMs = diagnostics.requestConfirmationMs;
+    this.buckets.passkeyAuthPrfExtractionMs = diagnostics.prfExtractionMs;
+    this.buckets.passkeyAuthCredentialRedactionMs = diagnostics.credentialRedactionMs;
+    this.buckets.passkeyAuthWorkerReadyMs = diagnostics.confirmationWorkerReadyMs;
+    this.buckets.passkeyAuthWorkerRequestRoundTripMs =
+      diagnostics.confirmationWorkerRequestRoundTripMs;
+    this.buckets.passkeyAuthWorkerResponseValidationMs =
+      diagnostics.confirmationWorkerResponseValidationMs;
+    this.buckets.passkeyAuthRequestSetupMs = diagnostics.confirmationRequestSetupMs;
+    this.buckets.passkeyAuthPromptUserMs = diagnostics.confirmationPromptUserMs;
+    this.buckets.passkeyAuthPromptElementDefineMs =
+      diagnostics.confirmationPromptElementDefineMs;
+    this.buckets.passkeyAuthPromptMountMs = diagnostics.confirmationPromptMountMs;
+    this.buckets.passkeyAuthPromptHostFirstUpdateMs =
+      diagnostics.confirmationPromptHostFirstUpdateMs;
+    this.buckets.passkeyAuthPromptHostInteractiveMs =
+      diagnostics.confirmationPromptHostInteractiveMs;
+    this.buckets.passkeyAuthPromptConfirmEventMs = diagnostics.confirmationPromptConfirmEventMs;
+    this.buckets.passkeyAuthPromptDecisionWaitMs =
+      diagnostics.confirmationPromptDecisionWaitMs;
+    this.buckets.passkeyAuthCredentialCreateStartMs =
+      diagnostics.confirmationCredentialCreateStartMs;
+    this.buckets.passkeyAuthCredentialCreateMs = diagnostics.confirmationCredentialCreateMs;
+    this.buckets.passkeyAuthCredentialSerializeMs = diagnostics.confirmationCredentialSerializeMs;
+    this.buckets.passkeyAuthDuplicateRetryCount = diagnostics.confirmationDuplicateRetryCount;
+    this.buckets.passkeyAuthMainThreadTotalMs = diagnostics.confirmationMainThreadTotalMs;
+  }
+
   routeDiagnosticsSnapshot(): WalletRegistrationRouteDiagnostics[] {
     return this.relayDiagnostics.map((diagnostics) => ({
       kind: diagnostics.kind,
@@ -514,6 +751,42 @@ class RegistrationTimingRecorder {
 
   totalMs(): number {
     return roundDurationMs(this.startedAt);
+  }
+}
+
+type RegistrationWarmupOutcome =
+  | {
+      kind: 'completed';
+      diagnostics: WorkerResourceWarmupDiagnostics;
+      error?: never;
+    }
+  | {
+      kind: 'failed';
+      error: unknown;
+    };
+
+function startRegistrationWarmup(input: {
+  recorder: RegistrationTimingRecorder;
+  context: RegistrationWebContext;
+  nearAccountId?: string;
+}): Promise<RegistrationWarmupOutcome> {
+  return input.recorder
+    .measure('registrationWarmupMs', () =>
+      input.context.signingEngine.warmCriticalResources(input.nearAccountId),
+    )
+    .then(
+      (diagnostics) => ({ kind: 'completed' as const, diagnostics }),
+      (error: unknown) => ({ kind: 'failed' as const, error }),
+    );
+}
+
+async function waitForRegistrationWarmup(input: {
+  recorder: RegistrationTimingRecorder;
+  warmup: Promise<RegistrationWarmupOutcome>;
+}): Promise<void> {
+  const outcome = await input.recorder.measure('registrationWarmupWaitMs', () => input.warmup);
+  if (outcome.kind === 'completed') {
+    input.recorder.captureWarmupDiagnostics(outcome.diagnostics);
   }
 }
 
@@ -569,9 +842,7 @@ function registrationRouteDiagnosticsHeaders(): Record<string, string> | undefin
       __SEAMS_REGISTRATION_BENCHMARK_DIAGNOSTICS?: unknown;
     }
   ).__SEAMS_REGISTRATION_BENCHMARK_DIAGNOSTICS;
-  return globalFlag === true
-    ? { 'X-Seams-Benchmark-Diagnostics': 'registration-flow' }
-    : undefined;
+  return globalFlag === true ? { 'X-Seams-Benchmark-Diagnostics': 'registration-flow' } : undefined;
 }
 
 function createRegistrationOperationIdempotencyKey(
@@ -722,8 +993,7 @@ function registrationErrorWithCode(message: string, errorCode: string): Error & 
 function alreadyFinalizedRestoreRequiredResult(_walletId: string): RegistrationResult {
   return {
     success: false,
-    error:
-      'Wallet registration was already finalized. Restore or unlock the wallet to continue.',
+    error: 'Wallet registration was already finalized. Restore or unlock the wallet to continue.',
     errorCode: 'already_finalized_restore_required',
   };
 }
@@ -924,6 +1194,10 @@ async function registerEcdsaWalletOnly(args: {
       throw new Error('registerWallet requires relayer.url');
     }
     const finalizeIdempotencyKey = googleEmailOtpFinalizeIdempotencyKey(args.authMethod);
+    const registrationWarmup = startRegistrationWarmup({
+      recorder: registrationTiming,
+      context,
+    });
 
     const managedGrant = await registrationTiming.measure('managedRegistrationGrantMs', () =>
       createManagedRegistrationFlowGrant({
@@ -978,6 +1252,10 @@ async function registerEcdsaWalletOnly(args: {
             ReturnType<typeof collectEmailOtpRegistrationAuthority>
           >['proof'];
         };
+    await waitForRegistrationWarmup({
+      recorder: registrationTiming,
+      warmup: registrationWarmup,
+    });
     if (args.authMethod.kind === 'passkey') {
       emitRegistrationEvent(onEvent, eventAccountId, {
         authMethod: args.authMethod.kind,
@@ -1003,6 +1281,7 @@ async function registerEcdsaWalletOnly(args: {
           confirmationConfigOverride: confirmationConfig,
         }),
       );
+      registrationTiming.capturePasskeyAuthDiagnostics(passkeyAuthority.diagnostics);
       passkeyPrfFirstB64u = passkeyAuthority.prfFirstB64u;
       startAuthority = {
         kind: 'passkey',
@@ -1350,6 +1629,11 @@ export async function registerWallet(args: {
       throw new Error('registerWallet requires relayer.url');
     }
     const finalizeIdempotencyKey = googleEmailOtpFinalizeIdempotencyKey(args.authMethod);
+    const registrationWarmup = startRegistrationWarmup({
+      recorder: registrationTiming,
+      context,
+      nearAccountId: String(nearAccountId),
+    });
 
     const managedGrant = await registrationTiming.measure('managedRegistrationGrantMs', () =>
       createManagedRegistrationFlowGrant({
@@ -1378,6 +1662,23 @@ export async function registerWallet(args: {
     if (localDigestB64u !== intentResponse.registrationIntentDigestB64u) {
       throw new Error('Registration intent digest mismatch');
     }
+    const preparedRegistrationPromise = registrationTiming
+      .measure('walletRegisterPrepareMs', () =>
+        prepareWalletRegistration({
+          relayerUrl,
+          registrationIntentGrant: intentResponse.registrationIntentGrant,
+          registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
+          intent: intentResponse.intent,
+          headers: registrationRouteDiagnosticsHeaders(),
+          work: {
+            kind: ecdsaSelection ? 'ed25519_hss_and_ecdsa' : 'ed25519_hss',
+          },
+        }),
+      )
+      .then(
+        (value) => ({ ok: true as const, value }),
+        (error: unknown) => ({ ok: false as const, error }),
+      );
     const runtimePolicyScope = intentResponse.intent.runtimePolicyScope;
     if (!runtimePolicyScope) {
       throw new Error('Registration intent is missing runtime policy scope');
@@ -1422,6 +1723,10 @@ export async function registerWallet(args: {
             ReturnType<typeof collectEmailOtpRegistrationAuthority>
           >['proof'];
         };
+    await waitForRegistrationWarmup({
+      recorder: registrationTiming,
+      warmup: registrationWarmup,
+    });
     if (args.authMethod.kind === 'passkey') {
       emitRegistrationEvent(onEvent, nearAccountId, {
         authMethod: args.authMethod.kind,
@@ -1447,6 +1752,7 @@ export async function registerWallet(args: {
           confirmationConfigOverride: confirmationConfig,
         }),
       );
+      registrationTiming.capturePasskeyAuthDiagnostics(passkeyAuthority.diagnostics);
       ed25519PrfFirstB64u = passkeyAuthority.prfFirstB64u;
       ecdsaPasskeyPrfFirstB64u = passkeyAuthority.prfFirstB64u;
       startAuthority = {
@@ -1527,12 +1833,20 @@ export async function registerWallet(args: {
               derivationVersion: ed25519Selection.derivationVersion,
             }),
     );
+    const preparedRegistrationOutcome = await registrationTiming.measure(
+      'walletRegisterPrepareWaitMs',
+      () => preparedRegistrationPromise,
+    );
+    if (!preparedRegistrationOutcome.ok) throw preparedRegistrationOutcome.error;
+    const preparedRegistration = preparedRegistrationOutcome.value;
+    registrationTiming.captureRouteDiagnostics(preparedRegistration.registrationDiagnostics);
     const startedCeremony = await registrationTiming.measure('walletRegisterStartMs', () =>
       startWalletRegistration({
         relayerUrl,
         registrationIntentGrant: intentResponse.registrationIntentGrant,
         registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
         intent: intentResponse.intent,
+        registrationPreparationId: preparedRegistration.registrationPreparationId,
         headers: registrationRouteDiagnosticsHeaders(),
         ...startAuthority,
       }),
@@ -1574,16 +1888,14 @@ export async function registerWallet(args: {
           )
         : Promise.resolve(null);
 
-    const ed25519ClientRequestPromise = registrationTiming.measure(
-      'ed25519ClientRequestMs',
-      () =>
-        prepareThresholdEd25519RegistrationHssClientRequest({
-          context,
-          material: hssClientMaterial,
-          preparedSession: startedEd25519.preparedSession,
-          clientOtOfferMessageB64u: startedEd25519.clientOtOfferMessageB64u,
-          ceremonyHandle: startedEd25519.ceremonyHandle,
-        }),
+    const ed25519ClientRequestPromise = registrationTiming.measure('ed25519ClientRequestMs', () =>
+      prepareThresholdEd25519RegistrationHssClientRequest({
+        context,
+        material: hssClientMaterial,
+        preparedSession: startedEd25519.preparedSession,
+        clientOtOfferMessageB64u: startedEd25519.clientOtOfferMessageB64u,
+        ceremonyHandle: startedEd25519.ceremonyHandle,
+      }),
     );
     const [ecdsaPreparedClientBootstrap, { clientRequest, clientOutputMaskB64u }] =
       await Promise.all([ecdsaPreparedClientBootstrapPromise, ed25519ClientRequestPromise]);
@@ -1617,16 +1929,14 @@ export async function registerWallet(args: {
             serverBootstrap: responded.ecdsa.bootstrap,
           })
         : null;
-    const evaluationResult = await registrationTiming.measure(
-      'ed25519EvaluationArtifactMs',
-      () =>
-        buildThresholdEd25519RegistrationHssClientOwnedArtifact({
-          context,
-          preparedSession: startedEd25519.preparedSession,
-          clientRequest,
-          serverInputDelivery: respondedEd25519,
-          clientOutputMaskB64u,
-        }),
+    const evaluationResult = await registrationTiming.measure('ed25519EvaluationArtifactMs', () =>
+      buildThresholdEd25519RegistrationHssClientOwnedArtifact({
+        context,
+        preparedSession: startedEd25519.preparedSession,
+        clientRequest,
+        serverInputDelivery: respondedEd25519,
+        clientOutputMaskB64u,
+      }),
     );
 
     const requestedPolicy = createThresholdWarmSessionPolicyDraft(context, {
