@@ -118,6 +118,12 @@ type ThresholdEd25519HssServerInputDeliveryTimings = {
   decodeMessagesMs: number;
   materializeSessionMs: number;
   prepareDeliveryMs: number;
+  deliveryOtOpenJoinMs: number;
+  deliveryServerInputOpenMs: number;
+  deliveryServerInputShareMs: number;
+  deliveryServerInputCommitmentMs: number;
+  deliveryServerInputTranscriptMs: number;
+  deliveryServerInputSealMs: number;
   encodeDeliveryMs: number;
 };
 
@@ -127,6 +133,15 @@ type ThresholdEd25519HssFinalizeReportTimings = {
   finalizeReportMs: number;
   encodeReportMs: number;
 };
+
+type ThresholdEd25519HssFinalizeForRegistrationTimings =
+  ThresholdEd25519HssFinalizeReportTimings & {
+    openServerOutputMs: number;
+    openSeedOutputMs: number;
+    deriveSeedKeypairMs: number;
+    deriveRelayerVerifyingShareMs: number;
+    keyStorePutMs: number;
+  };
 
 function getSignerWasmUrls(): URL[] {
   const baseUrl = import.meta.url;
@@ -656,6 +671,12 @@ export async function prepareThresholdEd25519HssRoleSeparatedServerInputDelivery
       decodeMessagesMs?: number;
       materializeSessionMs?: number;
       prepareDeliveryMs?: number;
+      deliveryOtOpenJoinMs?: number;
+      deliveryServerInputOpenMs?: number;
+      deliveryServerInputShareMs?: number;
+      deliveryServerInputCommitmentMs?: number;
+      deliveryServerInputTranscriptMs?: number;
+      deliveryServerInputSealMs?: number;
       encodeDeliveryMs?: number;
     };
   };
@@ -679,6 +700,16 @@ export async function prepareThresholdEd25519HssRoleSeparatedServerInputDelivery
           decodeMessagesMs: Number(result.timings.decodeMessagesMs || 0),
           materializeSessionMs: Number(result.timings.materializeSessionMs || 0),
           prepareDeliveryMs: Number(result.timings.prepareDeliveryMs || 0),
+          deliveryOtOpenJoinMs: Number(result.timings.deliveryOtOpenJoinMs || 0),
+          deliveryServerInputOpenMs: Number(result.timings.deliveryServerInputOpenMs || 0),
+          deliveryServerInputShareMs: Number(result.timings.deliveryServerInputShareMs || 0),
+          deliveryServerInputCommitmentMs: Number(
+            result.timings.deliveryServerInputCommitmentMs || 0,
+          ),
+          deliveryServerInputTranscriptMs: Number(
+            result.timings.deliveryServerInputTranscriptMs || 0,
+          ),
+          deliveryServerInputSealMs: Number(result.timings.deliveryServerInputSealMs || 0),
           encodeDeliveryMs: Number(result.timings.encodeDeliveryMs || 0),
         }
       : undefined,
@@ -731,7 +762,9 @@ export async function finalizeThresholdEd25519HssReport(input: {
     timings: result.timings
       ? {
           decodeArtifactMs: Number(result.timings.decodeArtifactMs || 0),
-          serializedSessionMaterializeMs: Number(result.timings.serializedSessionMaterializeMs || 0),
+          serializedSessionMaterializeMs: Number(
+            result.timings.serializedSessionMaterializeMs || 0,
+          ),
           finalizeReportMs: Number(result.timings.finalizeReportMs || 0),
           encodeReportMs: Number(result.timings.encodeReportMs || 0),
         }
@@ -766,12 +799,17 @@ export async function openThresholdEd25519HssServerOutput(input: {
 
 export async function openThresholdEd25519HssSeedOutput(input: {
   preparedSession: Pick<ThresholdEd25519HssPreparedSessionEnvelope, 'evaluatorDriverStateB64u'>;
+  preparedServerSession: Pick<
+    ThresholdEd25519HssStoredPreparedServerSession,
+    'preparedSessionHandle'
+  >;
   finalizedReport: Pick<ThresholdEd25519HssFinalizedReportEnvelope, 'seedOutputMessageB64u'>;
 }): Promise<ThresholdEd25519HssOpenedSeedOutput> {
   await ensureThresholdEd25519HssWasm();
   requireThresholdEd25519HssWasmReady();
 
   const result = threshold_ed25519_hss_open_seed_output_server({
+    preparedSessionHandle: String(input.preparedServerSession.preparedSessionHandle || '').trim(),
     evaluatorDriverStateB64u: input.preparedSession.evaluatorDriverStateB64u,
     seedOutputMessageB64u: input.finalizedReport.seedOutputMessageB64u,
   }) as {
@@ -794,7 +832,7 @@ export async function finalizeThresholdEd25519HssServerCeremony(input: {
 }): Promise<{
   finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
   serverOutput: ThresholdEd25519HssOpenedServerOutput;
-  finalizeReportTimings?: ThresholdEd25519HssFinalizeReportTimings;
+  finalizeReportTimings?: ThresholdEd25519HssFinalizeForRegistrationTimings;
 }> {
   const expectedBinding = String(
     input.expectedContextBindingB64u || input.preparedSession.contextBindingB64u || '',
@@ -812,12 +850,14 @@ export async function finalizeThresholdEd25519HssServerCeremony(input: {
     throw new Error('[threshold-ed25519-hss] finalized report context binding mismatch');
   }
 
+  const openServerOutputStartedAt = Date.now();
   const serverOutput = await openThresholdEd25519HssServerOutput({
     preparedServerSession: input.preparedServerSession,
     finalizedReport: {
       serverOutputMessageB64u: finalizedReport.serverOutputMessageB64u,
     },
   });
+  const openServerOutputMs = Date.now() - openServerOutputStartedAt;
 
   if (serverOutput.contextBindingB64u !== expectedBinding) {
     throw new Error('[threshold-ed25519-hss] server output context binding mismatch');
@@ -832,7 +872,17 @@ export async function finalizeThresholdEd25519HssServerCeremony(input: {
         : {}),
     },
     serverOutput,
-    finalizeReportTimings: finalizedReport.timings,
+    finalizeReportTimings: {
+      decodeArtifactMs: finalizedReport.timings?.decodeArtifactMs ?? 0,
+      serializedSessionMaterializeMs: finalizedReport.timings?.serializedSessionMaterializeMs ?? 0,
+      finalizeReportMs: finalizedReport.timings?.finalizeReportMs ?? 0,
+      encodeReportMs: finalizedReport.timings?.encodeReportMs ?? 0,
+      openServerOutputMs,
+      openSeedOutputMs: 0,
+      deriveSeedKeypairMs: 0,
+      deriveRelayerVerifyingShareMs: 0,
+      keyStorePutMs: 0,
+    },
   };
 }
 
@@ -893,6 +943,10 @@ export async function deriveThresholdEd25519KeypairFromSeed(input: {
 
 export async function deriveThresholdEd25519RegistrationMaterialFromHssFinalize(input: {
   preparedSession: ThresholdEd25519HssPreparedSessionEnvelope;
+  preparedServerSession: Pick<
+    ThresholdEd25519HssStoredPreparedServerSession,
+    'preparedSessionHandle'
+  >;
   keyVersion: string;
   finalizedReport: ThresholdEd25519HssFinalizedReportEnvelope;
   serverOutput: ThresholdEd25519HssOpenedServerOutput;
@@ -903,6 +957,10 @@ export async function deriveThresholdEd25519RegistrationMaterialFromHssFinalize(
   recoveryExportCapable: true;
   relayerSigningShareB64u: string;
   relayerVerifyingShareB64u: string;
+  timings: Pick<
+    ThresholdEd25519HssFinalizeForRegistrationTimings,
+    'openSeedOutputMs' | 'deriveSeedKeypairMs' | 'deriveRelayerVerifyingShareMs'
+  >;
 }> {
   const expectedBinding = String(input.preparedSession.contextBindingB64u || '').trim();
   if (
@@ -917,12 +975,15 @@ export async function deriveThresholdEd25519RegistrationMaterialFromHssFinalize(
     throw new Error('[threshold-ed25519-hss] registration finalize is missing seed output');
   }
 
+  const openSeedOutputStartedAt = Date.now();
   const seedOutput = await openThresholdEd25519HssSeedOutput({
     preparedSession: input.preparedSession,
+    preparedServerSession: input.preparedServerSession,
     finalizedReport: {
       seedOutputMessageB64u,
     },
   });
+  const openSeedOutputMs = Date.now() - openSeedOutputStartedAt;
   const serverOutput = input.serverOutput;
 
   if (
@@ -932,13 +993,25 @@ export async function deriveThresholdEd25519RegistrationMaterialFromHssFinalize(
     throw new Error('[threshold-ed25519-hss] opened registration material context mismatch');
   }
 
+  let deriveSeedKeypairMs = 0;
+  let deriveRelayerVerifyingShareMs = 0;
   const [keypair, relayerVerifyingShare] = await Promise.all([
-    deriveThresholdEd25519KeypairFromSeed({
-      seedB64u: seedOutput.canonicalSeedB64u,
-    }),
-    deriveThresholdEd25519VerifyingShareFromSigningShare({
-      signingShareB64u: serverOutput.xRelayerBaseB64u,
-    }),
+    (async () => {
+      const startedAt = Date.now();
+      const result = await deriveThresholdEd25519KeypairFromSeed({
+        seedB64u: seedOutput.canonicalSeedB64u,
+      });
+      deriveSeedKeypairMs = Date.now() - startedAt;
+      return result;
+    })(),
+    (async () => {
+      const startedAt = Date.now();
+      const result = await deriveThresholdEd25519VerifyingShareFromSigningShare({
+        signingShareB64u: serverOutput.xRelayerBaseB64u,
+      });
+      deriveRelayerVerifyingShareMs = Date.now() - startedAt;
+      return result;
+    })(),
   ]);
 
   const publicKey = String(keypair.publicKey || '').trim();
@@ -956,5 +1029,10 @@ export async function deriveThresholdEd25519RegistrationMaterialFromHssFinalize(
     recoveryExportCapable: true,
     relayerSigningShareB64u,
     relayerVerifyingShareB64u,
+    timings: {
+      openSeedOutputMs,
+      deriveSeedKeypairMs,
+      deriveRelayerVerifyingShareMs,
+    },
   };
 }

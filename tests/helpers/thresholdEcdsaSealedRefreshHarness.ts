@@ -482,6 +482,7 @@ async function installThresholdRegistrationFinalizeRelayKeyMaterialCapture(
         const registrationMaterial =
           await deriveThresholdEd25519RegistrationMaterialFromHssFinalize({
             preparedSession,
+            preparedServerSession: { preparedSessionHandle: '' },
             keyVersion: String(responseJson?.keyVersion || TEST_KEY_VERSION).trim(),
             finalizedReport,
             serverOutput: responseJson.serverOutput,

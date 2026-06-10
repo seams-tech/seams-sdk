@@ -86,8 +86,11 @@ pub fn prepare_prime_order_succinct_hss(
         execution_program: execution_program.clone(),
         execution_result: execution_result.clone(),
     };
-    let prepared_garbler_ot_state =
-        prepare_garbler_ot_state_for_session(&client_ot_offer, &garbler_ot_state)?;
+    let prepared_garbler_ot_state = prepare_garbler_ot_state_for_session(
+        &ddh_roles.garbler,
+        &client_ot_offer,
+        &garbler_ot_state,
+    )?;
     let garbler_session_cached = ServerSession {
         context_binding: candidate.context_binding,
         ddh_garbler: ddh_roles.garbler.clone(),

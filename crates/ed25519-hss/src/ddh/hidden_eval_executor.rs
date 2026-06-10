@@ -11,13 +11,14 @@ use crate::ddh::ddh_hss::{
     eval_add_local_word_pairs_mod_2_pow_n_public, eval_maj_local_bit_pair_batch_raw_public_into,
     eval_mul_local_bit_pair_batch_raw_xor_base_public_into, eval_mul_local_word_pair_batch_public,
     eval_mul_local_word_pairs_core_public, eval_mul_local_word_pairs_public,
-    local_word_from_shared, local_word_from_transport_public, reset_physical_hash_counters,
-    take_physical_hash_counters, validate_transport_word_pair_public,
-    xor_local_bit_from_raw_public, xor_local_bit_pair_from_raw_public,
-    xor_local_word_core_pairs_materialized_public, xor_local_word_core_pairs_public,
-    xor_local_word_pairs_public, DdhHssArithmeticBackend, DdhHssInputShareBundle,
-    DdhHssLocalBitSliceView, DdhHssLocalWord, DdhHssLocalWordCore, DdhHssPhysicalHashCounters,
-    DdhHssShareSide, DdhHssSharedWord, DdhHssTransportBundle, DdhHssTransportWord,
+    local_word_from_shared, local_word_from_transport_public, materialize_local_word_core,
+    reset_physical_hash_counters, take_physical_hash_counters, validate_transport_word_pair_public,
+    xor_local_bit_core_from_raw_public, xor_local_bit_pair_core_from_raw_public,
+    xor_local_bit_pair_from_raw_public, xor_local_word_core_pairs_materialized_public,
+    xor_local_word_core_pairs_public, xor_local_word_pairs_public, DdhHssArithmeticBackend,
+    DdhHssInputShareBundle, DdhHssLocalBitSliceView, DdhHssLocalWord, DdhHssLocalWordCore,
+    DdhHssPhysicalHashCounters, DdhHssShareSide, DdhHssSharedWord, DdhHssTransportBundle,
+    DdhHssTransportWord,
 };
 use crate::ddh::hidden_eval::{
     HiddenEvalInputOwner, HiddenEvalProgram, HiddenEvalStage, HiddenEvalStageKind,
@@ -558,9 +559,7 @@ impl LocalBitWordSide {
         if block == self.share_blocks.len() {
             self.share_blocks.push(0);
         }
-        if (value & 1) == 1 {
-            self.share_blocks[block] |= 1u64 << bit;
-        }
+        self.share_blocks[block] |= u64::from(value & 1) << bit;
         self.bit_len += 1;
     }
 
@@ -568,6 +567,91 @@ impl LocalBitWordSide {
         self.share_blocks.clear();
         self.bit_len = 0;
         self.commitments.clear();
+        self.provenance_digests.clear();
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CoreBitWordSide {
+    share_side: DdhHssShareSide,
+    share_blocks: Vec<u64>,
+    bit_len: usize,
+    provenance_digests: Vec<[u8; 32]>,
+}
+
+impl CoreBitWordSide {
+    fn empty(share_side: DdhHssShareSide, len: usize) -> Self {
+        Self {
+            share_side,
+            share_blocks: Vec::with_capacity(len.div_ceil(64)),
+            bit_len: 0,
+            provenance_digests: Vec::with_capacity(len),
+        }
+    }
+
+    fn ensure_shape(&self) -> ProtoResult<()> {
+        if self.provenance_digests.len() != self.bit_len {
+            return Err(ProtoError::InvalidInput(
+                "core bit-vector lengths are inconsistent".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn push_core_word(&mut self, word: &DdhHssLocalWordCore) -> ProtoResult<()> {
+        if word.share_side != self.share_side || word.width_bits != 1 {
+            return Err(ProtoError::InvalidInput(
+                "core bit-vector requires width-1 words on the matching side".to_string(),
+            ));
+        }
+        self.push_share_bit((word.share_word as u8) & 1);
+        self.provenance_digests.push(word.provenance_digest);
+        Ok(())
+    }
+
+    fn len(&self) -> usize {
+        self.bit_len
+    }
+
+    fn share_bit(&self, idx: usize) -> u8 {
+        let block = idx / 64;
+        let bit = idx % 64;
+        ((self.share_blocks[block] >> bit) & 1) as u8
+    }
+
+    fn materialize_into(
+        &self,
+        out: &mut LocalBitWordSide,
+        provenance_domain: &'static [u8],
+    ) -> ProtoResult<()> {
+        self.ensure_shape()?;
+        out.reset();
+        for idx in 0..self.len() {
+            let core = DdhHssLocalWordCore {
+                width_bits: 1,
+                share_side: self.share_side,
+                share_word: u64::from(self.share_bit(idx)),
+                provenance_digest: self.provenance_digests[idx],
+            };
+            let word = materialize_local_word_core(&core, provenance_domain);
+            out.push_local_word(&word)?;
+        }
+        Ok(())
+    }
+
+    fn push_share_bit(&mut self, value: u8) {
+        let block = self.bit_len / 64;
+        let bit = self.bit_len % 64;
+        if block == self.share_blocks.len() {
+            self.share_blocks.push(0);
+        }
+        self.share_blocks[block] |= u64::from(value & 1) << bit;
+        self.bit_len += 1;
+    }
+
+    fn reset(&mut self) {
+        self.share_blocks.clear();
+        self.bit_len = 0;
         self.provenance_digests.clear();
     }
 }
@@ -919,6 +1003,43 @@ impl RoundKernelBooleanWord {
     }
 }
 
+#[derive(Debug, Clone)]
+struct RoundKernelCoreBooleanWord {
+    left: CoreBitWordSide,
+    right: CoreBitWordSide,
+}
+
+impl RoundKernelCoreBooleanWord {
+    fn empty(len: usize) -> Self {
+        Self {
+            left: CoreBitWordSide::empty(DdhHssShareSide::Left, len),
+            right: CoreBitWordSide::empty(DdhHssShareSide::Right, len),
+        }
+    }
+
+    fn materialize_into(&self, out: &mut RoundKernelBooleanWord) -> ProtoResult<()> {
+        self.left.ensure_shape()?;
+        self.right.ensure_shape()?;
+        if self.left.len() != self.right.len() {
+            return Err(ProtoError::InvalidInput(format!(
+                "core round word length mismatch: {} vs {}",
+                self.left.len(),
+                self.right.len()
+            )));
+        }
+        self.left
+            .materialize_into(&mut out.left, b"eval-xor-local-word")?;
+        self.right
+            .materialize_into(&mut out.right, b"eval-xor-local-word")?;
+        Ok(())
+    }
+
+    fn reset(&mut self) {
+        self.left.reset();
+        self.right.reset();
+    }
+}
+
 fn digest_shared_words(label: &[u8], words: &[DdhHssSharedWord]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(b"prime_order_ddh_hidden_eval_stage_digest_v0");
@@ -1048,6 +1169,8 @@ struct MessageScheduleStageOutput {
 
 #[derive(Debug, Clone)]
 struct RoundCoreBooleanScratch {
+    sigma0_core: RoundKernelCoreBooleanWord,
+    sigma1_core: RoundKernelCoreBooleanWord,
     sigma0: RoundKernelBooleanWord,
     sigma1: RoundKernelBooleanWord,
     choose: RoundKernelBooleanWord,
@@ -1058,12 +1181,22 @@ struct RoundCoreBooleanScratch {
 impl RoundCoreBooleanScratch {
     fn new(word_len: usize) -> Self {
         Self {
+            sigma0_core: RoundKernelCoreBooleanWord::empty(word_len),
+            sigma1_core: RoundKernelCoreBooleanWord::empty(word_len),
             sigma0: RoundKernelBooleanWord::empty(word_len),
             sigma1: RoundKernelBooleanWord::empty(word_len),
             choose: RoundKernelBooleanWord::empty(word_len),
             majority: RoundKernelBooleanWord::empty(word_len),
             operand0: RoundKernelBooleanWord::empty(word_len),
         }
+    }
+
+    fn materialize_sigma0(&mut self) -> ProtoResult<()> {
+        self.sigma0_core.materialize_into(&mut self.sigma0)
+    }
+
+    fn materialize_sigma1(&mut self) -> ProtoResult<()> {
+        self.sigma1_core.materialize_into(&mut self.sigma1)
     }
 }
 
@@ -2478,12 +2611,13 @@ pub fn advance_round_core_continuation_with_pool<B: DdhHssArithmeticBackend>(
     let mut boolean_scratch = RoundCoreBooleanScratch::new(64);
     let mut round_label = String::with_capacity(40);
     set_round_label(&mut round_label, round, "sigma1");
-    big_sigma1_local_bits_into(
+    big_sigma1_local_bits_core_into(
         backend,
         &round_label,
         state.e.as_pair_ref(),
-        &mut boolean_scratch.sigma1,
+        &mut boolean_scratch.sigma1_core,
     )?;
+    boolean_scratch.materialize_sigma1()?;
     set_round_label(&mut round_label, round, "ch");
     ch_local_bits_into(
         backend,
@@ -2504,12 +2638,13 @@ pub fn advance_round_core_continuation_with_pool<B: DdhHssArithmeticBackend>(
         schedule_words[round].as_pair_ref(),
     )?;
     set_round_label(&mut round_label, round, "sigma0");
-    big_sigma0_local_bits_into(
+    big_sigma0_local_bits_core_into(
         backend,
         &round_label,
         state.a.as_pair_ref(),
-        &mut boolean_scratch.sigma0,
+        &mut boolean_scratch.sigma0_core,
     )?;
+    boolean_scratch.materialize_sigma0()?;
     set_round_label(&mut round_label, round, "maj");
     maj_local_bits_into(
         backend,
@@ -2936,12 +3071,13 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
             let round = usize::from(window.class_value);
             let sigma1_started_ns = monotonic_now_ns();
             set_round_label(&mut round_label, round, "sigma1");
-            big_sigma1_local_bits_into(
+            big_sigma1_local_bits_core_into(
                 backend,
                 &round_label,
                 state.e.as_pair_ref(),
-                &mut boolean_scratch.sigma1,
+                &mut boolean_scratch.sigma1_core,
             )?;
+            boolean_scratch.materialize_sigma1()?;
             sigma1_duration_ns += elapsed_ns(sigma1_started_ns);
             let ch_started_ns = monotonic_now_ns();
             set_round_label(&mut round_label, round, "ch");
@@ -2969,12 +3105,13 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
             temp1_add_timing.add_assign(&add_timing);
             let sigma0_started_ns = monotonic_now_ns();
             set_round_label(&mut round_label, round, "sigma0");
-            big_sigma0_local_bits_into(
+            big_sigma0_local_bits_core_into(
                 backend,
                 &round_label,
                 state.a.as_pair_ref(),
-                &mut boolean_scratch.sigma0,
+                &mut boolean_scratch.sigma0_core,
             )?;
+            boolean_scratch.materialize_sigma0()?;
             sigma0_duration_ns += elapsed_ns(sigma0_started_ns);
             let maj_started_ns = monotonic_now_ns();
             set_round_label(&mut round_label, round, "maj");
@@ -4168,26 +4305,14 @@ fn transformed_local_bit_pair_parts(
     }
 }
 
-fn xor_transformed_local_bit_word_side(
+fn xor_transformed_local_bit_word_side_core(
     evaluation_key: &crate::ddh::DdhHssEvaluationKey,
     label: &str,
     source: &LocalBitWordSide,
     transforms: [LocalBitTransformSpec<'_>; 3],
 ) -> ProtoResult<LocalBitWordSide> {
-    let mut out = empty_local_bit_slice(source.share_side, source.len());
-    xor_transformed_local_bit_word_side_into(evaluation_key, label, source, transforms, &mut out)?;
-    Ok(out)
-}
-
-fn xor_transformed_local_bit_word_side_into(
-    evaluation_key: &crate::ddh::DdhHssEvaluationKey,
-    label: &str,
-    source: &LocalBitWordSide,
-    transforms: [LocalBitTransformSpec<'_>; 3],
-    out: &mut LocalBitWordSide,
-) -> ProtoResult<()> {
     source.ensure_shape()?;
-    out.reset();
+    let mut core = CoreBitWordSide::empty(source.share_side, source.len());
     let mut xor_label = String::with_capacity(label.len() + 16);
     for idx in 0..source.len() {
         let (first_bit, first_provenance) =
@@ -4197,7 +4322,7 @@ fn xor_transformed_local_bit_word_side_into(
         let (third_bit, third_provenance) =
             transformed_local_bit_parts(source, idx, transforms[2])?;
         set_indexed_child_label(&mut xor_label, label, "xor01", idx);
-        let xor01 = xor_local_bit_from_raw_public(
+        let xor01 = xor_local_bit_core_from_raw_public(
             evaluation_key,
             xor_label.as_bytes(),
             source.share_side,
@@ -4207,7 +4332,7 @@ fn xor_transformed_local_bit_word_side_into(
             &second_provenance,
         );
         set_indexed_child_label(&mut xor_label, label, "xor012", idx);
-        let xor012 = xor_local_bit_from_raw_public(
+        let xor012 = xor_local_bit_core_from_raw_public(
             evaluation_key,
             xor_label.as_bytes(),
             source.share_side,
@@ -4216,17 +4341,19 @@ fn xor_transformed_local_bit_word_side_into(
             third_bit,
             &third_provenance,
         );
-        out.push_local_word(&xor012)?;
+        core.push_core_word(&xor012)?;
     }
-    Ok(())
+    let mut out = empty_local_bit_slice(source.share_side, source.len());
+    core.materialize_into(&mut out, b"eval-xor-local-word")?;
+    Ok(out)
 }
 
-fn xor_transformed_local_bit_word_pair_into(
+fn xor_transformed_local_bit_word_pair_core_into(
     evaluation_key: &crate::ddh::DdhHssEvaluationKey,
     label: &str,
     source: LocalBitWordPairRef<'_>,
     transforms: [LocalBitTransformSpec<'_>; 3],
-    out: &mut RoundKernelBooleanWord,
+    out: &mut RoundKernelCoreBooleanWord,
 ) -> ProtoResult<()> {
     source.left.ensure_shape()?;
     source.right.ensure_shape()?;
@@ -4247,7 +4374,7 @@ fn xor_transformed_local_bit_word_pair_into(
         let (third_left, third_right, third_provenance) =
             transformed_local_bit_pair_parts(source, idx, transforms[2])?;
         set_indexed_child_label(&mut xor_label, label, "xor01", idx);
-        let xor01 = xor_local_bit_pair_from_raw_public(
+        let xor01 = xor_local_bit_pair_core_from_raw_public(
             evaluation_key,
             xor_label.as_bytes(),
             first_left,
@@ -4258,7 +4385,7 @@ fn xor_transformed_local_bit_word_pair_into(
             &second_provenance,
         );
         set_indexed_child_label(&mut xor_label, label, "xor012", idx);
-        let xor012 = xor_local_bit_pair_from_raw_public(
+        let xor012 = xor_local_bit_pair_core_from_raw_public(
             evaluation_key,
             xor_label.as_bytes(),
             (xor01.0.share_word as u8) & 1,
@@ -4268,8 +4395,8 @@ fn xor_transformed_local_bit_word_pair_into(
             third_right,
             &third_provenance,
         );
-        out.left.push_local_word(&xor012.0)?;
-        out.right.push_local_word(&xor012.1)?;
+        out.left.push_core_word(&xor012.0)?;
+        out.right.push_core_word(&xor012.1)?;
     }
     Ok(())
 }
@@ -5023,7 +5150,7 @@ fn small_sigma0_local_bits<B: DdhHssArithmeticBackend>(
     zero_right: &DdhHssLocalWord,
 ) -> ProtoResult<SplitLocalBitWord> {
     SplitLocalBitWord::from_local_sides(
-        xor_transformed_local_bit_word_side(
+        xor_transformed_local_bit_word_side_core(
             backend.evaluation_key(),
             label,
             &word.left,
@@ -5042,7 +5169,7 @@ fn small_sigma0_local_bits<B: DdhHssArithmeticBackend>(
                 },
             ],
         )?,
-        xor_transformed_local_bit_word_side(
+        xor_transformed_local_bit_word_side_core(
             backend.evaluation_key(),
             label,
             &word.right,
@@ -5072,7 +5199,7 @@ fn small_sigma1_local_bits<B: DdhHssArithmeticBackend>(
     zero_right: &DdhHssLocalWord,
 ) -> ProtoResult<SplitLocalBitWord> {
     SplitLocalBitWord::from_local_sides(
-        xor_transformed_local_bit_word_side(
+        xor_transformed_local_bit_word_side_core(
             backend.evaluation_key(),
             label,
             &word.left,
@@ -5091,7 +5218,7 @@ fn small_sigma1_local_bits<B: DdhHssArithmeticBackend>(
                 },
             ],
         )?,
-        xor_transformed_local_bit_word_side(
+        xor_transformed_local_bit_word_side_core(
             backend.evaluation_key(),
             label,
             &word.right,
@@ -5113,13 +5240,13 @@ fn small_sigma1_local_bits<B: DdhHssArithmeticBackend>(
     )
 }
 
-fn big_sigma0_local_bits_into<B: DdhHssArithmeticBackend>(
+fn big_sigma0_local_bits_core_into<B: DdhHssArithmeticBackend>(
     backend: &B,
     label: &str,
     word: LocalBitWordPairRef<'_>,
-    out: &mut RoundKernelBooleanWord,
+    out: &mut RoundKernelCoreBooleanWord,
 ) -> ProtoResult<()> {
-    xor_transformed_local_bit_word_pair_into(
+    xor_transformed_local_bit_word_pair_core_into(
         backend.evaluation_key(),
         label,
         word,
@@ -5142,13 +5269,13 @@ fn big_sigma0_local_bits_into<B: DdhHssArithmeticBackend>(
     Ok(())
 }
 
-fn big_sigma1_local_bits_into<B: DdhHssArithmeticBackend>(
+fn big_sigma1_local_bits_core_into<B: DdhHssArithmeticBackend>(
     backend: &B,
     label: &str,
     word: LocalBitWordPairRef<'_>,
-    out: &mut RoundKernelBooleanWord,
+    out: &mut RoundKernelCoreBooleanWord,
 ) -> ProtoResult<()> {
-    xor_transformed_local_bit_word_pair_into(
+    xor_transformed_local_bit_word_pair_core_into(
         backend.evaluation_key(),
         label,
         word,

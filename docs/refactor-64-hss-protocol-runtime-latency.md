@@ -2,11 +2,11 @@
 
 Date created: June 8, 2026
 
-Status: active; first hot-loop candidate benchmarked and rejected; output
-projector client-base, mixed shared-mask, carry-core, A2B source/carry-core,
-and output-boundary paired transport candidates retained; direct WASM artifact
-benchmark, logical object counters, server ceremony sub-bucket timings, and
-physical hash/domain counters added.
+Status: active; latest bounded client-artifact micro-candidates benchmarked
+and rejected; output projector client-base, mixed shared-mask, carry-core, A2B
+source/carry-core, and output-boundary paired transport candidates retained;
+direct WASM artifact benchmark, logical object counters, server ceremony
+sub-bucket timings, and physical hash/domain counters added.
 
 ## Goal
 
@@ -70,29 +70,79 @@ Latest retained registration benchmark:
   `2026-06-10T02-49-09-370Z`
 - latest registration smoke with product-side wallet-iframe confirmation
   readiness timing: `20260610-024516Z`
-- SDK registration total: `1480ms` to `1869ms` p50 across the smoke scenarios
-- browser-observed total: `1852ms` to `2502ms` p50 across the smoke scenarios
-- HSS client evaluation artifact: `466ms` to `471ms` p50
+- latest retained stage-owned `CoreBitWordSide` sigma slice: native
+  `docs/benchmarks/refactor-64/ddh-hidden-eval-core-bitword-sigma-native.json`,
+  allocation probe
+  `docs/benchmarks/refactor-64/ddh-hidden-eval-core-bitword-sigma-alloc.json`,
+  direct WASM `2026-06-10T03-08-25-774Z`, product smoke
+  `20260610-030916Z`
+- latest retained message-schedule small-sigma `CoreBitWordSide` slice:
+  native
+  `docs/benchmarks/refactor-64/ddh-hidden-eval-core-bitword-small-sigma-native.json`,
+  direct WASM `2026-06-10T03-35-11-130Z`, product smoke
+  `20260610-033610Z`
+- latest retained finalize seed-output prepared-session cache path: product
+  smoke `20260610-035655Z`
+- latest retained respond-delivery one-pass server-input bundle path: native
+  release
+  `docs/benchmarks/refactor-64/prime-order-registration-respond-one-pass-native-release.json`,
+  product smoke `20260610-041350Z`
+- latest retained prepared OT branch-cache path: native release
+  `docs/benchmarks/refactor-64/prime-order-registration-prepared-ot-branches-native-release.json`,
+  repeat
+  `docs/benchmarks/refactor-64/prime-order-registration-prepared-ot-branches-native-release-repeat.json`,
+  product smoke `20260610-043955Z`
+- latest rejected client-artifact micro-experiments after the prepared OT
+  branch-cache win:
+  - fused A2B pack/native:
+    `docs/benchmarks/refactor-64/ddh-hidden-eval-a2b-pack-fused-native.json`;
+    `round_core` p50 regressed `81.068ms -> 87.614ms`, and
+    `total_hidden_eval` p50 regressed `131.835ms -> 142.134ms`
+  - round-constant arithmetic precompute/native:
+    `docs/benchmarks/refactor-64/ddh-hidden-eval-round-constant-arith-precompute-native.json`;
+    `temp1` improved `4.205ms -> 3.564ms`, but `round_core` p50 regressed
+    `81.068ms -> 83.754ms`, and `total_hidden_eval` p50 regressed
+    `131.835ms -> 136.777ms`
+  - A2B zero-core carry seed/native:
+    `docs/benchmarks/refactor-64/ddh-hidden-eval-a2b-zero-core-native.json`;
+    `round_new_a_bits` and `round_new_e_bits` both regressed, with
+    `round_core` p50 `81.068ms -> 83.632ms` and `total_hidden_eval` p50
+    `131.835ms -> 135.810ms`
+- rejected OT label-buffer experiment:
+  `docs/benchmarks/refactor-64/prime-order-registration-ot-label-buffer-native-release.json`
+  and repeat
+  `docs/benchmarks/refactor-64/prime-order-registration-ot-label-buffer-native-release-repeat.json`;
+  native p50 regressed versus the retained one-pass baseline, so no code was
+  kept from that micro-optimization
+- SDK registration total: `1307ms` to `1727ms` p50 across the smoke scenarios
+- browser-observed total: `1694ms` to `2380ms` p50 across the smoke scenarios
+- HSS client evaluation artifact: `465ms` to `472ms` p50
 - `/wallets/register/start`: server route total is now roughly `1ms` p50 after
   consuming a prepared registration package; client-side start timing still
   includes authority verification and browser/Playwright noise
-- `/wallets/register/prepare`: server total is roughly `365ms` to `371ms` p50,
+- `/wallets/register/prepare`: server total is roughly `378ms` to `383ms` p50,
   dominated by preauth HSS preparation
 - prepare-route split: signing-root server-input derivation is roughly
-  `357ms` to `365ms` p50 and server-session preparation is roughly `352ms` to
-  `356ms` p50; they run in parallel, so both branches matter
+  `372ms` to `375ms` p50 and server-session preparation is roughly `363ms` to
+  `366ms` p50; they run in parallel, so both branches matter
 - server-session preparation split: `prepare_prime_order_succinct_hss` still
   accounts for almost all preparation time; driver-state extraction, client
   offer creation, caching, and state encoding are each single-digit
   milliseconds
-- `/wallets/register/hss/respond`: server total is roughly `90ms` p50,
-  dominated by server-input delivery preparation at `71ms` to `72ms` p50
-- `/wallets/register/finalize`: server total is roughly `216ms` to `219ms`
-  p50 after reusing the cached prepared server session
+- `/wallets/register/hss/respond`: server total is now roughly `77ms` to
+  `79ms` p50 after one-pass server-input delivery plus prepared OT branch
+  caching; delivery preparation is `57ms` to `58ms` p50
+- respond delivery split: OT open/join is the dominant product-path bucket at
+  `49ms` p50, server-input sharing/open is `6ms` to `7ms`, sealing is roughly
+  `2ms`, and delivery encoding remains roughly `6ms`
+- `/wallets/register/finalize`: server total is roughly `44ms` to `46ms` p50
+  after routing seed-output opening through the cached prepared session
 - HSS finalize sub-buckets: serialized server-session materialization is now
   `0ms` p50 on the product path because the cached prepared server session is
-  reused; artifact decode, report finalization, and report encoding are each
-  single digit milliseconds
+  reused; seed-output opening is `1ms` to `2ms` p50, server-output opening is
+  `15ms` to `16ms` p50, and artifact decode, report finalization, report
+  encoding, key derivation, and key-store persistence are each single-digit
+  milliseconds
 - passkey auth proof is now split by confirmation bridge diagnostics.
   UserConfirm worker prewarm removes host-origin worker startup from the proof
 - product-side wallet-iframe confirmation readiness is measured. Smoke run
@@ -101,11 +151,11 @@ Latest retained registration benchmark:
   start p50 at `621ms` to `644ms` in iframe scenarios. The iframe prompt
   renderer is not the current product bottleneck; the benchmark still includes
   auto-confirm wait and WebAuthn time.
-- current direct HSS artifact run `2026-06-10T02-49-09-370Z` reports:
-  Node serialized-state wall p50 `542.319ms`, Node worker-handle wall p50
-  `471.816ms`, and browser worker-handle wall p50 `220.35ms`. The browser
-  worker-handle split is hidden eval `207.6ms`, round core `124.6ms`, message
-  schedule `37.65ms`, and output projector `42.35ms`.
+- current direct HSS artifact run `2026-06-10T03-35-11-130Z` reports:
+  Node serialized-state wall p50 `532.467ms`, Node worker-handle wall p50
+  `450.608ms`, and browser worker-handle wall p50 `213.95ms`. The browser
+  worker-handle split is hidden eval `201.5ms`, round core `122.75ms`,
+  message schedule `34.05ms`, and output projector `41.45ms`.
   path, and the direct main-thread registration confirmation path removes the
   registration-only UserConfirm worker bounce. Host-origin `authProofMs` is now
   `203ms` p50, and wallet-iframe `authProofMs` is `824ms` to `828ms` p50. In
@@ -115,15 +165,17 @@ Latest retained registration benchmark:
 
 Latest fine-grained client-owned hidden-eval ranking:
 
-- `hiddenEvalRoundCoreMs`: p50 roughly `231ms` to `232ms`
+- `hiddenEvalRoundCoreMs`: p50 roughly `229ms` to `230ms`
 - `hiddenEvalOutputProjectorMs`: p50 roughly `145ms` to `148ms` after the
   retained output-boundary paired transport candidate
-- `hiddenEvalMessageScheduleMs`: p50 roughly `39ms` to `40ms`
+- `hiddenEvalMessageScheduleMs`: p50 roughly `36ms` to `37ms`
 - inside round core:
   - `hiddenEvalRoundNewABitsMs`: about `23ms` to `24ms` p50
   - `hiddenEvalRoundNewEBitsMs`: about `23ms` to `24ms` p50
   - `hiddenEvalRoundMajMs`: about `32ms` p50
   - `hiddenEvalRoundChMs`: about `23ms` to `24ms` p50
+  - `hiddenEvalRoundSigma0Ms`: about `6ms` to `7ms` p50
+  - `hiddenEvalRoundSigma1Ms`: about `6ms` to `7ms` p50
 
 Interpretation:
 
@@ -711,8 +763,8 @@ Keep gate:
 Status:
 
 - design complete; first tiny core-input bridge rejected; larger
-  `CoreBitWordSide` rewrite deferred while refactor-61/62 critical-path
-  measurement continues
+  `CoreBitWordSide` rewrite resumed after refactor-61/62 measurement showed
+  wallet-iframe prompt rendering is not the bottleneck
 
 Goal:
 
@@ -754,8 +806,10 @@ First implementation result:
 - code from the bridge was reverted.
 - [x] choose the next product-latency step before a larger arena attempt:
       continue refactor-61/62 critical-path measurement.
-- [ ] revisit a larger stage-owned `CoreBitWordSide` representation after the
+- [x] revisit a larger stage-owned `CoreBitWordSide` representation after the
       registration warmup and remaining product-path bottlenecks are measured.
+      Smoke run `20260610-024516Z` showed prompt host rendering at about `1ms`
+      p50 and left client HSS artifact construction as the next product bucket.
 - the next arena attempt should skip tiny local-word accessor bridges and move
   directly to a larger stage-owned `CoreBitWordSide` representation.
 
@@ -775,6 +829,203 @@ Validation:
 - native hidden-eval benchmark
 - direct WASM artifact benchmark
 - product registration smoke before retention
+
+### Phase E3: Larger Stage-Owned CoreBitWordSide Rewrite
+
+Status:
+
+- retained. This is the first real larger `CoreBitWordSide` attempt. Previous
+  attempts were narrower: packed local metadata, round-state scratch reuse,
+  output-side allocation rewrites, and the rejected E2 core-input bridge.
+
+Architecture:
+
+- Add `CoreBitWordSide` as stage-owned storage for fixed-width local bit words.
+  It stores only public shape, packed share bits, and provenance digests.
+- Keep commitments out of intermediate round scratch when the commitment is not
+  consumed before the next materialization boundary.
+- Materialize to `LocalBitWordSide` only when a downstream helper requires
+  commitments, when stage/checkpoint digests are computed, or when output
+  bundles are emitted.
+- Keep all loop bounds, bit indices, scratch capacities, and arena indices
+  derived from public SHA-512/HSS stage shape.
+- Preserve label bytes, provenance input order, emitted commitments, protocol
+  structs, wire structs, and backend version.
+- Keep diagnostics observational. A benchmark result must decide whether code
+  stays; diagnostics must not alter registration control flow.
+
+First implementation slice:
+
+- Convert round-stage `sigma0` and `sigma1` scratch words to core-backed
+  storage.
+- Compute `xor01` intermediates as core words and avoid deriving their
+  commitments, because only their share/provenance pair feeds `xor012`.
+- Materialize final `sigma0` and `sigma1` words exactly once before
+  `add_two_local_bit_pairs_to_arithmetic_naive` or
+  `add_five_local_bit_pairs_to_arithmetic_naive` consumes their commitments.
+- Leave `choose`, `majority`, message-schedule small sigma, A2B, and output
+  projection on existing materialized storage for this first slice.
+
+Todo:
+
+- [x] Add core raw XOR helpers that derive the same provenance as the
+      materialized helpers without computing commitments.
+- [x] Add `CoreBitWordSide` and a paired round-scratch type.
+- [x] Materialize core round-sigma scratch into existing `LocalBitWordSide`
+      boundary scratch before arithmetic conversion.
+- [x] Run `hidden_eval_equivalence`.
+- [x] Run native hidden-eval benchmark and record whether `round_core`,
+      `total_hidden_eval`, and allocation counters improve.
+- [x] Run direct HSS WASM artifact benchmark.
+- [x] Run product registration smoke only if native and direct WASM move in the
+      same direction.
+- [x] Retain only if byte-equivalence passes and the product/client artifact
+      bucket improves without a material Node or browser regression.
+
+Result:
+
+- kept. The slice preserves emitted protocol shape and moves the real product
+  artifact bucket in the right direction.
+- validation:
+  - `cargo test --manifest-path crates/ed25519-hss/Cargo.toml hidden_eval_equivalence`
+    passed: `3` passed, `98` filtered.
+  - `cargo test --manifest-path crates/ed25519-hss/Cargo.toml` passed:
+    `97` passed, `4` ignored.
+  - `cargo hss-fv verus-check` passed: Verus `96` verified, `0` errors, and
+    `10` anti-drift tests passed.
+- native hidden eval:
+  - previous retained
+    `docs/benchmarks/refactor-64/ddh-hidden-eval-output-transport-pair-native.json`
+    to
+    `docs/benchmarks/refactor-64/ddh-hidden-eval-core-bitword-sigma-native.json`
+  - `round_core` p50: `84.740ms -> 81.380ms`
+  - `total_hidden_eval` p50: `138.394ms -> 134.094ms`
+  - allocation probe captured
+    `docs/benchmarks/refactor-64/ddh-hidden-eval-core-bitword-sigma-alloc.json`;
+    allocation was not the retained win. `profile_hidden_eval_for_clear_input`
+    is `7.307MB` / `36,777` calls p50, and the timed
+    `evaluate_for_clear_input_debug_timed` path is `9.965MB` / `39,548` calls
+    p50.
+- direct HSS WASM artifact:
+  - baseline `2026-06-10T02-49-09-370Z` to run
+    `2026-06-10T03-08-25-774Z`
+  - browser worker-handle wall p50: `220.35ms -> 215.2ms`
+  - browser hidden-eval p50: `207.6ms -> 202.55ms`
+  - browser round-core p50: `124.6ms -> 120.95ms`
+  - Node serialized-state wall p50: `542.319ms -> 530.613ms`
+  - Node worker-handle wall p50: `471.816ms -> 452.168ms`
+- product registration smoke:
+  - baseline `20260610-024516Z` to run `20260610-030916Z`
+  - `ed25519EvaluationArtifactMs` p50 by scenario:
+    `466/471/466/466ms -> 464/466/459/458ms`
+  - HSS worker artifact p50 by scenario:
+    `465/470/465/464ms -> 461/465/458/461ms`
+  - SDK total p50 by scenario:
+    `1807/1869/1480/1511ms -> 1806/1867/1461/1508ms`
+  - browser total p50 by scenario:
+    `2480/2502/1852/1895ms -> 2436/2478/1830/1882ms`
+  - logical hidden-eval counters stayed stable, including local word
+    materializations `12,800` and commitment materializations `17,928`, which
+    confirms this slice reduces transient physical work without changing the
+    emitted logical shape.
+
+Second implementation slice:
+
+- Try message-schedule small-sigma side storage before `Ch`/`Maj`.
+- Rationale: `Ch` and `Maj` transient XOR commitments feed the multiplication
+  material digest, so deleting those commitments would change transcript bytes.
+  Message-schedule small-sigma has the same safe pattern as the retained
+  round-sigma slice: `xor01` is only an intermediate whose bit/provenance feed
+  `xor012`, while the final `xor012` word is materialized before arithmetic
+  conversion.
+- Scope:
+  - Add a single-side core XOR helper that derives the same provenance as
+    `xor_local_bit_from_raw_public` without deriving the commitment.
+  - Route `small_sigma0_local_bits` and `small_sigma1_local_bits` through
+    `CoreBitWordSide`, then materialize the final side words once.
+  - Leave `Ch`, `Maj`, A2B, output projection, and wire structs unchanged.
+- Keep gate:
+  - `hidden_eval_equivalence` must pass.
+  - Native hidden eval should improve `message_schedule` or
+    `total_hidden_eval` without a `round_core` regression.
+  - Direct browser worker p50 decides whether to continue to product smoke.
+
+Result:
+
+- kept. The slice preserves hidden-eval byte equivalence and improves the
+  registration artifact bucket across the product smoke scenarios.
+- validation so far:
+  - `cargo test --manifest-path crates/ed25519-hss/Cargo.toml hidden_eval_equivalence`
+    passed: `3` passed, `98` filtered.
+  - `cargo test --manifest-path crates/ed25519-hss/Cargo.toml` passed:
+    `97` passed, `4` ignored.
+  - `cargo hss-fv verus-check` passed: Verus `96` verified, `0` errors, and
+    `10` anti-drift tests passed.
+- native hidden eval:
+  - previous retained
+    `docs/benchmarks/refactor-64/ddh-hidden-eval-core-bitword-sigma-native.json`
+    to
+    `docs/benchmarks/refactor-64/ddh-hidden-eval-core-bitword-small-sigma-native.json`
+  - `message_schedule` p50: `24.640ms -> 23.116ms`
+  - `round_core` p50: `81.380ms -> 81.068ms`
+  - `total_hidden_eval` p50: `134.094ms -> 131.835ms`
+- direct HSS WASM artifact:
+  - baseline `2026-06-10T03-08-25-774Z` to run
+    `2026-06-10T03-35-11-130Z`
+  - browser worker-handle wall p50: `215.2ms -> 213.95ms`
+  - browser hidden-eval p50: `202.55ms -> 201.5ms`
+  - browser message-schedule p50: `37.15ms -> 34.05ms`
+  - Node worker-handle wall p50: `452.168ms -> 450.608ms`
+  - Node serialized-state wall p50 was noise-regressed:
+    `530.613ms -> 532.467ms`; product and browser-worker p50 still improved.
+- product registration smoke:
+  - baseline `20260610-030916Z` to run `20260610-033610Z`
+  - `ed25519EvaluationArtifactMs` p50 by scenario:
+    `464/466/459/458ms -> 457/456/450/453ms`
+  - HSS worker artifact p50 by scenario:
+    `461/465/458/461ms -> 456/456/449/452ms`
+  - SDK total p50 by scenario:
+    `1806/1867/1461/1508ms -> 1791/1821/1440/1475ms`
+  - browser total p50 by scenario:
+    `2436/2478/1830/1882ms -> 2412/2442/1807/1842ms`
+  - logical hidden-eval counters stayed stable, including local word
+    materializations `12,800` and commitment materializations `17,928`.
+
+Rejected follow-up micro-experiments:
+
+- fused A2B pack/native:
+  `docs/benchmarks/refactor-64/ddh-hidden-eval-a2b-pack-fused-native.json`
+  - tried to combine Boolean-share packing and right-share correction in
+    `split_local_bit_pair_to_arithmetic_word_pair_naive`
+  - `hidden_eval_equivalence` passed after preserving borrow order, but native
+    p50 regressed:
+    - `message_schedule`: `23.116ms -> 24.864ms`
+    - `round_core`: `81.068ms -> 87.614ms`
+    - `output_projector`: `24.444ms -> 26.071ms`
+    - `total_hidden_eval`: `131.835ms -> 142.134ms`
+  - result: reverted
+- round-constant arithmetic precompute/native:
+  `docs/benchmarks/refactor-64/ddh-hidden-eval-round-constant-arith-precompute-native.json`
+  - tried to precompute public SHA-512 round constants as arithmetic words for
+    the `temp1/d` operand
+  - `hidden_eval_equivalence` passed and `round_temp1` improved
+    `4.205ms -> 3.564ms`, but the wider executor regressed:
+    - `message_schedule`: `23.116ms -> 24.046ms`
+    - `round_core`: `81.068ms -> 83.754ms`
+    - `output_projector`: `24.444ms -> 25.398ms`
+    - `total_hidden_eval`: `131.835ms -> 136.777ms`
+  - result: reverted
+- A2B zero-core carry seed/native:
+  `docs/benchmarks/refactor-64/ddh-hidden-eval-a2b-zero-core-native.json`
+  - tried to preserve the `{label}/zero` provenance digest while skipping
+    unused zero-word commitment derivation in
+    `arithmetic_word_pair_to_split_local_bits_secure`
+  - `hidden_eval_equivalence` passed, but the target sub-buckets regressed:
+    - `round_new_a_bits`: `14.373ms -> 15.065ms`
+    - `round_new_e_bits`: `14.592ms -> 15.035ms`
+    - `round_core`: `81.068ms -> 83.632ms`
+    - `total_hidden_eval`: `131.835ms -> 135.810ms`
+  - result: reverted
 
 ## Approach F: Binary And Compact Payloads
 
@@ -895,6 +1146,66 @@ Tasks:
       export and relay-server TypeScript checks
 - [x] benchmark the finalize fast path with `benchmark:registration-flow:smoke`
       and keep it only if the product-path finalize route improves
+- [x] add finalize sub-buckets for server-output opening, seed-output opening,
+      seed keypair derivation, relayer verifying-share derivation, and
+      threshold key-store persistence so the remaining `registrationHssFinalizeMs`
+      cost is observable
+- [x] route registration seed-output opening through the live prepared-session
+      cache handle while the ceremony is active, with serialized evaluator
+      state remaining the request/persistence-boundary fallback
+- [x] benchmark the seed-output cache path with `benchmark:registration-flow:smoke`
+      and keep it only if `/wallets/register/finalize` or
+      `registrationHssFinalizeOpenSeedOutputMs` improves without moving client
+      artifact timing backward
+
+Result:
+
+- kept. Smoke run `20260610-035655Z` passed all four passkey scenarios.
+- `walletRegisterFinalizeMs` p50 by scenario moved
+  `213/215/211/215ms -> 52/55/51/52ms` versus `20260610-033610Z`.
+- route `registrationHssFinalizeMs` p50 is now `45/46/44/44ms`.
+
+Follow-up result:
+
+- kept. Smoke run `20260610-041350Z` passed all four passkey scenarios after
+  the one-pass server-input delivery patch.
+- native release `server_input_delivery` p50 moved
+  `25.258ms -> 21.418ms` versus
+  `docs/benchmarks/refactor-64/prime-order-registration-native.json`.
+- route `registrationHssRespondMs` p50 by scenario moved
+  `88/89/88/89ms -> 81/86/83/83ms` versus `20260610-035655Z`.
+- route `registrationHssRespondPrepareDeliveryMs` p50 moved
+  `70/70/69/69ms -> 64/66/64/64ms`.
+- new respond sub-buckets show OT open/join as the remaining delivery
+  bottleneck at `55ms` to `58ms` p50; server-input sharing/open is `6ms` to
+  `7ms`, sealing is about `2ms`, and encoding is about `5ms`.
+- new finalize sub-buckets show `registrationHssFinalizeOpenSeedOutputMs` at
+  `1ms` to `2ms` p50 and `registrationHssFinalizeOpenServerOutputMs` at
+  `15ms` to `16ms` p50.
+- SDK total p50 moved `1791/1821/1440/1475ms -> 1615/1664/1274/1293ms`.
+- client artifact p50 stayed compatible at `449/451/444/443ms`.
+
+Prepared OT branch-cache follow-up:
+
+- kept. Smoke run `20260610-043955Z` passed all four passkey scenarios after
+  moving request-independent OT branch plaintext, AAD, and payload digests into
+  prepared server-session materialization.
+- native release `server_input_delivery` p50 moved
+  `21.418ms -> 18.148ms` and repeated at `18.124ms` versus the retained
+  one-pass server-input baseline. Native `prepare_session` p50 increased from
+  `94.970ms` to roughly `102ms` to `104ms`, which is acceptable only while
+  prepare remains preauth/off the post-auth critical path.
+- route `registrationHssRespondMs` p50 by scenario moved
+  `81/86/83/83ms -> 77/79/77/77ms` versus `20260610-041350Z`.
+- route `registrationHssRespondPrepareDeliveryMs` p50 moved
+  `64/66/64/64ms -> 58/58/57/57ms`.
+- `registrationHssRespondDeliveryOtOpenJoinMs` p50 moved from `55ms` to `58ms`
+  down to `49ms` in all four scenarios.
+- `walletRegisterPrepareWaitMs` stayed `0ms` p50 in every scenario, preserving
+  the refactor-62 critical-path assumption.
+- the rejected OT label-buffer micro-experiment regressed native
+  `server_input_delivery` p50 to `22.956ms` to `23.570ms`, so it remains
+  documented evidence rather than retained code.
 
 Ownership:
 
@@ -1039,16 +1350,36 @@ For protocol-shape changes:
     p50 by about `41ms` to `43ms` and removes the registration-only
     UserConfirm worker bounce.
 17. Current product-path bottleneck order is client HSS artifact construction,
-    `/wallets/register/finalize`, and preauth HSS prepare. Wallet-iframe prompt
-    host rendering is measured and is about `1ms` p50, so HSS-specific work
-    should continue with the larger stage-owned `CoreBitWordSide`
-    representation, keeping the product benchmark as the final keep gate.
+    preauth HSS prepare, and wallet-iframe benchmark/user confirmation time.
+    Finalize is now a secondary route bucket after the seed-output prepared
+    session cache path. Wallet-iframe prompt host rendering is measured and is
+    about `1ms` p50, so HSS-specific work should continue with the larger
+    stage-owned `CoreBitWordSide` representation, keeping the product benchmark
+    as the final keep gate.
 18. Benchmark wallet-iframe auto-confirm diagnostics are retained. The latest
     smoke run shows the helper sees the confirm button at roughly `639ms` to
     `645ms` p50 and dispatches the click at roughly `843ms` to `849ms` p50.
     Treat browser-observed wallet-iframe p50 as partially benchmark-harness
     dependent; use SDK p50 and product-side diagnostics for keep/reject
     decisions.
+19. Prepared OT branch caching is retained for the server respond route. Future
+    respond-route work should target real OT open/join costs such as curve
+    multiplication/key derivation/encryption batching, because branch payload
+    derivation is now shifted into prepared session materialization.
+20. The next optimization lane should return to client artifact construction:
+    either a larger stage-owned `CoreBitWordSide` slice for round-core
+    `Ch`/`Maj`/adder materialization, or a broader output-projector
+    representation that reduces logical materializations in the browser worker.
+21. Three bounded client-artifact micro-candidates after prepared OT branch
+    caching were rejected after native benchmarks: fused A2B packing,
+    round-constant arithmetic precompute, and A2B zero-core carry seed. Avoid
+    repeating operation-count-only rewrites unless they reduce logical
+    materialization or move direct browser worker p50.
+22. The next HSS runtime candidate should be a larger representation or
+    protocol-kernel change around the `round_new_a_bits` / `round_new_e_bits`
+    A2B boundary, output-projector logical materialization, or a deliberate
+    backend-versioned rewrite. Small local reshuffles have now produced
+    consistent locality regressions in native hidden-eval.
 
 ## Current Checklist
 
@@ -1174,14 +1505,90 @@ For protocol-shape changes:
 - [x] Decide whether packed/arena representation is justified.
 - [x] Defer protocol-level redesign until refactors 61/62 and stage-owned
       representation work fail to close the remaining latency gap.
-- [ ] Implement the first stage-owned `CoreBitWordSide` representation slice
+- [x] Implement the first stage-owned `CoreBitWordSide` representation slice
       behind byte-equivalence checks, with stage widths and capacities derived
       only from public circuit shape.
-- [ ] Benchmark that slice with native hidden-eval, direct HSS WASM artifact,
+- [x] Benchmark that slice with native hidden-eval, direct HSS WASM artifact,
       and product registration smoke before deciding whether to retain it.
-- [ ] If the first representation slice regresses direct artifact p50, reject it
+- [x] Retain the first representation slice after byte-equivalence, native,
+      direct WASM artifact, product registration smoke, full crate tests, and
+      Verus anti-drift all passed.
+- [ ] If the next representation slice regresses direct artifact p50, reject it
       and use the direct bucket split to choose between round-core local side
       storage and message-schedule accumulation next.
+- [ ] Pick the next stage-owned representation target from either
+      `choose`/`majority` round scratch or message-schedule small-sigma
+      accumulation, using direct browser worker p50 as the keep gate.
+- [x] Pick message-schedule small-sigma as the next attempted slice after
+      auditing `Ch`/`Maj` and finding their transient XOR commitments are
+      protocol-bound through multiplication-material digests.
+- [x] Implement the message-schedule small-sigma `CoreBitWordSide` slice.
+- [x] Benchmark the small-sigma slice with hidden-eval equivalence and native
+      hidden eval before deciding whether direct WASM is justified.
+- [x] Benchmark the small-sigma slice with direct HSS WASM and product
+      registration smoke after native hidden eval improved.
+- [x] Retain the small-sigma slice after product artifact p50 improved in all
+      four smoke scenarios.
+- [x] Run full `ed25519-hss` tests and `cargo hss-fv verus-check` after the
+      retained small-sigma slice.
+- [x] Pick the next optimization lane from either protocol-bound `Ch`/`Maj`
+      representation cleanup, A2B/output projector scratch reductions, or
+      refactor-61/62 registration-prep critical path work.
+- [x] Choose finalize cache/materialization as the next lane after the
+      message-schedule small-sigma slice: `Ch`/`Maj` transient commitments are
+      protocol-bound, refactor-62 prepare wait is already `0ms` p50/p95, and
+      `/wallets/register/finalize` remains a visible route bucket around
+      `205ms` to `218ms` p50.
+- [x] Benchmark the finalize seed-output prepared-session cache experiment and
+      update the keep/reject decision.
+- [x] Choose the next optimization lane after the finalize cache win. Current
+      live buckets were client artifact construction, wallet-iframe prompt/user
+      confirmation time, HSS respond delivery, and preauth HSS prepare; choose
+      HSS respond delivery because it was the smallest route-local retained
+      win with clear diagnostics.
+- [x] Implement one-pass role-separated server-input delivery so the respond
+      path shares server input bundles once, seals from those same bundles, and
+      preserves the existing public delivery packet/state shape.
+- [x] Expose respond delivery sub-buckets for OT open/join, server-input
+      open/share/commitment/transcript, sealing, and encoding.
+- [x] Validate the one-pass respond path with `hidden_eval_equivalence`,
+      `cargo check` for the server WASM export, relay-server type checks, SDK
+      type checks, and product smoke.
+- [x] Retain the one-pass respond path after native release and product smoke
+      both improved the targeted delivery/respond buckets.
+- [x] Choose the next optimization lane after the one-pass respond-delivery
+      win. The live route-local target was OT open/join in server-input
+      delivery, because it was the largest remaining respond-delivery
+      sub-bucket.
+- [x] Reject the OT label-buffer micro-experiment after native release
+      `server_input_delivery` p50 regressed versus the retained one-pass
+      baseline.
+- [x] Implement prepared OT branch caching: prepare both branch plaintexts,
+      AADs, and payload digests during server-session materialization while
+      keeping request-dependent shared-point, key-derivation, and encryption
+      work in the respond route.
+- [x] Validate the prepared OT branch-cache path with
+      `hidden_eval_equivalence`, server WASM export compile, relay-server type
+      checks, SDK type checks, native release benchmark, repeat native release
+      benchmark, and product smoke.
+- [x] Retain prepared OT branch caching after native release and product smoke
+      both improved the targeted respond-delivery/OT open-join buckets while
+      `walletRegisterPrepareWaitMs` stayed `0ms` p50.
+- [x] Choose the next optimization lane after the prepared OT branch-cache win.
+      Chose client artifact construction because preauth HSS prepare remains
+      hidden behind `walletRegisterPrepareWaitMs = 0ms` p50 and wallet-iframe
+      prompt rendering is about `1ms` p50.
+- [x] Reject fused A2B packing after `hidden_eval_equivalence` passed but
+      native `round_core` and `total_hidden_eval` p50 regressed.
+- [x] Reject round-constant arithmetic precompute after it improved
+      `round_temp1` locally but regressed `round_core` and `total_hidden_eval`
+      p50.
+- [x] Reject A2B zero-core carry seed after it preserved byte-equivalence but
+      regressed `round_new_a_bits`, `round_new_e_bits`, `round_core`, and
+      `total_hidden_eval` p50.
+- [ ] Design the next larger client-artifact candidate around a real
+      representation/protocol-kernel change instead of a local operation-count
+      reduction.
 
 ## Open Questions
 

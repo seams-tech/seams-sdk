@@ -11,7 +11,8 @@ use crate::ddh::hidden_eval_executor::{
     DdhHiddenEvalServerInputs, DdhHiddenEvalStageProfile,
 };
 use crate::ddh::{
-    DdhHiddenEvalRun, DdhHssOtReleasedRemoteBundle, DdhHssOtResponseBundle, HiddenEvalProgram,
+    DdhHiddenEvalRun, DdhHssInputShareBundle, DdhHssOtReleasedRemoteBundle, DdhHssOtResponseBundle,
+    HiddenEvalProgram,
 };
 use crate::ddh::{DdhHssTransportBundle, DdhHssTransportPurpose};
 use crate::runtime::{
@@ -44,6 +45,14 @@ struct SameProcessTrustedEvalMaterial {
     trusted_server_inputs: DdhHiddenEvalServerInputs,
 }
 
+struct ServerAssistInitMaterial {
+    packet: ServerAssistInitPacket,
+    state: ServerEvalState,
+    y_relayer_bundle: DdhHssInputShareBundle,
+    tau_relayer_bundle: DdhHssInputShareBundle,
+    timing: EvaluateTiming,
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SameProcessExecutionCheckpoints {
@@ -55,8 +64,11 @@ struct SameProcessExecutionCheckpoints {
 
 impl ServerSessionState {
     pub fn materialize(&self) -> ProtoResult<ServerSession> {
-        let prepared_ot_state =
-            prepare_garbler_ot_state_for_session(&self.client_ot_offer, &self.garbler_ot_state)?;
+        let prepared_ot_state = prepare_garbler_ot_state_for_session(
+            &self.ddh_garbler,
+            &self.client_ot_offer,
+            &self.garbler_ot_state,
+        )?;
         Ok(ServerSession {
             context_binding: self.context_binding,
             ddh_garbler: self.ddh_garbler.clone(),
@@ -1114,48 +1126,59 @@ impl ServerSession {
         tau_relayer: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<(RoleSeparatedServerInputDeliveryPacket, ServerEvalState)> {
-        let (assist, state, _timing) = self.prepare_server_assist_init_timed(
+        let (delivery, state, _timing) = self.prepare_role_separated_server_input_delivery_timed(
             client_packet,
             y_relayer,
             tau_relayer,
             operation,
         )?;
-        let y_relayer_bundle = self
+        Ok((delivery, state))
+    }
+
+    pub fn prepare_role_separated_server_input_delivery_timed(
+        &self,
+        client_packet: &ClientPacket,
+        y_relayer: [u8; 32],
+        tau_relayer: [u8; 32],
+        operation: ServerEvalOperation,
+    ) -> ProtoResult<(
+        RoleSeparatedServerInputDeliveryPacket,
+        ServerEvalState,
+        EvaluateTiming,
+    )> {
+        let mut material = self.prepare_server_assist_init_material_timed(
+            client_packet,
+            y_relayer,
+            tau_relayer,
+            operation,
+        )?;
+        let y_relayer_split = self
             .ddh_garbler
-            .share_server_input_bit_bundle("y_relayer_bits", &y_relayer)?;
-        let tau_relayer_bundle = self
+            .split_share_bundle(&material.y_relayer_bundle);
+        let tau_relayer_split = self
             .ddh_garbler
-            .share_server_input_bit_bundle("tau_relayer_bits", &tau_relayer)?;
-        let server_input_commitment = self.ddh_garbler.combined_input_commitment(
-            crate::ddh::HiddenEvalInputOwner::Server,
-            &[&y_relayer_bundle, &tau_relayer_bundle],
-        );
-        if server_input_commitment != assist.server_input_commitment {
-            return Err(crate::shared::ProtoError::InvalidInput(
-                "role-separated server input commitment does not match assist-init commitment"
-                    .to_string(),
-            ));
-        }
-        let y_relayer_split = self.ddh_garbler.split_share_bundle(&y_relayer_bundle);
-        let tau_relayer_split = self.ddh_garbler.split_share_bundle(&tau_relayer_bundle);
+            .split_share_bundle(&material.tau_relayer_bundle);
+        let server_input_seal_started = monotonic_now_ns();
         let server_inputs = self.seal_role_separated_server_inputs_packet(
-            server_input_commitment,
+            material.packet.server_input_commitment,
             &y_relayer_split,
             &tau_relayer_split,
         )?;
+        material.timing.server_input_seal_duration_ns = elapsed_ns_u64(server_input_seal_started);
         Ok((
             RoleSeparatedServerInputDeliveryPacket {
-                context_binding: assist.context_binding,
-                server_eval_handle: assist.server_eval_handle,
-                transcript_id: assist.transcript_id,
-                server_input_commitment: assist.server_input_commitment,
-                y_client_response: assist.y_client_response,
-                tau_client_response: assist.tau_client_response,
-                y_client_remote_release: assist.y_client_remote_release,
-                tau_client_remote_release: assist.tau_client_remote_release,
+                context_binding: material.packet.context_binding,
+                server_eval_handle: material.packet.server_eval_handle,
+                transcript_id: material.packet.transcript_id,
+                server_input_commitment: material.packet.server_input_commitment,
+                y_client_response: material.packet.y_client_response,
+                tau_client_response: material.packet.tau_client_response,
+                y_client_remote_release: material.packet.y_client_remote_release,
+                tau_client_remote_release: material.packet.tau_client_remote_release,
                 server_inputs,
             },
-            state,
+            material.state,
+            material.timing,
         ))
     }
 
@@ -1166,12 +1189,33 @@ impl ServerSession {
         tau_relayer: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<(RoleSeparatedServerInputDeliveryPacket, ServerEvalState)> {
+        let (delivery, state, _timing) = self
+            .prepare_role_separated_server_input_delivery_message_timed(
+                client_request_message,
+                y_relayer,
+                tau_relayer,
+                operation,
+            )?;
+        Ok((delivery, state))
+    }
+
+    pub fn prepare_role_separated_server_input_delivery_message_timed(
+        &self,
+        client_request_message: &WireMessage,
+        y_relayer: [u8; 32],
+        tau_relayer: [u8; 32],
+        operation: ServerEvalOperation,
+    ) -> ProtoResult<(
+        RoleSeparatedServerInputDeliveryPacket,
+        ServerEvalState,
+        EvaluateTiming,
+    )> {
         let client_packet: ClientPacket = crate::wire::decode_transport_message(
             self.context_binding,
             TransportKind::ClientOtRequest,
             client_request_message,
         )?;
-        self.prepare_role_separated_server_input_delivery(
+        self.prepare_role_separated_server_input_delivery_timed(
             &client_packet,
             y_relayer,
             tau_relayer,
@@ -1186,6 +1230,22 @@ impl ServerSession {
         tau_relayer: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<(ServerAssistInitPacket, ServerEvalState, EvaluateTiming)> {
+        let material = self.prepare_server_assist_init_material_timed(
+            client_packet,
+            y_relayer,
+            tau_relayer,
+            operation,
+        )?;
+        Ok((material.packet, material.state, material.timing))
+    }
+
+    fn prepare_server_assist_init_material_timed(
+        &self,
+        client_packet: &ClientPacket,
+        y_relayer: [u8; 32],
+        tau_relayer: [u8; 32],
+        operation: ServerEvalOperation,
+    ) -> ProtoResult<ServerAssistInitMaterial> {
         crate::protocol::invariants::validate_client_packet_context(
             self.context_binding,
             client_packet,
@@ -1282,7 +1342,13 @@ impl ServerSession {
             },
         );
 
-        Ok((packet, state, timing))
+        Ok(ServerAssistInitMaterial {
+            packet,
+            state,
+            y_relayer_bundle,
+            tau_relayer_bundle,
+            timing,
+        })
     }
 
     #[cfg(test)]

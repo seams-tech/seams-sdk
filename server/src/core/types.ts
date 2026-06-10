@@ -738,6 +738,12 @@ export type WalletRegistrationRouteTimingName =
   | 'registrationHssRespondDecodeMessagesMs'
   | 'registrationHssRespondMaterializeSessionMs'
   | 'registrationHssRespondPrepareDeliveryMs'
+  | 'registrationHssRespondDeliveryOtOpenJoinMs'
+  | 'registrationHssRespondDeliveryServerInputOpenMs'
+  | 'registrationHssRespondDeliveryServerInputShareMs'
+  | 'registrationHssRespondDeliveryServerInputCommitmentMs'
+  | 'registrationHssRespondDeliveryServerInputTranscriptMs'
+  | 'registrationHssRespondDeliveryServerInputSealMs'
   | 'registrationHssRespondEncodeDeliveryMs'
   | 'registrationEcdsaRespondMs'
   | 'registerHssRespondTotalMs'
@@ -748,6 +754,11 @@ export type WalletRegistrationRouteTimingName =
   | 'registrationHssFinalizeSerializedSessionMaterializeMs'
   | 'registrationHssFinalizeReportMs'
   | 'registrationHssFinalizeEncodeReportMs'
+  | 'registrationHssFinalizeOpenServerOutputMs'
+  | 'registrationHssFinalizeOpenSeedOutputMs'
+  | 'registrationHssFinalizeDeriveSeedKeypairMs'
+  | 'registrationHssFinalizeDeriveRelayerVerifyingShareMs'
+  | 'registrationHssFinalizeKeyStorePutMs'
   | 'registrationEcdsaBootstrapVerifyMs'
   | 'nearAccountCreateMs'
   | 'registrationKeygenMs'
@@ -1000,6 +1011,12 @@ export type ThresholdEd25519HssRespondForRegistrationResponse =
         decodeMessagesMs: number;
         materializeSessionMs: number;
         prepareDeliveryMs: number;
+        deliveryOtOpenJoinMs: number;
+        deliveryServerInputOpenMs: number;
+        deliveryServerInputShareMs: number;
+        deliveryServerInputCommitmentMs: number;
+        deliveryServerInputTranscriptMs: number;
+        deliveryServerInputSealMs: number;
         encodeDeliveryMs: number;
       };
     }
@@ -1046,6 +1063,11 @@ export type ThresholdEd25519HssFinalizeForRegistrationResponse =
         serializedSessionMaterializeMs: number;
         finalizeReportMs: number;
         encodeReportMs: number;
+        openServerOutputMs: number;
+        openSeedOutputMs: number;
+        deriveSeedKeypairMs: number;
+        deriveRelayerVerifyingShareMs: number;
+        keyStorePutMs: number;
       };
       accountProvisioning?: {
         mode: 'create_if_missing';

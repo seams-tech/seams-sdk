@@ -1,5 +1,5 @@
 use crate::ddh::ddh_hss::{
-    prepare_client_ot_sender_state_words_public, DdhHssPreparedOtSenderStateWord,
+    prepare_client_ot_sender_state_words_public, DdhHssGarbler, DdhHssPreparedOtSenderStateWord,
 };
 use crate::server::ServerOtState;
 use crate::shared::ProtoResult;
@@ -12,17 +12,22 @@ pub(crate) struct ServerPreparedOtState {
 }
 
 pub(crate) fn prepare_garbler_ot_state_for_session(
+    ddh_garbler: &DdhHssGarbler,
     client_ot_offer: &ClientOtOffer,
     garbler_ot_state: &ServerOtState,
 ) -> ProtoResult<ServerPreparedOtState> {
     Ok(ServerPreparedOtState {
         y_client_sender_words_prepared: prepare_client_ot_sender_state_words_public(
+            ddh_garbler.backend(),
             &client_ot_offer.y_client_offer,
             &garbler_ot_state.y_client_sender_state,
+            &garbler_ot_state.y_client_remote,
         )?,
         tau_client_sender_words_prepared: prepare_client_ot_sender_state_words_public(
+            ddh_garbler.backend(),
             &client_ot_offer.tau_client_offer,
             &garbler_ot_state.tau_client_sender_state,
+            &garbler_ot_state.tau_client_remote,
         )?,
     })
 }

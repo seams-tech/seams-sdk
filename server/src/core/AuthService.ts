@@ -454,6 +454,11 @@ function pushRegistrationHssFinalizeTimingEntries(
     serializedSessionMaterializeMs: number;
     finalizeReportMs: number;
     encodeReportMs: number;
+    openServerOutputMs: number;
+    openSeedOutputMs: number;
+    deriveSeedKeypairMs: number;
+    deriveRelayerVerifyingShareMs: number;
+    keyStorePutMs: number;
   },
 ): void {
   pushRegistrationRouteDuration(
@@ -475,6 +480,98 @@ function pushRegistrationHssFinalizeTimingEntries(
     entries,
     'registrationHssFinalizeEncodeReportMs',
     timings.encodeReportMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssFinalizeOpenServerOutputMs',
+    timings.openServerOutputMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssFinalizeOpenSeedOutputMs',
+    timings.openSeedOutputMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssFinalizeDeriveSeedKeypairMs',
+    timings.deriveSeedKeypairMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssFinalizeDeriveRelayerVerifyingShareMs',
+    timings.deriveRelayerVerifyingShareMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssFinalizeKeyStorePutMs',
+    timings.keyStorePutMs,
+  );
+}
+
+function pushRegistrationHssRespondTimingEntries(
+  entries: WalletRegistrationRouteTimingEntry[],
+  timings: {
+    decodeMessagesMs: number;
+    materializeSessionMs: number;
+    prepareDeliveryMs: number;
+    deliveryOtOpenJoinMs: number;
+    deliveryServerInputOpenMs: number;
+    deliveryServerInputShareMs: number;
+    deliveryServerInputCommitmentMs: number;
+    deliveryServerInputTranscriptMs: number;
+    deliveryServerInputSealMs: number;
+    encodeDeliveryMs: number;
+  },
+): void {
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssRespondDecodeMessagesMs',
+    timings.decodeMessagesMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssRespondMaterializeSessionMs',
+    timings.materializeSessionMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssRespondPrepareDeliveryMs',
+    timings.prepareDeliveryMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssRespondDeliveryOtOpenJoinMs',
+    timings.deliveryOtOpenJoinMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssRespondDeliveryServerInputOpenMs',
+    timings.deliveryServerInputOpenMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssRespondDeliveryServerInputShareMs',
+    timings.deliveryServerInputShareMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssRespondDeliveryServerInputCommitmentMs',
+    timings.deliveryServerInputCommitmentMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssRespondDeliveryServerInputTranscriptMs',
+    timings.deliveryServerInputTranscriptMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssRespondDeliveryServerInputSealMs',
+    timings.deliveryServerInputSealMs,
+  );
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssRespondEncodeDeliveryMs',
+    timings.encodeDeliveryMs,
   );
 }
 
@@ -6205,25 +6302,9 @@ export class AuthService {
           };
         }
         if (responded.serverInputDeliveryTimings) {
-          pushRegistrationRouteDuration(
+          pushRegistrationHssRespondTimingEntries(
             routeTimings,
-            'registrationHssRespondDecodeMessagesMs',
-            responded.serverInputDeliveryTimings.decodeMessagesMs,
-          );
-          pushRegistrationRouteDuration(
-            routeTimings,
-            'registrationHssRespondMaterializeSessionMs',
-            responded.serverInputDeliveryTimings.materializeSessionMs,
-          );
-          pushRegistrationRouteDuration(
-            routeTimings,
-            'registrationHssRespondPrepareDeliveryMs',
-            responded.serverInputDeliveryTimings.prepareDeliveryMs,
-          );
-          pushRegistrationRouteDuration(
-            routeTimings,
-            'registrationHssRespondEncodeDeliveryMs',
-            responded.serverInputDeliveryTimings.encodeDeliveryMs,
+            responded.serverInputDeliveryTimings,
           );
         }
         const respondedEd25519 = {
@@ -6398,25 +6479,9 @@ export class AuthService {
       };
     }
     if (responded.serverInputDeliveryTimings) {
-      pushRegistrationRouteDuration(
+      pushRegistrationHssRespondTimingEntries(
         routeTimings,
-        'registrationHssRespondDecodeMessagesMs',
-        responded.serverInputDeliveryTimings.decodeMessagesMs,
-      );
-      pushRegistrationRouteDuration(
-        routeTimings,
-        'registrationHssRespondMaterializeSessionMs',
-        responded.serverInputDeliveryTimings.materializeSessionMs,
-      );
-      pushRegistrationRouteDuration(
-        routeTimings,
-        'registrationHssRespondPrepareDeliveryMs',
-        responded.serverInputDeliveryTimings.prepareDeliveryMs,
-      );
-      pushRegistrationRouteDuration(
-        routeTimings,
-        'registrationHssRespondEncodeDeliveryMs',
-        responded.serverInputDeliveryTimings.encodeDeliveryMs,
+        responded.serverInputDeliveryTimings,
       );
     }
     const respondedEd25519 = {

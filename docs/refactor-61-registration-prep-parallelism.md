@@ -467,23 +467,38 @@ Notes:
 ## Next Optimization Steps
 
 1. [x] Add benchmark-side wallet-iframe confirmation observability for iframe
-   attachment, frame resolution, visible-button readiness, click dispatch,
-   click duration, attempts, and helper total time.
+       attachment, frame resolution, visible-button readiness, click dispatch,
+       click duration, attempts, and helper total time.
 2. [x] Tighten benchmark auto-confirm without aggressive polling. The retained
-   helper still uses a stable `50ms` locator timeout, but avoids an extra retry
-   sleep and stops after the first successful click.
+       helper still uses a stable `50ms` locator timeout, but avoids an extra retry
+       sleep and stops after the first successful click.
 3. [x] Add product-side wallet-iframe UI readiness timing for host-message handoff,
-   first rendered/interactive state, confirm-event arrival, and WebAuthn-start
-   time. Smoke run `20260610-024516Z` shows host first-update and interactive
-   p50 at about `1ms`, so Lit rendering and prompt host attachment are not the
-   current p50 bottleneck.
-4. Resume refactor-64 HSS artifact work. The current product p50 gap is still
-   dominated by `ed25519EvaluationArtifactMs` at `466ms` to `471ms` p50 after
-   the benchmark-only prompt wait is separated from product rendering.
-5. Revisit `/wallets/register/finalize` after the next HSS artifact pass. It is
-   still roughly `216ms` to `219ms` p50 and is a real product-path bucket, unlike
-   benchmark-only click automation.
-6. Keep account reservation pending until account availability or route
+       first rendered/interactive state, confirm-event arrival, and WebAuthn-start
+       time. Smoke run `20260610-024516Z` shows host first-update and interactive
+       p50 at about `1ms`, so Lit rendering and prompt host attachment are not the
+       current p50 bottleneck.
+4. [x] Resume refactor-64 HSS artifact work. The retained `CoreBitWordSide`
+       round-sigma and message-schedule small-sigma slices moved
+       `ed25519EvaluationArtifactMs` to `450ms` to `457ms` p50 in smoke run
+       `20260610-033610Z`.
+5. [x] Revisit `/wallets/register/finalize` after the next HSS artifact pass.
+       Smoke run `20260610-035655Z` keeps the seed-output prepared-session cache
+       path: `walletRegisterFinalizeMs` p50 dropped from roughly `211ms` to `215ms`
+       down to `51ms` to `55ms`.
+6. [x] Continue the registration route-local pass into `/wallets/register/hss/respond`.
+       Smoke run `20260610-041350Z` keeps the one-pass server-input delivery
+       patch: route `registrationHssRespondMs` p50 moved
+       `88/89/88/89ms -> 81/86/83/83ms`, and
+       `registrationHssRespondPrepareDeliveryMs` moved
+       `70/70/69/69ms -> 64/66/64/64ms`.
+7. [x] Continue the respond-route pass with prepared OT branch caching. Smoke
+       run `20260610-043955Z` keeps the patch: route
+       `registrationHssRespondMs` p50 moved `81/86/83/83ms -> 77/79/77/77ms`,
+       `registrationHssRespondPrepareDeliveryMs` moved
+       `64/66/64/64ms -> 58/58/57/57ms`, and
+       `registrationHssRespondDeliveryOtOpenJoinMs` moved from `55ms` to
+       `58ms` down to `49ms`.
+8. Keep account reservation pending until account availability or route
    contention appears in benchmarks; it is not currently in the p50 bottleneck
    order.
 

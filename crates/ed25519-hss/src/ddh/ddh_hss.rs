@@ -480,8 +480,10 @@ pub struct DdhHssOtSenderStateBundle {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DdhHssPreparedOtSenderStateWord {
-    pub sender_scalar: Scalar,
-    pub sender_self_shared_point: EdwardsPoint,
+    sender_scalar: Scalar,
+    sender_self_shared_point: EdwardsPoint,
+    zero_branch: DdhHssPreparedOtBranch,
+    one_branch: DdhHssPreparedOtBranch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -924,6 +926,13 @@ struct DdhHssOtBranchPayload {
 }
 
 const DDH_HSS_OT_BRANCH_PAYLOAD_BYTES: usize = 2 + 8 + 32 + 32 + 32;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DdhHssPreparedOtBranch {
+    aad: [u8; 32],
+    plaintext: [u8; DDH_HSS_OT_BRANCH_PAYLOAD_BYTES],
+    payload_digest: [u8; 32],
+}
 
 pub fn keygen_prime_order_ddh_hss_backend(
     context_binding: [u8; 32],
@@ -1548,6 +1557,31 @@ impl DdhHssBackend {
             nonce,
             ciphertext,
             payload_digest: payload_digest_array,
+        })
+    }
+
+    fn seal_prepared_ot_branch_with_key(
+        key: [u8; 32],
+        prepared: &DdhHssPreparedOtBranch,
+    ) -> ProtoResult<DdhHssOtEncryptedBranch> {
+        let cipher = ChaCha20Poly1305::new(&key.into());
+        let mut nonce = [0u8; 12];
+        OsRng.fill_bytes(&mut nonce);
+        let ciphertext = cipher
+            .encrypt(
+                Nonce::from_slice(&nonce),
+                Payload {
+                    msg: &prepared.plaintext,
+                    aad: &prepared.aad,
+                },
+            )
+            .map_err(|err| {
+                ProtoError::Decode(format!("failed to seal prepared OT branch payload: {err}"))
+            })?;
+        Ok(DdhHssOtEncryptedBranch {
+            nonce,
+            ciphertext,
+            payload_digest: prepared.payload_digest,
         })
     }
 
@@ -2427,7 +2461,6 @@ impl DdhHssGarbler {
             .zip(&remote.words)
             .enumerate()
         {
-            let bit_label = format!("{}/{bit_idx}", offer.label);
             if request_word.width_bits != 1
                 || word_offer.width_bits != 1
                 || remote_word.width_bits != 1
@@ -2443,59 +2476,6 @@ impl DdhHssGarbler {
                         "client OT receiver public point is invalid at bit index {bit_idx}"
                     ))
                 })?;
-
-            let zero_left_word = reduce_word(
-                modulus_for_width(1).wrapping_sub(u128::from(remote_word.share_word)),
-                1,
-            );
-            let one_left_word = reduce_word(
-                u128::from(1u8)
-                    .wrapping_add(modulus_for_width(1))
-                    .wrapping_sub(u128::from(remote_word.share_word)),
-                1,
-            );
-            let zero_provenance_digest = self.backend.derive_digest(
-                b"client-input-ot/zero-branch",
-                HiddenEvalInputOwner::Client,
-                bit_label.as_bytes(),
-                1,
-                zero_left_word,
-                remote_word.share_word,
-                &[],
-            );
-            let one_provenance_digest = self.backend.derive_digest(
-                b"client-input-ot/one-branch",
-                HiddenEvalInputOwner::Client,
-                bit_label.as_bytes(),
-                1,
-                one_left_word,
-                remote_word.share_word,
-                &[],
-            );
-            let zero_payload = DdhHssOtBranchPayload {
-                width_bits: 1,
-                share_word: zero_left_word,
-                share_commitment: commit_word(
-                    HiddenEvalInputOwner::Client,
-                    b"left",
-                    zero_left_word,
-                    &zero_provenance_digest,
-                ),
-                counterparty_commitment: remote_word.share_commitment,
-                provenance_digest: zero_provenance_digest,
-            };
-            let one_payload = DdhHssOtBranchPayload {
-                width_bits: 1,
-                share_word: one_left_word,
-                share_commitment: commit_word(
-                    HiddenEvalInputOwner::Client,
-                    b"left",
-                    one_left_word,
-                    &one_provenance_digest,
-                ),
-                counterparty_commitment: remote_word.share_commitment,
-                provenance_digest: one_provenance_digest,
-            };
 
             let zero_shared_point = receiver_public_point * prepared_sender_word.sender_scalar;
             let one_shared_point =
@@ -2516,21 +2496,13 @@ impl DdhHssGarbler {
             );
             response_words.push(DdhHssOtResponseWord {
                 width_bits: 1,
-                zero_branch: DdhHssBackend::seal_ot_branch_with_key(
+                zero_branch: DdhHssBackend::seal_prepared_ot_branch_with_key(
                     zero_key,
-                    HiddenEvalInputOwner::Client,
-                    &offer.label,
-                    bit_idx,
-                    0,
-                    &zero_payload,
+                    &prepared_sender_word.zero_branch,
                 )?,
-                one_branch: DdhHssBackend::seal_ot_branch_with_key(
+                one_branch: DdhHssBackend::seal_prepared_ot_branch_with_key(
                     one_key,
-                    HiddenEvalInputOwner::Client,
-                    &offer.label,
-                    bit_idx,
-                    1,
-                    &one_payload,
+                    &prepared_sender_word.one_branch,
                 )?,
             });
         }
@@ -3912,7 +3884,7 @@ fn local_word_core_from_provenance(
     }
 }
 
-fn materialize_local_word_core(
+pub(crate) fn materialize_local_word_core(
     core: &DdhHssLocalWordCore,
     provenance_domain: &'static [u8],
 ) -> DdhHssLocalWord {
@@ -3977,6 +3949,33 @@ pub(crate) fn xor_local_bit_from_raw_public(
     )
 }
 
+pub(crate) fn xor_local_bit_core_from_raw_public(
+    evaluation_key: &DdhHssEvaluationKey,
+    label: &[u8],
+    share_side: DdhHssShareSide,
+    left_bit: u8,
+    left_provenance_digest: &[u8; 32],
+    right_bit: u8,
+    right_provenance_digest: &[u8; 32],
+) -> DdhHssLocalWordCore {
+    let provenance_digest = derive_digest_for_key(
+        evaluation_key,
+        b"eval-xor-local-word",
+        HiddenEvalInputOwner::Derived,
+        label,
+        1,
+        0,
+        0,
+        &[left_provenance_digest, right_provenance_digest],
+    );
+    local_word_core_from_provenance(
+        1,
+        share_side,
+        reduce_word(u128::from(left_bit & 1) + u128::from(right_bit & 1), 1),
+        provenance_digest,
+    )
+}
+
 pub(crate) fn xor_local_bit_pair_from_raw_public(
     evaluation_key: &DdhHssEvaluationKey,
     label: &[u8],
@@ -4026,6 +4025,34 @@ pub(crate) fn xor_local_bit_pair_from_raw_public(
             ),
             provenance_digest,
         },
+    )
+}
+
+pub(crate) fn xor_local_bit_pair_core_from_raw_public(
+    evaluation_key: &DdhHssEvaluationKey,
+    label: &[u8],
+    left_left_bit: u8,
+    left_right_bit: u8,
+    left_pair_provenance_digest: &[u8; 32],
+    right_left_bit: u8,
+    right_right_bit: u8,
+    right_pair_provenance_digest: &[u8; 32],
+) -> (DdhHssLocalWordCore, DdhHssLocalWordCore) {
+    let provenance_digest = derive_digest_for_key(
+        evaluation_key,
+        b"eval-xor-local-word",
+        HiddenEvalInputOwner::Derived,
+        label,
+        1,
+        0,
+        0,
+        &[left_pair_provenance_digest, right_pair_provenance_digest],
+    );
+    let left_word = u64::from((left_left_bit ^ right_left_bit) & 1);
+    let right_word = u64::from((left_right_bit ^ right_right_bit) & 1);
+    (
+        local_word_core_from_provenance(1, DdhHssShareSide::Left, left_word, provenance_digest),
+        local_word_core_from_provenance(1, DdhHssShareSide::Right, right_word, provenance_digest),
     )
 }
 
@@ -5905,37 +5932,88 @@ fn validate_client_ot_offer_preflight(
     Ok(())
 }
 
+fn client_ot_branch_payloads(
+    backend: &DdhHssBackend,
+    bit_label: &[u8],
+    remote_word: &DdhHssOtRemoteWord,
+) -> (DdhHssOtBranchPayload, DdhHssOtBranchPayload) {
+    let zero_left_word = reduce_word(
+        modulus_for_width(1).wrapping_sub(u128::from(remote_word.share_word)),
+        1,
+    );
+    let one_left_word = reduce_word(
+        u128::from(1u8)
+            .wrapping_add(modulus_for_width(1))
+            .wrapping_sub(u128::from(remote_word.share_word)),
+        1,
+    );
+    let zero_provenance_digest = backend.derive_digest(
+        b"client-input-ot/zero-branch",
+        HiddenEvalInputOwner::Client,
+        bit_label,
+        1,
+        zero_left_word,
+        remote_word.share_word,
+        &[],
+    );
+    let one_provenance_digest = backend.derive_digest(
+        b"client-input-ot/one-branch",
+        HiddenEvalInputOwner::Client,
+        bit_label,
+        1,
+        one_left_word,
+        remote_word.share_word,
+        &[],
+    );
+    (
+        DdhHssOtBranchPayload {
+            width_bits: 1,
+            share_word: zero_left_word,
+            share_commitment: commit_word(
+                HiddenEvalInputOwner::Client,
+                b"left",
+                zero_left_word,
+                &zero_provenance_digest,
+            ),
+            counterparty_commitment: remote_word.share_commitment,
+            provenance_digest: zero_provenance_digest,
+        },
+        DdhHssOtBranchPayload {
+            width_bits: 1,
+            share_word: one_left_word,
+            share_commitment: commit_word(
+                HiddenEvalInputOwner::Client,
+                b"left",
+                one_left_word,
+                &one_provenance_digest,
+            ),
+            counterparty_commitment: remote_word.share_commitment,
+            provenance_digest: one_provenance_digest,
+        },
+    )
+}
+
 pub(crate) fn prepare_client_ot_sender_state_words_public(
+    backend: &DdhHssBackend,
     offer: &DdhHssOtInputBundleOffer,
     sender_state: &DdhHssOtSenderStateBundle,
+    remote: &DdhHssOtRemoteBundle,
 ) -> ProtoResult<Vec<DdhHssPreparedOtSenderStateWord>> {
-    if offer.owner != HiddenEvalInputOwner::Client
-        || sender_state.owner != HiddenEvalInputOwner::Client
-    {
-        return Err(ProtoError::InvalidInput(
-            "client OT prepared sender state requires client-owned offer and sender state"
-                .to_string(),
-        ));
-    }
-    if offer.label != sender_state.label {
-        return Err(ProtoError::InvalidInput(format!(
-            "client OT offer label does not match sender state: {} vs {}",
-            offer.label, sender_state.label
-        )));
-    }
-    if offer.words.len() != sender_state.words.len() {
-        return Err(ProtoError::InvalidInput(format!(
-            "client OT offer word count does not match sender state: {} vs {}",
-            offer.words.len(),
-            sender_state.words.len()
-        )));
-    }
+    validate_client_ot_offer_preflight(offer, sender_state, remote)?;
 
     let mut prepared_words = Vec::with_capacity(offer.words.len());
-    for (bit_idx, (word_offer, sender_state_word)) in
-        offer.words.iter().zip(&sender_state.words).enumerate()
+    let mut bit_label = String::with_capacity(offer.label.len() + 32);
+    for (bit_idx, ((word_offer, sender_state_word), remote_word)) in offer
+        .words
+        .iter()
+        .zip(&sender_state.words)
+        .zip(&remote.words)
+        .enumerate()
     {
-        if word_offer.width_bits != 1 || sender_state_word.width_bits != 1 {
+        if word_offer.width_bits != 1
+            || sender_state_word.width_bits != 1
+            || remote_word.width_bits != 1
+        {
             return Err(ProtoError::InvalidInput(format!(
                 "client OT prepared sender words must be 1-bit at index {bit_idx}"
             )));
@@ -5958,9 +6036,26 @@ pub(crate) fn prepare_client_ot_sender_state_words_public(
                 "client OT sender-state scalar does not match offer public point at bit index {bit_idx}"
             )));
         }
+        set_indexed_label(&mut bit_label, &offer.label, bit_idx);
+        let (zero_payload, one_payload) =
+            client_ot_branch_payloads(backend, bit_label.as_bytes(), remote_word);
         prepared_words.push(DdhHssPreparedOtSenderStateWord {
             sender_scalar,
             sender_self_shared_point: sender_public_point * sender_scalar,
+            zero_branch: prepare_ot_branch(
+                HiddenEvalInputOwner::Client,
+                &offer.label,
+                bit_idx,
+                0,
+                &zero_payload,
+            ),
+            one_branch: prepare_ot_branch(
+                HiddenEvalInputOwner::Client,
+                &offer.label,
+                bit_idx,
+                1,
+                &one_payload,
+            ),
         });
     }
 
@@ -6821,6 +6916,24 @@ fn ot_branch_aad(
     let mut out = [0u8; 32];
     transcript.challenge_bytes(b"ot_branch_aad", &mut out);
     out
+}
+
+fn prepare_ot_branch(
+    owner: HiddenEvalInputOwner,
+    label: &str,
+    bit_idx: usize,
+    branch_bit: u8,
+    payload: &DdhHssOtBranchPayload,
+) -> DdhHssPreparedOtBranch {
+    let plaintext = encode_ot_branch_payload(payload);
+    let payload_digest = Sha256::digest(plaintext);
+    let mut payload_digest_array = [0u8; 32];
+    payload_digest_array.copy_from_slice(&payload_digest);
+    DdhHssPreparedOtBranch {
+        aad: ot_branch_aad(owner, label, bit_idx, branch_bit),
+        plaintext,
+        payload_digest: payload_digest_array,
+    }
 }
 
 fn encode_ot_branch_payload(

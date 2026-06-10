@@ -312,6 +312,12 @@ function parseWalletRegistrationRouteTimingName(
     case 'registrationHssRespondDecodeMessagesMs':
     case 'registrationHssRespondMaterializeSessionMs':
     case 'registrationHssRespondPrepareDeliveryMs':
+    case 'registrationHssRespondDeliveryOtOpenJoinMs':
+    case 'registrationHssRespondDeliveryServerInputOpenMs':
+    case 'registrationHssRespondDeliveryServerInputShareMs':
+    case 'registrationHssRespondDeliveryServerInputCommitmentMs':
+    case 'registrationHssRespondDeliveryServerInputTranscriptMs':
+    case 'registrationHssRespondDeliveryServerInputSealMs':
     case 'registrationHssRespondEncodeDeliveryMs':
     case 'registrationEcdsaRespondMs':
     case 'registerHssRespondTotalMs':
@@ -322,6 +328,11 @@ function parseWalletRegistrationRouteTimingName(
     case 'registrationHssFinalizeSerializedSessionMaterializeMs':
     case 'registrationHssFinalizeReportMs':
     case 'registrationHssFinalizeEncodeReportMs':
+    case 'registrationHssFinalizeOpenServerOutputMs':
+    case 'registrationHssFinalizeOpenSeedOutputMs':
+    case 'registrationHssFinalizeDeriveSeedKeypairMs':
+    case 'registrationHssFinalizeDeriveRelayerVerifyingShareMs':
+    case 'registrationHssFinalizeKeyStorePutMs':
     case 'registrationEcdsaBootstrapVerifyMs':
     case 'nearAccountCreateMs':
     case 'registrationKeygenMs':
@@ -720,16 +731,14 @@ class RegistrationTimingRecorder {
       diagnostics.confirmationWorkerResponseValidationMs;
     this.buckets.passkeyAuthRequestSetupMs = diagnostics.confirmationRequestSetupMs;
     this.buckets.passkeyAuthPromptUserMs = diagnostics.confirmationPromptUserMs;
-    this.buckets.passkeyAuthPromptElementDefineMs =
-      diagnostics.confirmationPromptElementDefineMs;
+    this.buckets.passkeyAuthPromptElementDefineMs = diagnostics.confirmationPromptElementDefineMs;
     this.buckets.passkeyAuthPromptMountMs = diagnostics.confirmationPromptMountMs;
     this.buckets.passkeyAuthPromptHostFirstUpdateMs =
       diagnostics.confirmationPromptHostFirstUpdateMs;
     this.buckets.passkeyAuthPromptHostInteractiveMs =
       diagnostics.confirmationPromptHostInteractiveMs;
     this.buckets.passkeyAuthPromptConfirmEventMs = diagnostics.confirmationPromptConfirmEventMs;
-    this.buckets.passkeyAuthPromptDecisionWaitMs =
-      diagnostics.confirmationPromptDecisionWaitMs;
+    this.buckets.passkeyAuthPromptDecisionWaitMs = diagnostics.confirmationPromptDecisionWaitMs;
     this.buckets.passkeyAuthCredentialCreateStartMs =
       diagnostics.confirmationCredentialCreateStartMs;
     this.buckets.passkeyAuthCredentialCreateMs = diagnostics.confirmationCredentialCreateMs;

@@ -232,6 +232,12 @@ struct ThresholdEd25519HssPrepareRoleSeparatedServerInputDeliveryTimings {
     decode_messages_ms: f64,
     materialize_session_ms: f64,
     prepare_delivery_ms: f64,
+    delivery_ot_open_join_ms: f64,
+    delivery_server_input_open_ms: f64,
+    delivery_server_input_share_ms: f64,
+    delivery_server_input_commitment_ms: f64,
+    delivery_server_input_transcript_ms: f64,
+    delivery_server_input_seal_ms: f64,
     encode_delivery_ms: f64,
 }
 
@@ -300,6 +306,18 @@ fn ceremony_timing_fields(
             timing.output_sealing_finalization_duration_ns,
         ),
     }
+}
+
+#[cfg(feature = "hss-server-exports")]
+fn server_input_delivery_timing_fields(timing: EvaluateTiming) -> (f64, f64, f64, f64, f64, f64) {
+    (
+        ns_to_ms(timing.ot_open_join_duration_ns),
+        ns_to_ms(timing.server_input_open_duration_ns),
+        ns_to_ms(timing.server_input_share_duration_ns),
+        ns_to_ms(timing.server_input_commitment_duration_ns),
+        ns_to_ms(timing.server_input_transcript_duration_ns),
+        ns_to_ms(timing.server_input_seal_duration_ns),
+    )
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -455,6 +473,8 @@ fn with_cached_staged_evaluator_artifact<T>(
 #[serde(rename_all = "camelCase")]
 #[cfg(any(feature = "hss-client-exports", feature = "hss-server-exports"))]
 pub(crate) struct ThresholdEd25519HssOpenSeedOutputArgs {
+    #[serde(default)]
+    prepared_session_handle: String,
     evaluator_driver_state_b64u: String,
     seed_output_message_b64u: String,
 }
@@ -1406,9 +1426,9 @@ fn prepare_threshold_ed25519_hss_role_separated_server_input_delivery(
     if let Some(output) =
         with_cached_prepared_server_session(&args.prepared_session_handle, |session| {
             let prepare_delivery_started = Date::now();
-            let (delivery, _state) = session
+            let (delivery, _state, delivery_timing) = session
                 .garbler_session()
-                .prepare_role_separated_server_input_delivery_message(
+                .prepare_role_separated_server_input_delivery_message_timed(
                     &client_request_message,
                     y_relayer,
                     tau_relayer,
@@ -1416,6 +1436,14 @@ fn prepare_threshold_ed25519_hss_role_separated_server_input_delivery(
                 )
                 .map_err(|e| e.to_string())?;
             let prepare_delivery_ms = (Date::now() - prepare_delivery_started).max(0.0);
+            let (
+                delivery_ot_open_join_ms,
+                delivery_server_input_open_ms,
+                delivery_server_input_share_ms,
+                delivery_server_input_commitment_ms,
+                delivery_server_input_transcript_ms,
+                delivery_server_input_seal_ms,
+            ) = server_input_delivery_timing_fields(delivery_timing);
             let encode_delivery_started = Date::now();
             let server_input_delivery_b64u =
                 encode_state_blob(&delivery, "role-separated server input delivery")?;
@@ -1428,6 +1456,12 @@ fn prepare_threshold_ed25519_hss_role_separated_server_input_delivery(
                         decode_messages_ms,
                         materialize_session_ms: 0.0,
                         prepare_delivery_ms,
+                        delivery_ot_open_join_ms,
+                        delivery_server_input_open_ms,
+                        delivery_server_input_share_ms,
+                        delivery_server_input_commitment_ms,
+                        delivery_server_input_transcript_ms,
+                        delivery_server_input_seal_ms,
                         encode_delivery_ms,
                     },
                 },
@@ -1445,8 +1479,8 @@ fn prepare_threshold_ed25519_hss_role_separated_server_input_delivery(
     let materialize_session_ms = (Date::now() - materialize_session_started).max(0.0);
 
     let prepare_delivery_started = Date::now();
-    let (delivery, _state) = garbler_session
-        .prepare_role_separated_server_input_delivery_message(
+    let (delivery, _state, delivery_timing) = garbler_session
+        .prepare_role_separated_server_input_delivery_message_timed(
             &client_request_message,
             y_relayer,
             tau_relayer,
@@ -1454,6 +1488,14 @@ fn prepare_threshold_ed25519_hss_role_separated_server_input_delivery(
         )
         .map_err(|e| e.to_string())?;
     let prepare_delivery_ms = (Date::now() - prepare_delivery_started).max(0.0);
+    let (
+        delivery_ot_open_join_ms,
+        delivery_server_input_open_ms,
+        delivery_server_input_share_ms,
+        delivery_server_input_commitment_ms,
+        delivery_server_input_transcript_ms,
+        delivery_server_input_seal_ms,
+    ) = server_input_delivery_timing_fields(delivery_timing);
 
     let encode_delivery_started = Date::now();
     let server_input_delivery_b64u =
@@ -1468,6 +1510,12 @@ fn prepare_threshold_ed25519_hss_role_separated_server_input_delivery(
                 decode_messages_ms,
                 materialize_session_ms,
                 prepare_delivery_ms,
+                delivery_ot_open_join_ms,
+                delivery_server_input_open_ms,
+                delivery_server_input_share_ms,
+                delivery_server_input_commitment_ms,
+                delivery_server_input_transcript_ms,
+                delivery_server_input_seal_ms,
                 encode_delivery_ms,
             },
         },
@@ -1504,15 +1552,32 @@ pub(crate) fn open_threshold_ed25519_hss_client_output(
 pub(crate) fn open_threshold_ed25519_hss_seed_output(
     args: ThresholdEd25519HssOpenSeedOutputArgs,
 ) -> Result<ThresholdEd25519HssOpenSeedOutputOutput, String> {
+    let seed_output_message =
+        decode_wire_message(&args.seed_output_message_b64u, "seedOutputMessageB64u")
+            .map_err(js_value_to_string)?;
+    #[cfg(feature = "hss-server-exports")]
+    if let Some(output) =
+        with_cached_prepared_server_session(&args.prepared_session_handle, |session| {
+            let canonical_seed = session
+                .evaluator_session()
+                .seed_output_opener()
+                .open(&seed_output_message)
+                .map_err(|e| e.to_string())?;
+            Ok((session.candidate().context_binding, canonical_seed))
+        })?
+    {
+        return Ok(ThresholdEd25519HssOpenSeedOutputOutput {
+            context_binding_b64u: base64_url_encode(&output.0),
+            canonical_seed_b64u: base64_url_encode(&output.1),
+        });
+    }
+
     let evaluator_state: ClientDriverState = decode_state_blob(
         &args.evaluator_driver_state_b64u,
         "evaluatorDriverStateB64u",
     )
     .map_err(js_value_to_string)?;
     let (_runtime, evaluator_session) = evaluator_state.materialize().map_err(|e| e.to_string())?;
-    let seed_output_message =
-        decode_wire_message(&args.seed_output_message_b64u, "seedOutputMessageB64u")
-            .map_err(js_value_to_string)?;
     let canonical_seed = evaluator_session
         .seed_output_opener()
         .open(&seed_output_message)

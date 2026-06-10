@@ -5827,6 +5827,7 @@ export class ThresholdSigningService {
         const registrationMaterial =
           await deriveThresholdEd25519RegistrationMaterialFromHssFinalize({
             preparedSession: takenCeremony.value.preparedSession,
+            preparedServerSession: takenCeremony.value.preparedServerSession,
             keyVersion: takenCeremony.value.context.keyVersion,
             finalizedReport: result.finalizedReport,
             serverOutput: result.serverOutput,
@@ -5841,6 +5842,7 @@ export class ThresholdSigningService {
           keyVersion: takenCeremony.value.context.keyVersion,
           recoveryExportCapable: true,
         });
+        const keyStorePutMs = Date.now() - keyStorePutStartedAt;
         const responsePayload = {
           publicKey: registrationMaterial.publicKey,
           relayerKeyId: registrationMaterial.relayerKeyId,
@@ -5856,7 +5858,7 @@ export class ThresholdSigningService {
           parseMs,
           hssFinalizeMs: Date.now() - hssFinalizeStartedAt,
           registrationMaterialMs: keyStorePutStartedAt - registrationMaterialStartedAt,
-          keyStorePutMs: Date.now() - keyStorePutStartedAt,
+          keyStorePutMs,
           responseBytes: jsonBytes(responsePayload),
           finalizedReportBytes: jsonBytes(result.finalizedReport),
           totalMs: Date.now() - finalizeStartedAt,
@@ -5867,9 +5869,24 @@ export class ThresholdSigningService {
           publicKey: registrationMaterial.publicKey,
           relayerKeyId: registrationMaterial.relayerKeyId,
           finalizedReport: result.finalizedReport,
-          ...(result.finalizeReportTimings
-            ? { finalizeReportTimings: result.finalizeReportTimings }
-            : {}),
+          finalizeReportTimings: {
+            ...(result.finalizeReportTimings ?? {
+              decodeArtifactMs: 0,
+              serializedSessionMaterializeMs: 0,
+              finalizeReportMs: 0,
+              encodeReportMs: 0,
+              openServerOutputMs: 0,
+              openSeedOutputMs: 0,
+              deriveSeedKeypairMs: 0,
+              deriveRelayerVerifyingShareMs: 0,
+              keyStorePutMs: 0,
+            }),
+            openSeedOutputMs: registrationMaterial.timings.openSeedOutputMs,
+            deriveSeedKeypairMs: registrationMaterial.timings.deriveSeedKeypairMs,
+            deriveRelayerVerifyingShareMs:
+              registrationMaterial.timings.deriveRelayerVerifyingShareMs,
+            keyStorePutMs,
+          },
         };
       } finally {
         this.releaseThresholdEd25519HssCeremonyResources(takenCeremony.value);
