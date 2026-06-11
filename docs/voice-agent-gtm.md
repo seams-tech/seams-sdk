@@ -5,13 +5,18 @@ Status: proposed
 
 ## Goal
 
-Launch an English-first smart personal shopper and life-admin purchasing agent
-for Japan, backed by a passkey-controlled wallet and bounded spending mandates.
+Launch an English-first smart personal shopper and proxy-purchasing agent for
+Japan, backed by a passkey-controlled wallet and bounded spending mandates.
 
 The product lets English-speaking users in Japan describe what they need,
 approve a specific task budget, and let an agent find, ask, fill, buy, book, or
 arrange local Japanese commerce tasks without giving the agent broad card or
 account access.
+
+The same infrastructure can serve overseas customers who want Japanese goods.
+For those customers, the company acts as a proxy shopper: quote the purchase,
+collect payment from the customer, buy from the Japanese merchant, and arrange
+domestic receiving, inspection, consolidation, and international forwarding.
 
 Voice is an input mode. The core product is delegated execution with constrained
 payment authority.
@@ -43,6 +48,9 @@ with translation alone:
 - tourists and new residents have urgent needs before they have local fluency
 - commerce tasks often cross ecommerce, phone calls, delivery, and municipal
   workflows
+- overseas buyers often need Japanese-native search, seller questions, domestic
+  receiving, inspection, consolidation, and forwarding before they can get the
+  goods
 
 Translation-only tools are enough when the user just needs to understand a
 label, sign, phrase, or short conversation. They break down when the task
@@ -58,6 +66,9 @@ in an action:
 - format a hotel or apartment delivery address correctly
 - call, message, book, buy, return, cancel, or reschedule
 - pay from a user-approved budget and produce an audit trail
+- recruit a human shopper when the task needs in-store purchase, inspection, or
+  local pickup
+- receive, inspect, consolidate, and forward goods to an overseas customer
 
 Tasks that only require text comprehension should stay outside the core funnel.
 The product should intentionally avoid becoming a generic translation app.
@@ -82,6 +93,9 @@ Primary initial users:
 - tourists staying in hotels or serviced apartments
 - foreign employees supported by HR or relocation firms
 - expats handling recurring household, pet, and maintenance purchases
+- overseas buyers who want Japanese goods from domestic-only merchants
+- collectors, hobbyists, and niche buyers who need Japanese-native search and
+  seller communication
 
 Primary buyers and distribution partners:
 
@@ -91,6 +105,8 @@ Primary buyers and distribution partners:
 - language schools and universities
 - property managers and share houses
 - expat communities and local concierge services
+- international forwarding warehouses
+- proxy-shopping communities and niche marketplaces
 
 ## Why Now
 
@@ -117,6 +133,16 @@ visual approval surface. Voice should make intake fast. Chat should make review
 and corrections precise. The final commitment should happen through a clear
 quote and passkey approval screen.
 
+The product has two modes:
+
+1. Local Japan life-admin purchasing:
+   user is in Japan, needs goods or services delivered locally, and wants the
+   agent to handle Japanese-language ecommerce, forms, questions, and scheduling.
+2. Overseas proxy shopping:
+   user is outside Japan, pays the company for an approved order, and the
+   company buys the item from Japanese merchants through agent or human-shopper
+   execution.
+
 Core surfaces:
 
 - passkey wallet creation
@@ -127,6 +153,8 @@ Core surfaces:
 - passkey approval
 - task execution
 - tracking, receipts, refunds, and remaining budget
+- domestic receiving, inspection, consolidation, and international forwarding
+  for proxy-shopping orders
 
 The internal product boundary is a signed spending mandate. Agent card access
 stays outside the authority model.
@@ -134,22 +162,50 @@ stays outside the authority model.
 Example mandate:
 
 ```ts
-type AgentPurchaseMandate = {
+type PurchaseCategory =
+  | "pet_supplies"
+  | "household"
+  | "tools"
+  | "furniture"
+  | "service_booking"
+  | "japanese_goods";
+
+type MandateBase = {
   mandateId: string;
   userWalletId: string;
   agentId: string;
   taskId: string;
-  category: "pet_supplies" | "household" | "tools" | "furniture" | "service_booking";
+  category: PurchaseCategory;
   maxSpendJpy: number;
   allowedMerchants: readonly string[];
-  deliveryAddressId: string;
   expiresAt: string;
   approvalMode: "single_purchase" | "auto_under_budget_with_step_up";
   forbiddenTerms: readonly string[];
 };
+
+type LocalJapanPurchaseMandate = MandateBase & {
+  purchaseMode: "local_japan";
+  deliveryAddressId: string;
+  forwardingAddressId?: never;
+  inspectionRequired: false;
+};
+
+type OverseasProxyPurchaseMandate = MandateBase & {
+  purchaseMode: "overseas_proxy";
+  warehouseAddressId: string;
+  forwardingAddressId: string;
+  inspectionRequired: boolean;
+  deliveryAddressId?: never;
+};
+
+type AgentPurchaseMandate =
+  | LocalJapanPurchaseMandate
+  | OverseasProxyPurchaseMandate;
 ```
 
 ## First User Flow
+
+Local Japan flow:
 
 1. User opens app and creates a passkey wallet.
 2. User adds a payment method or creates a small task budget, for example
@@ -167,6 +223,27 @@ type AgentPurchaseMandate = {
 7. Wallet signs the spending mandate and purchase intent.
 8. Backend executes through an approved payment and merchant path.
 9. User receives tracking, receipt, refund status, and remaining budget.
+
+Overseas proxy-shopping flow:
+
+1. User outside Japan asks for a Japanese product, brand, replacement part,
+   collectible, or marketplace item.
+2. Agent searches Japanese merchants and asks seller questions when needed.
+3. Agent returns a quote with item price, domestic shipping, service fee,
+   inspection/consolidation fee, estimated international shipping, taxes, and
+   refund limitations.
+4. User approves the exact purchase terms with passkey.
+5. User pays the company directly by card, Apple Pay, bank transfer, or a
+   stablecoin route for supported users.
+6. Company issues a one-order internal purchasing credential, such as a
+   single-use virtual card, for the agent or operator.
+7. Agent, operator, or recruited human shopper buys the item from the Japanese
+   merchant.
+8. Item is shipped to a warehouse, human shopper, or local receiving partner.
+9. Company inspects, consolidates, photographs, and forwards the item overseas
+   if the customer selected those services.
+10. User receives purchase receipt, shipping proof, customs documents where
+    needed, refund status, and support history.
 
 Repeat task flow:
 
@@ -198,6 +275,12 @@ Find a replacement part for this appliance and ask the seller if it fits my
 model number.
 ```
 
+```text
+Find this discontinued Japanese keyboard part, ask the seller if it is unused,
+buy it if the total is under JPY 12,000, inspect it, and forward it to me in
+Singapore.
+```
+
 ## MVP Categories
 
 Start with categories that have high pain, low regulatory exposure, and
@@ -209,17 +292,24 @@ Priority 1:
 - household supplies
 - tools, adapters, chargers, luggage, and daily essentials
 - furniture and home setup items
+- Japanese goods from domestic-only merchants
+- replacement parts, hobby goods, niche electronics accessories, books, and
+  collectibles where seller questions matter
 
 Priority 2:
 
 - bulky waste and garbage-removal booking
 - appliance delivery and assembly coordination
 - recurring replenishment orders
+- warehouse inspection, photo proof, consolidation, and international forwarding
+- human shopper pickup for stores or marketplaces with fragile online checkout
 
 Priority 3:
 
 - OTC medicine guided purchase from licensed retailers
 - pet medicine or veterinary-related items only where retail rules are clear
+- fragile, high-value, regulated, restricted, or customs-sensitive goods after
+  prohibited-goods rules and insurance policies are mature
 
 Make medicine a later category. It is painful and valuable, and it introduces
 regulatory, safety, and advice boundaries. The first version should treat
@@ -228,46 +318,109 @@ handoff and product-label translation. Medical advice stays out of scope.
 
 ## Payment And JPYC Strategy
 
-Avoid JPYC or stablecoin onboarding during first-run.
+Avoid JPYC or stablecoin onboarding during first-run for mainstream users.
 
 Initial payment model:
 
-- use card, Apple Pay, or a PSP-backed stored task budget
+- user pays the company directly for an approved order or task
+- use card, Apple Pay, bank transfer, or a PSP-backed task payment
 - keep all user-facing values in JPY
-- use the wallet to authorize spend and store receipt rights
-- keep merchant payment execution behind an approved PSP, virtual card, or
-  merchant integration
+- show item price, service fee, domestic shipping, international shipping
+  estimate, FX/tax buffer, and refund rules before approval
+- use the wallet to authorize the purchase terms and store receipt rights
+- keep merchant payment execution behind company-controlled cards, virtual
+  cards, PSP rails, human shopper operations, or direct merchant integrations
 
 Legal and payments rule:
 
-- customer funds require a clear licensed structure before direct custody
+- customer funds require a clear legal structure before scale
 - evaluate prepaid payment instrument, money transmission, escrow, and
-  merchant-of-record implications before taking custody of funds
-- use partners for regulated payment movement until the legal structure is
-  settled
+  merchant-of-record implications before holding reusable balances
+- for the proxy-shopping MVP, structure payments around specific quoted orders
+  with no reusable stored balance
+- use partners for regulated payment movement, stablecoin custody, conversion,
+  and card issuing until the legal structure is settled
+
+Proxy-shopping commercial model:
+
+```text
+customer pays the company for a specific approved order
+  -> company buys from the Japanese merchant
+  -> company receives, inspects, consolidates, or forwards the goods
+  -> company handles customer support, refunds, and shipping claims
+```
+
+This model is operationally simpler than issuing customer-owned cards for the
+first version. It makes the company the purchasing service in the customer's
+eyes, while internal virtual cards constrain how agents and human operators
+spend company funds.
+
+Virtual-card role:
+
+- use company-controlled virtual cards as internal purchasing credentials
+- create one card per approved order or merchant checkout
+- cap the card at the approved amount plus a small tolerance buffer
+- restrict by merchant, merchant category, country, domain, or channel where the
+  provider supports it
+- expire the card quickly
+- disable ATM, cash, and recurring payments
+- cancel after success, failure, or expiry
+- bind card metadata, merchant order id, receipt, and clearing/refund events
+  back to the signed purchase mandate
+
+Human shopper role:
+
+- inspect items that require condition judgment
+- buy from stores or marketplaces where online checkout is fragile
+- pick up local goods
+- ask seller or staff questions
+- photograph goods before forwarding
+- report substitutions, damage, or ambiguity before final shipment
+
+The agent should never expose reusable payment credentials to a human shopper.
+Human shoppers receive task instructions, budget boundaries, and a controlled
+payment instrument for the specific job.
+
+Cardholder model decision:
+
+1. Company card model for MVP:
+   customer pays the company for a specific order, and the company buys with
+   company-controlled virtual cards or operator payment rails. This is the
+   cleanest path for concierge validation, overseas proxy shopping, and human
+   shopper fallback.
+2. Customer card model later:
+   customer owns a stablecoin-linked card or wallet-backed card, and the agent
+   can spend from it only after wallet approval. This is technically elegant and
+   much heavier operationally because it adds cardholder KYC, card support,
+   chargeback handling, 3DS, issuer rules, and provider geography.
+
+Stablecoin-linked cards fit best after the proxy-shopping loop works. They can
+serve crypto-native overseas buyers, reduce treasury friction, or fund company
+purchasing rails, while ordinary customers continue to see familiar order
+payments and JPY-denominated quotes.
 
 JPYC roadmap:
 
 - v1: no consumer JPYC requirement
-- v2: optional JPYC refunds, wallet-to-wallet credits, or partner settlement
+- v2: optional JPYC or stablecoin payment for crypto-native overseas buyers
 - v3: JPYC power-user funding for users who already completed JPYC onboarding
-- v4: merchant or marketplace settlement rail if a regulated partner flow
-  supports it cleanly
+- v4: stablecoin-backed virtual cards or merchant settlement if a regulated
+  partner flow supports it cleanly
 
 JPYC is useful as infrastructure once the product has demand. Activation should
 use the lowest-friction payment path available to the target segment.
 
 ## Standards-Led GTM Rejection
 
-Do not build the Japan MVP around emerging agentic-commerce protocols.
+Keep emerging agentic-commerce protocols outside the Japan MVP path.
 
 Protocols from card networks, large platforms, or AI commerce consortia may
 become useful later, and they may also be early attempts to control agentic
 commerce distribution before merchant demand is proven. Their value to Japanese
 merchants is unclear today. A merchant already accepts cards and already has an
 online checkout. The near-term merchant problem is completed orders, lower fraud,
-lower support cost, and fewer broken checkouts, not support for a new agent
-protocol.
+lower support cost, and fewer broken checkouts. A new agent protocol matters
+only when it helps those outcomes.
 
 Revisit external agentic-payment protocols only when one of these conditions is
 true:
@@ -297,6 +450,10 @@ The wallet SDK should provide:
 - audit logs for agent actions
 - mandate enforcement for PSP-backed checkout, virtual card controls, manual
   review, and refund/cancellation authority
+- signed quote approval for proxy-shopping orders
+- virtual-card policy binding for company-controlled purchasing credentials
+- human-shopper task authorization with exact budget, merchant, pickup,
+  inspection, and reimbursement constraints
 
 Relevant existing architecture fit:
 
@@ -332,7 +489,26 @@ type PurchaseIntent =
   | { kind: "quote_requested"; taskId: string; normalizedRequest: string }
   | { kind: "quote_selected"; taskId: string; quoteId: string; cartDigest: string }
   | { kind: "approved"; taskId: string; mandateId: string; signedIntentDigest: string }
-  | { kind: "executed"; taskId: string; orderId: string; receiptDigest: string };
+  | { kind: "purchased"; taskId: string; orderId: string; receiptDigest: string }
+  | { kind: "received"; taskId: string; warehouseReceiptId: string; inspectionDigest: string }
+  | { kind: "forwarded"; taskId: string; shipmentId: string; customsDigest: string };
+
+type PurchasingCredential =
+  | {
+      kind: "company_virtual_card";
+      cardPolicyId: string;
+      mandateId: string;
+      maxSpendJpy: number;
+      expiresAt: string;
+    }
+  | {
+      kind: "human_shopper_task";
+      operatorTaskId: string;
+      mandateId: string;
+      maxSpendJpy: number;
+      requiredEvidence: readonly ("receipt" | "item_photo" | "pickup_photo")[];
+      expiresAt: string;
+    };
 ```
 
 Boundary rules:
@@ -341,6 +517,9 @@ Boundary rules:
 - normalize merchant quotes before wallet approval
 - never let a free-form agent message become signing authority
 - sign exact cart, merchant, amount, delivery address, and terms
+- sign proxy-shopping quote terms before collecting customer payment
+- bind every virtual card, human-shopper task, warehouse receipt, and shipment
+  back to the mandate
 - fail closed if final checkout differs from the approved digest
 
 ## Agent Safety Rules
@@ -357,6 +536,10 @@ Hard rules:
 - no substitution above configured tolerance without re-approval
 - no merchant credential sharing with the model runtime
 - no hidden service fees
+- no human shopper receives reusable credentials
+- no forwarding shipment without customer-approved destination, declared value,
+  and prohibited-goods check
+- no inspection substitution or condition downgrade without re-approval
 
 Step-up triggers:
 
@@ -368,6 +551,9 @@ Step-up triggers:
 - high return-risk item
 - service booking with cancellation penalties
 - any purchase above user-configured spend threshold
+- human shopper assignment
+- warehouse inspection mismatch
+- international forwarding change
 
 ## Merchant Execution Strategy
 
@@ -377,14 +563,41 @@ Allowed execution methods:
 
 - merchant APIs where available
 - affiliate or partner checkout flows
-- PSP virtual card purchase through controlled browser automation where terms
-  permit it
+- company-controlled virtual card purchase through controlled checkout where
+  terms permit it
 - user-facing checkout handoff for merchants with fragile automation
 - human-assisted operations during concierge MVP
+- recruited human shopper for in-store purchase, pickup, seller questions, or
+  condition inspection
+- warehouse receiving, inspection, consolidation, and international forwarding
+  for overseas proxy-shopping orders
 
 Avoid early dependence on brittle scraping or passworded user-account access.
 The first reliable product is narrower merchant coverage with high completion
 rates.
+
+Human shopper execution rules:
+
+- assign each operator one signed task
+- disclose item, merchant, budget, pickup location, required evidence, and
+  deadline
+- fund the task with a single-use virtual card, controlled reimbursement flow,
+  or prepaid operator allowance tied to that task
+- require receipt and item photos before closeout
+- block substitutions, used-condition changes, higher prices, and address
+  changes until the customer re-approves
+- keep operator identity, evidence, and payout records attached to the task
+
+Overseas forwarding rules:
+
+- receive goods at a known warehouse, partner, or operator location
+- photograph and inspect goods before international shipment when the customer
+  pays for inspection
+- require prohibited-goods and customs checks before forwarding
+- bind shipping label, declared value, insurance choice, and tracking number to
+  the purchase mandate
+- separate domestic purchase completion from international forwarding
+  completion so support can reason about each failure point
 
 Initial merchant targets:
 
@@ -403,19 +616,23 @@ Initial merchant targets:
 
 Objective:
 
-- prove that users pay for English-first Japan task completion where translation
-  alone leaves the task unfinished
+- prove that users pay for English-first Japan task completion and proxy
+  shopping where translation alone leaves the task unfinished
 
 Todo:
 
 - [ ] create a landing page with 5 action-oriented target tasks
 - [ ] recruit 30-50 users from expat and traveler communities
+- [ ] recruit 20-30 overseas buyers from proxy-shopping, collector, hobbyist,
+      and expat communities
 - [ ] run tasks manually with AI assistance and human review
 - [ ] capture task taxonomy, merchant paths, failure reasons, and price
       sensitivity
-- [ ] measure willingness to prefund a small wallet budget
+- [ ] measure willingness to pay a quoted order total plus service fee
 - [ ] classify failed leads as translation-only, execution-needed, payment-risk,
       merchant-fragile, or regulated-category
+- [ ] test receiving, photo inspection, consolidation, and one international
+      forwarding flow manually
 
 Exit criteria:
 
@@ -423,30 +640,40 @@ Exit criteria:
 - at least 40 percent of users request a second task
 - human intervention reasons are well understood
 - translation-only tasks are filtered out of the product funnel
+- at least 20 completed overseas proxy-shopping orders
+- refund, customs, and forwarding failure modes are understood
 
 ### Phase 1: Wallet Mandate MVP
 
 Objective:
 
-- connect passkey wallet approval to bounded agent spend
+- connect passkey wallet approval to quoted order payment and bounded company
+  purchasing spend
 
 Todo:
 
 - [ ] add passkey wallet creation to the mobile app
-- [ ] add task-budget creation through PSP-backed payment
-- [ ] model single-use spending mandates
-- [ ] sign cart, merchant, amount, delivery address, and task terms
+- [ ] add quoted-order payment through PSP-backed checkout
+- [ ] model single-use purchase mandates
+- [ ] sign cart, merchant, amount, delivery address, forwarding address, service
+      fees, refund terms, and task terms
 - [ ] require passkey approval before execution
 - [ ] store signed receipts and task logs
 - [ ] add refund and cancellation flows
 - [ ] define the canonical `PaymentMandate` shape used by PSP, virtual-card,
       manual-review, refund, and cancellation flows
+- [ ] create one company-controlled virtual card per approved order where the
+      provider supports it
+- [ ] add human-shopper task assignment, evidence upload, and closeout
 
 Exit criteria:
 
-- user can create wallet, fund budget, approve task, and receive receipt
-- agent cannot execute when final checkout differs from approved mandate
+- user can create wallet, approve quote, pay, and receive receipt
+- agent or human shopper cannot execute when final checkout differs from the
+  approved mandate
 - support can replay the signed audit trail for any task
+- virtual card metadata, merchant order id, receipt, warehouse receipt, and
+  shipment tracking reconcile to the same mandate
 
 ### Phase 2: Category Depth
 
@@ -462,12 +689,17 @@ Todo:
 - [ ] build hotel delivery address templates
 - [ ] build bulky-waste booking playbooks for initial wards
 - [ ] add recurring mandates for safe replenishment categories
+- [ ] build Japanese goods proxy-shopping playbooks for domestic-only merchants
+- [ ] build warehouse inspection and consolidation templates
+- [ ] build human shopper playbooks for pickup, seller questions, and condition
+      checks
 
 Exit criteria:
 
 - 80 percent or higher task completion in the top 3 categories
 - median time from voice request to approved order under 5 minutes
 - refund/cancellation rate is stable and explainable
+- proxy-shopping order margin stays positive after human and forwarding costs
 
 ### Phase 3: Partner Distribution
 
@@ -483,6 +715,9 @@ Todo:
 - [ ] add partner admin links for invited users
 - [ ] add partner-specific address and delivery instructions
 - [ ] add monthly partner reporting
+- [ ] pilot with one warehouse or forwarding partner
+- [ ] pilot with one proxy-shopping community, collector group, or niche
+      marketplace
 
 Exit criteria:
 
@@ -502,11 +737,15 @@ Todo:
 - [ ] support JPYC wallet connect for users already onboarded
 - [ ] test JPYC refunds or wallet credits with power users
 - [ ] evaluate merchant settlement pilots
+- [ ] evaluate stablecoin-linked virtual cards for company purchasing rails or
+      crypto-native overseas buyers
 
 Exit criteria:
 
 - JPYC flow reduces cost, settlement time, or refund friction for a real segment
 - JPYC activation does not reduce first-task conversion
+- stablecoin-linked card flow improves purchasing coverage or treasury
+  operations without hurting first-order conversion
 
 ## Monetization
 
@@ -518,6 +757,10 @@ Potential revenue streams:
 - hotel or relocation partner fee
 - affiliate or referral revenue where available
 - B2B plan for HR and global mobility teams
+- proxy-shopping service fee
+- percentage markup on sourced goods where acceptable
+- inspection, photo proof, consolidation, storage, and forwarding fees
+- urgent pickup or human shopper surcharge
 
 Affiliate margin alone is weak. Task completion and trusted authorization are
 the durable monetization wedge.
@@ -537,8 +780,10 @@ Task quality:
 - quote selection rate
 - median time to approved quote
 - human intervention rate
+- human shopper assignment rate
 - agent failure reason distribution
 - cancellation and refund rate
+- receiving, inspection, and forwarding completion rate
 
 Wallet and risk:
 
@@ -547,6 +792,8 @@ Wallet and risk:
 - step-up frequency
 - approval abandonment
 - mandate mismatch blocks
+- virtual card decline rate
+- virtual card overage blocks
 - chargeback or dispute rate
 
 Retention:
@@ -561,7 +808,11 @@ Unit economics:
 - gross margin per task
 - support minutes per task
 - payment processing cost
+- virtual card issuing and FX cost
+- human shopper cost per task
+- warehouse, inspection, consolidation, and forwarding cost
 - refund loss
+- customs, shipping claim, and lost-package loss
 - partner revenue per active user
 
 ## Risks
@@ -571,6 +822,11 @@ Payments and regulation:
 - prefunded budgets may trigger stored-value, escrow, or money-movement issues
 - JPYC or stablecoin flows add regulated onboarding and risk disclosures
 - merchant-of-record structure must be designed before scaling payments
+- proxy-shopping terms must clearly define who is seller of record, who owns
+  goods during purchase/forwarding, and how refunds, cancellations, customs, and
+  shipping claims work
+- company-controlled virtual cards need issuer rules, cardholder controls,
+  disputes, 3DS, and operator access policies
 
 Merchant execution:
 
@@ -579,12 +835,20 @@ Merchant execution:
 - return and cancellation handling can consume support time
 - translation-only tasks can pollute the funnel and make the product feel like a
   wrapper around existing tools
+- Japanese merchants may cancel orders when card BIN, address, phone number, or
+  account profile looks mismatched
+- marketplace sellers may misrepresent condition, ship late, or refuse returns
+- human shoppers can create quality, fraud, labor, and reimbursement risk
+- international forwarding adds customs, prohibited-goods, insurance, and lost
+  package risk
 
 Product liability:
 
 - OTC medicine and pet medicine need strict category rules
 - the agent must avoid medical advice
 - regulated, age-restricted, controlled, or unsafe products need hard blocks
+- import/export restricted goods, lithium batteries, food, cosmetics, medicine,
+  alcohol, blades, and high-value goods need category-specific blocks or review
 
 Trust and safety:
 
@@ -594,17 +858,22 @@ Trust and safety:
 - users need visible control over agent spend and cancellation
 - users need a visual approval surface before irreversible payment or booking
   actions
+- overseas users need clear photos, condition reports, quote history, and
+  approval receipts before goods are forwarded
 
 Unit economics:
 
 - human fallback can make early tasks expensive
 - low-AOV tasks may not support high support load
 - partner channels may require custom workflows
+- international shipping and customs surprises can consume margin
+- proxy-shopping orders can tie up working capital while refunds or claims are
+  pending
 
 ## Open Questions
 
 - Which segment is the first beachhead: tourists, new residents, hotels, or
-  relocation companies?
+  overseas proxy-shopping buyers?
 - Which PSP and legal structure handles task budgets?
 - Is the company merchant of record, agent of the user, or a checkout
   facilitator?
@@ -617,6 +886,12 @@ Unit economics:
   need?
 - Which payment execution path should be tested first: PSP checkout, single-use
   virtual card, manual concierge purchase, or direct merchant partnership?
+- Which warehouse, forwarding, or human-shopper partner can support the first
+  proxy-shopping orders?
+- What prohibited-goods, customs, inspection, and insurance policy is required
+  before overseas forwarding?
+- Which virtual-card provider supports single-order cards, merchant controls,
+  3DS, Japan acceptance, refunds, and stablecoin-funded treasury?
 
 ## Source References
 

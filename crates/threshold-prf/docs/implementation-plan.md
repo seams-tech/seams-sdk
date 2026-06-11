@@ -733,7 +733,7 @@ models.
 ### Phase 9. Integration Readiness
 
 - [x] Confirm no customer wallets depend on the old derivation output.
-- [x] Update `docs/korg_secrets.md` if threshold-PRF becomes canonical.
+- [x] Update `docs/korg-secrets.md` if threshold-PRF becomes canonical.
 - [x] Update `docs/cloudflare-signing-worker-self-host.md` if threshold-PRF
       becomes canonical.
 - [x] Replace current server derivation only after vectors, benchmarks, and

@@ -1,6 +1,6 @@
 # Availability-First MPC Custody: Signing Root Secrets Plan
 
-Date updated: 2026-04-20
+Date updated: 2026-06-10
 
 ## Objective
 
@@ -287,6 +287,149 @@ Required local-dev behavior:
 - fail closed if metadata, version, sealed shares, or KEK/decrypt config is
   missing
 - reserve the fixture resolver for explicit no-DB development only
+
+## Clean Signing-Root Custody Architecture
+
+The clean system has one canonical signing-root record model and two operational
+planes: the signing plane and the migration plane.
+
+### Canonical Signing-Root Record
+
+`SigningRootRecord` is the durable root record for one project/environment root
+version.
+
+It should contain:
+
+- `project_id`
+- `env_id`
+- `signing_root_id`
+- `signing_root_version`
+- `root_share_epoch`
+- `derivation_version`
+- wallet origin and RP ID binding
+- share threshold and share count
+- three sealed signing-root shares
+- per-share storage locator and wrapping-key locator
+- source metadata such as hosted export, customer import, customer generated, or
+  dev
+
+The current repo already has the core record and migration artifact helpers in
+`server/src/core/ThresholdService/signingRootRecords.ts`:
+
+- `SigningRootRecord`
+- `SigningRootMigrationBundleV1`
+- `SigningRootMigrationExportArtifactV1`
+- `signingRootRecordToMigrationBundle`
+- `signingRootRecordFromMigrationBundle`
+- `createSigningRootMigrationExportArtifact`
+- `computeSigningRootMigrationBundleChecksumB64u`
+- wallet inventory export helpers
+
+This record should be the shared format for hosted backup export, self-host
+import, local dev seeding, and future guardian custody bootstrapping.
+
+### Signing Plane
+
+Normal signing should follow one resolver path:
+
+```text
+authenticated project/environment runtime scope
+  -> active signing_root_version from project metadata
+  -> signing_root_id = derive(project_id, env_id)
+  -> SigningRootSecretStore
+  -> SigningRootSecretDecryptAdapter
+  -> SigningRootShareResolver
+  -> threshold-PRF partial evaluation
+  -> y_relayer
+  -> ed25519-hss or ecdsa-hss signing flow
+```
+
+Hosted and local-Postgres modes must pass an explicit `signing_root_version`.
+A versionless request is allowed only inside a fixed self-host or direct fixture
+resolver that already captured exactly one root version at construction time.
+
+### Storage Plane
+
+Use `SigningRootSecretStore` for sealed share storage.
+
+The current repo has useful building blocks:
+
+- `PostgresSigningRootSecretStore` stores sealed shares in
+  `signing_root_secret_shares`
+- `CloudflareDurableObjectSigningRootSecretStore` stores sealed shares in a
+  Durable Object and can cache listed sealed shares briefly
+- `InMemorySigningRootSecretStore` supports tests and narrow fixtures
+- `createConfiguredSigningRootShareResolver` composes stores with decrypt
+  adapters
+- `createSigningRootSecretAesGcmDecryptAdapter` supports local AES-GCM KEK
+  resolution
+
+The target storage shape is:
+
+```text
+project/environment metadata store
+  owns active signing_root_version
+
+signing-root record store
+  owns SigningRootRecord metadata and full sealed-share set
+
+sealed-share store
+  owns indexed sealed share lookup for sign-time resolver reads
+
+wallet metadata store
+  owns wallet inventory and address verification data
+```
+
+For a small Phase 1 deployment these may live in one Postgres database or one
+Durable Object namespace, but the logical boundaries should remain separate so
+the shares can later move to independent storage and wrapping-key domains.
+
+### Migration Plane
+
+Self-host migration must not export hosted ciphertext as the final customer
+artifact unless the customer also controls the matching decrypt authority.
+Usually, hosted sealed shares are wrapped for hosted infrastructure, so the
+export ceremony must rewrap them.
+
+The clean migration flow is:
+
+1. Customer requests self-host export for a project/environment.
+2. Hosted system freezes new wallet enrollment under the active
+   `signing_root_version`.
+3. Customer provides import wrapping metadata, such as a customer KEK id, KMS
+   key id, or public wrapping key for each destination share.
+4. Hosted export ceremony loads the active `SigningRootRecord`.
+5. Hosted export ceremony decrypts each hosted sealed share inside the approved
+   export boundary.
+6. Hosted export ceremony reseals each plaintext share under the customer import
+   wrapping keys.
+7. Hosted system creates a `SigningRootMigrationExportArtifactV1` containing the
+   customer-sealed shares, wallet inventory, and checksum.
+8. Customer imports the artifact into their self-host worker.
+9. Self-host worker verifies artifact checksum and context hash, persists the
+   imported `SigningRootRecord`, and exposes status without share bytes.
+10. Customer runs wallet address verification against known wallet inventory.
+11. Hosted system disables hosted signing for that project/environment.
+12. Hosted system deletes or retires hosted shares and exports deletion evidence.
+
+The current repo already has the self-host import side:
+
+- `ThresholdStoreDurableObject` supports `signingRootPut`,
+  `signingRootGet`, `signingRootStatus`, and `signingRootDelete`
+- `createSelfHostedCloudflareSigningWorker` exposes authenticated
+  `/self-host/signing-root/import`, `/status`, `/delete`, and `/verify-wallet`
+  routes
+- `verifyEcdsaSigningRootWalletAddress` derives `y_relayer` from the imported
+  signing root shares and checks the resulting EVM address
+
+Remaining migration-plane gaps:
+
+- hosted admin/export route or CLI that performs the export ceremony
+- rewrap support from hosted share-wrapping keys to customer import keys
+- import-side checksum verification for full
+  `SigningRootMigrationExportArtifactV1`, not just raw bundle import
+- customer backup confirmation state before production activation
+- hosted disablement, deletion, and evidence export workflow
 
 ## Phase 1 Signing Flow
 
@@ -945,9 +1088,12 @@ Exit criteria:
 1. Implement proactive root-share refresh.
 2. Implement share rewrap.
 3. Implement customer backup export.
-4. Implement self-host migration export.
-5. Add address verification before and after refresh/export.
-6. Add hosted-signing disablement and share deletion flows.
+4. Implement hosted self-host migration export as a controlled ceremony.
+5. Rewrap hosted sealed shares under customer-owned import wrapping keys before
+   producing the migration artifact.
+6. Require artifact checksum verification on import.
+7. Add address verification before and after refresh/export.
+8. Add hosted-signing disablement and share deletion flows.
 
 ### Cross-Cutting Workstream. Independent Storage And Wrapping Boundaries
 
@@ -970,25 +1116,33 @@ intentional rekeying.
 
 ### Milestone A. Data Model
 
-- Define `SigningRootRecord`.
-- Define `SigningRootSecretShareRecord`.
-- Define `SealedSigningRootSecretShare`.
-- Define `root_share_epoch`.
-- Define share wrapping-key locator metadata.
-- Define durable database storage for encrypted signing-root shares, initially
-  Google Cloud SQL for PostgreSQL or equivalent.
-- Define wallet metadata that includes `signing_root_version` and
-  `derivation_version`.
-- Remove public docs that present deterministic `master_secret -> k_org` as the
-  target model.
-- Treat `sealed_signing_root_secret_share` records and customer backups as the only
-  durable recovery sources for `k_org`.
+- [x] Define `SigningRootRecord`.
+- [x] Define `SealedSigningRootSecretShare`.
+- [x] Define `root_share_epoch`.
+- [x] Define share wrapping-key locator metadata on sealed share records.
+- [x] Define migration bundle and export artifact shapes for self-host export.
+- [x] Define durable sealed-share storage for Postgres, Cloudflare Durable
+      Objects, and in-memory tests.
+- [x] Define wallet metadata that includes `signing_root_version` and
+      `derivation_version`.
+- [x] Remove public docs that present deterministic `master_secret -> k_org` as
+      the target model.
+- [x] Treat `sealed_signing_root_secret_share` records and customer backups as
+      the only durable recovery sources for `k_org`.
+- [ ] Add a first-class `SigningRootRecord` store for hosted Postgres so record
+      metadata, active version, and sealed-share inventory are not inferred only
+      from per-share rows.
+- [ ] Remove default or empty `signing_root_version` behavior from hosted and
+      local-Postgres paths. Keep versionless lookup only inside fixed direct
+      self-host fixtures.
 
 ### Milestone B. Root Ceremony
 
 - Implement random root generation.
 - Implement 2-of-3 Shamir splitting.
 - Implement share sealing.
+- Implement hosted provisioning that writes a complete `SigningRootRecord` and
+  indexed sealed shares atomically.
 - Implement customer backup package generation.
 - Implement root zeroization after provisioning.
 - Add tests proving any two shares reconstruct and one share does not.
@@ -1100,6 +1254,10 @@ decryptAdapter })`.
 - [x] Document that local AES-GCM sealed-share mode uses
       `SIGNING_ROOT_SECRET_SHARE_KEK_B64U`, while KMS/TEE modes should not expose
       a raw KEK env var.
+- [x] Implement Cloudflare Durable Object import/status/delete support for
+      complete signing-root records and migration bundles.
+- [x] Implement self-host Cloudflare admin routes for signing-root import,
+      status, delete, and ECDSA wallet address verification.
 - [ ] Make the relay-server local dev path prefer local Postgres sealed-share
       storage over static fixture shares when `POSTGRES_URL` is configured.
 - [ ] Add a local signing-root seed/provision command that writes sealed
@@ -1107,6 +1265,8 @@ decryptAdapter })`.
       `signing_root_id` and `signing_root_version`.
 - [ ] Keep the fixture resolver only behind an explicit no-DB local-dev flag and
       require it to enforce the same active `signing_root_version` as production.
+- [ ] Tighten hosted resolver and store inputs so `signingRootVersion` is
+      mandatory outside fixed self-host resolver construction.
 
 ### Milestone C.2. Tenant-Root Secret Naming Cleanup
 
@@ -1197,10 +1357,15 @@ decryptAdapter })`.
 
 ### Cross-Cutting Todo. Self-Host Migration
 
-- Export root shares and metadata to customer.
+- Implement hosted export authorization and approval flow.
+- Export a `SigningRootMigrationExportArtifactV1` with checksum, wallet
+  inventory, and customer-sealed shares.
+- Rewrap shares from hosted wrapping keys to customer import wrapping keys during
+  export.
 - Support share refresh into customer custody.
+- Verify imported artifact checksum before persisting self-host records.
 - Verify self-host worker derives the same wallet addresses.
-- Disable hosted signing.
+- Disable hosted signing after customer verification.
 - Delete or retire hosted shares.
 - Export audit evidence.
 

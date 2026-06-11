@@ -252,7 +252,7 @@ If Cloudflare Worker is the first target, also require:
 - define the storage abstraction that supplies sealed signing-root shares
 - decide whether Option A should compute DLEQ proofs for audit telemetry or keep
   DLEQ entirely out of the first hot path
-- update [korg_secrets.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/korg_secrets.md)
+- update [korg-secrets.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/korg-secrets.md)
   once threshold-PRF becomes canonical
 - update
   [cloudflare-signing-worker-self-host.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/cloudflare-signing-worker-self-host.md)
