@@ -223,6 +223,7 @@ import {
   type RegistrationCeremonyStore,
   type StoredCombinedRegistrationState,
   type StoredEd25519RegistrationPrepareScope,
+  type StoredRegistrationIntent,
 } from './RegistrationCeremonyStore';
 import {
   buildWalletEcdsaSignerRecord,
@@ -2287,6 +2288,8 @@ export class AuthService {
   private emailOtpRegistrationAttemptStore: EmailOtpRegistrationAttemptStore | null = null;
   private emailOtpRateLimiterInitialized = false;
   private emailOtpRateLimiter: SigningSessionSealRateLimiter | null = null;
+  private registrationPrepareRateLimiterInitialized = false;
+  private registrationPrepareRateLimiter: SigningSessionSealRateLimiter | null = null;
   private readonly emailOtpMemoryOutbox = new Map<
     string,
     {
@@ -3724,6 +3727,151 @@ export class AuthService {
 
   private readEmailOtpConfigValue(name: string): string {
     return this.readConfigValue(name);
+  }
+
+  private readRegistrationPrepareRateLimitConfigValue(name: string): string {
+    return this.readConfigValue(name);
+  }
+
+  private getRegistrationPrepareRateLimiter(): SigningSessionSealRateLimiter {
+    if (this.registrationPrepareRateLimiterInitialized && this.registrationPrepareRateLimiter) {
+      return this.registrationPrepareRateLimiter;
+    }
+    const limiterKind =
+      (this.readRegistrationPrepareRateLimitConfigValue('REGISTRATION_PREPARE_RATE_LIMITER_KIND') as
+        | 'in-memory'
+        | 'upstash-redis-rest'
+        | 'redis-tcp'
+        | '') || null;
+    const limiter = resolveSigningSessionSealRateLimitFromEnv({
+      limiterKind,
+      upstashUrl:
+        this.readRegistrationPrepareRateLimitConfigValue(
+          'REGISTRATION_PREPARE_RATE_LIMIT_UPSTASH_URL',
+        ) || null,
+      upstashToken:
+        this.readRegistrationPrepareRateLimitConfigValue(
+          'REGISTRATION_PREPARE_RATE_LIMIT_UPSTASH_TOKEN',
+        ) || null,
+      redisUrl:
+        this.readRegistrationPrepareRateLimitConfigValue(
+          'REGISTRATION_PREPARE_RATE_LIMIT_REDIS_URL',
+        ) || null,
+      keyPrefix:
+        this.readRegistrationPrepareRateLimitConfigValue(
+          'REGISTRATION_PREPARE_RATE_LIMIT_KEY_PREFIX',
+        ) || 'registration-prepare:v1:',
+      limit: 1,
+      windowMs: 1,
+    }).limiter;
+    this.registrationPrepareRateLimiterInitialized = true;
+    this.registrationPrepareRateLimiter = limiter;
+    return limiter;
+  }
+
+  private parseRegistrationPrepareRateLimitInt(
+    name: string,
+    raw: string,
+    defaultValue: number,
+    min: number,
+    max: number,
+  ): number {
+    const normalized = String(raw || '').trim();
+    if (!normalized) return defaultValue;
+    const n = Number(normalized);
+    if (!Number.isFinite(n)) {
+      throw new Error(`${name} must be a finite number`);
+    }
+    if (n < min || n > max) {
+      throw new Error(`${name} must be between ${min} and ${max}`);
+    }
+    return Math.floor(n);
+  }
+
+  private resolveRegistrationPrepareRateLimitPolicy(): { limit: number; windowMs: number } {
+    const production = this.isProductionEnvironment();
+    const defaults = production ? { limit: 1, windowMs: 5_000 } : { limit: 100, windowMs: 60_000 };
+    return {
+      limit: this.parseRegistrationPrepareRateLimitInt(
+        'REGISTRATION_PREPARE_RATE_LIMIT_MAX',
+        this.readRegistrationPrepareRateLimitConfigValue('REGISTRATION_PREPARE_RATE_LIMIT_MAX'),
+        defaults.limit,
+        1,
+        10_000,
+      ),
+      windowMs: this.parseRegistrationPrepareRateLimitInt(
+        'REGISTRATION_PREPARE_RATE_LIMIT_WINDOW_MS',
+        this.readRegistrationPrepareRateLimitConfigValue(
+          'REGISTRATION_PREPARE_RATE_LIMIT_WINDOW_MS',
+        ),
+        defaults.windowMs,
+        1_000,
+        24 * 60 * 60_000,
+      ),
+    };
+  }
+
+  private async consumeRegistrationPrepareRateLimit(args: {
+    request: WalletRegistrationPrepareRequest;
+    storedIntent: StoredRegistrationIntent;
+  }): Promise<
+    | { ok: true }
+    | {
+        ok: false;
+        code: 'rate_limited' | 'invalid_body';
+        message: string;
+        retryAfterMs?: number;
+        resetAtMs?: number;
+      }
+  > {
+    const gate = args.request.prepareGate;
+    if (gate.kind === 'source_unavailable') {
+      if (!this.isProductionEnvironment()) return { ok: true };
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message: 'registration prepare requires source IP context',
+      };
+    }
+
+    const limiter = this.getRegistrationPrepareRateLimiter();
+    const policy = this.resolveRegistrationPrepareRateLimitPolicy();
+    const authMethod = args.storedIntent.intent.authMethod;
+    const email =
+      authMethod.kind === 'email_otp' ? toOptionalTrimmedString(authMethod.email).toLowerCase() : '';
+    const keySuffix = [
+      `limit=${policy.limit}`,
+      `windowMs=${policy.windowMs}`,
+      `auth=${authMethod.kind}`,
+      `work=${args.request.work.kind}`,
+    ].join(':');
+    const keys = [
+      `scope=registration_prepare:${keySuffix}:ip:${gate.sourceIp}`,
+      `scope=registration_prepare:${keySuffix}:org-ip:${args.storedIntent.orgId}:${gate.sourceIp}`,
+      `scope=registration_prepare:${keySuffix}:wallet:${args.storedIntent.intent.walletId}`,
+      email ? `scope=registration_prepare:${keySuffix}:email:${email}` : '',
+    ].filter(Boolean);
+
+    for (const key of keys) {
+      const consumed = await limiter.consume({
+        key,
+        limit: policy.limit,
+        windowMs: policy.windowMs,
+        nowMs: Date.now(),
+      });
+      if (!consumed.ok) {
+        return {
+          ok: false,
+          code: 'rate_limited',
+          message: 'Registration prepare rate limit exceeded',
+          ...(typeof consumed.retryAfterMs === 'number'
+            ? { retryAfterMs: consumed.retryAfterMs }
+            : {}),
+          ...(typeof consumed.resetAtMs === 'number' ? { resetAtMs: consumed.resetAtMs } : {}),
+        };
+      }
+    }
+    return { ok: true };
   }
 
   private getEmailOtpRateLimiter(): SigningSessionSealRateLimiter {
@@ -5774,6 +5922,20 @@ export class AuthService {
       );
       if (requestDigest !== storedIntent.digestB64u) {
         return { ok: false, code: 'invalid_body', message: 'registration intent mismatch' };
+      }
+      const gate = await measureRegistrationRouteTiming(
+        routeTimings,
+        'registrationAttemptGateMs',
+        () => this.consumeRegistrationPrepareRateLimit({ request, storedIntent }),
+      );
+      if (!gate.ok) {
+        return {
+          ok: false,
+          code: gate.code,
+          message: gate.message,
+          ...(typeof gate.retryAfterMs === 'number' ? { retryAfterMs: gate.retryAfterMs } : {}),
+          ...(typeof gate.resetAtMs === 'number' ? { resetAtMs: gate.resetAtMs } : {}),
+        };
       }
       const signingRootId =
         storedIntent.signingRootId ||

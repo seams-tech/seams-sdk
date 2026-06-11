@@ -29,6 +29,7 @@ import type {
   WalletRegistrationHssRespondRequest,
   WalletRegistrationHssRespondResponse,
   WalletRegistrationPrepareRequest,
+  WalletRegistrationPrepareGateContext,
   WalletRegistrationPrepareResponse,
   WalletRegistrationStartRequest,
   WalletRegistrationStartResponse,
@@ -1203,7 +1204,7 @@ async function parseWalletRegistrationStartBody(
 
 async function parseWalletRegistrationPrepareBody(
   body: Record<string, unknown>,
-): Promise<ParseResult<WalletRegistrationPrepareRequest>> {
+): Promise<ParseResult<Omit<WalletRegistrationPrepareRequest, 'prepareGate'>>> {
   const intent = isPlainObject(body.intent) ? body.intent : null;
   if (!intent || intent.version !== 'registration_intent_v1') {
     return { ok: false, code: 'invalid_body', message: 'registration intent is required' };
@@ -1259,12 +1260,13 @@ async function parseWalletRegistrationPrepareBody(
     Object.prototype.hasOwnProperty.call(body, 'emailOtpRegistrationProof') ||
     Object.prototype.hasOwnProperty.call(body, 'threshold_ed25519') ||
     Object.prototype.hasOwnProperty.call(body, 'threshold_ecdsa_prepare') ||
-    Object.prototype.hasOwnProperty.call(body, 'auth')
+    Object.prototype.hasOwnProperty.call(body, 'auth') ||
+    Object.prototype.hasOwnProperty.call(body, 'prepareGate')
   ) {
     return {
       ok: false,
       code: 'invalid_body',
-      message: 'registration prepare does not accept authority or HSS payload fields',
+      message: 'registration prepare does not accept authority, HSS, or gate payload fields',
     };
   }
   const work = isPlainObject(body.work) ? body.work : null;
@@ -1286,6 +1288,14 @@ async function parseWalletRegistrationPrepareBody(
       work: { kind: expectedKind },
     },
   };
+}
+
+function registrationPrepareGateContextFromRoute(
+  input: RelayWalletRegistrationInput,
+): WalletRegistrationPrepareGateContext {
+  const sourceIp = String(input.sourceIp || '').trim();
+  if (sourceIp) return { kind: 'source_ip', sourceIp };
+  return { kind: 'source_unavailable', reason: 'source_ip_unavailable' };
 }
 
 async function parseWalletAddAuthMethodStartBody(
@@ -2173,7 +2183,10 @@ export async function handleRelayWalletRegistrationPrepare(
   }
   const request = await parseWalletRegistrationPrepareBody(input.body);
   if (!request.ok) return routeError(400, request.code, request.message);
-  const result = await input.services.authService.prepareWalletRegistration(request.value);
+  const result = await input.services.authService.prepareWalletRegistration({
+    ...request.value,
+    prepareGate: registrationPrepareGateContextFromRoute(input),
+  });
   const response = exposesRegistrationRouteDiagnostics(input)
     ? result
     : stripRegistrationRouteDiagnostics(result);

@@ -45,6 +45,14 @@ export type {
 export { EMAIL_OTP_CHANNEL };
 
 type JsonObject = Record<string, unknown>;
+type GoogleEmailOtpRegistrationOfferCandidateJson = {
+  candidateId: string;
+  walletId: string;
+};
+type NonEmptyGoogleEmailOtpRegistrationOfferCandidates = readonly [
+  GoogleEmailOtpRegistrationOfferCandidateJson,
+  ...GoogleEmailOtpRegistrationOfferCandidateJson[],
+];
 
 export class EmailOtpRouteError extends Error {
   readonly code?: string;
@@ -541,6 +549,55 @@ export async function exchangeGoogleEmailOtpSession(args: {
   const googleEmailOtpResolutionExpiresAt = readOptionalString(
     googleEmailOtpResolutionRaw?.expiresAt,
   );
+  const googleEmailOtpResolutionExpiresAtMs = Number(googleEmailOtpResolutionRaw?.expiresAtMs);
+  const googleEmailOtpRegistrationOfferRaw =
+    googleEmailOtpResolutionRaw?.offer &&
+    typeof googleEmailOtpResolutionRaw.offer === 'object' &&
+    !Array.isArray(googleEmailOtpResolutionRaw.offer)
+      ? (googleEmailOtpResolutionRaw.offer as JsonObject)
+      : null;
+  const googleEmailOtpRegistrationOfferCandidates = Array.isArray(
+    googleEmailOtpRegistrationOfferRaw?.candidates,
+  )
+    ? googleEmailOtpRegistrationOfferRaw.candidates.map((candidateRaw, index) => {
+        const candidate = requireObjectJson(
+          candidateRaw,
+          `session/exchange registration offer candidate ${index}`,
+        );
+        return {
+          candidateId: readString(
+            candidate.candidateId,
+            `session/exchange registration offer candidate ${index}.candidateId`,
+          ),
+          walletId: readString(
+            candidate.walletId,
+            `session/exchange registration offer candidate ${index}.walletId`,
+          ),
+        };
+      })
+    : [];
+  const [firstGoogleEmailOtpRegistrationOfferCandidate, ...remainingGoogleEmailOtpRegistrationOfferCandidates] =
+    googleEmailOtpRegistrationOfferCandidates;
+  const googleEmailOtpRegistrationOffer =
+    googleEmailOtpRegistrationOfferRaw && firstGoogleEmailOtpRegistrationOfferCandidate
+      ? (() => {
+          const candidates: NonEmptyGoogleEmailOtpRegistrationOfferCandidates = [
+            firstGoogleEmailOtpRegistrationOfferCandidate,
+            ...remainingGoogleEmailOtpRegistrationOfferCandidates,
+          ];
+          return {
+            offerId: readString(
+              googleEmailOtpRegistrationOfferRaw.offerId,
+              'session/exchange registration offer.offerId',
+            ),
+            selectedCandidateId: readString(
+              googleEmailOtpRegistrationOfferRaw.selectedCandidateId,
+              'session/exchange registration offer.selectedCandidateId',
+            ),
+            candidates,
+          };
+        })()
+      : undefined;
   const loginChallengeRaw =
     googleEmailOtpResolutionRaw?.loginChallenge &&
     typeof googleEmailOtpResolutionRaw.loginChallenge === 'object' &&
@@ -601,6 +658,12 @@ export async function exchangeGoogleEmailOtpSession(args: {
                 : {}),
               ...(googleEmailOtpResolutionExpiresAt
                 ? { expiresAt: googleEmailOtpResolutionExpiresAt }
+                : {}),
+              ...(Number.isFinite(googleEmailOtpResolutionExpiresAtMs)
+                ? { expiresAtMs: Math.floor(googleEmailOtpResolutionExpiresAtMs) }
+                : {}),
+              ...(googleEmailOtpRegistrationOffer
+                ? { offer: googleEmailOtpRegistrationOffer }
                 : {}),
               ...(loginChallenge ? { loginChallenge } : {}),
             },

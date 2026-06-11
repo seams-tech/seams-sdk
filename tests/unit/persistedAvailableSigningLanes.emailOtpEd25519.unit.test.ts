@@ -85,4 +85,70 @@ test.describe('persisted Email OTP Ed25519 available signing lanes', () => {
       remainingUses: 1,
     });
   });
+
+  test('treats freshly hydrated Email OTP material as ready before client-base caching', async () => {
+    const thresholdSessionId = 'ed25519-registration-session-deferred-client-base';
+    const walletSigningSessionId = 'wallet-signing-session-ed25519-deferred-client-base';
+    let emailOtpStatusReads = 0;
+
+    clearAllStoredThresholdEd25519SessionRecords();
+    upsertStoredThresholdEd25519SessionRecord({
+      nearAccountId: WALLET_ID,
+      rpId: 'localhost',
+      relayerUrl: 'https://relay.example.test',
+      relayerKeyId: 'rk-email-otp-ed25519',
+      participantIds: [1, 2],
+      thresholdSessionKind: 'jwt',
+      thresholdSessionId,
+      walletSigningSessionId,
+      thresholdSessionAuthToken: 'jwt-ed25519-registration',
+      expiresAtMs: Date.now() + 120_000,
+      remainingUses: 3,
+      emailOtpAuthContext: {
+        policy: 'session',
+        retention: 'session',
+        reason: 'login',
+        authMethod: 'email_otp',
+      },
+      updatedAtMs: Date.now(),
+      source: 'email_otp',
+    });
+
+    const lanes = await readPersistedAvailableSigningLanesForTargets(
+      {
+        ecdsaSessions: {
+          recordsByLane: new Map(),
+          exportArtifactsByLane: new Map(),
+        },
+        statusReader: {
+          getWarmSessionStatus: async () => ({ ok: false, code: 'not_found', message: 'missing' }),
+        },
+        getEmailOtpWarmSessionStatus: async () => {
+          emailOtpStatusReads += 1;
+          return {
+            ok: true,
+            remainingUses: 3,
+            expiresAtMs: Date.now() + 120_000,
+          };
+        },
+      },
+      {
+        walletId: WALLET_ID,
+        authMethod: 'email_otp',
+        ecdsaChainTargets: [ECDSA_TARGET],
+      },
+    );
+
+    expect(emailOtpStatusReads).toBe(1);
+    expect(lanes.lanes.ed25519.near).toMatchObject({
+      authMethod: 'email_otp',
+      curve: 'ed25519',
+      chain: 'near',
+      state: 'ready',
+      source: 'runtime_session_record',
+      walletSigningSessionId,
+      thresholdSessionId,
+      remainingUses: 3,
+    });
+  });
 });

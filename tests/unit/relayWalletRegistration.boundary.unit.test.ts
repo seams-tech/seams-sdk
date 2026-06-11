@@ -102,6 +102,7 @@ function inputFor(
     },
     route: route(routeId),
     services: { authService, ...(session ? { session } : {}) },
+    sourceIp: '203.0.113.10',
   } as unknown as Parameters<typeof handleRelayWalletRegistrationStart>[0];
 }
 
@@ -508,6 +509,10 @@ test.describe('wallet registration route boundaries', () => {
     expect(request).toMatchObject({
       registrationIntentGrant: 'rig_1',
       registrationIntentDigestB64u: digest,
+      prepareGate: {
+        kind: 'source_ip',
+        sourceIp: '203.0.113.10',
+      },
       intent: {
         authMethod: { kind: 'email_otp', email: 'alice@example.test' },
         signerSelection: { mode: 'ed25519_only' },
@@ -534,6 +539,10 @@ test.describe('wallet registration route boundaries', () => {
           threshold_ed25519: {
             clientRequest: { clientRequestMessageB64u: 'client-request' },
           },
+          prepareGate: {
+            kind: 'source_ip',
+            sourceIp: '198.51.100.99',
+          },
         },
         {
           prepareWalletRegistration: async () => {
@@ -549,7 +558,7 @@ test.describe('wallet registration route boundaries', () => {
     expect(response.body).toMatchObject({
       ok: false,
       code: 'invalid_body',
-      message: 'registration prepare does not accept authority or HSS payload fields',
+      message: 'registration prepare does not accept authority, HSS, or gate payload fields',
     });
   });
 

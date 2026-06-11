@@ -204,7 +204,7 @@ export function createBrowserSigningSurfaceEnginePorts(
           ecdsaSessions: args.warmSigning.ecdsaSessions,
           statusReader: args.warmSigning.statusUiConfirm,
           getEmailOtpWarmSessionStatus: (sessionId) =>
-            args.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
+            args.warmSigning.statusUiConfirm.getWarmSessionStatus({ sessionId }),
           getWalletSigningBudgetStatus: (statusArgs) =>
             args.getEnginePorts().signingSessionCoordinator.getAvailableStatus(statusArgs),
         },

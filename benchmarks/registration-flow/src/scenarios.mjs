@@ -50,6 +50,38 @@ export const SCENARIOS = [
     defaultCommand:
       'BENCH_REGISTRATION_SCENARIO=passkey_ed25519_and_ecdsa_host_origin BENCH_REGISTRATION_RUNS=5 pnpm -C tests exec playwright test -c ../benchmarks/registration-flow/playwright.config.ts --project=chromium --reporter=line',
   },
+  {
+    id: 'email_otp_ed25519_only_wallet_iframe',
+    description: 'Email OTP registration, Ed25519 only, wallet iframe runtime',
+    groups: ['email_otp', 'wallet_iframe', 'ed25519_only'],
+    commandEnv: 'BENCH_CMD_REGISTRATION_EMAIL_OTP_ED25519_ONLY_WALLET_IFRAME',
+    defaultCommand:
+      'BENCH_REGISTRATION_SCENARIO=email_otp_ed25519_only_wallet_iframe BENCH_REGISTRATION_RUNS=5 pnpm -C tests exec playwright test -c ../benchmarks/registration-flow/playwright.config.ts --project=chromium --reporter=line',
+  },
+  {
+    id: 'email_otp_ed25519_and_ecdsa_wallet_iframe',
+    description: 'Email OTP registration, Ed25519 plus ECDSA, wallet iframe runtime',
+    groups: ['email_otp', 'wallet_iframe', 'ed25519_and_ecdsa'],
+    commandEnv: 'BENCH_CMD_REGISTRATION_EMAIL_OTP_ED25519_AND_ECDSA_WALLET_IFRAME',
+    defaultCommand:
+      'BENCH_REGISTRATION_SCENARIO=email_otp_ed25519_and_ecdsa_wallet_iframe BENCH_REGISTRATION_RUNS=5 pnpm -C tests exec playwright test -c ../benchmarks/registration-flow/playwright.config.ts --project=chromium --reporter=line',
+  },
+  {
+    id: 'email_otp_ed25519_only_host_origin',
+    description: 'Email OTP registration, Ed25519 only, host-origin runtime',
+    groups: ['email_otp', 'host_origin', 'ed25519_only'],
+    commandEnv: 'BENCH_CMD_REGISTRATION_EMAIL_OTP_ED25519_ONLY_HOST_ORIGIN',
+    defaultCommand:
+      'BENCH_REGISTRATION_SCENARIO=email_otp_ed25519_only_host_origin BENCH_REGISTRATION_RUNS=5 pnpm -C tests exec playwright test -c ../benchmarks/registration-flow/playwright.config.ts --project=chromium --reporter=line',
+  },
+  {
+    id: 'email_otp_ed25519_and_ecdsa_host_origin',
+    description: 'Email OTP registration, Ed25519 plus ECDSA, host-origin runtime',
+    groups: ['email_otp', 'host_origin', 'ed25519_and_ecdsa'],
+    commandEnv: 'BENCH_CMD_REGISTRATION_EMAIL_OTP_ED25519_AND_ECDSA_HOST_ORIGIN',
+    defaultCommand:
+      'BENCH_REGISTRATION_SCENARIO=email_otp_ed25519_and_ecdsa_host_origin BENCH_REGISTRATION_RUNS=5 pnpm -C tests exec playwright test -c ../benchmarks/registration-flow/playwright.config.ts --project=chromium --reporter=line',
+  },
 ];
 
 export function resolveScenarioById(id) {

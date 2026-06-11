@@ -267,6 +267,84 @@ test.describe('SeamsWeb Email OTP runtime', () => {
     });
   });
 
+  test('Google Email OTP session exchange preserves registration offer metadata', async () => {
+    const fetchImpl: typeof fetch = async (input, init) => {
+      expect(String(input)).toBe('https://relay.example/session/exchange');
+      expect(JSON.parse(String(init?.body || '{}'))).toEqual({
+        session_kind: 'jwt',
+        runtimeEnvironmentId: 'env_test',
+        exchange: {
+          type: 'oidc_jwt',
+          provider: 'google',
+          account_mode: 'register',
+          token: 'google-id-token-1',
+        },
+      });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          jwt: 'app-session-jwt-1',
+          session: {
+            userId: 'google:subject-1',
+            walletId: 'alice.testnet',
+            email: 'alice@example.com',
+            googleEmailOtpResolution: {
+              mode: 'register_started',
+              registrationAttemptId: 'registration-attempt-1',
+              expiresAt: '2026-06-11T12:00:00.000Z',
+              expiresAtMs: 1_780_000_000_000,
+              offer: {
+                offerId: 'offer-1',
+                selectedCandidateId: 'candidate-1',
+                candidates: [
+                  {
+                    candidateId: 'candidate-1',
+                    walletId: 'alice.testnet',
+                  },
+                ],
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    };
+
+    await expect(
+      exchangeGoogleEmailOtpSession({
+        relayUrl: 'https://relay.example',
+        idToken: 'google-id-token-1',
+        accountMode: 'register',
+        sessionKind: 'jwt',
+        runtimeEnvironmentId: 'env_test',
+        fetchImpl,
+      }),
+    ).resolves.toEqual({
+      jwt: 'app-session-jwt-1',
+      session: {
+        userId: 'google:subject-1',
+        walletId: 'alice.testnet',
+        email: 'alice@example.com',
+        googleEmailOtpResolution: {
+          mode: 'register_started',
+          registrationAttemptId: 'registration-attempt-1',
+          expiresAt: '2026-06-11T12:00:00.000Z',
+          expiresAtMs: 1_780_000_000_000,
+          offer: {
+            offerId: 'offer-1',
+            selectedCandidateId: 'candidate-1',
+            candidates: [
+              {
+                candidateId: 'candidate-1',
+                walletId: 'alice.testnet',
+              },
+            ],
+          },
+        },
+      },
+    });
+  });
+
   test('Email OTP registration authority adapter builds a digest-bound proof', async () => {
     const fetchCalls: Array<{ url: string; body: Record<string, unknown>; authorization: string }> =
       [];
@@ -319,12 +397,13 @@ test.describe('SeamsWeb Email OTP runtime', () => {
 
     expect(authority).toEqual({
       kind: 'email_otp',
-      challengeId: 'registration-challenge-1',
+      registrationAuthorityId: 'registration-challenge-1',
       appSessionVersion: 'app-session-v1',
       providerSubject: 'google:subject-1',
       email: 'alice@example.test',
       proof: {
         version: 'email_otp_registration_proof_v1',
+        proofKind: 'otp_challenge',
         providerSubject: 'google:subject-1',
         email: 'alice@example.test',
         challengeId: 'registration-challenge-1',

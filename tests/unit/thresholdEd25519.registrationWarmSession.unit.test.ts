@@ -2,8 +2,9 @@ import { expect, test } from '@playwright/test';
 import { setupBasicPasskeyTest } from '../setup';
 
 const IMPORT_PATHS = {
-  thresholdWarmSessionBootstrap: '/sdk/esm/SeamsWeb/thresholdWarmSessionBootstrap.js',
-  login: '/sdk/esm/SeamsWeb/login.js',
+  thresholdWarmSessionBootstrap:
+    '/sdk/esm/SeamsWeb/operations/session/thresholdWarmSessionBootstrap.js',
+  login: '/sdk/esm/SeamsWeb/operations/auth/login.js',
   indexedDb: '/sdk/esm/core/indexedDB/index.js',
   thresholdSessionStore:
     '/sdk/esm/core/signingEngine/session/persistence/records.js',
@@ -75,17 +76,11 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                       createdAtMs: now,
                     }
                   : null,
-            },
-            signingRuntime: {
-              services: {
-                warmSessions: {
-                  hydrateSigningSession: async (input: unknown) => {
-                    hydrateCalls += 1;
-                    await new Promise((resolve) => setTimeout(resolve, 25));
-                    warmSessionActive = true;
-                    return input;
-                  },
-                },
+              hydrateSigningSession: async (input: unknown) => {
+                hydrateCalls += 1;
+                await new Promise((resolve) => setTimeout(resolve, 25));
+                warmSessionActive = true;
+                return input;
               },
             },
             configs: {
@@ -101,7 +96,6 @@ test.describe('threshold Ed25519 registration warm-session', () => {
 
           await bootstrapMod.persistRegisteredThresholdEd25519Session({
             signingEngine: context.signingEngine,
-            signingRuntime: context.signingRuntime,
             nearAccountId,
             signerSlot: 1,
             auth: { kind: 'passkey' },
@@ -249,15 +243,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                       createdAtMs: now,
                     }
                   : null,
-            },
-            signingRuntime: {
-              services: {
-                warmSessions: {
-                  hydrateSigningSession: async (input: unknown) => {
-                    warmSessionActive = true;
-                    return input;
-                  },
-                },
+              hydrateSigningSession: async (input: unknown) => {
+                warmSessionActive = true;
+                return input;
               },
             },
             configs: {
@@ -350,7 +338,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
     expect(result.sessionId).toBe('registration-session-parity');
   });
 
-  test('Email OTP registration reconstructs Ed25519 client-base on the happy path', async ({
+  test('Email OTP registration defers Ed25519 client-base reconstruction off the critical path', async ({
     page,
   }) => {
     const result = await page.evaluate(
@@ -368,7 +356,7 @@ test.describe('threshold Ed25519 registration warm-session', () => {
           signingRootVersion: 'default',
         };
         const signingRootId = 'proj-registration:env-registration';
-        let reconstructCall: Record<string, unknown> | null = null;
+        let reconstructCalls = 0;
         let hydratedRecord: Record<string, unknown> | null = null;
 
         sessionStoreMod.clearAllStoredThresholdEd25519SessionRecords();
@@ -398,8 +386,8 @@ test.describe('threshold Ed25519 registration warm-session', () => {
         try {
           await bootstrapMod.persistRegisteredThresholdEd25519Session({
             signingEngine: {
-              runThresholdEd25519HssCeremonyWithSession: async (input: Record<string, unknown>) => {
-                reconstructCall = input;
+              runThresholdEd25519HssCeremonyWithSession: async () => {
+                reconstructCalls += 1;
                 return {
                   ok: true,
                   contextBindingB64u: 'context-binding',
@@ -410,17 +398,11 @@ test.describe('threshold Ed25519 registration warm-session', () => {
                   },
                 };
               },
-            },
-            signingRuntime: {
-              services: {
-                warmSessions: {
-                  hydrateSigningSession: async () => {
-                    hydratedRecord =
-                      sessionStoreMod.getStoredThresholdEd25519SessionRecordByThresholdSessionId(
-                        'registration-session-email-otp',
-                      );
-                  },
-                },
+              hydrateSigningSession: async () => {
+                hydratedRecord =
+                  sessionStoreMod.getStoredThresholdEd25519SessionRecordByThresholdSessionId(
+                    'registration-session-email-otp',
+                  );
               },
             },
             nearAccountId,
@@ -490,12 +472,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             },
           });
 
-          const capturedReconstructCall = reconstructCall as Record<string, unknown> | null;
           const capturedHydratedRecord = hydratedRecord as Record<string, unknown> | null;
           return {
-            reconstructOperation: capturedReconstructCall?.operation || null,
-            reconstructRelayerKeyId: capturedReconstructCall?.relayerKeyId || null,
-            reconstructProjection: capturedReconstructCall?.outputProjection || null,
+            reconstructCalls,
             hydratedSource: capturedHydratedRecord?.source || null,
             hydratedXClientBaseB64u: capturedHydratedRecord?.xClientBaseB64u || null,
             hydratedSessionId: capturedHydratedRecord?.thresholdSessionId || null,
@@ -512,14 +491,9 @@ test.describe('threshold Ed25519 registration warm-session', () => {
       { paths: IMPORT_PATHS },
     );
 
-    expect(result.reconstructOperation).toBe('warm_session_reconstruction');
-    expect(result.reconstructRelayerKeyId).toBe('rk-email-otp');
-    expect(result.reconstructProjection).toEqual({
-      kind: 'client-masked-projection',
-      clientRecoverableSecretB64u: 'email-otp-prf-first',
-    });
+    expect(result.reconstructCalls).toBe(0);
     expect(result.hydratedSource).toBe('email_otp');
-    expect(result.hydratedXClientBaseB64u).toBe('email-otp-x-client-base');
+    expect(result.hydratedXClientBaseB64u).toBeNull();
     expect(result.hydratedSessionId).toBe('registration-session-email-otp');
   });
 });

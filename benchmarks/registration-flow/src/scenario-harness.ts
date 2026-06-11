@@ -12,6 +12,11 @@ import {
   makeAuthServiceForThreshold,
   setupManagedThresholdRegistrationHarness,
 } from '../../../tests/e2e/thresholdEd25519.testUtils';
+import {
+  createSigningSessionSealPolicyFromThresholdAuthSessionStores,
+  createSigningSessionSealRoutesOptions,
+  createSigningSessionSealShamir3PassCipherAdapter,
+} from '@server/threshold/session/signingSessionSeal';
 
 const SUMMARY_MARKER = '@@REGISTRATION_FLOW_SUMMARY@@';
 const REGISTRATION_TIMING_LABEL = '[Registration] wallet timing summary';
@@ -30,6 +35,11 @@ const HSS_CLIENT_TIMING_NUMERIC_FIELDS = [
   'responseBytes',
   'totalMs',
 ] as const;
+const BENCHMARK_SIGNING_SESSION_SEAL_KEY_VERSION = 'kek-s-registration-benchmark';
+const BENCHMARK_SHAMIR_PRIME_B64U = '_____________________________________v___C8';
+const BENCHMARK_SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U = 'AQAB';
+const BENCHMARK_SHAMIR_SERVER_DECRYPT_EXPONENT_B64U =
+  '6LQXS-i0F0votBdL6LQXS-i0F0votBdL6LQXSv___Ic';
 
 type ScenarioId =
   | 'passkey_ed25519_only_wallet_iframe'
@@ -37,8 +47,13 @@ type ScenarioId =
   | 'passkey_ed25519_and_ecdsa_wallet_iframe'
   | 'passkey_ed25519_and_ecdsa_wallet_iframe_activation'
   | 'passkey_ed25519_only_host_origin'
-  | 'passkey_ed25519_and_ecdsa_host_origin';
+  | 'passkey_ed25519_and_ecdsa_host_origin'
+  | 'email_otp_ed25519_only_wallet_iframe'
+  | 'email_otp_ed25519_and_ecdsa_wallet_iframe'
+  | 'email_otp_ed25519_only_host_origin'
+  | 'email_otp_ed25519_and_ecdsa_host_origin';
 
+type AuthMode = 'passkey' | 'email_otp';
 type SignerMode = 'ed25519_only' | 'ed25519_and_ecdsa';
 type WalletIframeMode = 'host_origin' | 'wallet_iframe';
 
@@ -86,9 +101,17 @@ function parseScenarioId(raw: string | undefined): ScenarioId {
     case 'passkey_ed25519_and_ecdsa_wallet_iframe_activation':
     case 'passkey_ed25519_only_host_origin':
     case 'passkey_ed25519_and_ecdsa_host_origin':
+    case 'email_otp_ed25519_only_wallet_iframe':
+    case 'email_otp_ed25519_and_ecdsa_wallet_iframe':
+    case 'email_otp_ed25519_only_host_origin':
+    case 'email_otp_ed25519_and_ecdsa_host_origin':
       return scenarioId;
   }
   throw new Error(`Unknown registration benchmark scenario: ${scenarioId}`);
+}
+
+function authModeForScenario(scenarioId: ScenarioId): AuthMode {
+  return scenarioId.startsWith('email_otp_') ? 'email_otp' : 'passkey';
 }
 
 function signerModeForScenario(scenarioId: ScenarioId): SignerMode {
@@ -553,14 +576,91 @@ function registrationOptionsForSignerMode(signerMode: SignerMode) {
   return { confirmationConfig };
 }
 
+function installBenchmarkGoogleLoginVerifier(service: {
+  verifyGoogleLogin(request: { idToken?: unknown; id_token?: unknown }): Promise<{
+    ok: boolean;
+    verified?: boolean;
+    userId?: string;
+    providerSubject?: string;
+    sub?: string;
+    email?: string;
+    name?: string;
+    emailVerified?: boolean;
+    code?: string;
+    message?: string;
+  }>;
+}): void {
+  service.verifyGoogleLogin = async (request) => {
+    const token = String(request.idToken ?? request.id_token ?? '').trim();
+    const seed = token.replace(/[^a-zA-Z0-9-]/g, '-').slice(0, 72);
+    if (!seed) {
+      return {
+        ok: false,
+        verified: false,
+        code: 'invalid_body',
+        message: 'benchmark Google id token is required',
+      };
+    }
+    const sub = `benchmark-${seed}`;
+    const providerSubject = `google:${sub}`;
+    return {
+      ok: true,
+      verified: true,
+      userId: providerSubject,
+      providerSubject,
+      sub,
+      email: `${seed.toLowerCase()}@registration-benchmark.example`,
+      name: `Benchmark ${seed}`,
+      emailVerified: true,
+    };
+  };
+}
+
+function createBenchmarkSigningSessionSealOptions(threshold: unknown) {
+  const thresholdAuthStores = threshold as {
+    authSessionStore?: unknown;
+    ecdsaAuthSessionStore?: unknown;
+  };
+  if (!thresholdAuthStores.authSessionStore || !thresholdAuthStores.ecdsaAuthSessionStore) {
+    throw new Error('Missing threshold auth session stores for registration benchmark seal policy');
+  }
+  return createSigningSessionSealRoutesOptions({
+    sessionPolicy: createSigningSessionSealPolicyFromThresholdAuthSessionStores({
+      ed25519Stores: [thresholdAuthStores.authSessionStore as any],
+      ecdsaStores: [thresholdAuthStores.ecdsaAuthSessionStore as any],
+      walletBudgetStores: [thresholdAuthStores.authSessionStore as any],
+    }),
+    cipher: createSigningSessionSealShamir3PassCipherAdapter({
+      currentKeyVersion: BENCHMARK_SIGNING_SESSION_SEAL_KEY_VERSION,
+      keys: [
+        {
+          keyVersion: BENCHMARK_SIGNING_SESSION_SEAL_KEY_VERSION,
+          shamirPrimeB64u: BENCHMARK_SHAMIR_PRIME_B64U,
+          serverEncryptExponentB64u: BENCHMARK_SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U,
+          serverDecryptExponentB64u: BENCHMARK_SHAMIR_SERVER_DECRYPT_EXPONENT_B64U,
+        },
+      ],
+    }),
+    capabilities: {
+      mode: 'sealed_refresh_v1',
+      keyVersion: BENCHMARK_SIGNING_SESSION_SEAL_KEY_VERSION,
+      shamirPrimeB64u: BENCHMARK_SHAMIR_PRIME_B64U,
+    },
+  });
+}
+
 test.describe('registration flow benchmark scenario', () => {
   test.setTimeout(300_000);
 
   test('captures registration timing and HSS worker diagnostics', async ({ page }) => {
     const scenarioId = parseScenarioId(process.env.BENCH_REGISTRATION_SCENARIO);
+    const authMode = authModeForScenario(scenarioId);
     const signerMode = signerModeForScenario(scenarioId);
     const walletIframeMode = walletIframeModeForScenario(scenarioId);
     const activationSurface = usesRegistrationActivationSurface(scenarioId);
+    if (authMode === 'email_otp' && activationSurface) {
+      throw new Error('Email OTP registration benchmark scenarios do not support activation surface');
+    }
     const runsRequested = readRuns();
     await page.addInitScript(() => {
       (globalThis as { __SEAMS_REGISTRATION_BENCHMARK_DIAGNOSTICS?: boolean })
@@ -574,7 +674,22 @@ test.describe('registration flow benchmark scenario', () => {
     const keysOnChain = new Set<string>();
     const nonceByPublicKey = new Map<string, number>();
     const accountsOnChain = new Set<string>();
-    const { service, threshold } = makeAuthServiceForThreshold(keysOnChain);
+    const previousAccountIdDerivationSecret = process.env.ACCOUNT_ID_DERIVATION_SECRET;
+    process.env.ACCOUNT_ID_DERIVATION_SECRET =
+      previousAccountIdDerivationSecret || 'registration-benchmark-account-id-derivation-secret';
+    const { service, threshold } = makeAuthServiceForThreshold(
+      keysOnChain,
+      authMode === 'email_otp'
+        ? {
+            THRESHOLD_NODE_ROLE: 'coordinator',
+            SIGNING_SESSION_SEAL_KEY_VERSION: BENCHMARK_SIGNING_SESSION_SEAL_KEY_VERSION,
+            SIGNING_SESSION_SHAMIR_P_B64U: BENCHMARK_SHAMIR_PRIME_B64U,
+            SIGNING_SESSION_SEAL_E_S_B64U: BENCHMARK_SHAMIR_SERVER_ENCRYPT_EXPONENT_B64U,
+            SIGNING_SESSION_SEAL_D_S_B64U: BENCHMARK_SHAMIR_SERVER_DECRYPT_EXPONENT_B64U,
+          }
+        : undefined,
+    );
+    installBenchmarkGoogleLoginVerifier(service);
     const managedRegistrationHarness = await setupManagedThresholdRegistrationHarness({
       page,
       service,
@@ -585,6 +700,9 @@ test.describe('registration flow benchmark scenario', () => {
       orgName: `Benchmark ${scenarioId}`,
       projectId: `proj_benchmark_${scenarioId}`,
       projectName: `Benchmark ${scenarioId}`,
+      ...(authMode === 'email_otp'
+        ? { signingSessionSeal: createBenchmarkSigningSessionSealOptions(threshold) }
+        : {}),
     });
 
     const relayerUrl =
@@ -640,9 +758,12 @@ test.describe('registration flow benchmark scenario', () => {
           async ({
             accountId: browserAccountId,
             relayerUrl: browserRelayerUrl,
+            scenarioId: browserScenarioId,
+            authMode: browserAuthMode,
             signerMode: browserSignerMode,
             walletIframeMode: browserWalletIframeMode,
             activationSurface: browserActivationSurface,
+            signingSessionSeal: browserSigningSessionSeal,
             registrationOptions: browserRegistrationOptions,
           }) => {
             type MemorySample = {
@@ -723,6 +844,12 @@ test.describe('registration flow benchmark scenario', () => {
                 nearNetwork: 'testnet',
                 nearRpcUrl: 'https://test.rpc.fastnear.com',
                 relayer: { url: browserRelayerUrl },
+                ...(browserSigningSessionSeal
+                  ? {
+                      signingSessionPersistenceMode: 'sealed_refresh_v1' as const,
+                      signingSessionSeal: browserSigningSessionSeal,
+                    }
+                  : {}),
                 ...(managedRegistration
                   ? {
                       registration: {
@@ -742,6 +869,38 @@ test.describe('registration flow benchmark scenario', () => {
                       }
                     : { walletOrigin: '' },
               });
+              if (browserAuthMode === 'email_otp') {
+                const started = await seams.auth.beginGoogleEmailOtpWalletAuth({
+                  idToken: `registration-benchmark-${browserScenarioId}-${browserAccountId}`,
+                  mode: 'register',
+                  relayUrl: browserRelayerUrl,
+                  sessionKind: 'jwt',
+                  ecdsaTargets:
+                    browserSignerMode === 'ed25519_and_ecdsa'
+                      ? ({ kind: 'configured' } as const)
+                      : ({ kind: 'none' } as const),
+                });
+                if (!started.ok) {
+                  return finish({
+                    ok: false as const,
+                    error: `email otp start failed: ${started.error.message}`,
+                  });
+                }
+                if (started.value.mode !== 'register') {
+                  return finish({
+                    ok: false as const,
+                    error: `email otp start resolved ${started.value.mode}, expected register`,
+                  });
+                }
+                const completed = await started.value.completeRegistration();
+                if (!completed.ok) {
+                  return finish({
+                    ok: false as const,
+                    error: `email otp registration failed: ${completed.error.message}`,
+                  });
+                }
+                return finish({ ok: true as const });
+              }
               if (browserActivationSurface) {
                 const container = document.createElement('div');
                 container.setAttribute('data-benchmark-registration-activation-mount', 'true');
@@ -828,9 +987,18 @@ test.describe('registration flow benchmark scenario', () => {
           {
             accountId,
             relayerUrl,
+            scenarioId,
+            authMode,
             signerMode,
             walletIframeMode,
             activationSurface,
+            signingSessionSeal:
+              authMode === 'email_otp'
+                ? {
+                    keyVersion: BENCHMARK_SIGNING_SESSION_SEAL_KEY_VERSION,
+                    shamirPrimeB64u: BENCHMARK_SHAMIR_PRIME_B64U,
+                  }
+                : null,
             registrationOptions,
           },
         );
@@ -896,6 +1064,7 @@ test.describe('registration flow benchmark scenario', () => {
       const summary = {
         reportVersion: 'registration_flow_scenario_v1',
         scenarioId,
+        authMode,
         signerMode,
         walletIframeMode,
         activationSurface,
@@ -945,6 +1114,11 @@ test.describe('registration flow benchmark scenario', () => {
       expect(summary.timingStats.totalMs?.count || 0).toBe(runsRequested);
     } finally {
       await managedRegistrationHarness.close().catch(() => undefined);
+      if (previousAccountIdDerivationSecret === undefined) {
+        delete process.env.ACCOUNT_ID_DERIVATION_SECRET;
+      } else {
+        process.env.ACCOUNT_ID_DERIVATION_SECRET = previousAccountIdDerivationSecret;
+      }
     }
   });
 });

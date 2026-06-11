@@ -259,6 +259,10 @@ async function prepareAllocatedEd25519Registration(
     registrationIntentGrant: allocated.registrationIntentGrant,
     registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
     intent: allocated.intent,
+    prepareGate: {
+      kind: 'source_unavailable',
+      reason: 'direct_service_call',
+    },
     work: {
       kind: selection.mode === 'ed25519_and_ecdsa' ? 'ed25519_hss_and_ecdsa' : 'ed25519_hss',
     },
@@ -441,6 +445,68 @@ test.describe('registration intent allocation', () => {
     expect(first.registrationIntentGrant).not.toBe(second.registrationIntentGrant);
     expect(first.intent.nonceB64u).not.toBe(second.intent.nonceB64u);
     expect(first.registrationIntentDigestB64u).not.toBe(second.registrationIntentDigestB64u);
+  });
+
+  test('rate-limits repeated registration prepare before Ed25519 HSS work', async () => {
+    const previousMax = process.env.REGISTRATION_PREPARE_RATE_LIMIT_MAX;
+    const previousWindow = process.env.REGISTRATION_PREPARE_RATE_LIMIT_WINDOW_MS;
+    process.env.REGISTRATION_PREPARE_RATE_LIMIT_MAX = '1';
+    process.env.REGISTRATION_PREPARE_RATE_LIMIT_WINDOW_MS = '60000';
+    try {
+      const service = makeService();
+      let hssPrepareCalls = 0;
+      (service as any).getThresholdSigningService = () => ({
+        ed25519Hss: {
+          prepareForRegistration: async () => {
+            hssPrepareCalls += 1;
+            return {
+              ok: true,
+              ceremonyHandle: 'rate-limited-ed25519-handle',
+              preparedSession: {
+                contextBindingB64u: 'context-binding',
+                evaluatorDriverStateB64u: 'evaluator-driver-state',
+              },
+              clientOtOfferMessageB64u: 'client-ot-offer',
+            };
+          },
+        },
+      });
+
+      const allocated = await allocateIntent(service);
+      expect(allocated.ok).toBe(true);
+      if (!allocated.ok) throw new Error(allocated.message);
+      const prepareRequest = {
+        registrationIntentGrant: allocated.registrationIntentGrant,
+        registrationIntentDigestB64u: allocated.registrationIntentDigestB64u,
+        intent: allocated.intent,
+        prepareGate: {
+          kind: 'source_ip' as const,
+          sourceIp: '203.0.113.55',
+        },
+        work: { kind: 'ed25519_hss' as const },
+      };
+
+      await expect(service.prepareWalletRegistration(prepareRequest)).resolves.toMatchObject({
+        ok: true,
+        state: 'prepared',
+      });
+      await expect(service.prepareWalletRegistration(prepareRequest)).resolves.toMatchObject({
+        ok: false,
+        code: 'rate_limited',
+      });
+      expect(hssPrepareCalls).toBe(1);
+    } finally {
+      if (previousMax === undefined) {
+        delete process.env.REGISTRATION_PREPARE_RATE_LIMIT_MAX;
+      } else {
+        process.env.REGISTRATION_PREPARE_RATE_LIMIT_MAX = previousMax;
+      }
+      if (previousWindow === undefined) {
+        delete process.env.REGISTRATION_PREPARE_RATE_LIMIT_WINDOW_MS;
+      } else {
+        process.env.REGISTRATION_PREPARE_RATE_LIMIT_WINDOW_MS = previousWindow;
+      }
+    }
   });
 
   test('does not consume a registration intent grant when authority verification fails', async () => {

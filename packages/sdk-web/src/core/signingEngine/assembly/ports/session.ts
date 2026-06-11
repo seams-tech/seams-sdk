@@ -12,6 +12,8 @@ export function createSessionPublicDeps(args: {
   emailOtpSessions: EmailOtpThresholdSessionCoordinator;
   warmSigning: WarmSigningPorts;
 }): SessionPublicDeps {
+  const readCombinedEmailOtpWarmSessionStatus = (sessionId: string) =>
+    args.touchConfirm.getWarmSessionStatus({ sessionId });
   const sessionRestore: SessionPublicDeps['restore'] = {
     emailOtp: (restoreArgs) =>
       args.emailOtpSessions.restorePersistedSessionsForWallet(restoreArgs),
@@ -24,8 +26,7 @@ export function createSessionPublicDeps(args: {
     availableLanes: {
       ecdsaSessions: args.warmSigning.ecdsaSessions,
       statusReader: args.touchConfirm,
-      getEmailOtpWarmSessionStatus: (sessionId) =>
-        args.emailOtpSessions.readWarmSessionStatusOnly(sessionId),
+      getEmailOtpWarmSessionStatus: readCombinedEmailOtpWarmSessionStatus,
       getWalletSigningBudgetStatus: (statusArgs) =>
         readTrustedWalletSigningBudgetStatus(
           {

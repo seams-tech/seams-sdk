@@ -100,8 +100,7 @@ export type CompletedThresholdEd25519Registration = {
 };
 
 type PersistRegisteredThresholdEd25519SessionBaseArgs = {
-  signingEngine: Pick<SigningSessionSurface, 'hydrateSigningSession'> &
-    Pick<ThresholdEd25519HssClientSurface, 'runThresholdEd25519HssCeremonyWithSession'>;
+  signingEngine: Pick<SigningSessionSurface, 'hydrateSigningSession'>;
   nearAccountId: AccountId;
   signerSlot: number;
   rpId: string;
@@ -492,18 +491,12 @@ export async function storeThresholdEd25519KeyMaterial(args: {
   );
 }
 
-async function reconstructEmailOtpRegisteredThresholdEd25519ClientBase(args: {
-  signingEngine: Pick<
-    ThresholdEd25519HssClientSurface,
-    'runThresholdEd25519HssCeremonyWithSession'
-  >;
+function validateEmailOtpRegisteredThresholdEd25519WarmSessionMaterial(args: {
   nearAccountId: AccountId;
-  relayerUrl: string;
-  relayerKeyId: string;
-  thresholdSessionAuthToken: string;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   material: ThresholdEd25519RegistrationHssClientMaterial;
-}): Promise<string> {
+  prfFirstB64u: string;
+}): void {
   const material = args.material;
   const signingRootScope = signingRootScopeFromRuntimePolicyScope(args.runtimePolicyScope);
   const signingRootId = String(signingRootScope.signingRootId || '').trim();
@@ -515,28 +508,10 @@ async function reconstructEmailOtpRegisteredThresholdEd25519ClientBase(args: {
   if (materialNearAccountId !== String(args.nearAccountId || '').trim()) {
     throw new Error('Email OTP Ed25519 registration HSS account binding mismatch');
   }
-  const completed = await args.signingEngine.runThresholdEd25519HssCeremonyWithSession({
-    relayerUrl: args.relayerUrl,
-    thresholdSessionAuthToken: args.thresholdSessionAuthToken,
-    relayerKeyId: args.relayerKeyId,
-    operation: 'warm_session_reconstruction',
-    context: {
-      ...material.hssContext,
-      signingRootId,
-    },
-    clientInputs: material.clientInputs,
-    outputProjection: {
-      kind: 'client-masked-projection',
-      clientRecoverableSecretB64u: material.prfFirstB64u,
-    },
-  });
-  if (!completed.ok || !completed.clientOutput.xClientBaseB64u) {
-    throw new Error(
-      completed.message || 'Email OTP Ed25519 registration warm-session reconstruction failed',
-    );
+  const materialPrfFirstB64u = String(material.prfFirstB64u || '').trim();
+  if (materialPrfFirstB64u !== String(args.prfFirstB64u || '').trim()) {
+    throw new Error('Email OTP Ed25519 registration warm-session PRF binding mismatch');
   }
-  const xClientBaseB64u = String(completed.clientOutput.xClientBaseB64u || '').trim();
-  return xClientBaseB64u;
 }
 
 export async function persistRegisteredThresholdEd25519Session(
@@ -596,21 +571,14 @@ export async function persistRegisteredThresholdEd25519Session(
     if (!registrationHssClientMaterial) {
       throw new Error('Email OTP Ed25519 registration requires HSS client material');
     }
-    const materialPrfFirstB64u = String(registrationHssClientMaterial.prfFirstB64u || '').trim();
-    if (materialPrfFirstB64u !== prfFirstB64u) {
-      throw new Error('Email OTP Ed25519 registration warm-session PRF binding mismatch');
-    }
     if (!runtimePolicyScope) {
       throw new Error('Email OTP Ed25519 registration warm session requires runtimePolicyScope');
     }
-    const xClientBaseB64u = await reconstructEmailOtpRegisteredThresholdEd25519ClientBase({
-      signingEngine: args.signingEngine,
+    validateEmailOtpRegisteredThresholdEd25519WarmSessionMaterial({
       nearAccountId: args.nearAccountId,
-      relayerUrl: args.relayerUrl,
-      relayerKeyId: args.completedRegistration.registered.relayerKeyId,
-      thresholdSessionAuthToken: jwt,
       runtimePolicyScope,
       material: registrationHssClientMaterial,
+      prfFirstB64u,
     });
     const warmSessionArgs: PersistWarmSessionEd25519JwtEmailOtpCapabilityArgs = {
       kind: 'jwt_email_otp',
@@ -626,7 +594,6 @@ export async function persistRegisteredThresholdEd25519Session(
       remainingUses,
       jwt,
       emailOtpAuthContext: args.auth.emailOtpAuthContext,
-      xClientBaseB64u,
       source: 'email_otp',
     };
     warmSessionArgs.runtimePolicyScope = runtimePolicyScope;

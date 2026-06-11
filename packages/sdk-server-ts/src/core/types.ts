@@ -620,7 +620,18 @@ export function registrationPreparationIdFromString(value: string): Registration
   return String(value || '').trim() as RegistrationPreparationId;
 }
 
+export type WalletRegistrationPrepareGateContext =
+  | {
+      kind: 'source_ip';
+      sourceIp: string;
+    }
+  | {
+      kind: 'source_unavailable';
+      reason: 'source_ip_unavailable' | 'direct_service_call';
+    };
+
 export type WalletRegistrationPrepareRequest = WalletRegistrationStartRequestBase & {
+  prepareGate: WalletRegistrationPrepareGateContext;
   work:
     | {
         kind: 'ed25519_hss';
@@ -716,6 +727,7 @@ export type WalletRegistrationRouteTimingName =
   | 'registrationIntentLoadMs'
   | 'registrationIntentDigestMs'
   | 'registrationIntentConsumeMs'
+  | 'registrationAttemptGateMs'
   | 'registrationPreparationPersistMs'
   | 'registrationPreparationLoadMs'
   | 'registrationPreparationConsumeMs'
@@ -799,6 +811,8 @@ export type WalletRegistrationPrepareResponse =
       ok: false;
       code: string;
       message: string;
+      retryAfterMs?: number;
+      resetAtMs?: number;
     };
 
 export type WalletRegistrationStartResponse =

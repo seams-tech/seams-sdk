@@ -83,10 +83,12 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
       readWarmSessionStatusOnly: args.getEmailOtpWarmSessionStatus,
     },
   });
+  const readCombinedEmailOtpWarmSessionStatus = (sessionId: string) =>
+    statusUiConfirm.getWarmSessionStatus({ sessionId });
   const statusReader = createWarmSessionStatusReader({
     touchConfirm: statusUiConfirm,
     getThresholdEcdsaSessionRecordByThresholdSessionId: getSessionRecordByThresholdSessionId,
-    getEmailOtpWarmSessionStatus: args.getEmailOtpWarmSessionStatus,
+    getEmailOtpWarmSessionStatus: readCombinedEmailOtpWarmSessionStatus,
   });
   const capabilityReader = createWarmSessionCapabilityReader({
     touchConfirm: args.touchConfirm,
@@ -98,7 +100,7 @@ export function createWarmSigningPorts(args: WarmSigningPortsArgs): WarmSigningP
           }
         : null,
     getThresholdEcdsaSessionRecordByThresholdSessionId: getSessionRecordByThresholdSessionId,
-    getEmailOtpWarmSessionStatus: args.getEmailOtpWarmSessionStatus,
+    getEmailOtpWarmSessionStatus: readCombinedEmailOtpWarmSessionStatus,
   });
 
   return {

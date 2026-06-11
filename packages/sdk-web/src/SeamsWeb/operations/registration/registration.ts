@@ -166,6 +166,20 @@ type RegistrationTimingBucketValues = {
 
 type RegistrationTimingBucketName = keyof RegistrationTimingBucketValues;
 
+type EmailOtpRegistrationAuthMethod = Extract<RegistrationAuthMethodInput, { kind: 'email_otp' }>;
+
+type EmailOtpRecoveryCodeBackupOutcome =
+  | {
+      ok: true;
+      backedUpEnrollment: Awaited<ReturnType<typeof backupEmailOtpRecoveryCodes>>;
+      error?: never;
+    }
+  | {
+      ok: false;
+      error: unknown;
+      backedUpEnrollment?: never;
+    };
+
 type PasskeyRegistrationAuthTiming = {
   kind: 'passkey';
   authProofMs: number;
@@ -943,6 +957,45 @@ function googleEmailOtpRegistrationMaterialToBackupEnrollment(input: {
   };
 }
 
+function startEmailOtpRecoveryCodeBackup(input: {
+  recorder: RegistrationTimingRecorder;
+  authMethod: EmailOtpRegistrationAuthMethod;
+  relayerUrl: string;
+  walletId: string;
+  enrollmentMaterial: EmailOtpRegistrationEnrollmentMaterial;
+  registrationAuthorityId: string;
+}): Promise<EmailOtpRecoveryCodeBackupOutcome> {
+  return input.recorder
+    .measure('emailOtpRecoveryCodeBackupMs', () =>
+      backupEmailOtpRecoveryCodes({
+        relayUrl: input.relayerUrl,
+        walletId: input.walletId,
+        appSessionJwt: input.authMethod.appSessionJwt,
+        enrollment: googleEmailOtpRegistrationMaterialToBackupEnrollment({
+          material: input.enrollmentMaterial,
+          registrationAuthorityId: input.registrationAuthorityId,
+        }),
+      }),
+    )
+    .then(
+      (backedUpEnrollment) => ({ ok: true as const, backedUpEnrollment }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+}
+
+async function resolveEmailOtpBackupAck(input: {
+  authMethod: RegistrationAuthMethodInput;
+  backup: Promise<EmailOtpRecoveryCodeBackupOutcome> | null;
+}): Promise<WalletRegistrationEmailOtpBackupAck | undefined> {
+  if (input.authMethod.kind !== 'email_otp' || !input.backup) return undefined;
+  const outcome = await input.backup;
+  if (!outcome.ok) throw outcome.error;
+  return emailOtpBackupAckFromStoredBackup({
+    authMethod: input.authMethod,
+    backedUpEnrollment: outcome.backedUpEnrollment,
+  });
+}
+
 async function resolveEmailOtpRegistrationEnrollmentMaterial(input: {
   context: RegistrationWebContext;
   authMethod: RegistrationAuthMethodInput;
@@ -1257,7 +1310,7 @@ async function registerEcdsaWalletOnly(args: {
     let emailOtpProviderSubject = '';
     let emailOtpEnrollment: EmailOtpRegistrationEnrollmentMaterial['emailOtpEnrollment'] | null =
       null;
-    let emailOtpEnrollmentMaterial: EmailOtpRegistrationEnrollmentMaterial | null = null;
+    let emailOtpRecoveryCodeBackup: Promise<EmailOtpRecoveryCodeBackupOutcome> | null = null;
     let passkeyAuthority: Awaited<ReturnType<typeof collectPasskeyRegistrationAuthority>> | null =
       null;
     let startAuthority:
@@ -1340,10 +1393,17 @@ async function registerEcdsaWalletOnly(args: {
       );
       emailOtpClientRootShareHandle = enrollment.clientRootShareHandle;
       emailOtpEnrollment = enrollment.emailOtpEnrollment;
-      emailOtpEnrollmentMaterial = enrollment;
       emailOtpRegistrationAuthorityId = emailAuthority.registrationAuthorityId;
       emailOtpEmail = emailAuthority.email;
       emailOtpProviderSubject = emailAuthority.providerSubject;
+      emailOtpRecoveryCodeBackup = startEmailOtpRecoveryCodeBackup({
+        recorder: registrationTiming,
+        authMethod: emailOtpAuthMethod,
+        relayerUrl,
+        walletId: String(walletId),
+        enrollmentMaterial: enrollment,
+        registrationAuthorityId: emailAuthority.registrationAuthorityId,
+      });
       startAuthority = {
         kind: 'email_otp',
         emailOtpRegistrationProof: emailAuthority.proof,
@@ -1410,25 +1470,10 @@ async function registerEcdsaWalletOnly(args: {
       clientBootstrap: preparedClientBootstrap.clientBootstrap,
       serverBootstrap: responded.ecdsa.bootstrap,
     });
-    const emailOtpBackupAck =
-      args.authMethod.kind === 'email_otp' && emailOtpEnrollmentMaterial
-        ? emailOtpBackupAckFromStoredBackup({
-            authMethod: args.authMethod,
-            backedUpEnrollment: await registrationTiming.measure(
-              'emailOtpRecoveryCodeBackupMs',
-              () =>
-                backupEmailOtpRecoveryCodes({
-                  relayUrl: relayerUrl,
-                  walletId: String(intentResponse.intent.walletId),
-                  appSessionJwt: args.authMethod.appSessionJwt,
-                  enrollment: googleEmailOtpRegistrationMaterialToBackupEnrollment({
-                    material: emailOtpEnrollmentMaterial,
-                    registrationAuthorityId: emailOtpRegistrationAuthorityId,
-                  }),
-                }),
-            ),
-          })
-        : undefined;
+    const emailOtpBackupAck = await resolveEmailOtpBackupAck({
+      authMethod: args.authMethod,
+      backup: emailOtpRecoveryCodeBackup,
+    });
     const finalized = await registrationTiming.measure('walletRegisterFinalizeMs', () =>
       finalizeWalletRegistration({
         relayerUrl,
@@ -1729,7 +1774,7 @@ export async function registerWallet(args: {
     let emailOtpProviderSubject = '';
     let emailOtpEnrollment: EmailOtpRegistrationEnrollmentMaterial['emailOtpEnrollment'] | null =
       null;
-    let emailOtpEnrollmentMaterial: EmailOtpRegistrationEnrollmentMaterial | null = null;
+    let emailOtpRecoveryCodeBackup: Promise<EmailOtpRecoveryCodeBackupOutcome> | null = null;
     let passkeyAuthority: Awaited<ReturnType<typeof collectPasskeyRegistrationAuthority>> | null =
       null;
     let startAuthority:
@@ -1814,10 +1859,17 @@ export async function registerWallet(args: {
       ed25519PrfFirstB64u = enrollment.thresholdEd25519PrfFirstB64u;
       emailOtpClientRootShareHandle = enrollment.clientRootShareHandle;
       emailOtpEnrollment = enrollment.emailOtpEnrollment;
-      emailOtpEnrollmentMaterial = enrollment;
       emailOtpRegistrationAuthorityId = emailAuthority.registrationAuthorityId;
       emailOtpEmail = emailAuthority.email;
       emailOtpProviderSubject = emailAuthority.providerSubject;
+      emailOtpRecoveryCodeBackup = startEmailOtpRecoveryCodeBackup({
+        recorder: registrationTiming,
+        authMethod: emailOtpAuthMethod,
+        relayerUrl,
+        walletId: String(intentResponse.intent.walletId),
+        enrollmentMaterial: enrollment,
+        registrationAuthorityId: emailAuthority.registrationAuthorityId,
+      });
       startAuthority = {
         kind: 'email_otp',
         emailOtpRegistrationProof: emailAuthority.proof,
@@ -1966,25 +2018,10 @@ export async function registerWallet(args: {
     if (!requestedPolicy) {
       throw new Error('Threshold warm-session defaults are disabled for registration');
     }
-    const emailOtpBackupAck =
-      args.authMethod.kind === 'email_otp' && emailOtpEnrollmentMaterial
-        ? emailOtpBackupAckFromStoredBackup({
-            authMethod: args.authMethod,
-            backedUpEnrollment: await registrationTiming.measure(
-              'emailOtpRecoveryCodeBackupMs',
-              () =>
-                backupEmailOtpRecoveryCodes({
-                  relayUrl: relayerUrl,
-                  walletId: String(intentResponse.intent.walletId),
-                  appSessionJwt: args.authMethod.appSessionJwt,
-                  enrollment: googleEmailOtpRegistrationMaterialToBackupEnrollment({
-                    material: emailOtpEnrollmentMaterial,
-                    registrationAuthorityId: emailOtpRegistrationAuthorityId,
-                  }),
-                }),
-            ),
-          })
-        : undefined;
+    const emailOtpBackupAck = await resolveEmailOtpBackupAck({
+      authMethod: args.authMethod,
+      backup: emailOtpRecoveryCodeBackup,
+    });
     const finalized = await registrationTiming.measure('walletRegisterFinalizeMs', () =>
       finalizeWalletRegistration({
         relayerUrl,

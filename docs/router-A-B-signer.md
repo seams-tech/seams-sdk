@@ -204,6 +204,85 @@ The Router should persist only public lifecycle state:
 It must not persist decrypted signer envelopes, A/B protocol payloads, output
 shares, HSS driver state, OT state, or joined words.
 
+## Expensive-Work Admission Gate
+
+The Router owns admission for any request that can trigger expensive signer or
+HSS work. This includes registration prepare, key export, recovery, relayer
+share refresh, and any future precompute route. The gate runs after cheap
+request normalization and policy checks, and before the Router forwards work to
+Signer A or Signer B.
+
+The gate protects two resources:
+
+- public Router CPU and queue slots
+- private signer CPU, queues, and A/B protocol capacity
+
+The client may request an operation, but it must not supply the gate decision or
+gate identity. The Router derives gate context from trusted request metadata:
+
+- source IP or edge-provided client address
+- authenticated user/session when present
+- org, project, and environment
+- request kind
+- account or wallet id
+- normalized Email OTP email when present
+- coarse device/session id when available and privacy-acceptable
+
+For registration prepare, this is the same boundary as refactor-66: early HSS
+prepare is useful only when it cannot be spammed before a user completes OTP or
+Passkey proof collection.
+
+Initial decisions:
+
+```ts
+type ExpensiveWorkGateDecision =
+  | {
+      kind: 'accepted';
+      requestId: string;
+    }
+  | {
+      kind: 'reuse_existing';
+      requestId: string;
+      existingLifecycleId: string;
+    }
+  | {
+      kind: 'defer';
+      reason: 'short_window_saturated' | 'signer_queue_saturated';
+    }
+  | {
+      kind: 'rejected';
+      reason: 'rate_limited' | 'abuse_policy';
+      retryAfterMs: number;
+    };
+```
+
+Operational rules:
+
+- short-window gates should default to one active expensive prepare per key per
+  `5s` to `10s` in production
+- duplicate normal-user clicks should reuse the current pending lifecycle
+- early server precompute must be independently disableable per deployment,
+  org/project policy, or incident response state
+- saturated signer queues should return `defer` so the caller can run the
+  slower post-auth path or retry later
+- rejected requests must stop before Signer A, Signer B, or HSS prepare work
+- gate records must be short-lived, scoped, single-use where applicable, and
+  cleaned up on completion, expiry, or abandon
+- diagnostics may record gate timings and decisions, but cannot influence
+  transcript binding or proof verification
+
+Disabling early precompute must not disable registration, recovery, export, or
+refresh. It changes admission from `accepted` to `defer` for early work, and the
+caller continues through the slower authority-verified path where available.
+
+Current implementation note:
+
+- The existing TypeScript router has a narrow registration-prepare rate-limit
+  guard under `REGISTRATION_PREPARE_RATE_LIMIT_*`. It injects source-IP context
+  server-side, rejects client-supplied gate payloads, and runs before Ed25519
+  HSS prepare. The A/B Router should generalize this into the shared
+  `ExpensiveWorkGateDecision` lifecycle.
+
 ## Direct A/B Coordination Flow
 
 After the Router forwards envelopes, A and B coordinate directly:
@@ -508,6 +587,460 @@ Move from Stage 2 to Stage 3 after:
 - the added latency and operational complexity are justified by customer or
   threat-model requirements.
 
+## Local Development Simulation
+
+Local development should simulate the split trust domains before any Cloudflare
+deployment. The first useful shape is four local services plus local durable
+state:
+
+```text
+localhost:8787  Router
+localhost:8788  Signer A
+localhost:8789  Signer B
+localhost:8790  Relayer
+local Postgres  signing-root metadata and sealed-share records
+```
+
+Each service should run as its own process with its own environment file and
+role-specific secrets:
+
+```text
+router.env:
+  ROUTER_SIGNING_KEY
+  SIGNER_A_URL
+  SIGNER_B_URL
+  RELAYER_URL
+  no share decrypt keys
+
+signer-a.env:
+  SIGNER_ROLE=A
+  SIGNER_A_DECRYPT_KEY
+  SIGNING_ROOT_SHARE_A_KEK
+  SIGNER_B_URL
+
+signer-b.env:
+  SIGNER_ROLE=B
+  SIGNER_B_DECRYPT_KEY
+  SIGNING_ROOT_SHARE_B_KEK
+  SIGNER_A_URL
+
+relayer.env:
+  RELAYER_DECRYPT_KEY
+  RELAYER_OUTPUT_STORAGE
+```
+
+Local HTTP is acceptable for the first simulation. The important property is
+process, key, role, and type separation. The Router should exercise the same
+opaque forwarding behavior locally that it will use with Service Bindings or
+cross-account HTTPS in production.
+
+### Local Boundary Simulation
+
+The first local milestone should validate the architecture before the final A/B
+cryptographic primitive exists:
+
+- seed local Postgres with dev signing-root metadata and role-specific sealed
+  share records
+- run Router, Signer A, Signer B, and Relayer as separate processes
+- generate deterministic dev output shares from transcript-bound test vectors
+- send one client request to the Router containing encrypted A and B envelopes
+- have Router forward opaque envelopes without decrypting them
+- have A and B decrypt only their own envelopes
+- have A and B coordinate directly over local HTTP
+- return encrypted client-output packages through the Router
+- deliver relayer-output packages only to the local relayer
+- assert that the client opens only `x_client_base`
+- assert that the relayer opens only `x_relayer_base`
+
+This milestone should include negative tests for Router plaintext access,
+wrong-role payloads, transcript mismatch, replay, expiry, and output-kind
+confusion.
+
+### Local Cryptographic Simulation
+
+After the boundary simulation is stable, replace deterministic test-vector
+outputs with the real derivation pieces:
+
+- threshold-PRF partial evaluation or the selected split root derivation
+- split `y_relayer` and `tau_relayer` material
+- direct A/B HSS derivation protocol
+- client-output encryption to the client's ephemeral key
+- relayer-output delivery to the designated relayer
+- address and public-key parity tests before and after root-share refresh
+
+The local cryptographic simulation must preserve the same invariant as
+production:
+
+```text
+Router never decrypts signer envelopes.
+A never receives B plaintext.
+B never receives A plaintext.
+No local service materializes joined d, a, or x_client_base.
+Normal signing uses Router plus one relayer.
+```
+
+### Local Tooling
+
+Add a single command or script that starts the full local simulation stack:
+
+```text
+dev:router-ab-signer
+```
+
+That command should:
+
+- verify local Postgres is reachable
+- seed or verify signing-root metadata
+- seed or verify role-specific sealed-share records
+- allocate service ports
+- write or load service-specific dev env files
+- start Router, Signer A, Signer B, and Relayer
+- print the Router URL as the only client-facing endpoint
+
+The script should fail closed if Router has any share decrypt key, if Signer A
+has B-only keys, if Signer B has A-only keys, or if required transcript-binding
+configuration is missing.
+
+## Rust/Wasm Implementation Architecture
+
+The implementation should put the protocol-critical code and A/B signer logic
+in platform-agnostic Rust. Cloudflare integration should be a thin
+`workers-rs` adapter around that core. The goal is to get Rust's type system,
+memory-safety defaults, better constant-time ergonomics, shared native/Wasm test
+vectors, compatibility with non-Cloudflare hosts, and a future path toward
+Verus-style formal verification.
+
+Preferred split:
+
+```text
+pure Rust crates:
+  protocol types
+  role-specific state machines
+  transcript hashing and binding
+  encrypted envelope framing
+  threshold-PRF integration
+  A/B HSS derivation protocol
+  client-output and relayer-output package validation
+
+platform-agnostic signer engines:
+  Signer A engine
+  Signer B engine
+  relayer activation engine
+  host traits for clock, randomness, storage, keys, transport, and audit
+
+workers-rs wrappers:
+  Router Worker HTTP entrypoint
+  Signer A Worker HTTP entrypoint
+  Signer B Worker HTTP entrypoint
+  Relayer Worker HTTP entrypoint
+  Cloudflare Env bindings
+  fetch/service-binding transport adapters
+  response mapping
+
+TypeScript:
+  optional build/test harness glue
+  optional host implementation using the same canonical wire protocol
+  optional Wasm/npm consumer of the Rust protocol core
+```
+
+Router, Signer A, Signer B, and Relayer may all be Rust Workers. The protocol
+boundary should still use portable request/response envelopes rather than
+Cloudflare-specific object RPC:
+
+```text
+Router -> Signer A: request carrying encrypted A envelope
+Router -> Signer B: request carrying encrypted B envelope
+A <-> B: request carrying transcript-bound protocol messages
+Router -> Relayer: request carrying relayer-output package
+```
+
+That keeps the same core usable across:
+
+- local localhost simulation
+- same-account Cloudflare Service Bindings
+- cross-account Cloudflare HTTPS
+- future AWS Nitro or Google Cloud Confidential signer services
+
+### Platform-Agnostic Signer Engines
+
+Signer A and Signer B should be ordinary Rust engines that know nothing about
+Cloudflare, HTTP frameworks, environment variables, service bindings, or
+TypeScript runtimes.
+
+The core shape should be:
+
+```rust
+pub struct SignerEngine<R, H> {
+    role: R,
+    host: H,
+}
+
+impl<R, H> SignerEngine<R, H>
+where
+    R: SignerRole,
+    H: SignerHost,
+{
+    pub async fn handle_envelope(
+        &self,
+        input: SignerEnvelopeRequest,
+    ) -> Result<SignerEnvelopeResponse, SignerError> {
+        // role-specific protocol logic
+    }
+}
+```
+
+The host boundary should be a small set of traits:
+
+```rust
+pub trait SignerHost:
+    Clock
+    + Csprng
+    + SignerKeyStore
+    + SigningRootShareStore
+    + PeerTransport
+    + AuditSink
+{
+}
+```
+
+The core engine should depend on canonical protocol inputs and host traits. It
+should not read environment variables, create HTTP responses, access Cloudflare
+bindings directly, or choose transport URLs.
+
+The Cloudflare adapter supplies a host implementation:
+
+```rust
+pub struct CloudflareSignerHost {
+    env: worker::Env,
+}
+```
+
+An Axum, Nitro, GCP, AWS, Node, or TypeScript deployment can use the same model
+by implementing the same wire protocol or by calling the Rust core through a
+Wasm/npm package.
+
+### Wire Protocol Compatibility
+
+Inter-service APIs should be stable canonical messages, not Cloudflare object
+RPC method calls:
+
+```text
+Router -> A: SignerARequestBytes
+Router -> B: SignerBRequestBytes
+A <-> B: AbProtocolMessageBytes
+A/B -> Router: SignerResponseBytes
+Router -> Relayer: RelayerActivationBytes
+```
+
+The outer HTTP body may be JSON for product ergonomics, but transcript hashes
+must bind canonical inner bytes. Acceptable encodings include CBOR, Borsh,
+postcard, or a custom versioned encoding with fixed field ordering and length
+rules.
+
+### Crate Layout
+
+Start with two crates. Keep the design modular inside `router-ab-protocol`, and
+split out more crates only when module size or dependency boundaries require
+it.
+
+```text
+crates/router-ab-protocol
+  pure protocol types
+  canonical wire encoding
+  transcript state machines
+  envelope framing
+  platform-agnostic signer engines
+  relayer activation engine
+  host traits
+
+crates/router-ab-cloudflare
+  thin workers-rs adapters, Env parsing, fetch/service adapters
+
+crates/threshold-prf
+  threshold-PRF primitives and vectors
+
+crates/ed25519-hss
+  HSS derivation and signing primitives
+```
+
+Optional later package:
+
+```text
+packages/router-ab-wasm
+  wasm-bindgen/npm package for TypeScript hosts
+```
+
+`router-ab-protocol` should avoid Cloudflare APIs, filesystem APIs, ambient
+time, ambient randomness, and broad async dependencies. Boundary adapters should
+inject time, randomness, peer identities, and transport.
+
+`router-ab-cloudflare` should do only boundary work:
+
+- convert `worker::Request` into canonical protocol input
+- parse `worker::Env` into a `CloudflareSignerHost`
+- call platform-agnostic engines
+- convert protocol output into `worker::Response`
+- map service bindings or fetch into `PeerTransport`
+- map Cloudflare secrets/storage into key and share stores
+
+The adapter should not contain HSS derivation logic, threshold-PRF logic,
+output-opening logic, or transcript construction beyond invoking the shared
+core.
+
+Suggested folder structure:
+
+```text
+crates/router-ab-protocol/
+  Cargo.toml
+  src/
+    lib.rs
+    error.rs
+    ids.rs
+    roles.rs
+
+    wire/
+      mod.rs
+      canonical.rs
+      requests.rs
+      responses.rs
+      envelopes.rs
+
+    transcript/
+      mod.rs
+      digest.rs
+      bindings.rs
+
+    engine/
+      mod.rs
+      router.rs
+      signer_a.rs
+      signer_b.rs
+      relayer.rs
+      host.rs
+
+    output/
+      mod.rs
+      client.rs
+      relayer.rs
+
+    crypto/
+      mod.rs
+      aead.rs
+      keys.rs
+      rng.rs
+
+    test_vectors.rs
+
+  tests/
+    wire_vectors.rs
+    role_boundaries.rs
+    transcript_binding.rs
+    output_kind.rs
+
+crates/router-ab-cloudflare/
+  Cargo.toml
+  src/
+    lib.rs
+    env.rs
+    request.rs
+    response.rs
+
+    router_worker.rs
+    signer_a_worker.rs
+    signer_b_worker.rs
+    relayer_worker.rs
+
+    host/
+      mod.rs
+      clock.rs
+      keys.rs
+      storage.rs
+      transport.rs
+      audit.rs
+```
+
+### Verification Path
+
+Keep the protocol core friendly to later formal verification:
+
+- represent roles as distinct types, not strings
+- represent lifecycle states as enums with role-specific variants
+- make output kinds explicit and unforgeable at the type level
+- keep transcript construction deterministic and canonical
+- keep parsing and normalization at boundaries
+- avoid global mutable state
+- isolate cryptographic primitive calls behind narrow traits
+- minimize `unsafe`
+
+Initial Verus targets should be state-machine and boundary invariants:
+
+- Router cannot construct signer plaintext.
+- A-only input cannot enter B-only state.
+- B-only input cannot enter A-only state.
+- client-output packages cannot be accepted as relayer output.
+- relayer-output packages cannot be accepted as client output.
+- every accepted output binds to the transcript, role, account, session, and
+  request kind.
+
+### Bundle Size And Startup Budget
+
+Rust/Wasm Workers are compatible with Cloudflare, but binary size becomes a
+deployment constraint. The Worker should track:
+
+- compressed Worker size
+- uncompressed Worker size
+- `startup_time_ms` from Wrangler upload/deploy
+- CPU time for setup/export/refresh
+- CPU time for normal signing
+
+Cloudflare's current documented limits are:
+
+```text
+Worker size after gzip:
+  Free: 3 MB
+  Paid: 10 MB
+
+Worker size before gzip:
+  64 MB
+
+Worker startup time:
+  1 second
+
+Memory per isolate:
+  128 MB
+```
+
+The startup limit applies to parsing and executing global scope. Larger bundles
+and expensive top-level initialization increase startup time, so Rust Workers
+must avoid doing protocol setup, key derivation, large table generation, or
+schema construction in global scope.
+
+Use these rules:
+
+- compile with release size optimizations
+- use `wasm-opt`
+- keep Router, Signer A, Signer B, and Relayer as separate Workers so each
+  bundle carries only its role's code
+- avoid large dependency graphs in Router
+- initialize Wasm modules and static data minimally
+- put expensive derivation inside request handlers
+- run `wrangler deploy --dry-run --outdir bundled` and record gzip size
+- record `startup_time_ms` on every release candidate
+
+Startup punishment is workload-specific. Treat the target as:
+
+```text
+excellent: < 100 ms startup_time_ms
+acceptable: 100-300 ms startup_time_ms
+risky: 300-700 ms startup_time_ms
+unacceptable: approaching 1000 ms
+```
+
+The exact value must be measured with the built bundles. A small Rust/Wasm
+protocol Worker may start quickly; a large bundle with broad dependencies,
+large static tables, or expensive global initialization can fail Cloudflare's
+startup validation.
+
 ## Latency Expectations
 
 Setup/export latency is roughly:
@@ -578,25 +1111,66 @@ Add source guards or type fixtures that fail when:
 
 ### Phase 1: Protocol Types And Invariants
 
+- [ ] Create a pure Rust `router-ab-protocol` crate for role-specific protocol
+  types, state machines, transcript binding, envelope framing, engines, and
+  host traits.
+- [ ] Keep `router-ab-protocol` free of Cloudflare APIs, filesystem APIs,
+  ambient time, ambient randomness, and transport dependencies.
+- [ ] Define `router-ab-protocol/src/engine` with Router, Signer A, Signer B,
+  Relayer, and host-trait modules.
+- [ ] Define host traits inside `router-ab-protocol` for clock, randomness,
+  signer keys, signing-root share storage, peer transport, and audit sinks.
+- [ ] Define canonical request/response bytes for Router-to-A, Router-to-B,
+  A-to-B, B-to-A, signer responses, and relayer activation.
+- [ ] Add cross-host wire vectors so Rust native, Rust/Wasm, and TypeScript
+  hosts can verify the same transcript bytes.
 - [ ] Define role-specific Router, A, B, client-output, and relayer-output
   types.
 - [ ] Define encrypted envelope framing with transcript-bound associated data.
 - [ ] Define signer identities and key rotation rules.
 - [ ] Add type fixtures rejecting invalid branch combinations.
 - [ ] Add source guards for forbidden imports in Router and signer code.
+- [ ] Add initial Verus-friendly invariant notes for role separation,
+  output-kind separation, and transcript binding.
 
-### Phase 2: Router Boundary
+### Phase 2: Local Boundary Simulation
 
+- [ ] Add local service entrypoints for Router, Signer A, Signer B, and
+  Relayer.
+- [ ] Add service-specific local env loading with forbidden-key checks.
+- [ ] Add local Postgres seeding for signing-root metadata and role-specific
+  sealed-share records.
+- [ ] Add deterministic transcript-bound dev output shares for boundary tests.
+- [ ] Add local HTTP transport for Router-to-signer and A-to-B coordination.
+- [ ] Add a `dev:router-ab-signer` script that starts the full local stack.
+- [ ] Add end-to-end local tests that send one client request to the Router and
+  verify encrypted A/B package delivery.
+- [ ] Add negative local tests for Router plaintext access, wrong-role payloads,
+  replay, expiry, transcript mismatch, and output-kind confusion.
+
+### Phase 3: Router Boundary
+
+- [ ] Add a thin `workers-rs` Router wrapper around `router-ab-protocol`.
 - [ ] Add the public split-derivation route.
 - [ ] Parse and normalize public request metadata once.
 - [ ] Verify auth, project policy, quota, abuse controls, expiry, and replay
   window.
+- [ ] Add the Router-owned expensive-work admission gate before signer
+  forwarding.
+- [ ] Derive gate context from trusted Router metadata, never from client JSON.
+- [ ] Implement accepted, reuse-existing, defer, and rejected gate decisions.
+- [ ] Add route tests proving rejected requests do not reach Signer A, Signer B,
+  or HSS prepare.
 - [ ] Forward A/B encrypted envelopes without decrypting them.
 - [ ] Persist only public lifecycle state and payload hashes.
 - [ ] Aggregate encrypted client packages into one response.
 
-### Phase 3: Signer A/B Services
+### Phase 4: Signer A/B Services
 
+- [ ] Add thin `workers-rs` Signer A and Signer B wrappers around the
+  platform-agnostic signer engines.
+- [ ] Implement `CloudflareSignerHost` for Env parsing, signer keys,
+  signing-root share access, peer transport, and audit sinks.
 - [ ] Add private A and B signer endpoints.
 - [ ] Decrypt only role-specific envelopes.
 - [ ] Verify transcript binding and signer role.
@@ -604,7 +1178,7 @@ Add source guards or type fixtures that fail when:
 - [ ] Reject any payload that contains joined state or the wrong role.
 - [ ] Add direct A/B mutual authentication.
 
-### Phase 4: Direct A/B Protocol
+### Phase 5: Direct A/B Protocol
 
 - [ ] Choose the two-party HSS/MPC primitive for split derivation.
 - [ ] Implement A/B protocol message types with transcript-bound signatures.
@@ -612,7 +1186,7 @@ Add source guards or type fixtures that fail when:
 - [ ] Produce A/B shares of client and relayer outputs.
 - [ ] Keep A/B round trips within the target budget.
 
-### Phase 5: Output Delivery
+### Phase 6: Output Delivery
 
 - [ ] Encrypt A and B client-output packages directly to the client ephemeral
   key.
@@ -621,20 +1195,44 @@ Add source guards or type fixtures that fail when:
 - [ ] Add relayer-side verification for matching transcript and output kind.
 - [ ] Add downgrade rejection for clients requiring split derivation.
 
-### Phase 6: Normal Signing Integration
+### Phase 7: Normal Signing Integration
 
+- [ ] Add a thin `workers-rs` Relayer wrapper around the platform-agnostic
+  relayer activation engine.
 - [ ] Store or activate `x_relayer_base` only in the designated relayer state.
 - [ ] Keep normal signing on the Router plus active relayer path.
 - [ ] Ensure normal signing routes cannot invoke A/B derivation paths
   accidentally.
 - [ ] Add operational controls for relayer-share refresh.
 
-### Phase 7: Validation And Benchmarks
+### Phase 8: Local Cryptographic Simulation
+
+- [ ] Replace deterministic dev output shares with the selected split derivation
+  primitive.
+- [ ] Wire threshold-PRF partial evaluation or the selected split root
+  derivation into local A/B services.
+- [ ] Wire split `y_relayer` and `tau_relayer` material into the local A/B HSS
+  derivation protocol.
+- [ ] Add local address and public-key parity tests.
+- [ ] Add local root-share refresh tests proving wallet identity is preserved.
+- [ ] Verify no local process materializes joined `d`, `a`, or
+  `x_client_base`.
+
+### Phase 9: Validation And Benchmarks
 
 - [ ] Add tests for Router opacity.
 - [ ] Add tests for wrong-role signer payload rejection.
 - [ ] Add tests for transcript mismatch, replay, expiry, and wrong relayer.
 - [ ] Add tests proving no joined state crosses production route boundaries.
+- [ ] Add native Rust tests for platform-agnostic signer engines without
+  Cloudflare dependencies.
+- [ ] Add Wasm tests proving the same canonical wire vectors pass through the
+  `workers-rs` adapters.
+- [ ] Add optional TypeScript compatibility tests that parse and verify the
+  canonical wire protocol.
+- [ ] Record compressed and uncompressed Worker size for Router, Signer A,
+  Signer B, and Relayer.
+- [ ] Record Wrangler `startup_time_ms` for every Rust/Wasm Worker.
 - [ ] Benchmark setup/export latency with 1, 2, 3, and 4 A/B round trips.
 - [ ] Benchmark normal signing latency to confirm it remains close to the
   current single-relayer path.

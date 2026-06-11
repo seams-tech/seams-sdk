@@ -967,10 +967,11 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       transport || null,
     );
     if (!resolvedTransport) return null;
-    return await this.persistSigningSessionSealForThresholdSession({
+    const persisted = await this.persistSigningSessionSealForThresholdSession({
       sessionId: thresholdSessionId,
       transport: resolvedTransport,
     });
+    return persisted.ok || persisted.code !== 'missing_restore_metadata' ? persisted : null;
   }
 
   private async restorePasskeySealedRecordForWallet(args: {
@@ -1496,6 +1497,18 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
         curve: 'ed25519',
       });
       purpose = { authMethod, curve: 'ed25519' };
+    }
+    if (
+      curve === 'ed25519' &&
+      authMethod === 'email_otp' &&
+      !String(recordMetadata.ed25519Restore?.xClientBaseB64u || '').trim()
+    ) {
+      return {
+        ok: false,
+        code: 'missing_restore_metadata',
+        message:
+          'Email OTP Ed25519 sealed session persistence is deferred until client-base metadata is cached',
+      };
     }
     const singleFlightKey = makeWarmSessionSingleFlightKey({
       operation: 'persist',
