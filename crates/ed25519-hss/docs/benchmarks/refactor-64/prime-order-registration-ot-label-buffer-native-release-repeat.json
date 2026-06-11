@@ -4,7 +4,7 @@
   "fixture_name": "wraparound-seed",
   "config": {
     "emit_json": false,
-    "output_path": "docs/benchmarks/refactor-64/prime-order-registration-ot-label-buffer-native-release-repeat.json",
+    "output_path": "crates/ed25519-hss/docs/benchmarks/refactor-64/prime-order-registration-ot-label-buffer-native-release-repeat.json",
     "fixture_name": null,
     "warmup_iterations": 1,
     "sample_count": 10

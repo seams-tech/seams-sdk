@@ -1,0 +1,901 @@
+{
+  "report_version": "browser_indexeddb_cache_benchmark_v0",
+  "bundle_version": "browser_cache_benchmark_bundle_v0",
+  "warmup_samples": 1,
+  "timed_samples": 8,
+  "decode_iterations_per_sample": 200,
+  "trace_iterations_per_sample": 200,
+  "timestamp_iso": "2026-06-11T01:38:44.300Z",
+  "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.0.0 Safari/537.36",
+  "targets": [
+    {
+      "label": "cached_gc_baseline",
+      "kind": "baseline",
+      "backend_family": null,
+      "bytes": 1200000,
+      "bytes_sha256_hex": "b7932ecd092cc7de0981221d9920bcd849fb3800400702650e1b8096e81d001d",
+      "manifest_bytes": 0,
+      "local_ratio_vs_cached_gc": 1,
+      "estimated_download_ms": [
+        {
+          "bandwidth_mbps": 10,
+          "estimated_ms": 960
+        },
+        {
+          "bandwidth_mbps": 25,
+          "estimated_ms": 384
+        },
+        {
+          "bandwidth_mbps": 50,
+          "estimated_ms": 192
+        },
+        {
+          "bandwidth_mbps": 100,
+          "estimated_ms": 96
+        }
+      ],
+      "browser_indexeddb_write_ns": {
+        "min_ns": 2000000,
+        "median_ns": 2400000,
+        "mean_ns": 2450000,
+        "p95_ns": 3200000,
+        "max_ns": 3200000
+      },
+      "browser_indexeddb_read_ns": {
+        "min_ns": 500000,
+        "median_ns": 600000,
+        "mean_ns": 575000,
+        "p95_ns": 700000,
+        "max_ns": 700000
+      },
+      "local_file_io_reference": {
+        "label": "cached_gc_baseline",
+        "kind": "baseline",
+        "backend_family": null,
+        "bytes": 1200000,
+        "manifest_bytes": 0,
+        "size_ratio_vs_cached_gc": 1,
+        "estimated_download_ms": [
+          {
+            "bandwidth_mbps": 10,
+            "estimated_ms": 960
+          },
+          {
+            "bandwidth_mbps": 25,
+            "estimated_ms": 384
+          },
+          {
+            "bandwidth_mbps": 50,
+            "estimated_ms": 192
+          },
+          {
+            "bandwidth_mbps": 100,
+            "estimated_ms": 96
+          }
+        ],
+        "cache_write_ns": {
+          "min_ns": 125083,
+          "median_ns": 167000,
+          "mean_ns": 894562,
+          "p95_ns": 3243458,
+          "max_ns": 3243458
+        },
+        "cache_read_ns": {
+          "min_ns": 159875,
+          "median_ns": 211667,
+          "mean_ns": 202359,
+          "p95_ns": 233666,
+          "max_ns": 233666
+        }
+      }
+    },
+    {
+      "label": "prime_order_stub_artifact",
+      "kind": "candidate_stub",
+      "backend_family": "prime_order_size_optimized",
+      "bytes": 138256,
+      "bytes_sha256_hex": "f8ee3869d72f632964d57adc8ed70e2d686598b28aeb9d1ce65880df26d3accc",
+      "manifest_bytes": 19001,
+      "local_ratio_vs_cached_gc": 0.115,
+      "estimated_download_ms": [
+        {
+          "bandwidth_mbps": 10,
+          "estimated_ms": 111
+        },
+        {
+          "bandwidth_mbps": 25,
+          "estimated_ms": 45
+        },
+        {
+          "bandwidth_mbps": 50,
+          "estimated_ms": 23
+        },
+        {
+          "bandwidth_mbps": 100,
+          "estimated_ms": 12
+        }
+      ],
+      "browser_indexeddb_write_ns": {
+        "min_ns": 1200000,
+        "median_ns": 1600000,
+        "mean_ns": 1575000,
+        "p95_ns": 1900000,
+        "max_ns": 1900000
+      },
+      "browser_indexeddb_read_ns": {
+        "min_ns": 0,
+        "median_ns": 200000,
+        "mean_ns": 150000,
+        "p95_ns": 300000,
+        "max_ns": 300000
+      },
+      "local_file_io_reference": {
+        "label": "prime_order_stub_artifact",
+        "kind": "candidate_stub",
+        "backend_family": "prime_order_size_optimized",
+        "bytes": 138256,
+        "manifest_bytes": 19001,
+        "size_ratio_vs_cached_gc": 0.11521333333333333,
+        "estimated_download_ms": [
+          {
+            "bandwidth_mbps": 10,
+            "estimated_ms": 111
+          },
+          {
+            "bandwidth_mbps": 25,
+            "estimated_ms": 45
+          },
+          {
+            "bandwidth_mbps": 50,
+            "estimated_ms": 23
+          },
+          {
+            "bandwidth_mbps": 100,
+            "estimated_ms": 12
+          }
+        ],
+        "cache_write_ns": {
+          "min_ns": 34250,
+          "median_ns": 40041,
+          "mean_ns": 41400,
+          "p95_ns": 64000,
+          "max_ns": 64000
+        },
+        "cache_read_ns": {
+          "min_ns": 29542,
+          "median_ns": 33833,
+          "mean_ns": 34531,
+          "p95_ns": 39667,
+          "max_ns": 39667
+        }
+      }
+    },
+    {
+      "label": "prime_order_structured_artifact",
+      "kind": "candidate_structured",
+      "backend_family": "prime_order_size_optimized",
+      "bytes": 138256,
+      "bytes_sha256_hex": "f8705dd87b7ae6736c8f336e80323e30a3b5127e8764cc6384f2cc2f4a0cb4eb",
+      "manifest_bytes": 7439,
+      "local_ratio_vs_cached_gc": 0.115,
+      "estimated_download_ms": [
+        {
+          "bandwidth_mbps": 10,
+          "estimated_ms": 111
+        },
+        {
+          "bandwidth_mbps": 25,
+          "estimated_ms": 45
+        },
+        {
+          "bandwidth_mbps": 50,
+          "estimated_ms": 23
+        },
+        {
+          "bandwidth_mbps": 100,
+          "estimated_ms": 12
+        }
+      ],
+      "browser_indexeddb_write_ns": {
+        "min_ns": 1100000,
+        "median_ns": 1400000,
+        "mean_ns": 1337500,
+        "p95_ns": 1500000,
+        "max_ns": 1500000
+      },
+      "browser_indexeddb_read_ns": {
+        "min_ns": 100000,
+        "median_ns": 100000,
+        "mean_ns": 137500,
+        "p95_ns": 200000,
+        "max_ns": 200000
+      },
+      "local_file_io_reference": {
+        "label": "prime_order_structured_artifact",
+        "kind": "candidate_structured",
+        "backend_family": "prime_order_size_optimized",
+        "bytes": 138256,
+        "manifest_bytes": 7439,
+        "size_ratio_vs_cached_gc": 0.11521333333333333,
+        "estimated_download_ms": [
+          {
+            "bandwidth_mbps": 10,
+            "estimated_ms": 111
+          },
+          {
+            "bandwidth_mbps": 25,
+            "estimated_ms": 45
+          },
+          {
+            "bandwidth_mbps": 50,
+            "estimated_ms": 23
+          },
+          {
+            "bandwidth_mbps": 100,
+            "estimated_ms": 12
+          }
+        ],
+        "cache_write_ns": {
+          "min_ns": 34625,
+          "median_ns": 39667,
+          "mean_ns": 39833,
+          "p95_ns": 47666,
+          "max_ns": 47666
+        },
+        "cache_read_ns": {
+          "min_ns": 30375,
+          "median_ns": 35542,
+          "mean_ns": 34520,
+          "p95_ns": 36500,
+          "max_ns": 36500
+        }
+      }
+    }
+  ],
+  "structured_execution": {
+    "label": "prime_order_structured_artifact",
+    "decode_per_iteration_ns": {
+      "min_ns": 6000,
+      "median_ns": 17500,
+      "mean_ns": 12813,
+      "p95_ns": 24000,
+      "max_ns": 24000
+    },
+    "trace_per_iteration_ns": {
+      "min_ns": 8500,
+      "median_ns": 10000,
+      "mean_ns": 12313,
+      "p95_ns": 23000,
+      "max_ns": 23000
+    },
+    "decode_summary": {
+      "artifact_version": 1,
+      "section_count": 12,
+      "backend_family_id": 1,
+      "windows_backend_family_id": 1,
+      "section_version": 2,
+      "expected_total_bytes": 138256,
+      "template_descriptor_bytes": 226,
+      "public_data_bytes": 138256,
+      "cpu_target_latency_ms": 2000,
+      "accelerator_target_latency_ms": 750,
+      "fixed_function_id": "ed25519_seed_expand/one_block_sha512_clamp_share_output_v0",
+      "encoder_version": "prime_order_encoder_v1",
+      "total_records": 262,
+      "record_bytes": 64,
+      "class_count": 6,
+      "add_lane_count": 32,
+      "schedule_derived_count": 64,
+      "round_constant_count": 80,
+      "round_state_count": 80,
+      "output_projector_count": 4,
+      "participant_count": 2,
+      "participant_id_count": 2,
+      "class_counts": [
+        "add_lane:32",
+        "schedule_derived:64",
+        "round_constant:80",
+        "round_state:80",
+        "output_projector:4",
+        "context_participant:2"
+      ],
+      "digest_checksum_hex": "284c1"
+    },
+    "trace_summary": {
+      "preload_round_constant_count": 80,
+      "preload_context_participant_count": 2,
+      "total_steps": 180,
+      "stage_count": 7,
+      "evaluator_ops": {
+        "recoded_scalar_digits": 1248,
+        "precomputed_window_bits_loaded": 16576,
+        "bucket_accumulations": 3296,
+        "bucket_reductions": 3980,
+        "accumulator_curve_additions": 712,
+        "dependency_merges": 448,
+        "point_normalizations": 184
+      },
+      "estimated_curve_cost_units": 62748,
+      "checksum_hex": "4a8529",
+      "stages": [
+        {
+          "label": "add_mod_2pow256",
+          "step_count": 32,
+          "evaluator_ops": {
+            "recoded_scalar_digits": 128,
+            "precomputed_window_bits_loaded": 1024,
+            "bucket_accumulations": 128,
+            "bucket_reductions": 480,
+            "accumulator_curve_additions": 32,
+            "dependency_merges": 0,
+            "point_normalizations": 32
+          },
+          "estimated_curve_cost_units": 4832
+        },
+        {
+          "label": "message_schedule",
+          "step_count": 64,
+          "evaluator_ops": {
+            "recoded_scalar_digits": 384,
+            "precomputed_window_bits_loaded": 4096,
+            "bucket_accumulations": 384,
+            "bucket_reductions": 960,
+            "accumulator_curve_additions": 192,
+            "dependency_merges": 128,
+            "point_normalizations": 64
+          },
+          "estimated_curve_cost_units": 14272
+        },
+        {
+          "label": "round_state_00_to_19",
+          "step_count": 20,
+          "evaluator_ops": {
+            "recoded_scalar_digits": 180,
+            "precomputed_window_bits_loaded": 2800,
+            "bucket_accumulations": 680,
+            "bucket_reductions": 620,
+            "accumulator_curve_additions": 120,
+            "dependency_merges": 80,
+            "point_normalizations": 20
+          },
+          "estimated_curve_cost_units": 10660
+        },
+        {
+          "label": "round_state_20_to_39",
+          "step_count": 20,
+          "evaluator_ops": {
+            "recoded_scalar_digits": 180,
+            "precomputed_window_bits_loaded": 2800,
+            "bucket_accumulations": 680,
+            "bucket_reductions": 620,
+            "accumulator_curve_additions": 120,
+            "dependency_merges": 80,
+            "point_normalizations": 20
+          },
+          "estimated_curve_cost_units": 10660
+        },
+        {
+          "label": "round_state_40_to_59",
+          "step_count": 20,
+          "evaluator_ops": {
+            "recoded_scalar_digits": 180,
+            "precomputed_window_bits_loaded": 2800,
+            "bucket_accumulations": 680,
+            "bucket_reductions": 620,
+            "accumulator_curve_additions": 120,
+            "dependency_merges": 80,
+            "point_normalizations": 20
+          },
+          "estimated_curve_cost_units": 10660
+        },
+        {
+          "label": "round_state_60_to_79",
+          "step_count": 20,
+          "evaluator_ops": {
+            "recoded_scalar_digits": 180,
+            "precomputed_window_bits_loaded": 2800,
+            "bucket_accumulations": 680,
+            "bucket_reductions": 620,
+            "accumulator_curve_additions": 120,
+            "dependency_merges": 80,
+            "point_normalizations": 20
+          },
+          "estimated_curve_cost_units": 10660
+        },
+        {
+          "label": "output_projector",
+          "step_count": 4,
+          "evaluator_ops": {
+            "recoded_scalar_digits": 16,
+            "precomputed_window_bits_loaded": 256,
+            "bucket_accumulations": 64,
+            "bucket_reductions": 60,
+            "accumulator_curve_additions": 8,
+            "dependency_merges": 0,
+            "point_normalizations": 8
+          },
+          "estimated_curve_cost_units": 1004
+        }
+      ]
+    }
+  },
+  "browser_cpu_executor": {
+    "available": false,
+    "runtime": "wasm_browser_cpu",
+    "wasm_module_url": "http://127.0.0.1:8765/generated/pkg/ed25519_hss.js?cache_bust=1781141922825",
+    "error": "wasmModule.prepare_prime_order_cpu_executor is not a function"
+  },
+  "browser_ddh_hidden_eval": {
+    "available": true,
+    "runtime": "wasm_browser_ddh",
+    "wasm_module_url": "http://127.0.0.1:8765/generated/pkg/ed25519_hss.js?cache_bust=1781141922830",
+    "fixture_name": "wraparound-seed",
+    "artifact_bytes": 138256,
+    "active_window_records": 180,
+    "total_steps": 180,
+    "curve_cost_units": 62748,
+    "evaluator_ops": {
+      "recoded_scalar_digits": 1248,
+      "precomputed_window_bits_loaded": 16576,
+      "bucket_accumulations": 3296,
+      "bucket_reductions": 3980,
+      "accumulator_curve_additions": 712,
+      "dependency_merges": 448,
+      "point_normalizations": 184
+    },
+    "prepare_duration_ns": 219000000,
+    "sample_iterations": 1,
+    "sample_count": 3,
+    "execution_latency_ns": {
+      "min": 185200000.04768372,
+      "median": 186299999.95231628,
+      "mean": 194866666.71435037,
+      "p95": 213100000.14305115,
+      "max": 213100000.14305115
+    },
+    "js_wall_clock_execution_ns": {
+      "min": 185200000.04768372,
+      "median": 186299999.95231628,
+      "mean": 194866666.71435037,
+      "p95": 213100000.14305115,
+      "max": 213100000.14305115
+    },
+    "probe_total_hidden_eval_ns": 225500000,
+    "estimated_js_wasm_gap_ns": {
+      "min": 0,
+      "median": 0,
+      "mean": 0,
+      "p95": 0,
+      "max": 0
+    },
+    "detailed_result_duration_ns": 189000000,
+    "evaluate_duration_ns": 176000000,
+    "ot_open_join_duration_ns": 0,
+    "ot_branch_key_derivation_duration_ns": 0,
+    "ot_branch_decrypt_duration_ns": 0,
+    "ot_point_scalar_reconstruction_duration_ns": 0,
+    "ot_commitment_verification_duration_ns": 0,
+    "server_input_open_duration_ns": 0,
+    "server_input_share_duration_ns": 0,
+    "server_input_commitment_duration_ns": 0,
+    "server_input_transcript_duration_ns": 0,
+    "server_input_seal_duration_ns": 0,
+    "output_sealing_finalization_duration_ns": 0,
+    "result_assembly_duration_ns": 0,
+    "output_materialization_duration_ns": 0,
+    "output_open_duration_ns": 0,
+    "public_key_duration_ns": 0,
+    "detailed_total_duration_ns": 176000000,
+    "operation_counts": {
+      "logical_local_word_materializations": 12800,
+      "logical_shared_word_materializations": 1024,
+      "logical_transport_word_materializations": 1536,
+      "logical_commitment_materializations": 17928,
+      "logical_provenance_digest_materializations": 15360,
+      "logical_commitment_derivations": 2048,
+      "logical_provenance_digest_derivations": 13824,
+      "logical_label_writes": 57128,
+      "logical_label_format_allocations": 265,
+      "physical_keyed_digest_derivations": 0,
+      "physical_keyed_digest_eval_xor_local_word": 0,
+      "physical_keyed_digest_eval_add_local": 0,
+      "physical_keyed_digest_eval_mul_local_material": 0,
+      "physical_keyed_digest_eval_mul_local": 0,
+      "physical_keyed_digest_phase_a_arith_share_to_bool": 0,
+      "physical_keyed_digest_phase_a_bool_to_arith_base": 0,
+      "physical_keyed_digest_phase_a_arith_to_bool_zero": 0,
+      "physical_keyed_digest_compose_word_from_share_bits": 0,
+      "physical_keyed_digest_share_word": 0,
+      "physical_keyed_digest_other": 0,
+      "physical_derived_commitment_hashes": 0,
+      "physical_derived_commitment_eval_xor_local_word": 0,
+      "physical_derived_commitment_eval_add_local": 0,
+      "physical_derived_commitment_eval_mul_local_material": 0,
+      "physical_derived_commitment_eval_mul_local": 0,
+      "physical_derived_commitment_phase_a_arith_share_to_bool": 0,
+      "physical_derived_commitment_phase_a_bool_to_arith_base": 0,
+      "physical_derived_commitment_phase_a_arith_to_bool_zero": 0,
+      "physical_derived_commitment_compose_word_from_share_bits": 0,
+      "physical_derived_commitment_share_word": 0,
+      "physical_derived_commitment_other": 0,
+      "physical_add_bit_hashes": 0,
+      "physical_mul_material_hashes": 0,
+      "physical_mul_output_seed_hashes": 0
+    },
+    "stage_operation_counts": {
+      "input_sharing": {
+        "core_word_materializations": 0,
+        "local_word_materializations": 1024,
+        "shared_word_materializations": 512,
+        "transport_word_materializations": 1024,
+        "commitment_materializations": 4100,
+        "provenance_digest_materializations": 2560,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 1024,
+        "label_writes": 4,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 0,
+        "bool_to_arith_paths": 0,
+        "arith_to_bool_paths": 0
+      },
+      "add_stage": {
+        "core_word_materializations": 0,
+        "local_word_materializations": 512,
+        "shared_word_materializations": 0,
+        "transport_word_materializations": 0,
+        "commitment_materializations": 512,
+        "provenance_digest_materializations": 512,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 512,
+        "label_writes": 1280,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 0,
+        "bool_to_arith_paths": 0,
+        "arith_to_bool_paths": 0
+      },
+      "message_schedule": {
+        "core_word_materializations": 16384,
+        "local_word_materializations": 26624,
+        "shared_word_materializations": 0,
+        "transport_word_materializations": 0,
+        "commitment_materializations": 26624,
+        "provenance_digest_materializations": 26624,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 43008,
+        "label_writes": 33344,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 0,
+        "bool_to_arith_paths": 16384,
+        "arith_to_bool_paths": 4096
+      },
+      "round_core": {
+        "core_word_materializations": 20480,
+        "local_word_materializations": 103424,
+        "shared_word_materializations": 0,
+        "transport_word_materializations": 0,
+        "commitment_materializations": 103424,
+        "provenance_digest_materializations": 103424,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 123904,
+        "label_writes": 22496,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 10240,
+        "bool_to_arith_paths": 40960,
+        "arith_to_bool_paths": 10240
+      },
+      "output_projector": {
+        "core_word_materializations": 0,
+        "local_word_materializations": 2048,
+        "shared_word_materializations": 512,
+        "transport_word_materializations": 512,
+        "commitment_materializations": 4100,
+        "provenance_digest_materializations": 3072,
+        "commitment_derivations": 2048,
+        "provenance_digest_derivations": 3072,
+        "label_writes": 4,
+        "label_format_allocations": 9,
+        "multiplication_material_paths": 0,
+        "bool_to_arith_paths": 0,
+        "arith_to_bool_paths": 0
+      },
+      "delivery": {
+        "core_word_materializations": 0,
+        "local_word_materializations": 0,
+        "shared_word_materializations": 0,
+        "transport_word_materializations": 0,
+        "commitment_materializations": 0,
+        "provenance_digest_materializations": 0,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 0,
+        "label_writes": 0,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 0,
+        "bool_to_arith_paths": 0,
+        "arith_to_bool_paths": 0
+      },
+      "round_substages": {
+        "sigma0": {
+          "core_word_materializations": 10240,
+          "local_word_materializations": 10240,
+          "shared_word_materializations": 0,
+          "transport_word_materializations": 0,
+          "commitment_materializations": 10240,
+          "provenance_digest_materializations": 10240,
+          "commitment_derivations": 0,
+          "provenance_digest_derivations": 20480,
+          "label_writes": 0,
+          "label_format_allocations": 0,
+          "multiplication_material_paths": 0,
+          "bool_to_arith_paths": 0,
+          "arith_to_bool_paths": 0
+        },
+        "sigma1": {
+          "core_word_materializations": 10240,
+          "local_word_materializations": 10240,
+          "shared_word_materializations": 0,
+          "transport_word_materializations": 0,
+          "commitment_materializations": 10240,
+          "provenance_digest_materializations": 10240,
+          "commitment_derivations": 0,
+          "provenance_digest_derivations": 20480,
+          "label_writes": 0,
+          "label_format_allocations": 0,
+          "multiplication_material_paths": 0,
+          "bool_to_arith_paths": 0,
+          "arith_to_bool_paths": 0
+        },
+        "ch": {
+          "core_word_materializations": 0,
+          "local_word_materializations": 20480,
+          "shared_word_materializations": 0,
+          "transport_word_materializations": 0,
+          "commitment_materializations": 20480,
+          "provenance_digest_materializations": 20480,
+          "commitment_derivations": 0,
+          "provenance_digest_derivations": 20480,
+          "label_writes": 0,
+          "label_format_allocations": 0,
+          "multiplication_material_paths": 5120,
+          "bool_to_arith_paths": 0,
+          "arith_to_bool_paths": 0
+        },
+        "maj": {
+          "core_word_materializations": 0,
+          "local_word_materializations": 40960,
+          "shared_word_materializations": 0,
+          "transport_word_materializations": 0,
+          "commitment_materializations": 40960,
+          "provenance_digest_materializations": 40960,
+          "commitment_derivations": 0,
+          "provenance_digest_derivations": 40960,
+          "label_writes": 0,
+          "label_format_allocations": 0,
+          "multiplication_material_paths": 5120,
+          "bool_to_arith_paths": 0,
+          "arith_to_bool_paths": 0
+        },
+        "state3": {
+          "core_word_materializations": 0,
+          "local_word_materializations": 0,
+          "shared_word_materializations": 0,
+          "transport_word_materializations": 0,
+          "commitment_materializations": 0,
+          "provenance_digest_materializations": 0,
+          "commitment_derivations": 0,
+          "provenance_digest_derivations": 0,
+          "label_writes": 0,
+          "label_format_allocations": 0,
+          "multiplication_material_paths": 0,
+          "bool_to_arith_paths": 5120,
+          "arith_to_bool_paths": 0
+        },
+        "temp1": {
+          "core_word_materializations": 0,
+          "local_word_materializations": 0,
+          "shared_word_materializations": 0,
+          "transport_word_materializations": 0,
+          "commitment_materializations": 0,
+          "provenance_digest_materializations": 0,
+          "commitment_derivations": 0,
+          "provenance_digest_derivations": 0,
+          "label_writes": 0,
+          "label_format_allocations": 0,
+          "multiplication_material_paths": 0,
+          "bool_to_arith_paths": 25600,
+          "arith_to_bool_paths": 0
+        },
+        "temp2": {
+          "core_word_materializations": 0,
+          "local_word_materializations": 0,
+          "shared_word_materializations": 0,
+          "transport_word_materializations": 0,
+          "commitment_materializations": 0,
+          "provenance_digest_materializations": 0,
+          "commitment_derivations": 0,
+          "provenance_digest_derivations": 0,
+          "label_writes": 0,
+          "label_format_allocations": 0,
+          "multiplication_material_paths": 0,
+          "bool_to_arith_paths": 10240,
+          "arith_to_bool_paths": 0
+        },
+        "new_a_bits": {
+          "core_word_materializations": 0,
+          "local_word_materializations": 10240,
+          "shared_word_materializations": 0,
+          "transport_word_materializations": 0,
+          "commitment_materializations": 10240,
+          "provenance_digest_materializations": 10240,
+          "commitment_derivations": 0,
+          "provenance_digest_derivations": 10240,
+          "label_writes": 0,
+          "label_format_allocations": 0,
+          "multiplication_material_paths": 0,
+          "bool_to_arith_paths": 0,
+          "arith_to_bool_paths": 5120
+        },
+        "new_e_bits": {
+          "core_word_materializations": 0,
+          "local_word_materializations": 10240,
+          "shared_word_materializations": 0,
+          "transport_word_materializations": 0,
+          "commitment_materializations": 10240,
+          "provenance_digest_materializations": 10240,
+          "commitment_derivations": 0,
+          "provenance_digest_derivations": 10240,
+          "label_writes": 0,
+          "label_format_allocations": 0,
+          "multiplication_material_paths": 0,
+          "bool_to_arith_paths": 0,
+          "arith_to_bool_paths": 5120
+        }
+      }
+    },
+    "latency_ns_per_curve_cost_unit": {
+      "min": 2951.4884944170926,
+      "median": 2969.0189321144303,
+      "mean": 3105.5438693560013,
+      "p95": 3396.1241815364815,
+      "max": 3396.1241815364815
+    },
+    "stage_timings_ns": {
+      "input_sharing": {
+        "min": 11700000,
+        "median": 11700000,
+        "mean": 11700000,
+        "p95": 11700000,
+        "max": 11700000
+      },
+      "add_stage": {
+        "min": 2600000,
+        "median": 2600000,
+        "mean": 2600000,
+        "p95": 2600000,
+        "max": 2600000
+      },
+      "message_schedule": {
+        "min": 29000000,
+        "median": 29000000,
+        "mean": 29000000,
+        "p95": 29000000,
+        "max": 29000000
+      },
+      "round_core": {
+        "min": 134400000,
+        "median": 134400000,
+        "mean": 134400000,
+        "p95": 134400000,
+        "max": 134400000
+      },
+      "output_projector": {
+        "min": 47800000,
+        "median": 47800000,
+        "mean": 47800000,
+        "p95": 47800000,
+        "max": 47800000
+      }
+    },
+    "substage_timings_ns": {
+      "message_schedule_accumulation": {
+        "min": 23600002,
+        "median": 23600002,
+        "mean": 23600002,
+        "p95": 23600002,
+        "max": 23600002
+      },
+      "round_sigma1": {
+        "min": 5500000,
+        "median": 5500000,
+        "mean": 5500000,
+        "p95": 5500000,
+        "max": 5500000
+      },
+      "round_ch": {
+        "min": 23799989,
+        "median": 23799989,
+        "mean": 23799989,
+        "p95": 23799989,
+        "max": 23799989
+      },
+      "round_temp1": {
+        "min": 7600012,
+        "median": 7600012,
+        "mean": 7600012,
+        "p95": 7600012,
+        "max": 7600012
+      },
+      "round_temp2": {
+        "min": 3000000,
+        "median": 3000000,
+        "mean": 3000000,
+        "p95": 3000000,
+        "max": 3000000
+      }
+    },
+    "reference_match": true,
+    "output_public_key_hex": "3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29",
+    "output_x_client_base_hex": "c9c5ee7fe5f78c57c8c4d14c227b84c7107a0e45927f385e349989a64a2ef308",
+    "probe_results": [
+      {
+        "stage": "input_sharing",
+        "ok": true,
+        "completed_stage": "input_sharing",
+        "total_duration_ns": 11700000,
+        "message_schedule_accumulation_duration_ns": 0,
+        "round_sigma1_duration_ns": 0,
+        "round_ch_duration_ns": 0,
+        "round_temp1_duration_ns": 0,
+        "round_temp2_duration_ns": 0
+      },
+      {
+        "stage": "add_stage",
+        "ok": true,
+        "completed_stage": "add_stage",
+        "total_duration_ns": 14300000,
+        "message_schedule_accumulation_duration_ns": 0,
+        "round_sigma1_duration_ns": 0,
+        "round_ch_duration_ns": 0,
+        "round_temp1_duration_ns": 0,
+        "round_temp2_duration_ns": 0
+      },
+      {
+        "stage": "message_schedule",
+        "ok": true,
+        "completed_stage": "message_schedule",
+        "total_duration_ns": 43300000,
+        "message_schedule_accumulation_duration_ns": 23600002,
+        "round_sigma1_duration_ns": 0,
+        "round_ch_duration_ns": 0,
+        "round_temp1_duration_ns": 0,
+        "round_temp2_duration_ns": 0
+      },
+      {
+        "stage": "round_core",
+        "ok": true,
+        "completed_stage": "round_core",
+        "total_duration_ns": 177700000,
+        "message_schedule_accumulation_duration_ns": 24899994,
+        "round_sigma1_duration_ns": 5500000,
+        "round_ch_duration_ns": 23799989,
+        "round_temp1_duration_ns": 7600012,
+        "round_temp2_duration_ns": 3000000
+      },
+      {
+        "stage": "output_projector",
+        "ok": true,
+        "completed_stage": "output_projector",
+        "total_duration_ns": 225500000,
+        "message_schedule_accumulation_duration_ns": 26799997,
+        "round_sigma1_duration_ns": 6500009,
+        "round_ch_duration_ns": 26799990,
+        "round_temp1_duration_ns": 8000005,
+        "round_temp2_duration_ns": 2899998
+      }
+    ]
+  },
+  "browser_webgpu_probe": {
+    "available": false,
+    "runtime": "browser_webgpu_probe",
+    "error": "requestAdapter returned null"
+  }
+}

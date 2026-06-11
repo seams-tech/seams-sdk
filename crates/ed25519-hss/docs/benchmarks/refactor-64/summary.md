@@ -19,9 +19,9 @@ Outcome:
 
 Raw native benchmark files:
 
-- `docs/benchmarks/refactor-64/ddh-hidden-eval-baseline.json`
-- `docs/benchmarks/refactor-64/ddh-hidden-eval-a2b-destination-reuse.json`
-- `docs/benchmarks/refactor-64/ddh-hidden-eval-a2b-destination-reuse-repeat.json`
+- `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-baseline.json`
+- `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-a2b-destination-reuse.json`
+- `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-a2b-destination-reuse-repeat.json`
 
 Validation run while the candidate was applied:
 
@@ -36,12 +36,12 @@ Validation run while the candidate was applied:
 Baseline:
 
 - Command: `cargo run --release --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_ddh_hidden_eval -- --primitive-warmup 0 --primitive-iterations 1 --stage-warmup 0 --stage-iterations 1 --samples 8`
-- Output: `docs/benchmarks/refactor-64/ddh-hidden-eval-baseline.json`
+- Output: `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-baseline.json`
 
 Candidate repeat:
 
 - Command: `cargo run --release --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_ddh_hidden_eval -- --primitive-warmup 0 --primitive-iterations 1 --stage-warmup 0 --stage-iterations 1 --samples 16`
-- Output: `docs/benchmarks/refactor-64/ddh-hidden-eval-a2b-destination-reuse-repeat.json`
+- Output: `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-a2b-destination-reuse-repeat.json`
 
 | Bucket              | Before p50 (ms) | After p50 (ms) | p50 delta | Before p95 (ms) | After p95 (ms) | p95 delta |
 | ------------------- | --------------: | -------------: | --------: | --------------: | -------------: | --------: |
@@ -481,9 +481,9 @@ Interpretation:
 Benchmark:
 
 - Command:
-  `cargo run --release --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_ddh_hidden_eval_alloc -- --samples 5 --warmup 1 --output docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe.json`
+  `cargo run --release --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_ddh_hidden_eval_alloc -- --samples 5 --warmup 1 --output crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe.json`
 - Output:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe.json`
 - Scope: native release allocation-counting probe for the prepared-session
   path, direct hidden-eval profiling path, hidden-output materialization, and
   same-process delivery path
@@ -520,9 +520,9 @@ Candidate:
 Benchmarks:
 
 - Baseline allocation probe:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe.json`
 - Candidate allocation probe:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-packed-metadata.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-packed-metadata.json`
 - Candidate direct WASM run ID: `2026-06-08T12-24-44-719Z`
 - Candidate direct WASM output:
   `benchmarks/ed25519-hss-wasm/out/2026-06-08T12-24-44-719Z/summary.md`
@@ -564,9 +564,9 @@ Candidate:
 Benchmarks:
 
 - Baseline allocation probe:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe.json`
 - Candidate allocation probe:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-state-scratch.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-state-scratch.json`
 - Candidate direct WASM run ID: `2026-06-08T12-48-31-686Z`
 - Candidate direct WASM output:
   `benchmarks/ed25519-hss-wasm/out/2026-06-08T12-48-31-686Z/summary.md`
@@ -626,9 +626,9 @@ Candidate:
 Benchmarks:
 
 - Baseline allocation probe:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe.json`
 - Candidate allocation probe:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-extra-material-iter.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-extra-material-iter.json`
 - Candidate direct WASM run ID: `2026-06-08T13-21-25-923Z`
 - Candidate direct WASM output:
   `benchmarks/ed25519-hss-wasm/out/2026-06-08T13-21-25-923Z/summary.md`
@@ -682,9 +682,9 @@ Candidate:
 Benchmarks:
 
 - Baseline for this comparison:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-extra-material-iter.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-extra-material-iter.json`
 - Candidate allocation probe:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-output-canonicalize-fused.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-output-canonicalize-fused.json`
 - Baseline direct WASM run ID: `2026-06-08T13-21-25-923Z`
 - Candidate direct WASM run ID: `2026-06-08T13-34-44-648Z`
 - Candidate direct WASM output:
@@ -717,9 +717,9 @@ Outcome:
 Benchmark:
 
 - Command:
-  `cargo run --release --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_ddh_hidden_eval_alloc -- --samples 5 --warmup 1 --output docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-checkpoints.json`
+  `cargo run --release --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_ddh_hidden_eval_alloc -- --samples 5 --warmup 1 --output crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-checkpoints.json`
 - Output:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-checkpoints.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-checkpoints.json`
 - Baseline: retained extra-material iterator candidate
 
 Cumulative medians:
@@ -754,9 +754,9 @@ Candidate:
 Benchmarks:
 
 - Baseline allocation probe:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-checkpoints.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-checkpoints.json`
 - Candidate allocation probe:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-output-label-reuse.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-output-label-reuse.json`
 - Baseline direct WASM run ID: `2026-06-08T13-21-25-923Z`
 - Candidate direct WASM run ID: `2026-06-08T13-52-54-926Z`
 - Candidate registration-flow smoke run ID: `20260608-135345Z`
@@ -808,9 +808,9 @@ Candidate:
 Benchmarks:
 
 - Baseline allocation probe:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-extra-material-iter.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-extra-material-iter.json`
 - Candidate allocation probe:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-select-stream.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-select-stream.json`
 - Baseline direct WASM run ID: `2026-06-08T13-21-25-923Z`
 - Candidate direct WASM run ID: `2026-06-08T14-38-26-384Z`
 - Candidate registration-flow smoke run ID: `20260608-143926Z`
@@ -859,9 +859,9 @@ Candidate:
 Benchmarks:
 
 - Baseline allocation probe:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-extra-material-iter.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-extra-material-iter.json`
 - Candidate allocation probe:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-a2b-output-recycle.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-allocation-probe-a2b-output-recycle.json`
 - Baseline direct WASM run ID: `2026-06-08T13-21-25-923Z`
 - Candidate direct WASM run ID: `2026-06-08T14-47-37-017Z`
 
@@ -902,13 +902,13 @@ Candidate:
 Benchmarks:
 
 - Native CPU sample:
-  `docs/benchmarks/refactor-64/profiles/ddh-hidden-eval-native-sample.txt`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/profiles/ddh-hidden-eval-native-sample.txt`
 - Native baseline:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-native-sample-report.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-native-sample-report.json`
 - First-fold native candidate:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-local-mul-material-provenance-once.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-local-mul-material-provenance-once.json`
 - Combined native candidate:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-local-mul-provenance-folds.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-local-mul-provenance-folds.json`
 - Baseline direct WASM run ID: `2026-06-08T13-21-25-923Z`
 - Combined direct WASM run ID: `2026-06-09T14-04-45-320Z`
 - Combined registration-flow smoke run ID: `20260609-140541Z`
@@ -964,7 +964,7 @@ Candidate:
 Benchmarks:
 
 - Native candidate:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-local-mul-batch-output-provenance-fold.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-local-mul-batch-output-provenance-fold.json`
 - Direct WASM candidate run ID: `2026-06-09T14-19-03-120Z`
 - Registration-flow smoke run ID: `20260609-141952Z`
 
@@ -1017,9 +1017,9 @@ Candidate:
 Benchmark:
 
 - Command:
-  `cargo run --release --features hss-physical-counters --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_ddh_hidden_eval -- --primitive-warmup 0 --primitive-iterations 1 --stage-warmup 0 --stage-iterations 1 --samples 1 --output docs/benchmarks/refactor-64/ddh-hidden-eval-physical-hash-counters.json`
+  `cargo run --release --features hss-physical-counters --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_ddh_hidden_eval -- --primitive-warmup 0 --primitive-iterations 1 --stage-warmup 0 --stage-iterations 1 --samples 1 --output crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-physical-hash-counters.json`
 - Output:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-physical-hash-counters.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-physical-hash-counters.json`
 
 Counter result:
 
@@ -1054,9 +1054,9 @@ Candidate:
 Benchmark:
 
 - Command:
-  `cargo run --release --features hss-physical-counters --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_ddh_hidden_eval -- --primitive-warmup 0 --primitive-iterations 1 --stage-warmup 0 --stage-iterations 1 --samples 1 --output docs/benchmarks/refactor-64/ddh-hidden-eval-keyed-domain-counters.json`
+  `cargo run --release --features hss-physical-counters --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_ddh_hidden_eval -- --primitive-warmup 0 --primitive-iterations 1 --stage-warmup 0 --stage-iterations 1 --samples 1 --output crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-keyed-domain-counters.json`
 - Output:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-keyed-domain-counters.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-keyed-domain-counters.json`
 
 Counter result:
 
@@ -1107,9 +1107,9 @@ Candidate:
 Benchmark:
 
 - Command:
-  `cargo run --release --features hss-physical-counters --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_ddh_hidden_eval -- --primitive-warmup 0 --primitive-iterations 1 --stage-warmup 0 --stage-iterations 1 --samples 1 --output docs/benchmarks/refactor-64/ddh-hidden-eval-derived-commitment-domain-counters.json`
+  `cargo run --release --features hss-physical-counters --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_ddh_hidden_eval -- --primitive-warmup 0 --primitive-iterations 1 --stage-warmup 0 --stage-iterations 1 --samples 1 --output crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-derived-commitment-domain-counters.json`
 - Output:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-derived-commitment-domain-counters.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-derived-commitment-domain-counters.json`
 
 Counter result:
 
@@ -1162,9 +1162,9 @@ Candidate:
 Benchmarks:
 
 - Native physical counter run:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-carry-core-physical-counters.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-carry-core-physical-counters.json`
 - Native hidden-eval run:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-carry-core-native.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-carry-core-native.json`
 - Direct WASM run ID: `2026-06-09T16-10-54-140Z`
 - Registration-flow smoke run ID: `20260609-161140Z`
 
@@ -1234,9 +1234,9 @@ Candidate:
 Benchmarks:
 
 - Native physical counter run:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-a2b-core-physical-counters.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-a2b-core-physical-counters.json`
 - Native hidden-eval run:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-a2b-core-native.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-a2b-core-native.json`
 - Direct WASM run ID: `2026-06-09T16-27-57-114Z`
 - Registration-flow smoke run ID: `20260609-162843Z`
 
@@ -1306,7 +1306,7 @@ Candidate:
 Benchmarks:
 
 - Native hidden-eval run:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-output-transport-pair-native.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-output-transport-pair-native.json`
 - Direct WASM run ID: `2026-06-09T16-43-10-136Z`
 - Registration-flow smoke run ID: `20260609-164356Z`
 
@@ -1364,7 +1364,7 @@ Candidate:
 Benchmark:
 
 - Native hidden-eval run:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-core-input-bridge-native.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-core-input-bridge-native.json`
 
 Native hidden-eval result:
 
@@ -1396,7 +1396,7 @@ Candidate:
 Benchmark:
 
 - Native candidate:
-  `docs/benchmarks/refactor-64/ddh-hidden-eval-derived-commitment-prefix-hasher.json`
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/ddh-hidden-eval-derived-commitment-prefix-hasher.json`
 
 Native hidden-eval result:
 

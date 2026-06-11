@@ -1,0 +1,1029 @@
+{
+  "report_version": "ddh_hidden_eval_benchmark_v1",
+  "backend_version": "ddh_hss_backend_v5_ch_and_local_add_carry_root",
+  "metadata": {
+    "generated_at_unix_secs": 1781154008,
+    "host_os": "macos",
+    "host_arch": "aarch64",
+    "logical_cores": 14
+  },
+  "fixture_name": "wraparound-seed",
+  "artifact_bytes": 138256,
+  "active_window_records": 180,
+  "total_steps": 180,
+  "curve_cost_units": 62748,
+  "evaluator_ops": {
+    "recoded_scalar_digits": 1248,
+    "precomputed_window_bits_loaded": 16576,
+    "bucket_accumulations": 3296,
+    "bucket_reductions": 3980,
+    "accumulator_curve_additions": 712,
+    "dependency_merges": 448,
+    "point_normalizations": 184
+  },
+  "prepare_duration_ns": 108160000,
+  "config": {
+    "fixture_name": "wraparound-seed",
+    "primitive_warmup_iterations": 1000,
+    "primitive_sample_iterations": 10000,
+    "stage_warmup_iterations": 0,
+    "stage_sample_iterations": 1,
+    "sample_count": 6
+  },
+  "primitive_timings": [
+    {
+      "name": "share_bit",
+      "sample_count": 6,
+      "iterations_per_sample": 10000,
+      "total_iterations": 60000,
+      "latency_ns_per_op": {
+        "min": 5514.5625,
+        "median": 5564.36255,
+        "mean": 5613.856966666666,
+        "p95": 5881.025,
+        "max": 5881.025
+      },
+      "throughput_ops_per_sec": {
+        "min": 170038.3861656769,
+        "median": 179715.14944090895,
+        "mean": 178214.34724469934,
+        "p95": 181338.04812258453,
+        "max": 181338.04812258453
+      }
+    },
+    {
+      "name": "share_byte",
+      "sample_count": 6,
+      "iterations_per_sample": 10000,
+      "total_iterations": 60000,
+      "latency_ns_per_op": {
+        "min": 40441.8083,
+        "median": 41572.991649999996,
+        "mean": 42607.97636666666,
+        "p95": 47754.6,
+        "max": 47754.6
+      },
+      "throughput_ops_per_sec": {
+        "min": 20940.391082743863,
+        "median": 24066.124821009536,
+        "mean": 23553.26659108812,
+        "p95": 24726.88640878603,
+        "max": 24726.88640878603
+      }
+    },
+    {
+      "name": "eval_add_bit",
+      "sample_count": 6,
+      "iterations_per_sample": 10000,
+      "total_iterations": 60000,
+      "latency_ns_per_op": {
+        "min": 434.35,
+        "median": 443.6021,
+        "mean": 443.6631833333333,
+        "p95": 453.5208,
+        "max": 453.5208
+      },
+      "throughput_ops_per_sec": {
+        "min": 2204970.5327738,
+        "median": 2254290.426015997,
+        "mean": 2254328.231471477,
+        "p95": 2302290.779325429,
+        "max": 2302290.779325429
+      }
+    },
+    {
+      "name": "eval_mul_bit",
+      "sample_count": 6,
+      "iterations_per_sample": 10000,
+      "total_iterations": 60000,
+      "latency_ns_per_op": {
+        "min": 1920.0542,
+        "median": 1931.7208,
+        "mean": 1934.1507,
+        "p95": 1946.6917,
+        "max": 1946.6917
+      },
+      "throughput_ops_per_sec": {
+        "min": 513692.0242686605,
+        "median": 517673.23954109196,
+        "mean": 517035.4030376742,
+        "p95": 520818.6310573941,
+        "max": 520818.6310573941
+      }
+    },
+    {
+      "name": "eval_add_byte",
+      "sample_count": 6,
+      "iterations_per_sample": 10000,
+      "total_iterations": 60000,
+      "latency_ns_per_op": {
+        "min": 1556.2875,
+        "median": 1582.975,
+        "mean": 1587.37155,
+        "p95": 1616.5667,
+        "max": 1616.5667
+      },
+      "throughput_ops_per_sec": {
+        "min": 618594.9518816638,
+        "median": 631767.7800492911,
+        "mean": 630112.3743312047,
+        "p95": 642554.7978763564,
+        "max": 642554.7978763564
+      }
+    },
+    {
+      "name": "eval_mul_byte",
+      "sample_count": 6,
+      "iterations_per_sample": 10000,
+      "total_iterations": 60000,
+      "latency_ns_per_op": {
+        "min": 1912.7709,
+        "median": 1942.92715,
+        "mean": 1944.0340666666668,
+        "p95": 1972.6,
+        "max": 1972.6
+      },
+      "throughput_ops_per_sec": {
+        "min": 506945.14853492856,
+        "median": 514690.1669794645,
+        "mean": 514444.793266515,
+        "p95": 522801.76366129366,
+        "max": 522801.76366129366
+      }
+    }
+  ],
+  "stage_timings": [
+    {
+      "name": "input_sharing",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 1873333.0,
+        "median": 1963416.5,
+        "mean": 1945604.1666666667,
+        "p95": 1972459.0,
+        "max": 1972459.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 506.981387192332,
+        "median": 509.3171395600217,
+        "mean": 514.1465993425982,
+        "p95": 533.8079241651111,
+        "max": 533.8079241651111
+      }
+    },
+    {
+      "name": "add_stage",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 1473875.0,
+        "median": 1518979.0,
+        "mean": 1519034.8333333333,
+        "p95": 1559375.0,
+        "max": 1559375.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 641.2825651302605,
+        "median": 658.3406547967123,
+        "mean": 658.5603959038716,
+        "p95": 678.4835891781868,
+        "max": 678.4835891781868
+      }
+    },
+    {
+      "name": "message_schedule",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 18607500.0,
+        "median": 18781375.0,
+        "mean": 18802555.5,
+        "p95": 19113250.0,
+        "max": 19113250.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 52.31972584463657,
+        "median": 53.24511847130111,
+        "mean": 53.18854089131327,
+        "p95": 53.74177079134758,
+        "max": 53.74177079134758
+      }
+    },
+    {
+      "name": "round_core",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 67779166.0,
+        "median": 68804312.5,
+        "mean": 68867944.16666667,
+        "p95": 70197208.0,
+        "max": 70197208.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 14.245580821391073,
+        "median": 14.534449362835124,
+        "mean": 14.523046139597044,
+        "p95": 14.753796173886235,
+        "max": 14.753796173886235
+      }
+    },
+    {
+      "name": "output_projector",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 16946750.0,
+        "median": 17307000.5,
+        "mean": 17281576.5,
+        "p95": 17543375.0,
+        "max": 17543375.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 57.00157466850022,
+        "median": 57.780498453811255,
+        "mean": 57.87474326114096,
+        "p95": 59.008364435658756,
+        "max": 59.008364435658756
+      }
+    },
+    {
+      "name": "total_hidden_eval",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 106994833.0,
+        "median": 108431729.0,
+        "mean": 108418020.66666667,
+        "p95": 109863375.0,
+        "max": 109863375.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 9.10221445499922,
+        "median": 9.222427785613728,
+        "mean": 9.224464574982628,
+        "p95": 9.346245720108746,
+        "max": 9.346245720108746
+      }
+    },
+    {
+      "name": "direct_executor_unbucketed",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 833.0,
+        "median": 1333.5,
+        "mean": 1305.5,
+        "p95": 1708.0,
+        "max": 1708.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 585480.093676815,
+        "median": 750633.2676611315,
+        "mean": 821824.6968646698,
+        "p95": 1200480.1920768307,
+        "max": 1200480.1920768307
+      }
+    }
+  ],
+  "substage_timings": [
+    {
+      "name": "message_schedule_accumulation",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 14999541.0,
+        "median": 15063687.5,
+        "mean": 15106515.166666666,
+        "p95": 15356253.0,
+        "max": 15356253.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 65.12005239819896,
+        "median": 66.38537367280367,
+        "mean": 66.20091989393082,
+        "p95": 66.66870672909258,
+        "max": 66.66870672909258
+      }
+    },
+    {
+      "name": "round_sigma1",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 3450616.0,
+        "median": 3497475.5,
+        "mean": 3498678.6666666665,
+        "p95": 3556463.0,
+        "max": 3556463.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 281.17823804155984,
+        "median": 285.9352011792048,
+        "mean": 285.85504992176806,
+        "p95": 289.8033278695746,
+        "max": 289.8033278695746
+      }
+    },
+    {
+      "name": "round_sigma0",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 3445535.0,
+        "median": 3497707.0,
+        "mean": 3505360.8333333335,
+        "p95": 3593880.0,
+        "max": 3593880.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 278.250804144824,
+        "median": 285.9041285266878,
+        "mean": 285.3442732486616,
+        "p95": 290.2306898638383,
+        "max": 290.2306898638383
+      }
+    },
+    {
+      "name": "round_ch",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 6830166.0,
+        "median": 6934755.0,
+        "mean": 6940424.833333333,
+        "p95": 7095996.0,
+        "max": 7095996.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 140.9245439258985,
+        "median": 144.21351552490358,
+        "mean": 144.11229681576523,
+        "p95": 146.4093259226789,
+        "max": 146.4093259226789
+      }
+    },
+    {
+      "name": "round_maj",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 19436040.0,
+        "median": 19964330.0,
+        "mean": 19938643.5,
+        "p95": 20363874.0,
+        "max": 20363874.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 49.10656980101134,
+        "median": 50.090704547082254,
+        "mean": 50.168293506898955,
+        "p95": 51.45080993865005,
+        "max": 51.45080993865005
+      }
+    },
+    {
+      "name": "round_state3",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 816829.0,
+        "median": 843587.0,
+        "mean": 845786.6666666666,
+        "p95": 866048.0,
+        "max": 866048.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 1154.670410877919,
+        "median": 1185.4148382491703,
+        "mean": 1182.7623662775634,
+        "p95": 1224.2464457065064,
+        "max": 1224.2464457065064
+      }
+    },
+    {
+      "name": "round_temp1",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 4291587.0,
+        "median": 4441125.5,
+        "mean": 4448702.166666667,
+        "p95": 4610377.0,
+        "max": 4610377.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 216.9020017235033,
+        "median": 225.1783084191244,
+        "mean": 224.91060464300324,
+        "p95": 233.01403420226598,
+        "max": 233.01403420226598
+      }
+    },
+    {
+      "name": "round_temp2",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 1685839.0,
+        "median": 1712561.0,
+        "mean": 1711723.0,
+        "p95": 1749167.0,
+        "max": 1749167.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 571.7007009622295,
+        "median": 583.920825829769,
+        "mean": 584.285707695578,
+        "p95": 593.1764539792946,
+        "max": 593.1764539792946
+      }
+    },
+    {
+      "name": "round_new_a_bits",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 13037665.0,
+        "median": 13252727.5,
+        "mean": 13303597.166666666,
+        "p95": 13602249.0,
+        "max": 13602249.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 73.5172543893293,
+        "median": 75.4563906827103,
+        "mean": 75.18684496675975,
+        "p95": 76.70085095759094,
+        "max": 76.70085095759094
+      }
+    },
+    {
+      "name": "round_new_e_bits",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 12971871.0,
+        "median": 13395481.5,
+        "mean": 13351464.666666666,
+        "p95": 13617456.0,
+        "max": 13617456.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 73.43515558265803,
+        "median": 74.65268830714203,
+        "mean": 74.91575113805106,
+        "p95": 77.08988163696664,
+        "max": 77.08988163696664
+      }
+    }
+  ],
+  "delivery_timings": [
+    {
+      "name": "delivery_total",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 142818542.0,
+        "median": 144114104.0,
+        "mean": 144276180.5,
+        "p95": 146482375.0,
+        "max": 146482375.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 6.826759874694822,
+        "median": 6.938947540437111,
+        "mean": 6.931559285669106,
+        "p95": 7.001891953217111,
+        "max": 7.001891953217111
+      }
+    },
+    {
+      "name": "delivery_unbucketed",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 13555041.0,
+        "median": 14932458.5,
+        "mean": 14759847.333333334,
+        "p95": 16237959.0,
+        "max": 16237959.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 61.58409440496801,
+        "median": 66.96947296863432,
+        "mean": 68.0362839308486,
+        "p95": 73.77329216488538,
+        "max": 73.77329216488538
+      }
+    },
+    {
+      "name": "ot_open_join",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 17429875.0,
+        "median": 17542145.5,
+        "mean": 17612611.0,
+        "p95": 18110416.0,
+        "max": 18110416.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 55.216843169146415,
+        "median": 57.00565494826755,
+        "mean": 56.78687962557148,
+        "p95": 57.372757980192056,
+        "max": 57.372757980192056
+      }
+    },
+    {
+      "name": "ot_branch_key_derivation",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 480055.0,
+        "median": 486333.0,
+        "mean": 488740.5,
+        "p95": 500000.0,
+        "max": 500000.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 2000.0,
+        "median": 2056.2292357285123,
+        "mean": 2046.5844675351661,
+        "p95": 2083.094645405214,
+        "max": 2083.094645405214
+      }
+    },
+    {
+      "name": "ot_branch_decrypt",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 807155.0,
+        "median": 828249.5,
+        "mean": 827797.1666666666,
+        "p95": 840941.0,
+        "max": 840941.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 1189.1440659927391,
+        "median": 1207.3702996131587,
+        "mean": 1208.2265809406324,
+        "p95": 1238.9194144866847,
+        "max": 1238.9194144866847
+      }
+    },
+    {
+      "name": "ot_point_scalar_reconstruction",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 0.0,
+        "median": 0.0,
+        "mean": 0.0,
+        "p95": 0.0,
+        "max": 0.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 0.0,
+        "median": 0.0,
+        "mean": 0.0,
+        "p95": 0.0,
+        "max": 0.0
+      }
+    },
+    {
+      "name": "ot_commitment_verification",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 1138913.0,
+        "median": 1148032.5,
+        "mean": 1158689.8333333333,
+        "p95": 1191784.0,
+        "max": 1191784.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 839.078222228189,
+        "median": 871.0559920861648,
+        "mean": 863.2808109456022,
+        "p95": 878.0301919461803,
+        "max": 878.0301919461803
+      }
+    },
+    {
+      "name": "server_input_open",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 3060167.0,
+        "median": 3106562.5,
+        "mean": 3097604.3333333335,
+        "p95": 3134459.0,
+        "max": 3134459.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 319.03432139326117,
+        "median": 321.9012630943504,
+        "mean": 322.85681294810666,
+        "p95": 326.77955157349254,
+        "max": 326.77955157349254
+      }
+    },
+    {
+      "name": "server_input_share",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 3054917.0,
+        "median": 3098541.5,
+        "mean": 3090965.1666666665,
+        "p95": 3126500.0,
+        "max": 3126500.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 319.8464736926275,
+        "median": 322.7330691317079,
+        "mean": 323.54785871495704,
+        "p95": 327.3411356184145,
+        "max": 327.3411356184145
+      }
+    },
+    {
+      "name": "server_input_commitment",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 625.0,
+        "median": 1104.0,
+        "mean": 1256.8333333333333,
+        "p95": 2291.0,
+        "max": 2291.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 436490.6154517678,
+        "median": 984420.4759458997,
+        "mean": 1027227.8802715469,
+        "p95": 1600000.0,
+        "max": 1600000.0
+      }
+    },
+    {
+      "name": "server_input_transcript",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 708.0,
+        "median": 750.0,
+        "mean": 833.1666666666666,
+        "p95": 1250.0,
+        "max": 1250.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 800000.0,
+        "median": 1333333.3333333333,
+        "mean": 1248667.602634274,
+        "p95": 1412429.3785310735,
+        "max": 1412429.3785310735
+      }
+    },
+    {
+      "name": "result_assembly",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 2167.0,
+        "median": 2312.0,
+        "mean": 2333.3333333333335,
+        "p95": 2667.0,
+        "max": 2667.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 374953.1308586427,
+        "median": 432561.6386302988,
+        "mean": 430677.3287975676,
+        "p95": 461467.4665436087,
+        "max": 461467.4665436087
+      }
+    },
+    {
+      "name": "output_sealing_finalization",
+      "sample_count": 6,
+      "iterations_per_sample": 1,
+      "total_iterations": 6,
+      "latency_ns_per_op": {
+        "min": 349917.0,
+        "median": 382479.0,
+        "mean": 385763.8333333333,
+        "p95": 456250.0,
+        "max": 456250.0
+      },
+      "throughput_ops_per_sec": {
+        "min": 2191.780821917808,
+        "median": 2614.604936953966,
+        "mean": 2612.597886765596,
+        "p95": 2857.8205688777625,
+        "max": 2857.8205688777625
+      }
+    }
+  ],
+  "operation_counts": {
+    "logical_local_word_materializations": 12800,
+    "logical_shared_word_materializations": 1024,
+    "logical_transport_word_materializations": 1536,
+    "logical_commitment_materializations": 17928,
+    "logical_provenance_digest_materializations": 15360,
+    "logical_commitment_derivations": 2048,
+    "logical_provenance_digest_derivations": 13824,
+    "logical_label_writes": 57128,
+    "logical_label_format_allocations": 265,
+    "physical_keyed_digest_derivations": 0,
+    "physical_keyed_digest_eval_xor_local_word": 0,
+    "physical_keyed_digest_eval_add_local": 0,
+    "physical_keyed_digest_eval_mul_local_material": 0,
+    "physical_keyed_digest_eval_mul_local": 0,
+    "physical_keyed_digest_phase_a_arith_share_to_bool": 0,
+    "physical_keyed_digest_phase_a_bool_to_arith_base": 0,
+    "physical_keyed_digest_phase_a_arith_to_bool_zero": 0,
+    "physical_keyed_digest_compose_word_from_share_bits": 0,
+    "physical_keyed_digest_share_word": 0,
+    "physical_keyed_digest_other": 0,
+    "physical_derived_commitment_hashes": 0,
+    "physical_derived_commitment_eval_xor_local_word": 0,
+    "physical_derived_commitment_eval_add_local": 0,
+    "physical_derived_commitment_eval_mul_local_material": 0,
+    "physical_derived_commitment_eval_mul_local": 0,
+    "physical_derived_commitment_phase_a_arith_share_to_bool": 0,
+    "physical_derived_commitment_phase_a_bool_to_arith_base": 0,
+    "physical_derived_commitment_phase_a_arith_to_bool_zero": 0,
+    "physical_derived_commitment_compose_word_from_share_bits": 0,
+    "physical_derived_commitment_share_word": 0,
+    "physical_derived_commitment_other": 0,
+    "physical_add_bit_hashes": 0,
+    "physical_mul_material_hashes": 0,
+    "physical_mul_output_seed_hashes": 0
+  },
+  "stage_operation_counts": {
+    "input_sharing": {
+      "core_word_materializations": 0,
+      "local_word_materializations": 1024,
+      "shared_word_materializations": 512,
+      "transport_word_materializations": 1024,
+      "commitment_materializations": 4100,
+      "provenance_digest_materializations": 2560,
+      "commitment_derivations": 0,
+      "provenance_digest_derivations": 1024,
+      "label_writes": 4,
+      "label_format_allocations": 0,
+      "multiplication_material_paths": 0,
+      "bool_to_arith_paths": 0,
+      "arith_to_bool_paths": 0
+    },
+    "add_stage": {
+      "core_word_materializations": 0,
+      "local_word_materializations": 512,
+      "shared_word_materializations": 0,
+      "transport_word_materializations": 0,
+      "commitment_materializations": 512,
+      "provenance_digest_materializations": 512,
+      "commitment_derivations": 0,
+      "provenance_digest_derivations": 512,
+      "label_writes": 1280,
+      "label_format_allocations": 0,
+      "multiplication_material_paths": 0,
+      "bool_to_arith_paths": 0,
+      "arith_to_bool_paths": 0
+    },
+    "message_schedule": {
+      "core_word_materializations": 16384,
+      "local_word_materializations": 26624,
+      "shared_word_materializations": 0,
+      "transport_word_materializations": 0,
+      "commitment_materializations": 26624,
+      "provenance_digest_materializations": 26624,
+      "commitment_derivations": 0,
+      "provenance_digest_derivations": 43008,
+      "label_writes": 33344,
+      "label_format_allocations": 0,
+      "multiplication_material_paths": 0,
+      "bool_to_arith_paths": 16384,
+      "arith_to_bool_paths": 4096
+    },
+    "round_core": {
+      "core_word_materializations": 20480,
+      "local_word_materializations": 103424,
+      "shared_word_materializations": 0,
+      "transport_word_materializations": 0,
+      "commitment_materializations": 103424,
+      "provenance_digest_materializations": 103424,
+      "commitment_derivations": 0,
+      "provenance_digest_derivations": 123904,
+      "label_writes": 22496,
+      "label_format_allocations": 0,
+      "multiplication_material_paths": 10240,
+      "bool_to_arith_paths": 40960,
+      "arith_to_bool_paths": 10240
+    },
+    "output_projector": {
+      "core_word_materializations": 0,
+      "local_word_materializations": 2048,
+      "shared_word_materializations": 512,
+      "transport_word_materializations": 512,
+      "commitment_materializations": 4100,
+      "provenance_digest_materializations": 3072,
+      "commitment_derivations": 2048,
+      "provenance_digest_derivations": 3072,
+      "label_writes": 4,
+      "label_format_allocations": 9,
+      "multiplication_material_paths": 0,
+      "bool_to_arith_paths": 0,
+      "arith_to_bool_paths": 0
+    },
+    "delivery": {
+      "core_word_materializations": 0,
+      "local_word_materializations": 0,
+      "shared_word_materializations": 0,
+      "transport_word_materializations": 0,
+      "commitment_materializations": 0,
+      "provenance_digest_materializations": 0,
+      "commitment_derivations": 0,
+      "provenance_digest_derivations": 0,
+      "label_writes": 0,
+      "label_format_allocations": 0,
+      "multiplication_material_paths": 0,
+      "bool_to_arith_paths": 0,
+      "arith_to_bool_paths": 0
+    },
+    "round_substages": {
+      "sigma0": {
+        "core_word_materializations": 10240,
+        "local_word_materializations": 10240,
+        "shared_word_materializations": 0,
+        "transport_word_materializations": 0,
+        "commitment_materializations": 10240,
+        "provenance_digest_materializations": 10240,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 20480,
+        "label_writes": 0,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 0,
+        "bool_to_arith_paths": 0,
+        "arith_to_bool_paths": 0
+      },
+      "sigma1": {
+        "core_word_materializations": 10240,
+        "local_word_materializations": 10240,
+        "shared_word_materializations": 0,
+        "transport_word_materializations": 0,
+        "commitment_materializations": 10240,
+        "provenance_digest_materializations": 10240,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 20480,
+        "label_writes": 0,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 0,
+        "bool_to_arith_paths": 0,
+        "arith_to_bool_paths": 0
+      },
+      "ch": {
+        "core_word_materializations": 0,
+        "local_word_materializations": 20480,
+        "shared_word_materializations": 0,
+        "transport_word_materializations": 0,
+        "commitment_materializations": 20480,
+        "provenance_digest_materializations": 20480,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 20480,
+        "label_writes": 0,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 5120,
+        "bool_to_arith_paths": 0,
+        "arith_to_bool_paths": 0
+      },
+      "maj": {
+        "core_word_materializations": 0,
+        "local_word_materializations": 40960,
+        "shared_word_materializations": 0,
+        "transport_word_materializations": 0,
+        "commitment_materializations": 40960,
+        "provenance_digest_materializations": 40960,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 40960,
+        "label_writes": 0,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 5120,
+        "bool_to_arith_paths": 0,
+        "arith_to_bool_paths": 0
+      },
+      "state3": {
+        "core_word_materializations": 0,
+        "local_word_materializations": 0,
+        "shared_word_materializations": 0,
+        "transport_word_materializations": 0,
+        "commitment_materializations": 0,
+        "provenance_digest_materializations": 0,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 0,
+        "label_writes": 0,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 0,
+        "bool_to_arith_paths": 5120,
+        "arith_to_bool_paths": 0
+      },
+      "temp1": {
+        "core_word_materializations": 0,
+        "local_word_materializations": 0,
+        "shared_word_materializations": 0,
+        "transport_word_materializations": 0,
+        "commitment_materializations": 0,
+        "provenance_digest_materializations": 0,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 0,
+        "label_writes": 0,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 0,
+        "bool_to_arith_paths": 25600,
+        "arith_to_bool_paths": 0
+      },
+      "temp2": {
+        "core_word_materializations": 0,
+        "local_word_materializations": 0,
+        "shared_word_materializations": 0,
+        "transport_word_materializations": 0,
+        "commitment_materializations": 0,
+        "provenance_digest_materializations": 0,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 0,
+        "label_writes": 0,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 0,
+        "bool_to_arith_paths": 10240,
+        "arith_to_bool_paths": 0
+      },
+      "new_a_bits": {
+        "core_word_materializations": 0,
+        "local_word_materializations": 10240,
+        "shared_word_materializations": 0,
+        "transport_word_materializations": 0,
+        "commitment_materializations": 10240,
+        "provenance_digest_materializations": 10240,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 10240,
+        "label_writes": 0,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 0,
+        "bool_to_arith_paths": 0,
+        "arith_to_bool_paths": 5120
+      },
+      "new_e_bits": {
+        "core_word_materializations": 0,
+        "local_word_materializations": 10240,
+        "shared_word_materializations": 0,
+        "transport_word_materializations": 0,
+        "commitment_materializations": 10240,
+        "provenance_digest_materializations": 10240,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 10240,
+        "label_writes": 0,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 0,
+        "bool_to_arith_paths": 0,
+        "arith_to_bool_paths": 5120
+      }
+    }
+  },
+  "reference_match": true,
+  "output_public_key_hex": "3b6a27bcceb6a42d62a3a8d02a6f0d73653215771de243a63ac048a18b59da29",
+  "output_x_client_base_hex": "c9c5ee7fe5f78c57c8c4d14c227b84c7107a0e45927f385e349989a64a2ef308"
+}

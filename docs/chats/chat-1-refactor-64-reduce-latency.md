@@ -104,13 +104,13 @@ Retained optimizations and instrumentation:
 - Hidden-eval logical counters added.
 - Native allocation probe added:
   `crates/ed25519-hss/src/bin/benchmark_ddh_hidden_eval_alloc.rs`.
-- Allocation probe artifacts added under `docs/benchmarks/refactor-64/`.
+- Allocation probe artifacts added under `crates/ed25519-hss/docs/benchmarks/refactor-64/`.
 - Byte-equivalence harness added before representation rewrites.
 - Server ceremony sub-bucket diagnostics added.
 - Native registration-path benchmark added:
   `crates/ed25519-hss/src/bin/benchmark_prime_order_registration.rs`.
 - Native benchmark artifact added:
-  `docs/benchmarks/refactor-64/prime-order-registration-native.json`.
+  `crates/ed25519-hss/docs/benchmarks/refactor-64/prime-order-registration-native.json`.
 
 Rejected or reverted candidates:
 
@@ -141,7 +141,7 @@ Product registration smoke after preauth prepare and current HSS work:
 Native registration-path benchmark:
 
 - Command:
-  `cargo run --release --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_prime_order_registration -- --samples 6 --warmup 1 --output docs/benchmarks/refactor-64/prime-order-registration-native.json`
+  `cargo run --release --manifest-path crates/ed25519-hss/Cargo.toml --bin benchmark_prime_order_registration -- --samples 6 --warmup 1 --output crates/ed25519-hss/docs/benchmarks/refactor-64/prime-order-registration-native.json`
 - Result:
   - total native registration-style flow p50: `359.445ms`
   - prepare session p50: `98.852ms`
@@ -190,7 +190,7 @@ Known relevant dirty groups:
 - Refactor 61/62 registration route split, warmup instrumentation, benchmark
   docs, and registration tests.
 - Refactor 64 HSS runtime and benchmark work across `crates/ed25519-hss`,
-  `docs/benchmarks/refactor-64`, and
+  `crates/ed25519-hss/docs/benchmarks/refactor-64`, and
   `docs/refactor-64-hss-protocol-runtime-latency.md`.
 - Unrelated dirty voiceID files under `docs/voiceID` and `voiceId/`.
 
@@ -198,7 +198,7 @@ New files from this chat state:
 
 - `docs/chats/chat-1-refactor-64-reduce-latency.md`
 - `crates/ed25519-hss/src/bin/benchmark_prime_order_registration.rs`
-- `docs/benchmarks/refactor-64/prime-order-registration-native.json`
+- `crates/ed25519-hss/docs/benchmarks/refactor-64/prime-order-registration-native.json`
 
 Other untracked refactor-64 benchmark files were already present before this
 handoff document was written.

@@ -1,0 +1,632 @@
+{
+  "report_version": "ddh_hidden_eval_allocation_probe_v1",
+  "metadata": {
+    "generated_at_unix_secs": 1781086017,
+    "host_os": "macos",
+    "host_arch": "aarch64",
+    "logical_cores": 14
+  },
+  "fixture_name": "wraparound-seed",
+  "config": {
+    "fixture_name": "wraparound-seed",
+    "warmup_iterations": 1,
+    "sample_count": 5
+  },
+  "samples": [
+    {
+      "sample_index": 0,
+      "operation": "prepare_prime_order_succinct_hss",
+      "measurement": {
+        "allocation_calls": 17411,
+        "deallocation_calls": 7396,
+        "reallocation_calls": 7305,
+        "allocated_bytes": 4769303,
+        "deallocated_bytes": 2614140,
+        "live_bytes_before": 4758,
+        "live_bytes_after": 2159921,
+        "live_bytes_delta": 2155163,
+        "peak_live_bytes_above_start": 2247943
+      }
+    },
+    {
+      "sample_index": 0,
+      "operation": "profile_hidden_eval_for_clear_input",
+      "measurement": {
+        "allocation_calls": 5123,
+        "deallocation_calls": 4088,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 4915800,
+        "deallocated_bytes": 4796961,
+        "live_bytes_before": 3006205,
+        "live_bytes_after": 3125044,
+        "live_bytes_delta": 118839,
+        "peak_live_bytes_above_start": 1402285
+      }
+    },
+    {
+      "sample_index": 0,
+      "operation": "probe_checkpoint_input_sharing",
+      "measurement": {
+        "allocation_calls": 2076,
+        "deallocation_calls": 1052,
+        "reallocation_calls": 1024,
+        "allocated_bytes": 394456,
+        "deallocated_bytes": 394456,
+        "live_bytes_before": 3125079,
+        "live_bytes_after": 3125079,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 303290
+      }
+    },
+    {
+      "sample_index": 0,
+      "operation": "probe_checkpoint_add_stage",
+      "measurement": {
+        "allocation_calls": 2083,
+        "deallocation_calls": 1059,
+        "reallocation_calls": 1024,
+        "allocated_bytes": 427335,
+        "deallocated_bytes": 427335,
+        "live_bytes_before": 3125109,
+        "live_bytes_after": 3125109,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 336169
+      }
+    },
+    {
+      "sample_index": 0,
+      "operation": "probe_checkpoint_message_schedule",
+      "measurement": {
+        "allocation_calls": 2773,
+        "deallocation_calls": 1746,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 1140431,
+        "deallocated_bytes": 1140431,
+        "live_bytes_before": 3125135,
+        "live_bytes_after": 3125135,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 1040125
+      }
+    },
+    {
+      "sample_index": 0,
+      "operation": "probe_checkpoint_round_core",
+      "measurement": {
+        "allocation_calls": 4847,
+        "deallocation_calls": 3820,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 2676639,
+        "deallocated_bytes": 2676639,
+        "live_bytes_before": 3125168,
+        "live_bytes_after": 3125168,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 1197510
+      }
+    },
+    {
+      "sample_index": 0,
+      "operation": "probe_checkpoint_output_projector",
+      "measurement": {
+        "allocation_calls": 5123,
+        "deallocation_calls": 4096,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 4915800,
+        "deallocated_bytes": 4915800,
+        "live_bytes_before": 3125195,
+        "live_bytes_after": 3125195,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 1402285
+      }
+    },
+    {
+      "sample_index": 0,
+      "operation": "materialize_hidden_outputs_for_debug",
+      "measurement": {
+        "allocation_calls": 27,
+        "deallocation_calls": 21,
+        "reallocation_calls": 6,
+        "allocated_bytes": 411818,
+        "deallocated_bytes": 411818,
+        "live_bytes_before": 3125228,
+        "live_bytes_after": 3125228,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 381098
+      }
+    },
+    {
+      "sample_index": 0,
+      "operation": "evaluate_for_clear_input_debug_timed",
+      "measurement": {
+        "allocation_calls": 6870,
+        "deallocation_calls": 6347,
+        "reallocation_calls": 523,
+        "allocated_bytes": 7735225,
+        "deallocated_bytes": 7735225,
+        "live_bytes_before": 3125264,
+        "live_bytes_after": 3125264,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 2420712
+      }
+    },
+    {
+      "sample_index": 1,
+      "operation": "profile_hidden_eval_for_clear_input",
+      "measurement": {
+        "allocation_calls": 5123,
+        "deallocation_calls": 4088,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 4915800,
+        "deallocated_bytes": 4796961,
+        "live_bytes_before": 3006461,
+        "live_bytes_after": 3125300,
+        "live_bytes_delta": 118839,
+        "peak_live_bytes_above_start": 1402285
+      }
+    },
+    {
+      "sample_index": 1,
+      "operation": "probe_checkpoint_input_sharing",
+      "measurement": {
+        "allocation_calls": 2076,
+        "deallocation_calls": 1052,
+        "reallocation_calls": 1024,
+        "allocated_bytes": 394456,
+        "deallocated_bytes": 394456,
+        "live_bytes_before": 3125335,
+        "live_bytes_after": 3125335,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 303290
+      }
+    },
+    {
+      "sample_index": 1,
+      "operation": "probe_checkpoint_add_stage",
+      "measurement": {
+        "allocation_calls": 2083,
+        "deallocation_calls": 1059,
+        "reallocation_calls": 1024,
+        "allocated_bytes": 427335,
+        "deallocated_bytes": 427335,
+        "live_bytes_before": 3125365,
+        "live_bytes_after": 3125365,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 336169
+      }
+    },
+    {
+      "sample_index": 1,
+      "operation": "probe_checkpoint_message_schedule",
+      "measurement": {
+        "allocation_calls": 2773,
+        "deallocation_calls": 1746,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 1140431,
+        "deallocated_bytes": 1140431,
+        "live_bytes_before": 3125391,
+        "live_bytes_after": 3125391,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 1040125
+      }
+    },
+    {
+      "sample_index": 1,
+      "operation": "probe_checkpoint_round_core",
+      "measurement": {
+        "allocation_calls": 4847,
+        "deallocation_calls": 3820,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 2676639,
+        "deallocated_bytes": 2676639,
+        "live_bytes_before": 3125424,
+        "live_bytes_after": 3125424,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 1197510
+      }
+    },
+    {
+      "sample_index": 1,
+      "operation": "probe_checkpoint_output_projector",
+      "measurement": {
+        "allocation_calls": 5123,
+        "deallocation_calls": 4096,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 4915800,
+        "deallocated_bytes": 4915800,
+        "live_bytes_before": 3125451,
+        "live_bytes_after": 3125451,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 1402285
+      }
+    },
+    {
+      "sample_index": 1,
+      "operation": "materialize_hidden_outputs_for_debug",
+      "measurement": {
+        "allocation_calls": 27,
+        "deallocation_calls": 21,
+        "reallocation_calls": 6,
+        "allocated_bytes": 411818,
+        "deallocated_bytes": 411818,
+        "live_bytes_before": 3125484,
+        "live_bytes_after": 3125484,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 381098
+      }
+    },
+    {
+      "sample_index": 1,
+      "operation": "evaluate_for_clear_input_debug_timed",
+      "measurement": {
+        "allocation_calls": 6870,
+        "deallocation_calls": 6347,
+        "reallocation_calls": 523,
+        "allocated_bytes": 7735225,
+        "deallocated_bytes": 7735225,
+        "live_bytes_before": 3125520,
+        "live_bytes_after": 3125520,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 2420712
+      }
+    },
+    {
+      "sample_index": 2,
+      "operation": "profile_hidden_eval_for_clear_input",
+      "measurement": {
+        "allocation_calls": 5123,
+        "deallocation_calls": 4088,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 4915800,
+        "deallocated_bytes": 4796961,
+        "live_bytes_before": 3006717,
+        "live_bytes_after": 3125556,
+        "live_bytes_delta": 118839,
+        "peak_live_bytes_above_start": 1402285
+      }
+    },
+    {
+      "sample_index": 2,
+      "operation": "probe_checkpoint_input_sharing",
+      "measurement": {
+        "allocation_calls": 2076,
+        "deallocation_calls": 1052,
+        "reallocation_calls": 1024,
+        "allocated_bytes": 394456,
+        "deallocated_bytes": 394456,
+        "live_bytes_before": 3125591,
+        "live_bytes_after": 3125591,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 303290
+      }
+    },
+    {
+      "sample_index": 2,
+      "operation": "probe_checkpoint_add_stage",
+      "measurement": {
+        "allocation_calls": 2083,
+        "deallocation_calls": 1059,
+        "reallocation_calls": 1024,
+        "allocated_bytes": 427335,
+        "deallocated_bytes": 427335,
+        "live_bytes_before": 3125621,
+        "live_bytes_after": 3125621,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 336169
+      }
+    },
+    {
+      "sample_index": 2,
+      "operation": "probe_checkpoint_message_schedule",
+      "measurement": {
+        "allocation_calls": 2773,
+        "deallocation_calls": 1746,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 1140431,
+        "deallocated_bytes": 1140431,
+        "live_bytes_before": 3125647,
+        "live_bytes_after": 3125647,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 1040125
+      }
+    },
+    {
+      "sample_index": 2,
+      "operation": "probe_checkpoint_round_core",
+      "measurement": {
+        "allocation_calls": 4847,
+        "deallocation_calls": 3820,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 2676639,
+        "deallocated_bytes": 2676639,
+        "live_bytes_before": 3125680,
+        "live_bytes_after": 3125680,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 1197510
+      }
+    },
+    {
+      "sample_index": 2,
+      "operation": "probe_checkpoint_output_projector",
+      "measurement": {
+        "allocation_calls": 5123,
+        "deallocation_calls": 4096,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 4915800,
+        "deallocated_bytes": 4915800,
+        "live_bytes_before": 3125707,
+        "live_bytes_after": 3125707,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 1402285
+      }
+    },
+    {
+      "sample_index": 2,
+      "operation": "materialize_hidden_outputs_for_debug",
+      "measurement": {
+        "allocation_calls": 27,
+        "deallocation_calls": 21,
+        "reallocation_calls": 6,
+        "allocated_bytes": 411818,
+        "deallocated_bytes": 411818,
+        "live_bytes_before": 3125740,
+        "live_bytes_after": 3125740,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 381098
+      }
+    },
+    {
+      "sample_index": 2,
+      "operation": "evaluate_for_clear_input_debug_timed",
+      "measurement": {
+        "allocation_calls": 6870,
+        "deallocation_calls": 6347,
+        "reallocation_calls": 523,
+        "allocated_bytes": 7735225,
+        "deallocated_bytes": 7735225,
+        "live_bytes_before": 3125776,
+        "live_bytes_after": 3125776,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 2420712
+      }
+    },
+    {
+      "sample_index": 3,
+      "operation": "profile_hidden_eval_for_clear_input",
+      "measurement": {
+        "allocation_calls": 5123,
+        "deallocation_calls": 4088,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 4915800,
+        "deallocated_bytes": 4796961,
+        "live_bytes_before": 3006973,
+        "live_bytes_after": 3125812,
+        "live_bytes_delta": 118839,
+        "peak_live_bytes_above_start": 1402285
+      }
+    },
+    {
+      "sample_index": 3,
+      "operation": "probe_checkpoint_input_sharing",
+      "measurement": {
+        "allocation_calls": 2076,
+        "deallocation_calls": 1052,
+        "reallocation_calls": 1024,
+        "allocated_bytes": 394456,
+        "deallocated_bytes": 394456,
+        "live_bytes_before": 3125847,
+        "live_bytes_after": 3125847,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 303290
+      }
+    },
+    {
+      "sample_index": 3,
+      "operation": "probe_checkpoint_add_stage",
+      "measurement": {
+        "allocation_calls": 2083,
+        "deallocation_calls": 1059,
+        "reallocation_calls": 1024,
+        "allocated_bytes": 427335,
+        "deallocated_bytes": 427335,
+        "live_bytes_before": 3125877,
+        "live_bytes_after": 3125877,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 336169
+      }
+    },
+    {
+      "sample_index": 3,
+      "operation": "probe_checkpoint_message_schedule",
+      "measurement": {
+        "allocation_calls": 2773,
+        "deallocation_calls": 1746,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 1140431,
+        "deallocated_bytes": 1140431,
+        "live_bytes_before": 3125903,
+        "live_bytes_after": 3125903,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 1040125
+      }
+    },
+    {
+      "sample_index": 3,
+      "operation": "probe_checkpoint_round_core",
+      "measurement": {
+        "allocation_calls": 4847,
+        "deallocation_calls": 3820,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 2676639,
+        "deallocated_bytes": 2676639,
+        "live_bytes_before": 3125936,
+        "live_bytes_after": 3125936,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 1197510
+      }
+    },
+    {
+      "sample_index": 3,
+      "operation": "probe_checkpoint_output_projector",
+      "measurement": {
+        "allocation_calls": 5123,
+        "deallocation_calls": 4096,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 4915800,
+        "deallocated_bytes": 4915800,
+        "live_bytes_before": 3125963,
+        "live_bytes_after": 3125963,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 1402285
+      }
+    },
+    {
+      "sample_index": 3,
+      "operation": "materialize_hidden_outputs_for_debug",
+      "measurement": {
+        "allocation_calls": 27,
+        "deallocation_calls": 21,
+        "reallocation_calls": 6,
+        "allocated_bytes": 411818,
+        "deallocated_bytes": 411818,
+        "live_bytes_before": 3125996,
+        "live_bytes_after": 3125996,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 381098
+      }
+    },
+    {
+      "sample_index": 3,
+      "operation": "evaluate_for_clear_input_debug_timed",
+      "measurement": {
+        "allocation_calls": 6870,
+        "deallocation_calls": 6347,
+        "reallocation_calls": 523,
+        "allocated_bytes": 7735225,
+        "deallocated_bytes": 7735225,
+        "live_bytes_before": 3126032,
+        "live_bytes_after": 3126032,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 2420712
+      }
+    },
+    {
+      "sample_index": 4,
+      "operation": "profile_hidden_eval_for_clear_input",
+      "measurement": {
+        "allocation_calls": 5123,
+        "deallocation_calls": 4088,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 4915800,
+        "deallocated_bytes": 4796961,
+        "live_bytes_before": 3007229,
+        "live_bytes_after": 3126068,
+        "live_bytes_delta": 118839,
+        "peak_live_bytes_above_start": 1402285
+      }
+    },
+    {
+      "sample_index": 4,
+      "operation": "probe_checkpoint_input_sharing",
+      "measurement": {
+        "allocation_calls": 2076,
+        "deallocation_calls": 1052,
+        "reallocation_calls": 1024,
+        "allocated_bytes": 394456,
+        "deallocated_bytes": 394456,
+        "live_bytes_before": 3126103,
+        "live_bytes_after": 3126103,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 303290
+      }
+    },
+    {
+      "sample_index": 4,
+      "operation": "probe_checkpoint_add_stage",
+      "measurement": {
+        "allocation_calls": 2083,
+        "deallocation_calls": 1059,
+        "reallocation_calls": 1024,
+        "allocated_bytes": 427335,
+        "deallocated_bytes": 427335,
+        "live_bytes_before": 3126133,
+        "live_bytes_after": 3126133,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 336169
+      }
+    },
+    {
+      "sample_index": 4,
+      "operation": "probe_checkpoint_message_schedule",
+      "measurement": {
+        "allocation_calls": 2773,
+        "deallocation_calls": 1746,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 1140431,
+        "deallocated_bytes": 1140431,
+        "live_bytes_before": 3126159,
+        "live_bytes_after": 3126159,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 1040125
+      }
+    },
+    {
+      "sample_index": 4,
+      "operation": "probe_checkpoint_round_core",
+      "measurement": {
+        "allocation_calls": 4847,
+        "deallocation_calls": 3820,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 2676639,
+        "deallocated_bytes": 2676639,
+        "live_bytes_before": 3126192,
+        "live_bytes_after": 3126192,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 1197510
+      }
+    },
+    {
+      "sample_index": 4,
+      "operation": "probe_checkpoint_output_projector",
+      "measurement": {
+        "allocation_calls": 5123,
+        "deallocation_calls": 4096,
+        "reallocation_calls": 1027,
+        "allocated_bytes": 4915800,
+        "deallocated_bytes": 4915800,
+        "live_bytes_before": 3126219,
+        "live_bytes_after": 3126219,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 1402285
+      }
+    },
+    {
+      "sample_index": 4,
+      "operation": "materialize_hidden_outputs_for_debug",
+      "measurement": {
+        "allocation_calls": 27,
+        "deallocation_calls": 21,
+        "reallocation_calls": 6,
+        "allocated_bytes": 411818,
+        "deallocated_bytes": 411818,
+        "live_bytes_before": 3126252,
+        "live_bytes_after": 3126252,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 381098
+      }
+    },
+    {
+      "sample_index": 4,
+      "operation": "evaluate_for_clear_input_debug_timed",
+      "measurement": {
+        "allocation_calls": 6870,
+        "deallocation_calls": 6347,
+        "reallocation_calls": 523,
+        "allocated_bytes": 7735225,
+        "deallocated_bytes": 7735225,
+        "live_bytes_before": 3126288,
+        "live_bytes_after": 3126288,
+        "live_bytes_delta": 0,
+        "peak_live_bytes_above_start": 2420712
+      }
+    }
+  ]
+}

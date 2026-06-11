@@ -24,6 +24,23 @@ The current production boundary is stronger than the old joined-input seam:
 
 That boundary assumes the server process follows the protocol.
 
+Current research checkpoint: the implementation still has server-side paths
+that hold joined hidden-state representations during the ceremony. In
+particular:
+
+- `DdhHssSharedWord` carries both `left_word` and `right_word`
+- `DdhHiddenEvalProjectorInputs` stores joined `add_stage_bits` and
+  `tau_client_bits`
+- server-side ceremony records still retain `evaluatorDriverStateBytes`
+- the server output-projection path can rehydrate the projector continuation
+  and materialize `reduced_a_bits`, `tau_bits`, and relayer output material
+
+Those shapes are acceptable for trusted-code execution and regression
+scaffolding. They are incompatible with a malicious-server-memory claim. A
+modified server process that receives those joined values can decode the
+canonical seed bits or signing-scalar material even if the public API never
+returns them.
+
 The current implementation does not claim that a malicious server process with
 arbitrary memory inspection cannot recover client-owned output. The output
 projector currently materializes split-local internal values including:
@@ -47,6 +64,13 @@ The main options for raising the server-side trust boundary are:
 - **Client-side output finalization.** The server returns a continuation or
   non-openable output material, and the client completes the final projection.
   Expected cost is moderate to high on the browser/wasm path.
+- **Joined-state-free role separation.** The server remains the online relayer
+  and garbler-side participant, while the client owns evaluator-side
+  continuation material. Production server code never accepts, stores, imports,
+  or reconstructs joined hidden words for `d`, `a`, or `x_client_base`. Expected
+  cost is moderate because browser-side hidden evaluation and state ownership
+  increase, while round trips can remain close to the current ceremony if the
+  server-input delivery is complete.
 - **Malicious-secure MPC or garbled-output delivery.** The protocol proves or
   enforces correct output delivery under active attacks. Expected cost is high
   in latency, bytes, implementation complexity, and proof work.
@@ -128,6 +152,188 @@ The current single-process output projector does not satisfy Level B. Achieving
 that level likely requires client-side finalization, split execution, an
 enclave/TEE boundary, or a new output-delivery primitive that keeps the
 unmasked projection outside server-readable memory.
+
+**Level C: joined-sensitive-state exclusion.**
+
+Required before claiming that one compromised production server process cannot
+decode the hidden Ed25519 key material from ceremony state:
+
+- server never has joined `d`, `a`, or `x_client_base`
+- client never has joined `d`, `a`, `y_relayer`, or `tau_relayer`
+- client opens only `x_client_base`
+- server opens only `x_relayer_base`
+
+This is the next architecture target. It is stronger than Level A packet
+delivery and stronger than retained-state cleanup, because it rules out joined
+secret state inside the active server process. It still does not prove complete
+malicious security: a malicious party can abort, replay if transcript checks
+are wrong, send malformed material, or try active protocol deviations. It does
+close the current "modified server logs joined hidden state" failure mode.
+
+## Joined-State-Free Role-Separation Design
+
+The production boundary must make invalid state unrepresentable across both
+Rust and TypeScript:
+
+- server-visible Rust modules cannot import or persist `DdhHssSharedWord`,
+  `SplitLocalBitWord`, `DdhHiddenEvalProjectorInputs`, or evaluator driver
+  state for secret ceremony values
+- server route/domain types cannot accept `evaluatorDriverStateBytes`,
+  `evaluatorOtStateB64u`, joined client bundles, client PRF output, client mask
+  material, or staged evaluator continuation bytes that contain both shares
+- client-visible delivery cannot expose joined `y_relayer`, joined
+  `tau_relayer`, or enough relayer transport material to reconstruct those
+  roots
+- output-open APIs are role-specific: client opens only client output, and
+  server opens only relayer output
+
+Target flow:
+
+1. Server prepares fixed garbler material, OT offer material, transcript
+   commitments, and one-sided server-input delivery material.
+2. Client derives `y_client` and `tau_client`, retains evaluator OT state
+   locally, and requests server-input delivery.
+3. Server responds with authenticated delivery material that lets the client
+   evaluate the fixed hidden computation without decoding `y_relayer` or
+   `tau_relayer`.
+4. Client evaluates the hidden path with evaluator-owned local state. The
+   browser/runtime may hold one-sided evaluator words and opaque labels, but it
+   must not receive a joined representation of `d` or `a`.
+5. Client materializes and opens only `x_client_base`, with
+   `ClientMaskedProjection` remaining mandatory for client-owned finalization.
+6. Client returns a server-safe finalization artifact that contains transcript
+   bindings, client-output commitment/value-kind metadata, and server-output
+   delivery material.
+7. Server validates context binding, run binding, projection mode, client-output
+   value kind, final transcript digest, and server-output payload binding.
+8. Server opens only `x_relayer_base`.
+
+The design prevents the current issue because the server process no longer has
+the data structure that makes decoding possible. A modified server can log its
+own relayer roots, garbler state, transport messages, commitments, and
+`x_relayer_base`; it cannot decode `d`, `a`, or `x_client_base` without the
+client-owned evaluator state. A modified client can compromise that user's
+client output path, but it must not learn joined `d`, joined `a`, or server root
+material.
+
+### Research Findings
+
+The current codebase already contains useful pieces for this track:
+
+- role-separated packet and projection metadata exists for
+  `ClientMaskedProjection`
+- final report validation binds projection mode and client-output value kind
+- server finalize retained state has been narrowed so it does not retain a
+  client-output bundle
+- materialization helpers are tracked by a source guard in
+  `tests/materialization_graph_guard.rs`
+
+The remaining production gap is the active ceremony materialization boundary:
+
+- `DdhHssSharedWord` is still a general shared-value type and carries both
+  shares
+- `DdhHiddenEvalProjectorInputs` still stores joined `add_stage_bits` and
+  joined `tau_client_bits`
+- `ServerEvalExecutionState` still has output-projection states containing
+  projector inputs
+- server SDK ceremony records still retain `evaluatorDriverStateBytes`
+- `materialize_server_output_bundles_from_continuations_with_pool` and
+  `execute_server_output_projector_stage` can rehydrate the joined continuation
+  and compute hidden projector internals
+
+### Implementation Plan For Level C
+
+1. **Inventory and classify joined state.**
+   - Classify every `DdhHssSharedWord` use as test/reference, wire
+     compatibility, client-owned evaluator state, server-owned garbler state, or
+     production violation.
+   - Classify every `DdhHiddenEvalProjectorInputs` use by owner and lifetime.
+   - Add a focused audit doc or table before code movement starts.
+
+2. **Introduce role-specific hidden-state types.**
+   - Add server-local, client-local, transport-only, commitment-only, and
+     test/reference joined-word types.
+   - Move decode helpers behind test/reference modules or role-specific output
+     openers.
+   - Make production constructors branch-specific so server code cannot build a
+     joined hidden word for `d`, `a`, or `x_client_base`.
+
+3. **Remove evaluator state from server ceremony records.**
+   - Delete `evaluatorDriverStateBytes` from
+     `ThresholdEd25519HssStoredPreparedServerSession`.
+   - Keep evaluator driver state in the client worker/runtime only.
+   - Update route body parsers and type fixtures so server routes reject
+     evaluator state and joined client continuation material at the boundary.
+
+4. **Move projector continuation ownership to the client.**
+   - Replace server-owned `DdhHiddenEvalProjectorInputs` with server-safe
+     continuation metadata: transcript digests, commitments, stage ids, and
+     server-output binding prerequisites that do not contain both shares.
+   - Keep client-owned evaluator continuation in the client runtime.
+   - Preserve the current context-binding and projection-mode transcript checks.
+
+5. **Redesign server output delivery.**
+   - Define the exact server-output artifact the client returns for
+     `x_relayer_base` finalization.
+   - Server finalization must validate artifact bindings without reconstructing
+     `a`, `tau`, or `x_client_base`.
+   - If correctness against malicious clients is required in this slice, add a
+     proof, MAC, or consistency check before accepting server output. If that is
+     deferred, document the remaining malicious-client correctness gap.
+
+6. **Add source guards and type fixtures.**
+   - Add Rust source guards proving production server modules do not import
+     `DdhHssSharedWord`, `DdhHiddenEvalProjectorInputs`, `SplitLocalBitWord`, or
+     evaluator driver state.
+   - Add TypeScript type fixtures proving server route payloads reject
+     evaluator state, client PRF material, client mask material, and joined HSS
+     continuation material.
+   - Add anti-drift coverage for the Rust and TS boundary types.
+
+7. **Port routes and WASM boundaries.**
+   - Add new WASM exports for client-owned evaluator continuation handling and
+     server-safe finalization artifact construction.
+   - Update SDK client lifecycle to retain evaluator state and submit only the
+     server-safe artifact.
+   - Update server SDK and Cloudflare/Express routes to remove legacy
+     server-assisted finalization paths after the new flow passes tests.
+
+8. **Validate and benchmark.**
+   - Run focused Rust protocol tests for client-owned evaluation, server-output
+     opening, downgrade rejection, and missing-state rejection.
+   - Run SDK route tests proving no server route accepts evaluator state.
+   - Run the HSS WASM consumer checks and focused active-path suites.
+   - Measure browser hidden-eval time, worker memory, payload bytes, and
+     ceremony round trips. The current browser hidden-eval envelope is already
+     in the few-hundred-ms range, so performance work should focus on keeping
+     HSS outside per-signature hot paths.
+
+### Open Design Decisions
+
+- **Server-output correctness.** Decide whether Level C must protect the server
+  from a malicious client returning malformed `x_relayer_base` delivery
+  material. If yes, the finalization artifact needs an active consistency
+  mechanism before the server accepts and stores the relayer share. If no, this
+  slice remains a server-blindness hardening step with an explicitly deferred
+  malicious-client correctness gap.
+- **One-sided relayer delivery shape.** Specify the exact server-input delivery
+  packet that lets the client evaluate against `y_relayer` and `tau_relayer`
+  without learning either value. The packet must contain only transport words,
+  commitments, release tokens, and transcript-bound metadata that are safe for
+  the client role.
+- **Joined-word migration boundary.** Decide whether to rename the existing
+  `DdhHssSharedWord` to a test/reference type first, or introduce new
+  role-specific production types beside it and migrate call sites stage by
+  stage. The safer path is to introduce narrow types first, add source guards,
+  then delete production server imports of joined words.
+- **State location.** Decide where client-owned evaluator continuation lives
+  across page reloads, worker restarts, and IndexedDB loss. The ceremony can
+  remain short-lived, but recovery behavior must be explicit so callers do not
+  retry by sending evaluator state to the server.
+- **Round-trip target.** Keep the external route shape close to
+  prepare/respond/finalize if the server-input delivery can be complete in one
+  response. Add staged requests only when transcript verification or active
+  checks need them.
 
 ## Protocol Modes
 
