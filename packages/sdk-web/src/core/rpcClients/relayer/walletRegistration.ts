@@ -47,8 +47,82 @@ function stripTrailingSlashes(url: string): string {
   return String(url || '').replace(/\/+$/, '');
 }
 
-async function readJson(response: Response): Promise<Record<string, unknown>> {
-  return ((await response.json().catch(() => ({}))) || {}) as Record<string, unknown>;
+const REGISTRATION_ROUTE_PAYLOAD_DIAGNOSTICS_LABEL =
+  '[Registration] wallet route payload summary';
+const ROUTE_PAYLOAD_BREAKDOWN_MAX_DEPTH = 2;
+const ROUTE_PAYLOAD_BREAKDOWN_MAX_FIELDS = 64;
+
+function utf8Bytes(value: string): number {
+  try {
+    return new TextEncoder().encode(String(value || '')).length;
+  } catch {
+    return String(value || '').length;
+  }
+}
+
+function registrationBenchmarkDiagnosticsEnabled(): boolean {
+  try {
+    return (
+      (globalThis as { __SEAMS_REGISTRATION_BENCHMARK_DIAGNOSTICS?: unknown })
+        .__SEAMS_REGISTRATION_BENCHMARK_DIAGNOSTICS === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+function collectPayloadSizeBreakdown(input: {
+  value: unknown;
+  out: Record<string, number>;
+  path: string;
+  depth: number;
+}): void {
+  if (!input.value || typeof input.value !== 'object' || Array.isArray(input.value)) return;
+  if (Object.keys(input.out).length >= ROUTE_PAYLOAD_BREAKDOWN_MAX_FIELDS) return;
+  for (const [key, entry] of Object.entries(input.value as Record<string, unknown>)) {
+    if (Object.keys(input.out).length >= ROUTE_PAYLOAD_BREAKDOWN_MAX_FIELDS) return;
+    const fieldPath = input.path ? `${input.path}.${key}` : key;
+    if (typeof entry === 'string') {
+      input.out[`${fieldPath}Bytes`] = utf8Bytes(entry);
+    } else if (Array.isArray(entry)) {
+      input.out[`${fieldPath}Count`] = entry.length;
+    } else if (input.depth > 0 && entry && typeof entry === 'object') {
+      collectPayloadSizeBreakdown({
+        value: entry,
+        out: input.out,
+        path: fieldPath,
+        depth: input.depth - 1,
+      });
+    }
+  }
+}
+
+function payloadSizeBreakdown(value: unknown): Record<string, number> {
+  const out: Record<string, number> = {};
+  collectPayloadSizeBreakdown({
+    value,
+    out,
+    path: '',
+    depth: ROUTE_PAYLOAD_BREAKDOWN_MAX_DEPTH,
+  });
+  return out;
+}
+
+function parseJsonText(text: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(text || '{}');
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function readResponseText(response: Response): Promise<string> {
+  try {
+    return await response.text();
+  } catch {
+    return '{}';
+  }
 }
 
 async function postJson<TResponse>(args: {
@@ -57,6 +131,8 @@ async function postJson<TResponse>(args: {
   body: unknown;
   headers?: Record<string, string>;
 }): Promise<TResponse> {
+  const startedAt = Date.now();
+  const requestBody = JSON.stringify(args.body);
   const response = await fetch(`${stripTrailingSlashes(args.relayerUrl)}${args.path}`, {
     method: 'POST',
     headers: {
@@ -64,9 +140,21 @@ async function postJson<TResponse>(args: {
       ...(args.headers || {}),
     },
     credentials: 'omit',
-    body: JSON.stringify(args.body),
+    body: requestBody,
   });
-  const data = await readJson(response);
+  const responseText = await readResponseText(response);
+  const data = parseJsonText(responseText);
+  if (registrationBenchmarkDiagnosticsEnabled()) {
+    console.info(REGISTRATION_ROUTE_PAYLOAD_DIAGNOSTICS_LABEL, {
+      path: args.path,
+      status: response.status,
+      requestBytes: utf8Bytes(requestBody),
+      requestSizeBreakdown: payloadSizeBreakdown(args.body),
+      responseBytes: utf8Bytes(responseText),
+      responseSizeBreakdown: payloadSizeBreakdown(data),
+      totalMs: Date.now() - startedAt,
+    });
+  }
   if (!response.ok || data.ok === false) {
     throw new Error(String(data.message || data.error || data.code || `HTTP ${response.status}`));
   }

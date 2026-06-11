@@ -8,12 +8,31 @@ export const SCENARIOS = [
       'BENCH_REGISTRATION_SCENARIO=passkey_ed25519_only_wallet_iframe BENCH_REGISTRATION_RUNS=5 pnpm -C tests exec playwright test -c ../benchmarks/registration-flow/playwright.config.ts --project=chromium --reporter=line',
   },
   {
+    id: 'passkey_ed25519_only_wallet_iframe_activation',
+    description:
+      'Passkey registration, Ed25519 only, wallet iframe runtime with pre-mounted activation surface',
+    groups: ['wallet_iframe', 'ed25519_only', 'activation_surface'],
+    commandEnv: 'BENCH_CMD_REGISTRATION_PASSKEY_ED25519_ONLY_WALLET_IFRAME_ACTIVATION',
+    defaultCommand:
+      'BENCH_REGISTRATION_SCENARIO=passkey_ed25519_only_wallet_iframe_activation BENCH_REGISTRATION_RUNS=5 pnpm -C tests exec playwright test -c ../benchmarks/registration-flow/playwright.config.ts --project=chromium --reporter=line',
+  },
+  {
     id: 'passkey_ed25519_and_ecdsa_wallet_iframe',
     description: 'Passkey registration, Ed25519 plus ECDSA, wallet iframe runtime',
     groups: ['smoke', 'wallet_iframe', 'ed25519_and_ecdsa'],
     commandEnv: 'BENCH_CMD_REGISTRATION_PASSKEY_ED25519_AND_ECDSA_WALLET_IFRAME',
     defaultCommand:
       'BENCH_REGISTRATION_SCENARIO=passkey_ed25519_and_ecdsa_wallet_iframe BENCH_REGISTRATION_RUNS=5 pnpm -C tests exec playwright test -c ../benchmarks/registration-flow/playwright.config.ts --project=chromium --reporter=line',
+  },
+  {
+    id: 'passkey_ed25519_and_ecdsa_wallet_iframe_activation',
+    description:
+      'Passkey registration, Ed25519 plus ECDSA, wallet iframe runtime with pre-mounted activation surface',
+    groups: ['wallet_iframe', 'ed25519_and_ecdsa', 'activation_surface'],
+    commandEnv:
+      'BENCH_CMD_REGISTRATION_PASSKEY_ED25519_AND_ECDSA_WALLET_IFRAME_ACTIVATION',
+    defaultCommand:
+      'BENCH_REGISTRATION_SCENARIO=passkey_ed25519_and_ecdsa_wallet_iframe_activation BENCH_REGISTRATION_RUNS=5 pnpm -C tests exec playwright test -c ../benchmarks/registration-flow/playwright.config.ts --project=chromium --reporter=line',
   },
   {
     id: 'passkey_ed25519_only_host_origin',

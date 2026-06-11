@@ -1,7 +1,9 @@
 import { BrowserSigningSurface } from '@/SeamsWeb/signingSurface/BrowserSigningSurface';
 import {
   addWalletSigner as addWalletSignerWithUnifiedCeremony,
+  isRegistrationBenchmarkDiagnosticsEnabled,
   registerWallet as registerWalletWithUnifiedCeremony,
+  WALLET_IFRAME_TRANSPORT_TIMING_LABEL,
 } from '@/SeamsWeb/operations/registration/registration';
 import {
   MinimalNearClient,
@@ -395,6 +397,8 @@ export class SeamsWeb {
         registerWallet: async (args) => await this.registerWalletDomain(args),
         registerPasskey: async (nearAccountId, options) =>
           await this.registerPasskeyDomain(nearAccountId, options),
+        createPasskeyRegistrationActivationSurface: (args) =>
+          this.createPasskeyRegistrationActivationSurfaceDomain(args),
         requestEmailOtpEnrollmentChallenge: async (args) =>
           await this.requestEmailOtpEnrollmentChallengeDomain(args),
         enrollEmailOtp: async (args) => await this.enrollEmailOtpDomain(args),
@@ -572,6 +576,23 @@ export class SeamsWeb {
     return this.nearClient.viewAccessKeyList(accountId);
   }
 
+  private emitWalletIframeTransportTimingSummary(input: {
+    operation: 'registerWallet' | 'registerPasskey';
+    walletId: string | null;
+  }): void {
+    if (!isRegistrationBenchmarkDiagnosticsEnabled()) return;
+    const diagnostics = this.walletIframe.getTransportDiagnosticsSnapshot();
+    if (!diagnostics) return;
+    const { kind: transportKind, ...timings } = diagnostics;
+    console.info(WALLET_IFRAME_TRANSPORT_TIMING_LABEL, {
+      kind: 'wallet_iframe_registration_transport_timing_v1',
+      operation: input.operation,
+      walletId: input.walletId,
+      transportKind,
+      ...timings,
+    });
+  }
+
   ///////////////////////////////////////
   // === Registration and Login ===
   ///////////////////////////////////////
@@ -587,6 +608,12 @@ export class SeamsWeb {
             ? args.signerSelection.ed25519.nearAccountId
             : undefined;
         const router = await this.walletIframe.requireRouter(nearAccountId);
+        this.emitWalletIframeTransportTimingSummary({
+          operation: 'registerWallet',
+          walletId:
+            nearAccountId ??
+            (args.wallet.kind === 'provided' ? String(args.wallet.walletId) : null),
+        });
         const res = await router.registerWallet(args);
         if (nearAccountId) {
           void (async () => {
@@ -652,6 +679,10 @@ export class SeamsWeb {
     if (this.walletIframe.shouldUseWalletIframe()) {
       try {
         const router = await this.walletIframe.requireRouter(nearAccountId);
+        this.emitWalletIframeTransportTimingSummary({
+          operation: 'registerPasskey',
+          walletId: nearAccountId,
+        });
         const confirmationConfig = options?.confirmationConfig;
         const res = await router.registerPasskey({
           nearAccountId,
@@ -696,6 +727,61 @@ export class SeamsWeb {
       }),
       options,
     });
+  }
+
+  private createPasskeyRegistrationActivationSurfaceDomain(
+    args: Parameters<RegistrationCapability['createPasskeyRegistrationActivationSurface']>[0],
+  ): ReturnType<RegistrationCapability['createPasskeyRegistrationActivationSurface']> {
+    if (!this.walletIframe.shouldUseWalletIframe()) {
+      throw new Error(
+        '[SeamsWeb] Registration activation surfaces require wallet iframe mode.',
+      );
+    }
+    type Surface = ReturnType<RegistrationCapability['createPasskeyRegistrationActivationSurface']>;
+    type SurfaceState = ReturnType<Surface['state']>;
+    let state: SurfaceState = { kind: 'idle' };
+    let inner: Surface | null = null;
+    let disposed = false;
+    const listeners = new Set<(next: SurfaceState) => void>();
+    const setState = (next: SurfaceState): void => {
+      state = next;
+      for (const listener of listeners) {
+        try {
+          listener(next);
+        } catch {}
+      }
+    };
+    void this.initWalletIframe(args.nearAccountId).catch(() => {});
+    return {
+      kind: 'wallet_iframe_registration_activation_surface_v1',
+      mount: (target: HTMLElement) => {
+        void (async () => {
+          try {
+            if (disposed) return;
+            const router = await this.walletIframe.requireRouter(args.nearAccountId);
+            if (disposed) return;
+            inner = router.createPasskeyRegistrationActivationSurface(args);
+            inner.onStateChange(setState);
+            inner.mount(target);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'Registration activation failed';
+            setState({ kind: 'failed', activationId: '', error: message });
+          }
+        })();
+      },
+      dispose: () => {
+        disposed = true;
+        inner?.dispose();
+        if (state.kind === 'idle') {
+          setState({ kind: 'cancelled', activationId: '', reason: 'disposed' });
+        }
+      },
+      state: () => state,
+      onStateChange: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
   }
 
   private emailOtpRegistrationFlowId(nearAccountId: string, challengeId?: string): string {

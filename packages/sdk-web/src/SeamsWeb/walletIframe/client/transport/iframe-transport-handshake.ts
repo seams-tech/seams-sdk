@@ -107,6 +107,7 @@ type HandshakeOptions = {
   connectType: string;
   readyType: string;
   getTargetOrigin: (attempt: number) => string;
+  onAttempt?: (attempt: number, elapsedMs: number) => void;
   scheduler?: HandshakeScheduler;
   signal?: AbortSignal;
 };
@@ -149,6 +150,7 @@ export async function performHandshake(opts: HandshakeOptions): Promise<MessageP
     }
 
     attempt += 1;
+    opts.onAttempt?.(attempt, elapsed);
     const channel = new MessageChannel();
     const port1 = channel.port1;
     const port2 = channel.port2;

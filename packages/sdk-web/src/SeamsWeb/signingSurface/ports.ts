@@ -89,6 +89,7 @@ import type {
 } from '@/core/signingEngine/flows/signEvmFamily/emailOtpPublic';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { RegistrationCredentialConfirmationPayload } from '@/core/signingEngine/workerManager/validation';
+import type { WalletIframeRegistrationActivationProof } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type {
   ThresholdEd25519HssFinalizedReportEnvelope,
@@ -315,6 +316,7 @@ export interface WebAuthnRegistrationConfirmationSurface {
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     challengeB64u?: string;
+    walletIframeActivation?: WalletIframeRegistrationActivationProof;
   }): Promise<RegistrationCredentialConfirmationPayload>;
 }
 

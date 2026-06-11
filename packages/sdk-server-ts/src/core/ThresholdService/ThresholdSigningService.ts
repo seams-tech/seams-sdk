@@ -3764,59 +3764,6 @@ export class ThresholdSigningService {
     }
   }
 
-  private parseClientRootShare32(clientRootShare32B64uRaw: string): ParseResult<Uint8Array> {
-    const clientRootShare32B64u = String(clientRootShare32B64uRaw || '').trim();
-    if (!clientRootShare32B64u) {
-      return { ok: false, code: 'invalid_body', message: 'clientRootShare32B64u is required' };
-    }
-    try {
-      const yClient32Le = base64UrlDecode(clientRootShare32B64u);
-      if (yClient32Le.length !== 32) {
-        return {
-          ok: false,
-          code: 'invalid_body',
-          message: 'clientRootShare32B64u must decode to 32 bytes',
-        };
-      }
-      return { ok: true, value: yClient32Le };
-    } catch {
-      return {
-        ok: false,
-        code: 'invalid_body',
-        message: 'clientRootShare32B64u must be valid base64url',
-      };
-    }
-  }
-
-  private async validateEmailOtpClientRootShareVerifier(input: {
-    clientRootShare32B64u: string;
-    expectedClientRootVerifyingShareB64u: string;
-  }): Promise<ParseResult<true>> {
-    const parsedClientRootShare = this.parseClientRootShare32(input.clientRootShare32B64u);
-    if (!parsedClientRootShare.ok) return parsedClientRootShare;
-    const expectedClientRootVerifyingShareB64u = toOptionalTrimmedString(
-      input.expectedClientRootVerifyingShareB64u,
-    );
-    if (!expectedClientRootVerifyingShareB64u) {
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'Email OTP enrollment verifier is missing',
-      };
-    }
-    const actualClientRootVerifyingShareB64u = base64UrlEncode(
-      await secp256k1PrivateKey32ToPublicKey33(parsedClientRootShare.value),
-    );
-    if (actualClientRootVerifyingShareB64u !== expectedClientRootVerifyingShareB64u) {
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'Email OTP enrollment verifier does not match recovered signing material',
-      };
-    }
-    return { ok: true, value: true };
-  }
-
   private async parseCompressedSecp256k1PublicKeyB64u(input: {
     value: string;
     fieldName: string;

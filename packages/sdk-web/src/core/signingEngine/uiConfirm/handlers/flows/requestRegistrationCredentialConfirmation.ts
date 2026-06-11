@@ -5,6 +5,7 @@ import {
   type RegistrationUserConfirmRequest,
   type TransactionSummary,
   UserConfirmMessageType,
+  type WalletIframeRegistrationActivationProof,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import {
   parseAndValidateRegistrationCredentialConfirmationPayload,
@@ -32,6 +33,7 @@ type RegistrationCredentialConfirmationArgs = {
   confirmerText?: { title?: string; body?: string };
   confirmationConfig?: Partial<ConfirmationConfig>;
   challengeB64u?: string;
+  walletIframeActivation?: WalletIframeRegistrationActivationProof;
 };
 
 type RegistrationCredentialDecisionInput = {
@@ -51,6 +53,7 @@ export async function requestRegistrationCredentialConfirmation({
   confirmerText,
   confirmationConfig,
   challengeB64u,
+  walletIframeActivation,
 }: {
   touchConfirm: Pick<UiConfirmSecureConfirmationPort, 'requestUserConfirmation'>;
 } & RegistrationCredentialConfirmationArgs): Promise<RegistrationCredentialConfirmationPayload> {
@@ -64,6 +67,7 @@ export async function requestRegistrationCredentialConfirmation({
     confirmerText,
     confirmationConfig,
     challengeB64u,
+    walletIframeActivation,
   });
   const decision = await touchConfirm.requestUserConfirmation(request);
   return parseRegistrationCredentialDecision({ requestId: request.requestId, decision });
@@ -76,6 +80,7 @@ export async function requestRegistrationCredentialConfirmationOnMainThread({
   confirmerText,
   confirmationConfig,
   challengeB64u,
+  walletIframeActivation,
 }: {
   ctx: UiConfirmContext;
 } & RegistrationCredentialConfirmationArgs): Promise<RegistrationCredentialConfirmationPayload> {
@@ -85,6 +90,7 @@ export async function requestRegistrationCredentialConfirmationOnMainThread({
     confirmerText,
     confirmationConfig,
     challengeB64u,
+    walletIframeActivation,
   });
   validateUserConfirmRequest(request);
   assertNoForbiddenMainThreadSigningSecrets(request);
@@ -108,6 +114,7 @@ function buildRegistrationCredentialConfirmationRequest({
   confirmerText,
   confirmationConfig,
   challengeB64u,
+  walletIframeActivation,
 }: RegistrationCredentialConfirmationArgs): RegistrationUserConfirmRequest {
   const requestId = secureRandomId('register', 32, 'registration credential confirmation IDs');
   const title = confirmerText?.title;
@@ -132,6 +139,7 @@ function buildRegistrationCredentialConfirmationRequest({
             },
           }
         : {}),
+      ...(walletIframeActivation ? { walletIframeActivation } : {}),
     },
     confirmationConfig,
     intentDigest: `register:${nearAccountId}:${signerSlot}`,

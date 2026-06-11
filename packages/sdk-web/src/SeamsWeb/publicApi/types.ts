@@ -623,6 +623,9 @@ export interface RegistrationCapability {
     nearAccountId: string,
     options?: RegistrationHooksOptions,
   ): Promise<RegistrationResult>;
+  createPasskeyRegistrationActivationSurface(
+    args: CreatePasskeyRegistrationActivationSurfaceArgs,
+  ): WalletIframeRegistrationActivationSurface;
   requestEmailOtpEnrollmentChallenge(args: {
     nearAccountId: string;
     relayUrl?: string;
@@ -643,6 +646,35 @@ export interface RegistrationCapability {
     args: EmailOtpEcdsaEnrollmentCapabilityArgs,
   ): Promise<EmailOtpEcdsaEnrollmentCapabilityResult>;
 }
+
+export type RegistrationActivationSurfaceState =
+  | { kind: 'idle' }
+  | { kind: 'ready'; activationId: string; expiresAtMs: number }
+  | { kind: 'starting'; activationId: string }
+  | { kind: 'completed'; activationId: string; result: RegistrationResult }
+  | {
+      kind: 'cancelled';
+      activationId: string;
+      reason: 'user_cancelled' | 'expired' | 'disposed';
+    }
+  | { kind: 'failed'; activationId: string; error: string };
+
+export type WalletIframeRegistrationActivationSurface = {
+  kind: 'wallet_iframe_registration_activation_surface_v1';
+  mount(target: HTMLElement): void;
+  dispose(): void;
+  state(): RegistrationActivationSurfaceState;
+  onStateChange(listener: (state: RegistrationActivationSurfaceState) => void): () => void;
+};
+
+export type CreatePasskeyRegistrationActivationSurfaceArgs = {
+  nearAccountId: string;
+  options?: RegistrationHooksOptions;
+  button?: {
+    label?: string;
+    busyLabel?: string;
+  };
+};
 
 export interface NearSignerCapability {
   registerNearWallet(args: RegisterNearWalletArgs): Promise<RegistrationResult>;

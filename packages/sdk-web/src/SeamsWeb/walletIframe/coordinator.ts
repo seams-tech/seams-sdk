@@ -2,6 +2,7 @@ import type { UserPreferencesManager } from '@/core/signingEngine/session/userPr
 import { toWalletId } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { ThemeName, SeamsConfigsReadonly } from '@/core/types/seams';
 import type { WalletIframeRouter } from '@/SeamsWeb/walletIframe/client/router';
+import type { WalletIframeTransportDiagnostics } from '@/SeamsWeb/walletIframe/client/transport/IframeTransport';
 import type { PreferencesChangedPayload } from '@/SeamsWeb/walletIframe/shared/messages';
 import { __isWalletIframeHostMode } from '@/core/browser/walletIframe/host-mode';
 import { createWalletIframeRouter } from '@/SeamsWeb/assembly/createWalletIframeRouter';
@@ -48,6 +49,10 @@ export class WalletIframeCoordinator {
 
   isReady(): boolean {
     return !!this.iframeRouter?.isReady();
+  }
+
+  getTransportDiagnosticsSnapshot(): WalletIframeTransportDiagnostics | null {
+    return this.iframeRouter?.getTransportDiagnosticsSnapshot() ?? null;
   }
 
   onReady(listener: () => void): () => void {

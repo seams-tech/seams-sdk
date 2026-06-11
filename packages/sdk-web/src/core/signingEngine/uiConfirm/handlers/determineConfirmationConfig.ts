@@ -3,6 +3,7 @@ import type { UiConfirmContext } from '../types';
 import type { UserConfirmRequest } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import { UserConfirmationType } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import { needsExplicitActivation } from '@/react/deviceDetection';
+import { isObject, isString } from '@shared/utils/validation';
 
 /**
  * determineConfirmationConfig
@@ -19,6 +20,8 @@ import { needsExplicitActivation } from '@/react/deviceDetection';
  * - When running inside the wallet-iframe host context, always clamp registration/link flows to
  *   `{ uiMode: 'modal', behavior: 'requireClick' }` so the user activation happens inside the iframe.
  *   This intentionally overrides both user preferences and request-level overrides.
+ * - A wallet-iframe registration activation proof is the narrow exception for registration: the
+ *   iframe-owned activation button already supplied the wallet-origin click.
  *
  * Notes
  * - The function is pure (does not mutate the input object) and safe to call multiple times.
@@ -67,16 +70,24 @@ export function determineConfirmationConfig(
     } as ConfirmationConfig;
   }
 
-  // In wallet‑iframe host context: registration/link flows default to an explicit click.
-  // However, if the effective config explicitly opts into skipClick (or none), honor it.
+  // In wallet-iframe host context, registration/link flows require an explicit
+  // wallet-origin click. This keeps WebAuthn activation inside the iframe.
   if (
     inIframe &&
     request?.type &&
     (request.type === UserConfirmationType.REGISTER_ACCOUNT ||
       request.type === UserConfirmationType.LINK_DEVICE)
   ) {
-    // Cross‑origin registration/link flows: always require a visible, clickable confirmation
-    // so the click lands inside the wallet iframe and satisfies WebAuthn activation.
+    if (
+      request.type === UserConfirmationType.REGISTER_ACCOUNT &&
+      hasWalletIframeRegistrationActivation(request.payload)
+    ) {
+      return {
+        uiMode: 'none',
+        behavior: 'skipClick',
+        autoProceedDelay: 0,
+      } as ConfirmationConfig;
+    }
     return {
       uiMode: 'modal',
       behavior: 'requireClick',
@@ -86,4 +97,18 @@ export function determineConfirmationConfig(
 
   // Otherwise honor caller/user configuration
   return cfg;
+}
+
+function hasWalletIframeRegistrationActivation(payload: unknown): boolean {
+  if (!isObject(payload)) return false;
+  const activation = (payload as { walletIframeActivation?: unknown }).walletIframeActivation;
+  if (!isObject(activation)) return false;
+  const proof = activation as { kind?: unknown; activationId?: unknown; activatedAtMs?: unknown };
+  return (
+    proof.kind === 'wallet_iframe_registration_activation_v1' &&
+    isString(proof.activationId) &&
+    proof.activationId.trim().length > 0 &&
+    typeof proof.activatedAtMs === 'number' &&
+    Number.isFinite(proof.activatedAtMs)
+  );
 }

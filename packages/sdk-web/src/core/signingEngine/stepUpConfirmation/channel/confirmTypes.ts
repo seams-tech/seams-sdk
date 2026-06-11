@@ -178,7 +178,14 @@ export interface RegisterAccountPayload {
   nearAccountId: string;
   signerSlot?: number;
   webauthnChallenge?: Extract<WebAuthnChallenge, { kind: 'intent_digest' }>;
+  walletIframeActivation?: WalletIframeRegistrationActivationProof;
 }
+
+export type WalletIframeRegistrationActivationProof = {
+  kind: 'wallet_iframe_registration_activation_v1';
+  activationId: string;
+  activatedAtMs: number;
+};
 
 export interface DecryptPrivateKeyWithPrfPayload {
   nearAccountId: string;

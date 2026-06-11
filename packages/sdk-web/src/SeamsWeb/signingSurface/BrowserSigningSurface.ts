@@ -23,6 +23,7 @@ import type { SigningRuntime } from '@/core/runtime/types';
 import type { EmailOtpWorkerProgressEvent } from '@/core/signingEngine/workerManager/workerTypes';
 import type { UiConfirmRuntimeBridgePort } from '@/core/signingEngine/uiConfirm/types';
 import type { TouchIdPrompt } from '@/core/signingEngine/stepUpConfirmation/passkeyPrompt/touchIdPrompt';
+import type { WalletIframeRegistrationActivationProof } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { WebAuthnAllowCredential } from '@/core/signingEngine/webauthnAuth/credentials/collectAuthenticationCredentialForChallengeB64u';
 import type { EvmSigningRequest } from '@/core/signingEngine/chains/evm/types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
@@ -605,6 +606,7 @@ export class BrowserSigningSurface {
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     challengeB64u?: string;
+    walletIframeActivation?: WalletIframeRegistrationActivationProof;
   }): Promise<RegistrationCredentialConfirmationPayload> {
     return registrationPublic.requestRegistrationCredentialConfirmation(
       this.registrationPublicDeps,

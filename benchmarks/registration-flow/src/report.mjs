@@ -5,6 +5,14 @@ function fmtNum(value, decimals = 1) {
   return Number(value).toFixed(decimals);
 }
 
+function fmtBytes(value) {
+  if (value == null || !Number.isFinite(value)) return 'n/a';
+  const abs = Math.abs(Number(value));
+  if (abs >= 1024 * 1024) return `${(Number(value) / (1024 * 1024)).toFixed(2)} MiB`;
+  if (abs >= 1024) return `${(Number(value) / 1024).toFixed(1)} KiB`;
+  return `${Number(value).toFixed(0)} B`;
+}
+
 function scenarioDescription(id) {
   return SCENARIOS.find((entry) => entry.id === id)?.description || id;
 }
@@ -90,6 +98,26 @@ function appendRelayRouteTables(lines, statsByRoute) {
   }
 }
 
+function appendRegistrationRoutePayloadTable(lines, statsByPath) {
+  const entries = Object.entries(statsByPath || {}).filter(
+    ([, entry]) => entry?.requestBytes?.count > 0 || entry?.responseBytes?.count > 0,
+  );
+  if (!entries.length) return;
+  lines.push('### Registration Route Payload Sizes');
+  lines.push('');
+  lines.push(
+    '| Route | Count | total p50 (ms) | request p50 | request p95 | response p50 | response p95 |',
+  );
+  lines.push('|---|---:|---:|---:|---:|---:|---:|');
+  for (const [path, entry] of entries.sort(([left], [right]) => left.localeCompare(right))) {
+    const count = Math.max(entry.requestBytes?.count || 0, entry.responseBytes?.count || 0);
+    lines.push(
+      `| \`${path}\` | ${fmtNum(count, 0)} | ${fmtNum(entry.totalMs?.p50)} | ${fmtBytes(entry.requestBytes?.p50)} | ${fmtBytes(entry.requestBytes?.p95)} | ${fmtBytes(entry.responseBytes?.p50)} | ${fmtBytes(entry.responseBytes?.p95)} |`,
+    );
+  }
+  lines.push('');
+}
+
 function appendHssClientTable(lines, diagnosticsByOperation) {
   const entries = Object.entries(diagnosticsByOperation || {}).filter(
     ([, entry]) => entry?.totalMs?.count > 0,
@@ -104,6 +132,22 @@ function appendHssClientTable(lines, diagnosticsByOperation) {
   for (const [operation, entry] of entries.sort(([left], [right]) => left.localeCompare(right))) {
     lines.push(
       `| \`${operation}\` | ${fmtNum(entry.totalMs?.count, 0)} | ${fmtNum(entry.totalMs?.p50)} | ${fmtNum(entry.totalMs?.p95)} | ${fmtNum(entry.fetchMs?.p50)} | ${fmtNum(entry.fetchMs?.p95)} | ${fmtNum(entry.requestBytes?.p50, 0)} | ${fmtNum(entry.responseBytes?.p50, 0)} |`,
+    );
+  }
+  lines.push('');
+}
+
+function appendBrowserMemoryTable(lines, statsByName) {
+  const entries = Object.entries(statsByName || {}).filter(([, stats]) => stats?.count > 0);
+  if (!entries.length) return;
+  lines.push('### Browser Memory Diagnostics');
+  lines.push('');
+  lines.push('| Bucket | Count | p50 | p95 | Mean | Max |');
+  lines.push('|---|---:|---:|---:|---:|---:|');
+  for (const [name, stats] of entries.sort(([left], [right]) => left.localeCompare(right))) {
+    const formatter = name === 'sampleCount' ? (value) => fmtNum(value, 0) : fmtBytes;
+    lines.push(
+      `| \`${name}\` | ${fmtNum(stats.count, 0)} | ${formatter(stats.p50)} | ${formatter(stats.p95)} | ${formatter(stats.mean)} | ${formatter(stats.max)} |`,
     );
   }
   lines.push('');
@@ -142,11 +186,24 @@ export function buildMarkdownReport(input) {
       lines.push('');
       continue;
     }
-    lines.push(`- Scenario mode: ${summary.signerMode} / ${summary.walletIframeMode}`);
+    lines.push(
+      `- Scenario mode: ${summary.signerMode} / ${summary.walletIframeMode}${
+        summary.activationSurface ? ' / activation surface' : ''
+      }`,
+    );
     lines.push(`- Runs requested: ${fmtNum(summary.runsRequested, 0)}`);
     lines.push(`- Successful runs: ${fmtNum(summary.successfulRuns, 0)}`);
     lines.push(`- Failed runs: ${fmtNum(summary.failedRuns, 0)}`);
     lines.push(`- Relay diagnostics captured: ${fmtNum(summary.relayDiagnosticsCount, 0)}`);
+    lines.push(
+      `- Wallet iframe transport diagnostics captured: ${fmtNum(summary.walletIframeTransportDiagnosticsCount, 0)}`,
+    );
+    lines.push(
+      `- Registration route payload diagnostics captured: ${fmtNum(summary.registrationRoutePayloadDiagnosticsCount, 0)}`,
+    );
+    lines.push(
+      `- Browser memory diagnostics captured: ${fmtNum(summary.browserMemoryDiagnosticsCount, 0)}`,
+    );
     lines.push(`- HSS client timings captured: ${fmtNum(summary.hssClientTimingCount, 0)}`);
     lines.push(
       `- HSS worker diagnostics captured: ${fmtNum(summary.hssWorkerDiagnosticsCount, 0)}`,
@@ -154,8 +211,10 @@ export function buildMarkdownReport(input) {
     lines.push('');
     appendStatsTable(lines, 'Registration Timing Buckets', summary.timingStats || {});
     appendRelayRouteTables(lines, summary.relayStatsByRoute || {});
+    appendRegistrationRoutePayloadTable(lines, summary.registrationRoutePayloadStatsByPath || {});
     appendHssClientTable(lines, summary.hssClientStatsByOperation || {});
     appendHssWorkerTable(lines, summary.hssWorkerStatsByOperation || {});
+    appendBrowserMemoryTable(lines, summary.browserMemoryStats || {});
   }
 
   lines.push('## Notes');
@@ -168,6 +227,9 @@ export function buildMarkdownReport(input) {
   );
   lines.push(
     '- HSS worker diagnostics are observational and contain durations plus field sizes, not payload values.',
+  );
+  lines.push(
+    '- Browser memory diagnostics use Chromium heap counters when available; unsupported browsers report no memory rows.',
   );
 
   return lines.join('\n');

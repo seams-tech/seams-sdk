@@ -214,6 +214,9 @@ export function requestRegistrationCredentialConfirmation(
     confirmerText?: { title?: string; body?: string };
     confirmationConfigOverride?: Partial<ConfirmationConfig>;
     challengeB64u?: string;
+    walletIframeActivation?: Parameters<
+      RegistrationPublicDeps['session']['touchConfirm']['requestRegistrationCredentialConfirmation']
+    >[0]['walletIframeActivation'];
   },
 ): Promise<RegistrationCredentialConfirmationPayload> {
   return requestRegistrationCredentialConfirmationValue(deps.session, params);

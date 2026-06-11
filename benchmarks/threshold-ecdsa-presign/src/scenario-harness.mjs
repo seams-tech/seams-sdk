@@ -3,20 +3,20 @@ import http from 'node:http';
 import fs from 'node:fs';
 import expressImport from 'express';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
-import { createRelayRouter } from '../../../sdk/dist/esm/server/router/express.js';
+import { createRelayRouter } from '../../../packages/sdk-web/dist/esm/server/router/express.js';
 import {
   AuthService,
   createSelfHostedSigningRootShareResolver,
   createThresholdSigningService,
-} from '../../../sdk/dist/esm/server/index.js';
-import { ThresholdEcdsaSigningHandlers } from '../../../sdk/dist/esm/server/core/ThresholdService/ecdsaSigningHandlers.js';
-import { createThresholdEcdsaSigningStores } from '../../../sdk/dist/esm/server/core/ThresholdService/stores/EcdsaSigningStore.js';
-import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../../sdk/dist/esm/server/core/ThresholdService/schemes/schemeIds.js';
+} from '../../../packages/sdk-web/dist/esm/server/index.js';
+import { ThresholdEcdsaSigningHandlers } from '../../../packages/sdk-web/dist/esm/server/core/ThresholdService/ecdsaSigningHandlers.js';
+import { createThresholdEcdsaSigningStores } from '../../../packages/sdk-web/dist/esm/server/core/ThresholdService/stores/EcdsaSigningStore.js';
+import { THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID } from '../../../packages/sdk-web/dist/esm/server/core/ThresholdService/schemes/schemeIds.js';
 import {
   alphabetizeStringify,
   sha256BytesUtf8,
-} from '../../../sdk/dist/esm/shared/src/utils/digests.js';
-import { deriveThresholdEcdsaKeyHandle } from '../../../sdk/dist/esm/shared/src/utils/thresholdEcdsaKeyHandle.js';
+} from '../../../packages/sdk-web/dist/esm/shared/src/utils/digests.js';
+import { deriveThresholdEcdsaKeyHandle } from '../../../packages/sdk-web/dist/esm/shared/src/utils/thresholdEcdsaKeyHandle.js';
 import {
   initSync as initEthSignerWasmSync,
   ThresholdEcdsaPresignSession,
@@ -28,7 +28,7 @@ import {
   threshold_ecdsa_hss_role_local_client_bootstrap,
   threshold_ecdsa_hss_role_local_export_artifact,
 } from '../../../wasm/hss_client_signer/pkg/hss_client_signer.js';
-import { base64UrlEncode, base64UrlDecode } from '../../../sdk/dist/esm/shared/src/utils/base64.js';
+import { base64UrlEncode, base64UrlDecode } from '../../../packages/sdk-web/dist/esm/shared/src/utils/base64.js';
 
 const TEST_MASTER_SECRET_B64U = Buffer.from(new Uint8Array(32).fill(9)).toString('base64url');
 const DEFAULT_PARTICIPANT_IDS = [1, 2];

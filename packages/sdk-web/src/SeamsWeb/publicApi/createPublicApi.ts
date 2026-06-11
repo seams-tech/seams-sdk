@@ -58,6 +58,7 @@ export type RegistrationCapabilityDomainMethods = {
   addWalletSigner: RegistrationCapability['addWalletSigner'];
   registerWallet: RegistrationCapability['registerWallet'];
   registerPasskey: RegistrationCapability['registerPasskey'];
+  createPasskeyRegistrationActivationSurface: RegistrationCapability['createPasskeyRegistrationActivationSurface'];
   requestEmailOtpEnrollmentChallenge: RegistrationCapability['requestEmailOtpEnrollmentChallenge'];
   enrollEmailOtp: RegistrationCapability['enrollEmailOtp'];
   enrollAndLoginWithEmailOtpEcdsaCapability: RegistrationCapability['enrollAndLoginWithEmailOtpEcdsaCapability'];
@@ -152,6 +153,8 @@ export function createPublicApi(deps: {
       registerWallet: deps.registration.registerWallet,
       registerWithEmailOtp: deps.registration.registerWallet,
       registerPasskey: deps.registration.registerPasskey,
+      createPasskeyRegistrationActivationSurface:
+        deps.registration.createPasskeyRegistrationActivationSurface,
       requestEmailOtpEnrollmentChallenge:
         deps.registration.requestEmailOtpEnrollmentChallenge,
       enrollEmailOtp: deps.registration.enrollEmailOtp,

@@ -3,6 +3,8 @@ import type { ParentToChildEnvelope, ParentToChildType } from '../shared/message
 export type BootWalletRequestType = 'PING' | 'PM_SET_CONFIG' | 'PM_CANCEL';
 export type NearWalletRequestType =
   | 'PM_REGISTER'
+  | 'PM_REGISTRATION_ACTIVATION_PREPARE'
+  | 'PM_REGISTRATION_ACTIVATION_CANCEL'
   | 'PM_REGISTER_WALLET'
   | 'PM_ADD_WALLET_SIGNER'
   | 'PM_PREFETCH_BLOCKHEIGHT'
@@ -129,6 +131,8 @@ export function routeWalletHostRequest(request: ParentToChildEnvelope): WalletHo
       return { kind: 'boot', type: request.type, request };
 
     case 'PM_REGISTER':
+    case 'PM_REGISTRATION_ACTIVATION_PREPARE':
+    case 'PM_REGISTRATION_ACTIVATION_CANCEL':
     case 'PM_REGISTER_WALLET':
     case 'PM_ADD_WALLET_SIGNER':
     case 'PM_PREFETCH_BLOCKHEIGHT':

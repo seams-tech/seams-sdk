@@ -48,6 +48,8 @@ export type ParentToChildType =
   | 'PM_CANCEL'
   // SeamsWeb API surface
   | 'PM_REGISTER'
+  | 'PM_REGISTRATION_ACTIVATION_PREPARE'
+  | 'PM_REGISTRATION_ACTIVATION_CANCEL'
   | 'PM_REGISTER_WALLET'
   | 'PM_ADD_WALLET_SIGNER'
   | 'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION'
@@ -110,6 +112,8 @@ export type ChildToParentType =
   | 'PONG'
   | 'PROGRESS'
   | 'PREFERENCES_CHANGED'
+  | 'PM_REGISTRATION_ACTIVATION_READY'
+  | 'PM_REGISTRATION_ACTIVATION_STARTED'
   | 'PM_RESULT'
   | 'ERROR';
 
@@ -152,6 +156,32 @@ export interface PMRegisterPayload {
   // Optional per-call confirmation override
   confirmationConfig?: Partial<ConfirmationConfig>;
   options?: Record<string, unknown>;
+}
+
+export interface PMRegistrationActivationPreparePayload {
+  activationId: string;
+  nearAccountId: string;
+  expiresAtMs: number;
+  confirmationConfig?: Partial<ConfirmationConfig>;
+  options?: Record<string, unknown>;
+  button?: {
+    label?: string;
+    busyLabel?: string;
+  };
+}
+
+export interface PMRegistrationActivationCancelPayload {
+  activationId: string;
+  reason: 'user_cancelled' | 'expired' | 'disposed';
+}
+
+export interface PMRegistrationActivationReadyPayload {
+  activationId: string;
+  expiresAtMs: number;
+}
+
+export interface PMRegistrationActivationStartedPayload {
+  activationId: string;
 }
 
 export interface PMRegisterWalletPayload {
@@ -547,6 +577,8 @@ export type ParentToChildEnvelope =
   | RpcEnvelope<'PM_SET_CONFIG', PMSetConfigPayload>
   | RpcEnvelope<'PM_CANCEL', PMCancelPayload>
   | RpcEnvelope<'PM_REGISTER', PMRegisterPayload>
+  | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_PREPARE', PMRegistrationActivationPreparePayload>
+  | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_CANCEL', PMRegistrationActivationCancelPayload>
   | RpcEnvelope<'PM_REGISTER_WALLET', PMRegisterWalletPayload>
   | RpcEnvelope<'PM_ADD_WALLET_SIGNER', PMAddWalletSignerPayload>
   | RpcEnvelope<'PM_BOOTSTRAP_THRESHOLD_ECDSA_SESSION', PMBootstrapThresholdEcdsaSessionPayload>
@@ -667,5 +699,7 @@ export type ChildToParentEnvelope =
   | RpcEnvelope<'PONG'>
   | RpcEnvelope<'PROGRESS', ProgressPayload>
   | RpcEnvelope<'PREFERENCES_CHANGED', PreferencesChangedPayload>
+  | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_READY', PMRegistrationActivationReadyPayload>
+  | RpcEnvelope<'PM_REGISTRATION_ACTIVATION_STARTED', PMRegistrationActivationStartedPayload>
   | RpcEnvelope<'PM_RESULT', PMResultPayload>
   | RpcEnvelope<'ERROR', ErrorPayload>;

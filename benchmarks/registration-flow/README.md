@@ -16,6 +16,7 @@ the browser so timing instrumentation matches the current source tree.
 ```bash
 pnpm benchmark:registration-flow:smoke
 pnpm benchmark:registration-flow -- --scenario passkey_ed25519_only_wallet_iframe
+pnpm benchmark:registration-flow -- --scenario passkey_ed25519_only_wallet_iframe_activation
 pnpm benchmark:registration-flow:report-only -- --scenario passkey_ed25519_only_wallet_iframe
 ```
 

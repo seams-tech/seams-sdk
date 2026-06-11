@@ -361,8 +361,11 @@ Notes:
 - [x] Retain stable benchmark auto-confirm retry hygiene: keep the `50ms`
       locator timeout, remove the extra benchmark retry sleep, and stop the
       benchmark helper after the first successful click.
-- [ ] Add benchmark sub-buckets for iframe load/handshake and account
-      reservation after those surfaces expose explicit no-secret timing hooks.
+- [x] Add benchmark sub-buckets for wallet-iframe mount, load wait,
+      boot-hint wait, handshake, connect total, and handshake attempts.
+- [ ] Add benchmark sub-buckets for account reservation after that surface
+      exposes explicit no-secret timing hooks and benchmarks show route
+      contention.
 - [x] Run `pnpm benchmark:registration-flow:smoke` before and after the route
       split.
 - [x] Keep the change because the post-proof start path improves materially.
@@ -371,6 +374,18 @@ Notes:
 
 Notes:
 
+- One-run wallet-iframe validation `20260610-125951Z` captured
+  `walletIframeTransportDiagnosticsCount=1`; sample transport buckets were
+  mount `2ms`, load wait `33ms`, boot-hint wait `52ms`, handshake `0ms`,
+  connect total `87ms`, and one handshake attempt.
+- Full smoke `20260610-130323Z` passed all four passkey scenarios and captured
+  wallet-iframe transport diagnostics for both wallet-iframe scenarios. P50
+  transport connect was `99ms` Ed25519-only and `115ms` combined, while
+  wallet-iframe passkey auth was `878ms` / `866ms` and
+  `ed25519EvaluationArtifactMs` was `496ms` / `489ms`. This keeps transport
+  optimization as secondary and points the next latency lane back to refactor-64
+  client artifact construction or a separately specced passkey activation UX
+  change.
 - Smoke run `20260609-170907Z` passed all four passkey scenarios and synced
   `docs/benchmarks/registration-flow.md`. New warmup sub-buckets showed
   `registrationWarmupMs` p50 at `1ms`, `1ms`, `3ms`, and `2ms`, with
@@ -453,16 +468,29 @@ Notes:
 - `registrationWarmupWaitMs` was also `0ms` p50 and p95 in every smoke
   scenario. The current warmup is useful as coverage and instrumentation, but
   it is not the limiting registration bucket in this smoke path.
-- Current retained SDK p50 is `1807ms` wallet-iframe Ed25519-only, `1869ms`
-  wallet-iframe combined, `1480ms` host-origin Ed25519-only, and `1511ms`
-  host-origin combined. Current browser-observed p50 is `2480ms`, `2502ms`,
-  `1852ms`, and `1895ms` respectively. Product-side wallet-iframe prompt
-  readiness is not the bottleneck: the confirmation host reaches first update
-  and interactive state in about `1ms` p50 after prompt start, while the
-  measured iframe prompt decision wait is `620ms` to `643ms` p50 in the
-  benchmark auto-confirm path. The next latency work should target client HSS
-  artifact construction first, then revisit finalize if it remains a visible
-  product bucket.
+- Current retained SDK p50 from smoke run `20260610-135445Z` is `1663ms`
+  wallet-iframe Ed25519-only, `1703ms` wallet-iframe combined, `1299ms`
+  host-origin Ed25519-only, and `1359ms` host-origin combined. Browser-observed
+  p50 is `2304ms`, `2559ms`, `1690ms`, and `1724ms` respectively. Host-origin
+  remains under the `1500ms` SDK target; wallet iframe remains about `160ms` to
+  `200ms` above target in full SDK timing.
+- Wallet-iframe Ed25519-only p50 is now dominated by passkey confirmation
+  timing and HSS artifact construction: `authProofMs` `831ms`,
+  `passkeyAuthPromptDecisionWaitMs` `634ms`,
+  `passkeyAuthCredentialCreateMs` `202ms`, and
+  `ed25519EvaluationArtifactMs` `471ms`. Server-side prepare is hidden
+  (`walletRegisterPrepareWaitMs` `0ms`), finalize is much smaller
+  (`walletRegisterFinalizeMs` about `53ms`), and transport is secondary
+  (`20260610-130323Z` wallet-iframe connect p50 `99ms` / `115ms`).
+- Product-side wallet-iframe prompt readiness is not the bottleneck: the
+  confirmation host reaches first update and interactive state in about `1ms`
+  p50 after prompt start, while the measured iframe prompt decision wait is
+  about `634ms` to `642ms` p50 in the benchmark auto-confirm path. The derived
+  smoke buckets show post-prompt SDK p50 at `1028ms` / `1060ms` in wallet iframe
+  scenarios and post-prompt auth proof p50 at `203ms` in both wallet iframe
+  scenarios. The remaining full-SDK wallet-iframe gap is therefore mainly a
+  registration confirmation UX/security decision, with HSS artifact work still
+  useful for margin.
 
 ## Next Optimization Steps
 
@@ -498,9 +526,236 @@ Notes:
        `64/66/64/64ms -> 58/58/57/57ms`, and
        `registrationHssRespondDeliveryOtOpenJoinMs` moved from `55ms` to
        `58ms` down to `49ms`.
-8. Keep account reservation pending until account availability or route
-   contention appears in benchmarks; it is not currently in the p50 bottleneck
-   order.
+8. [x] Keep account reservation pending until account availability or route
+       contention appears in benchmarks; it is not currently in the p50
+       bottleneck order.
+9. [x] Re-rank after Phase 7I HSS artifact work and route-local finalize/respond
+       passes. Current retained smoke `20260610-135445Z` puts host-origin under
+       target and leaves wallet iframe slightly above target.
+10. [x] Add derived benchmark buckets for
+        `sdkMinusPasskeyPromptDecisionWaitMs` and
+        `authProofMinusPasskeyPromptDecisionWaitMs` so benchmark reports split
+        post-confirm runtime from passkey prompt decision wait.
+11. [x] Run the registration-flow smoke again and sync
+        `docs/benchmarks/registration-flow.md` so the derived buckets are
+        captured in the saved report. Smoke `20260610-135445Z` passed all four
+        scenarios.
+12. [x] Use the derived buckets to decide whether the remaining wallet-iframe
+        gap is product/runtime work or a registration confirmation UX decision.
+        The full-SDK wallet-iframe gap is mostly prompt decision wait; a UX
+        change needs a short security spec before implementation because it
+        changes when registration authority is granted.
+13. [x] Decide the next product optimization lane. Do not weaken the
+        wallet-iframe `modal + requireClick` clamp by honoring `skipClick`;
+        instead specify a pre-mounted wallet-owned activation surface so the
+        user's first registration click can land inside the iframe.
+14. [x] Implement a wallet-iframe registration activation surface prototype
+        behind the normal wallet iframe runtime boundary. The prototype should
+        render a wallet-owned button before registration starts, then call
+        registration from inside the iframe on that click. Source validation and
+        the one-run benchmark probe passed on `20260610-175332Z`.
+15. [x] Benchmark the activation-surface prototype against the current modal
+        confirmation path. Keep it only if wallet-iframe full SDK p50 moves
+        materially while `authProofMinusPasskeyPromptDecisionWaitMs` stays near
+        the current `203ms` WebAuthn floor. Run `20260610-175514Z` keeps the
+        prototype: Ed25519-only wallet iframe SDK p50 moved `1600ms -> 1170ms`
+        and `passkeyAuthPromptDecisionWaitMs` moved `616ms -> 0ms`.
+16. [x] Decide whether to continue UX activation work or return to refactor-64
+        protocol-kernel work after the prototype benchmark. Keep the activation
+        surface and harden it with targeted lifecycle tests, then return to
+        refactor-64 for HSS artifact/runtime work.
+
+### Phase 7: Wallet-Iframe Registration Activation Surface
+
+Goal:
+
+- remove the second-click latency in wallet-iframe registration without moving
+  WebAuthn authority back to the parent origin.
+
+Current behavior:
+
+- Host-origin registration can honor `uiMode: 'none'` / `behavior: 'skipClick'`
+  in benchmark mode, so the passkey operation starts immediately and p50 auth is
+  about `202ms`.
+- Wallet-iframe registration is intentionally clamped by
+  `determineConfirmationConfig` to `modal + requireClick` for
+  `REGISTER_ACCOUNT` and `LINK_DEVICE`. This keeps the WebAuthn activation
+  inside the wallet iframe. Request-level `skipClick` does not bypass the clamp.
+- Smoke `20260610-135445Z` shows the clamp cost in the benchmark:
+  wallet-iframe `passkeyAuthPromptDecisionWaitMs` is `634ms` / `642ms`, while
+  `authProofMinusPasskeyPromptDecisionWaitMs` is `203ms` in both wallet-iframe
+  scenarios.
+
+Proposed architecture:
+
+- Add a wallet-owned registration activation component that can be mounted
+  before the app starts the registration RPC.
+- The visible CTA belongs to the wallet iframe. The user's click happens inside
+  the iframe and directly starts the registration authority flow.
+- The parent app supplies the registration intent parameters and receives
+  progress/results over the existing wallet-iframe message boundary.
+- The fallback remains the current modal confirmation path for callers that use
+  the existing imperative `registerPasskey` API.
+
+Current prototype status:
+
+- Public API shape, wallet-iframe messages, host routing, and result delivery
+  are implemented for `createPasskeyRegistrationActivationSurface`.
+- Normal `registerPasskey` in wallet-iframe mode still strips caller-supplied
+  activation proofs and keeps the `modal + requireClick` clamp.
+- The activation path creates the proof only inside the iframe click handler and
+  forces `uiMode: 'none'`, `behavior: 'skipClick'`, and `autoProceedDelay: 0`
+  after caller config is merged.
+- One-run probe `20260610-175332Z` for
+  `passkey_ed25519_only_wallet_iframe_activation` passed with SDK `1357ms`,
+  `passkeyAuthPromptDecisionWaitMs` `0ms`, and
+  `authProofMinusPasskeyPromptDecisionWaitMs` `207ms`. Browser duration was
+  `1937ms` because the benchmark auto-click helper first saw the activation
+  button at `540ms`.
+- Five-run comparison `20260610-175514Z` keeps the prototype:
+  `passkey_ed25519_only_wallet_iframe` SDK p50/p95 `1600ms / 1629ms`,
+  browser p50/p95 `2434ms / 2781ms`, prompt decision wait p50/p95
+  `616ms / 652ms`; activation SDK p50/p95 `1170ms / 1381ms`, browser p50/p95
+  `1411ms / 2209ms`, prompt decision wait p50/p95 `0ms / 0ms`, and
+  `authProofMinusPasskeyPromptDecisionWaitMs` stayed at `203ms / 205ms`.
+- Five-run ECDSA comparison `20260610-180121Z` keeps the same conclusion:
+  `passkey_ed25519_and_ecdsa_wallet_iframe` SDK p50/p95 `1615ms / 1684ms`,
+  browser p50/p95 `2431ms / 2575ms`, prompt decision wait p50/p95
+  `599ms / 658ms`; activation SDK p50/p95 `1173ms / 1403ms`, browser p50/p95
+  `1452ms / 1944ms`, prompt decision wait p50/p95 `0ms / 0ms`, and
+  `authProofMinusPasskeyPromptDecisionWaitMs` stayed at `204ms / 205ms`.
+- June 11 focused revalidation passed:
+  `pnpm -C tests exec playwright test -c playwright.unit.config.ts
+  ./unit/walletIframeHost.registrationActivation.unit.test.ts
+  ./unit/confirmTxFlow.determineConfirmationConfig.test.ts --reporter=line`
+  completed `11` tests. This covers forged activation proof stripping,
+  duplicate clicks, cancellation, expiry, iframe registration/link skip-click
+  clamping, and the activation-proof skip path.
+
+Security constraints:
+
+- Do not treat parent-origin clicks as wallet-origin activation.
+- Do not honor `skipClick` for wallet-iframe registration/link flows.
+- Bind the activation click to the activation id and intended account id inside
+  the wallet iframe. Once the click starts normal registration, keep wallet id,
+  rp id, signer selection, and registration intent digest binding in the
+  prepared-registration lifecycle.
+- Expire prepared activation state quickly and make repeated clicks idempotent.
+- Keep the WebAuthn credential creation and PRF collection inside the wallet
+  iframe runtime.
+
+Todo:
+
+- [x] Confirm the current latency gap is prompt decision wait, not WebAuthn,
+      HSS, or iframe transport.
+- [x] Add a regression test proving wallet-iframe registration/link request-level
+      `skipClick` overrides are clamped to `modal + requireClick`.
+- [x] Define the activation-surface public SDK API shape.
+- [x] Define the wallet-iframe messages for pre-mounted activation, start,
+      cancel, expiry, and result delivery.
+- [x] Prototype the wallet-owned activation button using wallet iframe theme
+      variables and an explicit activation-start selector.
+- [x] Add unit tests for activation lifecycle, forged-proof stripping, expiry,
+      duplicate click behavior, and fallback to the existing modal path.
+- [x] Add benchmark scenarios for the activation-surface path.
+- [x] Run a multi-run activation benchmark against the current modal baseline
+      and record the keep/drop decision.
+- [x] Add lifecycle tests for activation expiry, duplicate clicks, cancellation,
+      and fallback to the existing modal path.
+- [x] Run the Ed25519+ECDSA activation benchmark variant and compare whether the
+      same prompt-wait reduction holds when ECDSA provisioning is enabled.
+
+Public SDK shape:
+
+```ts
+type RegistrationActivationSurfaceState =
+  | { kind: 'idle' }
+  | { kind: 'ready'; activationId: string; expiresAtMs: number }
+  | { kind: 'starting'; activationId: string }
+  | { kind: 'completed'; activationId: string; result: RegistrationResult }
+  | { kind: 'cancelled'; activationId: string; reason: 'user_cancelled' | 'expired' | 'disposed' }
+  | { kind: 'failed'; activationId: string; error: string };
+
+type WalletIframeRegistrationActivationSurface = {
+  kind: 'wallet_iframe_registration_activation_surface_v1';
+  mount(target: HTMLElement): void;
+  dispose(): void;
+  state(): RegistrationActivationSurfaceState;
+  onStateChange(listener: (state: RegistrationActivationSurfaceState) => void): () => void;
+};
+
+type CreatePasskeyRegistrationActivationSurfaceArgs = {
+  nearAccountId: string;
+  options?: RegistrationHooksOptions;
+  button?: {
+    label?: string;
+    busyLabel?: string;
+  };
+};
+```
+
+Candidate API entrypoint:
+
+```ts
+const surface = seams.registration.createPasskeyRegistrationActivationSurface({
+  nearAccountId,
+  options,
+});
+surface.mount(buttonContainer);
+```
+
+Notes:
+
+- The app controls placement, but the rendered button and click handler live
+  inside the wallet iframe.
+- The existing `registerPasskey(nearAccountId, options)` API remains the
+  fallback imperative path and keeps the current modal confirmation behavior.
+- Invalid states should be unrepresentable with a discriminated state union; no
+  optional identity/session fields in the activation start path.
+
+Wallet-iframe message lifecycle:
+
+```ts
+type WalletIframeRegistrationActivationRequest =
+  | {
+      type: 'PM_REGISTRATION_ACTIVATION_PREPARE';
+      activationId: string;
+      nearAccountId: string;
+      options: SerializableRegistrationHooksOptions;
+      expiresAtMs: number;
+    }
+  | {
+      type: 'PM_REGISTRATION_ACTIVATION_CANCEL';
+      activationId: string;
+      reason: 'user_cancelled' | 'expired' | 'disposed';
+    };
+
+type WalletIframeRegistrationActivationEvent =
+  | {
+      type: 'PM_REGISTRATION_ACTIVATION_READY';
+      activationId: string;
+      expiresAtMs: number;
+    }
+  | {
+      type: 'PM_REGISTRATION_ACTIVATION_STARTED';
+      activationId: string;
+    };
+```
+
+Message rules:
+
+- `activationId` is generated by the parent and echoed by the wallet iframe for
+  every state transition.
+- The iframe owns the visible activation button. The registration call starts
+  only from the iframe click handler for `PM_REGISTRATION_ACTIVATION_PREPARE`.
+- `options` must be serialized through the same function-stripping boundary as
+  current wallet-iframe `registerPasskey`; parent callbacks remain bridged via
+  progress events.
+- `PM_REGISTRATION_ACTIVATION_CANCEL` is best-effort and idempotent. The iframe
+  must reject starts after expiry or cancellation.
+- The fallback imperative path must not consume activation state.
+- Result and error delivery use the existing wallet-iframe `PM_RESULT` / `ERROR`
+  response envelope for the `PM_REGISTRATION_ACTIVATION_PREPARE` request.
 
 ## Acceptance Criteria
 

@@ -58,7 +58,9 @@ export async function clickWalletIframeConfirm(
       'firstFrameResolvedMs',
     );
 
-    const confirmBtn = frame.locator('#w3a-confirm-portal button.confirm').first();
+    const confirmBtn = frame
+      .locator('[data-w3a-registration-activation-start="true"], #w3a-confirm-portal button.confirm')
+      .first();
     await confirmBtn.waitFor({ state: 'visible', timeout: timeoutMs });
     recordAutoConfirmMark(
       opts?.diagnostics,

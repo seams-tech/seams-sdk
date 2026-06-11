@@ -95,6 +95,19 @@ import { assertWalletRuntimePostconditions } from '@/core/signingEngine/session/
 
 // Registration forces a visible, clickable confirmation for cross-origin safety.
 
+export const REGISTRATION_TIMING_LABEL = '[Registration] wallet timing summary';
+export const WALLET_IFRAME_TRANSPORT_TIMING_LABEL =
+  '[Registration] wallet iframe transport timing summary';
+
+export function isRegistrationBenchmarkDiagnosticsEnabled(): boolean {
+  const globalFlag = (
+    globalThis as {
+      __SEAMS_REGISTRATION_BENCHMARK_DIAGNOSTICS?: unknown;
+    }
+  ).__SEAMS_REGISTRATION_BENCHMARK_DIAGNOSTICS;
+  return globalFlag === true;
+}
+
 type EmitRegistrationEventInput = Omit<CreateRegistrationFlowEventInput, 'accountId' | 'flowId'>;
 
 type RegistrationTimingAuthMethod = RegistrationAuthMethodInput['kind'];
@@ -842,16 +855,13 @@ function createFailedRegistrationTimingSummary(input: {
 }
 
 function emitRegistrationTimingSummary(summary: RegistrationTimingSummary): void {
-  console.info('[Registration] wallet timing summary', summary);
+  console.info(REGISTRATION_TIMING_LABEL, summary);
 }
 
 function registrationRouteDiagnosticsHeaders(): Record<string, string> | undefined {
-  const globalFlag = (
-    globalThis as {
-      __SEAMS_REGISTRATION_BENCHMARK_DIAGNOSTICS?: unknown;
-    }
-  ).__SEAMS_REGISTRATION_BENCHMARK_DIAGNOSTICS;
-  return globalFlag === true ? { 'X-Seams-Benchmark-Diagnostics': 'registration-flow' } : undefined;
+  return isRegistrationBenchmarkDiagnosticsEnabled()
+    ? { 'X-Seams-Benchmark-Diagnostics': 'registration-flow' }
+    : undefined;
 }
 
 function createRegistrationOperationIdempotencyKey(
@@ -1288,6 +1298,7 @@ async function registerEcdsaWalletOnly(args: {
           registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
           options,
           confirmationConfigOverride: confirmationConfig,
+          walletIframeActivation: options.walletIframeActivation,
         }),
       );
       registrationTiming.capturePasskeyAuthDiagnostics(passkeyAuthority.diagnostics);
@@ -1759,6 +1770,7 @@ export async function registerWallet(args: {
           registrationIntentDigestB64u: intentResponse.registrationIntentDigestB64u,
           options,
           confirmationConfigOverride: confirmationConfig,
+          walletIframeActivation: options.walletIframeActivation,
         }),
       );
       registrationTiming.capturePasskeyAuthDiagnostics(passkeyAuthority.diagnostics);

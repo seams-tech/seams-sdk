@@ -34,6 +34,16 @@ import { handleWebAuthnBridgeMessage } from './webauthn-bridge';
 
 const WILDCARD_CONNECT_ATTEMPTS = 6;
 
+export type WalletIframeTransportDiagnostics = {
+  kind: 'wallet_iframe_transport_diagnostics_v1';
+  iframeMountMs: number;
+  iframeLoadWaitMs: number;
+  bootHintWaitMs: number;
+  handshakeMs: number;
+  connectTotalMs: number;
+  handshakeAttempts: number;
+};
+
 // Message constants (typed string literals, tree‑shake friendly)
 export const IframeMessage = {
   Connect: 'CONNECT',
@@ -59,6 +69,22 @@ type ResolvedTransportOptions = Required<Omit<IframeTransportOptions, 'signal'>>
   signal?: AbortSignal;
 };
 
+function createZeroWalletIframeTransportDiagnostics(): WalletIframeTransportDiagnostics {
+  return {
+    kind: 'wallet_iframe_transport_diagnostics_v1',
+    iframeMountMs: 0,
+    iframeLoadWaitMs: 0,
+    bootHintWaitMs: 0,
+    handshakeMs: 0,
+    connectTotalMs: 0,
+    handshakeAttempts: 0,
+  };
+}
+
+function roundTransportDurationMs(startedAt: number): number {
+  return Math.max(0, Math.round(performance.now() - startedAt));
+}
+
 export class IframeTransport {
   private readonly opts: ResolvedTransportOptions;
   private iframeEl: HTMLIFrameElement | null = null;
@@ -68,6 +94,7 @@ export class IframeTransport {
   private readonly walletOrigin: string;
   private readonly testOptions: { routerId?: string; ownerTag?: string };
   private debug = false;
+  private lastDiagnostics = createZeroWalletIframeTransportDiagnostics();
   private readonly onWindowMessage = (e: MessageEvent): void => {
     const data = e.data as unknown;
     if (!isObject(data)) return;
@@ -136,6 +163,10 @@ export class IframeTransport {
     return this.iframeEl;
   }
 
+  getDiagnosticsSnapshot(): WalletIframeTransportDiagnostics {
+    return { ...this.lastDiagnostics };
+  }
+
   /** Remove global listeners created by this transport instance. */
   dispose(): void {
     if (typeof window !== 'undefined') {
@@ -168,21 +199,34 @@ export class IframeTransport {
   async connect(): Promise<MessagePort> {
     if (this.connectInFlight) return this.connectInFlight;
     this.connectInFlight = (async () => {
+      const connectStartedAt = performance.now();
+      let iframeMountMs = 0;
+      let iframeLoadWaitMs = 0;
+      let bootHintWaitMs = 0;
+      let handshakeMs = 0;
+      let handshakeAttempts = 0;
       if (this.opts.signal?.aborted) {
         throw new Error('Wallet iframe connect aborted');
       }
+      const mountStartedAt = performance.now();
       const iframe = this.ensureIframeMounted();
+      iframeMountMs = roundTransportDurationMs(mountStartedAt);
 
       // Ensure load fired at least once so the host script can attach listeners
+      const loadStartedAt = performance.now();
       await waitForLoad(iframe, this.debug, this.opts.signal);
+      iframeLoadWaitMs = roundTransportDurationMs(loadStartedAt);
 
       // For cross-origin pages, give the host only a very brief moment to boot its script
       // Keep this low to avoid adding noticeable latency to the first CONNECT attempt.
       // The handshake will continue retrying regardless, so a shorter wait improves TTFB.
       const bootWaitMs = Math.min(this.opts.connectTimeoutMs / 12, 300);
+      const bootStartedAt = performance.now();
       await waitForBootHint(() => this.serviceBooted, bootWaitMs, this.opts.signal);
+      bootHintWaitMs = roundTransportDurationMs(bootStartedAt);
 
-      return performHandshake({
+      const handshakeStartedAt = performance.now();
+      const port = await performHandshake({
         iframe,
         connectTimeoutMs: this.opts.connectTimeoutMs,
         walletOrigin: this.walletOrigin,
@@ -190,8 +234,22 @@ export class IframeTransport {
         connectType: IframeMessage.Connect,
         readyType: IframeMessage.Ready,
         getTargetOrigin: (attempt) => this.getConnectTargetOrigin(attempt),
+        onAttempt: (attempt) => {
+          handshakeAttempts = attempt;
+        },
         signal: this.opts.signal,
       });
+      handshakeMs = roundTransportDurationMs(handshakeStartedAt);
+      this.lastDiagnostics = {
+        kind: 'wallet_iframe_transport_diagnostics_v1',
+        iframeMountMs,
+        iframeLoadWaitMs,
+        bootHintWaitMs,
+        handshakeMs,
+        connectTotalMs: roundTransportDurationMs(connectStartedAt),
+        handshakeAttempts,
+      };
+      return port;
     })();
 
     try {

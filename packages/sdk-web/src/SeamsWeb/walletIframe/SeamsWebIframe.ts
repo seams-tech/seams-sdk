@@ -230,6 +230,8 @@ export class SeamsWebIframe {
       registerWithEmailOtp: async (args) => await this.registerWalletDomain(args),
       registerPasskey: async (nearAccountId, options) =>
         await this.registerPasskeyDomain(nearAccountId, options),
+      createPasskeyRegistrationActivationSurface: (args) =>
+        this.router.createPasskeyRegistrationActivationSurface(args),
       requestEmailOtpEnrollmentChallenge: async (args) =>
         await this.router.requestEmailOtpEnrollmentChallenge(args),
       enrollEmailOtp: async (args) => await this.router.enrollEmailOtp(args),

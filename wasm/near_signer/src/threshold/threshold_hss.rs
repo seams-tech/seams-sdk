@@ -1344,7 +1344,10 @@ fn prepare_threshold_ed25519_hss_server_ceremony(
     let materialize_runtime_ms = (Date::now() - materialize_runtime_started).max(0.0);
 
     let materialize_sessions_started = Date::now();
-    let evaluator_session = evaluator_state.evaluator_session.materialize();
+    let evaluator_session = evaluator_state
+        .evaluator_session
+        .materialize()
+        .map_err(|e| e.to_string())?;
     let garbler_session = garbler_state
         .garbler_session
         .materialize()

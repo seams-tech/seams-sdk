@@ -74,6 +74,7 @@ import type {
   AccountSyncFlowEvent,
 } from '@/core/types/sdkSentEvents';
 import type { EcdsaSignerProvisioningDefaults } from '@/core/types/ecdsaSignerProvisioningDefaults';
+import type { WalletIframeTransportDiagnostics } from './transport/IframeTransport';
 import {
   AccountSyncEventPhase,
   createAccountSyncFlowEvent,
@@ -103,6 +104,11 @@ import type {
   SeamsChainConfig,
   SeamsConfigsInput,
 } from '@/core/types/seams';
+import type {
+  CreatePasskeyRegistrationActivationSurfaceArgs,
+  RegistrationActivationSurfaceState,
+  WalletIframeRegistrationActivationSurface,
+} from '@/SeamsWeb/publicApi/types';
 import type { MultichainSigningRequest } from '@/core/signingEngine/chains/tempo/types';
 import type { EvmSignedResult } from '@/core/signingEngine/chains/evm/evmAdapter';
 import type { TempoSignedResult } from '@/core/signingEngine/chains/tempo/tempoAdapter';
@@ -275,6 +281,7 @@ function createTerminalProgressForRequest(args: {
   const common = { flowId, requestId, status, message, error };
   const registrationRequests = new Set<ParentToChildEnvelope['type']>([
     'PM_REGISTER',
+    'PM_REGISTRATION_ACTIVATION_PREPARE',
     'PM_REQUEST_EMAIL_OTP_ENROLLMENT_CHALLENGE',
     'PM_ENROLL_EMAIL_OTP',
     'PM_ENROLL_LOGIN_EMAIL_OTP_ECDSA_CAPABILITY',
@@ -437,6 +444,10 @@ export class WalletIframeRouter {
     >(),
     registerOverlaySubmit: new Set<() => void>(),
   };
+  private readonly registrationActivationListeners = new Map<
+    string,
+    Set<(event: ChildToParentEnvelope) => void>
+  >();
   private progressBus: OnEventsProgressBus;
   private debug = false;
   private readonly walletOriginUrl: URL;
@@ -686,6 +697,10 @@ export class WalletIframeRouter {
     return this.state.ready;
   }
 
+  getTransportDiagnosticsSnapshot(): WalletIframeTransportDiagnostics {
+    return this.transport.getDiagnosticsSnapshot();
+  }
+
   // ===== UI registry/window-message helpers (generic mounting) =====
   registerUiTypes(registry: WalletUIRegistry): void {
     const iframe = this.transport.ensureIframeMounted();
@@ -904,6 +919,117 @@ export class WalletIframeRouter {
       this.overlayState.controller.setSticky(false);
       this.hideFrameForActivation();
     }
+  }
+
+  createPasskeyRegistrationActivationSurface(
+    payload: CreatePasskeyRegistrationActivationSurfaceArgs,
+  ): WalletIframeRegistrationActivationSurface {
+    const activationId = `regact-${secureRandomBase36(16, 'registration activation IDs')}`;
+    const expiresAtMs = Date.now() + 5 * 60 * 1000;
+    let currentState: RegistrationActivationSurfaceState = { kind: 'idle' };
+    let mounted = false;
+    let disposed = false;
+    const listeners = new Set<(state: RegistrationActivationSurfaceState) => void>();
+    const setState = (next: RegistrationActivationSurfaceState): void => {
+      currentState = next;
+      for (const listener of listeners) {
+        try {
+          listener(next);
+        } catch {}
+      }
+    };
+    const activationEventListener = (event: ChildToParentEnvelope): void => {
+      if (event.type === 'PM_REGISTRATION_ACTIVATION_READY') {
+        setState({
+          kind: 'ready',
+          activationId,
+          expiresAtMs: event.payload?.expiresAtMs ?? expiresAtMs,
+        });
+        return;
+      }
+      if (event.type === 'PM_REGISTRATION_ACTIVATION_STARTED') {
+        setState({ kind: 'starting', activationId });
+      }
+    };
+
+    const releaseActivationOverlay = (): void => {
+      this.overlayState.forceFullscreen = false;
+      this.overlayState.controller.setSticky(false);
+      if (!this.progressBus.wantsVisible()) {
+        this.hideFrameForActivation();
+      }
+    };
+
+    return {
+      kind: 'wallet_iframe_registration_activation_surface_v1',
+      mount: (_target: HTMLElement): void => {
+        if (mounted || disposed) return;
+        mounted = true;
+        this.registrationActivationListeners.set(activationId, new Set([activationEventListener]));
+        this.overlayState.forceFullscreen = true;
+        this.overlayState.controller.setSticky(true);
+        this.overlayState.controller.showFullscreen();
+        void (async () => {
+          try {
+            const safeOptions = removeFunctionsFromOptions(payload.options);
+            const res = await this.post<RegistrationResult>(
+              {
+                type: 'PM_REGISTRATION_ACTIVATION_PREPARE',
+                payload: {
+                  activationId,
+                  nearAccountId: payload.nearAccountId,
+                  expiresAtMs,
+                  ...(safeOptions ? { options: safeOptions } : {}),
+                  ...(payload.options?.confirmationConfig
+                    ? { confirmationConfig: payload.options.confirmationConfig }
+                    : {}),
+                  ...(payload.button ? { button: payload.button } : {}),
+                },
+                options: {
+                  onProgress: this.wrapOnEvent(payload.options?.onEvent, isRegistrationFlowEvent),
+                },
+              },
+              { timeoutMs: Math.max(1, expiresAtMs - Date.now()) },
+            );
+            setState({ kind: 'completed', activationId, result: res.result });
+            const { login: st } = await this.getWalletSession(payload.nearAccountId);
+            this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
+          } catch (error) {
+            if (disposed) return;
+            const err = toError(error);
+            const code = (err as { code?: unknown }).code;
+            if (code === 'cancelled') {
+              setState({ kind: 'cancelled', activationId, reason: 'user_cancelled' });
+            } else {
+              setState({ kind: 'failed', activationId, error: err.message || 'Registration failed' });
+            }
+          } finally {
+            this.registrationActivationListeners.delete(activationId);
+            releaseActivationOverlay();
+          }
+        })();
+      },
+      dispose: (): void => {
+        if (disposed) return;
+        disposed = true;
+        this.registrationActivationListeners.delete(activationId);
+        void this.post({
+          type: 'PM_REGISTRATION_ACTIVATION_CANCEL',
+          payload: { activationId, reason: 'disposed' },
+        }).catch(() => {});
+        if (currentState.kind !== 'completed' && currentState.kind !== 'failed') {
+          setState({ kind: 'cancelled', activationId, reason: 'disposed' });
+        }
+        releaseActivationOverlay();
+      },
+      state: (): RegistrationActivationSurfaceState => currentState,
+      onStateChange: (listener: (state: RegistrationActivationSurfaceState) => void): (() => void) => {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    };
   }
 
   async registerWallet(
@@ -2060,6 +2186,26 @@ export class WalletIframeRouter {
       this.emitPreferencesChanged(payload);
       return;
     }
+    if (
+      msg.type === 'PM_REGISTRATION_ACTIVATION_READY' ||
+      msg.type === 'PM_REGISTRATION_ACTIVATION_STARTED'
+    ) {
+      const activationId =
+        msg.type === 'PM_REGISTRATION_ACTIVATION_READY'
+          ? msg.payload?.activationId
+          : msg.payload?.activationId;
+      if (activationId) {
+        const listeners = this.registrationActivationListeners.get(activationId);
+        if (listeners) {
+          for (const listener of listeners) {
+            try {
+              listener(msg);
+            } catch {}
+          }
+        }
+      }
+      return;
+    }
     const requestId = msg.requestId;
     if (!requestId) return;
 
@@ -2272,6 +2418,7 @@ export class WalletIframeRouter {
       case 'PM_EXPORT_KEYPAIR_UI':
       case 'PM_EXPORT_THRESHOLD_ED25519_SEED_FROM_HSS_REPORT_UI':
       case 'PM_REGISTER':
+      case 'PM_REGISTRATION_ACTIVATION_PREPARE':
       case 'PM_UNLOCK':
       case 'PM_SIGN_AND_SEND_TXS':
       case 'PM_EXECUTE_ACTION':

@@ -1952,6 +1952,7 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
       confirmerText: params.confirmerText,
       confirmationConfig: params.confirmationConfigOverride,
       challengeB64u: params.challengeB64u,
+      walletIframeActivation: params.walletIframeActivation,
     });
   }
 

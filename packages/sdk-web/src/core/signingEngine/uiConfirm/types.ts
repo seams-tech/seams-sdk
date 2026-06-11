@@ -12,6 +12,7 @@ import type { NonceCoordinator } from '../nonce/NonceCoordinator';
 import type {
   UserConfirmDecision,
   UserConfirmRequest,
+  WalletIframeRegistrationActivationProof,
 } from '@/core/signingEngine/stepUpConfirmation/channel/confirmTypes';
 import type { UserConfirmProgressEvent } from '../stepUpConfirmation/types';
 import type { ConfirmationConfig } from '../../types/signer-worker';
@@ -76,6 +77,7 @@ export type RequestRegistrationCredentialConfirmationParams = {
   confirmerText?: { title?: string; body?: string };
   confirmationConfigOverride?: Partial<ConfirmationConfig>;
   challengeB64u?: string;
+  walletIframeActivation?: WalletIframeRegistrationActivationProof;
 };
 
 export interface WarmSessionStatusReader {
