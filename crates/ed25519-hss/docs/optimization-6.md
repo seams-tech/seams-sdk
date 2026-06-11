@@ -19,6 +19,40 @@ Experiment ledger:
   retrying any current-backend micro-edit, output-projector rewrite, A2B/B2A
   protocol root, multiplication-material root, or arena representation change.
 
+Executive experiment ledger:
+
+- Approved and retained:
+  - typed backend-version scaffold and stale-backend parser rejection
+  - output-projector binding scaffold as protocol-hardening / future-v2 plumbing
+  - A2B v2 committed-root carry material with precomputed BLAKE3 bases
+  - `Maj` pair-XOR provenance fold
+  - `Ch` gated-select root, currently the largest retained HSS runtime win in
+    this plan
+- Rejected after benchmark:
+  - semantic output-projector paired-root arithmetic rewrite
+  - A2B v2 per-bit SHA-256 carry-material implementation
+  - B2A-only core-sigma committed-root experiment
+  - full `Maj` transient XOR/multiply root helper swap
+  - local-add carry-root v5
+  - round-sigma B2A-boundary experiment
+  - allocation-only and byte-equivalent helper edits that improved counters but
+    failed native, direct-WASM, or product keep gates
+- Needs approval before code:
+  - any second B2A committed-root attempt
+  - any new multiplication-material root that removes more logical work than
+    the retained `Ch` root
+  - any broader protocol-root replacement, including output-projector paired
+    root v2 or an A2B follow-on that changes emitted commitment semantics
+- Needs a harness before code:
+  - true executor-wide representation rewrite. The first deliverable is a
+    byte-equivalence harness that proves artifacts, commitments, roots, and
+    decoded outputs match the retained backend before hot representation code
+    changes.
+- Needs device data before retention:
+  - embedded/iOS-specific tuning. Desktop/browser wins are useful but do not
+    prove low-power CPU, memory pressure, allocator behavior, or JIT/AOT
+    behavior on iOS and embedded targets.
+
 ## Goal
 
 Implement the next meaningful HSS runtime win after the current-backend
@@ -30,10 +64,19 @@ exportability remains available through the threshold export flow.
 
 This plan turns the protocol-review notes from `optimization-5.md` and
 `docs/refactor-64-hss-protocol-runtime-latency.md` into an implementation
-sequence. The two viable candidates are:
+sequence. The obvious current-backend helper-level edits have now been tried;
+remaining HSS runtime candidates are larger protocol or representation work:
 
-- output-projector paired-root v2
-- A2B v2 with committed-root or equivalent-root binding
+- protocol-reviewed v2 work:
+  - A2B follow-on work beyond the retained committed-root BLAKE3-base slice
+  - output-projector paired-root v2
+  - B2A / multiplication-material root changes
+- true executor-wide representation rewrite with a byte-equivalence harness
+- embedded/iOS-specific profiling and tuning
+
+The next patch should start from one of those lanes. Avoid another narrow
+helper micro-edit unless it demonstrably removes logical work rather than only
+moving allocation or hash counters.
 
 ## Current Read
 
@@ -1066,6 +1109,121 @@ Tasks:
 - [ ] ARM64/x86 static analyzer runs and physical embedded/iOS benchmarks remain
       external-environment work; do not block retained desktop/browser results
       on those measurements.
+
+## Remaining Larger Experiments
+
+Status: open. These are the remaining meaningful HSS runtime lanes after the
+retained A2B/`Maj`/`Ch` work and the rejected helper-level experiments.
+
+### Protocol-reviewed v2 work
+
+Candidate work:
+
+- A2B v2 follow-on:
+  - Treat the retained committed-root BLAKE3-base A2B kernel as the baseline.
+  - Only revisit A2B if a new proof shape removes additional logical work,
+    changes the emitted commitment policy with review, or eliminates a larger
+    carry/materialization family than the retained v2 slice.
+  - Do not repeat the per-bit SHA-256 carry-material approach.
+- Output-projector paired-root v2:
+  - Revisit only with an approved proof that removes a product-visible
+    canonical-add equivalent while retaining `canonical_seed`,
+    `client_output`, and `x_relayer_base` commitments or a reviewed replacement
+    boundary.
+  - The earlier semantic rewrite failed product smoke; a new attempt needs a
+    clearer replacement claim than the rejected paired-root arithmetic patch.
+- B2A / multiplication-material root changes:
+  - The first B2A-only core-sigma root improved small physical counters and
+    failed native p50.
+  - The next attempt should target a larger logical-work bucket, likely a
+    stronger multiplication-material root or a combined B2A/mul-root design
+    that reduces repeated operand commitment hashing across `Ch`, `Maj`,
+    carry-like helpers, and Boolean combiners.
+  - Any second B2A attempt or broader multiplication-root change needs an
+    approved root-binding spec before Rust backend code.
+
+Protocol to-do:
+
+- [ ] Pick exactly one next protocol candidate.
+- [ ] Write the candidate-specific approval packet with exact backend/kernel
+      strings, operation kinds, boundary kinds, root inputs, emitted commitment
+      policy, downgrade behavior, negative-test matrix, and expected logical
+      work removed.
+- [ ] Run physical-counter benchmarks before native p50.
+- [ ] Run direct browser/WASM only after native p50 moves in the expected
+      direction.
+- [ ] Run product smoke only after direct browser/WASM confirms the lower-level
+      win.
+- [ ] Run full crate tests and `cargo hss-fv verus-check` before retention.
+
+### Executor-wide representation rewrite
+
+Candidate work:
+
+- Replace the current hot executor representation with true stage-owned,
+  arena-backed storage for core words, bit sides, commitments, provenance, and
+  transient material.
+- Make the representation rewrite semantics-preserving first. The expected win
+  is from allocation locality, fewer small object moves, fewer materialization
+  conversions, and better embedded/mobile memory behavior rather than protocol
+  simplification.
+- This is the right lane if protocol review blocks new root replacements or if
+  embedded/iOS profiling shows allocator and memory-layout pressure dominate.
+
+Required first deliverable:
+
+- A byte-equivalence harness that proves the rewritten executor emits exactly
+  the same artifacts as the retained backend before changing hot code broadly.
+
+Harness to-do:
+
+- [ ] Add deterministic fixture generation for retained backend inputs.
+- [ ] Compare decoded outputs, output commitments, root digests, transcript
+      labels, serialized staged artifacts, worker request/response payloads,
+      and public evaluation reports byte-for-byte where the existing format is
+      stable.
+- [ ] Compare semantic decoded outputs where nondeterministic salts or random
+      OT material intentionally differ.
+- [ ] Run the harness before and after each representation slice.
+- [ ] Keep the first representation patch behaviorless except for storage
+      layout, then benchmark native, direct-WASM, product worker, and allocation
+      counters.
+
+Representation to-do:
+
+- [ ] Map current `CoreBitWordSide`, `CoreBitWordPair`, local words, committed
+      words, and output-projector material into ownership stages.
+- [ ] Identify stage boundaries where committed material must still be emitted.
+- [ ] Replace one internal stage with arena-backed indices.
+- [ ] Prove byte equivalence before expanding the representation change.
+- [ ] Retain only if native/direct-WASM/product p50 or embedded/mobile memory
+      behavior improves enough to justify the complexity.
+
+### Embedded/iOS-specific profiling and tuning
+
+Candidate work:
+
+- Measure the retained backend on representative low-power CPUs, iOS Safari /
+  WebView, and any native/embedded WASM or Rust targets we expect to support.
+- Separate CPU time, allocation count, peak memory, worker startup, WASM
+  instantiation, code-cache behavior, and thermal/battery-sensitive repeated
+  runs.
+- Use this data to decide whether executor-wide representation work, allocator
+  tuning, batch-size changes, worker reuse, or optional-HSS policy matters most
+  for embedded/iOS.
+
+Device to-do:
+
+- [ ] Define the device matrix: desktop baseline, iOS Safari/WebView, low-end
+      Android/WebView if relevant, and at least one lower-power embedded class.
+- [ ] Add benchmark scripts that can run the same hidden-eval and artifact
+      construction cases on those targets.
+- [ ] Capture p50/p90/p99, allocation/peak-memory where available, startup
+      cost, and repeated-run thermal drift.
+- [ ] Compare host-origin and wallet-iframe style worker topologies where the
+      platform supports both.
+- [ ] Feed the results back into either the representation rewrite lane or a
+      platform-specific runtime-tuning lane.
 
 ## Phase 8: B2A And Multiplication-Material Root v2
 
