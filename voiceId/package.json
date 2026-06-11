@@ -1,0 +1,20 @@
+{
+  "name": "@seams/voice-id",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "tsx --test \"tests/**/*.test.ts\"",
+    "dev": "vite demo --host 127.0.0.1 --port 5173",
+    "dev:all": "node scripts/devAll.mjs",
+    "dev:server": "tsx server/src/devServer.ts",
+    "fixtures:validate": "python3 verifier-spike/compare_models.py --manifest fixtures/voiceid-fixture-manifest.json",
+    "fixtures:validate:media": "python3 verifier-spike/compare_models.py --manifest fixtures/voiceid-fixture-manifest.json --check-media",
+    "fixtures:validate:json": "python3 verifier-spike/compare_models.py --manifest fixtures/voiceid-fixture-manifest.json --json",
+    "fixtures:report": "python3 verifier-spike/compare_models.py --manifest fixtures/voiceid-fixture-manifest.json --report-template",
+    "fixtures:evaluate:spectral": "python3 verifier-spike/evaluate_spectral_baseline.py --manifest fixtures/voiceid-fixture-manifest.json --check-media",
+    "fixtures:evaluate:ecapa": "python3 verifier-spike/evaluate_speechbrain_ecapa.py --manifest fixtures/voiceid-fixture-manifest.json --check-media",
+    "verifier:test": "python3 -m unittest discover verifier -p \"*test*.py\""
+  },
+  "devDependencies": {}
+}
