@@ -16,6 +16,10 @@ import {
 import { thresholdEcdsaChainTargetKey } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import { listThresholdEcdsaProvisionTargets } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
 import { buildNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
+import {
+  disposeWalletRegistrationPrecompute,
+  type WalletRegistrationPrecomputeHandle,
+} from '@/SeamsWeb/operations/registration/registration';
 import type {
   EmailOtpChallengeResult,
   EmailOtpEcdsaCapabilityArgs,
@@ -47,6 +51,22 @@ import {
 } from './prewarmedRegistrationMaterial';
 
 const DEFAULT_FLOW_TTL_MS = 10 * 60 * 1000;
+
+type GoogleEmailOtpWalletRegistrationArgs = Parameters<
+  RegistrationCapability['registerWallet']
+>[0];
+
+type GoogleEmailOtpWalletRegistrationPrecompute =
+  | {
+      kind: 'started';
+      handle: WalletRegistrationPrecomputeHandle;
+      unavailableReason?: never;
+    }
+  | {
+      kind: 'unavailable';
+      unavailableReason: 'wallet_iframe_registration_domain' | 'policy_disabled';
+      handle?: never;
+    };
 
 type ActiveChallenge = {
   challengeId: string;
@@ -92,8 +112,15 @@ export type GoogleEmailOtpWalletAuthDeps = {
     appSessionJwt: string;
   }): Promise<EmailOtpRegistrationEnrollmentMaterial>;
   registerWallet(
-    args: Parameters<RegistrationCapability['registerWallet']>[0],
+    args: GoogleEmailOtpWalletRegistrationArgs,
   ): Promise<RegistrationResult>;
+  startWalletRegistrationPrecompute(
+    args: GoogleEmailOtpWalletRegistrationArgs,
+  ): GoogleEmailOtpWalletRegistrationPrecompute;
+  registerWalletWithStartedPrecompute(args: {
+    registration: GoogleEmailOtpWalletRegistrationArgs;
+    precompute: Extract<GoogleEmailOtpWalletRegistrationPrecompute, { kind: 'started' }>;
+  }): Promise<RegistrationResult>;
   loginWithEmailOtpEcdsaCapability(
     args: EmailOtpEcdsaCapabilityArgs,
   ): Promise<EmailOtpEcdsaCapabilityResult>;
@@ -558,6 +585,51 @@ function createGoogleEmailOtpWalletRegistrationFlow(
     input: args.input,
     offer,
   });
+  const requiredTargets = resolveEcdsaTargets({
+    configs: deps.configs,
+    policy: args.input.ecdsaTargets,
+  });
+  const eventOptions = eventOnlyRegistrationOptions({ onEvent: args.input.onEvent });
+  const registrationOptions = requiredTargets.length
+    ? eventOptions
+    : registrationOptionsForNoEcdsa({ options: eventOptions });
+  const rpId = (() => {
+    const value = String(deps.getRpId() || '').trim();
+    if (!value) throw new Error('Google Email OTP registration requires rpId');
+    return value;
+  })();
+  const appSessionJwt = (() => {
+    const value = String(args.state.appSessionJwt || '').trim();
+    if (!value) throw new Error('Google Email OTP registration requires an app session token');
+    return value;
+  })();
+  const registrationAuthMethod = {
+    kind: 'email_otp',
+    proofKind: 'google_sso_registration',
+    email: args.state.emailHint,
+    appSessionJwt,
+    googleEmailOtpRegistrationAttemptId: registrationAttemptId,
+    googleEmailOtpRegistrationOfferId: offer.offerId,
+    googleEmailOtpRegistrationCandidateId: offer.selectedCandidateId,
+  } satisfies GoogleEmailOtpWalletRegistrationArgs['authMethod'];
+  const registrationArgs: GoogleEmailOtpWalletRegistrationArgs = {
+    wallet: { kind: 'provided', walletId: args.state.walletId },
+    rpId,
+    authMethod: registrationAuthMethod,
+    signerSelection: buildNearWalletRegistrationSignerSelection({
+      configs: deps.configs,
+      nearAccountId: args.state.walletId,
+      options: registrationOptions,
+      ecdsaChainTargets: requiredTargets,
+    }),
+    options: registrationOptions,
+  };
+  const precompute = deps.startWalletRegistrationPrecompute(registrationArgs);
+  const disposePrecompute = (): void => {
+    if (precompute.kind === 'started') {
+      disposeWalletRegistrationPrecompute(precompute.handle);
+    }
+  };
   const liveness = createFlowLiveness({ state: args.state });
   const flowId = `google-email-otp-registration:${args.state.walletId}:${registrationAttemptId}`;
   return {
@@ -575,50 +647,21 @@ function createGoogleEmailOtpWalletRegistrationFlow(
     > => {
       try {
         liveness.ensureActive();
-        if (!args.state.appSessionJwt) {
-          return fail(
-            'registration_failed',
-            new Error('Google Email OTP registration requires an app session token'),
-          );
-        }
         const prewarmed = await prewarm.read();
-        const requiredTargets = resolveEcdsaTargets({
-          configs: deps.configs,
-          policy: args.input.ecdsaTargets,
-        });
-        const eventOptions = eventOnlyRegistrationOptions({ onEvent: args.input.onEvent });
-        const registrationOptions = requiredTargets.length
-          ? eventOptions
-          : registrationOptionsForNoEcdsa({ options: eventOptions });
-        const result = await deps.registerWallet({
-          wallet: { kind: 'provided', walletId: args.state.walletId },
-          rpId: (() => {
-            const rpId = String(deps.getRpId() || '').trim();
-            if (!rpId) throw new Error('Google Email OTP registration requires rpId');
-            return rpId;
-          })(),
-          authMethod: {
-            ...attachEmailOtpPrewarmedRegistrationMaterial({
-              authMethod: {
-                kind: 'email_otp',
-                proofKind: 'google_sso_registration',
-                email: args.state.emailHint,
-                appSessionJwt: args.state.appSessionJwt,
-                googleEmailOtpRegistrationAttemptId: registrationAttemptId,
-                googleEmailOtpRegistrationOfferId: offer.offerId,
-                googleEmailOtpRegistrationCandidateId: offer.selectedCandidateId,
-              },
-              prewarmed,
-            }),
-          },
-          signerSelection: buildNearWalletRegistrationSignerSelection({
-            configs: deps.configs,
-            nearAccountId: args.state.walletId,
-            options: registrationOptions,
-            ecdsaChainTargets: requiredTargets,
+        const registrationWithPrewarmedMaterial: GoogleEmailOtpWalletRegistrationArgs = {
+          ...registrationArgs,
+          authMethod: attachEmailOtpPrewarmedRegistrationMaterial({
+            authMethod: registrationAuthMethod,
+            prewarmed,
           }),
-          options: registrationOptions,
-        });
+        };
+        const result =
+          precompute.kind === 'started'
+            ? await deps.registerWalletWithStartedPrecompute({
+                registration: registrationWithPrewarmedMaterial,
+                precompute,
+              })
+            : await deps.registerWallet(registrationWithPrewarmedMaterial);
         if (!result.success) {
           const error = Object.assign(new Error(result.error || 'Wallet registration failed'), {
             code: result.errorCode,
@@ -632,6 +675,7 @@ function createGoogleEmailOtpWalletRegistrationFlow(
         return fail(classifyRegistrationError(error), error);
       } finally {
         prewarm.dispose();
+        disposePrecompute();
       }
     },
     rerollWalletId: async (): Promise<
@@ -656,6 +700,7 @@ function createGoogleEmailOtpWalletRegistrationFlow(
           );
         }
         prewarm.dispose();
+        disposePrecompute();
         liveness.burn();
         return ok(
           createGoogleEmailOtpWalletRegistrationFlow(deps, {
@@ -676,6 +721,7 @@ function createGoogleEmailOtpWalletRegistrationFlow(
     },
     cancel: async (): Promise<void> => {
       prewarm.dispose();
+      disposePrecompute();
       liveness.burn();
     },
   };

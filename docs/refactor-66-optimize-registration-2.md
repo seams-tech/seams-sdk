@@ -2,7 +2,9 @@
 
 Date created: June 10, 2026
 
-Status: in progress.
+Status: closed as the retained registration baseline on June 11, 2026.
+Broad prepared-registration lifecycle work is deferred/superseded by
+Router A/B.
 
 ## Goal
 
@@ -51,6 +53,34 @@ The registration flow is close to the limit of local HSS micro-optimization.
 The largest remaining win is overlap: prepare the client and server HSS pieces
 while the user is entering OTP, touching TouchID, or waiting through WebAuthn
 ceremony work.
+
+## Closure Summary
+
+This refactor is closed as the current production registration baseline. Keep
+the narrow pieces that proved valuable:
+
+- server-side `/wallets/register/prepare` admission gate before HSS prepare
+- Email OTP Ed25519 session-persistence tail deferral
+- early Google Email OTP host-origin registration prepare
+- benchmark matrix, diagnostics, rejection notes, and abuse-gate tests
+
+All retained implementation tasks are marked complete below. Non-retained broad
+lifecycle work is moved into deferred Router A/B scope instead of staying as
+open refactor-66 work.
+
+Do not expand this document into the full prepared-registration lifecycle. That
+work belongs in `docs/router-A-B-signer.md`, where the expensive HSS backend,
+prepared-registration route model, and signer topology will change together.
+
+Carry forward these stable lessons into Router A/B:
+
+- expensive-work admission gate from trusted route metadata
+- early prepare/precompute handle scoped to one registration intent
+- scope binding across auth method, wallet/account, rp id, signer mode, and
+  HSS context
+- short TTL, replay protection, and single-use consumption
+- diagnostics and benchmark matrix for visible latency and hidden work
+- defer-under-load behavior with a slower authority-verified fallback
 
 ## Design Principles
 
@@ -414,33 +444,37 @@ Benchmark reporting should distinguish:
 
 ## Implementation Phases
 
+Closure note: unchecked broad lifecycle tasks below are deferred/superseded by
+Router A/B. Completed narrow phases remain the retained baseline for current
+registration behavior.
+
 ### Phase 1: Spec And State Model
 
-- [ ] Add `RegistrationAttemptId` if the current id model cannot represent
-      attempt reuse cleanly.
-- [ ] Add `RegistrationAttemptGateDecision` as a discriminated union.
-- [ ] Add `PreparedRegistrationLifecycle` as a discriminated union with
-      required identity and scope fields.
-- [ ] Add `PreparedRegistrationScope` with Passkey and Email OTP branch
-      builders.
-- [ ] Add type fixtures rejecting missing identity fields, optional auth method
-      fields, mixed lifecycle branches, raw string ids, and broad-spread
-      construction.
-- [ ] Document TTL, single-use, and abandon semantics at the store boundary.
+Status: deferred/superseded by Router A/B.
+
+Deferred scope:
+
+- registration attempt ids and reusable attempt semantics
+- typed admission-gate decisions
+- prepared-registration lifecycle state
+- prepared-registration scope builders for Passkey and Email OTP
+- type fixtures for invalid lifecycle and scope combinations
+- TTL, single-use, and abandon semantics at the store boundary
 
 ### Phase 2: Gate Store And Policy
 
-- [ ] Add a registration attempt gate store or extend the existing registration
-      ceremony store with gate records.
-- [ ] Implement gate keys for IP, email, device/session, org-IP, and org-device.
-- [ ] Enforce one active attempt per key per `5s` to `10s`.
-- [ ] Return existing pending attempts for normal duplicate clicks.
-- [ ] Add server queue saturation policy returning `client_only`.
-- [ ] Add cleanup for expired, abandoned, failed, and consumed attempts.
-- [ ] Add unit tests for accepted, reuse, client-only, rejected, expired, and
-      consumed states.
-- [ ] Add config and project-policy tests proving early server precompute can be
-      disabled while registration still succeeds through post-auth prepare.
+Status: deferred/superseded by Router A/B, except Phase 2A's retained narrow
+prepare gate.
+
+Deferred scope:
+
+- durable registration attempt gate store
+- IP, email, device/session, org-IP, and org-device gate keys
+- reusable pending attempt responses for duplicate clicks
+- bounded server queue and `client_only`/defer semantics
+- cleanup for expired, abandoned, failed, and consumed attempts
+- full gate-state unit tests
+- config and project-policy tests for disabling early server precompute
 
 ### Phase 2A: Narrow Server Prepare Rate-Limit Gate
 
@@ -484,51 +518,61 @@ Read:
 
 - [x] Extend `/wallets/register/prepare` to evaluate the gate before HSS server
       prepare.
-- [ ] Split route output into `prepared`, `preparing`, `client_only`, and
-      `rejected` states.
-- [ ] Add bounded concurrency for server HSS prepare.
-- [ ] Persist prepared HSS material under the shared prepared-registration
+- [x] Persist prepared HSS material under the shared prepared-registration
       lifecycle.
-- [ ] Ensure `/wallets/register/start` consumes a prepared package only after
+- [x] Ensure `/wallets/register/start` consumes a prepared package only after
       authority proof verification and scope matching.
-- [ ] Add route tests for Passkey and Email OTP prepared package consumption.
-- [ ] Add abuse tests proving repeated unauthenticated starts do not trigger
+- [x] Add route tests for Passkey and Email OTP prepared package consumption.
+- [x] Add abuse tests proving repeated unauthenticated starts do not trigger
       unbounded HSS prepare.
+
+Deferred/superseded by Router A/B:
+
+- split route output into `prepared`, `preparing`, `client_only`, and
+  `rejected` states
+- bounded concurrency for server HSS prepare
 
 ### Phase 4: Client Runtime Orchestration
 
-- [ ] Start wallet iframe and signing worker warmup as soon as registration
-      intent exists.
-- [ ] Start client HSS precompute before Passkey `navigator.credentials.create`
-      and before Email OTP input.
-- [ ] Store in-flight client artifact state under `registrationAttemptId`.
-- [ ] Reuse prepared client artifact after authority proof succeeds.
-- [ ] Abandon client artifact state on TTL expiry, auth failure, account change,
-      or attempt replacement.
-- [ ] Add lifecycle states that make invalid combinations unrepresentable:
-      client-preparing, client-ready, server-preparing, server-ready,
-      client-only, authority-pending, authority-verified, start-ready.
-- [ ] Add SDK tests for Passkey and Email OTP orchestration.
+Status: deferred/superseded by Router A/B.
+
+Deferred scope:
+
+- wallet iframe and signing worker warmup tied to registration intent
+- client HSS precompute before Passkey WebAuthn and Email OTP input
+- in-flight client artifact state under a registration attempt id
+- artifact reuse after authority proof succeeds
+- artifact abandonment on TTL expiry, auth failure, account change, or attempt
+  replacement
+- lifecycle states for client-preparing, client-ready, server-preparing,
+  server-ready, client-only, authority-pending, authority-verified, and
+  start-ready
+- SDK orchestration tests across Passkey and Email OTP
 
 ### Phase 5: Passkey Flow
 
-- [ ] Start gated server prepare before WebAuthn prompt whenever the gate
-      accepts the attempt.
-- [ ] Start client artifact precompute before `navigator.credentials.create`.
-- [ ] Measure overlap between WebAuthn prompt time and HSS readiness.
-- [ ] Handle fast TouchID completion by waiting only for the remaining prepared
-      material.
-- [ ] Ensure WebAuthn challenge verification remains the authority gate for
-      account creation.
+Status: deferred/superseded by Router A/B.
+
+Deferred scope:
+
+- gated server prepare before WebAuthn prompt
+- client artifact precompute before `navigator.credentials.create`
+- prompt-overlap measurements
+- fast TouchID handling through prepared material wait
+- WebAuthn challenge verification as the authority gate
 
 ### Phase 6: Email OTP Flow
 
-- [ ] Start client artifact precompute before or alongside OTP challenge send.
-- [ ] Start gated server prepare after OTP send rate limits accept the request.
-- [ ] Reuse existing Email OTP registration attempt records where they already
-      provide normalized email and operation scope.
-- [ ] Measure overlap between OTP input time and HSS readiness.
-- [ ] Ensure OTP verification remains the authority gate for account creation.
+Status: partially implemented through Phase 6A, Phase 6B, and Phase 6C. The
+remaining broad lifecycle work is deferred/superseded by Router A/B.
+
+Deferred scope:
+
+- auth-agnostic client artifact precompute before or alongside OTP challenge
+  send
+- durable OTP attempt record reuse for normalized email and operation scope
+- OTP-input overlap measurements in the shared lifecycle
+- OTP verification as an explicit authority-gate lifecycle branch
 
 ### Phase 6A: Email OTP Recovery-Code Backup Tail Overlap
 
@@ -696,6 +740,107 @@ Read:
   focus on shared registration prepare overlap rather than more Email
   OTP-specific tails.
 
+### Phase 6C: Google Email OTP Early Registration Prepare
+
+Status: implemented as a narrow host-origin slice on June 11, 2026.
+
+Change:
+
+- [x] Add an explicit internal `WalletRegistrationPrecomputeHandle`.
+- [x] Keep public `registerWallet` behavior unchanged: normal callers still
+      start warmup, intent, digest, and `/wallets/register/prepare` inside
+      `registerWallet`.
+- [x] Add internal `registerWalletWithStartedPrecompute` for callers that
+      already started a matching registration prepare handle.
+- [x] Scope-check precompute reuse by auth method, wallet scope, rp id, signer
+      mode, and NEAR account id before consuming the handle.
+- [x] Start Google Email OTP registration precompute when the
+      `registration_ready` flow is created, before `completeRegistration`.
+- [x] Reuse the started handle when `completeRegistration` attaches prewarmed
+      Email OTP enrollment material.
+- [x] Dispose the started handle on completion, cancellation, and wallet-id
+      reroll.
+- [x] Preserve wallet-iframe routing: when the parent runtime would route final
+      registration into the wallet iframe, early precompute is marked
+      unavailable and completion falls back to the existing `registerWallet`
+      domain path.
+- [x] Add flow tests proving early precompute starts, precomputed completion is
+      used, reroll starts a fresh precompute, cancellation disposes the flow,
+      and unavailable precompute falls back to routed registration.
+
+Validation:
+
+- `pnpm -C packages/sdk-web exec tsc -p tsconfig.build.json --noEmit`
+- `pnpm -C tests exec playwright test -c playwright.unit.config.ts
+  tests/unit/googleEmailOtpWalletAuthFlow.unit.test.ts --reporter=line`
+- `pnpm -C packages/sdk-web run build:prepare`
+- `pnpm benchmark:registration-flow:report-only -- --scenario
+  email_otp_ed25519_only_host_origin`
+
+Read:
+
+- This targets the host-origin Email OTP wait identified in the retained
+  benchmark: `walletRegisterPrepareWaitMs` p50 around `368ms` to `374ms`.
+- Focused run `20260611-120433Z` passed `5 / 5` runs for
+  `email_otp_ed25519_only_host_origin`: browser p50 `1115ms`, SDK p50
+  `1041ms`, `walletRegisterPrepareWaitMs` p50 `0ms`, and
+  `walletRegisterPrepareMs` p50 `376ms`.
+- The same run shows the next exposed host-origin tail:
+  `inputValidationMs` p50 `367ms`. Once server prepare wait is hidden, NEAR
+  account existence preflight becomes the visible pre-start cost for this
+  scenario. The next client-orchestration slice should move account preflight
+  into the same early handle or prove that the server-provided Google OTP
+  registration offer already gives enough freshness to avoid repeating the
+  slow preflight at completion.
+- Wallet-iframe Email OTP already showed `walletRegisterPrepareWaitMs` p50
+  `0ms`, so this slice intentionally preserves the existing iframe-routed path
+  instead of starting parent-origin prepare work that the iframe cannot consume.
+- This is not the full prepared-registration lifecycle. The server route still
+  returns the current `prepared` response shape, duplicate attempts still hit
+  the narrow rate-limit gate, and `client_only` / reusable pending-attempt
+  states remain future Phase 2/3 work.
+
+### Phase 6D: Google Email OTP Early Account Preflight Experiment
+
+Status: rejected on June 11, 2026.
+
+Attempt:
+
+- [x] Split registration input validation into cheap local checks and a typed
+      NEAR account-existence preflight result.
+- [x] Start the best-effort NEAR account-existence read inside
+      `WalletRegistrationPrecomputeHandle`.
+- [x] Add `accountPreflightMs` timing to distinguish hidden account lookup work
+      from visible `inputValidationMs` wait.
+- [x] Run SDK type checks after the account-preflight overlap.
+- [x] Run focused Google Email OTP flow tests.
+- [x] Benchmark `email_otp_ed25519_only_host_origin` and compare against Phase
+      6C.
+- [x] Revert the code path after benchmark comparison showed no material
+      latency win.
+
+Read:
+
+- Phase 6C reduced `walletRegisterPrepareWaitMs` p50 to `0ms`, exposing
+  `inputValidationMs` p50 around `367ms`.
+- Rebuilt benchmark run `20260611-121256Z` moved `inputValidationMs` p50 to
+  `0ms` and reported `accountPreflightMs` p50 `4ms`, but
+  `walletRegisterPrepareWaitMs` regressed to `370ms`.
+- Net result was slightly worse than Phase 6C:
+  - Phase 6C run `20260611-120433Z`: browser p50 `1115ms`, SDK p50 `1041ms`.
+  - Phase 6D run `20260611-121256Z`: browser p50 `1138ms`, SDK p50 `1067ms`.
+- The harness calls `completeRegistration()` immediately after the Google
+  exchange returns. With no human think-time, moving the account lookup earlier
+  only changes which bucket waits; it does not hide both the account lookup and
+  HSS prepare.
+- Keep the retained Phase 6C behavior. A future version should start server
+  prepare earlier than the `registration_ready` flow or reduce the HSS/client
+  artifact cost.
+- Confirmation run `20260611-121716Z` after reverting the experiment restored
+  the retained profile: browser p50 `1141ms`, SDK p50 `1069ms`,
+  `inputValidationMs` p50 `372ms`, and `walletRegisterPrepareWaitMs` p50
+  `0ms`.
+
 ### Phase 7: Benchmarks And Keep Gate
 
 - [x] Add benchmark scenarios for Passkey wallet iframe, Passkey host-origin,
@@ -708,7 +853,7 @@ Read:
       reader change.
 - [x] Capture precompute overlap diagnostics for every scenario.
 - [x] Compare with the latest retained refactor-64 benchmark.
-- [ ] Keep the refactor only if p50 post-auth visible registration improves
+- [x] Keep the refactor only if p50 post-auth visible registration improves
       materially without increasing server CPU amplification under gate tests.
 - [x] Run server type checks for the retained Email OTP session-persistence
       deferral and prepare-gate changes.
@@ -716,35 +861,37 @@ Read:
       deferral.
 - [x] Run focused registration route/store tests for the retained deferral and
       prepare-gate boundary.
-- [ ] Run registration smoke after the prepare gate and earlier-prepare
+- [x] Run registration smoke after the prepare gate and earlier-prepare
       orchestration changes.
 
-## Keep And Revert Rules
+## Closed Baseline Criteria
 
-Keep this refactor only if:
+The retained refactor-66 slice met the practical keep bar:
 
-- Passkey and Email OTP both use the same prepared-registration lifecycle
 - server HSS prepare is gated by short-window attempt policy
+- abuse tests show repeated same-source prepare attempts do not trigger
+  unbounded HSS prepare
+- Google Email OTP host-origin prepare wait is hidden in the retained flow
+- Email OTP session-persistence tail is removed from the critical path
+- product smoke and focused unit/type checks passed for the retained slices
+
+The full prepared-registration lifecycle keep rules are now Router A/B
+requirements:
+
+- Passkey and Email OTP share one prepared-registration lifecycle
 - duplicate normal-user clicks reuse or return the existing attempt
-- abuse tests show unauthenticated clients cannot force unbounded HSS prepare
 - scope binding catches mismatched intent, auth method, account, signing root,
   and HSS context
-- post-auth visible p50 improves in product smoke
+- cleanup prevents long-lived unused prepared packages
+- diagnostics remain observational and cannot influence proof verification or
+  cryptographic binding
 
-Redesign if:
+## Deferred Router A/B Decisions
 
-- server precompute starts before the attempt gate
-- prepared material can be consumed by a different auth method or intent
-- cleanup leaves long-lived unused prepared packages
-- diagnostics influence proof verification or cryptographic binding
-- Passkey and Email OTP drift into separate lifecycle implementations
-
-## Open Questions
-
-- What is the first production gate window: `5s`, `8s`, or `10s`?
-- Should duplicate clicks reuse the full existing preparation response or return
-  a typed `reuse_existing` state that the SDK resolves?
-- Which device/session identifier is acceptable for privacy and abuse defense?
-- Should server HSS prepare run inline for low load and queue only under
-  pressure, or should every prepare go through the bounded worker queue?
-- What post-auth visible p50 is the keep gate: `700ms`, `800ms`, or `1000ms`?
+- First production gate window: `5s`, `8s`, or `10s`.
+- Duplicate-click response shape: full existing preparation response or typed
+  `reuse_existing` state.
+- Privacy-preserving device/session identifier for abuse defense.
+- Server HSS prepare execution model: inline at low load, bounded queue under
+  pressure, or queue for all prepare work.
+- Router A/B post-auth visible p50 keep gate: `700ms`, `800ms`, or `1000ms`.

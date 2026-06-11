@@ -2,7 +2,8 @@
 
 Date created: June 11, 2026
 
-Status: design plan.
+Status: design plan, prepared to start from Phase 0/Phase 1 after closing
+refactor-66 as the retained registration baseline.
 
 ## Goal
 
@@ -1107,7 +1108,69 @@ Add source guards or type fixtures that fail when:
 - Client-output packages can be sent to the relayer in plaintext.
 - Relayer-output packages can be sent to the client as relayer roots.
 
+## Refactor-66 Carry-Forward Baseline
+
+`docs/refactor-66-optimize-registration-2.md` is closed as the current
+registration baseline. Router A/B should carry forward the stable parts and
+avoid rebuilding the broader refactor-66 prepared-registration lifecycle in the
+current TypeScript/server route model.
+
+Retained baseline pieces:
+
+- narrow server-side `/wallets/register/prepare` admission gate before HSS
+  prepare
+- Email OTP Ed25519 session-persistence tail deferral
+- early Google Email OTP host-origin prepare handle
+- registration benchmark matrix and rejection notes
+- abuse tests proving rejected repeated prepare attempts do not trigger
+  unbounded HSS work
+
+Router A/B must preserve these design lessons:
+
+- Expensive-work admission must happen before signer/HSS work and derive its
+  context from trusted Router metadata, never client JSON.
+- Early prepare/precompute must use an explicit scoped handle that binds auth
+  method, wallet/account, rp id, signer mode, intent digest, and protocol
+  context.
+- Prepared work must be short-lived, replay-protected, and single-use.
+- Under load, the Router can defer early prepare and fall back to the slower
+  authority-verified path.
+- Diagnostics stay observational and must cover browser-visible total, SDK
+  visible total, post-auth visible total, hidden prepare work, signer queue wait,
+  HSS prepare/respond/finalize, and client artifact construction.
+
+Current retained benchmark anchors:
+
+- Email OTP session-persistence deferral run `20260611-082802Z`: Email OTP SDK
+  p50 improved by about `1.15s`, with session persistence around `2ms` p50.
+- Google Email OTP host-origin early prepare run `20260611-120433Z`: browser
+  p50 `1115ms`, SDK p50 `1041ms`, and `walletRegisterPrepareWaitMs` p50 `0ms`.
+- Confirmation run `20260611-121716Z`: browser p50 `1141ms`, SDK p50
+  `1069ms`, and `walletRegisterPrepareWaitMs` p50 `0ms`.
+
 ## Implementation Plan
+
+Implementation order:
+
+1. Build `router-ab-protocol` first: protocol types, lifecycle state, wire
+   vectors, source guards, host traits, and invariant notes.
+2. Add the local Router/A/B simulation on top of those protocol types.
+3. Add Cloudflare Router, Signer A, Signer B, and Relayer adapters after the
+   local boundary tests prove role separation, replay handling, and output-kind
+   separation.
+
+### Phase 0: Adopt Refactor-66 Baseline
+
+- [ ] Record the retained refactor-66 benchmark anchors in Router A/B benchmark
+      docs.
+- [ ] Port expensive-work gate semantics into `router-ab-protocol` lifecycle
+      types.
+- [ ] Define accepted, reuse-existing, defer, and rejected gate decisions before
+      Cloudflare route work starts.
+- [ ] Define scoped early prepare/precompute handles for registration setup.
+- [ ] Preserve the slower authority-verified fallback when early prepare is
+      disabled or saturated.
+- [ ] Keep normal signing unaffected by prepared-registration setup.
 
 ### Phase 1: Protocol Types And Invariants
 

@@ -3,6 +3,8 @@ import {
   addWalletSigner as addWalletSignerWithUnifiedCeremony,
   isRegistrationBenchmarkDiagnosticsEnabled,
   registerWallet as registerWalletWithUnifiedCeremony,
+  registerWalletWithStartedPrecompute,
+  startWalletRegistrationPrecompute,
   WALLET_IFRAME_TRANSPORT_TIMING_LABEL,
 } from '@/SeamsWeb/operations/registration/registration';
 import {
@@ -384,6 +386,41 @@ export class SeamsWeb {
                 }),
               registerWallet: async (registerArgs) =>
                 await this.registerWalletDomain(registerArgs),
+              startWalletRegistrationPrecompute: (registerArgs) => {
+                if (this.walletIframe.shouldUseWalletIframe()) {
+                  return {
+                    kind: 'unavailable' as const,
+                    unavailableReason: 'wallet_iframe_registration_domain' as const,
+                  };
+                }
+                return {
+                  kind: 'started' as const,
+                  handle: startWalletRegistrationPrecompute({
+                    context: this.getContext(),
+                    authMethod: registerArgs.authMethod,
+                    wallet: registerArgs.wallet,
+                    rpId: registerArgs.rpId,
+                    signerSelection: registerArgs.signerSelection,
+                  }),
+                };
+              },
+              registerWalletWithStartedPrecompute: async ({ registration, precompute }) => {
+                if (this.walletIframe.shouldUseWalletIframe()) {
+                  return await this.registerWalletDomain(registration);
+                }
+                return await registerWalletWithStartedPrecompute({
+                  context: this.getContext(),
+                  authMethod: registration.authMethod,
+                  wallet: registration.wallet,
+                  rpId: registration.rpId,
+                  signerSelection: registration.signerSelection,
+                  options: registration.options || {},
+                  authenticatorOptions: cloneAuthenticatorOptions(
+                    this.configs.webauthn.authenticatorOptions,
+                  ),
+                  precompute: precompute.handle,
+                });
+              },
               loginWithEmailOtpEcdsaCapability: async (loginArgs) =>
                 await this.loginWithEmailOtpEcdsaCapabilityDomain(loginArgs),
               getWalletSession: async (walletId) =>

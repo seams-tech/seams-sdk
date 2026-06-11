@@ -116,11 +116,64 @@ function makeEmailOtpRegistrationEnrollmentMaterial(args: {
   };
 }
 
+function makeStartedPrecompute(
+  args: Parameters<GoogleEmailOtpWalletAuthDeps['startWalletRegistrationPrecompute']>[0],
+): ReturnType<GoogleEmailOtpWalletAuthDeps['startWalletRegistrationPrecompute']> {
+  const walletId =
+    args.wallet.kind === 'provided' ? String(args.wallet.walletId) : 'server-generated.testnet';
+  return {
+    kind: 'started',
+    handle: {
+      kind: 'wallet_registration_precompute_handle_v1',
+      handleId: `precompute-${walletId}`,
+      scope: {
+        authMethodKind: args.authMethod.kind,
+        walletScopeKey:
+          args.wallet.kind === 'provided'
+            ? `provided:${String(args.wallet.walletId)}`
+            : 'server_generated',
+        rpId: args.rpId,
+        signerMode:
+          args.signerSelection.mode === 'ed25519_and_ecdsa'
+            ? 'ed25519_and_ecdsa'
+            : 'ed25519_only',
+        nearAccountId:
+          args.signerSelection.mode === 'ed25519_and_ecdsa' ||
+          args.signerSelection.mode === 'ed25519_only'
+            ? String(args.signerSelection.ed25519.nearAccountId)
+            : walletId,
+      },
+      read: async () => {
+        throw new Error('test precompute handle read should not be called by flow unit tests');
+      },
+      snapshot: () => ({}),
+      routeDiagnosticsSnapshot: () => [],
+      dispose: () => undefined,
+    },
+  } as ReturnType<GoogleEmailOtpWalletAuthDeps['startWalletRegistrationPrecompute']>;
+}
+
 function makeDeps(overrides?: Partial<GoogleEmailOtpWalletAuthDeps>): {
   deps: GoogleEmailOtpWalletAuthDeps;
   calls: Array<{ type: string; args: unknown }>;
 } {
   const calls: Array<{ type: string; args: unknown }> = [];
+  const registerWalletImpl =
+    overrides?.registerWallet ??
+    (async (args: Parameters<GoogleEmailOtpWalletAuthDeps['registerWallet']>[0]) => {
+      calls.push({ type: 'registerWallet', args });
+      return { success: true, accountId: 'alice.testnet' } as Awaited<
+        ReturnType<GoogleEmailOtpWalletAuthDeps['registerWallet']>
+      >;
+    });
+  const registerWalletWithStartedPrecomputeImpl =
+    overrides?.registerWalletWithStartedPrecompute ??
+    (async (
+      args: Parameters<GoogleEmailOtpWalletAuthDeps['registerWalletWithStartedPrecompute']>[0],
+    ) => {
+      calls.push({ type: 'registerWalletWithStartedPrecompute', args });
+      return await registerWalletImpl(args.registration);
+    });
   const deps: GoogleEmailOtpWalletAuthDeps = {
     configs: testConfigs(),
     getRpId: () => 'localhost',
@@ -167,12 +220,12 @@ function makeDeps(overrides?: Partial<GoogleEmailOtpWalletAuthDeps>): {
         userId: String(args.userId),
       });
     },
-    registerWallet: async (args) => {
-      calls.push({ type: 'registerWallet', args });
-      return { success: true, accountId: 'alice.testnet' } as Awaited<
-        ReturnType<GoogleEmailOtpWalletAuthDeps['registerWallet']>
-      >;
+    registerWallet: registerWalletImpl,
+    startWalletRegistrationPrecompute: (args) => {
+      calls.push({ type: 'startWalletRegistrationPrecompute', args });
+      return makeStartedPrecompute(args);
     },
+    registerWalletWithStartedPrecompute: registerWalletWithStartedPrecomputeImpl,
     loginWithEmailOtpEcdsaCapability: async (args) => {
       calls.push({ type: 'loginWithEmailOtpEcdsaCapability', args });
       return { success: true } as unknown as Awaited<
@@ -207,6 +260,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(calls.map((call) => call.type)).toEqual([
       'exchangeGoogleEmailOtpSession',
       'prepareEmailOtpRegistrationEnrollmentMaterial',
+      'startWalletRegistrationPrecompute',
     ]);
     expect(calls[1]?.args).toMatchObject({
       relayUrl: 'https://relay.example',
@@ -242,9 +296,44 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(calls.map((call) => call.type)).toEqual([
       'exchangeGoogleEmailOtpSession',
       'prepareEmailOtpRegistrationEnrollmentMaterial',
+      'startWalletRegistrationPrecompute',
+      'registerWalletWithStartedPrecompute',
       'registerWallet',
       'getWalletSession',
     ]);
+  });
+
+  test('register path falls back to routed registration when precompute is unavailable', async () => {
+    const { deps, calls } = makeDeps({
+      startWalletRegistrationPrecompute: (args) => {
+        calls.push({ type: 'startWalletRegistrationPrecompute', args });
+        return {
+          kind: 'unavailable',
+          unavailableReason: 'wallet_iframe_registration_domain',
+        };
+      },
+    });
+    const started = await beginGoogleEmailOtpWalletAuth(deps, {
+      idToken: 'google-id-token',
+      mode: 'register',
+      relayUrl: 'https://relay.example',
+      sessionKind: 'jwt',
+      ecdsaTargets: { kind: 'none' },
+    });
+
+    expect(started.ok).toBe(true);
+    if (!started.ok || started.value.mode !== 'register') throw new Error('expected register flow');
+    const completed = await started.value.completeRegistration();
+
+    expect(completed.ok).toBe(true);
+    expect(calls.map((call) => call.type)).toEqual([
+      'exchangeGoogleEmailOtpSession',
+      'prepareEmailOtpRegistrationEnrollmentMaterial',
+      'startWalletRegistrationPrecompute',
+      'registerWallet',
+      'getWalletSession',
+    ]);
+    expect(calls.find((call) => call.type === 'registerWalletWithStartedPrecompute')).toBeFalsy();
   });
 
   test('register path fails closed when the offer expiry is missing', async () => {
@@ -370,6 +459,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
       expect(calls.map((call) => call.type)).toEqual([
         'exchangeGoogleEmailOtpSession',
         'prepareEmailOtpRegistrationEnrollmentMaterial',
+        'startWalletRegistrationPrecompute',
       ]);
     } finally {
       Date.now = realNow;
@@ -438,6 +528,7 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(calls.map((call) => call.type)).toEqual([
       'exchangeGoogleEmailOtpSession',
       'prepareEmailOtpRegistrationEnrollmentMaterial',
+      'startWalletRegistrationPrecompute',
     ]);
   });
 
@@ -469,6 +560,8 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(calls.map((call) => call.type)).toEqual([
       'exchangeGoogleEmailOtpSession',
       'prepareEmailOtpRegistrationEnrollmentMaterial',
+      'startWalletRegistrationPrecompute',
+      'registerWalletWithStartedPrecompute',
       'registerWallet',
     ]);
   });
@@ -729,9 +822,11 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(calls.map((call) => call.type)).toEqual([
       'exchangeGoogleEmailOtpSession',
       'prepareEmailOtpRegistrationEnrollmentMaterial',
+      'startWalletRegistrationPrecompute',
       'prepareEmailOtpRegistrationEnrollmentMaterial',
+      'startWalletRegistrationPrecompute',
     ]);
-    expect(calls[2]?.args).toMatchObject({
+    expect(calls[3]?.args).toMatchObject({
       walletId: 'alice-2.testnet',
       userId: 'google-subject-1',
     });
@@ -768,7 +863,9 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     expect(calls.map((call) => call.type)).toEqual([
       'exchangeGoogleEmailOtpSession',
       'prepareEmailOtpRegistrationEnrollmentMaterial',
+      'startWalletRegistrationPrecompute',
       'prepareEmailOtpRegistrationEnrollmentMaterial',
+      'startWalletRegistrationPrecompute',
     ]);
 
     const completed = await started.value.completeRegistration();
