@@ -28,6 +28,7 @@ impl PreparedSession {
     pub fn delivery_material(&self) -> DeliveryMaterial {
         DeliveryMaterial {
             report_version: PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION.to_string(),
+            backend_version: self.ddh_backend().evaluation_key().backend_version,
             fixed_function_id: self.candidate().fixed_function_id.clone(),
             projection_mode: self.output_projection_mode().clone(),
             hidden_core_materialization: HiddenCoreMaterialization::DdhPrimitiveBaseline,
@@ -48,6 +49,7 @@ impl PreparedSession {
         ServerDriverState {
             runtime: self.shared_runtime_state(),
             garbler_session: crate::server::ServerSessionState {
+                backend_version: garbler_session.ddh_garbler.evaluation_key().backend_version,
                 context_binding: garbler_session.context_binding,
                 ddh_garbler: garbler_session.ddh_garbler,
                 client_ot_offer: garbler_session.client_ot_offer,
@@ -61,6 +63,10 @@ impl PreparedSession {
         ClientDriverState {
             runtime: self.shared_runtime_state(),
             evaluator_session: crate::client::ClientSessionState {
+                backend_version: evaluator_session
+                    .ddh_evaluator
+                    .evaluation_key()
+                    .backend_version,
                 context_binding: evaluator_session.context_binding,
                 ddh_evaluator: evaluator_session.ddh_evaluator,
             },

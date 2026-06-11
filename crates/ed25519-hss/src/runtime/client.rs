@@ -21,7 +21,7 @@ impl ClientRuntimeState {
     pub fn materialize(&self) -> ProtoResult<ClientRuntime> {
         Ok(ClientRuntime {
             shared_runtime: self.runtime.materialize()?,
-            evaluator_session: self.evaluator_session.materialize(),
+            evaluator_session: self.evaluator_session.materialize()?,
         })
     }
 }
@@ -30,7 +30,7 @@ impl ClientRuntime {
     pub fn from_driver_state(driver_state: &ClientDriverState) -> ProtoResult<Self> {
         Ok(Self {
             shared_runtime: driver_state.runtime.materialize()?,
-            evaluator_session: driver_state.evaluator_session.materialize(),
+            evaluator_session: driver_state.evaluator_session.materialize()?,
         })
     }
 }

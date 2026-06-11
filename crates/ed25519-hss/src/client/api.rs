@@ -43,11 +43,22 @@ struct AddStageRequestParts {
 }
 
 impl ClientSessionState {
-    pub fn materialize(&self) -> ClientSession {
-        ClientSession {
+    pub fn materialize(&self) -> ProtoResult<ClientSession> {
+        if self.backend_version != self.ddh_evaluator.evaluation_key().backend_version {
+            return Err(ProtoError::InvalidInput(
+                "client session state backend version does not match evaluator".to_string(),
+            ));
+        }
+        if self.backend_version != crate::ddh::DdhHssBackendVersion::CURRENT {
+            return Err(ProtoError::InvalidInput(format!(
+                "client session state backend version is stale: {}",
+                self.backend_version.as_str()
+            )));
+        }
+        Ok(ClientSession {
             context_binding: self.context_binding,
             ddh_evaluator: self.ddh_evaluator.clone(),
-        }
+        })
     }
 }
 
@@ -55,7 +66,7 @@ impl ClientDriverState {
     pub fn materialize(&self) -> ProtoResult<(SharedRuntime, ClientSession)> {
         Ok((
             self.runtime.materialize()?,
-            self.evaluator_session.materialize(),
+            self.evaluator_session.materialize()?,
         ))
     }
 }
@@ -121,7 +132,11 @@ impl ClientSession {
         &self,
         evaluator_ot_state: &ClientOtState,
     ) -> ProtoResult<()> {
-        crate::client::ot::validate_evaluator_ot_state(self.context_binding, evaluator_ot_state)
+        crate::client::ot::validate_evaluator_ot_state(
+            self.context_binding,
+            &self.ddh_evaluator,
+            evaluator_ot_state,
+        )
     }
 
     pub fn validate_server_assist_init_packet(
@@ -1725,6 +1740,7 @@ impl ClientSession {
         let output_sealing_finalization_duration_ns = elapsed_ns_u64(output_sealing_started);
         Ok((
             StagedEvaluatorArtifact {
+                backend_version: self.ddh_evaluator.evaluation_key().backend_version,
                 context_binding: self.context_binding,
                 bindings: RunBindings {
                     client_input_commitment,
@@ -1733,6 +1749,7 @@ impl ClientSession {
                     evaluation_digest,
                 },
                 projection_mode,
+                output_projector_binding: output.output_projector_binding,
                 client_output_value_kind: output.client_output.value_kind,
                 client_output_commitment: output.client_output.as_bundle().commitment,
                 evaluator_witness: crate::wire::EvaluatorWitness {
@@ -1795,6 +1812,7 @@ impl ClientSession {
         Ok((
             EvaluationReport {
                 report_version: crate::wire::PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION.to_string(),
+                backend_version: self.ddh_evaluator.evaluation_key().backend_version,
                 backend_family: crate::candidate::CandidateBackendFamily::PrimeOrderSizeOptimized,
                 fixed_function_id: runtime.candidate.fixed_function_id.clone(),
                 hidden_core_materialization: crate::wire::HiddenCoreMaterialization::DdhPrimitiveBaseline,
@@ -1806,6 +1824,7 @@ impl ClientSession {
                     evaluation_digest,
                 },
                 projection_mode: OutputProjectionMode::trusted_server_projection(),
+                output_projector_binding: ddh_run.output.output_projector_binding,
                 evaluator_witness: EvaluatorWitness {
                     total_steps: runtime.execution_program.trace.total_steps,
                     curve_cost_units: runtime.execution_program.trace.estimated_curve_cost_units,

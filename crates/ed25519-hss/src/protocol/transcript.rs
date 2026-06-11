@@ -6,7 +6,8 @@ use crate::ddh::{
 use crate::runtime::PrimeOrderCpuExecutionResult;
 use crate::wire::{
     ClientOtOffer, ClientOutputValueKind, ClientPacket, ClientStageRequestPacket, OtTranscript,
-    OutputProjectionMode, ServerEvalHandle, ServerEvalStageId, TranscriptId,
+    OutputProjectionMode, OutputProjectorBinding, OutputProjectorBindingKind,
+    OutputProjectorModulusId, ServerEvalHandle, ServerEvalStageId, TranscriptId,
 };
 
 fn bind_output_projection_mode(hasher: &mut Sha256, projection_mode: &OutputProjectionMode) {
@@ -14,6 +15,17 @@ fn bind_output_projection_mode(hasher: &mut Sha256, projection_mode: &OutputProj
     if let Some(mask_commitment) = projection_mode.mask_commitment() {
         hasher.update(mask_commitment);
     }
+}
+
+fn bind_output_projector_binding(hasher: &mut Sha256, binding: OutputProjectorBinding) {
+    hasher.update(match binding.kind {
+        OutputProjectorBindingKind::BindingV1 => b"binding_v1".as_slice(),
+    });
+    hasher.update(binding.scalar_width_bits.to_le_bytes());
+    hasher.update(match binding.modulus_id {
+        OutputProjectorModulusId::Ed25519L => b"ed25519_l".as_slice(),
+    });
+    hasher.update(binding.binding_digest);
 }
 
 pub(crate) fn digest_output_projection_mode(projection_mode: &OutputProjectionMode) -> [u8; 32] {
@@ -611,6 +623,7 @@ pub(crate) fn compute_evaluation_digest(
         output.client_output.value_kind,
         output.client_output.as_bundle().commitment,
         output.x_relayer_base_left.commitment,
+        output.output_projector_binding,
     )
 }
 
@@ -622,6 +635,7 @@ pub(crate) fn compute_evaluation_digest_from_output_commitments(
     client_output_value_kind: ClientOutputValueKind,
     client_output_commitment: [u8; 32],
     x_relayer_base_left_commitment: [u8; 32],
+    output_projector_binding: OutputProjectorBinding,
 ) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(b"succinct-garbling-proto/prime-order-succinct-hss/evaluation-digest/v0");
@@ -633,6 +647,7 @@ pub(crate) fn compute_evaluation_digest_from_output_commitments(
     hasher.update(client_output_value_kind.domain_tag());
     hasher.update(client_output_commitment);
     hasher.update(x_relayer_base_left_commitment);
+    bind_output_projector_binding(&mut hasher, output_projector_binding);
     let digest = hasher.finalize();
     let mut out = [0u8; 32];
     out.copy_from_slice(&digest);

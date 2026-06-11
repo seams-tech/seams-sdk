@@ -7,6 +7,7 @@ license = "Apache-2.0"
 
 [features]
 default = []
+browser-benchmark = []
 hss-physical-counters = []
 
 [lib]

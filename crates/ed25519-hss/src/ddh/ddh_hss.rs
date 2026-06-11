@@ -20,7 +20,272 @@ use crate::ddh::hidden_eval::{
 };
 use crate::shared::{ProtoError, ProtoResult};
 
-pub const DDH_HSS_BACKEND_VERSION: &str = "ddh_hss_backend_v0";
+pub const DDH_HSS_BACKEND_VERSION: &str = "ddh_hss_backend_v4_ch_gated_select_root";
+pub const DDH_HSS_A2B_KERNEL_VERSION: &str = "ddh_hss_a2b_kernel_v2_committed_root";
+pub const DDH_HSS_MUL_XOR_KERNEL_VERSION: &str = "ddh_hss_mul_xor_kernel_v2_committed_root";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DdhHssBackendVersion {
+    V4ChGatedSelectRoot,
+}
+
+impl DdhHssBackendVersion {
+    pub const CURRENT: Self = Self::V4ChGatedSelectRoot;
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::V4ChGatedSelectRoot => DDH_HSS_BACKEND_VERSION,
+        }
+    }
+
+    pub fn parse(raw: &str) -> ProtoResult<Self> {
+        match raw {
+            DDH_HSS_BACKEND_VERSION => Ok(Self::V4ChGatedSelectRoot),
+            other => Err(ProtoError::InvalidInput(format!(
+                "unsupported DDH HSS backend version: {other}"
+            ))),
+        }
+    }
+}
+
+impl Serialize for DdhHssBackendVersion {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for DdhHssBackendVersion {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DdhHssA2bKernelVersion {
+    V2CommittedRoot,
+}
+
+impl DdhHssA2bKernelVersion {
+    pub const CURRENT: Self = Self::V2CommittedRoot;
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::V2CommittedRoot => DDH_HSS_A2B_KERNEL_VERSION,
+        }
+    }
+
+    pub fn parse(raw: &str) -> ProtoResult<Self> {
+        match raw {
+            DDH_HSS_A2B_KERNEL_VERSION => Ok(Self::V2CommittedRoot),
+            other => Err(ProtoError::InvalidInput(format!(
+                "unsupported DDH HSS A2B kernel version: {other}"
+            ))),
+        }
+    }
+}
+
+impl Serialize for DdhHssA2bKernelVersion {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for DdhHssA2bKernelVersion {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DdhHssMulXorKernelVersion {
+    V2CommittedRoot,
+}
+
+impl DdhHssMulXorKernelVersion {
+    pub const CURRENT: Self = Self::V2CommittedRoot;
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::V2CommittedRoot => DDH_HSS_MUL_XOR_KERNEL_VERSION,
+        }
+    }
+
+    pub fn parse(raw: &str) -> ProtoResult<Self> {
+        match raw {
+            DDH_HSS_MUL_XOR_KERNEL_VERSION => Ok(Self::V2CommittedRoot),
+            other => Err(ProtoError::InvalidInput(format!(
+                "unsupported DDH HSS Mul/XOR kernel version: {other}"
+            ))),
+        }
+    }
+}
+
+impl Serialize for DdhHssMulXorKernelVersion {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for DdhHssMulXorKernelVersion {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DdhHssRootedCombinerKind {
+    XorPair,
+    XorWithCarry,
+    ChYz,
+    ChSelect,
+    MajXy,
+    MajXz,
+    MajCombine,
+    A2bCarry,
+    B2aCorrection,
+}
+
+impl DdhHssRootedCombinerKind {
+    pub const ALL: [Self; 9] = [
+        Self::XorPair,
+        Self::XorWithCarry,
+        Self::ChYz,
+        Self::ChSelect,
+        Self::MajXy,
+        Self::MajXz,
+        Self::MajCombine,
+        Self::A2bCarry,
+        Self::B2aCorrection,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::XorPair => "xor_pair",
+            Self::XorWithCarry => "xor_with_carry",
+            Self::ChYz => "ch_yz",
+            Self::ChSelect => "ch_select",
+            Self::MajXy => "maj_xy",
+            Self::MajXz => "maj_xz",
+            Self::MajCombine => "maj_combine",
+            Self::A2bCarry => "a2b_carry",
+            Self::B2aCorrection => "b2a_correction",
+        }
+    }
+
+    pub fn parse(raw: &str) -> ProtoResult<Self> {
+        match raw {
+            "xor_pair" => Ok(Self::XorPair),
+            "xor_with_carry" => Ok(Self::XorWithCarry),
+            "ch_yz" => Ok(Self::ChYz),
+            "ch_select" => Ok(Self::ChSelect),
+            "maj_xy" => Ok(Self::MajXy),
+            "maj_xz" => Ok(Self::MajXz),
+            "maj_combine" => Ok(Self::MajCombine),
+            "a2b_carry" => Ok(Self::A2bCarry),
+            "b2a_correction" => Ok(Self::B2aCorrection),
+            other => Err(ProtoError::InvalidInput(format!(
+                "unsupported DDH HSS rooted combiner kind: {other}"
+            ))),
+        }
+    }
+}
+
+impl Serialize for DdhHssRootedCombinerKind {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for DdhHssRootedCombinerKind {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DdhHssCombinerBoundaryKind {
+    InternalCore,
+    InternalCommittedLocal,
+    Transport,
+    OutputBundle,
+}
+
+impl DdhHssCombinerBoundaryKind {
+    pub const ALL: [Self; 4] = [
+        Self::InternalCore,
+        Self::InternalCommittedLocal,
+        Self::Transport,
+        Self::OutputBundle,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InternalCore => "internal_core",
+            Self::InternalCommittedLocal => "internal_committed_local",
+            Self::Transport => "transport",
+            Self::OutputBundle => "output_bundle",
+        }
+    }
+
+    pub fn parse(raw: &str) -> ProtoResult<Self> {
+        match raw {
+            "internal_core" => Ok(Self::InternalCore),
+            "internal_committed_local" => Ok(Self::InternalCommittedLocal),
+            "transport" => Ok(Self::Transport),
+            "output_bundle" => Ok(Self::OutputBundle),
+            other => Err(ProtoError::InvalidInput(format!(
+                "unsupported DDH HSS combiner boundary kind: {other}"
+            ))),
+        }
+    }
+}
+
+impl Serialize for DdhHssCombinerBoundaryKind {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for DdhHssCombinerBoundaryKind {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
+    }
+}
 
 #[cfg(feature = "hss-physical-counters")]
 static PHYSICAL_KEYED_DIGEST_DERIVATIONS: AtomicU64 = AtomicU64::new(0);
@@ -278,14 +543,14 @@ fn set_child_label(buffer: &mut String, gate_label: &str, child: &str) {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DdhHssParams {
-    pub backend_version: String,
+    pub backend_version: DdhHssBackendVersion,
     pub scalar_bits: u16,
     pub generator_compressed: [u8; 32],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DdhHssEvaluationKey {
-    pub backend_version: String,
+    pub backend_version: DdhHssBackendVersion,
     pub primitive_kind: HssPrimitiveKind,
     pub context_binding: [u8; 32],
     pub candidate_digest: [u8; 32],
@@ -361,6 +626,109 @@ pub enum DdhHssShareSide {
     Right,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DdhHssCommittedWordRoot {
+    pub(crate) width_bits: u16,
+    pub(crate) share_side: DdhHssShareSide,
+    pub(crate) provenance_digest: [u8; 32],
+    pub(crate) commitment: [u8; 32],
+}
+
+#[allow(dead_code)]
+impl DdhHssCommittedWordRoot {
+    pub(crate) fn from_local_word(word: &DdhHssLocalWord) -> ProtoResult<Self> {
+        validate_word_width("committed word root", word.width_bits)?;
+
+        Ok(Self {
+            width_bits: word.width_bits,
+            share_side: word.share_side,
+            provenance_digest: word.provenance_digest,
+            commitment: word.share_commitment,
+        })
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DdhHssCommittedWordPairRoot {
+    pub(crate) width_bits: u16,
+    pub(crate) left: DdhHssCommittedWordRoot,
+    pub(crate) right: DdhHssCommittedWordRoot,
+}
+
+#[allow(dead_code)]
+impl DdhHssCommittedWordPairRoot {
+    pub(crate) fn from_local_pair(
+        left: &DdhHssLocalWord,
+        right: &DdhHssLocalWord,
+    ) -> ProtoResult<Self> {
+        ensure_local_word_pair(left, right)?;
+        validate_word_width("committed word pair root", left.width_bits)?;
+
+        Ok(Self {
+            width_bits: left.width_bits,
+            left: DdhHssCommittedWordRoot::from_local_word(left)?,
+            right: DdhHssCommittedWordRoot::from_local_word(right)?,
+        })
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DdhHssRootedCombinerInput {
+    pub(crate) backend_version: DdhHssBackendVersion,
+    pub(crate) kernel_version: DdhHssMulXorKernelVersion,
+    pub(crate) kind: DdhHssRootedCombinerKind,
+    pub(crate) boundary: DdhHssCombinerBoundaryKind,
+    pub(crate) label_digest: [u8; 32],
+    pub(crate) width_bits: u16,
+    pub(crate) bit_index: u16,
+    pub(crate) left_pair: DdhHssCommittedWordPairRoot,
+    pub(crate) right_pair: DdhHssCommittedWordPairRoot,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DdhHssMajRootInput {
+    pub(crate) backend_version: DdhHssBackendVersion,
+    pub(crate) kernel_version: DdhHssMulXorKernelVersion,
+    pub(crate) label_digest: [u8; 32],
+    pub(crate) width_bits: u16,
+    pub(crate) bit_index: u16,
+    pub(crate) x: DdhHssCommittedWordPairRoot,
+    pub(crate) y: DdhHssCommittedWordPairRoot,
+    pub(crate) z: DdhHssCommittedWordPairRoot,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DdhHssMajRootDigests {
+    pub(crate) xy_digest: [u8; 32],
+    pub(crate) xz_digest: [u8; 32],
+    pub(crate) combine_digest: [u8; 32],
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DdhHssChRootInput {
+    pub(crate) backend_version: DdhHssBackendVersion,
+    pub(crate) kernel_version: DdhHssMulXorKernelVersion,
+    pub(crate) label_digest: [u8; 32],
+    pub(crate) width_bits: u16,
+    pub(crate) bit_index: u16,
+    pub(crate) x: DdhHssCommittedWordPairRoot,
+    pub(crate) y: DdhHssCommittedWordPairRoot,
+    pub(crate) z: DdhHssCommittedWordPairRoot,
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DdhHssChRootDigests {
+    pub(crate) yz_digest: [u8; 32],
+    pub(crate) select_digest: [u8; 32],
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DdhHssTransportWord {
     pub width_bits: u16,
@@ -415,6 +783,10 @@ struct DdhHssLocalMulMaterialCore {
     triple_b_word: u64,
     triple_c_word: u64,
     provenance_digest: [u8; 32],
+}
+
+pub(crate) struct DdhHssLocalMulMaterialBase {
+    hasher: Blake3Hasher,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -934,6 +1306,20 @@ struct DdhHssPreparedOtBranch {
     payload_digest: [u8; 32],
 }
 
+fn validate_backend_version_pair(
+    params: &DdhHssParams,
+    evaluation_key: &DdhHssEvaluationKey,
+) -> ProtoResult<DdhHssBackendVersion> {
+    if params.backend_version != evaluation_key.backend_version {
+        return Err(ProtoError::InvalidInput(format!(
+            "DDH HSS backend version mismatch: params={} evaluation_key={}",
+            params.backend_version.as_str(),
+            evaluation_key.backend_version.as_str()
+        )));
+    }
+    Ok(params.backend_version)
+}
+
 pub fn keygen_prime_order_ddh_hss_backend(
     context_binding: [u8; 32],
     candidate_digest: [u8; 32],
@@ -961,12 +1347,12 @@ pub fn keygen_prime_order_ddh_hss_backend(
 
     Ok(DdhHssBackend {
         params: DdhHssParams {
-            backend_version: DDH_HSS_BACKEND_VERSION.to_string(),
+            backend_version: DdhHssBackendVersion::CURRENT,
             scalar_bits: 252,
             generator_compressed: ED25519_BASEPOINT_POINT.compress().to_bytes(),
         },
         evaluation_key: DdhHssEvaluationKey {
-            backend_version: DDH_HSS_BACKEND_VERSION.to_string(),
+            backend_version: DdhHssBackendVersion::CURRENT,
             primitive_kind: HssPrimitiveKind::PrimeOrderDdh,
             context_binding,
             candidate_digest,
@@ -1013,6 +1399,8 @@ impl DdhHssBackend {
     }
 
     pub fn public_state(&self) -> DdhHssPublicState {
+        validate_backend_version_pair(&self.params, &self.evaluation_key)
+            .expect("DDH HSS backend was constructed with matching backend versions");
         DdhHssPublicState {
             params: self.params.clone(),
             evaluation_key: self.evaluation_key.clone(),
@@ -3356,6 +3744,16 @@ fn reduce_word(value: u128, width_bits: u16) -> u64 {
     masked as u64
 }
 
+#[allow(dead_code)]
+fn validate_word_width(context: &str, width_bits: u16) -> ProtoResult<()> {
+    if !(1..=64).contains(&width_bits) {
+        return Err(ProtoError::InvalidInput(format!(
+            "{context} width must be in 1..=64 bits, got {width_bits}"
+        )));
+    }
+    Ok(())
+}
+
 pub(crate) fn commit_word(
     owner: HiddenEvalInputOwner,
     side_label: &'static [u8],
@@ -3404,6 +3802,325 @@ fn owner_tag(owner: HiddenEvalInputOwner) -> &'static [u8] {
         HiddenEvalInputOwner::Server => b"server",
         HiddenEvalInputOwner::Derived => b"derived",
     }
+}
+
+#[allow(dead_code)]
+fn share_side_tag(side: DdhHssShareSide) -> &'static [u8] {
+    match side {
+        DdhHssShareSide::Left => b"left",
+        DdhHssShareSide::Right => b"right",
+    }
+}
+
+#[allow(dead_code)]
+fn update_root_field(hasher: &mut Blake3Hasher, label: &'static [u8], value: &[u8]) {
+    hasher.update(label);
+    hasher.update(&(value.len() as u64).to_le_bytes());
+    hasher.update(value);
+}
+
+#[allow(dead_code)]
+pub(crate) fn rooted_combiner_label_digest(label: &[u8]) -> [u8; 32] {
+    let mut hasher = Blake3Hasher::new();
+    hasher.update(b"succinct-garbling-proto/ddh-hss/rooted-combiner-label/v1");
+    update_root_field(&mut hasher, b"label", label);
+    *hasher.finalize().as_bytes()
+}
+
+#[allow(dead_code)]
+fn ensure_committed_word_root(
+    role: &str,
+    expected_width_bits: u16,
+    expected_side: DdhHssShareSide,
+    root: &DdhHssCommittedWordRoot,
+) -> ProtoResult<()> {
+    validate_word_width(role, root.width_bits)?;
+    if root.width_bits != expected_width_bits {
+        return Err(ProtoError::InvalidInput(format!(
+            "{role} width mismatch: expected {expected_width_bits}, got {}",
+            root.width_bits
+        )));
+    }
+    if root.share_side != expected_side {
+        return Err(ProtoError::InvalidInput(format!(
+            "{role} share side mismatch: expected {:?}, got {:?}",
+            expected_side, root.share_side
+        )));
+    }
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn ensure_committed_word_pair_root(
+    role: &str,
+    expected_width_bits: u16,
+    root: &DdhHssCommittedWordPairRoot,
+) -> ProtoResult<()> {
+    validate_word_width(role, root.width_bits)?;
+    if root.width_bits != expected_width_bits {
+        return Err(ProtoError::InvalidInput(format!(
+            "{role} width mismatch: expected {expected_width_bits}, got {}",
+            root.width_bits
+        )));
+    }
+    ensure_committed_word_root(
+        "committed word pair left root",
+        expected_width_bits,
+        DdhHssShareSide::Left,
+        &root.left,
+    )?;
+    ensure_committed_word_root(
+        "committed word pair right root",
+        expected_width_bits,
+        DdhHssShareSide::Right,
+        &root.right,
+    )?;
+    if root.left.provenance_digest != root.right.provenance_digest {
+        return Err(ProtoError::InvalidInput(format!(
+            "{role} provenance mismatch"
+        )));
+    }
+    Ok(())
+}
+
+#[allow(dead_code)]
+fn append_committed_word_root(hasher: &mut Blake3Hasher, root: &DdhHssCommittedWordRoot) {
+    update_root_field(hasher, b"root_width_bits", &root.width_bits.to_le_bytes());
+    update_root_field(hasher, b"root_share_side", share_side_tag(root.share_side));
+    update_root_field(hasher, b"root_provenance", &root.provenance_digest);
+    update_root_field(hasher, b"root_commitment", &root.commitment);
+}
+
+#[allow(dead_code)]
+fn append_committed_word_pair_root(hasher: &mut Blake3Hasher, root: &DdhHssCommittedWordPairRoot) {
+    update_root_field(hasher, b"pair_width_bits", &root.width_bits.to_le_bytes());
+    update_root_field(hasher, b"pair_side", b"left");
+    append_committed_word_root(hasher, &root.left);
+    update_root_field(hasher, b"pair_side", b"right");
+    append_committed_word_root(hasher, &root.right);
+}
+
+#[allow(dead_code)]
+fn append_rooted_combiner_common(
+    hasher: &mut Blake3Hasher,
+    evaluation_key: &DdhHssEvaluationKey,
+    backend_version: DdhHssBackendVersion,
+    kernel_version: DdhHssMulXorKernelVersion,
+    kind: DdhHssRootedCombinerKind,
+    boundary: DdhHssCombinerBoundaryKind,
+    label_digest: &[u8; 32],
+    width_bits: u16,
+    bit_index: u16,
+) {
+    update_root_field(hasher, b"key_id", &evaluation_key.key_id);
+    update_root_field(
+        hasher,
+        b"backend_version",
+        backend_version.as_str().as_bytes(),
+    );
+    update_root_field(
+        hasher,
+        b"kernel_version",
+        kernel_version.as_str().as_bytes(),
+    );
+    update_root_field(hasher, b"kind", kind.as_str().as_bytes());
+    update_root_field(hasher, b"boundary", boundary.as_str().as_bytes());
+    update_root_field(hasher, b"label_digest", label_digest);
+    update_root_field(hasher, b"width_bits", &width_bits.to_le_bytes());
+    update_root_field(hasher, b"bit_index", &bit_index.to_le_bytes());
+}
+
+#[allow(dead_code)]
+pub(crate) fn build_rooted_combiner_digest(
+    evaluation_key: &DdhHssEvaluationKey,
+    input: &DdhHssRootedCombinerInput,
+) -> ProtoResult<[u8; 32]> {
+    validate_word_width("rooted combiner", input.width_bits)?;
+    if input.backend_version != evaluation_key.backend_version {
+        return Err(ProtoError::InvalidInput(
+            "rooted combiner backend version does not match evaluation key".to_string(),
+        ));
+    }
+    ensure_committed_word_pair_root(
+        "left rooted combiner pair",
+        input.width_bits,
+        &input.left_pair,
+    )?;
+    ensure_committed_word_pair_root(
+        "right rooted combiner pair",
+        input.width_bits,
+        &input.right_pair,
+    )?;
+
+    let mut hasher = Blake3Hasher::new();
+    hasher.update(b"succinct-garbling-proto/ddh-hss/rooted-combiner/v1");
+    append_rooted_combiner_common(
+        &mut hasher,
+        evaluation_key,
+        input.backend_version,
+        input.kernel_version,
+        input.kind,
+        input.boundary,
+        &input.label_digest,
+        input.width_bits,
+        input.bit_index,
+    );
+    update_root_field(&mut hasher, b"operand_pair", b"left");
+    append_committed_word_pair_root(&mut hasher, &input.left_pair);
+    update_root_field(&mut hasher, b"operand_pair", b"right");
+    append_committed_word_pair_root(&mut hasher, &input.right_pair);
+    Ok(*hasher.finalize().as_bytes())
+}
+
+#[allow(dead_code)]
+pub(crate) fn build_maj_root_digests(
+    evaluation_key: &DdhHssEvaluationKey,
+    input: &DdhHssMajRootInput,
+) -> ProtoResult<DdhHssMajRootDigests> {
+    validate_word_width("Maj root", input.width_bits)?;
+    if input.backend_version != evaluation_key.backend_version {
+        return Err(ProtoError::InvalidInput(
+            "Maj root backend version does not match evaluation key".to_string(),
+        ));
+    }
+    ensure_committed_word_pair_root("Maj x pair", input.width_bits, &input.x)?;
+    ensure_committed_word_pair_root("Maj y pair", input.width_bits, &input.y)?;
+    ensure_committed_word_pair_root("Maj z pair", input.width_bits, &input.z)?;
+
+    let xy_digest = build_rooted_combiner_digest(
+        evaluation_key,
+        &DdhHssRootedCombinerInput {
+            backend_version: input.backend_version,
+            kernel_version: input.kernel_version,
+            kind: DdhHssRootedCombinerKind::MajXy,
+            boundary: DdhHssCombinerBoundaryKind::InternalCommittedLocal,
+            label_digest: input.label_digest,
+            width_bits: input.width_bits,
+            bit_index: input.bit_index,
+            left_pair: input.x,
+            right_pair: input.y,
+        },
+    )?;
+    let xz_digest = build_rooted_combiner_digest(
+        evaluation_key,
+        &DdhHssRootedCombinerInput {
+            backend_version: input.backend_version,
+            kernel_version: input.kernel_version,
+            kind: DdhHssRootedCombinerKind::MajXz,
+            boundary: DdhHssCombinerBoundaryKind::InternalCommittedLocal,
+            label_digest: input.label_digest,
+            width_bits: input.width_bits,
+            bit_index: input.bit_index,
+            left_pair: input.x,
+            right_pair: input.z,
+        },
+    )?;
+    let combine_digest =
+        build_maj_combine_root_digest(evaluation_key, input, &xy_digest, &xz_digest)?;
+
+    Ok(DdhHssMajRootDigests {
+        xy_digest,
+        xz_digest,
+        combine_digest,
+    })
+}
+
+#[allow(dead_code)]
+fn build_maj_combine_root_digest(
+    evaluation_key: &DdhHssEvaluationKey,
+    input: &DdhHssMajRootInput,
+    xy_digest: &[u8; 32],
+    xz_digest: &[u8; 32],
+) -> ProtoResult<[u8; 32]> {
+    validate_word_width("Maj combine root", input.width_bits)?;
+    ensure_committed_word_pair_root("Maj combine x pair", input.width_bits, &input.x)?;
+
+    let mut hasher = Blake3Hasher::new();
+    hasher.update(b"succinct-garbling-proto/ddh-hss/maj-combine-root/v1");
+    append_rooted_combiner_common(
+        &mut hasher,
+        evaluation_key,
+        input.backend_version,
+        input.kernel_version,
+        DdhHssRootedCombinerKind::MajCombine,
+        DdhHssCombinerBoundaryKind::InternalCore,
+        &input.label_digest,
+        input.width_bits,
+        input.bit_index,
+    );
+    update_root_field(&mut hasher, b"xy_digest", xy_digest);
+    update_root_field(&mut hasher, b"xz_digest", xz_digest);
+    update_root_field(&mut hasher, b"operand_pair", b"x");
+    append_committed_word_pair_root(&mut hasher, &input.x);
+    Ok(*hasher.finalize().as_bytes())
+}
+
+#[allow(dead_code)]
+pub(crate) fn build_ch_root_digests(
+    evaluation_key: &DdhHssEvaluationKey,
+    input: &DdhHssChRootInput,
+) -> ProtoResult<DdhHssChRootDigests> {
+    validate_word_width("Ch root", input.width_bits)?;
+    if input.backend_version != evaluation_key.backend_version {
+        return Err(ProtoError::InvalidInput(
+            "Ch root backend version does not match evaluation key".to_string(),
+        ));
+    }
+    ensure_committed_word_pair_root("Ch x pair", input.width_bits, &input.x)?;
+    ensure_committed_word_pair_root("Ch y pair", input.width_bits, &input.y)?;
+    ensure_committed_word_pair_root("Ch z pair", input.width_bits, &input.z)?;
+
+    let yz_digest = build_rooted_combiner_digest(
+        evaluation_key,
+        &DdhHssRootedCombinerInput {
+            backend_version: input.backend_version,
+            kernel_version: input.kernel_version,
+            kind: DdhHssRootedCombinerKind::ChYz,
+            boundary: DdhHssCombinerBoundaryKind::InternalCommittedLocal,
+            label_digest: input.label_digest,
+            width_bits: input.width_bits,
+            bit_index: input.bit_index,
+            left_pair: input.y,
+            right_pair: input.z,
+        },
+    )?;
+    let select_digest = build_ch_select_root_digest(evaluation_key, input, &yz_digest)?;
+
+    Ok(DdhHssChRootDigests {
+        yz_digest,
+        select_digest,
+    })
+}
+
+#[allow(dead_code)]
+fn build_ch_select_root_digest(
+    evaluation_key: &DdhHssEvaluationKey,
+    input: &DdhHssChRootInput,
+    yz_digest: &[u8; 32],
+) -> ProtoResult<[u8; 32]> {
+    validate_word_width("Ch select root", input.width_bits)?;
+    ensure_committed_word_pair_root("Ch select x pair", input.width_bits, &input.x)?;
+    ensure_committed_word_pair_root("Ch select z pair", input.width_bits, &input.z)?;
+
+    let mut hasher = Blake3Hasher::new();
+    hasher.update(b"succinct-garbling-proto/ddh-hss/ch-select-root/v1");
+    append_rooted_combiner_common(
+        &mut hasher,
+        evaluation_key,
+        input.backend_version,
+        input.kernel_version,
+        DdhHssRootedCombinerKind::ChSelect,
+        DdhHssCombinerBoundaryKind::InternalCore,
+        &input.label_digest,
+        input.width_bits,
+        input.bit_index,
+    );
+    update_root_field(&mut hasher, b"yz_digest", yz_digest);
+    update_root_field(&mut hasher, b"operand_pair", b"x");
+    append_committed_word_pair_root(&mut hasher, &input.x);
+    update_root_field(&mut hasher, b"operand_pair", b"z");
+    append_committed_word_pair_root(&mut hasher, &input.z);
+    Ok(*hasher.finalize().as_bytes())
 }
 
 fn input_commitment_for_key(
@@ -3823,7 +4540,7 @@ fn build_local_word_for_key(
     )
 }
 
-fn build_local_word_core_for_key(
+pub(crate) fn build_local_word_core_for_key(
     evaluation_key: &DdhHssEvaluationKey,
     domain: &'static [u8],
     label: &[u8],
@@ -3927,53 +4644,6 @@ fn join_local_word_pair_as_derived(
         right_commitment: right.share_commitment,
         provenance_digest: left.provenance_digest,
     })
-}
-
-pub(crate) fn xor_local_bit_from_raw_public(
-    evaluation_key: &DdhHssEvaluationKey,
-    label: &[u8],
-    share_side: DdhHssShareSide,
-    left_bit: u8,
-    left_provenance_digest: &[u8; 32],
-    right_bit: u8,
-    right_provenance_digest: &[u8; 32],
-) -> DdhHssLocalWord {
-    build_local_word_for_key(
-        evaluation_key,
-        b"eval-xor-local-word",
-        label,
-        1,
-        share_side,
-        reduce_word(u128::from(left_bit & 1) + u128::from(right_bit & 1), 1),
-        &[left_provenance_digest, right_provenance_digest],
-    )
-}
-
-pub(crate) fn xor_local_bit_core_from_raw_public(
-    evaluation_key: &DdhHssEvaluationKey,
-    label: &[u8],
-    share_side: DdhHssShareSide,
-    left_bit: u8,
-    left_provenance_digest: &[u8; 32],
-    right_bit: u8,
-    right_provenance_digest: &[u8; 32],
-) -> DdhHssLocalWordCore {
-    let provenance_digest = derive_digest_for_key(
-        evaluation_key,
-        b"eval-xor-local-word",
-        HiddenEvalInputOwner::Derived,
-        label,
-        1,
-        0,
-        0,
-        &[left_provenance_digest, right_provenance_digest],
-    );
-    local_word_core_from_provenance(
-        1,
-        share_side,
-        reduce_word(u128::from(left_bit & 1) + u128::from(right_bit & 1), 1),
-        provenance_digest,
-    )
 }
 
 pub(crate) fn xor_local_bit_pair_from_raw_public(
@@ -4380,6 +5050,14 @@ fn local_bit_mul_material_base_hasher(evaluation_key: &DdhHssEvaluationKey) -> B
     material_hasher
 }
 
+pub(crate) fn prepare_local_bit_mul_material_base_public(
+    evaluation_key: &DdhHssEvaluationKey,
+) -> DdhHssLocalMulMaterialBase {
+    DdhHssLocalMulMaterialBase {
+        hasher: local_bit_mul_material_base_hasher(evaluation_key),
+    }
+}
+
 fn local_bit_slice_view_ensure_shape(view: DdhHssLocalBitSliceView<'_>) -> ProtoResult<()> {
     if view.commitments.len() != view.bit_len || view.provenance_digests.len() != view.bit_len {
         return Err(ProtoError::InvalidInput(
@@ -4618,21 +5296,18 @@ fn prepare_local_bit_mul_material_public(
     ))
 }
 
-pub(crate) fn eval_mul_local_word_pair_batch_public(
+pub(crate) fn eval_mul_local_word_pair_batch_repeated_left_public(
     evaluation_key: &DdhHssEvaluationKey,
     label_prefix: &str,
-    left_left_words: &[DdhHssLocalWord],
-    left_right_words: &[DdhHssLocalWord],
+    left_left: &DdhHssLocalWord,
+    left_right: &DdhHssLocalWord,
     right_left_words: &[DdhHssLocalWord],
     right_right_words: &[DdhHssLocalWord],
 ) -> ProtoResult<(Vec<DdhHssLocalWord>, Vec<DdhHssLocalWord>)> {
-    let len = left_left_words.len();
-    if left_right_words.len() != len
-        || right_left_words.len() != len
-        || right_right_words.len() != len
-    {
+    let len = right_left_words.len();
+    if right_right_words.len() != len {
         return Err(ProtoError::InvalidInput(
-            "local mul batch lengths are inconsistent".to_string(),
+            "local mul repeated-left batch lengths are inconsistent".to_string(),
         ));
     }
     let material_hasher_base = local_bit_mul_material_base_hasher(evaluation_key);
@@ -4641,8 +5316,6 @@ pub(crate) fn eval_mul_local_word_pair_batch_public(
     let mut gate_label = String::with_capacity(label_prefix.len() + 24);
     let mut child_label = String::with_capacity(label_prefix.len() + 26);
     for idx in 0..len {
-        let left_left = &left_left_words[idx];
-        let left_right = &left_right_words[idx];
         let right_left = &right_left_words[idx];
         let right_right = &right_right_words[idx];
         ensure_local_word_pair(left_left, left_right)?;
@@ -4713,357 +5386,239 @@ pub(crate) fn eval_mul_local_word_pair_batch_public(
     Ok((out_left, out_right))
 }
 
-fn eval_mul_local_bit_pair_batch_raw_public_into<F>(
+fn ch_select_material_base_hasher(
+    evaluation_key: &DdhHssEvaluationKey,
+    label_digest: &[u8; 32],
+) -> Blake3Hasher {
+    let mut hasher = Blake3Hasher::new();
+    hasher.update(b"succinct-garbling-proto/ddh-hss/ch-select-root-material/v1");
+    hasher.update(&evaluation_key.key_id);
+    hasher.update(evaluation_key.backend_version.as_str().as_bytes());
+    hasher.update(DdhHssMulXorKernelVersion::CURRENT.as_str().as_bytes());
+    hasher.update(DdhHssRootedCombinerKind::ChSelect.as_str().as_bytes());
+    hasher.update(DdhHssCombinerBoundaryKind::InternalCore.as_str().as_bytes());
+    hasher.update(label_digest);
+    hasher.update(&1u16.to_le_bytes());
+    hasher
+}
+
+fn finalize_ch_select_material_digest(
+    material_base: &Blake3Hasher,
+    bit_index: u16,
+    x_left_provenance: &[u8; 32],
+    x_left_commitment: &[u8; 32],
+    x_right_commitment: &[u8; 32],
+    y_left_provenance: &[u8; 32],
+    y_left_commitment: &[u8; 32],
+    y_right_commitment: &[u8; 32],
+    z_left_provenance: &[u8; 32],
+    z_left_commitment: &[u8; 32],
+    z_right_commitment: &[u8; 32],
+    yz_provenance: &[u8; 32],
+) -> [u8; 32] {
+    let mut hasher = material_base.clone();
+    hasher.update(&bit_index.to_le_bytes());
+    hasher.update(x_left_provenance);
+    hasher.update(x_left_commitment);
+    hasher.update(x_right_commitment);
+    hasher.update(y_left_provenance);
+    hasher.update(y_left_commitment);
+    hasher.update(y_right_commitment);
+    hasher.update(z_left_provenance);
+    hasher.update(z_left_commitment);
+    hasher.update(z_right_commitment);
+    hasher.update(yz_provenance);
+    record_physical_mul_material_hash();
+    *hasher.finalize().as_bytes()
+}
+
+pub(crate) fn eval_ch_local_bit_pair_batch_root_public_into<F>(
     evaluation_key: &DdhHssEvaluationKey,
     label_prefix: &str,
-    left_left: DdhHssLocalBitSliceView<'_>,
-    left_right: DdhHssLocalBitSliceView<'_>,
-    right_left: DdhHssLocalBitSliceView<'_>,
-    right_right: DdhHssLocalBitSliceView<'_>,
+    x_left: DdhHssLocalBitSliceView<'_>,
+    x_right: DdhHssLocalBitSliceView<'_>,
+    y_left: DdhHssLocalBitSliceView<'_>,
+    y_right: DdhHssLocalBitSliceView<'_>,
+    z_left: DdhHssLocalBitSliceView<'_>,
+    z_right: DdhHssLocalBitSliceView<'_>,
     mut push_pair: F,
 ) -> ProtoResult<()>
 where
     F: FnMut(DdhHssLocalWord, DdhHssLocalWord) -> ProtoResult<()>,
 {
-    local_bit_slice_view_ensure_shape(left_left)?;
-    local_bit_slice_view_ensure_shape(left_right)?;
-    local_bit_slice_view_ensure_shape(right_left)?;
-    local_bit_slice_view_ensure_shape(right_right)?;
-    let len = left_left.bit_len;
-    if left_right.bit_len != len || right_left.bit_len != len || right_right.bit_len != len {
-        return Err(ProtoError::InvalidInput(
-            "raw local mul batch lengths are inconsistent".to_string(),
-        ));
-    }
-    if left_left.share_side != DdhHssShareSide::Left
-        || right_left.share_side != DdhHssShareSide::Left
-        || left_right.share_side != DdhHssShareSide::Right
-        || right_right.share_side != DdhHssShareSide::Right
+    local_bit_slice_view_ensure_shape(x_left)?;
+    local_bit_slice_view_ensure_shape(x_right)?;
+    local_bit_slice_view_ensure_shape(y_left)?;
+    local_bit_slice_view_ensure_shape(y_right)?;
+    local_bit_slice_view_ensure_shape(z_left)?;
+    local_bit_slice_view_ensure_shape(z_right)?;
+
+    let len = x_left.bit_len;
+    if x_right.bit_len != len
+        || y_left.bit_len != len
+        || y_right.bit_len != len
+        || z_left.bit_len != len
+        || z_right.bit_len != len
     {
         return Err(ProtoError::InvalidInput(
-            "raw local mul batch requires aligned left/right slice pairs".to_string(),
+            "raw Ch batch lengths are inconsistent".to_string(),
+        ));
+    }
+    if x_left.share_side != DdhHssShareSide::Left
+        || y_left.share_side != DdhHssShareSide::Left
+        || z_left.share_side != DdhHssShareSide::Left
+        || x_right.share_side != DdhHssShareSide::Right
+        || y_right.share_side != DdhHssShareSide::Right
+        || z_right.share_side != DdhHssShareSide::Right
+    {
+        return Err(ProtoError::InvalidInput(
+            "raw Ch batch requires aligned left/right slice pairs".to_string(),
         ));
     }
 
-    let material_hasher_base = local_bit_mul_material_base_hasher(evaluation_key);
-    let mut gate_label = String::with_capacity(label_prefix.len() + 24);
+    let label_digest = rooted_combiner_label_digest(label_prefix.as_bytes());
+    let material_base = ch_select_material_base_hasher(evaluation_key, &label_digest);
+    let mut child_label = String::with_capacity(label_prefix.len() + 32);
+    let mut gate_label = String::with_capacity(label_prefix.len() + 32);
+    let mut out_label = String::with_capacity(label_prefix.len() + 32);
     for idx in 0..len {
-        set_indexed_label(&mut gate_label, label_prefix, idx);
-        let material_digest = {
-            let mut material_hasher = material_hasher_base.clone();
-            material_hasher.update(gate_label.as_bytes());
-            material_hasher.update(&left_left.provenance_digests[idx]);
-            material_hasher.update(&right_left.provenance_digests[idx]);
-            material_hasher.update(&left_left.commitments[idx]);
-            material_hasher.update(&left_right.commitments[idx]);
-            material_hasher.update(&right_left.commitments[idx]);
-            material_hasher.update(&right_right.commitments[idx]);
-            record_physical_mul_material_hash();
-            *material_hasher.finalize().as_bytes()
-        };
-        let (material_left, material_right) = local_bit_mul_material_from_raw_digest(
+        let bit_index = u16::try_from(idx)
+            .map_err(|_| ProtoError::InvalidInput(format!("raw Ch bit index {idx} exceeds u16")))?;
+        set_indexed_child_label(&mut child_label, label_prefix, "yz", idx);
+        let (yz_left, yz_right) = xor_local_bit_pair_core_from_raw_public(
             evaluation_key,
-            &left_left.provenance_digests[idx],
-            &right_left.provenance_digests[idx],
-            material_digest,
+            child_label.as_bytes(),
+            local_bit_slice_view_share_bit(y_left, idx),
+            local_bit_slice_view_share_bit(y_right, idx),
+            &y_left.provenance_digests[idx],
+            local_bit_slice_view_share_bit(z_left, idx),
+            local_bit_slice_view_share_bit(z_right, idx),
+            &z_left.provenance_digests[idx],
         );
+        let material_digest = finalize_ch_select_material_digest(
+            &material_base,
+            bit_index,
+            &x_left.provenance_digests[idx],
+            &x_left.commitments[idx],
+            &x_right.commitments[idx],
+            &y_left.provenance_digests[idx],
+            &y_left.commitments[idx],
+            &y_right.commitments[idx],
+            &z_left.provenance_digests[idx],
+            &z_left.commitments[idx],
+            &z_right.commitments[idx],
+            &yz_left.provenance_digest,
+        );
+        let (material_left, material_right) =
+            local_bit_mul_material_core_from_raw_digest(material_digest);
         let d_open = reduce_word(
-            u128::from(local_bit_slice_view_share_bit(left_left, idx))
-                + u128::from(material_left.triple_a.share_word)
-                + u128::from(local_bit_slice_view_share_bit(left_right, idx))
-                + u128::from(material_right.triple_a.share_word),
+            u128::from(local_bit_slice_view_share_bit(x_left, idx))
+                + u128::from(material_left.triple_a_word)
+                + u128::from(local_bit_slice_view_share_bit(x_right, idx))
+                + u128::from(material_right.triple_a_word),
             1,
         );
         let e_open = reduce_word(
-            u128::from(local_bit_slice_view_share_bit(right_left, idx))
-                + u128::from(material_left.triple_b.share_word)
-                + u128::from(local_bit_slice_view_share_bit(right_right, idx))
-                + u128::from(material_right.triple_b.share_word),
+            u128::from(yz_left.share_word)
+                + u128::from(material_left.triple_b_word)
+                + u128::from(yz_right.share_word)
+                + u128::from(material_right.triple_b_word),
             1,
         );
         let d_open_bytes = d_open.to_le_bytes();
         let e_open_bytes = e_open.to_le_bytes();
-        let output_provenance = derive_digest_for_key(
+        set_indexed_child_label(&mut gate_label, label_prefix, "select", idx);
+        let gated_provenance = derive_digest_for_key(
             evaluation_key,
-            b"eval-mul-local",
+            b"eval-mul-local-ch-root",
             HiddenEvalInputOwner::Derived,
             gate_label.as_bytes(),
             1,
             0,
             0,
             &[
-                &left_left.provenance_digests[idx],
-                &right_left.provenance_digests[idx],
+                &x_left.provenance_digests[idx],
+                &yz_left.provenance_digest,
                 &material_digest,
                 &d_open_bytes,
                 &e_open_bytes,
             ],
         );
-        let out_left = build_local_word_from_provenance(
+        let gated_left = local_word_core_from_provenance(
             1,
             DdhHssShareSide::Left,
             reduce_word(
-                u128::from(material_left.triple_c.share_word)
-                    + (u128::from(d_open) * u128::from(material_left.triple_b.share_word))
-                    + (u128::from(e_open) * u128::from(material_left.triple_a.share_word))
+                u128::from(material_left.triple_c_word)
+                    + (u128::from(d_open) * u128::from(material_left.triple_b_word))
+                    + (u128::from(e_open) * u128::from(material_left.triple_a_word))
                     + (u128::from(d_open) * u128::from(e_open)),
                 1,
             ),
-            output_provenance,
-            b"eval-mul-local",
+            gated_provenance,
         );
-        let out_right = build_local_word_from_provenance(
+        let gated_right = local_word_core_from_provenance(
             1,
             DdhHssShareSide::Right,
             reduce_word(
-                u128::from(material_right.triple_c.share_word)
-                    + (u128::from(d_open) * u128::from(material_right.triple_b.share_word))
-                    + (u128::from(e_open) * u128::from(material_right.triple_a.share_word)),
+                u128::from(material_right.triple_c_word)
+                    + (u128::from(d_open) * u128::from(material_right.triple_b_word))
+                    + (u128::from(e_open) * u128::from(material_right.triple_a_word)),
                 1,
             ),
-            output_provenance,
-            b"eval-mul-local",
+            gated_provenance,
         );
+        set_indexed_child_label(&mut out_label, label_prefix, "out", idx);
+        let output_provenance = derive_digest_for_key(
+            evaluation_key,
+            b"eval-xor-local-word",
+            HiddenEvalInputOwner::Derived,
+            out_label.as_bytes(),
+            1,
+            0,
+            0,
+            &[
+                &z_left.provenance_digests[idx],
+                &gated_left.provenance_digest,
+            ],
+        );
+        let left_word = reduce_word(
+            u128::from(local_bit_slice_view_share_bit(z_left, idx))
+                + u128::from(gated_left.share_word),
+            1,
+        );
+        let right_word = reduce_word(
+            u128::from(local_bit_slice_view_share_bit(z_right, idx))
+                + u128::from(gated_right.share_word),
+            1,
+        );
+        let out_left = DdhHssLocalWord {
+            width_bits: 1,
+            share_side: DdhHssShareSide::Left,
+            share_word: left_word,
+            share_commitment: commit_word_for_provenance_domain(
+                HiddenEvalInputOwner::Derived,
+                b"left",
+                left_word,
+                &output_provenance,
+                b"eval-xor-local-word",
+            ),
+            provenance_digest: output_provenance,
+        };
+        let out_right = DdhHssLocalWord {
+            width_bits: 1,
+            share_side: DdhHssShareSide::Right,
+            share_word: right_word,
+            share_commitment: commit_word_for_provenance_domain(
+                HiddenEvalInputOwner::Derived,
+                b"right",
+                right_word,
+                &output_provenance,
+                b"eval-xor-local-word",
+            ),
+            provenance_digest: output_provenance,
+        };
         push_pair(out_left, out_right)?;
     }
-    Ok(())
-}
-
-pub(crate) fn eval_add_cross_share_local_arithmetic_word_bits_secure_public_into<F>(
-    evaluation_key: &DdhHssEvaluationKey,
-    label_prefix: &str,
-    left_word: &DdhHssLocalWord,
-    right_word: &DdhHssLocalWord,
-    zero_left: &DdhHssLocalWord,
-    zero_right: &DdhHssLocalWord,
-    mut push_bit_pair: F,
-) -> ProtoResult<()>
-where
-    F: FnMut(DdhHssLocalWord, DdhHssLocalWord) -> ProtoResult<()>,
-{
-    let width = validate_cross_share_a2b_inputs(left_word, right_word, zero_left, zero_right)?;
-    let mut carry_left = DdhHssLocalWordCore::from_local_word(zero_left);
-    let mut carry_right = DdhHssLocalWordCore::from_local_word(zero_right);
-    let mut bit_label = String::with_capacity(label_prefix.len() + 32);
-    for idx in 0..width {
-        let left_bit = (left_word.share_word >> idx) & 1;
-        let right_bit = (right_word.share_word >> idx) & 1;
-        set_indexed_child_label(&mut bit_label, label_prefix, "left", idx);
-        let left_bit_word = build_local_word_core_for_key(
-            evaluation_key,
-            b"phase-a-arith-share-to-bool",
-            bit_label.as_bytes(),
-            1,
-            DdhHssShareSide::Left,
-            left_bit,
-            &[
-                &left_word.provenance_digest,
-                &left_word.share_commitment,
-                b"left",
-            ],
-        );
-        set_indexed_child_label(&mut bit_label, label_prefix, "right", idx);
-        let right_bit_word = build_local_word_core_for_key(
-            evaluation_key,
-            b"phase-a-arith-share-to-bool",
-            bit_label.as_bytes(),
-            1,
-            DdhHssShareSide::Right,
-            right_bit,
-            &[
-                &right_word.provenance_digest,
-                &right_word.share_commitment,
-                b"right",
-            ],
-        );
-        set_indexed_child_label(&mut bit_label, label_prefix, "xor_ab", idx);
-        let (xor_ab_left, xor_ab_right) = xor_local_bit_pair_from_raw_public(
-            evaluation_key,
-            bit_label.as_bytes(),
-            (left_bit_word.share_word as u8) & 1,
-            0,
-            &left_bit_word.provenance_digest,
-            0,
-            (right_bit_word.share_word as u8) & 1,
-            &right_bit_word.provenance_digest,
-        );
-        set_indexed_child_label(&mut bit_label, label_prefix, "sum", idx);
-        let (sum_left, sum_right) = xor_local_bit_pair_from_raw_public(
-            evaluation_key,
-            bit_label.as_bytes(),
-            (xor_ab_left.share_word as u8) & 1,
-            (xor_ab_right.share_word as u8) & 1,
-            &xor_ab_left.provenance_digest,
-            (carry_left.share_word as u8) & 1,
-            (carry_right.share_word as u8) & 1,
-            &carry_left.provenance_digest,
-        );
-        set_indexed_child_label(&mut bit_label, label_prefix, "a_xor_carry", idx);
-        let (a_xor_carry_left, a_xor_carry_right) = xor_local_bit_pair_from_raw_public(
-            evaluation_key,
-            bit_label.as_bytes(),
-            (left_bit_word.share_word as u8) & 1,
-            0,
-            &left_bit_word.provenance_digest,
-            (carry_left.share_word as u8) & 1,
-            (carry_right.share_word as u8) & 1,
-            &carry_left.provenance_digest,
-        );
-        set_indexed_child_label(&mut bit_label, label_prefix, "carry", idx);
-        let (carry_gate_left, carry_gate_right) = eval_mul_local_word_pairs_core_public(
-            evaluation_key,
-            bit_label.as_bytes(),
-            &xor_ab_left,
-            &xor_ab_right,
-            &a_xor_carry_left,
-            &a_xor_carry_right,
-        )?;
-        set_indexed_child_label(&mut bit_label, label_prefix, "next_carry", idx);
-        let left_zero_right = local_word_core_from_provenance(
-            1,
-            DdhHssShareSide::Right,
-            0,
-            left_bit_word.provenance_digest,
-        );
-        (carry_left, carry_right) = xor_local_word_core_pairs_public(
-            evaluation_key,
-            bit_label.as_bytes(),
-            &left_bit_word,
-            &left_zero_right,
-            &carry_gate_left,
-            &carry_gate_right,
-        )?;
-        push_bit_pair(sum_left, sum_right)?;
-    }
-    Ok(())
-}
-
-fn validate_cross_share_a2b_inputs(
-    left_word: &DdhHssLocalWord,
-    right_word: &DdhHssLocalWord,
-    zero_left: &DdhHssLocalWord,
-    zero_right: &DdhHssLocalWord,
-) -> ProtoResult<usize> {
-    if left_word.share_side != DdhHssShareSide::Left
-        || right_word.share_side != DdhHssShareSide::Right
-    {
-        return Err(ProtoError::InvalidInput(
-            "secure arithmetic-word A2B requires aligned left/right arithmetic shares".to_string(),
-        ));
-    }
-    if left_word.width_bits != right_word.width_bits {
-        return Err(ProtoError::InvalidInput(format!(
-            "secure arithmetic-word A2B requires same width, got {} and {}",
-            left_word.width_bits, right_word.width_bits
-        )));
-    }
-    if zero_left.share_side != DdhHssShareSide::Left
-        || zero_right.share_side != DdhHssShareSide::Right
-        || zero_left.width_bits != 1
-        || zero_right.width_bits != 1
-    {
-        return Err(ProtoError::InvalidInput(
-            "secure arithmetic-word A2B requires width-1 zero left/right pair".to_string(),
-        ));
-    }
-    let width = usize::from(left_word.width_bits);
-    if width == 0 || width > 64 {
-        return Err(ProtoError::InvalidInput(format!(
-            "secure arithmetic-word A2B requires width 1..=64, got {}",
-            width
-        )));
-    }
-    Ok(width)
-}
-
-pub(crate) fn eval_mul_local_bit_pair_batch_raw_xor_base_public_into<F>(
-    evaluation_key: &DdhHssEvaluationKey,
-    label_prefix: &str,
-    left_left: DdhHssLocalBitSliceView<'_>,
-    left_right: DdhHssLocalBitSliceView<'_>,
-    right_left: DdhHssLocalBitSliceView<'_>,
-    right_right: DdhHssLocalBitSliceView<'_>,
-    base_left: DdhHssLocalBitSliceView<'_>,
-    base_right: DdhHssLocalBitSliceView<'_>,
-    mut push_pair: F,
-) -> ProtoResult<()>
-where
-    F: FnMut(DdhHssLocalWord, DdhHssLocalWord) -> ProtoResult<()>,
-{
-    local_bit_slice_view_ensure_shape(base_left)?;
-    local_bit_slice_view_ensure_shape(base_right)?;
-    let len = left_left.bit_len;
-    if base_left.bit_len != len || base_right.bit_len != len {
-        return Err(ProtoError::InvalidInput(
-            "raw local mul xor-base lengths are inconsistent".to_string(),
-        ));
-    }
-    let mut gate_prefix = String::with_capacity(label_prefix.len() + 8);
-    set_child_label(&mut gate_prefix, label_prefix, "gate");
-    let mut out_label = String::with_capacity(label_prefix.len() + 32);
-    let mut idx = 0usize;
-    eval_mul_local_bit_pair_batch_raw_public_into(
-        evaluation_key,
-        &gate_prefix,
-        left_left,
-        left_right,
-        right_left,
-        right_right,
-        |gated_left, gated_right| {
-            set_indexed_child_label(&mut out_label, label_prefix, "out", idx);
-            let provenance_digest = derive_digest_for_key(
-                evaluation_key,
-                b"eval-xor-local-word",
-                HiddenEvalInputOwner::Derived,
-                out_label.as_bytes(),
-                1,
-                0,
-                0,
-                &[
-                    &base_left.provenance_digests[idx],
-                    &gated_left.provenance_digest,
-                ],
-            );
-            let left_word = reduce_word(
-                u128::from(local_bit_slice_view_share_bit(base_left, idx))
-                    + u128::from(gated_left.share_word),
-                1,
-            );
-            let right_word = reduce_word(
-                u128::from(local_bit_slice_view_share_bit(base_right, idx))
-                    + u128::from(gated_right.share_word),
-                1,
-            );
-            let out_left = DdhHssLocalWord {
-                width_bits: 1,
-                share_side: DdhHssShareSide::Left,
-                share_word: left_word,
-                share_commitment: commit_word_for_provenance_domain(
-                    HiddenEvalInputOwner::Derived,
-                    b"left",
-                    left_word,
-                    &provenance_digest,
-                    b"eval-xor-local-word",
-                ),
-                provenance_digest,
-            };
-            let out_right = DdhHssLocalWord {
-                width_bits: 1,
-                share_side: DdhHssShareSide::Right,
-                share_word: right_word,
-                share_commitment: commit_word_for_provenance_domain(
-                    HiddenEvalInputOwner::Derived,
-                    b"right",
-                    right_word,
-                    &provenance_digest,
-                    b"eval-xor-local-word",
-                ),
-                provenance_digest,
-            };
-            idx = idx.saturating_add(1);
-            push_pair(out_left, out_right)
-        },
-    )?;
     Ok(())
 }
 
@@ -5115,45 +5670,27 @@ where
     let mut gate_label = String::with_capacity(label_prefix.len() + 32);
     let mut out_label = String::with_capacity(label_prefix.len() + 32);
     for idx in 0..len {
-        set_indexed_child_label(&mut child_label, label_prefix, "xy_left", idx);
-        let xy_left = xor_local_bit_from_raw_public(
+        set_indexed_child_label(&mut child_label, label_prefix, "xy", idx);
+        let (xy_left, xy_right) = xor_local_bit_pair_from_raw_public(
             evaluation_key,
             child_label.as_bytes(),
-            DdhHssShareSide::Left,
             local_bit_slice_view_share_bit(x_left, idx),
+            local_bit_slice_view_share_bit(x_right, idx),
             &x_left.provenance_digests[idx],
             local_bit_slice_view_share_bit(y_left, idx),
+            local_bit_slice_view_share_bit(y_right, idx),
             &y_left.provenance_digests[idx],
         );
-        set_indexed_child_label(&mut child_label, label_prefix, "xy_right", idx);
-        let xy_right = xor_local_bit_from_raw_public(
+        set_indexed_child_label(&mut child_label, label_prefix, "xz", idx);
+        let (xz_left, xz_right) = xor_local_bit_pair_from_raw_public(
             evaluation_key,
             child_label.as_bytes(),
-            DdhHssShareSide::Right,
-            local_bit_slice_view_share_bit(x_right, idx),
-            &x_right.provenance_digests[idx],
-            local_bit_slice_view_share_bit(y_right, idx),
-            &y_right.provenance_digests[idx],
-        );
-        set_indexed_child_label(&mut child_label, label_prefix, "xz_left", idx);
-        let xz_left = xor_local_bit_from_raw_public(
-            evaluation_key,
-            child_label.as_bytes(),
-            DdhHssShareSide::Left,
             local_bit_slice_view_share_bit(x_left, idx),
+            local_bit_slice_view_share_bit(x_right, idx),
             &x_left.provenance_digests[idx],
             local_bit_slice_view_share_bit(z_left, idx),
-            &z_left.provenance_digests[idx],
-        );
-        set_indexed_child_label(&mut child_label, label_prefix, "xz_right", idx);
-        let xz_right = xor_local_bit_from_raw_public(
-            evaluation_key,
-            child_label.as_bytes(),
-            DdhHssShareSide::Right,
-            local_bit_slice_view_share_bit(x_right, idx),
-            &x_right.provenance_digests[idx],
             local_bit_slice_view_share_bit(z_right, idx),
-            &z_right.provenance_digests[idx],
+            &z_left.provenance_digests[idx],
         );
         set_indexed_child_label(&mut gate_label, label_prefix, "gate", idx);
         let material_digest = {
@@ -5365,16 +5902,18 @@ fn eval_mul_bit_derived_local_batch_public(
     Ok(out)
 }
 
-pub(crate) fn eval_mul_local_word_pairs_public(
+pub(crate) fn eval_mul_local_word_pairs_with_material_base_public(
     evaluation_key: &DdhHssEvaluationKey,
+    material_base: &DdhHssLocalMulMaterialBase,
     label: &[u8],
     left_left: &DdhHssLocalWord,
     left_right: &DdhHssLocalWord,
     right_left: &DdhHssLocalWord,
     right_right: &DdhHssLocalWord,
 ) -> ProtoResult<(DdhHssLocalWord, DdhHssLocalWord)> {
-    let (left_core, right_core) = eval_mul_local_word_pairs_core_public(
+    let (left_core, right_core) = eval_mul_local_word_pairs_core_with_material_base_public(
         evaluation_key,
+        material_base,
         label,
         left_left,
         left_right,
@@ -5387,8 +5926,9 @@ pub(crate) fn eval_mul_local_word_pairs_public(
     ))
 }
 
-pub(crate) fn eval_mul_local_word_pairs_core_public(
+pub(crate) fn eval_mul_local_word_pairs_core_with_material_base_public(
     evaluation_key: &DdhHssEvaluationKey,
+    material_base: &DdhHssLocalMulMaterialBase,
     label: &[u8],
     left_left: &DdhHssLocalWord,
     left_right: &DdhHssLocalWord,
@@ -5410,7 +5950,7 @@ pub(crate) fn eval_mul_local_word_pairs_core_public(
         )));
     }
     let material_digest = finalize_local_bit_mul_material_digest(
-        &local_bit_mul_material_base_hasher(evaluation_key),
+        &material_base.hasher,
         label,
         left_left,
         left_right,
@@ -5438,6 +5978,90 @@ pub(crate) fn eval_mul_local_word_pairs_core_public(
     let output_provenance = derive_digest_for_key(
         evaluation_key,
         b"eval-mul-local",
+        HiddenEvalInputOwner::Derived,
+        label,
+        1,
+        0,
+        0,
+        &[
+            &left_left.provenance_digest,
+            &right_left.provenance_digest,
+            &material_digest,
+            &d_open_bytes,
+            &e_open_bytes,
+        ],
+    );
+    Ok((
+        local_word_core_from_provenance(
+            1,
+            DdhHssShareSide::Left,
+            reduce_word(
+                u128::from(material_left.triple_c_word)
+                    + (u128::from(d_open) * u128::from(material_left.triple_b_word))
+                    + (u128::from(e_open) * u128::from(material_left.triple_a_word))
+                    + (u128::from(d_open) * u128::from(e_open)),
+                1,
+            ),
+            output_provenance,
+        ),
+        local_word_core_from_provenance(
+            1,
+            DdhHssShareSide::Right,
+            reduce_word(
+                u128::from(material_right.triple_c_word)
+                    + (u128::from(d_open) * u128::from(material_right.triple_b_word))
+                    + (u128::from(e_open) * u128::from(material_right.triple_a_word)),
+                1,
+            ),
+            output_provenance,
+        ),
+    ))
+}
+
+pub(crate) fn eval_mul_local_word_core_pairs_with_material_digest_public(
+    evaluation_key: &DdhHssEvaluationKey,
+    label: &[u8],
+    left_left: &DdhHssLocalWordCore,
+    left_right: &DdhHssLocalWordCore,
+    right_left: &DdhHssLocalWordCore,
+    right_right: &DdhHssLocalWordCore,
+    material_digest: [u8; 32],
+) -> ProtoResult<(DdhHssLocalWordCore, DdhHssLocalWordCore)> {
+    ensure_local_word_core_pair(left_left, left_right)?;
+    ensure_local_word_core_pair(right_left, right_right)?;
+    if left_left.width_bits != right_left.width_bits {
+        return Err(ProtoError::InvalidInput(format!(
+            "core bit multiplication requires same width, got {} and {}",
+            left_left.width_bits, right_left.width_bits
+        )));
+    }
+    if left_left.width_bits != 1 {
+        return Err(ProtoError::InvalidInput(format!(
+            "core bit multiplication requires width 1, got {}",
+            left_left.width_bits
+        )));
+    }
+    let (material_left, material_right) =
+        local_bit_mul_material_core_from_raw_digest(material_digest);
+    let d_open = reduce_word(
+        u128::from(left_left.share_word)
+            + u128::from(material_left.triple_a_word)
+            + u128::from(left_right.share_word)
+            + u128::from(material_right.triple_a_word),
+        1,
+    );
+    let e_open = reduce_word(
+        u128::from(right_left.share_word)
+            + u128::from(material_left.triple_b_word)
+            + u128::from(right_right.share_word)
+            + u128::from(material_right.triple_b_word),
+        1,
+    );
+    let d_open_bytes = d_open.to_le_bytes();
+    let e_open_bytes = e_open.to_le_bytes();
+    let output_provenance = derive_digest_for_key(
+        evaluation_key,
+        b"eval-mul-local-a2b-v2",
         HiddenEvalInputOwner::Derived,
         label,
         1,
@@ -7135,6 +7759,385 @@ mod tests {
         ddh::compile_prime_order_hidden_eval_program,
         fixtures::deterministic_fixture_corpus,
     };
+
+    #[test]
+    fn backend_version_serializes_as_current_wire_string() {
+        let json =
+            serde_json::to_string(&DdhHssBackendVersion::CURRENT).expect("serialize version");
+
+        assert_eq!(json, format!("\"{DDH_HSS_BACKEND_VERSION}\""));
+
+        let parsed: DdhHssBackendVersion =
+            serde_json::from_str(&json).expect("parse current backend version");
+
+        assert_eq!(parsed, DdhHssBackendVersion::CURRENT);
+    }
+
+    #[test]
+    fn backend_version_deserialization_rejects_unknown_wire_string() {
+        let err = serde_json::from_str::<DdhHssBackendVersion>("\"ddh_hss_backend_v9\"")
+            .expect_err("unknown backend version should fail");
+
+        assert!(
+            err.to_string()
+                .contains("unsupported DDH HSS backend version"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn a2b_kernel_version_serializes_as_current_wire_string() {
+        let json = serde_json::to_string(&DdhHssA2bKernelVersion::CURRENT)
+            .expect("serialize A2B kernel version");
+
+        assert_eq!(json, format!("\"{DDH_HSS_A2B_KERNEL_VERSION}\""));
+
+        let parsed: DdhHssA2bKernelVersion =
+            serde_json::from_str(&json).expect("parse current A2B kernel version");
+
+        assert_eq!(parsed, DdhHssA2bKernelVersion::CURRENT);
+    }
+
+    #[test]
+    fn a2b_kernel_version_deserialization_rejects_unknown_wire_string() {
+        let err = serde_json::from_str::<DdhHssA2bKernelVersion>("\"ddh_hss_a2b_kernel_v2\"")
+            .expect_err("unknown A2B kernel version should fail");
+
+        assert!(
+            err.to_string()
+                .contains("unsupported DDH HSS A2B kernel version"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn mul_xor_kernel_version_serializes_as_current_wire_string() {
+        let json = serde_json::to_string(&DdhHssMulXorKernelVersion::CURRENT)
+            .expect("serialize Mul/XOR kernel version");
+
+        assert_eq!(json, format!("\"{DDH_HSS_MUL_XOR_KERNEL_VERSION}\""));
+
+        let parsed: DdhHssMulXorKernelVersion =
+            serde_json::from_str(&json).expect("parse current Mul/XOR kernel version");
+
+        assert_eq!(parsed, DdhHssMulXorKernelVersion::CURRENT);
+    }
+
+    #[test]
+    fn mul_xor_kernel_version_deserialization_rejects_unknown_wire_string() {
+        let err =
+            serde_json::from_str::<DdhHssMulXorKernelVersion>("\"ddh_hss_mul_xor_kernel_v1\"")
+                .expect_err("unknown Mul/XOR kernel version should fail");
+
+        assert!(
+            err.to_string()
+                .contains("unsupported DDH HSS Mul/XOR kernel version"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn rooted_combiner_kind_serializes_as_wire_string() {
+        for kind in DdhHssRootedCombinerKind::ALL {
+            let json = serde_json::to_string(&kind).expect("serialize rooted combiner kind");
+            assert_eq!(json, format!("\"{}\"", kind.as_str()));
+
+            let parsed: DdhHssRootedCombinerKind =
+                serde_json::from_str(&json).expect("parse rooted combiner kind");
+            assert_eq!(parsed, kind);
+        }
+    }
+
+    #[test]
+    fn rooted_combiner_kind_deserialization_rejects_unknown_wire_string() {
+        let err = serde_json::from_str::<DdhHssRootedCombinerKind>("\"maj\"")
+            .expect_err("unknown rooted combiner kind should fail");
+
+        assert!(
+            err.to_string()
+                .contains("unsupported DDH HSS rooted combiner kind"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn combiner_boundary_kind_serializes_as_wire_string() {
+        for boundary in DdhHssCombinerBoundaryKind::ALL {
+            let json = serde_json::to_string(&boundary).expect("serialize boundary kind");
+            assert_eq!(json, format!("\"{}\"", boundary.as_str()));
+
+            let parsed: DdhHssCombinerBoundaryKind =
+                serde_json::from_str(&json).expect("parse boundary kind");
+            assert_eq!(parsed, boundary);
+        }
+    }
+
+    #[test]
+    fn combiner_boundary_kind_deserialization_rejects_unknown_wire_string() {
+        let err = serde_json::from_str::<DdhHssCombinerBoundaryKind>("\"local\"")
+            .expect_err("unknown combiner boundary kind should fail");
+
+        assert!(
+            err.to_string()
+                .contains("unsupported DDH HSS combiner boundary kind"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn rooted_combiner_digest_changes_with_kind_and_boundary() {
+        let evaluation_key = test_evaluation_key();
+        let input = DdhHssRootedCombinerInput {
+            backend_version: DdhHssBackendVersion::CURRENT,
+            kernel_version: DdhHssMulXorKernelVersion::CURRENT,
+            kind: DdhHssRootedCombinerKind::MajXy,
+            boundary: DdhHssCombinerBoundaryKind::InternalCommittedLocal,
+            label_digest: rooted_combiner_label_digest(b"test/maj/rooted-combiner"),
+            width_bits: 1,
+            bit_index: 13,
+            left_pair: test_committed_pair_root(&evaluation_key, b"x", 0, 1),
+            right_pair: test_committed_pair_root(&evaluation_key, b"y", 1, 0),
+        };
+
+        let base = build_rooted_combiner_digest(&evaluation_key, &input)
+            .expect("base rooted combiner digest");
+
+        let mut changed_kind = input;
+        changed_kind.kind = DdhHssRootedCombinerKind::MajXz;
+        let changed_kind_digest = build_rooted_combiner_digest(&evaluation_key, &changed_kind)
+            .expect("changed kind digest");
+        assert_ne!(base, changed_kind_digest);
+
+        let mut changed_boundary = input;
+        changed_boundary.boundary = DdhHssCombinerBoundaryKind::InternalCore;
+        let changed_boundary_digest =
+            build_rooted_combiner_digest(&evaluation_key, &changed_boundary)
+                .expect("changed boundary digest");
+        assert_ne!(base, changed_boundary_digest);
+    }
+
+    #[test]
+    fn maj_root_digests_change_when_public_or_committed_binding_changes() {
+        let evaluation_key = test_evaluation_key();
+        let input = test_maj_root_input(&evaluation_key);
+        let base = build_maj_root_digests(&evaluation_key, &input).expect("base Maj root digests");
+
+        let mut changed_label = input;
+        changed_label.label_digest[0] ^= 1;
+        let changed_label_digests =
+            build_maj_root_digests(&evaluation_key, &changed_label).expect("changed label digests");
+        assert_ne!(base, changed_label_digests);
+
+        let mut changed_index = input;
+        changed_index.bit_index += 1;
+        let changed_index_digests =
+            build_maj_root_digests(&evaluation_key, &changed_index).expect("changed index digests");
+        assert_ne!(base, changed_index_digests);
+
+        let mut changed_commitment = input;
+        changed_commitment.x.left.commitment[0] ^= 1;
+        let changed_commitment_digests =
+            build_maj_root_digests(&evaluation_key, &changed_commitment)
+                .expect("changed commitment digests");
+        assert_ne!(base.xy_digest, changed_commitment_digests.xy_digest);
+        assert_ne!(base.xz_digest, changed_commitment_digests.xz_digest);
+        assert_ne!(
+            base.combine_digest,
+            changed_commitment_digests.combine_digest
+        );
+
+        let mut changed_provenance = input;
+        changed_provenance.y.left.provenance_digest[0] ^= 1;
+        changed_provenance.y.right.provenance_digest[0] ^= 1;
+        let changed_provenance_digests =
+            build_maj_root_digests(&evaluation_key, &changed_provenance)
+                .expect("changed provenance digests");
+        assert_ne!(base.xy_digest, changed_provenance_digests.xy_digest);
+        assert_eq!(base.xz_digest, changed_provenance_digests.xz_digest);
+        assert_ne!(
+            base.combine_digest,
+            changed_provenance_digests.combine_digest
+        );
+    }
+
+    #[test]
+    fn maj_root_digests_reject_invalid_pair_roots() {
+        let evaluation_key = test_evaluation_key();
+        let input = test_maj_root_input(&evaluation_key);
+
+        let mut wrong_side = input;
+        wrong_side.x.left.share_side = DdhHssShareSide::Right;
+        let err = build_maj_root_digests(&evaluation_key, &wrong_side)
+            .expect_err("wrong share side should fail");
+        assert!(
+            err.to_string().contains("share side mismatch"),
+            "unexpected error: {err}"
+        );
+
+        let mut wrong_width = input;
+        wrong_width.y.width_bits = 2;
+        let err = build_maj_root_digests(&evaluation_key, &wrong_width)
+            .expect_err("wrong width should fail");
+        assert!(
+            err.to_string().contains("width mismatch"),
+            "unexpected error: {err}"
+        );
+
+        let mut wrong_provenance = input;
+        wrong_provenance.z.right.provenance_digest[0] ^= 1;
+        let err = build_maj_root_digests(&evaluation_key, &wrong_provenance)
+            .expect_err("wrong provenance should fail");
+        assert!(
+            err.to_string().contains("provenance mismatch"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn ch_root_digests_change_when_public_or_committed_binding_changes() {
+        let evaluation_key = test_evaluation_key();
+        let input = test_ch_root_input(&evaluation_key);
+        let base = build_ch_root_digests(&evaluation_key, &input).expect("base Ch root digests");
+
+        let mut changed_label = input;
+        changed_label.label_digest[0] ^= 1;
+        let changed_label_digests =
+            build_ch_root_digests(&evaluation_key, &changed_label).expect("changed label digests");
+        assert_ne!(base, changed_label_digests);
+
+        let mut changed_index = input;
+        changed_index.bit_index += 1;
+        let changed_index_digests =
+            build_ch_root_digests(&evaluation_key, &changed_index).expect("changed index digests");
+        assert_ne!(base, changed_index_digests);
+
+        let mut changed_x_commitment = input;
+        changed_x_commitment.x.left.commitment[0] ^= 1;
+        let changed_x_digests = build_ch_root_digests(&evaluation_key, &changed_x_commitment)
+            .expect("changed x commitment digests");
+        assert_eq!(base.yz_digest, changed_x_digests.yz_digest);
+        assert_ne!(base.select_digest, changed_x_digests.select_digest);
+
+        let mut changed_y_provenance = input;
+        changed_y_provenance.y.left.provenance_digest[0] ^= 1;
+        changed_y_provenance.y.right.provenance_digest[0] ^= 1;
+        let changed_y_digests = build_ch_root_digests(&evaluation_key, &changed_y_provenance)
+            .expect("changed y provenance digests");
+        assert_ne!(base.yz_digest, changed_y_digests.yz_digest);
+        assert_ne!(base.select_digest, changed_y_digests.select_digest);
+
+        let mut changed_z_commitment = input;
+        changed_z_commitment.z.left.commitment[0] ^= 1;
+        let changed_z_digests = build_ch_root_digests(&evaluation_key, &changed_z_commitment)
+            .expect("changed z commitment digests");
+        assert_ne!(base.yz_digest, changed_z_digests.yz_digest);
+        assert_ne!(base.select_digest, changed_z_digests.select_digest);
+    }
+
+    #[test]
+    fn ch_root_digests_reject_invalid_pair_roots() {
+        let evaluation_key = test_evaluation_key();
+        let input = test_ch_root_input(&evaluation_key);
+
+        let mut wrong_side = input;
+        wrong_side.x.left.share_side = DdhHssShareSide::Right;
+        let err = build_ch_root_digests(&evaluation_key, &wrong_side)
+            .expect_err("wrong share side should fail");
+        assert!(
+            err.to_string().contains("share side mismatch"),
+            "unexpected error: {err}"
+        );
+
+        let mut wrong_width = input;
+        wrong_width.y.width_bits = 2;
+        let err = build_ch_root_digests(&evaluation_key, &wrong_width)
+            .expect_err("wrong width should fail");
+        assert!(
+            err.to_string().contains("width mismatch"),
+            "unexpected error: {err}"
+        );
+
+        let mut wrong_provenance = input;
+        wrong_provenance.z.right.provenance_digest[0] ^= 1;
+        let err = build_ch_root_digests(&evaluation_key, &wrong_provenance)
+            .expect_err("wrong provenance should fail");
+        assert!(
+            err.to_string().contains("provenance mismatch"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn params_deserialization_rejects_unknown_backend_version() {
+        let json = serde_json::json!({
+            "backend_version": "ddh_hss_backend_v9",
+            "scalar_bits": 252,
+            "generator_compressed": vec![0u8; 32],
+        });
+        let err = serde_json::from_value::<DdhHssParams>(json)
+            .expect_err("unknown params backend version should fail");
+
+        assert!(
+            err.to_string()
+                .contains("unsupported DDH HSS backend version"),
+            "unexpected error: {err}"
+        );
+    }
+
+    fn test_evaluation_key() -> DdhHssEvaluationKey {
+        DdhHssEvaluationKey {
+            backend_version: DdhHssBackendVersion::CURRENT,
+            primitive_kind: HssPrimitiveKind::PrimeOrderDdh,
+            context_binding: [1u8; 32],
+            candidate_digest: [2u8; 32],
+            program_digest: [3u8; 32],
+            key_id: [4u8; 32],
+        }
+    }
+
+    fn test_committed_pair_root(
+        evaluation_key: &DdhHssEvaluationKey,
+        label: &[u8],
+        left_word: u64,
+        right_word: u64,
+    ) -> DdhHssCommittedWordPairRoot {
+        let (left, right) = build_local_word_pair_public(
+            evaluation_key,
+            b"test-root-pair",
+            label,
+            1,
+            left_word,
+            right_word,
+            &[],
+        );
+        DdhHssCommittedWordPairRoot::from_local_pair(&left, &right).expect("committed pair root")
+    }
+
+    fn test_maj_root_input(evaluation_key: &DdhHssEvaluationKey) -> DdhHssMajRootInput {
+        DdhHssMajRootInput {
+            backend_version: DdhHssBackendVersion::CURRENT,
+            kernel_version: DdhHssMulXorKernelVersion::CURRENT,
+            label_digest: rooted_combiner_label_digest(b"test/maj/root"),
+            width_bits: 1,
+            bit_index: 7,
+            x: test_committed_pair_root(evaluation_key, b"x", 0, 1),
+            y: test_committed_pair_root(evaluation_key, b"y", 1, 0),
+            z: test_committed_pair_root(evaluation_key, b"z", 1, 1),
+        }
+    }
+
+    fn test_ch_root_input(evaluation_key: &DdhHssEvaluationKey) -> DdhHssChRootInput {
+        DdhHssChRootInput {
+            backend_version: DdhHssBackendVersion::CURRENT,
+            kernel_version: DdhHssMulXorKernelVersion::CURRENT,
+            label_digest: rooted_combiner_label_digest(b"test/ch/root"),
+            width_bits: 1,
+            bit_index: 11,
+            x: test_committed_pair_root(evaluation_key, b"ch-x", 1, 0),
+            y: test_committed_pair_root(evaluation_key, b"ch-y", 0, 1),
+            z: test_committed_pair_root(evaluation_key, b"ch-z", 1, 1),
+        }
+    }
 
     fn test_backend() -> DdhHssBackend {
         let fixture = deterministic_fixture_corpus()

@@ -66,12 +66,15 @@ pub fn prepare_prime_order_succinct_hss(
     let (tau_client_offer, tau_client_remote, tau_client_sender_state) = ddh_roles
         .garbler
         .prepare_client_input_ot_bundle_offer("tau_client_bits", 256)?;
+    let backend_version = ddh_backend.evaluation_key().backend_version;
     let client_ot_offer = ClientOtOffer {
+        backend_version,
         context_binding: candidate.context_binding,
         y_client_offer,
         tau_client_offer,
     };
     let garbler_ot_state = ServerOtState {
+        backend_version,
         context_binding: candidate.context_binding,
         y_client_remote,
         tau_client_remote,
@@ -155,6 +158,7 @@ pub fn prepare_prime_order_succinct_hss_client(
             projection_mode: OutputProjectionMode::trusted_server_projection(),
         },
         evaluator_session: crate::client::ClientSessionState {
+            backend_version: ddh_roles.evaluator.evaluation_key().backend_version,
             context_binding: candidate.context_binding,
             ddh_evaluator: ddh_roles.evaluator,
         },

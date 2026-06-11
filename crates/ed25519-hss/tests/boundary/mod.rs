@@ -1,8 +1,10 @@
 use curve25519_dalek::scalar::Scalar;
+use ed25519_hss::client::ClientDriverState;
+use ed25519_hss::ddh::DdhHssBackendVersion;
 use ed25519_hss::fixtures::deterministic_fixture_corpus;
 use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
 use ed25519_hss::runtime::flow::PreparedServerAssistFlow;
-use ed25519_hss::server::ServerEvalOperation;
+use ed25519_hss::server::{ServerDriverState, ServerEvalOperation};
 use ed25519_hss::wire::{
     ClientStageRequestPacket, OutputProjectionMode, RoleSeparatedClientStagePayload,
     RoleSeparatedOutputDeliveryPayload, ServerAssistInitPacket, ServerStageResponsePacket,
@@ -12,6 +14,8 @@ use crate::support::{
     build_client_owned_staged_evaluator_artifact, contains_subslice, decode_client_request,
     decode_server_input_delivery, decode_transport_message, TransportKind,
 };
+
+const STALE_DDH_HSS_BACKEND_VERSION: &str = "ddh_hss_backend_v1_output_projector_binding";
 
 fn boundary_fixture() -> ed25519_hss::fixtures::FExpandFixture {
     deterministic_fixture_corpus()
@@ -55,6 +59,35 @@ fn second_boundary_fixture() -> ed25519_hss::fixtures::FExpandFixture {
         .expect("fixture with distinct context")
 }
 
+fn replace_json_string_values(value: &mut serde_json::Value, from: &str, to: &str) {
+    match value {
+        serde_json::Value::String(raw) if raw == from => {
+            *raw = to.to_string();
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                replace_json_string_values(item, from, to);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for item in map.values_mut() {
+                replace_json_string_values(item, from, to);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn stale_backend_json_value<T: serde::Serialize>(value: &T) -> serde_json::Value {
+    let mut json = serde_json::to_value(value).expect("serialize driver state");
+    replace_json_string_values(
+        &mut json,
+        DdhHssBackendVersion::CURRENT.as_str(),
+        STALE_DDH_HSS_BACKEND_VERSION,
+    );
+    json
+}
+
 #[test]
 fn client_output_mask_scalar_round_trip_recovers_base_share() {
     let x_client_base = Scalar::from_bytes_mod_order([0x42; 32]);
@@ -64,6 +97,56 @@ fn client_output_mask_scalar_round_trip_recovers_base_share() {
 
     assert_eq!(opened.to_bytes(), x_client_base.to_bytes());
     assert_ne!(blinded.to_bytes(), x_client_base.to_bytes());
+}
+
+#[test]
+fn serialized_evaluator_driver_state_rejects_stale_backend_wire_string() {
+    let fixture = boundary_fixture();
+    let session =
+        prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
+    let stale_json = stale_backend_json_value(&session.evaluator_driver_state());
+    let err = serde_json::from_value::<ClientDriverState>(stale_json)
+        .expect_err("stale evaluator driver state must be rejected");
+
+    assert!(
+        err.to_string()
+            .contains("unsupported DDH HSS backend version"),
+        "unexpected stale evaluator state error: {err}"
+    );
+}
+
+#[test]
+fn serialized_garbler_driver_state_rejects_stale_backend_wire_string() {
+    let fixture = boundary_fixture();
+    let session =
+        prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
+    let stale_json = stale_backend_json_value(&session.garbler_driver_state());
+    let err = serde_json::from_value::<ServerDriverState>(stale_json)
+        .expect_err("stale garbler driver state must be rejected");
+
+    assert!(
+        err.to_string()
+            .contains("unsupported DDH HSS backend version"),
+        "unexpected stale garbler state error: {err}"
+    );
+}
+
+#[test]
+fn staged_artifact_rejects_stale_backend_wire_string() {
+    let fixture = boundary_fixture();
+    let session =
+        prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
+    let artifact = build_client_owned_staged_evaluator_artifact(&session, &fixture.input)
+        .expect("client-owned staged evaluator artifact");
+    let stale_json = stale_backend_json_value(&artifact);
+    let err = serde_json::from_value::<ed25519_hss::wire::StagedEvaluatorArtifact>(stale_json)
+        .expect_err("stale staged artifact must be rejected");
+
+    assert!(
+        err.to_string()
+            .contains("unsupported DDH HSS backend version"),
+        "unexpected stale staged artifact error: {err}"
+    );
 }
 
 #[test]

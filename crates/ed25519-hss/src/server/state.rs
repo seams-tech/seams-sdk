@@ -9,14 +9,15 @@ use crate::ddh::hidden_eval_executor::{
     DdhHiddenEvalServerOutputBundles,
 };
 use crate::ddh::{
-    DdhHssGarbler, DdhHssOtRemoteBundle, DdhHssOtSenderStateBundle, DdhHssTransportBundle,
-    HiddenEvalProgram,
+    DdhHssBackendVersion, DdhHssGarbler, DdhHssOtRemoteBundle, DdhHssOtSenderStateBundle,
+    DdhHssTransportBundle, HiddenEvalProgram,
 };
 use crate::runtime::SharedRuntimeState;
 use crate::wire::{ClientOtOffer, OtTranscript, ServerEvalHandle, ServerEvalStageId, TranscriptId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerOtState {
+    pub backend_version: DdhHssBackendVersion,
     pub context_binding: [u8; 32],
     pub y_client_remote: DdhHssOtRemoteBundle,
     pub tau_client_remote: DdhHssOtRemoteBundle,
@@ -36,6 +37,7 @@ pub struct ServerSession {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServerSessionState {
+    pub backend_version: DdhHssBackendVersion,
     pub context_binding: [u8; 32],
     pub ddh_garbler: DdhHssGarbler,
     pub client_ot_offer: ClientOtOffer,

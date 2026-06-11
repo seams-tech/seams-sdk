@@ -5,8 +5,8 @@
   "timed_samples": 8,
   "decode_iterations_per_sample": 200,
   "trace_iterations_per_sample": 200,
-  "timestamp_iso": "2026-03-31T04:47:47.859Z",
-  "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+  "timestamp_iso": "2026-06-10T09:00:55.220Z",
+  "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.0.0 Safari/537.36",
   "targets": [
     {
       "label": "cached_gc_baseline",
@@ -35,18 +35,18 @@
         }
       ],
       "browser_indexeddb_write_ns": {
-        "min_ns": 1500000,
-        "median_ns": 1800000,
-        "mean_ns": 1750000,
-        "p95_ns": 1900000,
-        "max_ns": 1900000
+        "min_ns": 2300000,
+        "median_ns": 2800000,
+        "mean_ns": 2762500,
+        "p95_ns": 3400000,
+        "max_ns": 3400000
       },
       "browser_indexeddb_read_ns": {
-        "min_ns": 400000,
-        "median_ns": 500000,
-        "mean_ns": 500000,
-        "p95_ns": 600000,
-        "max_ns": 600000
+        "min_ns": 500000,
+        "median_ns": 600000,
+        "mean_ns": 625000,
+        "p95_ns": 900000,
+        "max_ns": 900000
       },
       "local_file_io_reference": {
         "label": "cached_gc_baseline",
@@ -74,18 +74,18 @@
           }
         ],
         "cache_write_ns": {
-          "min_ns": 104250,
-          "median_ns": 125084,
-          "mean_ns": 139057,
-          "p95_ns": 252375,
-          "max_ns": 252375
+          "min_ns": 107167,
+          "median_ns": 139292,
+          "mean_ns": 577614,
+          "p95_ns": 3493167,
+          "max_ns": 3493167
         },
         "cache_read_ns": {
-          "min_ns": 167291,
-          "median_ns": 222250,
-          "mean_ns": 215265,
-          "p95_ns": 268625,
-          "max_ns": 268625
+          "min_ns": 158125,
+          "median_ns": 161125,
+          "mean_ns": 170406,
+          "p95_ns": 204833,
+          "max_ns": 204833
         }
       }
     },
@@ -94,8 +94,8 @@
       "kind": "candidate_stub",
       "backend_family": "prime_order_size_optimized",
       "bytes": 138256,
-      "bytes_sha256_hex": "c4967ef2d06b476530d43d44367366c3cf766a2e393d24e51a0bc495e83db3b9",
-      "manifest_bytes": 18986,
+      "bytes_sha256_hex": "f8ee3869d72f632964d57adc8ed70e2d686598b28aeb9d1ce65880df26d3accc",
+      "manifest_bytes": 19001,
       "local_ratio_vs_cached_gc": 0.115,
       "estimated_download_ms": [
         {
@@ -116,25 +116,25 @@
         }
       ],
       "browser_indexeddb_write_ns": {
-        "min_ns": 800000,
-        "median_ns": 1000000,
-        "mean_ns": 925000,
-        "p95_ns": 1000000,
-        "max_ns": 1000000
+        "min_ns": 1300000,
+        "median_ns": 1400000,
+        "mean_ns": 1425000,
+        "p95_ns": 1600000,
+        "max_ns": 1600000
       },
       "browser_indexeddb_read_ns": {
         "min_ns": 100000,
         "median_ns": 200000,
-        "mean_ns": 162500,
-        "p95_ns": 200000,
-        "max_ns": 200000
+        "mean_ns": 175000,
+        "p95_ns": 300000,
+        "max_ns": 300000
       },
       "local_file_io_reference": {
         "label": "prime_order_stub_artifact",
         "kind": "candidate_stub",
         "backend_family": "prime_order_size_optimized",
         "bytes": 138256,
-        "manifest_bytes": 18986,
+        "manifest_bytes": 19001,
         "size_ratio_vs_cached_gc": 0.11521333333333333,
         "estimated_download_ms": [
           {
@@ -155,18 +155,18 @@
           }
         ],
         "cache_write_ns": {
-          "min_ns": 48042,
-          "median_ns": 54084,
-          "mean_ns": 58130,
-          "p95_ns": 70500,
-          "max_ns": 70500
+          "min_ns": 38167,
+          "median_ns": 46750,
+          "mean_ns": 44234,
+          "p95_ns": 53000,
+          "max_ns": 53000
         },
         "cache_read_ns": {
-          "min_ns": 27542,
-          "median_ns": 31833,
-          "mean_ns": 32005,
-          "p95_ns": 36583,
-          "max_ns": 36583
+          "min_ns": 30291,
+          "median_ns": 35458,
+          "mean_ns": 34802,
+          "p95_ns": 37583,
+          "max_ns": 37583
         }
       }
     },
@@ -175,8 +175,8 @@
       "kind": "candidate_structured",
       "backend_family": "prime_order_size_optimized",
       "bytes": 138256,
-      "bytes_sha256_hex": "46e92644d352439037fb9665166abb755fc8b13ff7fb492044f5266bb0f99446",
-      "manifest_bytes": 7426,
+      "bytes_sha256_hex": "f8705dd87b7ae6736c8f336e80323e30a3b5127e8764cc6384f2cc2f4a0cb4eb",
+      "manifest_bytes": 7439,
       "local_ratio_vs_cached_gc": 0.115,
       "estimated_download_ms": [
         {
@@ -197,25 +197,25 @@
         }
       ],
       "browser_indexeddb_write_ns": {
-        "min_ns": 800000,
-        "median_ns": 900000,
-        "mean_ns": 912500,
-        "p95_ns": 1000000,
-        "max_ns": 1000000
+        "min_ns": 1200000,
+        "median_ns": 1400000,
+        "mean_ns": 1350000,
+        "p95_ns": 1400000,
+        "max_ns": 1400000
       },
       "browser_indexeddb_read_ns": {
-        "min_ns": 0,
-        "median_ns": 100000,
-        "mean_ns": 125000,
-        "p95_ns": 200000,
-        "max_ns": 200000
+        "min_ns": 100000,
+        "median_ns": 200000,
+        "mean_ns": 162500,
+        "p95_ns": 300000,
+        "max_ns": 300000
       },
       "local_file_io_reference": {
         "label": "prime_order_structured_artifact",
         "kind": "candidate_structured",
         "backend_family": "prime_order_size_optimized",
         "bytes": 138256,
-        "manifest_bytes": 7426,
+        "manifest_bytes": 7439,
         "size_ratio_vs_cached_gc": 0.11521333333333333,
         "estimated_download_ms": [
           {
@@ -236,18 +236,18 @@
           }
         ],
         "cache_write_ns": {
-          "min_ns": 41584,
-          "median_ns": 51167,
-          "mean_ns": 48630,
-          "p95_ns": 54209,
-          "max_ns": 54209
+          "min_ns": 34958,
+          "median_ns": 42833,
+          "mean_ns": 43989,
+          "p95_ns": 56541,
+          "max_ns": 56541
         },
         "cache_read_ns": {
-          "min_ns": 31959,
-          "median_ns": 34375,
-          "mean_ns": 34021,
-          "p95_ns": 36625,
-          "max_ns": 36625
+          "min_ns": 29667,
+          "median_ns": 34750,
+          "mean_ns": 34192,
+          "p95_ns": 39291,
+          "max_ns": 39291
         }
       }
     }
@@ -256,17 +256,17 @@
     "label": "prime_order_structured_artifact",
     "decode_per_iteration_ns": {
       "min_ns": 6000,
-      "median_ns": 17500,
-      "mean_ns": 12750,
-      "p95_ns": 24500,
-      "max_ns": 24500
+      "median_ns": 18500,
+      "mean_ns": 24938,
+      "p95_ns": 97000,
+      "max_ns": 97000
     },
     "trace_per_iteration_ns": {
-      "min_ns": 8000,
-      "median_ns": 9500,
-      "mean_ns": 12188,
-      "p95_ns": 24500,
-      "max_ns": 24500
+      "min_ns": 8500,
+      "median_ns": 10000,
+      "mean_ns": 15188,
+      "p95_ns": 38500,
+      "max_ns": 38500
     },
     "decode_summary": {
       "artifact_version": 1,
@@ -275,7 +275,7 @@
       "windows_backend_family_id": 1,
       "section_version": 2,
       "expected_total_bytes": 138256,
-      "template_descriptor_bytes": 539,
+      "template_descriptor_bytes": 226,
       "public_data_bytes": 138256,
       "cpu_target_latency_ms": 2000,
       "accelerator_target_latency_ms": 750,
@@ -299,7 +299,7 @@
         "output_projector:4",
         "context_participant:2"
       ],
-      "digest_checksum_hex": "27f48"
+      "digest_checksum_hex": "284c1"
     },
     "trace_summary": {
       "preload_round_constant_count": 80,
@@ -420,47 +420,15 @@
     }
   },
   "browser_cpu_executor": {
-    "available": true,
+    "available": false,
     "runtime": "wasm_browser_cpu",
-    "wasm_module_url": "http://127.0.0.1:8765/generated/pkg/ed25519_hss.js?cache_bust=1774932465239",
-    "fixture_name": "wraparound-seed",
-    "artifact_bytes": 138256,
-    "total_steps": 180,
-    "curve_cost_units": 62748,
-    "evaluator_ops": {
-      "recoded_scalar_digits": 1248,
-      "precomputed_window_bits_loaded": 16576,
-      "bucket_accumulations": 3296,
-      "bucket_reductions": 3980,
-      "accumulator_curve_additions": 712,
-      "dependency_merges": 448,
-      "point_normalizations": 184
-    },
-    "prepare_duration_ns": 83700000,
-    "sample_iterations": 10,
-    "sample_count": 6,
-    "execution_latency_ns": {
-      "min": 3409999.9994039536,
-      "median": 3459999.9994039536,
-      "mean": 3454999.9999503293,
-      "p95": 3529999.999701977,
-      "max": 3529999.999701977
-    },
-    "detailed_result_duration_ns": 3700000,
-    "latency_ns_per_curve_cost_unit": {
-      "min": 54.344361563778186,
-      "median": 55.14119971001392,
-      "mean": 55.06151590409781,
-      "p95": 56.25677311949348,
-      "max": 56.25677311949348
-    },
-    "output_checksum_hex": "b075ca5b7bd494fe",
-    "final_point_compressed_hex": "21fb5139b5a491423a70a42ff2725b5991cfb110b8ee529b6c532a52b24bee36"
+    "wasm_module_url": "http://127.0.0.1:8765/generated/pkg/ed25519_hss.js?cache_bust=1781082053724",
+    "error": "wasmModule.prepare_prime_order_cpu_executor is not a function"
   },
   "browser_ddh_hidden_eval": {
     "available": true,
     "runtime": "wasm_browser_ddh",
-    "wasm_module_url": "http://127.0.0.1:8765/generated/pkg/ed25519_hss.js?cache_bust=1774932465543",
+    "wasm_module_url": "http://127.0.0.1:8765/generated/pkg/ed25519_hss.js?cache_bust=1781082053732",
     "fixture_name": "wraparound-seed",
     "artifact_bytes": 138256,
     "active_window_records": 180,
@@ -475,128 +443,393 @@
       "dependency_merges": 448,
       "point_normalizations": 184
     },
-    "prepare_duration_ns": 195700000,
+    "prepare_duration_ns": 220100000,
     "sample_iterations": 1,
     "sample_count": 3,
     "execution_latency_ns": {
-      "min": 360700000.00298023,
-      "median": 363100000.0089407,
-      "mean": 363566666.66766006,
-      "p95": 366899999.9910593,
-      "max": 366899999.9910593
+      "min": 201900000.09536743,
+      "median": 203500000,
+      "mean": 203599999.98410544,
+      "p95": 205399999.85694885,
+      "max": 205399999.85694885
     },
     "js_wall_clock_execution_ns": {
-      "min": 360700000.00298023,
-      "median": 363100000.0089407,
-      "mean": 363566666.66766006,
-      "p95": 366899999.9910593,
-      "max": 366899999.9910593
+      "min": 201900000.09536743,
+      "median": 203500000,
+      "mean": 203599999.98410544,
+      "p95": 205399999.85694885,
+      "max": 205399999.85694885
     },
-    "probe_total_hidden_eval_ns": 299500000,
+    "probe_total_hidden_eval_ns": 203400000,
     "estimated_js_wasm_gap_ns": {
-      "min": 61200000.00298023,
-      "median": 63600000.0089407,
-      "mean": 64066666.66766008,
-      "p95": 67399999.9910593,
-      "max": 67399999.9910593
+      "min": 0,
+      "median": 100000,
+      "mean": 699999.9523162842,
+      "p95": 1999999.8569488525,
+      "max": 1999999.8569488525
     },
-    "detailed_result_duration_ns": 368800000,
-    "evaluate_duration_ns": 364400001,
-    "ot_open_join_duration_ns": 67000002,
-    "ot_branch_key_derivation_duration_ns": 399998,
-    "ot_branch_decrypt_duration_ns": 1500004,
+    "detailed_result_duration_ns": 208400000,
+    "evaluate_duration_ns": 195300000,
+    "ot_open_join_duration_ns": 0,
+    "ot_branch_key_derivation_duration_ns": 0,
+    "ot_branch_decrypt_duration_ns": 0,
     "ot_point_scalar_reconstruction_duration_ns": 0,
-    "ot_commitment_verification_duration_ns": 1400002,
-    "server_input_open_duration_ns": 3899999,
-    "server_input_share_duration_ns": 3899999,
+    "ot_commitment_verification_duration_ns": 0,
+    "server_input_open_duration_ns": 0,
+    "server_input_share_duration_ns": 0,
     "server_input_commitment_duration_ns": 0,
     "server_input_transcript_duration_ns": 0,
     "server_input_seal_duration_ns": 0,
     "output_sealing_finalization_duration_ns": 0,
     "result_assembly_duration_ns": 0,
-    "output_materialization_duration_ns": 4099999,
+    "output_materialization_duration_ns": 0,
     "output_open_duration_ns": 0,
     "public_key_duration_ns": 0,
-    "detailed_total_duration_ns": 368500000,
+    "detailed_total_duration_ns": 195300000,
+    "operation_counts": {
+      "logical_local_word_materializations": 12800,
+      "logical_shared_word_materializations": 1024,
+      "logical_transport_word_materializations": 1536,
+      "logical_commitment_materializations": 17928,
+      "logical_provenance_digest_materializations": 15360,
+      "logical_commitment_derivations": 2048,
+      "logical_provenance_digest_derivations": 13824,
+      "logical_label_writes": 57128,
+      "logical_label_format_allocations": 265,
+      "physical_keyed_digest_derivations": 0,
+      "physical_keyed_digest_eval_xor_local_word": 0,
+      "physical_keyed_digest_eval_add_local": 0,
+      "physical_keyed_digest_eval_mul_local_material": 0,
+      "physical_keyed_digest_eval_mul_local": 0,
+      "physical_keyed_digest_phase_a_arith_share_to_bool": 0,
+      "physical_keyed_digest_phase_a_bool_to_arith_base": 0,
+      "physical_keyed_digest_phase_a_arith_to_bool_zero": 0,
+      "physical_keyed_digest_compose_word_from_share_bits": 0,
+      "physical_keyed_digest_share_word": 0,
+      "physical_keyed_digest_other": 0,
+      "physical_derived_commitment_hashes": 0,
+      "physical_derived_commitment_eval_xor_local_word": 0,
+      "physical_derived_commitment_eval_add_local": 0,
+      "physical_derived_commitment_eval_mul_local_material": 0,
+      "physical_derived_commitment_eval_mul_local": 0,
+      "physical_derived_commitment_phase_a_arith_share_to_bool": 0,
+      "physical_derived_commitment_phase_a_bool_to_arith_base": 0,
+      "physical_derived_commitment_phase_a_arith_to_bool_zero": 0,
+      "physical_derived_commitment_compose_word_from_share_bits": 0,
+      "physical_derived_commitment_share_word": 0,
+      "physical_derived_commitment_other": 0,
+      "physical_add_bit_hashes": 0,
+      "physical_mul_material_hashes": 0,
+      "physical_mul_output_seed_hashes": 0
+    },
+    "stage_operation_counts": {
+      "input_sharing": {
+        "core_word_materializations": 0,
+        "local_word_materializations": 1024,
+        "shared_word_materializations": 512,
+        "transport_word_materializations": 1024,
+        "commitment_materializations": 4100,
+        "provenance_digest_materializations": 2560,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 1024,
+        "label_writes": 4,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 0,
+        "bool_to_arith_paths": 0,
+        "arith_to_bool_paths": 0
+      },
+      "add_stage": {
+        "core_word_materializations": 0,
+        "local_word_materializations": 512,
+        "shared_word_materializations": 0,
+        "transport_word_materializations": 0,
+        "commitment_materializations": 512,
+        "provenance_digest_materializations": 512,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 512,
+        "label_writes": 1280,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 0,
+        "bool_to_arith_paths": 0,
+        "arith_to_bool_paths": 0
+      },
+      "message_schedule": {
+        "core_word_materializations": 16384,
+        "local_word_materializations": 26624,
+        "shared_word_materializations": 0,
+        "transport_word_materializations": 0,
+        "commitment_materializations": 26624,
+        "provenance_digest_materializations": 26624,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 43008,
+        "label_writes": 33344,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 0,
+        "bool_to_arith_paths": 16384,
+        "arith_to_bool_paths": 4096
+      },
+      "round_core": {
+        "core_word_materializations": 20480,
+        "local_word_materializations": 103424,
+        "shared_word_materializations": 0,
+        "transport_word_materializations": 0,
+        "commitment_materializations": 103424,
+        "provenance_digest_materializations": 103424,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 123904,
+        "label_writes": 22496,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 10240,
+        "bool_to_arith_paths": 40960,
+        "arith_to_bool_paths": 10240
+      },
+      "output_projector": {
+        "core_word_materializations": 0,
+        "local_word_materializations": 2048,
+        "shared_word_materializations": 512,
+        "transport_word_materializations": 512,
+        "commitment_materializations": 4100,
+        "provenance_digest_materializations": 3072,
+        "commitment_derivations": 2048,
+        "provenance_digest_derivations": 3072,
+        "label_writes": 4,
+        "label_format_allocations": 9,
+        "multiplication_material_paths": 0,
+        "bool_to_arith_paths": 0,
+        "arith_to_bool_paths": 0
+      },
+      "delivery": {
+        "core_word_materializations": 0,
+        "local_word_materializations": 0,
+        "shared_word_materializations": 0,
+        "transport_word_materializations": 0,
+        "commitment_materializations": 0,
+        "provenance_digest_materializations": 0,
+        "commitment_derivations": 0,
+        "provenance_digest_derivations": 0,
+        "label_writes": 0,
+        "label_format_allocations": 0,
+        "multiplication_material_paths": 0,
+        "bool_to_arith_paths": 0,
+        "arith_to_bool_paths": 0
+      },
+      "round_substages": {
+        "sigma0": {
+          "core_word_materializations": 10240,
+          "local_word_materializations": 10240,
+          "shared_word_materializations": 0,
+          "transport_word_materializations": 0,
+          "commitment_materializations": 10240,
+          "provenance_digest_materializations": 10240,
+          "commitment_derivations": 0,
+          "provenance_digest_derivations": 20480,
+          "label_writes": 0,
+          "label_format_allocations": 0,
+          "multiplication_material_paths": 0,
+          "bool_to_arith_paths": 0,
+          "arith_to_bool_paths": 0
+        },
+        "sigma1": {
+          "core_word_materializations": 10240,
+          "local_word_materializations": 10240,
+          "shared_word_materializations": 0,
+          "transport_word_materializations": 0,
+          "commitment_materializations": 10240,
+          "provenance_digest_materializations": 10240,
+          "commitment_derivations": 0,
+          "provenance_digest_derivations": 20480,
+          "label_writes": 0,
+          "label_format_allocations": 0,
+          "multiplication_material_paths": 0,
+          "bool_to_arith_paths": 0,
+          "arith_to_bool_paths": 0
+        },
+        "ch": {
+          "core_word_materializations": 0,
+          "local_word_materializations": 20480,
+          "shared_word_materializations": 0,
+          "transport_word_materializations": 0,
+          "commitment_materializations": 20480,
+          "provenance_digest_materializations": 20480,
+          "commitment_derivations": 0,
+          "provenance_digest_derivations": 20480,
+          "label_writes": 0,
+          "label_format_allocations": 0,
+          "multiplication_material_paths": 5120,
+          "bool_to_arith_paths": 0,
+          "arith_to_bool_paths": 0
+        },
+        "maj": {
+          "core_word_materializations": 0,
+          "local_word_materializations": 40960,
+          "shared_word_materializations": 0,
+          "transport_word_materializations": 0,
+          "commitment_materializations": 40960,
+          "provenance_digest_materializations": 40960,
+          "commitment_derivations": 0,
+          "provenance_digest_derivations": 40960,
+          "label_writes": 0,
+          "label_format_allocations": 0,
+          "multiplication_material_paths": 5120,
+          "bool_to_arith_paths": 0,
+          "arith_to_bool_paths": 0
+        },
+        "state3": {
+          "core_word_materializations": 0,
+          "local_word_materializations": 0,
+          "shared_word_materializations": 0,
+          "transport_word_materializations": 0,
+          "commitment_materializations": 0,
+          "provenance_digest_materializations": 0,
+          "commitment_derivations": 0,
+          "provenance_digest_derivations": 0,
+          "label_writes": 0,
+          "label_format_allocations": 0,
+          "multiplication_material_paths": 0,
+          "bool_to_arith_paths": 5120,
+          "arith_to_bool_paths": 0
+        },
+        "temp1": {
+          "core_word_materializations": 0,
+          "local_word_materializations": 0,
+          "shared_word_materializations": 0,
+          "transport_word_materializations": 0,
+          "commitment_materializations": 0,
+          "provenance_digest_materializations": 0,
+          "commitment_derivations": 0,
+          "provenance_digest_derivations": 0,
+          "label_writes": 0,
+          "label_format_allocations": 0,
+          "multiplication_material_paths": 0,
+          "bool_to_arith_paths": 25600,
+          "arith_to_bool_paths": 0
+        },
+        "temp2": {
+          "core_word_materializations": 0,
+          "local_word_materializations": 0,
+          "shared_word_materializations": 0,
+          "transport_word_materializations": 0,
+          "commitment_materializations": 0,
+          "provenance_digest_materializations": 0,
+          "commitment_derivations": 0,
+          "provenance_digest_derivations": 0,
+          "label_writes": 0,
+          "label_format_allocations": 0,
+          "multiplication_material_paths": 0,
+          "bool_to_arith_paths": 10240,
+          "arith_to_bool_paths": 0
+        },
+        "new_a_bits": {
+          "core_word_materializations": 0,
+          "local_word_materializations": 10240,
+          "shared_word_materializations": 0,
+          "transport_word_materializations": 0,
+          "commitment_materializations": 10240,
+          "provenance_digest_materializations": 10240,
+          "commitment_derivations": 0,
+          "provenance_digest_derivations": 10240,
+          "label_writes": 0,
+          "label_format_allocations": 0,
+          "multiplication_material_paths": 0,
+          "bool_to_arith_paths": 0,
+          "arith_to_bool_paths": 5120
+        },
+        "new_e_bits": {
+          "core_word_materializations": 0,
+          "local_word_materializations": 10240,
+          "shared_word_materializations": 0,
+          "transport_word_materializations": 0,
+          "commitment_materializations": 10240,
+          "provenance_digest_materializations": 10240,
+          "commitment_derivations": 0,
+          "provenance_digest_derivations": 10240,
+          "label_writes": 0,
+          "label_format_allocations": 0,
+          "multiplication_material_paths": 0,
+          "bool_to_arith_paths": 0,
+          "arith_to_bool_paths": 5120
+        }
+      }
+    },
     "latency_ns_per_curve_cost_unit": {
-      "min": 5748.390386992099,
-      "median": 5786.638618106405,
-      "mean": 5794.075774011285,
-      "p95": 5847.19831693535,
-      "max": 5847.19831693535
+      "min": 3217.6324360197527,
+      "median": 3243.131255179448,
+      "mean": 3244.724931218612,
+      "p95": 3273.4111024566337,
+      "max": 3273.4111024566337
     },
     "stage_timings_ns": {
       "input_sharing": {
-        "min": 10700000,
-        "median": 10700000,
-        "mean": 10700000,
-        "p95": 10700000,
-        "max": 10700000
+        "min": 11300000,
+        "median": 11300000,
+        "mean": 11300000,
+        "p95": 11300000,
+        "max": 11300000
       },
       "add_stage": {
-        "min": 3600001,
-        "median": 3600001,
-        "mean": 3600001,
-        "p95": 3600001,
-        "max": 3600001
+        "min": 2299999,
+        "median": 2299999,
+        "mean": 2299999,
+        "p95": 2299999,
+        "max": 2299999
       },
       "message_schedule": {
-        "min": 51099998,
-        "median": 51099998,
-        "mean": 51099998,
-        "p95": 51099998,
-        "max": 51099998
+        "min": 30700001,
+        "median": 30700001,
+        "mean": 30700001,
+        "p95": 30700001,
+        "max": 30700001
       },
       "round_core": {
-        "min": 178100001,
-        "median": 178100001,
-        "mean": 178100001,
-        "p95": 178100001,
-        "max": 178100001
+        "min": 123700000,
+        "median": 123700000,
+        "mean": 123700000,
+        "p95": 123700000,
+        "max": 123700000
       },
       "output_projector": {
-        "min": 56000000,
-        "median": 56000000,
-        "mean": 56000000,
-        "p95": 56000000,
-        "max": 56000000
+        "min": 35400000,
+        "median": 35400000,
+        "mean": 35400000,
+        "p95": 35400000,
+        "max": 35400000
       }
     },
     "substage_timings_ns": {
       "message_schedule_accumulation": {
-        "min": 36000002,
-        "median": 36000002,
-        "mean": 36000002,
-        "p95": 36000002,
-        "max": 36000002
+        "min": 25699999,
+        "median": 25699999,
+        "mean": 25699999,
+        "p95": 25699999,
+        "max": 25699999
       },
       "round_sigma1": {
-        "min": 9299996,
-        "median": 9299996,
-        "mean": 9299996,
-        "p95": 9299996,
-        "max": 9299996
+        "min": 5900012,
+        "median": 5900012,
+        "mean": 5900012,
+        "p95": 5900012,
+        "max": 5900012
       },
       "round_ch": {
-        "min": 29000004,
-        "median": 29000004,
-        "mean": 29000004,
-        "p95": 29000004,
-        "max": 29000004
+        "min": 21799996,
+        "median": 21799996,
+        "mean": 21799996,
+        "p95": 21799996,
+        "max": 21799996
       },
       "round_temp1": {
-        "min": 5799998,
-        "median": 5799998,
-        "mean": 5799998,
-        "p95": 5799998,
-        "max": 5799998
+        "min": 7099986,
+        "median": 7099986,
+        "mean": 7099986,
+        "p95": 7099986,
+        "max": 7099986
       },
       "round_temp2": {
-        "min": 2700005,
-        "median": 2700005,
-        "mean": 2700005,
-        "p95": 2700005,
-        "max": 2700005
+        "min": 2699994,
+        "median": 2699994,
+        "mean": 2699994,
+        "p95": 2699994,
+        "max": 2699994
       }
     },
     "reference_match": true,
@@ -607,7 +840,7 @@
         "stage": "input_sharing",
         "ok": true,
         "completed_stage": "input_sharing",
-        "total_duration_ns": 10700000,
+        "total_duration_ns": 11300000,
         "message_schedule_accumulation_duration_ns": 0,
         "round_sigma1_duration_ns": 0,
         "round_ch_duration_ns": 0,
@@ -618,7 +851,7 @@
         "stage": "add_stage",
         "ok": true,
         "completed_stage": "add_stage",
-        "total_duration_ns": 14300001,
+        "total_duration_ns": 13599999,
         "message_schedule_accumulation_duration_ns": 0,
         "round_sigma1_duration_ns": 0,
         "round_ch_duration_ns": 0,
@@ -629,8 +862,8 @@
         "stage": "message_schedule",
         "ok": true,
         "completed_stage": "message_schedule",
-        "total_duration_ns": 65399999,
-        "message_schedule_accumulation_duration_ns": 36000002,
+        "total_duration_ns": 44300000,
+        "message_schedule_accumulation_duration_ns": 25699999,
         "round_sigma1_duration_ns": 0,
         "round_ch_duration_ns": 0,
         "round_temp1_duration_ns": 0,
@@ -640,121 +873,29 @@
         "stage": "round_core",
         "ok": true,
         "completed_stage": "round_core",
-        "total_duration_ns": 243500000,
-        "message_schedule_accumulation_duration_ns": 36399993,
-        "round_sigma1_duration_ns": 9299996,
-        "round_ch_duration_ns": 29000004,
-        "round_temp1_duration_ns": 5799998,
-        "round_temp2_duration_ns": 2700005
+        "total_duration_ns": 168000000,
+        "message_schedule_accumulation_duration_ns": 23600002,
+        "round_sigma1_duration_ns": 5900012,
+        "round_ch_duration_ns": 21799996,
+        "round_temp1_duration_ns": 7099986,
+        "round_temp2_duration_ns": 2699994
       },
       {
         "stage": "output_projector",
         "ok": true,
         "completed_stage": "output_projector",
-        "total_duration_ns": 299500000,
-        "message_schedule_accumulation_duration_ns": 35099998,
-        "round_sigma1_duration_ns": 9499999,
-        "round_ch_duration_ns": 27999993,
-        "round_temp1_duration_ns": 6300001,
-        "round_temp2_duration_ns": 2700001
+        "total_duration_ns": 203400000,
+        "message_schedule_accumulation_duration_ns": 23400007,
+        "round_sigma1_duration_ns": 6800002,
+        "round_ch_duration_ns": 21699995,
+        "round_temp1_duration_ns": 6300000,
+        "round_temp2_duration_ns": 2299995
       }
     ]
   },
   "browser_webgpu_probe": {
-    "available": true,
+    "available": false,
     "runtime": "browser_webgpu_probe",
-    "adapter_info": {
-      "vendor": "apple",
-      "architecture": "metal-3",
-      "device": "",
-      "description": ""
-    },
-    "artifact_bytes": 138256,
-    "step_count": 180,
-    "words_per_step": 13,
-    "workgroup_size": 64,
-    "workgroup_count": 3,
-    "proxy_kernel_kind": "digit_recode_v0 + window_bucket_accumulate_v0 + bucket_reduce_v0 + dependency_merge_normalize_v0",
-    "proxy_subkernels": [
-      "digit_recode_v0",
-      "window_bucket_accumulate_v0",
-      "bucket_reduce_v0",
-      "dependency_merge_normalize_v0"
-    ],
-    "proxy_rounds_per_step": 32,
-    "dispatch_repeats": 8,
-    "curve_cost_units_reference": 62748,
-    "adapter_request_ns": 1500000,
-    "device_request_ns": 7600000,
-    "pipeline_create_ns": 1700000,
-    "upload_ns": 0,
-    "setup_total_ns": 10800000,
-    "subkernel_timings_ns": {
-      "digit_recode_v0": {
-        "min": 37499.99962747097,
-        "median": 37500.00149011612,
-        "mean": 60416.66679084301,
-        "p95": 162500.00149011612,
-        "max": 162500.00149011612
-      },
-      "window_bucket_accumulate_v0": {
-        "min": 37499.99962747097,
-        "median": 50000.00074505806,
-        "mean": 45833.333395421505,
-        "p95": 62500,
-        "max": 62500
-      },
-      "bucket_reduce_v0": {
-        "min": 37499.99962747097,
-        "median": 49999.99888241291,
-        "mean": 45833.33277453979,
-        "p95": 50000.00074505806,
-        "max": 50000.00074505806
-      },
-      "dependency_merge_normalize_v0": {
-        "min": 37499.99962747097,
-        "median": 37500.00149011612,
-        "mean": 43750.00080714623,
-        "p95": 74999.99925494194,
-        "max": 74999.99925494194
-      }
-    },
-    "bucket_pipeline_timings_ns": {
-      "min": 112499.99888241291,
-      "median": 137499.99925494194,
-      "mean": 152083.3329608043,
-      "p95": 262500.0011175871,
-      "max": 262500.0011175871
-    },
-    "subkernel_mean_share_of_total": {
-      "digit_recode_v0": 0.3085,
-      "window_bucket_accumulate_v0": 0.234,
-      "bucket_reduce_v0": 0.234,
-      "dependency_merge_normalize_v0": 0.2234
-    },
-    "bucket_pipeline_mean_share_of_total": 0.7766,
-    "dominant_subkernel_kind": "digit_recode_v0",
-    "execution_latency_ns": {
-      "min": 150000.00037252903,
-      "median": 187500,
-      "mean": 195833.33376795053,
-      "p95": 300000.00074505806,
-      "max": 300000.00074505806
-    },
-    "readback_latency_ns": {
-      "min_ns": 0,
-      "median_ns": 100000,
-      "mean_ns": 66667,
-      "p95_ns": 100000,
-      "max_ns": 100000
-    },
-    "proxy_latency_ns_per_curve_cost_unit": {
-      "min": 2.3905144446441167,
-      "median": 2.9881430483840123,
-      "mean": 3.1209494130163598,
-      "p95": 4.781028889288233,
-      "max": 4.781028889288233
-    },
-    "output_checksum_hex": "0000005c27563622"
+    "error": "requestAdapter returned null"
   }
 }

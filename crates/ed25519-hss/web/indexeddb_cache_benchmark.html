@@ -853,6 +853,8 @@
             output_open_duration_ns: wasmNumber(lastRun?.output_open_duration_ns),
             public_key_duration_ns: wasmNumber(lastRun?.public_key_duration_ns),
             detailed_total_duration_ns: wasmNumber(lastRun?.total_duration_ns),
+            operation_counts: lastRun?.operation_counts ?? null,
+            stage_operation_counts: lastRun?.stage_operation_counts ?? null,
             latency_ns_per_curve_cost_unit: benchmarkStats(latencyNsPerCurveCostUnitSamples),
             stage_timings_ns: {
               input_sharing: benchmarkStats(repeatedStageSamples(inputStageNs)),

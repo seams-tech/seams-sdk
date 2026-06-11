@@ -171,7 +171,7 @@ fn cmd_server_ceremony_json() -> ProtoResult<()> {
         ));
     }
     let runtime = evaluator_driver_state.runtime.materialize()?;
-    let evaluator_session = evaluator_driver_state.evaluator_session.materialize();
+    let evaluator_session = evaluator_driver_state.evaluator_session.materialize()?;
     let garbler_session = garbler_driver_state.garbler_session.materialize()?;
     let (_server_assist_init, artifact) = garbler_session
         .prepare_server_ceremony_from_transport_messages(

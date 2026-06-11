@@ -1,5 +1,5 @@
 use crate::client::{ClientOtState, ClientSession};
-use crate::ddh::{DdhHssShareSide, HiddenEvalInputOwner};
+use crate::ddh::{DdhHssBackendVersion, DdhHssShareSide, HiddenEvalInputOwner};
 use crate::server::{ServerEvalState, ServerEvalStatus};
 use crate::shared::{ProtoError, ProtoResult};
 use crate::wire::{
@@ -27,8 +27,14 @@ fn ensure_stage_request_state_is_live(state: &ServerEvalState, label: &str) -> P
 
 pub(crate) fn validate_client_packet_context(
     expected_context_binding: [u8; 32],
+    expected_backend_version: DdhHssBackendVersion,
     packet: &ClientPacket,
 ) -> ProtoResult<()> {
+    if packet.backend_version != expected_backend_version {
+        return Err(ProtoError::InvalidInput(
+            "client delivery packet backend version does not match expected session".to_string(),
+        ));
+    }
     if packet.context_binding != expected_context_binding {
         return Err(ProtoError::InvalidInput(
             "client delivery packet context binding does not match expected session".to_string(),
@@ -62,7 +68,11 @@ pub(crate) fn validate_server_assist_init_packet(
     evaluator_ot_state: &ClientOtState,
     packet: &ServerAssistInitPacket,
 ) -> ProtoResult<()> {
-    validate_client_packet_context(session.context_binding, client_packet)?;
+    validate_client_packet_context(
+        session.context_binding,
+        session.ddh_evaluator.evaluation_key().backend_version,
+        client_packet,
+    )?;
     if packet.context_binding != session.context_binding {
         return Err(ProtoError::InvalidInput(
             "server assist init packet context binding does not match evaluator session"

@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-OUT_DIR="${OUT_DIR:-$REPO_ROOT/docs/benchmarks/refactor-64/flamegraphs}"
+OUT_DIR="${OUT_DIR:-$REPO_ROOT/crates/ed25519-hss/docs/benchmarks/refactor-64/flamegraphs}"
 SAMPLES="${SAMPLES:-16}"
 STAGE_WARMUP="${STAGE_WARMUP:-1}"
 PRIMITIVE_WARMUP="${PRIMITIVE_WARMUP:-0}"

@@ -10,23 +10,25 @@ use ed25519_hss::ddh::{
 };
 use ed25519_hss::protocol::prepare_prime_order_succinct_hss;
 use ed25519_hss::shared::ProtoResult;
+use ed25519_hss::wire::ClientOutputValueKind;
 
 use crate::support::{first_fixture, TEST_CLIENT_OUTPUT_MASK};
 
 #[test]
-fn production_hidden_eval_matches_checkpoint_trace_for_trusted_projection() {
-    assert_hidden_eval_production_matches_checkpoint_trace(
-        DdhHiddenEvalClientOutputProjection::trusted_server_projection(),
-    )
-    .expect("trusted projection equivalence");
-}
-
-#[test]
-fn production_hidden_eval_matches_checkpoint_trace_for_client_masked_projection() {
-    assert_hidden_eval_production_matches_checkpoint_trace(
-        DdhHiddenEvalClientOutputProjection::client_masked_projection(TEST_CLIENT_OUTPUT_MASK),
-    )
-    .expect("client-masked projection equivalence");
+fn arena_candidate_byte_equivalence_harness_covers_projection_modes() {
+    for (label, projection) in [
+        (
+            "trusted",
+            DdhHiddenEvalClientOutputProjection::trusted_server_projection(),
+        ),
+        (
+            "client_masked",
+            DdhHiddenEvalClientOutputProjection::client_masked_projection(TEST_CLIENT_OUTPUT_MASK),
+        ),
+    ] {
+        assert_hidden_eval_production_matches_checkpoint_trace(projection)
+            .unwrap_or_else(|err| panic!("{label} projection equivalence failed: {err}"));
+    }
 }
 
 #[test]
@@ -152,6 +154,82 @@ fn hidden_eval_operation_shape_records_current_materialization_baseline() {
         profile.output_projector_local_word_materializations, 2_560,
         "current output-projector local-word materialization shape changed",
     );
+    assert_eq!(
+        profile
+            .stage_operation_counts
+            .message_schedule
+            .core_word_materializations,
+        16_384,
+        "current message-schedule core materialization pressure changed",
+    );
+    assert_eq!(
+        profile
+            .stage_operation_counts
+            .message_schedule
+            .local_word_materializations,
+        26_624,
+        "current message-schedule local materialization pressure changed",
+    );
+    assert_eq!(
+        profile
+            .stage_operation_counts
+            .round_core
+            .local_word_materializations,
+        103_424,
+        "current round-core local materialization pressure changed",
+    );
+    assert_eq!(
+        profile
+            .stage_operation_counts
+            .output_projector
+            .local_word_materializations,
+        2_560,
+        "current output-projector stage materialization pressure changed",
+    );
+    assert_eq!(
+        profile
+            .stage_operation_counts
+            .round_substages
+            .ch
+            .multiplication_material_paths,
+        5_120,
+        "current Ch multiplication-material path count changed",
+    );
+    assert_eq!(
+        profile
+            .stage_operation_counts
+            .round_substages
+            .maj
+            .multiplication_material_paths,
+        5_120,
+        "current Maj multiplication-material path count changed",
+    );
+    assert_eq!(
+        profile
+            .stage_operation_counts
+            .round_substages
+            .new_a_bits
+            .arith_to_bool_paths,
+        5_120,
+        "current new_a_bits A2B path count changed",
+    );
+    assert_eq!(
+        profile
+            .stage_operation_counts
+            .round_substages
+            .new_e_bits
+            .arith_to_bool_paths,
+        5_120,
+        "current new_e_bits A2B path count changed",
+    );
+    assert_eq!(
+        profile
+            .stage_operation_counts
+            .delivery
+            .local_word_materializations,
+        0,
+        "direct hidden-eval profile should not account delivery materializations",
+    );
 }
 
 fn hidden_eval_operation_counts_for_projection(
@@ -208,6 +286,17 @@ fn assert_hidden_eval_production_matches_checkpoint_trace(
             projection,
         )?;
 
+    assert_eq!(
+        hidden_eval_byte_equivalence_signature(
+            &production_run,
+            production_profile.operation_counts,
+        ),
+        hidden_eval_byte_equivalence_signature(
+            &checkpoint_trace.run,
+            checkpoint_profile.operation_counts,
+        ),
+        "arena-backed candidate byte-equivalence signature changed",
+    );
     assert_run_equivalent(&production_run, &checkpoint_trace.run);
     assert_eq!(
         logical_operation_shape(production_profile.operation_counts),
@@ -247,6 +336,36 @@ fn assert_hidden_eval_production_matches_checkpoint_trace(
     }
 
     Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct HiddenEvalByteEquivalenceSignature {
+    client_input_commitment: [u8; 32],
+    server_input_commitment: [u8; 32],
+    client_output_value_kind: ClientOutputValueKind,
+    canonical_seed_commitment: [u8; 32],
+    client_output_commitment: [u8; 32],
+    x_relayer_base_left_commitment: [u8; 32],
+    x_relayer_base_right_commitment: [u8; 32],
+    output_projection_digest: [u8; 32],
+    logical_operation_shape: (u64, u64, u64, u64, u64, u64, u64, u64, u64),
+}
+
+fn hidden_eval_byte_equivalence_signature(
+    run: &DdhHiddenEvalRun,
+    counts: DdhHiddenEvalOperationCounts,
+) -> HiddenEvalByteEquivalenceSignature {
+    HiddenEvalByteEquivalenceSignature {
+        client_input_commitment: run.client_input_commitment,
+        server_input_commitment: run.server_input_commitment,
+        client_output_value_kind: run.output.client_output.value_kind,
+        canonical_seed_commitment: run.output.canonical_seed.commitment,
+        client_output_commitment: run.output.client_output.bundle.commitment,
+        x_relayer_base_left_commitment: run.output.x_relayer_base_left.commitment,
+        x_relayer_base_right_commitment: run.output.x_relayer_base_right.commitment,
+        output_projection_digest: compute_output_projection_output_digest(&run.output),
+        logical_operation_shape: logical_operation_shape(counts),
+    }
 }
 
 fn assert_run_equivalent(left: &DdhHiddenEvalRun, right: &DdhHiddenEvalRun) {

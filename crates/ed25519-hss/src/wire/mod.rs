@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::artifact::PrimeOrderEvaluatorOps;
 use crate::candidate::CandidateBackendFamily;
 use crate::ddh::{
-    DdhHssEvaluationKey, DdhHssInputShareBundle, DdhHssOtInputBundleOffer,
+    DdhHssBackendVersion, DdhHssEvaluationKey, DdhHssInputShareBundle, DdhHssOtInputBundleOffer,
     DdhHssOtReleasedRemoteBundle, DdhHssOtResponseBundle, DdhHssOtSelectionBundle,
     DdhHssSharedWord, DdhHssTransportBundle, DdhHssTransportPurpose, HiddenEvalInputOwner,
 };
@@ -37,6 +37,26 @@ pub struct RunBindings {
     pub evaluation_digest: [u8; 32],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputProjectorBindingKind {
+    BindingV1,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputProjectorModulusId {
+    Ed25519L,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutputProjectorBinding {
+    pub kind: OutputProjectorBindingKind,
+    pub scalar_width_bits: u16,
+    pub modulus_id: OutputProjectorModulusId,
+    pub binding_digest: [u8; 32],
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvaluatorWitness {
     pub total_steps: usize,
@@ -49,6 +69,7 @@ pub struct EvaluatorWitness {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeliveryMaterial {
     pub report_version: String,
+    pub backend_version: DdhHssBackendVersion,
     pub fixed_function_id: String,
     pub projection_mode: OutputProjectionMode,
     pub hidden_core_materialization: HiddenCoreMaterialization,
@@ -58,6 +79,7 @@ pub struct DeliveryMaterial {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientPacket {
+    pub backend_version: DdhHssBackendVersion,
     pub context_binding: [u8; 32],
     pub y_client_request: DdhHssOtSelectionBundle,
     pub tau_client_request: DdhHssOtSelectionBundle,
@@ -65,6 +87,7 @@ pub struct ClientPacket {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientOtOffer {
+    pub backend_version: DdhHssBackendVersion,
     pub context_binding: [u8; 32],
     pub y_client_offer: DdhHssOtInputBundleOffer,
     pub tau_client_offer: DdhHssOtInputBundleOffer,
@@ -89,6 +112,7 @@ pub(crate) enum TransportKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct TransportFrame {
     pub(crate) report_version: String,
+    pub(crate) backend_version: DdhHssBackendVersion,
     pub(crate) context_binding: [u8; 32],
     pub(crate) kind: TransportKind,
     pub(crate) payload: Vec<u8>,
@@ -260,9 +284,11 @@ pub struct RoleSeparatedOutputDeliveryPacket {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StagedEvaluatorArtifact {
+    pub backend_version: DdhHssBackendVersion,
     pub context_binding: [u8; 32],
     pub bindings: RunBindings,
     pub projection_mode: OutputProjectionMode,
+    pub output_projector_binding: OutputProjectorBinding,
     pub client_output_value_kind: ClientOutputValueKind,
     pub client_output_commitment: [u8; 32],
     pub evaluator_witness: EvaluatorWitness,
@@ -539,12 +565,14 @@ pub struct ServerFinalizePacket {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EvaluationReport {
     pub report_version: String,
+    pub backend_version: DdhHssBackendVersion,
     pub backend_family: CandidateBackendFamily,
     pub fixed_function_id: String,
     pub hidden_core_materialization: HiddenCoreMaterialization,
     pub artifact: ArtifactSummary,
     pub bindings: RunBindings,
     pub projection_mode: OutputProjectionMode,
+    pub output_projector_binding: OutputProjectorBinding,
     pub evaluator_witness: EvaluatorWitness,
     pub output_delivery: OutputDelivery,
     pub notes: Vec<String>,
@@ -609,6 +637,7 @@ pub(crate) fn encode_transport_message<T: Serialize>(
     let payload_bytes = serialize_transport_payload_with_label("transport_frame", payload)?;
     let frame = TransportFrame {
         report_version: PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION.to_string(),
+        backend_version: DdhHssBackendVersion::CURRENT,
         context_binding,
         kind,
         payload: payload_bytes,
@@ -637,6 +666,12 @@ pub(crate) fn decode_transport_message<T: DeserializeOwned>(
         return Err(ProtoError::InvalidInput(format!(
             "prime-order succinct HSS transport frame version mismatch: {}",
             frame.report_version
+        )));
+    }
+    if frame.backend_version != DdhHssBackendVersion::CURRENT {
+        return Err(ProtoError::InvalidInput(format!(
+            "prime-order succinct HSS transport frame backend version mismatch: {}",
+            frame.backend_version.as_str()
         )));
     }
     if frame.context_binding != expected_context_binding {
@@ -765,6 +800,44 @@ pub(crate) fn deserialize_transport_pair_payload(
 ) -> ProtoResult<(DdhHssTransportBundle, DdhHssTransportBundle)> {
     let payload: EncodedTransportPairPayload = deserialize_transport_payload(purpose, plaintext)?;
     Ok((payload.left, payload.right))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ddh::DDH_HSS_BACKEND_VERSION;
+
+    #[test]
+    fn transport_frame_rejects_unknown_backend_version() {
+        let context_binding = [7u8; 32];
+        let frame = TransportFrame {
+            report_version: PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION.to_string(),
+            backend_version: DdhHssBackendVersion::CURRENT,
+            context_binding,
+            kind: TransportKind::ClientOtRequest,
+            payload: Vec::new(),
+        };
+        let mut bytes = bincode::serialize(&frame).expect("serialize frame");
+        let needle = DDH_HSS_BACKEND_VERSION.as_bytes();
+        let offset = bytes
+            .windows(needle.len())
+            .position(|window| window == needle)
+            .expect("backend version string in frame");
+        bytes[offset + needle.len() - 1] = b'9';
+
+        let err = decode_transport_message::<ClientPacket>(
+            context_binding,
+            TransportKind::ClientOtRequest,
+            &WireMessage { bytes },
+        )
+        .expect_err("unknown backend version should fail");
+
+        assert!(
+            err.to_string()
+                .contains("unsupported DDH HSS backend version"),
+            "unexpected error: {err}"
+        );
+    }
 }
 
 pub(crate) fn serialize_server_inputs_payload(

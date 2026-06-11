@@ -498,6 +498,7 @@ fn anti_drift_projection_mode_and_staged_artifact_boundary_matches_verified_mirr
     let client_output = production::wire::WireMessage { bytes: vec![0x01] };
     let seed_output = production::wire::WireMessage { bytes: vec![0x02] };
     let trusted_artifact = production::wire::StagedEvaluatorArtifact {
+        backend_version: production::ddh::DdhHssBackendVersion::CURRENT,
         context_binding: [0x10; 32],
         bindings: production::wire::RunBindings {
             client_input_commitment: [0x11; 32],
@@ -506,6 +507,12 @@ fn anti_drift_projection_mode_and_staged_artifact_boundary_matches_verified_mirr
             evaluation_digest: [0x14; 32],
         },
         projection_mode: production::wire::OutputProjectionMode::trusted_server_projection(),
+        output_projector_binding: production::wire::OutputProjectorBinding {
+            kind: production::wire::OutputProjectorBindingKind::BindingV1,
+            scalar_width_bits: 256,
+            modulus_id: production::wire::OutputProjectorModulusId::Ed25519L,
+            binding_digest: [0x1b; 32],
+        },
         client_output_value_kind: production::wire::ClientOutputValueKind::UnmaskedClientBase,
         client_output_commitment: [0x15; 32],
         evaluator_witness: production::wire::EvaluatorWitness {
@@ -586,7 +593,7 @@ fn anti_drift_client_owned_wasm_boundary_requires_fixed_client_output_mask() {
     assert!(open_shape.has_client_output_mask_b64u);
     assert_eq!(open_shape.client_output_mask_len, 32);
 
-    let signer_worker_types = read_workspace_file("client/src/core/types/signer-worker.ts");
+    let signer_worker_types = read_workspace_file("packages/sdk-web/src/core/types/signer-worker.ts");
     assert_ts_export_has_required_string_field(
         &signer_worker_types,
         "WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest",
@@ -599,7 +606,7 @@ fn anti_drift_client_owned_wasm_boundary_requires_fixed_client_output_mask() {
     );
 
     let sdk_wasm_wrapper = read_workspace_file(
-        "client/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts",
+        "packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts",
     );
     assert!(sdk_wasm_wrapper.contains(
         "const clientOutputMaskB64u = requireClientOutputMask32B64u(input.clientOutputMaskB64u);"

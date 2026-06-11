@@ -64,6 +64,27 @@ struct SameProcessExecutionCheckpoints {
 
 impl ServerSessionState {
     pub fn materialize(&self) -> ProtoResult<ServerSession> {
+        if self.backend_version != self.ddh_garbler.evaluation_key().backend_version {
+            return Err(crate::shared::ProtoError::InvalidInput(
+                "server session state backend version does not match garbler".to_string(),
+            ));
+        }
+        if self.backend_version != crate::ddh::DdhHssBackendVersion::CURRENT {
+            return Err(crate::shared::ProtoError::InvalidInput(format!(
+                "server session state backend version is stale: {}",
+                self.backend_version.as_str()
+            )));
+        }
+        if self.client_ot_offer.backend_version != self.backend_version {
+            return Err(crate::shared::ProtoError::InvalidInput(
+                "server session OT offer backend version does not match session".to_string(),
+            ));
+        }
+        if self.garbler_ot_state.backend_version != self.backend_version {
+            return Err(crate::shared::ProtoError::InvalidInput(
+                "server session OT state backend version does not match session".to_string(),
+            ));
+        }
         let prepared_ot_state = prepare_garbler_ot_state_for_session(
             &self.ddh_garbler,
             &self.client_ot_offer,
@@ -909,6 +930,19 @@ impl ServerSession {
     }
 
     pub(crate) fn validate_garbler_ot_state(&self) -> ProtoResult<()> {
+        if self.client_ot_offer.backend_version != self.ddh_garbler.evaluation_key().backend_version
+        {
+            return Err(crate::shared::ProtoError::InvalidInput(
+                "client OT offer backend version does not match garbler session".to_string(),
+            ));
+        }
+        if self.garbler_ot_state.backend_version
+            != self.ddh_garbler.evaluation_key().backend_version
+        {
+            return Err(crate::shared::ProtoError::InvalidInput(
+                "garbler OT state backend version does not match garbler session".to_string(),
+            ));
+        }
         if self.garbler_ot_state.context_binding != self.context_binding {
             return Err(crate::shared::ProtoError::InvalidInput(
                 "garbler OT state context binding does not match garbler session".to_string(),
@@ -935,6 +969,7 @@ impl ServerSession {
     ) -> ProtoResult<(SameProcessTrustedEvalMaterial, EvaluateTiming)> {
         crate::protocol::invariants::validate_client_packet_context(
             self.context_binding,
+            self.ddh_garbler.evaluation_key().backend_version,
             client_packet,
         )?;
         let mut timing = EvaluateTiming::default();
@@ -1248,6 +1283,7 @@ impl ServerSession {
     ) -> ProtoResult<ServerAssistInitMaterial> {
         crate::protocol::invariants::validate_client_packet_context(
             self.context_binding,
+            self.ddh_garbler.evaluation_key().backend_version,
             client_packet,
         )?;
         let mut timing = EvaluateTiming::default();
@@ -1364,6 +1400,7 @@ impl ServerSession {
     )> {
         crate::protocol::invariants::validate_client_packet_context(
             self.context_binding,
+            self.ddh_garbler.evaluation_key().backend_version,
             client_packet,
         )?;
         let mut timing = EvaluateTiming::default();
@@ -1518,6 +1555,7 @@ impl ServerSession {
                 artifact.client_output_value_kind,
                 artifact.client_output_commitment,
                 finalize_state.output.x_relayer_base_left.commitment,
+                artifact.output_projector_binding,
             );
         if artifact.bindings.evaluation_digest != expected_evaluation_digest {
             return Err(crate::shared::ProtoError::InvalidInput(

@@ -2,8 +2,8 @@ use ed25519_hss::artifact::PrimeOrderEncodedArtifact;
 use ed25519_hss::artifact::PrimeOrderSectionKind;
 use ed25519_hss::ddh::ddh_hss::role_views_for_backend;
 use ed25519_hss::ddh::{
-    DdhHssBackend, DdhHssTransportBundle, DdhHssTransportPurpose, FixedFunctionHssBackend,
-    HiddenEvalInputOwner,
+    DdhHssBackend, DdhHssBackendVersion, DdhHssTransportBundle, DdhHssTransportPurpose,
+    FixedFunctionHssBackend, HiddenEvalInputOwner,
 };
 use ed25519_hss::fixtures::{committed_fixture_corpus, FExpandFixture};
 use ed25519_hss::protocol::PreparedSession;
@@ -36,6 +36,7 @@ pub enum TransportKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct TransportFrame {
     report_version: String,
+    backend_version: DdhHssBackendVersion,
     context_binding: [u8; 32],
     kind: TransportKind,
     payload: Vec<u8>,
@@ -58,6 +59,7 @@ enum RuntimeTransportKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct RuntimeTransportFrame {
     report_version: String,
+    backend_version: DdhHssBackendVersion,
     context_binding: [u8; 32],
     kind: RuntimeTransportKind,
     payload: Vec<u8>,
@@ -197,6 +199,12 @@ pub fn decode_transport_message<T: DeserializeOwned>(
             frame.report_version
         )));
     }
+    if frame.backend_version != DdhHssBackendVersion::CURRENT {
+        return Err(ProtoError::InvalidInput(format!(
+            "prime-order succinct HSS transport frame backend version mismatch: {}",
+            frame.backend_version.as_str()
+        )));
+    }
     if frame.context_binding != expected_context_binding {
         return Err(ProtoError::InvalidInput(
             "prime-order succinct HSS transport frame context binding does not match the runtime"
@@ -224,6 +232,7 @@ pub fn encode_transport_message<T: Serialize>(
 ) -> ProtoResult<WireMessage> {
     let frame = TransportFrame {
         report_version: PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION.to_string(),
+        backend_version: DdhHssBackendVersion::CURRENT,
         context_binding,
         kind,
         payload: bincode::serialize(payload).map_err(|err| {
@@ -278,6 +287,12 @@ pub fn decode_runtime_client_output_message(
             frame.report_version
         )));
     }
+    if frame.backend_version != DdhHssBackendVersion::CURRENT {
+        return Err(ProtoError::InvalidInput(format!(
+            "prime-order succinct HSS transport frame backend version mismatch: {}",
+            frame.backend_version.as_str()
+        )));
+    }
     if frame.context_binding != expected_context_binding {
         return Err(ProtoError::InvalidInput(
             "prime-order succinct HSS transport frame context binding does not match the runtime"
@@ -303,6 +318,7 @@ pub fn encode_runtime_client_output_message(
 ) -> ProtoResult<WireMessage> {
     let frame = RuntimeTransportFrame {
         report_version: PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION.to_string(),
+        backend_version: DdhHssBackendVersion::CURRENT,
         context_binding,
         kind: RuntimeTransportKind::ClientOutput,
         payload: bincode::serialize(payload).map_err(|err| {

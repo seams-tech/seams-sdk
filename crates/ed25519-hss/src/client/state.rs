@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::ddh::{DdhHssEvaluator, DdhHssOtReceiverStateBundle};
+use crate::ddh::{DdhHssBackendVersion, DdhHssEvaluator, DdhHssOtReceiverStateBundle};
 use crate::runtime::SharedRuntimeState;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientOfferCommitments {
@@ -10,6 +10,7 @@ pub struct ClientOfferCommitments {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientOtState {
+    pub backend_version: DdhHssBackendVersion,
     pub context_binding: [u8; 32],
     pub offer_commitments: ClientOfferCommitments,
     pub y_client_local_state: DdhHssOtReceiverStateBundle,
@@ -24,6 +25,7 @@ pub struct ClientSession {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientSessionState {
+    pub backend_version: DdhHssBackendVersion,
     pub context_binding: [u8; 32],
     pub ddh_evaluator: DdhHssEvaluator,
 }

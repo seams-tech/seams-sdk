@@ -72,6 +72,11 @@ pub(crate) fn finalize_report_from_staged_evaluator_artifact(
             "evaluation result context binding does not match shared runtime".to_string(),
         ));
     }
+    if artifact.backend_version != garbler_session.ddh_garbler.evaluation_key().backend_version {
+        return Err(ProtoError::InvalidInput(
+            "evaluation result backend version does not match garbler session".to_string(),
+        ));
+    }
     let client_packet: ClientOutputPacket = crate::wire::decode_transport_message(
         runtime.candidate.context_binding,
         TransportKind::ClientOutput,
@@ -186,12 +191,14 @@ pub(crate) fn finalize_report_from_staged_evaluator_artifact(
 
     Ok(EvaluationReport {
         report_version: PRIME_ORDER_SUCCINCT_HSS_REPORT_VERSION.to_string(),
+        backend_version: garbler_session.ddh_garbler.evaluation_key().backend_version,
         backend_family: crate::candidate::CandidateBackendFamily::PrimeOrderSizeOptimized,
         fixed_function_id: runtime.candidate.fixed_function_id.clone(),
         hidden_core_materialization: HiddenCoreMaterialization::DdhPrimitiveBaseline,
         artifact: runtime.artifact.clone(),
         bindings: artifact.bindings.clone(),
         projection_mode: artifact.projection_mode.clone(),
+        output_projector_binding: artifact.output_projector_binding,
         evaluator_witness: artifact.evaluator_witness.clone(),
         output_delivery,
         notes: vec![

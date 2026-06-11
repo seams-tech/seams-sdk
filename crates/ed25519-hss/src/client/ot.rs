@@ -6,11 +6,17 @@ use crate::wire::{ClientOtOffer, ClientPacket};
 
 pub(crate) fn validate_client_ot_offer(
     context_binding: [u8; 32],
+    ddh_evaluator: &DdhHssEvaluator,
     offer: &ClientOtOffer,
 ) -> ProtoResult<()> {
     if offer.context_binding != context_binding {
         return Err(ProtoError::InvalidInput(
             "client OT offer context binding does not match evaluator session".to_string(),
+        ));
+    }
+    if offer.backend_version != ddh_evaluator.evaluation_key().backend_version {
+        return Err(ProtoError::InvalidInput(
+            "client OT offer backend version does not match evaluator session".to_string(),
         ));
     }
     Ok(())
@@ -23,12 +29,13 @@ pub(crate) fn build_client_ot_request(
     y_client: [u8; 32],
     tau_client: [u8; 32],
 ) -> ProtoResult<(ClientPacket, ClientOtState)> {
-    validate_client_ot_offer(context_binding, offer)?;
+    validate_client_ot_offer(context_binding, ddh_evaluator, offer)?;
     let (y_client_request, y_client_local_state) =
         ddh_evaluator.prepare_client_input_ot_request(&offer.y_client_offer, &y_client)?;
     let (tau_client_request, tau_client_local_state) =
         ddh_evaluator.prepare_client_input_ot_request(&offer.tau_client_offer, &tau_client)?;
     let client_packet = ClientPacket {
+        backend_version: ddh_evaluator.evaluation_key().backend_version,
         context_binding,
         y_client_request,
         tau_client_request,
@@ -36,6 +43,7 @@ pub(crate) fn build_client_ot_request(
     Ok((
         client_packet,
         ClientOtState {
+            backend_version: ddh_evaluator.evaluation_key().backend_version,
             context_binding,
             offer_commitments: ClientOfferCommitments {
                 y_client_offer_commitment: offer.y_client_offer.commitment,
@@ -49,8 +57,14 @@ pub(crate) fn build_client_ot_request(
 
 pub(crate) fn validate_evaluator_ot_state(
     context_binding: [u8; 32],
+    ddh_evaluator: &DdhHssEvaluator,
     evaluator_ot_state: &ClientOtState,
 ) -> ProtoResult<()> {
+    if evaluator_ot_state.backend_version != ddh_evaluator.evaluation_key().backend_version {
+        return Err(ProtoError::InvalidInput(
+            "evaluator OT state backend version does not match evaluator session".to_string(),
+        ));
+    }
     if evaluator_ot_state.context_binding != context_binding {
         return Err(ProtoError::InvalidInput(
             "evaluator OT state context binding does not match evaluator session".to_string(),

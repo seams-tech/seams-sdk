@@ -12,8 +12,8 @@ use crate::ddh::hidden_eval_executor::{
     prepare_ddh_hidden_eval_constant_pool, probe_prime_order_ddh_hidden_eval_program_with_pool,
 };
 use crate::ddh::{
-    DdhHiddenEvalCheckpoint, DdhHiddenEvalOperationCounts, DdhHiddenEvalStageProfile,
-    HiddenEvalInputOwner,
+    DdhHiddenEvalCheckpoint, DdhHiddenEvalOperationCounts, DdhHiddenEvalStageOperationCounts,
+    DdhHiddenEvalStageProfile, DdhHssBackendVersion, HiddenEvalInputOwner,
 };
 use crate::fixtures::{deterministic_fixture_corpus, FExpandFixture};
 use crate::protocol::prepare_prime_order_succinct_hss;
@@ -70,6 +70,7 @@ pub struct DdhHiddenEvalBenchmarkMetadata {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DdhHiddenEvalBenchmarkReport {
     pub report_version: String,
+    pub backend_version: DdhHssBackendVersion,
     pub metadata: DdhHiddenEvalBenchmarkMetadata,
     pub fixture_name: String,
     pub artifact_bytes: u64,
@@ -84,6 +85,7 @@ pub struct DdhHiddenEvalBenchmarkReport {
     pub substage_timings: Vec<ComponentTimingReport>,
     pub delivery_timings: Vec<ComponentTimingReport>,
     pub operation_counts: DdhHiddenEvalOperationCounts,
+    pub stage_operation_counts: DdhHiddenEvalStageOperationCounts,
     pub reference_match: bool,
     pub output_public_key_hex: String,
     pub output_x_client_base_hex: String,
@@ -112,6 +114,7 @@ pub struct DdhHiddenEvalAllocationProbeSample {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DdhHiddenEvalAllocationProbeReport {
     pub report_version: String,
+    pub backend_version: DdhHssBackendVersion,
     pub metadata: DdhHiddenEvalBenchmarkMetadata,
     pub fixture_name: String,
     pub config: DdhHiddenEvalAllocationProbeConfigRecord,
@@ -233,6 +236,7 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
     let mut delivery_output_sealing_finalization_samples = Vec::with_capacity(config.sample_count);
     let mut delivery_unbucketed_samples = Vec::with_capacity(config.sample_count);
     let mut operation_counts = DdhHiddenEvalOperationCounts::default();
+    let mut stage_operation_counts = DdhHiddenEvalStageOperationCounts::default();
 
     for _ in 0..config.sample_count {
         let mut input_sharing_total_ns = 0f64;
@@ -301,6 +305,7 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
             total_total_ns += direct_profile_total_ns;
             direct_unbucketed_total_ns += direct_executor_unbucketed_ns(&profile.stage_profile);
             operation_counts = profile.stage_profile.operation_counts;
+            stage_operation_counts = profile.stage_profile.stage_operation_counts;
 
             let delivery_started = Instant::now();
             let (delivery_report, delivery_timing) =
@@ -554,6 +559,7 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
 
     Ok(DdhHiddenEvalBenchmarkReport {
         report_version: DDH_HIDDEN_EVAL_BENCHMARK_REPORT_VERSION.to_string(),
+        backend_version: session.ddh_backend().evaluation_key().backend_version,
         metadata,
         fixture_name: fixture.name.clone(),
         artifact_bytes: session.artifact_summary().artifact_bytes,
@@ -575,6 +581,7 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
         substage_timings,
         delivery_timings,
         operation_counts,
+        stage_operation_counts,
         reference_match: true,
         output_public_key_hex: hex::encode(baseline_public_key),
         output_x_client_base_hex: hex::encode(baseline_x_client_base),
@@ -716,6 +723,7 @@ where
 
     Ok(DdhHiddenEvalAllocationProbeReport {
         report_version: DDH_HIDDEN_EVAL_ALLOCATION_PROBE_REPORT_VERSION.to_string(),
+        backend_version: session.ddh_backend().evaluation_key().backend_version,
         metadata,
         fixture_name: fixture.name.clone(),
         config: DdhHiddenEvalAllocationProbeConfigRecord {
@@ -748,6 +756,10 @@ impl DdhHiddenEvalBenchmarkReport {
                 self.prepare_duration_ns, self.output_public_key_hex, self.output_x_client_base_hex,
             ),
         ];
+        lines.push(format!(
+            "backend_version: {}",
+            self.backend_version.as_str()
+        ));
 
         for report in &self.primitive_timings {
             lines.push(format!(
@@ -781,6 +793,38 @@ impl DdhHiddenEvalBenchmarkReport {
                 report.throughput_ops_per_sec.mean,
             ));
         }
+
+        lines.push(format!(
+            "logical materialization pressure: message_schedule_local={} message_schedule_core={} round_core_local={} output_projector_local={} ch_mul_paths={} maj_mul_paths={} new_a_a2b_paths={} new_e_a2b_paths={}",
+            self.stage_operation_counts
+                .message_schedule
+                .local_word_materializations,
+            self.stage_operation_counts
+                .message_schedule
+                .core_word_materializations,
+            self.stage_operation_counts
+                .round_core
+                .local_word_materializations,
+            self.stage_operation_counts
+                .output_projector
+                .local_word_materializations,
+            self.stage_operation_counts
+                .round_substages
+                .ch
+                .multiplication_material_paths,
+            self.stage_operation_counts
+                .round_substages
+                .maj
+                .multiplication_material_paths,
+            self.stage_operation_counts
+                .round_substages
+                .new_a_bits
+                .arith_to_bool_paths,
+            self.stage_operation_counts
+                .round_substages
+                .new_e_bits
+                .arith_to_bool_paths,
+        ));
 
         if self.operation_counts.physical_keyed_digest_derivations > 0
             || self.operation_counts.physical_derived_commitment_hashes > 0
@@ -840,6 +884,10 @@ impl DdhHiddenEvalAllocationProbeReport {
             self.metadata.host_arch,
             self.metadata.logical_cores,
         )];
+        lines.push(format!(
+            "backend_version: {}",
+            self.backend_version.as_str()
+        ));
 
         for (operation, samples) in allocation_samples_by_operation(&self.samples) {
             let allocated_bytes = stats_from_samples(

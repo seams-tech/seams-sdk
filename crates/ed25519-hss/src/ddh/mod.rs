@@ -4,12 +4,14 @@ pub mod hidden_eval_executor;
 
 pub use ddh_hss::{
     keygen_prime_order_ddh_hss_backend, keygen_prime_order_ddh_hss_roles, DdhHssArithmeticBackend,
-    DdhHssBackend, DdhHssEvaluationKey, DdhHssEvaluator, DdhHssGarbler, DdhHssInputShareBundle,
-    DdhHssMulMaterial, DdhHssOtInputBundleOffer, DdhHssOtReceiverStateBundle,
+    DdhHssBackend, DdhHssBackendVersion, DdhHssCombinerBoundaryKind, DdhHssEvaluationKey,
+    DdhHssEvaluator, DdhHssGarbler, DdhHssInputShareBundle, DdhHssMulMaterial,
+    DdhHssMulXorKernelVersion, DdhHssOtInputBundleOffer, DdhHssOtReceiverStateBundle,
     DdhHssOtReconstructTiming, DdhHssOtReleasedRemoteBundle, DdhHssOtRemoteBundle,
     DdhHssOtRemoteWord, DdhHssOtResponseBundle, DdhHssOtSelectionBundle, DdhHssOtSenderStateBundle,
-    DdhHssOtWordOffer, DdhHssParams, DdhHssRoleSet, DdhHssShareSide, DdhHssSharedWord,
-    DdhHssTransportBundle, DdhHssTransportPurpose, DdhHssTransportWord, DDH_HSS_BACKEND_VERSION,
+    DdhHssOtWordOffer, DdhHssParams, DdhHssRoleSet, DdhHssRootedCombinerKind, DdhHssShareSide,
+    DdhHssSharedWord, DdhHssTransportBundle, DdhHssTransportPurpose, DdhHssTransportWord,
+    DDH_HSS_BACKEND_VERSION, DDH_HSS_MUL_XOR_KERNEL_VERSION,
 };
 pub use hidden_eval::{
     compile_prime_order_hidden_eval_program, FixedFunctionHssBackend, HiddenEvalInputOwner,
@@ -24,5 +26,5 @@ pub use hidden_eval_executor::{
     probe_prime_order_ddh_hidden_eval_program, DdhHiddenEvalCheckpoint,
     DdhHiddenEvalClientOutputProjection, DdhHiddenEvalInputBundles, DdhHiddenEvalOperationCounts,
     DdhHiddenEvalOutputBundles, DdhHiddenEvalProbe, DdhHiddenEvalProfile, DdhHiddenEvalRun,
-    DdhHiddenEvalStageProfile,
+    DdhHiddenEvalStageOperationCounts, DdhHiddenEvalStageProfile,
 };

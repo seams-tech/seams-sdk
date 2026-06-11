@@ -1,24 +1,27 @@
 use std::fmt::Write as _;
 
+use blake3::Hasher as Blake3Hasher;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 
 use crate::ddh::ddh_hss::{
-    build_local_word_pair_public, build_local_word_pair_public_from_extra_material,
-    eval_add_cross_share_local_arithmetic_word_bits_secure_public_into,
-    eval_add_local_word_pairs_mod_2_pow_n_public, eval_maj_local_bit_pair_batch_raw_public_into,
-    eval_mul_local_bit_pair_batch_raw_xor_base_public_into, eval_mul_local_word_pair_batch_public,
-    eval_mul_local_word_pairs_core_public, eval_mul_local_word_pairs_public,
-    local_word_from_shared, local_word_from_transport_public, materialize_local_word_core,
-    reset_physical_hash_counters, take_physical_hash_counters, validate_transport_word_pair_public,
-    xor_local_bit_core_from_raw_public, xor_local_bit_pair_core_from_raw_public,
-    xor_local_bit_pair_from_raw_public, xor_local_word_core_pairs_materialized_public,
-    xor_local_word_core_pairs_public, xor_local_word_pairs_public, DdhHssArithmeticBackend,
-    DdhHssInputShareBundle, DdhHssLocalBitSliceView, DdhHssLocalWord, DdhHssLocalWordCore,
-    DdhHssPhysicalHashCounters, DdhHssShareSide, DdhHssSharedWord, DdhHssTransportBundle,
-    DdhHssTransportWord,
+    build_local_word_core_for_key, build_local_word_pair_public,
+    build_local_word_pair_public_from_extra_material, eval_add_local_word_pairs_mod_2_pow_n_public,
+    eval_ch_local_bit_pair_batch_root_public_into, eval_maj_local_bit_pair_batch_raw_public_into,
+    eval_mul_local_word_core_pairs_with_material_digest_public,
+    eval_mul_local_word_pair_batch_repeated_left_public,
+    eval_mul_local_word_pairs_core_with_material_base_public,
+    eval_mul_local_word_pairs_with_material_base_public, local_word_from_shared,
+    local_word_from_transport_public, materialize_local_word_core,
+    prepare_local_bit_mul_material_base_public, reset_physical_hash_counters,
+    take_physical_hash_counters, validate_transport_word_pair_public,
+    xor_local_bit_pair_core_from_raw_public, xor_local_word_core_pairs_materialized_public,
+    xor_local_word_core_pairs_public, xor_local_word_pairs_public, DdhHssA2bKernelVersion,
+    DdhHssArithmeticBackend, DdhHssInputShareBundle, DdhHssLocalBitSliceView,
+    DdhHssLocalMulMaterialBase, DdhHssLocalWord, DdhHssLocalWordCore, DdhHssPhysicalHashCounters,
+    DdhHssShareSide, DdhHssSharedWord, DdhHssTransportBundle, DdhHssTransportWord,
 };
 use crate::ddh::hidden_eval::{
     HiddenEvalInputOwner, HiddenEvalProgram, HiddenEvalStage, HiddenEvalStageKind,
@@ -27,7 +30,10 @@ use crate::ddh::hidden_eval::{
 use crate::ddh::DdhHssBackend;
 use crate::shared::FExpandInput;
 use crate::shared::{ProtoError, ProtoResult};
-use crate::wire::ClientOutputValueKind;
+use crate::wire::{
+    ClientOutputValueKind, OutputProjectorBinding, OutputProjectorBindingKind,
+    OutputProjectorModulusId,
+};
 use curve25519_dalek::scalar::Scalar;
 
 const SHA512_IV: [u64; 8] = [
@@ -215,6 +221,7 @@ pub struct DdhHiddenEvalOutputBundles {
     pub client_output: DdhHiddenEvalClientOutputBundle,
     pub x_relayer_base_left: DdhHssTransportBundle,
     pub x_relayer_base_right: DdhHssTransportBundle,
+    pub output_projector_binding: OutputProjectorBinding,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -317,6 +324,8 @@ pub struct DdhHiddenEvalStageProfile {
     pub total_duration_ns: u128,
     #[serde(default)]
     pub operation_counts: DdhHiddenEvalOperationCounts,
+    #[serde(default)]
+    pub stage_operation_counts: DdhHiddenEvalStageOperationCounts,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -401,6 +410,47 @@ pub struct DdhHiddenEvalOperationCounts {
     pub physical_mul_material_hashes: u64,
     #[serde(default)]
     pub physical_mul_output_seed_hashes: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DdhHiddenEvalLogicalOperationCounts {
+    pub core_word_materializations: u64,
+    pub local_word_materializations: u64,
+    pub shared_word_materializations: u64,
+    pub transport_word_materializations: u64,
+    pub commitment_materializations: u64,
+    pub provenance_digest_materializations: u64,
+    pub commitment_derivations: u64,
+    pub provenance_digest_derivations: u64,
+    pub label_writes: u64,
+    pub label_format_allocations: u64,
+    pub multiplication_material_paths: u64,
+    pub bool_to_arith_paths: u64,
+    pub arith_to_bool_paths: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DdhHiddenEvalRoundOperationCounts {
+    pub sigma0: DdhHiddenEvalLogicalOperationCounts,
+    pub sigma1: DdhHiddenEvalLogicalOperationCounts,
+    pub ch: DdhHiddenEvalLogicalOperationCounts,
+    pub maj: DdhHiddenEvalLogicalOperationCounts,
+    pub state3: DdhHiddenEvalLogicalOperationCounts,
+    pub temp1: DdhHiddenEvalLogicalOperationCounts,
+    pub temp2: DdhHiddenEvalLogicalOperationCounts,
+    pub new_a_bits: DdhHiddenEvalLogicalOperationCounts,
+    pub new_e_bits: DdhHiddenEvalLogicalOperationCounts,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DdhHiddenEvalStageOperationCounts {
+    pub input_sharing: DdhHiddenEvalLogicalOperationCounts,
+    pub add_stage: DdhHiddenEvalLogicalOperationCounts,
+    pub message_schedule: DdhHiddenEvalLogicalOperationCounts,
+    pub round_core: DdhHiddenEvalLogicalOperationCounts,
+    pub output_projector: DdhHiddenEvalLogicalOperationCounts,
+    pub delivery: DdhHiddenEvalLogicalOperationCounts,
+    pub round_substages: DdhHiddenEvalRoundOperationCounts,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -573,15 +623,25 @@ impl LocalBitWordSide {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CoreBitWordSide {
+    stage: CoreBitWordStage,
     share_side: DdhHssShareSide,
     share_blocks: Vec<u64>,
     bit_len: usize,
     provenance_digests: Vec<[u8; 32]>,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum CoreBitWordStage {
+    MessageScheduleSigma0,
+    MessageScheduleSigma1,
+    RoundCoreSigma0,
+    RoundCoreSigma1,
+}
+
 impl CoreBitWordSide {
-    fn empty(share_side: DdhHssShareSide, len: usize) -> Self {
+    fn empty(stage: CoreBitWordStage, share_side: DdhHssShareSide, len: usize) -> Self {
         Self {
+            stage,
             share_side,
             share_blocks: Vec::with_capacity(len.div_ceil(64)),
             bit_len: 0,
@@ -619,26 +679,6 @@ impl CoreBitWordSide {
         ((self.share_blocks[block] >> bit) & 1) as u8
     }
 
-    fn materialize_into(
-        &self,
-        out: &mut LocalBitWordSide,
-        provenance_domain: &'static [u8],
-    ) -> ProtoResult<()> {
-        self.ensure_shape()?;
-        out.reset();
-        for idx in 0..self.len() {
-            let core = DdhHssLocalWordCore {
-                width_bits: 1,
-                share_side: self.share_side,
-                share_word: u64::from(self.share_bit(idx)),
-                provenance_digest: self.provenance_digests[idx],
-            };
-            let word = materialize_local_word_core(&core, provenance_domain);
-            out.push_local_word(&word)?;
-        }
-        Ok(())
-    }
-
     fn push_share_bit(&mut self, value: u8) {
         let block = self.bit_len / 64;
         let bit = self.bit_len % 64;
@@ -653,6 +693,89 @@ impl CoreBitWordSide {
         self.share_blocks.clear();
         self.bit_len = 0;
         self.provenance_digests.clear();
+    }
+
+    fn materialize_into(
+        &self,
+        target: &mut LocalBitWordSide,
+        materialization_domain: &'static [u8],
+    ) -> ProtoResult<()> {
+        self.ensure_shape()?;
+        if self.share_side != target.share_side {
+            return Err(ProtoError::InvalidInput(
+                "core bit-vector materialization requires matching share side".to_string(),
+            ));
+        }
+        target.reset();
+        for idx in 0..self.len() {
+            let core = DdhHssLocalWordCore {
+                width_bits: 1,
+                share_side: self.share_side,
+                share_word: u64::from(self.share_bit(idx)),
+                provenance_digest: self.provenance_digests[idx],
+            };
+            let word = materialize_local_word_core(&core, materialization_domain);
+            target.push_local_word(&word)?;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CoreBitWordPair {
+    stage: CoreBitWordStage,
+    left: CoreBitWordSide,
+    right: CoreBitWordSide,
+}
+
+impl CoreBitWordPair {
+    fn empty(stage: CoreBitWordStage, len: usize) -> Self {
+        Self {
+            stage,
+            left: CoreBitWordSide::empty(stage, DdhHssShareSide::Left, len),
+            right: CoreBitWordSide::empty(stage, DdhHssShareSide::Right, len),
+        }
+    }
+
+    fn ensure_shape(&self) -> ProtoResult<()> {
+        self.left.ensure_shape()?;
+        self.right.ensure_shape()?;
+        if self.left.stage != self.stage || self.right.stage != self.stage {
+            return Err(ProtoError::InvalidInput(
+                "core bit-pair stage mismatch".to_string(),
+            ));
+        }
+        if self.left.len() != self.right.len() {
+            return Err(ProtoError::InvalidInput(format!(
+                "core bit-pair length mismatch: {} vs {}",
+                self.left.len(),
+                self.right.len()
+            )));
+        }
+        Ok(())
+    }
+
+    fn reset(&mut self) {
+        self.left.reset();
+        self.right.reset();
+    }
+
+    fn materialize_round_sigma_into(
+        &self,
+        expected_stage: CoreBitWordStage,
+        target: &mut RoundKernelBooleanWord,
+    ) -> ProtoResult<()> {
+        self.ensure_shape()?;
+        if self.stage != expected_stage {
+            return Err(ProtoError::InvalidInput(
+                "round sigma materialization stage mismatch".to_string(),
+            ));
+        }
+        self.left
+            .materialize_into(&mut target.left, b"eval-xor-local-word")?;
+        self.right
+            .materialize_into(&mut target.right, b"eval-xor-local-word")?;
+        Ok(())
     }
 }
 
@@ -746,6 +869,70 @@ impl SplitLocalBitWord {
             left: &self.left,
             right: &self.right,
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StagedOutputBit {
+    left_word: u64,
+    right_word: u64,
+    provenance_digest: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StagedOutputWord256 {
+    bits: Vec<StagedOutputBit>,
+}
+
+impl StagedOutputWord256 {
+    fn from_split_local(label: &str, bits: &SplitLocalBitWord) -> ProtoResult<Self> {
+        if bits.left.len() != bits.right.len() {
+            return Err(ProtoError::InvalidInput(format!(
+                "{label} split output length mismatch: {} vs {}",
+                bits.left.len(),
+                bits.right.len()
+            )));
+        }
+        if bits.len() != 256 {
+            return Err(ProtoError::InvalidInput(format!(
+                "{label} must contain exactly 256 bits, got {}",
+                bits.len()
+            )));
+        }
+
+        let mut out = Vec::with_capacity(256);
+        for idx in 0..256 {
+            out.push(StagedOutputBit {
+                left_word: u64::from(bits.left.share_bit(idx)),
+                right_word: u64::from(bits.right.share_bit(idx)),
+                provenance_digest: bits.left.provenance_digests[idx],
+            });
+        }
+        Ok(Self { bits: out })
+    }
+
+    fn canonical_words(&self, owner: HiddenEvalInputOwner) -> Vec<DdhHssSharedWord> {
+        self.bits
+            .iter()
+            .map(|bit| DdhHssSharedWord {
+                width_bits: 1,
+                left_word: bit.left_word,
+                right_word: bit.right_word,
+                left_commitment: crate::ddh::ddh_hss::commit_word(
+                    owner,
+                    b"left",
+                    bit.left_word,
+                    &bit.provenance_digest,
+                ),
+                right_commitment: crate::ddh::ddh_hss::commit_word(
+                    owner,
+                    b"right",
+                    bit.right_word,
+                    &bit.provenance_digest,
+                ),
+                provenance_digest: bit.provenance_digest,
+            })
+            .collect()
     }
 }
 
@@ -949,6 +1136,156 @@ impl DdhHiddenEvalOperationCounts {
     }
 }
 
+impl DdhHiddenEvalLogicalOperationCounts {
+    fn add_assign(&mut self, other: Self) {
+        self.core_word_materializations = self
+            .core_word_materializations
+            .saturating_add(other.core_word_materializations);
+        self.local_word_materializations = self
+            .local_word_materializations
+            .saturating_add(other.local_word_materializations);
+        self.shared_word_materializations = self
+            .shared_word_materializations
+            .saturating_add(other.shared_word_materializations);
+        self.transport_word_materializations = self
+            .transport_word_materializations
+            .saturating_add(other.transport_word_materializations);
+        self.commitment_materializations = self
+            .commitment_materializations
+            .saturating_add(other.commitment_materializations);
+        self.provenance_digest_materializations = self
+            .provenance_digest_materializations
+            .saturating_add(other.provenance_digest_materializations);
+        self.commitment_derivations = self
+            .commitment_derivations
+            .saturating_add(other.commitment_derivations);
+        self.provenance_digest_derivations = self
+            .provenance_digest_derivations
+            .saturating_add(other.provenance_digest_derivations);
+        self.label_writes = self.label_writes.saturating_add(other.label_writes);
+        self.label_format_allocations = self
+            .label_format_allocations
+            .saturating_add(other.label_format_allocations);
+        self.multiplication_material_paths = self
+            .multiplication_material_paths
+            .saturating_add(other.multiplication_material_paths);
+        self.bool_to_arith_paths = self
+            .bool_to_arith_paths
+            .saturating_add(other.bool_to_arith_paths);
+        self.arith_to_bool_paths = self
+            .arith_to_bool_paths
+            .saturating_add(other.arith_to_bool_paths);
+    }
+
+    fn add_core_words(&mut self, count: u64) {
+        self.core_word_materializations = self.core_word_materializations.saturating_add(count);
+        self.provenance_digest_derivations =
+            self.provenance_digest_derivations.saturating_add(count);
+    }
+
+    fn add_local_words(&mut self, count: u64) {
+        self.local_word_materializations = self.local_word_materializations.saturating_add(count);
+        self.commitment_materializations = self.commitment_materializations.saturating_add(count);
+        self.provenance_digest_materializations = self
+            .provenance_digest_materializations
+            .saturating_add(count);
+        self.provenance_digest_derivations =
+            self.provenance_digest_derivations.saturating_add(count);
+    }
+
+    fn add_shared_words(&mut self, count: u64) {
+        self.shared_word_materializations = self.shared_word_materializations.saturating_add(count);
+        self.commitment_materializations = self
+            .commitment_materializations
+            .saturating_add(count.saturating_mul(2));
+        self.provenance_digest_materializations = self
+            .provenance_digest_materializations
+            .saturating_add(count);
+    }
+
+    fn add_transport_words(&mut self, count: u64) {
+        self.transport_word_materializations =
+            self.transport_word_materializations.saturating_add(count);
+        self.commitment_materializations = self
+            .commitment_materializations
+            .saturating_add(count.saturating_mul(2));
+        self.provenance_digest_materializations = self
+            .provenance_digest_materializations
+            .saturating_add(count);
+    }
+
+    fn add_input_share_bundle(&mut self, bundle: &DdhHssInputShareBundle) {
+        self.add_shared_words(bundle.words.len() as u64);
+        self.commitment_materializations = self.commitment_materializations.saturating_add(1);
+        self.label_writes = self.label_writes.saturating_add(1);
+    }
+
+    fn add_server_input_bundle(&mut self, bundle: &DdhHiddenEvalServerInputBundle) {
+        self.add_transport_words(bundle.left_words.len() as u64);
+        self.add_transport_words(bundle.right_words.len() as u64);
+        self.commitment_materializations = self.commitment_materializations.saturating_add(1);
+        self.label_writes = self.label_writes.saturating_add(1);
+    }
+
+    fn add_transport_bundle(&mut self, bundle: &DdhHssTransportBundle) {
+        self.add_transport_words(bundle.words.len() as u64);
+        self.commitment_materializations = self.commitment_materializations.saturating_add(1);
+        self.label_writes = self.label_writes.saturating_add(1);
+    }
+
+    fn add_split_local_bit_word(&mut self, word: &SplitLocalBitWord) {
+        self.add_local_words(split_local_bit_word_materialization_count(word));
+    }
+
+    fn add_split_local_bit_words(&mut self, words: &[SplitLocalBitWord]) {
+        for word in words {
+            self.add_split_local_bit_word(word);
+        }
+    }
+
+    fn add_hidden_eval_output_bundles(&mut self, output: &DdhHiddenEvalOutputBundles) {
+        self.add_input_share_bundle(&output.canonical_seed);
+        self.add_input_share_bundle(&output.client_output.bundle);
+        self.add_transport_bundle(&output.x_relayer_base_left);
+        self.add_transport_bundle(&output.x_relayer_base_right);
+
+        let output_word_count = output
+            .canonical_seed
+            .words
+            .len()
+            .saturating_add(output.client_output.bundle.words.len())
+            .saturating_add(output.x_relayer_base_left.words.len())
+            .saturating_add(output.x_relayer_base_right.words.len())
+            as u64;
+        self.commitment_derivations = self
+            .commitment_derivations
+            .saturating_add(output_word_count.saturating_mul(2));
+        self.provenance_digest_derivations = self
+            .provenance_digest_derivations
+            .saturating_add(output_word_count);
+    }
+}
+
+impl DdhHiddenEvalRoundOperationCounts {
+    fn total(self) -> DdhHiddenEvalLogicalOperationCounts {
+        let mut counts = DdhHiddenEvalLogicalOperationCounts::default();
+        counts.add_assign(self.sigma0);
+        counts.add_assign(self.sigma1);
+        counts.add_assign(self.ch);
+        counts.add_assign(self.maj);
+        counts.add_assign(self.state3);
+        counts.add_assign(self.temp1);
+        counts.add_assign(self.temp2);
+        counts.add_assign(self.new_a_bits);
+        counts.add_assign(self.new_e_bits);
+        counts
+    }
+}
+
+const HIDDEN_EVAL_SHA512_ROUNDS: u64 = 80;
+const HIDDEN_EVAL_SHA512_WORD_BITS: u64 = 64;
+const HIDDEN_EVAL_SPLIT_WORD_SIDES: u64 = 2;
+
 fn count_hidden_eval_operation_shape(
     y_client_bits: &DdhHssInputShareBundle,
     y_relayer_bits: &DdhHiddenEvalServerInputBundle,
@@ -976,6 +1313,152 @@ fn count_hidden_eval_operation_shape(
     counts
 }
 
+fn count_hidden_eval_stage_operation_shape(
+    y_client_bits: &DdhHssInputShareBundle,
+    y_relayer_bits: &DdhHiddenEvalServerInputBundle,
+    tau_client_bits: &DdhHssInputShareBundle,
+    tau_relayer_bits: &DdhHiddenEvalServerInputBundle,
+    y_client_bits_local: &SplitLocalBitWord,
+    tau_client_bits_local: &SplitLocalBitWord,
+    d_bits: &SplitLocalBitWord,
+    schedule_words: &[SplitLocalBitWord],
+    round_final_words: &[SplitLocalBitWord],
+    output: &DdhHiddenEvalOutputBundles,
+    output_projector_local_word_materializations: u64,
+) -> DdhHiddenEvalStageOperationCounts {
+    let mut input_sharing = DdhHiddenEvalLogicalOperationCounts::default();
+    input_sharing.add_input_share_bundle(y_client_bits);
+    input_sharing.add_server_input_bundle(y_relayer_bits);
+    input_sharing.add_input_share_bundle(tau_client_bits);
+    input_sharing.add_server_input_bundle(tau_relayer_bits);
+    input_sharing.add_split_local_bit_word(y_client_bits_local);
+    input_sharing.add_split_local_bit_word(tau_client_bits_local);
+
+    let mut add_stage = DdhHiddenEvalLogicalOperationCounts::default();
+    add_stage.add_split_local_bit_word(d_bits);
+    add_stage.label_writes = add_stage
+        .label_writes
+        .saturating_add(HIDDEN_EVAL_ADD_STAGE_LABEL_WRITES);
+
+    let mut message_schedule = DdhHiddenEvalLogicalOperationCounts::default();
+    message_schedule.add_split_local_bit_words(schedule_words);
+    message_schedule.add_core_words(message_schedule_sigma_core_words(schedule_words.len()));
+    message_schedule.add_local_words(message_schedule_sigma_local_words(schedule_words.len()));
+    let schedule_extensions = schedule_words.len().saturating_sub(16) as u64;
+    message_schedule.label_writes = message_schedule
+        .label_writes
+        .saturating_add(schedule_extensions.saturating_mul(HIDDEN_EVAL_MESSAGE_SCHEDULE_LABELS));
+    message_schedule.label_format_allocations =
+        message_schedule.label_format_allocations.saturating_add(
+            schedule_extensions.saturating_mul(HIDDEN_EVAL_MESSAGE_SCHEDULE_FORMAT_ALLOCATIONS),
+        );
+    message_schedule.bool_to_arith_paths = message_schedule.bool_to_arith_paths.saturating_add(
+        schedule_extensions
+            .saturating_mul(4)
+            .saturating_mul(HIDDEN_EVAL_SHA512_WORD_BITS),
+    );
+    message_schedule.arith_to_bool_paths = message_schedule
+        .arith_to_bool_paths
+        .saturating_add(schedule_extensions.saturating_mul(HIDDEN_EVAL_SHA512_WORD_BITS));
+
+    let round_substages = count_round_substage_operation_shape();
+    let mut round_core = round_substages.total();
+    round_core.add_split_local_bit_words(round_final_words);
+    round_core.label_writes = round_core
+        .label_writes
+        .saturating_add(HIDDEN_EVAL_SHA512_ROUNDS.saturating_mul(281))
+        .saturating_add((round_final_words.len() as u64).saturating_mul(2));
+
+    let mut output_projector = DdhHiddenEvalLogicalOperationCounts::default();
+    output_projector.add_hidden_eval_output_bundles(output);
+    output_projector.add_local_words(output_projector_local_word_materializations);
+    output_projector.label_format_allocations = output_projector
+        .label_format_allocations
+        .saturating_add(HIDDEN_EVAL_OUTPUT_PROJECTOR_FORMAT_ALLOCATIONS);
+
+    DdhHiddenEvalStageOperationCounts {
+        input_sharing,
+        add_stage,
+        message_schedule,
+        round_core,
+        output_projector,
+        delivery: DdhHiddenEvalLogicalOperationCounts::default(),
+        round_substages,
+    }
+}
+
+const HIDDEN_EVAL_ADD_STAGE_LABEL_WRITES: u64 = 256 * 5;
+const HIDDEN_EVAL_MESSAGE_SCHEDULE_LABELS: u64 = 521;
+const HIDDEN_EVAL_MESSAGE_SCHEDULE_FORMAT_ALLOCATIONS: u64 = 0;
+const HIDDEN_EVAL_OUTPUT_PROJECTOR_FORMAT_ALLOCATIONS: u64 = 9;
+
+fn message_schedule_sigma_core_words(schedule_word_count: usize) -> u64 {
+    let extensions = schedule_word_count.saturating_sub(16) as u64;
+    extensions
+        .saturating_mul(2)
+        .saturating_mul(HIDDEN_EVAL_SPLIT_WORD_SIDES)
+        .saturating_mul(HIDDEN_EVAL_SHA512_WORD_BITS)
+}
+
+fn message_schedule_sigma_local_words(schedule_word_count: usize) -> u64 {
+    message_schedule_sigma_core_words(schedule_word_count)
+}
+
+fn count_round_substage_operation_shape() -> DdhHiddenEvalRoundOperationCounts {
+    let split_word_bits = HIDDEN_EVAL_SPLIT_WORD_SIDES.saturating_mul(HIDDEN_EVAL_SHA512_WORD_BITS);
+    let round_split_words = HIDDEN_EVAL_SHA512_ROUNDS.saturating_mul(split_word_bits);
+    let round_bits = HIDDEN_EVAL_SHA512_ROUNDS.saturating_mul(HIDDEN_EVAL_SHA512_WORD_BITS);
+
+    let mut sigma0 = DdhHiddenEvalLogicalOperationCounts::default();
+    sigma0.add_core_words(round_split_words);
+    sigma0.add_local_words(round_split_words);
+
+    let mut sigma1 = DdhHiddenEvalLogicalOperationCounts::default();
+    sigma1.add_core_words(round_split_words);
+    sigma1.add_local_words(round_split_words);
+
+    let mut ch = DdhHiddenEvalLogicalOperationCounts::default();
+    ch.add_local_words(round_split_words.saturating_mul(2));
+    ch.multiplication_material_paths = round_bits;
+
+    let mut maj = DdhHiddenEvalLogicalOperationCounts::default();
+    maj.add_local_words(round_split_words.saturating_mul(4));
+    maj.multiplication_material_paths = round_bits;
+
+    let mut state3 = DdhHiddenEvalLogicalOperationCounts::default();
+    state3.bool_to_arith_paths = round_bits;
+
+    let mut temp1 = DdhHiddenEvalLogicalOperationCounts::default();
+    temp1.bool_to_arith_paths = HIDDEN_EVAL_SHA512_ROUNDS
+        .saturating_mul(5)
+        .saturating_mul(HIDDEN_EVAL_SHA512_WORD_BITS);
+
+    let mut temp2 = DdhHiddenEvalLogicalOperationCounts::default();
+    temp2.bool_to_arith_paths = HIDDEN_EVAL_SHA512_ROUNDS
+        .saturating_mul(2)
+        .saturating_mul(HIDDEN_EVAL_SHA512_WORD_BITS);
+
+    let mut new_a_bits = DdhHiddenEvalLogicalOperationCounts::default();
+    new_a_bits.add_local_words(round_split_words);
+    new_a_bits.arith_to_bool_paths = round_bits;
+
+    let mut new_e_bits = DdhHiddenEvalLogicalOperationCounts::default();
+    new_e_bits.add_local_words(round_split_words);
+    new_e_bits.arith_to_bool_paths = round_bits;
+
+    DdhHiddenEvalRoundOperationCounts {
+        sigma0,
+        sigma1,
+        ch,
+        maj,
+        state3,
+        temp1,
+        temp2,
+        new_a_bits,
+        new_e_bits,
+    }
+}
+
 #[derive(Debug, Clone)]
 struct RoundKernelBooleanWord {
     left: LocalBitWordSide,
@@ -995,43 +1478,6 @@ impl RoundKernelBooleanWord {
             left: &self.left,
             right: &self.right,
         }
-    }
-
-    fn reset(&mut self) {
-        self.left.reset();
-        self.right.reset();
-    }
-}
-
-#[derive(Debug, Clone)]
-struct RoundKernelCoreBooleanWord {
-    left: CoreBitWordSide,
-    right: CoreBitWordSide,
-}
-
-impl RoundKernelCoreBooleanWord {
-    fn empty(len: usize) -> Self {
-        Self {
-            left: CoreBitWordSide::empty(DdhHssShareSide::Left, len),
-            right: CoreBitWordSide::empty(DdhHssShareSide::Right, len),
-        }
-    }
-
-    fn materialize_into(&self, out: &mut RoundKernelBooleanWord) -> ProtoResult<()> {
-        self.left.ensure_shape()?;
-        self.right.ensure_shape()?;
-        if self.left.len() != self.right.len() {
-            return Err(ProtoError::InvalidInput(format!(
-                "core round word length mismatch: {} vs {}",
-                self.left.len(),
-                self.right.len()
-            )));
-        }
-        self.left
-            .materialize_into(&mut out.left, b"eval-xor-local-word")?;
-        self.right
-            .materialize_into(&mut out.right, b"eval-xor-local-word")?;
-        Ok(())
     }
 
     fn reset(&mut self) {
@@ -1082,7 +1528,165 @@ pub fn compute_output_projection_output_digest(output: &DdhHiddenEvalOutputBundl
     hasher.update(output.client_output.bundle.commitment);
     hasher.update(output.x_relayer_base_left.commitment);
     hasher.update(output.x_relayer_base_right.commitment);
+    hasher.update(match output.output_projector_binding.kind {
+        OutputProjectorBindingKind::BindingV1 => b"binding_v1".as_slice(),
+    });
+    hasher.update(
+        output
+            .output_projector_binding
+            .scalar_width_bits
+            .to_le_bytes(),
+    );
+    hasher.update(match output.output_projector_binding.modulus_id {
+        OutputProjectorModulusId::Ed25519L => b"ed25519_l".as_slice(),
+    });
+    hasher.update(output.output_projector_binding.binding_digest);
     hasher.finalize().into()
+}
+
+fn digest_split_local_bit_word_commitment_metadata(
+    label: &[u8],
+    word: &SplitLocalBitWord,
+) -> ProtoResult<[u8; 32]> {
+    word.left.ensure_shape()?;
+    word.right.ensure_shape()?;
+    if word.left.len() != word.right.len() {
+        return Err(ProtoError::InvalidInput(format!(
+            "projector binding metadata length mismatch for {}: {} vs {}",
+            String::from_utf8_lossy(label),
+            word.left.len(),
+            word.right.len()
+        )));
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(b"ddh_hss_output_projector_bitword_commitment_metadata_v0");
+    hasher.update(label);
+    hasher.update((word.len() as u64).to_le_bytes());
+    for idx in 0..word.len() {
+        hasher.update(word.left.commitments[idx]);
+        hasher.update(word.right.commitments[idx]);
+        hasher.update(word.left.provenance_digests[idx]);
+        hasher.update(word.right.provenance_digests[idx]);
+    }
+    Ok(hasher.finalize().into())
+}
+
+fn digest_shared_bit_word_commitment_metadata(
+    label: &[u8],
+    words: &[DdhHssSharedWord],
+) -> ProtoResult<[u8; 32]> {
+    let mut hasher = Sha256::new();
+    hasher.update(b"ddh_hss_output_projector_bitword_commitment_metadata_v0");
+    hasher.update(label);
+    hasher.update((words.len() as u64).to_le_bytes());
+    for (idx, word) in words.iter().enumerate() {
+        if word.width_bits != 1 {
+            return Err(ProtoError::InvalidInput(format!(
+                "projector binding metadata requires width-1 shared bits, got {} at index {idx}",
+                word.width_bits
+            )));
+        }
+        hasher.update(word.left_commitment);
+        hasher.update(word.right_commitment);
+        hasher.update(word.provenance_digest);
+        hasher.update(word.provenance_digest);
+    }
+    Ok(hasher.finalize().into())
+}
+
+fn output_projector_binding_material_seed<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    reduced_a_bits: &SplitLocalBitWord,
+    tau_bits: &SplitLocalBitWord,
+) -> ProtoResult<[u8; 32]> {
+    let mut hasher = Sha256::new();
+    hasher.update(b"ddh_hss_output_projector_binding_material_seed_v1");
+    hasher.update(backend.evaluation_key().backend_version.as_str().as_bytes());
+    hasher.update(backend.evaluation_key().key_id);
+    hasher.update(backend.evaluation_key().context_binding);
+    hasher.update(backend.evaluation_key().candidate_digest);
+    hasher.update(backend.evaluation_key().program_digest);
+    hasher.update(256u16.to_le_bytes());
+    hasher.update(b"ed25519_l");
+    hasher.update(digest_split_local_bit_word_commitment_metadata(
+        b"reduced_a_bits",
+        reduced_a_bits,
+    )?);
+    hasher.update(digest_split_local_bit_word_commitment_metadata(
+        b"tau_bits",
+        tau_bits,
+    )?);
+    Ok(hasher.finalize().into())
+}
+
+fn output_projector_mask_metadata_digest(
+    mask_words: Option<&[DdhHssSharedWord]>,
+) -> ProtoResult<[u8; 32]> {
+    let mut hasher = Sha256::new();
+    hasher.update(b"ddh_hss_output_projector_mask_metadata_v1");
+    match mask_words {
+        Some(words) => {
+            hasher.update(b"client_masked_projection");
+            hasher.update(digest_shared_bit_word_commitment_metadata(
+                b"client_output_mask",
+                words,
+            )?);
+        }
+        None => {
+            hasher.update(b"trusted_server_projection");
+        }
+    }
+    Ok(hasher.finalize().into())
+}
+
+fn build_output_projector_binding(
+    binding_material_seed: &[u8; 32],
+    projection: DdhHiddenEvalClientOutputProjection,
+    mask_words: Option<&[DdhHssSharedWord]>,
+    canonical_seed_commitment: [u8; 32],
+    client_output_value_kind: ClientOutputValueKind,
+    client_output_commitment: [u8; 32],
+    x_relayer_base_left_commitment: [u8; 32],
+    x_relayer_base_right_commitment: [u8; 32],
+) -> ProtoResult<OutputProjectorBinding> {
+    let expected_mask = matches!(
+        projection,
+        DdhHiddenEvalClientOutputProjection::ClientMaskedProjection { .. }
+    );
+    if expected_mask != mask_words.is_some() {
+        return Err(ProtoError::InvalidInput(
+            "output-projector binding mask metadata does not match projection mode".to_string(),
+        ));
+    }
+    if client_output_value_kind != projection.value_kind() {
+        return Err(ProtoError::InvalidInput(
+            "output-projector binding value kind does not match projection mode".to_string(),
+        ));
+    }
+
+    let mut hasher = Sha256::new();
+    hasher.update(b"ddh_hss_output_projector_binding_v1");
+    hasher.update(binding_material_seed);
+    hasher.update(match projection {
+        DdhHiddenEvalClientOutputProjection::TrustedServerProjection => {
+            b"trusted_server_projection".as_slice()
+        }
+        DdhHiddenEvalClientOutputProjection::ClientMaskedProjection { .. } => {
+            b"client_masked_projection".as_slice()
+        }
+    });
+    hasher.update(output_projector_mask_metadata_digest(mask_words)?);
+    hasher.update(client_output_value_kind.domain_tag());
+    hasher.update(canonical_seed_commitment);
+    hasher.update(client_output_commitment);
+    hasher.update(x_relayer_base_left_commitment);
+    hasher.update(x_relayer_base_right_commitment);
+    Ok(OutputProjectorBinding {
+        kind: OutputProjectorBindingKind::BindingV1,
+        scalar_width_bits: 256,
+        modulus_id: OutputProjectorModulusId::Ed25519L,
+        binding_digest: hasher.finalize().into(),
+    })
 }
 
 pub fn compute_output_projection_continuation_digest(
@@ -1169,34 +1773,24 @@ struct MessageScheduleStageOutput {
 
 #[derive(Debug, Clone)]
 struct RoundCoreBooleanScratch {
-    sigma0_core: RoundKernelCoreBooleanWord,
-    sigma1_core: RoundKernelCoreBooleanWord,
     sigma0: RoundKernelBooleanWord,
     sigma1: RoundKernelBooleanWord,
+    sigma0_core: CoreBitWordPair,
+    sigma1_core: CoreBitWordPair,
     choose: RoundKernelBooleanWord,
     majority: RoundKernelBooleanWord,
-    operand0: RoundKernelBooleanWord,
 }
 
 impl RoundCoreBooleanScratch {
     fn new(word_len: usize) -> Self {
         Self {
-            sigma0_core: RoundKernelCoreBooleanWord::empty(word_len),
-            sigma1_core: RoundKernelCoreBooleanWord::empty(word_len),
             sigma0: RoundKernelBooleanWord::empty(word_len),
             sigma1: RoundKernelBooleanWord::empty(word_len),
+            sigma0_core: CoreBitWordPair::empty(CoreBitWordStage::RoundCoreSigma0, word_len),
+            sigma1_core: CoreBitWordPair::empty(CoreBitWordStage::RoundCoreSigma1, word_len),
             choose: RoundKernelBooleanWord::empty(word_len),
             majority: RoundKernelBooleanWord::empty(word_len),
-            operand0: RoundKernelBooleanWord::empty(word_len),
         }
-    }
-
-    fn materialize_sigma0(&mut self) -> ProtoResult<()> {
-        self.sigma0_core.materialize_into(&mut self.sigma0)
-    }
-
-    fn materialize_sigma1(&mut self) -> ProtoResult<()> {
-        self.sigma1_core.materialize_into(&mut self.sigma1)
     }
 }
 
@@ -1323,6 +1917,48 @@ struct LocalBitWordAddTiming {
     a_xor_carry_duration_ns: u128,
     carry_gate_duration_ns: u128,
     next_carry_duration_ns: u128,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct LocalArithmeticAddScratch {
+    child_label: String,
+}
+
+impl LocalArithmeticAddScratch {
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            child_label: String::with_capacity(capacity),
+        }
+    }
+
+    fn set_child_label(&mut self, label: &str, child: &str) {
+        set_child_label(&mut self.child_label, label, child);
+    }
+
+    fn label(&self) -> &str {
+        &self.child_label
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct LocalArithmeticToBooleanScratch {
+    child_label: String,
+}
+
+impl LocalArithmeticToBooleanScratch {
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            child_label: String::with_capacity(capacity),
+        }
+    }
+
+    fn set_child_label(&mut self, label: &str, child: &str) {
+        set_child_label(&mut self.child_label, label, child);
+    }
+
+    fn label(&self) -> &str {
+        &self.child_label
+    }
 }
 
 impl LocalBitWordAddTiming {
@@ -1609,6 +2245,7 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 output_projector_local_word_materializations: 0,
                 total_duration_ns: elapsed_ns(total_started_ns),
                 operation_counts: DdhHiddenEvalOperationCounts::default(),
+                stage_operation_counts: DdhHiddenEvalStageOperationCounts::default(),
             },
             schedule_word_count: None,
             hash_prefix_hex: None,
@@ -1669,6 +2306,7 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 output_projector_local_word_materializations: 0,
                 total_duration_ns: elapsed_ns(total_started_ns),
                 operation_counts: DdhHiddenEvalOperationCounts::default(),
+                stage_operation_counts: DdhHiddenEvalStageOperationCounts::default(),
             },
             schedule_word_count: None,
             hash_prefix_hex: None,
@@ -1729,6 +2367,7 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 output_projector_local_word_materializations: 0,
                 total_duration_ns: elapsed_ns(total_started_ns),
                 operation_counts: DdhHiddenEvalOperationCounts::default(),
+                stage_operation_counts: DdhHiddenEvalStageOperationCounts::default(),
             },
             schedule_word_count: Some(schedule_output.words.len()),
             hash_prefix_hex: None,
@@ -1802,6 +2441,7 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 output_projector_local_word_materializations: 0,
                 total_duration_ns: elapsed_ns(total_started_ns),
                 operation_counts: DdhHiddenEvalOperationCounts::default(),
+                stage_operation_counts: DdhHiddenEvalStageOperationCounts::default(),
             },
             schedule_word_count: Some(schedule_output.words.len()),
             hash_prefix_hex: None,
@@ -1877,6 +2517,7 @@ pub fn probe_prime_order_ddh_hidden_eval_program_with_pool<B: DdhHssArithmeticBa
                 .local_word_materializations,
             total_duration_ns: elapsed_ns(total_started_ns),
             operation_counts: DdhHiddenEvalOperationCounts::default(),
+            stage_operation_counts: DdhHiddenEvalStageOperationCounts::default(),
         },
         schedule_word_count: Some(schedule_output.words.len()),
         hash_prefix_hex: None,
@@ -2094,6 +2735,19 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
     let output_projector_profile = output_execution.profile;
     let output_projector_duration_ns = elapsed_ns(output_started_ns);
     checkpoints.record_output_projection(&output);
+    let stage_operation_counts = count_hidden_eval_stage_operation_shape(
+        &input_bundles.y_client_bits,
+        &input_bundles.server_inputs.y_relayer_bits,
+        &input_bundles.tau_client_bits,
+        &input_bundles.server_inputs.tau_relayer_bits,
+        &y_client_bits_local,
+        &tau_client_bits_local,
+        &d_bits,
+        &schedule_output.words,
+        &hash_core.final_words,
+        &output,
+        output_projector_profile.local_word_materializations,
+    );
     let mut operation_counts = count_hidden_eval_operation_shape(
         &input_bundles.y_client_bits,
         &input_bundles.server_inputs.y_relayer_bits,
@@ -2161,6 +2815,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal<B: DdhHssArithmeticBacke
                 .local_word_materializations,
             total_duration_ns: elapsed_ns(total_started_ns),
             operation_counts,
+            stage_operation_counts,
         },
         run: DdhHiddenEvalRun {
             client_input_commitment,
@@ -2260,6 +2915,19 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
     let output_projector_profile = output_execution.profile;
     let output_projector_duration_ns = elapsed_ns(output_started_ns);
     checkpoints.record_output_projection(&output);
+    let stage_operation_counts = count_hidden_eval_stage_operation_shape(
+        y_client_bits,
+        y_relayer_bits,
+        tau_client_bits,
+        tau_relayer_bits,
+        &y_client_bits_local,
+        &tau_client_bits_local,
+        &d_bits,
+        &schedule_output.words,
+        &hash_core.final_words,
+        &output,
+        output_projector_profile.local_word_materializations,
+    );
     let mut operation_counts = count_hidden_eval_operation_shape(
         y_client_bits,
         y_relayer_bits,
@@ -2327,6 +2995,7 @@ fn execute_prime_order_ddh_hidden_eval_program_internal_with_split_server_inputs
                 .local_word_materializations,
             total_duration_ns: elapsed_ns(total_started_ns),
             operation_counts,
+            stage_operation_counts,
         },
         run: DdhHiddenEvalRun {
             client_input_commitment,
@@ -2524,31 +3193,51 @@ pub fn advance_message_schedule_continuation_with_pool<B: DdhHssArithmeticBacken
         .map(|word| SplitLocalBitWord::from_shared_bits(word))
         .collect::<ProtoResult<Vec<_>>>()?;
     let t = words.len();
-    let sigma0 = small_sigma0_local_bits(
+    let mut sigma0 =
+        CoreBitWordPair::empty(CoreBitWordStage::MessageScheduleSigma0, words[t - 15].len());
+    let mut sigma1 =
+        CoreBitWordPair::empty(CoreBitWordStage::MessageScheduleSigma1, words[t - 2].len());
+    let mut sigma0_b2a_scratch = CoreBitPairB2aMaterialScratch::default();
+    let mut sigma1_b2a_scratch = CoreBitPairB2aMaterialScratch::default();
+    let mut arithmetic_add_scratch = LocalArithmeticAddScratch::with_capacity(48);
+    let mut arithmetic_to_bool_scratch = LocalArithmeticToBooleanScratch::with_capacity(48);
+    let mut schedule_label = String::with_capacity(32);
+    let mut schedule_child_label = String::with_capacity(40);
+    set_indexed_label(&mut schedule_label, "message_schedule", t);
+    set_child_label(&mut schedule_child_label, &schedule_label, "sigma0");
+    small_sigma0_core_bits_into(
         backend,
-        &format!("message_schedule/{t}/sigma0"),
+        &schedule_child_label,
         &words[t - 15],
         &constant_pool.zero_left,
         &constant_pool.zero_right,
+        &mut sigma0,
     )?;
-    let sigma1 = small_sigma1_local_bits(
+    set_child_label(&mut schedule_child_label, &schedule_label, "sigma1");
+    small_sigma1_core_bits_into(
         backend,
-        &format!("message_schedule/{t}/sigma1"),
+        &schedule_child_label,
         &words[t - 2],
         &constant_pool.zero_left,
         &constant_pool.zero_right,
+        &mut sigma1,
     )?;
-    let (accumulation_arith, _) = add_four_local_bit_pairs_to_arithmetic_naive(
+    let (accumulation_arith, _) = add_message_schedule_words_to_arithmetic_naive(
         backend,
-        &format!("message_schedule/{t}"),
+        &schedule_label,
+        &mut arithmetic_add_scratch,
         words[t - 16].as_pair_ref(),
-        sigma0.as_pair_ref(),
+        &sigma0,
         words[t - 7].as_pair_ref(),
-        sigma1.as_pair_ref(),
+        &sigma1,
+        &mut sigma0_b2a_scratch,
+        &mut sigma1_b2a_scratch,
     )?;
+    set_child_label(&mut schedule_child_label, &schedule_label, "out");
     let accumulation = arithmetic_word_pair_to_split_local_bits_secure(
         backend,
-        &format!("message_schedule/{t}/out"),
+        &schedule_child_label,
+        &mut arithmetic_to_bool_scratch,
         &accumulation_arith,
     )?;
     words.push(accumulation);
@@ -2609,89 +3298,74 @@ pub fn advance_round_core_continuation_with_pool<B: DdhHssArithmeticBackend>(
         .collect::<ProtoResult<Vec<_>>>()?;
     let mut state = RoundKernelState::from_shared_bits(&continuation.state_words)?;
     let mut boolean_scratch = RoundCoreBooleanScratch::new(64);
+    let mut arithmetic_add_scratch = LocalArithmeticAddScratch::with_capacity(48);
+    let mut arithmetic_to_bool_scratch = LocalArithmeticToBooleanScratch::with_capacity(48);
     let mut round_label = String::with_capacity(40);
-    set_round_label(&mut round_label, round, "sigma1");
-    big_sigma1_local_bits_core_into(
+    execute_round_sigma1_subkernel(
         backend,
-        &round_label,
-        state.e.as_pair_ref(),
-        &mut boolean_scratch.sigma1_core,
-    )?;
-    boolean_scratch.materialize_sigma1()?;
-    set_round_label(&mut round_label, round, "ch");
-    ch_local_bits_into(
-        backend,
-        &round_label,
-        state.e.as_pair_ref(),
-        state.f.as_pair_ref(),
-        state.g.as_pair_ref(),
+        round,
+        &state,
         &mut boolean_scratch,
+        &mut round_label,
     )?;
-    set_round_label(&mut round_label, round, "temp1");
-    let (temp1, _) = add_five_local_bit_pairs_to_arithmetic_naive(
+    execute_round_ch_subkernel(
         backend,
-        &round_label,
-        state.h.as_pair_ref(),
-        boolean_scratch.sigma1.as_pair_ref(),
-        boolean_scratch.choose.as_pair_ref(),
-        constant_pool.sha512_round_constants[round].as_pair_ref(),
-        schedule_words[round].as_pair_ref(),
-    )?;
-    set_round_label(&mut round_label, round, "sigma0");
-    big_sigma0_local_bits_core_into(
-        backend,
-        &round_label,
-        state.a.as_pair_ref(),
-        &mut boolean_scratch.sigma0_core,
-    )?;
-    boolean_scratch.materialize_sigma0()?;
-    set_round_label(&mut round_label, round, "maj");
-    maj_local_bits_into(
-        backend,
-        &round_label,
-        state.a.as_pair_ref(),
-        state.b.as_pair_ref(),
-        state.c.as_pair_ref(),
+        round,
+        &state,
         &mut boolean_scratch,
+        &mut round_label,
     )?;
-    set_round_label(&mut round_label, round, "temp2");
-    let (temp2, _) = add_two_local_bit_pairs_to_arithmetic_naive(
+    let (temp1, _) = execute_round_temp1_subkernel(
         backend,
-        &round_label,
-        boolean_scratch.sigma0.as_pair_ref(),
-        boolean_scratch.majority.as_pair_ref(),
+        round,
+        &state,
+        &boolean_scratch,
+        &mut arithmetic_add_scratch,
+        &mut round_label,
+        &constant_pool.sha512_round_constants[round],
+        &schedule_words[round],
     )?;
-    set_round_label(&mut round_label, round, "state3");
-    let state3 = split_local_bit_pair_to_arithmetic_word_pair_naive(
+    execute_round_sigma0_subkernel(
         backend,
-        &round_label,
-        state.d.as_pair_ref(),
+        round,
+        &state,
+        &mut boolean_scratch,
+        &mut round_label,
     )?;
+    execute_round_maj_subkernel(
+        backend,
+        round,
+        &state,
+        &mut boolean_scratch,
+        &mut round_label,
+    )?;
+    let (temp2, _) = execute_round_temp2_subkernel(
+        backend,
+        round,
+        &boolean_scratch,
+        &mut arithmetic_add_scratch,
+        &mut round_label,
+    )?;
+    let state3 = execute_round_state3_subkernel(backend, round, &state, &mut round_label)?;
     let arithmetic_temps = RoundKernelArithmeticTemps {
         temp1,
         temp2,
         state3,
     };
-    set_round_label(&mut round_label, round, "new_a");
-    let new_a_arith = add_local_arithmetic_word_pairs(
-        backend.evaluation_key(),
-        &round_label,
-        &arithmetic_temps.temp1,
-        &arithmetic_temps.temp2,
+    let new_a = execute_round_new_a_bits_subkernel(
+        backend,
+        round,
+        &arithmetic_temps,
+        &mut arithmetic_to_bool_scratch,
+        &mut round_label,
     )?;
-    set_round_label(&mut round_label, round, "new_a_bits");
-    let new_a =
-        arithmetic_word_pair_to_split_local_bits_secure(backend, &round_label, &new_a_arith)?;
-    set_round_label(&mut round_label, round, "new_e");
-    let new_e_arith = add_local_arithmetic_word_pairs(
-        backend.evaluation_key(),
-        &round_label,
-        &arithmetic_temps.state3,
-        &arithmetic_temps.temp1,
+    let new_e = execute_round_new_e_bits_subkernel(
+        backend,
+        round,
+        &arithmetic_temps,
+        &mut arithmetic_to_bool_scratch,
+        &mut round_label,
     )?;
-    set_round_label(&mut round_label, round, "new_e_bits");
-    let new_e =
-        arithmetic_word_pair_to_split_local_bits_secure(backend, &round_label, &new_e_arith)?;
     state.rotate_with_new_words(new_a, new_e);
     Ok(DdhHiddenEvalRoundCoreContinuation {
         rounds_completed: continuation.rounds_completed.saturating_add(1),
@@ -2912,9 +3586,25 @@ fn set_child_label(buffer: &mut String, label: &str, child: &str) {
     write!(buffer, "{label}/{child}").expect("write child label");
 }
 
+#[cfg(test)]
 fn set_reduce_label(buffer: &mut String, label: &str, operation: &str, round: usize) {
     buffer.clear();
     write!(buffer, "{label}/reduce_mod_l/{operation}/{round}").expect("write reduce label");
+}
+
+fn set_reduce_multiple_label(
+    buffer: &mut String,
+    label: &str,
+    operation: &str,
+    multiple: Ed25519LPublicMultiple,
+) {
+    buffer.clear();
+    write!(
+        buffer,
+        "{label}/reduce_clamped_mod_l/{operation}/{}",
+        multiple.label_suffix()
+    )
+    .expect("write clamped reduce label");
 }
 
 fn ensure_program_shape(program: &HiddenEvalProgram) -> ProtoResult<()> {
@@ -2976,6 +3666,14 @@ fn execute_message_schedule_stage<B: DdhHssArithmeticBackend>(
     )?;
     let mut accumulation_duration_ns = 0u128;
     let mut accumulation_add_timing = LocalBitWordAddTiming::default();
+    let mut sigma0 = CoreBitWordPair::empty(CoreBitWordStage::MessageScheduleSigma0, 64);
+    let mut sigma1 = CoreBitWordPair::empty(CoreBitWordStage::MessageScheduleSigma1, 64);
+    let mut sigma0_b2a_scratch = CoreBitPairB2aMaterialScratch::default();
+    let mut sigma1_b2a_scratch = CoreBitPairB2aMaterialScratch::default();
+    let mut arithmetic_add_scratch = LocalArithmeticAddScratch::with_capacity(48);
+    let mut arithmetic_to_bool_scratch = LocalArithmeticToBooleanScratch::with_capacity(48);
+    let mut schedule_label = String::with_capacity(32);
+    let mut schedule_child_label = String::with_capacity(40);
     for window in &stage.windows {
         let t = usize::from(window.class_value);
         if t < 16 || t >= 80 {
@@ -2984,32 +3682,42 @@ fn execute_message_schedule_stage<B: DdhHssArithmeticBackend>(
             )));
         }
 
-        let sigma0 = small_sigma0_local_bits(
+        set_indexed_label(&mut schedule_label, "message_schedule", t);
+        set_child_label(&mut schedule_child_label, &schedule_label, "sigma0");
+        small_sigma0_core_bits_into(
             backend,
-            &format!("message_schedule/{t}/sigma0"),
+            &schedule_child_label,
             &words[t - 15],
             &constant_pool.zero_left,
             &constant_pool.zero_right,
+            &mut sigma0,
         )?;
-        let sigma1 = small_sigma1_local_bits(
+        set_child_label(&mut schedule_child_label, &schedule_label, "sigma1");
+        small_sigma1_core_bits_into(
             backend,
-            &format!("message_schedule/{t}/sigma1"),
+            &schedule_child_label,
             &words[t - 2],
             &constant_pool.zero_left,
             &constant_pool.zero_right,
+            &mut sigma1,
         )?;
         let accumulation_started_ns = monotonic_now_ns();
-        let (accumulation_arith, add_timing) = add_four_local_bit_pairs_to_arithmetic_naive(
+        let (accumulation_arith, add_timing) = add_message_schedule_words_to_arithmetic_naive(
             backend,
-            &format!("message_schedule/{t}"),
+            &schedule_label,
+            &mut arithmetic_add_scratch,
             words[t - 16].as_pair_ref(),
-            sigma0.as_pair_ref(),
+            &sigma0,
             words[t - 7].as_pair_ref(),
-            sigma1.as_pair_ref(),
+            &sigma1,
+            &mut sigma0_b2a_scratch,
+            &mut sigma1_b2a_scratch,
         )?;
+        set_child_label(&mut schedule_child_label, &schedule_label, "out");
         let accumulation = arithmetic_word_pair_to_split_local_bits_secure(
             backend,
-            &format!("message_schedule/{t}/out"),
+            &schedule_child_label,
+            &mut arithmetic_to_bool_scratch,
             &accumulation_arith,
         )?;
         accumulation_duration_ns += elapsed_ns(accumulation_started_ns);
@@ -3029,6 +3737,185 @@ fn execute_message_schedule_stage<B: DdhHssArithmeticBackend>(
         accumulation_duration_ns,
         accumulation_add_timing,
     })
+}
+
+#[inline(always)]
+fn execute_round_sigma1_subkernel<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    round: usize,
+    state: &RoundKernelState,
+    scratch: &mut RoundCoreBooleanScratch,
+    round_label: &mut String,
+) -> ProtoResult<()> {
+    set_round_label(round_label, round, "sigma1");
+    big_sigma1_local_bits_core_into(
+        backend,
+        round_label,
+        state.e.as_pair_ref(),
+        &mut scratch.sigma1_core,
+    )?;
+    scratch
+        .sigma1_core
+        .materialize_round_sigma_into(CoreBitWordStage::RoundCoreSigma1, &mut scratch.sigma1)
+}
+
+#[inline(always)]
+fn execute_round_sigma0_subkernel<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    round: usize,
+    state: &RoundKernelState,
+    scratch: &mut RoundCoreBooleanScratch,
+    round_label: &mut String,
+) -> ProtoResult<()> {
+    set_round_label(round_label, round, "sigma0");
+    big_sigma0_local_bits_core_into(
+        backend,
+        round_label,
+        state.a.as_pair_ref(),
+        &mut scratch.sigma0_core,
+    )?;
+    scratch
+        .sigma0_core
+        .materialize_round_sigma_into(CoreBitWordStage::RoundCoreSigma0, &mut scratch.sigma0)
+}
+
+#[inline(always)]
+fn execute_round_ch_subkernel<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    round: usize,
+    state: &RoundKernelState,
+    scratch: &mut RoundCoreBooleanScratch,
+    round_label: &mut String,
+) -> ProtoResult<()> {
+    set_round_label(round_label, round, "ch");
+    ch_local_bits_into(
+        backend,
+        round_label,
+        state.e.as_pair_ref(),
+        state.f.as_pair_ref(),
+        state.g.as_pair_ref(),
+        scratch,
+    )
+}
+
+#[inline(always)]
+fn execute_round_maj_subkernel<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    round: usize,
+    state: &RoundKernelState,
+    scratch: &mut RoundCoreBooleanScratch,
+    round_label: &mut String,
+) -> ProtoResult<()> {
+    set_round_label(round_label, round, "maj");
+    maj_local_bits_into(
+        backend,
+        round_label,
+        state.a.as_pair_ref(),
+        state.b.as_pair_ref(),
+        state.c.as_pair_ref(),
+        scratch,
+    )
+}
+
+#[inline(always)]
+fn execute_round_temp1_subkernel<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    round: usize,
+    state: &RoundKernelState,
+    boolean_scratch: &RoundCoreBooleanScratch,
+    arithmetic_add_scratch: &mut LocalArithmeticAddScratch,
+    round_label: &mut String,
+    round_constant: &SplitLocalBitWord,
+    schedule_word: &SplitLocalBitWord,
+) -> ProtoResult<(LocalArithmeticWordPair, LocalBitWordAddTiming)> {
+    set_round_label(round_label, round, "temp1");
+    add_five_local_bit_pairs_to_arithmetic_naive(
+        backend,
+        round_label,
+        arithmetic_add_scratch,
+        state.h.as_pair_ref(),
+        boolean_scratch.sigma1.as_pair_ref(),
+        boolean_scratch.choose.as_pair_ref(),
+        round_constant.as_pair_ref(),
+        schedule_word.as_pair_ref(),
+    )
+}
+
+#[inline(always)]
+fn execute_round_temp2_subkernel<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    round: usize,
+    boolean_scratch: &RoundCoreBooleanScratch,
+    arithmetic_add_scratch: &mut LocalArithmeticAddScratch,
+    round_label: &mut String,
+) -> ProtoResult<(LocalArithmeticWordPair, LocalBitWordAddTiming)> {
+    set_round_label(round_label, round, "temp2");
+    add_two_local_bit_pairs_to_arithmetic_naive(
+        backend,
+        round_label,
+        arithmetic_add_scratch,
+        boolean_scratch.sigma0.as_pair_ref(),
+        boolean_scratch.majority.as_pair_ref(),
+    )
+}
+
+#[inline(always)]
+fn execute_round_state3_subkernel<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    round: usize,
+    state: &RoundKernelState,
+    round_label: &mut String,
+) -> ProtoResult<LocalArithmeticWordPair> {
+    set_round_label(round_label, round, "state3");
+    split_local_bit_pair_to_arithmetic_word_pair_naive(backend, round_label, state.d.as_pair_ref())
+}
+
+#[inline(always)]
+fn execute_round_new_a_bits_subkernel<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    round: usize,
+    arithmetic_temps: &RoundKernelArithmeticTemps,
+    arithmetic_to_bool_scratch: &mut LocalArithmeticToBooleanScratch,
+    round_label: &mut String,
+) -> ProtoResult<SplitLocalBitWord> {
+    set_round_label(round_label, round, "new_a");
+    let new_a_arith = add_local_arithmetic_word_pairs(
+        backend.evaluation_key(),
+        round_label,
+        &arithmetic_temps.temp1,
+        &arithmetic_temps.temp2,
+    )?;
+    set_round_label(round_label, round, "new_a_bits");
+    arithmetic_word_pair_to_split_local_bits_secure(
+        backend,
+        round_label,
+        arithmetic_to_bool_scratch,
+        &new_a_arith,
+    )
+}
+
+#[inline(always)]
+fn execute_round_new_e_bits_subkernel<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    round: usize,
+    arithmetic_temps: &RoundKernelArithmeticTemps,
+    arithmetic_to_bool_scratch: &mut LocalArithmeticToBooleanScratch,
+    round_label: &mut String,
+) -> ProtoResult<SplitLocalBitWord> {
+    set_round_label(round_label, round, "new_e");
+    let new_e_arith = add_local_arithmetic_word_pairs(
+        backend.evaluation_key(),
+        round_label,
+        &arithmetic_temps.state3,
+        &arithmetic_temps.temp1,
+    )?;
+    set_round_label(round_label, round, "new_e_bits");
+    arithmetic_word_pair_to_split_local_bits_secure(
+        backend,
+        round_label,
+        arithmetic_to_bool_scratch,
+        &new_e_arith,
+    )
 }
 
 fn execute_round_stages<B: DdhHssArithmeticBackend>(
@@ -3052,6 +3939,8 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
     let mut new_e_bits_duration_ns = 0u128;
     let mut round_label = String::with_capacity(40);
     let mut boolean_scratch = RoundCoreBooleanScratch::new(64);
+    let mut arithmetic_add_scratch = LocalArithmeticAddScratch::with_capacity(48);
+    let mut arithmetic_to_bool_scratch = LocalArithmeticToBooleanScratch::with_capacity(48);
 
     for stage in stages {
         match stage.kind {
@@ -3070,110 +3959,87 @@ fn execute_round_stages<B: DdhHssArithmeticBackend>(
         for window in &stage.windows {
             let round = usize::from(window.class_value);
             let sigma1_started_ns = monotonic_now_ns();
-            set_round_label(&mut round_label, round, "sigma1");
-            big_sigma1_local_bits_core_into(
+            execute_round_sigma1_subkernel(
                 backend,
-                &round_label,
-                state.e.as_pair_ref(),
-                &mut boolean_scratch.sigma1_core,
+                round,
+                &state,
+                &mut boolean_scratch,
+                &mut round_label,
             )?;
-            boolean_scratch.materialize_sigma1()?;
             sigma1_duration_ns += elapsed_ns(sigma1_started_ns);
             let ch_started_ns = monotonic_now_ns();
-            set_round_label(&mut round_label, round, "ch");
-            ch_local_bits_into(
+            execute_round_ch_subkernel(
                 backend,
-                &round_label,
-                state.e.as_pair_ref(),
-                state.f.as_pair_ref(),
-                state.g.as_pair_ref(),
+                round,
+                &state,
                 &mut boolean_scratch,
+                &mut round_label,
             )?;
             ch_duration_ns += elapsed_ns(ch_started_ns);
             let temp1_started_ns = monotonic_now_ns();
-            set_round_label(&mut round_label, round, "temp1");
-            let (temp1, add_timing) = add_five_local_bit_pairs_to_arithmetic_naive(
+            let (temp1, add_timing) = execute_round_temp1_subkernel(
                 backend,
-                &round_label,
-                state.h.as_pair_ref(),
-                boolean_scratch.sigma1.as_pair_ref(),
-                boolean_scratch.choose.as_pair_ref(),
-                round_constants[round].as_pair_ref(),
-                schedule[round].as_pair_ref(),
+                round,
+                &state,
+                &boolean_scratch,
+                &mut arithmetic_add_scratch,
+                &mut round_label,
+                &round_constants[round],
+                &schedule[round],
             )?;
             temp1_duration_ns += elapsed_ns(temp1_started_ns);
             temp1_add_timing.add_assign(&add_timing);
             let sigma0_started_ns = monotonic_now_ns();
-            set_round_label(&mut round_label, round, "sigma0");
-            big_sigma0_local_bits_core_into(
+            execute_round_sigma0_subkernel(
                 backend,
-                &round_label,
-                state.a.as_pair_ref(),
-                &mut boolean_scratch.sigma0_core,
+                round,
+                &state,
+                &mut boolean_scratch,
+                &mut round_label,
             )?;
-            boolean_scratch.materialize_sigma0()?;
             sigma0_duration_ns += elapsed_ns(sigma0_started_ns);
             let maj_started_ns = monotonic_now_ns();
-            set_round_label(&mut round_label, round, "maj");
-            maj_local_bits_into(
+            execute_round_maj_subkernel(
                 backend,
-                &round_label,
-                state.a.as_pair_ref(),
-                state.b.as_pair_ref(),
-                state.c.as_pair_ref(),
+                round,
+                &state,
                 &mut boolean_scratch,
+                &mut round_label,
             )?;
             maj_duration_ns += elapsed_ns(maj_started_ns);
             let temp2_started_ns = monotonic_now_ns();
-            set_round_label(&mut round_label, round, "temp2");
-            let (temp2, _) = add_two_local_bit_pairs_to_arithmetic_naive(
+            let (temp2, _) = execute_round_temp2_subkernel(
                 backend,
-                &round_label,
-                boolean_scratch.sigma0.as_pair_ref(),
-                boolean_scratch.majority.as_pair_ref(),
+                round,
+                &boolean_scratch,
+                &mut arithmetic_add_scratch,
+                &mut round_label,
             )?;
             temp2_duration_ns += elapsed_ns(temp2_started_ns);
             let state3_started_ns = monotonic_now_ns();
-            set_round_label(&mut round_label, round, "state3");
-            let state3 = split_local_bit_pair_to_arithmetic_word_pair_naive(
-                backend,
-                &round_label,
-                state.d.as_pair_ref(),
-            )?;
+            let state3 = execute_round_state3_subkernel(backend, round, &state, &mut round_label)?;
             state3_duration_ns += elapsed_ns(state3_started_ns);
             let arithmetic_temps = RoundKernelArithmeticTemps {
                 temp1,
                 temp2,
                 state3,
             };
-            set_round_label(&mut round_label, round, "new_a");
-            let new_a_arith = add_local_arithmetic_word_pairs(
-                backend.evaluation_key(),
-                &round_label,
-                &arithmetic_temps.temp1,
-                &arithmetic_temps.temp2,
-            )?;
             let new_a_bits_started_ns = monotonic_now_ns();
-            set_round_label(&mut round_label, round, "new_a_bits");
-            let new_a = arithmetic_word_pair_to_split_local_bits_secure(
+            let new_a = execute_round_new_a_bits_subkernel(
                 backend,
-                &round_label,
-                &new_a_arith,
+                round,
+                &arithmetic_temps,
+                &mut arithmetic_to_bool_scratch,
+                &mut round_label,
             )?;
             new_a_bits_duration_ns += elapsed_ns(new_a_bits_started_ns);
-            set_round_label(&mut round_label, round, "new_e");
-            let new_e_arith = add_local_arithmetic_word_pairs(
-                backend.evaluation_key(),
-                &round_label,
-                &arithmetic_temps.state3,
-                &arithmetic_temps.temp1,
-            )?;
             let new_e_bits_started_ns = monotonic_now_ns();
-            set_round_label(&mut round_label, round, "new_e_bits");
-            let new_e = arithmetic_word_pair_to_split_local_bits_secure(
+            let new_e = execute_round_new_e_bits_subkernel(
                 backend,
-                &round_label,
-                &new_e_arith,
+                round,
+                &arithmetic_temps,
+                &mut arithmetic_to_bool_scratch,
+                &mut round_label,
             )?;
             new_e_bits_duration_ns += elapsed_ns(new_e_bits_started_ns);
             state.rotate_with_new_words(new_a, new_e);
@@ -3231,11 +4097,14 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
         tau_relayer_right_bits,
     )?;
     let mut profile = core_profile;
-    let (client_output_bits, x_relayer_base_bits) = match client_output_projection {
+    let binding_material_seed =
+        output_projector_binding_material_seed(backend, &reduced_a_bits, &tau_bits)?;
+    let (client_output_bits, x_relayer_base_bits, mask_words) = match client_output_projection {
         DdhHiddenEvalClientOutputProjection::TrustedServerProjection => {
             let client_base_started_ns = monotonic_now_ns();
             let client_base_bits = add_words_bits_mod_l_canonical_inputs_local(
                 backend,
+                "output_projector/client_base",
                 &reduced_a_bits,
                 &tau_bits,
                 &constant_pool.zero_left,
@@ -3252,6 +4121,7 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
             let relayer_output_started_ns = monotonic_now_ns();
             let relayer_base_bits = add_words_bits_mod_l_canonical_inputs_local(
                 backend,
+                "output_projector/relayer_base",
                 &client_base_bits,
                 &tau_bits,
                 &constant_pool.zero_left,
@@ -3264,7 +4134,7 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
                 profile.local_word_materializations.saturating_add(
                     split_local_bit_word_materialization_count(&relayer_base_bits),
                 );
-            (client_base_bits, relayer_base_bits)
+            (client_base_bits, relayer_base_bits, None)
         }
         DdhHiddenEvalClientOutputProjection::ClientMaskedProjection { client_output_mask } => {
             let canonical_mask = Scalar::from_bytes_mod_order(client_output_mask).to_bytes();
@@ -3278,6 +4148,7 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
             let client_base_started_ns = monotonic_now_ns();
             let client_base_bits = add_words_bits_mod_l_canonical_inputs_local(
                 backend,
+                "output_projector/client_base",
                 &reduced_a_bits,
                 &tau_bits,
                 &constant_pool.zero_left,
@@ -3294,6 +4165,7 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
             let client_blinded_bits =
                 add_words_bits_mod_l_canonical_inputs_right_shared_bits_local(
                     backend,
+                    "output_projector/client_output_masked",
                     &client_base_bits,
                     &mask_bundle.words,
                     &constant_pool.zero_left,
@@ -3309,6 +4181,7 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
             let relayer_output_started_ns = monotonic_now_ns();
             let relayer_base_bits = add_words_bits_mod_l_canonical_inputs_local(
                 backend,
+                "output_projector/relayer_base",
                 &client_base_bits,
                 &tau_bits,
                 &constant_pool.zero_left,
@@ -3321,7 +4194,11 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
                 profile.local_word_materializations.saturating_add(
                     split_local_bit_word_materialization_count(&relayer_base_bits),
                 );
-            (client_blinded_bits, relayer_base_bits)
+            (
+                client_blinded_bits,
+                relayer_base_bits,
+                Some(mask_bundle.words),
+            )
         }
     };
     let client_output_value_kind = client_output_projection.value_kind();
@@ -3334,24 +4211,37 @@ fn execute_output_projector_stage<B: DdhHssArithmeticBackend>(
             "x_relayer_base",
             &x_relayer_base_bits,
         )?;
-    let output = DdhHiddenEvalOutputBundles {
-        canonical_seed: build_hidden_bit_output_bundle(
+    let canonical_seed = build_hidden_bit_output_bundle(
+        backend,
+        HiddenEvalInputOwner::Client,
+        "canonical_seed",
+        d_bits,
+    )?;
+    let client_output = DdhHiddenEvalClientOutputBundle::new(
+        client_output_value_kind,
+        build_hidden_bit_output_bundle(
             backend,
             HiddenEvalInputOwner::Client,
-            "canonical_seed",
-            d_bits,
+            client_output_value_kind.bundle_label(),
+            &client_output_bits,
         )?,
-        client_output: DdhHiddenEvalClientOutputBundle::new(
-            client_output_value_kind,
-            build_hidden_bit_output_bundle(
-                backend,
-                HiddenEvalInputOwner::Client,
-                client_output_value_kind.bundle_label(),
-                &client_output_bits,
-            )?,
-        )?,
+    )?;
+    let output_projector_binding = build_output_projector_binding(
+        &binding_material_seed,
+        client_output_projection,
+        mask_words.as_deref(),
+        canonical_seed.commitment,
+        client_output_value_kind,
+        client_output.as_bundle().commitment,
+        x_relayer_base_left.commitment,
+        x_relayer_base_right.commitment,
+    )?;
+    let output = DdhHiddenEvalOutputBundles {
+        canonical_seed,
+        client_output,
         x_relayer_base_left,
         x_relayer_base_right,
+        output_projector_binding,
     };
     profile.bundle_build_duration_ns = elapsed_ns(bundle_build_started_ns);
 
@@ -3394,9 +4284,10 @@ fn execute_server_output_projector_stage<B: DdhHssArithmeticBackend>(
         tau_relayer_left_bits,
         tau_relayer_right_bits,
     )?;
-    let two_tau_bits = add_words_bits_mod_l_canonical_inputs_local(
+    let client_base_bits = add_words_bits_mod_l_canonical_inputs_local(
         backend,
-        &tau_bits,
+        "output_projector/client_base",
+        &reduced_a_bits,
         &tau_bits,
         &constant_pool.zero_left,
         &constant_pool.zero_right,
@@ -3405,8 +4296,9 @@ fn execute_server_output_projector_stage<B: DdhHssArithmeticBackend>(
     )?;
     let x_relayer_base_bits = add_words_bits_mod_l_canonical_inputs_local(
         backend,
-        &reduced_a_bits,
-        &two_tau_bits,
+        "output_projector/relayer_base",
+        &client_base_bits,
+        &tau_bits,
         &constant_pool.zero_left,
         &constant_pool.zero_right,
         &constant_pool.one_left,
@@ -3457,7 +4349,7 @@ fn compute_output_projector_core_bits<B: DdhHssArithmeticBackend>(
     )?;
     let clamp_a_duration_ns = elapsed_ns(clamp_started_ns);
     let reduce_started_ns = monotonic_now_ns();
-    let reduced_a_bits = reduce_scalar_bits_mod_l_with_constants_local(
+    let reduced_a_bits = reduce_clamped_scalar_bits_mod_l_local(
         backend,
         "scalar_a",
         &clamped_a_bits,
@@ -3465,7 +4357,6 @@ fn compute_output_projector_core_bits<B: DdhHssArithmeticBackend>(
         &constant_pool.zero_right,
         &constant_pool.one_left,
         &constant_pool.one_right,
-        7,
     )?;
     let reduce_a_duration_ns = elapsed_ns(reduce_started_ns);
     let tau_started_ns = monotonic_now_ns();
@@ -3566,6 +4457,7 @@ fn reduce_scalar_bits_mod_l_with_constants<B: DdhHssArithmeticBackend>(
     Ok(reduced)
 }
 
+#[cfg(test)]
 fn reduce_scalar_bits_mod_l_with_constants_local<B: DdhHssArithmeticBackend>(
     backend: &B,
     label: &str,
@@ -3618,6 +4510,58 @@ fn reduce_scalar_bits_mod_l_with_constants_local<B: DdhHssArithmeticBackend>(
     Ok(reduced)
 }
 
+fn reduce_clamped_scalar_bits_mod_l_local<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    label: &str,
+    scalar_bits: &SplitLocalBitWord,
+    zero_left: &DdhHssLocalWord,
+    zero_right: &DdhHssLocalWord,
+    one_left: &DdhHssLocalWord,
+    one_right: &DdhHssLocalWord,
+) -> ProtoResult<SplitLocalBitWord> {
+    if scalar_bits.len() != 256 {
+        return Err(ProtoError::Decode(format!(
+            "{label} must contain exactly 256 bits, got {}",
+            scalar_bits.len()
+        )));
+    }
+
+    let mut reduced = scalar_bits.clone();
+    let mut reduce_label = String::with_capacity(label.len() + 48);
+    for multiple in Ed25519LPublicMultiple::CLAMPED_REDUCTION_SEQUENCE {
+        set_reduce_multiple_label(&mut reduce_label, label, "sub", multiple);
+        let (difference, borrow_left, borrow_right) = sub_local_bit_words_with_ed25519_l_multiple(
+            backend,
+            &reduce_label,
+            &reduced,
+            multiple,
+            zero_left,
+            zero_right,
+            one_left,
+            one_right,
+        )?;
+        set_reduce_multiple_label(&mut reduce_label, label, "geq", multiple);
+        let (geq_modulus_left, geq_modulus_right) = xor_local_word_pairs_public(
+            backend.evaluation_key(),
+            reduce_label.as_bytes(),
+            &borrow_left,
+            &borrow_right,
+            one_left,
+            one_right,
+        )?;
+        set_reduce_multiple_label(&mut reduce_label, label, "select", multiple);
+        reduced = select_local_bit_words(
+            backend,
+            &reduce_label,
+            &geq_modulus_left,
+            &geq_modulus_right,
+            &difference,
+            &reduced,
+        )?;
+    }
+    Ok(reduced)
+}
+
 #[cfg(test)]
 fn add_words_bits_mod_l(
     backend: &impl DdhHssArithmeticBackend,
@@ -3632,6 +4576,7 @@ fn add_words_bits_mod_l(
 
 fn add_words_bits_mod_l_canonical_inputs_local<B: DdhHssArithmeticBackend>(
     backend: &B,
+    label: &str,
     left: &SplitLocalBitWord,
     right: &SplitLocalBitWord,
     zero_left: &DdhHssLocalWord,
@@ -3639,34 +4584,82 @@ fn add_words_bits_mod_l_canonical_inputs_local<B: DdhHssArithmeticBackend>(
     one_left: &DdhHssLocalWord,
     one_right: &DdhHssLocalWord,
 ) -> ProtoResult<SplitLocalBitWord> {
-    let sum = add_two_local_bit_words(
-        backend,
-        "reduce_mod_l/canonical/sum",
-        left,
-        right,
-        zero_left,
-        zero_right,
-    )?;
+    let mut child_label = String::with_capacity(label.len() + 32);
+    set_child_label(&mut child_label, label, "sum");
+    let sum = add_two_local_bit_words(backend, &child_label, left, right, zero_left, zero_right)?;
+    set_child_label(&mut child_label, label, "sub");
     let (difference, borrow_left, borrow_right) = sub_local_bit_words_with_ed25519_l(
         backend,
-        "reduce_mod_l/canonical/sub",
+        &child_label,
         &sum,
         zero_left,
         zero_right,
         one_left,
         one_right,
     )?;
+    set_child_label(&mut child_label, label, "geq");
     let (geq_modulus_left, geq_modulus_right) = xor_local_word_pairs_public(
         backend.evaluation_key(),
-        b"reduce_mod_l/geq",
+        child_label.as_bytes(),
         &borrow_left,
         &borrow_right,
         one_left,
         one_right,
     )?;
+    set_child_label(&mut child_label, label, "select");
     select_local_bit_words(
         backend,
-        "reduce_mod_l/select",
+        &child_label,
+        &geq_modulus_left,
+        &geq_modulus_right,
+        &difference,
+        &sum,
+    )
+}
+
+fn add_words_bits_mod_l_canonical_inputs_right_shared_bits_local<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    label: &str,
+    left: &SplitLocalBitWord,
+    right: &[DdhHssSharedWord],
+    zero_left: &DdhHssLocalWord,
+    zero_right: &DdhHssLocalWord,
+    one_left: &DdhHssLocalWord,
+    one_right: &DdhHssLocalWord,
+) -> ProtoResult<SplitLocalBitWord> {
+    let mut child_label = String::with_capacity(label.len() + 32);
+    set_child_label(&mut child_label, label, "sum");
+    let sum = add_two_local_bit_words_right_shared_bits(
+        backend,
+        &child_label,
+        left,
+        right,
+        zero_left,
+        zero_right,
+    )?;
+    set_child_label(&mut child_label, label, "sub");
+    let (difference, borrow_left, borrow_right) = sub_local_bit_words_with_ed25519_l(
+        backend,
+        &child_label,
+        &sum,
+        zero_left,
+        zero_right,
+        one_left,
+        one_right,
+    )?;
+    set_child_label(&mut child_label, label, "geq");
+    let (geq_modulus_left, geq_modulus_right) = xor_local_word_pairs_public(
+        backend.evaluation_key(),
+        child_label.as_bytes(),
+        &borrow_left,
+        &borrow_right,
+        one_left,
+        one_right,
+    )?;
+    set_child_label(&mut child_label, label, "select");
+    select_local_bit_words(
+        backend,
+        &child_label,
         &geq_modulus_left,
         &geq_modulus_right,
         &difference,
@@ -3707,50 +4700,6 @@ fn add_words_bits_mod_l_canonical_inputs_right_transport_bundles_local<
     let (geq_modulus_left, geq_modulus_right) = xor_local_word_pairs_public(
         backend.evaluation_key(),
         b"reduce_mod_l/server_input/geq",
-        &borrow_left,
-        &borrow_right,
-        one_left,
-        one_right,
-    )?;
-    select_local_bit_words(
-        backend,
-        "reduce_mod_l/select",
-        &geq_modulus_left,
-        &geq_modulus_right,
-        &difference,
-        &sum,
-    )
-}
-
-fn add_words_bits_mod_l_canonical_inputs_right_shared_bits_local<B: DdhHssArithmeticBackend>(
-    backend: &B,
-    left: &SplitLocalBitWord,
-    right: &[DdhHssSharedWord],
-    zero_left: &DdhHssLocalWord,
-    zero_right: &DdhHssLocalWord,
-    one_left: &DdhHssLocalWord,
-    one_right: &DdhHssLocalWord,
-) -> ProtoResult<SplitLocalBitWord> {
-    let sum = add_two_local_bit_words_right_shared_bits(
-        backend,
-        "reduce_mod_l/canonical/sum",
-        left,
-        right,
-        zero_left,
-        zero_right,
-    )?;
-    let (difference, borrow_left, borrow_right) = sub_local_bit_words_with_ed25519_l(
-        backend,
-        "reduce_mod_l/canonical/sub",
-        &sum,
-        zero_left,
-        zero_right,
-        one_left,
-        one_right,
-    )?;
-    let (geq_modulus_left, geq_modulus_right) = xor_local_word_pairs_public(
-        backend.evaluation_key(),
-        b"reduce_mod_l/geq",
         &borrow_left,
         &borrow_right,
         one_left,
@@ -3991,39 +4940,8 @@ fn canonicalize_hidden_bit_output_words(
     label: &str,
     bits: &SplitLocalBitWord,
 ) -> ProtoResult<Vec<DdhHssSharedWord>> {
-    let shared_bits = bits.to_shared_bits()?;
-    if shared_bits.len() != 256 {
-        return Err(ProtoError::InvalidInput(format!(
-            "{label} must contain exactly 256 bits, got {}",
-            shared_bits.len()
-        )));
-    }
-    if shared_bits.iter().any(|bit| bit.width_bits != 1) {
-        return Err(ProtoError::InvalidInput(format!(
-            "{label} must contain only 1-bit words"
-        )));
-    }
-    Ok(shared_bits
-        .iter()
-        .map(|bit| DdhHssSharedWord {
-            width_bits: bit.width_bits,
-            left_word: bit.left_word,
-            right_word: bit.right_word,
-            left_commitment: crate::ddh::ddh_hss::commit_word(
-                owner,
-                b"left",
-                bit.left_word,
-                &bit.provenance_digest,
-            ),
-            right_commitment: crate::ddh::ddh_hss::commit_word(
-                owner,
-                b"right",
-                bit.right_word,
-                &bit.provenance_digest,
-            ),
-            provenance_digest: bit.provenance_digest,
-        })
-        .collect())
+    let staged = StagedOutputWord256::from_split_local(label, bits)?;
+    Ok(staged.canonical_words(owner))
 }
 
 #[cfg(test)]
@@ -4220,41 +5138,11 @@ struct LocalBitTransformSpec<'a> {
     zero: Option<&'a DdhHssLocalWord>,
 }
 
-fn transformed_local_bit_parts(
-    source: &LocalBitWordSide,
-    idx: usize,
-    spec: LocalBitTransformSpec<'_>,
-) -> ProtoResult<(u8, [u8; 32])> {
-    match spec.transform {
-        LocalBitTransform::Rotate(offset) => {
-            let transformed_idx = (idx + offset) % source.len();
-            Ok((
-                source.share_bit(transformed_idx),
-                source.provenance_digests[transformed_idx],
-            ))
-        }
-        LocalBitTransform::Shift(shift) => {
-            let zero = spec.zero.ok_or_else(|| {
-                ProtoError::InvalidInput(
-                    "shifted local bit transform requires a zero word".to_string(),
-                )
-            })?;
-            if zero.share_side != source.share_side || zero.width_bits != 1 {
-                return Err(ProtoError::InvalidInput(
-                    "shifted local bit transform requires width-1 zero on the same side"
-                        .to_string(),
-                ));
-            }
-            if idx + shift < source.len() {
-                Ok((
-                    source.share_bit(idx + shift),
-                    source.provenance_digests[idx + shift],
-                ))
-            } else {
-                Ok(((zero.share_word as u8) & 1, zero.provenance_digest))
-            }
-        }
-    }
+#[derive(Debug, Copy, Clone)]
+struct LocalBitPairTransformSpec<'a> {
+    transform: LocalBitTransform,
+    zero_left: Option<&'a DdhHssLocalWord>,
+    zero_right: Option<&'a DdhHssLocalWord>,
 }
 
 fn local_bit_pair_parts(
@@ -4273,6 +5161,56 @@ fn local_bit_pair_parts(
         source.right.share_bit(idx),
         left_provenance,
     ))
+}
+
+fn transformed_local_bit_pair_parts_with_side_zeros(
+    source: LocalBitWordPairRef<'_>,
+    idx: usize,
+    spec: LocalBitPairTransformSpec<'_>,
+) -> ProtoResult<(u8, u8, [u8; 32])> {
+    match spec.transform {
+        LocalBitTransform::Rotate(offset) => {
+            let transformed_idx = (idx + offset) % source.len();
+            local_bit_pair_parts(source, transformed_idx)
+        }
+        LocalBitTransform::Shift(shift) => {
+            let zero_left = spec.zero_left.ok_or_else(|| {
+                ProtoError::InvalidInput(
+                    "shifted local bit-pair transform requires a left zero word".to_string(),
+                )
+            })?;
+            let zero_right = spec.zero_right.ok_or_else(|| {
+                ProtoError::InvalidInput(
+                    "shifted local bit-pair transform requires a right zero word".to_string(),
+                )
+            })?;
+            if zero_left.share_side != DdhHssShareSide::Left
+                || zero_right.share_side != DdhHssShareSide::Right
+                || zero_left.width_bits != 1
+                || zero_right.width_bits != 1
+            {
+                return Err(ProtoError::InvalidInput(
+                    "shifted local bit-pair transform requires width-1 left/right zeros"
+                        .to_string(),
+                ));
+            }
+            if zero_left.provenance_digest != zero_right.provenance_digest {
+                return Err(ProtoError::InvalidInput(
+                    "shifted local bit-pair transform requires matching zero provenance"
+                        .to_string(),
+                ));
+            }
+            if idx + shift < source.len() {
+                local_bit_pair_parts(source, idx + shift)
+            } else {
+                Ok((
+                    (zero_left.share_word as u8) & 1,
+                    (zero_right.share_word as u8) & 1,
+                    zero_left.provenance_digest,
+                ))
+            }
+        }
+    }
 }
 
 fn transformed_local_bit_pair_parts(
@@ -4305,47 +5243,57 @@ fn transformed_local_bit_pair_parts(
     }
 }
 
-fn xor_transformed_local_bit_word_side_core(
+fn xor_transformed_local_bit_word_pair_core_with_side_zeros_into(
     evaluation_key: &crate::ddh::DdhHssEvaluationKey,
     label: &str,
-    source: &LocalBitWordSide,
-    transforms: [LocalBitTransformSpec<'_>; 3],
-) -> ProtoResult<LocalBitWordSide> {
-    source.ensure_shape()?;
-    let mut core = CoreBitWordSide::empty(source.share_side, source.len());
+    source: LocalBitWordPairRef<'_>,
+    transforms: [LocalBitPairTransformSpec<'_>; 3],
+    out: &mut CoreBitWordPair,
+) -> ProtoResult<()> {
+    source.left.ensure_shape()?;
+    source.right.ensure_shape()?;
+    if source.left.len() != source.right.len() {
+        return Err(ProtoError::InvalidInput(format!(
+            "{label} requires same-width local word pair, got {} and {}",
+            source.left.len(),
+            source.right.len()
+        )));
+    }
+    out.reset();
     let mut xor_label = String::with_capacity(label.len() + 16);
     for idx in 0..source.len() {
-        let (first_bit, first_provenance) =
-            transformed_local_bit_parts(source, idx, transforms[0])?;
-        let (second_bit, second_provenance) =
-            transformed_local_bit_parts(source, idx, transforms[1])?;
-        let (third_bit, third_provenance) =
-            transformed_local_bit_parts(source, idx, transforms[2])?;
+        let (first_left, first_right, first_provenance) =
+            transformed_local_bit_pair_parts_with_side_zeros(source, idx, transforms[0])?;
+        let (second_left, second_right, second_provenance) =
+            transformed_local_bit_pair_parts_with_side_zeros(source, idx, transforms[1])?;
+        let (third_left, third_right, third_provenance) =
+            transformed_local_bit_pair_parts_with_side_zeros(source, idx, transforms[2])?;
         set_indexed_child_label(&mut xor_label, label, "xor01", idx);
-        let xor01 = xor_local_bit_core_from_raw_public(
+        let xor01 = xor_local_bit_pair_core_from_raw_public(
             evaluation_key,
             xor_label.as_bytes(),
-            source.share_side,
-            first_bit,
+            first_left,
+            first_right,
             &first_provenance,
-            second_bit,
+            second_left,
+            second_right,
             &second_provenance,
         );
         set_indexed_child_label(&mut xor_label, label, "xor012", idx);
-        let xor012 = xor_local_bit_core_from_raw_public(
+        let xor012 = xor_local_bit_pair_core_from_raw_public(
             evaluation_key,
             xor_label.as_bytes(),
-            source.share_side,
-            (xor01.share_word as u8) & 1,
-            &xor01.provenance_digest,
-            third_bit,
+            (xor01.0.share_word as u8) & 1,
+            (xor01.1.share_word as u8) & 1,
+            &xor01.0.provenance_digest,
+            third_left,
+            third_right,
             &third_provenance,
         );
-        core.push_core_word(&xor012)?;
+        out.left.push_core_word(&xor012.0)?;
+        out.right.push_core_word(&xor012.1)?;
     }
-    let mut out = empty_local_bit_slice(source.share_side, source.len());
-    core.materialize_into(&mut out, b"eval-xor-local-word")?;
-    Ok(out)
+    Ok(())
 }
 
 fn xor_transformed_local_bit_word_pair_core_into(
@@ -4353,7 +5301,7 @@ fn xor_transformed_local_bit_word_pair_core_into(
     label: &str,
     source: LocalBitWordPairRef<'_>,
     transforms: [LocalBitTransformSpec<'_>; 3],
-    out: &mut RoundKernelCoreBooleanWord,
+    out: &mut CoreBitWordPair,
 ) -> ProtoResult<()> {
     source.left.ensure_shape()?;
     source.right.ensure_shape()?;
@@ -4401,46 +5349,6 @@ fn xor_transformed_local_bit_word_pair_core_into(
     Ok(())
 }
 
-fn xor_split_local_bit_words_into(
-    evaluation_key: &crate::ddh::DdhHssEvaluationKey,
-    label: &str,
-    left: LocalBitWordPairRef<'_>,
-    right: LocalBitWordPairRef<'_>,
-    out: &mut RoundKernelBooleanWord,
-) -> ProtoResult<()> {
-    if left.len() != right.len() {
-        return Err(ProtoError::InvalidInput(format!(
-            "{label} requires same-width local words, got {} and {}",
-            left.len(),
-            right.len()
-        )));
-    }
-    left.left.ensure_shape()?;
-    left.right.ensure_shape()?;
-    right.left.ensure_shape()?;
-    right.right.ensure_shape()?;
-    out.reset();
-    let mut xor_label = String::with_capacity(label.len() + 8);
-    for idx in 0..left.len() {
-        let left_parts = local_bit_pair_parts(left, idx)?;
-        let right_parts = local_bit_pair_parts(right, idx)?;
-        set_indexed_label(&mut xor_label, label, idx);
-        let xor_pair = xor_local_bit_pair_from_raw_public(
-            evaluation_key,
-            xor_label.as_bytes(),
-            left_parts.0,
-            left_parts.1,
-            &left_parts.2,
-            right_parts.0,
-            right_parts.1,
-            &right_parts.2,
-        );
-        out.left.push_local_word(&xor_pair.0)?;
-        out.right.push_local_word(&xor_pair.1)?;
-    }
-    Ok(())
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LocalArithmeticWordPair {
     left: DdhHssLocalWord,
@@ -4469,6 +5377,255 @@ impl LocalArithmeticWordPair {
     }
 }
 
+const A2B_V2_CARRY_ORDER_POLICY: &[u8] = b"carry_order_lsb_to_msb_v1";
+const A2B_V2_OUTPUT_COMMITMENT_POLICY: &[u8] = b"emit_sum_bit_commitments_v1";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct A2bCommittedRootMaterial {
+    width_bits: u16,
+    label_digest: [u8; 32],
+    root_left: DdhHssLocalWord,
+    root_right: DdhHssLocalWord,
+    root_digest: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct A2bCarryMaterial {
+    bit_index: u16,
+    material_digest: [u8; 32],
+}
+
+struct A2bCarryMaterialBase {
+    hasher: Blake3Hasher,
+}
+
+struct A2bCarryMaterialInputs<'a> {
+    bit_index: usize,
+    root: &'a A2bCommittedRootMaterial,
+    previous_carry_left: &'a DdhHssLocalWordCore,
+    previous_carry_right: &'a DdhHssLocalWordCore,
+    left_bit: &'a DdhHssLocalWordCore,
+    right_bit: &'a DdhHssLocalWordCore,
+    xor_ab_left: &'a DdhHssLocalWordCore,
+    xor_ab_right: &'a DdhHssLocalWordCore,
+    a_xor_carry_left: &'a DdhHssLocalWordCore,
+    a_xor_carry_right: &'a DdhHssLocalWordCore,
+}
+
+fn a2b_label_digest(label: &str) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"ddh_hss_a2b_label_digest_v1");
+    hasher.update(label.as_bytes());
+    hasher.finalize().into()
+}
+
+fn ensure_a2b_word_width(width_bits: u16) -> ProtoResult<()> {
+    if width_bits == 0 || width_bits > 64 {
+        return Err(ProtoError::InvalidInput(format!(
+            "A2B committed-root material requires width in 1..=64, got {width_bits}"
+        )));
+    }
+    Ok(())
+}
+
+fn ensure_local_bit_core(
+    word: &DdhHssLocalWordCore,
+    expected_side: DdhHssShareSide,
+    name: &str,
+) -> ProtoResult<()> {
+    if word.width_bits != 1 || word.share_side != expected_side {
+        return Err(ProtoError::InvalidInput(format!(
+            "{name} must be a width-1 {:?} local bit",
+            expected_side
+        )));
+    }
+    Ok(())
+}
+
+fn ensure_core_bit_pair(
+    left: &DdhHssLocalWordCore,
+    right: &DdhHssLocalWordCore,
+    name: &str,
+) -> ProtoResult<()> {
+    if left.width_bits != 1
+        || right.width_bits != 1
+        || left.share_side != DdhHssShareSide::Left
+        || right.share_side != DdhHssShareSide::Right
+    {
+        return Err(ProtoError::InvalidInput(format!(
+            "{name} must be an aligned width-1 core bit pair"
+        )));
+    }
+    if left.provenance_digest != right.provenance_digest {
+        return Err(ProtoError::InvalidInput(format!(
+            "{name} core bit pair provenance mismatch"
+        )));
+    }
+    Ok(())
+}
+
+fn build_a2b_committed_root_material(
+    evaluation_key: &crate::ddh::DdhHssEvaluationKey,
+    label: &str,
+    word: &LocalArithmeticWordPair,
+) -> ProtoResult<A2bCommittedRootMaterial> {
+    ensure_a2b_word_width(word.left.width_bits)?;
+    let kernel_version = DdhHssA2bKernelVersion::CURRENT;
+    let width_bytes = word.left.width_bits.to_le_bytes();
+    let label_digest = a2b_label_digest(label);
+    let (root_left, root_right) = build_local_word_pair_public(
+        evaluation_key,
+        b"phase-a-a2b-committed-root-v2",
+        label.as_bytes(),
+        1,
+        0,
+        0,
+        &[
+            kernel_version.as_str().as_bytes(),
+            &width_bytes,
+            b"left_arithmetic_share",
+            &word.left.provenance_digest,
+            &word.left.share_commitment,
+            b"right_arithmetic_share",
+            &word.right.provenance_digest,
+            &word.right.share_commitment,
+            A2B_V2_CARRY_ORDER_POLICY,
+            A2B_V2_OUTPUT_COMMITMENT_POLICY,
+        ],
+    );
+    let mut root_hasher = Sha256::new();
+    root_hasher.update(b"ddh_hss_a2b_committed_root_digest_v2");
+    root_hasher.update(kernel_version.as_str().as_bytes());
+    root_hasher.update(width_bytes);
+    root_hasher.update(label_digest);
+    root_hasher.update(root_left.provenance_digest);
+    root_hasher.update(root_left.share_commitment);
+    root_hasher.update(root_right.provenance_digest);
+    root_hasher.update(root_right.share_commitment);
+    let root_digest = root_hasher.finalize().into();
+
+    Ok(A2bCommittedRootMaterial {
+        width_bits: word.left.width_bits,
+        label_digest,
+        root_left,
+        root_right,
+        root_digest,
+    })
+}
+
+fn prepare_a2b_v2_carry_material_base(
+    evaluation_key: &crate::ddh::DdhHssEvaluationKey,
+    label: &str,
+    root: &A2bCommittedRootMaterial,
+) -> ProtoResult<A2bCarryMaterialBase> {
+    if root.label_digest != a2b_label_digest(label) {
+        return Err(ProtoError::InvalidInput(
+            "A2B carry material label does not match committed root".to_string(),
+        ));
+    }
+    let mut hasher = Blake3Hasher::new();
+    hasher.update(b"ddh_hss_a2b_carry_material_digest_v2");
+    hasher.update(&evaluation_key.key_id);
+    hasher.update(label.as_bytes());
+    hasher.update(DdhHssA2bKernelVersion::CURRENT.as_str().as_bytes());
+    hasher.update(&root.root_digest);
+    hasher.update(&root.root_left.provenance_digest);
+    hasher.update(&root.root_left.share_commitment);
+    hasher.update(&root.root_right.provenance_digest);
+    hasher.update(&root.root_right.share_commitment);
+    Ok(A2bCarryMaterialBase { hasher })
+}
+
+fn build_a2b_v2_carry_material(
+    base: &A2bCarryMaterialBase,
+    inputs: A2bCarryMaterialInputs<'_>,
+) -> ProtoResult<A2bCarryMaterial> {
+    if inputs.bit_index >= usize::from(inputs.root.width_bits) {
+        return Err(ProtoError::InvalidInput(format!(
+            "A2B carry material bit index {} exceeds root width {}",
+            inputs.bit_index, inputs.root.width_bits
+        )));
+    }
+    ensure_core_bit_pair(
+        inputs.previous_carry_left,
+        inputs.previous_carry_right,
+        "previous carry",
+    )?;
+    ensure_local_bit_core(
+        inputs.left_bit,
+        DdhHssShareSide::Left,
+        "left decomposed bit",
+    )?;
+    ensure_local_bit_core(
+        inputs.right_bit,
+        DdhHssShareSide::Right,
+        "right decomposed bit",
+    )?;
+    ensure_core_bit_pair(inputs.xor_ab_left, inputs.xor_ab_right, "xor_ab")?;
+    ensure_core_bit_pair(
+        inputs.a_xor_carry_left,
+        inputs.a_xor_carry_right,
+        "a_xor_carry",
+    )?;
+
+    let bit_index = u16::try_from(inputs.bit_index).map_err(|_| {
+        ProtoError::InvalidInput(format!(
+            "A2B carry material bit index {} exceeds u16",
+            inputs.bit_index
+        ))
+    })?;
+    let bit_index_bytes = bit_index.to_le_bytes();
+    let mut material_hasher = base.hasher.clone();
+    material_hasher.update(&bit_index_bytes);
+    material_hasher.update(&inputs.previous_carry_left.provenance_digest);
+    material_hasher.update(&inputs.previous_carry_right.provenance_digest);
+    material_hasher.update(&inputs.left_bit.provenance_digest);
+    material_hasher.update(&inputs.right_bit.provenance_digest);
+    material_hasher.update(&inputs.xor_ab_left.provenance_digest);
+    material_hasher.update(&inputs.xor_ab_right.provenance_digest);
+    material_hasher.update(&inputs.a_xor_carry_left.provenance_digest);
+    material_hasher.update(&inputs.a_xor_carry_right.provenance_digest);
+    let material_digest = *material_hasher.finalize().as_bytes();
+
+    Ok(A2bCarryMaterial {
+        bit_index,
+        material_digest,
+    })
+}
+
+fn eval_a2b_v2_carry_gate(
+    evaluation_key: &crate::ddh::DdhHssEvaluationKey,
+    label: &[u8],
+    expected_bit_index: usize,
+    xor_ab_left: &DdhHssLocalWordCore,
+    xor_ab_right: &DdhHssLocalWordCore,
+    a_xor_carry_left: &DdhHssLocalWordCore,
+    a_xor_carry_right: &DdhHssLocalWordCore,
+    carry_material: &A2bCarryMaterial,
+) -> ProtoResult<(DdhHssLocalWordCore, DdhHssLocalWordCore)> {
+    let expected_bit_index = u16::try_from(expected_bit_index).map_err(|_| {
+        ProtoError::InvalidInput(format!(
+            "A2B carry gate bit index {} exceeds u16",
+            expected_bit_index
+        ))
+    })?;
+    if carry_material.bit_index != expected_bit_index {
+        return Err(ProtoError::InvalidInput(format!(
+            "A2B carry gate material bit index mismatch: expected {}, got {}",
+            expected_bit_index, carry_material.bit_index
+        )));
+    }
+    eval_mul_local_word_core_pairs_with_material_digest_public(
+        evaluation_key,
+        label,
+        xor_ab_left,
+        xor_ab_right,
+        a_xor_carry_left,
+        a_xor_carry_right,
+        carry_material.material_digest,
+    )
+}
+
 fn bitmask_for_width(width_bits: u16) -> u64 {
     if width_bits == 64 {
         u64::MAX
@@ -4492,6 +5649,34 @@ fn pack_local_side_share_bits(source: &LocalBitWordSide) -> ProtoResult<u64> {
     Ok(packed)
 }
 
+fn pack_core_side_share_bits(source: &CoreBitWordSide) -> ProtoResult<u64> {
+    source.ensure_shape()?;
+    if source.len() > 64 {
+        return Err(ProtoError::InvalidInput(format!(
+            "core bit packing requires width <= 64, got {}",
+            source.len()
+        )));
+    }
+    let mut packed = 0u64;
+    for idx in 0..source.len() {
+        packed |= u64::from(source.share_bit(idx)) << idx;
+    }
+    Ok(packed)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MaterializedCoreBitPairB2aMaterial {
+    left_provenance: [u8; 32],
+    left_commitment: [u8; 32],
+    right_provenance: [u8; 32],
+    right_commitment: [u8; 32],
+}
+
+#[derive(Default)]
+struct CoreBitPairB2aMaterialScratch {
+    bits: Vec<MaterializedCoreBitPairB2aMaterial>,
+}
+
 fn add_local_arithmetic_word_pairs(
     evaluation_key: &crate::ddh::DdhHssEvaluationKey,
     label: &str,
@@ -4507,6 +5692,93 @@ fn add_local_arithmetic_word_pairs(
         &right.right,
     )?;
     LocalArithmeticWordPair::new(out_left, out_right)
+}
+
+fn materialize_core_bit_pair_to_arithmetic_word_pair_naive<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    label: &str,
+    bits: &CoreBitWordPair,
+    expected_stage: CoreBitWordStage,
+    materialization_domain: &'static [u8],
+    scratch: &mut CoreBitPairB2aMaterialScratch,
+) -> ProtoResult<LocalArithmeticWordPair> {
+    bits.ensure_shape()?;
+    if bits.stage != expected_stage {
+        return Err(ProtoError::InvalidInput(
+            "core bit-pair stage mismatch for arithmetic conversion".to_string(),
+        ));
+    }
+    if bits.left.len() == 0 || bits.left.len() > 64 {
+        return Err(ProtoError::InvalidInput(format!(
+            "phase-a core word conversion requires width 1..=64, got {}",
+            bits.left.len()
+        )));
+    }
+    let width_bits = u16::try_from(bits.left.len()).map_err(|_| {
+        ProtoError::InvalidInput(format!(
+            "phase-a core word conversion width does not fit u16: {}",
+            bits.left.len()
+        ))
+    })?;
+    let width_mask = bitmask_for_width(width_bits);
+    let left_packed = pack_core_side_share_bits(&bits.left)?;
+    let mut adjusted_right = pack_core_side_share_bits(&bits.right)?;
+    scratch.bits.clear();
+    scratch
+        .bits
+        .reserve(bits.left.len().saturating_sub(scratch.bits.capacity()));
+    for idx in 0..bits.left.len() {
+        if bits.left.provenance_digests[idx] != bits.right.provenance_digests[idx] {
+            return Err(ProtoError::InvalidInput(format!(
+                "core bit-pair provenance mismatch at index {idx}"
+            )));
+        }
+        if idx + 1 < bits.left.len() {
+            let cross_mask = 0u64.wrapping_sub(u64::from(
+                bits.left.share_bit(idx) & bits.right.share_bit(idx),
+            ));
+            let delta = (1u64 << (idx + 1)) & cross_mask;
+            adjusted_right = adjusted_right.wrapping_sub(delta) & width_mask;
+        }
+        let left_core = DdhHssLocalWordCore {
+            width_bits: 1,
+            share_side: DdhHssShareSide::Left,
+            share_word: u64::from(bits.left.share_bit(idx)),
+            provenance_digest: bits.left.provenance_digests[idx],
+        };
+        let right_core = DdhHssLocalWordCore {
+            width_bits: 1,
+            share_side: DdhHssShareSide::Right,
+            share_word: u64::from(bits.right.share_bit(idx)),
+            provenance_digest: bits.right.provenance_digests[idx],
+        };
+        let left_word = materialize_local_word_core(&left_core, materialization_domain);
+        let right_word = materialize_local_word_core(&right_core, materialization_domain);
+        scratch.bits.push(MaterializedCoreBitPairB2aMaterial {
+            left_provenance: left_word.provenance_digest,
+            left_commitment: left_word.share_commitment,
+            right_provenance: right_word.provenance_digest,
+            right_commitment: right_word.share_commitment,
+        });
+    }
+    let base_material = scratch.bits.iter().flat_map(|bit| {
+        [
+            bit.left_provenance.as_slice(),
+            bit.left_commitment.as_slice(),
+            bit.right_provenance.as_slice(),
+            bit.right_commitment.as_slice(),
+        ]
+    });
+    let (base_left, base_right) = build_local_word_pair_public_from_extra_material(
+        backend.evaluation_key(),
+        b"phase-a-bool-to-arith-base",
+        label.as_bytes(),
+        width_bits,
+        left_packed,
+        adjusted_right,
+        base_material,
+    );
+    LocalArithmeticWordPair::new(base_left, base_right)
 }
 
 fn split_local_bit_pair_to_arithmetic_word_pair_naive<B: DdhHssArithmeticBackend>(
@@ -4565,55 +5837,150 @@ fn split_local_bit_pair_to_arithmetic_word_pair_naive<B: DdhHssArithmeticBackend
 fn arithmetic_word_pair_to_split_local_bits_secure<B: DdhHssArithmeticBackend>(
     backend: &B,
     label: &str,
+    scratch: &mut LocalArithmeticToBooleanScratch,
     word: &LocalArithmeticWordPair,
 ) -> ProtoResult<SplitLocalBitWord> {
-    let mut child_label = String::with_capacity(label.len() + 16);
-    set_child_label(&mut child_label, label, "zero");
-    let (zero_left, zero_right) = build_local_word_pair_public(
-        backend.evaluation_key(),
-        b"phase-a-arith-to-bool-zero",
-        child_label.as_bytes(),
-        1,
-        0,
-        0,
-        &[
-            &word.left.provenance_digest,
-            &word.left.share_commitment,
-            &word.right.provenance_digest,
-            &word.right.share_commitment,
-        ],
-    );
+    let a2b_kernel_version = DdhHssA2bKernelVersion::CURRENT;
+    scratch.set_child_label(label, "a2b_v2_root");
+    let root_label = scratch.label().to_string();
+    let root = build_a2b_committed_root_material(backend.evaluation_key(), &root_label, word)?;
+    let carry_material_base =
+        prepare_a2b_v2_carry_material_base(backend.evaluation_key(), &root_label, &root)?;
     let width = usize::from(word.left.width_bits);
     let mut out_left = empty_local_bit_slice(DdhHssShareSide::Left, width);
     let mut out_right = empty_local_bit_slice(DdhHssShareSide::Right, width);
-    set_child_label(&mut child_label, label, "sum");
-    eval_add_cross_share_local_arithmetic_word_bits_secure_public_into(
-        backend.evaluation_key(),
-        &child_label,
-        &word.left,
-        &word.right,
-        &zero_left,
-        &zero_right,
-        |left, right| {
-            out_left.push_local_word(&left)?;
-            out_right.push_local_word(&right)?;
-            Ok(())
-        },
-    )?;
+    let mut carry_left = DdhHssLocalWordCore::from_local_word(&root.root_left);
+    let mut carry_right = DdhHssLocalWordCore::from_local_word(&root.root_right);
+    let mut bit_label = String::with_capacity(label.len() + 32);
+    // Loop shape and labels are public; secret share bits only feed masked arithmetic.
+    for idx in 0..width {
+        let left_bit = (word.left.share_word >> idx) & 1;
+        let right_bit = (word.right.share_word >> idx) & 1;
+        set_indexed_child_label(&mut bit_label, label, "left", idx);
+        let left_bit_word = build_local_word_core_for_key(
+            backend.evaluation_key(),
+            b"phase-a-arith-share-to-bool-v2",
+            bit_label.as_bytes(),
+            1,
+            DdhHssShareSide::Left,
+            left_bit,
+            &[
+                a2b_kernel_version.as_str().as_bytes(),
+                &root.root_digest,
+                &word.left.provenance_digest,
+                &word.left.share_commitment,
+                b"left",
+            ],
+        );
+        set_indexed_child_label(&mut bit_label, label, "right", idx);
+        let right_bit_word = build_local_word_core_for_key(
+            backend.evaluation_key(),
+            b"phase-a-arith-share-to-bool-v2",
+            bit_label.as_bytes(),
+            1,
+            DdhHssShareSide::Right,
+            right_bit,
+            &[
+                a2b_kernel_version.as_str().as_bytes(),
+                &root.root_digest,
+                &word.right.provenance_digest,
+                &word.right.share_commitment,
+                b"right",
+            ],
+        );
+        set_indexed_child_label(&mut bit_label, label, "xor_ab", idx);
+        let (xor_ab_left, xor_ab_right) = xor_local_bit_pair_core_from_raw_public(
+            backend.evaluation_key(),
+            bit_label.as_bytes(),
+            (left_bit_word.share_word as u8) & 1,
+            0,
+            &left_bit_word.provenance_digest,
+            0,
+            (right_bit_word.share_word as u8) & 1,
+            &right_bit_word.provenance_digest,
+        );
+        set_indexed_child_label(&mut bit_label, label, "sum", idx);
+        let (sum_left_core, sum_right_core) = xor_local_bit_pair_core_from_raw_public(
+            backend.evaluation_key(),
+            bit_label.as_bytes(),
+            (xor_ab_left.share_word as u8) & 1,
+            (xor_ab_right.share_word as u8) & 1,
+            &xor_ab_left.provenance_digest,
+            (carry_left.share_word as u8) & 1,
+            (carry_right.share_word as u8) & 1,
+            &carry_left.provenance_digest,
+        );
+        let sum_left = materialize_local_word_core(&sum_left_core, b"eval-xor-local-word");
+        let sum_right = materialize_local_word_core(&sum_right_core, b"eval-xor-local-word");
+        set_indexed_child_label(&mut bit_label, label, "a_xor_carry", idx);
+        let (a_xor_carry_left, a_xor_carry_right) = xor_local_bit_pair_core_from_raw_public(
+            backend.evaluation_key(),
+            bit_label.as_bytes(),
+            (left_bit_word.share_word as u8) & 1,
+            0,
+            &left_bit_word.provenance_digest,
+            (carry_left.share_word as u8) & 1,
+            (carry_right.share_word as u8) & 1,
+            &carry_left.provenance_digest,
+        );
+        let carry_material = build_a2b_v2_carry_material(
+            &carry_material_base,
+            A2bCarryMaterialInputs {
+                bit_index: idx,
+                root: &root,
+                previous_carry_left: &carry_left,
+                previous_carry_right: &carry_right,
+                left_bit: &left_bit_word,
+                right_bit: &right_bit_word,
+                xor_ab_left: &xor_ab_left,
+                xor_ab_right: &xor_ab_right,
+                a_xor_carry_left: &a_xor_carry_left,
+                a_xor_carry_right: &a_xor_carry_right,
+            },
+        )?;
+        set_indexed_child_label(&mut bit_label, label, "carry", idx);
+        let (carry_gate_left, carry_gate_right) = eval_a2b_v2_carry_gate(
+            backend.evaluation_key(),
+            bit_label.as_bytes(),
+            idx,
+            &xor_ab_left,
+            &xor_ab_right,
+            &a_xor_carry_left,
+            &a_xor_carry_right,
+            &carry_material,
+        )?;
+        set_indexed_child_label(&mut bit_label, label, "next_carry", idx);
+        let left_zero_right = DdhHssLocalWordCore {
+            width_bits: 1,
+            share_side: DdhHssShareSide::Right,
+            share_word: 0,
+            provenance_digest: left_bit_word.provenance_digest,
+        };
+        (carry_left, carry_right) = xor_local_word_core_pairs_public(
+            backend.evaluation_key(),
+            bit_label.as_bytes(),
+            &left_bit_word,
+            &left_zero_right,
+            &carry_gate_left,
+            &carry_gate_right,
+        )?;
+        out_left.push_local_word(&sum_left)?;
+        out_right.push_local_word(&sum_right)?;
+    }
     SplitLocalBitWord::from_local_sides(out_left, out_right)
 }
 
 fn add_two_local_bit_pairs_to_arithmetic_naive<B: DdhHssArithmeticBackend>(
     backend: &B,
     label: &str,
+    scratch: &mut LocalArithmeticAddScratch,
     a: LocalBitWordPairRef<'_>,
     b: LocalBitWordPairRef<'_>,
 ) -> ProtoResult<(LocalArithmeticWordPair, LocalBitWordAddTiming)> {
-    let mut child_label = String::with_capacity(label.len() + 8);
-    set_child_label(&mut child_label, label, "a");
-    let a_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &child_label, a)?;
-    set_child_label(&mut child_label, label, "b");
-    let b_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &child_label, b)?;
+    scratch.set_child_label(label, "a");
+    let a_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, scratch.label(), a)?;
+    scratch.set_child_label(label, "b");
+    let b_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, scratch.label(), b)?;
     Ok((
         add_local_arithmetic_word_pairs(backend.evaluation_key(), label, &a_arith, &b_arith)?,
         LocalBitWordAddTiming::default(),
@@ -4623,52 +5990,116 @@ fn add_two_local_bit_pairs_to_arithmetic_naive<B: DdhHssArithmeticBackend>(
 fn add_four_local_bit_pairs_to_arithmetic_naive<B: DdhHssArithmeticBackend>(
     backend: &B,
     label: &str,
+    scratch: &mut LocalArithmeticAddScratch,
     a: LocalBitWordPairRef<'_>,
     b: LocalBitWordPairRef<'_>,
     c: LocalBitWordPairRef<'_>,
     d: LocalBitWordPairRef<'_>,
 ) -> ProtoResult<(LocalArithmeticWordPair, LocalBitWordAddTiming)> {
-    let mut child_label = String::with_capacity(label.len() + 8);
-    set_child_label(&mut child_label, label, "a");
-    let a_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &child_label, a)?;
-    set_child_label(&mut child_label, label, "b");
-    let b_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &child_label, b)?;
-    set_child_label(&mut child_label, label, "c");
-    let c_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &child_label, c)?;
-    set_child_label(&mut child_label, label, "d");
-    let d_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &child_label, d)?;
-    set_child_label(&mut child_label, label, "ab");
+    scratch.set_child_label(label, "a");
+    let a_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, scratch.label(), a)?;
+    scratch.set_child_label(label, "b");
+    let b_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, scratch.label(), b)?;
+    scratch.set_child_label(label, "c");
+    let c_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, scratch.label(), c)?;
+    scratch.set_child_label(label, "d");
+    let d_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, scratch.label(), d)?;
+    scratch.set_child_label(label, "ab");
     let ab = add_local_arithmetic_word_pairs(
         backend.evaluation_key(),
-        &child_label,
+        scratch.label(),
         &a_arith,
         &b_arith,
     )?;
-    set_child_label(&mut child_label, label, "abc");
+    scratch.set_child_label(label, "abc");
     let abc =
-        add_local_arithmetic_word_pairs(backend.evaluation_key(), &child_label, &ab, &c_arith)?;
-    set_child_label(&mut child_label, label, "abcd");
+        add_local_arithmetic_word_pairs(backend.evaluation_key(), scratch.label(), &ab, &c_arith)?;
+    scratch.set_child_label(label, "abcd");
     let abcd =
-        add_local_arithmetic_word_pairs(backend.evaluation_key(), &child_label, &abc, &d_arith)?;
+        add_local_arithmetic_word_pairs(backend.evaluation_key(), scratch.label(), &abc, &d_arith)?;
+    Ok((abcd, LocalBitWordAddTiming::default()))
+}
+
+fn add_message_schedule_words_to_arithmetic_naive<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    label: &str,
+    scratch: &mut LocalArithmeticAddScratch,
+    word0: LocalBitWordPairRef<'_>,
+    sigma0: &CoreBitWordPair,
+    word1: LocalBitWordPairRef<'_>,
+    sigma1: &CoreBitWordPair,
+    sigma0_b2a_scratch: &mut CoreBitPairB2aMaterialScratch,
+    sigma1_b2a_scratch: &mut CoreBitPairB2aMaterialScratch,
+) -> ProtoResult<(LocalArithmeticWordPair, LocalBitWordAddTiming)> {
+    scratch.set_child_label(label, "a");
+    let word0_arith =
+        split_local_bit_pair_to_arithmetic_word_pair_naive(backend, scratch.label(), word0)?;
+    scratch.set_child_label(label, "b");
+    let sigma0_arith = materialize_core_bit_pair_to_arithmetic_word_pair_naive(
+        backend,
+        scratch.label(),
+        sigma0,
+        CoreBitWordStage::MessageScheduleSigma0,
+        b"eval-xor-local-word",
+        sigma0_b2a_scratch,
+    )?;
+    scratch.set_child_label(label, "c");
+    let word1_arith =
+        split_local_bit_pair_to_arithmetic_word_pair_naive(backend, scratch.label(), word1)?;
+    scratch.set_child_label(label, "d");
+    let sigma1_arith = materialize_core_bit_pair_to_arithmetic_word_pair_naive(
+        backend,
+        scratch.label(),
+        sigma1,
+        CoreBitWordStage::MessageScheduleSigma1,
+        b"eval-xor-local-word",
+        sigma1_b2a_scratch,
+    )?;
+    scratch.set_child_label(label, "ab");
+    let ab = add_local_arithmetic_word_pairs(
+        backend.evaluation_key(),
+        scratch.label(),
+        &word0_arith,
+        &sigma0_arith,
+    )?;
+    scratch.set_child_label(label, "abc");
+    let abc = add_local_arithmetic_word_pairs(
+        backend.evaluation_key(),
+        scratch.label(),
+        &ab,
+        &word1_arith,
+    )?;
+    scratch.set_child_label(label, "abcd");
+    let abcd = add_local_arithmetic_word_pairs(
+        backend.evaluation_key(),
+        scratch.label(),
+        &abc,
+        &sigma1_arith,
+    )?;
     Ok((abcd, LocalBitWordAddTiming::default()))
 }
 
 fn add_five_local_bit_pairs_to_arithmetic_naive<B: DdhHssArithmeticBackend>(
     backend: &B,
     label: &str,
+    scratch: &mut LocalArithmeticAddScratch,
     a: LocalBitWordPairRef<'_>,
     b: LocalBitWordPairRef<'_>,
     c: LocalBitWordPairRef<'_>,
     d: LocalBitWordPairRef<'_>,
     e: LocalBitWordPairRef<'_>,
 ) -> ProtoResult<(LocalArithmeticWordPair, LocalBitWordAddTiming)> {
-    let (abcd, timing) = add_four_local_bit_pairs_to_arithmetic_naive(backend, label, a, b, c, d)?;
-    let mut child_label = String::with_capacity(label.len() + 8);
-    set_child_label(&mut child_label, label, "e");
-    let e_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, &child_label, e)?;
-    set_child_label(&mut child_label, label, "abcde");
-    let abcde =
-        add_local_arithmetic_word_pairs(backend.evaluation_key(), &child_label, &abcd, &e_arith)?;
+    let (abcd, timing) =
+        add_four_local_bit_pairs_to_arithmetic_naive(backend, label, scratch, a, b, c, d)?;
+    scratch.set_child_label(label, "e");
+    let e_arith = split_local_bit_pair_to_arithmetic_word_pair_naive(backend, scratch.label(), e)?;
+    scratch.set_child_label(label, "abcde");
+    let abcde = add_local_arithmetic_word_pairs(
+        backend.evaluation_key(),
+        scratch.label(),
+        &abcd,
+        &e_arith,
+    )?;
     Ok((abcde, timing))
 }
 
@@ -4704,6 +6135,7 @@ fn add_two_local_bit_words_profiled<B: DdhHssArithmeticBackend>(
     let mut carry_right = DdhHssLocalWordCore::from_local_word(zero_right);
     let mut timing = LocalBitWordAddTiming::default();
     let mut bit_label = String::with_capacity(label.len() + 32);
+    let material_base = prepare_local_bit_mul_material_base_public(backend.evaluation_key());
     for idx in 0..left.len() {
         let left_left_word = left.left.local_word(idx)?;
         let left_right_word = left.right.local_word(idx)?;
@@ -4754,14 +6186,16 @@ fn add_two_local_bit_words_profiled<B: DdhHssArithmeticBackend>(
             .saturating_add(elapsed_ns(a_xor_carry_started_ns));
         set_indexed_child_label(&mut bit_label, label, "carry", idx);
         let carry_gate_started_ns = monotonic_now_ns();
-        let (carry_gate_left, carry_gate_right) = eval_mul_local_word_pairs_core_public(
-            backend.evaluation_key(),
-            bit_label.as_bytes(),
-            &xor_ab_left,
-            &xor_ab_right,
-            &a_xor_carry_left,
-            &a_xor_carry_right,
-        )?;
+        let (carry_gate_left, carry_gate_right) =
+            eval_mul_local_word_pairs_core_with_material_base_public(
+                backend.evaluation_key(),
+                &material_base,
+                bit_label.as_bytes(),
+                &xor_ab_left,
+                &xor_ab_right,
+                &a_xor_carry_left,
+                &a_xor_carry_right,
+            )?;
         timing.carry_gate_duration_ns = timing
             .carry_gate_duration_ns
             .saturating_add(elapsed_ns(carry_gate_started_ns));
@@ -4809,6 +6243,7 @@ fn add_two_local_bit_words_right_transport_bundles<B: DdhHssArithmeticBackend>(
     let mut carry_left = DdhHssLocalWordCore::from_local_word(zero_left);
     let mut carry_right = DdhHssLocalWordCore::from_local_word(zero_right);
     let mut bit_label = String::with_capacity(label.len() + 32);
+    let material_base = prepare_local_bit_mul_material_base_public(backend.evaluation_key());
     for idx in 0..left.len() {
         validate_transport_word_pair_public(
             HiddenEvalInputOwner::Server,
@@ -4852,14 +6287,16 @@ fn add_two_local_bit_words_right_transport_bundles<B: DdhHssArithmeticBackend>(
             &carry_right,
         )?;
         set_indexed_child_label(&mut bit_label, label, "carry", idx);
-        let (carry_gate_left, carry_gate_right) = eval_mul_local_word_pairs_core_public(
-            backend.evaluation_key(),
-            bit_label.as_bytes(),
-            &xor_ab_left,
-            &xor_ab_right,
-            &a_xor_carry_left,
-            &a_xor_carry_right,
-        )?;
+        let (carry_gate_left, carry_gate_right) =
+            eval_mul_local_word_pairs_core_with_material_base_public(
+                backend.evaluation_key(),
+                &material_base,
+                bit_label.as_bytes(),
+                &xor_ab_left,
+                &xor_ab_right,
+                &a_xor_carry_left,
+                &a_xor_carry_right,
+            )?;
         set_indexed_child_label(&mut bit_label, label, "next_carry", idx);
         (carry_left, carry_right) = xor_local_word_core_pairs_public(
             backend.evaluation_key(),
@@ -4895,6 +6332,7 @@ fn add_two_local_bit_words_right_shared_bits<B: DdhHssArithmeticBackend>(
     let mut carry_left = DdhHssLocalWordCore::from_local_word(zero_left);
     let mut carry_right = DdhHssLocalWordCore::from_local_word(zero_right);
     let mut bit_label = String::with_capacity(label.len() + 32);
+    let material_base = prepare_local_bit_mul_material_base_public(backend.evaluation_key());
     for (idx, right_word) in right.iter().enumerate() {
         if right_word.width_bits != 1 {
             return Err(ProtoError::InvalidInput(format!(
@@ -4938,14 +6376,16 @@ fn add_two_local_bit_words_right_shared_bits<B: DdhHssArithmeticBackend>(
             &carry_right,
         )?;
         set_indexed_child_label(&mut bit_label, label, "carry", idx);
-        let (carry_gate_left, carry_gate_right) = eval_mul_local_word_pairs_core_public(
-            backend.evaluation_key(),
-            bit_label.as_bytes(),
-            &xor_ab_left,
-            &xor_ab_right,
-            &a_xor_carry_left,
-            &a_xor_carry_right,
-        )?;
+        let (carry_gate_left, carry_gate_right) =
+            eval_mul_local_word_pairs_core_with_material_base_public(
+                backend.evaluation_key(),
+                &material_base,
+                bit_label.as_bytes(),
+                &xor_ab_left,
+                &xor_ab_right,
+                &a_xor_carry_left,
+                &a_xor_carry_right,
+            )?;
         set_indexed_child_label(&mut bit_label, label, "next_carry", idx);
         (carry_left, carry_right) = xor_local_word_core_pairs_public(
             backend.evaluation_key(),
@@ -4963,31 +6403,37 @@ fn add_two_local_bit_words_right_shared_bits<B: DdhHssArithmeticBackend>(
 
 fn or_local_word_pairs<B: DdhHssArithmeticBackend>(
     backend: &B,
+    material_base: &DdhHssLocalMulMaterialBase,
     label: &str,
+    child_label: &mut String,
     left_left: &DdhHssLocalWord,
     left_right: &DdhHssLocalWord,
     right_left: &DdhHssLocalWord,
     right_right: &DdhHssLocalWord,
 ) -> ProtoResult<(DdhHssLocalWord, DdhHssLocalWord)> {
+    set_child_label(child_label, label, "xor");
     let (xor_left, xor_right) = xor_local_word_pairs_public(
         backend.evaluation_key(),
-        format!("{label}/xor").as_bytes(),
+        child_label.as_bytes(),
         left_left,
         left_right,
         right_left,
         right_right,
     )?;
-    let (and_left, and_right) = eval_mul_local_word_pairs_public(
+    set_child_label(child_label, label, "and");
+    let (and_left, and_right) = eval_mul_local_word_pairs_with_material_base_public(
         backend.evaluation_key(),
-        format!("{label}/and").as_bytes(),
+        material_base,
+        child_label.as_bytes(),
         left_left,
         left_right,
         right_left,
         right_right,
     )?;
+    set_child_label(child_label, label, "out");
     xor_local_word_pairs_public(
         backend.evaluation_key(),
-        format!("{label}/out").as_bytes(),
+        child_label.as_bytes(),
         &xor_left,
         &xor_right,
         &and_left,
@@ -4999,10 +6445,67 @@ fn ed25519_l_bit(bit_idx: usize) -> bool {
     ((ED25519_L_BYTES_LE[bit_idx / 8] >> (bit_idx % 8)) & 1) == 1
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum Ed25519LPublicMultiple {
+    One,
+    Two,
+    Four,
+}
+
+impl Ed25519LPublicMultiple {
+    const CLAMPED_REDUCTION_SEQUENCE: [Self; 3] = [Self::Four, Self::Two, Self::One];
+
+    fn shift_bits(self) -> usize {
+        match self {
+            Self::One => 0,
+            Self::Two => 1,
+            Self::Four => 2,
+        }
+    }
+
+    fn label_suffix(self) -> &'static str {
+        match self {
+            Self::One => "l",
+            Self::Two => "2l",
+            Self::Four => "4l",
+        }
+    }
+
+    fn bit(self, bit_idx: usize) -> bool {
+        let shift_bits = self.shift_bits();
+        if bit_idx < shift_bits {
+            return false;
+        }
+        ed25519_l_bit(bit_idx - shift_bits)
+    }
+}
+
 fn sub_local_bit_words_with_ed25519_l<B: DdhHssArithmeticBackend>(
     backend: &B,
     label: &str,
     left: &SplitLocalBitWord,
+    zero_left: &DdhHssLocalWord,
+    zero_right: &DdhHssLocalWord,
+    one_left: &DdhHssLocalWord,
+    one_right: &DdhHssLocalWord,
+) -> ProtoResult<(SplitLocalBitWord, DdhHssLocalWord, DdhHssLocalWord)> {
+    sub_local_bit_words_with_ed25519_l_multiple(
+        backend,
+        label,
+        left,
+        Ed25519LPublicMultiple::One,
+        zero_left,
+        zero_right,
+        one_left,
+        one_right,
+    )
+}
+
+fn sub_local_bit_words_with_ed25519_l_multiple<B: DdhHssArithmeticBackend>(
+    backend: &B,
+    label: &str,
+    left: &SplitLocalBitWord,
+    multiple: Ed25519LPublicMultiple,
     zero_left: &DdhHssLocalWord,
     zero_right: &DdhHssLocalWord,
     one_left: &DdhHssLocalWord,
@@ -5018,49 +6521,61 @@ fn sub_local_bit_words_with_ed25519_l<B: DdhHssArithmeticBackend>(
     let mut out_right = empty_local_bit_slice(DdhHssShareSide::Right, left.len());
     let mut borrow_left = zero_left.clone();
     let mut borrow_right = zero_right.clone();
+    let mut bit_label = String::with_capacity(label.len() + 32);
+    let mut child_label = String::with_capacity(label.len() + 36);
+    let material_base = prepare_local_bit_mul_material_base_public(backend.evaluation_key());
     for idx in 0..left.len() {
+        let modulus_bit = multiple.bit(idx);
         let left_left_word = left.left.local_word(idx)?;
         let left_right_word = left.right.local_word(idx)?;
+        set_indexed_child_label(&mut bit_label, label, "not_left", idx);
         let (not_left_left, not_left_right) = xor_local_word_pairs_public(
             backend.evaluation_key(),
-            format!("{label}/not_left/{idx}").as_bytes(),
+            bit_label.as_bytes(),
             &left_left_word,
             &left_right_word,
             one_left,
             one_right,
         )?;
-        let (diff_left, diff_right) = if ed25519_l_bit(idx) {
+        let (diff_left, diff_right) = if modulus_bit {
+            set_indexed_child_label(&mut bit_label, label, "diff_one", idx);
             xor_local_word_pairs_public(
                 backend.evaluation_key(),
-                format!("{label}/diff_one/{idx}").as_bytes(),
+                bit_label.as_bytes(),
                 &not_left_left,
                 &not_left_right,
                 &borrow_left,
                 &borrow_right,
             )?
         } else {
+            set_indexed_child_label(&mut bit_label, label, "diff_zero", idx);
             xor_local_word_pairs_public(
                 backend.evaluation_key(),
-                format!("{label}/diff_zero/{idx}").as_bytes(),
+                bit_label.as_bytes(),
                 &left_left_word,
                 &left_right_word,
                 &borrow_left,
                 &borrow_right,
             )?
         };
-        (borrow_left, borrow_right) = if ed25519_l_bit(idx) {
+        (borrow_left, borrow_right) = if modulus_bit {
+            set_indexed_child_label(&mut bit_label, label, "borrow_one", idx);
             or_local_word_pairs(
                 backend,
-                &format!("{label}/borrow_one/{idx}"),
+                &material_base,
+                &bit_label,
+                &mut child_label,
                 &not_left_left,
                 &not_left_right,
                 &borrow_left,
                 &borrow_right,
             )?
         } else {
-            eval_mul_local_word_pairs_public(
+            set_indexed_child_label(&mut bit_label, label, "borrow_zero", idx);
+            eval_mul_local_word_pairs_with_material_base_public(
                 backend.evaluation_key(),
-                format!("{label}/borrow_zero/{idx}").as_bytes(),
+                &material_base,
+                bit_label.as_bytes(),
                 &not_left_left,
                 &not_left_right,
                 &borrow_left,
@@ -5096,15 +6611,16 @@ fn select_local_bit_words<B: DdhHssArithmeticBackend>(
     let mut branch_delta_right_words = Vec::with_capacity(when_true.len());
     let mut false_left_words = Vec::with_capacity(when_true.len());
     let mut false_right_words = Vec::with_capacity(when_true.len());
+    let mut bit_label = String::with_capacity(label.len() + 32);
     for idx in 0..when_true.len() {
         let true_left = when_true.left.local_word(idx)?;
         let true_right = when_true.right.local_word(idx)?;
         let false_left = when_false.left.local_word(idx)?;
         let false_right = when_false.right.local_word(idx)?;
-        let branch_delta_label = format!("{label}/branch_delta/{idx}");
+        set_indexed_child_label(&mut bit_label, label, "branch_delta", idx);
         let (branch_delta_left, branch_delta_right) = xor_local_word_pairs_public(
             backend.evaluation_key(),
-            branch_delta_label.as_bytes(),
+            bit_label.as_bytes(),
             &true_left,
             &true_right,
             &false_left,
@@ -5115,22 +6631,23 @@ fn select_local_bit_words<B: DdhHssArithmeticBackend>(
         false_left_words.push(false_left);
         false_right_words.push(false_right);
     }
-    let selector_left_words = vec![selector_left.clone(); when_true.len()];
-    let selector_right_words = vec![selector_right.clone(); when_true.len()];
-    let (gated_delta_left_words, gated_delta_right_words) = eval_mul_local_word_pair_batch_public(
-        backend.evaluation_key(),
-        &format!("{label}/bit"),
-        &selector_left_words,
-        &selector_right_words,
-        &branch_delta_left_words,
-        &branch_delta_right_words,
-    )?;
+    set_child_label(&mut bit_label, label, "bit");
+    let (gated_delta_left_words, gated_delta_right_words) =
+        eval_mul_local_word_pair_batch_repeated_left_public(
+            backend.evaluation_key(),
+            &bit_label,
+            selector_left,
+            selector_right,
+            &branch_delta_left_words,
+            &branch_delta_right_words,
+        )?;
     let mut out_left = empty_local_bit_slice(DdhHssShareSide::Left, when_true.len());
     let mut out_right = empty_local_bit_slice(DdhHssShareSide::Right, when_true.len());
     for idx in 0..when_true.len() {
+        set_indexed_child_label(&mut bit_label, label, "selected", idx);
         let (selected_left, selected_right) = xor_local_word_pairs_public(
             backend.evaluation_key(),
-            format!("{label}/selected/{idx}").as_bytes(),
+            bit_label.as_bytes(),
             &false_left_words[idx],
             &false_right_words[idx],
             &gated_delta_left_words[idx],
@@ -5142,101 +6659,69 @@ fn select_local_bit_words<B: DdhHssArithmeticBackend>(
     SplitLocalBitWord::from_local_sides(out_left, out_right)
 }
 
-fn small_sigma0_local_bits<B: DdhHssArithmeticBackend>(
+fn small_sigma0_core_bits_into<B: DdhHssArithmeticBackend>(
     backend: &B,
     label: &str,
     word: &SplitLocalBitWord,
     zero_left: &DdhHssLocalWord,
     zero_right: &DdhHssLocalWord,
-) -> ProtoResult<SplitLocalBitWord> {
-    SplitLocalBitWord::from_local_sides(
-        xor_transformed_local_bit_word_side_core(
-            backend.evaluation_key(),
-            label,
-            &word.left,
-            [
-                LocalBitTransformSpec {
-                    transform: LocalBitTransform::Rotate(1),
-                    zero: None,
-                },
-                LocalBitTransformSpec {
-                    transform: LocalBitTransform::Rotate(8),
-                    zero: None,
-                },
-                LocalBitTransformSpec {
-                    transform: LocalBitTransform::Shift(7),
-                    zero: Some(zero_left),
-                },
-            ],
-        )?,
-        xor_transformed_local_bit_word_side_core(
-            backend.evaluation_key(),
-            label,
-            &word.right,
-            [
-                LocalBitTransformSpec {
-                    transform: LocalBitTransform::Rotate(1),
-                    zero: None,
-                },
-                LocalBitTransformSpec {
-                    transform: LocalBitTransform::Rotate(8),
-                    zero: None,
-                },
-                LocalBitTransformSpec {
-                    transform: LocalBitTransform::Shift(7),
-                    zero: Some(zero_right),
-                },
-            ],
-        )?,
+    out: &mut CoreBitWordPair,
+) -> ProtoResult<()> {
+    xor_transformed_local_bit_word_pair_core_with_side_zeros_into(
+        backend.evaluation_key(),
+        label,
+        word.as_pair_ref(),
+        [
+            LocalBitPairTransformSpec {
+                transform: LocalBitTransform::Rotate(1),
+                zero_left: None,
+                zero_right: None,
+            },
+            LocalBitPairTransformSpec {
+                transform: LocalBitTransform::Rotate(8),
+                zero_left: None,
+                zero_right: None,
+            },
+            LocalBitPairTransformSpec {
+                transform: LocalBitTransform::Shift(7),
+                zero_left: Some(zero_left),
+                zero_right: Some(zero_right),
+            },
+        ],
+        out,
     )
 }
 
-fn small_sigma1_local_bits<B: DdhHssArithmeticBackend>(
+fn small_sigma1_core_bits_into<B: DdhHssArithmeticBackend>(
     backend: &B,
     label: &str,
     word: &SplitLocalBitWord,
     zero_left: &DdhHssLocalWord,
     zero_right: &DdhHssLocalWord,
-) -> ProtoResult<SplitLocalBitWord> {
-    SplitLocalBitWord::from_local_sides(
-        xor_transformed_local_bit_word_side_core(
-            backend.evaluation_key(),
-            label,
-            &word.left,
-            [
-                LocalBitTransformSpec {
-                    transform: LocalBitTransform::Rotate(19),
-                    zero: None,
-                },
-                LocalBitTransformSpec {
-                    transform: LocalBitTransform::Rotate(61),
-                    zero: None,
-                },
-                LocalBitTransformSpec {
-                    transform: LocalBitTransform::Shift(6),
-                    zero: Some(zero_left),
-                },
-            ],
-        )?,
-        xor_transformed_local_bit_word_side_core(
-            backend.evaluation_key(),
-            label,
-            &word.right,
-            [
-                LocalBitTransformSpec {
-                    transform: LocalBitTransform::Rotate(19),
-                    zero: None,
-                },
-                LocalBitTransformSpec {
-                    transform: LocalBitTransform::Rotate(61),
-                    zero: None,
-                },
-                LocalBitTransformSpec {
-                    transform: LocalBitTransform::Shift(6),
-                    zero: Some(zero_right),
-                },
-            ],
-        )?,
+    out: &mut CoreBitWordPair,
+) -> ProtoResult<()> {
+    xor_transformed_local_bit_word_pair_core_with_side_zeros_into(
+        backend.evaluation_key(),
+        label,
+        word.as_pair_ref(),
+        [
+            LocalBitPairTransformSpec {
+                transform: LocalBitTransform::Rotate(19),
+                zero_left: None,
+                zero_right: None,
+            },
+            LocalBitPairTransformSpec {
+                transform: LocalBitTransform::Rotate(61),
+                zero_left: None,
+                zero_right: None,
+            },
+            LocalBitPairTransformSpec {
+                transform: LocalBitTransform::Shift(6),
+                zero_left: Some(zero_left),
+                zero_right: Some(zero_right),
+            },
+        ],
+        out,
     )
 }
 
@@ -5244,7 +6729,7 @@ fn big_sigma0_local_bits_core_into<B: DdhHssArithmeticBackend>(
     backend: &B,
     label: &str,
     word: LocalBitWordPairRef<'_>,
-    out: &mut RoundKernelCoreBooleanWord,
+    out: &mut CoreBitWordPair,
 ) -> ProtoResult<()> {
     xor_transformed_local_bit_word_pair_core_into(
         backend.evaluation_key(),
@@ -5273,7 +6758,7 @@ fn big_sigma1_local_bits_core_into<B: DdhHssArithmeticBackend>(
     backend: &B,
     label: &str,
     word: LocalBitWordPairRef<'_>,
-    out: &mut RoundKernelCoreBooleanWord,
+    out: &mut CoreBitWordPair,
 ) -> ProtoResult<()> {
     xor_transformed_local_bit_word_pair_core_into(
         backend.evaluation_key(),
@@ -5314,23 +6799,14 @@ fn ch_local_bits_into<B: DdhHssArithmeticBackend>(
             z.len()
         )));
     }
-    let mut yz_label = String::with_capacity(label.len() + 4);
-    set_child_label(&mut yz_label, label, "yz");
-    xor_split_local_bit_words_into(
-        backend.evaluation_key(),
-        &yz_label,
-        y,
-        z,
-        &mut scratch.operand0,
-    )?;
     scratch.choose.reset();
-    eval_mul_local_bit_pair_batch_raw_xor_base_public_into(
+    eval_ch_local_bit_pair_batch_root_public_into(
         backend.evaluation_key(),
         label,
         x.left.as_raw_view(),
         x.right.as_raw_view(),
-        scratch.operand0.left.as_raw_view(),
-        scratch.operand0.right.as_raw_view(),
+        y.left.as_raw_view(),
+        y.right.as_raw_view(),
         z.left.as_raw_view(),
         z.right.as_raw_view(),
         |left, right| {
@@ -5605,15 +7081,45 @@ fn combine_server_input_bundle_commitments(
 mod tests {
     use super::{
         add_five_local_bit_pairs_to_arithmetic_naive, add_words_bits_mod_l,
-        arithmetic_word_pair_to_split_local_bits_secure, decode_bits_to_fixed_bytes,
-        prepare_ddh_hidden_eval_constant_pool, reduce_scalar_bits_mod_l,
-        reduce_scalar_bits_mod_l_with_constants_local, share_input_bits,
-        split_local_bit_pair_to_arithmetic_word_pair_naive, SplitLocalBitWord,
+        add_words_bits_mod_l_canonical_inputs_local,
+        arithmetic_word_pair_to_split_local_bits_secure, build_a2b_committed_root_material,
+        build_a2b_v2_carry_material, build_hidden_bit_output_bundle,
+        build_hidden_bit_output_transport_bundle_pair, build_output_projector_binding,
+        canonicalize_hidden_bit_output_words, constant_word_bits, decode_bits_to_fixed_bytes,
+        digest_split_local_bit_word, eval_a2b_v2_carry_gate, hidden_bit_output_commitment,
+        materialize_core_bit_pair_to_arithmetic_word_pair_naive,
+        output_projector_binding_material_seed, prepare_a2b_v2_carry_material_base,
+        prepare_ddh_hidden_eval_constant_pool, reduce_clamped_scalar_bits_mod_l_local,
+        reduce_scalar_bits_mod_l, reduce_scalar_bits_mod_l_with_constants_local, share_input_bits,
+        split_local_bit_pair_to_arithmetic_word_pair_naive, A2bCarryMaterialInputs,
+        CoreBitPairB2aMaterialScratch, CoreBitWordPair, CoreBitWordStage,
+        DdhHiddenEvalClientOutputProjection, LocalArithmeticAddScratch,
+        LocalArithmeticToBooleanScratch, LocalArithmeticWordPair, SplitLocalBitWord,
+    };
+    use crate::ddh::ddh_hss::{
+        build_local_word_pair_public, xor_local_bit_pair_core_from_raw_public,
+        DdhHssArithmeticBackend, DdhHssInputShareBundle, DdhHssLocalWordCore, DdhHssShareSide,
+        DdhHssSharedWord, DdhHssTransportBundle, DdhHssTransportWord,
     };
     use crate::ddh::HiddenEvalInputOwner;
     use crate::fixtures::deterministic_fixture_corpus;
     use crate::protocol::prepare_prime_order_succinct_hss;
     use crate::shared::{derive_output_shares, reduce_scalar_mod_l};
+    use crate::wire::ClientOutputValueKind;
+
+    fn test_core_bit(
+        share_side: DdhHssShareSide,
+        width_bits: u16,
+        share_word: u64,
+        provenance_tag: u8,
+    ) -> DdhHssLocalWordCore {
+        DdhHssLocalWordCore {
+            width_bits,
+            share_side,
+            share_word,
+            provenance_digest: [provenance_tag; 32],
+        }
+    }
 
     #[test]
     fn phase_a_naive_conversion_round_trip_matches_original_word() {
@@ -5662,9 +7168,11 @@ mod tests {
             .left
             .share_word
             .wrapping_add(arithmetic.right.share_word);
+        let mut a2b_scratch = LocalArithmeticToBooleanScratch::with_capacity(48);
         let round_tripped = arithmetic_word_pair_to_split_local_bits_secure(
             backend,
             "test_phase_a_roundtrip_word/bool",
+            &mut a2b_scratch,
             &arithmetic,
         )
         .expect("convert back to boolean");
@@ -5689,6 +7197,594 @@ mod tests {
         );
         assert_eq!(arithmetic_open, expected);
         assert_eq!(decoded, expected);
+    }
+
+    #[test]
+    fn phase_a_a2b_label_change_changes_commitments_not_value() {
+        let fixture = deterministic_fixture_corpus()
+            .expect("fixture corpus")
+            .into_iter()
+            .next()
+            .expect("fixture");
+        let session =
+            prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare DDH session");
+        let backend = session.ddh_backend();
+        let shared_bits = share_input_bits(
+            backend,
+            HiddenEvalInputOwner::Derived,
+            "test_phase_a_a2b_label_change/input",
+            &fixture.output.a_bytes,
+        )
+        .expect("share input bits");
+        let word_bits =
+            SplitLocalBitWord::from_shared_bits(&shared_bits[..64]).expect("split word");
+        let arithmetic = split_local_bit_pair_to_arithmetic_word_pair_naive(
+            backend,
+            "test_phase_a_a2b_label_change/arith",
+            word_bits.as_pair_ref(),
+        )
+        .expect("convert to arithmetic");
+        let mut first_scratch = LocalArithmeticToBooleanScratch::with_capacity(48);
+        let first = arithmetic_word_pair_to_split_local_bits_secure(
+            backend,
+            "test_phase_a_a2b_label_change/first",
+            &mut first_scratch,
+            &arithmetic,
+        )
+        .expect("first A2B");
+        let mut second_scratch = LocalArithmeticToBooleanScratch::with_capacity(48);
+        let second = arithmetic_word_pair_to_split_local_bits_secure(
+            backend,
+            "test_phase_a_a2b_label_change/second",
+            &mut second_scratch,
+            &arithmetic,
+        )
+        .expect("second A2B");
+
+        let first_decoded = decode_bits_to_fixed_bytes::<8>(
+            backend,
+            &first.to_shared_bits().expect("first shared bits"),
+            "test_phase_a_a2b_label_change/decode_first",
+        )
+        .expect("decode first");
+        let second_decoded = decode_bits_to_fixed_bytes::<8>(
+            backend,
+            &second.to_shared_bits().expect("second shared bits"),
+            "test_phase_a_a2b_label_change/decode_second",
+        )
+        .expect("decode second");
+
+        assert_eq!(first_decoded, fixture.output.a_bytes[..8]);
+        assert_eq!(second_decoded, fixture.output.a_bytes[..8]);
+        assert_ne!(
+            digest_split_local_bit_word(b"label_change_result", &first)
+                .expect("first result digest"),
+            digest_split_local_bit_word(b"label_change_result", &second)
+                .expect("second result digest")
+        );
+    }
+
+    #[test]
+    fn phase_a_a2b_rejects_invalid_arithmetic_pair_metadata() {
+        let fixture = deterministic_fixture_corpus()
+            .expect("fixture corpus")
+            .into_iter()
+            .next()
+            .expect("fixture");
+        let session =
+            prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare DDH session");
+        let backend = session.ddh_backend();
+        let shared_bits = share_input_bits(
+            backend,
+            HiddenEvalInputOwner::Derived,
+            "test_phase_a_a2b_invalid_metadata/input",
+            &fixture.output.a_bytes,
+        )
+        .expect("share input bits");
+        let word_bits =
+            SplitLocalBitWord::from_shared_bits(&shared_bits[..64]).expect("split word");
+        let arithmetic = split_local_bit_pair_to_arithmetic_word_pair_naive(
+            backend,
+            "test_phase_a_a2b_invalid_metadata/arith",
+            word_bits.as_pair_ref(),
+        )
+        .expect("convert to arithmetic");
+
+        let mut wrong_provenance = arithmetic.right.clone();
+        wrong_provenance.provenance_digest[0] ^= 1;
+        assert!(LocalArithmeticWordPair::new(arithmetic.left.clone(), wrong_provenance).is_err());
+
+        let mut wrong_width = arithmetic.right.clone();
+        wrong_width.width_bits = wrong_width.width_bits.saturating_sub(1);
+        assert!(LocalArithmeticWordPair::new(arithmetic.left.clone(), wrong_width).is_err());
+
+        let mut wrong_side = arithmetic.right.clone();
+        wrong_side.share_side = DdhHssShareSide::Left;
+        assert!(LocalArithmeticWordPair::new(arithmetic.left, wrong_side).is_err());
+    }
+
+    #[test]
+    fn core_bit_word_pair_rejects_invalid_side_width_and_shape() {
+        let mut pair = CoreBitWordPair::empty(CoreBitWordStage::MessageScheduleSigma0, 2);
+
+        let wrong_side = test_core_bit(DdhHssShareSide::Right, 1, 1, 7);
+        assert!(pair.left.push_core_word(&wrong_side).is_err());
+
+        let wrong_width = test_core_bit(DdhHssShareSide::Left, 2, 1, 7);
+        assert!(pair.left.push_core_word(&wrong_width).is_err());
+
+        let left_bit = test_core_bit(DdhHssShareSide::Left, 1, 1, 7);
+        pair.left
+            .push_core_word(&left_bit)
+            .expect("valid left core bit");
+        assert!(pair.ensure_shape().is_err());
+
+        let right_bit = test_core_bit(DdhHssShareSide::Right, 1, 0, 7);
+        pair.right
+            .push_core_word(&right_bit)
+            .expect("valid right core bit");
+        pair.ensure_shape().expect("valid core pair");
+
+        pair.left.stage = CoreBitWordStage::RoundCoreSigma0;
+        assert!(pair.ensure_shape().is_err());
+    }
+
+    #[test]
+    fn core_pair_to_arithmetic_rejects_invalid_shapes() {
+        let fixture = deterministic_fixture_corpus()
+            .expect("fixture corpus")
+            .into_iter()
+            .next()
+            .expect("fixture");
+        let session =
+            prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare DDH session");
+        let backend = session.ddh_backend();
+        let mut scratch = CoreBitPairB2aMaterialScratch::default();
+
+        let empty = CoreBitWordPair::empty(CoreBitWordStage::MessageScheduleSigma0, 0);
+        assert!(materialize_core_bit_pair_to_arithmetic_word_pair_naive(
+            backend,
+            "test_core_pair_invalid/empty",
+            &empty,
+            CoreBitWordStage::MessageScheduleSigma0,
+            b"test-core-pair-invalid",
+            &mut scratch,
+        )
+        .is_err());
+
+        let mut overwide = CoreBitWordPair::empty(CoreBitWordStage::MessageScheduleSigma0, 65);
+        for idx in 0..65 {
+            let provenance_tag = u8::try_from(idx + 1).expect("provenance tag fits u8");
+            let left_bit = test_core_bit(
+                DdhHssShareSide::Left,
+                1,
+                (idx % 2 == 1) as u64,
+                provenance_tag,
+            );
+            let right_bit = test_core_bit(
+                DdhHssShareSide::Right,
+                1,
+                (idx % 3 == 1) as u64,
+                provenance_tag,
+            );
+            overwide
+                .left
+                .push_core_word(&left_bit)
+                .expect("valid overwide left bit");
+            overwide
+                .right
+                .push_core_word(&right_bit)
+                .expect("valid overwide right bit");
+        }
+        assert!(materialize_core_bit_pair_to_arithmetic_word_pair_naive(
+            backend,
+            "test_core_pair_invalid/overwide",
+            &overwide,
+            CoreBitWordStage::MessageScheduleSigma0,
+            b"test-core-pair-invalid",
+            &mut scratch,
+        )
+        .is_err());
+
+        let mut provenance_mismatch =
+            CoreBitWordPair::empty(CoreBitWordStage::MessageScheduleSigma0, 1);
+        provenance_mismatch
+            .left
+            .push_core_word(&test_core_bit(DdhHssShareSide::Left, 1, 1, 1))
+            .expect("valid mismatch left bit");
+        provenance_mismatch
+            .right
+            .push_core_word(&test_core_bit(DdhHssShareSide::Right, 1, 0, 2))
+            .expect("valid mismatch right bit");
+        assert!(materialize_core_bit_pair_to_arithmetic_word_pair_naive(
+            backend,
+            "test_core_pair_invalid/provenance_mismatch",
+            &provenance_mismatch,
+            CoreBitWordStage::MessageScheduleSigma0,
+            b"test-core-pair-invalid",
+            &mut scratch,
+        )
+        .is_err());
+
+        let mut wrong_stage = CoreBitWordPair::empty(CoreBitWordStage::RoundCoreSigma0, 1);
+        wrong_stage
+            .left
+            .push_core_word(&test_core_bit(DdhHssShareSide::Left, 1, 1, 1))
+            .expect("valid wrong-stage left bit");
+        wrong_stage
+            .right
+            .push_core_word(&test_core_bit(DdhHssShareSide::Right, 1, 0, 1))
+            .expect("valid wrong-stage right bit");
+        assert!(materialize_core_bit_pair_to_arithmetic_word_pair_naive(
+            backend,
+            "test_core_pair_invalid/wrong_stage",
+            &wrong_stage,
+            CoreBitWordStage::MessageScheduleSigma0,
+            b"test-core-pair-invalid",
+            &mut scratch,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn phase_a_a2b_committed_root_material_binds_label_width_and_input_commitments() {
+        let fixture = deterministic_fixture_corpus()
+            .expect("fixture corpus")
+            .into_iter()
+            .next()
+            .expect("fixture");
+        let session =
+            prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare DDH session");
+        let backend = session.ddh_backend();
+        let shared_bits = share_input_bits(
+            backend,
+            HiddenEvalInputOwner::Derived,
+            "test_phase_a_a2b_root_material/input",
+            &fixture.output.a_bytes,
+        )
+        .expect("share input bits");
+        let word_bits =
+            SplitLocalBitWord::from_shared_bits(&shared_bits[..64]).expect("split word");
+        let arithmetic = split_local_bit_pair_to_arithmetic_word_pair_naive(
+            backend,
+            "test_phase_a_a2b_root_material/arith",
+            word_bits.as_pair_ref(),
+        )
+        .expect("convert to arithmetic");
+        let root = build_a2b_committed_root_material(
+            backend.evaluation_key(),
+            "test_phase_a_a2b_root_material/root",
+            &arithmetic,
+        )
+        .expect("root material");
+        let repeated = build_a2b_committed_root_material(
+            backend.evaluation_key(),
+            "test_phase_a_a2b_root_material/root",
+            &arithmetic,
+        )
+        .expect("repeat root material");
+        assert_eq!(root.root_digest, repeated.root_digest);
+
+        let relabeled = build_a2b_committed_root_material(
+            backend.evaluation_key(),
+            "test_phase_a_a2b_root_material/other_root",
+            &arithmetic,
+        )
+        .expect("relabeled root material");
+        assert_ne!(root.root_digest, relabeled.root_digest);
+
+        let mut altered_left = arithmetic.left.clone();
+        altered_left.share_commitment[0] ^= 1;
+        let altered_arithmetic =
+            LocalArithmeticWordPair::new(altered_left, arithmetic.right.clone())
+                .expect("altered arithmetic pair");
+        let altered = build_a2b_committed_root_material(
+            backend.evaluation_key(),
+            "test_phase_a_a2b_root_material/root",
+            &altered_arithmetic,
+        )
+        .expect("altered root material");
+        assert_ne!(root.root_digest, altered.root_digest);
+
+        let mut altered_provenance_left = arithmetic.left.clone();
+        let mut altered_provenance_right = arithmetic.right.clone();
+        altered_provenance_left.provenance_digest[0] ^= 1;
+        altered_provenance_right.provenance_digest[0] ^= 1;
+        let altered_provenance_arithmetic =
+            LocalArithmeticWordPair::new(altered_provenance_left, altered_provenance_right)
+                .expect("altered provenance arithmetic pair");
+        let altered_provenance = build_a2b_committed_root_material(
+            backend.evaluation_key(),
+            "test_phase_a_a2b_root_material/root",
+            &altered_provenance_arithmetic,
+        )
+        .expect("altered provenance root material");
+        assert_ne!(root.root_digest, altered_provenance.root_digest);
+
+        let narrow_bits =
+            SplitLocalBitWord::from_shared_bits(&shared_bits[..32]).expect("narrow split word");
+        let narrow_arithmetic = split_local_bit_pair_to_arithmetic_word_pair_naive(
+            backend,
+            "test_phase_a_a2b_root_material/narrow_arith",
+            narrow_bits.as_pair_ref(),
+        )
+        .expect("convert narrow arithmetic");
+        let narrow = build_a2b_committed_root_material(
+            backend.evaluation_key(),
+            "test_phase_a_a2b_root_material/root",
+            &narrow_arithmetic,
+        )
+        .expect("narrow root material");
+        assert_ne!(root.root_digest, narrow.root_digest);
+    }
+
+    #[test]
+    fn phase_a_a2b_carry_material_binds_root_index_and_provenance() {
+        let fixture = deterministic_fixture_corpus()
+            .expect("fixture corpus")
+            .into_iter()
+            .next()
+            .expect("fixture");
+        let session =
+            prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare DDH session");
+        let backend = session.ddh_backend();
+        let shared_bits = share_input_bits(
+            backend,
+            HiddenEvalInputOwner::Derived,
+            "test_phase_a_a2b_carry_material/input",
+            &fixture.output.a_bytes,
+        )
+        .expect("share input bits");
+        let word_bits =
+            SplitLocalBitWord::from_shared_bits(&shared_bits[..64]).expect("split word");
+        let arithmetic = split_local_bit_pair_to_arithmetic_word_pair_naive(
+            backend,
+            "test_phase_a_a2b_carry_material/arith",
+            word_bits.as_pair_ref(),
+        )
+        .expect("convert to arithmetic");
+        let label = "test_phase_a_a2b_carry_material/root";
+        let root = build_a2b_committed_root_material(backend.evaluation_key(), label, &arithmetic)
+            .expect("root material");
+        let (zero_left, zero_right) = build_local_word_pair_public(
+            backend.evaluation_key(),
+            b"test-a2b-v2-zero",
+            b"test_phase_a_a2b_carry_material/zero",
+            1,
+            0,
+            0,
+            &[&root.root_digest],
+        );
+        let (left_bit, right_bit) = build_local_word_pair_public(
+            backend.evaluation_key(),
+            b"test-a2b-v2-decomposed-bit",
+            b"test_phase_a_a2b_carry_material/bit",
+            1,
+            arithmetic.left.share_word & 1,
+            arithmetic.right.share_word & 1,
+            &[&root.root_digest],
+        );
+        let (xor_ab_left, xor_ab_right) = xor_local_bit_pair_core_from_raw_public(
+            backend.evaluation_key(),
+            b"test_phase_a_a2b_carry_material/xor_ab",
+            (left_bit.share_word as u8) & 1,
+            0,
+            &left_bit.provenance_digest,
+            0,
+            (right_bit.share_word as u8) & 1,
+            &right_bit.provenance_digest,
+        );
+        let left_bit_core = DdhHssLocalWordCore::from_local_word(&left_bit);
+        let right_bit_core = DdhHssLocalWordCore::from_local_word(&right_bit);
+        let previous_carry_left = DdhHssLocalWordCore::from_local_word(&zero_left);
+        let previous_carry_right = DdhHssLocalWordCore::from_local_word(&zero_right);
+        let (a_xor_carry_left, a_xor_carry_right) = xor_local_bit_pair_core_from_raw_public(
+            backend.evaluation_key(),
+            b"test_phase_a_a2b_carry_material/a_xor_carry",
+            (left_bit.share_word as u8) & 1,
+            0,
+            &left_bit.provenance_digest,
+            (previous_carry_left.share_word as u8) & 1,
+            (previous_carry_right.share_word as u8) & 1,
+            &previous_carry_left.provenance_digest,
+        );
+        let carry_material_base =
+            prepare_a2b_v2_carry_material_base(backend.evaluation_key(), label, &root)
+                .expect("carry material base");
+
+        let material = build_a2b_v2_carry_material(
+            &carry_material_base,
+            A2bCarryMaterialInputs {
+                bit_index: 0,
+                root: &root,
+                previous_carry_left: &previous_carry_left,
+                previous_carry_right: &previous_carry_right,
+                left_bit: &left_bit_core,
+                right_bit: &right_bit_core,
+                xor_ab_left: &xor_ab_left,
+                xor_ab_right: &xor_ab_right,
+                a_xor_carry_left: &a_xor_carry_left,
+                a_xor_carry_right: &a_xor_carry_right,
+            },
+        )
+        .expect("carry material");
+        let next_index = build_a2b_v2_carry_material(
+            &carry_material_base,
+            A2bCarryMaterialInputs {
+                bit_index: 1,
+                root: &root,
+                previous_carry_left: &previous_carry_left,
+                previous_carry_right: &previous_carry_right,
+                left_bit: &left_bit_core,
+                right_bit: &right_bit_core,
+                xor_ab_left: &xor_ab_left,
+                xor_ab_right: &xor_ab_right,
+                a_xor_carry_left: &a_xor_carry_left,
+                a_xor_carry_right: &a_xor_carry_right,
+            },
+        )
+        .expect("next-index carry material");
+        assert_ne!(material.material_digest, next_index.material_digest);
+
+        let carry_label = b"test_phase_a_a2b_carry_material/carry/0";
+        eval_a2b_v2_carry_gate(
+            backend.evaluation_key(),
+            carry_label,
+            0,
+            &xor_ab_left,
+            &xor_ab_right,
+            &a_xor_carry_left,
+            &a_xor_carry_right,
+            &material,
+        )
+        .expect("valid carry gate material");
+        assert!(eval_a2b_v2_carry_gate(
+            backend.evaluation_key(),
+            carry_label,
+            0,
+            &xor_ab_left,
+            &xor_ab_right,
+            &a_xor_carry_left,
+            &a_xor_carry_right,
+            &next_index,
+        )
+        .is_err());
+
+        assert!(prepare_a2b_v2_carry_material_base(
+            backend.evaluation_key(),
+            "test_phase_a_a2b_carry_material/wrong_label",
+            &root,
+        )
+        .is_err());
+
+        assert!(build_a2b_v2_carry_material(
+            &carry_material_base,
+            A2bCarryMaterialInputs {
+                bit_index: usize::from(root.width_bits),
+                root: &root,
+                previous_carry_left: &previous_carry_left,
+                previous_carry_right: &previous_carry_right,
+                left_bit: &left_bit_core,
+                right_bit: &right_bit_core,
+                xor_ab_left: &xor_ab_left,
+                xor_ab_right: &xor_ab_right,
+                a_xor_carry_left: &a_xor_carry_left,
+                a_xor_carry_right: &a_xor_carry_right,
+            },
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn phase_a_a2b_output_digest_binds_emitted_sum_bit_commitments() {
+        let fixture = deterministic_fixture_corpus()
+            .expect("fixture corpus")
+            .into_iter()
+            .next()
+            .expect("fixture");
+        let session =
+            prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare DDH session");
+        let backend = session.ddh_backend();
+        let shared_bits = share_input_bits(
+            backend,
+            HiddenEvalInputOwner::Derived,
+            "test_phase_a_a2b_output_commitment/input",
+            &fixture.output.a_bytes,
+        )
+        .expect("share input bits");
+        let word_bits =
+            SplitLocalBitWord::from_shared_bits(&shared_bits[..64]).expect("split word");
+        let arithmetic = split_local_bit_pair_to_arithmetic_word_pair_naive(
+            backend,
+            "test_phase_a_a2b_output_commitment/arith",
+            word_bits.as_pair_ref(),
+        )
+        .expect("convert to arithmetic");
+        let mut a2b_scratch = LocalArithmeticToBooleanScratch::with_capacity(48);
+        let output = arithmetic_word_pair_to_split_local_bits_secure(
+            backend,
+            "test_phase_a_a2b_output_commitment/bool",
+            &mut a2b_scratch,
+            &arithmetic,
+        )
+        .expect("A2B output");
+        let digest = digest_split_local_bit_word(b"test_phase_a_a2b_output_commitment", &output)
+            .expect("A2B output digest");
+
+        let mut altered_left_commitment = output.clone();
+        altered_left_commitment.left.commitments[0][0] ^= 1;
+        assert_ne!(
+            digest,
+            digest_split_local_bit_word(
+                b"test_phase_a_a2b_output_commitment",
+                &altered_left_commitment
+            )
+            .expect("altered left commitment digest")
+        );
+
+        let mut altered_right_commitment = output;
+        altered_right_commitment.right.commitments[0][0] ^= 1;
+        assert_ne!(
+            digest,
+            digest_split_local_bit_word(
+                b"test_phase_a_a2b_output_commitment",
+                &altered_right_commitment
+            )
+            .expect("altered right commitment digest")
+        );
+    }
+
+    #[test]
+    fn phase_a_a2b_round_trip_matches_reference_for_widths_1_through_64() {
+        let fixture = deterministic_fixture_corpus()
+            .expect("fixture corpus")
+            .into_iter()
+            .next()
+            .expect("fixture");
+        let session =
+            prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare DDH session");
+        let backend = session.ddh_backend();
+
+        for width in 1usize..=64 {
+            let width_mask = if width == 64 {
+                u64::MAX
+            } else {
+                (1u64 << width) - 1
+            };
+            let expected = 0xfedc_ba98_7654_3210u64.rotate_left(width as u32) & width_mask;
+            let shared_bits = constant_word_bits(
+                backend,
+                &format!("test_phase_a_a2b_width_sweep/input/{width}"),
+                expected,
+                width,
+            )
+            .expect("share width-sweep input bits");
+            let word_bits = SplitLocalBitWord::from_shared_bits(&shared_bits).expect("split word");
+            let arithmetic = split_local_bit_pair_to_arithmetic_word_pair_naive(
+                backend,
+                &format!("test_phase_a_a2b_width_sweep/arith/{width}"),
+                word_bits.as_pair_ref(),
+            )
+            .expect("convert to arithmetic");
+            let mut a2b_scratch = LocalArithmeticToBooleanScratch::with_capacity(48);
+            let output = arithmetic_word_pair_to_split_local_bits_secure(
+                backend,
+                &format!("test_phase_a_a2b_width_sweep/bool/{width}"),
+                &mut a2b_scratch,
+                &arithmetic,
+            )
+            .expect("convert back to boolean");
+            let decoded = output
+                .to_shared_bits()
+                .expect("width-sweep shared bits")
+                .iter()
+                .enumerate()
+                .fold(0u64, |acc, (idx, bit)| {
+                    acc | ((backend.decode_word(bit) & 1) << idx)
+                });
+
+            assert_eq!(decoded, expected, "A2B width {width} round-trip");
+        }
     }
 
     #[test]
@@ -5726,9 +7822,12 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
+        let mut add_scratch = LocalArithmeticAddScratch::with_capacity(40);
+        let mut a2b_scratch = LocalArithmeticToBooleanScratch::with_capacity(48);
         let (sum_arith, _) = add_five_local_bit_pairs_to_arithmetic_naive(
             backend,
             "test_phase_a_five_word_sum",
+            &mut add_scratch,
             words[0].as_pair_ref(),
             words[1].as_pair_ref(),
             words[2].as_pair_ref(),
@@ -5739,6 +7838,7 @@ mod tests {
         let sum = arithmetic_word_pair_to_split_local_bits_secure(
             backend,
             "test_phase_a_five_word_sum/bits",
+            &mut a2b_scratch,
             &sum_arith,
         )
         .expect("arithmetic five-word sum bits");
@@ -5822,6 +7922,209 @@ mod tests {
     }
 
     #[test]
+    fn local_clamped_scalar_multiple_reduction_matches_reference_scalar_mod_l() {
+        let fixture = deterministic_fixture_corpus()
+            .expect("fixture corpus")
+            .into_iter()
+            .next()
+            .expect("fixture");
+        let session =
+            prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare DDH session");
+        let backend = session.ddh_backend();
+        let constant_pool =
+            prepare_ddh_hidden_eval_constant_pool(backend).expect("prepare constant pool");
+        let clamped_bits = share_input_bits(
+            backend,
+            HiddenEvalInputOwner::Derived,
+            "test_local_clamped_multiple_a_bytes",
+            &fixture.output.a_bytes,
+        )
+        .expect("share clamped scalar bits");
+        let clamped_local =
+            SplitLocalBitWord::from_shared_bits(&clamped_bits).expect("split local clamped bits");
+        let reduced_local = reduce_clamped_scalar_bits_mod_l_local(
+            backend,
+            "test_local_clamped_multiple_reduction",
+            &clamped_local,
+            &constant_pool.zero_left,
+            &constant_pool.zero_right,
+            &constant_pool.one_left,
+            &constant_pool.one_right,
+        )
+        .expect("reduce clamped local scalar bits mod l");
+        let reduced_shared = reduced_local
+            .to_shared_bits()
+            .expect("recombine reduced local bits");
+        let reduced =
+            decode_bits_to_fixed_bytes::<32>(backend, &reduced_shared, "local_clamped_reduced")
+                .expect("decode clamped reduced scalar");
+
+        assert_eq!(reduced, reduce_scalar_mod_l(fixture.output.a_bytes));
+    }
+
+    #[test]
+    fn arena_scalar_reduction_and_canonical_add_byte_equivalence_fixtures() {
+        let fixtures = deterministic_fixture_corpus().expect("fixture corpus");
+        let session = prepare_prime_order_succinct_hss(&fixtures[0].input.context)
+            .expect("prepare DDH session");
+        let backend = session.ddh_backend();
+        let constant_pool =
+            prepare_ddh_hidden_eval_constant_pool(backend).expect("prepare constant pool");
+
+        let scalar_bits = share_input_bits(
+            backend,
+            HiddenEvalInputOwner::Derived,
+            "test_arena_scalar_reduction/input",
+            &fixtures[0].output.a_bytes,
+        )
+        .expect("share scalar bits");
+        let scalar_local =
+            SplitLocalBitWord::from_shared_bits(&scalar_bits).expect("split scalar bits");
+        let reduced_local = reduce_scalar_bits_mod_l_with_constants_local(
+            backend,
+            "test_arena_scalar_reduction",
+            &scalar_local,
+            &constant_pool.zero_left,
+            &constant_pool.zero_right,
+            &constant_pool.one_left,
+            &constant_pool.one_right,
+            7,
+        )
+        .expect("reduce scalar bits");
+        let reduced_repeat = reduce_scalar_bits_mod_l_with_constants_local(
+            backend,
+            "test_arena_scalar_reduction",
+            &scalar_local,
+            &constant_pool.zero_left,
+            &constant_pool.zero_right,
+            &constant_pool.one_left,
+            &constant_pool.one_right,
+            7,
+        )
+        .expect("repeat scalar reduction");
+        assert_eq!(
+            reduced_local, reduced_repeat,
+            "arena scalar-reduction candidate must preserve exact same-session words"
+        );
+        let reduced_digest =
+            digest_split_local_bit_word(b"test_arena_scalar_reduction/output", &reduced_local)
+                .expect("digest reduced scalar");
+        assert_ne!(
+            reduced_digest, [0u8; 32],
+            "arena scalar-reduction fixture digest must be populated"
+        );
+
+        let left_bytes = reduce_scalar_mod_l(fixtures[0].output.a_bytes);
+        let right_bytes = reduce_scalar_mod_l(fixtures[1].output.a_bytes);
+        let left_bits = share_input_bits(
+            backend,
+            HiddenEvalInputOwner::Derived,
+            "test_arena_canonical_add/left",
+            &left_bytes,
+        )
+        .expect("share left scalar bits");
+        let right_bits = share_input_bits(
+            backend,
+            HiddenEvalInputOwner::Derived,
+            "test_arena_canonical_add/right",
+            &right_bytes,
+        )
+        .expect("share right scalar bits");
+        let left_local = SplitLocalBitWord::from_shared_bits(&left_bits).expect("split left bits");
+        let right_local =
+            SplitLocalBitWord::from_shared_bits(&right_bits).expect("split right bits");
+        let added_local = add_words_bits_mod_l_canonical_inputs_local(
+            backend,
+            "test_arena_canonical_add",
+            &left_local,
+            &right_local,
+            &constant_pool.zero_left,
+            &constant_pool.zero_right,
+            &constant_pool.one_left,
+            &constant_pool.one_right,
+        )
+        .expect("canonical add scalars");
+        let added_repeat = add_words_bits_mod_l_canonical_inputs_local(
+            backend,
+            "test_arena_canonical_add",
+            &left_local,
+            &right_local,
+            &constant_pool.zero_left,
+            &constant_pool.zero_right,
+            &constant_pool.one_left,
+            &constant_pool.one_right,
+        )
+        .expect("repeat canonical add scalars");
+        assert_eq!(
+            added_local, added_repeat,
+            "arena canonical-add candidate must preserve exact same-session words"
+        );
+        let added_digest =
+            digest_split_local_bit_word(b"test_arena_canonical_add/output", &added_local)
+                .expect("digest canonical add output");
+        assert_ne!(
+            added_digest, [0u8; 32],
+            "arena canonical-add fixture digest must be populated"
+        );
+    }
+
+    #[test]
+    fn staged_output_boundary_matches_legacy_bundle_materialization() {
+        let fixture = deterministic_fixture_corpus()
+            .expect("fixture corpus")
+            .into_iter()
+            .next()
+            .expect("fixture");
+        let session =
+            prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare DDH session");
+        let backend = session.ddh_backend();
+        let shared_bits = share_input_bits(
+            backend,
+            HiddenEvalInputOwner::Derived,
+            "test_staged_output_boundary/input",
+            &fixture.output.d,
+        )
+        .expect("share output boundary input");
+        let output_bits =
+            SplitLocalBitWord::from_shared_bits(&shared_bits).expect("split output bits");
+
+        assert_input_bundle_matches_legacy(
+            backend,
+            HiddenEvalInputOwner::Client,
+            "canonical_seed",
+            &output_bits,
+        );
+        assert_input_bundle_matches_legacy(
+            backend,
+            HiddenEvalInputOwner::Client,
+            ClientOutputValueKind::UnmaskedClientBase.bundle_label(),
+            &output_bits,
+        );
+        assert_input_bundle_matches_legacy(
+            backend,
+            HiddenEvalInputOwner::Client,
+            ClientOutputValueKind::ClientBlindedBase.bundle_label(),
+            &output_bits,
+        );
+
+        let staged_transport = build_hidden_bit_output_transport_bundle_pair(
+            backend,
+            HiddenEvalInputOwner::Server,
+            "x_relayer_base",
+            &output_bits,
+        )
+        .expect("staged transport pair");
+        let legacy_transport = old_output_pair_for_test(
+            backend,
+            HiddenEvalInputOwner::Server,
+            "x_relayer_base",
+            &output_bits,
+        )
+        .expect("legacy transport pair");
+        assert_eq!(staged_transport, legacy_transport);
+    }
+
+    #[test]
     fn hidden_output_projection_matches_reference_output_shares() {
         let fixture = deterministic_fixture_corpus()
             .expect("fixture corpus")
@@ -5892,5 +8195,260 @@ mod tests {
         assert_eq!(tau, expected.tau);
         assert_eq!(x_client_base, expected.x_client_base);
         assert_eq!(x_relayer_base, expected.x_relayer_base);
+    }
+
+    #[test]
+    fn output_projector_binding_binds_projection_mask_kind_and_commitments() {
+        let fixture = deterministic_fixture_corpus()
+            .expect("fixture corpus")
+            .into_iter()
+            .next()
+            .expect("fixture");
+        let session =
+            prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare DDH session");
+        let backend = session.ddh_backend();
+        let reduced_a_shared = share_input_bits(
+            backend,
+            HiddenEvalInputOwner::Derived,
+            "test_projector_root/reduced_a",
+            &fixture.output.a,
+        )
+        .expect("share reduced a");
+        let tau_shared = share_input_bits(
+            backend,
+            HiddenEvalInputOwner::Derived,
+            "test_projector_root/tau",
+            &fixture.output.tau,
+        )
+        .expect("share tau");
+        let mask_shared = share_input_bits(
+            backend,
+            HiddenEvalInputOwner::Client,
+            "client_output_mask",
+            &[7u8; 32],
+        )
+        .expect("share mask");
+        let reduced_a_bits =
+            SplitLocalBitWord::from_shared_bits(&reduced_a_shared).expect("split reduced a");
+        let tau_bits = SplitLocalBitWord::from_shared_bits(&tau_shared).expect("split tau");
+        let binding_material_seed =
+            output_projector_binding_material_seed(backend, &reduced_a_bits, &tau_bits)
+                .expect("binding material seed");
+        let canonical_seed_commitment = [1u8; 32];
+        let client_output_commitment = [2u8; 32];
+        let x_relayer_base_left_commitment = [3u8; 32];
+        let x_relayer_base_right_commitment = [4u8; 32];
+
+        let trusted = build_output_projector_binding(
+            &binding_material_seed,
+            DdhHiddenEvalClientOutputProjection::trusted_server_projection(),
+            None,
+            canonical_seed_commitment,
+            ClientOutputValueKind::UnmaskedClientBase,
+            client_output_commitment,
+            x_relayer_base_left_commitment,
+            x_relayer_base_right_commitment,
+        )
+        .expect("trusted binding");
+        let masked = build_output_projector_binding(
+            &binding_material_seed,
+            DdhHiddenEvalClientOutputProjection::client_masked_projection([7u8; 32]),
+            Some(&mask_shared),
+            canonical_seed_commitment,
+            ClientOutputValueKind::ClientBlindedBase,
+            client_output_commitment,
+            x_relayer_base_left_commitment,
+            x_relayer_base_right_commitment,
+        )
+        .expect("masked binding");
+        assert_ne!(trusted.binding_digest, masked.binding_digest);
+
+        let mut altered_mask_shared = mask_shared.clone();
+        altered_mask_shared[0].left_commitment[0] ^= 1;
+        let altered_mask = build_output_projector_binding(
+            &binding_material_seed,
+            DdhHiddenEvalClientOutputProjection::client_masked_projection([7u8; 32]),
+            Some(&altered_mask_shared),
+            canonical_seed_commitment,
+            ClientOutputValueKind::ClientBlindedBase,
+            client_output_commitment,
+            x_relayer_base_left_commitment,
+            x_relayer_base_right_commitment,
+        )
+        .expect("altered mask binding");
+        assert_ne!(masked.binding_digest, altered_mask.binding_digest);
+
+        let mut altered_client_output_commitment = client_output_commitment;
+        altered_client_output_commitment[0] ^= 1;
+        let altered = build_output_projector_binding(
+            &binding_material_seed,
+            DdhHiddenEvalClientOutputProjection::trusted_server_projection(),
+            None,
+            canonical_seed_commitment,
+            ClientOutputValueKind::UnmaskedClientBase,
+            altered_client_output_commitment,
+            x_relayer_base_left_commitment,
+            x_relayer_base_right_commitment,
+        )
+        .expect("altered binding");
+        assert_ne!(trusted.binding_digest, altered.binding_digest);
+
+        assert!(build_output_projector_binding(
+            &binding_material_seed,
+            DdhHiddenEvalClientOutputProjection::client_masked_projection([7u8; 32]),
+            None,
+            canonical_seed_commitment,
+            ClientOutputValueKind::ClientBlindedBase,
+            client_output_commitment,
+            x_relayer_base_left_commitment,
+            x_relayer_base_right_commitment,
+        )
+        .is_err());
+        assert!(build_output_projector_binding(
+            &binding_material_seed,
+            DdhHiddenEvalClientOutputProjection::trusted_server_projection(),
+            None,
+            canonical_seed_commitment,
+            ClientOutputValueKind::ClientBlindedBase,
+            client_output_commitment,
+            x_relayer_base_left_commitment,
+            x_relayer_base_right_commitment,
+        )
+        .is_err());
+    }
+
+    fn assert_input_bundle_matches_legacy(
+        backend: &impl DdhHssArithmeticBackend,
+        owner: HiddenEvalInputOwner,
+        label: &str,
+        bits: &SplitLocalBitWord,
+    ) {
+        let staged =
+            build_hidden_bit_output_bundle(backend, owner, label, bits).expect("staged bundle");
+        let legacy = old_input_bundle_for_test(backend, owner, label, bits).expect("legacy");
+        assert_eq!(staged, legacy);
+        assert_eq!(
+            hidden_bit_output_commitment(backend, owner, label, bits).expect("staged commitment"),
+            legacy.commitment,
+        );
+        assert_eq!(
+            canonicalize_hidden_bit_output_words(owner, label, bits)
+                .expect("staged canonical words"),
+            legacy.words,
+        );
+    }
+
+    fn old_input_bundle_for_test<B: DdhHssArithmeticBackend>(
+        backend: &B,
+        owner: HiddenEvalInputOwner,
+        label: &str,
+        bits: &SplitLocalBitWord,
+    ) -> crate::shared::ProtoResult<DdhHssInputShareBundle> {
+        let words = old_output_words_for_test(owner, label, bits)?;
+        let commitment = backend.input_commitment(owner, label, &words);
+        Ok(DdhHssInputShareBundle {
+            owner,
+            label: label.to_string(),
+            words,
+            commitment,
+        })
+    }
+
+    fn old_output_pair_for_test<B: DdhHssArithmeticBackend>(
+        backend: &B,
+        owner: HiddenEvalInputOwner,
+        label: &str,
+        bits: &SplitLocalBitWord,
+    ) -> crate::shared::ProtoResult<(DdhHssTransportBundle, DdhHssTransportBundle)> {
+        let canonical_words = old_output_words_for_test(owner, label, bits)?;
+        let commitment = backend.input_commitment(owner, label, &canonical_words);
+        Ok((
+            old_transport_view_for_test(
+                owner,
+                label,
+                DdhHssShareSide::Left,
+                &canonical_words,
+                commitment,
+            ),
+            old_transport_view_for_test(
+                owner,
+                label,
+                DdhHssShareSide::Right,
+                &canonical_words,
+                commitment,
+            ),
+        ))
+    }
+
+    fn old_transport_view_for_test(
+        owner: HiddenEvalInputOwner,
+        label: &str,
+        share_side: DdhHssShareSide,
+        canonical_words: &[DdhHssSharedWord],
+        commitment: [u8; 32],
+    ) -> DdhHssTransportBundle {
+        let words = canonical_words
+            .iter()
+            .map(|bit| match share_side {
+                DdhHssShareSide::Left => DdhHssTransportWord {
+                    width_bits: bit.width_bits,
+                    share_side,
+                    share_word: bit.left_word,
+                    share_commitment: bit.left_commitment,
+                    counterparty_commitment: bit.right_commitment,
+                    provenance_digest: bit.provenance_digest,
+                },
+                DdhHssShareSide::Right => DdhHssTransportWord {
+                    width_bits: bit.width_bits,
+                    share_side,
+                    share_word: bit.right_word,
+                    share_commitment: bit.right_commitment,
+                    counterparty_commitment: bit.left_commitment,
+                    provenance_digest: bit.provenance_digest,
+                },
+            })
+            .collect();
+        DdhHssTransportBundle {
+            owner,
+            label: label.to_string(),
+            share_side,
+            words,
+            commitment,
+        }
+    }
+
+    fn old_output_words_for_test(
+        owner: HiddenEvalInputOwner,
+        label: &str,
+        bits: &SplitLocalBitWord,
+    ) -> crate::shared::ProtoResult<Vec<DdhHssSharedWord>> {
+        let words = bits.to_shared_bits()?;
+        if words.len() != 256 {
+            return Err(crate::shared::ProtoError::InvalidInput(format!(
+                "{label} must contain exactly 256 bits, got {}",
+                words.len()
+            )));
+        }
+        Ok(words
+            .into_iter()
+            .map(|bit| DdhHssSharedWord {
+                width_bits: 1,
+                left_word: bit.left_word,
+                right_word: bit.right_word,
+                left_commitment: crate::ddh::ddh_hss::commit_word(
+                    owner,
+                    b"left",
+                    bit.left_word,
+                    &bit.provenance_digest,
+                ),
+                right_commitment: crate::ddh::ddh_hss::commit_word(
+                    owner,
+                    b"right",
+                    bit.right_word,
+                    &bit.provenance_digest,
+                ),
+                provenance_digest: bit.provenance_digest,
+            })
+            .collect())
     }
 }

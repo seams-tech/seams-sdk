@@ -86,6 +86,7 @@ async function main() {
     const browserExecutor = report.browser_cpu_executor ?? null;
     const browserDdhHiddenEval = report.browser_ddh_hidden_eval ?? null;
     const browserWebGpuProbe = report.browser_webgpu_probe ?? null;
+    const browserDdhStageCounts = browserDdhHiddenEval?.stage_operation_counts ?? null;
     const summary = {
       status,
       page_url: pageUrl.href,
@@ -158,6 +159,32 @@ async function main() {
         browserDdhHiddenEval?.substage_timings_ns?.round_ch?.mean ?? null,
       browser_ddh_round_temp2_mean_ns:
         browserDdhHiddenEval?.substage_timings_ns?.round_temp2?.mean ?? null,
+      browser_ddh_message_schedule_local_materializations:
+        browserDdhStageCounts?.message_schedule?.local_word_materializations ?? null,
+      browser_ddh_message_schedule_core_materializations:
+        browserDdhStageCounts?.message_schedule?.core_word_materializations ?? null,
+      browser_ddh_round_core_local_materializations:
+        browserDdhStageCounts?.round_core?.local_word_materializations ?? null,
+      browser_ddh_output_projector_local_materializations:
+        browserDdhStageCounts?.output_projector?.local_word_materializations ?? null,
+      browser_ddh_ch_multiplication_material_paths:
+        browserDdhStageCounts?.round_substages?.ch?.multiplication_material_paths ?? null,
+      browser_ddh_maj_multiplication_material_paths:
+        browserDdhStageCounts?.round_substages?.maj?.multiplication_material_paths ?? null,
+      browser_ddh_sigma0_local_materializations:
+        browserDdhStageCounts?.round_substages?.sigma0?.local_word_materializations ?? null,
+      browser_ddh_sigma1_local_materializations:
+        browserDdhStageCounts?.round_substages?.sigma1?.local_word_materializations ?? null,
+      browser_ddh_state3_b2a_paths:
+        browserDdhStageCounts?.round_substages?.state3?.bool_to_arith_paths ?? null,
+      browser_ddh_temp1_b2a_paths:
+        browserDdhStageCounts?.round_substages?.temp1?.bool_to_arith_paths ?? null,
+      browser_ddh_temp2_b2a_paths:
+        browserDdhStageCounts?.round_substages?.temp2?.bool_to_arith_paths ?? null,
+      browser_ddh_new_a_a2b_paths:
+        browserDdhStageCounts?.round_substages?.new_a_bits?.arith_to_bool_paths ?? null,
+      browser_ddh_new_e_a2b_paths:
+        browserDdhStageCounts?.round_substages?.new_e_bits?.arith_to_bool_paths ?? null,
       browser_ddh_probe_results:
         browserDdhHiddenEval?.probe_results ?? null,
       browser_ddh_public_key:
