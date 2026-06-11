@@ -1426,7 +1426,9 @@ export class WalletIframeRouter {
   }
 
   async loginWithEmailOtpEcdsaCapability(
-    payload: EmailOtpEcdsaCapabilityArgs,
+    payload: EmailOtpEcdsaCapabilityArgs & {
+      publicationChainTargets?: readonly ThresholdEcdsaChainTarget[];
+    },
   ): Promise<EmailOtpEcdsaCapabilityResult> {
     const { onEvent, ...wirePayload } = payload;
     const res = await this.post<EmailOtpEcdsaCapabilityResult>(

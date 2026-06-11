@@ -124,6 +124,7 @@ export type LoginEmailOtpEcdsaCapabilityArgs = {
   ttlMs?: number;
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  publicationChainTargets?: readonly ThresholdEcdsaChainTarget[];
   onProgress?: (progress: EmailOtpWorkerProgressEvent) => void;
   ed25519ReconstructionMode: 'await' | 'skip';
   ed25519SessionReconstruction: EmailOtpEd25519SessionReconstructionPlan;
@@ -509,6 +510,9 @@ export async function loginWithEmailOtpEcdsaCapability(
     configs: ports.configs,
     primaryChain: chainTarget,
     emailOtpAuthContext,
+    ...(args.publicationChainTargets
+      ? { additionalChainTargets: args.publicationChainTargets }
+      : {}),
   });
   const emailOtpAuthSubjectId = toEmailOtpAuthSubjectId(
     args.walletSession.walletSessionUserId || nearAccountId,

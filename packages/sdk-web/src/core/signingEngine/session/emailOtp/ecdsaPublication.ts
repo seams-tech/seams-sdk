@@ -54,6 +54,7 @@ export function emailOtpEcdsaPublicationChainTargets(args: {
   configs: SeamsConfigsReadonly;
   primaryChain: ThresholdEcdsaChainTarget;
   emailOtpAuthContext: ThresholdEcdsaEmailOtpAuthContext;
+  additionalChainTargets?: readonly ThresholdEcdsaChainTarget[];
 }): ThresholdEcdsaChainTarget[] {
   const targets: ThresholdEcdsaChainTarget[] = [];
   const seen = new Set<string>();
@@ -64,6 +65,9 @@ export function emailOtpEcdsaPublicationChainTargets(args: {
     targets.push(target);
   };
   pushTarget(args.primaryChain);
+  for (const target of args.additionalChainTargets || []) {
+    pushTarget(target);
+  }
   if (args.emailOtpAuthContext.reason === 'login') {
     for (const target of configuredEmailOtpEcdsaSnapshotChainTargets(args.configs)) {
       pushTarget(target);

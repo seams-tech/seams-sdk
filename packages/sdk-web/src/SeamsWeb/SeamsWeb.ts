@@ -125,6 +125,10 @@ import { isObject } from '@shared/utils/validation';
 // PASSKEY MANAGER
 ///////////////////////////////////////
 
+type InternalEmailOtpEcdsaCapabilityArgs = EmailOtpEcdsaCapabilityArgs & {
+  publicationChainTargets?: readonly ThresholdEcdsaChainTarget[];
+};
+
 function requireConcreteEcdsaChainTarget(
   value: unknown,
   operation: string,
@@ -1526,7 +1530,7 @@ export class SeamsWeb {
   }
 
   private async loginWithEmailOtpEcdsaCapabilityDomain(
-    args: EmailOtpEcdsaCapabilityArgs,
+    args: InternalEmailOtpEcdsaCapabilityArgs,
   ): Promise<EmailOtpEcdsaCapabilityResult> {
     const walletId = args.walletSession.walletId;
     const flowId = this.emailOtpUnlockFlowId(walletId, args.challengeId);

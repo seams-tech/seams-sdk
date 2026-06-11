@@ -42,6 +42,7 @@ export type LoginWithEmailOtpEcdsaCapabilityInternalArgs = {
   routeAuth?: AppOrThresholdSessionAuth;
   keyHandle?: string;
   participantIds?: number[];
+  publicationChainTargets?: readonly ThresholdEcdsaChainTarget[];
   sessionKind?: 'jwt' | 'cookie';
   ttlMs?: number;
   remainingUses?: number;

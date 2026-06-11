@@ -474,6 +474,7 @@ export interface PMRotateEmailOtpRecoveryCodesPayload {
 export interface PMEmailOtpEcdsaCapabilityPayload {
   walletSession: WalletSessionRef;
   chainTarget: ThresholdEcdsaChainTarget;
+  publicationChainTargets?: readonly ThresholdEcdsaChainTarget[];
   emailOtpAuthPolicy?: EmailOtpAuthPolicy;
   relayUrl?: string;
   challengeId?: string;

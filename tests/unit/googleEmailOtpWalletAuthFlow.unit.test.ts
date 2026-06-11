@@ -589,6 +589,31 @@ test.describe('Google Email OTP wallet auth headless flow', () => {
     const loginCall = calls.find((call) => call.type === 'loginWithEmailOtpEcdsaCapability');
     expect(loginCall?.args).toMatchObject({
       chainTarget: TEMPO_TARGET,
+      publicationChainTargets: [TEMPO_TARGET],
+      challengeId: 'login-challenge-1',
+      otpCode: '123456',
+    });
+  });
+
+  test('login path submits one OTP-backed ECDSA capability call for multiple targets', async () => {
+    const { deps, calls } = makeDeps();
+    const started = await beginGoogleEmailOtpWalletAuth(deps, {
+      idToken: 'google-id-token',
+      mode: 'login',
+      relayUrl: 'https://relay.example',
+      ecdsaTargets: { kind: 'explicit', targets: [TEMPO_TARGET, EVM_TARGET] },
+    });
+
+    expect(started.ok).toBe(true);
+    if (!started.ok || started.value.mode !== 'login') throw new Error('expected login flow');
+    const submitted = await started.value.submit({ otpCode: '123456' });
+
+    expect(submitted.ok).toBe(true);
+    const loginCalls = calls.filter((call) => call.type === 'loginWithEmailOtpEcdsaCapability');
+    expect(loginCalls).toHaveLength(1);
+    expect(loginCalls[0]?.args).toMatchObject({
+      chainTarget: TEMPO_TARGET,
+      publicationChainTargets: [TEMPO_TARGET, EVM_TARGET],
       challengeId: 'login-challenge-1',
       otpCode: '123456',
     });

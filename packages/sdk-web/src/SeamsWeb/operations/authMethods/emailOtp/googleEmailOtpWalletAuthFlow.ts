@@ -73,6 +73,10 @@ type ActiveChallenge = {
   emailHint: string;
 };
 
+type GoogleLoginEmailOtpEcdsaCapabilityArgs = EmailOtpEcdsaCapabilityArgs & {
+  publicationChainTargets?: readonly ThresholdEcdsaChainTarget[];
+};
+
 type GoogleSessionState = {
   idToken: string;
   appSessionJwt?: string;
@@ -122,7 +126,7 @@ export type GoogleEmailOtpWalletAuthDeps = {
     precompute: Extract<GoogleEmailOtpWalletRegistrationPrecompute, { kind: 'started' }>;
   }): Promise<RegistrationResult>;
   loginWithEmailOtpEcdsaCapability(
-    args: EmailOtpEcdsaCapabilityArgs,
+    args: GoogleLoginEmailOtpEcdsaCapabilityArgs,
   ): Promise<EmailOtpEcdsaCapabilityResult>;
   getWalletSession(walletId: string): Promise<WalletSession>;
 };
@@ -374,28 +378,31 @@ async function loginWithRequiredEcdsaTargets(args: {
   otpCode: string;
   targets: readonly ThresholdEcdsaChainTarget[];
 }): Promise<void> {
-  for (const target of args.targets) {
-    await args.deps.loginWithEmailOtpEcdsaCapability({
-      walletSession: walletSessionRefFromSession({
-        walletId: args.state.walletId,
-        userId: args.state.walletSessionUserId,
-      }),
-      chainTarget: target,
-      challengeId: args.challenge.challengeId,
-      otpCode: args.otpCode,
-      ...(args.input.relayUrl ? { relayUrl: args.input.relayUrl } : {}),
-      ...(args.state.appSessionJwt ? { appSessionJwt: args.state.appSessionJwt } : {}),
-      ...(args.state.runtimePolicyScope
-        ? { runtimePolicyScope: args.state.runtimePolicyScope }
-        : {}),
-      ...(args.input.emailOtpAuthPolicy
-        ? { emailOtpAuthPolicy: args.input.emailOtpAuthPolicy }
-        : {}),
-      ...(args.input.onEvent
-        ? { onEvent: args.input.onEvent as (event: UnlockFlowEvent) => void }
-        : {}),
-    });
+  const [primaryTarget] = args.targets;
+  if (!primaryTarget) {
+    throw new Error('Email OTP login requires at least one ECDSA target');
   }
+  await args.deps.loginWithEmailOtpEcdsaCapability({
+    walletSession: walletSessionRefFromSession({
+      walletId: args.state.walletId,
+      userId: args.state.walletSessionUserId,
+    }),
+    chainTarget: primaryTarget,
+    publicationChainTargets: args.targets,
+    challengeId: args.challenge.challengeId,
+    otpCode: args.otpCode,
+    ...(args.input.relayUrl ? { relayUrl: args.input.relayUrl } : {}),
+    ...(args.state.appSessionJwt ? { appSessionJwt: args.state.appSessionJwt } : {}),
+    ...(args.state.runtimePolicyScope
+      ? { runtimePolicyScope: args.state.runtimePolicyScope }
+      : {}),
+    ...(args.input.emailOtpAuthPolicy
+      ? { emailOtpAuthPolicy: args.input.emailOtpAuthPolicy }
+      : {}),
+    ...(args.input.onEvent
+      ? { onEvent: args.input.onEvent as (event: UnlockFlowEvent) => void }
+      : {}),
+  });
 }
 
 function registrationOptionsForNoEcdsa(args: {
