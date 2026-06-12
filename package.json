@@ -33,6 +33,8 @@
     "server": "pnpm -C apps/web-server postgres:up && HOST=127.0.0.1 PORT=8444 EXPECTED_ORIGIN=https://localhost EXPECTED_WALLET_ORIGIN=https://localhost:8443 pnpm -C apps/web-server dev",
     "server:3-relays": "pnpm -C apps/web-server postgres:up && HOST=127.0.0.1 EXPECTED_ORIGIN=https://localhost EXPECTED_WALLET_ORIGIN=https://localhost:8443 pnpm -C apps/web-server dev:threshold:3relays",
     "server:iphone": "pnpm -C apps/web-server postgres:up && HOST=0.0.0.0 EXPECTED_ORIGIN=https://pta-m4.local EXPECTED_WALLET_ORIGIN=https://pta-m4.local:8443 pnpm -C apps/web-server dev",
+    "dev:router-ab-signer": "cargo run --manifest-path crates/router-ab-core/Cargo.toml --bin dev_router_ab_signer",
+    "dev:router-ab-seed-sqlite": "cargo run --manifest-path crates/router-ab-dev/Cargo.toml --bin dev_seed_router_ab_sqlite",
     "signing-session-seal:keygen": "pnpm -C apps/web-server signing-session-seal:keygen",
     "docs:dev": "pnpm -C apps/docs dev",
     "docs:build": "pnpm -C apps/docs build",

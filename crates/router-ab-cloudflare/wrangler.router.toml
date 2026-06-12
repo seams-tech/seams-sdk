@@ -1,0 +1,39 @@
+name = "router-ab-strict-router"
+main = "build/router/worker/shim.mjs"
+compatibility_date = "2026-06-12"
+workers_dev = true
+
+[build]
+command = "cargo install -q worker-build --version 0.8.4 && worker-build --release --out-dir build/router --features strict-worker-router-entrypoint"
+
+[durable_objects]
+bindings = [
+  { name = "ROUTER_REPLAY_DO", class_name = "RouterAbRouterReplayDurableObject" },
+  { name = "ROUTER_LIFECYCLE_DO", class_name = "RouterAbRouterLifecycleDurableObject" },
+]
+
+[[migrations]]
+tag = "router_ab_router_v1"
+new_classes = [
+  "RouterAbRouterReplayDurableObject",
+  "RouterAbRouterLifecycleDurableObject",
+]
+
+[[services]]
+binding = "SIGNER_A"
+service = "router-ab-strict-signer-a"
+
+[[services]]
+binding = "SIGNER_B"
+service = "router-ab-strict-signer-b"
+
+[vars]
+ROUTER_AB_ROUTE_PROFILE = "strict_proof_bundle"
+ROUTER_REPLAY_DO_BINDING = "ROUTER_REPLAY_DO"
+ROUTER_REPLAY_DO_OBJECT = "router-replay"
+ROUTER_REPLAY_DO_KEY_PREFIX = "router-replay/"
+ROUTER_LIFECYCLE_DO_BINDING = "ROUTER_LIFECYCLE_DO"
+ROUTER_LIFECYCLE_DO_OBJECT = "router-lifecycle"
+ROUTER_LIFECYCLE_DO_KEY_PREFIX = "router-lifecycle/"
+SIGNER_A_PEER_BINDING = "SIGNER_A"
+SIGNER_B_PEER_BINDING = "SIGNER_B"

@@ -1,6 +1,6 @@
 # TEEs vs Serverless MPC
 
-Date updated: May 24, 2026
+Date updated: June 12, 2026
 
 ## Summary
 
@@ -17,6 +17,13 @@ Our product direction favors:
 
 This keeps hosting and self-hosting simple, while reducing latency through warm
 signing sessions, presign pools, batching, and route/state optimization.
+
+Router A/B makes this less binary than a plain "TEE vs serverless MPC" choice.
+The default self-host profile can stay HSS/serverless-first, while a hardened
+profile can run Signer A and Signer B inside attested TEEs and use a non-HSS
+threshold signer where the TEE boundary supplies the tamper-resistance
+assumption. That profile is a paid enterprise hardening path rather than the
+baseline self-host requirement.
 
 ## Trust Model
 
@@ -165,7 +172,8 @@ The defensible claim is:
 
 ## Decision
 
-For this project, the preferred architecture is serverless MPC.
+For this project, the preferred baseline architecture is serverless Router A/B
+with HSS where server-blindness is required without trusted hardware.
 
 Reasons:
 
@@ -176,3 +184,13 @@ Reasons:
   ECDSA presignatures, batching, and dispatch-path optimization.
 - The product narrative is stronger when customers can deploy the signer as
   ordinary serverless infrastructure.
+
+TEE-backed Router A/B remains a valid hardened profile:
+
+- Signer A and Signer B can run inside attested TEEs.
+- A non-HSS threshold signer can reduce bootstrap or signing latency where the
+  TEE trust model is accepted.
+- The Router A/B protocol surface, migration story, deployment manifest, and
+  client SDK behavior should remain stable.
+- Attestation, secret-release policy, enclave upgrades, and provider operations
+  become explicit enterprise controls.

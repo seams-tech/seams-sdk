@@ -1,0 +1,573 @@
+use core::fmt;
+
+use crate::derivation::{PublicDigest32, RequestKind, Role};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
+use crate::protocol::error::{
+    RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
+};
+use crate::protocol::gate::ExpensiveWorkKindV1;
+use crate::protocol::identity::{RelayerIdentityV1, SignerIdentityV1};
+
+const ROLE_ENVELOPE_AAD_VERSION_V1: &[u8] = b"router-ab-protocol/role-envelope-aad/v1";
+const ROLE_ENCRYPTED_ENVELOPE_DIGEST_VERSION_V1: &[u8] =
+    b"router-ab-protocol/role-encrypted-envelope-digest/v1";
+const SIGNER_ENVELOPE_AEAD_PAYLOAD_VERSION_V1: &[u8] =
+    b"router-ab-protocol/signer-envelope-aead/v1";
+const SIGNER_ENVELOPE_AEAD_ALGORITHM_V1: &[u8] = b"aes-256-gcm-webcrypto/v1";
+/// Signer-envelope AES-GCM nonce length.
+pub const SIGNER_ENVELOPE_AEAD_NONCE_LEN_V1: usize = 12;
+/// Signer-envelope AES-GCM tag length.
+pub const SIGNER_ENVELOPE_AEAD_TAG_LEN_V1: usize = 16;
+
+/// Encrypted payload bytes. Debug output is redacted.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EncryptedPayloadV1 {
+    bytes: Vec<u8>,
+}
+
+impl EncryptedPayloadV1 {
+    /// Creates a non-empty encrypted payload wrapper.
+    pub fn new(bytes: Vec<u8>) -> RouterAbProtocolResult<Self> {
+        if bytes.is_empty() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "encrypted payload must be non-empty",
+            ));
+        }
+        Ok(Self { bytes })
+    }
+
+    /// Returns encrypted payload bytes for transport.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+}
+
+impl fmt::Debug for EncryptedPayloadV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EncryptedPayloadV1")
+            .field("len", &self.bytes.len())
+            .field("bytes", &"[redacted]")
+            .finish()
+    }
+}
+
+/// Parsed signer-envelope AEAD payload before platform-specific decryption.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SignerEnvelopeAeadPayloadV1 {
+    /// Signer role allowed to decrypt this envelope.
+    pub recipient_role: Role,
+    /// Public envelope decrypt-key epoch.
+    pub key_epoch: String,
+    /// Digest of canonical associated-data bytes used during encryption.
+    pub aad_digest: PublicDigest32,
+    nonce: [u8; SIGNER_ENVELOPE_AEAD_NONCE_LEN_V1],
+    ciphertext_and_tag: Vec<u8>,
+}
+
+impl SignerEnvelopeAeadPayloadV1 {
+    /// Creates a validated signer-envelope AEAD payload.
+    pub fn new(
+        recipient_role: Role,
+        key_epoch: impl Into<String>,
+        aad_digest: PublicDigest32,
+        nonce: [u8; SIGNER_ENVELOPE_AEAD_NONCE_LEN_V1],
+        ciphertext_and_tag: Vec<u8>,
+    ) -> RouterAbProtocolResult<Self> {
+        let payload = Self {
+            recipient_role,
+            key_epoch: key_epoch.into(),
+            aad_digest,
+            nonce,
+            ciphertext_and_tag,
+        };
+        payload.validate()?;
+        Ok(payload)
+    }
+
+    /// Validates public AEAD payload metadata and ciphertext/tag shape.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_signer_role(self.recipient_role)?;
+        require_non_empty("key_epoch", &self.key_epoch)?;
+        if self.ciphertext_and_tag.len() <= SIGNER_ENVELOPE_AEAD_TAG_LEN_V1 {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "signer-envelope AEAD ciphertext must include non-empty ciphertext plus tag",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns the public AES-GCM nonce.
+    pub fn nonce(&self) -> &[u8; SIGNER_ENVELOPE_AEAD_NONCE_LEN_V1] {
+        &self.nonce
+    }
+
+    /// Returns ciphertext bytes followed by the AES-GCM tag.
+    pub fn ciphertext_and_tag(&self) -> &[u8] {
+        &self.ciphertext_and_tag
+    }
+
+    /// Returns canonical signer-envelope AEAD payload bytes.
+    pub fn canonical_bytes(&self) -> Vec<u8> {
+        encode_signer_envelope_aead_payload_v1(self)
+    }
+
+    /// Validates this parsed payload against its outer role envelope.
+    pub fn validate_for_envelope(
+        &self,
+        envelope: &RoleEncryptedEnvelopeV1,
+        expected_key_epoch: &str,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        envelope.validate()?;
+        require_non_empty("expected_key_epoch", expected_key_epoch)?;
+        if self.recipient_role != envelope.recipient_role {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidRole,
+                "signer-envelope AEAD recipient role does not match outer envelope",
+            ));
+        }
+        if self.key_epoch != expected_key_epoch {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidSignerIdentity,
+                "signer-envelope AEAD key epoch does not match expected signer key epoch",
+            ));
+        }
+        if self.aad_digest != envelope.aad_digest {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "signer-envelope AEAD AAD digest does not match outer envelope",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for SignerEnvelopeAeadPayloadV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SignerEnvelopeAeadPayloadV1")
+            .field("recipient_role", &self.recipient_role)
+            .field("key_epoch", &self.key_epoch)
+            .field("aad_digest", &self.aad_digest)
+            .field("nonce", &"[redacted]")
+            .field("ciphertext_and_tag_len", &self.ciphertext_and_tag.len())
+            .field("ciphertext_and_tag", &"[redacted]")
+            .finish()
+    }
+}
+
+/// Public associated data bound to signer-envelope encryption.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleEnvelopeAadV1 {
+    /// Router lifecycle id.
+    pub lifecycle_id: String,
+    /// Product-level work kind.
+    pub work_kind: ExpensiveWorkKindV1,
+    /// Primitive derivation request kind.
+    pub primitive_request_kind: RequestKind,
+    /// Signer-set id.
+    pub signer_set_id: String,
+    /// Recipient signer identity.
+    pub recipient: SignerIdentityV1,
+    /// Selected relayer identity.
+    pub selected_relayer: RelayerIdentityV1,
+    /// Public transcript digest.
+    pub transcript_digest: PublicDigest32,
+    /// Router request digest.
+    pub router_request_digest: PublicDigest32,
+    /// Request expiry in Unix milliseconds.
+    pub expires_at_ms: u64,
+}
+
+impl RoleEnvelopeAadV1 {
+    /// Creates validated role-envelope associated data.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        lifecycle_id: impl Into<String>,
+        work_kind: ExpensiveWorkKindV1,
+        signer_set_id: impl Into<String>,
+        recipient: SignerIdentityV1,
+        selected_relayer: RelayerIdentityV1,
+        transcript_digest: PublicDigest32,
+        router_request_digest: PublicDigest32,
+        expires_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let aad = Self {
+            lifecycle_id: lifecycle_id.into(),
+            work_kind,
+            primitive_request_kind: work_kind.primitive_request_kind(),
+            signer_set_id: signer_set_id.into(),
+            recipient,
+            selected_relayer,
+            transcript_digest,
+            router_request_digest,
+            expires_at_ms,
+        };
+        aad.validate()?;
+        Ok(aad)
+    }
+
+    /// Validates role-envelope associated data fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("lifecycle_id", &self.lifecycle_id)?;
+        require_non_empty("signer_set_id", &self.signer_set_id)?;
+        self.recipient.validate()?;
+        self.selected_relayer.validate()?;
+        if self.primitive_request_kind != self.work_kind.primitive_request_kind() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "role-envelope AAD primitive request kind does not match work kind",
+            ));
+        }
+        if self.expires_at_ms == 0 {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "role-envelope AAD expires_at_ms must be greater than zero",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns canonical associated-data bytes.
+    pub fn canonical_bytes(&self) -> Vec<u8> {
+        encode_role_envelope_aad_v1(self)
+    }
+
+    /// Returns the SHA-256 digest of canonical associated-data bytes.
+    pub fn digest(&self) -> PublicDigest32 {
+        role_envelope_aad_digest_v1(self)
+    }
+}
+
+/// Signer-role encrypted envelope forwarded by Router without decryption.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleEncryptedEnvelopeV1 {
+    /// Signer role allowed to decrypt this envelope.
+    pub recipient_role: Role,
+    /// Digest of canonical public envelope header bytes.
+    pub header_digest: PublicDigest32,
+    /// Digest of canonical associated-data bytes.
+    pub aad_digest: PublicDigest32,
+    /// Opaque ciphertext for the recipient signer.
+    pub ciphertext: EncryptedPayloadV1,
+}
+
+impl RoleEncryptedEnvelopeV1 {
+    /// Creates a validated role-encrypted signer envelope.
+    pub fn new(
+        recipient_role: Role,
+        header_digest: PublicDigest32,
+        aad_digest: PublicDigest32,
+        ciphertext: EncryptedPayloadV1,
+    ) -> RouterAbProtocolResult<Self> {
+        require_signer_role(recipient_role)?;
+        Ok(Self {
+            recipient_role,
+            header_digest,
+            aad_digest,
+            ciphertext,
+        })
+    }
+
+    /// Validates recipient role and payload shape.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_signer_role(self.recipient_role)?;
+        if self.ciphertext.as_bytes().is_empty() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "encrypted envelope ciphertext must be non-empty",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for RoleEncryptedEnvelopeV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RoleEncryptedEnvelopeV1")
+            .field("recipient_role", &self.recipient_role)
+            .field("header_digest", &self.header_digest)
+            .field("aad_digest", &self.aad_digest)
+            .field("ciphertext", &"[redacted]")
+            .finish()
+    }
+}
+
+/// Encodes role-envelope associated data with fixed field order.
+pub fn encode_role_envelope_aad_v1(aad: &RoleEnvelopeAadV1) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_len32(&mut out, ROLE_ENVELOPE_AAD_VERSION_V1);
+    push_string(&mut out, &aad.lifecycle_id);
+    push_len32(&mut out, aad.work_kind.as_str().as_bytes());
+    push_len32(&mut out, aad.primitive_request_kind.as_str().as_bytes());
+    push_string(&mut out, &aad.signer_set_id);
+    push_signer_identity(&mut out, &aad.recipient);
+    push_relayer_identity(&mut out, &aad.selected_relayer);
+    push_public_digest(&mut out, aad.transcript_digest);
+    push_public_digest(&mut out, aad.router_request_digest);
+    push_u64(&mut out, aad.expires_at_ms);
+    out
+}
+
+/// Computes the public digest of role-envelope associated data.
+pub fn role_envelope_aad_digest_v1(aad: &RoleEnvelopeAadV1) -> PublicDigest32 {
+    let digest = Sha256::digest(encode_role_envelope_aad_v1(aad));
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    PublicDigest32::new(out)
+}
+
+/// Computes the transcript-bound digest of a role-encrypted signer envelope.
+pub fn role_encrypted_envelope_digest_v1(
+    envelope: &RoleEncryptedEnvelopeV1,
+) -> RouterAbProtocolResult<PublicDigest32> {
+    envelope.validate()?;
+    let mut bytes = Vec::new();
+    push_len32(&mut bytes, ROLE_ENCRYPTED_ENVELOPE_DIGEST_VERSION_V1);
+    push_len32(&mut bytes, envelope.recipient_role.as_str().as_bytes());
+    push_public_digest(&mut bytes, envelope.header_digest);
+    push_public_digest(&mut bytes, envelope.aad_digest);
+    push_len32(&mut bytes, envelope.ciphertext.as_bytes());
+    let digest = Sha256::digest(bytes);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    Ok(PublicDigest32::new(out))
+}
+
+/// Encodes signer-envelope AEAD payload metadata with fixed field order.
+pub fn encode_signer_envelope_aead_payload_v1(payload: &SignerEnvelopeAeadPayloadV1) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_len32(&mut out, SIGNER_ENVELOPE_AEAD_PAYLOAD_VERSION_V1);
+    push_len32(&mut out, SIGNER_ENVELOPE_AEAD_ALGORITHM_V1);
+    push_len32(&mut out, payload.recipient_role.as_str().as_bytes());
+    push_string(&mut out, &payload.key_epoch);
+    push_public_digest(&mut out, payload.aad_digest);
+    push_len32(&mut out, &payload.nonce);
+    push_u32(&mut out, SIGNER_ENVELOPE_AEAD_TAG_LEN_V1 as u32);
+    push_len32(&mut out, &payload.ciphertext_and_tag);
+    out
+}
+
+/// Decodes canonical signer-envelope AEAD payload bytes.
+pub fn decode_signer_envelope_aead_payload_v1(
+    bytes: &[u8],
+) -> RouterAbProtocolResult<SignerEnvelopeAeadPayloadV1> {
+    let mut decoder = EnvelopeDecoder::new(bytes);
+    decoder.read_expected_bytes(
+        "signer_envelope_aead_payload_version",
+        SIGNER_ENVELOPE_AEAD_PAYLOAD_VERSION_V1,
+    )?;
+    decoder.read_expected_bytes(
+        "signer_envelope_aead_algorithm",
+        SIGNER_ENVELOPE_AEAD_ALGORITHM_V1,
+    )?;
+    let recipient_role = parse_role(decoder.read_string("recipient_role")?)?;
+    let key_epoch = decoder.read_string("key_epoch")?;
+    let aad_digest = decoder.read_public_digest("aad_digest")?;
+    let nonce = decoder.read_nonce()?;
+    let tag_len = decoder.read_u32("tag_len")?;
+    if tag_len != SIGNER_ENVELOPE_AEAD_TAG_LEN_V1 as u32 {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "signer-envelope AEAD tag length must be 16 bytes",
+        ));
+    }
+    let ciphertext_and_tag = decoder.read_bytes("ciphertext_and_tag")?.to_vec();
+    decoder.finish()?;
+    SignerEnvelopeAeadPayloadV1::new(
+        recipient_role,
+        key_epoch,
+        aad_digest,
+        nonce,
+        ciphertext_and_tag,
+    )
+}
+
+/// Decodes and validates signer-envelope AEAD payload bytes from an outer envelope.
+pub fn decode_and_validate_signer_envelope_aead_payload_v1(
+    envelope: &RoleEncryptedEnvelopeV1,
+    expected_key_epoch: &str,
+) -> RouterAbProtocolResult<SignerEnvelopeAeadPayloadV1> {
+    let payload = decode_signer_envelope_aead_payload_v1(envelope.ciphertext.as_bytes())?;
+    payload.validate_for_envelope(envelope, expected_key_epoch)?;
+    Ok(payload)
+}
+
+fn require_signer_role(role: Role) -> RouterAbProtocolResult<()> {
+    match role {
+        Role::SignerA | Role::SignerB => Ok(()),
+        _ => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "role-encrypted envelope recipient must be Signer A or Signer B",
+        )),
+    }
+}
+
+fn push_signer_identity(out: &mut Vec<u8>, identity: &SignerIdentityV1) {
+    push_len32(out, identity.role.as_str().as_bytes());
+    push_string(out, &identity.signer_id);
+    push_string(out, &identity.key_epoch);
+}
+
+fn push_relayer_identity(out: &mut Vec<u8>, identity: &RelayerIdentityV1) {
+    push_string(out, &identity.relayer_id);
+    push_string(out, &identity.key_epoch);
+    push_string(out, &identity.recipient_encryption_key);
+}
+
+fn push_public_digest(out: &mut Vec<u8>, digest: PublicDigest32) {
+    push_len32(out, digest.as_bytes());
+}
+
+fn push_string(out: &mut Vec<u8>, value: &str) {
+    push_len32(out, value.as_bytes());
+}
+
+fn push_u64(out: &mut Vec<u8>, value: u64) {
+    out.extend_from_slice(&value.to_be_bytes());
+}
+
+fn push_u32(out: &mut Vec<u8>, value: u32) {
+    out.extend_from_slice(&value.to_be_bytes());
+}
+
+fn push_len32(out: &mut Vec<u8>, bytes: &[u8]) {
+    out.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
+    out.extend_from_slice(bytes);
+}
+
+fn parse_role(value: &str) -> RouterAbProtocolResult<Role> {
+    match value {
+        "signer_a" => Ok(Role::SignerA),
+        "signer_b" => Ok(Role::SignerB),
+        "router" => Ok(Role::Router),
+        "relayer" => Ok(Role::Relayer),
+        "client" => Ok(Role::Client),
+        _ => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "unknown signer-envelope AEAD role",
+        )),
+    }
+}
+
+struct EnvelopeDecoder<'a> {
+    input: &'a [u8],
+    pos: usize,
+}
+
+impl<'a> EnvelopeDecoder<'a> {
+    fn new(input: &'a [u8]) -> Self {
+        Self { input, pos: 0 }
+    }
+
+    fn read_expected_bytes(
+        &mut self,
+        field: &'static str,
+        expected: &[u8],
+    ) -> RouterAbProtocolResult<()> {
+        let actual = self.read_bytes(field)?;
+        if actual != expected {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("{field} is unsupported"),
+            ));
+        }
+        Ok(())
+    }
+
+    fn read_string(&mut self, field: &'static str) -> RouterAbProtocolResult<&'a str> {
+        let bytes = self.read_bytes(field)?;
+        core::str::from_utf8(bytes).map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("{field} must be UTF-8"),
+            )
+        })
+    }
+
+    fn read_public_digest(
+        &mut self,
+        field: &'static str,
+    ) -> RouterAbProtocolResult<PublicDigest32> {
+        let bytes = self.read_bytes(field)?;
+        let digest: [u8; 32] = bytes.try_into().map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("{field} must be 32 bytes"),
+            )
+        })?;
+        Ok(PublicDigest32::new(digest))
+    }
+
+    fn read_nonce(&mut self) -> RouterAbProtocolResult<[u8; SIGNER_ENVELOPE_AEAD_NONCE_LEN_V1]> {
+        let bytes = self.read_bytes("nonce")?;
+        bytes.try_into().map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "signer-envelope AEAD nonce must be 12 bytes",
+            )
+        })
+    }
+
+    fn read_u32(&mut self, field: &'static str) -> RouterAbProtocolResult<u32> {
+        if self.input.len().saturating_sub(self.pos) < 4 {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("{field} length is truncated"),
+            ));
+        }
+        let mut bytes = [0u8; 4];
+        bytes.copy_from_slice(&self.input[self.pos..self.pos + 4]);
+        self.pos += 4;
+        Ok(u32::from_be_bytes(bytes))
+    }
+
+    fn read_bytes(&mut self, field: &'static str) -> RouterAbProtocolResult<&'a [u8]> {
+        let len = self.read_len(field)?;
+        if self.input.len().saturating_sub(self.pos) < len {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("{field} length exceeds remaining bytes"),
+            ));
+        }
+        let bytes = &self.input[self.pos..self.pos + len];
+        self.pos += len;
+        Ok(bytes)
+    }
+
+    fn read_len(&mut self, field: &'static str) -> RouterAbProtocolResult<usize> {
+        if self.input.len().saturating_sub(self.pos) < 4 {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("{field} length is truncated"),
+            ));
+        }
+        let mut len = [0u8; 4];
+        len.copy_from_slice(&self.input[self.pos..self.pos + 4]);
+        self.pos += 4;
+        Ok(u32::from_be_bytes(len) as usize)
+    }
+
+    fn finish(&self) -> RouterAbProtocolResult<()> {
+        if self.pos == self.input.len() {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "signer-envelope AEAD payload has trailing bytes",
+        ))
+    }
+}
+
+fn require_non_empty(field: &'static str, value: &str) -> RouterAbProtocolResult<()> {
+    if value.is_empty() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::EmptyField,
+            format!("{field} is required"),
+        ));
+    }
+    Ok(())
+}

@@ -1,0 +1,17 @@
+[package]
+name = "router-ab-dev"
+version = "0.1.0"
+edition = "2021"
+description = "Local development adapters for Router/A/B signing"
+license = "Apache-2.0"
+
+[lib]
+name = "router_ab_dev"
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[dependencies]
+router-ab-core = { path = "../router-ab-core" }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

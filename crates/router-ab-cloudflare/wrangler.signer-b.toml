@@ -1,0 +1,34 @@
+name = "router-ab-strict-signer-b"
+main = "build/signer-b/worker/shim.mjs"
+compatibility_date = "2026-06-12"
+workers_dev = true
+
+[build]
+command = "cargo install -q worker-build --version 0.8.4 && worker-build --release --out-dir build/signer-b --features strict-worker-signer-b-entrypoint"
+
+[durable_objects]
+bindings = [
+  { name = "SIGNER_B_ROOT_SHARE_DO", class_name = "RouterAbSignerBRootShareDurableObject" },
+]
+
+[[migrations]]
+tag = "router_ab_signer_b_v1"
+new_classes = ["RouterAbSignerBRootShareDurableObject"]
+
+[[services]]
+binding = "SIGNER_A"
+service = "router-ab-strict-signer-a"
+
+[vars]
+ROUTER_AB_ROUTE_PROFILE = "strict_proof_bundle"
+SIGNER_B_ROOT_SHARE_DO_BINDING = "SIGNER_B_ROOT_SHARE_DO"
+SIGNER_B_ROOT_SHARE_DO_OBJECT = "signer-b-root-share"
+SIGNER_B_ROOT_SHARE_DO_KEY_PREFIX = "signer-b-root-share/"
+SIGNER_B_ROOT_SHARE_WIRE_SECRET_BINDING = "SIGNER_B_ROOT_SHARE_WIRE_SECRET"
+SIGNER_B_ENVELOPE_AEAD_KEY_BINDING = "SIGNER_B_ENVELOPE_AEAD_KEY"
+SIGNER_B_ENVELOPE_AEAD_KEY_EPOCH = "epoch-1"
+SIGNER_B_PEER_SIGNING_KEY_BINDING = "SIGNER_B_PEER_SIGNING_KEY"
+SIGNER_B_PEER_SIGNING_KEY_EPOCH = "epoch-1"
+SIGNER_A_PEER_VERIFYING_KEY_HEX = "REPLACE_WITH_SIGNER_A_ED25519_VERIFYING_KEY_HEX"
+SIGNER_B_PEER_VERIFYING_KEY_HEX = "REPLACE_WITH_SIGNER_B_ED25519_VERIFYING_KEY_HEX"
+SIGNER_A_PEER_BINDING = "SIGNER_A"
