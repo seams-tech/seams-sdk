@@ -36,6 +36,11 @@ const benches = [
     fn: wasm.benchmark_option_a_helper,
   },
   {
+    name: "derive_output_from_signing_root_share_wires",
+    iterations: 20_000,
+    fn: wasm.benchmark_option_a_share_wires,
+  },
+  {
     name: "evaluate_partial_with_dleq_proof",
     iterations: 10_000,
     fn: wasm.benchmark_dleq_prove,
@@ -44,6 +49,11 @@ const benches = [
     name: "verify_partial_dleq_proof",
     iterations: 10_000,
     fn: wasm.benchmark_dleq_verify,
+  },
+  {
+    name: "combine_verified_partials",
+    iterations: 5_000,
+    fn: wasm.benchmark_dleq_combine_verified,
   },
 ];
 

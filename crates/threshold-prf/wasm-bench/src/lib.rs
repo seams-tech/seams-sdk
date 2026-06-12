@@ -5,9 +5,10 @@ use std::hint::black_box;
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
 use threshold_prf::{
-    combine_partials, derive_output_from_signing_root_shares, evaluate_partial,
-    evaluate_partial_with_dleq_proof, generate_signing_root, split_signing_root_2_of_3,
-    verify_partial_dleq_proof, PrfContext, PrfPurpose, SuiteId,
+    combine_partials, combine_verified_partials, derive_output_from_signing_root_share_wires,
+    derive_output_from_signing_root_shares, evaluate_partial, evaluate_partial_with_dleq_proof,
+    generate_signing_root, split_signing_root_2_of_3, verify_partial_dleq_proof, PrfContext,
+    PrfPurpose, SigningRootShareWireV1, SuiteId,
 };
 use wasm_bindgen::prelude::*;
 
@@ -46,6 +47,25 @@ pub fn benchmark_option_a_helper(iterations: u32) -> u8 {
 }
 
 #[wasm_bindgen]
+pub fn benchmark_option_a_share_wires(iterations: u32) -> u8 {
+    let (shares, context) = fixture();
+    let share_wires = [
+        SigningRootShareWireV1::from_share(&shares[0]),
+        SigningRootShareWireV1::from_share(&shares[2]),
+    ];
+    let mut checksum = 0u8;
+
+    for _ in 0..iterations {
+        let output =
+            derive_output_from_signing_root_share_wires(black_box(&share_wires), black_box(&context))
+                .expect("benchmark share wires combine");
+        checksum ^= output.as_bytes()[0];
+    }
+
+    checksum
+}
+
+#[wasm_bindgen]
 pub fn benchmark_dleq_prove(iterations: u32) -> u8 {
     let (shares, context) = fixture();
     let mut rng = seeded_rng(4);
@@ -59,6 +79,25 @@ pub fn benchmark_dleq_prove(iterations: u32) -> u8 {
         )
         .expect("benchmark proof generation succeeds");
         checksum ^= bundle.proof.to_bytes()[0];
+    }
+
+    checksum
+}
+
+#[wasm_bindgen]
+pub fn benchmark_dleq_combine_verified(iterations: u32) -> u8 {
+    let (shares, context) = fixture();
+    let left = evaluate_partial_with_dleq_proof(&shares[0], &context, &mut seeded_rng(6))
+        .expect("benchmark proof fixture");
+    let right = evaluate_partial_with_dleq_proof(&shares[2], &context, &mut seeded_rng(7))
+        .expect("benchmark proof fixture");
+    let proof_bundles = [left, right];
+    let mut checksum = 0u8;
+
+    for _ in 0..iterations {
+        let output = combine_verified_partials(black_box(&proof_bundles), black_box(&context))
+            .expect("benchmark verified combine succeeds");
+        checksum ^= output.as_bytes()[0];
     }
 
     checksum

@@ -328,6 +328,42 @@ Interpretation:
 - These results do not include Cloudflare Worker isolate startup, request
   dispatch, Durable Object, storage, or network overhead.
 
+## Expanded Local Node/V8 WASM Results
+
+Change measured:
+
+- added local WASM coverage for `derive_output_from_signing_root_share_wires`
+- added local WASM coverage for `combine_verified_partials`
+
+Environment:
+
+- Date: June 13, 2026 Asia/Tokyo
+- Runtime: `node v22.13.0`
+- Target: `wasm32-unknown-unknown` via `wasm-pack --target nodejs --release`
+- Command: `just threshold-prf-wasm-bench`
+- Git revision before this benchmark-doc update: `21ecbb5f`
+- Optimized `.wasm` size: 100,866 bytes
+
+Results:
+
+| Benchmark | Iterations | Time/op |
+| --- | ---: | ---: |
+| `option_a_evaluate_two_partials_and_combine` | 20,000 | 217.592 us |
+| `derive_output_from_signing_root_shares` | 20,000 | 208.479 us |
+| `derive_output_from_signing_root_share_wires` | 20,000 | 211.322 us |
+| `evaluate_partial_with_dleq_proof` | 10,000 | 204.796 us |
+| `verify_partial_dleq_proof` | 10,000 | 206.334 us |
+| `combine_verified_partials` | 5,000 | 522.854 us |
+
+Interpretation:
+
+- Share-wire Option A remains about `0.21 ms` in the local Node/V8 WASM proxy.
+- DLEQ verified combine is about `0.52 ms` in the local Node/V8 WASM proxy.
+- The WASM proxy is still sub-millisecond for the measured threshold-prf crypto
+  paths.
+- These results still exclude Cloudflare Worker isolate startup, request
+  dispatch, Durable Object, storage, and network overhead.
+
 ## Cloudflare Worker Harness
 
 Harness added: June 12, 2026.
