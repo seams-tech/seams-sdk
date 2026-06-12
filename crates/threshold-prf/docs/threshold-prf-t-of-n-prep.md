@@ -261,6 +261,11 @@ Implemented after the initial prep:
 - [x] Add hidden 3-of-5 interpolation tests to exercise the future math seam.
 - [x] Add a local ignored timing harness for private generic interpolation:
   `just threshold-prf-t-of-n-prep-bench`.
+- [x] Extend the local timing harness to separate:
+  - Lagrange coefficient computation for `2-of-3`, `3-of-5`, and `5-of-7`
+  - point interpolation for those same private generic policies
+  - current v1 partial evaluation, combine, share-wire derive, DLEQ proof, and
+    verified-combine costs
 
 Remaining for the public v2 refactor:
 

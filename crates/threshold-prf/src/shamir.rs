@@ -377,6 +377,9 @@ fn lagrange_coefficients_at_zero<const T: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
+    use curve25519_dalek::ristretto::RistrettoPoint;
+    use curve25519_dalek::traits::Identity;
     use std::time::Instant;
 
     #[test]
@@ -543,6 +546,15 @@ mod tests {
             [1u16, 3],
             iterations,
         );
+        measure_point_interpolation_case(
+            "point_interpolation_at_zero_t2_n3",
+            ThresholdPolicy {
+                threshold: 2,
+                share_count: 3,
+            },
+            [1u16, 3],
+            iterations,
+        );
         measure_lagrange_case(
             "lagrange_at_zero_t3_n5",
             ThresholdPolicy {
@@ -552,8 +564,26 @@ mod tests {
             [1u16, 3, 5],
             iterations,
         );
+        measure_point_interpolation_case(
+            "point_interpolation_at_zero_t3_n5",
+            ThresholdPolicy {
+                threshold: 3,
+                share_count: 5,
+            },
+            [1u16, 3, 5],
+            iterations,
+        );
         measure_lagrange_case(
             "lagrange_at_zero_t5_n7",
+            ThresholdPolicy {
+                threshold: 5,
+                share_count: 7,
+            },
+            [1u16, 2, 4, 6, 7],
+            iterations,
+        );
+        measure_point_interpolation_case(
+            "point_interpolation_at_zero_t5_n7",
             ThresholdPolicy {
                 threshold: 5,
                 share_count: 7,
@@ -579,6 +609,33 @@ mod tests {
             for coefficient in lagrange_coefficients_at_zero(subset) {
                 checksum ^= coefficient.to_bytes()[0];
             }
+        }
+
+        let elapsed = started_at.elapsed();
+        let ns_per_op = elapsed.as_nanos() as f64 / f64::from(iterations);
+        println!("{name}: {ns_per_op:.3} ns/op over {iterations} iterations, checksum {checksum}");
+    }
+
+    fn measure_point_interpolation_case<const T: usize>(
+        name: &str,
+        policy: ThresholdPolicy,
+        ids: [u16; T],
+        iterations: u32,
+    ) {
+        let subset = policy
+            .validate_subset_ids(ids)
+            .expect("benchmark subset is valid");
+        let coefficients = lagrange_coefficients_at_zero(subset);
+        let points = ids.map(|id| Scalar::from(u64::from(id)) * RISTRETTO_BASEPOINT_POINT);
+        let started_at = Instant::now();
+        let mut checksum = 0u8;
+
+        for _ in 0..iterations {
+            let mut interpolated = RistrettoPoint::identity();
+            for (coefficient, point) in coefficients.iter().zip(points.iter()) {
+                interpolated += *coefficient * *point;
+            }
+            checksum ^= interpolated.compress().as_bytes()[0];
         }
 
         let elapsed = started_at.elapsed();

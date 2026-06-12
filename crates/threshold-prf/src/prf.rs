@@ -731,7 +731,11 @@ fn len32_bytes(len: usize) -> ThresholdPrfResult<[u8; 4]> {
 mod tests {
     use super::*;
     use crate::context::PrfPurpose;
+    use crate::shamir::{generate_signing_root, split_signing_root_2_of_3};
     use crate::suite::SuiteId;
+    use rand_chacha::ChaCha20Rng;
+    use rand_core::SeedableRng;
+    use std::time::Instant;
 
     fn fixture_context() -> PrfContext {
         PrfContext::new(
@@ -838,5 +842,97 @@ mod tests {
             len32_bytes(oversized_len).unwrap_err(),
             ThresholdPrfError::TranscriptLengthOverflow
         );
+    }
+
+    #[test]
+    #[ignore = "local timing harness; run `just threshold-prf-t-of-n-prep-bench`"]
+    fn benchmark_private_prf_eval_combine_prep() {
+        let iterations = 1_000;
+        let mut root_rng = ChaCha20Rng::from_seed([0x31u8; 32]);
+        let root = generate_signing_root(&mut root_rng);
+        let shares = split_signing_root_2_of_3(&root, &mut root_rng);
+        let context = PrfContext::new(
+            SuiteId::Ristretto255Sha512V1,
+            PrfPurpose::RouterAbXRelayerBaseV1,
+            b"benchmark/private-prf-eval-combine-prep/v1",
+        );
+        let left = evaluate_partial(&shares[0], &context).expect("fixture context is valid");
+        let right = evaluate_partial(&shares[2], &context).expect("fixture context is valid");
+        let share_wires = [
+            SigningRootShareWireV1::from_share(&shares[0]),
+            SigningRootShareWireV1::from_share(&shares[2]),
+        ];
+        let mut proof_rng = ChaCha20Rng::from_seed([0x41u8; 32]);
+        let proof_left =
+            evaluate_partial_with_dleq_proof(&shares[0], &context, &mut proof_rng).unwrap();
+        let proof_right =
+            evaluate_partial_with_dleq_proof(&shares[2], &context, &mut proof_rng).unwrap();
+
+        measure_prf_case("prf_evaluate_partial_v1", iterations, || {
+            evaluate_partial(&shares[0], &context)
+                .unwrap()
+                .to_compressed()[0]
+        });
+        measure_prf_case("prf_combine_partials_v1", iterations, || {
+            combine_partials(&[left.clone(), right.clone()], &context)
+                .unwrap()
+                .as_bytes()[0]
+        });
+        measure_prf_case("prf_derive_output_from_two_shares_v1", iterations, || {
+            derive_output_from_signing_root_shares(
+                &[shares[0].clone(), shares[2].clone()],
+                &context,
+            )
+            .unwrap()
+            .as_bytes()[0]
+        });
+        measure_prf_case("prf_derive_output_from_share_wires_v1", iterations, || {
+            derive_output_from_signing_root_share_wires(&share_wires, &context)
+                .unwrap()
+                .as_bytes()[0]
+        });
+        measure_prf_case("prf_verify_dleq_bundle_v1", iterations, || {
+            verify_partial_dleq_proof(
+                &proof_left.commitment,
+                &proof_left.partial,
+                &context,
+                &proof_left.proof,
+            )
+            .unwrap();
+            proof_left.proof.challenge_bytes()[0]
+        });
+        measure_prf_case("prf_combine_verified_partials_v1", iterations, || {
+            combine_verified_partials(&[proof_left.clone(), proof_right.clone()], &context)
+                .unwrap()
+                .as_bytes()[0]
+        });
+
+        let mut fresh_proof_rng = ChaCha20Rng::from_seed([0x51u8; 32]);
+        measure_prf_case(
+            "prf_evaluate_partial_with_dleq_proof_v1",
+            iterations,
+            || {
+                evaluate_partial_with_dleq_proof(&shares[0], &context, &mut fresh_proof_rng)
+                    .unwrap()
+                    .proof
+                    .challenge_bytes()[0]
+            },
+        );
+    }
+
+    fn measure_prf_case<F>(name: &str, iterations: u32, mut run_once: F)
+    where
+        F: FnMut() -> u8,
+    {
+        let started_at = Instant::now();
+        let mut checksum = 0u8;
+
+        for _ in 0..iterations {
+            checksum ^= run_once();
+        }
+
+        let elapsed = started_at.elapsed();
+        let ns_per_op = elapsed.as_nanos() as f64 / f64::from(iterations);
+        println!("{name}: {ns_per_op:.3} ns/op over {iterations} iterations, checksum {checksum}");
     }
 }
