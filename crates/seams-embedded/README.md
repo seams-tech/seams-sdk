@@ -5,6 +5,9 @@ own the `SeamsEmbedded` facade, device-local operation orchestration, and direct
 Rust signer-core integration. It must not be implemented as a TypeScript npm
 subpackage.
 
+Key-choice guidance for embedded robotics signers lives in
+[docs/robotics-hss-key-choice.md](docs/robotics-hss-key-choice.md).
+
 ## Required Ports
 
 - `authenticator`: use FIDO2 hmac-secret, TPM-backed assertions, or another

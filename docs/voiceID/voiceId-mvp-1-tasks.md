@@ -33,6 +33,9 @@ integration remain open.
 This task plan implements the standalone browser-captured, server-verified
 VoiceID MVP described in `docs/voiceID/voiceId-mvp-1.md`.
 
+The follow-on ECAPA, quality-gating, intent-binding, liveness, and wallet/MPC
+policy plan is in `docs/voiceID/voiceId-mvp-2.md`.
+
 ## Implementation Shape
 
 The MVP should ship as a standalone `voiceId/` workspace first. Wallet/auth SDK
@@ -653,6 +656,13 @@ Goal: replace fake verifier with a real verifier behind the same boundary.
   - [ ] local subprocess mode for dev
   - [ ] HTTP sidecar mode for later deployment
   - [ ] timeout and unavailable handling
+- [ ] Lock verifier runtime mode:
+  - [ ] Python verifier runs server-side or in a local robot sidecar
+  - [ ] browser clients capture and upload audio; they do not run ECAPA
+  - [ ] iOS/mobile clients capture and upload audio through the same typed API
+  - [ ] robot clients call a local sidecar or remote VoiceID server
+  - [ ] client bundle checks prove no PyTorch, SpeechBrain, or model weights ship
+    to browser/mobile clients
 
 Validation:
 
