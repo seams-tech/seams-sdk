@@ -194,6 +194,9 @@ Exit criteria:
 
 Write a design stub only. Do not implement it.
 
+Expanded spec:
+[threshold-prf-v2-t-of-n-spec.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/docs/threshold-prf-v2-t-of-n-spec.md)
+
 Candidate API sketch:
 
 ```rust

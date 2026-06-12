@@ -36,6 +36,23 @@ This builds `crates/threshold-prf/wasm-bench` with
 WASM overhead than native Criterion, but it is still not a real Cloudflare
 Worker isolate measurement.
 
+Cloudflare Worker benchmark harness:
+
+```bash
+just threshold-prf-worker-bench-build
+just threshold-prf-worker-bench-deploy
+just threshold-prf-worker-bench-run https://threshold-prf-worker-bench.<account>.workers.dev
+```
+
+This builds the exported `wasm/threshold_prf` package into
+`crates/threshold-prf/worker-bench/vendor/threshold_prf`, deploys a small
+benchmark Worker, and records deployed samples under
+`crates/threshold-prf/target/worker-bench`. The Worker reports first request in
+isolate, WASM initialization time, in-isolate dispatch-loop cost, ECDSA
+`y_relayer` derivation, and Ed25519 server-input derivation. Cold-path
+measurement requires a fresh deployment or an idle isolate before the first
+`/bench` request.
+
 The initial benchmark suite measures:
 
 - signing-root generation
@@ -138,9 +155,8 @@ Interpretation:
   partial on this machine.
 - The native guardrail check passed for all nine benchmark targets measured in
   that run.
-- Native performance is not a blocker for integration, but Cloudflare
-  Worker/WASM measurements are still required before making Worker latency
-  claims.
+- Native performance is sufficient for integration. Cloudflare Worker/WASM
+  measurements are still required before making Worker latency claims.
 
 ## Native Guardrail Thresholds
 
@@ -264,6 +280,39 @@ Interpretation:
   proxy runtime.
 - These results do not include Cloudflare Worker isolate startup, request
   dispatch, Durable Object, storage, or network overhead.
+
+## Cloudflare Worker Harness
+
+Harness added: June 12, 2026.
+
+Source:
+
+- [worker-bench](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/worker-bench)
+- [worker-bench-build.mjs](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/scripts/worker-bench-build.mjs)
+- [worker-bench-run.mjs](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/scripts/worker-bench-run.mjs)
+
+Commands:
+
+```bash
+just threshold-prf-worker-bench-build
+just threshold-prf-worker-bench-dev
+just threshold-prf-worker-bench-deploy
+just threshold-prf-worker-bench-run https://threshold-prf-worker-bench.<account>.workers.dev
+```
+
+Measured deployed results: pending.
+
+Record the first deployed run with:
+
+- date
+- Cloudflare account/region details that are safe to disclose
+- git revision and worktree state
+- Worker URL or deployment version
+- command and iteration count
+- first-request and warm-request samples
+- WASM initialization time
+- in-isolate crypto timings
+- client-observed request latency
 
 ## Performance Readiness Decision
 

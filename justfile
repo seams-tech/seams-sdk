@@ -119,3 +119,21 @@ threshold-prf-bench-gate:
 # Build and run the threshold-prf WASM benchmark harness under Node/V8.
 threshold-prf-wasm-bench:
   node crates/threshold-prf/scripts/wasm-bench.mjs
+
+# Build the threshold-prf Cloudflare Worker benchmark fixture.
+threshold-prf-worker-bench-build:
+  node crates/threshold-prf/scripts/worker-bench-build.mjs
+
+# Run the threshold-prf Worker benchmark fixture locally with Wrangler.
+threshold-prf-worker-bench-dev:
+  just threshold-prf-worker-bench-build
+  cd crates/threshold-prf/worker-bench && pnpm exec wrangler dev
+
+# Deploy the threshold-prf Worker benchmark fixture with Wrangler.
+threshold-prf-worker-bench-deploy:
+  just threshold-prf-worker-bench-build
+  cd crates/threshold-prf/worker-bench && pnpm exec wrangler deploy
+
+# Collect samples from a deployed threshold-prf Worker benchmark URL.
+threshold-prf-worker-bench-run url:
+  node crates/threshold-prf/scripts/worker-bench-run.mjs {{url}}

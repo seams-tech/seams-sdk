@@ -23,7 +23,7 @@ measurements show they matter.
 
 Measure the real runtime path before changing crypto internals.
 
-- [ ] Add a Cloudflare Worker benchmark harness for the exported
+- [x] Add a Cloudflare Worker benchmark harness for the exported
   `wasm/threshold_prf` functions.
 - [ ] Measure warm Worker execution for:
   - `threshold_prf_derive_ecdsa_hss_y_relayer`
@@ -49,6 +49,15 @@ Exit criteria:
 - warm and cold paths are reported separately
 - crypto time is separated from runtime and storage overhead
 - production latency claims no longer depend on local Node/V8 proxy numbers
+
+Harness status:
+
+- Worker fixture:
+  [worker-bench](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/worker-bench)
+- Build command: `just threshold-prf-worker-bench-build`
+- Local Wrangler command: `just threshold-prf-worker-bench-dev`
+- Deploy command: `just threshold-prf-worker-bench-deploy`
+- Deployed sampling command: `just threshold-prf-worker-bench-run <worker-url>`
 
 ### 2. WASM Initialization And Request-Path Amortization
 

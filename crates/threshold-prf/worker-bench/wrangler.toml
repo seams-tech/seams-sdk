@@ -1,0 +1,9 @@
+name = "threshold-prf-worker-bench"
+main = "src/index.mjs"
+compatibility_date = "2026-06-12"
+workers_dev = true
+
+[[rules]]
+type = "CompiledWasm"
+globs = ["**/*.wasm"]
+fallthrough = false
