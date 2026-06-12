@@ -382,6 +382,23 @@ the work above:
 Move a deferred item into the active plan only when it supports a concrete
 release claim or guards a known risky change.
 
+## Future `t-of-N` FV Work
+
+The current FV2 gate models v1 as fixed 2-of-3:
+
+```text
+threshold = 2
+share_count = 3
+valid_share_ids = {1, 2, 3}
+combine_count = 2
+```
+
+A generic `t-of-N` protocol needs a new threshold-set model. That model should
+cover multiple `N` values, multiple `t` values, all valid subset sizes,
+duplicate and insufficient-subset rejection, and DLEQ verified-combine cases for
+more than two partials. V2 vectors should live beside the v2 protocol/API
+surface rather than mutating the v1 vector expectations.
+
 ## FV2 Gate
 
 Start with an additive high-impact gate:

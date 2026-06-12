@@ -60,6 +60,33 @@ fn evaluate_partial(share: &SigningRootShare, context: &PrfContext) -> PrfPartia
 }
 
 #[test]
+fn v1_share_id_domain_is_fixed_to_one_two_three() {
+    for id in 0u8..=u8::MAX {
+        let result = SigningRootShareId::new(id);
+        let expected_valid = matches!(id, 1 | 2 | 3);
+
+        assert_eq!(
+            result.is_ok(),
+            expected_valid,
+            "v1 share id {id} domain expectation drifted"
+        );
+        if expected_valid {
+            assert_eq!(result.expect("valid v1 share id").get(), id);
+        } else {
+            assert_eq!(result.unwrap_err(), ThresholdPrfError::InvalidShareId);
+        }
+    }
+}
+
+#[test]
+fn v1_wire_widths_are_pinned() {
+    assert_eq!(SigningRootShareWireV1::LEN, 33);
+    assert_eq!(PrfPartialWireV1::LEN, 65);
+    assert_eq!(SigningRootShareCommitmentV1::LEN, 33);
+    assert_eq!(PrfDleqProofV1::LEN, 64);
+}
+
+#[test]
 fn generated_outputs_match_direct_reference_for_all_purposes() {
     for case_index in 0u8..100 {
         let mut rng = seeded_rng(case_index);

@@ -17,6 +17,22 @@ The active strategy is:
 - a narrow Lean privacy model for one-server/two-server execution-state
   visibility
 
+## V1 Threshold Policy Model
+
+The active model is intentionally v1-specific:
+
+```text
+threshold = 2
+share_count = 3
+valid_share_ids = {1, 2, 3}
+combine_count = 2
+```
+
+Current subset, Shamir, partial-combine, wire-tag, and transcript proofs model
+that fixed policy. A future generic `t-of-N` protocol needs a separate
+threshold-set model and vector corpus instead of widening the v1 proof names in
+place.
+
 ## Current Status
 
 This formal-verification track now has a Verus abstract spec model, committed

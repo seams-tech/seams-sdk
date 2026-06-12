@@ -205,9 +205,11 @@ where
 pub fn reconstruct_signing_root_2_of_3(
     shares: &[SigningRootShare],
 ) -> ThresholdPrfResult<SigningRootScalar> {
-    let [left, right] = exactly_two_shares(shares)?;
-    let (lambda_left, lambda_right) = lagrange_coefficients_2(left.id, right.id)?;
-    SigningRootScalar::from_scalar((lambda_left * left.value) + (lambda_right * right.value))
+    let pair = exactly_two_shares(shares)?;
+    let (lambda_left, lambda_right) = lagrange_coefficients_2_of_3(pair.left.id, pair.right.id)?;
+    SigningRootScalar::from_scalar(
+        (lambda_left * pair.left.value) + (lambda_right * pair.right.value),
+    )
 }
 
 /// Refreshes a 2-of-3 sharing of the same signing root.
@@ -226,7 +228,7 @@ where
     Ok(split_signing_root_2_of_3(&root, rng))
 }
 
-pub(crate) fn lagrange_coefficients_2(
+pub(crate) fn lagrange_coefficients_2_of_3(
     left: SigningRootShareId,
     right: SigningRootShareId,
 ) -> ThresholdPrfResult<(Scalar, Scalar)> {
@@ -241,16 +243,26 @@ pub(crate) fn lagrange_coefficients_2(
     Ok((lambda_left, lambda_right))
 }
 
+/// Validated fixed v1 pair of distinct signing-root shares.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SigningRootSharePair<'a> {
+    pub(crate) left: &'a SigningRootShare,
+    pub(crate) right: &'a SigningRootShare,
+}
+
 pub(crate) fn exactly_two_shares(
     shares: &[SigningRootShare],
-) -> ThresholdPrfResult<[&SigningRootShare; 2]> {
+) -> ThresholdPrfResult<SigningRootSharePair<'_>> {
     if shares.len() != 2 {
         return Err(ThresholdPrfError::InvalidThresholdSubset);
     }
     if shares[0].id == shares[1].id {
         return Err(ThresholdPrfError::DuplicateShareId);
     }
-    Ok([&shares[0], &shares[1]])
+    Ok(SigningRootSharePair {
+        left: &shares[0],
+        right: &shares[1],
+    })
 }
 
 fn eval_share(root: Scalar, slope: Scalar, id: SigningRootShareId) -> SigningRootShare {
@@ -279,4 +291,44 @@ fn reject_zero_scalar(scalar: &Scalar) -> ThresholdPrfResult<()> {
 
 fn is_zero_scalar(scalar: &Scalar) -> bool {
     bool::from(scalar.ct_eq(&Scalar::ZERO))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lagrange_coefficients_cover_every_ordered_v1_pair() {
+        let root = Scalar::from(9u64);
+        let slope = Scalar::from(13u64);
+
+        for (left_id, right_id) in [(1, 2), (2, 1), (1, 3), (3, 1), (2, 3), (3, 2)] {
+            let left_id = SigningRootShareId::new(left_id).expect("valid share id");
+            let right_id = SigningRootShareId::new(right_id).expect("valid share id");
+            let left = eval_share(root, slope, left_id);
+            let right = eval_share(root, slope, right_id);
+            let (lambda_left, lambda_right) =
+                lagrange_coefficients_2_of_3(left_id, right_id).expect("distinct share ids");
+
+            assert_eq!(
+                (lambda_left * left.value) + (lambda_right * right.value),
+                root
+            );
+        }
+    }
+
+    #[test]
+    fn duplicate_share_ids_fail_before_lagrange_use() {
+        let share_id = SigningRootShareId::new(1).expect("valid share id");
+        assert_eq!(
+            lagrange_coefficients_2_of_3(share_id, share_id).unwrap_err(),
+            ThresholdPrfError::DuplicateShareId
+        );
+
+        let share = SigningRootShare::new_unchecked(share_id, Scalar::from(7u64));
+        assert_eq!(
+            exactly_two_shares(&[share.clone(), share]).unwrap_err(),
+            ThresholdPrfError::DuplicateShareId
+        );
+    }
 }

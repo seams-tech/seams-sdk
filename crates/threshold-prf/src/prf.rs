@@ -11,7 +11,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 use crate::context::{PrfContext, PrfOutputEncoding};
 use crate::error::{ThresholdPrfError, ThresholdPrfResult};
 use crate::shamir::{
-    exactly_two_shares, lagrange_coefficients_2, SigningRootScalar, SigningRootShare,
+    exactly_two_shares, lagrange_coefficients_2_of_3, SigningRootScalar, SigningRootShare,
     SigningRootShareId, SigningRootShareWireV1,
 };
 
@@ -374,12 +374,12 @@ pub fn derive_output_from_signing_root_shares(
     shares: &[SigningRootShare],
     context: &PrfContext,
 ) -> ThresholdPrfResult<PrfOutput32> {
-    let [left, right] = exactly_two_shares(shares)?;
+    let pair = exactly_two_shares(shares)?;
     let input_point = hash_to_group(context)?;
     let context_tag = partial_context_tag(context)?;
     let partials = [
-        evaluate_partial_with_input(left, context_tag, &input_point),
-        evaluate_partial_with_input(right, context_tag, &input_point),
+        evaluate_partial_with_input(pair.left, context_tag, &input_point),
+        evaluate_partial_with_input(pair.right, context_tag, &input_point),
     ];
     combine_partials_with_context_tag(&partials, context, &context_tag)
 }
@@ -476,11 +476,21 @@ pub fn combine_verified_partials(
     bundles: &[PrfPartialProofBundleV1],
     context: &PrfContext,
 ) -> ThresholdPrfResult<PrfOutput32> {
-    let [left, right] = exactly_two_proof_bundles(bundles)?;
-    verify_partial_dleq_proof(&left.commitment, &left.partial, context, &left.proof)?;
-    verify_partial_dleq_proof(&right.commitment, &right.partial, context, &right.proof)?;
+    let pair = exactly_two_proof_bundles(bundles)?;
+    verify_partial_dleq_proof(
+        &pair.left.commitment,
+        &pair.left.partial,
+        context,
+        &pair.left.proof,
+    )?;
+    verify_partial_dleq_proof(
+        &pair.right.commitment,
+        &pair.right.partial,
+        context,
+        &pair.right.proof,
+    )?;
     combine_partials_with_context_tag(
-        &[left.partial.clone(), right.partial.clone()],
+        &[pair.left.partial.clone(), pair.right.partial.clone()],
         context,
         &partial_context_tag(context)?,
     )
@@ -495,16 +505,24 @@ pub fn combine_partials(
     combine_partials_with_context_tag(partials, context, &expected_context_tag)
 }
 
+struct PrfProofBundlePair<'a> {
+    left: &'a PrfPartialProofBundleV1,
+    right: &'a PrfPartialProofBundleV1,
+}
+
 fn exactly_two_proof_bundles(
     bundles: &[PrfPartialProofBundleV1],
-) -> ThresholdPrfResult<[&PrfPartialProofBundleV1; 2]> {
+) -> ThresholdPrfResult<PrfProofBundlePair<'_>> {
     if bundles.len() != 2 {
         return Err(ThresholdPrfError::InvalidThresholdSubset);
     }
     if bundles[0].partial.id == bundles[1].partial.id {
         return Err(ThresholdPrfError::DuplicateShareId);
     }
-    Ok([&bundles[0], &bundles[1]])
+    Ok(PrfProofBundlePair {
+        left: &bundles[0],
+        right: &bundles[1],
+    })
 }
 
 fn combine_partials_with_context_tag(
@@ -512,23 +530,31 @@ fn combine_partials_with_context_tag(
     context: &PrfContext,
     expected_context_tag: &[u8; 32],
 ) -> ThresholdPrfResult<PrfOutput32> {
-    let [left, right] = exactly_two_partials(partials)?;
-    reject_context_mismatch(left, expected_context_tag)?;
-    reject_context_mismatch(right, expected_context_tag)?;
+    let pair = exactly_two_partials(partials)?;
+    reject_context_mismatch(pair.left, expected_context_tag)?;
+    reject_context_mismatch(pair.right, expected_context_tag)?;
 
-    let (lambda_left, lambda_right) = lagrange_coefficients_2(left.id, right.id)?;
-    let z = (lambda_left * left.point) + (lambda_right * right.point);
+    let (lambda_left, lambda_right) = lagrange_coefficients_2_of_3(pair.left.id, pair.right.id)?;
+    let z = (lambda_left * pair.left.point) + (lambda_right * pair.right.point);
     output_from_point(&z, context)
 }
 
-fn exactly_two_partials(partials: &[PrfPartial]) -> ThresholdPrfResult<[&PrfPartial; 2]> {
+struct PrfPartialPair<'a> {
+    left: &'a PrfPartial,
+    right: &'a PrfPartial,
+}
+
+fn exactly_two_partials(partials: &[PrfPartial]) -> ThresholdPrfResult<PrfPartialPair<'_>> {
     if partials.len() != 2 {
         return Err(ThresholdPrfError::InvalidThresholdSubset);
     }
     if partials[0].id == partials[1].id {
         return Err(ThresholdPrfError::DuplicateShareId);
     }
-    Ok([&partials[0], &partials[1]])
+    Ok(PrfPartialPair {
+        left: &partials[0],
+        right: &partials[1],
+    })
 }
 
 fn reject_context_mismatch(partial: &PrfPartial, expected: &[u8; 32]) -> ThresholdPrfResult<()> {

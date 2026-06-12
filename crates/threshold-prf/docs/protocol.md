@@ -1,7 +1,7 @@
 # Threshold PRF Protocol
 
 Date created: April 16, 2026
-Last updated: April 17, 2026
+Last updated: June 12, 2026
 
 ## Scope
 
@@ -74,6 +74,22 @@ The suite uses:
 - SHA-512 for hash-to-group input expansion
 - SHA-512 for output hashing
 - Shamir sharing over the Ristretto scalar field
+
+## V1 Threshold Policy
+
+Version 1 has a fixed threshold policy:
+
+```text
+threshold = 2
+share_count = 3
+valid_share_ids = {1, 2, 3}
+combine_count = 2
+```
+
+All v1 public split, refresh, reconstruct, derive, combine, wire-decode, and
+DLEQ verified-combine APIs enforce this policy. Generic `t-of-N` sharing would
+be a v2 protocol/API revision with its own validation, vectors, benchmarks,
+WASM bindings, and formal-verification model.
 
 ## Public Constants
 
@@ -377,6 +393,7 @@ combining the two partial points.
 ## Shamir Sharing
 
 Version 1 uses fixed 2-of-3 Shamir sharing over the Ristretto scalar field.
+The v1 threshold policy above is part of the protocol surface.
 
 Project-root generation:
 

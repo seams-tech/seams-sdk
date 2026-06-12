@@ -19,6 +19,21 @@ The crate is intentionally narrow:
 - combine any valid two partials into the same `y_relayer`
 - benchmark the cost before integration
 
+## V1 Threshold Policy
+
+Version 1 is fixed to 2-of-3 signing-root sharing:
+
+```text
+threshold = 2
+share_count = 3
+valid_share_ids = {1, 2, 3}
+combine_count = 2
+```
+
+A generic `t-of-N` threshold PRF would be a v2 protocol/API revision. The
+change would need updated share validation, split/combine APIs, vectors,
+benchmarks, WASM bindings, and formal-verification models.
+
 Production signing should use partial evaluation and combine. The one-runtime
 Option A helper is `derive_output_from_signing_root_shares`; direct
 `k_org -> y_relayer` evaluation exists only as a reference test path.
