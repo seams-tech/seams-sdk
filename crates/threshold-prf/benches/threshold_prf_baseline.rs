@@ -2,10 +2,11 @@ use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
 use threshold_prf::{
-    combine_partials, derive_output_from_signing_root_shares, evaluate_direct_reference,
-    evaluate_partial, evaluate_partial_with_dleq_proof, generate_signing_root,
-    refresh_signing_root_shares_2_of_3, split_signing_root_2_of_3, verify_partial_dleq_proof,
-    PrfContext, PrfOutput32, PrfPartial, PrfPurpose, SigningRootScalar, SigningRootShare, SuiteId,
+    combine_partials, combine_verified_partials, derive_output_from_signing_root_share_wires,
+    derive_output_from_signing_root_shares, evaluate_direct_reference, evaluate_partial,
+    evaluate_partial_with_dleq_proof, generate_signing_root, refresh_signing_root_shares_2_of_3,
+    split_signing_root_2_of_3, verify_partial_dleq_proof, PrfContext, PrfOutput32, PrfPartial,
+    PrfPurpose, SigningRootScalar, SigningRootShare, SigningRootShareWireV1, SuiteId,
 };
 
 fn seeded_rng(seed: u8) -> ChaCha20Rng {
@@ -34,6 +35,10 @@ fn bench_threshold_prf(c: &mut Criterion) {
     let shares = split_signing_root_2_of_3(&root, &mut setup_rng);
     let context = wallet_context();
     let partials = [partial(&shares[0], &context), partial(&shares[1], &context)];
+    let share_wires = [
+        SigningRootShareWireV1::from_share(&shares[0]),
+        SigningRootShareWireV1::from_share(&shares[2]),
+    ];
 
     let mut group = c.benchmark_group("threshold_prf");
 
@@ -83,6 +88,16 @@ fn bench_threshold_prf(c: &mut Criterion) {
         })
     });
 
+    group.bench_function("derive_output_from_signing_root_share_wires", |b| {
+        b.iter(|| {
+            derive_output_from_signing_root_share_wires(
+                black_box(&share_wires),
+                black_box(&context),
+            )
+            .unwrap()
+        })
+    });
+
     group.bench_function("evaluate_partial_with_dleq_proof", |b| {
         b.iter_batched(
             || seeded_rng(4),
@@ -100,6 +115,11 @@ fn bench_threshold_prf(c: &mut Criterion) {
 
     let proof_bundle = evaluate_partial_with_dleq_proof(&shares[0], &context, &mut seeded_rng(5))
         .expect("benchmark proof fixture");
+    let proof_bundles = [
+        proof_bundle.clone(),
+        evaluate_partial_with_dleq_proof(&shares[2], &context, &mut seeded_rng(6))
+            .expect("benchmark proof fixture"),
+    ];
     group.bench_function("verify_partial_dleq_proof", |b| {
         b.iter(|| {
             verify_partial_dleq_proof(
@@ -109,6 +129,12 @@ fn bench_threshold_prf(c: &mut Criterion) {
                 black_box(&proof_bundle.proof),
             )
             .unwrap()
+        })
+    });
+
+    group.bench_function("combine_verified_partials", |b| {
+        b.iter(|| {
+            combine_verified_partials(black_box(&proof_bundles), black_box(&context)).unwrap()
         })
     });
 

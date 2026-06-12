@@ -62,8 +62,10 @@ The initial benchmark suite measures:
 - two-partial combine
 - full Option A evaluation
 - canonical Option A derivation helper
+- canonical Option A derivation from share wires
 - DLEQ proof generation
 - DLEQ proof verification
+- DLEQ verified combine
 - share refresh
 
 ## Local Results
@@ -172,8 +174,10 @@ upper bound after `just threshold-prf-bench` has produced fresh results.
 | `combine_partials` | <= 1 ms |
 | `option_a_evaluate_two_partials_and_combine` | <= 2 ms |
 | `derive_output_from_signing_root_shares` | <= 2 ms |
+| `derive_output_from_signing_root_share_wires` | <= 2 ms |
 | `evaluate_partial_with_dleq_proof` | <= 2 ms |
 | `verify_partial_dleq_proof` | <= 2 ms |
+| `combine_verified_partials` | <= 4 ms |
 | `refresh_signing_root_shares_2_of_3` | <= 1 ms |
 
 These thresholds are intentionally looser than the Apple M4 Pro measurements.
@@ -249,6 +253,49 @@ Interpretation:
 - The helper is slightly faster than the manually sequenced Option A benchmark
   because it computes the context binding once and reuses it internally.
 - All 10 native guardrail thresholds passed.
+
+## Expanded Native Results
+
+Change measured:
+
+- added Criterion coverage for `derive_output_from_signing_root_share_wires`
+- added Criterion coverage for `combine_verified_partials`
+- extended the native guardrail checker to cover all 12 benchmark targets
+
+Environment:
+
+- Date: June 13, 2026 Asia/Tokyo
+- Machine: Apple M4 Pro, Darwin arm64
+- Rust: `rustc 1.96.0 (ac68faa20 2026-05-25)`
+- Cargo: `cargo 1.96.0 (30a34c682 2026-05-25)`
+- Git revision before this benchmark-doc update: `b7ceb493`
+- Command: `just threshold-prf-bench-gate`
+
+Results:
+
+| Benchmark | Time |
+| --- | ---: |
+| `generate_signing_root` | 380.024-387.285 ns |
+| `split_signing_root_2_of_3` | 577.364-589.422 ns |
+| `evaluate_direct_reference` | 26.117-26.263 us |
+| `evaluate_partial` | 23.759-24.137 us |
+| `combine_partials` | 54.926-55.893 us |
+| `option_a_evaluate_two_partials_and_combine` | 105.158-105.835 us |
+| `derive_output_from_signing_root_shares` | 98.202-99.195 us |
+| `derive_output_from_signing_root_share_wires` | 98.065-99.171 us |
+| `evaluate_partial_with_dleq_proof` | 95.270-95.763 us |
+| `verify_partial_dleq_proof` | 109.228-109.982 us |
+| `combine_verified_partials` | 245.174-246.586 us |
+| `refresh_signing_root_shares_2_of_3` | 15.002-15.088 us |
+
+Interpretation:
+
+- Share-wire Option A derivation remains about `0.10 ms` native.
+- DLEQ verified combine is about `0.25 ms` native because it verifies both
+  proof bundles and combines the partials.
+- Native threshold-prf crypto remains below the expected latency floor for HSS
+  registration and signing flows.
+- All 12 native guardrail thresholds passed.
 
 ## Local Node/V8 WASM Results
 

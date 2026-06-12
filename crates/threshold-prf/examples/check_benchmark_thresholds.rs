@@ -35,12 +35,20 @@ const THRESHOLDS: &[BenchmarkThreshold] = &[
         max_upper_bound_ns: 2_000_000.0,
     },
     BenchmarkThreshold {
+        name: "derive_output_from_signing_root_share_wires",
+        max_upper_bound_ns: 2_000_000.0,
+    },
+    BenchmarkThreshold {
         name: "evaluate_partial_with_dleq_proof",
         max_upper_bound_ns: 2_000_000.0,
     },
     BenchmarkThreshold {
         name: "verify_partial_dleq_proof",
         max_upper_bound_ns: 2_000_000.0,
+    },
+    BenchmarkThreshold {
+        name: "combine_verified_partials",
+        max_upper_bound_ns: 4_000_000.0,
     },
     BenchmarkThreshold {
         name: "refresh_signing_root_shares_2_of_3",
