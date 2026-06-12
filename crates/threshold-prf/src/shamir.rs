@@ -8,6 +8,10 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::error::{ThresholdPrfError, ThresholdPrfResult};
 
 const SIGNING_ROOT_SHARE_WIRE_V1_LEN: usize = 33;
+const V1_2_OF_3_POLICY: ThresholdPolicy = ThresholdPolicy {
+    threshold: 2,
+    share_count: 3,
+};
 
 /// Project-root scalar `k_org` in the PRF suite field.
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
@@ -59,6 +63,10 @@ impl SigningRootShareId {
 
     pub(crate) fn scalar(self) -> Scalar {
         Scalar::from(u64::from(self.0))
+    }
+
+    pub(crate) fn threshold_id(self) -> u16 {
+        u16::from(self.0)
     }
 }
 
@@ -232,15 +240,21 @@ pub(crate) fn lagrange_coefficients_2_of_3(
     left: SigningRootShareId,
     right: SigningRootShareId,
 ) -> ThresholdPrfResult<(Scalar, Scalar)> {
-    if left == right {
-        return Err(ThresholdPrfError::DuplicateShareId);
-    }
-
-    let x_left = left.scalar();
-    let x_right = right.scalar();
-    let lambda_left = x_right * (x_right - x_left).invert();
-    let lambda_right = x_left * (x_left - x_right).invert();
+    let [lambda_left, lambda_right] = lagrange_coefficients_for_v1_subset([left, right])?;
     Ok((lambda_left, lambda_right))
+}
+
+pub(crate) fn lagrange_coefficients_for_v1_subset<const T: usize>(
+    ids: [SigningRootShareId; T],
+) -> ThresholdPrfResult<[Scalar; T]> {
+    let subset = validate_v1_threshold_subset(ids)?;
+    Ok(lagrange_coefficients_at_zero(subset))
+}
+
+pub(crate) fn validate_v1_threshold_subset_ids<const T: usize>(
+    ids: [SigningRootShareId; T],
+) -> ThresholdPrfResult<()> {
+    validate_v1_threshold_subset(ids).map(|_| ())
 }
 
 /// Validated fixed v1 pair of distinct signing-root shares.
@@ -256,9 +270,7 @@ pub(crate) fn exactly_two_shares(
     if shares.len() != 2 {
         return Err(ThresholdPrfError::InvalidThresholdSubset);
     }
-    if shares[0].id == shares[1].id {
-        return Err(ThresholdPrfError::DuplicateShareId);
-    }
+    validate_v1_threshold_subset_ids([shares[0].id, shares[1].id])?;
     Ok(SigningRootSharePair {
         left: &shares[0],
         right: &shares[1],
@@ -291,6 +303,75 @@ fn reject_zero_scalar(scalar: &Scalar) -> ThresholdPrfResult<()> {
 
 fn is_zero_scalar(scalar: &Scalar) -> bool {
     bool::from(scalar.ct_eq(&Scalar::ZERO))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ThresholdPolicy {
+    threshold: usize,
+    share_count: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ValidatedThresholdSubset<const T: usize> {
+    policy: ThresholdPolicy,
+    ids: [u16; T],
+}
+
+fn validate_v1_threshold_subset<const T: usize>(
+    ids: [SigningRootShareId; T],
+) -> ThresholdPrfResult<ValidatedThresholdSubset<T>> {
+    let mut threshold_ids = [0u16; T];
+    for (output, id) in threshold_ids.iter_mut().zip(ids) {
+        *output = id.threshold_id();
+    }
+    V1_2_OF_3_POLICY.validate_subset_ids(threshold_ids)
+}
+
+impl ThresholdPolicy {
+    fn validate_subset_ids<const T: usize>(
+        self,
+        ids: [u16; T],
+    ) -> ThresholdPrfResult<ValidatedThresholdSubset<T>> {
+        if T != self.threshold {
+            return Err(ThresholdPrfError::InvalidThresholdSubset);
+        }
+
+        for (index, id) in ids.iter().copied().enumerate() {
+            if id == 0 || usize::from(id) > self.share_count {
+                return Err(ThresholdPrfError::InvalidShareId);
+            }
+            if ids[..index].contains(&id) {
+                return Err(ThresholdPrfError::DuplicateShareId);
+            }
+        }
+
+        Ok(ValidatedThresholdSubset { policy: self, ids })
+    }
+}
+
+fn lagrange_coefficients_at_zero<const T: usize>(
+    subset: ValidatedThresholdSubset<T>,
+) -> [Scalar; T] {
+    let mut coefficients = [Scalar::ZERO; T];
+
+    for (coefficient_index, coefficient) in coefficients.iter_mut().enumerate() {
+        let x_i = Scalar::from(u64::from(subset.ids[coefficient_index]));
+        let mut numerator = Scalar::ONE;
+        let mut denominator = Scalar::ONE;
+
+        for (other_index, other_id) in subset.ids.iter().copied().enumerate() {
+            if coefficient_index == other_index {
+                continue;
+            }
+            let x_j = Scalar::from(u64::from(other_id));
+            numerator *= x_j;
+            denominator *= x_j - x_i;
+        }
+
+        *coefficient = numerator * denominator.invert();
+    }
+
+    coefficients
 }
 
 #[cfg(test)]
@@ -330,5 +411,121 @@ mod tests {
             exactly_two_shares(&[share.clone(), share]).unwrap_err(),
             ThresholdPrfError::DuplicateShareId
         );
+    }
+
+    #[test]
+    fn private_generic_lagrange_reconstructs_three_of_five_subsets() {
+        let policy = ThresholdPolicy {
+            threshold: 3,
+            share_count: 5,
+        };
+        let root = Scalar::from(11u64);
+        let linear = Scalar::from(17u64);
+        let quadratic = Scalar::from(23u64);
+        let shares = [
+            (1u16, eval_quadratic_share(root, linear, quadratic, 1)),
+            (2u16, eval_quadratic_share(root, linear, quadratic, 2)),
+            (3u16, eval_quadratic_share(root, linear, quadratic, 3)),
+            (4u16, eval_quadratic_share(root, linear, quadratic, 4)),
+            (5u16, eval_quadratic_share(root, linear, quadratic, 5)),
+        ];
+
+        for ids in [
+            [1u16, 2, 3],
+            [1, 2, 4],
+            [1, 2, 5],
+            [1, 3, 4],
+            [1, 3, 5],
+            [1, 4, 5],
+            [2, 3, 4],
+            [2, 3, 5],
+            [2, 4, 5],
+            [3, 4, 5],
+        ] {
+            assert_eq!(reconstruct_with_private_generic(policy, ids, &shares), root);
+            assert_eq!(
+                reconstruct_with_private_generic(policy, [ids[2], ids[1], ids[0]], &shares),
+                root
+            );
+        }
+    }
+
+    #[test]
+    fn private_threshold_policy_rejects_invalid_subsets() {
+        let policy = ThresholdPolicy {
+            threshold: 3,
+            share_count: 5,
+        };
+
+        assert_eq!(
+            policy.validate_subset_ids([1u16, 2]).unwrap_err(),
+            ThresholdPrfError::InvalidThresholdSubset
+        );
+        assert_eq!(
+            policy.validate_subset_ids([1u16, 2, 3, 4]).unwrap_err(),
+            ThresholdPrfError::InvalidThresholdSubset
+        );
+        assert_eq!(
+            policy.validate_subset_ids([1u16, 1, 2]).unwrap_err(),
+            ThresholdPrfError::DuplicateShareId
+        );
+        assert_eq!(
+            policy.validate_subset_ids([0u16, 1, 2]).unwrap_err(),
+            ThresholdPrfError::InvalidShareId
+        );
+        assert_eq!(
+            policy.validate_subset_ids([1u16, 2, 6]).unwrap_err(),
+            ThresholdPrfError::InvalidShareId
+        );
+    }
+
+    #[test]
+    fn private_v1_subset_validator_keeps_current_policy_shape() {
+        let id_1 = SigningRootShareId::new(1).expect("valid share id");
+        let id_2 = SigningRootShareId::new(2).expect("valid share id");
+        let id_3 = SigningRootShareId::new(3).expect("valid share id");
+
+        assert!(validate_v1_threshold_subset_ids([id_1, id_2]).is_ok());
+        assert!(validate_v1_threshold_subset_ids([id_3, id_1]).is_ok());
+        assert_eq!(
+            validate_v1_threshold_subset_ids([id_1]).unwrap_err(),
+            ThresholdPrfError::InvalidThresholdSubset
+        );
+        assert_eq!(
+            validate_v1_threshold_subset_ids([id_1, id_2, id_3]).unwrap_err(),
+            ThresholdPrfError::InvalidThresholdSubset
+        );
+        assert_eq!(
+            validate_v1_threshold_subset_ids([id_2, id_2]).unwrap_err(),
+            ThresholdPrfError::DuplicateShareId
+        );
+    }
+
+    fn eval_quadratic_share(root: Scalar, linear: Scalar, quadratic: Scalar, id: u16) -> Scalar {
+        let x = Scalar::from(u64::from(id));
+        root + (linear * x) + (quadratic * x * x)
+    }
+
+    fn reconstruct_with_private_generic(
+        policy: ThresholdPolicy,
+        ids: [u16; 3],
+        shares: &[(u16, Scalar); 5],
+    ) -> Scalar {
+        let subset = policy
+            .validate_subset_ids(ids)
+            .expect("valid threshold subset");
+        let coefficients = lagrange_coefficients_at_zero(subset);
+        let mut reconstructed = Scalar::ZERO;
+
+        for (coefficient, id) in coefficients.into_iter().zip(ids) {
+            let share = shares
+                .iter()
+                .find(|(share_id, _)| *share_id == id)
+                .expect("share id exists in fixture")
+                .1;
+            reconstructed += coefficient * share;
+        }
+
+        reconstructed
     }
 }

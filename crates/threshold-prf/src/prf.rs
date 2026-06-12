@@ -11,8 +11,8 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 use crate::context::{PrfContext, PrfOutputEncoding};
 use crate::error::{ThresholdPrfError, ThresholdPrfResult};
 use crate::shamir::{
-    exactly_two_shares, lagrange_coefficients_2_of_3, SigningRootScalar, SigningRootShare,
-    SigningRootShareId, SigningRootShareWireV1,
+    exactly_two_shares, lagrange_coefficients_2_of_3, validate_v1_threshold_subset_ids,
+    SigningRootScalar, SigningRootShare, SigningRootShareId, SigningRootShareWireV1,
 };
 
 const INPUT_DOMAIN: &[u8] = b"threshold-prf:v1/input";
@@ -516,9 +516,7 @@ fn exactly_two_proof_bundles(
     if bundles.len() != 2 {
         return Err(ThresholdPrfError::InvalidThresholdSubset);
     }
-    if bundles[0].partial.id == bundles[1].partial.id {
-        return Err(ThresholdPrfError::DuplicateShareId);
-    }
+    validate_v1_threshold_subset_ids([bundles[0].partial.id, bundles[1].partial.id])?;
     Ok(PrfProofBundlePair {
         left: &bundles[0],
         right: &bundles[1],
@@ -548,9 +546,7 @@ fn exactly_two_partials(partials: &[PrfPartial]) -> ThresholdPrfResult<PrfPartia
     if partials.len() != 2 {
         return Err(ThresholdPrfError::InvalidThresholdSubset);
     }
-    if partials[0].id == partials[1].id {
-        return Err(ThresholdPrfError::DuplicateShareId);
-    }
+    validate_v1_threshold_subset_ids([partials[0].id, partials[1].id])?;
     Ok(PrfPartialPair {
         left: &partials[0],
         right: &partials[1],

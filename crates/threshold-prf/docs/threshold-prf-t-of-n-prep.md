@@ -247,3 +247,22 @@ Exit criteria:
 
 If only one preparation slice is funded, do Phases 1 and 2. They provide the
 best future leverage without adding speculative generic code.
+
+## API-Neutral Follow-Up Prep
+
+Implemented after the initial prep:
+
+- [x] Add a private threshold-policy shape for internal validation.
+- [x] Route v1 share, partial, and proof-bundle subset validation through one
+  v1 policy helper.
+- [x] Add a private generic Lagrange-at-zero helper.
+- [x] Keep the public 2-of-3 APIs, v1 wire formats, vectors, and WASM exports
+  unchanged.
+- [x] Add hidden 3-of-5 interpolation tests to exercise the future math seam.
+
+Remaining for the public v2 refactor:
+
+- introduce public v2 policy and share-id types
+- add v2 wire types and vector corpus
+- expose v2 WASM bindings
+- extend benchmarks and FV models to generic threshold sets
