@@ -395,7 +395,7 @@ fn signer_a_env_snapshot() -> LocalEnvSnapshotV1 {
     LocalEnvSnapshotV1::new(
         LocalServiceRoleV1::SignerARelayer,
         vec![
-            "SIGNER_A_ENVELOPE_AEAD_KEY".to_owned(),
+            "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY".to_owned(),
             "SIGNING_ROOT_SHARE_A_KEK".to_owned(),
             "RELAYER_OUTPUT_STORAGE".to_owned(),
             "SIGNER_B_URL".to_owned(),
@@ -408,7 +408,7 @@ fn signer_b_env_snapshot() -> LocalEnvSnapshotV1 {
     LocalEnvSnapshotV1::new(
         LocalServiceRoleV1::SignerB,
         vec![
-            "SIGNER_B_ENVELOPE_AEAD_KEY".to_owned(),
+            "SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY".to_owned(),
             "SIGNING_ROOT_SHARE_B_KEK".to_owned(),
             "SIGNER_A_URL".to_owned(),
         ],
@@ -445,7 +445,7 @@ fn local_router_env_keys_forbid_signer_and_relayer_secrets() {
             "ROUTER_PUBLIC_URL",
             "SIGNER_A_URL",
             "SIGNER_B_URL",
-            "SIGNER_A_ENVELOPE_AEAD_KEY",
+            "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY",
         ],
     )
     .expect_err("router must reject signer decrypt key");
@@ -458,7 +458,7 @@ fn local_signer_a_relayer_env_keys_require_a_and_relayer_bindings() {
     validate_local_env_keys_v1(
         LocalServiceRoleV1::SignerARelayer,
         &[
-            "SIGNER_A_ENVELOPE_AEAD_KEY",
+            "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY",
             "SIGNING_ROOT_SHARE_A_KEK",
             "RELAYER_OUTPUT_STORAGE",
             "SIGNER_B_URL",
@@ -468,7 +468,10 @@ fn local_signer_a_relayer_env_keys_require_a_and_relayer_bindings() {
 
     let err = validate_local_env_keys_v1(
         LocalServiceRoleV1::SignerARelayer,
-        &["SIGNER_A_ENVELOPE_AEAD_KEY", "SIGNING_ROOT_SHARE_A_KEK"],
+        &[
+            "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY",
+            "SIGNING_ROOT_SHARE_A_KEK",
+        ],
     )
     .expect_err("missing relayer storage must fail");
 
@@ -480,10 +483,10 @@ fn local_signer_a_relayer_env_keys_forbid_b_material() {
     let err = validate_local_env_keys_v1(
         LocalServiceRoleV1::SignerARelayer,
         &[
-            "SIGNER_A_ENVELOPE_AEAD_KEY",
+            "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY",
             "SIGNING_ROOT_SHARE_A_KEK",
             "RELAYER_OUTPUT_STORAGE",
-            "SIGNER_B_ENVELOPE_AEAD_KEY",
+            "SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY",
         ],
     )
     .expect_err("signer a relayer must reject signer b material");
@@ -496,7 +499,7 @@ fn local_signer_b_env_keys_forbid_relayer_activation_storage() {
     let err = validate_local_env_keys_v1(
         LocalServiceRoleV1::SignerB,
         &[
-            "SIGNER_B_ENVELOPE_AEAD_KEY",
+            "SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY",
             "SIGNING_ROOT_SHARE_B_KEK",
             "RELAYER_OUTPUT_STORAGE",
         ],
@@ -511,7 +514,7 @@ fn local_env_snapshot_validates_binding_keys_for_role() {
     let snapshot = LocalEnvSnapshotV1::new(
         LocalServiceRoleV1::SignerARelayer,
         vec![
-            "SIGNER_A_ENVELOPE_AEAD_KEY".to_owned(),
+            "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY".to_owned(),
             "SIGNING_ROOT_SHARE_A_KEK".to_owned(),
             "RELAYER_OUTPUT_STORAGE".to_owned(),
             "SIGNER_B_URL".to_owned(),
@@ -535,7 +538,7 @@ fn local_env_snapshot_rejects_role_forbidden_bindings() {
     let err = LocalEnvSnapshotV1::new(
         LocalServiceRoleV1::SignerB,
         vec![
-            "SIGNER_B_ENVELOPE_AEAD_KEY".to_owned(),
+            "SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY".to_owned(),
             "SIGNING_ROOT_SHARE_B_KEK".to_owned(),
             "RELAYER_OUTPUT_STORAGE".to_owned(),
         ],

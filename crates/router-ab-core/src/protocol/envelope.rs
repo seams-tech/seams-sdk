@@ -13,16 +13,9 @@ use crate::protocol::identity::{RelayerIdentityV1, SignerIdentityV1};
 const ROLE_ENVELOPE_AAD_VERSION_V1: &[u8] = b"router-ab-protocol/role-envelope-aad/v1";
 const ROLE_ENCRYPTED_ENVELOPE_DIGEST_VERSION_V1: &[u8] =
     b"router-ab-protocol/role-encrypted-envelope-digest/v1";
-const SIGNER_ENVELOPE_AEAD_PAYLOAD_VERSION_V1: &[u8] =
-    b"router-ab-protocol/signer-envelope-aead/v1";
-const SIGNER_ENVELOPE_AEAD_ALGORITHM_V1: &[u8] = b"aes-256-gcm-webcrypto/v1";
 const SIGNER_ENVELOPE_HPKE_PAYLOAD_VERSION_V1: &[u8] =
     b"router-ab-protocol/signer-envelope-hpke/v1";
 const SIGNER_ENVELOPE_HPKE_ALGORITHM_V1: &[u8] = b"hpke-x25519-hkdf-sha256-aes256gcm/v1";
-/// Signer-envelope AES-GCM nonce length.
-pub const SIGNER_ENVELOPE_AEAD_NONCE_LEN_V1: usize = 12;
-/// Signer-envelope AES-GCM tag length.
-pub const SIGNER_ENVELOPE_AEAD_TAG_LEN_V1: usize = 16;
 /// Signer-envelope HPKE X25519 encapsulated key length.
 pub const SIGNER_ENVELOPE_HPKE_ENCAPPED_KEY_LEN_V1: usize = 32;
 /// Signer-envelope HPKE AES-GCM tag length.
@@ -57,111 +50,6 @@ impl fmt::Debug for EncryptedPayloadV1 {
         f.debug_struct("EncryptedPayloadV1")
             .field("len", &self.bytes.len())
             .field("bytes", &"[redacted]")
-            .finish()
-    }
-}
-
-/// Parsed signer-envelope AEAD payload before platform-specific decryption.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SignerEnvelopeAeadPayloadV1 {
-    /// Signer role allowed to decrypt this envelope.
-    pub recipient_role: Role,
-    /// Public envelope decrypt-key epoch.
-    pub key_epoch: String,
-    /// Digest of canonical associated-data bytes used during encryption.
-    pub aad_digest: PublicDigest32,
-    nonce: [u8; SIGNER_ENVELOPE_AEAD_NONCE_LEN_V1],
-    ciphertext_and_tag: Vec<u8>,
-}
-
-impl SignerEnvelopeAeadPayloadV1 {
-    /// Creates a validated signer-envelope AEAD payload.
-    pub fn new(
-        recipient_role: Role,
-        key_epoch: impl Into<String>,
-        aad_digest: PublicDigest32,
-        nonce: [u8; SIGNER_ENVELOPE_AEAD_NONCE_LEN_V1],
-        ciphertext_and_tag: Vec<u8>,
-    ) -> RouterAbProtocolResult<Self> {
-        let payload = Self {
-            recipient_role,
-            key_epoch: key_epoch.into(),
-            aad_digest,
-            nonce,
-            ciphertext_and_tag,
-        };
-        payload.validate()?;
-        Ok(payload)
-    }
-
-    /// Validates public AEAD payload metadata and ciphertext/tag shape.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_signer_role(self.recipient_role)?;
-        require_non_empty("key_epoch", &self.key_epoch)?;
-        if self.ciphertext_and_tag.len() <= SIGNER_ENVELOPE_AEAD_TAG_LEN_V1 {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "signer-envelope AEAD ciphertext must include non-empty ciphertext plus tag",
-            ));
-        }
-        Ok(())
-    }
-
-    /// Returns the public AES-GCM nonce.
-    pub fn nonce(&self) -> &[u8; SIGNER_ENVELOPE_AEAD_NONCE_LEN_V1] {
-        &self.nonce
-    }
-
-    /// Returns ciphertext bytes followed by the AES-GCM tag.
-    pub fn ciphertext_and_tag(&self) -> &[u8] {
-        &self.ciphertext_and_tag
-    }
-
-    /// Returns canonical signer-envelope AEAD payload bytes.
-    pub fn canonical_bytes(&self) -> Vec<u8> {
-        encode_signer_envelope_aead_payload_v1(self)
-    }
-
-    /// Validates this parsed payload against its outer role envelope.
-    pub fn validate_for_envelope(
-        &self,
-        envelope: &RoleEncryptedEnvelopeV1,
-        expected_key_epoch: &str,
-    ) -> RouterAbProtocolResult<()> {
-        self.validate()?;
-        envelope.validate()?;
-        require_non_empty("expected_key_epoch", expected_key_epoch)?;
-        if self.recipient_role != envelope.recipient_role {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidRole,
-                "signer-envelope AEAD recipient role does not match outer envelope",
-            ));
-        }
-        if self.key_epoch != expected_key_epoch {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidSignerIdentity,
-                "signer-envelope AEAD key epoch does not match expected signer key epoch",
-            ));
-        }
-        if self.aad_digest != envelope.aad_digest {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "signer-envelope AEAD AAD digest does not match outer envelope",
-            ));
-        }
-        Ok(())
-    }
-}
-
-impl fmt::Debug for SignerEnvelopeAeadPayloadV1 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SignerEnvelopeAeadPayloadV1")
-            .field("recipient_role", &self.recipient_role)
-            .field("key_epoch", &self.key_epoch)
-            .field("aad_digest", &self.aad_digest)
-            .field("nonce", &"[redacted]")
-            .field("ciphertext_and_tag_len", &self.ciphertext_and_tag.len())
-            .field("ciphertext_and_tag", &"[redacted]")
             .finish()
     }
 }
@@ -466,20 +354,6 @@ pub fn role_encrypted_envelope_digest_v1(
     Ok(PublicDigest32::new(out))
 }
 
-/// Encodes signer-envelope AEAD payload metadata with fixed field order.
-pub fn encode_signer_envelope_aead_payload_v1(payload: &SignerEnvelopeAeadPayloadV1) -> Vec<u8> {
-    let mut out = Vec::new();
-    push_len32(&mut out, SIGNER_ENVELOPE_AEAD_PAYLOAD_VERSION_V1);
-    push_len32(&mut out, SIGNER_ENVELOPE_AEAD_ALGORITHM_V1);
-    push_len32(&mut out, payload.recipient_role.as_str().as_bytes());
-    push_string(&mut out, &payload.key_epoch);
-    push_public_digest(&mut out, payload.aad_digest);
-    push_len32(&mut out, &payload.nonce);
-    push_u32(&mut out, SIGNER_ENVELOPE_AEAD_TAG_LEN_V1 as u32);
-    push_len32(&mut out, &payload.ciphertext_and_tag);
-    out
-}
-
 /// Encodes signer-envelope HPKE payload metadata with fixed field order.
 pub fn encode_signer_envelope_hpke_payload_v1(payload: &SignerEnvelopeHpkePayloadV1) -> Vec<u8> {
     let mut out = Vec::new();
@@ -493,41 +367,6 @@ pub fn encode_signer_envelope_hpke_payload_v1(payload: &SignerEnvelopeHpkePayloa
     push_u32(&mut out, SIGNER_ENVELOPE_HPKE_TAG_LEN_V1 as u32);
     push_len32(&mut out, &payload.ciphertext_and_tag);
     out
-}
-
-/// Decodes canonical signer-envelope AEAD payload bytes.
-pub fn decode_signer_envelope_aead_payload_v1(
-    bytes: &[u8],
-) -> RouterAbProtocolResult<SignerEnvelopeAeadPayloadV1> {
-    let mut decoder = EnvelopeDecoder::new(bytes);
-    decoder.read_expected_bytes(
-        "signer_envelope_aead_payload_version",
-        SIGNER_ENVELOPE_AEAD_PAYLOAD_VERSION_V1,
-    )?;
-    decoder.read_expected_bytes(
-        "signer_envelope_aead_algorithm",
-        SIGNER_ENVELOPE_AEAD_ALGORITHM_V1,
-    )?;
-    let recipient_role = parse_role(decoder.read_string("recipient_role")?)?;
-    let key_epoch = decoder.read_string("key_epoch")?;
-    let aad_digest = decoder.read_public_digest("aad_digest")?;
-    let nonce = decoder.read_nonce()?;
-    let tag_len = decoder.read_u32("tag_len")?;
-    if tag_len != SIGNER_ENVELOPE_AEAD_TAG_LEN_V1 as u32 {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            "signer-envelope AEAD tag length must be 16 bytes",
-        ));
-    }
-    let ciphertext_and_tag = decoder.read_bytes("ciphertext_and_tag")?.to_vec();
-    decoder.finish()?;
-    SignerEnvelopeAeadPayloadV1::new(
-        recipient_role,
-        key_epoch,
-        aad_digest,
-        nonce,
-        ciphertext_and_tag,
-    )
 }
 
 /// Decodes canonical signer-envelope HPKE payload bytes.
@@ -565,16 +404,6 @@ pub fn decode_signer_envelope_hpke_payload_v1(
         encapped_key,
         ciphertext_and_tag,
     )
-}
-
-/// Decodes and validates signer-envelope AEAD payload bytes from an outer envelope.
-pub fn decode_and_validate_signer_envelope_aead_payload_v1(
-    envelope: &RoleEncryptedEnvelopeV1,
-    expected_key_epoch: &str,
-) -> RouterAbProtocolResult<SignerEnvelopeAeadPayloadV1> {
-    let payload = decode_signer_envelope_aead_payload_v1(envelope.ciphertext.as_bytes())?;
-    payload.validate_for_envelope(envelope, expected_key_epoch)?;
-    Ok(payload)
 }
 
 /// Decodes and validates signer-envelope HPKE payload bytes from an outer envelope.
@@ -669,7 +498,7 @@ fn parse_role(value: &str) -> RouterAbProtocolResult<Role> {
         "client" => Ok(Role::Client),
         _ => Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidRole,
-            "unknown signer-envelope AEAD role",
+            "unknown role-encrypted envelope role",
         )),
     }
 }
@@ -721,16 +550,6 @@ impl<'a> EnvelopeDecoder<'a> {
             )
         })?;
         Ok(PublicDigest32::new(digest))
-    }
-
-    fn read_nonce(&mut self) -> RouterAbProtocolResult<[u8; SIGNER_ENVELOPE_AEAD_NONCE_LEN_V1]> {
-        let bytes = self.read_bytes("nonce")?;
-        bytes.try_into().map_err(|_| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "signer-envelope AEAD nonce must be 12 bytes",
-            )
-        })
     }
 
     fn read_hpke_encapped_key(
@@ -790,7 +609,7 @@ impl<'a> EnvelopeDecoder<'a> {
         }
         Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
-            "signer-envelope AEAD payload has trailing bytes",
+            "signer-envelope payload has trailing bytes",
         ))
     }
 }

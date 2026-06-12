@@ -12,9 +12,8 @@ use router_ab_core::{
     combine_mpc_prf_recipient_output_from_ab_proof_batches_v1,
     decode_ab_derivation_proof_batch_payload_v1,
     decode_and_validate_ab_derivation_proof_batch_peer_payload_v1,
-    decode_and_validate_signer_envelope_aead_payload_v1, decode_recipient_output_ciphertext_v1,
-    decode_recipient_proof_bundle_ciphertext_v1, decode_recipient_proof_bundle_payload_v1,
-    decode_router_to_signer_payload_v1, decode_signer_envelope_aead_payload_v1,
+    decode_recipient_output_ciphertext_v1, decode_recipient_proof_bundle_ciphertext_v1,
+    decode_recipient_proof_bundle_payload_v1, decode_router_to_signer_payload_v1,
     encode_ab_derivation_proof_batch_payload_v1, encode_recipient_output_ciphertext_aad_v1,
     encode_recipient_proof_bundle_ciphertext_aad_v1, encode_recipient_proof_bundle_ciphertext_v1,
     encode_recipient_proof_bundle_payload_v1, encode_wire_message_v1,
@@ -42,10 +41,9 @@ use router_ab_core::{
     RoleEnvelopeAssignmentV1, RouterAbDerivationErrorCode, RouterAbLifecycleStateV1,
     RouterAbProtocolErrorCode, RouterAbProtocolResult, RouterEngine, RouterEnvelopeDigestSetV1,
     RouterToSignerPayloadV1, RouterTranscriptMetadataV1, SignerAEngine, SignerBEngine,
-    SignerEnvelopeAeadPayloadV1, SignerIdentityV1, SignerInputPlaintextV1,
-    SignerInputQuorumPolicyV1, SignerKeyStore, SignerResponsePayloadV1, SignerSetBinding,
-    SignerSetV1, SigningRootShareStore, TranscriptBinding, WireMessageKindV1, WireMessageV1,
-    SIGNER_ENVELOPE_AEAD_TAG_LEN_V1,
+    SignerIdentityV1, SignerInputPlaintextV1, SignerInputQuorumPolicyV1, SignerKeyStore,
+    SignerResponsePayloadV1, SignerSetBinding, SignerSetV1, SigningRootShareStore,
+    TranscriptBinding, WireMessageKindV1, WireMessageV1,
 };
 use router_ab_core::{OpenedShareKind, PublicDigest32, Role, RootShareEpoch, SecretMaterial32};
 use threshold_prf::{generate_signing_root, split_signing_root_2_of_3, SigningRootShareWireV1};
@@ -627,128 +625,6 @@ fn encrypted_payload_debug_redacts_bytes() {
 
     assert!(debug.contains("[redacted]"));
     assert!(!debug.contains("1, 2, 3"));
-}
-
-fn signer_envelope_aead_payload() -> SignerEnvelopeAeadPayloadV1 {
-    SignerEnvelopeAeadPayloadV1::new(
-        Role::SignerA,
-        "envelope-key-epoch-a",
-        digest(0x02),
-        [0xa1; 12],
-        vec![
-            0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd,
-            0xce, 0xcf, 0xd0, 0xd1,
-        ],
-    )
-    .expect("signer envelope AEAD payload")
-}
-
-#[test]
-fn signer_envelope_aead_payload_round_trips_and_validates_outer_envelope() {
-    let aead = signer_envelope_aead_payload();
-    let envelope = RoleEncryptedEnvelopeV1::new(
-        Role::SignerA,
-        digest(0x01),
-        digest(0x02),
-        EncryptedPayloadV1::new(aead.canonical_bytes()).expect("encrypted payload"),
-    )
-    .expect("outer envelope");
-
-    let decoded =
-        decode_and_validate_signer_envelope_aead_payload_v1(&envelope, "envelope-key-epoch-a")
-            .expect("decoded AEAD payload");
-
-    assert_eq!(decoded.recipient_role, Role::SignerA);
-    assert_eq!(decoded.key_epoch, "envelope-key-epoch-a");
-    assert_eq!(decoded.aad_digest, digest(0x02));
-    assert_eq!(decoded.nonce(), &[0xa1; 12]);
-    assert_eq!(decoded.ciphertext_and_tag(), aead.ciphertext_and_tag());
-}
-
-#[test]
-fn signer_envelope_aead_payload_rejects_wrong_key_epoch() {
-    let aead = signer_envelope_aead_payload();
-    let envelope = RoleEncryptedEnvelopeV1::new(
-        Role::SignerA,
-        digest(0x01),
-        digest(0x02),
-        EncryptedPayloadV1::new(aead.canonical_bytes()).expect("encrypted payload"),
-    )
-    .expect("outer envelope");
-
-    let err =
-        decode_and_validate_signer_envelope_aead_payload_v1(&envelope, "envelope-key-epoch-b")
-            .expect_err("wrong key epoch must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidSignerIdentity);
-}
-
-#[test]
-fn signer_envelope_aead_payload_rejects_wrong_outer_aad_digest() {
-    let aead = signer_envelope_aead_payload();
-    let envelope = RoleEncryptedEnvelopeV1::new(
-        Role::SignerA,
-        digest(0x01),
-        digest(0x03),
-        EncryptedPayloadV1::new(aead.canonical_bytes()).expect("encrypted payload"),
-    )
-    .expect("outer envelope");
-
-    let err =
-        decode_and_validate_signer_envelope_aead_payload_v1(&envelope, "envelope-key-epoch-a")
-            .expect_err("AAD mismatch must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
-}
-
-#[test]
-fn signer_envelope_aead_payload_rejects_short_ciphertext_and_tag() {
-    let err = SignerEnvelopeAeadPayloadV1::new(
-        Role::SignerA,
-        "envelope-key-epoch-a",
-        digest(0x02),
-        [0xa1; 12],
-        vec![0xc0; SIGNER_ENVELOPE_AEAD_TAG_LEN_V1],
-    )
-    .expect_err("tag-only payload must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
-}
-
-#[test]
-fn signer_envelope_aead_payload_rejects_trailing_bytes() {
-    let mut bytes = signer_envelope_aead_payload().canonical_bytes();
-    bytes.push(0xff);
-
-    let err = decode_signer_envelope_aead_payload_v1(&bytes)
-        .expect_err("trailing AEAD payload bytes must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
-}
-
-#[test]
-fn signer_envelope_aead_payload_rejects_bad_tag_length() {
-    let mut bytes = signer_envelope_aead_payload().canonical_bytes();
-    let tag_len = (SIGNER_ENVELOPE_AEAD_TAG_LEN_V1 as u32).to_be_bytes();
-    let offset = bytes
-        .windows(tag_len.len())
-        .rposition(|window| window == tag_len)
-        .expect("tag length offset");
-    bytes[offset + 3] = 15;
-
-    let err = decode_signer_envelope_aead_payload_v1(&bytes)
-        .expect_err("non-16-byte AEAD tag length must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
-}
-
-#[test]
-fn signer_envelope_aead_payload_debug_redacts_nonce_and_ciphertext() {
-    let debug = format!("{:?}", signer_envelope_aead_payload());
-
-    assert!(debug.contains("[redacted]"));
-    assert!(!debug.contains("161"));
-    assert!(!debug.contains("192"));
 }
 
 #[test]

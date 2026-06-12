@@ -70,11 +70,12 @@ pub use strict_worker::{
     ROUTER_AB_STRICT_PROOF_BUNDLE_ROUTE_PROFILE_V1, ROUTER_AB_WORKER_ROLE_ENV,
 };
 
+#[cfg(feature = "workers-rs")]
+use router_ab_core::sign_ab_peer_message_ed25519_authentication_v1;
 use router_ab_core::{
     build_mpc_prf_threshold_signer_batch_input_v1,
     combine_mpc_prf_output_packages_from_ab_proof_batches_v1, decode_ab_peer_message_payload_v1,
     decode_and_validate_ab_derivation_proof_batch_peer_payload_v1,
-    decode_and_validate_signer_envelope_aead_payload_v1,
     decode_and_validate_signer_envelope_hpke_payload_v1,
     decode_recipient_proof_bundle_ciphertext_v1, decode_router_to_signer_payload_v1,
     decode_signer_input_plaintext_v1, encode_recipient_output_ciphertext_aad_v1,
@@ -94,13 +95,9 @@ use router_ab_core::{
     RecipientProofBundleEncryptionRequestV1, RecipientProofBundleEncryptorV1,
     RelayerActivationPayloadV1, Role, RoleEnvelopeAadV1, RootShareEpoch, RouterAbDerivationError,
     RouterAbLifecycleStateV1, RouterToSignerPayloadV1, SignerAEngine, SignerBEngine,
-    SignerEnvelopeAeadPayloadV1, SignerEnvelopeHpkePayloadV1, SignerIdentityV1,
-    SignerInputPlaintextV1, SignerKeyStore, SignerSetV1, SigningRootShareStore, WireMessageKindV1,
-    WireMessageV1, MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN,
-};
-#[cfg(feature = "workers-rs")]
-use router_ab_core::{
-    sign_ab_peer_message_ed25519_authentication_v1, SIGNER_ENVELOPE_AEAD_TAG_LEN_V1,
+    SignerEnvelopeHpkePayloadV1, SignerIdentityV1, SignerInputPlaintextV1, SignerKeyStore,
+    SignerSetV1, SigningRootShareStore, WireMessageKindV1, WireMessageV1,
+    MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN,
 };
 use router_ab_core::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
 use serde::{Deserialize, Serialize};
@@ -111,10 +108,6 @@ use rand_core::{CryptoRng, RngCore};
 
 #[cfg(feature = "workers-rs")]
 use base64::Engine;
-#[cfg(feature = "workers-rs")]
-use wasm_bindgen::JsCast;
-#[cfg(feature = "workers-rs")]
-use worker::send::SendFuture;
 #[cfg(feature = "workers-rs")]
 use zeroize::Zeroize;
 
@@ -171,14 +164,6 @@ pub const SIGNER_B_ROOT_SHARE_WIRE_SECRET_BINDING_ENV: &str =
 pub const SIGNER_A_PEER_BINDING_ENV: &str = "SIGNER_A_PEER_BINDING";
 /// Signer B peer binding env key.
 pub const SIGNER_B_PEER_BINDING_ENV: &str = "SIGNER_B_PEER_BINDING";
-/// Signer A signer-envelope AEAD secret binding-name env key.
-pub const SIGNER_A_ENVELOPE_AEAD_KEY_BINDING_ENV: &str = "SIGNER_A_ENVELOPE_AEAD_KEY_BINDING";
-/// Signer A signer-envelope AEAD key epoch env key.
-pub const SIGNER_A_ENVELOPE_AEAD_KEY_EPOCH_ENV: &str = "SIGNER_A_ENVELOPE_AEAD_KEY_EPOCH";
-/// Signer B signer-envelope AEAD secret binding-name env key.
-pub const SIGNER_B_ENVELOPE_AEAD_KEY_BINDING_ENV: &str = "SIGNER_B_ENVELOPE_AEAD_KEY_BINDING";
-/// Signer B signer-envelope AEAD key epoch env key.
-pub const SIGNER_B_ENVELOPE_AEAD_KEY_EPOCH_ENV: &str = "SIGNER_B_ENVELOPE_AEAD_KEY_EPOCH";
 /// Signer A signer-envelope HPKE private-key binding-name env key.
 pub const SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV: &str =
     "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING";
@@ -233,6 +218,9 @@ pub const ROUTER_ABUSE_DO_KEY_PREFIX_ENV: &str = "ROUTER_ABUSE_DO_KEY_PREFIX";
 pub const CLOUDFLARE_SIGNER_HOST_RANDOM_PRELOAD_MAX_BYTES_V1: usize = 65_536;
 /// Versioned text prefix for a role-local MPC PRF signing-root-share wire secret.
 pub const CLOUDFLARE_ROOT_SHARE_WIRE_SECRET_PREFIX_V1: &str = "mpc-prf-root-share-wire-v1:";
+/// Versioned text prefix for a role-local signer-envelope HPKE private key.
+pub const CLOUDFLARE_SIGNER_ENVELOPE_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1: &str =
+    "hpke-x25519-private-v1:";
 
 const ROUTER_FORBIDDEN_ENV_KEYS: &[&str] = &[
     SIGNER_A_ROOT_SHARE_DO_BINDING_ENV,
@@ -246,10 +234,6 @@ const ROUTER_FORBIDDEN_ENV_KEYS: &[&str] = &[
     SIGNER_B_ROOT_SHARE_DO_KEY_PREFIX_ENV,
     SIGNER_A_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
     SIGNER_B_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
-    SIGNER_A_ENVELOPE_AEAD_KEY_BINDING_ENV,
-    SIGNER_A_ENVELOPE_AEAD_KEY_EPOCH_ENV,
-    SIGNER_B_ENVELOPE_AEAD_KEY_BINDING_ENV,
-    SIGNER_B_ENVELOPE_AEAD_KEY_EPOCH_ENV,
     SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
     SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
     SIGNER_A_PEER_SIGNING_KEY_BINDING_ENV,
@@ -280,8 +264,6 @@ const SIGNER_A_RELAYER_FORBIDDEN_ENV_KEYS: &[&str] = &[
     SIGNER_B_ROOT_SHARE_DO_OBJECT_ENV,
     SIGNER_B_ROOT_SHARE_DO_KEY_PREFIX_ENV,
     SIGNER_B_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
-    SIGNER_B_ENVELOPE_AEAD_KEY_BINDING_ENV,
-    SIGNER_B_ENVELOPE_AEAD_KEY_EPOCH_ENV,
     SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
     SIGNER_B_PEER_SIGNING_KEY_BINDING_ENV,
     SIGNER_B_PEER_SIGNING_KEY_EPOCH_ENV,
@@ -312,8 +294,6 @@ const SIGNER_B_FORBIDDEN_ENV_KEYS: &[&str] = &[
     SIGNER_A_RELAYER_OUTPUT_DO_BINDING_ENV,
     SIGNER_A_RELAYER_OUTPUT_DO_OBJECT_ENV,
     SIGNER_A_RELAYER_OUTPUT_DO_KEY_PREFIX_ENV,
-    SIGNER_A_ENVELOPE_AEAD_KEY_BINDING_ENV,
-    SIGNER_A_ENVELOPE_AEAD_KEY_EPOCH_ENV,
     SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
     SIGNER_A_PEER_SIGNING_KEY_BINDING_ENV,
     SIGNER_A_PEER_SIGNING_KEY_EPOCH_ENV,
@@ -449,6 +429,90 @@ impl RecipientProofBundleEncryptorV1 for CloudflareHpkeRecipientProofBundleEncry
     }
 }
 
+/// Seals signer-input plaintext into a production HPKE signer-envelope payload.
+pub fn seal_cloudflare_signer_envelope_hpke_payload_v1(
+    recipient_key: &CloudflareSignerEnvelopeHpkePublicKeyV1,
+    aad: &RoleEnvelopeAadV1,
+    plaintext: &[u8],
+) -> RouterAbProtocolResult<SignerEnvelopeHpkePayloadV1> {
+    recipient_key.validate()?;
+    aad.validate()?;
+    if aad.recipient.role != recipient_key.role {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidSignerIdentity,
+            "Cloudflare signer-envelope HPKE recipient key does not match AAD recipient",
+        ));
+    }
+    if plaintext.is_empty() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "Cloudflare signer-envelope HPKE plaintext must be non-empty",
+        ));
+    }
+    let recipient_public_key =
+        parse_cloudflare_hpke_x25519_public_key_v1(&recipient_key.public_key)?;
+    let aad_bytes = aad.canonical_bytes();
+    let mut rng = CloudflareHpkeGetrandomRngV1;
+    let (encapped_key, ciphertext_and_tag) = CloudflareHpkeSuiteV1::seal_base(
+        &mut rng,
+        &recipient_public_key,
+        CLOUDFLARE_HPKE_SIGNER_ENVELOPE_INFO_V1,
+        &aad_bytes,
+        plaintext,
+    )
+    .map_err(map_cloudflare_signer_envelope_hpke_error)?;
+    let encapped_key = encapped_key.as_ref().try_into().map_err(|_| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "Cloudflare signer-envelope HPKE encapsulated key must be 32 bytes",
+        )
+    })?;
+    SignerEnvelopeHpkePayloadV1::new(
+        recipient_key.role,
+        recipient_key.key_epoch.clone(),
+        recipient_key.public_key.clone(),
+        aad.digest(),
+        encapped_key,
+        ciphertext_and_tag,
+    )
+}
+
+/// Opens a production HPKE signer-envelope payload after public metadata validation.
+pub fn open_cloudflare_signer_envelope_hpke_payload_v1(
+    worker_role: CloudflareWorkerRoleV1,
+    message: &WireMessageV1,
+    envelope_decrypt_key: &CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1,
+    aad: &RoleEnvelopeAadV1,
+    private_key_bytes: &[u8],
+) -> RouterAbProtocolResult<Vec<u8>> {
+    let payload = decode_and_validate_cloudflare_signer_envelope_hpke_payload_v1(
+        worker_role,
+        message,
+        envelope_decrypt_key,
+    )?;
+    aad.validate()?;
+    if aad.digest() != payload.aad_digest || aad.recipient.role != payload.recipient_role {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "Cloudflare signer envelope AAD does not match parsed HPKE payload",
+        ));
+    }
+    let private_key = parse_cloudflare_signer_envelope_hpke_private_key_bytes_v1(
+        private_key_bytes,
+        &envelope_decrypt_key.public_key,
+    )?;
+    let encapped_key = CloudflareHpkeKemV1::enc_from_bytes(payload.encapped_key())
+        .map_err(map_cloudflare_signer_envelope_hpke_error)?;
+    CloudflareHpkeSuiteV1::open_base(
+        &encapped_key,
+        &private_key,
+        CLOUDFLARE_HPKE_SIGNER_ENVELOPE_INFO_V1,
+        &aad.canonical_bytes(),
+        payload.ciphertext_and_tag(),
+    )
+    .map_err(map_cloudflare_signer_envelope_hpke_error)
+}
+
 type CloudflareHpkeSuiteV1 = Hpke<DhKemX25519HkdfSha256, HkdfSha256, Aes256Gcm>;
 type CloudflareHpkeKemV1 = DhKemX25519HkdfSha256;
 
@@ -456,6 +520,8 @@ const CLOUDFLARE_HPKE_RECIPIENT_OUTPUT_INFO_V1: &[u8] =
     b"router-ab-cloudflare/recipient-output/hpke-x25519-hkdf-sha256-aes256gcm/v1";
 const CLOUDFLARE_HPKE_RECIPIENT_PROOF_BUNDLE_INFO_V1: &[u8] =
     b"router-ab-cloudflare/recipient-proof-bundle/hpke-x25519-hkdf-sha256-aes256gcm/v1";
+const CLOUDFLARE_HPKE_SIGNER_ENVELOPE_INFO_V1: &[u8] =
+    b"router-ab-cloudflare/signer-envelope/hpke-x25519-hkdf-sha256-aes256gcm/v1";
 const CLOUDFLARE_HPKE_RECIPIENT_OUTPUT_ENVELOPE_NONCE_V1: [u8; 12] = [0u8; 12];
 
 struct CloudflareHpkeGetrandomRngV1;
@@ -572,27 +638,142 @@ fn decode_cloudflare_hpke_x25519_hex_v1(hex_value: &str) -> RouterAbProtocolResu
     }
     let mut out = [0u8; 32];
     for (index, chunk) in hex_value.as_bytes().chunks_exact(2).enumerate() {
-        out[index] = (decode_cloudflare_lower_hex_nibble_v1(chunk[0])? << 4)
-            | decode_cloudflare_lower_hex_nibble_v1(chunk[1])?;
+        out[index] =
+            (decode_cloudflare_lower_hex_nibble_v1("HPKE recipient public key", chunk[0])? << 4)
+                | decode_cloudflare_lower_hex_nibble_v1("HPKE recipient public key", chunk[1])?;
     }
     Ok(out)
 }
 
-fn decode_cloudflare_lower_hex_nibble_v1(byte: u8) -> RouterAbProtocolResult<u8> {
+fn decode_cloudflare_signer_envelope_hpke_private_key_hex_v1(
+    hex_value: &str,
+) -> RouterAbProtocolResult<[u8; 32]> {
+    if hex_value.len() != 64 {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "Cloudflare signer-envelope HPKE private key hex must be 64 characters",
+        ));
+    }
+    let mut out = [0u8; 32];
+    for (index, chunk) in hex_value.as_bytes().chunks_exact(2).enumerate() {
+        out[index] = (decode_cloudflare_lower_hex_nibble_for_config_v1(
+            "Cloudflare signer-envelope HPKE private key",
+            chunk[0],
+        )? << 4)
+            | decode_cloudflare_lower_hex_nibble_for_config_v1(
+                "Cloudflare signer-envelope HPKE private key",
+                chunk[1],
+            )?;
+    }
+    Ok(out)
+}
+
+/// Encodes signer-envelope HPKE private-key bytes for Cloudflare Secrets.
+pub fn encode_cloudflare_signer_envelope_hpke_private_key_secret_v1(
+    private_key_bytes: &[u8],
+) -> RouterAbProtocolResult<String> {
+    validate_cloudflare_signer_envelope_hpke_private_key_bytes_v1(private_key_bytes)?;
+    let mut out = String::from(CLOUDFLARE_SIGNER_ENVELOPE_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1);
+    push_lower_hex_v1(&mut out, private_key_bytes);
+    Ok(out)
+}
+
+/// Decodes signer-envelope HPKE private-key bytes from a Cloudflare Secret value.
+pub fn decode_cloudflare_signer_envelope_hpke_private_key_secret_v1(
+    secret_value: &str,
+) -> RouterAbProtocolResult<[u8; 32]> {
+    let trimmed = secret_value.trim();
+    let hex_value = trimmed
+        .strip_prefix(CLOUDFLARE_SIGNER_ENVELOPE_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1)
+        .ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "Cloudflare signer-envelope HPKE private key secret has unsupported prefix",
+            )
+        })?;
+    let private_key_bytes = decode_cloudflare_signer_envelope_hpke_private_key_hex_v1(hex_value)?;
+    validate_cloudflare_signer_envelope_hpke_private_key_bytes_v1(&private_key_bytes)?;
+    Ok(private_key_bytes)
+}
+
+fn validate_cloudflare_signer_envelope_hpke_private_key_bytes_v1(
+    private_key_bytes: &[u8],
+) -> RouterAbProtocolResult<()> {
+    if private_key_bytes.len() != CloudflareHpkeKemV1::PRIVATE_KEY_LEN {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "Cloudflare signer-envelope HPKE private key must be 32 bytes",
+        ));
+    }
+    let private_key = CloudflareHpkeKemV1::sk_from_bytes(private_key_bytes).map_err(|err| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("Cloudflare signer-envelope HPKE private key is invalid: {err}"),
+        )
+    })?;
+    drop(private_key);
+    Ok(())
+}
+
+fn parse_cloudflare_signer_envelope_hpke_private_key_bytes_v1(
+    private_key_bytes: &[u8],
+    expected_public_key: &str,
+) -> RouterAbProtocolResult<<CloudflareHpkeKemV1 as Kem>::PrivateKey> {
+    validate_cloudflare_signer_envelope_hpke_private_key_bytes_v1(private_key_bytes)?;
+    parse_cloudflare_hpke_x25519_public_key_v1(expected_public_key)?;
+    CloudflareHpkeKemV1::sk_from_bytes(private_key_bytes).map_err(|err| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("Cloudflare signer-envelope HPKE private key is invalid: {err}"),
+        )
+    })
+}
+
+fn push_lower_hex_v1(out: &mut String, bytes: &[u8]) {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    for byte in bytes {
+        out.push(HEX[(byte >> 4) as usize] as char);
+        out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+}
+
+fn decode_cloudflare_lower_hex_nibble_v1(
+    field: &'static str,
+    byte: u8,
+) -> RouterAbProtocolResult<u8> {
     match byte {
         b'0'..=b'9' => Ok(byte - b'0'),
         b'a'..=b'f' => Ok(byte - b'a' + 10),
         _ => Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
-            "HPKE recipient public key must use lowercase hex",
+            format!("{field} must use lowercase hex"),
         )),
     }
+}
+
+fn decode_cloudflare_lower_hex_nibble_for_config_v1(
+    field: &'static str,
+    byte: u8,
+) -> RouterAbProtocolResult<u8> {
+    decode_cloudflare_lower_hex_nibble_v1(field, byte).map_err(|err| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            err.message().to_owned(),
+        )
+    })
 }
 
 fn map_cloudflare_hpke_error(err: hpke_ng::HpkeError) -> RouterAbProtocolError {
     RouterAbProtocolError::new(
         RouterAbProtocolErrorCode::MalformedWirePayload,
         format!("Cloudflare HPKE recipient-output encryption failed: {err}"),
+    )
+}
+
+fn map_cloudflare_signer_envelope_hpke_error(err: hpke_ng::HpkeError) -> RouterAbProtocolError {
+    RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::MalformedWirePayload,
+        format!("Cloudflare signer-envelope HPKE operation failed: {err}"),
     )
 }
 
@@ -896,65 +1077,6 @@ impl CloudflareRootShareWireSecretBindingV1 {
             RouterAbProtocolErrorCode::ForbiddenLocalBinding,
             format!(
                 "{} Worker cannot access {:?} root-share wire secret",
-                worker_role.as_str(),
-                self.role
-            ),
-        ))
-    }
-}
-
-/// Role-local signer-envelope AEAD secret binding descriptor.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareSignerEnvelopeDecryptKeyBindingV1 {
-    /// Signer role that owns this envelope decrypt key.
-    pub role: Role,
-    /// Cloudflare Secret binding name that contains the AEAD key material.
-    pub binding_name: String,
-    /// Public decrypt-key epoch used for transcript and rotation binding.
-    pub key_epoch: String,
-}
-
-impl CloudflareSignerEnvelopeDecryptKeyBindingV1 {
-    /// Creates a validated signer-envelope decrypt-key descriptor.
-    pub fn new(
-        role: Role,
-        binding_name: impl Into<String>,
-        key_epoch: impl Into<String>,
-    ) -> RouterAbProtocolResult<Self> {
-        let binding = Self {
-            role,
-            binding_name: binding_name.into(),
-            key_epoch: key_epoch.into(),
-        };
-        binding.validate()?;
-        Ok(binding)
-    }
-
-    /// Validates key ownership and public descriptor fields.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_signer_role(self.role)?;
-        require_non_empty("binding_name", &self.binding_name)?;
-        require_non_empty("key_epoch", &self.key_epoch)
-    }
-
-    /// Validates this key descriptor is visible to the given Worker role.
-    pub fn validate_visible_to(
-        &self,
-        worker_role: CloudflareWorkerRoleV1,
-    ) -> RouterAbProtocolResult<()> {
-        self.validate()?;
-        let visible = matches!(
-            (worker_role, self.role),
-            (CloudflareWorkerRoleV1::SignerARelayer, Role::SignerA)
-                | (CloudflareWorkerRoleV1::SignerB, Role::SignerB)
-        );
-        if visible {
-            return Ok(());
-        }
-        Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
-            format!(
-                "{} Worker cannot access {:?} signer-envelope decrypt key",
                 worker_role.as_str(),
                 self.role
             ),
@@ -1450,8 +1572,8 @@ pub struct CloudflareSignerARelayerBindingsV1 {
     pub root_share_wire_secret: CloudflareRootShareWireSecretBindingV1,
     /// Signer A relayer-output Durable Object.
     pub relayer_output: CloudflareDurableObjectBindingV1,
-    /// Signer A signer-envelope AEAD decrypt key.
-    pub envelope_decrypt_key: CloudflareSignerEnvelopeDecryptKeyBindingV1,
+    /// Signer A signer-envelope HPKE decrypt key.
+    pub envelope_decrypt_key: CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1,
     /// Signer A A/B peer-message Ed25519 signing key.
     pub peer_signing_key: CloudflareSignerPeerSigningKeyBindingV1,
     /// Trusted A/B peer-message Ed25519 verifying keys.
@@ -1466,7 +1588,7 @@ impl CloudflareSignerARelayerBindingsV1 {
         root_share: CloudflareDurableObjectBindingV1,
         root_share_wire_secret: CloudflareRootShareWireSecretBindingV1,
         relayer_output: CloudflareDurableObjectBindingV1,
-        envelope_decrypt_key: CloudflareSignerEnvelopeDecryptKeyBindingV1,
+        envelope_decrypt_key: CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1,
         peer_signing_key: CloudflareSignerPeerSigningKeyBindingV1,
         peer_verifying_keys: CloudflareSignerPeerVerifyingKeySetV1,
         signer_b: CloudflarePeerBindingV1,
@@ -1516,8 +1638,8 @@ pub struct CloudflareSignerBBindingsV1 {
     pub root_share: CloudflareDurableObjectBindingV1,
     /// Signer B signing-root-share wire Secret.
     pub root_share_wire_secret: CloudflareRootShareWireSecretBindingV1,
-    /// Signer B signer-envelope AEAD decrypt key.
-    pub envelope_decrypt_key: CloudflareSignerEnvelopeDecryptKeyBindingV1,
+    /// Signer B signer-envelope HPKE decrypt key.
+    pub envelope_decrypt_key: CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1,
     /// Signer B A/B peer-message Ed25519 signing key.
     pub peer_signing_key: CloudflareSignerPeerSigningKeyBindingV1,
     /// Trusted A/B peer-message Ed25519 verifying keys.
@@ -1531,7 +1653,7 @@ impl CloudflareSignerBBindingsV1 {
     pub fn new(
         root_share: CloudflareDurableObjectBindingV1,
         root_share_wire_secret: CloudflareRootShareWireSecretBindingV1,
-        envelope_decrypt_key: CloudflareSignerEnvelopeDecryptKeyBindingV1,
+        envelope_decrypt_key: CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1,
         peer_signing_key: CloudflareSignerPeerSigningKeyBindingV1,
         peer_verifying_keys: CloudflareSignerPeerVerifyingKeySetV1,
         signer_a_relayer: CloudflarePeerBindingV1,
@@ -4306,8 +4428,8 @@ impl CloudflareSignerARelayerWorkerRuntimeV1 {
         &self.bindings.root_share_wire_secret
     }
 
-    /// Returns Signer A's role-local signer-envelope decrypt-key descriptor.
-    pub fn envelope_decrypt_key(&self) -> &CloudflareSignerEnvelopeDecryptKeyBindingV1 {
+    /// Returns Signer A's role-local signer-envelope HPKE decrypt-key descriptor.
+    pub fn envelope_decrypt_key(&self) -> &CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1 {
         &self.bindings.envelope_decrypt_key
     }
 
@@ -4402,8 +4524,8 @@ impl CloudflareSignerBWorkerRuntimeV1 {
         &self.bindings.root_share_wire_secret
     }
 
-    /// Returns Signer B's role-local signer-envelope decrypt-key descriptor.
-    pub fn envelope_decrypt_key(&self) -> &CloudflareSignerEnvelopeDecryptKeyBindingV1 {
+    /// Returns Signer B's role-local signer-envelope HPKE decrypt-key descriptor.
+    pub fn envelope_decrypt_key(&self) -> &CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1 {
         &self.bindings.envelope_decrypt_key
     }
 
@@ -4881,26 +5003,6 @@ pub fn validate_cloudflare_signer_private_request_v1(
             "Router Worker has no private signer payload branch",
         )),
     }
-}
-
-/// Decodes and validates public signer-envelope AEAD metadata before decryption.
-pub fn decode_and_validate_cloudflare_signer_envelope_aead_payload_v1(
-    worker_role: CloudflareWorkerRoleV1,
-    message: &WireMessageV1,
-    envelope_decrypt_key: &CloudflareSignerEnvelopeDecryptKeyBindingV1,
-) -> RouterAbProtocolResult<SignerEnvelopeAeadPayloadV1> {
-    validate_cloudflare_signer_private_request_v1(worker_role, message)?;
-    envelope_decrypt_key.validate_visible_to(worker_role)?;
-    let expected_role = cloudflare_worker_signer_role_v1(worker_role)?;
-    if envelope_decrypt_key.role != expected_role {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidRole,
-            "Cloudflare signer envelope key role does not match Worker role",
-        ));
-    }
-    let payload = decode_router_to_signer_payload_v1(message.payload.as_bytes())?;
-    let envelope = &payload.assignment().envelope;
-    decode_and_validate_signer_envelope_aead_payload_v1(envelope, &envelope_decrypt_key.key_epoch)
 }
 
 /// Decodes and validates public signer-envelope HPKE metadata before decryption.
@@ -5494,27 +5596,15 @@ pub fn validate_cloudflare_peer_signing_key_matches_request_v1(
     Ok(local_signer)
 }
 
-/// Decrypts a signer-envelope payload through Cloudflare WebCrypto.
+/// Decrypts a production signer-envelope HPKE payload through Cloudflare secret bindings.
 #[cfg(feature = "workers-rs")]
-pub async fn decrypt_cloudflare_signer_envelope_aead_payload_v1(
+pub async fn decrypt_cloudflare_signer_envelope_hpke_payload_v1(
     env: &worker::Env,
     worker_role: CloudflareWorkerRoleV1,
     message: &WireMessageV1,
-    envelope_decrypt_key: &CloudflareSignerEnvelopeDecryptKeyBindingV1,
+    envelope_decrypt_key: &CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1,
     aad: &RoleEnvelopeAadV1,
 ) -> RouterAbProtocolResult<Vec<u8>> {
-    let payload = decode_and_validate_cloudflare_signer_envelope_aead_payload_v1(
-        worker_role,
-        message,
-        envelope_decrypt_key,
-    )?;
-    aad.validate()?;
-    if aad.digest() != payload.aad_digest || aad.recipient.role != payload.recipient_role {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            "Cloudflare signer envelope AAD does not match parsed AEAD payload",
-        ));
-    }
     let secret = env
         .secret(&envelope_decrypt_key.binding_name)
         .map_err(|err| {
@@ -5526,11 +5616,17 @@ pub async fn decrypt_cloudflare_signer_envelope_aead_payload_v1(
             )
         })?;
     let mut secret_value = secret.to_string();
-    let key_result = decode_cloudflare_signer_envelope_aead_key_v1(&secret_value);
+    let key_result = decode_cloudflare_signer_envelope_hpke_private_key_secret_v1(&secret_value);
     secret_value.zeroize();
-    let mut key_bytes = key_result?;
-    let plaintext = decrypt_cloudflare_aes_256_gcm_v1(&mut key_bytes, &payload, aad).await;
-    key_bytes.zeroize();
+    let mut private_key_bytes = key_result?;
+    let plaintext = open_cloudflare_signer_envelope_hpke_payload_v1(
+        worker_role,
+        message,
+        envelope_decrypt_key,
+        aad,
+        &private_key_bytes,
+    );
+    private_key_bytes.zeroize();
     plaintext
 }
 
@@ -5541,12 +5637,12 @@ pub async fn decrypt_and_validate_cloudflare_signer_input_plaintext_v1(
     env: &worker::Env,
     worker_role: CloudflareWorkerRoleV1,
     message: &WireMessageV1,
-    envelope_decrypt_key: &CloudflareSignerEnvelopeDecryptKeyBindingV1,
+    envelope_decrypt_key: &CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1,
     aad: &RoleEnvelopeAadV1,
     router_request_digest: PublicDigest32,
     root_share_metadata: &CloudflareRootShareStartupMetadataV1,
 ) -> RouterAbProtocolResult<SignerInputPlaintextV1> {
-    let plaintext_bytes = decrypt_cloudflare_signer_envelope_aead_payload_v1(
+    let plaintext_bytes = decrypt_cloudflare_signer_envelope_hpke_payload_v1(
         env,
         worker_role,
         message,
@@ -5570,12 +5666,12 @@ pub async fn decrypt_cloudflare_validated_signer_private_request_v1(
     env: &worker::Env,
     worker_role: CloudflareWorkerRoleV1,
     message: WireMessageV1,
-    envelope_decrypt_key: &CloudflareSignerEnvelopeDecryptKeyBindingV1,
+    envelope_decrypt_key: &CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1,
     aad: &RoleEnvelopeAadV1,
     router_request_digest: PublicDigest32,
     root_share_metadata: &CloudflareRootShareStartupMetadataV1,
 ) -> RouterAbProtocolResult<CloudflareValidatedSignerPrivateRequestV1> {
-    let plaintext_bytes = decrypt_cloudflare_signer_envelope_aead_payload_v1(
+    let plaintext_bytes = decrypt_cloudflare_signer_envelope_hpke_payload_v1(
         env,
         worker_role,
         &message,
@@ -5600,7 +5696,7 @@ pub async fn decrypt_and_handle_cloudflare_validated_signer_private_request_v1(
     worker_role: CloudflareWorkerRoleV1,
     handler: &impl CloudflareValidatedSignerInputHandlerV1,
     message: WireMessageV1,
-    envelope_decrypt_key: &CloudflareSignerEnvelopeDecryptKeyBindingV1,
+    envelope_decrypt_key: &CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1,
     aad: &RoleEnvelopeAadV1,
     router_request_digest: PublicDigest32,
     root_share_metadata: &CloudflareRootShareStartupMetadataV1,
@@ -5626,7 +5722,7 @@ pub async fn decrypt_and_handle_cloudflare_mpc_prf_signer_private_request_v1(
     worker_role: CloudflareWorkerRoleV1,
     host: &CloudflarePreloadedSignerHostV1,
     message: WireMessageV1,
-    envelope_decrypt_key: &CloudflareSignerEnvelopeDecryptKeyBindingV1,
+    envelope_decrypt_key: &CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1,
     peer_signing_key: &CloudflareSignerPeerSigningKeyBindingV1,
     aad: &RoleEnvelopeAadV1,
     router_request_digest: PublicDigest32,
@@ -5670,7 +5766,7 @@ pub async fn decrypt_and_handle_cloudflare_mpc_prf_recipient_proof_bundle_signer
     worker_role: CloudflareWorkerRoleV1,
     host: &CloudflarePreloadedSignerHostV1,
     message: WireMessageV1,
-    envelope_decrypt_key: &CloudflareSignerEnvelopeDecryptKeyBindingV1,
+    envelope_decrypt_key: &CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1,
     peer_signing_key: &CloudflareSignerPeerSigningKeyBindingV1,
     aad: &RoleEnvelopeAadV1,
     router_request_digest: PublicDigest32,
@@ -6893,11 +6989,12 @@ pub fn parse_cloudflare_signer_a_relayer_bindings_v1(
             SIGNER_A_RELAYER_OUTPUT_DO_OBJECT_ENV,
             SIGNER_A_RELAYER_OUTPUT_DO_KEY_PREFIX_ENV,
         )?,
-        read_signer_envelope_decrypt_key_binding(
+        read_signer_envelope_hpke_decrypt_key_binding(
             env,
             Role::SignerA,
-            SIGNER_A_ENVELOPE_AEAD_KEY_BINDING_ENV,
-            SIGNER_A_ENVELOPE_AEAD_KEY_EPOCH_ENV,
+            SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
+            SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH_ENV,
+            SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
         )?,
         read_signer_peer_signing_key_binding(
             env,
@@ -6938,11 +7035,12 @@ pub fn parse_cloudflare_signer_b_bindings_v1(
             Role::SignerB,
             SIGNER_B_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
         )?,
-        read_signer_envelope_decrypt_key_binding(
+        read_signer_envelope_hpke_decrypt_key_binding(
             env,
             Role::SignerB,
-            SIGNER_B_ENVELOPE_AEAD_KEY_BINDING_ENV,
-            SIGNER_B_ENVELOPE_AEAD_KEY_EPOCH_ENV,
+            SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
+            SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH_ENV,
+            SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
         )?,
         read_signer_peer_signing_key_binding(
             env,
@@ -7019,14 +7117,14 @@ pub fn validate_cloudflare_worker_env_bindings_v1(
             require_worker_durable_object(env, &bindings.root_share)?;
             require_worker_root_share_wire_secret(env, &bindings.root_share_wire_secret)?;
             require_worker_durable_object(env, &bindings.relayer_output)?;
-            require_worker_secret(env, &bindings.envelope_decrypt_key)?;
+            require_worker_hpke_secret(env, &bindings.envelope_decrypt_key)?;
             require_worker_peer_signing_secret(env, &bindings.peer_signing_key)?;
             require_worker_service(env, &bindings.signer_b)
         }
         CloudflareWorkerBindingsV1::SignerB { bindings } => {
             require_worker_durable_object(env, &bindings.root_share)?;
             require_worker_root_share_wire_secret(env, &bindings.root_share_wire_secret)?;
-            require_worker_secret(env, &bindings.envelope_decrypt_key)?;
+            require_worker_hpke_secret(env, &bindings.envelope_decrypt_key)?;
             require_worker_peer_signing_secret(env, &bindings.peer_signing_key)?;
             require_worker_service(env, &bindings.signer_a_relayer)
         }
@@ -7463,19 +7561,6 @@ fn read_root_share_wire_secret_binding(
     )
 }
 
-fn read_signer_envelope_decrypt_key_binding(
-    env: &impl CloudflareEnvReaderV1,
-    role: Role,
-    binding_name_key: &str,
-    key_epoch_key: &str,
-) -> RouterAbProtocolResult<CloudflareSignerEnvelopeDecryptKeyBindingV1> {
-    CloudflareSignerEnvelopeDecryptKeyBindingV1::new(
-        role,
-        read_required_env_text(env, binding_name_key)?,
-        read_required_env_text(env, key_epoch_key)?,
-    )
-}
-
 fn read_signer_envelope_hpke_public_key(
     env: &impl CloudflareEnvReaderV1,
     role: Role,
@@ -7614,9 +7699,9 @@ fn require_worker_service(
 }
 
 #[cfg(feature = "workers-rs")]
-fn require_worker_secret(
+fn require_worker_hpke_secret(
     env: &worker::Env,
-    binding: &CloudflareSignerEnvelopeDecryptKeyBindingV1,
+    binding: &CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1,
 ) -> RouterAbProtocolResult<()> {
     require_worker_secret_binding_name(env, &binding.binding_name)
 }
@@ -7682,31 +7767,6 @@ pub fn load_cloudflare_root_share_wire_secret_v1(
 }
 
 #[cfg(feature = "workers-rs")]
-fn decode_cloudflare_signer_envelope_aead_key_v1(
-    secret_value: &str,
-) -> RouterAbProtocolResult<Vec<u8>> {
-    let mut key_bytes = match base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(secret_value.trim().as_bytes())
-    {
-        Ok(bytes) => bytes,
-        Err(_) => {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                "Cloudflare signer envelope AEAD key secret must be unpadded base64url",
-            ));
-        }
-    };
-    if key_bytes.len() != 32 {
-        key_bytes.zeroize();
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "Cloudflare signer envelope AEAD key secret must decode to 32 bytes",
-        ));
-    }
-    Ok(key_bytes)
-}
-
-#[cfg(feature = "workers-rs")]
 fn load_cloudflare_signer_peer_signing_key_bytes_v1(
     env: &worker::Env,
     binding: &CloudflareSignerPeerSigningKeyBindingV1,
@@ -7752,54 +7812,6 @@ fn decode_cloudflare_signer_peer_signing_key_v1(
     key.copy_from_slice(&key_bytes);
     key_bytes.zeroize();
     Ok(key)
-}
-
-#[cfg(feature = "workers-rs")]
-async fn decrypt_cloudflare_aes_256_gcm_v1(
-    key_bytes: &mut [u8],
-    payload: &SignerEnvelopeAeadPayloadV1,
-    aad: &RoleEnvelopeAadV1,
-) -> RouterAbProtocolResult<Vec<u8>> {
-    let worker_global: web_sys::WorkerGlobalScope = js_sys::global().unchecked_into();
-    let crypto = worker_global
-        .crypto()
-        .map_err(|_| cloudflare_webcrypto_error("Cloudflare WebCrypto is unavailable"))?;
-    let subtle = crypto.subtle();
-    let key_data = js_sys::Uint8Array::from(&key_bytes[..]);
-    let key_data_object: &js_sys::Object = key_data.unchecked_ref();
-    let usages = js_sys::Array::new();
-    usages.push(&wasm_bindgen::JsValue::from_str("decrypt"));
-    let import_promise = subtle
-        .import_key_with_str("raw", key_data_object, "AES-GCM", false, usages.as_ref())
-        .map_err(|_| cloudflare_webcrypto_error("Cloudflare WebCrypto key import failed"))?;
-    let imported_key = SendFuture::new(wasm_bindgen_futures::JsFuture::from(import_promise))
-        .await
-        .map_err(|_| cloudflare_webcrypto_error("Cloudflare WebCrypto key import failed"))?;
-    let crypto_key: web_sys::CryptoKey = imported_key
-        .dyn_into()
-        .map_err(|_| cloudflare_webcrypto_error("Cloudflare WebCrypto imported wrong key type"))?;
-    key_bytes.zeroize();
-
-    let nonce = js_sys::Uint8Array::from(payload.nonce().as_slice());
-    let params = web_sys::AesGcmParams::new_with_u8_array("AES-GCM", &nonce);
-    let aad_bytes = aad.canonical_bytes();
-    let aad_array = js_sys::Uint8Array::from(aad_bytes.as_slice());
-    params.set_additional_data_u8_array(&aad_array);
-    params.set_tag_length((SIGNER_ENVELOPE_AEAD_TAG_LEN_V1 * 8) as u8);
-    let ciphertext = js_sys::Uint8Array::from(payload.ciphertext_and_tag());
-    let params_object: &js_sys::Object = params.unchecked_ref();
-    let decrypt_promise = subtle
-        .decrypt_with_object_and_js_u8_array(params_object, &crypto_key, &ciphertext)
-        .map_err(|_| cloudflare_webcrypto_error("Cloudflare WebCrypto decrypt failed"))?;
-    let plaintext = SendFuture::new(wasm_bindgen_futures::JsFuture::from(decrypt_promise))
-        .await
-        .map_err(|_| cloudflare_webcrypto_error("Cloudflare WebCrypto decrypt failed"))?;
-    Ok(js_sys::Uint8Array::new(&plaintext).to_vec())
-}
-
-#[cfg(feature = "workers-rs")]
-fn cloudflare_webcrypto_error(message: &'static str) -> RouterAbProtocolError {
-    RouterAbProtocolError::new(RouterAbProtocolErrorCode::MalformedWirePayload, message)
 }
 
 #[cfg(feature = "workers-rs")]

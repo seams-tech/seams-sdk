@@ -636,7 +636,7 @@ Router Worker:
   allowed Durable Object scopes:
     router replay/idempotency state
     router public lifecycle state
-  allowed signer-envelope AEAD keys:
+  allowed signer-envelope HPKE private keys:
     none
   allowed A/B peer signing keys:
     none
@@ -646,9 +646,9 @@ Router Worker:
     Signer A sealed root shares
     Signer B sealed root shares
     relayer-output activation state
-  forbidden signer-envelope AEAD keys:
-    Signer A signer-envelope key
-    Signer B signer-envelope key
+  forbidden signer-envelope HPKE private keys:
+    Signer A signer-envelope private key
+    Signer B signer-envelope private key
   forbidden A/B peer signing keys:
     Signer A peer-message signing key
     Signer B peer-message signing key
@@ -657,8 +657,8 @@ Signer A Worker + relayer role:
   allowed Durable Object scopes:
     Signer A sealed root shares
     Signer A relayer-output activation state
-  allowed signer-envelope AEAD keys:
-    Signer A signer-envelope key
+  allowed signer-envelope HPKE private keys:
+    Signer A signer-envelope private key
   allowed A/B peer signing keys:
     Signer A peer-message signing key
   allowed A/B peer verifying keys:
@@ -666,16 +666,16 @@ Signer A Worker + relayer role:
   forbidden Durable Object scopes:
     Signer B sealed root shares
     Router replay state
-  forbidden signer-envelope AEAD keys:
-    Signer B signer-envelope key
+  forbidden signer-envelope HPKE private keys:
+    Signer B signer-envelope private key
   forbidden A/B peer signing keys:
     Signer B peer-message signing key
 
 Signer B Worker:
   allowed Durable Object scopes:
     Signer B sealed root shares
-  allowed signer-envelope AEAD keys:
-    Signer B signer-envelope key
+  allowed signer-envelope HPKE private keys:
+    Signer B signer-envelope private key
   allowed A/B peer signing keys:
     Signer B peer-message signing key
   allowed A/B peer verifying keys:
@@ -684,8 +684,8 @@ Signer B Worker:
     Signer A sealed root shares
     relayer-output activation state
     Router replay state
-  forbidden signer-envelope AEAD keys:
-    Signer A signer-envelope key
+  forbidden signer-envelope HPKE private keys:
+    Signer A signer-envelope private key
   forbidden A/B peer signing keys:
     Signer A peer-message signing key
 ```
@@ -699,8 +699,10 @@ ROUTER_LIFECYCLE_DO
 SIGNER_A_ROOT_SHARE_DO
 SIGNER_A_RELAYER_OUTPUT_DO
 SIGNER_B_ROOT_SHARE_DO
-SIGNER_A_ENVELOPE_AEAD_KEY
-SIGNER_B_ENVELOPE_AEAD_KEY
+SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY
+SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY
+SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY
+SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY
 SIGNER_A_PEER_SIGNING_KEY
 SIGNER_B_PEER_SIGNING_KEY
 SIGNER_A_PEER_VERIFYING_KEY_HEX
@@ -718,29 +720,33 @@ Router account:
 Signer A account:
   SIGNER_A_ROOT_SHARE_DO
   SIGNER_A_RELAYER_OUTPUT_DO
-  SIGNER_A_ENVELOPE_AEAD_KEY
+  SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY
+  SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY
   SIGNER_A_PEER_SIGNING_KEY
   SIGNER_A_PEER_VERIFYING_KEY_HEX
   SIGNER_B_PEER_VERIFYING_KEY_HEX
 
 Signer B account:
   SIGNER_B_ROOT_SHARE_DO
-  SIGNER_B_ENVELOPE_AEAD_KEY
+  SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY
+  SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY
   SIGNER_B_PEER_SIGNING_KEY
   SIGNER_A_PEER_VERIFYING_KEY_HEX
   SIGNER_B_PEER_VERIFYING_KEY_HEX
 ```
 
-Signer-envelope decrypt keys and A/B peer-message signing keys are Cloudflare
-Secret bindings. A/B peer-message verifying keys are public lowercase-hex
-Ed25519 keys. The typed startup parser receives only public descriptors and
-public verifying-key bytes:
+Signer-envelope HPKE private keys and A/B peer-message signing keys are
+Cloudflare Secret bindings. Signer-envelope HPKE public keys and A/B
+peer-message verifying keys are public config. The typed startup parser
+receives only public descriptors and public verifying-key bytes:
 
 ```text
-SIGNER_A_ENVELOPE_AEAD_KEY_BINDING=SIGNER_A_ENVELOPE_AEAD_KEY
-SIGNER_A_ENVELOPE_AEAD_KEY_EPOCH=envelope-key-epoch-a
-SIGNER_B_ENVELOPE_AEAD_KEY_BINDING=SIGNER_B_ENVELOPE_AEAD_KEY
-SIGNER_B_ENVELOPE_AEAD_KEY_EPOCH=envelope-key-epoch-b
+SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING=SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY
+SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH=envelope-hpke-key-epoch-a
+SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY=x25519:<64 lowercase hex chars>
+SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING=SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY
+SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH=envelope-hpke-key-epoch-b
+SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY=x25519:<64 lowercase hex chars>
 SIGNER_A_PEER_SIGNING_KEY_BINDING=SIGNER_A_PEER_SIGNING_KEY
 SIGNER_A_PEER_SIGNING_KEY_EPOCH=key-epoch-a
 SIGNER_B_PEER_SIGNING_KEY_BINDING=SIGNER_B_PEER_SIGNING_KEY
@@ -994,12 +1000,14 @@ router.env:
   SIGNER_A_URL
   SIGNER_B_URL
   no share decrypt keys
-  no signer-envelope AEAD keys
+  no signer-envelope HPKE private keys
 
 signer-a.env:
   SIGNER_ROLE=A
-  SIGNER_A_ENVELOPE_AEAD_KEY
-  SIGNER_A_ENVELOPE_AEAD_KEY_EPOCH
+  SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY=hpke-x25519-private-v1:<64 lowercase hex chars>
+  SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING=SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY
+  SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH=envelope-hpke-key-epoch-a
+  SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY=x25519:<64 lowercase hex chars>
   SIGNER_A_PEER_SIGNING_KEY
   SIGNER_A_PEER_SIGNING_KEY_EPOCH
   SIGNING_ROOT_SHARE_A_KEK
@@ -1008,8 +1016,10 @@ signer-a.env:
 
 signer-b.env:
   SIGNER_ROLE=B
-  SIGNER_B_ENVELOPE_AEAD_KEY
-  SIGNER_B_ENVELOPE_AEAD_KEY_EPOCH
+  SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY=hpke-x25519-private-v1:<64 lowercase hex chars>
+  SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING=SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY
+  SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH=envelope-hpke-key-epoch-b
+  SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY=x25519:<64 lowercase hex chars>
   SIGNER_B_PEER_SIGNING_KEY
   SIGNER_B_PEER_SIGNING_KEY_EPOCH
   SIGNING_ROOT_SHARE_B_KEK
@@ -1861,25 +1871,6 @@ Current completed work:
   `SignerInputPlaintextV1` and binds it to the Router payload, Router request
   digest, AAD digest, root metadata role, signer identity, and root-share
   epoch.
-- `crates/router-ab-cloudflare` now has a role-local signer-envelope AEAD
-  key-source boundary. Signer startup bindings require public descriptors for
-  the local Secret binding name and key epoch, `workers-rs` startup validation
-  checks the configured Secret binding exists, and Router/Signer A/Signer B env
-  parsing rejects envelope-key descriptors for roles that should not hold them.
-- `router-ab-core` now specifies and implements a strict signer-envelope AEAD
-  payload wrapper for the pre-decrypt boundary. It binds recipient role,
-  envelope key epoch, AAD digest, 96-bit nonce, 128-bit tag length, and
-  ciphertext/tag bytes, and rejects malformed, wrong-epoch, wrong-AAD, tag-only,
-  or trailing-byte payloads before platform decryptors see them.
-- `crates/router-ab-cloudflare` now validates signer-envelope AEAD public
-  metadata before decryption against the Worker role, Router-to-signer
-  assignment, and role-local envelope decrypt-key descriptor.
-- `crates/router-ab-cloudflare` now has a feature-gated workers-rs
-  AES-256-GCM WebCrypto decrypt boundary. It loads the role-local Cloudflare
-  Secret binding as unpadded base64url 32-byte key material, imports it as a
-  non-extractable decrypt-only key, decrypts with canonical role-envelope AAD,
-  and can feed plaintext into the existing post-decrypt
-  `SignerInputPlaintextV1` validator.
 - `crates/router-ab-cloudflare` now has a narrow validated private signer
   request boundary for production signer engines. Future engine wrappers receive
   `CloudflareValidatedSignerPrivateRequestV1`, which contains only the
@@ -2027,19 +2018,30 @@ Current completed work:
   clients encrypt A and B envelopes to Signer A and Signer B public envelope
   keys, bind the selected key epoch into the request transcript/AAD, and allow
   daily key rotation with an overlap window no longer than request TTL plus
-  retry grace. The current role-local signer-envelope AEAD implementation is a
-  prototype path that must be replaced by the HPKE signer-envelope path before a
-  production release.
+  retry grace.
+- `router-ab-core` now has a strict signer-envelope HPKE payload wrapper that
+  binds recipient role, key epoch, recipient public key, AAD digest,
+  encapsulated X25519 key, and ciphertext/tag bytes before platform-specific
+  decrypt. `router-ab-cloudflare` now has HPKE public envelope-key descriptors,
+  role-local private decrypt-key descriptors, Env-reader parsers, forbidden Env
+  guards for private key bindings, and pre-decrypt metadata validation.
+- `router-ab-cloudflare` now has native Rust signer-envelope HPKE seal/open
+  helpers, a versioned `hpke-x25519-private-v1:` Cloudflare Secret text format
+  for private-key bytes, a `workers-rs` HPKE Secret-loading decrypt
+  wrapper, and tests for successful open, modified AAD, wrong private key, and
+  private-key Secret parsing.
+- Strict Signer A/B Worker startup bindings and decrypt-and-handle paths now
+  use the signer-envelope HPKE decrypt-key descriptor and HPKE open wrapper.
+  The previous role-local signer-envelope AEAD runtime has been removed from
+  strict signer startup and runtime paths.
 - `crates/router-ab-cloudflare` now has `benches/router_latency.rs`, which
   records a native CPU baseline for Router admission plus simulated A/B
   coordination over 1, 2, 3, and 4 local round trips.
 
 Immediate next steps:
 
-1. Replace the signer-envelope AEAD prototype with HPKE/X25519 public-key
-   signer-envelope encryption, including per-role public key descriptors,
-   key-epoch transcript binding, private-key Secret parsing, overlap-window
-   rejection tests, and vectors.
+1. Add current/previous signer-envelope HPKE key-epoch overlap-window rejection
+   tests and vectors.
 2. Implement the Worker/JWKS JWT verifier and the storage-backed project
    policy, quota, and abuse Durable Object handlers behind the typed Router
    admission-provider adapters.
@@ -2271,20 +2273,21 @@ Immediate next steps:
         returns typed signer input plaintext.
   - [x] Add the Cloudflare post-decrypt signer-input plaintext validation
         boundary for production adapters.
-  - [x] Add role-local Cloudflare signer-envelope AEAD key-source descriptors
-        and startup validation.
-  - [ ] Replace signer-envelope AEAD key-source descriptors with HPKE/X25519
-        public envelope-key descriptors and role-local private decrypt-key
-        descriptors before production release.
+  - [x] Add signer-envelope HPKE/X25519 public envelope-key descriptors,
+        role-local private decrypt-key descriptors, Env-reader parsers, private
+        key visibility guards, and strict public HPKE payload parsing/binding.
+  - [x] Add signer-envelope HPKE/X25519 seal/open helpers, versioned
+        private-key Secret parsing, `workers-rs` HPKE decrypt wrapper, and
+        native runtime tests for successful open, AAD mismatch, and wrong
+        private key.
+  - [x] Switch strict Signer A/B Worker handlers and startup bindings to the
+        HPKE/X25519 decrypt path before production release.
   - [ ] Add daily envelope key rotation semantics: key epoch in transcript/AAD,
         request-TTL overlap, stale-epoch rejection, and current/previous epoch
         tests.
-  - [x] Specify and implement strict signer-envelope AEAD payload parsing for
-        the pre-decrypt boundary.
-  - [x] Validate Cloudflare signer-envelope AEAD public metadata against the
-        Worker role and role-local key descriptor before decryption.
-  - [x] Wire feature-gated workers-rs AES-256-GCM WebCrypto decryption into
-        that boundary.
+  - [x] Remove the obsolete signer-envelope AEAD parser, Cloudflare key
+        descriptors, WebCrypto decrypt helper, tests, docs, and wrangler
+        variables after the HPKE strict-worker switch.
   - [x] Add a narrow validated private signer request boundary for production
         signer-engine wrappers.
   - [x] Wire the real private signer engine wrapper through the Cloudflare

@@ -728,17 +728,32 @@ rotation is acceptable when each signer keeps current and previous private
 decrypt keys only through request TTL plus retry grace, then rejects stale
 epochs.
 
-The current Cloudflare AES-GCM signer-envelope implementation is a prototype
-adapter path. It cannot satisfy the production server-blind release gate until
-it is replaced with HPKE/X25519 public-key signer-envelope encryption.
+Implemented production metadata:
 
-Prototype signer-envelope AEAD key-source rules:
+- `SignerEnvelopeHpkePayloadV1` canonical bytes bind recipient role, key epoch,
+  recipient public key, role-envelope AAD digest, HPKE encapsulated X25519 key,
+  and ciphertext/tag bytes before any platform decrypt.
+- `CloudflareSignerEnvelopeHpkePublicKeyV1`,
+  `CloudflareSignerEnvelopeHpkePublicKeySetV1`, and
+  `CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1` validate signer role,
+  canonical `x25519:<64 lowercase hex chars>` public-key encoding, key epoch,
+  and role-local private binding visibility.
+- Cloudflare Router and opposite-signer startup guards reject HPKE private-key
+  binding Env keys.
+- `router-ab-cloudflare` exposes native signer-envelope HPKE seal/open helpers
+  and a `workers-rs` HPKE Secret-loading decrypt wrapper. The wrapper decodes a
+  versioned private-key Secret, validates public HPKE payload metadata, checks
+  the supplied AAD digest, and then calls HPKE open.
+- Strict Signer A/B Worker startup bindings and decrypt-and-handle paths use
+  the HPKE decrypt-key descriptor and HPKE open wrapper.
+
+Signer-envelope HPKE private-key source rules:
 
 | Worker | Allowed signer-envelope Secret bindings |
 | --- | --- |
 | Router | none |
-| Signer A/Relayer | `SIGNER_A_ENVELOPE_AEAD_KEY` only |
-| Signer B | `SIGNER_B_ENVELOPE_AEAD_KEY` only |
+| Signer A/Relayer | `SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY` only |
+| Signer B | `SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY` only |
 
 Direct A/B peer-message signing key-source rules:
 
@@ -760,10 +775,12 @@ The Cloudflare parser receives public key-source descriptors and public
 verifying-key bytes:
 
 ```text
-SIGNER_A_ENVELOPE_AEAD_KEY_BINDING
-SIGNER_A_ENVELOPE_AEAD_KEY_EPOCH
-SIGNER_B_ENVELOPE_AEAD_KEY_BINDING
-SIGNER_B_ENVELOPE_AEAD_KEY_EPOCH
+SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
+SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH
+SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY
+SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
+SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH
+SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY
 SIGNER_A_PEER_SIGNING_KEY_BINDING
 SIGNER_A_PEER_SIGNING_KEY_EPOCH
 SIGNER_B_PEER_SIGNING_KEY_BINDING
@@ -772,37 +789,50 @@ SIGNER_A_PEER_VERIFYING_KEY_HEX
 SIGNER_B_PEER_VERIFYING_KEY_HEX
 ```
 
-For the prototype AEAD path, `*_BINDING` names the Cloudflare Secret binding
-that contains the AEAD key. The Secret value is unpadded base64url for exactly
-32 raw AES-256-GCM key bytes. `*_EPOCH` is public rotation metadata that must
-be available for transcript and AAD binding. `workers-rs` startup validation
-must check that the configured Secret binding exists without logging or
-serializing its value.
+For the production HPKE path, `*_PRIVATE_KEY_BINDING` names a role-local
+Cloudflare Secret binding containing the HPKE private key material. The paired
+`*_PUBLIC_KEY` is public `x25519:<64 lowercase hex chars>` metadata and
+`*_KEY_EPOCH` is public rotation metadata. Router may receive public keys and
+key epochs. Router must reject private-key binding Env keys, and each signer
+must reject the other signer's private-key binding Env key.
+
+The HPKE private-key Secret text format is:
+
+```text
+hpke-x25519-private-v1:<64 lowercase hex chars>
+```
+
+The 32 decoded bytes must parse as `hpke-ng` X25519 private-key bytes. The
+runtime rejects unsupported prefixes, malformed hex, wrong lengths, and private
+key parse errors before attempting HPKE open.
+
 For peer signing keys, `*_BINDING` names a Cloudflare Secret containing an
 unpadded base64url Ed25519 signing seed of exactly 32 bytes. `*_EPOCH` must
 match the sender `SignerIdentityV1.key_epoch` before the Worker signs a peer
 message.
 
-Signer-envelope ciphertext uses a strict public AEAD payload wrapper inside the
-outer `EncryptedPayloadV1`:
+Production signer-envelope ciphertext uses a strict public HPKE payload wrapper
+inside the outer `EncryptedPayloadV1`:
 
 ```text
-lp("router-ab-protocol/signer-envelope-aead/v1")
-lp("aes-256-gcm-webcrypto/v1")
+lp("router-ab-protocol/signer-envelope-hpke/v1")
+lp("hpke-x25519-hkdf-sha256-aes256gcm/v1")
 lp(recipient_role)
 lp(key_epoch)
+lp(recipient_public_key)
 lp(aad_digest[32])
-lp(nonce[12])
+lp(encapped_key[32])
 u32be(tag_len = 16)
 lp(ciphertext || tag)
 ```
 
 The parser must reject unsupported versions or algorithms, non-signer recipient
-roles, empty key epochs, AAD digest mismatches with the outer envelope, key
-epoch mismatches with the role-local decrypt-key descriptor, non-96-bit nonces,
-non-128-bit tags, tag-only payloads, and trailing bytes. The wrapper is public
-metadata plus ciphertext. Platform decryptors pass `nonce`, canonical AAD bytes,
-and `ciphertext || tag` to AES-256-GCM, then feed decrypted bytes into the
+roles, empty key epochs, malformed recipient public-key encodings, AAD digest
+mismatches with the outer envelope, key epoch mismatches with the role-local
+decrypt-key descriptor, public-key mismatches with the role-local descriptor,
+non-32-byte encapsulated keys, non-128-bit tags, tag-only payloads, and trailing
+bytes. Platform decryptors pass `encapped_key`, canonical AAD bytes, and
+`ciphertext || tag` to HPKE open, then feed decrypted bytes into the
 post-decrypt `SignerInputPlaintextV1` validation boundary.
 
 Startup validation must reject:
@@ -1477,21 +1507,20 @@ Required before production recipient-output encryption:
       `SignerInputPlaintextV1` and binds it to Router payload, Router request
       digest, AAD digest, root metadata role, signer identity, and root-share
       epoch.
-- [x] Add role-local Cloudflare signer-envelope AEAD key-source descriptors
-      and startup validation.
-- [ ] Replace signer-envelope AEAD key-source descriptors with HPKE/X25519
-      public envelope-key descriptors and role-local private decrypt-key
-      descriptors before production release.
+- [x] Add signer-envelope HPKE/X25519 public envelope-key descriptors,
+      role-local private decrypt-key descriptors, Env-reader parsers, private
+      key visibility guards, and strict public HPKE payload parsing/binding.
+- [x] Add signer-envelope HPKE/X25519 seal/open helpers, versioned private-key
+      Secret parsing, `workers-rs` HPKE decrypt wrapper, and native runtime
+      tests for successful open, AAD mismatch, and wrong private key.
+- [x] Switch strict Signer A/B Worker handlers and startup bindings to the
+      HPKE/X25519 decrypt path before production release.
+- [x] Remove the obsolete signer-envelope AEAD parser, Cloudflare key
+      descriptors, WebCrypto decrypt helper, tests, docs, and wrangler
+      variables after the HPKE strict-worker switch.
 - [ ] Add daily envelope key rotation semantics: key epoch in transcript/AAD,
       request-TTL overlap, stale-epoch rejection, and current/previous epoch
       tests.
-- [x] Specify and implement strict signer-envelope AEAD payload parsing for the
-      pre-decrypt boundary.
-- [x] Validate Cloudflare signer-envelope AEAD public metadata against the
-      Worker role and role-local key descriptor before decryption.
-- [x] Add workers-rs AES-256-GCM WebCrypto decryption from the role-local
-      Cloudflare Secret binding and feed plaintext into the post-decrypt
-      validation boundary.
 - [x] Add a narrow validated private signer request boundary for production
       signer-engine wrappers.
 - [x] Reject joined-state marker text in decoded signer plaintext identifier

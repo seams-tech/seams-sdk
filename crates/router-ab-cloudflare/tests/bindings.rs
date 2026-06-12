@@ -1,4 +1,5 @@
 use ed25519_dalek::{Signer, SigningKey};
+use hpke_ng::{DhKemX25519HkdfSha256, Kem};
 use router_ab_cloudflare::{
     build_cloudflare_ab_derivation_proof_batch_peer_message_v1,
     build_cloudflare_preloaded_signer_host_v1,
@@ -7,13 +8,14 @@ use router_ab_cloudflare::{
     cloudflare_signer_response_from_mpc_prf_packages_v1,
     combine_cloudflare_mpc_prf_output_packages_from_peer_messages_v1,
     decode_and_validate_cloudflare_root_share_wire_secret_v1,
-    decode_and_validate_cloudflare_signer_envelope_aead_payload_v1,
     decode_and_validate_cloudflare_signer_envelope_hpke_payload_v1,
     decode_and_validate_cloudflare_signer_input_plaintext_v1,
     decode_and_verify_cloudflare_ab_derivation_proof_batch_message_v1,
     decode_cloudflare_peer_verifying_key_hex_v1, decode_cloudflare_root_share_wire_secret_v1,
+    decode_cloudflare_signer_envelope_hpke_private_key_secret_v1,
     derive_cloudflare_router_trusted_admission_from_provider_v1,
     derive_cloudflare_router_trusted_admission_v1,
+    encode_cloudflare_signer_envelope_hpke_private_key_secret_v1,
     evaluate_cloudflare_validated_mpc_prf_batch_output_v1,
     execute_cloudflare_router_public_admission_plan_v1, handle_cloudflare_durable_object_call_v1,
     handle_cloudflare_signer_a_recipient_proof_bundle_activation_request_v1,
@@ -22,10 +24,11 @@ use router_ab_cloudflare::{
     handle_cloudflare_validated_mpc_prf_recipient_proof_bundle_signer_request_v1,
     handle_cloudflare_validated_mpc_prf_signer_request_v1,
     handle_cloudflare_validated_signer_private_request_v1,
-    parse_cloudflare_router_admission_bindings_v1, parse_cloudflare_signer_a_relayer_bindings_v1,
-    parse_cloudflare_signer_b_bindings_v1,
+    open_cloudflare_signer_envelope_hpke_payload_v1, parse_cloudflare_router_admission_bindings_v1,
+    parse_cloudflare_signer_a_relayer_bindings_v1, parse_cloudflare_signer_b_bindings_v1,
     parse_cloudflare_signer_envelope_hpke_decrypt_key_binding_v1,
     parse_cloudflare_signer_envelope_hpke_public_key_set_v1, parse_cloudflare_worker_bindings_v1,
+    seal_cloudflare_signer_envelope_hpke_payload_v1,
     validate_cloudflare_peer_signing_key_matches_request_v1,
     validate_cloudflare_signer_peer_request_v1, validate_cloudflare_signer_peer_response_v1,
     validate_cloudflare_signer_private_request_plaintext_v1,
@@ -60,9 +63,8 @@ use router_ab_cloudflare::{
     CloudflareRouterVerifiedSessionV1, CloudflareRouterWorkerRuntimeV1,
     CloudflareSignerARelayerBindingsV1, CloudflareSignerARelayerWorkerRuntimeV1,
     CloudflareSignerBBindingsV1, CloudflareSignerBWorkerRuntimeV1,
-    CloudflareSignerEnvelopeDecryptKeyBindingV1,
-    CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1, CloudflareSignerEnvelopeHpkePublicKeyV1,
-    CloudflareSignerEnvelopeHpkePublicKeySetV1, CloudflareSignerHostPeerPreloadInputV1,
+    CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1, CloudflareSignerEnvelopeHpkePublicKeySetV1,
+    CloudflareSignerEnvelopeHpkePublicKeyV1, CloudflareSignerHostPeerPreloadInputV1,
     CloudflareSignerHostPreloadInputV1, CloudflareSignerHostPreloadPlanV1,
     CloudflareSignerPeerSigningKeyBindingV1, CloudflareSignerPeerVerifyingKeyBytesV1,
     CloudflareSignerPeerVerifyingKeySetV1, CloudflareSignerPrivateBootstrapRequestV1,
@@ -70,7 +72,8 @@ use router_ab_cloudflare::{
     CloudflareSignerRecipientProofBundleWireHandlerV1, CloudflareSignerStartupCheckV1,
     CloudflareSignerWireHandlerV1, CloudflareValidatedSignerInputHandlerV1,
     CloudflareValidatedSignerPrivateRequestV1, CloudflareWorkerBindingsV1, CloudflareWorkerRoleV1,
-    CLOUDFLARE_ROOT_SHARE_WIRE_SECRET_PREFIX_V1, ROUTER_ABUSE_DO_BINDING_ENV,
+    CLOUDFLARE_ROOT_SHARE_WIRE_SECRET_PREFIX_V1,
+    CLOUDFLARE_SIGNER_ENVELOPE_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1, ROUTER_ABUSE_DO_BINDING_ENV,
     ROUTER_ABUSE_DO_KEY_PREFIX_ENV, ROUTER_ABUSE_DO_OBJECT_ENV, ROUTER_JWT_AUDIENCE_ENV,
     ROUTER_JWT_ISSUER_ENV, ROUTER_JWT_JWKS_URL_ENV, ROUTER_LIFECYCLE_DO_BINDING_ENV,
     ROUTER_LIFECYCLE_DO_KEY_PREFIX_ENV, ROUTER_LIFECYCLE_DO_OBJECT_ENV,
@@ -78,20 +81,17 @@ use router_ab_cloudflare::{
     ROUTER_PROJECT_POLICY_DO_OBJECT_ENV, ROUTER_QUOTA_DO_BINDING_ENV,
     ROUTER_QUOTA_DO_KEY_PREFIX_ENV, ROUTER_QUOTA_DO_OBJECT_ENV, ROUTER_REPLAY_DO_BINDING_ENV,
     ROUTER_REPLAY_DO_KEY_PREFIX_ENV, ROUTER_REPLAY_DO_OBJECT_ENV,
-    SIGNER_A_ENVELOPE_AEAD_KEY_BINDING_ENV, SIGNER_A_ENVELOPE_AEAD_KEY_EPOCH_ENV,
     SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH_ENV, SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
     SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY_ENV, SIGNER_A_PEER_BINDING_ENV,
     SIGNER_A_PEER_SIGNING_KEY_BINDING_ENV, SIGNER_A_PEER_SIGNING_KEY_EPOCH_ENV,
-    SIGNER_A_PEER_VERIFYING_KEY_HEX_ENV,
-    SIGNER_A_RELAYER_OUTPUT_DO_BINDING_ENV, SIGNER_A_RELAYER_OUTPUT_DO_KEY_PREFIX_ENV,
-    SIGNER_A_RELAYER_OUTPUT_DO_OBJECT_ENV, SIGNER_A_ROOT_SHARE_DO_BINDING_ENV,
-    SIGNER_A_ROOT_SHARE_DO_KEY_PREFIX_ENV, SIGNER_A_ROOT_SHARE_DO_OBJECT_ENV,
-    SIGNER_A_ROOT_SHARE_WIRE_SECRET_BINDING_ENV, SIGNER_B_ENVELOPE_AEAD_KEY_BINDING_ENV,
-    SIGNER_B_ENVELOPE_AEAD_KEY_EPOCH_ENV, SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH_ENV,
-    SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV, SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
-    SIGNER_B_PEER_BINDING_ENV, SIGNER_B_PEER_SIGNING_KEY_BINDING_ENV,
-    SIGNER_B_PEER_SIGNING_KEY_EPOCH_ENV, SIGNER_B_PEER_VERIFYING_KEY_HEX_ENV,
-    SIGNER_B_ROOT_SHARE_DO_BINDING_ENV,
+    SIGNER_A_PEER_VERIFYING_KEY_HEX_ENV, SIGNER_A_RELAYER_OUTPUT_DO_BINDING_ENV,
+    SIGNER_A_RELAYER_OUTPUT_DO_KEY_PREFIX_ENV, SIGNER_A_RELAYER_OUTPUT_DO_OBJECT_ENV,
+    SIGNER_A_ROOT_SHARE_DO_BINDING_ENV, SIGNER_A_ROOT_SHARE_DO_KEY_PREFIX_ENV,
+    SIGNER_A_ROOT_SHARE_DO_OBJECT_ENV, SIGNER_A_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
+    SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH_ENV, SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
+    SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY_ENV, SIGNER_B_PEER_BINDING_ENV,
+    SIGNER_B_PEER_SIGNING_KEY_BINDING_ENV, SIGNER_B_PEER_SIGNING_KEY_EPOCH_ENV,
+    SIGNER_B_PEER_VERIFYING_KEY_HEX_ENV, SIGNER_B_ROOT_SHARE_DO_BINDING_ENV,
     SIGNER_B_ROOT_SHARE_DO_KEY_PREFIX_ENV, SIGNER_B_ROOT_SHARE_DO_OBJECT_ENV,
     SIGNER_B_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
 };
@@ -109,11 +109,10 @@ use router_ab_core::{
     RecipientProofBundleEncryptionRequestV1, RecipientProofBundleEncryptorV1,
     RelayerActivationPayloadV1, RelayerIdentityV1, RelayerOutputPackageV1, RoleEncryptedEnvelopeV1,
     RoleEnvelopeAadV1, RouterAbLifecycleStateV1, RouterAbProtocolErrorCode, RouterAbProtocolResult,
-    RouterTranscriptMetadataV1, SignerAEngine, SignerEnvelopeAeadPayloadV1,
-    SignerEnvelopeHpkePayloadV1, SignerIdentityV1, SignerInputPlaintextV1,
-    SignerInputQuorumPolicyV1, SignerKeyStore, SignerSetV1, SigningRootShareStore,
-    WireMessageKindV1, WireMessageV1, SIGNER_ENVELOPE_HPKE_ENCAPPED_KEY_LEN_V1,
-    SIGNER_ENVELOPE_HPKE_TAG_LEN_V1,
+    RouterTranscriptMetadataV1, SignerAEngine, SignerEnvelopeHpkePayloadV1, SignerIdentityV1,
+    SignerInputPlaintextV1, SignerInputQuorumPolicyV1, SignerKeyStore, SignerSetV1,
+    SigningRootShareStore, WireMessageKindV1, WireMessageV1,
+    SIGNER_ENVELOPE_HPKE_ENCAPPED_KEY_LEN_V1, SIGNER_ENVELOPE_HPKE_TAG_LEN_V1,
 };
 use router_ab_core::{
     router_transcript_digest_v1, CandidateId, PublicDigest32, RequestKind, Role, RootShareEpoch,
@@ -186,6 +185,19 @@ fn x25519_public_key(byte: u8) -> String {
         out.push_str(&format!("{byte:02x}"));
     }
     out
+}
+
+fn hpke_keypair(seed: u8) -> ([u8; 32], String) {
+    let (private_key, public_key) =
+        DhKemX25519HkdfSha256::derive_key_pair(&[seed; 32]).expect("hpke keypair derives");
+    let private_key_bytes = DhKemX25519HkdfSha256::sk_to_bytes(&private_key);
+    let mut private_key_out = [0u8; 32];
+    private_key_out.copy_from_slice(&private_key_bytes);
+    let public_key = format!(
+        "x25519:{}",
+        lower_hex(&DhKemX25519HkdfSha256::pk_to_bytes(&public_key))
+    );
+    (private_key_out, public_key)
 }
 
 fn root_share_wire_secret(role: Role) -> String {
@@ -319,24 +331,6 @@ fn relayer_output_binding() -> CloudflareDurableObjectBindingV1 {
         CloudflareDurableObjectScopeV1::signer_a_relayer_output(),
         "SIGNER_A_RELAYER_OUTPUT_DO",
     )
-}
-
-fn signer_a_envelope_decrypt_key() -> CloudflareSignerEnvelopeDecryptKeyBindingV1 {
-    CloudflareSignerEnvelopeDecryptKeyBindingV1::new(
-        Role::SignerA,
-        "SIGNER_A_ENVELOPE_AEAD_KEY",
-        "envelope-key-epoch-a",
-    )
-    .expect("signer a envelope decrypt key")
-}
-
-fn signer_b_envelope_decrypt_key() -> CloudflareSignerEnvelopeDecryptKeyBindingV1 {
-    CloudflareSignerEnvelopeDecryptKeyBindingV1::new(
-        Role::SignerB,
-        "SIGNER_B_ENVELOPE_AEAD_KEY",
-        "envelope-key-epoch-b",
-    )
-    .expect("signer b envelope decrypt key")
 }
 
 fn signer_a_envelope_hpke_decrypt_key() -> CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1 {
@@ -678,41 +672,6 @@ fn role_envelope(role: Role, seed: u8) -> RoleEncryptedEnvelopeV1 {
     .expect("role envelope")
 }
 
-fn signer_envelope_aead_payload(
-    role: Role,
-    key_epoch: &str,
-    aad_digest: PublicDigest32,
-) -> SignerEnvelopeAeadPayloadV1 {
-    let nonce_seed = match role {
-        Role::SignerA => 0xa1,
-        Role::SignerB => 0xb1,
-        _ => panic!("test helper requires signer role"),
-    };
-    SignerEnvelopeAeadPayloadV1::new(
-        role,
-        key_epoch,
-        aad_digest,
-        [nonce_seed; 12],
-        vec![
-            0xc0, 0xc1, 0xc2, 0xc3, 0xc4, 0xc5, 0xc6, 0xc7, 0xc8, 0xc9, 0xca, 0xcb, 0xcc, 0xcd,
-            0xce, 0xcf, 0xd0, 0xd1,
-        ],
-    )
-    .expect("signer envelope AEAD payload")
-}
-
-fn role_aead_envelope(role: Role, seed: u8, key_epoch: &str) -> RoleEncryptedEnvelopeV1 {
-    let aad_digest = digest(seed + 1);
-    let aead = signer_envelope_aead_payload(role, key_epoch, aad_digest);
-    RoleEncryptedEnvelopeV1::new(
-        role,
-        digest(seed),
-        aad_digest,
-        EncryptedPayloadV1::new(aead.canonical_bytes()).expect("AEAD payload bytes"),
-    )
-    .expect("role AEAD envelope")
-}
-
 fn signer_envelope_hpke_payload(
     role: Role,
     key_epoch: &str,
@@ -837,28 +796,6 @@ fn signer_private_request(kind: WireMessageKindV1) -> WireMessageV1 {
     }
 }
 
-fn public_router_request_with_aead_envelopes(expires_at_ms: u64) -> PublicRouterRequestV1 {
-    let lifecycle = lifecycle_scope();
-    let signer_set = signer_set();
-    let transcript_digest = public_request_transcript_digest(&lifecycle, &signer_set);
-    PublicRouterRequestV1::new(
-        "request-nonce-1",
-        expires_at_ms,
-        lifecycle,
-        CandidateId::MpcThresholdPrfV1,
-        signer_set,
-        "near-mainnet",
-        "ed25519:account-public-key",
-        "router-1",
-        "client-1",
-        "x25519:client-ephemeral-public-key",
-        transcript_digest,
-        role_aead_envelope(Role::SignerA, 0x10, "envelope-key-epoch-a"),
-        role_aead_envelope(Role::SignerB, 0x20, "envelope-key-epoch-b"),
-    )
-    .expect("public router request with AEAD envelopes")
-}
-
 fn public_router_request_with_hpke_envelopes(expires_at_ms: u64) -> PublicRouterRequestV1 {
     let lifecycle = lifecycle_scope();
     let signer_set = signer_set();
@@ -889,6 +826,54 @@ fn public_router_request_with_hpke_envelopes(expires_at_ms: u64) -> PublicRouter
         ),
     )
     .expect("public router request with HPKE envelopes")
+}
+
+fn signer_a_private_request_with_sealed_hpke_envelope(
+    public_key: &str,
+    plaintext: &[u8],
+) -> (WireMessageV1, RoleEnvelopeAadV1) {
+    let base = public_router_request(2_000);
+    let aad = role_envelope_aad_for_request(Role::SignerA, &base);
+    let recipient_key = CloudflareSignerEnvelopeHpkePublicKeyV1::new(
+        Role::SignerA,
+        "envelope-hpke-key-epoch-a",
+        public_key,
+    )
+    .expect("signer a hpke public key");
+    let sealed = seal_cloudflare_signer_envelope_hpke_payload_v1(&recipient_key, &aad, plaintext)
+        .expect("sealed signer a hpke envelope");
+    let request = PublicRouterRequestV1::new(
+        base.request_nonce,
+        base.expires_at_ms,
+        base.lifecycle,
+        base.required_derivation_candidate,
+        base.signer_set,
+        base.network_id,
+        base.account_public_key,
+        base.router_id,
+        base.client_id,
+        base.client_ephemeral_public_key,
+        base.transcript_digest,
+        RoleEncryptedEnvelopeV1::new(
+            Role::SignerA,
+            digest(0x10),
+            aad.digest(),
+            EncryptedPayloadV1::new(sealed.canonical_bytes()).expect("sealed hpke payload bytes"),
+        )
+        .expect("sealed signer a hpke role envelope"),
+        role_hpke_envelope(
+            Role::SignerB,
+            0x20,
+            "envelope-hpke-key-epoch-b",
+            &x25519_public_key(0x22),
+        ),
+    )
+    .expect("public router request with sealed signer a HPKE envelope");
+    let message = request
+        .to_signer_wire_messages()
+        .expect("signer wire messages")
+        .0;
+    (message, aad)
 }
 
 fn public_router_request_with_aad_bound_envelopes(expires_at_ms: u64) -> PublicRouterRequestV1 {
@@ -941,24 +926,6 @@ fn signer_private_request_with_reconstructed_transcript(kind: WireMessageKindV1)
         }
         WireMessageKindV1::RouterToSignerB => {
             public_router_request_with_reconstructed_transcript(2_000)
-                .to_signer_wire_messages()
-                .expect("signer wire messages")
-                .1
-        }
-        _ => signer_private_request(kind),
-    }
-}
-
-fn signer_private_request_with_aead_envelope(kind: WireMessageKindV1) -> WireMessageV1 {
-    match kind {
-        WireMessageKindV1::RouterToSignerA => {
-            public_router_request_with_aead_envelopes(2_000)
-                .to_signer_wire_messages()
-                .expect("signer wire messages")
-                .0
-        }
-        WireMessageKindV1::RouterToSignerB => {
-            public_router_request_with_aead_envelopes(2_000)
                 .to_signer_wire_messages()
                 .expect("signer wire messages")
                 .1
@@ -1427,12 +1394,16 @@ fn signer_a_env() -> CloudflareEnvMapV1 {
             "signer-a-relayer-output:".to_string(),
         ),
         (
-            SIGNER_A_ENVELOPE_AEAD_KEY_BINDING_ENV,
-            "SIGNER_A_ENVELOPE_AEAD_KEY".to_string(),
+            SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
+            "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY".to_string(),
         ),
         (
-            SIGNER_A_ENVELOPE_AEAD_KEY_EPOCH_ENV,
-            "envelope-key-epoch-a".to_string(),
+            SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH_ENV,
+            "envelope-hpke-key-epoch-a".to_string(),
+        ),
+        (
+            SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
+            x25519_public_key(0x11),
         ),
         (
             SIGNER_A_PEER_SIGNING_KEY_BINDING_ENV,
@@ -1473,12 +1444,16 @@ fn signer_b_env() -> CloudflareEnvMapV1 {
             "SIGNER_B_ROOT_SHARE_WIRE_SECRET".to_string(),
         ),
         (
-            SIGNER_B_ENVELOPE_AEAD_KEY_BINDING_ENV,
-            "SIGNER_B_ENVELOPE_AEAD_KEY".to_string(),
+            SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
+            "SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY".to_string(),
         ),
         (
-            SIGNER_B_ENVELOPE_AEAD_KEY_EPOCH_ENV,
-            "envelope-key-epoch-b".to_string(),
+            SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH_ENV,
+            "envelope-hpke-key-epoch-b".to_string(),
+        ),
+        (
+            SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
+            x25519_public_key(0x22),
         ),
         (
             SIGNER_B_PEER_SIGNING_KEY_BINDING_ENV,
@@ -2719,67 +2694,243 @@ fn signer_private_preload_plan_rejects_wrong_worker_role() {
 }
 
 #[test]
-fn cloudflare_signer_envelope_aead_payload_accepts_bound_public_metadata() {
-    let message = signer_private_request_with_aead_envelope(WireMessageKindV1::RouterToSignerA);
+fn cloudflare_signer_envelope_hpke_public_key_set_parses_from_env() {
+    let signer_a_public_key = x25519_public_key(0x11);
+    let signer_b_public_key = x25519_public_key(0x22);
+    let env = CloudflareEnvMapV1::new(vec![
+        (
+            SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH_ENV,
+            "envelope-hpke-key-epoch-a".to_string(),
+        ),
+        (
+            SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
+            signer_a_public_key.clone(),
+        ),
+        (
+            SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH_ENV,
+            "envelope-hpke-key-epoch-b".to_string(),
+        ),
+        (
+            SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
+            signer_b_public_key.clone(),
+        ),
+    ]);
 
-    let parsed = decode_and_validate_cloudflare_signer_envelope_aead_payload_v1(
-        CloudflareWorkerRoleV1::SignerARelayer,
-        &message,
-        &signer_a_envelope_decrypt_key(),
-    )
-    .expect("validated AEAD payload");
+    let key_set =
+        parse_cloudflare_signer_envelope_hpke_public_key_set_v1(&env).expect("hpke key set");
 
-    assert_eq!(parsed.recipient_role, Role::SignerA);
-    assert_eq!(parsed.key_epoch, "envelope-key-epoch-a");
-    assert_eq!(parsed.aad_digest, digest(0x11));
+    assert_eq!(key_set.signer_a.role, Role::SignerA);
+    assert_eq!(key_set.signer_a.key_epoch, "envelope-hpke-key-epoch-a");
+    assert_eq!(key_set.signer_a.public_key, signer_a_public_key);
+    assert_eq!(key_set.signer_b.role, Role::SignerB);
+    assert_eq!(key_set.signer_b.key_epoch, "envelope-hpke-key-epoch-b");
+    assert_eq!(key_set.signer_b.public_key, signer_b_public_key);
 }
 
 #[test]
-fn cloudflare_signer_envelope_aead_payload_rejects_wrong_key_epoch() {
-    let message = signer_private_request_with_aead_envelope(WireMessageKindV1::RouterToSignerA);
-    let key = CloudflareSignerEnvelopeDecryptKeyBindingV1::new(
-        Role::SignerA,
-        "SIGNER_A_ENVELOPE_AEAD_KEY",
-        "stale-envelope-key-epoch-a",
+fn cloudflare_signer_envelope_hpke_public_key_set_rejects_role_swap() {
+    let err = CloudflareSignerEnvelopeHpkePublicKeySetV1::new(
+        CloudflareSignerEnvelopeHpkePublicKeyV1::new(
+            Role::SignerB,
+            "envelope-hpke-key-epoch-a",
+            x25519_public_key(0x11),
+        )
+        .expect("swapped signer a descriptor"),
+        CloudflareSignerEnvelopeHpkePublicKeyV1::new(
+            Role::SignerA,
+            "envelope-hpke-key-epoch-b",
+            x25519_public_key(0x22),
+        )
+        .expect("swapped signer b descriptor"),
     )
-    .expect("stale key descriptor");
+    .expect_err("swapped signer roles must fail");
 
-    let err = decode_and_validate_cloudflare_signer_envelope_aead_payload_v1(
-        CloudflareWorkerRoleV1::SignerARelayer,
-        &message,
-        &key,
-    )
-    .expect_err("wrong key epoch must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidSignerIdentity);
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidRole);
 }
 
 #[test]
-fn cloudflare_signer_envelope_aead_payload_rejects_wrong_role_key() {
-    let message = signer_private_request_with_aead_envelope(WireMessageKindV1::RouterToSignerA);
+fn cloudflare_signer_envelope_hpke_decrypt_key_binding_is_role_local() {
+    let key = signer_a_envelope_hpke_decrypt_key();
 
-    let err = decode_and_validate_cloudflare_signer_envelope_aead_payload_v1(
-        CloudflareWorkerRoleV1::SignerARelayer,
-        &message,
-        &signer_b_envelope_decrypt_key(),
-    )
-    .expect_err("wrong role key must fail");
+    key.validate_visible_to(CloudflareWorkerRoleV1::SignerARelayer)
+        .expect("signer a can access signer a hpke key");
+    let err = key
+        .validate_visible_to(CloudflareWorkerRoleV1::Router)
+        .expect_err("router must not access signer hpke key");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
 }
 
 #[test]
-fn cloudflare_signer_envelope_aead_payload_rejects_malformed_ciphertext() {
-    let message = signer_private_request(WireMessageKindV1::RouterToSignerA);
+fn cloudflare_signer_envelope_hpke_decrypt_key_parses_from_role_env() {
+    let public_key = x25519_public_key(0x11);
+    let env = CloudflareEnvMapV1::new(vec![
+        (
+            SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
+            "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY".to_string(),
+        ),
+        (
+            SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH_ENV,
+            "envelope-hpke-key-epoch-a".to_string(),
+        ),
+        (SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY_ENV, public_key.clone()),
+    ]);
 
-    let err = decode_and_validate_cloudflare_signer_envelope_aead_payload_v1(
+    let key = parse_cloudflare_signer_envelope_hpke_decrypt_key_binding_v1(
+        CloudflareWorkerRoleV1::SignerARelayer,
+        &env,
+    )
+    .expect("signer a hpke decrypt key");
+
+    assert_eq!(key.role, Role::SignerA);
+    assert_eq!(key.binding_name, "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY");
+    assert_eq!(key.key_epoch, "envelope-hpke-key-epoch-a");
+    assert_eq!(key.public_key, public_key);
+}
+
+#[test]
+fn cloudflare_signer_envelope_hpke_payload_accepts_bound_public_metadata() {
+    let message = signer_private_request_with_hpke_envelope(WireMessageKindV1::RouterToSignerA);
+
+    let parsed = decode_and_validate_cloudflare_signer_envelope_hpke_payload_v1(
         CloudflareWorkerRoleV1::SignerARelayer,
         &message,
-        &signer_a_envelope_decrypt_key(),
+        &signer_a_envelope_hpke_decrypt_key(),
     )
-    .expect_err("placeholder ciphertext is not a valid AEAD payload");
+    .expect("validated HPKE payload");
+
+    assert_eq!(parsed.recipient_role, Role::SignerA);
+    assert_eq!(parsed.key_epoch, "envelope-hpke-key-epoch-a");
+    assert_eq!(parsed.recipient_public_key, x25519_public_key(0x11));
+    assert_eq!(parsed.aad_digest, digest(0x11));
+}
+
+#[test]
+fn cloudflare_signer_envelope_hpke_payload_rejects_wrong_public_key() {
+    let message = signer_private_request_with_hpke_envelope(WireMessageKindV1::RouterToSignerA);
+    let key = CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1::new(
+        Role::SignerA,
+        "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY",
+        "envelope-hpke-key-epoch-a",
+        x25519_public_key(0x33),
+    )
+    .expect("wrong signer a hpke key descriptor");
+
+    let err = decode_and_validate_cloudflare_signer_envelope_hpke_payload_v1(
+        CloudflareWorkerRoleV1::SignerARelayer,
+        &message,
+        &key,
+    )
+    .expect_err("wrong hpke public key must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidSignerIdentity);
+}
+
+#[test]
+fn cloudflare_signer_envelope_hpke_seal_open_round_trips_plaintext() {
+    let (private_key, public_key) = hpke_keypair(0x42);
+    let expected_plaintext = signer_input_plaintext_bytes(Role::SignerA);
+    let (message, aad) =
+        signer_a_private_request_with_sealed_hpke_envelope(&public_key, &expected_plaintext);
+    let key = CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1::new(
+        Role::SignerA,
+        "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY",
+        "envelope-hpke-key-epoch-a",
+        public_key,
+    )
+    .expect("signer a hpke decrypt key");
+
+    let plaintext = open_cloudflare_signer_envelope_hpke_payload_v1(
+        CloudflareWorkerRoleV1::SignerARelayer,
+        &message,
+        &key,
+        &aad,
+        &private_key,
+    )
+    .expect("hpke signer envelope opens");
+
+    assert_eq!(plaintext, expected_plaintext);
+}
+
+#[test]
+fn cloudflare_signer_envelope_hpke_open_rejects_wrong_aad() {
+    let (private_key, public_key) = hpke_keypair(0x42);
+    let expected_plaintext = signer_input_plaintext_bytes(Role::SignerA);
+    let (message, mut aad) =
+        signer_a_private_request_with_sealed_hpke_envelope(&public_key, &expected_plaintext);
+    aad.expires_at_ms += 1;
+    let key = CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1::new(
+        Role::SignerA,
+        "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY",
+        "envelope-hpke-key-epoch-a",
+        public_key,
+    )
+    .expect("signer a hpke decrypt key");
+
+    let err = open_cloudflare_signer_envelope_hpke_payload_v1(
+        CloudflareWorkerRoleV1::SignerARelayer,
+        &message,
+        &key,
+        &aad,
+        &private_key,
+    )
+    .expect_err("modified AAD must fail");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+}
+
+#[test]
+fn cloudflare_signer_envelope_hpke_open_rejects_wrong_private_key() {
+    let (_, public_key) = hpke_keypair(0x42);
+    let (wrong_private_key, _) = hpke_keypair(0x43);
+    let expected_plaintext = signer_input_plaintext_bytes(Role::SignerA);
+    let (message, aad) =
+        signer_a_private_request_with_sealed_hpke_envelope(&public_key, &expected_plaintext);
+    let key = CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1::new(
+        Role::SignerA,
+        "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY",
+        "envelope-hpke-key-epoch-a",
+        public_key,
+    )
+    .expect("signer a hpke decrypt key");
+
+    let err = open_cloudflare_signer_envelope_hpke_payload_v1(
+        CloudflareWorkerRoleV1::SignerARelayer,
+        &message,
+        &key,
+        &aad,
+        &wrong_private_key,
+    )
+    .expect_err("wrong private key must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+}
+
+#[test]
+fn cloudflare_signer_envelope_hpke_private_key_secret_round_trips() {
+    let (private_key, _) = hpke_keypair(0x42);
+
+    let encoded = encode_cloudflare_signer_envelope_hpke_private_key_secret_v1(&private_key)
+        .expect("private key secret encodes");
+    let decoded = decode_cloudflare_signer_envelope_hpke_private_key_secret_v1(&encoded)
+        .expect("private key secret decodes");
+
+    assert!(encoded.starts_with(CLOUDFLARE_SIGNER_ENVELOPE_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1));
+    assert_eq!(decoded, private_key);
+}
+
+#[test]
+fn cloudflare_signer_envelope_hpke_private_key_secret_rejects_bad_prefix() {
+    let (private_key, _) = hpke_keypair(0x42);
+    let encoded = format!("wrong-prefix:{}", lower_hex(&private_key));
+
+    let err = decode_cloudflare_signer_envelope_hpke_private_key_secret_v1(&encoded)
+        .expect_err("wrong private key secret prefix must fail");
+
+    assert_eq!(
+        err.code(),
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
+    );
 }
 
 #[test]
@@ -3780,7 +3931,7 @@ fn signer_a_relayer_bindings_accept_a_root_and_relayer_output() {
         signer_a_root_binding(),
         signer_a_root_share_wire_secret_binding(),
         relayer_output_binding(),
-        signer_a_envelope_decrypt_key(),
+        signer_a_envelope_hpke_decrypt_key(),
         signer_a_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::SignerB, "SIGNER_B"),
@@ -3800,7 +3951,7 @@ fn signer_a_relayer_bindings_reject_b_root_share_scope() {
         signer_b_root_binding(),
         signer_a_root_share_wire_secret_binding(),
         relayer_output_binding(),
-        signer_a_envelope_decrypt_key(),
+        signer_a_envelope_hpke_decrypt_key(),
         signer_a_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::SignerB, "SIGNER_B"),
@@ -3816,7 +3967,7 @@ fn signer_a_relayer_bindings_reject_b_root_share_wire_secret() {
         signer_a_root_binding(),
         signer_b_root_share_wire_secret_binding(),
         relayer_output_binding(),
-        signer_a_envelope_decrypt_key(),
+        signer_a_envelope_hpke_decrypt_key(),
         signer_a_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::SignerB, "SIGNER_B"),
@@ -3832,7 +3983,7 @@ fn signer_a_relayer_bindings_reject_b_envelope_decrypt_key() {
         signer_a_root_binding(),
         signer_a_root_share_wire_secret_binding(),
         relayer_output_binding(),
-        signer_b_envelope_decrypt_key(),
+        signer_b_envelope_hpke_decrypt_key(),
         signer_a_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::SignerB, "SIGNER_B"),
@@ -3848,7 +3999,7 @@ fn signer_a_relayer_bindings_reject_b_peer_signing_key() {
         signer_a_root_binding(),
         signer_a_root_share_wire_secret_binding(),
         relayer_output_binding(),
-        signer_a_envelope_decrypt_key(),
+        signer_a_envelope_hpke_decrypt_key(),
         signer_b_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::SignerB, "SIGNER_B"),
@@ -3863,7 +4014,7 @@ fn signer_b_bindings_accept_b_root_share_scope() {
     let bindings = CloudflareSignerBBindingsV1::new(
         signer_b_root_binding(),
         signer_b_root_share_wire_secret_binding(),
-        signer_b_envelope_decrypt_key(),
+        signer_b_envelope_hpke_decrypt_key(),
         signer_b_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::SignerARelayer, "SIGNER_A"),
@@ -3879,7 +4030,7 @@ fn signer_b_bindings_reject_relayer_output_scope() {
     let err = CloudflareSignerBBindingsV1::new(
         relayer_output_binding(),
         signer_b_root_share_wire_secret_binding(),
-        signer_b_envelope_decrypt_key(),
+        signer_b_envelope_hpke_decrypt_key(),
         signer_b_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::SignerARelayer, "SIGNER_A"),
@@ -3894,7 +4045,7 @@ fn signer_b_bindings_reject_a_root_share_wire_secret() {
     let err = CloudflareSignerBBindingsV1::new(
         signer_b_root_binding(),
         signer_a_root_share_wire_secret_binding(),
-        signer_b_envelope_decrypt_key(),
+        signer_b_envelope_hpke_decrypt_key(),
         signer_b_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::SignerARelayer, "SIGNER_A"),
@@ -3909,7 +4060,7 @@ fn signer_b_bindings_reject_a_envelope_decrypt_key() {
     let err = CloudflareSignerBBindingsV1::new(
         signer_b_root_binding(),
         signer_b_root_share_wire_secret_binding(),
-        signer_a_envelope_decrypt_key(),
+        signer_a_envelope_hpke_decrypt_key(),
         signer_b_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::SignerARelayer, "SIGNER_A"),
@@ -3924,7 +4075,7 @@ fn signer_b_bindings_reject_a_peer_signing_key() {
     let err = CloudflareSignerBBindingsV1::new(
         signer_b_root_binding(),
         signer_b_root_share_wire_secret_binding(),
-        signer_b_envelope_decrypt_key(),
+        signer_b_envelope_hpke_decrypt_key(),
         signer_a_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::SignerARelayer, "SIGNER_A"),
@@ -3993,7 +4144,7 @@ fn signer_a_runtime_builds_only_a_scoped_storage_calls() {
             signer_a_root_binding(),
             signer_a_root_share_wire_secret_binding(),
             relayer_output_binding(),
-            signer_a_envelope_decrypt_key(),
+            signer_a_envelope_hpke_decrypt_key(),
             signer_a_peer_signing_key(),
             cloudflare_peer_verifying_key_set(),
             peer(CloudflareWorkerRoleV1::SignerB, "SIGNER_B"),
@@ -4047,7 +4198,7 @@ fn signer_b_runtime_builds_only_b_scoped_storage_calls() {
         CloudflareSignerBBindingsV1::new(
             signer_b_root_binding(),
             signer_b_root_share_wire_secret_binding(),
-            signer_b_envelope_decrypt_key(),
+            signer_b_envelope_hpke_decrypt_key(),
             signer_b_peer_signing_key(),
             cloudflare_peer_verifying_key_set(),
             peer(CloudflareWorkerRoleV1::SignerARelayer, "SIGNER_A"),
@@ -4514,11 +4665,15 @@ fn env_parser_builds_signer_a_relayer_bindings_from_required_keys() {
     assert_eq!(bindings.root_share_wire_secret.role, Role::SignerA);
     assert_eq!(
         bindings.envelope_decrypt_key.binding_name,
-        "SIGNER_A_ENVELOPE_AEAD_KEY"
+        "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY"
     );
     assert_eq!(
         bindings.envelope_decrypt_key.key_epoch,
-        "envelope-key-epoch-a"
+        "envelope-hpke-key-epoch-a"
+    );
+    assert_eq!(
+        bindings.envelope_decrypt_key.public_key,
+        x25519_public_key(0x11)
     );
     assert_eq!(
         bindings.peer_signing_key.binding_name,
@@ -4556,11 +4711,15 @@ fn env_parser_builds_signer_b_bindings_from_required_keys() {
     assert_eq!(bindings.root_share_wire_secret.role, Role::SignerB);
     assert_eq!(
         bindings.envelope_decrypt_key.binding_name,
-        "SIGNER_B_ENVELOPE_AEAD_KEY"
+        "SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY"
     );
     assert_eq!(
         bindings.envelope_decrypt_key.key_epoch,
-        "envelope-key-epoch-b"
+        "envelope-hpke-key-epoch-b"
+    );
+    assert_eq!(
+        bindings.envelope_decrypt_key.public_key,
+        x25519_public_key(0x22)
     );
     assert_eq!(
         bindings.peer_signing_key.binding_name,
@@ -4577,14 +4736,14 @@ fn env_parser_builds_signer_b_bindings_from_required_keys() {
 }
 
 #[test]
-fn env_parser_rejects_router_with_signer_envelope_decrypt_key_binding() {
+fn env_parser_rejects_router_with_signer_envelope_hpke_private_key_binding() {
     let env = CloudflareEnvMapV1::new(vec![(
-        SIGNER_A_ENVELOPE_AEAD_KEY_BINDING_ENV,
-        "SIGNER_A_ENVELOPE_AEAD_KEY",
+        SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
+        "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY",
     )]);
 
     let err = parse_cloudflare_worker_bindings_v1(CloudflareWorkerRoleV1::Router, &env)
-        .expect_err("router must reject signer decrypt key env");
+        .expect_err("router must reject signer hpke private key env");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
 }
@@ -4616,14 +4775,14 @@ fn env_parser_rejects_router_with_signer_root_share_wire_secret_binding() {
 }
 
 #[test]
-fn env_parser_rejects_signer_a_with_signer_b_envelope_decrypt_key_binding() {
+fn env_parser_rejects_signer_a_with_signer_b_envelope_hpke_private_key_binding() {
     let env = CloudflareEnvMapV1::new(vec![(
-        SIGNER_B_ENVELOPE_AEAD_KEY_BINDING_ENV,
-        "SIGNER_B_ENVELOPE_AEAD_KEY",
+        SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
+        "SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY",
     )]);
 
     let err = parse_cloudflare_worker_bindings_v1(CloudflareWorkerRoleV1::SignerARelayer, &env)
-        .expect_err("signer a must reject signer b decrypt key env");
+        .expect_err("signer a must reject signer b hpke private key env");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
 }
@@ -4655,14 +4814,14 @@ fn env_parser_rejects_signer_a_with_signer_b_root_share_wire_secret_binding() {
 }
 
 #[test]
-fn env_parser_rejects_signer_b_with_signer_a_envelope_decrypt_key_binding() {
+fn env_parser_rejects_signer_b_with_signer_a_envelope_hpke_private_key_binding() {
     let env = CloudflareEnvMapV1::new(vec![(
-        SIGNER_A_ENVELOPE_AEAD_KEY_BINDING_ENV,
-        "SIGNER_A_ENVELOPE_AEAD_KEY",
+        SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
+        "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY",
     )]);
 
     let err = parse_cloudflare_worker_bindings_v1(CloudflareWorkerRoleV1::SignerB, &env)
-        .expect_err("signer b must reject signer a decrypt key env");
+        .expect_err("signer b must reject signer a hpke private key env");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
 }

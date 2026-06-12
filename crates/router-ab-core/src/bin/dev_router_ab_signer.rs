@@ -172,7 +172,7 @@ fn signer_a_env_snapshot() -> Result<LocalEnvSnapshotV1, Box<dyn std::error::Err
     Ok(LocalEnvSnapshotV1::new(
         LocalServiceRoleV1::SignerARelayer,
         vec![
-            "SIGNER_A_ENVELOPE_AEAD_KEY".to_owned(),
+            "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY".to_owned(),
             "SIGNING_ROOT_SHARE_A_KEK".to_owned(),
             "RELAYER_OUTPUT_STORAGE".to_owned(),
             "SIGNER_B_URL".to_owned(),
@@ -184,7 +184,7 @@ fn signer_b_env_snapshot() -> Result<LocalEnvSnapshotV1, Box<dyn std::error::Err
     Ok(LocalEnvSnapshotV1::new(
         LocalServiceRoleV1::SignerB,
         vec![
-            "SIGNER_B_ENVELOPE_AEAD_KEY".to_owned(),
+            "SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY".to_owned(),
             "SIGNING_ROOT_SHARE_B_KEK".to_owned(),
             "SIGNER_A_URL".to_owned(),
         ],

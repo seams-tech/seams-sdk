@@ -8,6 +8,8 @@ use router_ab_core::{
 #[cfg(feature = "workers-rs")]
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "workers-rs")]
+use wasm_bindgen as _;
 
 use crate::{
     CloudflareDurableObjectBindingV1, CloudflareDurableObjectScopeV1, CloudflareWorkerRoleV1,
