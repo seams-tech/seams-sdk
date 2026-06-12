@@ -8,7 +8,7 @@ use sha2::{Digest, Sha512};
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
-use crate::context::{PrfContext, PrfPurpose};
+use crate::context::{PrfContext, PrfOutputEncoding};
 use crate::error::{ThresholdPrfError, ThresholdPrfResult};
 use crate::shamir::{
     exactly_two_shares, lagrange_coefficients_2, SigningRootScalar, SigningRootShare,
@@ -561,12 +561,14 @@ fn output_from_point(
     let digest = Sha512::digest(transcript);
     let mut out = [0u8; 32];
     out.copy_from_slice(&digest[..32]);
-    if matches!(context.purpose, PrfPurpose::Ed25519HssTauRelayer) {
-        let reduced = Scalar::from_bytes_mod_order(out).to_bytes();
-        out.zeroize();
-        return Ok(PrfOutput32(reduced));
+    match context.purpose.output_encoding() {
+        PrfOutputEncoding::Raw32 => Ok(PrfOutput32(out)),
+        PrfOutputEncoding::CanonicalEd25519Scalar32 => {
+            let reduced = Scalar::from_bytes_mod_order(out).to_bytes();
+            out.zeroize();
+            Ok(PrfOutput32(reduced))
+        }
     }
-    Ok(PrfOutput32(out))
 }
 
 fn prove_partial_dleq<R>(
@@ -626,6 +628,32 @@ fn dleq_challenge(
     nonce_g: &RistrettoPoint,
     nonce_p: &RistrettoPoint,
 ) -> ThresholdPrfResult<Scalar> {
+    let transcript = encode_dleq_challenge_transcript(
+        context,
+        context_tag,
+        share_id,
+        input_point,
+        commitment_point,
+        partial_point,
+        nonce_g,
+        nonce_p,
+    )?;
+    let digest = Sha512::digest(transcript);
+    let mut wide = [0u8; 64];
+    wide.copy_from_slice(&digest);
+    Ok(Scalar::from_bytes_mod_order_wide(&wide))
+}
+
+fn encode_dleq_challenge_transcript(
+    context: &PrfContext,
+    context_tag: &[u8; 32],
+    share_id: SigningRootShareId,
+    input_point: &RistrettoPoint,
+    commitment_point: &RistrettoPoint,
+    partial_point: &RistrettoPoint,
+    nonce_g: &RistrettoPoint,
+    nonce_p: &RistrettoPoint,
+) -> ThresholdPrfResult<Vec<u8>> {
     let mut transcript = Vec::new();
     push_len16(&mut transcript, DLEQ_DOMAIN)?;
     push_len16(&mut transcript, context.suite_id.as_bytes())?;
@@ -638,11 +666,7 @@ fn dleq_challenge(
     transcript.extend_from_slice(partial_point.compress().as_bytes());
     transcript.extend_from_slice(nonce_g.compress().as_bytes());
     transcript.extend_from_slice(nonce_p.compress().as_bytes());
-
-    let digest = Sha512::digest(transcript);
-    let mut wide = [0u8; 64];
-    wide.copy_from_slice(&digest);
-    Ok(Scalar::from_bytes_mod_order_wide(&wide))
+    Ok(transcript)
 }
 
 fn encode_transcript(
@@ -660,17 +684,137 @@ fn encode_transcript(
 }
 
 fn push_len16(out: &mut Vec<u8>, bytes: &[u8]) -> ThresholdPrfResult<()> {
-    let len =
-        u16::try_from(bytes.len()).map_err(|_| ThresholdPrfError::TranscriptLengthOverflow)?;
-    out.extend_from_slice(&len.to_be_bytes());
+    out.extend_from_slice(&len16_bytes(bytes.len())?);
     out.extend_from_slice(bytes);
     Ok(())
 }
 
 fn push_len32(out: &mut Vec<u8>, bytes: &[u8]) -> ThresholdPrfResult<()> {
-    let len =
-        u32::try_from(bytes.len()).map_err(|_| ThresholdPrfError::TranscriptLengthOverflow)?;
-    out.extend_from_slice(&len.to_be_bytes());
+    out.extend_from_slice(&len32_bytes(bytes.len())?);
     out.extend_from_slice(bytes);
     Ok(())
+}
+
+fn len16_bytes(len: usize) -> ThresholdPrfResult<[u8; 2]> {
+    let len = u16::try_from(len).map_err(|_| ThresholdPrfError::TranscriptLengthOverflow)?;
+    Ok(len.to_be_bytes())
+}
+
+fn len32_bytes(len: usize) -> ThresholdPrfResult<[u8; 4]> {
+    let len = u32::try_from(len).map_err(|_| ThresholdPrfError::TranscriptLengthOverflow)?;
+    Ok(len.to_be_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::PrfPurpose;
+    use crate::suite::SuiteId;
+
+    fn fixture_context() -> PrfContext {
+        PrfContext::new(
+            SuiteId::Ristretto255Sha512V1,
+            PrfPurpose::EcdsaHssYRelayer,
+            b"ctx",
+        )
+    }
+
+    fn append_point(out: &mut Vec<u8>, point: &RistrettoPoint) {
+        out.extend_from_slice(point.compress().as_bytes());
+    }
+
+    #[test]
+    fn standard_transcript_fixtures_pin_field_order() {
+        let context = fixture_context();
+
+        assert_eq!(
+            encode_transcript(INPUT_DOMAIN, &context, &[]).unwrap(),
+            b"\x00\x16threshold-prf:v1/input\
+              \x00\x24threshold-prf/ristretto255-sha512/v1\
+              \x00\x13ecdsa-hss/y_relayer\
+              \x00\x00\x00\x03ctx\
+              \x00\x00\x00\x00"
+                .to_vec()
+        );
+        assert_eq!(
+            encode_transcript(PARTIAL_CONTEXT_DOMAIN, &context, &[]).unwrap(),
+            b"\x00\x20threshold-prf:v1/partial-context\
+              \x00\x24threshold-prf/ristretto255-sha512/v1\
+              \x00\x13ecdsa-hss/y_relayer\
+              \x00\x00\x00\x03ctx\
+              \x00\x00\x00\x00"
+                .to_vec()
+        );
+        assert_eq!(
+            encode_transcript(OUTPUT_DOMAIN, &context, b"payload").unwrap(),
+            b"\x00\x17threshold-prf:v1/output\
+              \x00\x24threshold-prf/ristretto255-sha512/v1\
+              \x00\x13ecdsa-hss/y_relayer\
+              \x00\x00\x00\x03ctx\
+              \x00\x00\x00\x07payload"
+                .to_vec()
+        );
+    }
+
+    #[test]
+    fn dleq_transcript_fixture_pins_field_order() {
+        let context = fixture_context();
+        let context_tag = [0x11u8; 32];
+        let share_id = SigningRootShareId::new(2).unwrap();
+        let input_point = RISTRETTO_BASEPOINT_POINT;
+        let commitment_point = Scalar::from(2u64) * RISTRETTO_BASEPOINT_POINT;
+        let partial_point = Scalar::from(3u64) * RISTRETTO_BASEPOINT_POINT;
+        let nonce_g = Scalar::from(4u64) * RISTRETTO_BASEPOINT_POINT;
+        let nonce_p = Scalar::from(5u64) * RISTRETTO_BASEPOINT_POINT;
+
+        let transcript = encode_dleq_challenge_transcript(
+            &context,
+            &context_tag,
+            share_id,
+            &input_point,
+            &commitment_point,
+            &partial_point,
+            &nonce_g,
+            &nonce_p,
+        )
+        .unwrap();
+
+        let mut expected = Vec::new();
+        expected.extend_from_slice(b"\x00\x15threshold-prf:v1/dleq");
+        expected.extend_from_slice(b"\x00\x24threshold-prf/ristretto255-sha512/v1");
+        expected.extend_from_slice(b"\x00\x13ecdsa-hss/y_relayer");
+        expected.extend_from_slice(&context_tag);
+        expected.push(2);
+        append_point(&mut expected, &RISTRETTO_BASEPOINT_POINT);
+        append_point(&mut expected, &input_point);
+        append_point(&mut expected, &commitment_point);
+        append_point(&mut expected, &partial_point);
+        append_point(&mut expected, &nonce_g);
+        append_point(&mut expected, &nonce_p);
+
+        assert_eq!(transcript, expected);
+    }
+
+    #[test]
+    fn transcript_len16_overflow_is_rejected() {
+        let oversized = vec![0u8; usize::from(u16::MAX) + 1];
+        assert_eq!(
+            encode_transcript(&oversized, &fixture_context(), &[]).unwrap_err(),
+            ThresholdPrfError::TranscriptLengthOverflow
+        );
+        assert_eq!(
+            len16_bytes(usize::from(u16::MAX) + 1).unwrap_err(),
+            ThresholdPrfError::TranscriptLengthOverflow
+        );
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn transcript_len32_overflow_is_rejected() {
+        let oversized_len = (u32::MAX as usize) + 1;
+        assert_eq!(
+            len32_bytes(oversized_len).unwrap_err(),
+            ThresholdPrfError::TranscriptLengthOverflow
+        );
+    }
 }

@@ -8,9 +8,9 @@ use threshold_prf::{
     evaluate_partial as evaluate_partial_result, evaluate_partial_with_dleq_proof,
     generate_signing_root, reconstruct_signing_root_2_of_3, refresh_signing_root_shares_2_of_3,
     split_signing_root_2_of_3, verify_partial_dleq_proof, PrfContext, PrfDleqProofV1, PrfOutput32,
-    PrfPartial, PrfPartialWireV1, PrfPurpose, SigningRootScalar, SigningRootShare,
-    SigningRootShareCommitmentV1, SigningRootShareId, SigningRootShareWireV1, SuiteId,
-    ThresholdPrfError,
+    PrfOutputEncoding, PrfPartial, PrfPartialWireV1, PrfPurpose, SigningRootScalar,
+    SigningRootShare, SigningRootShareCommitmentV1, SigningRootShareId, SigningRootShareWireV1,
+    SuiteId, ThresholdPrfError,
 };
 
 fn seeded_rng(seed: u8) -> ChaCha20Rng {
@@ -33,12 +33,264 @@ fn fixture() -> (SigningRootScalar, [SigningRootShare; 3], PrfContext) {
     (root, shares, context)
 }
 
+fn production_purpose_cases() -> [(PrfPurpose, &'static str); 5] {
+    [
+        (PrfPurpose::EcdsaHssYRelayer, "ecdsa"),
+        (PrfPurpose::Ed25519HssYRelayer, "ed25519-y"),
+        (PrfPurpose::Ed25519HssTauRelayer, "ed25519-tau"),
+        (PrfPurpose::RouterAbXClientBaseV1, "router-ab-client"),
+        (PrfPurpose::RouterAbXRelayerBaseV1, "router-ab-relayer"),
+    ]
+}
+
+fn generated_context(case_index: u8, purpose: PrfPurpose, label: &str) -> PrfContext {
+    PrfContext::new(
+        SuiteId::Ristretto255Sha512V1,
+        purpose,
+        format!("generated-threshold-prf-case:{case_index}:{label}").into_bytes(),
+    )
+}
+
 fn evaluate_direct_reference(root: &SigningRootScalar, context: &PrfContext) -> PrfOutput32 {
     evaluate_direct_reference_result(root, context).expect("fixture context is valid")
 }
 
 fn evaluate_partial(share: &SigningRootShare, context: &PrfContext) -> PrfPartial {
     evaluate_partial_result(share, context).expect("fixture context is valid")
+}
+
+#[test]
+fn generated_outputs_match_direct_reference_for_all_purposes() {
+    for case_index in 0u8..100 {
+        let mut rng = seeded_rng(case_index);
+        let root = generate_signing_root(&mut rng);
+        let shares = split_signing_root_2_of_3(&root, &mut rng);
+
+        for (purpose, label) in production_purpose_cases() {
+            let context = generated_context(case_index, purpose, label);
+            let direct = evaluate_direct_reference(&root, &context);
+
+            for (left, right) in [(0usize, 1usize), (0, 2), (1, 2)] {
+                let reconstructed =
+                    reconstruct_signing_root_2_of_3(&[shares[left].clone(), shares[right].clone()])
+                        .unwrap_or_else(|error| {
+                            panic!(
+                        "case {case_index} {label} pair {left},{right} reconstruct failed: {error}"
+                    )
+                        });
+                assert_eq!(
+                    reconstructed.to_bytes(),
+                    root.to_bytes(),
+                    "case {case_index} {label} pair {left},{right} reconstructed wrong root"
+                );
+
+                let left_partial = evaluate_partial(&shares[left], &context);
+                let right_partial = evaluate_partial(&shares[right], &context);
+                let combined_forward = combine_partials(
+                    &[left_partial.clone(), right_partial.clone()],
+                    &context,
+                )
+                .unwrap_or_else(|error| {
+                    panic!("case {case_index} {label} pair {left},{right} combine failed: {error}")
+                });
+                let combined_reverse = combine_partials(&[right_partial, left_partial], &context)
+                    .unwrap_or_else(|error| {
+                        panic!(
+                            "case {case_index} {label} pair {right},{left} reverse combine failed: {error}"
+                        )
+                    });
+                let helper_forward = derive_output_from_signing_root_shares(
+                    &[shares[left].clone(), shares[right].clone()],
+                    &context,
+                )
+                .unwrap_or_else(|error| {
+                    panic!("case {case_index} {label} pair {left},{right} helper failed: {error}")
+                });
+                let helper_reverse = derive_output_from_signing_root_shares(
+                    &[shares[right].clone(), shares[left].clone()],
+                    &context,
+                )
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "case {case_index} {label} pair {right},{left} reverse helper failed: {error}"
+                    )
+                });
+                let wire_forward = derive_output_from_signing_root_share_wires(
+                    &[
+                        SigningRootShareWireV1::from_share(&shares[left]),
+                        SigningRootShareWireV1::from_share(&shares[right]),
+                    ],
+                    &context,
+                )
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "case {case_index} {label} pair {left},{right} wire helper failed: {error}"
+                    )
+                });
+
+                assert_eq!(
+                    combined_forward, direct,
+                    "case {case_index} {label} pair {left},{right} combined output drifted"
+                );
+                assert_eq!(
+                    combined_reverse, direct,
+                    "case {case_index} {label} pair {right},{left} reverse output drifted"
+                );
+                assert_eq!(
+                    helper_forward, direct,
+                    "case {case_index} {label} pair {left},{right} helper output drifted"
+                );
+                assert_eq!(
+                    helper_reverse, direct,
+                    "case {case_index} {label} pair {right},{left} reverse helper output drifted"
+                );
+                assert_eq!(
+                    wire_forward, direct,
+                    "case {case_index} {label} pair {left},{right} wire output drifted"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn generated_refresh_preserves_outputs_for_all_purposes() {
+    for case_index in 0u8..100 {
+        let mut rng = seeded_rng(case_index.wrapping_add(101));
+        let root = generate_signing_root(&mut rng);
+        let shares = split_signing_root_2_of_3(&root, &mut rng);
+        let refresh_inputs = [shares[0].clone(), shares[2].clone()];
+        let mut refresh_rng = seeded_rng(case_index.wrapping_add(201));
+        let refreshed = refresh_signing_root_shares_2_of_3(&refresh_inputs, &mut refresh_rng)
+            .unwrap_or_else(|error| panic!("case {case_index} refresh failed: {error}"));
+
+        for (purpose, label) in production_purpose_cases() {
+            let context = generated_context(case_index, purpose, label);
+            let direct = evaluate_direct_reference(&root, &context);
+
+            for (left, right) in [(0usize, 1usize), (0, 2), (1, 2)] {
+                let output = derive_output_from_signing_root_shares(
+                    &[refreshed[left].clone(), refreshed[right].clone()],
+                    &context,
+                )
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "case {case_index} {label} refreshed pair {left},{right} failed: {error}"
+                    )
+                });
+                assert_eq!(
+                    output, direct,
+                    "case {case_index} {label} refreshed pair {left},{right} changed output"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn generated_rejection_properties_cover_invalid_boundaries() {
+    for case_index in 0u8..100 {
+        let mut rng = seeded_rng(case_index.wrapping_add(37));
+        let root = generate_signing_root(&mut rng);
+        let shares = split_signing_root_2_of_3(&root, &mut rng);
+        let context = generated_context(case_index, PrfPurpose::EcdsaHssYRelayer, "reject");
+        let other_context =
+            generated_context(case_index, PrfPurpose::Ed25519HssYRelayer, "reject-other");
+        let left = evaluate_partial(&shares[0], &context);
+        let right = evaluate_partial(&shares[1], &context);
+
+        assert_eq!(
+            combine_partials(&[left.clone(), left.clone()], &context).unwrap_err(),
+            ThresholdPrfError::DuplicateShareId,
+            "case {case_index} duplicate partial should fail"
+        );
+        assert_eq!(
+            combine_partials(&[left.clone()], &context).unwrap_err(),
+            ThresholdPrfError::InvalidThresholdSubset,
+            "case {case_index} one partial should fail"
+        );
+        assert_eq!(
+            combine_partials(&[left.clone(), right.clone(), left.clone()], &context).unwrap_err(),
+            ThresholdPrfError::InvalidThresholdSubset,
+            "case {case_index} three partials should fail"
+        );
+        assert_eq!(
+            derive_output_from_signing_root_shares(&[shares[0].clone()], &context).unwrap_err(),
+            ThresholdPrfError::InvalidThresholdSubset,
+            "case {case_index} one share should fail"
+        );
+        assert_eq!(
+            derive_output_from_signing_root_shares(
+                &[shares[0].clone(), shares[1].clone(), shares[2].clone()],
+                &context,
+            )
+            .unwrap_err(),
+            ThresholdPrfError::InvalidThresholdSubset,
+            "case {case_index} three shares should fail"
+        );
+
+        let wire = PrfPartialWireV1::from_partial(&left).to_bytes();
+        assert_eq!(
+            PrfPartialWireV1::decode(&other_context, wire).unwrap_err(),
+            ThresholdPrfError::ContextMismatch,
+            "case {case_index} wrong-context partial wire should fail"
+        );
+        assert_eq!(
+            PrfPartialWireV1::decode_slice(&context, &wire[..64]).unwrap_err(),
+            ThresholdPrfError::InvalidPartialEncoding,
+            "case {case_index} short partial wire should fail"
+        );
+        let mut malformed_share_wire = SigningRootShareWireV1::from_share(&shares[0]).to_bytes();
+        malformed_share_wire[0] = 0;
+        assert_eq!(
+            SigningRootShareWireV1::decode(malformed_share_wire).unwrap_err(),
+            ThresholdPrfError::InvalidShareId,
+            "case {case_index} malformed share wire should fail"
+        );
+
+        let bundle = evaluate_partial_with_dleq_proof(
+            &shares[0],
+            &context,
+            &mut seeded_rng(case_index.wrapping_add(77)),
+        )
+        .unwrap_or_else(|error| panic!("case {case_index} DLEQ proof failed: {error}"));
+        let wrong_partial = evaluate_partial(&shares[1], &context);
+        let wrong_commitment = SigningRootShareCommitmentV1::from_share(&shares[1]);
+
+        assert_eq!(
+            verify_partial_dleq_proof(
+                &bundle.commitment,
+                &bundle.partial,
+                &other_context,
+                &bundle.proof,
+            )
+            .unwrap_err(),
+            ThresholdPrfError::ContextMismatch,
+            "case {case_index} wrong-context DLEQ should fail"
+        );
+        assert_eq!(
+            verify_partial_dleq_proof(&wrong_commitment, &bundle.partial, &context, &bundle.proof)
+                .unwrap_err(),
+            ThresholdPrfError::InvalidDleqProof,
+            "case {case_index} wrong-commitment DLEQ should fail"
+        );
+        assert_eq!(
+            verify_partial_dleq_proof(&bundle.commitment, &wrong_partial, &context, &bundle.proof)
+                .unwrap_err(),
+            ThresholdPrfError::InvalidDleqProof,
+            "case {case_index} wrong-partial DLEQ should fail"
+        );
+        assert_eq!(
+            PrfDleqProofV1::from_slice(&[0u8; 63]).unwrap_err(),
+            ThresholdPrfError::InvalidDleqProofEncoding,
+            "case {case_index} malformed DLEQ proof should fail"
+        );
+        assert_eq!(
+            combine_verified_partials(&[bundle.clone(), bundle], &context).unwrap_err(),
+            ThresholdPrfError::DuplicateShareId,
+            "case {case_index} duplicate DLEQ bundle should fail"
+        );
+    }
 }
 
 #[test]
@@ -186,6 +438,66 @@ fn purpose_and_context_domain_separate_outputs() {
 
     assert_ne!(base, different_purpose);
     assert_ne!(base, different_context);
+}
+
+#[test]
+fn router_ab_purposes_are_fixed_and_scalar_encoded() {
+    assert_eq!(
+        PrfPurpose::RouterAbXClientBaseV1.as_bytes(),
+        b"router-ab/x_client_base/v1"
+    );
+    assert_eq!(
+        PrfPurpose::RouterAbXRelayerBaseV1.as_bytes(),
+        b"router-ab/x_relayer_base/v1"
+    );
+    assert_eq!(
+        PrfPurpose::RouterAbXClientBaseV1.output_encoding(),
+        PrfOutputEncoding::CanonicalEd25519Scalar32
+    );
+    assert_eq!(
+        PrfPurpose::RouterAbXRelayerBaseV1.output_encoding(),
+        PrfOutputEncoding::CanonicalEd25519Scalar32
+    );
+}
+
+#[test]
+fn router_ab_outputs_are_canonical_scalar_bytes_and_domain_separated() {
+    let (_root, shares, _context) = fixture();
+    let client_context = PrfContext::new(
+        SuiteId::Ristretto255Sha512V1,
+        PrfPurpose::RouterAbXClientBaseV1,
+        b"router-ab/context-bytes",
+    );
+    let relayer_context = PrfContext::new(
+        SuiteId::Ristretto255Sha512V1,
+        PrfPurpose::RouterAbXRelayerBaseV1,
+        b"router-ab/context-bytes",
+    );
+
+    let client_output = combine_partials(
+        &[
+            evaluate_partial(&shares[0], &client_context),
+            evaluate_partial(&shares[1], &client_context),
+        ],
+        &client_context,
+    )
+    .unwrap();
+    let relayer_output = combine_partials(
+        &[
+            evaluate_partial(&shares[0], &relayer_context),
+            evaluate_partial(&shares[1], &relayer_context),
+        ],
+        &relayer_context,
+    )
+    .unwrap();
+
+    assert!(bool::from(
+        Scalar::from_canonical_bytes(*client_output.as_bytes()).is_some()
+    ));
+    assert!(bool::from(
+        Scalar::from_canonical_bytes(*relayer_output.as_bytes()).is_some()
+    ));
+    assert_ne!(client_output, relayer_output);
 }
 
 #[test]
@@ -420,6 +732,23 @@ fn dleq_proof_retries_zero_nonce() {
 }
 
 #[test]
+fn dleq_repeated_nonce_rng_is_not_detectable_by_api() {
+    let (_root, shares, context) = fixture();
+    let mut first_rng = RepeatingFillRng::new(7);
+    let mut second_rng = RepeatingFillRng::new(7);
+    let first = evaluate_partial_with_dleq_proof(&shares[0], &context, &mut first_rng)
+        .expect("first proof succeeds");
+    let second = evaluate_partial_with_dleq_proof(&shares[0], &context, &mut second_rng)
+        .expect("second proof succeeds");
+
+    assert_eq!(first.proof.to_bytes(), second.proof.to_bytes());
+    verify_partial_dleq_proof(&first.commitment, &first.partial, &context, &first.proof)
+        .expect("first proof verifies");
+    verify_partial_dleq_proof(&second.commitment, &second.partial, &context, &second.proof)
+        .expect("second proof verifies");
+}
+
+#[test]
 fn dleq_proof_rejects_wrong_context_commitment_and_tampering() {
     let (_root, shares, context) = fixture();
     let other_context = wallet_context(b"project:alpha/wallet:1");
@@ -651,3 +980,38 @@ impl RngCore for ZeroThenChaChaRng {
 }
 
 impl CryptoRng for ZeroThenChaChaRng {}
+
+struct RepeatingFillRng {
+    byte: u8,
+}
+
+impl RepeatingFillRng {
+    fn new(byte: u8) -> Self {
+        Self { byte }
+    }
+}
+
+impl RngCore for RepeatingFillRng {
+    fn next_u32(&mut self) -> u32 {
+        let mut bytes = [0u8; 4];
+        self.fill_bytes(&mut bytes);
+        u32::from_le_bytes(bytes)
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        let mut bytes = [0u8; 8];
+        self.fill_bytes(&mut bytes);
+        u64::from_le_bytes(bytes)
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        dest.fill(self.byte);
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), RandError> {
+        self.fill_bytes(dest);
+        Ok(())
+    }
+}
+
+impl CryptoRng for RepeatingFillRng {}

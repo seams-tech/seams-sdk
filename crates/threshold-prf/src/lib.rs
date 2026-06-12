@@ -12,7 +12,7 @@ mod prf;
 mod shamir;
 mod suite;
 
-pub use context::{PrfContext, PrfPurpose};
+pub use context::{PrfContext, PrfOutputEncoding, PrfPurpose};
 pub use error::{ThresholdPrfError, ThresholdPrfResult};
 pub use prf::{
     combine_partials, combine_verified_partials, derive_output_from_signing_root_share_wires,

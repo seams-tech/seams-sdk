@@ -11,10 +11,12 @@ signing-root sharing.
 It does not replace `ed25519-hss` or `ecdsa-hss`. It only provides the
 server-side root input consumed by those protocols.
 
-The primary output is called `y_relayer` in HSS integration plans. The
+The primary HSS output is called `y_relayer` in HSS integration plans. The
 `ed25519-hss/tau_relayer` purpose is also supported and is encoded as canonical
 Ed25519 scalar bytes because the downstream Ed25519 HSS circuit requires scalar
-inputs for tau.
+inputs for tau. Router/A/B outputs use fixed `x_client_base` and
+`x_relayer_base` purposes, and both are encoded as canonical Ed25519 scalar
+bytes.
 
 ## Production Evaluation Semantics
 
@@ -89,6 +91,8 @@ Fixed production purposes:
 ecdsa-hss/y_relayer
 ed25519-hss/y_relayer
 ed25519-hss/tau_relayer
+router-ab/x_client_base/v1
+router-ab/x_relayer_base/v1
 ```
 
 No custom purpose is exposed in the v1 production API. Tests, experiments, or
@@ -127,10 +131,9 @@ Point rules:
 Output rules:
 
 - `PrfOutput32` is exactly 32 bytes.
-- most output bytes are opaque PRF output bytes, not scalar encodings.
-- `ed25519-hss/tau_relayer` is the exception: its raw output hash is reduced
-  with `Scalar::from_bytes_mod_order` and returned as canonical Ed25519 scalar
-  bytes.
+- raw-output purposes return opaque PRF output bytes.
+- scalar-output purposes reduce the raw output hash with
+  `Scalar::from_bytes_mod_order` and return canonical Ed25519 scalar bytes.
 
 Secret signing-root share wire rules:
 
@@ -201,6 +204,8 @@ Purpose-specific output encoding:
 - `ecdsa-hss/y_relayer`: `raw32`
 - `ed25519-hss/y_relayer`: `raw32`
 - `ed25519-hss/tau_relayer`: `Scalar::from_bytes_mod_order(raw32).to_bytes()`
+- `router-ab/x_client_base/v1`: `Scalar::from_bytes_mod_order(raw32).to_bytes()`
+- `router-ab/x_relayer_base/v1`: `Scalar::from_bytes_mod_order(raw32).to_bytes()`
 
 ## Partial Context Tag
 
@@ -288,6 +293,18 @@ Rules:
 - nonce uniqueness and unpredictability depend on a correct `CryptoRng`.
 - reusing a DLEQ nonce across distinct statements can reveal the signing-root
   share scalar.
+
+Nonce contract:
+
+- the caller must provide a cryptographic RNG with fresh unpredictable output
+  for every proof statement.
+- the crate retries when the sampled nonce scalar is zero.
+- the crate cannot detect repeated non-zero RNG output across independent proof
+  statements after the fact.
+- repeated non-zero nonce output is a catastrophic caller/RNG failure because
+  DLEQ verification can still accept each individual proof.
+- deterministic nonce derivation would be a separate protocol revision and must
+  bind the full statement transcript and signing-root share material.
 
 Proof generation:
 
@@ -512,6 +529,8 @@ one of the frozen context encodings below:
 - `ecdsa-hss/y_relayer`
 - `ed25519-hss/y_relayer`
 - `ed25519-hss/tau_relayer`
+- `router-ab/x_client_base/v1`
+- `router-ab/x_relayer_base/v1`
 
 ### `ecdsa-hss/y_relayer`
 
@@ -592,6 +611,19 @@ returns canonical scalar bytes.
 No production HSS integration may use ad hoc strings such as
 `project:alpha/wallet:0` as canonical context bytes.
 
+### `router-ab/x_client_base/v1` And `router-ab/x_relayer_base/v1`
+
+Router/A/B integration supplies context bytes that bind the Router/A/B
+transcript, signer set, recipient, opened-share kind, and required output
+encoding. The threshold-PRF purpose distinguishes:
+
+- `router-ab/x_client_base/v1`
+- `router-ab/x_relayer_base/v1`
+
+Both purposes return canonical Ed25519 scalar bytes. Router/A/B recipients use
+the threshold-combined output as `x_client_base` or `x_relayer_base`,
+respectively.
+
 ## Vectors
 
 The v1 vector corpus pins:
@@ -608,6 +640,8 @@ The v1 vector corpus pins:
   - `ecdsa-hss/y_relayer`
   - `ed25519-hss/y_relayer`
   - `ed25519-hss/tau_relayer`
+  - `router-ab/x_client_base/v1`
+  - `router-ab/x_relayer_base/v1`
 
 The committed vector corpus must live at:
 
@@ -651,6 +685,8 @@ purpose:
 - `ecdsa-hss/y_relayer`
 - `ed25519-hss/y_relayer`
 - `ed25519-hss/tau_relayer`
+- `router-ab/x_client_base/v1`
+- `router-ab/x_relayer_base/v1`
 
 Fixture randomness is deterministic and part of the spec:
 

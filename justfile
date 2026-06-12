@@ -88,6 +88,13 @@ threshold-prf-fv:
   just threshold-prf-fv-verus
   just threshold-prf-fv-privacy
 
+# Run the high-impact FV2 gate for `threshold-prf`.
+threshold-prf-fv2:
+  just threshold-prf-fv
+  cargo test -q --manifest-path crates/threshold-prf/Cargo.toml --tests
+  cargo test -q --manifest-path crates/threshold-prf/formal-verification/verus/Cargo.toml --tests
+  cargo verus verify --manifest-path crates/threshold-prf/formal-verification/verus/Cargo.toml
+
 # Run the Lean privacy execution-state model for `threshold-prf`.
 threshold-prf-fv-privacy:
   cd crates/threshold-prf/formal-verification/lean-privacy && $HOME/.elan/bin/lake build

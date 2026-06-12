@@ -21,8 +21,9 @@ The active strategy is:
 
 This formal-verification track now has a Verus abstract spec model, committed
 vector anti-drift parity tests, a narrow Lean privacy execution-state model,
-and a `just threshold-prf-fv` command. Lean boundary extraction remains
-deferred.
+concrete transcript fixtures, generated production property tests, DLEQ nonce
+contract tests, and `just threshold-prf-fv` / `just threshold-prf-fv2`
+commands. Lean boundary extraction remains deferred.
 
 The current Verus track covers:
 
@@ -30,6 +31,8 @@ The current Verus track covers:
   behavior
 - an abstract server-SDK `SigningRootShareWireV1` decode and Option A
   derivation boundary model
+- transcript length-prefix and field-order proofs for PRF and DLEQ transcript
+  encodings
 - production anti-drift parity against the committed JSON vector corpus
 - a structural Lean privacy model proving that one-server mode is not a privacy
   boundary, while one two-server participant, combiner state, and public output
@@ -63,6 +66,7 @@ The first active proof slice is implemented in
 11. abstract DLEQ commitment/proof boundary model
 12. DLEQ-enforced verified-combine boundary model
 13. secret signing-root share wire decode and Option A derivation boundary model
+14. transcript length-prefix, field-order, and DLEQ challenge tuple model
 
 Do not add placeholder proofs that are disconnected from production formulas.
 
@@ -70,4 +74,10 @@ Run the current threshold-prf FV gate with:
 
 ```bash
 just threshold-prf-fv
+```
+
+Run the additive high-impact FV2 gate with:
+
+```bash
+just threshold-prf-fv2
 ```

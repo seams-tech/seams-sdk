@@ -84,8 +84,100 @@ pub struct DleqChallengeInputV1Spec {
     pub nonce_p_coeff: u8,
 }
 
+#[derive(PartialEq, Eq)]
+pub struct Len16EncodedFieldV1Spec {
+    pub len: nat,
+    pub value_id: u8,
+}
+
+#[derive(PartialEq, Eq)]
+pub struct Len32EncodedFieldV1Spec {
+    pub len: nat,
+    pub value_id: u8,
+}
+
+#[derive(PartialEq, Eq)]
+pub struct PrfTranscriptEncodingV1Spec {
+    pub domain_position: u8,
+    pub suite_position: u8,
+    pub purpose_position: u8,
+    pub context_position: u8,
+    pub payload_position: u8,
+    pub domain_id: u8,
+    pub suite_id: u8,
+    pub purpose_id: u8,
+    pub context_id: u8,
+    pub payload_id: u8,
+    pub domain_len: nat,
+    pub suite_len: nat,
+    pub purpose_len: nat,
+    pub context_len: nat,
+    pub payload_len: nat,
+}
+
+#[derive(PartialEq, Eq)]
+pub struct DleqTranscriptEncodingV1Spec {
+    pub domain_position: u8,
+    pub suite_position: u8,
+    pub purpose_position: u8,
+    pub context_tag_position: u8,
+    pub share_id_position: u8,
+    pub basepoint_position: u8,
+    pub input_point_position: u8,
+    pub commitment_point_position: u8,
+    pub partial_point_position: u8,
+    pub nonce_g_position: u8,
+    pub nonce_p_position: u8,
+    pub domain_id: u8,
+    pub suite_id: u8,
+    pub purpose_id: u8,
+    pub context_tag: Bytes32,
+    pub share_id: u8,
+    pub basepoint_id: u8,
+    pub input_point_id: u8,
+    pub commitment_point_coeff: u8,
+    pub partial_point_coeff: u8,
+    pub nonce_g_coeff: u8,
+    pub nonce_p_coeff: u8,
+    pub domain_len: nat,
+    pub suite_len: nat,
+    pub purpose_len: nat,
+}
+
 pub open spec fn abstract_field_order_v1_spec() -> nat {
     5nat
+}
+
+pub open spec fn max_len16_v1_spec() -> nat {
+    65535nat
+}
+
+pub open spec fn max_len32_v1_spec() -> nat {
+    4294967295nat
+}
+
+pub open spec fn input_domain_len_v1_spec() -> nat {
+    22nat
+}
+
+pub open spec fn output_domain_len_v1_spec() -> nat {
+    23nat
+}
+
+pub open spec fn partial_context_domain_len_v1_spec() -> nat {
+    32nat
+}
+
+pub open spec fn dleq_domain_len_v1_spec() -> nat {
+    21nat
+}
+
+pub open spec fn ristretto_suite_label_len_v1_spec() -> nat {
+    36nat
+}
+
+pub open spec fn ecdsa_hss_y_relayer_purpose_len_v1_spec() -> nat {
+    19nat
 }
 
 pub open spec fn scalar_width_bytes_v1_spec() -> nat {
@@ -118,6 +210,110 @@ pub open spec fn share_commitment_wire_width_bytes_v1_spec() -> nat {
 
 pub open spec fn dleq_proof_wire_width_bytes_v1_spec() -> nat {
     64nat
+}
+
+pub open spec fn len16_fits_v1_spec(len: nat) -> bool {
+    len <= max_len16_v1_spec()
+}
+
+pub open spec fn len32_fits_v1_spec(len: nat) -> bool {
+    len <= max_len32_v1_spec()
+}
+
+pub open spec fn len16_field_v1_spec(len: nat, value_id: u8) -> Option<Len16EncodedFieldV1Spec> {
+    if len16_fits_v1_spec(len) {
+        Some(Len16EncodedFieldV1Spec { len, value_id })
+    } else {
+        None
+    }
+}
+
+pub open spec fn len32_field_v1_spec(len: nat, value_id: u8) -> Option<Len32EncodedFieldV1Spec> {
+    if len32_fits_v1_spec(len) {
+        Some(Len32EncodedFieldV1Spec { len, value_id })
+    } else {
+        None
+    }
+}
+
+pub open spec fn prf_transcript_encoding_v1_spec(
+    domain_id: u8,
+    domain_len: nat,
+    suite_len: nat,
+    purpose_len: nat,
+    context: PrfContextV1,
+    context_len: nat,
+    payload_id: u8,
+    payload_len: nat,
+) -> Option<PrfTranscriptEncodingV1Spec> {
+    if len16_fits_v1_spec(domain_len)
+        && len16_fits_v1_spec(suite_len)
+        && len16_fits_v1_spec(purpose_len)
+        && len32_fits_v1_spec(context_len)
+        && len32_fits_v1_spec(payload_len)
+    {
+        Some(PrfTranscriptEncodingV1Spec {
+            domain_position: 0u8,
+            suite_position: 1u8,
+            purpose_position: 2u8,
+            context_position: 3u8,
+            payload_position: 4u8,
+            domain_id,
+            suite_id: context.suite_id,
+            purpose_id: context.purpose_id,
+            context_id: context.context_id,
+            payload_id,
+            domain_len,
+            suite_len,
+            purpose_len,
+            context_len,
+            payload_len,
+        })
+    } else {
+        None
+    }
+}
+
+pub open spec fn dleq_transcript_encoding_v1_spec(
+    input: DleqChallengeInputV1Spec,
+    domain_len: nat,
+    suite_len: nat,
+    purpose_len: nat,
+) -> Option<DleqTranscriptEncodingV1Spec> {
+    if len16_fits_v1_spec(domain_len)
+        && len16_fits_v1_spec(suite_len)
+        && len16_fits_v1_spec(purpose_len)
+    {
+        Some(DleqTranscriptEncodingV1Spec {
+            domain_position: 0u8,
+            suite_position: 1u8,
+            purpose_position: 2u8,
+            context_tag_position: 3u8,
+            share_id_position: 4u8,
+            basepoint_position: 5u8,
+            input_point_position: 6u8,
+            commitment_point_position: 7u8,
+            partial_point_position: 8u8,
+            nonce_g_position: 9u8,
+            nonce_p_position: 10u8,
+            domain_id: 4u8,
+            suite_id: input.suite_id,
+            purpose_id: input.purpose_id,
+            context_tag: input.context_tag,
+            share_id: input.share_id,
+            basepoint_id: input.basepoint_id,
+            input_point_id: input.input_point_id,
+            commitment_point_coeff: input.commitment_point_coeff,
+            partial_point_coeff: input.partial_point_coeff,
+            nonce_g_coeff: input.nonce_g_coeff,
+            nonce_p_coeff: input.nonce_p_coeff,
+            domain_len,
+            suite_len,
+            purpose_len,
+        })
+    } else {
+        None
+    }
 }
 
 pub open spec fn is_field_element_v1_spec(value: u8) -> bool {
@@ -667,6 +863,229 @@ pub proof fn scalar_and_wire_widths_are_fixed_v1()
         partial_wire_width_bytes_v1_spec() == 65nat,
         share_commitment_wire_width_bytes_v1_spec() == 33nat,
         dleq_proof_wire_width_bytes_v1_spec() == 64nat,
+{
+}
+
+pub proof fn transcript_domain_lengths_are_fixed_v1()
+    ensures
+        input_domain_len_v1_spec() == 22nat,
+        output_domain_len_v1_spec() == 23nat,
+        partial_context_domain_len_v1_spec() == 32nat,
+        dleq_domain_len_v1_spec() == 21nat,
+        ristretto_suite_label_len_v1_spec() == 36nat,
+        ecdsa_hss_y_relayer_purpose_len_v1_spec() == 19nat,
+{
+}
+
+pub proof fn len16_field_rejects_overflow_v1(len: nat, value_id: u8)
+    requires
+        len > max_len16_v1_spec(),
+    ensures
+        len16_field_v1_spec(len, value_id) == None::<Len16EncodedFieldV1Spec>,
+{
+}
+
+pub proof fn len32_field_rejects_overflow_v1(len: nat, value_id: u8)
+    requires
+        len > max_len32_v1_spec(),
+    ensures
+        len32_field_v1_spec(len, value_id) == None::<Len32EncodedFieldV1Spec>,
+{
+}
+
+pub proof fn prf_transcript_includes_domain_suite_purpose_context_payload_v1(
+    domain_id: u8,
+    domain_len: nat,
+    suite_len: nat,
+    purpose_len: nat,
+    context: PrfContextV1,
+    context_len: nat,
+    payload_id: u8,
+    payload_len: nat,
+)
+    requires
+        len16_fits_v1_spec(domain_len),
+        len16_fits_v1_spec(suite_len),
+        len16_fits_v1_spec(purpose_len),
+        len32_fits_v1_spec(context_len),
+        len32_fits_v1_spec(payload_len),
+    ensures
+        prf_transcript_encoding_v1_spec(
+            domain_id,
+            domain_len,
+            suite_len,
+            purpose_len,
+            context,
+            context_len,
+            payload_id,
+            payload_len,
+        ) == Some(PrfTranscriptEncodingV1Spec {
+            domain_position: 0u8,
+            suite_position: 1u8,
+            purpose_position: 2u8,
+            context_position: 3u8,
+            payload_position: 4u8,
+            domain_id,
+            suite_id: context.suite_id,
+            purpose_id: context.purpose_id,
+            context_id: context.context_id,
+            payload_id,
+            domain_len,
+            suite_len,
+            purpose_len,
+            context_len,
+            payload_len,
+        }),
+{
+}
+
+pub proof fn input_transcript_uses_expected_domain_and_lengths_v1(
+    context: PrfContextV1,
+    context_len: nat,
+)
+    requires
+        len32_fits_v1_spec(context_len),
+    ensures
+        prf_transcript_encoding_v1_spec(
+            1u8,
+            input_domain_len_v1_spec(),
+            ristretto_suite_label_len_v1_spec(),
+            ecdsa_hss_y_relayer_purpose_len_v1_spec(),
+            context,
+            context_len,
+            0u8,
+            0nat,
+        ) == Some(PrfTranscriptEncodingV1Spec {
+            domain_position: 0u8,
+            suite_position: 1u8,
+            purpose_position: 2u8,
+            context_position: 3u8,
+            payload_position: 4u8,
+            domain_id: 1u8,
+            suite_id: context.suite_id,
+            purpose_id: context.purpose_id,
+            context_id: context.context_id,
+            payload_id: 0u8,
+            domain_len: 22nat,
+            suite_len: 36nat,
+            purpose_len: 19nat,
+            context_len,
+            payload_len: 0nat,
+        }),
+{
+}
+
+pub proof fn output_transcript_uses_expected_domain_and_payload_v1(
+    context: PrfContextV1,
+    context_len: nat,
+    payload_id: u8,
+    payload_len: nat,
+)
+    requires
+        len32_fits_v1_spec(context_len),
+        len32_fits_v1_spec(payload_len),
+    ensures
+        prf_transcript_encoding_v1_spec(
+            2u8,
+            output_domain_len_v1_spec(),
+            ristretto_suite_label_len_v1_spec(),
+            ecdsa_hss_y_relayer_purpose_len_v1_spec(),
+            context,
+            context_len,
+            payload_id,
+            payload_len,
+        ) == Some(PrfTranscriptEncodingV1Spec {
+            domain_position: 0u8,
+            suite_position: 1u8,
+            purpose_position: 2u8,
+            context_position: 3u8,
+            payload_position: 4u8,
+            domain_id: 2u8,
+            suite_id: context.suite_id,
+            purpose_id: context.purpose_id,
+            context_id: context.context_id,
+            payload_id,
+            domain_len: 23nat,
+            suite_len: 36nat,
+            purpose_len: 19nat,
+            context_len,
+            payload_len,
+        }),
+{
+}
+
+pub proof fn partial_context_transcript_uses_expected_domain_v1(
+    context: PrfContextV1,
+    context_len: nat,
+)
+    requires
+        len32_fits_v1_spec(context_len),
+    ensures
+        prf_transcript_encoding_v1_spec(
+            3u8,
+            partial_context_domain_len_v1_spec(),
+            ristretto_suite_label_len_v1_spec(),
+            ecdsa_hss_y_relayer_purpose_len_v1_spec(),
+            context,
+            context_len,
+            0u8,
+            0nat,
+        ) == Some(PrfTranscriptEncodingV1Spec {
+            domain_position: 0u8,
+            suite_position: 1u8,
+            purpose_position: 2u8,
+            context_position: 3u8,
+            payload_position: 4u8,
+            domain_id: 3u8,
+            suite_id: context.suite_id,
+            purpose_id: context.purpose_id,
+            context_id: context.context_id,
+            payload_id: 0u8,
+            domain_len: 32nat,
+            suite_len: 36nat,
+            purpose_len: 19nat,
+            context_len,
+            payload_len: 0nat,
+        }),
+{
+}
+
+pub proof fn dleq_transcript_includes_full_challenge_tuple_v1(
+    input: DleqChallengeInputV1Spec,
+)
+    ensures
+        dleq_transcript_encoding_v1_spec(
+            input,
+            dleq_domain_len_v1_spec(),
+            ristretto_suite_label_len_v1_spec(),
+            ecdsa_hss_y_relayer_purpose_len_v1_spec(),
+        ) == Some(DleqTranscriptEncodingV1Spec {
+            domain_position: 0u8,
+            suite_position: 1u8,
+            purpose_position: 2u8,
+            context_tag_position: 3u8,
+            share_id_position: 4u8,
+            basepoint_position: 5u8,
+            input_point_position: 6u8,
+            commitment_point_position: 7u8,
+            partial_point_position: 8u8,
+            nonce_g_position: 9u8,
+            nonce_p_position: 10u8,
+            domain_id: 4u8,
+            suite_id: input.suite_id,
+            purpose_id: input.purpose_id,
+            context_tag: input.context_tag,
+            share_id: input.share_id,
+            basepoint_id: input.basepoint_id,
+            input_point_id: input.input_point_id,
+            commitment_point_coeff: input.commitment_point_coeff,
+            partial_point_coeff: input.partial_point_coeff,
+            nonce_g_coeff: input.nonce_g_coeff,
+            nonce_p_coeff: input.nonce_p_coeff,
+            domain_len: 21nat,
+            suite_len: 36nat,
+            purpose_len: 19nat,
+        }),
 {
 }
 
