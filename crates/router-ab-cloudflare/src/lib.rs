@@ -75,6 +75,7 @@ use router_ab_core::{
     combine_mpc_prf_output_packages_from_ab_proof_batches_v1, decode_ab_peer_message_payload_v1,
     decode_and_validate_ab_derivation_proof_batch_peer_payload_v1,
     decode_and_validate_signer_envelope_aead_payload_v1,
+    decode_and_validate_signer_envelope_hpke_payload_v1,
     decode_recipient_proof_bundle_ciphertext_v1, decode_router_to_signer_payload_v1,
     decode_signer_input_plaintext_v1, encode_recipient_output_ciphertext_aad_v1,
     encode_recipient_proof_bundle_ciphertext_aad_v1,
@@ -93,9 +94,9 @@ use router_ab_core::{
     RecipientProofBundleEncryptionRequestV1, RecipientProofBundleEncryptorV1,
     RelayerActivationPayloadV1, Role, RoleEnvelopeAadV1, RootShareEpoch, RouterAbDerivationError,
     RouterAbLifecycleStateV1, RouterToSignerPayloadV1, SignerAEngine, SignerBEngine,
-    SignerEnvelopeAeadPayloadV1, SignerIdentityV1, SignerInputPlaintextV1, SignerKeyStore,
-    SignerSetV1, SigningRootShareStore, WireMessageKindV1, WireMessageV1,
-    MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN,
+    SignerEnvelopeAeadPayloadV1, SignerEnvelopeHpkePayloadV1, SignerIdentityV1,
+    SignerInputPlaintextV1, SignerKeyStore, SignerSetV1, SigningRootShareStore, WireMessageKindV1,
+    WireMessageV1, MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN,
 };
 #[cfg(feature = "workers-rs")]
 use router_ab_core::{
@@ -178,6 +179,20 @@ pub const SIGNER_A_ENVELOPE_AEAD_KEY_EPOCH_ENV: &str = "SIGNER_A_ENVELOPE_AEAD_K
 pub const SIGNER_B_ENVELOPE_AEAD_KEY_BINDING_ENV: &str = "SIGNER_B_ENVELOPE_AEAD_KEY_BINDING";
 /// Signer B signer-envelope AEAD key epoch env key.
 pub const SIGNER_B_ENVELOPE_AEAD_KEY_EPOCH_ENV: &str = "SIGNER_B_ENVELOPE_AEAD_KEY_EPOCH";
+/// Signer A signer-envelope HPKE private-key binding-name env key.
+pub const SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV: &str =
+    "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING";
+/// Signer A signer-envelope HPKE key epoch env key.
+pub const SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH_ENV: &str = "SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH";
+/// Signer A signer-envelope HPKE public key env key.
+pub const SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY_ENV: &str = "SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY";
+/// Signer B signer-envelope HPKE private-key binding-name env key.
+pub const SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV: &str =
+    "SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING";
+/// Signer B signer-envelope HPKE key epoch env key.
+pub const SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH_ENV: &str = "SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH";
+/// Signer B signer-envelope HPKE public key env key.
+pub const SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY_ENV: &str = "SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY";
 /// Signer A A/B peer-message Ed25519 signing secret binding-name env key.
 pub const SIGNER_A_PEER_SIGNING_KEY_BINDING_ENV: &str = "SIGNER_A_PEER_SIGNING_KEY_BINDING";
 /// Signer A A/B peer-message Ed25519 signing key epoch env key.
@@ -190,6 +205,30 @@ pub const SIGNER_B_PEER_SIGNING_KEY_EPOCH_ENV: &str = "SIGNER_B_PEER_SIGNING_KEY
 pub const SIGNER_A_PEER_VERIFYING_KEY_HEX_ENV: &str = "SIGNER_A_PEER_VERIFYING_KEY_HEX";
 /// Signer B A/B peer-message Ed25519 verifying key env key.
 pub const SIGNER_B_PEER_VERIFYING_KEY_HEX_ENV: &str = "SIGNER_B_PEER_VERIFYING_KEY_HEX";
+/// Router JWT issuer env key.
+pub const ROUTER_JWT_ISSUER_ENV: &str = "ROUTER_JWT_ISSUER";
+/// Router JWT audience env key.
+pub const ROUTER_JWT_AUDIENCE_ENV: &str = "ROUTER_JWT_AUDIENCE";
+/// Router JWKS URL env key.
+pub const ROUTER_JWT_JWKS_URL_ENV: &str = "ROUTER_JWT_JWKS_URL";
+/// Router project-policy Durable Object binding env key.
+pub const ROUTER_PROJECT_POLICY_DO_BINDING_ENV: &str = "ROUTER_PROJECT_POLICY_DO_BINDING";
+/// Router project-policy Durable Object object-name env key.
+pub const ROUTER_PROJECT_POLICY_DO_OBJECT_ENV: &str = "ROUTER_PROJECT_POLICY_DO_OBJECT";
+/// Router project-policy Durable Object key-prefix env key.
+pub const ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV: &str = "ROUTER_PROJECT_POLICY_DO_KEY_PREFIX";
+/// Router quota Durable Object binding env key.
+pub const ROUTER_QUOTA_DO_BINDING_ENV: &str = "ROUTER_QUOTA_DO_BINDING";
+/// Router quota Durable Object object-name env key.
+pub const ROUTER_QUOTA_DO_OBJECT_ENV: &str = "ROUTER_QUOTA_DO_OBJECT";
+/// Router quota Durable Object key-prefix env key.
+pub const ROUTER_QUOTA_DO_KEY_PREFIX_ENV: &str = "ROUTER_QUOTA_DO_KEY_PREFIX";
+/// Router abuse Durable Object binding env key.
+pub const ROUTER_ABUSE_DO_BINDING_ENV: &str = "ROUTER_ABUSE_DO_BINDING";
+/// Router abuse Durable Object object-name env key.
+pub const ROUTER_ABUSE_DO_OBJECT_ENV: &str = "ROUTER_ABUSE_DO_OBJECT";
+/// Router abuse Durable Object key-prefix env key.
+pub const ROUTER_ABUSE_DO_KEY_PREFIX_ENV: &str = "ROUTER_ABUSE_DO_KEY_PREFIX";
 /// Maximum random bytes a single signer-host preload may request.
 pub const CLOUDFLARE_SIGNER_HOST_RANDOM_PRELOAD_MAX_BYTES_V1: usize = 65_536;
 /// Versioned text prefix for a role-local MPC PRF signing-root-share wire secret.
@@ -211,6 +250,8 @@ const ROUTER_FORBIDDEN_ENV_KEYS: &[&str] = &[
     SIGNER_A_ENVELOPE_AEAD_KEY_EPOCH_ENV,
     SIGNER_B_ENVELOPE_AEAD_KEY_BINDING_ENV,
     SIGNER_B_ENVELOPE_AEAD_KEY_EPOCH_ENV,
+    SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
+    SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
     SIGNER_A_PEER_SIGNING_KEY_BINDING_ENV,
     SIGNER_A_PEER_SIGNING_KEY_EPOCH_ENV,
     SIGNER_B_PEER_SIGNING_KEY_BINDING_ENV,
@@ -223,12 +264,25 @@ const SIGNER_A_RELAYER_FORBIDDEN_ENV_KEYS: &[&str] = &[
     ROUTER_LIFECYCLE_DO_BINDING_ENV,
     ROUTER_LIFECYCLE_DO_OBJECT_ENV,
     ROUTER_LIFECYCLE_DO_KEY_PREFIX_ENV,
+    ROUTER_JWT_ISSUER_ENV,
+    ROUTER_JWT_AUDIENCE_ENV,
+    ROUTER_JWT_JWKS_URL_ENV,
+    ROUTER_PROJECT_POLICY_DO_BINDING_ENV,
+    ROUTER_PROJECT_POLICY_DO_OBJECT_ENV,
+    ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV,
+    ROUTER_QUOTA_DO_BINDING_ENV,
+    ROUTER_QUOTA_DO_OBJECT_ENV,
+    ROUTER_QUOTA_DO_KEY_PREFIX_ENV,
+    ROUTER_ABUSE_DO_BINDING_ENV,
+    ROUTER_ABUSE_DO_OBJECT_ENV,
+    ROUTER_ABUSE_DO_KEY_PREFIX_ENV,
     SIGNER_B_ROOT_SHARE_DO_BINDING_ENV,
     SIGNER_B_ROOT_SHARE_DO_OBJECT_ENV,
     SIGNER_B_ROOT_SHARE_DO_KEY_PREFIX_ENV,
     SIGNER_B_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
     SIGNER_B_ENVELOPE_AEAD_KEY_BINDING_ENV,
     SIGNER_B_ENVELOPE_AEAD_KEY_EPOCH_ENV,
+    SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
     SIGNER_B_PEER_SIGNING_KEY_BINDING_ENV,
     SIGNER_B_PEER_SIGNING_KEY_EPOCH_ENV,
 ];
@@ -239,6 +293,18 @@ const SIGNER_B_FORBIDDEN_ENV_KEYS: &[&str] = &[
     ROUTER_LIFECYCLE_DO_BINDING_ENV,
     ROUTER_LIFECYCLE_DO_OBJECT_ENV,
     ROUTER_LIFECYCLE_DO_KEY_PREFIX_ENV,
+    ROUTER_JWT_ISSUER_ENV,
+    ROUTER_JWT_AUDIENCE_ENV,
+    ROUTER_JWT_JWKS_URL_ENV,
+    ROUTER_PROJECT_POLICY_DO_BINDING_ENV,
+    ROUTER_PROJECT_POLICY_DO_OBJECT_ENV,
+    ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV,
+    ROUTER_QUOTA_DO_BINDING_ENV,
+    ROUTER_QUOTA_DO_OBJECT_ENV,
+    ROUTER_QUOTA_DO_KEY_PREFIX_ENV,
+    ROUTER_ABUSE_DO_BINDING_ENV,
+    ROUTER_ABUSE_DO_OBJECT_ENV,
+    ROUTER_ABUSE_DO_KEY_PREFIX_ENV,
     SIGNER_A_ROOT_SHARE_DO_BINDING_ENV,
     SIGNER_A_ROOT_SHARE_DO_OBJECT_ENV,
     SIGNER_A_ROOT_SHARE_DO_KEY_PREFIX_ENV,
@@ -248,6 +314,7 @@ const SIGNER_B_FORBIDDEN_ENV_KEYS: &[&str] = &[
     SIGNER_A_RELAYER_OUTPUT_DO_KEY_PREFIX_ENV,
     SIGNER_A_ENVELOPE_AEAD_KEY_BINDING_ENV,
     SIGNER_A_ENVELOPE_AEAD_KEY_EPOCH_ENV,
+    SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
     SIGNER_A_PEER_SIGNING_KEY_BINDING_ENV,
     SIGNER_A_PEER_SIGNING_KEY_EPOCH_ENV,
 ];
@@ -609,6 +676,12 @@ pub enum CloudflareDurableObjectScopeV1 {
     RouterReplay,
     /// Router public lifecycle state.
     RouterLifecycle,
+    /// Router project-policy state.
+    RouterProjectPolicy,
+    /// Router quota and request-budget state.
+    RouterQuota,
+    /// Router abuse-control state.
+    RouterAbuse,
     /// Role-local sealed root-share state.
     SignerRootShare {
         /// Signer role that owns this storage scope.
@@ -638,7 +711,11 @@ impl CloudflareDurableObjectScopeV1 {
     /// Validates the scope itself.
     pub fn validate(self) -> RouterAbProtocolResult<()> {
         match self {
-            Self::RouterReplay | Self::RouterLifecycle => Ok(()),
+            Self::RouterReplay
+            | Self::RouterLifecycle
+            | Self::RouterProjectPolicy
+            | Self::RouterQuota
+            | Self::RouterAbuse => Ok(()),
             Self::SignerRootShare { role } => require_signer_role(role),
             Self::RelayerOutput { owner_role } => {
                 if owner_role == Role::SignerA {
@@ -656,7 +733,14 @@ impl CloudflareDurableObjectScopeV1 {
     /// Returns whether this scope is visible to a Worker role.
     pub fn is_visible_to(self, worker_role: CloudflareWorkerRoleV1) -> bool {
         match (worker_role, self) {
-            (CloudflareWorkerRoleV1::Router, Self::RouterReplay | Self::RouterLifecycle) => true,
+            (
+                CloudflareWorkerRoleV1::Router,
+                Self::RouterReplay
+                | Self::RouterLifecycle
+                | Self::RouterProjectPolicy
+                | Self::RouterQuota
+                | Self::RouterAbuse,
+            ) => true,
             (
                 CloudflareWorkerRoleV1::SignerARelayer,
                 Self::SignerRootShare {
@@ -878,6 +962,173 @@ impl CloudflareSignerEnvelopeDecryptKeyBindingV1 {
     }
 }
 
+/// Public signer-envelope HPKE key descriptor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSignerEnvelopeHpkePublicKeyV1 {
+    /// Signer role that owns this public envelope key.
+    pub role: Role,
+    /// Public decrypt-key epoch used for transcript and rotation binding.
+    pub key_epoch: String,
+    /// Canonical `x25519:<64 lowercase hex chars>` public key.
+    pub public_key: String,
+}
+
+impl CloudflareSignerEnvelopeHpkePublicKeyV1 {
+    /// Creates a validated signer-envelope HPKE public-key descriptor.
+    pub fn new(
+        role: Role,
+        key_epoch: impl Into<String>,
+        public_key: impl Into<String>,
+    ) -> RouterAbProtocolResult<Self> {
+        let descriptor = Self {
+            role,
+            key_epoch: key_epoch.into(),
+            public_key: public_key.into(),
+        };
+        descriptor.validate()?;
+        Ok(descriptor)
+    }
+
+    /// Validates signer ownership and canonical public-key encoding.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_signer_role(self.role)?;
+        require_non_empty("key_epoch", &self.key_epoch)?;
+        parse_cloudflare_hpke_x25519_public_key_v1(&self.public_key)?;
+        Ok(())
+    }
+}
+
+/// Public A/B signer-envelope HPKE key set.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSignerEnvelopeHpkePublicKeySetV1 {
+    /// Signer A public envelope key descriptor.
+    pub signer_a: CloudflareSignerEnvelopeHpkePublicKeyV1,
+    /// Signer B public envelope key descriptor.
+    pub signer_b: CloudflareSignerEnvelopeHpkePublicKeyV1,
+}
+
+impl CloudflareSignerEnvelopeHpkePublicKeySetV1 {
+    /// Creates a validated public A/B signer-envelope HPKE key set.
+    pub fn new(
+        signer_a: CloudflareSignerEnvelopeHpkePublicKeyV1,
+        signer_b: CloudflareSignerEnvelopeHpkePublicKeyV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let key_set = Self { signer_a, signer_b };
+        key_set.validate()?;
+        Ok(key_set)
+    }
+
+    /// Validates role assignments and public-key descriptors.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.signer_a.validate()?;
+        self.signer_b.validate()?;
+        if self.signer_a.role != Role::SignerA {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidRole,
+                "Signer A HPKE public key descriptor must use Signer A role",
+            ));
+        }
+        if self.signer_b.role != Role::SignerB {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidRole,
+                "Signer B HPKE public key descriptor must use Signer B role",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns the public-key descriptor for one signer role.
+    pub fn for_role(
+        &self,
+        role: Role,
+    ) -> RouterAbProtocolResult<&CloudflareSignerEnvelopeHpkePublicKeyV1> {
+        match role {
+            Role::SignerA => Ok(&self.signer_a),
+            Role::SignerB => Ok(&self.signer_b),
+            _ => Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidRole,
+                "signer-envelope HPKE public key set supports only signer roles",
+            )),
+        }
+    }
+}
+
+/// Role-local signer-envelope HPKE private-key binding descriptor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1 {
+    /// Signer role that owns this envelope decrypt key.
+    pub role: Role,
+    /// Cloudflare Secret binding name that contains the HPKE private key.
+    pub binding_name: String,
+    /// Public decrypt-key epoch used for transcript and rotation binding.
+    pub key_epoch: String,
+    /// Public key paired with the private binding.
+    pub public_key: String,
+}
+
+impl CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1 {
+    /// Creates a validated signer-envelope HPKE decrypt-key descriptor.
+    pub fn new(
+        role: Role,
+        binding_name: impl Into<String>,
+        key_epoch: impl Into<String>,
+        public_key: impl Into<String>,
+    ) -> RouterAbProtocolResult<Self> {
+        let binding = Self {
+            role,
+            binding_name: binding_name.into(),
+            key_epoch: key_epoch.into(),
+            public_key: public_key.into(),
+        };
+        binding.validate()?;
+        Ok(binding)
+    }
+
+    /// Validates key ownership, binding name, and public descriptor fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_signer_role(self.role)?;
+        require_non_empty("binding_name", &self.binding_name)?;
+        require_non_empty("key_epoch", &self.key_epoch)?;
+        parse_cloudflare_hpke_x25519_public_key_v1(&self.public_key)?;
+        Ok(())
+    }
+
+    /// Returns the public descriptor corresponding to this private binding.
+    pub fn public_descriptor(
+        &self,
+    ) -> RouterAbProtocolResult<CloudflareSignerEnvelopeHpkePublicKeyV1> {
+        CloudflareSignerEnvelopeHpkePublicKeyV1::new(
+            self.role,
+            self.key_epoch.clone(),
+            self.public_key.clone(),
+        )
+    }
+
+    /// Validates this key descriptor is visible to the given Worker role.
+    pub fn validate_visible_to(
+        &self,
+        worker_role: CloudflareWorkerRoleV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        let visible = matches!(
+            (worker_role, self.role),
+            (CloudflareWorkerRoleV1::SignerARelayer, Role::SignerA)
+                | (CloudflareWorkerRoleV1::SignerB, Role::SignerB)
+        );
+        if visible {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+            format!(
+                "{} Worker cannot access {:?} signer-envelope HPKE decrypt key",
+                worker_role.as_str(),
+                self.role
+            ),
+        ))
+    }
+}
+
 /// Role-local A/B peer-message Ed25519 signing secret binding descriptor.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudflareSignerPeerSigningKeyBindingV1 {
@@ -1030,6 +1281,115 @@ impl CloudflareSignerPeerVerifyingKeySetV1 {
             self.signer_a.bind_to_signer(signer_set.signer_a.clone())?,
             self.signer_b.bind_to_signer(signer_set.signer_b.clone())?,
         ])
+    }
+}
+
+/// Router JWT verifier configuration after Env parsing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareRouterJwtVerifierBindingV1 {
+    /// Expected JWT issuer.
+    pub issuer: String,
+    /// Expected JWT audience.
+    pub audience: String,
+    /// JWKS URL used by the Worker verifier adapter.
+    pub jwks_url: String,
+}
+
+impl CloudflareRouterJwtVerifierBindingV1 {
+    /// Creates validated JWT verifier configuration.
+    pub fn new(
+        issuer: impl Into<String>,
+        audience: impl Into<String>,
+        jwks_url: impl Into<String>,
+    ) -> RouterAbProtocolResult<Self> {
+        let binding = Self {
+            issuer: issuer.into(),
+            audience: audience.into(),
+            jwks_url: jwks_url.into(),
+        };
+        binding.validate()?;
+        Ok(binding)
+    }
+
+    /// Validates JWT verifier configuration fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("jwt issuer", &self.issuer)?;
+        require_non_empty("jwt audience", &self.audience)?;
+        require_non_empty("jwt jwks_url", &self.jwks_url)
+    }
+}
+
+/// Router admission-provider storage bindings after Env parsing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareRouterAdmissionStoreBindingsV1 {
+    /// Router project-policy Durable Object.
+    pub project_policy: CloudflareDurableObjectBindingV1,
+    /// Router quota Durable Object.
+    pub quota: CloudflareDurableObjectBindingV1,
+    /// Router abuse-control Durable Object.
+    pub abuse: CloudflareDurableObjectBindingV1,
+}
+
+impl CloudflareRouterAdmissionStoreBindingsV1 {
+    /// Creates validated Router admission store bindings.
+    pub fn new(
+        project_policy: CloudflareDurableObjectBindingV1,
+        quota: CloudflareDurableObjectBindingV1,
+        abuse: CloudflareDurableObjectBindingV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let bindings = Self {
+            project_policy,
+            quota,
+            abuse,
+        };
+        bindings.validate()?;
+        Ok(bindings)
+    }
+
+    /// Validates all admission store bindings are Router-visible and correctly scoped.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_scope(
+            &self.project_policy,
+            CloudflareDurableObjectScopeV1::RouterProjectPolicy,
+            CloudflareWorkerRoleV1::Router,
+        )?;
+        require_scope(
+            &self.quota,
+            CloudflareDurableObjectScopeV1::RouterQuota,
+            CloudflareWorkerRoleV1::Router,
+        )?;
+        require_scope(
+            &self.abuse,
+            CloudflareDurableObjectScopeV1::RouterAbuse,
+            CloudflareWorkerRoleV1::Router,
+        )
+    }
+}
+
+/// Router admission-provider configuration after Env parsing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareRouterAdmissionBindingsV1 {
+    /// JWT verifier configuration.
+    pub jwt: CloudflareRouterJwtVerifierBindingV1,
+    /// Admission-provider storage bindings.
+    pub stores: CloudflareRouterAdmissionStoreBindingsV1,
+}
+
+impl CloudflareRouterAdmissionBindingsV1 {
+    /// Creates validated Router admission-provider bindings.
+    pub fn new(
+        jwt: CloudflareRouterJwtVerifierBindingV1,
+        stores: CloudflareRouterAdmissionStoreBindingsV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let bindings = Self { jwt, stores };
+        bindings.validate()?;
+        Ok(bindings)
+    }
+
+    /// Validates Router admission-provider bindings.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.jwt.validate()?;
+        self.stores.validate()
     }
 }
 
@@ -2267,6 +2627,706 @@ pub trait CloudflareRouterAdmissionProviderV1 {
     ) -> RouterAbProtocolResult<CloudflareRouterAdmissionProviderOutputV1>;
 }
 
+/// Already verified JWT/session claims at the Router auth boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareRouterVerifiedJwtClaimsV1 {
+    /// Canonical subject id from verified auth.
+    pub subject_id: String,
+    /// Canonical session id from verified auth.
+    pub session_id: String,
+    /// Canonical organization id authorized by the session.
+    pub org_id: String,
+    /// Canonical project id authorized by the session.
+    pub project_id: String,
+    /// Deployment environment label authorized by the session.
+    pub environment: String,
+    /// Account, wallet, or root resource id authorized by the session.
+    pub account_id: String,
+    /// Digest of trusted source metadata, such as edge client address.
+    pub trusted_source_digest: PublicDigest32,
+}
+
+impl CloudflareRouterVerifiedJwtClaimsV1 {
+    /// Creates validated claims from an already verified JWT/session boundary.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        subject_id: impl Into<String>,
+        session_id: impl Into<String>,
+        org_id: impl Into<String>,
+        project_id: impl Into<String>,
+        environment: impl Into<String>,
+        account_id: impl Into<String>,
+        trusted_source_digest: PublicDigest32,
+    ) -> RouterAbProtocolResult<Self> {
+        let claims = Self {
+            subject_id: subject_id.into(),
+            session_id: session_id.into(),
+            org_id: org_id.into(),
+            project_id: project_id.into(),
+            environment: environment.into(),
+            account_id: account_id.into(),
+            trusted_source_digest,
+        };
+        claims.validate()?;
+        Ok(claims)
+    }
+
+    /// Validates branch identity and policy-scope fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("subject_id", &self.subject_id)?;
+        require_non_empty("session_id", &self.session_id)?;
+        require_non_empty("org_id", &self.org_id)?;
+        require_non_empty("project_id", &self.project_id)?;
+        require_non_empty("environment", &self.environment)?;
+        require_non_empty("account_id", &self.account_id)
+    }
+
+    /// Converts verified claims into trusted Router metadata for this request.
+    pub fn to_trusted_metadata(
+        &self,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterTrustedRequestMetadataV1> {
+        self.validate()?;
+        request.validate()?;
+        CloudflareRouterTrustedRequestMetadataV1::new(
+            request.lifecycle.work_kind,
+            self.org_id.clone(),
+            self.project_id.clone(),
+            self.environment.clone(),
+            self.account_id.clone(),
+            CloudflareRouterAuthContextV1::authenticated_session(
+                self.subject_id.clone(),
+                self.session_id.clone(),
+            )?,
+            self.trusted_source_digest,
+        )
+    }
+}
+
+/// Already verified pre-auth session at the Router auth boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareRouterVerifiedPreAuthSessionV1 {
+    /// Router-derived pre-auth session id.
+    pub pre_auth_session_id: String,
+    /// Canonical organization id assigned by Router policy.
+    pub org_id: String,
+    /// Canonical project id assigned by Router policy.
+    pub project_id: String,
+    /// Deployment environment label assigned by Router policy.
+    pub environment: String,
+    /// Account, wallet, or root resource id assigned by Router policy.
+    pub account_id: String,
+    /// Digest of trusted source metadata, such as edge client address.
+    pub trusted_source_digest: PublicDigest32,
+}
+
+impl CloudflareRouterVerifiedPreAuthSessionV1 {
+    /// Creates a validated pre-auth session boundary.
+    pub fn new(
+        pre_auth_session_id: impl Into<String>,
+        org_id: impl Into<String>,
+        project_id: impl Into<String>,
+        environment: impl Into<String>,
+        account_id: impl Into<String>,
+        trusted_source_digest: PublicDigest32,
+    ) -> RouterAbProtocolResult<Self> {
+        let session = Self {
+            pre_auth_session_id: pre_auth_session_id.into(),
+            org_id: org_id.into(),
+            project_id: project_id.into(),
+            environment: environment.into(),
+            account_id: account_id.into(),
+            trusted_source_digest,
+        };
+        session.validate()?;
+        Ok(session)
+    }
+
+    /// Validates pre-auth identity and policy-scope fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("pre_auth_session_id", &self.pre_auth_session_id)?;
+        require_non_empty("org_id", &self.org_id)?;
+        require_non_empty("project_id", &self.project_id)?;
+        require_non_empty("environment", &self.environment)?;
+        require_non_empty("account_id", &self.account_id)
+    }
+
+    /// Converts verified pre-auth session data into trusted Router metadata.
+    pub fn to_trusted_metadata(
+        &self,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterTrustedRequestMetadataV1> {
+        self.validate()?;
+        request.validate()?;
+        CloudflareRouterTrustedRequestMetadataV1::new(
+            request.lifecycle.work_kind,
+            self.org_id.clone(),
+            self.project_id.clone(),
+            self.environment.clone(),
+            self.account_id.clone(),
+            CloudflareRouterAuthContextV1::pre_auth_session(self.pre_auth_session_id.clone())?,
+            self.trusted_source_digest,
+        )
+    }
+}
+
+/// Verified session variants accepted by the Router admission chain.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CloudflareRouterVerifiedSessionV1 {
+    /// Claims from a verified JWT/auth session.
+    Jwt {
+        /// Verified JWT/session claims.
+        claims: CloudflareRouterVerifiedJwtClaimsV1,
+    },
+    /// Router-verified pre-auth session for registration prepare.
+    PreAuth {
+        /// Verified pre-auth session data.
+        session: CloudflareRouterVerifiedPreAuthSessionV1,
+    },
+}
+
+impl CloudflareRouterVerifiedSessionV1 {
+    /// Creates a verified JWT session variant.
+    pub fn jwt(claims: CloudflareRouterVerifiedJwtClaimsV1) -> RouterAbProtocolResult<Self> {
+        let session = Self::Jwt { claims };
+        session.validate()?;
+        Ok(session)
+    }
+
+    /// Creates a verified pre-auth session variant.
+    pub fn pre_auth(
+        session: CloudflareRouterVerifiedPreAuthSessionV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let verified = Self::PreAuth { session };
+        verified.validate()?;
+        Ok(verified)
+    }
+
+    /// Validates the verified session branch.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        match self {
+            Self::Jwt { claims } => claims.validate(),
+            Self::PreAuth { session } => session.validate(),
+        }
+    }
+
+    /// Converts the verified session branch into trusted Router metadata.
+    pub fn to_trusted_metadata(
+        &self,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterTrustedRequestMetadataV1> {
+        self.validate()?;
+        match self {
+            Self::Jwt { claims } => claims.to_trusted_metadata(request),
+            Self::PreAuth { session } => session.to_trusted_metadata(request),
+        }
+    }
+}
+
+/// Router auth/session provider used by the admission chain.
+pub trait CloudflareRouterSessionProviderV1 {
+    /// Verifies auth/session state and derives trusted Router metadata.
+    fn verify_public_request_session(
+        &mut self,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterTrustedRequestMetadataV1>;
+}
+
+/// Session provider for claims already verified at the request boundary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloudflareRouterVerifiedSessionProviderV1 {
+    session: CloudflareRouterVerifiedSessionV1,
+}
+
+impl CloudflareRouterVerifiedSessionProviderV1 {
+    /// Creates a provider from already verified session data.
+    pub fn new(session: CloudflareRouterVerifiedSessionV1) -> RouterAbProtocolResult<Self> {
+        session.validate()?;
+        Ok(Self { session })
+    }
+}
+
+impl CloudflareRouterSessionProviderV1 for CloudflareRouterVerifiedSessionProviderV1 {
+    fn verify_public_request_session(
+        &mut self,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterTrustedRequestMetadataV1> {
+        self.session.to_trusted_metadata(request)
+    }
+}
+
+/// Parsed `Authorization: Bearer ...` token at the Router boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareRouterBearerAuthorizationV1 {
+    /// Compact bearer token.
+    pub token: String,
+}
+
+impl CloudflareRouterBearerAuthorizationV1 {
+    /// Creates a validated bearer token.
+    pub fn new(token: impl Into<String>) -> RouterAbProtocolResult<Self> {
+        let authorization = Self {
+            token: token.into(),
+        };
+        authorization.validate()?;
+        Ok(authorization)
+    }
+
+    /// Parses an HTTP Authorization header value.
+    pub fn from_authorization_header(header: &str) -> RouterAbProtocolResult<Self> {
+        let value = header.trim();
+        let token = value.strip_prefix("Bearer ").ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router authorization header must use Bearer scheme",
+            )
+        })?;
+        Self::new(token.to_owned())
+    }
+
+    /// Validates token shape before verifier-specific parsing.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("authorization bearer token", &self.token)?;
+        require_no_ascii_whitespace("authorization bearer token", &self.token)
+    }
+}
+
+/// JWT verifier boundary used by the Router session provider.
+pub trait CloudflareRouterJwtVerifierV1 {
+    /// Verifies a bearer token and returns normalized claims.
+    fn verify_public_request_jwt(
+        &mut self,
+        verifier: &CloudflareRouterJwtVerifierBindingV1,
+        authorization: &CloudflareRouterBearerAuthorizationV1,
+        request: &PublicRouterRequestV1,
+        trusted_source_digest: PublicDigest32,
+    ) -> RouterAbProtocolResult<CloudflareRouterVerifiedJwtClaimsV1>;
+}
+
+/// Session provider backed by a Router JWT verifier.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloudflareRouterJwtSessionProviderV1<Verifier> {
+    verifier_binding: CloudflareRouterJwtVerifierBindingV1,
+    authorization: CloudflareRouterBearerAuthorizationV1,
+    trusted_source_digest: PublicDigest32,
+    verifier: Verifier,
+}
+
+impl<Verifier> CloudflareRouterJwtSessionProviderV1<Verifier> {
+    /// Creates a JWT-backed session provider from parsed boundary inputs.
+    pub fn new(
+        verifier_binding: CloudflareRouterJwtVerifierBindingV1,
+        authorization: CloudflareRouterBearerAuthorizationV1,
+        trusted_source_digest: PublicDigest32,
+        verifier: Verifier,
+    ) -> RouterAbProtocolResult<Self> {
+        let provider = Self {
+            verifier_binding,
+            authorization,
+            trusted_source_digest,
+            verifier,
+        };
+        provider.validate()?;
+        Ok(provider)
+    }
+
+    /// Validates provider inputs before verifier execution.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.verifier_binding.validate()?;
+        self.authorization.validate()
+    }
+}
+
+impl<Verifier> CloudflareRouterSessionProviderV1 for CloudflareRouterJwtSessionProviderV1<Verifier>
+where
+    Verifier: CloudflareRouterJwtVerifierV1,
+{
+    fn verify_public_request_session(
+        &mut self,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterTrustedRequestMetadataV1> {
+        request.validate()?;
+        let claims = self.verifier.verify_public_request_jwt(
+            &self.verifier_binding,
+            &self.authorization,
+            request,
+            self.trusted_source_digest,
+        )?;
+        claims.to_trusted_metadata(request)
+    }
+}
+
+/// Router project policy provider used by the admission chain.
+pub trait CloudflareRouterProjectPolicyProviderV1 {
+    /// Evaluates whether a project may run this work kind.
+    fn evaluate_project_policy(
+        &mut self,
+        metadata: &CloudflareRouterTrustedRequestMetadataV1,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterProjectPolicyV1>;
+}
+
+/// Project policy provider backed by an explicit allowed-work-kind set.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloudflareRouterAllowedWorkKindsProjectPolicyProviderV1 {
+    allowed_work_kinds: Vec<ExpensiveWorkKindV1>,
+    rejected_retry_after_ms: u64,
+}
+
+impl CloudflareRouterAllowedWorkKindsProjectPolicyProviderV1 {
+    /// Creates a project policy provider from the allowed work-kind set.
+    pub fn new(
+        allowed_work_kinds: Vec<ExpensiveWorkKindV1>,
+        rejected_retry_after_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let provider = Self {
+            allowed_work_kinds,
+            rejected_retry_after_ms,
+        };
+        provider.validate()?;
+        Ok(provider)
+    }
+
+    /// Validates provider configuration.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_work_kind_set("allowed_work_kinds", &self.allowed_work_kinds)?;
+        require_positive_ms(
+            "project policy rejected retry_after_ms",
+            self.rejected_retry_after_ms,
+        )
+    }
+}
+
+impl CloudflareRouterProjectPolicyProviderV1
+    for CloudflareRouterAllowedWorkKindsProjectPolicyProviderV1
+{
+    fn evaluate_project_policy(
+        &mut self,
+        metadata: &CloudflareRouterTrustedRequestMetadataV1,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterProjectPolicyV1> {
+        metadata.validate_for_request(request)?;
+        if self
+            .allowed_work_kinds
+            .iter()
+            .any(|work_kind| *work_kind == metadata.work_kind)
+        {
+            return Ok(CloudflareRouterProjectPolicyV1::Allowed);
+        }
+        Ok(CloudflareRouterProjectPolicyV1::Rejected {
+            retry_after_ms: self.rejected_retry_after_ms,
+        })
+    }
+}
+
+/// Storage adapter for Router project policy decisions.
+pub trait CloudflareRouterProjectPolicyStoreV1 {
+    /// Reads/evaluates project policy for a trusted request.
+    fn evaluate_project_policy_from_store(
+        &mut self,
+        binding: &CloudflareDurableObjectBindingV1,
+        metadata: &CloudflareRouterTrustedRequestMetadataV1,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterProjectPolicyV1>;
+}
+
+/// Project policy provider backed by a Router-owned store binding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloudflareRouterStoredProjectPolicyProviderV1<Store> {
+    binding: CloudflareDurableObjectBindingV1,
+    store: Store,
+}
+
+impl<Store> CloudflareRouterStoredProjectPolicyProviderV1<Store> {
+    /// Creates a project policy provider using a Router project-policy store.
+    pub fn new(
+        binding: CloudflareDurableObjectBindingV1,
+        store: Store,
+    ) -> RouterAbProtocolResult<Self> {
+        let provider = Self { binding, store };
+        provider.validate()?;
+        Ok(provider)
+    }
+
+    /// Validates the store binding scope.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_scope(
+            &self.binding,
+            CloudflareDurableObjectScopeV1::RouterProjectPolicy,
+            CloudflareWorkerRoleV1::Router,
+        )
+    }
+}
+
+impl<Store> CloudflareRouterProjectPolicyProviderV1
+    for CloudflareRouterStoredProjectPolicyProviderV1<Store>
+where
+    Store: CloudflareRouterProjectPolicyStoreV1,
+{
+    fn evaluate_project_policy(
+        &mut self,
+        metadata: &CloudflareRouterTrustedRequestMetadataV1,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterProjectPolicyV1> {
+        metadata.validate_for_request(request)?;
+        self.store
+            .evaluate_project_policy_from_store(&self.binding, metadata, request)
+    }
+}
+
+/// Router abuse-control provider used by the admission chain.
+pub trait CloudflareRouterAbuseProviderV1 {
+    /// Evaluates source, principal, and request-level abuse controls.
+    fn evaluate_abuse(
+        &mut self,
+        metadata: &CloudflareRouterTrustedRequestMetadataV1,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterAbuseCheckV1>;
+}
+
+/// Abuse-control provider backed by a caller-supplied decision.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloudflareRouterConfiguredAbuseProviderV1 {
+    outcome: CloudflareRouterAbuseCheckV1,
+}
+
+impl CloudflareRouterConfiguredAbuseProviderV1 {
+    /// Creates an abuse provider from a validated decision.
+    pub fn new(outcome: CloudflareRouterAbuseCheckV1) -> RouterAbProtocolResult<Self> {
+        outcome.validate()?;
+        Ok(Self { outcome })
+    }
+}
+
+impl CloudflareRouterAbuseProviderV1 for CloudflareRouterConfiguredAbuseProviderV1 {
+    fn evaluate_abuse(
+        &mut self,
+        metadata: &CloudflareRouterTrustedRequestMetadataV1,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterAbuseCheckV1> {
+        metadata.validate_for_request(request)?;
+        Ok(self.outcome.clone())
+    }
+}
+
+/// Storage adapter for Router abuse-control decisions.
+pub trait CloudflareRouterAbuseStoreV1 {
+    /// Reads/evaluates abuse-control state for a trusted request.
+    fn evaluate_abuse_from_store(
+        &mut self,
+        binding: &CloudflareDurableObjectBindingV1,
+        metadata: &CloudflareRouterTrustedRequestMetadataV1,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterAbuseCheckV1>;
+}
+
+/// Abuse provider backed by a Router-owned store binding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloudflareRouterStoredAbuseProviderV1<Store> {
+    binding: CloudflareDurableObjectBindingV1,
+    store: Store,
+}
+
+impl<Store> CloudflareRouterStoredAbuseProviderV1<Store> {
+    /// Creates an abuse provider using a Router abuse-control store.
+    pub fn new(
+        binding: CloudflareDurableObjectBindingV1,
+        store: Store,
+    ) -> RouterAbProtocolResult<Self> {
+        let provider = Self { binding, store };
+        provider.validate()?;
+        Ok(provider)
+    }
+
+    /// Validates the store binding scope.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_scope(
+            &self.binding,
+            CloudflareDurableObjectScopeV1::RouterAbuse,
+            CloudflareWorkerRoleV1::Router,
+        )
+    }
+}
+
+impl<Store> CloudflareRouterAbuseProviderV1 for CloudflareRouterStoredAbuseProviderV1<Store>
+where
+    Store: CloudflareRouterAbuseStoreV1,
+{
+    fn evaluate_abuse(
+        &mut self,
+        metadata: &CloudflareRouterTrustedRequestMetadataV1,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterAbuseCheckV1> {
+        metadata.validate_for_request(request)?;
+        self.store
+            .evaluate_abuse_from_store(&self.binding, metadata, request)
+    }
+}
+
+/// Router quota provider used by the admission chain.
+pub trait CloudflareRouterQuotaProviderV1 {
+    /// Evaluates quota, idempotency reuse, and signer queue capacity.
+    fn evaluate_quota(
+        &mut self,
+        metadata: &CloudflareRouterTrustedRequestMetadataV1,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterQuotaCheckV1>;
+}
+
+/// Quota provider backed by a caller-supplied decision.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloudflareRouterConfiguredQuotaProviderV1 {
+    outcome: CloudflareRouterQuotaCheckV1,
+}
+
+impl CloudflareRouterConfiguredQuotaProviderV1 {
+    /// Creates a quota provider from a validated decision.
+    pub fn new(outcome: CloudflareRouterQuotaCheckV1) -> RouterAbProtocolResult<Self> {
+        outcome.validate()?;
+        Ok(Self { outcome })
+    }
+}
+
+impl CloudflareRouterQuotaProviderV1 for CloudflareRouterConfiguredQuotaProviderV1 {
+    fn evaluate_quota(
+        &mut self,
+        metadata: &CloudflareRouterTrustedRequestMetadataV1,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterQuotaCheckV1> {
+        metadata.validate_for_request(request)?;
+        Ok(self.outcome.clone())
+    }
+}
+
+/// Storage adapter for Router quota decisions.
+pub trait CloudflareRouterQuotaStoreV1 {
+    /// Reads/evaluates quota state for a trusted request.
+    fn evaluate_quota_from_store(
+        &mut self,
+        binding: &CloudflareDurableObjectBindingV1,
+        metadata: &CloudflareRouterTrustedRequestMetadataV1,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterQuotaCheckV1>;
+}
+
+/// Quota provider backed by a Router-owned store binding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloudflareRouterStoredQuotaProviderV1<Store> {
+    binding: CloudflareDurableObjectBindingV1,
+    store: Store,
+}
+
+impl<Store> CloudflareRouterStoredQuotaProviderV1<Store> {
+    /// Creates a quota provider using a Router quota store.
+    pub fn new(
+        binding: CloudflareDurableObjectBindingV1,
+        store: Store,
+    ) -> RouterAbProtocolResult<Self> {
+        let provider = Self { binding, store };
+        provider.validate()?;
+        Ok(provider)
+    }
+
+    /// Validates the store binding scope.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_scope(
+            &self.binding,
+            CloudflareDurableObjectScopeV1::RouterQuota,
+            CloudflareWorkerRoleV1::Router,
+        )
+    }
+}
+
+impl<Store> CloudflareRouterQuotaProviderV1 for CloudflareRouterStoredQuotaProviderV1<Store>
+where
+    Store: CloudflareRouterQuotaStoreV1,
+{
+    fn evaluate_quota(
+        &mut self,
+        metadata: &CloudflareRouterTrustedRequestMetadataV1,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterQuotaCheckV1> {
+        metadata.validate_for_request(request)?;
+        self.store
+            .evaluate_quota_from_store(&self.binding, metadata, request)
+    }
+}
+
+/// Composite Router provider that wires session, policy, abuse, and quota checks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloudflareRouterCompositeAdmissionProviderV1<
+    SessionProvider,
+    ProjectPolicyProvider,
+    AbuseProvider,
+    QuotaProvider,
+> {
+    session: SessionProvider,
+    project_policy: ProjectPolicyProvider,
+    abuse: AbuseProvider,
+    quota: QuotaProvider,
+}
+
+impl<SessionProvider, ProjectPolicyProvider, AbuseProvider, QuotaProvider>
+    CloudflareRouterCompositeAdmissionProviderV1<
+        SessionProvider,
+        ProjectPolicyProvider,
+        AbuseProvider,
+        QuotaProvider,
+    >
+{
+    /// Creates a composite Router admission provider.
+    pub fn new(
+        session: SessionProvider,
+        project_policy: ProjectPolicyProvider,
+        abuse: AbuseProvider,
+        quota: QuotaProvider,
+    ) -> Self {
+        Self {
+            session,
+            project_policy,
+            abuse,
+            quota,
+        }
+    }
+}
+
+impl<SessionProvider, ProjectPolicyProvider, AbuseProvider, QuotaProvider>
+    CloudflareRouterAdmissionProviderV1
+    for CloudflareRouterCompositeAdmissionProviderV1<
+        SessionProvider,
+        ProjectPolicyProvider,
+        AbuseProvider,
+        QuotaProvider,
+    >
+where
+    SessionProvider: CloudflareRouterSessionProviderV1,
+    ProjectPolicyProvider: CloudflareRouterProjectPolicyProviderV1,
+    AbuseProvider: CloudflareRouterAbuseProviderV1,
+    QuotaProvider: CloudflareRouterQuotaProviderV1,
+{
+    fn evaluate_public_request_admission(
+        &mut self,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterAdmissionProviderOutputV1> {
+        request.validate()?;
+        let metadata = self.session.verify_public_request_session(request)?;
+        metadata.validate_for_request(request)?;
+        let project_policy = self
+            .project_policy
+            .evaluate_project_policy(&metadata, request)?;
+        project_policy.validate()?;
+        let abuse = self.abuse.evaluate_abuse(&metadata, request)?;
+        abuse.validate()?;
+        let quota = self.quota.evaluate_quota(&metadata, request)?;
+        quota.validate()?;
+        CloudflareRouterAdmissionProviderOutputV1::new(
+            metadata,
+            CloudflareRouterAdmissionChecksV1::new(project_policy, abuse, quota)?,
+        )
+    }
+}
+
 /// Derives trusted Router admission from a provider-owned admission boundary.
 pub fn derive_cloudflare_router_trusted_admission_from_provider_v1(
     request: &PublicRouterRequestV1,
@@ -3136,6 +4196,18 @@ impl CloudflareRouterWorkerRuntimeV1 {
         Ok(plan)
     }
 
+    /// Derives trusted admission from a provider and builds gate-aware work.
+    pub fn public_request_admission_plan_from_provider_at(
+        &self,
+        now_unix_ms: u64,
+        request: PublicRouterRequestV1,
+        provider: &mut impl CloudflareRouterAdmissionProviderV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterPublicAdmissionPlanV1> {
+        let trusted_admission =
+            derive_cloudflare_router_trusted_admission_from_provider_v1(&request, provider)?;
+        self.public_request_admission_plan_at(now_unix_ms, request, trusted_admission)
+    }
+
     /// Returns the Signer A peer binding used by the Router transport wrapper.
     pub fn signer_a_peer(&self) -> &CloudflarePeerBindingV1 {
         &self.bindings.signer_a
@@ -3829,6 +4901,30 @@ pub fn decode_and_validate_cloudflare_signer_envelope_aead_payload_v1(
     let payload = decode_router_to_signer_payload_v1(message.payload.as_bytes())?;
     let envelope = &payload.assignment().envelope;
     decode_and_validate_signer_envelope_aead_payload_v1(envelope, &envelope_decrypt_key.key_epoch)
+}
+
+/// Decodes and validates public signer-envelope HPKE metadata before decryption.
+pub fn decode_and_validate_cloudflare_signer_envelope_hpke_payload_v1(
+    worker_role: CloudflareWorkerRoleV1,
+    message: &WireMessageV1,
+    envelope_decrypt_key: &CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1,
+) -> RouterAbProtocolResult<SignerEnvelopeHpkePayloadV1> {
+    validate_cloudflare_signer_private_request_v1(worker_role, message)?;
+    envelope_decrypt_key.validate_visible_to(worker_role)?;
+    let expected_role = cloudflare_worker_signer_role_v1(worker_role)?;
+    if envelope_decrypt_key.role != expected_role {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "Cloudflare signer HPKE envelope key role does not match Worker role",
+        ));
+    }
+    let payload = decode_router_to_signer_payload_v1(message.payload.as_bytes())?;
+    let envelope = &payload.assignment().envelope;
+    decode_and_validate_signer_envelope_hpke_payload_v1(
+        envelope,
+        &envelope_decrypt_key.key_epoch,
+        &envelope_decrypt_key.public_key,
+    )
 }
 
 /// Strict private signer bootstrap body supplied by Router before envelope decryption.
@@ -5678,6 +6774,94 @@ pub fn parse_cloudflare_router_bindings_v1(
     )
 }
 
+/// Parses Router admission-provider bindings from an Env reader.
+pub fn parse_cloudflare_router_admission_bindings_v1(
+    env: &impl CloudflareEnvReaderV1,
+) -> RouterAbProtocolResult<CloudflareRouterAdmissionBindingsV1> {
+    reject_forbidden_env_keys(
+        CloudflareWorkerRoleV1::Router,
+        env,
+        ROUTER_FORBIDDEN_ENV_KEYS,
+    )?;
+    CloudflareRouterAdmissionBindingsV1::new(
+        CloudflareRouterJwtVerifierBindingV1::new(
+            read_required_env_text(env, ROUTER_JWT_ISSUER_ENV)?,
+            read_required_env_text(env, ROUTER_JWT_AUDIENCE_ENV)?,
+            read_required_env_text(env, ROUTER_JWT_JWKS_URL_ENV)?,
+        )?,
+        CloudflareRouterAdmissionStoreBindingsV1::new(
+            read_durable_object_binding(
+                env,
+                CloudflareDurableObjectScopeV1::RouterProjectPolicy,
+                ROUTER_PROJECT_POLICY_DO_BINDING_ENV,
+                ROUTER_PROJECT_POLICY_DO_OBJECT_ENV,
+                ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV,
+            )?,
+            read_durable_object_binding(
+                env,
+                CloudflareDurableObjectScopeV1::RouterQuota,
+                ROUTER_QUOTA_DO_BINDING_ENV,
+                ROUTER_QUOTA_DO_OBJECT_ENV,
+                ROUTER_QUOTA_DO_KEY_PREFIX_ENV,
+            )?,
+            read_durable_object_binding(
+                env,
+                CloudflareDurableObjectScopeV1::RouterAbuse,
+                ROUTER_ABUSE_DO_BINDING_ENV,
+                ROUTER_ABUSE_DO_OBJECT_ENV,
+                ROUTER_ABUSE_DO_KEY_PREFIX_ENV,
+            )?,
+        )?,
+    )
+}
+
+/// Parses public signer-envelope HPKE keys from an Env reader.
+pub fn parse_cloudflare_signer_envelope_hpke_public_key_set_v1(
+    env: &impl CloudflareEnvReaderV1,
+) -> RouterAbProtocolResult<CloudflareSignerEnvelopeHpkePublicKeySetV1> {
+    CloudflareSignerEnvelopeHpkePublicKeySetV1::new(
+        read_signer_envelope_hpke_public_key(
+            env,
+            Role::SignerA,
+            SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH_ENV,
+            SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
+        )?,
+        read_signer_envelope_hpke_public_key(
+            env,
+            Role::SignerB,
+            SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH_ENV,
+            SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
+        )?,
+    )
+}
+
+/// Parses the current Worker's role-local signer-envelope HPKE private-key binding.
+pub fn parse_cloudflare_signer_envelope_hpke_decrypt_key_binding_v1(
+    worker_role: CloudflareWorkerRoleV1,
+    env: &impl CloudflareEnvReaderV1,
+) -> RouterAbProtocolResult<CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1> {
+    match worker_role {
+        CloudflareWorkerRoleV1::SignerARelayer => read_signer_envelope_hpke_decrypt_key_binding(
+            env,
+            Role::SignerA,
+            SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
+            SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH_ENV,
+            SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
+        ),
+        CloudflareWorkerRoleV1::SignerB => read_signer_envelope_hpke_decrypt_key_binding(
+            env,
+            Role::SignerB,
+            SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
+            SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH_ENV,
+            SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
+        ),
+        CloudflareWorkerRoleV1::Router => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "Router Worker cannot parse a signer-envelope HPKE decrypt key",
+        )),
+    }
+}
+
 /// Parses Signer A/Relayer Worker bindings from an Env reader.
 pub fn parse_cloudflare_signer_a_relayer_bindings_v1(
     env: &impl CloudflareEnvReaderV1,
@@ -6292,6 +7476,34 @@ fn read_signer_envelope_decrypt_key_binding(
     )
 }
 
+fn read_signer_envelope_hpke_public_key(
+    env: &impl CloudflareEnvReaderV1,
+    role: Role,
+    key_epoch_key: &str,
+    public_key_key: &str,
+) -> RouterAbProtocolResult<CloudflareSignerEnvelopeHpkePublicKeyV1> {
+    CloudflareSignerEnvelopeHpkePublicKeyV1::new(
+        role,
+        read_required_env_text(env, key_epoch_key)?,
+        read_required_env_text(env, public_key_key)?,
+    )
+}
+
+fn read_signer_envelope_hpke_decrypt_key_binding(
+    env: &impl CloudflareEnvReaderV1,
+    role: Role,
+    binding_name_key: &str,
+    key_epoch_key: &str,
+    public_key_key: &str,
+) -> RouterAbProtocolResult<CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1> {
+    CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1::new(
+        role,
+        read_required_env_text(env, binding_name_key)?,
+        read_required_env_text(env, key_epoch_key)?,
+        read_required_env_text(env, public_key_key)?,
+    )
+}
+
 fn read_signer_peer_signing_key_binding(
     env: &impl CloudflareEnvReaderV1,
     role: Role,
@@ -6688,6 +7900,16 @@ fn require_non_empty(field: &str, value: &str) -> RouterAbProtocolResult<()> {
     Ok(())
 }
 
+fn require_no_ascii_whitespace(field: &str, value: &str) -> RouterAbProtocolResult<()> {
+    if value.bytes().any(|byte| byte.is_ascii_whitespace()) {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{field} must not contain ASCII whitespace"),
+        ));
+    }
+    Ok(())
+}
+
 fn map_derivation_to_protocol(error: RouterAbDerivationError) -> RouterAbProtocolError {
     RouterAbProtocolError::new(
         RouterAbProtocolErrorCode::MalformedWirePayload,
@@ -6714,6 +7936,27 @@ fn require_positive_ms(field: &str, value: u64) -> RouterAbProtocolResult<()> {
             RouterAbProtocolErrorCode::InvalidTimeRange,
             format!("{field} must be greater than zero"),
         ));
+    }
+    Ok(())
+}
+
+fn require_work_kind_set(
+    field: &str,
+    values: &[ExpensiveWorkKindV1],
+) -> RouterAbProtocolResult<()> {
+    if values.is_empty() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::EmptyField,
+            format!("{field} must not be empty"),
+        ));
+    }
+    for (index, value) in values.iter().enumerate() {
+        if values.iter().skip(index + 1).any(|other| other == value) {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("{field} must not contain duplicate work kinds"),
+            ));
+        }
     }
     Ok(())
 }

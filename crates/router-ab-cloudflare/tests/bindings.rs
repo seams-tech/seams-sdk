@@ -8,6 +8,7 @@ use router_ab_cloudflare::{
     combine_cloudflare_mpc_prf_output_packages_from_peer_messages_v1,
     decode_and_validate_cloudflare_root_share_wire_secret_v1,
     decode_and_validate_cloudflare_signer_envelope_aead_payload_v1,
+    decode_and_validate_cloudflare_signer_envelope_hpke_payload_v1,
     decode_and_validate_cloudflare_signer_input_plaintext_v1,
     decode_and_verify_cloudflare_ab_derivation_proof_batch_message_v1,
     decode_cloudflare_peer_verifying_key_hex_v1, decode_cloudflare_root_share_wire_secret_v1,
@@ -21,8 +22,11 @@ use router_ab_cloudflare::{
     handle_cloudflare_validated_mpc_prf_recipient_proof_bundle_signer_request_v1,
     handle_cloudflare_validated_mpc_prf_signer_request_v1,
     handle_cloudflare_validated_signer_private_request_v1,
-    parse_cloudflare_signer_a_relayer_bindings_v1, parse_cloudflare_signer_b_bindings_v1,
-    parse_cloudflare_worker_bindings_v1, validate_cloudflare_peer_signing_key_matches_request_v1,
+    parse_cloudflare_router_admission_bindings_v1, parse_cloudflare_signer_a_relayer_bindings_v1,
+    parse_cloudflare_signer_b_bindings_v1,
+    parse_cloudflare_signer_envelope_hpke_decrypt_key_binding_v1,
+    parse_cloudflare_signer_envelope_hpke_public_key_set_v1, parse_cloudflare_worker_bindings_v1,
+    validate_cloudflare_peer_signing_key_matches_request_v1,
     validate_cloudflare_signer_peer_request_v1, validate_cloudflare_signer_peer_response_v1,
     validate_cloudflare_signer_private_request_plaintext_v1,
     validate_cloudflare_signer_private_request_v1, validate_cloudflare_signer_private_response_v1,
@@ -37,17 +41,28 @@ use router_ab_cloudflare::{
     CloudflareRelayerRecipientProofBundleActivationV1, CloudflareReplayReserveRequestV1,
     CloudflareReplayReserveResponseV1, CloudflareRootShareLookupRequestV1,
     CloudflareRootShareStartupMetadataV1, CloudflareRootShareWireSecretBindingV1,
-    CloudflareRouterAbuseCheckV1, CloudflareRouterAdmissionChecksV1,
+    CloudflareRouterAbuseCheckV1, CloudflareRouterAbuseStoreV1, CloudflareRouterAdmissionChecksV1,
     CloudflareRouterAdmissionProviderOutputV1, CloudflareRouterAdmissionProviderV1,
-    CloudflareRouterAuthContextV1, CloudflareRouterBindingsV1, CloudflareRouterProjectPolicyV1,
+    CloudflareRouterAllowedWorkKindsProjectPolicyProviderV1, CloudflareRouterAuthContextV1,
+    CloudflareRouterBearerAuthorizationV1, CloudflareRouterBindingsV1,
+    CloudflareRouterCompositeAdmissionProviderV1, CloudflareRouterConfiguredAbuseProviderV1,
+    CloudflareRouterConfiguredQuotaProviderV1, CloudflareRouterJwtSessionProviderV1,
+    CloudflareRouterJwtVerifierBindingV1, CloudflareRouterJwtVerifierV1,
+    CloudflareRouterProjectPolicyStoreV1, CloudflareRouterProjectPolicyV1,
     CloudflareRouterPublicAdmissionPlanV1, CloudflareRouterPublicAdmissionResponseV1,
     CloudflareRouterPublicPlanExecutorV1, CloudflareRouterPublicResponseV1,
-    CloudflareRouterQuotaCheckV1, CloudflareRouterRecipientProofBundleAdmissionResponseV1,
-    CloudflareRouterRecipientProofBundleResponseV1, CloudflareRouterTrustedAdmissionV1,
-    CloudflareRouterTrustedRequestMetadataV1, CloudflareRouterWorkerRuntimeV1,
+    CloudflareRouterQuotaCheckV1, CloudflareRouterQuotaStoreV1,
+    CloudflareRouterRecipientProofBundleAdmissionResponseV1,
+    CloudflareRouterRecipientProofBundleResponseV1, CloudflareRouterStoredAbuseProviderV1,
+    CloudflareRouterStoredProjectPolicyProviderV1, CloudflareRouterStoredQuotaProviderV1,
+    CloudflareRouterTrustedAdmissionV1, CloudflareRouterTrustedRequestMetadataV1,
+    CloudflareRouterVerifiedJwtClaimsV1, CloudflareRouterVerifiedSessionProviderV1,
+    CloudflareRouterVerifiedSessionV1, CloudflareRouterWorkerRuntimeV1,
     CloudflareSignerARelayerBindingsV1, CloudflareSignerARelayerWorkerRuntimeV1,
     CloudflareSignerBBindingsV1, CloudflareSignerBWorkerRuntimeV1,
-    CloudflareSignerEnvelopeDecryptKeyBindingV1, CloudflareSignerHostPeerPreloadInputV1,
+    CloudflareSignerEnvelopeDecryptKeyBindingV1,
+    CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1, CloudflareSignerEnvelopeHpkePublicKeyV1,
+    CloudflareSignerEnvelopeHpkePublicKeySetV1, CloudflareSignerHostPeerPreloadInputV1,
     CloudflareSignerHostPreloadInputV1, CloudflareSignerHostPreloadPlanV1,
     CloudflareSignerPeerSigningKeyBindingV1, CloudflareSignerPeerVerifyingKeyBytesV1,
     CloudflareSignerPeerVerifyingKeySetV1, CloudflareSignerPrivateBootstrapRequestV1,
@@ -55,19 +70,28 @@ use router_ab_cloudflare::{
     CloudflareSignerRecipientProofBundleWireHandlerV1, CloudflareSignerStartupCheckV1,
     CloudflareSignerWireHandlerV1, CloudflareValidatedSignerInputHandlerV1,
     CloudflareValidatedSignerPrivateRequestV1, CloudflareWorkerBindingsV1, CloudflareWorkerRoleV1,
-    CLOUDFLARE_ROOT_SHARE_WIRE_SECRET_PREFIX_V1, ROUTER_LIFECYCLE_DO_BINDING_ENV,
+    CLOUDFLARE_ROOT_SHARE_WIRE_SECRET_PREFIX_V1, ROUTER_ABUSE_DO_BINDING_ENV,
+    ROUTER_ABUSE_DO_KEY_PREFIX_ENV, ROUTER_ABUSE_DO_OBJECT_ENV, ROUTER_JWT_AUDIENCE_ENV,
+    ROUTER_JWT_ISSUER_ENV, ROUTER_JWT_JWKS_URL_ENV, ROUTER_LIFECYCLE_DO_BINDING_ENV,
     ROUTER_LIFECYCLE_DO_KEY_PREFIX_ENV, ROUTER_LIFECYCLE_DO_OBJECT_ENV,
-    ROUTER_REPLAY_DO_BINDING_ENV, ROUTER_REPLAY_DO_KEY_PREFIX_ENV, ROUTER_REPLAY_DO_OBJECT_ENV,
+    ROUTER_PROJECT_POLICY_DO_BINDING_ENV, ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV,
+    ROUTER_PROJECT_POLICY_DO_OBJECT_ENV, ROUTER_QUOTA_DO_BINDING_ENV,
+    ROUTER_QUOTA_DO_KEY_PREFIX_ENV, ROUTER_QUOTA_DO_OBJECT_ENV, ROUTER_REPLAY_DO_BINDING_ENV,
+    ROUTER_REPLAY_DO_KEY_PREFIX_ENV, ROUTER_REPLAY_DO_OBJECT_ENV,
     SIGNER_A_ENVELOPE_AEAD_KEY_BINDING_ENV, SIGNER_A_ENVELOPE_AEAD_KEY_EPOCH_ENV,
-    SIGNER_A_PEER_BINDING_ENV, SIGNER_A_PEER_SIGNING_KEY_BINDING_ENV,
-    SIGNER_A_PEER_SIGNING_KEY_EPOCH_ENV, SIGNER_A_PEER_VERIFYING_KEY_HEX_ENV,
+    SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH_ENV, SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV,
+    SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY_ENV, SIGNER_A_PEER_BINDING_ENV,
+    SIGNER_A_PEER_SIGNING_KEY_BINDING_ENV, SIGNER_A_PEER_SIGNING_KEY_EPOCH_ENV,
+    SIGNER_A_PEER_VERIFYING_KEY_HEX_ENV,
     SIGNER_A_RELAYER_OUTPUT_DO_BINDING_ENV, SIGNER_A_RELAYER_OUTPUT_DO_KEY_PREFIX_ENV,
     SIGNER_A_RELAYER_OUTPUT_DO_OBJECT_ENV, SIGNER_A_ROOT_SHARE_DO_BINDING_ENV,
     SIGNER_A_ROOT_SHARE_DO_KEY_PREFIX_ENV, SIGNER_A_ROOT_SHARE_DO_OBJECT_ENV,
     SIGNER_A_ROOT_SHARE_WIRE_SECRET_BINDING_ENV, SIGNER_B_ENVELOPE_AEAD_KEY_BINDING_ENV,
-    SIGNER_B_ENVELOPE_AEAD_KEY_EPOCH_ENV, SIGNER_B_PEER_BINDING_ENV,
-    SIGNER_B_PEER_SIGNING_KEY_BINDING_ENV, SIGNER_B_PEER_SIGNING_KEY_EPOCH_ENV,
-    SIGNER_B_PEER_VERIFYING_KEY_HEX_ENV, SIGNER_B_ROOT_SHARE_DO_BINDING_ENV,
+    SIGNER_B_ENVELOPE_AEAD_KEY_EPOCH_ENV, SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH_ENV,
+    SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING_ENV, SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
+    SIGNER_B_PEER_BINDING_ENV, SIGNER_B_PEER_SIGNING_KEY_BINDING_ENV,
+    SIGNER_B_PEER_SIGNING_KEY_EPOCH_ENV, SIGNER_B_PEER_VERIFYING_KEY_HEX_ENV,
+    SIGNER_B_ROOT_SHARE_DO_BINDING_ENV,
     SIGNER_B_ROOT_SHARE_DO_KEY_PREFIX_ENV, SIGNER_B_ROOT_SHARE_DO_OBJECT_ENV,
     SIGNER_B_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
 };
@@ -85,9 +109,11 @@ use router_ab_core::{
     RecipientProofBundleEncryptionRequestV1, RecipientProofBundleEncryptorV1,
     RelayerActivationPayloadV1, RelayerIdentityV1, RelayerOutputPackageV1, RoleEncryptedEnvelopeV1,
     RoleEnvelopeAadV1, RouterAbLifecycleStateV1, RouterAbProtocolErrorCode, RouterAbProtocolResult,
-    RouterTranscriptMetadataV1, SignerAEngine, SignerEnvelopeAeadPayloadV1, SignerIdentityV1,
-    SignerInputPlaintextV1, SignerInputQuorumPolicyV1, SignerKeyStore, SignerSetV1,
-    SigningRootShareStore, WireMessageKindV1, WireMessageV1,
+    RouterTranscriptMetadataV1, SignerAEngine, SignerEnvelopeAeadPayloadV1,
+    SignerEnvelopeHpkePayloadV1, SignerIdentityV1, SignerInputPlaintextV1,
+    SignerInputQuorumPolicyV1, SignerKeyStore, SignerSetV1, SigningRootShareStore,
+    WireMessageKindV1, WireMessageV1, SIGNER_ENVELOPE_HPKE_ENCAPPED_KEY_LEN_V1,
+    SIGNER_ENVELOPE_HPKE_TAG_LEN_V1,
 };
 use router_ab_core::{
     router_transcript_digest_v1, CandidateId, PublicDigest32, RequestKind, Role, RootShareEpoch,
@@ -150,6 +176,14 @@ fn lower_hex(bytes: &[u8]) -> String {
     for byte in bytes {
         out.push(HEX[(byte >> 4) as usize] as char);
         out.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+    out
+}
+
+fn x25519_public_key(byte: u8) -> String {
+    let mut out = String::from("x25519:");
+    for _ in 0..32 {
+        out.push_str(&format!("{byte:02x}"));
     }
     out
 }
@@ -305,6 +339,26 @@ fn signer_b_envelope_decrypt_key() -> CloudflareSignerEnvelopeDecryptKeyBindingV
     .expect("signer b envelope decrypt key")
 }
 
+fn signer_a_envelope_hpke_decrypt_key() -> CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1 {
+    CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1::new(
+        Role::SignerA,
+        "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY",
+        "envelope-hpke-key-epoch-a",
+        x25519_public_key(0x11),
+    )
+    .expect("signer a hpke envelope decrypt key")
+}
+
+fn signer_b_envelope_hpke_decrypt_key() -> CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1 {
+    CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1::new(
+        Role::SignerB,
+        "SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY",
+        "envelope-hpke-key-epoch-b",
+        x25519_public_key(0x22),
+    )
+    .expect("signer b hpke envelope decrypt key")
+}
+
 fn signer_a_peer_signing_key() -> CloudflareSignerPeerSigningKeyBindingV1 {
     CloudflareSignerPeerSigningKeyBindingV1::new(
         Role::SignerA,
@@ -434,6 +488,44 @@ fn trusted_metadata() -> CloudflareRouterTrustedRequestMetadataV1 {
     .expect("trusted metadata")
 }
 
+type TestCompositeAdmissionProvider = CloudflareRouterCompositeAdmissionProviderV1<
+    CloudflareRouterVerifiedSessionProviderV1,
+    CloudflareRouterAllowedWorkKindsProjectPolicyProviderV1,
+    CloudflareRouterConfiguredAbuseProviderV1,
+    CloudflareRouterConfiguredQuotaProviderV1,
+>;
+
+fn verified_jwt_claims(session_id: &str, account_id: &str) -> CloudflareRouterVerifiedJwtClaimsV1 {
+    CloudflareRouterVerifiedJwtClaimsV1::new(
+        "user-1",
+        session_id,
+        "org-1",
+        "project-1",
+        "dev",
+        account_id,
+        digest(0x90),
+    )
+    .expect("verified claims")
+}
+
+fn composite_admission_provider(
+    claims: CloudflareRouterVerifiedJwtClaimsV1,
+    allowed_work_kinds: Vec<ExpensiveWorkKindV1>,
+    abuse: CloudflareRouterAbuseCheckV1,
+    quota: CloudflareRouterQuotaCheckV1,
+) -> TestCompositeAdmissionProvider {
+    CloudflareRouterCompositeAdmissionProviderV1::new(
+        CloudflareRouterVerifiedSessionProviderV1::new(
+            CloudflareRouterVerifiedSessionV1::jwt(claims).expect("verified jwt session"),
+        )
+        .expect("verified session provider"),
+        CloudflareRouterAllowedWorkKindsProjectPolicyProviderV1::new(allowed_work_kinds, 1_000)
+            .expect("project policy provider"),
+        CloudflareRouterConfiguredAbuseProviderV1::new(abuse).expect("abuse provider"),
+        CloudflareRouterConfiguredQuotaProviderV1::new(quota).expect("quota provider"),
+    )
+}
+
 fn allow_checks(request_id: &str) -> CloudflareRouterAdmissionChecksV1 {
     CloudflareRouterAdmissionChecksV1::new(
         CloudflareRouterProjectPolicyV1::Allowed,
@@ -464,6 +556,115 @@ impl CloudflareRouterAdmissionProviderV1 for StaticAdmissionProvider {
     ) -> RouterAbProtocolResult<CloudflareRouterAdmissionProviderOutputV1> {
         self.calls += 1;
         Ok(self.output.clone())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct StaticJwtVerifier {
+    claims: CloudflareRouterVerifiedJwtClaimsV1,
+    calls: usize,
+}
+
+impl StaticJwtVerifier {
+    fn new(claims: CloudflareRouterVerifiedJwtClaimsV1) -> Self {
+        Self { claims, calls: 0 }
+    }
+}
+
+impl CloudflareRouterJwtVerifierV1 for StaticJwtVerifier {
+    fn verify_public_request_jwt(
+        &mut self,
+        verifier: &CloudflareRouterJwtVerifierBindingV1,
+        authorization: &CloudflareRouterBearerAuthorizationV1,
+        request: &PublicRouterRequestV1,
+        trusted_source_digest: PublicDigest32,
+    ) -> RouterAbProtocolResult<CloudflareRouterVerifiedJwtClaimsV1> {
+        verifier.validate()?;
+        authorization.validate()?;
+        request.validate()?;
+        self.calls += 1;
+        let mut claims = self.claims.clone();
+        claims.trusted_source_digest = trusted_source_digest;
+        claims.validate()?;
+        Ok(claims)
+    }
+}
+
+#[derive(Debug, Clone)]
+struct StaticProjectPolicyStore {
+    outcome: CloudflareRouterProjectPolicyV1,
+}
+
+impl StaticProjectPolicyStore {
+    fn new(outcome: CloudflareRouterProjectPolicyV1) -> Self {
+        Self { outcome }
+    }
+}
+
+impl CloudflareRouterProjectPolicyStoreV1 for StaticProjectPolicyStore {
+    fn evaluate_project_policy_from_store(
+        &mut self,
+        binding: &CloudflareDurableObjectBindingV1,
+        metadata: &CloudflareRouterTrustedRequestMetadataV1,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterProjectPolicyV1> {
+        binding.validate_visible_to(CloudflareWorkerRoleV1::Router)?;
+        metadata.validate_for_request(request)?;
+        assert_eq!(
+            binding.scope,
+            CloudflareDurableObjectScopeV1::RouterProjectPolicy
+        );
+        Ok(self.outcome.clone())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct StaticAbuseStore {
+    outcome: CloudflareRouterAbuseCheckV1,
+}
+
+impl StaticAbuseStore {
+    fn new(outcome: CloudflareRouterAbuseCheckV1) -> Self {
+        Self { outcome }
+    }
+}
+
+impl CloudflareRouterAbuseStoreV1 for StaticAbuseStore {
+    fn evaluate_abuse_from_store(
+        &mut self,
+        binding: &CloudflareDurableObjectBindingV1,
+        metadata: &CloudflareRouterTrustedRequestMetadataV1,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterAbuseCheckV1> {
+        binding.validate_visible_to(CloudflareWorkerRoleV1::Router)?;
+        metadata.validate_for_request(request)?;
+        assert_eq!(binding.scope, CloudflareDurableObjectScopeV1::RouterAbuse);
+        Ok(self.outcome.clone())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct StaticQuotaStore {
+    outcome: CloudflareRouterQuotaCheckV1,
+}
+
+impl StaticQuotaStore {
+    fn new(outcome: CloudflareRouterQuotaCheckV1) -> Self {
+        Self { outcome }
+    }
+}
+
+impl CloudflareRouterQuotaStoreV1 for StaticQuotaStore {
+    fn evaluate_quota_from_store(
+        &mut self,
+        binding: &CloudflareDurableObjectBindingV1,
+        metadata: &CloudflareRouterTrustedRequestMetadataV1,
+        request: &PublicRouterRequestV1,
+    ) -> RouterAbProtocolResult<CloudflareRouterQuotaCheckV1> {
+        binding.validate_visible_to(CloudflareWorkerRoleV1::Router)?;
+        metadata.validate_for_request(request)?;
+        assert_eq!(binding.scope, CloudflareDurableObjectScopeV1::RouterQuota);
+        Ok(self.outcome.clone())
     }
 }
 
@@ -510,6 +711,45 @@ fn role_aead_envelope(role: Role, seed: u8, key_epoch: &str) -> RoleEncryptedEnv
         EncryptedPayloadV1::new(aead.canonical_bytes()).expect("AEAD payload bytes"),
     )
     .expect("role AEAD envelope")
+}
+
+fn signer_envelope_hpke_payload(
+    role: Role,
+    key_epoch: &str,
+    public_key: &str,
+    aad_digest: PublicDigest32,
+) -> SignerEnvelopeHpkePayloadV1 {
+    let encapped_key_seed = match role {
+        Role::SignerA => 0xa2,
+        Role::SignerB => 0xb2,
+        _ => panic!("test helper requires signer role"),
+    };
+    SignerEnvelopeHpkePayloadV1::new(
+        role,
+        key_epoch,
+        public_key,
+        aad_digest,
+        [encapped_key_seed; SIGNER_ENVELOPE_HPKE_ENCAPPED_KEY_LEN_V1],
+        vec![0xd1; SIGNER_ENVELOPE_HPKE_TAG_LEN_V1 + 1],
+    )
+    .expect("signer envelope HPKE payload")
+}
+
+fn role_hpke_envelope(
+    role: Role,
+    seed: u8,
+    key_epoch: &str,
+    public_key: &str,
+) -> RoleEncryptedEnvelopeV1 {
+    let aad_digest = digest(seed + 1);
+    let hpke = signer_envelope_hpke_payload(role, key_epoch, public_key, aad_digest);
+    RoleEncryptedEnvelopeV1::new(
+        role,
+        digest(seed),
+        aad_digest,
+        EncryptedPayloadV1::new(hpke.canonical_bytes()).expect("HPKE payload bytes"),
+    )
+    .expect("role HPKE envelope")
 }
 
 fn signer_response(transcript_digest: PublicDigest32, seed: u8) -> WireMessageV1 {
@@ -619,6 +859,38 @@ fn public_router_request_with_aead_envelopes(expires_at_ms: u64) -> PublicRouter
     .expect("public router request with AEAD envelopes")
 }
 
+fn public_router_request_with_hpke_envelopes(expires_at_ms: u64) -> PublicRouterRequestV1 {
+    let lifecycle = lifecycle_scope();
+    let signer_set = signer_set();
+    let transcript_digest = public_request_transcript_digest(&lifecycle, &signer_set);
+    PublicRouterRequestV1::new(
+        "request-nonce-1",
+        expires_at_ms,
+        lifecycle,
+        CandidateId::MpcThresholdPrfV1,
+        signer_set,
+        "near-mainnet",
+        "ed25519:account-public-key",
+        "router-1",
+        "client-1",
+        "x25519:client-ephemeral-public-key",
+        transcript_digest,
+        role_hpke_envelope(
+            Role::SignerA,
+            0x10,
+            "envelope-hpke-key-epoch-a",
+            &x25519_public_key(0x11),
+        ),
+        role_hpke_envelope(
+            Role::SignerB,
+            0x20,
+            "envelope-hpke-key-epoch-b",
+            &x25519_public_key(0x22),
+        ),
+    )
+    .expect("public router request with HPKE envelopes")
+}
+
 fn public_router_request_with_aad_bound_envelopes(expires_at_ms: u64) -> PublicRouterRequestV1 {
     let base = public_router_request(expires_at_ms);
     let aad_a = role_envelope_aad_for_request(Role::SignerA, &base);
@@ -687,6 +959,24 @@ fn signer_private_request_with_aead_envelope(kind: WireMessageKindV1) -> WireMes
         }
         WireMessageKindV1::RouterToSignerB => {
             public_router_request_with_aead_envelopes(2_000)
+                .to_signer_wire_messages()
+                .expect("signer wire messages")
+                .1
+        }
+        _ => signer_private_request(kind),
+    }
+}
+
+fn signer_private_request_with_hpke_envelope(kind: WireMessageKindV1) -> WireMessageV1 {
+    match kind {
+        WireMessageKindV1::RouterToSignerA => {
+            public_router_request_with_hpke_envelopes(2_000)
+                .to_signer_wire_messages()
+                .expect("signer wire messages")
+                .0
+        }
+        WireMessageKindV1::RouterToSignerB => {
+            public_router_request_with_hpke_envelopes(2_000)
                 .to_signer_wire_messages()
                 .expect("signer wire messages")
                 .1
@@ -1080,6 +1370,32 @@ fn router_env() -> CloudflareEnvMapV1 {
     ])
 }
 
+fn router_admission_env() -> CloudflareEnvMapV1 {
+    CloudflareEnvMapV1::new(vec![
+        (ROUTER_JWT_ISSUER_ENV, "https://issuer.example"),
+        (ROUTER_JWT_AUDIENCE_ENV, "router-ab"),
+        (
+            ROUTER_JWT_JWKS_URL_ENV,
+            "https://issuer.example/.well-known/jwks.json",
+        ),
+        (
+            ROUTER_PROJECT_POLICY_DO_BINDING_ENV,
+            "ROUTER_PROJECT_POLICY_DO",
+        ),
+        (ROUTER_PROJECT_POLICY_DO_OBJECT_ENV, "router-project-policy"),
+        (
+            ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV,
+            "router-project-policy:",
+        ),
+        (ROUTER_QUOTA_DO_BINDING_ENV, "ROUTER_QUOTA_DO"),
+        (ROUTER_QUOTA_DO_OBJECT_ENV, "router-quota"),
+        (ROUTER_QUOTA_DO_KEY_PREFIX_ENV, "router-quota:"),
+        (ROUTER_ABUSE_DO_BINDING_ENV, "ROUTER_ABUSE_DO"),
+        (ROUTER_ABUSE_DO_OBJECT_ENV, "router-abuse"),
+        (ROUTER_ABUSE_DO_KEY_PREFIX_ENV, "router-abuse:"),
+    ])
+}
+
 fn signer_a_env() -> CloudflareEnvMapV1 {
     CloudflareEnvMapV1::new(vec![
         (
@@ -1202,6 +1518,54 @@ fn router_bindings_accept_router_scoped_durable_objects() {
     let startup = CloudflareWorkerBindingsV1::router(bindings).expect("router startup");
 
     assert_eq!(startup.worker_role(), CloudflareWorkerRoleV1::Router);
+}
+
+#[test]
+fn router_admission_bindings_parse_router_only_provider_config() {
+    let bindings = parse_cloudflare_router_admission_bindings_v1(&router_admission_env())
+        .expect("router admission bindings");
+
+    assert_eq!(bindings.jwt.issuer, "https://issuer.example");
+    assert_eq!(
+        bindings.stores.project_policy.scope,
+        CloudflareDurableObjectScopeV1::RouterProjectPolicy
+    );
+    assert_eq!(
+        bindings.stores.quota.scope,
+        CloudflareDurableObjectScopeV1::RouterQuota
+    );
+    assert_eq!(
+        bindings.stores.abuse.scope,
+        CloudflareDurableObjectScopeV1::RouterAbuse
+    );
+}
+
+#[test]
+fn router_admission_bindings_reject_missing_jwks_url() {
+    let env = CloudflareEnvMapV1::new(vec![
+        (ROUTER_JWT_ISSUER_ENV, "https://issuer.example"),
+        (ROUTER_JWT_AUDIENCE_ENV, "router-ab"),
+        (
+            ROUTER_PROJECT_POLICY_DO_BINDING_ENV,
+            "ROUTER_PROJECT_POLICY_DO",
+        ),
+        (ROUTER_PROJECT_POLICY_DO_OBJECT_ENV, "router-project-policy"),
+        (
+            ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV,
+            "router-project-policy:",
+        ),
+        (ROUTER_QUOTA_DO_BINDING_ENV, "ROUTER_QUOTA_DO"),
+        (ROUTER_QUOTA_DO_OBJECT_ENV, "router-quota"),
+        (ROUTER_QUOTA_DO_KEY_PREFIX_ENV, "router-quota:"),
+        (ROUTER_ABUSE_DO_BINDING_ENV, "ROUTER_ABUSE_DO"),
+        (ROUTER_ABUSE_DO_OBJECT_ENV, "router-abuse"),
+        (ROUTER_ABUSE_DO_KEY_PREFIX_ENV, "router-abuse:"),
+    ]);
+
+    let err = parse_cloudflare_router_admission_bindings_v1(&env)
+        .expect_err("missing JWKS URL must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::MissingLocalBinding);
 }
 
 #[test]
@@ -1676,6 +2040,261 @@ fn router_admission_provider_output_rejects_invalid_checks() {
     .expect_err("invalid checks must fail");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidTimeRange);
+}
+
+#[test]
+fn router_composite_provider_accepts_verified_jwt_policy_abuse_and_quota() {
+    let request = public_router_request(2_000);
+    let mut provider = composite_admission_provider(
+        verified_jwt_claims("session-1", "account.near"),
+        vec![ExpensiveWorkKindV1::RegistrationPrepare],
+        CloudflareRouterAbuseCheckV1::Allowed,
+        CloudflareRouterQuotaCheckV1::Accepted {
+            request_id: "gate-request-1".to_owned(),
+        },
+    );
+
+    let admission =
+        derive_cloudflare_router_trusted_admission_from_provider_v1(&request, &mut provider)
+            .expect("trusted admission");
+
+    admission
+        .validate_for_request(&request)
+        .expect("admission should match request");
+    assert_eq!(admission.context.org_id, "org-1");
+    assert_eq!(admission.context.project_id, "project-1");
+    assert!(matches!(
+        admission.decision,
+        ExpensiveWorkGateDecisionV1::Accepted { .. }
+    ));
+}
+
+#[test]
+fn router_composite_provider_rejects_verified_jwt_scope_mismatch() {
+    let request = public_router_request(2_000);
+    let mut provider = composite_admission_provider(
+        verified_jwt_claims("session-1", "different.near"),
+        vec![ExpensiveWorkKindV1::RegistrationPrepare],
+        CloudflareRouterAbuseCheckV1::Allowed,
+        CloudflareRouterQuotaCheckV1::Accepted {
+            request_id: "gate-request-1".to_owned(),
+        },
+    );
+
+    let err = derive_cloudflare_router_trusted_admission_from_provider_v1(&request, &mut provider)
+        .expect_err("verified jwt account mismatch must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+}
+
+#[test]
+fn router_composite_provider_derives_stop_from_project_policy() {
+    let request = public_router_request(2_000);
+    let mut provider = composite_admission_provider(
+        verified_jwt_claims("session-1", "account.near"),
+        vec![ExpensiveWorkKindV1::KeyExport],
+        CloudflareRouterAbuseCheckV1::Allowed,
+        CloudflareRouterQuotaCheckV1::Accepted {
+            request_id: "gate-request-1".to_owned(),
+        },
+    );
+
+    let admission =
+        derive_cloudflare_router_trusted_admission_from_provider_v1(&request, &mut provider)
+            .expect("trusted admission");
+
+    assert!(matches!(
+        admission.decision,
+        ExpensiveWorkGateDecisionV1::Rejected {
+            reason: GateRejectReasonV1::AbusePolicy,
+            retry_after_ms: 1_000
+        }
+    ));
+    assert!(!admission
+        .allows_signer_forwarding()
+        .expect("forwarding decision"));
+}
+
+#[test]
+fn router_composite_provider_derives_stop_from_abuse_rate_limit() {
+    let request = public_router_request(2_000);
+    let mut provider = composite_admission_provider(
+        verified_jwt_claims("session-1", "account.near"),
+        vec![ExpensiveWorkKindV1::RegistrationPrepare],
+        CloudflareRouterAbuseCheckV1::RateLimited {
+            retry_after_ms: 2_000,
+        },
+        CloudflareRouterQuotaCheckV1::Accepted {
+            request_id: "gate-request-1".to_owned(),
+        },
+    );
+
+    let admission =
+        derive_cloudflare_router_trusted_admission_from_provider_v1(&request, &mut provider)
+            .expect("trusted admission");
+
+    assert!(matches!(
+        admission.decision,
+        ExpensiveWorkGateDecisionV1::Rejected {
+            reason: GateRejectReasonV1::RateLimited,
+            retry_after_ms: 2_000
+        }
+    ));
+}
+
+#[test]
+fn router_bearer_authorization_parses_strict_bearer_header() {
+    let authorization = CloudflareRouterBearerAuthorizationV1::from_authorization_header(
+        "Bearer header.payload.sig",
+    )
+    .expect("bearer authorization");
+
+    assert_eq!(authorization.token, "header.payload.sig");
+}
+
+#[test]
+fn router_bearer_authorization_rejects_wrong_scheme_and_whitespace_token() {
+    let wrong_scheme =
+        CloudflareRouterBearerAuthorizationV1::from_authorization_header("Basic abc")
+            .expect_err("wrong scheme must fail");
+    let whitespace_token =
+        CloudflareRouterBearerAuthorizationV1::from_authorization_header("Bearer abc def")
+            .expect_err("whitespace token must fail");
+
+    assert_eq!(
+        wrong_scheme.code(),
+        RouterAbProtocolErrorCode::MalformedWirePayload
+    );
+    assert_eq!(
+        whitespace_token.code(),
+        RouterAbProtocolErrorCode::MalformedWirePayload
+    );
+}
+
+#[test]
+fn router_jwt_session_provider_feeds_composite_admission() {
+    let request = public_router_request(2_000);
+    let admission_bindings = parse_cloudflare_router_admission_bindings_v1(&router_admission_env())
+        .expect("admission bindings");
+    let jwt_session = CloudflareRouterJwtSessionProviderV1::new(
+        admission_bindings.jwt,
+        CloudflareRouterBearerAuthorizationV1::from_authorization_header(
+            "Bearer header.payload.sig",
+        )
+        .expect("authorization"),
+        digest(0x90),
+        StaticJwtVerifier::new(verified_jwt_claims("session-1", "account.near")),
+    )
+    .expect("jwt session provider");
+    let mut provider = CloudflareRouterCompositeAdmissionProviderV1::new(
+        jwt_session,
+        CloudflareRouterAllowedWorkKindsProjectPolicyProviderV1::new(
+            vec![ExpensiveWorkKindV1::RegistrationPrepare],
+            1_000,
+        )
+        .expect("project policy provider"),
+        CloudflareRouterConfiguredAbuseProviderV1::new(CloudflareRouterAbuseCheckV1::Allowed)
+            .expect("abuse provider"),
+        CloudflareRouterConfiguredQuotaProviderV1::new(CloudflareRouterQuotaCheckV1::Accepted {
+            request_id: "gate-request-1".to_owned(),
+        })
+        .expect("quota provider"),
+    );
+
+    let admission =
+        derive_cloudflare_router_trusted_admission_from_provider_v1(&request, &mut provider)
+            .expect("trusted admission");
+
+    assert_eq!(admission.context.org_id, "org-1");
+    assert_eq!(admission.context.project_id, "project-1");
+    assert!(matches!(
+        admission.decision,
+        ExpensiveWorkGateDecisionV1::Accepted { .. }
+    ));
+}
+
+#[test]
+fn router_stored_admission_providers_feed_composite_chain() {
+    let request = public_router_request(2_000);
+    let admission_bindings = parse_cloudflare_router_admission_bindings_v1(&router_admission_env())
+        .expect("admission bindings");
+    let session = CloudflareRouterVerifiedSessionProviderV1::new(
+        CloudflareRouterVerifiedSessionV1::jwt(verified_jwt_claims("session-1", "account.near"))
+            .expect("verified session"),
+    )
+    .expect("verified session provider");
+    let project_policy = CloudflareRouterStoredProjectPolicyProviderV1::new(
+        admission_bindings.stores.project_policy,
+        StaticProjectPolicyStore::new(CloudflareRouterProjectPolicyV1::Allowed),
+    )
+    .expect("stored project policy provider");
+    let abuse = CloudflareRouterStoredAbuseProviderV1::new(
+        admission_bindings.stores.abuse,
+        StaticAbuseStore::new(CloudflareRouterAbuseCheckV1::Allowed),
+    )
+    .expect("stored abuse provider");
+    let quota = CloudflareRouterStoredQuotaProviderV1::new(
+        admission_bindings.stores.quota,
+        StaticQuotaStore::new(CloudflareRouterQuotaCheckV1::Accepted {
+            request_id: "gate-request-1".to_owned(),
+        }),
+    )
+    .expect("stored quota provider");
+    let mut provider =
+        CloudflareRouterCompositeAdmissionProviderV1::new(session, project_policy, abuse, quota);
+
+    let admission =
+        derive_cloudflare_router_trusted_admission_from_provider_v1(&request, &mut provider)
+            .expect("trusted admission");
+
+    assert!(matches!(
+        admission.decision,
+        ExpensiveWorkGateDecisionV1::Accepted { .. }
+    ));
+}
+
+#[test]
+fn router_stored_project_policy_provider_rejects_wrong_scope() {
+    let err = CloudflareRouterStoredProjectPolicyProviderV1::new(
+        do_binding(
+            CloudflareDurableObjectScopeV1::RouterQuota,
+            "ROUTER_QUOTA_DO",
+        ),
+        StaticProjectPolicyStore::new(CloudflareRouterProjectPolicyV1::Allowed),
+    )
+    .expect_err("wrong store scope must fail");
+
+    assert_eq!(
+        err.code(),
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
+    );
+}
+
+#[test]
+fn router_runtime_builds_admission_plan_from_composite_provider() {
+    let request = public_router_request(2_000);
+    let runtime = router_runtime();
+    let mut provider = composite_admission_provider(
+        verified_jwt_claims("session-1", "account.near"),
+        vec![ExpensiveWorkKindV1::RegistrationPrepare],
+        CloudflareRouterAbuseCheckV1::Allowed,
+        CloudflareRouterQuotaCheckV1::SignerQueueSaturated,
+    );
+
+    let plan = runtime
+        .public_request_admission_plan_from_provider_at(1_000, request, &mut provider)
+        .expect("admission plan");
+
+    assert!(matches!(
+        plan,
+        CloudflareRouterPublicAdmissionPlanV1::Stop { .. }
+    ));
+    assert!(matches!(
+        plan.trusted_admission().decision,
+        ExpensiveWorkGateDecisionV1::Defer {
+            reason: GateDeferReasonV1::SignerQueueSaturated
+        }
+    ));
 }
 
 #[test]
@@ -4126,6 +4745,16 @@ fn env_parser_rejects_router_env_with_signer_root_share_key() {
 
     let err = parse_cloudflare_worker_bindings_v1(CloudflareWorkerRoleV1::Router, &env)
         .expect_err("router env must reject signer storage key");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
+}
+
+#[test]
+fn env_parser_rejects_signer_env_with_router_admission_key() {
+    let env = CloudflareEnvMapV1::new(vec![(ROUTER_JWT_ISSUER_ENV, "https://issuer.example")]);
+
+    let err = parse_cloudflare_worker_bindings_v1(CloudflareWorkerRoleV1::SignerARelayer, &env)
+        .expect_err("signer env must reject router admission key");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
 }

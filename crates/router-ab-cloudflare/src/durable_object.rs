@@ -1429,7 +1429,10 @@ fn worker_role_for_durable_object_scope(
     scope.validate()?;
     match scope {
         CloudflareDurableObjectScopeV1::RouterReplay
-        | CloudflareDurableObjectScopeV1::RouterLifecycle => Ok(CloudflareWorkerRoleV1::Router),
+        | CloudflareDurableObjectScopeV1::RouterLifecycle
+        | CloudflareDurableObjectScopeV1::RouterProjectPolicy
+        | CloudflareDurableObjectScopeV1::RouterQuota
+        | CloudflareDurableObjectScopeV1::RouterAbuse => Ok(CloudflareWorkerRoleV1::Router),
         CloudflareDurableObjectScopeV1::SignerRootShare {
             role: Role::SignerA,
         }

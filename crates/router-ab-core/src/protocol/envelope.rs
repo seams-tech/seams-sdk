@@ -16,10 +16,17 @@ const ROLE_ENCRYPTED_ENVELOPE_DIGEST_VERSION_V1: &[u8] =
 const SIGNER_ENVELOPE_AEAD_PAYLOAD_VERSION_V1: &[u8] =
     b"router-ab-protocol/signer-envelope-aead/v1";
 const SIGNER_ENVELOPE_AEAD_ALGORITHM_V1: &[u8] = b"aes-256-gcm-webcrypto/v1";
+const SIGNER_ENVELOPE_HPKE_PAYLOAD_VERSION_V1: &[u8] =
+    b"router-ab-protocol/signer-envelope-hpke/v1";
+const SIGNER_ENVELOPE_HPKE_ALGORITHM_V1: &[u8] = b"hpke-x25519-hkdf-sha256-aes256gcm/v1";
 /// Signer-envelope AES-GCM nonce length.
 pub const SIGNER_ENVELOPE_AEAD_NONCE_LEN_V1: usize = 12;
 /// Signer-envelope AES-GCM tag length.
 pub const SIGNER_ENVELOPE_AEAD_TAG_LEN_V1: usize = 16;
+/// Signer-envelope HPKE X25519 encapsulated key length.
+pub const SIGNER_ENVELOPE_HPKE_ENCAPPED_KEY_LEN_V1: usize = 32;
+/// Signer-envelope HPKE AES-GCM tag length.
+pub const SIGNER_ENVELOPE_HPKE_TAG_LEN_V1: usize = 16;
 
 /// Encrypted payload bytes. Debug output is redacted.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -153,6 +160,128 @@ impl fmt::Debug for SignerEnvelopeAeadPayloadV1 {
             .field("key_epoch", &self.key_epoch)
             .field("aad_digest", &self.aad_digest)
             .field("nonce", &"[redacted]")
+            .field("ciphertext_and_tag_len", &self.ciphertext_and_tag.len())
+            .field("ciphertext_and_tag", &"[redacted]")
+            .finish()
+    }
+}
+
+/// Parsed signer-envelope HPKE payload before platform-specific decryption.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SignerEnvelopeHpkePayloadV1 {
+    /// Signer role allowed to decrypt this envelope.
+    pub recipient_role: Role,
+    /// Public envelope decrypt-key epoch.
+    pub key_epoch: String,
+    /// Public X25519 recipient key used by the client for HPKE seal.
+    pub recipient_public_key: String,
+    /// Digest of canonical associated-data bytes used during encryption.
+    pub aad_digest: PublicDigest32,
+    encapped_key: [u8; SIGNER_ENVELOPE_HPKE_ENCAPPED_KEY_LEN_V1],
+    ciphertext_and_tag: Vec<u8>,
+}
+
+impl SignerEnvelopeHpkePayloadV1 {
+    /// Creates a validated signer-envelope HPKE payload.
+    pub fn new(
+        recipient_role: Role,
+        key_epoch: impl Into<String>,
+        recipient_public_key: impl Into<String>,
+        aad_digest: PublicDigest32,
+        encapped_key: [u8; SIGNER_ENVELOPE_HPKE_ENCAPPED_KEY_LEN_V1],
+        ciphertext_and_tag: Vec<u8>,
+    ) -> RouterAbProtocolResult<Self> {
+        let payload = Self {
+            recipient_role,
+            key_epoch: key_epoch.into(),
+            recipient_public_key: recipient_public_key.into(),
+            aad_digest,
+            encapped_key,
+            ciphertext_and_tag,
+        };
+        payload.validate()?;
+        Ok(payload)
+    }
+
+    /// Validates public HPKE payload metadata and ciphertext/tag shape.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_signer_role(self.recipient_role)?;
+        require_non_empty("key_epoch", &self.key_epoch)?;
+        require_x25519_public_key_encoding("recipient_public_key", &self.recipient_public_key)?;
+        if self.ciphertext_and_tag.len() <= SIGNER_ENVELOPE_HPKE_TAG_LEN_V1 {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "signer-envelope HPKE ciphertext must include non-empty ciphertext plus tag",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns the HPKE encapsulated X25519 key.
+    pub fn encapped_key(&self) -> &[u8; SIGNER_ENVELOPE_HPKE_ENCAPPED_KEY_LEN_V1] {
+        &self.encapped_key
+    }
+
+    /// Returns ciphertext bytes followed by the HPKE AEAD tag.
+    pub fn ciphertext_and_tag(&self) -> &[u8] {
+        &self.ciphertext_and_tag
+    }
+
+    /// Returns canonical signer-envelope HPKE payload bytes.
+    pub fn canonical_bytes(&self) -> Vec<u8> {
+        encode_signer_envelope_hpke_payload_v1(self)
+    }
+
+    /// Validates this parsed payload against its outer role envelope and key descriptor.
+    pub fn validate_for_envelope(
+        &self,
+        envelope: &RoleEncryptedEnvelopeV1,
+        expected_key_epoch: &str,
+        expected_recipient_public_key: &str,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        envelope.validate()?;
+        require_non_empty("expected_key_epoch", expected_key_epoch)?;
+        require_x25519_public_key_encoding(
+            "expected_recipient_public_key",
+            expected_recipient_public_key,
+        )?;
+        if self.recipient_role != envelope.recipient_role {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidRole,
+                "signer-envelope HPKE recipient role does not match outer envelope",
+            ));
+        }
+        if self.key_epoch != expected_key_epoch {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidSignerIdentity,
+                "signer-envelope HPKE key epoch does not match expected signer key epoch",
+            ));
+        }
+        if self.recipient_public_key != expected_recipient_public_key {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidSignerIdentity,
+                "signer-envelope HPKE public key does not match expected signer key",
+            ));
+        }
+        if self.aad_digest != envelope.aad_digest {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "signer-envelope HPKE AAD digest does not match outer envelope",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for SignerEnvelopeHpkePayloadV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SignerEnvelopeHpkePayloadV1")
+            .field("recipient_role", &self.recipient_role)
+            .field("key_epoch", &self.key_epoch)
+            .field("recipient_public_key", &self.recipient_public_key)
+            .field("aad_digest", &self.aad_digest)
+            .field("encapped_key", &"[redacted]")
             .field("ciphertext_and_tag_len", &self.ciphertext_and_tag.len())
             .field("ciphertext_and_tag", &"[redacted]")
             .finish()
@@ -351,6 +480,21 @@ pub fn encode_signer_envelope_aead_payload_v1(payload: &SignerEnvelopeAeadPayloa
     out
 }
 
+/// Encodes signer-envelope HPKE payload metadata with fixed field order.
+pub fn encode_signer_envelope_hpke_payload_v1(payload: &SignerEnvelopeHpkePayloadV1) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_len32(&mut out, SIGNER_ENVELOPE_HPKE_PAYLOAD_VERSION_V1);
+    push_len32(&mut out, SIGNER_ENVELOPE_HPKE_ALGORITHM_V1);
+    push_len32(&mut out, payload.recipient_role.as_str().as_bytes());
+    push_string(&mut out, &payload.key_epoch);
+    push_string(&mut out, &payload.recipient_public_key);
+    push_public_digest(&mut out, payload.aad_digest);
+    push_len32(&mut out, &payload.encapped_key);
+    push_u32(&mut out, SIGNER_ENVELOPE_HPKE_TAG_LEN_V1 as u32);
+    push_len32(&mut out, &payload.ciphertext_and_tag);
+    out
+}
+
 /// Decodes canonical signer-envelope AEAD payload bytes.
 pub fn decode_signer_envelope_aead_payload_v1(
     bytes: &[u8],
@@ -386,6 +530,43 @@ pub fn decode_signer_envelope_aead_payload_v1(
     )
 }
 
+/// Decodes canonical signer-envelope HPKE payload bytes.
+pub fn decode_signer_envelope_hpke_payload_v1(
+    bytes: &[u8],
+) -> RouterAbProtocolResult<SignerEnvelopeHpkePayloadV1> {
+    let mut decoder = EnvelopeDecoder::new(bytes);
+    decoder.read_expected_bytes(
+        "signer_envelope_hpke_payload_version",
+        SIGNER_ENVELOPE_HPKE_PAYLOAD_VERSION_V1,
+    )?;
+    decoder.read_expected_bytes(
+        "signer_envelope_hpke_algorithm",
+        SIGNER_ENVELOPE_HPKE_ALGORITHM_V1,
+    )?;
+    let recipient_role = parse_role(decoder.read_string("recipient_role")?)?;
+    let key_epoch = decoder.read_string("key_epoch")?;
+    let recipient_public_key = decoder.read_string("recipient_public_key")?;
+    let aad_digest = decoder.read_public_digest("aad_digest")?;
+    let encapped_key = decoder.read_hpke_encapped_key()?;
+    let tag_len = decoder.read_u32("tag_len")?;
+    if tag_len != SIGNER_ENVELOPE_HPKE_TAG_LEN_V1 as u32 {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "signer-envelope HPKE tag length must be 16 bytes",
+        ));
+    }
+    let ciphertext_and_tag = decoder.read_bytes("ciphertext_and_tag")?.to_vec();
+    decoder.finish()?;
+    SignerEnvelopeHpkePayloadV1::new(
+        recipient_role,
+        key_epoch,
+        recipient_public_key,
+        aad_digest,
+        encapped_key,
+        ciphertext_and_tag,
+    )
+}
+
 /// Decodes and validates signer-envelope AEAD payload bytes from an outer envelope.
 pub fn decode_and_validate_signer_envelope_aead_payload_v1(
     envelope: &RoleEncryptedEnvelopeV1,
@@ -393,6 +574,17 @@ pub fn decode_and_validate_signer_envelope_aead_payload_v1(
 ) -> RouterAbProtocolResult<SignerEnvelopeAeadPayloadV1> {
     let payload = decode_signer_envelope_aead_payload_v1(envelope.ciphertext.as_bytes())?;
     payload.validate_for_envelope(envelope, expected_key_epoch)?;
+    Ok(payload)
+}
+
+/// Decodes and validates signer-envelope HPKE payload bytes from an outer envelope.
+pub fn decode_and_validate_signer_envelope_hpke_payload_v1(
+    envelope: &RoleEncryptedEnvelopeV1,
+    expected_key_epoch: &str,
+    expected_recipient_public_key: &str,
+) -> RouterAbProtocolResult<SignerEnvelopeHpkePayloadV1> {
+    let payload = decode_signer_envelope_hpke_payload_v1(envelope.ciphertext.as_bytes())?;
+    payload.validate_for_envelope(envelope, expected_key_epoch, expected_recipient_public_key)?;
     Ok(payload)
 }
 
@@ -404,6 +596,35 @@ fn require_signer_role(role: Role) -> RouterAbProtocolResult<()> {
             "role-encrypted envelope recipient must be Signer A or Signer B",
         )),
     }
+}
+
+fn require_x25519_public_key_encoding(
+    field: &'static str,
+    value: &str,
+) -> RouterAbProtocolResult<()> {
+    let hex = value.strip_prefix("x25519:").ok_or_else(|| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{field} must use x25519:<64 lowercase hex chars> encoding"),
+        )
+    })?;
+    if hex.len() != 64 {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{field} hex must be 64 characters"),
+        ));
+    }
+    if !hex
+        .as_bytes()
+        .iter()
+        .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{field} hex must be lowercase"),
+        ));
+    }
+    Ok(())
 }
 
 fn push_signer_identity(out: &mut Vec<u8>, identity: &SignerIdentityV1) {
@@ -512,6 +733,18 @@ impl<'a> EnvelopeDecoder<'a> {
         })
     }
 
+    fn read_hpke_encapped_key(
+        &mut self,
+    ) -> RouterAbProtocolResult<[u8; SIGNER_ENVELOPE_HPKE_ENCAPPED_KEY_LEN_V1]> {
+        let bytes = self.read_bytes("encapped_key")?;
+        bytes.try_into().map_err(|_| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "signer-envelope HPKE encapsulated key must be 32 bytes",
+            )
+        })
+    }
+
     fn read_u32(&mut self, field: &'static str) -> RouterAbProtocolResult<u32> {
         if self.input.len().saturating_sub(self.pos) < 4 {
             return Err(RouterAbProtocolError::new(
@@ -570,4 +803,100 @@ fn require_non_empty(field: &'static str, value: &str) -> RouterAbProtocolResult
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn digest(byte: u8) -> PublicDigest32 {
+        PublicDigest32::new([byte; 32])
+    }
+
+    fn x25519_key(byte: u8) -> String {
+        let mut out = String::from("x25519:");
+        for _ in 0..32 {
+            out.push_str(&format!("{byte:02x}"));
+        }
+        out
+    }
+
+    fn hpke_payload(public_key: &str) -> SignerEnvelopeHpkePayloadV1 {
+        SignerEnvelopeHpkePayloadV1::new(
+            Role::SignerA,
+            "envelope-key-epoch-a",
+            public_key,
+            digest(0x11),
+            [0x44; SIGNER_ENVELOPE_HPKE_ENCAPPED_KEY_LEN_V1],
+            vec![0x55; SIGNER_ENVELOPE_HPKE_TAG_LEN_V1 + 1],
+        )
+        .expect("hpke payload")
+    }
+
+    #[test]
+    fn signer_envelope_hpke_payload_round_trips_and_validates_outer_envelope() {
+        let public_key = x25519_key(0x11);
+        let payload = hpke_payload(&public_key);
+        let envelope = RoleEncryptedEnvelopeV1::new(
+            Role::SignerA,
+            digest(0x33),
+            digest(0x11),
+            EncryptedPayloadV1::new(payload.canonical_bytes()).expect("payload bytes"),
+        )
+        .expect("outer envelope");
+
+        let decoded = decode_and_validate_signer_envelope_hpke_payload_v1(
+            &envelope,
+            "envelope-key-epoch-a",
+            &public_key,
+        )
+        .expect("validated hpke payload");
+
+        assert_eq!(decoded, payload);
+        assert_eq!(
+            decoded.encapped_key(),
+            &[0x44; SIGNER_ENVELOPE_HPKE_ENCAPPED_KEY_LEN_V1]
+        );
+        assert_eq!(
+            decoded.ciphertext_and_tag(),
+            &[0x55; SIGNER_ENVELOPE_HPKE_TAG_LEN_V1 + 1]
+        );
+    }
+
+    #[test]
+    fn signer_envelope_hpke_payload_rejects_wrong_expected_public_key() {
+        let public_key = x25519_key(0x11);
+        let payload = hpke_payload(&public_key);
+        let envelope = RoleEncryptedEnvelopeV1::new(
+            Role::SignerA,
+            digest(0x33),
+            digest(0x11),
+            EncryptedPayloadV1::new(payload.canonical_bytes()).expect("payload bytes"),
+        )
+        .expect("outer envelope");
+
+        let err = decode_and_validate_signer_envelope_hpke_payload_v1(
+            &envelope,
+            "envelope-key-epoch-a",
+            &x25519_key(0x22),
+        )
+        .expect_err("wrong expected public key must fail");
+
+        assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidSignerIdentity);
+    }
+
+    #[test]
+    fn signer_envelope_hpke_payload_rejects_bad_public_key_encoding() {
+        let err = SignerEnvelopeHpkePayloadV1::new(
+            Role::SignerA,
+            "envelope-key-epoch-a",
+            "x25519:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            digest(0x11),
+            [0x44; SIGNER_ENVELOPE_HPKE_ENCAPPED_KEY_LEN_V1],
+            vec![0x55; SIGNER_ENVELOPE_HPKE_TAG_LEN_V1 + 1],
+        )
+        .expect_err("uppercase public key hex must fail");
+
+        assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+    }
 }

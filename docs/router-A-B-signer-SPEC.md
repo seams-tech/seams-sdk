@@ -703,6 +703,9 @@ Durable Object scopes:
 pub enum CloudflareDurableObjectScopeV1 {
     RouterReplay,
     RouterLifecycle,
+    RouterProjectPolicy,
+    RouterQuota,
+    RouterAbuse,
     SignerRootShare { role: Role },
     RelayerOutput { owner_role: Role },
 }
@@ -712,11 +715,24 @@ Visibility rules:
 
 | Worker | Allowed Durable Object scopes |
 | --- | --- |
-| Router | `RouterReplay`, `RouterLifecycle` |
+| Router | `RouterReplay`, `RouterLifecycle`, `RouterProjectPolicy`, `RouterQuota`, `RouterAbuse` |
 | Signer A/Relayer | `SignerRootShare { role: SignerA }`, `RelayerOutput { owner_role: SignerA }` |
 | Signer B | `SignerRootShare { role: SignerB }` |
 
-Signer-envelope AEAD key-source rules:
+Signer-envelope key-source rules:
+
+Production signer envelopes use public-key HPKE. Clients encrypt the Signer A
+and Signer B envelopes to signer role public envelope keys. The selected public
+key epoch is bound into the request transcript and role-envelope AAD. Daily key
+rotation is acceptable when each signer keeps current and previous private
+decrypt keys only through request TTL plus retry grace, then rejects stale
+epochs.
+
+The current Cloudflare AES-GCM signer-envelope implementation is a prototype
+adapter path. It cannot satisfy the production server-blind release gate until
+it is replaced with HPKE/X25519 public-key signer-envelope encryption.
+
+Prototype signer-envelope AEAD key-source rules:
 
 | Worker | Allowed signer-envelope Secret bindings |
 | --- | --- |
@@ -756,11 +772,12 @@ SIGNER_A_PEER_VERIFYING_KEY_HEX
 SIGNER_B_PEER_VERIFYING_KEY_HEX
 ```
 
-`*_BINDING` names the Cloudflare Secret binding that contains the AEAD key.
-The Secret value is unpadded base64url for exactly 32 raw AES-256-GCM key
-bytes. `*_EPOCH` is public rotation metadata that must be available for
-transcript and AAD binding. `workers-rs` startup validation must check that the
-configured Secret binding exists without logging or serializing its value.
+For the prototype AEAD path, `*_BINDING` names the Cloudflare Secret binding
+that contains the AEAD key. The Secret value is unpadded base64url for exactly
+32 raw AES-256-GCM key bytes. `*_EPOCH` is public rotation metadata that must
+be available for transcript and AAD binding. `workers-rs` startup validation
+must check that the configured Secret binding exists without logging or
+serializing its value.
 For peer signing keys, `*_BINDING` names a Cloudflare Secret containing an
 unpadded base64url Ed25519 signing seed of exactly 32 bytes. `*_EPOCH` must
 match the sender `SignerIdentityV1.key_epoch` before the Worker signs a peer
@@ -1419,6 +1436,16 @@ Required before production recipient-output encryption:
       policy/quota/abuse outcomes.
 - [x] Add a typed Router admission-provider boundary for auth/session, project
       policy, quota, and abuse checks before trusted admission derivation.
+- [x] Add a composite Router admission-provider chain with verified JWT/session
+      claims, allowed-work-kind project policy, abuse, quota, and runtime plan
+      derivation.
+- [x] Define Cloudflare Router admission Env descriptors for JWT verifier
+      config plus Router-only project-policy, quota, and abuse Durable Object
+      bindings.
+- [x] Add typed strict bearer-token parsing, JWT verifier, JWT-backed session,
+      and store-backed project-policy, quota, and abuse provider adapters.
+- [ ] Implement the concrete Worker/JWKS JWT verifier and Durable Object-backed
+      project-policy, quota, and abuse store handlers behind those adapters.
 - [x] Add thin `workers-rs` Signer A/Relayer wrapper.
 - [x] Add thin `workers-rs` Signer B wrapper.
 - [x] Add Signer A/Relayer and Signer B runtime contexts around validated
@@ -1452,6 +1479,12 @@ Required before production recipient-output encryption:
       epoch.
 - [x] Add role-local Cloudflare signer-envelope AEAD key-source descriptors
       and startup validation.
+- [ ] Replace signer-envelope AEAD key-source descriptors with HPKE/X25519
+      public envelope-key descriptors and role-local private decrypt-key
+      descriptors before production release.
+- [ ] Add daily envelope key rotation semantics: key epoch in transcript/AAD,
+      request-TTL overlap, stale-epoch rejection, and current/previous epoch
+      tests.
 - [x] Specify and implement strict signer-envelope AEAD payload parsing for the
       pre-decrypt boundary.
 - [x] Validate Cloudflare signer-envelope AEAD public metadata against the

@@ -23,11 +23,15 @@ pub use self::engine::{
     SignerAEngine, SignerBEngine, SignerHost, SignerKeyStore, SigningRootShareStore,
 };
 pub use self::envelope::{
-    decode_and_validate_signer_envelope_aead_payload_v1, decode_signer_envelope_aead_payload_v1,
-    encode_role_envelope_aad_v1, encode_signer_envelope_aead_payload_v1,
+    decode_and_validate_signer_envelope_aead_payload_v1,
+    decode_and_validate_signer_envelope_hpke_payload_v1, decode_signer_envelope_aead_payload_v1,
+    decode_signer_envelope_hpke_payload_v1, encode_role_envelope_aad_v1,
+    encode_signer_envelope_aead_payload_v1, encode_signer_envelope_hpke_payload_v1,
     role_encrypted_envelope_digest_v1, role_envelope_aad_digest_v1, EncryptedPayloadV1,
     RoleEncryptedEnvelopeV1, RoleEnvelopeAadV1, SignerEnvelopeAeadPayloadV1,
-    SIGNER_ENVELOPE_AEAD_NONCE_LEN_V1, SIGNER_ENVELOPE_AEAD_TAG_LEN_V1,
+    SignerEnvelopeHpkePayloadV1, SIGNER_ENVELOPE_AEAD_NONCE_LEN_V1,
+    SIGNER_ENVELOPE_AEAD_TAG_LEN_V1, SIGNER_ENVELOPE_HPKE_ENCAPPED_KEY_LEN_V1,
+    SIGNER_ENVELOPE_HPKE_TAG_LEN_V1,
 };
 pub use self::error::{RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult};
 pub use self::gate::{

@@ -2013,21 +2013,43 @@ Current completed work:
   boundary. Auth/session, project policy, abuse, and quota providers return
   `CloudflareRouterAdmissionProviderOutputV1`; Router derives
   `CloudflareRouterTrustedAdmissionV1` from that provider-owned output.
+- `crates/router-ab-cloudflare` now has a composite Router admission-provider
+  chain. The chain accepts already verified JWT/session claims, evaluates an
+  explicit allowed-work-kind project policy, applies abuse/quota decisions, and
+  lets the Router runtime build admission plans directly from the provider.
+- Router admission-provider Cloudflare Env descriptors now exist for JWT
+  issuer/audience/JWKS URL plus Router-only project-policy, quota, and abuse
+  Durable Object bindings. Signer roles reject these admission Env keys.
+- Router admission now has typed adapter interfaces for strict bearer-token
+  parsing, JWT verification, JWT-backed session derivation, and Router-owned
+  store-backed project-policy, quota, and abuse providers.
+- Client-to-signer envelope encryption is clarified as a public-key HPKE model:
+  clients encrypt A and B envelopes to Signer A and Signer B public envelope
+  keys, bind the selected key epoch into the request transcript/AAD, and allow
+  daily key rotation with an overlap window no longer than request TTL plus
+  retry grace. The current role-local signer-envelope AEAD implementation is a
+  prototype path that must be replaced by the HPKE signer-envelope path before a
+  production release.
 - `crates/router-ab-cloudflare` now has `benches/router_latency.rs`, which
   records a native CPU baseline for Router admission plus simulated A/B
   coordination over 1, 2, 3, and 4 local round trips.
 
 Immediate next steps:
 
-1. Implement concrete Router JWT/session, project policy, quota, and abuse
-   providers behind `CloudflareRouterAdmissionProviderV1`.
-2. Benchmark normal signing latency and deployed or Wrangler-profiled
+1. Replace the signer-envelope AEAD prototype with HPKE/X25519 public-key
+   signer-envelope encryption, including per-role public key descriptors,
+   key-epoch transcript binding, private-key Secret parsing, overlap-window
+   rejection tests, and vectors.
+2. Implement the Worker/JWKS JWT verifier and the storage-backed project
+   policy, quota, and abuse Durable Object handlers behind the typed Router
+   admission-provider adapters.
+3. Benchmark normal signing latency and deployed or Wrangler-profiled
    setup/export latency.
-3. Capture Cloudflare Worker runtime latency evidence from a deployed or
+4. Capture Cloudflare Worker runtime latency evidence from a deployed or
    wrangler-profiled strict Worker.
-4. Replace Wrangler verifying-key placeholders and provision Cloudflare secrets
+5. Replace Wrangler verifying-key placeholders and provision Cloudflare secrets
    for each signer role before any production deploy.
-5. Keep `split_root_derivation_v1` as comparison/prototype material until its
+6. Keep `split_root_derivation_v1` as comparison/prototype material until its
    unresolved gates justify revisiting it.
 
 ### Phase 0A: Spec Gates
@@ -2201,8 +2223,16 @@ Immediate next steps:
 - [x] Add a typed Router admission-provider boundary that owns auth/session,
       project policy, quota, and abuse checks before trusted admission is
       derived.
-- [ ] Wire real JWT/session, project policy, quota, and abuse providers into
-  the trusted admission derivation boundary.
+- [x] Add a composite Router admission-provider chain with verified JWT/session
+      claims, allowed-work-kind project policy, abuse, quota, and runtime plan
+      derivation.
+- [x] Define Cloudflare Router admission Env descriptors for JWT verifier
+      config plus Router-only project-policy, quota, and abuse Durable Object
+      bindings.
+- [x] Add typed strict bearer-token parsing, JWT verifier, JWT-backed session,
+      and store-backed project-policy, quota, and abuse provider adapters.
+- [ ] Implement the concrete Worker/JWKS JWT verifier and Durable Object-backed
+      project-policy, quota, and abuse store handlers behind those adapters.
 - [x] Add the Router-owned expensive-work admission gate before signer
   forwarding.
 - [x] Derive gate context from trusted Router metadata, never from client
@@ -2243,6 +2273,12 @@ Immediate next steps:
         boundary for production adapters.
   - [x] Add role-local Cloudflare signer-envelope AEAD key-source descriptors
         and startup validation.
+  - [ ] Replace signer-envelope AEAD key-source descriptors with HPKE/X25519
+        public envelope-key descriptors and role-local private decrypt-key
+        descriptors before production release.
+  - [ ] Add daily envelope key rotation semantics: key epoch in transcript/AAD,
+        request-TTL overlap, stale-epoch rejection, and current/previous epoch
+        tests.
   - [x] Specify and implement strict signer-envelope AEAD payload parsing for
         the pre-decrypt boundary.
   - [x] Validate Cloudflare signer-envelope AEAD public metadata against the
