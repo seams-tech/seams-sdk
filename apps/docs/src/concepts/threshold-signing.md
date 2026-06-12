@@ -8,7 +8,7 @@ Seams uses a single-key threshold-ed25519 model for NEAR.
 
 There is one canonical Ed25519 lifecycle per account:
 
-- the client derives hidden inputs from passkey PRF output
+- the client derives hidden inputs from factor-derived secret material
 - the relay derives hidden inputs from its server root material
 - the `ed25519-hss` ceremony reconstructs signing-share base material on demand
 - signing and export stay bound to the same canonical public key
@@ -23,7 +23,7 @@ signing scalar `a`, and one canonical public key `A`.
 
 At a high level:
 
-- `y_client` comes from passkey PRF output plus canonical context
+- `y_client` comes from client factor-derived secret material plus canonical context
 - `y_relayer` comes from relay root material plus the same context
 - `d` is reconstructed from `y_client + y_relayer`
 - `a` is the Ed25519 clamped scalar derived from `SHA-512(d)`
@@ -60,7 +60,7 @@ sequenceDiagram
   participant Secure as "SecureConfirm + WebAuthn"
   participant Relay as Relayer
 
-  App->>Secure: derive registration-scoped PRF inputs
+  App->>Secure: derive registration-scoped factor inputs
   App->>Relay: POST /registration/threshold-ed25519/hss/prepare
   Relay-->>App: prepared registration HSS message
   App->>Relay: POST /registration/threshold-ed25519/hss/finalize
@@ -94,7 +94,7 @@ The threshold session token binds:
 If `xClientBaseB64u` is missing, the client reconstructs it through the HSS
 routes before signing. Those requests stay segregated:
 
-- the client does not send raw passkey PRF outputs or raw `xClientBaseB64u`
+- the client does not send raw factor-derived secret material or raw `xClientBaseB64u`
 - the relay does not return raw relay base-share or server root material
 
 ## Signing Flow
@@ -146,7 +146,7 @@ The active design enforces:
 - one canonical Ed25519 public key per account
 - no second active recovery key in the default path
 - no raw relay root or relay base-share output returned to the client
-- no raw passkey PRF output forwarded to the relay
+- no raw factor-derived secret material forwarded to the relay
 - no durable client wrap-key share derivation in the signing path
 
 The relay and client each re-derive only their own hidden inputs and exchange

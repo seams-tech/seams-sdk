@@ -259,6 +259,8 @@ Implemented after the initial prep:
 - [x] Keep the public 2-of-3 APIs, v1 wire formats, vectors, and WASM exports
   unchanged.
 - [x] Add hidden 3-of-5 interpolation tests to exercise the future math seam.
+- [x] Add a local ignored timing harness for private generic interpolation:
+  `just threshold-prf-t-of-n-prep-bench`.
 
 Remaining for the public v2 refactor:
 

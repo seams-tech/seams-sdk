@@ -261,7 +261,7 @@ the record is ready.
 - [x] Decide whether ECDSA prepare context lives in the same preparation record
       or a sibling `ecdsa_prepare_prepared` branch.
 - [x] Keep ECDSA client bootstrap after the user proof because it needs
-      passkey PRF or Email OTP root-share material.
+      factor-derived secret material.
 - [x] Bind ECDSA prepare context to the same registration preparation id,
       intent digest, wallet id, rp id, signing root, key scope, and participant
       ids.

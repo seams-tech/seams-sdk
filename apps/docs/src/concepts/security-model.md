@@ -105,7 +105,7 @@ This minimizes plaintext exposure - even with DevTools access to the main thread
 
 For threshold keys, signing is performed with MPC shares and partial signatures:
 
-- The client holds a passkey-derived client signing share.
+- The client holds a factor-derived client signing share.
 - The relayer/coordinator holds an independent server share.
 - The protocol combines partial signatures; no participant reconstructs a full private key during routine signing.
 

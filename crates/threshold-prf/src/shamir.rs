@@ -377,6 +377,7 @@ fn lagrange_coefficients_at_zero<const T: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Instant;
 
     #[test]
     fn lagrange_coefficients_cover_every_ordered_v1_pair() {
@@ -527,5 +528,61 @@ mod tests {
         }
 
         reconstructed
+    }
+
+    #[test]
+    #[ignore = "local timing harness; run `just threshold-prf-t-of-n-prep-bench`"]
+    fn benchmark_private_generic_lagrange_prep() {
+        let iterations = 1_000;
+        measure_lagrange_case(
+            "lagrange_at_zero_t2_n3",
+            ThresholdPolicy {
+                threshold: 2,
+                share_count: 3,
+            },
+            [1u16, 3],
+            iterations,
+        );
+        measure_lagrange_case(
+            "lagrange_at_zero_t3_n5",
+            ThresholdPolicy {
+                threshold: 3,
+                share_count: 5,
+            },
+            [1u16, 3, 5],
+            iterations,
+        );
+        measure_lagrange_case(
+            "lagrange_at_zero_t5_n7",
+            ThresholdPolicy {
+                threshold: 5,
+                share_count: 7,
+            },
+            [1u16, 2, 4, 6, 7],
+            iterations,
+        );
+    }
+
+    fn measure_lagrange_case<const T: usize>(
+        name: &str,
+        policy: ThresholdPolicy,
+        ids: [u16; T],
+        iterations: u32,
+    ) {
+        let subset = policy
+            .validate_subset_ids(ids)
+            .expect("benchmark subset is valid");
+        let started_at = Instant::now();
+        let mut checksum = 0u8;
+
+        for _ in 0..iterations {
+            for coefficient in lagrange_coefficients_at_zero(subset) {
+                checksum ^= coefficient.to_bytes()[0];
+            }
+        }
+
+        let elapsed = started_at.elapsed();
+        let ns_per_op = elapsed.as_nanos() as f64 / f64::from(iterations);
+        println!("{name}: {ns_per_op:.3} ns/op over {iterations} iterations, checksum {checksum}");
     }
 }

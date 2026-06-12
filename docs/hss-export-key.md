@@ -41,7 +41,8 @@ across signing, export, and future multi-chain extension.
 
 Let:
 
-- `y_client` be the client root share derived from WebAuthn `prf.output`
+- `y_client` be the client root share derived from factor-derived secret
+  material
 - `y_relayer` be the server root share derived from server root material
 
 Define:
@@ -63,7 +64,8 @@ Those are two views over one canonical key lifecycle, not two separate keys.
 
 Under the current HSS architecture:
 
-- the client re-derives hidden inputs from passkey PRF material on demand
+- the client re-derives hidden inputs from factor-derived secret material on
+  demand
 - the server re-derives hidden inputs from server root material on demand
 - HSS performs the hidden `d -> a` conversion when the product needs fresh
   signing-share reconstruction

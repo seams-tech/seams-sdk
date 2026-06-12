@@ -14,7 +14,7 @@ The active design is:
 - one canonical signing scalar `a`
 - one canonical public key `A`
 - threshold signing and verified export both bound to that same lifecycle
-- client hidden input re-derived from passkey `prf.output`
+- client hidden input re-derived from factor-derived secret material
 - server hidden input re-derived from server root material
 
 This keeps the product independent of NEAR-specific recovery semantics. The
@@ -54,7 +54,8 @@ Those caches improve latency, but they are not equally fundamental today:
 
 Let:
 
-- `y_client` be the client hidden root derived from passkey PRF output
+- `y_client` be the client hidden root derived from factor-derived secret
+  material
 - `y_relayer` be the server hidden root derived from server root material
 - `tau_client` and `tau_relayer` be hidden rerandomization inputs
 
@@ -84,8 +85,8 @@ different keys.
 
 Registration currently does this:
 
-1. complete WebAuthn registration
-2. derive client HSS inputs from passkey PRF material
+1. complete the configured auth ceremony
+2. derive client HSS inputs from factor-derived secret material
 3. call relay HSS `prepare`
 4. evaluate locally
 5. call relay HSS `finalize`
@@ -111,7 +112,7 @@ Unlock and first-use signing rely on:
 
 If the client cache is absent, the client already knows how to:
 
-1. re-derive client HSS inputs from `prf.output`
+1. re-derive client HSS inputs from factor-derived secret material
 2. prepare an HSS request
 3. run a session-bound HSS ceremony
 4. recover `xClientBaseB64u`
@@ -143,7 +144,7 @@ and fails closed on mismatch before emitting any export artifact.
 
 The clean architectural story is:
 
-- the client secret root is re-derived from passkey PRF
+- the client secret root is re-derived from factor-derived secret material
 - the server secret root is re-derived from server root material
 - the system does not fundamentally depend on durable storage of operational
   shares
@@ -175,8 +176,8 @@ That is because `x_relayer_base` depends on both parties' hidden inputs:
 
 So the correct recovery model is:
 
-- not server-only recovery
-- but client-assisted self-heal on the next authenticated HSS ceremony
+- server-root-only recovery is impossible
+- client-assisted self-heal runs on the next authenticated HSS ceremony
 
 That is still enough to remove the relayer share as a correctness dependency on
 durable storage.
@@ -341,7 +342,7 @@ The intended operational model after this work lands is:
 - the next client-assisted HSS session repairs the relayer share cache
 - disaster recovery is rooted in:
   - server root material
-  - client passkey PRF material
+  - client factor-derived secret material
   - authenticated HSS participation
 
 That is much cleaner than treating the persisted relayer share as irreplaceable

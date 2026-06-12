@@ -59,7 +59,7 @@ import { tryFinalizeThresholdEd25519SignatureOnlyPresign } from './shared/ed2551
 import { base64Encode, base64UrlDecode } from '@shared/utils/base64';
 
 /**
- * Sign a NEP-413 message using the user's passkey-derived private key
+ * Sign a NEP-413 message using the active threshold-controlled NEAR key.
  *
  * @param payload - NEP-413 signing parameters including message, recipient, nonce, and state
  * @returns Promise resolving to signing result with account ID, public key, and signature

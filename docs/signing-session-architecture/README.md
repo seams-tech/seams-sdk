@@ -36,6 +36,24 @@ Core rules:
    passkey accounts step up with passkey or TouchID.
 10. NEAR Ed25519 and ECDSA restore independently and exactly.
 
+## Terminology
+
+Use auth-method-neutral terms for core signing-session, restore, budget, and
+threshold flows:
+
+- `factor-derived secret`: auth-owned secret material used as the client
+  contribution to signing, share unwrapping, or sealed session refresh.
+- `share unwrap secret`: factor-derived material used to unwrap protected
+  share or session material.
+- `signing_session_secret32`: the session-scoped secret sealed by
+  `sealed_refresh_v1`.
+- `WebAuthn PRF output` or `passkey PRF output`: passkey adapter vocabulary for
+  the concrete browser primitive.
+
+Core architecture docs and shared signing code should use factor-derived
+terminology. Passkey/WebAuthn modules and passkey-specific tests may use PRF
+vocabulary when they describe the concrete passkey primitive.
+
 ## Lane And Snapshot
 
 Two terms show up throughout this architecture: lane and snapshot.

@@ -13,7 +13,7 @@ import { emitNearSigningEvent } from './signingEventHelpers';
 export type { SignNEP413MessageParams, SignNEP413MessageResult };
 
 /**
- * Sign a NEP-413 message using the user's passkey-derived private key
+ * Sign a NEP-413 message using the active threshold-controlled NEAR key.
  *
  * This function implements the NEP-413 standard for off-chain message signing:
  * - Creates a payload with message, recipient, nonce, and state

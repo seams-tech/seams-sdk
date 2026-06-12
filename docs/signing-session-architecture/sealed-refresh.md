@@ -6,11 +6,11 @@ Last updated: 2026-04-21
 
 Use `shamir3pass` to restore an already-authenticated wallet signing session after accidental iframe/page reload without prompting the user again, while keeping signing material out of browser storage in plaintext.
 
-This is now an auth-method-neutral signing-session feature. It is not passkey-specific and it is not an offline login feature.
+This is an auth-method-neutral signing-session feature for live wallet sessions.
 
 Supported secret sources:
 
-1. passkey accounts: passkey PRF-derived signing-session secret.
+1. passkey accounts: `signing_session_secret32` derived from WebAuthn PRF output.
 2. Email OTP accounts: `signing_session_secret32` derived inside the Email OTP worker after OTP-authorized `shamir3pass` unseal of `S`.
 
 The active Email OTP architecture lives in
@@ -88,7 +88,7 @@ Route auth:
 3. server validates wallet, user, signing root, auth method, TTL, remaining uses, revocation state, and seal key version;
 4. seal apply/remove is transaction-use neutral and must not increase TTL or remaining uses.
 
-Do not reintroduce PRF-specific route names, storage names, or request fields. The steady-state terminology is `signing-session`, `sealedSecretB64u`, `signing_session_secret32`, and `walletSigningSessionId`.
+Do not reintroduce auth-method-specific route names, storage names, or request fields. The steady-state terminology is `signing-session`, `sealedSecretB64u`, `signing_session_secret32`, and `walletSigningSessionId`.
 
 ## Flow
 
@@ -117,7 +117,7 @@ sequenceDiagram
 
 Passkey:
 
-1. fresh passkey auth derives the passkey signing-session secret;
+1. fresh passkey auth derives `signing_session_secret32` from the WebAuthn PRF output;
 2. sealed refresh restores the same wallet signing session without another WebAuthn prompt while server policy allows it;
 3. exhaustion or expiry routes the next transaction through WebAuthn/passkey confirmation.
 
@@ -152,4 +152,4 @@ After sealed refresh, restored signing-session route authority may request a fre
 4. Remaining-use exhaustion prompts with the registered auth method: Email OTP for Email OTP-only accounts and WebAuthn for passkey accounts.
 5. Export and link-device/add-signer require fresh operation auth and do not clobber transaction signing sessions.
 6. Wrong-token usage between app-session and threshold-session lanes fails closed.
-7. No PRF-only sealed-refresh APIs, route names, storage names, or field names remain in steady-state code or specs.
+7. No auth-method-specific sealed-refresh APIs, route names, storage names, or field names remain in steady-state code or specs.

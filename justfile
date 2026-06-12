@@ -120,6 +120,10 @@ threshold-prf-bench-gate:
 threshold-prf-wasm-bench:
   node crates/threshold-prf/scripts/wasm-bench.mjs
 
+# Run the API-neutral private t-of-N interpolation smoke timing harness.
+threshold-prf-t-of-n-prep-bench:
+  cargo test --manifest-path crates/threshold-prf/Cargo.toml benchmark_private_generic_lagrange_prep -- --ignored --nocapture
+
 # Build the threshold-prf Cloudflare Worker benchmark fixture.
 threshold-prf-worker-bench-build:
   node crates/threshold-prf/scripts/worker-bench-build.mjs

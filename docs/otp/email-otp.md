@@ -21,7 +21,8 @@ Email OTP has four independent boundaries:
 
 Core rules:
 
-1. Email OTP secrets are distinct from passkey PRF material.
+1. Email OTP secrets are factor-derived secret material owned by the Email OTP
+   worker.
 2. Secret-bearing material stays worker-owned or encrypted at rest.
 3. Status, snapshot, and wallet-session reads are side-effect-free.
 4. Transaction signing restores only the exact selected lane.

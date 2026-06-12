@@ -20,7 +20,7 @@ signing share for their own project using their own imported signing-root
 shares, while preserving:
 
 - the same wallet origin and `rpId`
-- the same passkey-derived client share
+- the same factor-derived client share
 - the same versioned server-side derivation for the active migration mode
 - the same threshold public keys and addresses
 - no per-wallet durable server secret database
@@ -374,7 +374,7 @@ sealed_signing_root_secret_shares
   -> threshold-prf partials
   -> y_relayer
   -> server signing share
-passkey PRF -> client MPC share
+factor-derived secret -> client MPC share
 ```
 
 The self-hosted worker derives server inputs through the same threshold-prf
@@ -744,7 +744,7 @@ ECDSA bootstrap should:
 2. resolve two usable signing-root shares through `SigningRootSecretResolver`
 3. derive `y_relayer` from threshold-prf partial evaluation and canonical
    wallet context
-4. combine with the client passkey-derived share
+4. combine with the client factor-derived share
 5. persist versioned wallet metadata
 
 It should require a signing-root share provider, not a global server-root
