@@ -266,6 +266,8 @@ Implemented after the initial prep:
   - point interpolation for those same private generic policies
   - current v1 partial evaluation, combine, share-wire derive, DLEQ proof, and
     verified-combine costs
+- [x] Add private `5-of-7` scalar and point interpolation tests for the future
+  generic combine seam.
 
 Remaining for the public v2 refactor:
 

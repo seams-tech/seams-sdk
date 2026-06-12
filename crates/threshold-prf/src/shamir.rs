@@ -446,10 +446,64 @@ mod tests {
             [2, 4, 5],
             [3, 4, 5],
         ] {
-            assert_eq!(reconstruct_with_private_generic(policy, ids, &shares), root);
             assert_eq!(
-                reconstruct_with_private_generic(policy, [ids[2], ids[1], ids[0]], &shares),
+                reconstruct_scalar_with_private_generic(policy, ids, &shares),
                 root
+            );
+            assert_eq!(
+                reconstruct_scalar_with_private_generic(policy, [ids[2], ids[1], ids[0]], &shares),
+                root
+            );
+        }
+    }
+
+    #[test]
+    fn private_generic_lagrange_reconstructs_five_of_seven_scalar_and_point_subsets() {
+        let policy = ThresholdPolicy {
+            threshold: 5,
+            share_count: 7,
+        };
+        let root = Scalar::from(29u64);
+        let coefficients = [
+            Scalar::from(31u64),
+            Scalar::from(37u64),
+            Scalar::from(41u64),
+            Scalar::from(43u64),
+        ];
+        let shares = [
+            (1u16, eval_polynomial_share(root, &coefficients, 1)),
+            (2u16, eval_polynomial_share(root, &coefficients, 2)),
+            (3u16, eval_polynomial_share(root, &coefficients, 3)),
+            (4u16, eval_polynomial_share(root, &coefficients, 4)),
+            (5u16, eval_polynomial_share(root, &coefficients, 5)),
+            (6u16, eval_polynomial_share(root, &coefficients, 6)),
+            (7u16, eval_polynomial_share(root, &coefficients, 7)),
+        ];
+        let input_point = Scalar::from(101u64) * RISTRETTO_BASEPOINT_POINT;
+        let points = shares.map(|(id, share)| (id, share * input_point));
+
+        for ids in [
+            [1u16, 2, 3, 4, 5],
+            [1, 2, 3, 4, 7],
+            [1, 3, 4, 6, 7],
+            [2, 3, 5, 6, 7],
+            [1, 2, 4, 6, 7],
+        ] {
+            assert_eq!(
+                reconstruct_scalar_with_private_generic(policy, ids, &shares),
+                root
+            );
+            assert_eq!(
+                reconstruct_scalar_with_private_generic(
+                    policy,
+                    [ids[4], ids[3], ids[2], ids[1], ids[0]],
+                    &shares
+                ),
+                root
+            );
+            assert_eq!(
+                reconstruct_point_with_private_generic(policy, ids, &points).compress(),
+                (root * input_point).compress()
             );
         }
     }
@@ -506,14 +560,24 @@ mod tests {
     }
 
     fn eval_quadratic_share(root: Scalar, linear: Scalar, quadratic: Scalar, id: u16) -> Scalar {
-        let x = Scalar::from(u64::from(id));
-        root + (linear * x) + (quadratic * x * x)
+        eval_polynomial_share(root, &[linear, quadratic], id)
     }
 
-    fn reconstruct_with_private_generic(
+    fn eval_polynomial_share(root: Scalar, coefficients: &[Scalar], id: u16) -> Scalar {
+        let x = Scalar::from(u64::from(id));
+        let mut value = root;
+        let mut x_power = x;
+        for coefficient in coefficients {
+            value += *coefficient * x_power;
+            x_power *= x;
+        }
+        value
+    }
+
+    fn reconstruct_scalar_with_private_generic<const T: usize, const N: usize>(
         policy: ThresholdPolicy,
-        ids: [u16; 3],
-        shares: &[(u16, Scalar); 5],
+        ids: [u16; T],
+        shares: &[(u16, Scalar); N],
     ) -> Scalar {
         let subset = policy
             .validate_subset_ids(ids)
@@ -528,6 +592,29 @@ mod tests {
                 .expect("share id exists in fixture")
                 .1;
             reconstructed += coefficient * share;
+        }
+
+        reconstructed
+    }
+
+    fn reconstruct_point_with_private_generic<const T: usize, const N: usize>(
+        policy: ThresholdPolicy,
+        ids: [u16; T],
+        points: &[(u16, RistrettoPoint); N],
+    ) -> RistrettoPoint {
+        let subset = policy
+            .validate_subset_ids(ids)
+            .expect("valid threshold subset");
+        let coefficients = lagrange_coefficients_at_zero(subset);
+        let mut reconstructed = RistrettoPoint::identity();
+
+        for (coefficient, id) in coefficients.into_iter().zip(ids) {
+            let point = points
+                .iter()
+                .find(|(share_id, _)| *share_id == id)
+                .expect("point id exists in fixture")
+                .1;
+            reconstructed += coefficient * point;
         }
 
         reconstructed

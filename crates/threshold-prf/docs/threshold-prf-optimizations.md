@@ -136,13 +136,13 @@ as material in the deployed path.
 
 ## Release Gates
 
-- [ ] Record native baseline with:
+- [x] Record native baseline with:
 
 ```bash
 just threshold-prf-bench-gate
 ```
 
-- [ ] Record local WASM baseline with:
+- [x] Record local WASM baseline with:
 
 ```bash
 just threshold-prf-wasm-bench
@@ -151,8 +151,21 @@ just threshold-prf-wasm-bench
 - [ ] Record deployed Worker baseline before merging any performance-focused
   implementation change.
 - [ ] Treat any output-vector change as a protocol change.
-- [ ] Keep benchmark reports tied to a date, runtime, git revision, command,
+- [x] Keep benchmark reports tied to a date, runtime, git revision, command,
   and worktree state.
+
+Status as of June 13, 2026:
+
+- Native Criterion coverage now includes share-wire Option A and verified DLEQ
+  combine paths.
+- Local Node/V8 WASM coverage now includes the same share-wire Option A and
+  verified DLEQ combine paths.
+- Native share-wire Option A is about `0.10 ms`; local Node/V8 WASM share-wire
+  Option A is about `0.21 ms`.
+- Native verified DLEQ combine is about `0.25 ms`; local Node/V8 WASM verified
+  DLEQ combine is about `0.52 ms`.
+- The data does not justify DLEQ micro-optimization before deployed Worker or
+  integration profiling identifies it as a real hot path.
 
 ## Non-Goals
 
