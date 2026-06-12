@@ -423,6 +423,288 @@
           "expected_error": "InvalidPointEncoding"
         }
       ]
+    },
+    {
+      "suite_id": "threshold-prf/ristretto255-sha512/v1",
+      "purpose": "router-ab/x_client_base/v1",
+      "context_hex": "00297468726573686f6c642d7072662f726f757465722d61622d766563746f722d636f6e746578742f7631001170726f6a6563742d616c7068613a646576000d7369676e65722d7365742d76310006616c6c283229000d785f636c69656e745f626173650006636c69656e740013726f6c653a636c69656e743a66697874757265",
+      "root_seed_hex": "0707070707070707070707070707070707070707070707070707070707070707",
+      "split_seed_hex": "0808080808080808080808080808080808080808080808080808080808080808",
+      "root_scalar_hex": "086565a2edb6121f62aeb259d634dadcbaa39a503cbb80b8e176643cb5d7d909",
+      "shares": [
+        {
+          "id": 1,
+          "scalar_hex": "1ba5f9c2f4003d409a9358a20b40b37eb32a28daacc5676a468b64a203c1e303",
+          "wire_hex": "011ba5f9c2f4003d409a9358a20b40b37eb32a28daacc5676a468b64a203c1e303"
+        },
+        {
+          "id": 2,
+          "scalar_hex": "1bb9834016ae79b9a815f68d1f456b35acb1b5631dd04e1cab9f640852aaed0d",
+          "wire_hex": "021bb9834016ae79b9a815f68d1f456b35acb1b5631dd04e1cab9f640852aaed0d"
+        },
+        {
+          "id": 3,
+          "scalar_hex": "2ef917611df8a3dae0fa9bd6545044d7a43843ed8dda35ce0fb4646ea093f707",
+          "wire_hex": "032ef917611df8a3dae0fa9bd6545044d7a43843ed8dda35ce0fb4646ea093f707"
+        }
+      ],
+      "partials": [
+        {
+          "id": 1,
+          "context_tag_hex": "925526cc06ec20f12642a75a808a3b0e7bfd86d06ba137985bf0435ec174562e",
+          "compressed_point_hex": "52cd615c6c8580b55770e764a6492ffb43696700bcc69e81c8b1b254d10f253f",
+          "wire_hex": "01925526cc06ec20f12642a75a808a3b0e7bfd86d06ba137985bf0435ec174562e52cd615c6c8580b55770e764a6492ffb43696700bcc69e81c8b1b254d10f253f",
+          "share_commitment_wire_hex": "01f49f9f19b9de0951a0a92e46834a7553e80731472164bdd36fe0e9dd167db94e",
+          "dleq_proof_seed_hex": "4646464646464646464646464646464646464646464646464646464646464601",
+          "dleq_proof_wire_hex": "bb4fc3583fb36fd945e286218c104255db4b0d414b19ade457cb82a94c6e2e03cab570fe7f4fcd3c185b740dcf5e1455d6296e565a2c7b9ff8dc663b1794b705"
+        },
+        {
+          "id": 2,
+          "context_tag_hex": "925526cc06ec20f12642a75a808a3b0e7bfd86d06ba137985bf0435ec174562e",
+          "compressed_point_hex": "d209e784ce715398d4eab0239a675be6f466654ad67563e2e1c3a7ad31437b3e",
+          "wire_hex": "02925526cc06ec20f12642a75a808a3b0e7bfd86d06ba137985bf0435ec174562ed209e784ce715398d4eab0239a675be6f466654ad67563e2e1c3a7ad31437b3e",
+          "share_commitment_wire_hex": "02ec34ceeeb8e74e1aff7730a3c8f204bbfa04933e2a9475349657979e70df2179",
+          "dleq_proof_seed_hex": "4646464646464646464646464646464646464646464646464646464646464602",
+          "dleq_proof_wire_hex": "46be4afd444da504e8a98ec66dca19d6ea5a232c4db2c4035f65743a79021404494dc0a397e98932c7a18a87bf549ee1dec722d764509f537839c002f66bcd0a"
+        },
+        {
+          "id": 3,
+          "context_tag_hex": "925526cc06ec20f12642a75a808a3b0e7bfd86d06ba137985bf0435ec174562e",
+          "compressed_point_hex": "4289b37a745b5bd071fe8c0c8e679e3fac1b301a6fbfdac53afe3ace62f2ed43",
+          "wire_hex": "03925526cc06ec20f12642a75a808a3b0e7bfd86d06ba137985bf0435ec174562e4289b37a745b5bd071fe8c0c8e679e3fac1b301a6fbfdac53afe3ace62f2ed43",
+          "share_commitment_wire_hex": "033ac731bd21c3767d2659ff02bcec9466cac0a6dfed41ffc100112126e9477668",
+          "dleq_proof_seed_hex": "4646464646464646464646464646464646464646464646464646464646464603",
+          "dleq_proof_wire_hex": "5e54e321b1dbf005ad4063761fb2845cf19f8ca2edf2d8eef037e7d845c9c20a274c4ff4cb1d8418a569f278ce78160bf0400f9a3a8a01118f688368e86cdd01"
+        }
+      ],
+      "direct_output_hex": "bb495a5f5c5dc330e8f21468d733e1f43607673c9aa5ea113e8fdc0b731f8303",
+      "pairwise_outputs": [
+        {
+          "ids": [
+            1,
+            2
+          ],
+          "output_hex": "bb495a5f5c5dc330e8f21468d733e1f43607673c9aa5ea113e8fdc0b731f8303"
+        },
+        {
+          "ids": [
+            1,
+            3
+          ],
+          "output_hex": "bb495a5f5c5dc330e8f21468d733e1f43607673c9aa5ea113e8fdc0b731f8303"
+        },
+        {
+          "ids": [
+            2,
+            3
+          ],
+          "output_hex": "bb495a5f5c5dc330e8f21468d733e1f43607673c9aa5ea113e8fdc0b731f8303"
+        }
+      ],
+      "refresh_seed_hex": "6363636363636363636363636363636363636363636363636363636363636363",
+      "refresh_input_share_ids": [
+        1,
+        3
+      ],
+      "refreshed_shares": [
+        {
+          "id": 1,
+          "scalar_hex": "5a57b397a337bed2402d72743b79ac829a9806bbf385afc3c7f8e2b600f4a80d",
+          "wire_hex": "015a57b397a337bed2402d72743b79ac829a9806bbf385afc3c7f8e2b600f4a80d"
+        },
+        {
+          "id": 2,
+          "scalar_hex": "bf750b303f55572e490f3aecc1c39f137a8d7225ab50decead7a61314c107801",
+          "wire_hex": "02bf750b303f55572e490f3aecc1c39f137a8d7225ab50decead7a61314c107801"
+        },
+        {
+          "id": 3,
+          "scalar_hex": "11685925f5d502e2278ef906270872b95982de8f621b0dda93fcdfab972c4705",
+          "wire_hex": "0311685925f5d502e2278ef906270872b95982de8f621b0dda93fcdfab972c4705"
+        }
+      ],
+      "refreshed_pairwise_outputs": [
+        {
+          "ids": [
+            1,
+            2
+          ],
+          "output_hex": "bb495a5f5c5dc330e8f21468d733e1f43607673c9aa5ea113e8fdc0b731f8303"
+        },
+        {
+          "ids": [
+            1,
+            3
+          ],
+          "output_hex": "bb495a5f5c5dc330e8f21468d733e1f43607673c9aa5ea113e8fdc0b731f8303"
+        },
+        {
+          "ids": [
+            2,
+            3
+          ],
+          "output_hex": "bb495a5f5c5dc330e8f21468d733e1f43607673c9aa5ea113e8fdc0b731f8303"
+        }
+      ],
+      "invalid_cases": [
+        {
+          "name": "short_partial_wire",
+          "expected_error": "InvalidPartialEncoding"
+        },
+        {
+          "name": "invalid_share_id",
+          "expected_error": "InvalidShareId"
+        },
+        {
+          "name": "wrong_context_tag",
+          "expected_error": "ContextMismatch"
+        },
+        {
+          "name": "invalid_compressed_point",
+          "expected_error": "InvalidPointEncoding"
+        }
+      ]
+    },
+    {
+      "suite_id": "threshold-prf/ristretto255-sha512/v1",
+      "purpose": "router-ab/x_relayer_base/v1",
+      "context_hex": "00297468726573686f6c642d7072662f726f757465722d61622d766563746f722d636f6e746578742f7631001170726f6a6563742d616c7068613a646576000d7369676e65722d7365742d76310006616c6c283229000e785f72656c617965725f62617365000772656c617965720014726f6c653a72656c617965723a66697874757265",
+      "root_seed_hex": "0707070707070707070707070707070707070707070707070707070707070707",
+      "split_seed_hex": "0808080808080808080808080808080808080808080808080808080808080808",
+      "root_scalar_hex": "086565a2edb6121f62aeb259d634dadcbaa39a503cbb80b8e176643cb5d7d909",
+      "shares": [
+        {
+          "id": 1,
+          "scalar_hex": "1ba5f9c2f4003d409a9358a20b40b37eb32a28daacc5676a468b64a203c1e303",
+          "wire_hex": "011ba5f9c2f4003d409a9358a20b40b37eb32a28daacc5676a468b64a203c1e303"
+        },
+        {
+          "id": 2,
+          "scalar_hex": "1bb9834016ae79b9a815f68d1f456b35acb1b5631dd04e1cab9f640852aaed0d",
+          "wire_hex": "021bb9834016ae79b9a815f68d1f456b35acb1b5631dd04e1cab9f640852aaed0d"
+        },
+        {
+          "id": 3,
+          "scalar_hex": "2ef917611df8a3dae0fa9bd6545044d7a43843ed8dda35ce0fb4646ea093f707",
+          "wire_hex": "032ef917611df8a3dae0fa9bd6545044d7a43843ed8dda35ce0fb4646ea093f707"
+        }
+      ],
+      "partials": [
+        {
+          "id": 1,
+          "context_tag_hex": "45b901e3ab2f26a5b6c73a24734b08b4eaa49c46d104f0a1770308cbe5b296a7",
+          "compressed_point_hex": "36ada573ce3a0cb4753df22bb0018c7a89002811ae2eec087f0d012f67e8b851",
+          "wire_hex": "0145b901e3ab2f26a5b6c73a24734b08b4eaa49c46d104f0a1770308cbe5b296a736ada573ce3a0cb4753df22bb0018c7a89002811ae2eec087f0d012f67e8b851",
+          "share_commitment_wire_hex": "01f49f9f19b9de0951a0a92e46834a7553e80731472164bdd36fe0e9dd167db94e",
+          "dleq_proof_seed_hex": "5050505050505050505050505050505050505050505050505050505050505001",
+          "dleq_proof_wire_hex": "b5ea2f9e50b0307a106b53e6aa77749bdc13eb8cbd363b0d7010e9560948fd0c7727aed86c274aa1770e11de6e6c9dbd2f94c98a74a33eb52f95248c9c5c270d"
+        },
+        {
+          "id": 2,
+          "context_tag_hex": "45b901e3ab2f26a5b6c73a24734b08b4eaa49c46d104f0a1770308cbe5b296a7",
+          "compressed_point_hex": "6a69e0247226efab6b6be4b1f7d466054333a9975630b78dcb270a12eaa41510",
+          "wire_hex": "0245b901e3ab2f26a5b6c73a24734b08b4eaa49c46d104f0a1770308cbe5b296a76a69e0247226efab6b6be4b1f7d466054333a9975630b78dcb270a12eaa41510",
+          "share_commitment_wire_hex": "02ec34ceeeb8e74e1aff7730a3c8f204bbfa04933e2a9475349657979e70df2179",
+          "dleq_proof_seed_hex": "5050505050505050505050505050505050505050505050505050505050505002",
+          "dleq_proof_wire_hex": "8137828fcf212cb71e97ba5ad303fdc7b36024f9348aead7a48f7e325aa49000c5c0db47994f05bcb5d8e8f2049438ffa342ff40fb2a424a93ac88622bf6f401"
+        },
+        {
+          "id": 3,
+          "context_tag_hex": "45b901e3ab2f26a5b6c73a24734b08b4eaa49c46d104f0a1770308cbe5b296a7",
+          "compressed_point_hex": "dc20217646d8a0aa88bf32bf9c27714d365789c359fa561295d4e21eaea7ea65",
+          "wire_hex": "0345b901e3ab2f26a5b6c73a24734b08b4eaa49c46d104f0a1770308cbe5b296a7dc20217646d8a0aa88bf32bf9c27714d365789c359fa561295d4e21eaea7ea65",
+          "share_commitment_wire_hex": "033ac731bd21c3767d2659ff02bcec9466cac0a6dfed41ffc100112126e9477668",
+          "dleq_proof_seed_hex": "5050505050505050505050505050505050505050505050505050505050505003",
+          "dleq_proof_wire_hex": "e1103ac3846a92723ac804a00c46533a25b49cf77266a635e11cf6136149f4070a70b7c20cfac03e7ad50677eeb6f0b6c204fc99adc1db8b4e7c1e6c23793700"
+        }
+      ],
+      "direct_output_hex": "e30ea57be6dedca6ee3193b8e96bcfd016a86553bb406be9f4f4671dd55a700b",
+      "pairwise_outputs": [
+        {
+          "ids": [
+            1,
+            2
+          ],
+          "output_hex": "e30ea57be6dedca6ee3193b8e96bcfd016a86553bb406be9f4f4671dd55a700b"
+        },
+        {
+          "ids": [
+            1,
+            3
+          ],
+          "output_hex": "e30ea57be6dedca6ee3193b8e96bcfd016a86553bb406be9f4f4671dd55a700b"
+        },
+        {
+          "ids": [
+            2,
+            3
+          ],
+          "output_hex": "e30ea57be6dedca6ee3193b8e96bcfd016a86553bb406be9f4f4671dd55a700b"
+        }
+      ],
+      "refresh_seed_hex": "6363636363636363636363636363636363636363636363636363636363636363",
+      "refresh_input_share_ids": [
+        1,
+        3
+      ],
+      "refreshed_shares": [
+        {
+          "id": 1,
+          "scalar_hex": "5a57b397a337bed2402d72743b79ac829a9806bbf385afc3c7f8e2b600f4a80d",
+          "wire_hex": "015a57b397a337bed2402d72743b79ac829a9806bbf385afc3c7f8e2b600f4a80d"
+        },
+        {
+          "id": 2,
+          "scalar_hex": "bf750b303f55572e490f3aecc1c39f137a8d7225ab50decead7a61314c107801",
+          "wire_hex": "02bf750b303f55572e490f3aecc1c39f137a8d7225ab50decead7a61314c107801"
+        },
+        {
+          "id": 3,
+          "scalar_hex": "11685925f5d502e2278ef906270872b95982de8f621b0dda93fcdfab972c4705",
+          "wire_hex": "0311685925f5d502e2278ef906270872b95982de8f621b0dda93fcdfab972c4705"
+        }
+      ],
+      "refreshed_pairwise_outputs": [
+        {
+          "ids": [
+            1,
+            2
+          ],
+          "output_hex": "e30ea57be6dedca6ee3193b8e96bcfd016a86553bb406be9f4f4671dd55a700b"
+        },
+        {
+          "ids": [
+            1,
+            3
+          ],
+          "output_hex": "e30ea57be6dedca6ee3193b8e96bcfd016a86553bb406be9f4f4671dd55a700b"
+        },
+        {
+          "ids": [
+            2,
+            3
+          ],
+          "output_hex": "e30ea57be6dedca6ee3193b8e96bcfd016a86553bb406be9f4f4671dd55a700b"
+        }
+      ],
+      "invalid_cases": [
+        {
+          "name": "short_partial_wire",
+          "expected_error": "InvalidPartialEncoding"
+        },
+        {
+          "name": "invalid_share_id",
+          "expected_error": "InvalidShareId"
+        },
+        {
+          "name": "wrong_context_tag",
+          "expected_error": "ContextMismatch"
+        },
+        {
+          "name": "invalid_compressed_point",
+          "expected_error": "InvalidPointEncoding"
+        }
+      ]
     }
   ]
 }

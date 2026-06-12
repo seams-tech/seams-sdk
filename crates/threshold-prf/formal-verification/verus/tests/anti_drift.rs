@@ -70,7 +70,7 @@ fn committed_protocol_vectors_match_production_helpers() {
             .expect("protocol vector fixture is valid JSON");
 
     assert_eq!(corpus.schema_id, "threshold-prf/protocol-v1-fixtures/v1");
-    assert_eq!(corpus.vectors.len(), 3);
+    assert_eq!(corpus.vectors.len(), 5);
     for vector in &corpus.vectors {
         assert_vector_matches_production(vector);
         assert_invalid_cases_match_production(vector);
@@ -280,6 +280,8 @@ fn vector_context(vector: &ProtocolVector) -> PrfContext {
         "ecdsa-hss/y_relayer" => PrfPurpose::EcdsaHssYRelayer,
         "ed25519-hss/y_relayer" => PrfPurpose::Ed25519HssYRelayer,
         "ed25519-hss/tau_relayer" => PrfPurpose::Ed25519HssTauRelayer,
+        "router-ab/x_client_base/v1" => PrfPurpose::RouterAbXClientBaseV1,
+        "router-ab/x_relayer_base/v1" => PrfPurpose::RouterAbXRelayerBaseV1,
         purpose => panic!("unexpected vector purpose: {purpose}"),
     };
     PrfContext::new(

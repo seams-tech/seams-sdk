@@ -19,6 +19,8 @@ The first corpus includes:
 - purpose vectors for `ecdsa-hss/y_relayer`
 - purpose vectors for `ed25519-hss/y_relayer`
 - purpose vectors for `ed25519-hss/tau_relayer`
+- purpose vectors for `router-ab/x_client_base/v1`
+- purpose vectors for `router-ab/x_relayer_base/v1`
 
 If formal-verification tests need a local copy, it must be byte-identical to the
 canonical corpus. Do not add generated benchmark output here. Keep fixtures

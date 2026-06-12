@@ -16,6 +16,8 @@ const REFRESH_INPUT_SHARE_IDS: [u8; 2] = [1, 3];
 const ECDSA_HSS_PROOF_SEED_BASE: u8 = 40;
 const ED25519_HSS_Y_PROOF_SEED_BASE: u8 = 50;
 const ED25519_HSS_TAU_PROOF_SEED_BASE: u8 = 60;
+const ROUTER_AB_X_CLIENT_BASE_PROOF_SEED_BASE: u8 = 70;
+const ROUTER_AB_X_RELAYER_BASE_PROOF_SEED_BASE: u8 = 80;
 const SIGNING_ROOT_ID: &str = "project-alpha:dev";
 
 #[derive(Serialize)]
@@ -115,6 +117,16 @@ fn main() {
                 )
                 .to_vec(),
                 ED25519_HSS_TAU_PROOF_SEED_BASE,
+            ),
+            vector_for(
+                PrfPurpose::RouterAbXClientBaseV1,
+                router_ab_context_bytes_v1("x_client_base", "client", "role:client:fixture"),
+                ROUTER_AB_X_CLIENT_BASE_PROOF_SEED_BASE,
+            ),
+            vector_for(
+                PrfPurpose::RouterAbXRelayerBaseV1,
+                router_ab_context_bytes_v1("x_relayer_base", "relayer", "role:relayer:fixture"),
+                ROUTER_AB_X_RELAYER_BASE_PROOF_SEED_BASE,
             ),
         ],
     };
@@ -301,6 +313,22 @@ fn ed25519_hss_context_digest_v1(
     }
     digest.update(derivation_version.to_be_bytes());
     digest.finalize().into()
+}
+
+fn router_ab_context_bytes_v1(
+    opened_share_kind: &str,
+    recipient_role: &str,
+    recipient_identity: &str,
+) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_len16(&mut out, b"threshold-prf/router-ab-vector-context/v1");
+    push_len16(&mut out, SIGNING_ROOT_ID.as_bytes());
+    push_len16(&mut out, b"signer-set-v1");
+    push_len16(&mut out, b"all(2)");
+    push_len16(&mut out, opened_share_kind.as_bytes());
+    push_len16(&mut out, recipient_role.as_bytes());
+    push_len16(&mut out, recipient_identity.as_bytes());
+    out
 }
 
 fn push_len16(out: &mut Vec<u8>, bytes: &[u8]) {

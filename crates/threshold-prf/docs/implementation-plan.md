@@ -190,9 +190,11 @@ Where:
 - `k_org_share_i` is a Shamir share over the same scalar field
 - `lambda_i` is the public Lagrange coefficient for the selected share IDs
 - `purpose` domain-separates outputs such as `ecdsa-hss/y_relayer`,
-  `ed25519-hss/y_relayer`, and `ed25519-hss/tau_relayer`
-- `ed25519-hss/tau_relayer` output is reduced to canonical Ed25519 scalar
-  bytes because the downstream HSS circuit treats tau as scalar input
+  `ed25519-hss/y_relayer`, `ed25519-hss/tau_relayer`,
+  `router-ab/x_client_base/v1`, and `router-ab/x_relayer_base/v1`
+- `ed25519-hss/tau_relayer`, `router-ab/x_client_base/v1`, and
+  `router-ab/x_relayer_base/v1` outputs are reduced to canonical Ed25519
+  scalar bytes because their downstream consumers treat them as scalar inputs
 - `context` is a canonical byte encoding of the wallet/project derivation
   context
 
@@ -320,6 +322,8 @@ Vector tests:
 - include vectors for `ecdsa-hss/y_relayer`
 - include vectors for `ed25519-hss/y_relayer`
 - include vectors for `ed25519-hss/tau_relayer`
+- include vectors for `router-ab/x_client_base/v1`
+- include vectors for `router-ab/x_relayer_base/v1`
 - include partial wire vectors with `share_id`, `context_tag`, and compressed
   point
 - include root-share commitment and DLEQ proof vectors for each partial
@@ -559,6 +563,8 @@ for newly created wallets.
   - [x] `ecdsa-hss/y_relayer`
   - [x] `ed25519-hss/y_relayer`
   - [x] `ed25519-hss/tau_relayer`
+  - [x] `router-ab/x_client_base/v1`
+  - [x] `router-ab/x_relayer_base/v1`
 - [x] Add deterministic tests for direct reference evaluation.
 - [x] Add context-change tests.
 - [x] Add purpose-separation tests.
@@ -612,6 +618,8 @@ share_id || context_tag || compressed_point`.
 - [x] Add a test that committed JSON vectors match the implementation.
 - [x] Add `ed25519-hss/y_relayer` and `ed25519-hss/tau_relayer` vectors before
       Ed25519 HSS integration.
+- [x] Add `router-ab/x_client_base/v1` and `router-ab/x_relayer_base/v1`
+      vectors before Router/A/B integration.
 - [x] Add deterministic DLEQ commitment/proof vectors.
 - [x] Add anti-drift tests for deterministic DLEQ commitment/proof vectors.
 
