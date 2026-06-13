@@ -374,7 +374,8 @@ impl PrfPartial {
 /// Evaluates the canonical PRF directly from the signing root.
 ///
 /// This is a reference path for tests, vectors, audits, and recovery checks.
-/// Production signing should use `evaluate_partial` and `combine_partials`.
+/// Production signing should use `evaluate_partial` and either verified combine
+/// for peer partials or `trusted::combine_partials` for local authenticated partials.
 pub fn evaluate_direct_reference(
     root: &SigningRootScalar,
     context: &PrfContext,
@@ -484,7 +485,9 @@ pub fn combine_verified_partials(
     combine_partials(&partial_set, context)
 }
 
-/// Combines a validated canonical threshold partial set into the final PRF output.
+/// Combines a trusted validated canonical threshold partial set into the final PRF output.
+///
+/// Use `combine_verified_partials` for partials received across a trust boundary.
 pub fn combine_partials(
     partials: &ValidatedThresholdSet<PrfPartial>,
     context: &PrfContext,

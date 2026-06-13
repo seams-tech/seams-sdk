@@ -42,7 +42,6 @@ export type {
   SigningRootShareResolverInput,
   SigningRootShareResolver,
   SigningRootShareSet,
-  SigningRootShareWire,
   ThresholdPrfPolicy,
 } from './core/ThresholdService';
 export {

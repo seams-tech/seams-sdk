@@ -38,6 +38,10 @@ valid_share_ids = {1, ..., share_count}
 combine_count = threshold
 ```
 
+The active operational `MAX_SHARE_COUNT` is 255. Share identifiers are encoded
+as `u16` values, but public policy validation rejects larger operational
+share sets to bound allocation and interpolation cost at request boundaries.
+
 Raw threshold policy input is normalized into `ThresholdPolicy` once at the
 boundary. Core split, reconstruct, combine, and verified-combine logic receives
 validated policy and subset types. Invalid subset size, duplicate IDs, and IDs
@@ -49,13 +53,13 @@ Callers import operations from `threshold_prf`:
 
 ```rust
 use threshold_prf::{
-    combine_partials,
     combine_verified_partials,
     evaluate_partial,
     split_signing_root,
     ThresholdPolicy,
     ValidatedThresholdSet,
 };
+use threshold_prf::trusted::combine_partials;
 use threshold_prf::{PrfContext, PrfPurpose, SuiteId};
 ```
 
@@ -74,17 +78,18 @@ The crate root exports:
 - `PrfPartialProofBundle`
 - `generate_signing_root`
 - `split_signing_root`
-- `reconstruct_signing_root`
-- `evaluate_direct_reference`
 - `evaluate_partial`
 - `evaluate_partial_with_dleq_proof`
 - `verify_partial_dleq_proof`
-- `combine_partials`
 - `combine_verified_partials`
+- `reference::evaluate_direct_reference`
+- `recovery::reconstruct_signing_root`
+- `trusted::combine_partials`
 
-Production signing uses partial evaluation and combine. Direct
-`k_org -> output` evaluation is a reference path for tests, vectors, recovery
-checks, and audits.
+Production signing uses partial evaluation and `combine_verified_partials` for
+peer-provided proof bundles. Direct `k_org -> output` evaluation is a reference
+path for tests, vectors, recovery checks, and audits. `trusted::combine_partials`
+is reserved for local authenticated partials, such as one-runtime derivation.
 
 ## Purposes
 
@@ -180,7 +185,7 @@ load ThresholdPolicy(threshold, share_count)
 decrypt threshold signing-root share wires
 validate the share set against the policy
 partials = evaluate_partial(each share, context)
-output = combine_partials(validated partial set, context)
+output = trusted::combine_partials(validated partial set, context)
 ```
 
 Distributed verified partial combine evaluates partials across workers and
@@ -194,7 +199,7 @@ workers:
 
 combiner:
   validate a threshold partial set against the policy
-  output = combine_partials(validated partial set, context)
+  output = trusted::combine_partials(validated partial set, context)
 ```
 
 Both modes use the same threshold partial evaluation and combine algorithm. For
@@ -323,7 +328,6 @@ Current exported boundary groups:
 
 - ECDSA HSS `y_relayer`
 - Ed25519 HSS server inputs
-- partial combine
 - verified partial combine
 
 ## Fixtures And Verification

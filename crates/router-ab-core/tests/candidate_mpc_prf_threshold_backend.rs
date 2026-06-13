@@ -14,9 +14,9 @@ use router_ab_core::{
     RootShareEpoch, RouterAbDerivationErrorCode, SignerSetBinding, TranscriptBinding,
 };
 use serde::Deserialize;
+use threshold_prf::reference::evaluate_direct_reference;
 use threshold_prf::{
-    evaluate_direct_reference, generate_signing_root, split_signing_root, SigningRootShareWire,
-    ThresholdPolicy,
+    generate_signing_root, split_signing_root, SigningRootShareWire, ThresholdPolicy,
 };
 use threshold_prf::{PrfContext, PrfOutputEncoding, PrfPurpose, SuiteId};
 

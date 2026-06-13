@@ -1,10 +1,11 @@
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
 use serde::Serialize;
+use threshold_prf::reference::evaluate_direct_reference;
+use threshold_prf::trusted::combine_partials;
 use threshold_prf::{
-    combine_partials, evaluate_direct_reference, evaluate_partial, generate_signing_root,
-    split_signing_root, PrfPartial, PrfPartialWire, SigningRootShare, SigningRootShareWire,
-    ThresholdPolicy, ValidatedThresholdSet,
+    evaluate_partial, generate_signing_root, split_signing_root, PrfPartial, PrfPartialWire,
+    SigningRootShare, SigningRootShareWire, ThresholdPolicy, ValidatedThresholdSet,
 };
 use threshold_prf::{PrfContext, PrfPurpose, SuiteId};
 

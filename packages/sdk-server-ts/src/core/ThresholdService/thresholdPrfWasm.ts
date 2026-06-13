@@ -1,4 +1,3 @@
-import { base64UrlDecode } from '@shared/utils/encoders';
 import * as thresholdPrfImports from '../../../../../wasm/threshold_prf/pkg/threshold_prf_bg.js';
 import {
   __wbg_set_wasm as setThresholdPrfWasm,
@@ -9,8 +8,8 @@ import {
 import { createWasmLoader } from '../wasm-loader';
 import type {
   ThresholdEd25519HssCanonicalContext,
-  ThresholdEd25519HssServerInputs,
 } from '../types';
+import type { ThresholdPrfPolicy } from './signingRootShareResolver';
 
 const THRESHOLD_PRF_WASM_PATH_CANDIDATES = [
   '../../../wasm/threshold_prf/pkg/threshold_prf_bg.wasm',
@@ -24,6 +23,7 @@ let thresholdPrfWasmInitPromise: Promise<void> | null = null;
 let thresholdPrfWasmReady = false;
 
 const THRESHOLD_PRF_SIGNING_ROOT_SHARE_WIRE_LENGTH = 34;
+const MAX_THRESHOLD_PRF_SHARE_COUNT = 255;
 
 export type EcdsaHssStableKeyPrfContext = {
   readonly walletId: string;
@@ -35,12 +35,6 @@ export type EcdsaHssStableKeyPrfContext = {
   readonly thresholdSessionId?: never;
   readonly keyPurpose: string;
   readonly keyVersion: string;
-};
-
-export type ThresholdPrfPolicy = {
-  readonly protocol: 'threshold-prf';
-  readonly threshold: number;
-  readonly shareCount: number;
 };
 
 export type SigningRootShareWire = Uint8Array & {
@@ -120,9 +114,16 @@ function checkedBytes(label: string, value: Uint8Array, expectedLength: number):
   return value;
 }
 
+function checkedResultBytes(label: string, value: unknown): Uint8Array {
+  if (!(value instanceof Uint8Array)) {
+    throw new Error(`${label} must be a Uint8Array`);
+  }
+  return checkedBytes(label, value, 32).slice();
+}
+
 function requireU16(label: string, value: number): number {
-  if (!Number.isInteger(value) || value < 1 || value > 0xffff) {
-    throw new Error(`${label} must be an integer between 1 and 65535`);
+  if (!Number.isInteger(value) || value < 1 || value > MAX_THRESHOLD_PRF_SHARE_COUNT) {
+    throw new Error(`${label} must be an integer between 1 and ${MAX_THRESHOLD_PRF_SHARE_COUNT}`);
   }
   return value;
 }
@@ -229,17 +230,6 @@ function requiredTrimmed(label: string, value: string): string {
   return trimmed;
 }
 
-function checkedB64u32(label: string, value: unknown): string {
-  const text = requiredTrimmed(label, String(value || ''));
-  const decoded = base64UrlDecode(text);
-  try {
-    checkedBytes(label, decoded, 32);
-  } finally {
-    decoded.fill(0);
-  }
-  return text;
-}
-
 export async function deriveEcdsaHssYRelayerFromSigningRootShares(input: {
   readonly policy: ThresholdPrfPolicy;
   readonly shareWires: readonly SigningRootShareWire[];
@@ -276,8 +266,11 @@ export async function deriveEd25519HssServerInputsFromSigningRootShares(input: {
   readonly shareWires: readonly SigningRootShareWire[];
   readonly context: ThresholdEd25519HssCanonicalContext;
 }): Promise<
-  ThresholdEd25519HssCanonicalContext &
-    ThresholdEd25519HssServerInputs & { contextBindingB64u: string }
+  ThresholdEd25519HssCanonicalContext & {
+    readonly contextBinding: Uint8Array;
+    readonly yRelayer: Uint8Array;
+    readonly tauRelayer: Uint8Array;
+  }
 > {
   await ensureThresholdPrfWasm();
   requireThresholdPrfWasmReady();
@@ -302,9 +295,9 @@ export async function deriveEd25519HssServerInputsFromSigningRootShares(input: {
       requiredTrimmed('keyVersion', input.context.keyVersion),
       Number(input.context.derivationVersion),
     ) as {
-      contextBindingB64u?: string;
-      yRelayerB64u?: string;
-      tauRelayerB64u?: string;
+      contextBinding?: Uint8Array;
+      yRelayer?: Uint8Array;
+      tauRelayer?: Uint8Array;
     };
 
     return {
@@ -314,9 +307,9 @@ export async function deriveEd25519HssServerInputsFromSigningRootShares(input: {
       keyVersion: requiredTrimmed('keyVersion', input.context.keyVersion),
       participantIds: shareIds,
       derivationVersion: Number(input.context.derivationVersion),
-      contextBindingB64u: checkedB64u32('contextBindingB64u', result.contextBindingB64u),
-      yRelayerB64u: checkedB64u32('yRelayerB64u', result.yRelayerB64u),
-      tauRelayerB64u: checkedB64u32('tauRelayerB64u', result.tauRelayerB64u),
+      contextBinding: checkedResultBytes('contextBinding', result.contextBinding),
+      yRelayer: checkedResultBytes('yRelayer', result.yRelayer),
+      tauRelayer: checkedResultBytes('tauRelayer', result.tauRelayer),
     };
   } finally {
     flattened.fill(0);

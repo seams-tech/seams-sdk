@@ -1,4 +1,4 @@
-import { base64UrlDecode } from '@shared/utils/encoders';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
   deriveEcdsaHssYRelayerFromSigningRootShares,
@@ -7,7 +7,6 @@ import {
   type EcdsaHssStableKeyPrfContext,
   type SigningRootShareWireSet,
   type SigningRootShareWire,
-  type ThresholdPrfPolicy,
 } from './thresholdPrfWasm';
 import type {
   ThresholdEd25519HssCanonicalContext,
@@ -17,6 +16,14 @@ import {
   zeroizeBytes,
   type SigningRootSecretShareWireResult,
 } from './signingRootSecretShareWires';
+
+export const MAX_THRESHOLD_PRF_SHARE_COUNT = 255;
+
+export type ThresholdPrfPolicy = {
+  readonly protocol: 'threshold-prf';
+  readonly threshold: number;
+  readonly shareCount: number;
+};
 
 export type SigningRootShareSet = SigningRootShareWireSet;
 
@@ -141,11 +148,19 @@ function normalizePolicy(policy: ThresholdPrfPolicy): ThresholdPrfPolicy {
   if (policy.protocol !== 'threshold-prf') {
     throw new Error('threshold-prf policy protocol must be threshold-prf');
   }
-  if (!Number.isInteger(policy.threshold) || policy.threshold < 1 || policy.threshold > 0xffff) {
-    throw new Error('threshold must be an integer between 1 and 65535');
+  if (
+    !Number.isInteger(policy.threshold) ||
+    policy.threshold < 1 ||
+    policy.threshold > MAX_THRESHOLD_PRF_SHARE_COUNT
+  ) {
+    throw new Error(`threshold must be an integer between 1 and ${MAX_THRESHOLD_PRF_SHARE_COUNT}`);
   }
-  if (!Number.isInteger(policy.shareCount) || policy.shareCount < 1 || policy.shareCount > 0xffff) {
-    throw new Error('shareCount must be an integer between 1 and 65535');
+  if (
+    !Number.isInteger(policy.shareCount) ||
+    policy.shareCount < 1 ||
+    policy.shareCount > MAX_THRESHOLD_PRF_SHARE_COUNT
+  ) {
+    throw new Error(`shareCount must be an integer between 1 and ${MAX_THRESHOLD_PRF_SHARE_COUNT}`);
   }
   if (policy.threshold > policy.shareCount) {
     throw new Error('threshold must be less than or equal to shareCount');
@@ -430,12 +445,31 @@ export async function deriveEd25519HssServerInputsFromSigningRootShareResolver(
       ...(input.signingRootVersion ? { signingRootVersion: input.signingRootVersion } : {}),
       ...(input.preferredShareIds ? { preferredShareIds: input.preferredShareIds } : {}),
     });
-    const serverInputs = await deriveEd25519HssServerInputsFromSigningRootShares({
+    const serverInputBytes = await deriveEd25519HssServerInputsFromSigningRootShares({
       policy: input.resolver.policy,
       shareWires: shareSet,
       context: input.context,
     });
-    return { ok: true, value: serverInputs };
+    try {
+      return {
+        ok: true,
+        value: {
+          signingRootId: serverInputBytes.signingRootId,
+          nearAccountId: serverInputBytes.nearAccountId,
+          keyPurpose: serverInputBytes.keyPurpose,
+          keyVersion: serverInputBytes.keyVersion,
+          participantIds: serverInputBytes.participantIds,
+          derivationVersion: serverInputBytes.derivationVersion,
+          contextBindingB64u: base64UrlEncode(serverInputBytes.contextBinding),
+          yRelayerB64u: base64UrlEncode(serverInputBytes.yRelayer),
+          tauRelayerB64u: base64UrlEncode(serverInputBytes.tauRelayer),
+        },
+      };
+    } finally {
+      zeroizeBytes(serverInputBytes.contextBinding);
+      zeroizeBytes(serverInputBytes.yRelayer);
+      zeroizeBytes(serverInputBytes.tauRelayer);
+    }
   } catch (error) {
     return err(errorMessage(error, 'failed to derive ed25519-hss server inputs'));
   } finally {

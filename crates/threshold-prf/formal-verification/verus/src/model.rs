@@ -33,7 +33,7 @@ pub struct PrfPartialProofBundleIdsSpec {
 }
 
 pub open spec fn max_share_count_spec() -> nat {
-    65535nat
+    255nat
 }
 
 pub open spec fn scalar_width_bytes_spec() -> nat {

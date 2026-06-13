@@ -1,12 +1,12 @@
 #![forbid(unsafe_code)]
 
-use base64ct::{Base64UrlUnpadded, Encoding};
-use serde::Serialize;
+use js_sys::{Object, Reflect, Uint8Array};
 use sha2::{Digest, Sha256};
+use threshold_prf::trusted::combine_partials;
 use threshold_prf::{
-    combine_partials, combine_verified_partials, evaluate_partial, PrfDleqProof, PrfPartial,
-    PrfPartialProofBundle, PrfPartialWire, SigningRootShare, SigningRootShareCommitment,
-    SigningRootShareWire, ThresholdPolicy, ValidatedThresholdSet,
+    combine_verified_partials, evaluate_partial, PrfDleqProof, PrfPartialProofBundle,
+    PrfPartialWire, SigningRootShare, SigningRootShareCommitment, SigningRootShareWire,
+    ThresholdPolicy, ValidatedThresholdSet,
 };
 use threshold_prf::{PrfContext, PrfPurpose, SuiteId};
 use wasm_bindgen::prelude::*;
@@ -14,14 +14,6 @@ use zeroize::Zeroize;
 
 const PROOF_BUNDLE_WIRE_LEN: usize =
     PrfPartialWire::LEN + SigningRootShareCommitment::LEN + PrfDleqProof::LEN;
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct Ed25519HssServerInputsOutput {
-    context_binding_b64u: String,
-    y_relayer_b64u: String,
-    tau_relayer_b64u: String,
-}
 
 fn js_error(message: impl Into<String>) -> JsValue {
     JsValue::from_str(&message.into())
@@ -203,39 +195,6 @@ fn decode_signing_root_share_set(
     ValidatedThresholdSet::from_signing_root_shares(policy, shares?).map_err(js_threshold_error)
 }
 
-fn decode_partial_set(
-    threshold: u32,
-    share_count: u32,
-    mut partial_wire_bytes: Vec<u8>,
-) -> Result<ValidatedThresholdSet<PrfPartial>, JsValue> {
-    let policy = match decode_policy(threshold, share_count) {
-        Ok(policy) => policy,
-        Err(error) => {
-            partial_wire_bytes.zeroize();
-            return Err(error);
-        }
-    };
-    let expected_len = usize::from(policy.threshold().get()) * PrfPartialWire::LEN;
-    if partial_wire_bytes.len() != expected_len {
-        partial_wire_bytes.zeroize();
-        return Err(js_error(format!(
-            "partial_wires must contain exactly {} partial wires",
-            policy.threshold()
-        )));
-    }
-
-    let partials = partial_wire_bytes
-        .chunks_exact(PrfPartialWire::LEN)
-        .map(|chunk| {
-            PrfPartialWire::decode_slice(chunk)
-                .and_then(|wire| wire.to_partial())
-                .map_err(js_threshold_error)
-        })
-        .collect::<Result<Vec<_>, _>>();
-    partial_wire_bytes.zeroize();
-    ValidatedThresholdSet::from_partials(policy, partials?).map_err(js_threshold_error)
-}
-
 fn decode_proof_bundle_set(
     threshold: u32,
     share_count: u32,
@@ -302,19 +261,6 @@ fn derive_hss_output_from_shares(
     Ok(output.as_bytes().to_vec())
 }
 
-fn combine_partial_wires(
-    threshold: u32,
-    share_count: u32,
-    partial_wires: Vec<u8>,
-    purpose: String,
-    context_bytes: Vec<u8>,
-) -> Result<Vec<u8>, JsValue> {
-    let partials = decode_partial_set(threshold, share_count, partial_wires)?;
-    let context = prf_context(&purpose, context_bytes)?;
-    let output = combine_partials(&partials, &context).map_err(js_threshold_error)?;
-    Ok(output.as_bytes().to_vec())
-}
-
 fn combine_proof_bundles(
     threshold: u32,
     share_count: u32,
@@ -336,6 +282,28 @@ fn sorted_share_ids(shares: &ValidatedThresholdSet<SigningRootShare>) -> Vec<u16
         .collect::<Vec<_>>();
     ids.sort_unstable();
     ids
+}
+
+fn set_bytes_field(object: &Object, name: &str, bytes: &[u8]) -> Result<(), JsValue> {
+    Reflect::set(
+        object,
+        &JsValue::from_str(name),
+        &Uint8Array::from(bytes).into(),
+    )
+    .map(|_| ())
+    .map_err(|_| js_error(format!("failed to serialize ed25519-hss field: {name}")))
+}
+
+fn ed25519_hss_server_inputs_output(
+    binding: &[u8; 32],
+    y_relayer: &[u8],
+    tau_relayer: &[u8],
+) -> Result<JsValue, JsValue> {
+    let object = Object::new();
+    set_bytes_field(&object, "contextBinding", binding)?;
+    set_bytes_field(&object, "yRelayer", y_relayer)?;
+    set_bytes_field(&object, "tauRelayer", tau_relayer)?;
+    Ok(object.into())
 }
 
 #[wasm_bindgen]
@@ -369,23 +337,6 @@ pub fn threshold_prf_derive_ecdsa_hss_y_relayer(
         &participant_ids,
     )?;
     derive_hss_output_from_shares(&shares, PrfPurpose::EcdsaHssYRelayer, context_bytes)
-}
-
-#[wasm_bindgen]
-pub fn threshold_prf_combine_partials(
-    threshold: u32,
-    share_count: u32,
-    partial_wires: Vec<u8>,
-    purpose: String,
-    context_bytes: Vec<u8>,
-) -> Result<Vec<u8>, JsValue> {
-    combine_partial_wires(
-        threshold,
-        share_count,
-        partial_wires,
-        purpose,
-        context_bytes,
-    )
 }
 
 #[wasm_bindgen]
@@ -432,16 +383,7 @@ pub fn threshold_prf_derive_ed25519_hss_server_inputs(
     let tau_relayer =
         derive_hss_output_from_shares(&shares, PrfPurpose::Ed25519HssTauRelayer, binding.to_vec())?;
 
-    serde_wasm_bindgen::to_value(&Ed25519HssServerInputsOutput {
-        context_binding_b64u: Base64UrlUnpadded::encode_string(&binding),
-        y_relayer_b64u: Base64UrlUnpadded::encode_string(&y_relayer),
-        tau_relayer_b64u: Base64UrlUnpadded::encode_string(&tau_relayer),
-    })
-    .map_err(|error| {
-        js_error(format!(
-            "failed to serialize ed25519-hss server inputs: {error}"
-        ))
-    })
+    ed25519_hss_server_inputs_output(&binding, &y_relayer, &tau_relayer)
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
@@ -449,9 +391,7 @@ mod tests {
     use rand_chacha::ChaCha20Rng;
     use rand_core::SeedableRng;
     use threshold_prf::{
-        combine_partials as core_combine_partials,
         combine_verified_partials as core_combine_verified_partials,
-        evaluate_partial as core_evaluate_partial,
         evaluate_partial_with_dleq_proof as core_evaluate_partial_with_dleq_proof,
         generate_signing_root, split_signing_root,
     };
@@ -471,40 +411,6 @@ mod tests {
             PrfPurpose::RouterAbXClientBaseV1,
             bytes,
         )
-    }
-
-    #[wasm_bindgen_test]
-    fn combine_partials_export_matches_core_api() {
-        let policy = ThresholdPolicy::from_u16s(3, 5).unwrap();
-        let mut rng = seeded_rng(11);
-        let root = generate_signing_root(&mut rng);
-        let shares = split_signing_root(&root, policy, &mut rng).unwrap();
-        let context = router_context(b"wasm:partials");
-        let partials = vec![
-            core_evaluate_partial(&shares[0], &context).unwrap(),
-            core_evaluate_partial(&shares[2], &context).unwrap(),
-            core_evaluate_partial(&shares[4], &context).unwrap(),
-        ];
-        let partial_set = ValidatedThresholdSet::from_partials(policy, partials.clone()).unwrap();
-        let expected = core_combine_partials(&partial_set, &context)
-            .unwrap()
-            .as_bytes()
-            .to_vec();
-        let partial_wires = partials
-            .iter()
-            .flat_map(|partial| PrfPartialWire::from_partial(partial).to_bytes())
-            .collect();
-
-        let actual = threshold_prf_combine_partials(
-            3,
-            5,
-            partial_wires,
-            ROUTER_CLIENT_PURPOSE.to_owned(),
-            b"wasm:partials".to_vec(),
-        )
-        .unwrap();
-
-        assert_eq!(actual, expected);
     }
 
     #[wasm_bindgen_test]
@@ -549,49 +455,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(actual, expected);
-    }
-
-    #[wasm_bindgen_test]
-    fn combine_partials_export_rejects_invalid_boundary_inputs() {
-        let policy = ThresholdPolicy::from_u16s(2, 3).unwrap();
-        let mut rng = seeded_rng(31);
-        let root = generate_signing_root(&mut rng);
-        let shares = split_signing_root(&root, policy, &mut rng).unwrap();
-        let context = router_context(b"wasm:reject");
-        let partial = core_evaluate_partial(&shares[0], &context).unwrap();
-        let wire = PrfPartialWire::from_partial(&partial).to_bytes();
-
-        assert!(threshold_prf_combine_partials(
-            2,
-            3,
-            wire.into_iter().chain(wire).collect(),
-            ROUTER_CLIENT_PURPOSE.to_owned(),
-            b"wasm:reject".to_vec(),
-        )
-        .is_err());
-
-        assert!(threshold_prf_combine_partials(
-            2,
-            3,
-            PrfPartialWire::from_partial(&partial).to_bytes().to_vec(),
-            ROUTER_CLIENT_PURPOSE.to_owned(),
-            b"wasm:reject".to_vec(),
-        )
-        .is_err());
-
-        let other_partial = core_evaluate_partial(&shares[1], &context).unwrap();
-        let valid_wires = [partial, other_partial]
-            .iter()
-            .flat_map(|partial| PrfPartialWire::from_partial(partial).to_bytes())
-            .collect();
-        assert!(threshold_prf_combine_partials(
-            2,
-            3,
-            valid_wires,
-            ROUTER_CLIENT_PURPOSE.to_owned(),
-            b"wasm:wrong-context".to_vec(),
-        )
-        .is_err());
     }
 
     #[wasm_bindgen_test]

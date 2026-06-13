@@ -21,6 +21,9 @@ valid_share_ids = {1, ..., share_count}
 combine_count = threshold
 ```
 
+The current production bound is `MAX_SHARE_COUNT = 255`; the larger `u16`
+share-ID encoding is wire capacity, not an accepted operational policy size.
+
 Current subset, Shamir, share-wire, and reconstruction proofs model the
 policy-shaped boundary used by production Rust and WASM callers.
 

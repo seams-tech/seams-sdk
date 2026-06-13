@@ -4,10 +4,11 @@ use std::hint::black_box;
 
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
+use threshold_prf::trusted::combine_partials;
 use threshold_prf::{
-    combine_partials, combine_verified_partials, evaluate_partial,
-    evaluate_partial_with_dleq_proof, generate_signing_root, split_signing_root,
-    verify_partial_dleq_proof, SigningRootShare, ThresholdPolicy, ValidatedThresholdSet,
+    combine_verified_partials, evaluate_partial, evaluate_partial_with_dleq_proof,
+    generate_signing_root, split_signing_root, verify_partial_dleq_proof, SigningRootShare,
+    ThresholdPolicy, ValidatedThresholdSet,
 };
 use threshold_prf::{PrfContext, PrfPurpose, SuiteId};
 use wasm_bindgen::prelude::*;

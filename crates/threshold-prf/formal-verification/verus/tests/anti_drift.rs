@@ -1,9 +1,9 @@
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
 use serde::Deserialize;
+use threshold_prf::reference::evaluate_direct_reference;
+use threshold_prf::trusted::combine_partials;
 use threshold_prf::{
-    combine_partials as combine_partials,
-    evaluate_direct_reference as evaluate_direct_reference,
     evaluate_partial as evaluate_partial, generate_signing_root,
     split_signing_root as split_signing_root, PrfPartialWire as PrfPartialWire,
     SigningRootShareWire as SigningRootShareWire, ThresholdPolicy as ThresholdPolicy,

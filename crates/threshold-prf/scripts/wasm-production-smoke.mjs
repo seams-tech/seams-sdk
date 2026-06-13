@@ -25,69 +25,66 @@ const wireCorpus = JSON.parse(
 let checkedOutputs = 0;
 let checkedRejections = 0;
 
-for (const vector of protocolCorpus.vectors) {
-  const partialsById = new Map(vector.partials.map((partial) => [partial.id, partial]));
-  for (const thresholdOutput of vector.threshold_outputs) {
-    const partialWires = partialWiresForIds(partialsById, thresholdOutput.ids);
-    assertHexOutput(
-      wasm.threshold_prf_combine_partials(
-        vector.policy.threshold,
-        vector.policy.share_count,
-        partialWires,
-        vector.purpose,
-        hexToBytes(vector.context_hex),
-      ),
-      thresholdOutput.output_hex,
-      `partial combine ${vector.policy.threshold}-of-${vector.policy.share_count} ids ${thresholdOutput.ids.join(",")}`,
-    );
-    checkedOutputs += 1;
-
-    assertHexOutput(
-      wasm.threshold_prf_combine_partials(
-        vector.policy.threshold,
-        vector.policy.share_count,
-        partialWiresForIds(partialsById, thresholdOutput.ids.toReversed()),
-        vector.purpose,
-        hexToBytes(vector.context_hex),
-      ),
-      thresholdOutput.output_hex,
-      `partial combine reversed ${vector.policy.threshold}-of-${vector.policy.share_count} ids ${thresholdOutput.ids.join(",")}`,
-    );
-    checkedOutputs += 1;
-  }
-
-  assertThrows(
-    () =>
-      wasm.threshold_prf_combine_partials(
-        vector.policy.threshold,
-        vector.policy.share_count,
-        partialWiresForIds(
-          partialsById,
-          Array.from({ length: vector.policy.threshold }, () => vector.partials[0].id),
-        ),
-        vector.purpose,
-        hexToBytes(vector.context_hex),
-      ),
-    "duplicate partial ids reject at production WASM boundary",
-  );
-  checkedRejections += 1;
-
-  assertThrows(
-    () =>
-      wasm.threshold_prf_combine_partials(
-        vector.policy.threshold,
-        vector.policy.share_count,
-        partialWiresForIds(
-          partialsById,
-          vector.threshold_outputs[0].ids,
-        ),
-        vector.purpose,
-        mutateContext(hexToBytes(vector.context_hex)),
-      ),
-    "wrong partial context rejects at production WASM boundary",
-  );
-  checkedRejections += 1;
+if ("threshold_prf_combine_partials" in wasm) {
+  throw new Error("unverified partial combine must not be exported by production WASM");
 }
+
+const hssVector = protocolCorpus.vectors.find(
+  (vector) => vector.purpose === "ecdsa-hss/y_relayer" && vector.policy.threshold === 2,
+);
+if (!hssVector) {
+  throw new Error("missing ecdsa-hss threshold-prf smoke vector");
+}
+const hssShareWiresById = new Map(hssVector.shares.map((share) => [share.id, share]));
+const hssIds = hssVector.threshold_outputs[0].ids;
+const hssShareWires = shareWiresForIds(hssShareWiresById, hssIds);
+const reversedHssShareWires = shareWiresForIds(hssShareWiresById, hssIds.toReversed());
+
+const ecdsaOutput = wasm.threshold_prf_derive_ecdsa_hss_y_relayer(
+  hssVector.policy.threshold,
+  hssVector.policy.share_count,
+  hssShareWires,
+  "alice.near",
+  "wallet.example.test",
+  "ecdsa-alpha",
+  "project-alpha",
+  "root-v1",
+  "wallet",
+  "v1",
+);
+assertByteLength(ecdsaOutput, 32, "ecdsa-hss y_relayer");
+assertSameBytes(
+  ecdsaOutput,
+  wasm.threshold_prf_derive_ecdsa_hss_y_relayer(
+    hssVector.policy.threshold,
+    hssVector.policy.share_count,
+    reversedHssShareWires,
+    "alice.near",
+    "wallet.example.test",
+    "ecdsa-alpha",
+    "project-alpha",
+    "root-v1",
+    "wallet",
+    "v1",
+  ),
+  "ecdsa-hss y_relayer is stable under share order",
+);
+checkedOutputs += 2;
+
+const ed25519Output = wasm.threshold_prf_derive_ed25519_hss_server_inputs(
+  hssVector.policy.threshold,
+  hssVector.policy.share_count,
+  hssShareWires,
+  "project-alpha",
+  "alice.near",
+  "wallet",
+  "v1",
+  1,
+);
+assertByteLength(ed25519Output.contextBinding, 32, "ed25519 context binding");
+assertByteLength(ed25519Output.yRelayer, 32, "ed25519 y_relayer");
+assertByteLength(ed25519Output.tauRelayer, 32, "ed25519 tau_relayer");
+checkedOutputs += 3;
 
 for (const vector of wireCorpus.vectors) {
   const proofBundle = concatBytes([
@@ -113,28 +110,27 @@ console.log(
   `ok: production WASM smoke checked ${checkedOutputs} outputs and ${checkedRejections} rejection cases`,
 );
 
-function partialWiresForIds(partialsById, ids) {
+function shareWiresForIds(sharesById, ids) {
   return concatBytes(
     ids.map((id) => {
-      const partial = partialsById.get(id);
-      if (!partial) {
-        throw new Error(`missing partial id ${id}`);
+      const share = sharesById.get(id);
+      if (!share) {
+        throw new Error(`missing share id ${id}`);
       }
-      return hexToBytes(partial.wire_hex);
+      return hexToBytes(share.wire_hex);
     }),
   );
 }
 
-function mutateContext(bytes) {
-  const out = new Uint8Array(bytes);
-  out[out.length - 1] ^= 0x01;
-  return out;
+function assertByteLength(actual, expectedLength, label) {
+  if (actual.length !== expectedLength) {
+    throw new Error(`${label}: expected ${expectedLength} bytes, got ${actual.length}`);
+  }
 }
 
-function assertHexOutput(actual, expectedHex, label) {
-  const actualHex = bytesToHex(actual);
-  if (actualHex !== expectedHex) {
-    throw new Error(`${label}: expected ${expectedHex}, got ${actualHex}`);
+function assertSameBytes(left, right, label) {
+  if (bytesToHex(left) !== bytesToHex(right)) {
+    throw new Error(`${label}: byte mismatch`);
   }
 }
 

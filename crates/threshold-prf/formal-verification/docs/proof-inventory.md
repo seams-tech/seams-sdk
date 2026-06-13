@@ -18,6 +18,7 @@ Implemented in
 
 - threshold-policy validity:
   `1 <= threshold <= share_count <= MAX_SHARE_COUNT`
+  with current `MAX_SHARE_COUNT = 255`
 - share-ID membership:
   `1 <= share_id <= share_count`
 - duplicate subset rejection for representative `2-of-N` and `3-of-N` shapes

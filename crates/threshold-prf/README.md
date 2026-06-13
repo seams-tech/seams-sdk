@@ -21,14 +21,15 @@ The crate is intentionally narrow:
 
 New code should import configurable threshold behavior from `threshold_prf`.
 The canonical API supports explicit threshold policies, fixed-width wire types, generic
-partial combine, and generic DLEQ verified combine.
+trusted local partial combine, and generic DLEQ verified combine.
 
 ```rust
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
+use threshold_prf::trusted::combine_partials;
 use threshold_prf::{
-    combine_partials, evaluate_partial, generate_signing_root, split_signing_root,
-    ThresholdPolicy, ValidatedThresholdSet,
+    evaluate_partial, generate_signing_root, split_signing_root, ThresholdPolicy,
+    ValidatedThresholdSet,
 };
 use threshold_prf::{PrfContext, PrfPurpose, SuiteId};
 
@@ -51,8 +52,10 @@ let set = ValidatedThresholdSet::from_partials(policy, partials)?;
 let y_relayer = combine_partials(&set, &context)?;
 ```
 
-Production signing should use partial evaluation and combine. Direct
-`k_org -> y_relayer` evaluation exists only as a reference test path.
+Production signing should use verified combine for peer partials. Local one-runtime
+derivation may use `trusted::combine_partials` after authenticating the share set.
+`reference::evaluate_direct_reference` exists for tests, vectors, recovery
+checks, and audits.
 
 Current status:
 

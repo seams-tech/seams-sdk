@@ -61,6 +61,7 @@ export {
   type SigningRootShareResolverInput,
   type SigningRootShareResolver,
   type SigningRootShareSet,
+  type ThresholdPrfPolicy,
 } from './signingRootShareResolver';
 export {
   CloudflareDurableObjectSigningRootSecretStore,
@@ -101,13 +102,3 @@ export {
   type SigningRootRecordResult,
   type SigningRootRecordSource,
 } from './signingRootRecords';
-export {
-  deriveEcdsaHssYRelayerFromSigningRootShares,
-  deriveEd25519HssServerInputsFromSigningRootShares,
-  ensureThresholdPrfWasm,
-  parseSigningRootShareWire,
-  type EcdsaHssStableKeyPrfContext,
-  type SigningRootShareWireSet,
-  type SigningRootShareWire,
-  type ThresholdPrfPolicy,
-} from './thresholdPrfWasm';

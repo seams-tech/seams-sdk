@@ -2,11 +2,13 @@ use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use curve25519_dalek::scalar::Scalar;
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
+use threshold_prf::reference::evaluate_direct_reference;
+use threshold_prf::trusted::combine_partials;
 use threshold_prf::{
-    combine_partials, combine_verified_partials, evaluate_direct_reference, evaluate_partial,
-    evaluate_partial_with_dleq_proof, generate_signing_root, split_signing_root, PrfDleqProof,
-    PrfPartial, PrfPartialWire, SigningRootShareCommitment, SigningRootShareWire, ThresholdPolicy,
-    ThresholdShareId, ValidatedThresholdSet,
+    combine_verified_partials, evaluate_partial, evaluate_partial_with_dleq_proof,
+    generate_signing_root, split_signing_root, PrfDleqProof, PrfPartial, PrfPartialWire,
+    SigningRootShareCommitment, SigningRootShareWire, ThresholdPolicy, ThresholdShareId,
+    ValidatedThresholdSet,
 };
 use threshold_prf::{PrfContext, PrfOutputEncoding, PrfPurpose, SuiteId, ThresholdPrfError};
 

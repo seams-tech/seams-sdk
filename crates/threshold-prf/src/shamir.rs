@@ -8,8 +8,8 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::error::{ThresholdPrfError, ThresholdPrfResult};
 
 const SIGNING_ROOT_SHARE_WIRE_LEN: usize = 34;
-/// Maximum public canonical threshold share count for the initial `t-of-N` API.
-pub const MAX_SHARE_COUNT: u16 = u16::MAX;
+/// Maximum operational threshold share count for the public `t-of-N` API.
+pub const MAX_SHARE_COUNT: u16 = 255;
 
 /// Project-root scalar `k_org` in the PRF suite field.
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
@@ -506,6 +506,10 @@ mod tests {
         );
         assert_eq!(
             ThresholdPolicy::new(nonzero_u16(4), nonzero_u16(3)).unwrap_err(),
+            ThresholdPrfError::InvalidThresholdSubset
+        );
+        assert_eq!(
+            ThresholdPolicy::from_u16s(1, MAX_SHARE_COUNT + 1).unwrap_err(),
             ThresholdPrfError::InvalidThresholdSubset
         );
     }

@@ -184,7 +184,7 @@ function benchmarkEd25519ServerInputs() {
     ED25519_CONTEXT.keyVersion,
     ED25519_CONTEXT.derivationVersion,
   );
-  return output.yRelayerB64u.charCodeAt(0) ^ output.tauRelayerB64u.charCodeAt(0);
+  return output.yRelayer[0] ^ output.tauRelayer[0];
 }
 
 function shareWires() {

@@ -39,8 +39,8 @@ import type {
   SigningRootShareDecryptAdapter,
   SigningRootShareResolver,
   SigningRootShareSource,
+  ThresholdPrfPolicy,
 } from './ThresholdService/signingRootShareResolver';
-import type { ThresholdPrfPolicy } from './ThresholdService/thresholdPrfWasm';
 
 /**
  * WASM Bindgen generates a `free` method and a `[Symbol.dispose]` method on all structs.

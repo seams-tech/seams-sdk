@@ -1,11 +1,12 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
+use threshold_prf::reference::evaluate_direct_reference;
+use threshold_prf::trusted::combine_partials;
 use threshold_prf::{
-    combine_partials, combine_verified_partials, evaluate_direct_reference, evaluate_partial,
-    evaluate_partial_with_dleq_proof, generate_signing_root, split_signing_root,
-    verify_partial_dleq_proof, PrfPartial, SigningRootScalar, SigningRootShare, ThresholdPolicy,
-    ValidatedThresholdSet,
+    combine_verified_partials, evaluate_partial, evaluate_partial_with_dleq_proof,
+    generate_signing_root, split_signing_root, verify_partial_dleq_proof, PrfPartial,
+    SigningRootScalar, SigningRootShare, ThresholdPolicy, ValidatedThresholdSet,
 };
 use threshold_prf::{PrfContext, PrfOutput32, PrfPurpose, SuiteId};
 

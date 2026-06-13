@@ -6,10 +6,10 @@ use router_ab_core::{
     MpcPrfSignerPartialInputV1, MpcPrfSuiteId, OpenedShareKind, PublicDigest32, RequestKind, Role,
     RootShareEpoch, SignerSetBinding, TranscriptBinding,
 };
+use threshold_prf::reference::evaluate_direct_reference;
 use threshold_prf::{
-    combine_verified_partials, evaluate_direct_reference, evaluate_partial_with_dleq_proof,
-    generate_signing_root, split_signing_root, verify_partial_dleq_proof, ThresholdPolicy,
-    ValidatedThresholdSet,
+    combine_verified_partials, evaluate_partial_with_dleq_proof, generate_signing_root,
+    split_signing_root, verify_partial_dleq_proof, ThresholdPolicy, ValidatedThresholdSet,
 };
 use threshold_prf::{PrfContext, PrfOutputEncoding, PrfPurpose, SuiteId};
 

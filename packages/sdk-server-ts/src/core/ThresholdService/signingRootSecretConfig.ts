@@ -1,12 +1,13 @@
 import { isObject } from './validation';
 import {
+  MAX_THRESHOLD_PRF_SHARE_COUNT,
   createHostedSigningRootShareResolver,
   type CreateHostedSigningRootShareResolverInput,
   type SigningRootShareDecryptAdapter,
   type SigningRootShareResolver,
   type SigningRootShareSource,
+  type ThresholdPrfPolicy,
 } from './signingRootShareResolver';
-import type { ThresholdPrfPolicy } from './thresholdPrfWasm';
 
 function isSigningRootShareResolver(input: unknown): input is SigningRootShareResolver {
   return (
@@ -21,7 +22,14 @@ function isThresholdPrfPolicy(input: unknown): input is ThresholdPrfPolicy {
     isObject(input) &&
     input.protocol === 'threshold-prf' &&
     typeof input.threshold === 'number' &&
-    typeof input.shareCount === 'number'
+    Number.isInteger(input.threshold) &&
+    input.threshold >= 1 &&
+    input.threshold <= MAX_THRESHOLD_PRF_SHARE_COUNT &&
+    typeof input.shareCount === 'number' &&
+    Number.isInteger(input.shareCount) &&
+    input.shareCount >= 1 &&
+    input.shareCount <= MAX_THRESHOLD_PRF_SHARE_COUNT &&
+    input.threshold <= input.shareCount
   );
 }
 
