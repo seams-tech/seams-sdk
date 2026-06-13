@@ -6,8 +6,7 @@ Last updated: June 13, 2026
 ## Scope
 
 This document tracks the active `t-of-N` benchmark surface for
-`threshold-prf`. Fixed-pair benchmark labels were removed with the deleted
-fixed-pair public API. Historical measurements are available in git history.
+`threshold-prf`.
 
 The crate runs server-side, so production bundle size is an operational signal
 and platform-limit check. It is not a user-facing web bundle target.
@@ -193,3 +192,18 @@ Rationale:
   measurements or a demonstrated hot path.
 - Real Cloudflare Worker runtime benchmarks are still required before making
   Worker production latency claims or treating coordination costs as known.
+
+## Optimization Policy
+
+High-impact optimization work should target measured runtime costs:
+
+- deployed Worker cold and warm request timings
+- storage and decrypt overhead around sealed share resolution
+- WASM initialization lifecycle regressions
+- Option B coordination overhead
+- DLEQ proof generation or verification only when profiling shows it is
+  material
+
+The local crypto path is already fast enough that transcript allocation cleanup,
+prepared-context internals, clone cleanup, or curve abstraction work should wait
+for a measured bottleneck.

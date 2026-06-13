@@ -69,9 +69,12 @@ Current status:
 - Option B still needs an authenticated commitment registry, TEE attestation, or
   equivalent deployment binding before malicious-worker safety can be claimed
 
-See [docs/implementation-plan.md](docs/implementation-plan.md).
-The current server SDK sealed-share format is frozen in
-[docs/signing-root-share-sealing.md](docs/signing-root-share-sealing.md).
+Canonical docs:
+
+- [t-of-N protocol and API spec](docs/threshold-prf-t-of-n-spec.md)
+- [benchmarks](docs/benchmarks.md)
+- [dependency review](docs/dependency-review.md)
+- [formal verification](formal-verification/README.md)
 
 Regenerate the committed vector corpus with:
 

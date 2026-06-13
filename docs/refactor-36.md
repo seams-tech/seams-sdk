@@ -1984,7 +1984,7 @@ Primary files:
 
 - `crates/ecdsa-hss/src/shared/context.rs`
 - `crates/ecdsa-hss/specs/protocol.md`
-- `crates/threshold-prf/docs/protocol.md`
+- `crates/threshold-prf/docs/threshold-prf-t-of-n-spec.md`
 - `wasm/threshold_prf/src/lib.rs`
 - `crates/ecdsa-hss/src/fixtures.rs`
 - `crates/ecdsa-hss/tests/phase1_reference.rs`

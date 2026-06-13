@@ -11,6 +11,15 @@ The model distinguishes:
 - combiner state, which should observe partials and `y_relayer`, not plaintext
   root or share scalars
 
+Implemented proof surface:
+
+- one-server mode observes enough shares to reconstruct `k_org`
+- one two-server participant state does not contain enough material to
+  reconstruct `k_org`
+- combiner state excludes plaintext root and share scalars
+- public output state excludes root scalars, share scalars, and reconstructed
+  `k_org`
+
 Do not claim malicious-runtime privacy for one-server mode.
 
 This track does not prove runtime isolation, transport confidentiality,
