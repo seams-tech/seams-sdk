@@ -11,6 +11,7 @@ mod gate;
 mod identity;
 mod lifecycle;
 mod local;
+mod normal_signing;
 mod output;
 mod payload;
 mod public_request;
@@ -19,8 +20,8 @@ mod vectors;
 mod wire;
 
 pub use self::engine::{
-    AuditEventV1, AuditSink, Clock, Csprng, PeerTransport, RelayerEngine, RouterEngine,
-    SignerAEngine, SignerBEngine, SignerHost, SignerKeyStore, SigningRootShareStore,
+    AuditEventV1, AuditSink, Clock, Csprng, DeriverAEngine, DeriverBEngine, PeerTransport,
+    SignerHost, SignerKeyStore, SigningRootShareStore,
 };
 pub use self::envelope::{
     decode_and_validate_signer_envelope_hpke_payload_v1, decode_signer_envelope_hpke_payload_v1,
@@ -43,61 +44,61 @@ pub use self::lifecycle::{
 };
 pub use self::local::{
     execute_local_persistence_sql_seed_plan_v1, local_persistence_seed_sql_plan_v1,
-    validate_local_env_keys_v1, LocalClientRouterRequestV1,
+    validate_local_env_keys_v1, LocalClientRouterRequestV1, LocalDeriverAEndpointV1,
+    LocalDeriverAServiceV1, LocalDeriverBEndpointV1, LocalDeriverBServiceV1,
     LocalDeterministicSignerEnvelopeDecryptorV1, LocalEnvSnapshotV1, LocalHttpCeremonyResultV1,
-    LocalHttpMethodV1, LocalHttpPathV1, LocalHttpRequestV1, LocalHttpResponseV1, LocalHttpStatusV1,
-    LocalInProcessCeremonyResultV1, LocalPersistenceSeedV1, LocalPersistenceSqlDialectV1,
-    LocalPersistenceSqlExecutionReceiptV1, LocalPersistenceSqlSeedExecutorV1,
-    LocalPersistenceSqlSeedPlanV1, LocalPersistenceSqlStatementV1, LocalPersistenceSqlValueV1,
-    LocalRelayerActivationReceiptV1, LocalReplayCacheV1, LocalRouterCollectedResponsesV1,
-    LocalRouterDispatchV1, LocalRouterEndpointV1, LocalRouterServiceV1,
-    LocalSealedRootShareRecordV1, LocalServiceEndpointV1, LocalServiceRoleV1, LocalServiceStackV1,
-    LocalServiceStartupV1, LocalSignerARelayerEndpointV1, LocalSignerARelayerServiceV1,
-    LocalSignerBEndpointV1, LocalSignerBServiceV1, LocalSignerEnvelopeDecryptorV1,
-    LocalSignerHandlerContextV1, LocalSignerHandlerOutputV1, LocalSigningRootMetadataV1,
+    LocalHttpMethodV1, LocalHttpPathV1, LocalHttpRequestV1, LocalInProcessCeremonyResultV1,
+    LocalPersistenceSeedV1, LocalPersistenceSqlDialectV1, LocalPersistenceSqlExecutionReceiptV1,
+    LocalPersistenceSqlSeedExecutorV1, LocalPersistenceSqlSeedPlanV1,
+    LocalPersistenceSqlStatementV1, LocalPersistenceSqlValueV1, LocalReplayCacheV1,
+    LocalRouterDispatchV1, LocalRouterEndpointV1, LocalRouterRecipientProofBundleResponseV1,
+    LocalRouterServiceV1, LocalSealedRootShareRecordV1, LocalServiceEndpointV1, LocalServiceRoleV1,
+    LocalServiceStackV1, LocalServiceStartupV1, LocalSignerEnvelopeDecryptorV1,
+    LocalSignerHandlerContextV1, LocalSignerHandlerOutputV1,
+    LocalSignerRecipientProofBundleResponseV1, LocalSigningRootMetadataV1,
+    LocalSigningWorkerActivationReceiptV1, LocalSigningWorkerEndpointV1,
+    LocalSigningWorkerRecipientProofBundleActivationV1, LocalSigningWorkerServiceV1,
     LocalTransportEnvelopeV1, LocalTransportRouteV1,
+};
+pub use self::normal_signing::{
+    ActiveSigningWorkerStateV1, NormalSigningRequestV1, NormalSigningResponseV1,
+    NormalSigningSignatureSchemeV1, RouterToSigningWorkerSigningRequestV1,
 };
 pub use self::output::{
     ab_derivation_proof_batch_recipient_view_v1,
-    combine_mpc_prf_output_packages_from_ab_proof_batches_v1,
     combine_mpc_prf_recipient_output_from_ab_proof_batches_v1,
+    combine_mpc_prf_recipient_output_from_proof_bundle_payloads_v1,
+    combine_mpc_prf_signing_worker_output_from_activation_context_v1,
     decode_recipient_output_ciphertext_v1, decode_recipient_proof_bundle_ciphertext_v1,
     encode_recipient_output_ciphertext_aad_v1, encode_recipient_output_ciphertext_v1,
     encode_recipient_proof_bundle_ciphertext_aad_v1, encode_recipient_proof_bundle_ciphertext_v1,
     encrypt_recipient_proof_bundle_payload_v1, mpc_prf_batch_output_from_ab_proof_batch_v1,
-    package_mpc_prf_combined_outputs_v1, recipient_output_ciphertext_aad_digest_v1,
-    recipient_proof_bundle_ciphertext_aad_digest_v1, recipient_proof_bundle_ciphertext_digest_v1,
+    recipient_output_ciphertext_aad_digest_v1, recipient_proof_bundle_ciphertext_aad_digest_v1,
+    recipient_proof_bundle_ciphertext_digest_v1,
     recipient_proof_bundle_payload_from_ab_proof_batch_v1,
     recipient_proof_bundle_wire_message_from_ab_proof_batch_v1,
-    signer_response_commitment_from_mpc_prf_packages_v1,
-    signer_response_wire_message_from_mpc_prf_packages_v1, verify_client_output_package_v1,
-    verify_recipient_proof_bundle_ciphertext_payload_v1, verify_relayer_output_package_v1,
-    ClientOutputPackageV1, MpcPrfOutputPackagesV1, RecipientOutputCiphertextV1,
+    verify_recipient_proof_bundle_ciphertext_payload_v1, RecipientOutputCiphertextV1,
     RecipientOutputEncryptionAlgorithmV1, RecipientOutputEncryptionRequestV1,
-    RecipientOutputEncryptorV1, RecipientOutputPackageV1, RecipientProofBundleCiphertextV1,
+    RecipientOutputEncryptorV1, RecipientProofBundleCiphertextV1,
     RecipientProofBundleEncryptionRequestV1, RecipientProofBundleEncryptorV1,
-    RelayerOutputPackageV1, RECIPIENT_OUTPUT_CIPHERTEXT_NONCE_LEN_V1,
+    RECIPIENT_OUTPUT_CIPHERTEXT_NONCE_LEN_V1,
 };
 pub use self::payload::{
     ab_derivation_proof_batch_payload_digest_v1, ab_peer_message_authentication_input_digest_v1,
     ab_peer_message_payload_digest_v1, build_mpc_prf_signer_partial_input_v1,
     decode_ab_derivation_proof_batch_payload_v1, decode_ab_peer_message_payload_v1,
     decode_and_validate_ab_derivation_proof_batch_peer_payload_v1,
-    decode_recipient_proof_bundle_payload_v1, decode_relayer_activation_payload_v1,
-    decode_router_to_signer_payload_v1, decode_signer_response_payload_v1,
+    decode_recipient_proof_bundle_payload_v1, decode_router_to_signer_payload_v1,
     encode_ab_derivation_proof_batch_payload_v1, encode_ab_peer_message_authentication_input_v1,
     encode_ab_peer_message_payload_v1, encode_recipient_proof_bundle_payload_v1,
-    encode_relayer_activation_payload_v1, encode_router_to_signer_payload_v1,
-    encode_signer_response_payload_v1, recipient_proof_bundle_payload_digest_v1,
-    relayer_activation_payload_digest_v1, router_to_signer_payload_digest_v1,
-    router_transcript_binding_v1, router_transcript_digest_v1,
+    encode_router_to_signer_payload_v1, recipient_proof_bundle_payload_digest_v1,
+    router_to_signer_payload_digest_v1, router_transcript_binding_v1, router_transcript_digest_v1,
     sign_ab_derivation_proof_batch_peer_payload_v1, sign_ab_peer_message_ed25519_authentication_v1,
-    signer_response_payload_digest_v1, validate_signer_input_plaintext_binding_v1,
-    verify_ab_peer_message_ed25519_signature_v1, AbDerivationProofBatchPayloadV1,
-    AbPeerMessageAuthenticationV1, AbPeerMessagePayloadV1, AbPeerMessageSignatureSchemeV1,
-    AbPeerMessageVerifyingKeyV1, RecipientProofBundlePayloadV1, RelayerActivationPayloadV1,
+    validate_signer_input_plaintext_binding_v1, verify_ab_peer_message_ed25519_signature_v1,
+    AbDerivationProofBatchPayloadV1, AbPeerMessageAuthenticationV1, AbPeerMessagePayloadV1,
+    AbPeerMessageSignatureSchemeV1, AbPeerMessageVerifyingKeyV1, RecipientProofBundlePayloadV1,
     RouterEnvelopeDigestSetV1, RouterToSignerPayloadV1, RouterTranscriptMetadataV1,
-    SignerResponsePayloadV1,
+    SigningWorkerActivationContextV1,
 };
 pub use self::public_request::{
     PublicRouterRequestContextV1, PublicRouterRequestV1, PublicRouterRequestVersionV1,

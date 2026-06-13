@@ -17,7 +17,7 @@ Protected assets:
 - A-side derivation state
 - B-side derivation state
 - plaintext client delivery material before client receipt
-- plaintext relayer delivery material before relayer receipt
+- plaintext SigningWorker delivery material before SigningWorker receipt
 
 Public or metadata assets:
 
@@ -41,33 +41,34 @@ transports encrypted role envelopes. Router may inspect routing metadata and
 public transcript evidence.
 
 Router must never receive plaintext A/B derivation shares, plaintext client
-delivery material, plaintext relayer delivery material, or joined secret state.
+delivery material, plaintext SigningWorker delivery material, or joined secret
+state.
 
-### Signer A And Signer B
+### Deriver A And Deriver B
 
-Signer A and Signer B each hold one role-local derivation state. A single signer
+Deriver A and Deriver B each hold one role-local derivation state. A single deriver
 may derive or deliver only its own candidate-specific output contribution.
 
 A and B must validate transcript fields before deriving output material. A and B
-must reject swapped identities, duplicated signer identities, and mismatched
+must reject swapped identities, duplicated deriver identities, and mismatched
 root epochs.
 
 ### Client
 
 The client receives encrypted client-output delivery material and opens
-`x_client_base`. The client must not receive joined relayer material.
+`x_client_base`. The client must not receive joined SigningWorker material.
 
 A malicious client may submit malformed requests, replay old public inputs, or
 withhold returned delivery material. Minimum Level C tolerates malicious client
 behavior as an output-correctness and availability risk.
 
-### Relayer
+### SigningWorker
 
-The designated relayer receives encrypted relayer-output delivery material and
-opens `x_relayer_base`. The relayer may be Signer A in the initial deployment.
+The active SigningWorker receives encrypted SigningWorker-output delivery
+material and opens `x_relayer_base` for normal signing.
 
-Relayer compromise exposes relayer-opened material. It must not expose
-client-opened material or joined `d`/`a`.
+SigningWorker compromise exposes SigningWorker-opened material. It must not
+expose client-opened material or joined `d`/`a`.
 
 ### Storage
 
@@ -80,19 +81,19 @@ delivery material or both plaintext A/B derivation states.
 | Compromised set | Privacy claim | Correctness claim | Availability claim |
 | --- | --- | --- | --- |
 | Router only | Cannot reconstruct joined `d`, `a`, `x_client_base`, `y_relayer`, or `tau_relayer` from allowed state | Can drop, reorder, or replay unless replay cache rejects | Can deny service |
-| Signer A only | Cannot reconstruct joined forbidden state without B | Can return malformed A-side output | Can deny A-side progress |
-| Signer B only | Cannot reconstruct joined forbidden state without A | Can return malformed B-side output | Can deny B-side progress |
+| Deriver A only | Cannot reconstruct joined forbidden state without B | Can return malformed A-side output | Can deny A-side progress |
+| Deriver B only | Cannot reconstruct joined forbidden state without A | Can return malformed B-side output | Can deny B-side progress |
 | Client only | Can reveal its own opened `x_client_base` | Can cause bad client-side use of outputs | Can abandon ceremonies |
-| Relayer only | Can reveal opened `x_relayer_base` | Can misuse relayer-side output | Can deny relayer service |
+| SigningWorker only | Can reveal opened `x_relayer_base` | Can misuse SigningWorker-side output | Can deny signing service |
 | Storage only | Sees metadata and encrypted packages only | Cannot forge transcript evidence without role keys | Can lose replay or package state |
-| Router + Signer A | Cannot reconstruct B-side state or joined forbidden state if B remains honest and envelopes hold | Can bias/drop A-side behavior and Router routing | Can deny service |
-| Router + Signer B | Cannot reconstruct A-side state or joined forbidden state if A remains honest and envelopes hold | Can bias/drop B-side behavior and Router routing | Can deny service |
-| Signer A + Signer B | Server-blind privacy claim fails for server-side derivation state | Can produce arbitrary candidate outputs | Can deny service |
+| Router + Deriver A | Cannot reconstruct B-side state or joined forbidden state if B remains honest and envelopes hold | Can bias/drop A-side behavior and Router routing | Can deny service |
+| Router + Deriver B | Cannot reconstruct A-side state or joined forbidden state if A remains honest and envelopes hold | Can bias/drop B-side behavior and Router routing | Can deny service |
+| Deriver A + Deriver B | Server-blind privacy claim fails for server-side derivation state | Can produce arbitrary candidate outputs | Can deny service |
 | Router + A + B | Server-side privacy claim fails | Full server-side forgery within this primitive | Can deny service |
 
 ## Server-Blind Claim
 
-Server blindness means no single server-side role, and no Router plus one signer
+Server blindness means no single server-side role, and no Router plus one deriver
 collusion set, has enough allowed state to reconstruct joined `d`, joined `a`,
 or joined `x_client_base`.
 
@@ -111,7 +112,7 @@ The claim does not survive A+B collusion.
 Minimum Level C provides:
 
 - transcript binding
-- signer identity binding
+- deriver identity binding
 - root epoch binding
 - recipient binding
 - replay rejection for changed bound fields
@@ -120,7 +121,7 @@ Minimum Level C provides:
 Minimum Level C does not provide:
 
 - public group-relation correctness
-- detection of every malicious signer output
+- detection of every malicious deriver output
 - proof that derived output matches the account public key
 - protection from A+B collusion
 - deployment attestation
@@ -129,7 +130,7 @@ Minimum Level C does not provide:
 
 The stronger correctness path adds public verifying-share binding and group
 relation checks. That path is required if the product needs detection of
-malicious signer output before address verification or recipient-side opening.
+malicious deriver output before address verification or recipient-side opening.
 
 ## Formal Verification Claims
 
@@ -137,7 +138,7 @@ Formal verification should model:
 
 - allowed role views
 - forbidden joined-state exclusion
-- corruption sets up to Router plus one signer
+- corruption sets up to Router plus one deriver
 - role/output authorization
 - transcript field inclusion
 - epoch and recipient separation

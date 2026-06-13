@@ -112,41 +112,156 @@ impl ContentKind {
 }
 
 /// Public envelope header. Ciphertext bytes stay adapter-owned.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct EnvelopeHeaderV1 {
     /// Envelope version.
-    pub envelope_version: EnvelopeVersion,
+    envelope_version: EnvelopeVersion,
     /// Envelope kind.
-    pub envelope_kind: EnvelopeKind,
+    envelope_kind: EnvelopeKind,
     /// Candidate family.
-    pub candidate_id: CandidateId,
+    candidate_id: CandidateId,
     /// Request kind.
-    pub request_kind: RequestKind,
+    request_kind: RequestKind,
     /// Correctness level.
-    pub correctness_level: CorrectnessLevel,
+    correctness_level: CorrectnessLevel,
     /// Router-assigned ceremony id.
-    pub ceremony_id: String,
+    ceremony_id: String,
     /// Root-share epoch.
-    pub root_share_epoch: RootShareEpoch,
+    root_share_epoch: RootShareEpoch,
     /// Transcript digest.
-    pub transcript_digest: PublicDigest32,
+    transcript_digest: PublicDigest32,
     /// Sender role.
-    pub sender_role: Role,
+    sender_role: Role,
     /// Sender identity.
-    pub sender_identity: String,
+    sender_identity: String,
     /// Recipient role.
-    pub recipient_role: Role,
+    recipient_role: Role,
     /// Recipient identity.
-    pub recipient_identity: String,
+    recipient_identity: String,
     /// Plaintext content kind.
-    pub content_kind: ContentKind,
+    content_kind: ContentKind,
     /// Ciphertext digest.
-    pub ciphertext_digest: PublicDigest32,
+    ciphertext_digest: PublicDigest32,
     /// Ciphertext length in bytes.
-    pub ciphertext_len: u64,
+    ciphertext_len: u64,
 }
 
 impl EnvelopeHeaderV1 {
+    /// Creates a validated public envelope header.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        envelope_version: EnvelopeVersion,
+        envelope_kind: EnvelopeKind,
+        candidate_id: CandidateId,
+        request_kind: RequestKind,
+        correctness_level: CorrectnessLevel,
+        ceremony_id: impl Into<String>,
+        root_share_epoch: RootShareEpoch,
+        transcript_digest: PublicDigest32,
+        sender_role: Role,
+        sender_identity: impl Into<String>,
+        recipient_role: Role,
+        recipient_identity: impl Into<String>,
+        content_kind: ContentKind,
+        ciphertext_digest: PublicDigest32,
+        ciphertext_len: u64,
+    ) -> RouterAbDerivationResult<Self> {
+        let header = Self {
+            envelope_version,
+            envelope_kind,
+            candidate_id,
+            request_kind,
+            correctness_level,
+            ceremony_id: ceremony_id.into(),
+            root_share_epoch,
+            transcript_digest,
+            sender_role,
+            sender_identity: sender_identity.into(),
+            recipient_role,
+            recipient_identity: recipient_identity.into(),
+            content_kind,
+            ciphertext_digest,
+            ciphertext_len,
+        };
+        header.validate()?;
+        Ok(header)
+    }
+
+    /// Returns the envelope version.
+    pub fn envelope_version(&self) -> EnvelopeVersion {
+        self.envelope_version
+    }
+
+    /// Returns the envelope kind.
+    pub fn envelope_kind(&self) -> EnvelopeKind {
+        self.envelope_kind
+    }
+
+    /// Returns the candidate family.
+    pub fn candidate_id(&self) -> CandidateId {
+        self.candidate_id
+    }
+
+    /// Returns the request kind.
+    pub fn request_kind(&self) -> RequestKind {
+        self.request_kind
+    }
+
+    /// Returns the correctness level.
+    pub fn correctness_level(&self) -> CorrectnessLevel {
+        self.correctness_level
+    }
+
+    /// Returns the ceremony id.
+    pub fn ceremony_id(&self) -> &str {
+        &self.ceremony_id
+    }
+
+    /// Returns the root-share epoch.
+    pub fn root_share_epoch(&self) -> &RootShareEpoch {
+        &self.root_share_epoch
+    }
+
+    /// Returns the transcript digest.
+    pub fn transcript_digest(&self) -> PublicDigest32 {
+        self.transcript_digest
+    }
+
+    /// Returns the sender role.
+    pub fn sender_role(&self) -> Role {
+        self.sender_role
+    }
+
+    /// Returns the sender identity.
+    pub fn sender_identity(&self) -> &str {
+        &self.sender_identity
+    }
+
+    /// Returns the recipient role.
+    pub fn recipient_role(&self) -> Role {
+        self.recipient_role
+    }
+
+    /// Returns the recipient identity.
+    pub fn recipient_identity(&self) -> &str {
+        &self.recipient_identity
+    }
+
+    /// Returns the content kind.
+    pub fn content_kind(&self) -> ContentKind {
+        self.content_kind
+    }
+
+    /// Returns the ciphertext digest.
+    pub fn ciphertext_digest(&self) -> PublicDigest32 {
+        self.ciphertext_digest
+    }
+
+    /// Returns the ciphertext length.
+    pub fn ciphertext_len(&self) -> u64 {
+        self.ciphertext_len
+    }
+
     /// Validates the public envelope header.
     pub fn validate(&self) -> RouterAbDerivationResult<()> {
         require_non_empty("ceremony_id", &self.ceremony_id)?;
@@ -167,13 +282,25 @@ impl EnvelopeHeaderV1 {
 }
 
 /// Delivery package public commitment input.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DeliveryPackageV1 {
     /// Public envelope header.
-    pub header: EnvelopeHeaderV1,
+    header: EnvelopeHeaderV1,
 }
 
 impl DeliveryPackageV1 {
+    /// Creates a validated delivery package commitment input.
+    pub fn new(header: EnvelopeHeaderV1) -> RouterAbDerivationResult<Self> {
+        let package = Self { header };
+        package.validate()?;
+        Ok(package)
+    }
+
+    /// Returns the public envelope header.
+    pub fn header(&self) -> &EnvelopeHeaderV1 {
+        &self.header
+    }
+
     /// Validates package metadata.
     pub fn validate(&self) -> RouterAbDerivationResult<()> {
         self.header.validate()

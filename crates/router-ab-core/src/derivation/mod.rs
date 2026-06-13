@@ -6,9 +6,9 @@
 //! this crate.
 
 mod bench;
+mod boundary;
 mod candidate_mpc_prf;
 mod candidate_mpc_prf_threshold_backend;
-mod candidate_split_root;
 mod context;
 mod diagnostics;
 mod envelope;
@@ -29,11 +29,16 @@ pub use self::bench::{
     CandidateMeasurementGateStatus, CandidateMeasurementGateV1, CandidateRoundTripProfileV1,
     CANDIDATE_MEASUREMENT_GATES_VERSION_V1,
 };
+pub use self::boundary::{
+    parse_context_v1, parse_envelope_header_v1, parse_minimum_level_c_evidence_v1,
+    parse_transcript_v1, RawAccountScopeV1, RawContextV1, RawEnvelopeHeaderV1,
+    RawIndexedSignerBindingV1, RawMinimumLevelCEvidenceV1, RawPublicDigest32V1,
+    RawSignerSetBindingV1, RawTranscriptV1,
+};
 pub use self::candidate_mpc_prf::{
-    evaluate_mpc_threshold_prf_candidate, plan_mpc_prf_combine_v1,
-    plan_mpc_prf_partial_verification_v1, plan_mpc_prf_purpose_binding_v1, MpcPrfCandidateInput,
-    MpcPrfCandidateOutput, MpcPrfCombinePlanV1, MpcPrfCombinerInputV1, MpcPrfDleqProofWireV1,
-    MpcPrfOutputEncodingV1, MpcPrfOutputPurposeV1, MpcPrfOutputRequestV1, MpcPrfPartialBindingV1,
+    plan_mpc_prf_combine_v1, plan_mpc_prf_partial_verification_v1, plan_mpc_prf_purpose_binding_v1,
+    MpcPrfCombinePlanV1, MpcPrfCombinerInputV1, MpcPrfDleqProofWireV1, MpcPrfOutputEncodingV1,
+    MpcPrfOutputPurposeV1, MpcPrfOutputRequestV1, MpcPrfPartialBindingV1,
     MpcPrfPartialProofBundleV1, MpcPrfPartialVerificationInputV1, MpcPrfPartialVerificationPlanV1,
     MpcPrfPartialWireV1, MpcPrfPurposeBindingPlanV1, MpcPrfShareCommitmentWireV1,
     MpcPrfSignerPartialInputV1, MpcPrfSignerPartialV1, MpcPrfSuiteId, MpcPrfVerifiedPartialV1,
@@ -48,18 +53,8 @@ pub use self::candidate_mpc_prf_threshold_backend::{
     MpcPrfThresholdBatchCombineInputV1, MpcPrfThresholdBatchCombinedOutputV1,
     MpcPrfThresholdCombineInputV1, MpcPrfThresholdCombinedOutputV1,
     MpcPrfThresholdSignerBatchInputV1, MpcPrfThresholdSignerBatchOutputV1,
-    MpcPrfThresholdSignerInputV1, MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN,
-};
-pub use self::candidate_split_root::{
-    combine_split_root_verified_output_shares_v1, derive_split_root_output_share_v1,
-    evaluate_split_root_candidate, plan_split_root_combine_v1, plan_split_root_output_share_v1,
-    plan_split_root_refresh_v1, SplitRootCandidateInput, SplitRootCandidateOutput,
-    SplitRootCombinePlanV1, SplitRootCombinedOutputV1, SplitRootCombinerInputV1,
-    SplitRootDerivationLabelV1, SplitRootOutputRequestV1, SplitRootOutputShareBindingV1,
-    SplitRootOutputShareWireV1, SplitRootRefreshModeV1, SplitRootRefreshPlanInputV1,
-    SplitRootRefreshPlanV1, SplitRootSecretShareV1, SplitRootSignerInputV1,
-    SplitRootSignerOutputShareV1, SplitRootSuiteId, SplitRootVerifiedOutputShareV1,
-    SPLIT_ROOT_OUTPUT_SHARE_WIRE_V1_LEN, SPLIT_ROOT_SECRET_SHARE_V1_LEN,
+    MpcPrfThresholdSignerInputV1, RouterAbThresholdPrfProtocolV1,
+    MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN,
 };
 pub use self::context::{
     context_digest_v1, AccountScope, CandidateId, CorrectnessLevel, DerivationContext, RequestKind,

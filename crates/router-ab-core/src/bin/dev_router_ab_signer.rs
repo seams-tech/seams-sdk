@@ -1,9 +1,10 @@
 use router_ab_core::{
-    CanonicalWireBytesV1, LocalClientRouterRequestV1, LocalEnvSnapshotV1, LocalHttpMethodV1,
-    LocalHttpPathV1, LocalHttpRequestV1, LocalReplayCacheV1, LocalRouterEndpointV1,
-    LocalServiceRoleV1, LocalServiceStackV1, LocalServiceStartupV1, LocalSignerARelayerEndpointV1,
-    LocalSignerBEndpointV1, LocalTransportEnvelopeV1, LocalTransportRouteV1, RelayerIdentityV1,
-    SignerIdentityV1, WireMessageKindV1, WireMessageV1,
+    CanonicalWireBytesV1, LocalClientRouterRequestV1, LocalDeriverAEndpointV1,
+    LocalDeriverBEndpointV1, LocalEnvSnapshotV1, LocalHttpMethodV1, LocalHttpPathV1,
+    LocalHttpRequestV1, LocalReplayCacheV1, LocalRouterEndpointV1, LocalServiceRoleV1,
+    LocalServiceStackV1, LocalServiceStartupV1, LocalSigningWorkerEndpointV1,
+    LocalTransportEnvelopeV1, LocalTransportRouteV1, RelayerIdentityV1, SignerIdentityV1,
+    WireMessageKindV1, WireMessageV1,
 };
 use router_ab_core::{PublicDigest32, Role};
 use serde::Serialize;
@@ -11,33 +12,35 @@ use serde::Serialize;
 #[derive(Serialize)]
 struct DevRouterAbSignerSummary {
     router_url: &'static str,
-    signer_a_relayer_url: &'static str,
-    signer_b_url: &'static str,
-    signer_a_response_status: u16,
-    signer_b_response_status: u16,
-    signer_a_response_route: String,
-    signer_b_response_route: String,
-    signer_a_peer_path: &'static str,
-    signer_b_peer_path: &'static str,
-    relayer_activation_path: &'static str,
-    relayer_id: String,
+    deriver_a_url: &'static str,
+    deriver_b_url: &'static str,
+    signing_worker_url: &'static str,
+    router_client_bundle_count: usize,
+    signing_worker_bundle_count: usize,
+    deriver_a_peer_path: &'static str,
+    deriver_b_peer_path: &'static str,
+    signing_worker_id: String,
     transcript_digest_hex: String,
-    relayer_activation_digest_hex: String,
+    signing_worker_activation_digest_hex: String,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let stack = LocalServiceStackV1::new(
         LocalServiceStartupV1::router(router_endpoint()?, router_env_snapshot()?)?,
-        LocalServiceStartupV1::signer_a_relayer(
-            signer_a_endpoint()?,
+        LocalServiceStartupV1::deriver_a(
+            deriver_a_endpoint()?,
             signer_a_identity()?,
-            relayer_identity()?,
-            signer_a_env_snapshot()?,
+            deriver_a_env_snapshot()?,
         )?,
-        LocalServiceStartupV1::signer_b(
-            signer_b_endpoint()?,
+        LocalServiceStartupV1::deriver_b(
+            deriver_b_endpoint()?,
             signer_b_identity()?,
-            signer_b_env_snapshot()?,
+            deriver_b_env_snapshot()?,
+        )?,
+        LocalServiceStartupV1::signing_worker(
+            signing_worker_endpoint()?,
+            relayer_identity()?,
+            signing_worker_env_snapshot()?,
         )?,
     )?;
     let mut replay_cache = LocalReplayCacheV1::new();
@@ -63,19 +66,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let summary = DevRouterAbSignerSummary {
         router_url: "http://127.0.0.1:8787",
-        signer_a_relayer_url: "http://127.0.0.1:8788",
-        signer_b_url: "http://127.0.0.1:8789",
-        signer_a_response_status: result.signer_a_response.status.status_code(),
-        signer_b_response_status: result.signer_b_response.status.status_code(),
-        signer_a_response_route: format!("{:?}", result.signer_a_response.envelope.route),
-        signer_b_response_route: format!("{:?}", result.signer_b_response.envelope.route),
-        signer_a_peer_path: result.signer_a_peer_request.path.as_str(),
-        signer_b_peer_path: result.signer_b_peer_request.path.as_str(),
-        relayer_activation_path: result.relayer_activation_request.path.as_str(),
-        relayer_id: result.relayer_activation_receipt.relayer.relayer_id.clone(),
-        transcript_digest_hex: digest_hex(result.relayer_activation_receipt.transcript_digest),
-        relayer_activation_digest_hex: digest_hex(
-            result.relayer_activation_receipt.activation_digest,
+        deriver_a_url: "http://127.0.0.1:8788",
+        deriver_b_url: "http://127.0.0.1:8789",
+        signing_worker_url: "http://127.0.0.1:8790",
+        router_client_bundle_count: [
+            &result.router_response.deriver_a_client_bundle,
+            &result.router_response.deriver_b_client_bundle,
+        ]
+        .len(),
+        signing_worker_bundle_count: [
+            &result
+                .signing_worker_activation
+                .deriver_a_signing_worker_bundle,
+            &result
+                .signing_worker_activation
+                .deriver_b_signing_worker_bundle,
+        ]
+        .len(),
+        deriver_a_peer_path: result.deriver_a_peer_request.path.as_str(),
+        deriver_b_peer_path: result.deriver_b_peer_request.path.as_str(),
+        signing_worker_id: result
+            .signing_worker_activation_receipt
+            .signing_worker
+            .relayer_id
+            .clone(),
+        transcript_digest_hex: digest_hex(
+            result.signing_worker_activation_receipt.transcript_digest,
+        ),
+        signing_worker_activation_digest_hex: digest_hex(
+            result.signing_worker_activation_receipt.activation_digest,
         ),
     };
 
@@ -123,21 +142,28 @@ fn router_endpoint() -> Result<LocalRouterEndpointV1, Box<dyn std::error::Error>
         "http://127.0.0.1:8787",
         "http://127.0.0.1:8788",
         "http://127.0.0.1:8789",
+        "http://127.0.0.1:8790",
     )?)
 }
 
-fn signer_a_endpoint() -> Result<LocalSignerARelayerEndpointV1, Box<dyn std::error::Error>> {
-    Ok(LocalSignerARelayerEndpointV1::new(
+fn deriver_a_endpoint() -> Result<LocalDeriverAEndpointV1, Box<dyn std::error::Error>> {
+    Ok(LocalDeriverAEndpointV1::new(
         "http://127.0.0.1:8788",
         "http://127.0.0.1:8789",
+    )?)
+}
+
+fn deriver_b_endpoint() -> Result<LocalDeriverBEndpointV1, Box<dyn std::error::Error>> {
+    Ok(LocalDeriverBEndpointV1::new(
+        "http://127.0.0.1:8789",
+        "http://127.0.0.1:8788",
+    )?)
+}
+
+fn signing_worker_endpoint() -> Result<LocalSigningWorkerEndpointV1, Box<dyn std::error::Error>> {
+    Ok(LocalSigningWorkerEndpointV1::new(
+        "http://127.0.0.1:8790",
         "local-relayer-output",
-    )?)
-}
-
-fn signer_b_endpoint() -> Result<LocalSignerBEndpointV1, Box<dyn std::error::Error>> {
-    Ok(LocalSignerBEndpointV1::new(
-        "http://127.0.0.1:8789",
-        "http://127.0.0.1:8788",
     )?)
 }
 
@@ -162,31 +188,38 @@ fn router_env_snapshot() -> Result<LocalEnvSnapshotV1, Box<dyn std::error::Error
         LocalServiceRoleV1::Router,
         vec![
             "ROUTER_PUBLIC_URL".to_owned(),
-            "SIGNER_A_URL".to_owned(),
-            "SIGNER_B_URL".to_owned(),
+            "DERIVER_A_URL".to_owned(),
+            "DERIVER_B_URL".to_owned(),
+            "SIGNING_WORKER_URL".to_owned(),
         ],
     )?)
 }
 
-fn signer_a_env_snapshot() -> Result<LocalEnvSnapshotV1, Box<dyn std::error::Error>> {
+fn deriver_a_env_snapshot() -> Result<LocalEnvSnapshotV1, Box<dyn std::error::Error>> {
     Ok(LocalEnvSnapshotV1::new(
-        LocalServiceRoleV1::SignerARelayer,
+        LocalServiceRoleV1::DeriverA,
         vec![
-            "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY".to_owned(),
+            "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY".to_owned(),
             "SIGNING_ROOT_SHARE_A_KEK".to_owned(),
-            "RELAYER_OUTPUT_STORAGE".to_owned(),
-            "SIGNER_B_URL".to_owned(),
+            "DERIVER_B_URL".to_owned(),
         ],
     )?)
 }
 
-fn signer_b_env_snapshot() -> Result<LocalEnvSnapshotV1, Box<dyn std::error::Error>> {
+fn deriver_b_env_snapshot() -> Result<LocalEnvSnapshotV1, Box<dyn std::error::Error>> {
     Ok(LocalEnvSnapshotV1::new(
-        LocalServiceRoleV1::SignerB,
+        LocalServiceRoleV1::DeriverB,
         vec![
-            "SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY".to_owned(),
+            "DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY".to_owned(),
             "SIGNING_ROOT_SHARE_B_KEK".to_owned(),
-            "SIGNER_A_URL".to_owned(),
+            "DERIVER_A_URL".to_owned(),
         ],
+    )?)
+}
+
+fn signing_worker_env_snapshot() -> Result<LocalEnvSnapshotV1, Box<dyn std::error::Error>> {
+    Ok(LocalEnvSnapshotV1::new(
+        LocalServiceRoleV1::SigningWorker,
+        vec!["RELAYER_OUTPUT_STORAGE".to_owned()],
     )?)
 }

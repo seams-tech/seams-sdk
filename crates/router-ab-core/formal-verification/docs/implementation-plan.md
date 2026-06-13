@@ -38,7 +38,7 @@ treated as production-ready:
 The formal track must model these behaviors:
 
 - client opens only `x_client_base`
-- relayer opens only `x_relayer_base`
+- SigningWorker opens only `x_relayer_base`
 - Router cannot observe plaintext A/B derivation shares for one ceremony
 - A alone cannot reconstruct forbidden joined state
 - B alone cannot reconstruct forbidden joined state
@@ -48,15 +48,15 @@ The formal track must model these behaviors:
 
 ## Phase 1: Abstract Model
 
-- [ ] Model roles: Router, Signer A, Signer B, client, relayer
+- [x] Model roles: Router, Deriver A, Deriver B, client, SigningWorker
 - [ ] Model request kinds: registration, export, refresh
 - [ ] Model candidate ids
-- [ ] Model opened-value kinds
-- [ ] Model forbidden joined-state kinds
+- [x] Model opened-value kinds
+- [x] Model forbidden joined-state kinds
 - [ ] Model root epochs
 - [ ] Model recipient identities
 - [ ] Model ceremony ids
-- [ ] Prove that allowed opened values match the target invariant
+- [x] Prove that allowed opened values match the target invariant
 
 ## Phase 2: Encoding And Transcript
 
@@ -85,7 +85,7 @@ The formal track must model these behaviors:
 
 - [ ] Add the selected candidate formula
 - [x] Add Candidate A MPC PRF partial visibility model entry
-- [x] Add Candidate B split-root share visibility model entry
+- [x] Remove Candidate B split-root visibility from the selected production FV surface
 - [ ] Prove role-local state separation
 - [ ] Prove output scope separation
 - [ ] Prove refresh preserves epoch separation
@@ -93,11 +93,15 @@ The formal track must model these behaviors:
 
 ## Phase 5: Privacy Model
 
-- [ ] Model each role's view
+- [x] Model each role's view as explicit public, ciphertext, local-partial,
+  recipient-opened, and forbidden-joined events
 - [x] Add Candidate A MPC PRF partial visibility privacy entries
-- [x] Add Candidate B split-root share visibility privacy entries
-- [ ] Prove a single server-side role cannot reconstruct joined forbidden state
-- [ ] Prove client view excludes relayer joined material
+- [x] Remove Candidate B split-root privacy entries from the selected
+  production FV surface
+- [x] Prove a single server-side role cannot observe forbidden joined state in
+  the event model
+- [x] Prove client view excludes joined `d`, joined `a`, and SigningWorker
+  joined material in the event model
 - [ ] Prove Router view excludes plaintext A/B derivation shares
 - [ ] Connect the Lean model to the Rust role/output types
 

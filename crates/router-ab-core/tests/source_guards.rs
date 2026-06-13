@@ -65,18 +65,113 @@ fn recipient_output_encryption_request_does_not_derive_serialization() {
 }
 
 #[test]
-fn split_root_plaintext_share_types_do_not_derive_serialization() {
-    let candidate_rs = read_src_file("candidate_split_root.rs");
-    for struct_name in [
-        "SplitRootSecretShareV1",
-        "SplitRootOutputShareWireV1",
-        "SplitRootSignerOutputShareV1",
-        "SplitRootVerifiedOutputShareV1",
-        "SplitRootCombinedOutputV1",
-    ] {
-        let block = extract_struct_block(&candidate_rs, struct_name);
-        assert!(!block.contains("Serialize"), "{struct_name}");
+fn typed_envelope_and_verifier_inputs_do_not_deserialize_from_raw_boundaries() {
+    let envelope_rs = read_src_file("envelope.rs");
+    for struct_name in ["EnvelopeHeaderV1", "DeliveryPackageV1"] {
+        let block = extract_struct_block(&envelope_rs, struct_name);
         assert!(!block.contains("Deserialize"), "{struct_name}");
+    }
+
+    let evidence_rs = read_src_file("evidence.rs");
+    let verification_input_block =
+        extract_struct_block(&evidence_rs, "MinimumLevelCVerificationInputV1");
+    assert!(!verification_input_block.contains("Deserialize"));
+    for struct_name in [
+        "AuthenticatedSignerReceiptV1",
+        "MinimumLevelCEvidenceV1",
+        "VerifiedMinimumLevelCEvidenceV1",
+    ] {
+        let block = extract_struct_block(&evidence_rs, struct_name);
+        assert!(!block.contains("Deserialize"), "{struct_name}");
+        assert!(
+            !block.contains("\n    pub "),
+            "{struct_name} must stay constructor/accessor-only"
+        );
+    }
+    for impl_name in ["AuthenticatedSignerReceiptV1", "MinimumLevelCEvidenceV1"] {
+        assert!(
+            evidence_rs.contains(&format!("impl<'de> Deserialize<'de> for {impl_name}")),
+            "{impl_name} must deserialize through its validating constructor"
+        );
+        assert!(
+            evidence_rs.contains(&format!("impl {impl_name} {{"))
+                && evidence_rs.contains("pub fn new("),
+            "{impl_name} must expose a validating constructor"
+        );
+    }
+    assert!(evidence_rs.contains("impl VerifiedMinimumLevelCEvidenceV1 {"));
+    assert!(evidence_rs.contains("pub fn evidence(&self) -> &MinimumLevelCEvidenceV1"));
+
+    let state_machine_rs = read_src_file("state_machine.rs");
+    for struct_name in ["CreateRoleEnvelopesInput", "RoleEnvelopesCreated"] {
+        let block = extract_struct_block(&state_machine_rs, struct_name);
+        assert!(!block.contains("Deserialize"), "{struct_name}");
+    }
+}
+
+#[test]
+fn typed_context_and_transcript_use_validating_deserialize_impls() {
+    let context_rs = read_src_file("context.rs");
+    for struct_name in ["AccountScope", "DerivationContext"] {
+        let block = extract_struct_block(&context_rs, struct_name);
+        assert!(!block.contains("Deserialize"), "{struct_name}");
+        assert!(
+            !block.contains("\n    pub "),
+            "{struct_name} must stay constructor/accessor-only"
+        );
+    }
+    for impl_name in ["RootShareEpoch", "AccountScope", "DerivationContext"] {
+        assert!(
+            context_rs.contains(&format!("impl<'de> Deserialize<'de> for {impl_name}")),
+            "{impl_name} must deserialize through its validating constructor"
+        );
+    }
+
+    let transcript_rs = read_src_file("transcript.rs");
+    for struct_name in [
+        "IndexedSignerBinding",
+        "SignerSetBinding",
+        "TranscriptBinding",
+    ] {
+        let block = extract_struct_block(&transcript_rs, struct_name);
+        assert!(!block.contains("Deserialize"), "{struct_name}");
+        assert!(
+            !block.contains("\n    pub "),
+            "{struct_name} must stay constructor/accessor-only"
+        );
+    }
+    for impl_name in [
+        "IndexedSignerBinding",
+        "SignerSetBinding",
+        "TranscriptBinding",
+    ] {
+        assert!(
+            transcript_rs.contains(&format!("impl<'de> Deserialize<'de> for {impl_name}")),
+            "{impl_name} must deserialize through its validating constructor"
+        );
+    }
+}
+
+#[test]
+fn router_ab_core_keeps_ed25519_hss_behind_dev_adapter_boundary() {
+    let cargo_toml = read_manifest_file("Cargo.toml");
+    for forbidden in ["ed25519-hss", "ed25519_hss"] {
+        assert!(
+            !cargo_toml.contains(forbidden),
+            "router-ab-core must not depend on `{forbidden}`; use router-ab-dev for HSS parity"
+        );
+    }
+
+    for relative_path in [
+        "src/lib.rs",
+        "src/protocol/local.rs",
+        "src/protocol/output.rs",
+    ] {
+        let source = read_manifest_file(relative_path);
+        assert!(
+            !source.contains("ed25519_hss"),
+            "{relative_path} must not import ed25519_hss"
+        );
     }
 }
 
@@ -132,10 +227,7 @@ fn forbidden_joined_state_names_stay_in_allowlisted_modules() {
 
 #[test]
 fn router_boundary_does_not_import_signer_plaintext_decoder() {
-    for relative_path in [
-        "src/protocol/engine/router.rs",
-        "src/protocol/public_request.rs",
-    ] {
+    for relative_path in ["src/protocol/public_request.rs"] {
         let source = read_manifest_file(relative_path);
         for forbidden in [
             "SignerInputPlaintextV1",
@@ -170,6 +262,121 @@ fn ab_peer_payloads_do_not_carry_combined_or_root_secret_material() {
     }
 }
 
+#[test]
+fn stale_mpc_candidate_placeholder_is_not_public_api() {
+    let derivation_mod_rs = read_manifest_file("src/derivation/mod.rs");
+    let public_candidate_export_block =
+        extract_pub_use_block(&derivation_mod_rs, "candidate_mpc_prf");
+    let candidate_mpc_prf_rs = read_src_file("candidate_mpc_prf.rs");
+
+    assert!(!public_candidate_export_block.contains("evaluate_mpc_threshold_prf_candidate"));
+    assert!(!public_candidate_export_block.contains("MpcPrfCandidateInput"));
+    assert!(!public_candidate_export_block.contains("MpcPrfCandidateOutput"));
+    assert!(!candidate_mpc_prf_rs.contains("pub fn evaluate_mpc_threshold_prf_candidate"));
+    assert!(!candidate_mpc_prf_rs.contains("pub struct MpcPrfCandidateInput"));
+    assert!(!candidate_mpc_prf_rs.contains("pub struct MpcPrfCandidateOutput"));
+}
+
+#[test]
+fn split_root_candidate_api_is_removed_from_compiled_core() {
+    let derivation_mod_rs = read_manifest_file("src/derivation/mod.rs");
+    let split_root_module_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("src")
+        .join("derivation")
+        .join("candidate_split_root.rs");
+
+    assert!(!split_root_module_path.exists());
+    assert!(!derivation_mod_rs.contains("mod candidate_split_root"));
+    assert!(!derivation_mod_rs.contains("pub use self::candidate_split_root"));
+    for forbidden in [
+        "evaluate_split_root_candidate",
+        "derive_split_root_output_share_v1",
+        "combine_split_root_verified_output_shares_v1",
+        "SplitRootCandidateInput",
+        "SplitRootCandidateOutput",
+        "SplitRootSecretShareV1",
+        "SplitRootCombinedOutputV1",
+    ] {
+        assert!(
+            !derivation_mod_rs.contains(forbidden),
+            "split-root prototype API `{forbidden}` must stay out of public exports"
+        );
+    }
+}
+
+#[test]
+fn local_simulation_does_not_open_joined_recipient_outputs_server_side() {
+    let local_rs = read_manifest_file("src/protocol/local.rs");
+    for forbidden in [
+        "combine_mpc_prf_recipient_output_from_ab_proof_batches_v1",
+        "combine_mpc_prf_recipient_output_from_proof_bundle_payloads_v1",
+        "combine_mpc_prf_proof_bundles_with_threshold_backend_v1",
+        "combine_mpc_prf_batch_outputs_with_threshold_backend_v1",
+        "MpcPrfThresholdCombineInputV1",
+        "MpcPrfThresholdCombinedOutputV1",
+        "MpcPrfThresholdBatchCombineInputV1",
+        "MpcPrfThresholdBatchCombinedOutputV1",
+        "SplitRootCombinerInputV1",
+        "SplitRootCombinedOutputV1",
+        "SecretMaterial32",
+        "output_material",
+    ] {
+        assert!(
+            !local_rs.contains(forbidden),
+            "local simulation must not open joined recipient output through `{forbidden}`"
+        );
+    }
+}
+
+#[test]
+fn local_deriver_and_signing_worker_state_stay_role_separated() {
+    let local_rs = read_manifest_file("src/protocol/local.rs");
+
+    for struct_name in [
+        "LocalDeriverAEndpointV1",
+        "LocalDeriverAServiceV1",
+        "LocalDeriverBEndpointV1",
+        "LocalDeriverBServiceV1",
+    ] {
+        let block = extract_struct_block(&local_rs, struct_name);
+        for forbidden in ["relayer_output_storage", "relayer: RelayerIdentityV1"] {
+            assert!(
+                !block.contains(forbidden),
+                "{struct_name} must not own SigningWorker state through `{forbidden}`"
+            );
+        }
+    }
+
+    let signing_worker_block = extract_struct_block(&local_rs, "LocalSigningWorkerServiceV1");
+    for forbidden in [
+        "signer: SignerIdentityV1",
+        "MpcPrfSigningRootShareWireV1",
+        "SIGNING_ROOT_SHARE_A_KEK",
+        "SIGNING_ROOT_SHARE_B_KEK",
+    ] {
+        assert!(
+            !signing_worker_block.contains(forbidden),
+            "LocalSigningWorkerServiceV1 must not own deriver state through `{forbidden}`"
+        );
+    }
+}
+
+#[test]
+fn local_signing_worker_activation_uses_public_activation_context() {
+    let local_rs = read_manifest_file("src/protocol/local.rs");
+    let activation_impl = extract_impl_block(
+        &local_rs,
+        "LocalSigningWorkerRecipientProofBundleActivationV1",
+    );
+    let signing_worker_activation_signature =
+        extract_function_signature(&local_rs, "pub fn accept_recipient_proof_bundle_activation");
+
+    assert!(activation_impl.contains("validate_for_activation_context"));
+    assert!(!activation_impl.contains("validate_for_router_payload"));
+    assert!(signing_worker_activation_signature.contains("SigningWorkerActivationContextV1"));
+    assert!(!signing_worker_activation_signature.contains("RouterToSignerPayloadV1"));
+}
+
 fn read_src_file(file_name: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("src")
@@ -192,6 +399,53 @@ fn extract_struct_block(source: &str, struct_name: &str) -> String {
         .map(|offset| start + offset + 1)
         .expect("struct block should end");
     source[before..after].to_owned()
+}
+
+fn extract_impl_block(source: &str, type_name: &str) -> String {
+    let marker = format!("impl {type_name} {{");
+    let start = source.find(&marker).expect("impl marker should exist");
+    let mut depth = 0usize;
+    let mut saw_open = false;
+
+    for (offset, ch) in source[start..].char_indices() {
+        match ch {
+            '{' => {
+                depth += 1;
+                saw_open = true;
+            }
+            '}' => {
+                depth = depth.checked_sub(1).expect("impl block depth underflow");
+                if saw_open && depth == 0 {
+                    return source[start..start + offset + ch.len_utf8()].to_owned();
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("impl block should end");
+}
+
+fn extract_function_signature(source: &str, function_name: &str) -> String {
+    let start = source
+        .find(function_name)
+        .expect("function marker should exist");
+    let end = source[start..]
+        .find('{')
+        .map(|offset| start + offset)
+        .expect("function signature should end");
+    source[start..end].to_owned()
+}
+
+fn extract_pub_use_block(source: &str, module_name: &str) -> String {
+    let marker = format!("pub use self::{module_name}::{{");
+    let start = source
+        .find(&marker)
+        .expect("pub use block marker should exist");
+    let end = source[start..]
+        .find("};")
+        .map(|offset| start + offset + 2)
+        .expect("pub use block should end");
+    source[start..end].to_owned()
 }
 
 fn rust_source_files() -> Vec<PathBuf> {

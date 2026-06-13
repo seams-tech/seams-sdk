@@ -57,23 +57,24 @@ fn signer_envelope(
     recipient_identity: &str,
     ciphertext_digest: PublicDigest32,
 ) -> EnvelopeHeaderV1 {
-    EnvelopeHeaderV1 {
-        envelope_version: EnvelopeVersion::V1,
+    EnvelopeHeaderV1::new(
+        EnvelopeVersion::V1,
         envelope_kind,
-        candidate_id: context.candidate_id,
-        request_kind: context.request_kind,
-        correctness_level: context.correctness_level,
-        ceremony_id: context.ceremony_id.clone(),
-        root_share_epoch: context.root_share_epoch.clone(),
+        context.candidate_id(),
+        context.request_kind(),
+        context.correctness_level(),
+        context.ceremony_id().to_owned(),
+        context.root_share_epoch().clone(),
         transcript_digest,
-        sender_role: Role::Router,
-        sender_identity: "role:router:local:sha256-router".to_owned(),
+        Role::Router,
+        "role:router:local:sha256-router",
         recipient_role,
-        recipient_identity: recipient_identity.to_owned(),
-        content_kind: ContentKind::SignerInput,
+        recipient_identity,
+        ContentKind::SignerInput,
         ciphertext_digest,
-        ciphertext_len: 128,
-    }
+        128,
+    )
+    .expect("envelope header")
 }
 
 fn requested() -> router_ab_core::CeremonyRequested {
@@ -134,8 +135,8 @@ fn ceremony_can_progress_to_verified_through_branch_builders() {
 
     let outputs = bind_outputs(OutputBindingInput {
         state: coordination,
-        client_package_commitments: vec![digest(0xc2)],
-        relayer_package_commitments: vec![digest(0xc3)],
+        client_package_commitments: vec![digest(0xc2), digest(0xc4)],
+        relayer_package_commitments: vec![digest(0xc3), digest(0xc5)],
         signer_a_output_receipt_digest: digest(0xa2),
         signer_b_output_receipt_digest: digest(0xb2),
     })
@@ -150,19 +151,21 @@ fn ceremony_can_progress_to_verified_through_branch_builders() {
 
     let verified = verify_ceremony(router_ab_core::VerificationInput {
         state: delivered,
-        verified_evidence: VerifiedMinimumLevelCEvidenceV1 {
-            evidence: MinimumLevelCEvidenceV1 {
-                evidence_version: MinimumLevelCEvidenceVersion::V1,
-                correctness_level: CorrectnessLevel::MinimumLevelC,
-                context_digest: digest(0xe1),
+        verified_evidence: VerifiedMinimumLevelCEvidenceV1::new(
+            MinimumLevelCEvidenceV1::new(
+                MinimumLevelCEvidenceVersion::V1,
+                CorrectnessLevel::MinimumLevelC,
+                digest(0xe1),
                 transcript_digest,
-                signer_a_receipt_digest: digest(0xa3),
-                signer_b_receipt_digest: digest(0xb3),
-                client_package_commitments: vec![digest(0xc2)],
-                relayer_package_commitments: vec![digest(0xc3)],
-                replay_cache_key: digest(0x99),
-            },
-        },
+                digest(0xa3),
+                digest(0xb3),
+                vec![digest(0xc2), digest(0xc4)],
+                vec![digest(0xc3), digest(0xc5)],
+                digest(0x99),
+            )
+            .expect("evidence"),
+        )
+        .expect("verified evidence"),
         verifier_identity: "role:router:local:sha256-router".to_owned(),
         verifier_sequence: 1,
     })

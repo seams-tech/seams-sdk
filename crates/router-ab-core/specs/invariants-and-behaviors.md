@@ -25,14 +25,14 @@ Router may not materialize:
 
 - plaintext A and B derivation shares for the same ceremony
 - decrypted client delivery material
-- decrypted relayer delivery material
+- decrypted SigningWorker delivery material
 
 ### Allowed Openings
 
 Allowed openings are:
 
 - client opens `x_client_base`
-- designated relayer opens `x_relayer_base`
+- active SigningWorker opens `x_relayer_base`
 
 All other openings are invalid.
 
@@ -40,7 +40,7 @@ All other openings are invalid.
 
 A and B must have different role identities, different persistent role state,
 and different envelope decryption keys. The protocol must reject swapped or
-duplicated signer identities.
+duplicated deriver identities.
 
 ### Epoch Separation
 
@@ -49,8 +49,8 @@ must not verify under another epoch.
 
 ### Recipient Separation
 
-Client-output material and relayer-output material must use distinct domain
-separation labels and recipient identities. A package encrypted for one
+Client-output material and SigningWorker-output material must use distinct
+domain separation labels and recipient identities. A package encrypted for one
 recipient must not be valid for another recipient.
 
 ## Context Invariants
@@ -76,9 +76,9 @@ The transcript binding must include:
 
 - encoded context bytes
 - Router identity
-- Signer A identity
-- Signer B identity
-- relayer identity
+- Deriver A identity
+- Deriver B identity
+- SigningWorker identity
 - client identity
 
 Changing any bound field must change the transcript digest.
@@ -162,7 +162,7 @@ Required before implementation:
 
 Risk to resolve:
 
-- if one signer can bias output silently, Minimum Level C may need extra
+- if one deriver can bias output silently, Minimum Level C may need extra
   transcript evidence or public-share binding earlier than planned.
 
 ## Formal Verification Requirements

@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{de::Error as DeError, Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::derivation::context::DerivationContext;
@@ -41,16 +41,16 @@ impl QuorumPolicy {
 }
 
 /// One signer entry in a transcript-bound signer set.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct IndexedSignerBinding {
     /// Stable signer index inside the signer set.
-    pub signer_index: u16,
+    signer_index: u16,
     /// Signer role for v1.
-    pub role: Role,
+    role: Role,
     /// Canonical signer identity string.
-    pub signer_id: String,
+    signer_id: String,
     /// Signer key epoch.
-    pub key_epoch: String,
+    key_epoch: String,
 }
 
 impl IndexedSignerBinding {
@@ -71,6 +71,26 @@ impl IndexedSignerBinding {
         Ok(signer)
     }
 
+    /// Stable signer index inside the signer set.
+    pub fn signer_index(&self) -> u16 {
+        self.signer_index
+    }
+
+    /// Signer role.
+    pub fn role(&self) -> Role {
+        self.role
+    }
+
+    /// Canonical signer identity.
+    pub fn signer_id(&self) -> &str {
+        &self.signer_id
+    }
+
+    /// Signer key epoch.
+    pub fn key_epoch(&self) -> &str {
+        &self.key_epoch
+    }
+
     /// Validates signer entry fields.
     pub fn validate(&self) -> RouterAbDerivationResult<()> {
         require_non_empty("signer_id", &self.signer_id)?;
@@ -79,15 +99,34 @@ impl IndexedSignerBinding {
     }
 }
 
+impl<'de> Deserialize<'de> for IndexedSignerBinding {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Wire {
+            signer_index: u16,
+            role: Role,
+            signer_id: String,
+            key_epoch: String,
+        }
+
+        let wire = Wire::deserialize(deserializer)?;
+        Self::new(wire.signer_index, wire.role, wire.signer_id, wire.key_epoch)
+            .map_err(D::Error::custom)
+    }
+}
+
 /// Signer-set binding for transcript V1.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SignerSetBinding {
     /// Stable signer-set identifier.
-    pub signer_set_id: String,
+    signer_set_id: String,
     /// Quorum policy.
-    pub quorum_policy: QuorumPolicy,
+    quorum_policy: QuorumPolicy,
     /// Indexed signer entries.
-    pub signers: Vec<IndexedSignerBinding>,
+    signers: Vec<IndexedSignerBinding>,
 }
 
 impl SignerSetBinding {
@@ -109,6 +148,36 @@ impl SignerSetBinding {
         };
         signer_set.validate_v1_all2()?;
         Ok(signer_set)
+    }
+
+    /// Creates a v1 signer set from indexed entries after validating all(2).
+    pub fn from_indexed_v1(
+        signer_set_id: impl Into<String>,
+        quorum_policy: QuorumPolicy,
+        signers: Vec<IndexedSignerBinding>,
+    ) -> RouterAbDerivationResult<Self> {
+        let signer_set = Self {
+            signer_set_id: signer_set_id.into(),
+            quorum_policy,
+            signers,
+        };
+        signer_set.validate_v1_all2()?;
+        Ok(signer_set)
+    }
+
+    /// Stable signer-set identifier.
+    pub fn signer_set_id(&self) -> &str {
+        &self.signer_set_id
+    }
+
+    /// Quorum policy.
+    pub fn quorum_policy(&self) -> &QuorumPolicy {
+        &self.quorum_policy
+    }
+
+    /// Indexed signer entries.
+    pub fn signers(&self) -> &[IndexedSignerBinding] {
+        &self.signers
     }
 
     /// Validates the v1 strict all(2) signer-set shape.
@@ -154,27 +223,45 @@ impl SignerSetBinding {
 
     /// Returns the signer entry for a role.
     pub fn signer_for_role(&self, role: Role) -> Option<&IndexedSignerBinding> {
-        self.signers.iter().find(|signer| signer.role == role)
+        self.signers.iter().find(|signer| signer.role() == role)
+    }
+}
+
+impl<'de> Deserialize<'de> for SignerSetBinding {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Wire {
+            signer_set_id: String,
+            quorum_policy: QuorumPolicy,
+            signers: Vec<IndexedSignerBinding>,
+        }
+
+        let wire = Wire::deserialize(deserializer)?;
+        Self::from_indexed_v1(wire.signer_set_id, wire.quorum_policy, wire.signers)
+            .map_err(D::Error::custom)
     }
 }
 
 /// Transcript data bound into split-derivation outputs.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TranscriptBinding {
     /// Canonical derivation context.
-    pub context: DerivationContext,
+    context: DerivationContext,
     /// Router identity string.
-    pub router_id: String,
+    router_id: String,
     /// Transcript-bound signer set.
-    pub signer_set: SignerSetBinding,
+    signer_set: SignerSetBinding,
     /// Selected relayer identity string.
-    pub selected_relayer_id: String,
+    selected_relayer_id: String,
     /// Selected relayer recipient encryption public key.
-    pub selected_relayer_recipient_encryption_key: String,
+    selected_relayer_recipient_encryption_key: String,
     /// Client identity string.
-    pub client_id: String,
+    client_id: String,
     /// Client ephemeral public key for client-output encryption.
-    pub client_ephemeral_public_key: String,
+    client_ephemeral_public_key: String,
 }
 
 impl TranscriptBinding {
@@ -202,6 +289,41 @@ impl TranscriptBinding {
         Ok(binding)
     }
 
+    /// Canonical derivation context.
+    pub fn context(&self) -> &DerivationContext {
+        &self.context
+    }
+
+    /// Router identity.
+    pub fn router_id(&self) -> &str {
+        &self.router_id
+    }
+
+    /// Transcript-bound signer set.
+    pub fn signer_set(&self) -> &SignerSetBinding {
+        &self.signer_set
+    }
+
+    /// Selected SigningWorker/relayer identity.
+    pub fn selected_relayer_id(&self) -> &str {
+        &self.selected_relayer_id
+    }
+
+    /// Selected SigningWorker/relayer recipient encryption public key.
+    pub fn selected_relayer_recipient_encryption_key(&self) -> &str {
+        &self.selected_relayer_recipient_encryption_key
+    }
+
+    /// Client identity.
+    pub fn client_id(&self) -> &str {
+        &self.client_id
+    }
+
+    /// Client ephemeral public key.
+    pub fn client_ephemeral_public_key(&self) -> &str {
+        &self.client_ephemeral_public_key
+    }
+
     /// Validates required transcript identity fields.
     pub fn validate(&self) -> RouterAbDerivationResult<()> {
         self.context.validate()?;
@@ -222,6 +344,36 @@ impl TranscriptBinding {
     }
 }
 
+impl<'de> Deserialize<'de> for TranscriptBinding {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Wire {
+            context: DerivationContext,
+            router_id: String,
+            signer_set: SignerSetBinding,
+            selected_relayer_id: String,
+            selected_relayer_recipient_encryption_key: String,
+            client_id: String,
+            client_ephemeral_public_key: String,
+        }
+
+        let wire = Wire::deserialize(deserializer)?;
+        Self::new(
+            wire.context,
+            wire.router_id,
+            wire.signer_set,
+            wire.selected_relayer_id,
+            wire.selected_relayer_recipient_encryption_key,
+            wire.client_id,
+            wire.client_ephemeral_public_key,
+        )
+        .map_err(D::Error::custom)
+    }
+}
+
 /// Computes the current transcript binding digest.
 pub fn transcript_binding_digest(
     binding: &TranscriptBinding,
@@ -237,34 +389,39 @@ pub fn transcript_digest_v1(
 
     let mut hasher = Sha256::new();
     push_field(&mut hasher, TRANSCRIPT_VERSION);
-    push_field(&mut hasher, &binding.context.encode_context_v1()?);
-    push_field(&mut hasher, binding.router_id.as_bytes());
-    push_field(&mut hasher, binding.signer_set.signer_set_id.as_bytes());
+    push_field(&mut hasher, &binding.context().encode_context_v1()?);
+    push_field(&mut hasher, binding.router_id().as_bytes());
+    push_field(&mut hasher, binding.signer_set().signer_set_id().as_bytes());
     push_field(
         &mut hasher,
         binding
-            .signer_set
-            .quorum_policy
+            .signer_set()
+            .quorum_policy()
             .as_canonical_string()
             .as_bytes(),
     );
     push_field(
         &mut hasher,
-        binding.signer_set.signers.len().to_string().as_bytes(),
+        binding.signer_set().signers().len().to_string().as_bytes(),
     );
-    for signer in &binding.signer_set.signers {
-        push_field(&mut hasher, signer.signer_index.to_string().as_bytes());
-        push_field(&mut hasher, signer.role.as_str().as_bytes());
-        push_field(&mut hasher, signer.signer_id.as_bytes());
-        push_field(&mut hasher, signer.key_epoch.as_bytes());
+    for signer in binding.signer_set().signers() {
+        push_field(&mut hasher, signer.signer_index().to_string().as_bytes());
+        push_field(&mut hasher, signer.role().as_str().as_bytes());
+        push_field(&mut hasher, signer.signer_id().as_bytes());
+        push_field(&mut hasher, signer.key_epoch().as_bytes());
     }
-    push_field(&mut hasher, binding.selected_relayer_id.as_bytes());
+    push_field(&mut hasher, binding.selected_relayer_id().as_bytes());
     push_field(
         &mut hasher,
-        binding.selected_relayer_recipient_encryption_key.as_bytes(),
+        binding
+            .selected_relayer_recipient_encryption_key()
+            .as_bytes(),
     );
-    push_field(&mut hasher, binding.client_id.as_bytes());
-    push_field(&mut hasher, binding.client_ephemeral_public_key.as_bytes());
+    push_field(&mut hasher, binding.client_id().as_bytes());
+    push_field(
+        &mut hasher,
+        binding.client_ephemeral_public_key().as_bytes(),
+    );
     Ok(PublicDigest32::new(hasher.finalize().into()))
 }
 

@@ -16,8 +16,8 @@ Current Rust boundary:
 - `SignerIdentityV1::new` rejects Router, Client, and Relayer roles.
 - `RoleEnvelopeAssignmentV1::new` requires signer role and envelope recipient
   role to match.
-- `RouterToSignerPayloadV1::signer_a` accepts only a Signer A assignment.
-- `RouterToSignerPayloadV1::signer_b` accepts only a Signer B assignment.
+- `RouterToSignerPayloadV1::deriver_a` accepts only a Signer A assignment.
+- `RouterToSignerPayloadV1::deriver_b` accepts only a Signer B assignment.
 
 Verus target:
 
@@ -103,17 +103,17 @@ Signer A and Signer B identities.
 Current Rust boundary:
 
 - `SignerSetV1::v1_all2` constructs only `SignerSetPolicyV1::All2`.
-- `SignerSetV1::validate` requires `signer_a.role == SignerA`.
-- `SignerSetV1::validate` requires `signer_b.role == SignerB`.
+- `SignerSetV1::validate` requires `deriver_a.role == SignerA`.
+- `SignerSetV1::validate` requires `deriver_b.role == SignerB`.
 - `SignerSetV1::validate` rejects duplicate signer ids.
 
 Verus target:
 
 ```text
 valid_signer_set(s) ==> s.policy == All2
-valid_signer_set(s) ==> s.signer_a.role == SignerA
-valid_signer_set(s) ==> s.signer_b.role == SignerB
-valid_signer_set(s) ==> s.signer_a.id != s.signer_b.id
+valid_signer_set(s) ==> s.deriver_a.role == SignerA
+valid_signer_set(s) ==> s.deriver_b.role == SignerB
+valid_signer_set(s) ==> s.deriver_a.id != s.deriver_b.id
 ```
 
 ## Host Boundary
@@ -122,8 +122,8 @@ Invariant: service engines are host-injected and transport-neutral.
 
 Current Rust boundary:
 
-- `RouterEngine`, `SignerAEngine`, `SignerBEngine`, and `RelayerEngine` wrap a
-  host value supplied by the adapter.
+- `DeriverAEngine` and `DeriverBEngine` wrap a host value supplied by the
+  adapter and enforce role-specific threshold-PRF batch input.
 - `SignerHost` composes clock, CSPRNG, signer key store, root-share store, peer
   transport, and audit sink traits.
 - Source guards reject Cloudflare, filesystem, environment, network, system

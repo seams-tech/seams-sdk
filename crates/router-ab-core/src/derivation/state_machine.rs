@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::derivation::context::DerivationContext;
 use crate::derivation::envelope::{EnvelopeHeaderV1, EnvelopeKind};
@@ -10,7 +10,7 @@ use crate::derivation::material::{PublicDigest32, Role};
 use crate::derivation::transcript::{transcript_digest_v1, TranscriptBinding};
 
 /// Input for beginning a ceremony.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct BeginCeremonyInput {
     /// Ceremony context.
     pub context: DerivationContext,
@@ -21,7 +21,7 @@ pub struct BeginCeremonyInput {
 }
 
 /// Initial requested ceremony state.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CeremonyRequested {
     /// Ceremony context.
     pub context: DerivationContext,
@@ -34,7 +34,7 @@ pub struct CeremonyRequested {
 }
 
 /// Input for creating role envelopes.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CreateRoleEnvelopesInput {
     /// Prior requested state.
     pub state: CeremonyRequested,
@@ -45,7 +45,7 @@ pub struct CreateRoleEnvelopesInput {
 }
 
 /// State after Router created role envelopes.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RoleEnvelopesCreated {
     /// Prior requested state.
     pub requested: CeremonyRequested,
@@ -56,7 +56,7 @@ pub struct RoleEnvelopesCreated {
 }
 
 /// Input for signer input acceptance.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SignerInputAcceptance {
     /// Prior role-envelope state.
     pub state: RoleEnvelopesCreated,
@@ -67,7 +67,7 @@ pub struct SignerInputAcceptance {
 }
 
 /// State after both signers accepted their own input envelopes.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SignerInputsAccepted {
     /// Prior role-envelope state.
     pub role_envelopes: RoleEnvelopesCreated,
@@ -78,7 +78,7 @@ pub struct SignerInputsAccepted {
 }
 
 /// Input for candidate coordination completion.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CoordinationCompletionInput {
     /// Prior accepted-input state.
     pub state: SignerInputsAccepted,
@@ -87,7 +87,7 @@ pub struct CoordinationCompletionInput {
 }
 
 /// State after candidate coordination completes.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CoordinationComplete {
     /// Prior accepted-input state.
     pub signer_inputs: SignerInputsAccepted,
@@ -96,7 +96,7 @@ pub struct CoordinationComplete {
 }
 
 /// Input for output binding.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct OutputBindingInput {
     /// Prior coordination-complete state.
     pub state: CoordinationComplete,
@@ -111,7 +111,7 @@ pub struct OutputBindingInput {
 }
 
 /// State after outputs are bound to public commitments.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct OutputsBound {
     /// Prior coordination-complete state.
     pub coordination: CoordinationComplete,
@@ -126,7 +126,7 @@ pub struct OutputsBound {
 }
 
 /// Input for marking delivery complete.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DeliveryReceiptInput {
     /// Prior output-bound state.
     pub state: OutputsBound,
@@ -137,7 +137,7 @@ pub struct DeliveryReceiptInput {
 }
 
 /// State after delivery receipts are recorded.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CeremonyDelivered {
     /// Prior output-bound state.
     pub outputs: OutputsBound,
@@ -148,7 +148,7 @@ pub struct CeremonyDelivered {
 }
 
 /// Input for marking a delivered ceremony verified.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct VerificationInput {
     /// Prior delivered state.
     pub state: CeremonyDelivered,
@@ -161,7 +161,7 @@ pub struct VerificationInput {
 }
 
 /// Terminal verified ceremony state.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CeremonyVerified {
     /// Prior delivered state.
     pub delivered: CeremonyDelivered,
@@ -174,7 +174,7 @@ pub struct CeremonyVerified {
 }
 
 /// Input for aborting a ceremony.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AbortInput {
     /// Last active state label.
     pub last_active_state: CeremonyStateLabel,
@@ -189,7 +189,7 @@ pub struct AbortInput {
 }
 
 /// Terminal aborted ceremony state.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CeremonyAborted {
     /// Last active state label.
     pub last_active_state: CeremonyStateLabel,
@@ -204,7 +204,7 @@ pub struct CeremonyAborted {
 }
 
 /// Public ceremony state label for diagnostics and persistence.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CeremonyStateLabel {
     /// Requested state.
@@ -230,7 +230,7 @@ pub fn begin_requested(input: BeginCeremonyInput) -> RouterAbDerivationResult<Ce
     input.context.validate()?;
     input.transcript.validate()?;
 
-    if input.context != input.transcript.context {
+    if &input.context != input.transcript.context() {
         return Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::TranscriptMismatch,
             "requested ceremony context does not match transcript context",
@@ -293,10 +293,10 @@ pub fn complete_coordination(
 
 /// Binds output package commitments.
 pub fn bind_outputs(input: OutputBindingInput) -> RouterAbDerivationResult<OutputsBound> {
-    if input.client_package_commitments.is_empty() || input.relayer_package_commitments.is_empty() {
+    if input.client_package_commitments.len() != 2 || input.relayer_package_commitments.len() != 2 {
         return Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::MalformedInput,
-            "output binding requires client and relayer package commitments",
+            "Minimum Level C output binding requires exactly two client and two relayer package commitments",
         ));
     }
 
@@ -336,7 +336,7 @@ pub fn verify_ceremony(input: VerificationInput) -> RouterAbDerivationResult<Cer
         .requested
         .transcript_digest;
 
-    if input.verified_evidence.evidence.transcript_digest != transcript_digest {
+    if input.verified_evidence.evidence().transcript_digest() != transcript_digest {
         return Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::TranscriptMismatch,
             "verified evidence transcript does not match delivered ceremony",
@@ -375,9 +375,9 @@ fn verify_signer_envelope(
 ) -> RouterAbDerivationResult<()> {
     envelope.validate()?;
 
-    if envelope.envelope_kind != expected_kind
-        || envelope.sender_role != Role::Router
-        || envelope.recipient_role != expected_signer_role
+    if envelope.envelope_kind() != expected_kind
+        || envelope.sender_role() != Role::Router
+        || envelope.recipient_role() != expected_signer_role
     {
         return Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::RecipientMismatch,
@@ -387,7 +387,7 @@ fn verify_signer_envelope(
 
     let signer = state
         .transcript
-        .signer_set
+        .signer_set()
         .signer_for_role(expected_signer_role)
         .ok_or_else(|| {
             RouterAbDerivationError::new(
@@ -396,19 +396,19 @@ fn verify_signer_envelope(
             )
         })?;
 
-    if envelope.recipient_identity != signer.signer_id {
+    if envelope.recipient_identity() != signer.signer_id() {
         return Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::SignerIdentityMismatch,
             "signer envelope recipient identity mismatch",
         ));
     }
 
-    if envelope.candidate_id != state.context.candidate_id
-        || envelope.request_kind != state.context.request_kind
-        || envelope.correctness_level != state.context.correctness_level
-        || envelope.ceremony_id != state.context.ceremony_id
-        || envelope.root_share_epoch != state.context.root_share_epoch
-        || envelope.transcript_digest != state.transcript_digest
+    if envelope.candidate_id() != state.context.candidate_id()
+        || envelope.request_kind() != state.context.request_kind()
+        || envelope.correctness_level() != state.context.correctness_level()
+        || envelope.ceremony_id() != state.context.ceremony_id()
+        || envelope.root_share_epoch() != state.context.root_share_epoch()
+        || envelope.transcript_digest() != state.transcript_digest
     {
         return Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::TranscriptMismatch,

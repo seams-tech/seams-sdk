@@ -31,14 +31,14 @@ shape for registration, export, and refresh:
 
 - client-visible Router requests: 1
 - Router invocations: 1
-- Signer A invocations: 1
-- Signer B invocations: 1
+- Deriver A invocations: 1
+- Deriver B invocations: 1
 - direct A/B coordination round trips: 0
-- signer output packages: 4
+- deriver output packages: 4
 
 This shape assumes the Router forwards role-specific encrypted envelopes to A
-and B, then relays encrypted client and relayer output packages back to the
-client and designated relayer.
+and B, then relays encrypted client and SigningWorker output packages back to
+the client and active SigningWorker.
 
 ## Native Adapter Latency
 

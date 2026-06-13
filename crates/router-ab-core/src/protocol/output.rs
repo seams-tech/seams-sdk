@@ -1,10 +1,8 @@
 use crate::derivation::{
-    combine_mpc_prf_batch_outputs_with_threshold_backend_v1,
     combine_mpc_prf_proof_bundles_with_threshold_backend_v1, CandidateId, CorrectnessLevel,
-    MpcPrfPartialProofBundleV1, MpcPrfThresholdBatchCombineInputV1,
-    MpcPrfThresholdBatchCombinedOutputV1, MpcPrfThresholdCombineInputV1,
-    MpcPrfThresholdCombinedOutputV1, MpcPrfThresholdSignerBatchOutputV1, OpenedShareKind,
-    PublicDigest32, Role, RouterAbDerivationError, SecretMaterial32,
+    MpcPrfPartialProofBundleV1, MpcPrfThresholdCombineInputV1, MpcPrfThresholdCombinedOutputV1,
+    MpcPrfThresholdSignerBatchOutputV1, OpenedShareKind, PublicDigest32, Role,
+    RouterAbDerivationError, SecretMaterial32,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -13,10 +11,11 @@ use crate::protocol::envelope::EncryptedPayloadV1;
 use crate::protocol::error::{
     RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
-use crate::protocol::identity::SignerIdentityV1;
+use crate::protocol::identity::{SignerIdentityV1, SignerSetV1};
+use crate::protocol::lifecycle::LifecycleScopeV1;
 use crate::protocol::payload::{
     router_transcript_binding_v1, AbDerivationProofBatchPayloadV1, RecipientProofBundlePayloadV1,
-    RouterToSignerPayloadV1, SignerResponsePayloadV1,
+    RouterToSignerPayloadV1, RouterTranscriptMetadataV1, SigningWorkerActivationContextV1,
 };
 use crate::protocol::wire::{CanonicalWireBytesV1, WireMessageKindV1, WireMessageV1};
 
@@ -28,11 +27,6 @@ const RECIPIENT_PROOF_BUNDLE_CIPHERTEXT_VERSION_V1: &[u8] =
     b"router-ab-protocol/recipient-proof-bundle-ciphertext/v1";
 const RECIPIENT_PROOF_BUNDLE_CIPHERTEXT_AAD_VERSION_V1: &[u8] =
     b"router-ab-protocol/recipient-proof-bundle-ciphertext-aad/v1";
-pub(crate) const THRESHOLD_PRF_OUTPUT_PACKAGE_LABEL_V1: &[u8] =
-    b"router-ab-protocol/local-threshold-prf-output-package/v1";
-pub(crate) const THRESHOLD_PRF_CLIENT_OUTPUT_LABEL_V1: &[u8] = b"threshold-client-output";
-pub(crate) const THRESHOLD_PRF_RELAYER_OUTPUT_LABEL_V1: &[u8] = b"threshold-relayer-output";
-const THRESHOLD_PRF_SIGNER_RESPONSE_LABEL_V1: &[u8] = b"threshold-signer-response";
 /// Nonce length used by the recipient-output AEAD envelope.
 pub const RECIPIENT_OUTPUT_CIPHERTEXT_NONCE_LEN_V1: usize = 12;
 
@@ -432,83 +426,6 @@ pub trait RecipientProofBundleEncryptorV1 {
     ) -> RouterAbProtocolResult<RecipientProofBundleCiphertextV1>;
 }
 
-/// Client and relayer output packages produced from one combined MPC PRF batch.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MpcPrfOutputPackagesV1 {
-    /// Transcript digest shared by both packages.
-    pub transcript_digest: PublicDigest32,
-    /// Client-targeted encrypted `x_client_base` package.
-    pub client_output: ClientOutputPackageV1,
-    /// Relayer-targeted encrypted `x_relayer_base` package.
-    pub relayer_output: RelayerOutputPackageV1,
-}
-
-/// Builds recipient output packages from combined MPC PRF material.
-pub fn package_mpc_prf_combined_outputs_v1(
-    combined: MpcPrfThresholdBatchCombinedOutputV1,
-    client_encryption_key: &str,
-    relayer_encryption_key: &str,
-    encryptor: &mut impl RecipientOutputEncryptorV1,
-) -> RouterAbProtocolResult<MpcPrfOutputPackagesV1> {
-    let mut client_output = None;
-    let mut relayer_output = None;
-    for output in combined.outputs {
-        match (output.opened_share_kind, output.recipient_role) {
-            (OpenedShareKind::XClientBase, Role::Client) => {
-                if client_output.is_some() {
-                    return Err(RouterAbProtocolError::new(
-                        RouterAbProtocolErrorCode::MalformedWirePayload,
-                        "MPC PRF output combine produced duplicate client output",
-                    ));
-                }
-                client_output = Some(mpc_prf_client_output_from_material_v1(
-                    combined.transcript_digest,
-                    &output.recipient_identity,
-                    client_encryption_key,
-                    &output.output_material,
-                    encryptor,
-                )?);
-            }
-            (OpenedShareKind::XRelayerBase, Role::Relayer) => {
-                if relayer_output.is_some() {
-                    return Err(RouterAbProtocolError::new(
-                        RouterAbProtocolErrorCode::MalformedWirePayload,
-                        "MPC PRF output combine produced duplicate relayer output",
-                    ));
-                }
-                relayer_output = Some(mpc_prf_relayer_output_from_material_v1(
-                    combined.transcript_digest,
-                    &output.recipient_identity,
-                    relayer_encryption_key,
-                    &output.output_material,
-                    encryptor,
-                )?);
-            }
-            _ => {
-                return Err(RouterAbProtocolError::new(
-                    RouterAbProtocolErrorCode::MalformedWirePayload,
-                    "MPC PRF output combine produced unsupported output binding",
-                ));
-            }
-        }
-    }
-    Ok(MpcPrfOutputPackagesV1 {
-        transcript_digest: combined.transcript_digest,
-        client_output: client_output.ok_or_else(|| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "MPC PRF output combine is missing client output",
-            )
-        })?,
-        relayer_output: relayer_output.ok_or_else(|| {
-            RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "MPC PRF output combine is missing relayer output",
-            )
-        })?,
-    })
-}
-
 /// Converts a validated A/B proof-batch payload into a Candidate A signer batch output.
 pub fn mpc_prf_batch_output_from_ab_proof_batch_v1(
     proof_batch: AbDerivationProofBatchPayloadV1,
@@ -635,6 +552,161 @@ pub fn combine_mpc_prf_recipient_output_from_ab_proof_batches_v1(
     recipient_identity: &str,
 ) -> RouterAbProtocolResult<MpcPrfThresholdCombinedOutputV1> {
     router_payload.validate()?;
+    combine_mpc_prf_recipient_output_from_public_context_v1(
+        router_payload.lifecycle(),
+        router_payload.signer_set(),
+        router_payload.transcript_metadata(),
+        router_payload.transcript_digest(),
+        proof_batch_a,
+        proof_batch_b,
+        opened_share_kind,
+        recipient_role,
+        recipient_identity,
+    )
+}
+
+/// Combines one recipient output from decrypted Signer A/B proof-bundle payloads.
+pub fn combine_mpc_prf_recipient_output_from_proof_bundle_payloads_v1(
+    router_payload: &RouterToSignerPayloadV1,
+    signer_a_payload: RecipientProofBundlePayloadV1,
+    signer_b_payload: RecipientProofBundlePayloadV1,
+    opened_share_kind: OpenedShareKind,
+    recipient_role: Role,
+    recipient_identity: &str,
+) -> RouterAbProtocolResult<MpcPrfThresholdCombinedOutputV1> {
+    require_recipient_proof_bundle_payload_v1(
+        "signer_a_payload",
+        &signer_a_payload,
+        Role::SignerA,
+        opened_share_kind,
+        recipient_role,
+        recipient_identity,
+        router_payload,
+    )?;
+    require_recipient_proof_bundle_payload_v1(
+        "signer_b_payload",
+        &signer_b_payload,
+        Role::SignerB,
+        opened_share_kind,
+        recipient_role,
+        recipient_identity,
+        router_payload,
+    )?;
+    combine_mpc_prf_recipient_output_from_ab_proof_batches_v1(
+        router_payload,
+        signer_a_payload.proof_batch,
+        signer_b_payload.proof_batch,
+        opened_share_kind,
+        recipient_role,
+        recipient_identity,
+    )
+}
+
+/// Combines SigningWorker `x_relayer_base` output from decrypted A/B proof-bundle payloads.
+pub fn combine_mpc_prf_signing_worker_output_from_activation_context_v1(
+    activation_context: &SigningWorkerActivationContextV1,
+    signer_a_payload: RecipientProofBundlePayloadV1,
+    signer_b_payload: RecipientProofBundlePayloadV1,
+) -> RouterAbProtocolResult<MpcPrfThresholdCombinedOutputV1> {
+    activation_context.validate()?;
+    let selected_worker = &activation_context.signer_set().selected_relayer;
+    require_recipient_proof_bundle_payload_for_transcript_v1(
+        "signer_a_payload",
+        &signer_a_payload,
+        Role::SignerA,
+        OpenedShareKind::XRelayerBase,
+        Role::Relayer,
+        &selected_worker.relayer_id,
+        activation_context.transcript_digest(),
+    )?;
+    require_recipient_proof_bundle_payload_for_transcript_v1(
+        "signer_b_payload",
+        &signer_b_payload,
+        Role::SignerB,
+        OpenedShareKind::XRelayerBase,
+        Role::Relayer,
+        &selected_worker.relayer_id,
+        activation_context.transcript_digest(),
+    )?;
+    combine_mpc_prf_recipient_output_from_public_context_v1(
+        activation_context.lifecycle(),
+        activation_context.signer_set(),
+        activation_context.transcript_metadata(),
+        activation_context.transcript_digest(),
+        signer_a_payload.proof_batch,
+        signer_b_payload.proof_batch,
+        OpenedShareKind::XRelayerBase,
+        Role::Relayer,
+        &selected_worker.relayer_id,
+    )
+}
+
+fn require_recipient_proof_bundle_payload_v1(
+    field: &str,
+    payload: &RecipientProofBundlePayloadV1,
+    expected_signer_role: Role,
+    expected_opened_share_kind: OpenedShareKind,
+    expected_recipient_role: Role,
+    expected_recipient_identity: &str,
+    router_payload: &RouterToSignerPayloadV1,
+) -> RouterAbProtocolResult<()> {
+    payload.validate()?;
+    router_payload.validate()?;
+    require_recipient_proof_bundle_payload_for_transcript_v1(
+        field,
+        payload,
+        expected_signer_role,
+        expected_opened_share_kind,
+        expected_recipient_role,
+        expected_recipient_identity,
+        router_payload.transcript_digest(),
+    )
+}
+
+fn require_recipient_proof_bundle_payload_for_transcript_v1(
+    field: &str,
+    payload: &RecipientProofBundlePayloadV1,
+    expected_signer_role: Role,
+    expected_opened_share_kind: OpenedShareKind,
+    expected_recipient_role: Role,
+    expected_recipient_identity: &str,
+    expected_transcript_digest: PublicDigest32,
+) -> RouterAbProtocolResult<()> {
+    payload.validate()?;
+    require_proof_batch_role_v1(field, &payload.proof_batch, expected_signer_role)?;
+    if payload.opened_share_kind != expected_opened_share_kind
+        || payload.recipient_role != expected_recipient_role
+        || payload.recipient_identity != expected_recipient_identity
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{field} recipient binding does not match requested output"),
+        ));
+    }
+    if payload.transcript_digest != expected_transcript_digest {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{field} transcript does not match activation context"),
+        ));
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn combine_mpc_prf_recipient_output_from_public_context_v1(
+    lifecycle: &LifecycleScopeV1,
+    signer_set: &SignerSetV1,
+    transcript_metadata: &RouterTranscriptMetadataV1,
+    expected_transcript_digest: PublicDigest32,
+    proof_batch_a: AbDerivationProofBatchPayloadV1,
+    proof_batch_b: AbDerivationProofBatchPayloadV1,
+    opened_share_kind: OpenedShareKind,
+    recipient_role: Role,
+    recipient_identity: &str,
+) -> RouterAbProtocolResult<MpcPrfThresholdCombinedOutputV1> {
+    lifecycle.validate()?;
+    signer_set.validate()?;
+    transcript_metadata.validate()?;
     validate_recipient_output_binding(recipient_role, opened_share_kind)?;
     require_non_empty("recipient_identity", recipient_identity)?;
     let proof_batch_a = ab_derivation_proof_batch_recipient_view_v1(
@@ -651,14 +723,19 @@ pub fn combine_mpc_prf_recipient_output_from_ab_proof_batches_v1(
     )?;
     require_proof_batch_role_v1("proof_batch_a", &proof_batch_a, Role::SignerA)?;
     require_proof_batch_role_v1("proof_batch_b", &proof_batch_b, Role::SignerB)?;
-    require_proof_batches_match_router_payload_v1(router_payload, &proof_batch_a, &proof_batch_b)?;
+    require_proof_batches_match_public_context_v1(
+        lifecycle,
+        expected_transcript_digest,
+        &proof_batch_a,
+        &proof_batch_b,
+    )?;
     let transcript = router_transcript_binding_v1(
-        router_payload.lifecycle(),
-        router_payload.signer_set(),
-        router_payload.transcript_metadata(),
+        lifecycle,
+        signer_set,
+        transcript_metadata,
         CandidateId::MpcThresholdPrfV1,
         CorrectnessLevel::MinimumLevelC,
-        proof_batch_a.root_share_epoch.clone(),
+        lifecycle.root_share_epoch.clone(),
     )?;
     let left = single_proof_bundle_v1("proof_batch_a", proof_batch_a.proof_bundles)?;
     let right = single_proof_bundle_v1("proof_batch_b", proof_batch_b.proof_bundles)?;
@@ -671,48 +748,6 @@ pub fn combine_mpc_prf_recipient_output_from_ab_proof_batches_v1(
         right,
     })
     .map_err(map_derivation_to_protocol_error)
-}
-
-/// Combines authenticated Signer A/B proof batches and packages recipient outputs.
-pub fn combine_mpc_prf_output_packages_from_ab_proof_batches_v1(
-    router_payload: &RouterToSignerPayloadV1,
-    proof_batch_a: AbDerivationProofBatchPayloadV1,
-    proof_batch_b: AbDerivationProofBatchPayloadV1,
-    encryptor: &mut impl RecipientOutputEncryptorV1,
-) -> RouterAbProtocolResult<MpcPrfOutputPackagesV1> {
-    router_payload.validate()?;
-    proof_batch_a.validate()?;
-    proof_batch_b.validate()?;
-    require_proof_batch_role_v1("proof_batch_a", &proof_batch_a, Role::SignerA)?;
-    require_proof_batch_role_v1("proof_batch_b", &proof_batch_b, Role::SignerB)?;
-    require_proof_batches_match_router_payload_v1(router_payload, &proof_batch_a, &proof_batch_b)?;
-    let transcript = router_transcript_binding_v1(
-        router_payload.lifecycle(),
-        router_payload.signer_set(),
-        router_payload.transcript_metadata(),
-        CandidateId::MpcThresholdPrfV1,
-        CorrectnessLevel::MinimumLevelC,
-        proof_batch_a.root_share_epoch.clone(),
-    )?;
-    let combined = combine_mpc_prf_batch_outputs_with_threshold_backend_v1(
-        MpcPrfThresholdBatchCombineInputV1 {
-            transcript,
-            left: mpc_prf_batch_output_from_ab_proof_batch_v1(proof_batch_a)?,
-            right: mpc_prf_batch_output_from_ab_proof_batch_v1(proof_batch_b)?,
-        },
-    )
-    .map_err(map_derivation_to_protocol_error)?;
-    package_mpc_prf_combined_outputs_v1(
-        combined,
-        &router_payload
-            .transcript_metadata()
-            .client_ephemeral_public_key,
-        &router_payload
-            .signer_set()
-            .selected_relayer
-            .recipient_encryption_key,
-        encryptor,
-    )
 }
 
 fn require_proof_batch_role_v1(
@@ -729,24 +764,26 @@ fn require_proof_batch_role_v1(
     ))
 }
 
-fn require_proof_batches_match_router_payload_v1(
-    router_payload: &RouterToSignerPayloadV1,
+fn require_proof_batches_match_public_context_v1(
+    lifecycle: &LifecycleScopeV1,
+    expected_transcript_digest: PublicDigest32,
     proof_batch_a: &AbDerivationProofBatchPayloadV1,
     proof_batch_b: &AbDerivationProofBatchPayloadV1,
 ) -> RouterAbProtocolResult<()> {
-    let transcript_digest = router_payload.transcript_digest();
-    if proof_batch_a.transcript_digest != transcript_digest
-        || proof_batch_b.transcript_digest != transcript_digest
+    if proof_batch_a.transcript_digest != expected_transcript_digest
+        || proof_batch_b.transcript_digest != expected_transcript_digest
     {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
             "MPC PRF output combine proof transcript mismatch",
         ));
     }
-    if proof_batch_a.root_share_epoch != proof_batch_b.root_share_epoch {
+    if proof_batch_a.root_share_epoch != lifecycle.root_share_epoch
+        || proof_batch_b.root_share_epoch != lifecycle.root_share_epoch
+    {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-            "MPC PRF output combine root-share epoch mismatch",
+            "MPC PRF output combine root-share epoch does not match activation context",
         ));
     }
     Ok(())
@@ -770,409 +807,6 @@ fn single_proof_bundle_v1(
         ));
     }
     Ok(first)
-}
-
-/// Computes the public commitment carried by a signer response.
-pub fn signer_response_commitment_from_mpc_prf_packages_v1(
-    signer: &SignerIdentityV1,
-    packages: &MpcPrfOutputPackagesV1,
-) -> RouterAbProtocolResult<PublicDigest32> {
-    signer.validate()?;
-    match signer.role {
-        Role::SignerA | Role::SignerB => {}
-        _ => {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidRole,
-                "MPC PRF signer response requires signer role",
-            ));
-        }
-    }
-    packages.client_output.validate()?;
-    let mut hasher = Sha256::new();
-    push_hash_field(&mut hasher, THRESHOLD_PRF_OUTPUT_PACKAGE_LABEL_V1);
-    push_hash_field(&mut hasher, THRESHOLD_PRF_SIGNER_RESPONSE_LABEL_V1);
-    push_hash_field(&mut hasher, signer.role.as_str().as_bytes());
-    push_hash_field(&mut hasher, signer.signer_id.as_bytes());
-    push_hash_field(&mut hasher, signer.key_epoch.as_bytes());
-    push_hash_field(&mut hasher, packages.transcript_digest.as_bytes());
-    push_hash_field(
-        &mut hasher,
-        packages.client_output.package_commitment().as_bytes(),
-    );
-    Ok(PublicDigest32::new(hasher.finalize().into()))
-}
-
-/// Builds a canonical signer response wire message from packaged output material.
-pub fn signer_response_wire_message_from_mpc_prf_packages_v1(
-    lifecycle_id: &str,
-    signer: SignerIdentityV1,
-    packages: &MpcPrfOutputPackagesV1,
-) -> RouterAbProtocolResult<WireMessageV1> {
-    let response_commitment =
-        signer_response_commitment_from_mpc_prf_packages_v1(&signer, packages)?;
-    let payload = SignerResponsePayloadV1::new(
-        lifecycle_id,
-        signer,
-        packages.transcript_digest,
-        packages.client_output.clone(),
-        response_commitment,
-    )?;
-    WireMessageV1::new(
-        WireMessageKindV1::SignerResponse,
-        packages.transcript_digest,
-        CanonicalWireBytesV1::new(payload.canonical_bytes())?,
-    )
-}
-
-fn mpc_prf_client_output_from_material_v1(
-    transcript_digest: PublicDigest32,
-    recipient_identity: &str,
-    recipient_encryption_key: &str,
-    material: &SecretMaterial32,
-    encryptor: &mut impl RecipientOutputEncryptorV1,
-) -> RouterAbProtocolResult<ClientOutputPackageV1> {
-    let commitment = mpc_prf_output_commitment_v1(
-        THRESHOLD_PRF_CLIENT_OUTPUT_LABEL_V1,
-        transcript_digest,
-        material,
-    );
-    Ok(ClientOutputPackageV1::new(
-        transcript_digest,
-        commitment,
-        mpc_prf_output_ciphertext_v1(
-            Role::Client,
-            OpenedShareKind::XClientBase,
-            recipient_identity,
-            recipient_encryption_key,
-            transcript_digest,
-            commitment,
-            material,
-            encryptor,
-        )?,
-    )?)
-}
-
-fn mpc_prf_relayer_output_from_material_v1(
-    transcript_digest: PublicDigest32,
-    recipient_identity: &str,
-    recipient_encryption_key: &str,
-    material: &SecretMaterial32,
-    encryptor: &mut impl RecipientOutputEncryptorV1,
-) -> RouterAbProtocolResult<RelayerOutputPackageV1> {
-    let commitment = mpc_prf_output_commitment_v1(
-        THRESHOLD_PRF_RELAYER_OUTPUT_LABEL_V1,
-        transcript_digest,
-        material,
-    );
-    Ok(RelayerOutputPackageV1::new(
-        transcript_digest,
-        commitment,
-        mpc_prf_output_ciphertext_v1(
-            Role::Relayer,
-            OpenedShareKind::XRelayerBase,
-            recipient_identity,
-            recipient_encryption_key,
-            transcript_digest,
-            commitment,
-            material,
-            encryptor,
-        )?,
-    )?)
-}
-
-fn mpc_prf_output_ciphertext_v1(
-    recipient_role: Role,
-    opened_share_kind: OpenedShareKind,
-    recipient_identity: &str,
-    recipient_encryption_key: &str,
-    transcript_digest: PublicDigest32,
-    commitment: PublicDigest32,
-    material: &SecretMaterial32,
-    encryptor: &mut impl RecipientOutputEncryptorV1,
-) -> RouterAbProtocolResult<RecipientOutputCiphertextV1> {
-    let request = RecipientOutputEncryptionRequestV1::new(
-        recipient_role,
-        opened_share_kind,
-        recipient_identity,
-        recipient_encryption_key,
-        transcript_digest,
-        commitment,
-        material,
-    )?;
-    encryptor.encrypt_recipient_output_v1(request)
-}
-
-fn mpc_prf_output_commitment_v1(
-    label: &[u8],
-    transcript_digest: PublicDigest32,
-    material: &SecretMaterial32,
-) -> PublicDigest32 {
-    let mut hasher = Sha256::new();
-    push_hash_field(&mut hasher, THRESHOLD_PRF_OUTPUT_PACKAGE_LABEL_V1);
-    push_hash_field(&mut hasher, label);
-    push_hash_field(&mut hasher, transcript_digest.as_bytes());
-    push_hash_field(&mut hasher, material.as_bytes());
-    PublicDigest32::new(hasher.finalize().into())
-}
-
-pub(crate) fn mpc_prf_output_label_v1(
-    recipient_role: Role,
-    opened_share_kind: OpenedShareKind,
-) -> RouterAbProtocolResult<&'static [u8]> {
-    match (recipient_role, opened_share_kind) {
-        (Role::Client, OpenedShareKind::XClientBase) => Ok(THRESHOLD_PRF_CLIENT_OUTPUT_LABEL_V1),
-        (Role::Relayer, OpenedShareKind::XRelayerBase) => Ok(THRESHOLD_PRF_RELAYER_OUTPUT_LABEL_V1),
-        _ => Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            "MPC PRF recipient output encryption request has invalid recipient binding",
-        )),
-    }
-}
-
-/// Client-targeted encrypted output package.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ClientOutputPackageV1 {
-    transcript_digest: PublicDigest32,
-    package_commitment: PublicDigest32,
-    ciphertext: RecipientOutputCiphertextV1,
-}
-
-impl ClientOutputPackageV1 {
-    /// Creates a client output package for `x_client_base`.
-    pub fn new(
-        transcript_digest: PublicDigest32,
-        package_commitment: PublicDigest32,
-        ciphertext: RecipientOutputCiphertextV1,
-    ) -> RouterAbProtocolResult<Self> {
-        let package = Self {
-            transcript_digest,
-            package_commitment,
-            ciphertext,
-        };
-        package.validate()?;
-        Ok(package)
-    }
-
-    /// Validates package and ciphertext metadata.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        self.ciphertext.validate()?;
-        if self.ciphertext.recipient_role != Role::Client
-            || self.ciphertext.opened_share_kind != OpenedShareKind::XClientBase
-            || self.ciphertext.transcript_digest != self.transcript_digest
-            || self.ciphertext.package_commitment != self.package_commitment
-        {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "client output package ciphertext metadata mismatch",
-            ));
-        }
-        Ok(())
-    }
-
-    /// Returns the required recipient role.
-    pub fn recipient_role(&self) -> Role {
-        Role::Client
-    }
-
-    /// Returns the opened share kind represented by this package.
-    pub fn opened_share_kind(&self) -> OpenedShareKind {
-        OpenedShareKind::XClientBase
-    }
-
-    /// Returns the transcript digest.
-    pub fn transcript_digest(&self) -> PublicDigest32 {
-        self.transcript_digest
-    }
-
-    /// Returns the package commitment.
-    pub fn package_commitment(&self) -> PublicDigest32 {
-        self.package_commitment
-    }
-
-    /// Returns encrypted package bytes.
-    pub fn ciphertext(&self) -> &RecipientOutputCiphertextV1 {
-        &self.ciphertext
-    }
-}
-
-/// Relayer-targeted encrypted output package.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RelayerOutputPackageV1 {
-    transcript_digest: PublicDigest32,
-    package_commitment: PublicDigest32,
-    ciphertext: RecipientOutputCiphertextV1,
-}
-
-impl RelayerOutputPackageV1 {
-    /// Creates a relayer output package for `x_relayer_base`.
-    pub fn new(
-        transcript_digest: PublicDigest32,
-        package_commitment: PublicDigest32,
-        ciphertext: RecipientOutputCiphertextV1,
-    ) -> RouterAbProtocolResult<Self> {
-        let package = Self {
-            transcript_digest,
-            package_commitment,
-            ciphertext,
-        };
-        package.validate()?;
-        Ok(package)
-    }
-
-    /// Validates package and ciphertext metadata.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        self.ciphertext.validate()?;
-        if self.ciphertext.recipient_role != Role::Relayer
-            || self.ciphertext.opened_share_kind != OpenedShareKind::XRelayerBase
-            || self.ciphertext.transcript_digest != self.transcript_digest
-            || self.ciphertext.package_commitment != self.package_commitment
-        {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "relayer output package ciphertext metadata mismatch",
-            ));
-        }
-        Ok(())
-    }
-
-    /// Returns the required recipient role.
-    pub fn recipient_role(&self) -> Role {
-        Role::Relayer
-    }
-
-    /// Returns the opened share kind represented by this package.
-    pub fn opened_share_kind(&self) -> OpenedShareKind {
-        OpenedShareKind::XRelayerBase
-    }
-
-    /// Returns the transcript digest.
-    pub fn transcript_digest(&self) -> PublicDigest32 {
-        self.transcript_digest
-    }
-
-    /// Returns the package commitment.
-    pub fn package_commitment(&self) -> PublicDigest32 {
-        self.package_commitment
-    }
-
-    /// Returns encrypted package bytes.
-    pub fn ciphertext(&self) -> &RecipientOutputCiphertextV1 {
-        &self.ciphertext
-    }
-}
-
-/// Recipient-specific encrypted output package.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum RecipientOutputPackageV1 {
-    /// Client-targeted package.
-    Client {
-        /// Client package.
-        package: ClientOutputPackageV1,
-    },
-    /// Relayer-targeted package.
-    Relayer {
-        /// Relayer package.
-        package: RelayerOutputPackageV1,
-    },
-}
-
-impl RecipientOutputPackageV1 {
-    /// Creates a client output package enum branch.
-    pub fn client(package: ClientOutputPackageV1) -> Self {
-        Self::Client { package }
-    }
-
-    /// Creates a relayer output package enum branch.
-    pub fn relayer(package: RelayerOutputPackageV1) -> Self {
-        Self::Relayer { package }
-    }
-
-    /// Returns the required recipient role.
-    pub fn recipient_role(&self) -> Role {
-        match self {
-            Self::Client { package } => package.recipient_role(),
-            Self::Relayer { package } => package.recipient_role(),
-        }
-    }
-
-    /// Returns the opened share kind represented by this package.
-    pub fn opened_share_kind(&self) -> OpenedShareKind {
-        match self {
-            Self::Client { package } => package.opened_share_kind(),
-            Self::Relayer { package } => package.opened_share_kind(),
-        }
-    }
-
-    /// Returns the transcript digest.
-    pub fn transcript_digest(&self) -> PublicDigest32 {
-        match self {
-            Self::Client { package } => package.transcript_digest(),
-            Self::Relayer { package } => package.transcript_digest(),
-        }
-    }
-
-    /// Returns the package commitment.
-    pub fn package_commitment(&self) -> PublicDigest32 {
-        match self {
-            Self::Client { package } => package.package_commitment(),
-            Self::Relayer { package } => package.package_commitment(),
-        }
-    }
-}
-
-/// Verifies a client output package before the client opens it.
-pub fn verify_client_output_package_v1(
-    package: &ClientOutputPackageV1,
-    expected_transcript_digest: PublicDigest32,
-) -> RouterAbProtocolResult<()> {
-    if package.recipient_role() != Role::Client
-        || package.opened_share_kind() != OpenedShareKind::XClientBase
-    {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            "client output package has invalid recipient or opened share kind",
-        ));
-    }
-    require_output_transcript(
-        package.transcript_digest(),
-        expected_transcript_digest,
-        "client output transcript mismatch",
-    )
-}
-
-/// Verifies a relayer output package before the relayer opens it.
-pub fn verify_relayer_output_package_v1(
-    package: &RelayerOutputPackageV1,
-    expected_transcript_digest: PublicDigest32,
-) -> RouterAbProtocolResult<()> {
-    if package.recipient_role() != Role::Relayer
-        || package.opened_share_kind() != OpenedShareKind::XRelayerBase
-    {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            "relayer output package has invalid recipient or opened share kind",
-        ));
-    }
-    require_output_transcript(
-        package.transcript_digest(),
-        expected_transcript_digest,
-        "relayer output transcript mismatch",
-    )
-}
-
-fn require_output_transcript(
-    actual: PublicDigest32,
-    expected: PublicDigest32,
-    message: &'static str,
-) -> RouterAbProtocolResult<()> {
-    if actual == expected {
-        return Ok(());
-    }
-    Err(RouterAbProtocolError::new(
-        RouterAbProtocolErrorCode::MalformedWirePayload,
-        message,
-    ))
 }
 
 /// Encodes a recipient output ciphertext envelope with fixed field order.
@@ -1507,11 +1141,6 @@ fn push_public_digest(out: &mut Vec<u8>, digest: PublicDigest32) {
 fn push_len32(out: &mut Vec<u8>, bytes: &[u8]) {
     out.extend_from_slice(&(bytes.len() as u32).to_be_bytes());
     out.extend_from_slice(bytes);
-}
-
-fn push_hash_field(hasher: &mut Sha256, bytes: &[u8]) {
-    hasher.update((bytes.len() as u32).to_be_bytes());
-    hasher.update(bytes);
 }
 
 struct OutputDecoder<'a> {

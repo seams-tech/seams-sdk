@@ -4,8 +4,8 @@ This spec defines the stronger correctness path beyond Minimum Level C.
 
 ## Goal
 
-Public-share binding detects malformed signer output earlier by checking public
-relations between signer output shares, verifying shares, and the account public
+Public-share binding detects malformed deriver output earlier by checking public
+relations between deriver output shares, verifying shares, and the account public
 key or candidate-specific relation.
 
 This path strengthens correctness. Server blindness still relies on role-state
@@ -21,7 +21,7 @@ The verifier receives:
 - account public key or verification relation
 - transcript digest
 - root-share epoch
-- signer identities
+- deriver identities
 
 ## Candidate A: MPC Threshold PRF
 

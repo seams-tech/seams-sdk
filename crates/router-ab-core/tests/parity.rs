@@ -38,7 +38,7 @@ fn sample_signer_set() -> SignerSetBinding {
 
 #[test]
 fn context_encoding_is_stable_for_same_context() {
-    let context = sample_context(CandidateId::SplitRootDerivationV1);
+    let context = sample_context(CandidateId::MpcThresholdPrfV1);
 
     assert_eq!(
         context.encode_context_v1().expect("left"),
@@ -48,7 +48,7 @@ fn context_encoding_is_stable_for_same_context() {
 
 #[test]
 fn context_digest_is_stable_for_same_context() {
-    let context = sample_context(CandidateId::SplitRootDerivationV1);
+    let context = sample_context(CandidateId::MpcThresholdPrfV1);
 
     assert_eq!(
         context_digest_v1(&context).expect("left"),
@@ -75,48 +75,12 @@ fn transcript_rejects_duplicate_signer_identities() {
 
 #[test]
 fn transcript_rejects_non_all2_quorum_policy() {
-    let context = sample_context(CandidateId::SplitRootDerivationV1);
-    let signer_set = SignerSetBinding {
-        signer_set_id: "signer-set-v1".to_owned(),
-        quorum_policy: QuorumPolicy::All { signer_count: 3 },
-        signers: sample_signer_set().signers,
-    };
-
-    let err = TranscriptBinding::new(
-        context,
-        "router-local",
-        signer_set,
-        "role:relayer:local:sha256-r",
-        "x25519:1111111111111111111111111111111111111111111111111111111111111111",
-        "role:client:local:sha256-c",
-        "x25519:client-ephemeral-public-key",
+    let err = SignerSetBinding::from_indexed_v1(
+        "signer-set-v1",
+        QuorumPolicy::All { signer_count: 3 },
+        sample_signer_set().signers().to_vec(),
     )
     .expect_err("v1 should reject non-all2 quorum");
 
     assert_eq!(err.code(), RouterAbDerivationErrorCode::MalformedInput);
-}
-
-#[test]
-fn candidate_entry_points_are_explicitly_gated() {
-    let context = sample_context(CandidateId::SplitRootDerivationV1);
-    let transcript = TranscriptBinding::new(
-        context.clone(),
-        "router-local",
-        sample_signer_set(),
-        "role:relayer:local:sha256-r",
-        "x25519:1111111111111111111111111111111111111111111111111111111111111111",
-        "role:client:local:sha256-c",
-        "x25519:client-ephemeral-public-key",
-    )
-    .expect("transcript");
-
-    let input = router_ab_core::SplitRootCandidateInput {
-        context,
-        transcript,
-    };
-
-    let err = router_ab_core::evaluate_split_root_candidate(&input)
-        .expect_err("candidate should be gated");
-
-    assert_eq!(err.code(), RouterAbDerivationErrorCode::NotImplemented);
 }

@@ -12,8 +12,8 @@ Benchmarks must compare candidates under realistic deployment assumptions.
 - refresh ceremony latency
 - A/B coordination round trips
 - Router invocation count
-- Signer A invocation count
-- Signer B invocation count
+- Deriver A invocation count
+- Deriver B invocation count
 
 ## Candidate Gate
 

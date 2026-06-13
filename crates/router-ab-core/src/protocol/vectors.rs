@@ -19,17 +19,15 @@ use crate::protocol::identity::{
 };
 use crate::protocol::lifecycle::LifecycleScopeV1;
 use crate::protocol::output::{
-    encode_recipient_proof_bundle_ciphertext_v1, ClientOutputPackageV1,
-    RecipientOutputCiphertextV1, RecipientOutputEncryptionAlgorithmV1,
-    RecipientProofBundleCiphertextV1, RelayerOutputPackageV1,
+    encode_recipient_proof_bundle_ciphertext_v1, RecipientOutputEncryptionAlgorithmV1,
+    RecipientProofBundleCiphertextV1,
 };
 use crate::protocol::payload::{
     ab_peer_message_authentication_input_digest_v1, encode_ab_peer_message_payload_v1,
-    encode_relayer_activation_payload_v1, encode_router_to_signer_payload_v1,
-    encode_signer_response_payload_v1, AbDerivationProofBatchPayloadV1,
+    encode_router_to_signer_payload_v1, AbDerivationProofBatchPayloadV1,
     AbPeerMessageAuthenticationV1, AbPeerMessagePayloadV1, AbPeerMessageSignatureSchemeV1,
-    RecipientProofBundlePayloadV1, RelayerActivationPayloadV1, RouterEnvelopeDigestSetV1,
-    RouterToSignerPayloadV1, RouterTranscriptMetadataV1, SignerResponsePayloadV1,
+    RecipientProofBundlePayloadV1, RouterEnvelopeDigestSetV1, RouterToSignerPayloadV1,
+    RouterTranscriptMetadataV1,
 };
 use crate::protocol::wire::{
     encode_wire_message_v1, wire_message_digest_v1, CanonicalWireBytesV1, WireMessageKindV1,
@@ -115,16 +113,6 @@ pub fn generated_wire_vector_fixture_v1() -> WireVectorFixtureV1 {
             b"signer-b-to-a-message-v1".as_slice(),
         ),
         (
-            WireMessageKindV1::SignerResponse,
-            0x55,
-            b"signer-response-v1".as_slice(),
-        ),
-        (
-            WireMessageKindV1::RelayerActivation,
-            0x66,
-            b"relayer-activation-v1".as_slice(),
-        ),
-        (
             WireMessageKindV1::RecipientProofBundle,
             0x77,
             b"recipient-proof-bundle-v1".as_slice(),
@@ -167,16 +155,6 @@ pub fn generated_payload_vector_fixture_v1() -> PayloadVectorFixtureV1 {
             "signer_b_to_signer_a_payload",
             WireMessageKindV1::SignerBToSignerA,
             sample_ab_peer_message_payload(Role::SignerB),
-        ),
-        payload_vector_case(
-            "signer_response_payload",
-            WireMessageKindV1::SignerResponse,
-            sample_signer_response_payload(),
-        ),
-        payload_vector_case(
-            "relayer_activation_payload",
-            WireMessageKindV1::RelayerActivation,
-            sample_relayer_activation_payload(),
         ),
         recipient_proof_bundle_payload_vector_case(),
     ];
@@ -356,18 +334,6 @@ fn encode_payload_case(
             let digest = payload.digest();
             Ok((canonical_bytes, digest))
         }
-        WireMessageKindV1::SignerResponse => {
-            let payload: SignerResponsePayloadV1 = payload_from_json(payload_json)?;
-            let canonical_bytes = encode_signer_response_payload_v1(&payload);
-            let digest = payload.digest();
-            Ok((canonical_bytes, digest))
-        }
-        WireMessageKindV1::RelayerActivation => {
-            let payload: RelayerActivationPayloadV1 = payload_from_json(payload_json)?;
-            let canonical_bytes = encode_relayer_activation_payload_v1(&payload);
-            let digest = payload.digest();
-            Ok((canonical_bytes, digest))
-        }
         WireMessageKindV1::RecipientProofBundle => {
             let payload: RecipientProofBundleCiphertextV1 = payload_from_json(payload_json)?;
             let canonical_bytes = encode_recipient_proof_bundle_ciphertext_v1(&payload)?;
@@ -439,27 +405,6 @@ fn sample_ab_peer_message_payload(from_role: Role) -> AbPeerMessagePayloadV1 {
     .expect("ab peer payload")
 }
 
-fn sample_signer_response_payload() -> SignerResponsePayloadV1 {
-    SignerResponsePayloadV1::new(
-        "lifecycle-1",
-        sample_signer_a(),
-        digest_seed(0xe1),
-        sample_client_output(digest_seed(0xe1)),
-        digest_seed(0xe2),
-    )
-    .expect("signer response payload")
-}
-
-fn sample_relayer_activation_payload() -> RelayerActivationPayloadV1 {
-    RelayerActivationPayloadV1::new(
-        "lifecycle-1",
-        sample_relayer(),
-        digest_seed(0xf1),
-        sample_relayer_output(digest_seed(0xf1)),
-    )
-    .expect("relayer activation payload")
-}
-
 fn sample_recipient_proof_bundle_payload() -> RecipientProofBundlePayloadV1 {
     let transcript_digest = digest_seed(0x77);
     let root_share_epoch = RootShareEpoch::new("epoch-1").expect("root epoch");
@@ -522,7 +467,7 @@ fn sample_mpc_prf_proof_bundle(
     seed: u8,
 ) -> MpcPrfPartialProofBundleV1 {
     let binding = MpcPrfPartialBindingV1 {
-        suite_id: MpcPrfSuiteId::ThresholdPrfRistretto255Sha512V1,
+        suite_id: MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         transcript_digest,
         root_share_epoch,
         opened_share_kind,
@@ -628,66 +573,6 @@ fn sample_relayer() -> RelayerIdentityV1 {
         "x25519:1111111111111111111111111111111111111111111111111111111111111111",
     )
     .expect("relayer")
-}
-
-fn sample_client_output(transcript_digest: PublicDigest32) -> ClientOutputPackageV1 {
-    let package_commitment = digest_seed(0xc1);
-    ClientOutputPackageV1::new(
-        transcript_digest,
-        package_commitment,
-        sample_output_ciphertext(
-            transcript_digest,
-            package_commitment,
-            Role::Client,
-            OpenedShareKind::XClientBase,
-            "client",
-            "x25519:client-ephemeral-public-key",
-            0xc1,
-        ),
-    )
-    .expect("client output")
-}
-
-fn sample_relayer_output(transcript_digest: PublicDigest32) -> RelayerOutputPackageV1 {
-    let package_commitment = digest_seed(0xc3);
-    RelayerOutputPackageV1::new(
-        transcript_digest,
-        package_commitment,
-        sample_output_ciphertext(
-            transcript_digest,
-            package_commitment,
-            Role::Relayer,
-            OpenedShareKind::XRelayerBase,
-            "relayer-a",
-            "relayer-key-epoch:relayer-key-epoch-1",
-            0xc3,
-        ),
-    )
-    .expect("relayer output")
-}
-
-#[allow(clippy::too_many_arguments)]
-fn sample_output_ciphertext(
-    transcript_digest: PublicDigest32,
-    package_commitment: PublicDigest32,
-    recipient_role: Role,
-    opened_share_kind: OpenedShareKind,
-    recipient_identity: &str,
-    recipient_encryption_key: &str,
-    seed: u8,
-) -> RecipientOutputCiphertextV1 {
-    RecipientOutputCiphertextV1::new(
-        RecipientOutputEncryptionAlgorithmV1::LocalDeterministicSha256V1,
-        recipient_role,
-        opened_share_kind,
-        recipient_identity,
-        recipient_encryption_key,
-        transcript_digest,
-        package_commitment,
-        [seed; 12],
-        EncryptedPayloadV1::new(vec![seed, seed.wrapping_add(1)]).expect("output ciphertext"),
-    )
-    .expect("recipient output ciphertext")
 }
 
 fn digest_seed(seed: u8) -> PublicDigest32 {

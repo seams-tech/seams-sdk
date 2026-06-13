@@ -8,24 +8,29 @@ fn digest(seed: u8) -> PublicDigest32 {
     PublicDigest32::new([seed; 32])
 }
 
+fn sample_header_with_ciphertext(ciphertext_seed: u8) -> EnvelopeHeaderV1 {
+    EnvelopeHeaderV1::new(
+        EnvelopeVersion::V1,
+        EnvelopeKind::SignerAToClient,
+        CandidateId::SplitRootDerivationV1,
+        RequestKind::Registration,
+        CorrectnessLevel::MinimumLevelC,
+        "ceremony-1",
+        RootShareEpoch::new("epoch-1").expect("epoch"),
+        digest(0x11),
+        Role::SignerA,
+        "role:signer-a:local:sha256-a",
+        Role::Client,
+        "role:client:local:sha256-c",
+        ContentKind::ClientOutputShare,
+        digest(ciphertext_seed),
+        128,
+    )
+    .expect("header")
+}
+
 fn sample_header() -> EnvelopeHeaderV1 {
-    EnvelopeHeaderV1 {
-        envelope_version: EnvelopeVersion::V1,
-        envelope_kind: EnvelopeKind::SignerAToClient,
-        candidate_id: CandidateId::SplitRootDerivationV1,
-        request_kind: RequestKind::Registration,
-        correctness_level: CorrectnessLevel::MinimumLevelC,
-        ceremony_id: "ceremony-1".to_owned(),
-        root_share_epoch: RootShareEpoch::new("epoch-1").expect("epoch"),
-        transcript_digest: digest(0x11),
-        sender_role: Role::SignerA,
-        sender_identity: "role:signer-a:local:sha256-a".to_owned(),
-        recipient_role: Role::Client,
-        recipient_identity: "role:client:local:sha256-c".to_owned(),
-        content_kind: ContentKind::ClientOutputShare,
-        ciphertext_digest: digest(0x22),
-        ciphertext_len: 128,
-    }
+    sample_header_with_ciphertext(0x22)
 }
 
 #[test]
@@ -40,10 +45,24 @@ fn envelope_aad_is_stable() {
 
 #[test]
 fn envelope_rejects_kind_role_mismatch() {
-    let mut header = sample_header();
-    header.recipient_role = Role::Relayer;
-
-    let err = envelope_aad_v1(&header).expect_err("recipient mismatch should fail");
+    let err = EnvelopeHeaderV1::new(
+        EnvelopeVersion::V1,
+        EnvelopeKind::SignerAToClient,
+        CandidateId::SplitRootDerivationV1,
+        RequestKind::Registration,
+        CorrectnessLevel::MinimumLevelC,
+        "ceremony-1",
+        RootShareEpoch::new("epoch-1").expect("epoch"),
+        digest(0x11),
+        Role::SignerA,
+        "role:signer-a:local:sha256-a",
+        Role::Relayer,
+        "role:relayer:local:sha256-r",
+        ContentKind::ClientOutputShare,
+        digest(0x22),
+        128,
+    )
+    .expect_err("recipient mismatch should fail");
 
     assert_eq!(err.code(), RouterAbDerivationErrorCode::RecipientMismatch);
 }
@@ -51,15 +70,12 @@ fn envelope_rejects_kind_role_mismatch() {
 #[test]
 fn package_commitment_changes_with_ciphertext_digest() {
     let header = sample_header();
-    let package = DeliveryPackageV1 {
-        header: header.clone(),
-    };
+    let package = DeliveryPackageV1::new(header).expect("package");
     let first = package_commitment_v1(&package).expect("first commitment");
 
-    let mut changed = header;
-    changed.ciphertext_digest = digest(0x33);
-    let second =
-        package_commitment_v1(&DeliveryPackageV1 { header: changed }).expect("second commitment");
+    let changed = sample_header_with_ciphertext(0x33);
+    let second = package_commitment_v1(&DeliveryPackageV1::new(changed).expect("changed package"))
+        .expect("second commitment");
 
     assert_ne!(first, second);
 }

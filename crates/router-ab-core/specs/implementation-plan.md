@@ -83,8 +83,8 @@ root-generation, anti-bias, refresh, and address-verification gates.
 - [x] Add secret/public classification contract
 - [x] Add vector matrix
 - [x] Add public Rust API shape
-- [x] Model Router A/B v1 transcript internals around a signer-set and indexed
-  role-envelope shape while enforcing `all(2)`
+- [x] Model Router A/B v1 transcript internals around a deriver-set and indexed
+      role-envelope shape while enforcing `all(2)`
 - [ ] Fill exact registration flow for `mpc_threshold_prf_v1`
 - [ ] Fill exact export flow for `mpc_threshold_prf_v1`
 - [ ] Fill exact refresh flow for `mpc_threshold_prf_v1`
@@ -93,7 +93,7 @@ root-generation, anti-bias, refresh, and address-verification gates.
 - [ ] Fill exact refresh flow for `split_root_derivation_v1`
 - [ ] Write A/B state visibility tables for each candidate flow
 - [ ] Write Router, client, and relayer visibility tables for each candidate
-  flow
+      flow
 - [x] Decide candidate A preferred combine location: recipient-side combine
 - [x] Specify Minimum Level C transcript checks in field-level detail
 - [x] Specify public-share-binding hardening checks in field-level detail
@@ -102,14 +102,14 @@ root-generation, anti-bias, refresh, and address-verification gates.
 - [x] Specify all typed error codes required by adapters
 - [x] Specify diagnostic redaction rules as source-guard patterns
 - [ ] Resolve whether `split_root_derivation_v1` can preserve existing account
-  output relations through refresh
+      output relations through refresh
 - [ ] Resolve whether `mpc_threshold_prf_v1` proof verification is included in
-  Minimum Level C or deferred to stronger hardening
+      Minimum Level C or deferred to stronger hardening
 - [ ] Choose envelope authentication mode
 - [ ] Choose candidate-specific proof formats
 - [x] Choose provisional Candidate B `HashToScalar` and scalar-share encoding
-  for measurement: SHA-512 transcript to Curve25519 scalar, fixed 32-byte
-  canonical scalar-share wires
+      for measurement: SHA-512 transcript to Curve25519 scalar, fixed 32-byte
+      canonical scalar-share wires
 - [ ] Confirm product acceptance of the threat-claim matrix
 
 ### Phase 2: Formal Verification Spec Gate
@@ -133,7 +133,7 @@ root-generation, anti-bias, refresh, and address-verification gates.
 - [x] Expand stable error codes and redacted diagnostics
 - [x] Add public digest wrappers
 - [x] Add context digest helper
-- [x] Add signer-set-based transcript digest helper with v1 `all(2)` enforcement
+- [x] Add deriver-set-based transcript digest helper with v1 `all(2)` enforcement
 - [x] Add request-scope types for registration, export, and refresh
 - [x] Add refresh old/new epoch validation
 - [x] Add envelope public-header type
@@ -143,18 +143,18 @@ root-generation, anti-bias, refresh, and address-verification gates.
 - [x] Add Minimum Level C evidence structs and verifier
 - [x] Add branch-specific ceremony state builders
 - [x] Add vector generation for context, transcript, envelopes, diagnostics, and
-  Minimum Level C
+      Minimum Level C
 - [x] Add source guards for redaction and forbidden joined-state exposure
 
 ### Phase 3: Vector Corpus
 
 - [x] Commit generated contract vector fixture for context, transcript,
-  envelope, diagnostics, and Minimum Level C
+      envelope, diagnostics, and Minimum Level C
 - [x] Add anti-drift test comparing committed contract fixture to generator
 - [x] Add transcript digest vectors
 - [x] Add registration success vectors
 - [x] Add Minimum Level C rejection vectors
-- [x] Add signer identity mismatch vectors
+- [x] Add deriver identity mismatch vectors
 - [x] Add root epoch mismatch vectors
 - [x] Add transcript replay vectors
 - [x] Add malformed envelope vectors
@@ -169,7 +169,7 @@ root-generation, anti-bias, refresh, and address-verification gates.
 ### Phase 4: Candidate A Spec And Prototype, MPC Threshold PRF
 
 - [x] Decide whether to reuse `threshold-prf` or mirror a narrow primitive here
-- [x] Define signer partial input and output types
+- [x] Define deriver partial input and output types
 - [x] Define verified partial format
 - [x] Define combiner behavior
 - [x] Define all A/B coordination messages
@@ -182,7 +182,7 @@ root-generation, anti-bias, refresh, and address-verification gates.
 - [x] Add Verus abstract model entries
 - [x] Add Lean privacy state entries
 - [x] Add `threshold-prf` compatibility for Router/A/B purpose labels and
-  canonical scalar output
+      canonical scalar output
 
 ### Phase 5: Candidate B Spec And Prototype, Split Root Derivation
 
@@ -227,13 +227,21 @@ root-generation, anti-bias, refresh, and address-verification gates.
 ### Phase 7: Production Primitive
 
 - [x] Add initial production `threshold-prf` backend adapter for
-  `mpc_threshold_prf_v1`
+      `mpc_threshold_prf_v1`
 - [x] Add Router/A/B-owned signing-root-share wire wrapper
-- [x] Add signer proof-bundle evaluation through `threshold-prf`
+- [x] Add deriver proof-bundle evaluation through `threshold-prf`
 - [x] Add proof verification and recipient-side verified combine through
-  `threshold-prf`
+      `threshold-prf`
 - [x] Freeze Candidate A vectors around backend partials, commitments, proofs,
-  verified-combine outputs, and rejection cases
+      verified-combine outputs, and rejection cases
+- [x] Update Router/A/B threshold-prf adapter plan to target
+      `threshold_prf` with an explicit threshold policy.
+- [x] Add Router/A/B threshold-prf protocol-selection type that normalizes to
+      `ThresholdPolicy`.
+- [x] Migrate Candidate A signer and combiner backend imports from the
+      fixed-pair backend to `threshold_prf` with initial policy `2-of-3`.
+- [x] Update Candidate A backend wire wrappers and source guards for signing-root, partial, and commitment widths.
+- [x] Add Router/A/B parity tests against the committed threshold-prf `2-of-3` fixture.
 - [ ] Replace candidate placeholder entry point with selected implementation
 - [ ] Add constant-time review for secret-dependent control flow
 - [ ] Add source guards for joined-state construction

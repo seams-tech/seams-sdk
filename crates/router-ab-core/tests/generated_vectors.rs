@@ -1,7 +1,8 @@
 use router_ab_core::{
     generated_contract_vectors_json_v1, generated_contract_vectors_v1, CandidateId,
     ContractVectorCorpusV1, OpenedShareKind, RequestKind, RouterAbDerivationErrorCode,
-    CONTRACT_VECTOR_VERSION_V1,
+    CONTRACT_VECTOR_VERSION_V1, MPC_PRF_COMMITMENT_WIRE_V1_LEN, MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN,
+    MPC_PRF_PARTIAL_WIRE_V1_LEN,
 };
 
 const COMMITTED_CONTRACT_VECTORS: &str =
@@ -49,8 +50,8 @@ fn generated_contract_vectors_include_required_sections() {
     );
     assert_eq!(corpus.minimum_level_c_cases.len(), 3);
     for case in &corpus.minimum_level_c_cases {
-        assert_eq!(case.evidence.client_package_commitments.len(), 2);
-        assert_eq!(case.evidence.relayer_package_commitments.len(), 2);
+        assert_eq!(case.evidence.client_package_commitments().len(), 2);
+        assert_eq!(case.evidence.relayer_package_commitments().len(), 2);
     }
     assert_eq!(corpus.candidate_output_cases.len(), 6);
     for candidate_id in [
@@ -96,12 +97,30 @@ fn generated_contract_vectors_include_required_sections() {
                 .unwrap_or_else(|| {
                     panic!("missing Candidate A backend vector: {request_kind:?}/{opened_share_kind:?}")
                 });
-            assert_eq!(vector.signer_a_partial_wire_hex.len(), 130);
-            assert_eq!(vector.signer_b_partial_wire_hex.len(), 130);
-            assert_eq!(vector.signer_a_commitment_wire_hex.len(), 66);
-            assert_eq!(vector.signer_b_commitment_wire_hex.len(), 66);
-            assert_eq!(vector.signer_a_proof_wire_hex.len(), 128);
-            assert_eq!(vector.signer_b_proof_wire_hex.len(), 128);
+            assert_eq!(
+                vector.signer_a_partial_wire_hex.len(),
+                MPC_PRF_PARTIAL_WIRE_V1_LEN * 2
+            );
+            assert_eq!(
+                vector.signer_b_partial_wire_hex.len(),
+                MPC_PRF_PARTIAL_WIRE_V1_LEN * 2
+            );
+            assert_eq!(
+                vector.signer_a_commitment_wire_hex.len(),
+                MPC_PRF_COMMITMENT_WIRE_V1_LEN * 2
+            );
+            assert_eq!(
+                vector.signer_b_commitment_wire_hex.len(),
+                MPC_PRF_COMMITMENT_WIRE_V1_LEN * 2
+            );
+            assert_eq!(
+                vector.signer_a_proof_wire_hex.len(),
+                MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN * 2
+            );
+            assert_eq!(
+                vector.signer_b_proof_wire_hex.len(),
+                MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN * 2
+            );
             assert_eq!(vector.combined_output_hex.len(), 64);
             assert!(!vector.context_digest_hex.is_empty());
             assert!(!vector.transcript_digest_hex.is_empty());
@@ -170,8 +189,8 @@ fn generated_contract_vectors_include_required_sections() {
             RouterAbDerivationErrorCode::RootEpochMismatch,
         ),
         (
-            "malformed_envelope_empty_sender_identity_v1",
-            RouterAbDerivationErrorCode::EmptyField,
+            "minimum_level_c_package_context_mismatch_v1",
+            RouterAbDerivationErrorCode::TranscriptMismatch,
         ),
         (
             "transcript_duplicate_signer_identity_v1",

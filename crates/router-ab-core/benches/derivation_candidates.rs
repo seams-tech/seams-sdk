@@ -19,9 +19,10 @@ use router_ab_core::{
 };
 use threshold_prf::{
     combine_verified_partials, evaluate_partial_with_dleq_proof, generate_signing_root,
-    split_signing_root_2_of_3, verify_partial_dleq_proof, PrfContext as ThresholdPrfContext,
-    PrfPurpose, SuiteId,
+    split_signing_root, verify_partial_dleq_proof, SigningRootShare, ThresholdPolicy,
+    ValidatedThresholdSet,
 };
+use threshold_prf::{PrfContext as ThresholdPrfContext, PrfPurpose, SuiteId};
 
 fn seeded_rng(seed: u8) -> ChaCha20Rng {
     ChaCha20Rng::from_seed([seed; 32])
@@ -85,7 +86,7 @@ fn signer_input(role: Role, identity: &str) -> MpcPrfSignerPartialInputV1 {
     MpcPrfSignerPartialInputV1::new(
         context,
         transcript,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512V1,
+        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         role,
         identity,
         RootShareEpoch::new("epoch-1").expect("epoch"),
@@ -119,12 +120,17 @@ fn threshold_context(plan: &MpcPrfPurposeBindingPlanV1) -> ThresholdPrfContext {
     )
 }
 
-fn mpc_prf_crypto_fixture() -> ([threshold_prf::SigningRootShare; 3], ThresholdPrfContext) {
+fn mpc_prf_threshold_policy() -> ThresholdPolicy {
+    ThresholdPolicy::from_u16s(2, 3).expect("Router/A/B benchmark policy")
+}
+
+fn mpc_prf_crypto_fixture() -> (Vec<SigningRootShare>, ThresholdPolicy, ThresholdPrfContext) {
     let mut setup_rng = seeded_rng(42);
     let root = generate_signing_root(&mut setup_rng);
-    let shares = split_signing_root_2_of_3(&root, &mut setup_rng);
+    let policy = mpc_prf_threshold_policy();
+    let shares = split_signing_root(&root, policy, &mut setup_rng).expect("threshold shares");
     let plan = mpc_prf_purpose_plan();
-    (shares, threshold_context(&plan))
+    (shares, policy, threshold_context(&plan))
 }
 
 fn signer_partial(role: Role, identity: &str, byte: u8) -> MpcPrfSignerPartialV1 {
@@ -287,7 +293,7 @@ fn bench_mpc_prf_purpose_binding_plan(c: &mut Criterion) {
 }
 
 fn bench_mpc_prf_crypto_evaluate_partial_with_dleq(c: &mut Criterion) {
-    let (shares, context) = mpc_prf_crypto_fixture();
+    let (shares, _policy, context) = mpc_prf_crypto_fixture();
 
     c.bench_function(
         "router_ab_mpc_prf_crypto_evaluate_partial_with_dleq_v1",
@@ -309,7 +315,7 @@ fn bench_mpc_prf_crypto_evaluate_partial_with_dleq(c: &mut Criterion) {
 }
 
 fn bench_mpc_prf_crypto_verify_partial_dleq(c: &mut Criterion) {
-    let (shares, context) = mpc_prf_crypto_fixture();
+    let (shares, _policy, context) = mpc_prf_crypto_fixture();
     let bundle = evaluate_partial_with_dleq_proof(&shares[0], &context, &mut seeded_rng(22))
         .expect("proof fixture");
 
@@ -329,12 +335,13 @@ fn bench_mpc_prf_crypto_verify_partial_dleq(c: &mut Criterion) {
 }
 
 fn bench_mpc_prf_crypto_combine_verified_partials(c: &mut Criterion) {
-    let (shares, context) = mpc_prf_crypto_fixture();
+    let (shares, policy, context) = mpc_prf_crypto_fixture();
     let left = evaluate_partial_with_dleq_proof(&shares[0], &context, &mut seeded_rng(23))
         .expect("left proof");
     let right = evaluate_partial_with_dleq_proof(&shares[2], &context, &mut seeded_rng(24))
         .expect("right proof");
-    let bundles = [left, right];
+    let bundles =
+        ValidatedThresholdSet::from_proof_bundles(policy, vec![left, right]).expect("proof set");
 
     c.bench_function(
         "router_ab_mpc_prf_crypto_combine_verified_partials_v1",
@@ -350,7 +357,7 @@ fn bench_mpc_prf_crypto_combine_verified_partials(c: &mut Criterion) {
 }
 
 fn bench_mpc_prf_crypto_two_proofs_and_combine(c: &mut Criterion) {
-    let (shares, context) = mpc_prf_crypto_fixture();
+    let (shares, policy, context) = mpc_prf_crypto_fixture();
 
     c.bench_function("router_ab_mpc_prf_crypto_two_proofs_and_combine_v1", |b| {
         b.iter_batched(
@@ -368,7 +375,9 @@ fn bench_mpc_prf_crypto_two_proofs_and_combine(c: &mut Criterion) {
                     black_box(&mut right_rng),
                 )
                 .expect("right proof");
-                combine_verified_partials(black_box(&[left, right]), black_box(&context))
+                let bundles = ValidatedThresholdSet::from_proof_bundles(policy, vec![left, right])
+                    .expect("proof set");
+                combine_verified_partials(black_box(&bundles), black_box(&context))
                     .expect("verified combine")
             },
             BatchSize::SmallInput,

@@ -8,41 +8,39 @@ use crate::derivation::context::{CandidateId, DerivationContext, RootShareEpoch}
 use crate::derivation::error::{
     RouterAbDerivationError, RouterAbDerivationErrorCode, RouterAbDerivationResult,
 };
-use crate::derivation::material::{OpenedShareKind, PublicDigest32, PublicMaterial32, Role};
-use crate::derivation::transcript::{
-    transcript_binding_digest, transcript_digest_v1, TranscriptBinding,
-};
+use crate::derivation::material::{OpenedShareKind, PublicDigest32, Role};
+use crate::derivation::transcript::{transcript_digest_v1, TranscriptBinding};
 
 const MPC_PRF_CONTEXT_BYTES_VERSION_V1: &[u8] = b"router-ab-derivation/mpc-prf/context-bytes/v1";
 const MPC_PRF_CONTEXT_DIGEST_VERSION_V1: &[u8] = b"router-ab-derivation/mpc-prf/context-digest/v1";
 
-/// `threshold-prf` v1 partial wire length: share id, context tag, compressed point.
-pub const MPC_PRF_PARTIAL_WIRE_V1_LEN: usize = 65;
-/// `threshold-prf` v1 signing-root-share commitment wire length.
-pub const MPC_PRF_COMMITMENT_WIRE_V1_LEN: usize = 33;
-/// `threshold-prf` v1 DLEQ proof wire length.
+/// Router/A/B Candidate A partial wire length: share id, context tag, compressed point.
+pub const MPC_PRF_PARTIAL_WIRE_V1_LEN: usize = 66;
+/// Router/A/B Candidate A signing-root-share commitment wire length.
+pub const MPC_PRF_COMMITMENT_WIRE_V1_LEN: usize = 34;
+/// Router/A/B Candidate A DLEQ proof wire length.
 pub const MPC_PRF_DLEQ_PROOF_WIRE_V1_LEN: usize = 64;
 
 /// Candidate A suite identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MpcPrfSuiteId {
-    /// Reuse `threshold-prf` Ristretto255/SHA-512 internals.
-    ThresholdPrfRistretto255Sha512V1,
+    /// Use the active `threshold-prf` Ristretto255/SHA-512 backend.
+    ThresholdPrfRistretto255Sha512,
 }
 
 impl MpcPrfSuiteId {
     /// Returns the canonical suite label.
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::ThresholdPrfRistretto255Sha512V1 => "threshold_prf_ristretto255_sha512_v1",
+            Self::ThresholdPrfRistretto255Sha512 => "threshold_prf_ristretto255_sha512",
         }
     }
 
     /// Returns the external `threshold-prf` suite label required by this adapter.
     pub fn threshold_prf_suite_label(self) -> &'static str {
         match self {
-            Self::ThresholdPrfRistretto255Sha512V1 => "threshold-prf/ristretto255-sha512/v1",
+            Self::ThresholdPrfRistretto255Sha512 => "threshold-prf/ristretto255-sha512",
         }
     }
 }
@@ -161,15 +159,6 @@ impl MpcPrfOutputRequestV1 {
     }
 }
 
-/// Input shape for the MPC-threshold-PRF candidate.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MpcPrfCandidateInput {
-    /// Canonical derivation context.
-    pub context: DerivationContext,
-    /// Transcript binding for this ceremony.
-    pub transcript: TranscriptBinding,
-}
-
 /// Router-to-signer input for Candidate A partial derivation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MpcPrfSignerPartialInputV1 {
@@ -220,7 +209,7 @@ impl MpcPrfSignerPartialInputV1 {
         require_mpc_context(&self.context)?;
         require_context_matches_transcript(&self.context, &self.transcript)?;
         require_signer_identity(&self.transcript, self.signer_role, &self.signer_identity)?;
-        if self.root_share_epoch != self.context.root_share_epoch {
+        if &self.root_share_epoch != self.context.root_share_epoch() {
             return Err(RouterAbDerivationError::new(
                 RouterAbDerivationErrorCode::RootEpochMismatch,
                 "MPC PRF signer input root-share epoch does not match context",
@@ -289,7 +278,7 @@ impl MpcPrfPartialBindingV1 {
                 "MPC PRF partial transcript digest mismatch",
             ));
         }
-        if self.root_share_epoch != transcript.context.root_share_epoch {
+        if &self.root_share_epoch != transcript.context().root_share_epoch() {
             return Err(RouterAbDerivationError::new(
                 RouterAbDerivationErrorCode::RootEpochMismatch,
                 "MPC PRF partial root-share epoch mismatch",
@@ -568,34 +557,12 @@ pub struct MpcPrfPartialVerificationPlanV1 {
     pub proof_wire_len: usize,
 }
 
-/// Output shape for the MPC-threshold-PRF candidate.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MpcPrfCandidateOutput {
-    /// Digest that binds context, identities, and candidate transcript.
-    pub transcript_digest: [u8; 32],
-    /// Kind of opened share produced by this candidate.
-    pub opened_share_kind: OpenedShareKind,
-    /// Opened public material for the designated recipient.
-    pub opened_material: PublicMaterial32,
-}
-
-/// Evaluates the MPC-threshold-PRF candidate after the decision gate lands.
-pub fn evaluate_mpc_threshold_prf_candidate(
-    input: &MpcPrfCandidateInput,
-) -> RouterAbDerivationResult<MpcPrfCandidateOutput> {
-    let _digest = transcript_binding_digest(&input.transcript)?;
-    Err(RouterAbDerivationError::new(
-        RouterAbDerivationErrorCode::NotImplemented,
-        "mpc_threshold_prf_v1 is gated on vectors and leakage analysis",
-    ))
-}
-
 /// Validates Candidate A proof bundle metadata before cryptographic verification.
 pub fn plan_mpc_prf_partial_verification_v1(
     input: MpcPrfPartialVerificationInputV1,
 ) -> RouterAbDerivationResult<MpcPrfPartialVerificationPlanV1> {
     input.transcript.validate()?;
-    require_mpc_context(&input.transcript.context)?;
+    require_mpc_context(input.transcript.context())?;
 
     let bundle = input.proof_bundle;
     let binding = &bundle.signer_partial.binding;
@@ -658,7 +625,7 @@ pub(crate) fn plan_mpc_prf_purpose_binding_for_output_v1(
     request: &MpcPrfOutputRequestV1,
 ) -> RouterAbDerivationResult<MpcPrfPurposeBindingPlanV1> {
     transcript.validate()?;
-    require_mpc_context(&transcript.context)?;
+    require_mpc_context(transcript.context())?;
     request.validate()?;
 
     let output_purpose = MpcPrfOutputPurposeV1::from_output_request(request)?;
@@ -687,7 +654,7 @@ pub fn plan_mpc_prf_combine_v1(
     input: MpcPrfCombinerInputV1,
 ) -> RouterAbDerivationResult<MpcPrfCombinePlanV1> {
     input.transcript.validate()?;
-    require_mpc_context(&input.transcript.context)?;
+    require_mpc_context(input.transcript.context())?;
     MpcPrfOutputRequestV1::new(
         input.opened_share_kind,
         input.recipient_role,
@@ -770,7 +737,7 @@ fn mpc_prf_context_digest_v1(context_bytes: &[u8]) -> RouterAbDerivationResult<P
 }
 
 fn require_mpc_context(context: &DerivationContext) -> RouterAbDerivationResult<()> {
-    if context.candidate_id != CandidateId::MpcThresholdPrfV1 {
+    if context.candidate_id() != CandidateId::MpcThresholdPrfV1 {
         return Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::UnsupportedCandidate,
             "MPC PRF candidate input requires mpc_threshold_prf_v1 context",
@@ -795,7 +762,7 @@ fn require_context_matches_transcript(
     context: &DerivationContext,
     transcript: &TranscriptBinding,
 ) -> RouterAbDerivationResult<()> {
-    if context != &transcript.context {
+    if context != transcript.context() {
         return Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::TranscriptMismatch,
             "MPC PRF input context does not match transcript context",
@@ -820,13 +787,16 @@ fn require_signer_identity(
         }
     }
 
-    let signer = transcript.signer_set.signer_for_role(role).ok_or_else(|| {
-        RouterAbDerivationError::new(
-            RouterAbDerivationErrorCode::SignerIdentityMismatch,
-            "MPC PRF signer role is missing from transcript",
-        )
-    })?;
-    if signer.signer_id != identity {
+    let signer = transcript
+        .signer_set()
+        .signer_for_role(role)
+        .ok_or_else(|| {
+            RouterAbDerivationError::new(
+                RouterAbDerivationErrorCode::SignerIdentityMismatch,
+                "MPC PRF signer role is missing from transcript",
+            )
+        })?;
+    if signer.signer_id() != identity {
         return Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::SignerIdentityMismatch,
             "MPC PRF signer identity does not match transcript",

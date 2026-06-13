@@ -26,10 +26,10 @@ The vector corpus should include:
 - registration success for both candidates
 - export success for both candidates
 - refresh success for both candidates
-- signer identity mismatch
+- deriver identity mismatch
 - root epoch mismatch
 - transcript replay with a changed ceremony id
-- swapped A/B signer identity
+- swapped A/B deriver identity
 - malformed public key
 - malformed digest
 - Minimum Level C output acceptance

@@ -10,10 +10,10 @@ Every ceremony is in exactly one state:
 | State | Owner | Meaning |
 | --- | --- | --- |
 | `requested` | Router | Request authenticated, ceremony id assigned |
-| `role_envelopes_created` | Router | Role-specific encrypted signer envelopes created |
-| `signer_inputs_accepted` | Signer A and Signer B | Both signers accepted their own input envelope |
-| `coordination_complete` | Signer A and Signer B | Candidate-specific coordination finished |
-| `outputs_bound` | Signer A and Signer B | Output packages and receipts committed to transcript |
+| `role_envelopes_created` | Router | Role-specific encrypted deriver envelopes created |
+| `deriver_inputs_accepted` | Deriver A and Deriver B | Both derivers accepted their own input envelope |
+| `coordination_complete` | Deriver A and Deriver B | Candidate-specific coordination finished |
+| `outputs_bound` | Deriver A and Deriver B | Output packages and receipts committed to transcript |
 | `delivered` | Router or direct transport | Packages delivered to client and relayer endpoints |
 | `verified` | verifier | Minimum Level C or stronger evidence accepted |
 | `aborted` | Router or verifier | Ceremony closed without activation |
@@ -27,8 +27,8 @@ narrowest state they can operate on.
 | --- | --- | --- | --- |
 | none | `requested` | Router | Router auth boundary |
 | `requested` | `role_envelopes_created` | Router | Router envelope builder |
-| `role_envelopes_created` | `signer_inputs_accepted` | A and B | A and B independently |
-| `signer_inputs_accepted` | `coordination_complete` | A and B | candidate-specific verifier |
+| `role_envelopes_created` | `deriver_inputs_accepted` | A and B | A and B independently |
+| `deriver_inputs_accepted` | `coordination_complete` | A and B | candidate-specific verifier |
 | `coordination_complete` | `outputs_bound` | A and B | Minimum Level C evidence builder |
 | `outputs_bound` | `delivered` | Router or direct transport | delivery receipt checker |
 | `delivered` | `verified` | verifier | deterministic verifier |
@@ -55,9 +55,9 @@ Persist:
 - correctness level
 - candidate id
 - expected role identities
-- signer set id
+- deriver set id
 - quorum policy
-- selected relayer identity
+- selected SigningWorker identity
 - replay-cache key
 
 ### `role_envelopes_created`
@@ -65,26 +65,26 @@ Persist:
 Persist:
 
 - all `requested` fields
-- Signer A envelope header and ciphertext digest
-- Signer B envelope header and ciphertext digest
-- encrypted-envelope digests indexed by signer index
+- Deriver A envelope header and ciphertext digest
+- Deriver B envelope header and ciphertext digest
+- encrypted-envelope digests indexed by deriver index
 - transcript digest
 
-### `signer_inputs_accepted`
+### `deriver_inputs_accepted`
 
 Persist:
 
 - all `role_envelopes_created` fields
-- Signer A accepted-input receipt digest
-- Signer B accepted-input receipt digest
-- accepted signer-set id
+- Deriver A accepted-input receipt digest
+- Deriver B accepted-input receipt digest
+- accepted deriver-set id
 - accepted quorum policy
 
 ### `coordination_complete`
 
 Persist:
 
-- all `signer_inputs_accepted` fields
+- all `deriver_inputs_accepted` fields
 - candidate-specific coordination commitments
 - candidate-specific transcript evidence
 
@@ -94,9 +94,9 @@ Persist:
 
 - all `coordination_complete` fields
 - client package commitments
-- relayer package commitments
-- Signer A output receipt digest
-- Signer B output receipt digest
+- SigningWorker package commitments
+- Deriver A output receipt digest
+- Deriver B output receipt digest
 
 ### `delivered`
 
@@ -170,12 +170,12 @@ Rejected retries:
 
 - same ceremony id with different account scope
 - same ceremony id with different role identities
-- same ceremony id with different signer set id
+- same ceremony id with different deriver set id
 - same ceremony id with different quorum policy
-- same ceremony id with different selected relayer identity
+- same ceremony id with different selected SigningWorker identity
 - same ceremony id with different root epoch
 - same idempotency key with different ciphertext digest
-- signer receipt for a changed transcript
+- deriver receipt for a changed transcript
 
 ## Concurrency
 
@@ -201,7 +201,7 @@ Abort is terminal. Abort records must be redacted. Abort can happen after:
 
 - input validation failure
 - replay mismatch
-- signer rejection
+- deriver rejection
 - coordination failure
 - output commitment mismatch
 - delivery failure
@@ -216,6 +216,6 @@ Model:
 - valid transition relation
 - terminal states
 - replay mismatch rejection
-- no output delivery before signer input acceptance
+- no output delivery before deriver input acceptance
 - no verified state without output binding
 - refresh activation compare-and-set

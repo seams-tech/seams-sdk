@@ -10,7 +10,7 @@ process.
 - client-side code never materializes joined `d`, `a`, `y_relayer`, or
   `tau_relayer`
 - client opens only `x_client_base`
-- server opens only `x_relayer_base`
+- SigningWorker opens only `x_relayer_base`
 
 ## Protocol Boundary
 

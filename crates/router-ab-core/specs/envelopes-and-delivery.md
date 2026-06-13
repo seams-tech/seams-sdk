@@ -28,24 +28,30 @@ Router must not inspect:
 - plaintext A/B derivation share
 - plaintext output share
 - decrypted client delivery material
-- decrypted relayer delivery material
+- decrypted SigningWorker delivery material
 
 ## Envelope Kinds
 
 | Kind | Sender | Recipient | Plaintext owner |
 | --- | --- | --- | --- |
-| `router_to_signer_a` | Router | Signer A | Signer A |
-| `router_to_signer_b` | Router | Signer B | Signer B |
-| `signer_a_to_signer_b` | Signer A | Signer B | Signer B |
-| `signer_b_to_signer_a` | Signer B | Signer A | Signer A |
-| `signer_a_to_client` | Signer A | Client | Client |
-| `signer_b_to_client` | Signer B | Client | Client |
-| `signer_a_to_relayer` | Signer A | Relayer | Relayer |
-| `signer_b_to_relayer` | Signer B | Relayer | Relayer |
+| `router_to_signer_a` | Router | Deriver A | Deriver A |
+| `router_to_signer_b` | Router | Deriver B | Deriver B |
+| `deriver_a_to_deriver_b` | Deriver A | Deriver B | Deriver B |
+| `deriver_b_to_deriver_a` | Deriver B | Deriver A | Deriver A |
+| `deriver_a_to_client` | Deriver A | Client | Client |
+| `deriver_b_to_client` | Deriver B | Client | Client |
+| `deriver_a_to_signing_worker` | Deriver A | SigningWorker | SigningWorker |
+| `deriver_b_to_signing_worker` | Deriver B | SigningWorker | SigningWorker |
 
-Direct A/B coordination may use `signer_a_to_signer_b` and
-`signer_b_to_signer_a`. Router-mediated relay transports the same encrypted
+Direct A/B coordination may use `deriver_a_to_deriver_b` and
+`deriver_b_to_deriver_a`. Router-mediated relay transports the same encrypted
 messages without plaintext access.
+
+Latency-sensitive activation may deliver `deriver_a_to_signing_worker` and
+`deriver_b_to_signing_worker` directly from Deriver A/B to the SigningWorker.
+Router remains the lifecycle owner and receives the SigningWorker activation
+receipt. Router-mediated activation relay can carry the same ciphertext in
+local tests or restricted deployments.
 
 ## Envelope Public Header
 
@@ -97,7 +103,7 @@ encryption. Package commitments include it.
 
 Initial content kinds:
 
-- `signer_input`
+- `deriver_input`
 - `a_to_b_coordination`
 - `b_to_a_coordination`
 - `client_output_share`
@@ -108,27 +114,27 @@ Initial content kinds:
 Each content kind must have a candidate-specific plaintext schema before
 implementation.
 
-### `signer_input` Plaintext V1
+### `deriver_input` Plaintext V1
 
-`signer_input` is the only plaintext content kind a Router-to-signer envelope
+`deriver_input` is the only plaintext content kind a Router-to-deriver envelope
 may decrypt to in Router A/B v1. The decryption adapter must return typed
-`SignerInputPlaintextV1` data to the signer engine; production signer engines
+`DeriverInputPlaintextV1` data to the deriver engine; production deriver engines
 must not accept raw decrypted bytes after the adapter boundary.
 
-Canonical `SignerInputPlaintextV1` bytes bind:
+Canonical `DeriverInputPlaintextV1` bytes bind:
 
 - plaintext schema version: `router_ab_signer_input_plaintext_v1`
 - selected candidate: `mpc_threshold_prf_v1`
 - primitive request kind
 - lifecycle id
-- signer-set id
+- deriver-set id
 - v1 quorum policy: `all(2)`
-- recipient signer role
-- recipient signer id
-- recipient signer key epoch
+- recipient deriver role
+- recipient deriver id
+- recipient deriver key epoch
 - root-share epoch
-- selected relayer id
-- selected relayer key epoch
+- selected SigningWorker id
+- selected SigningWorker key epoch
 - transcript digest
 - Router public request digest
 - role-envelope AAD digest
@@ -137,7 +143,7 @@ Canonical `SignerInputPlaintextV1` bytes bind:
 Allowed output request pairs are:
 
 - `x_client_base` opened to the client recipient
-- `x_relayer_base` opened to the selected relayer recipient
+- `x_relayer_base` opened to the selected SigningWorker recipient
 
 Request-kind policy may narrow the output-request list for a specific product
 operation. The decoder must reject an output request whose opened share kind and
@@ -151,10 +157,10 @@ Forbidden plaintext fields:
 - joined `y_relayer`
 - joined `tau_relayer`
 - raw root shares
-- peer signer root shares
+- peer deriver root shares
 - HSS joined executor state
 - OT/evaluator driver state
-- client-output or relayer-output plaintext material
+- client-output or SigningWorker-output plaintext material
 
 Strict decoding rules:
 
@@ -164,19 +170,19 @@ Strict decoding rules:
 - reject trailing bytes
 - reject duplicate output requests
 - reject empty identity, epoch, lifecycle, or recipient fields
-- reject signer role mismatch against the envelope header, Router-to-signer
-  assignment, and local signer identity
-- reject signer id or key epoch mismatch against the signer set
+- reject deriver role mismatch against the envelope header, Router-to-deriver
+  assignment, and local deriver identity
+- reject deriver id or key epoch mismatch against the deriver set
 - reject root-share epoch mismatch against local root-share metadata
 - reject transcript, request-digest, or AAD-digest mismatch
 
 This schema intentionally carries public derivation metadata and output
-instructions only. The signer-local root share is loaded from signer-local
+instructions only. The deriver-local root share is loaded from deriver-local
 storage after the plaintext passes these checks.
 
 ## Delivery Packages
 
-Client and relayer delivery packages contain:
+Client and SigningWorker delivery packages contain:
 
 - public envelope header
 - ciphertext bytes
@@ -219,7 +225,7 @@ continue to bind the delivered bytes.
 Recipient-output plaintext crosses the crate boundary only through
 `RecipientOutputEncryptionRequestV1` and `RecipientOutputEncryptorV1`.
 `RecipientOutputEncryptionRequestV1` is intentionally not serializable. It is
-valid only inside signer-local or recipient-local encryption code.
+valid only inside deriver-local or recipient-local encryption code.
 
 Production recipient-output delivery uses algorithm
 `hpke_x25519_hkdf_sha256_aes256gcm_v1`: DHKEM X25519, HKDF-SHA256, and
@@ -250,14 +256,14 @@ algorithm.
 
 ## Authentication
 
-Each signer-originated envelope must be authenticated by one of:
+Each deriver-originated envelope must be authenticated by one of:
 
 - envelope encryption with sender-authenticated public keys
 - a detached role signature over the envelope header and ciphertext digest
 - a mutually authenticated channel plus an adapter-level signed receipt
 
 The chosen adapter must expose a typed `AuthenticatedEnvelope` boundary to this
-crate. Unauthenticated signer envelopes are invalid.
+crate. Unauthenticated deriver envelopes are invalid.
 
 ## Retry And Idempotency
 

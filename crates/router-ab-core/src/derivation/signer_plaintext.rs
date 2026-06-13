@@ -125,16 +125,6 @@ impl SignerInputPlaintextV1 {
             "selected_relayer_key_epoch",
             &self.selected_relayer_key_epoch,
         )?;
-        require_no_joined_state_marker("lifecycle_id", &self.lifecycle_id)?;
-        require_no_joined_state_marker("signer_set_id", &self.signer_set_id)?;
-        require_no_joined_state_marker("recipient_signer_id", &self.recipient_signer_id)?;
-        require_no_joined_state_marker("recipient_key_epoch", &self.recipient_key_epoch)?;
-        require_no_joined_state_marker("root_share_epoch", self.root_share_epoch.as_str())?;
-        require_no_joined_state_marker("selected_relayer_id", &self.selected_relayer_id)?;
-        require_no_joined_state_marker(
-            "selected_relayer_key_epoch",
-            &self.selected_relayer_key_epoch,
-        )?;
         if self.output_requests.is_empty() {
             return Err(RouterAbDerivationError::new(
                 RouterAbDerivationErrorCode::MalformedInput,
@@ -143,10 +133,6 @@ impl SignerInputPlaintextV1 {
         }
         for (index, request) in self.output_requests.iter().enumerate() {
             request.validate()?;
-            require_no_joined_state_marker(
-                "output recipient identity",
-                &request.recipient_identity,
-            )?;
             if request.opened_share_kind == OpenedShareKind::XRelayerBase
                 && (request.recipient_role != Role::Relayer
                     || request.recipient_identity != self.selected_relayer_id)
@@ -385,9 +371,7 @@ fn parse_candidate_id(value: &str) -> RouterAbDerivationResult<CandidateId> {
 
 fn parse_mpc_prf_suite_id(value: &str) -> RouterAbDerivationResult<MpcPrfSuiteId> {
     match value {
-        "threshold_prf_ristretto255_sha512_v1" => {
-            Ok(MpcPrfSuiteId::ThresholdPrfRistretto255Sha512V1)
-        }
+        "threshold_prf_ristretto255_sha512" => Ok(MpcPrfSuiteId::ThresholdPrfRistretto255Sha512),
         _ => Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::UnsupportedCandidate,
             "unknown signer input plaintext MPC PRF suite id",
@@ -457,19 +441,6 @@ fn require_non_empty(field: &'static str, value: &str) -> RouterAbDerivationResu
         return Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::EmptyField,
             format!("{field} is required"),
-        ));
-    }
-    Ok(())
-}
-
-fn require_no_joined_state_marker(
-    field: &'static str,
-    value: &str,
-) -> RouterAbDerivationResult<()> {
-    if value.to_ascii_lowercase().contains("joined") {
-        return Err(RouterAbDerivationError::new(
-            RouterAbDerivationErrorCode::MalformedInput,
-            format!("{field} contains a forbidden state marker"),
         ));
     }
     Ok(())

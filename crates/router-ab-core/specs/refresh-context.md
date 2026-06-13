@@ -27,10 +27,10 @@ Fields:
 - `registration_id`
 - `account_scope`
 - expected Router identity
-- expected Signer A identity
-- expected Signer B identity
+- expected Deriver A identity
+- expected Deriver B identity
 - expected client identity
-- expected relayer identity
+- expected SigningWorker identity
 
 Registration activation creates a verified account binding for the epoch.
 
@@ -55,21 +55,21 @@ Fields:
 - `new_root_share_epoch`
 - `refresh_id`
 - `account_scope`
-- old Signer A identity
-- old Signer B identity
-- new Signer A identity
-- new Signer B identity
+- old Deriver A identity
+- old Deriver B identity
+- new Deriver A identity
+- new Deriver B identity
 - expected Router identity
 - expected client identity
-- expected relayer identity
+- expected SigningWorker identity
 - address verification requirement
 
 Rules:
 
 - old and new epochs must differ
-- new signer identities may match old identities for same-operator refresh
-- Signer A and Signer B identities must differ within each epoch
-- transcript binds both old and new signer identity sets
+- new deriver identities may match old identities for same-operator refresh
+- Deriver A and Deriver B identities must differ within each epoch
+- transcript binds both old and new deriver identity sets
 - activation requires verified evidence for the new epoch
 
 ## Refresh State Machine
@@ -78,7 +78,7 @@ Refresh extends the base state machine with activation:
 
 1. `requested`
 2. `role_envelopes_created`
-3. `signer_inputs_accepted`
+3. `deriver_inputs_accepted`
 4. `coordination_complete`
 5. `outputs_bound`
 6. `delivered`
@@ -135,8 +135,8 @@ Persist refresh records:
 
 - old epoch
 - new epoch
-- old signer identities
-- new signer identities
+- old deriver identities
+- new deriver identities
 - verified evidence digest
 - address verification evidence digest
 - activation state
@@ -150,7 +150,7 @@ Refresh vectors must include:
 - valid old-to-new epoch refresh
 - identical old and new epoch rejection
 - swapped old/new epoch rejection
-- mismatched old signer identity
-- mismatched new signer identity
+- mismatched old deriver identity
+- mismatched new deriver identity
 - activation without address verification rejection
 - activation compare-and-set failure

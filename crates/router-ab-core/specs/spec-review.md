@@ -31,10 +31,10 @@ Status: initial spec added in [threat-model.md](threat-model.md).
 Missing details:
 
 - confirm product acceptance that A+B collusion breaks the server-blind claim
-- confirm product acceptance that Router plus one signer should preserve
+- confirm product acceptance that Router plus one deriver should preserve
   server blindness
 - decide whether public-share-binding hardening is required before production
-  for malicious signer detection
+  for malicious deriver detection
 
 Required output:
 

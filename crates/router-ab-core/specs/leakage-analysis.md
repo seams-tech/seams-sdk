@@ -11,7 +11,7 @@ Leakage analysis must be done before selecting the primitive.
 - Does the client hold enough state to reconstruct joined `y_relayer` or
   `tau_relayer`?
 - Are opened values limited to `x_client_base` for the client and
-  `x_relayer_base` for the relayer?
+  `x_relayer_base` for the SigningWorker?
 - Can Router observe both role shares in plaintext?
 - Can A or B bias output without detection at Minimum Level C?
 - What changes when public verifying shares are bound?
@@ -21,8 +21,8 @@ Leakage analysis must be done before selecting the primitive.
 Production use requires a candidate-specific leakage table covering:
 
 - Router view
-- Signer A view
-- Signer B view
+- Deriver A view
+- Deriver B view
 - client view
 - relayer view
 - storage view
@@ -41,12 +41,12 @@ Summary:
 
 - Router sees public metadata, encrypted package headers, commitments, receipts,
   and replay decisions.
-- Signer A sees only A-side PRF share material and A-side plaintext partials
+- Deriver A sees only A-side PRF share material and A-side plaintext partials
   before recipient encryption.
-- Signer B sees only B-side PRF share material and B-side plaintext partials
+- Deriver B sees only B-side PRF share material and B-side plaintext partials
   before recipient encryption.
 - Client opens only `x_client_base`.
-- Relayer opens only `x_relayer_base`.
+- SigningWorker opens only `x_relayer_base`.
 - Plaintext partial wrappers are debug-redacted, zeroizing, and excluded from
   Serde serialization.
 - Minimum Level C does not prove partial correctness by itself; production
@@ -55,7 +55,7 @@ Summary:
 
 Remaining Candidate A leakage work before selecting this primitive:
 
-- bind the cryptographic DLEQ adapter to the production authenticated signer
+- bind the cryptographic DLEQ adapter to the production authenticated deriver
   commitment registry
 - decide whether DLEQ is mandatory at Minimum Level C or a stronger output
   correctness level
@@ -73,17 +73,17 @@ Summary:
 
 - Router sees public metadata, encrypted package headers, commitments, receipts,
   and replay decisions.
-- Signer A sees only `root_a` and A-side plaintext output shares before
+- Deriver A sees only `root_a` and A-side plaintext output shares before
   recipient encryption.
-- Signer B sees only `root_b` and B-side plaintext output shares before
+- Deriver B sees only `root_b` and B-side plaintext output shares before
   recipient encryption.
 - Client opens only `x_client_base`.
-- Relayer opens only `x_relayer_base`.
+- SigningWorker opens only `x_relayer_base`.
 - Plaintext root and output-share wrappers are debug-redacted, zeroizing, and
   excluded from Serde serialization.
 - Refresh creates a new verified output relation; preserving refresh is outside
   the current split-root adapter.
-- Minimum Level C does not prevent signer bias by itself; production activation
+- Minimum Level C does not prevent deriver bias by itself; production activation
   must require address verification or public-share-binding hardening.
 
 Remaining Candidate B leakage work before selecting this primitive:

@@ -6,14 +6,14 @@ use crate::derivation::{
     RouterAbDerivationError, RouterAbDerivationErrorCode, RouterAbDerivationResult,
 };
 
-/// Platform-agnostic Signer B engine wrapper.
+/// Platform-agnostic Deriver A engine wrapper.
 #[derive(Debug, Clone)]
-pub struct SignerBEngine<H> {
+pub struct DeriverAEngine<H> {
     host: H,
 }
 
-impl<H> SignerBEngine<H> {
-    /// Creates a Signer B engine over a host implementation.
+impl<H> DeriverAEngine<H> {
+    /// Creates a Deriver A engine over a host implementation.
     pub fn new(host: H) -> Self {
         Self { host }
     }
@@ -23,7 +23,7 @@ impl<H> SignerBEngine<H> {
         &self.host
     }
 
-    /// Evaluates Signer B's selected threshold-PRF output batch.
+    /// Evaluates Deriver A's selected threshold-PRF output batch.
     pub fn evaluate_mpc_prf_output_batch<R>(
         &self,
         input: MpcPrfThresholdSignerBatchInputV1,
@@ -32,10 +32,10 @@ impl<H> SignerBEngine<H> {
     where
         R: RngCore + CryptoRng,
     {
-        if input.signer_input.signer_role != Role::SignerB {
+        if input.signer_input.signer_role != Role::SignerA {
             return Err(RouterAbDerivationError::new(
                 RouterAbDerivationErrorCode::SignerIdentityMismatch,
-                "Signer B engine requires Signer B batch input",
+                "Deriver A engine requires Deriver A batch input",
             ));
         }
         evaluate_mpc_prf_signer_output_batch_with_threshold_backend_v1(input, proof_rng)

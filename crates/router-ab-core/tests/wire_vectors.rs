@@ -52,8 +52,6 @@ fn wire_vectors_cover_every_message_kind() {
         WireMessageKindV1::RouterToSignerB,
         WireMessageKindV1::SignerAToSignerB,
         WireMessageKindV1::SignerBToSignerA,
-        WireMessageKindV1::SignerResponse,
-        WireMessageKindV1::RelayerActivation,
         WireMessageKindV1::RecipientProofBundle,
     ]
     .into_iter()

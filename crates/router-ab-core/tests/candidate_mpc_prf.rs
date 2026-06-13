@@ -83,7 +83,7 @@ fn signer_input_with_requests(
     MpcPrfSignerPartialInputV1::new(
         context,
         transcript,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512V1,
+        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         role,
         identity,
         RootShareEpoch::new("epoch-1").expect("epoch"),
@@ -138,7 +138,7 @@ fn signer_partial_input_rejects_wrong_candidate() {
     let err = MpcPrfSignerPartialInputV1::new(
         context,
         transcript,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512V1,
+        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         Role::SignerA,
         "role:signer-a:local:sha256-a",
         RootShareEpoch::new("epoch-1").expect("epoch"),
@@ -159,7 +159,7 @@ fn signer_partial_input_rejects_identity_mismatch() {
     let err = MpcPrfSignerPartialInputV1::new(
         context,
         transcript,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512V1,
+        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         Role::SignerA,
         "role:signer-a:local:sha256-wrong",
         RootShareEpoch::new("epoch-1").expect("epoch"),

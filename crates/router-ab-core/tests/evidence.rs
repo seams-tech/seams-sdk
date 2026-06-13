@@ -59,25 +59,27 @@ fn package(
     content_kind: ContentKind,
     ciphertext_seed: u8,
 ) -> DeliveryPackageV1 {
-    DeliveryPackageV1 {
-        header: EnvelopeHeaderV1 {
-            envelope_version: EnvelopeVersion::V1,
+    DeliveryPackageV1::new(
+        EnvelopeHeaderV1::new(
+            EnvelopeVersion::V1,
             envelope_kind,
-            candidate_id: context.candidate_id,
-            request_kind: context.request_kind,
-            correctness_level: context.correctness_level,
-            ceremony_id: context.ceremony_id.clone(),
-            root_share_epoch: context.root_share_epoch.clone(),
+            context.candidate_id(),
+            context.request_kind(),
+            context.correctness_level(),
+            context.ceremony_id().to_owned(),
+            context.root_share_epoch().clone(),
             transcript_digest,
             sender_role,
-            sender_identity: sender_identity.to_owned(),
+            sender_identity,
             recipient_role,
-            recipient_identity: recipient_identity.to_owned(),
+            recipient_identity,
             content_kind,
-            ciphertext_digest: digest(ciphertext_seed),
-            ciphertext_len: 128,
-        },
-    }
+            digest(ciphertext_seed),
+            128,
+        )
+        .expect("header"),
+    )
+    .expect("package")
 }
 
 fn accepted_input() -> MinimumLevelCVerificationInputV1 {
@@ -130,28 +132,30 @@ fn accepted_input() -> MinimumLevelCVerificationInputV1 {
         0xb2,
     );
 
-    let signer_a_receipt = AuthenticatedSignerReceiptV1 {
-        receipt_version: SignerReceiptVersion::V1,
-        signer_role: Role::SignerA,
-        signer_identity: "role:signer-a:local:sha256-a".to_owned(),
-        accepted_transcript_digest: transcript_digest,
-        accepted_root_share_epoch: context.root_share_epoch.clone(),
-        output_package_commitments: vec![
+    let signer_a_receipt = AuthenticatedSignerReceiptV1::new(
+        SignerReceiptVersion::V1,
+        Role::SignerA,
+        "role:signer-a:local:sha256-a",
+        transcript_digest,
+        context.root_share_epoch().clone(),
+        vec![
             package_commitment_v1(&a_client).expect("a client commitment"),
             package_commitment_v1(&a_relayer).expect("a relayer commitment"),
         ],
-    };
-    let signer_b_receipt = AuthenticatedSignerReceiptV1 {
-        receipt_version: SignerReceiptVersion::V1,
-        signer_role: Role::SignerB,
-        signer_identity: "role:signer-b:local:sha256-b".to_owned(),
-        accepted_transcript_digest: transcript_digest,
-        accepted_root_share_epoch: context.root_share_epoch.clone(),
-        output_package_commitments: vec![
+    )
+    .expect("signer A receipt");
+    let signer_b_receipt = AuthenticatedSignerReceiptV1::new(
+        SignerReceiptVersion::V1,
+        Role::SignerB,
+        "role:signer-b:local:sha256-b",
+        transcript_digest,
+        context.root_share_epoch().clone(),
+        vec![
             package_commitment_v1(&b_client).expect("b client commitment"),
             package_commitment_v1(&b_relayer).expect("b relayer commitment"),
         ],
-    };
+    )
+    .expect("signer B receipt");
 
     MinimumLevelCVerificationInputV1 {
         context,
@@ -173,11 +177,11 @@ fn minimum_level_c_accepts_consistent_transcript_and_packages() {
         verify_minimum_level_c_v1(accepted_input()).expect("valid evidence should verify");
 
     assert_eq!(
-        verified.evidence.correctness_level,
+        verified.evidence().correctness_level(),
         CorrectnessLevel::MinimumLevelC
     );
-    assert_eq!(verified.evidence.client_package_commitments.len(), 2);
-    assert_eq!(verified.evidence.relayer_package_commitments.len(), 2);
+    assert_eq!(verified.evidence().client_package_commitments().len(), 2);
+    assert_eq!(verified.evidence().relayer_package_commitments().len(), 2);
 }
 
 #[test]
@@ -193,7 +197,18 @@ fn minimum_level_c_rejects_replay_mismatch() {
 #[test]
 fn minimum_level_c_rejects_wrong_recipient() {
     let mut input = accepted_input();
-    input.client_packages[0].header.recipient_identity = "role:client:other:sha256-c".to_owned();
+    let transcript_digest = transcript_digest_v1(&input.transcript).expect("transcript digest");
+    input.client_packages[0] = package(
+        &input.context,
+        transcript_digest,
+        EnvelopeKind::SignerAToClient,
+        Role::SignerA,
+        "role:signer-a:local:sha256-a",
+        Role::Client,
+        "role:client:other:sha256-c",
+        ContentKind::ClientOutputShare,
+        0xa1,
+    );
 
     let err = verify_minimum_level_c_v1(input).expect_err("recipient mismatch should fail");
 
@@ -203,9 +218,47 @@ fn minimum_level_c_rejects_wrong_recipient() {
 #[test]
 fn minimum_level_c_rejects_receipt_commitment_mismatch() {
     let mut input = accepted_input();
-    input.signer_a_receipt.output_package_commitments.clear();
+    let mut commitments = input.signer_a_receipt.output_package_commitments().to_vec();
+    commitments[0] = digest(0xfe);
+    input.signer_a_receipt = AuthenticatedSignerReceiptV1::new(
+        SignerReceiptVersion::V1,
+        Role::SignerA,
+        "role:signer-a:local:sha256-a",
+        transcript_digest_v1(&input.transcript).expect("transcript digest"),
+        input.context.root_share_epoch().clone(),
+        commitments,
+    )
+    .expect("well-shaped mismatched receipt");
 
     let err = verify_minimum_level_c_v1(input).expect_err("receipt mismatch should fail");
+
+    assert_eq!(
+        err.code(),
+        RouterAbDerivationErrorCode::PackageCommitmentMismatch
+    );
+}
+
+#[test]
+fn minimum_level_c_rejects_missing_signer_package() {
+    let mut input = accepted_input();
+    input
+        .client_packages
+        .retain(|package| package.header().envelope_kind() != EnvelopeKind::SignerBToClient);
+
+    let err = verify_minimum_level_c_v1(input).expect_err("missing package should fail");
+
+    assert_eq!(
+        err.code(),
+        RouterAbDerivationErrorCode::PackageCommitmentMismatch
+    );
+}
+
+#[test]
+fn minimum_level_c_rejects_duplicate_signer_package() {
+    let mut input = accepted_input();
+    input.client_packages[1] = input.client_packages[0].clone();
+
+    let err = verify_minimum_level_c_v1(input).expect_err("duplicate package should fail");
 
     assert_eq!(
         err.code(),

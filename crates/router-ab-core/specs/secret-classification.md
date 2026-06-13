@@ -43,23 +43,23 @@ and formal verification.
 
 ## Encrypted Sensitive Fields
 
-- signer input ciphertext
+- deriver input ciphertext
 - A/B coordination ciphertext
 - client delivery ciphertext
-- relayer delivery ciphertext
+- SigningWorker delivery ciphertext
 
 Only headers, digests, lengths, and commitments are loggable.
 
 ## Role-Local Secrets
 
-Signer A:
+Deriver A:
 
 - `root_a`
 - `prf_share_a`
 - A-side output shares
 - A-side private authentication key
 
-Signer B:
+Deriver B:
 
 - `root_b`
 - `prf_share_b`
@@ -76,10 +76,10 @@ Client:
 - client decryption key
 - client-output partials
 
-Relayer:
+SigningWorker:
 
-- relayer decryption key
-- relayer-output partials
+- SigningWorker decryption key
+- SigningWorker-output partials
 
 ## Recipient Secrets
 
@@ -89,15 +89,15 @@ Client recipient secrets:
 - client-output shares
 - opened `x_client_base`
 
-Relayer recipient secrets:
+SigningWorker recipient secrets:
 
-- decrypted relayer package plaintext
-- relayer-output shares
+- decrypted SigningWorker package plaintext
+- SigningWorker-output shares
 - opened `x_relayer_base`
 
 ## Forbidden Joined Secrets
 
-These values must never be materialized by Router, Signer A, Signer B, or
+These values must never be materialized by Router, Deriver A, Deriver B, or
 shared server-side code:
 
 - joined `d`

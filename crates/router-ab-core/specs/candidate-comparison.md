@@ -8,7 +8,7 @@ The Phase 0A side-by-side evidence record is
 
 ## Candidate 1: MPC Threshold PRF
 
-Each signer holds a role-specific PRF share. A/B evaluate partials over the
+Each deriver holds a role-specific PRF share. A/B evaluate partials over the
 same canonical context and transcript binding. The protocol combines verified
 partials into output material scoped to the requested recipient.
 
@@ -16,7 +16,7 @@ Current answers:
 
 - Proof format: reuse `threshold-prf` fixed-width partial, share commitment,
   and DLEQ proof wires through a Router/A/B adapter.
-- Purpose binding: `MpcPrfPurposeBindingPlanV1` defines signer-neutral
+- Purpose binding: `MpcPrfPurposeBindingPlanV1` defines deriver-neutral
   context bytes for `router-ab/x_client_base/v1` and
   `router-ab/x_relayer_base/v1`.
 - Combiner placement: final recipient combines plaintext partials. Router sees
@@ -46,7 +46,7 @@ Current answers:
 - Refresh: new epoch creates a new verified output relation. Preserving refresh
   is unavailable in the current split-root adapter.
 - Minimum Level C: protects transcript and delivery binding; it does not prove
-  output-share correctness or prevent signer bias by itself.
+  output-share correctness or prevent deriver bias by itself.
 - Stronger path: public-share-binding or address verification must catch biased
   output relations before activation.
 - A/B coordination: no direct A/B coordination messages in the basic
@@ -56,7 +56,7 @@ Current answers:
 
 | Dimension | Candidate A: MPC Threshold PRF | Candidate B: Split Root |
 | --- | --- | --- |
-| Round trips, adapter model | Router to A/B, signer outputs to recipients; no direct A/B coordination; one Router-facing client request in the Router design | Router to A/B, signer outputs to recipients; no direct A/B coordination; one Router-facing client request in the Router design |
+| Round trips, adapter model | Router to A/B, deriver outputs to recipients; no direct A/B coordination; one Router-facing client request in the Router design | Router to A/B, deriver outputs to recipients; no direct A/B coordination; one Router-facing client request in the Router design |
 | Cryptographic dependency | Reuses `threshold-prf` Ristretto/Shamir/DLEQ internals with Router/A/B purpose-label compatibility | Implements SHA-512 hash-to-scalar and Curve25519 scalar addition for measurement; root generation and bias resistance still require review |
 | Correctness hardening | DLEQ proof path already exists in `threshold-prf`; adapter proof plan is typed | Needs root-generation and anti-bias mechanism; likely needs public-share-binding or address verification gate |
 | Refresh | Threshold refresh can preserve the logical PRF key in the underlying model; Router/A/B adapter still needs purpose binding | Refresh creates a new verified output relation; preserving refresh is unavailable |

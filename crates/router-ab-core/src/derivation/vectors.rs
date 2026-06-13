@@ -3,18 +3,14 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::derivation::candidate_mpc_prf::{
-    evaluate_mpc_threshold_prf_candidate, MpcPrfCandidateInput, MpcPrfDleqProofWireV1,
-    MpcPrfOutputRequestV1, MpcPrfPartialProofBundleV1, MpcPrfPartialVerificationInputV1,
-    MpcPrfSignerPartialInputV1, MpcPrfSuiteId,
+    MpcPrfDleqProofWireV1, MpcPrfOutputRequestV1, MpcPrfPartialProofBundleV1,
+    MpcPrfPartialVerificationInputV1, MpcPrfSignerPartialInputV1, MpcPrfSuiteId,
 };
 use crate::derivation::candidate_mpc_prf_threshold_backend::{
     combine_mpc_prf_proof_bundles_with_threshold_backend_v1,
     evaluate_mpc_prf_signer_partial_with_threshold_backend_v1,
     verify_mpc_prf_partial_with_threshold_backend_v1, MpcPrfSigningRootShareWireV1,
     MpcPrfThresholdCombineInputV1, MpcPrfThresholdSignerInputV1,
-};
-use crate::derivation::candidate_split_root::{
-    evaluate_split_root_candidate, SplitRootCandidateInput,
 };
 use crate::derivation::context::{
     context_digest_v1, AccountScope, CandidateId, CorrectnessLevel, DerivationContext, RequestKind,
@@ -283,9 +279,9 @@ pub fn generated_contract_vectors_v1() -> RouterAbDerivationResult<ContractVecto
 
     let envelope = EnvelopeVectorV1 {
         case_id: "envelope_a_to_client_v1".to_owned(),
-        aad_hex: hex::encode(envelope_aad_v1(&envelope_package.header)?),
+        aad_hex: hex::encode(envelope_aad_v1(envelope_package.header())?),
         package_commitment_hex: digest_hex(package_commitment_v1(&envelope_package)?),
-        idempotency_key_hex: digest_hex(envelope_idempotency_key_v1(&envelope_package.header)?),
+        idempotency_key_hex: digest_hex(envelope_idempotency_key_v1(envelope_package.header())?),
     };
 
     let minimum_level_c_cases = vec![
@@ -511,14 +507,17 @@ fn sample_context_transcript_vector(
 ) -> RouterAbDerivationResult<ContextTranscriptVectorV1> {
     Ok(ContextTranscriptVectorV1 {
         case_id: case_id.to_owned(),
-        candidate_id: context.candidate_id,
-        request_kind: context.request_kind,
-        root_share_epoch: context.root_share_epoch.as_str().to_owned(),
+        candidate_id: context.candidate_id(),
+        request_kind: context.request_kind(),
+        root_share_epoch: context.root_share_epoch().as_str().to_owned(),
         context_digest_hex: digest_hex(context_digest_v1(&context)?),
         transcript_digest_hex: digest_hex(transcript_digest_v1(&transcript)?),
-        signer_set_id: transcript.signer_set.signer_set_id,
-        quorum_policy: transcript.signer_set.quorum_policy.as_canonical_string(),
-        selected_relayer_id: transcript.selected_relayer_id,
+        signer_set_id: transcript.signer_set().signer_set_id().to_owned(),
+        quorum_policy: transcript
+            .signer_set()
+            .quorum_policy()
+            .as_canonical_string(),
+        selected_relayer_id: transcript.selected_relayer_id().to_owned(),
     })
 }
 
@@ -578,19 +577,17 @@ fn expected_candidate_gate_error(
     transcript: TranscriptBinding,
 ) -> RouterAbDerivationResult<RouterAbDerivationErrorCode> {
     let result = match candidate_id {
-        CandidateId::SplitRootDerivationV1 => {
-            evaluate_split_root_candidate(&SplitRootCandidateInput {
-                context,
-                transcript,
-            })
-            .map(|_| ())
-        }
+        CandidateId::SplitRootDerivationV1 => disabled_candidate_gate_error(
+            context,
+            transcript,
+            "split_root_derivation_v1 candidate-level output gate is disabled; selected path is mpc_threshold_prf_v1",
+        ),
         CandidateId::MpcThresholdPrfV1 => {
-            evaluate_mpc_threshold_prf_candidate(&MpcPrfCandidateInput {
+            disabled_candidate_gate_error(
                 context,
                 transcript,
-            })
-            .map(|_| ())
+                "mpc_threshold_prf_v1 candidate-level output gate is disabled; use proof-bundle backend APIs",
+            )
         }
     };
 
@@ -601,6 +598,19 @@ fn expected_candidate_gate_error(
         )),
         Err(err) => Ok(err.code()),
     }
+}
+
+fn disabled_candidate_gate_error(
+    context: DerivationContext,
+    transcript: TranscriptBinding,
+    message: &'static str,
+) -> RouterAbDerivationResult<()> {
+    context.validate()?;
+    transcript.validate()?;
+    Err(RouterAbDerivationError::new(
+        RouterAbDerivationErrorCode::NotImplemented,
+        message,
+    ))
 }
 
 fn candidate_vector_epoch(request_kind: RequestKind) -> &'static str {
@@ -681,8 +691,15 @@ fn sample_mpc_threshold_prf_backend_rejection_vectors(
         MpcPrfDleqProofWireV1::new(vec![0; 64])?,
     )?;
 
-    let mut mismatched_transcript = transcript.clone();
-    mismatched_transcript.router_id = "role:router:local:sha256-other".to_owned();
+    let mismatched_transcript = TranscriptBinding::new(
+        context.clone(),
+        "role:router:local:sha256-other",
+        transcript.signer_set().clone(),
+        transcript.selected_relayer_id(),
+        transcript.selected_relayer_recipient_encryption_key(),
+        transcript.client_id(),
+        transcript.client_ephemeral_public_key(),
+    )?;
 
     let mut wrong_epoch_signer = mpc_signer_input(
         context.clone(),
@@ -833,10 +850,10 @@ fn mpc_signer_input(
     MpcPrfSignerPartialInputV1::new(
         context.clone(),
         transcript,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512V1,
+        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         signer_role,
         signer_identity,
-        context.root_share_epoch,
+        context.root_share_epoch().clone(),
         vec![
             mpc_output_request(OpenedShareKind::XClientBase)?,
             mpc_output_request(OpenedShareKind::XRelayerBase)?,
@@ -863,8 +880,8 @@ fn fixed_mpc_signing_root_share_wire(
     signer_role: Role,
 ) -> RouterAbDerivationResult<MpcPrfSigningRootShareWireV1> {
     let (share_id, scalar_byte) = match signer_role {
-        Role::SignerA => (1u8, 11u8),
-        Role::SignerB => (3u8, 29u8),
+        Role::SignerA => (1u16, 11u8),
+        Role::SignerB => (3u16, 29u8),
         _ => {
             return Err(RouterAbDerivationError::new(
                 RouterAbDerivationErrorCode::SignerIdentityMismatch,
@@ -872,9 +889,9 @@ fn fixed_mpc_signing_root_share_wire(
             ));
         }
     };
-    let mut bytes = vec![0u8; 33];
-    bytes[0] = share_id;
-    bytes[1] = scalar_byte;
+    let mut bytes = vec![0u8; 34];
+    bytes[0..2].copy_from_slice(&share_id.to_be_bytes());
+    bytes[2] = scalar_byte;
     MpcPrfSigningRootShareWireV1::new(bytes)
 }
 
@@ -889,34 +906,33 @@ fn sample_delivery_package(
     content_kind: ContentKind,
     ciphertext_digest: PublicDigest32,
 ) -> RouterAbDerivationResult<DeliveryPackageV1> {
-    let package = DeliveryPackageV1 {
-        header: EnvelopeHeaderV1 {
-            envelope_version: EnvelopeVersion::V1,
-            envelope_kind,
-            candidate_id: context.candidate_id,
-            request_kind: context.request_kind,
-            correctness_level: context.correctness_level,
-            ceremony_id: context.ceremony_id.clone(),
-            root_share_epoch: context.root_share_epoch.clone(),
-            transcript_digest,
-            sender_role,
-            sender_identity: sender_identity.to_owned(),
-            recipient_role,
-            recipient_identity: recipient_identity.to_owned(),
-            content_kind,
-            ciphertext_digest,
-            ciphertext_len: 128,
-        },
-    };
-    package.validate()?;
-    Ok(package)
+    DeliveryPackageV1::new(EnvelopeHeaderV1::new(
+        EnvelopeVersion::V1,
+        envelope_kind,
+        context.candidate_id(),
+        context.request_kind(),
+        context.correctness_level(),
+        context.ceremony_id().to_owned(),
+        context.root_share_epoch().clone(),
+        transcript_digest,
+        sender_role,
+        sender_identity,
+        recipient_role,
+        recipient_identity,
+        content_kind,
+        ciphertext_digest,
+        128,
+    )?)
 }
 
 fn sample_minimum_level_c_evidence(
     context: DerivationContext,
     transcript: TranscriptBinding,
 ) -> RouterAbDerivationResult<MinimumLevelCEvidenceV1> {
-    Ok(verify_minimum_level_c_v1(sample_minimum_level_c_input(context, transcript)?)?.evidence)
+    Ok(
+        verify_minimum_level_c_v1(sample_minimum_level_c_input(context, transcript)?)?
+            .into_evidence(),
+    )
 }
 
 fn sample_minimum_level_c_input(
@@ -973,28 +989,28 @@ fn sample_minimum_level_c_input(
     let input = MinimumLevelCVerificationInputV1 {
         context: context.clone(),
         transcript,
-        signer_a_receipt: AuthenticatedSignerReceiptV1 {
-            receipt_version: SignerReceiptVersion::V1,
-            signer_role: Role::SignerA,
-            signer_identity: "role:signer-a:local:sha256-a".to_owned(),
-            accepted_transcript_digest: transcript_digest,
-            accepted_root_share_epoch: context.root_share_epoch.clone(),
-            output_package_commitments: vec![
+        signer_a_receipt: AuthenticatedSignerReceiptV1::new(
+            SignerReceiptVersion::V1,
+            Role::SignerA,
+            "role:signer-a:local:sha256-a",
+            transcript_digest,
+            context.root_share_epoch().clone(),
+            vec![
                 package_commitment_v1(&a_client)?,
                 package_commitment_v1(&a_relayer)?,
             ],
-        },
-        signer_b_receipt: AuthenticatedSignerReceiptV1 {
-            receipt_version: SignerReceiptVersion::V1,
-            signer_role: Role::SignerB,
-            signer_identity: "role:signer-b:local:sha256-b".to_owned(),
-            accepted_transcript_digest: transcript_digest,
-            accepted_root_share_epoch: context.root_share_epoch.clone(),
-            output_package_commitments: vec![
+        )?,
+        signer_b_receipt: AuthenticatedSignerReceiptV1::new(
+            SignerReceiptVersion::V1,
+            Role::SignerB,
+            "role:signer-b:local:sha256-b",
+            transcript_digest,
+            context.root_share_epoch().clone(),
+            vec![
                 package_commitment_v1(&b_client)?,
                 package_commitment_v1(&b_relayer)?,
             ],
-        },
+        )?,
         client_packages: vec![a_client, b_client],
         relayer_packages: vec![a_relayer, b_relayer],
         replay_cache_decision: AcceptedReplayCacheDecisionV1 {
@@ -1017,33 +1033,84 @@ fn sample_rejection_vectors(
         deterministic_public_digest("minimum-level-c/replay-mismatch", 0);
 
     let mut recipient_mismatch = sample_minimum_level_c_input(context.clone(), transcript.clone())?;
-    recipient_mismatch.client_packages[0]
-        .header
-        .recipient_identity = "role:client:local:sha256-wrong".to_owned();
+    recipient_mismatch.client_packages[0] = sample_delivery_package(
+        context,
+        transcript_digest_v1(transcript)?,
+        EnvelopeKind::SignerAToClient,
+        Role::SignerA,
+        "role:signer-a:local:sha256-a",
+        Role::Client,
+        "role:client:local:sha256-wrong",
+        ContentKind::ClientOutputShare,
+        deterministic_public_digest("minimum-level-c/a-client-ciphertext", 0),
+    )?;
 
     let mut commitment_mismatch =
         sample_minimum_level_c_input(context.clone(), transcript.clone())?;
-    commitment_mismatch
+    let mut mismatched_commitments = commitment_mismatch
         .signer_a_receipt
-        .output_package_commitments[0] =
+        .output_package_commitments()
+        .to_vec();
+    mismatched_commitments[0] =
         deterministic_public_digest("minimum-level-c/commitment-mismatch", 0);
+    commitment_mismatch.signer_a_receipt = AuthenticatedSignerReceiptV1::new(
+        SignerReceiptVersion::V1,
+        Role::SignerA,
+        "role:signer-a:local:sha256-a",
+        transcript_digest_v1(transcript)?,
+        context.root_share_epoch().clone(),
+        mismatched_commitments,
+    )?;
 
     let mut signer_identity_mismatch =
         sample_minimum_level_c_input(context.clone(), transcript.clone())?;
-    signer_identity_mismatch.signer_a_receipt.signer_identity =
-        "role:signer-a:local:sha256-wrong".to_owned();
+    let signer_identity_commitments = signer_identity_mismatch
+        .signer_a_receipt
+        .output_package_commitments()
+        .to_vec();
+    signer_identity_mismatch.signer_a_receipt = AuthenticatedSignerReceiptV1::new(
+        SignerReceiptVersion::V1,
+        Role::SignerA,
+        "role:signer-a:local:sha256-wrong",
+        transcript_digest_v1(transcript)?,
+        context.root_share_epoch().clone(),
+        signer_identity_commitments,
+    )?;
 
     let mut root_epoch_mismatch =
         sample_minimum_level_c_input(context.clone(), transcript.clone())?;
-    root_epoch_mismatch
+    let root_epoch_commitments = root_epoch_mismatch
         .signer_a_receipt
-        .accepted_root_share_epoch = RootShareEpoch::new("epoch-2")?;
+        .output_package_commitments()
+        .to_vec();
+    root_epoch_mismatch.signer_a_receipt = AuthenticatedSignerReceiptV1::new(
+        SignerReceiptVersion::V1,
+        Role::SignerA,
+        "role:signer-a:local:sha256-a",
+        transcript_digest_v1(transcript)?,
+        RootShareEpoch::new("epoch-2")?,
+        root_epoch_commitments,
+    )?;
 
-    let mut malformed_envelope = sample_minimum_level_c_input(context.clone(), transcript.clone())?;
-    malformed_envelope.client_packages[0]
-        .header
-        .sender_identity
-        .clear();
+    let mut package_context_mismatch =
+        sample_minimum_level_c_input(context.clone(), transcript.clone())?;
+    package_context_mismatch.client_packages[0] = DeliveryPackageV1::new(EnvelopeHeaderV1::new(
+        EnvelopeVersion::V1,
+        EnvelopeKind::SignerAToClient,
+        context.candidate_id(),
+        RequestKind::Export,
+        context.correctness_level(),
+        context.ceremony_id().to_owned(),
+        context.root_share_epoch().clone(),
+        transcript_digest_v1(transcript)?,
+        Role::SignerA,
+        "role:signer-a:local:sha256-a",
+        Role::Client,
+        "role:client:local:sha256-c",
+        ContentKind::ClientOutputShare,
+        deterministic_public_digest("minimum-level-c/a-client-ciphertext", 0),
+        128,
+    )?)?;
 
     let duplicate_signer_identity = SignerSetBinding::v1_all2(
         "signer-set-v1",
@@ -1053,10 +1120,10 @@ fn sample_rejection_vectors(
         "key-epoch-b-1",
     );
 
-    let non_all2_signer_set = SignerSetBinding {
-        signer_set_id: "signer-set-v1".to_owned(),
-        quorum_policy: QuorumPolicy::All { signer_count: 3 },
-        signers: vec![
+    let non_all2_signer_set = SignerSetBinding::from_indexed_v1(
+        "signer-set-v1",
+        QuorumPolicy::All { signer_count: 3 },
+        vec![
             IndexedSignerBinding::new(
                 0,
                 Role::SignerA,
@@ -1070,21 +1137,12 @@ fn sample_rejection_vectors(
                 "key-epoch-b-1",
             )?,
         ],
-    };
-    let non_all2_transcript = TranscriptBinding::new(
-        context.clone(),
-        "role:router:local:sha256-router",
-        non_all2_signer_set,
-        "role:relayer:local:sha256-r",
-        VECTOR_RELAYER_RECIPIENT_ENCRYPTION_KEY,
-        "role:client:local:sha256-c",
-        "x25519:client-ephemeral-public-key",
     );
     let refresh_same_epoch = RefreshScope {
-        old_root_share_epoch: context.root_share_epoch.clone(),
-        new_root_share_epoch: context.root_share_epoch.clone(),
+        old_root_share_epoch: context.root_share_epoch().clone(),
+        new_root_share_epoch: context.root_share_epoch().clone(),
         refresh_id: "refresh-1".to_owned(),
-        account_scope: context.account_scope.clone(),
+        account_scope: context.account_scope().clone(),
         old_signer_set_id: "signer-set-v1".to_owned(),
         new_signer_set_id: "signer-set-v2".to_owned(),
         expected_router_id: "role:router:local:sha256-router".to_owned(),
@@ -1115,14 +1173,14 @@ fn sample_rejection_vectors(
             verify_minimum_level_c_v1(root_epoch_mismatch),
         )?,
         expect_rejection_code(
-            "malformed_envelope_empty_sender_identity_v1",
-            verify_minimum_level_c_v1(malformed_envelope),
+            "minimum_level_c_package_context_mismatch_v1",
+            verify_minimum_level_c_v1(package_context_mismatch),
         )?,
         expect_rejection_code(
             "transcript_duplicate_signer_identity_v1",
             duplicate_signer_identity,
         )?,
-        expect_rejection_code("transcript_non_all2_quorum_v1", non_all2_transcript)?,
+        expect_rejection_code("transcript_non_all2_quorum_v1", non_all2_signer_set)?,
         expect_rejection_code(
             "refresh_same_old_new_epoch_v1",
             refresh_same_epoch.validate(),

@@ -3,10 +3,10 @@ use vstd::prelude::*;
 verus! {
     pub enum RoleModel {
         Router,
-        SignerA,
-        SignerB,
+        DeriverA,
+        DeriverB,
         Client,
-        Relayer,
+        SigningWorker,
     }
 
     pub enum OpenedValueKindModel {
@@ -15,13 +15,8 @@ verus! {
     }
 
     pub enum MpcPrfPartialOwnerModel {
-        SignerA,
-        SignerB,
-    }
-
-    pub enum SplitRootShareOwnerModel {
-        SignerA,
-        SignerB,
+        DeriverA,
+        DeriverB,
     }
 
     pub enum ForbiddenJoinedStateModel {
@@ -32,10 +27,26 @@ verus! {
         JoinedTauRelayer,
     }
 
+    pub enum RoleViewEventModel {
+        PublicMetadata,
+        Ciphertext,
+        DeriverAMpcPrfPartialXClientBase,
+        DeriverAMpcPrfPartialXRelayerBase,
+        DeriverBMpcPrfPartialXClientBase,
+        DeriverBMpcPrfPartialXRelayerBase,
+        ClientOpenedXClientBase,
+        SigningWorkerOpenedXRelayerBase,
+        JoinedD,
+        JoinedA,
+        JoinedXClientBase,
+        JoinedYRelayer,
+        JoinedTauRelayer,
+    }
+
     pub open spec fn role_may_open(role: RoleModel, opened: OpenedValueKindModel) -> bool {
         match (role, opened) {
             (RoleModel::Client, OpenedValueKindModel::XClientBase) => true,
-            (RoleModel::Relayer, OpenedValueKindModel::XRelayerBase) => true,
+            (RoleModel::SigningWorker, OpenedValueKindModel::XRelayerBase) => true,
             _ => false,
         }
     }
@@ -46,35 +57,53 @@ verus! {
         opened: OpenedValueKindModel,
     ) -> bool {
         match (role, owner, opened) {
-            (RoleModel::SignerA, MpcPrfPartialOwnerModel::SignerA, _) => true,
-            (RoleModel::SignerB, MpcPrfPartialOwnerModel::SignerB, _) => true,
+            (RoleModel::DeriverA, MpcPrfPartialOwnerModel::DeriverA, _) => true,
+            (RoleModel::DeriverB, MpcPrfPartialOwnerModel::DeriverB, _) => true,
             (RoleModel::Client, _, OpenedValueKindModel::XClientBase) => true,
-            (RoleModel::Relayer, _, OpenedValueKindModel::XRelayerBase) => true,
+            (RoleModel::SigningWorker, _, OpenedValueKindModel::XRelayerBase) => true,
             _ => false,
         }
     }
 
-    pub open spec fn role_may_observe_split_root_output_share(
-        role: RoleModel,
-        owner: SplitRootShareOwnerModel,
-        opened: OpenedValueKindModel,
+    pub open spec fn event_contains_forbidden_joined_state(
+        event: RoleViewEventModel,
+        state: ForbiddenJoinedStateModel,
     ) -> bool {
-        match (role, owner, opened) {
-            (RoleModel::SignerA, SplitRootShareOwnerModel::SignerA, _) => true,
-            (RoleModel::SignerB, SplitRootShareOwnerModel::SignerB, _) => true,
-            (RoleModel::Client, _, OpenedValueKindModel::XClientBase) => true,
-            (RoleModel::Relayer, _, OpenedValueKindModel::XRelayerBase) => true,
+        match (event, state) {
+            (RoleViewEventModel::JoinedD, ForbiddenJoinedStateModel::JoinedD) => true,
+            (RoleViewEventModel::JoinedA, ForbiddenJoinedStateModel::JoinedA) => true,
+            (
+                RoleViewEventModel::JoinedXClientBase,
+                ForbiddenJoinedStateModel::JoinedXClientBase,
+            ) => true,
+            (
+                RoleViewEventModel::JoinedYRelayer,
+                ForbiddenJoinedStateModel::JoinedYRelayer,
+            ) => true,
+            (
+                RoleViewEventModel::JoinedTauRelayer,
+                ForbiddenJoinedStateModel::JoinedTauRelayer,
+            ) => true,
             _ => false,
         }
     }
 
-    pub open spec fn role_may_observe_split_root_secret(
+    pub open spec fn role_may_observe_event(
         role: RoleModel,
-        owner: SplitRootShareOwnerModel,
+        event: RoleViewEventModel,
     ) -> bool {
-        match (role, owner) {
-            (RoleModel::SignerA, SplitRootShareOwnerModel::SignerA) => true,
-            (RoleModel::SignerB, SplitRootShareOwnerModel::SignerB) => true,
+        match (role, event) {
+            (_, RoleViewEventModel::PublicMetadata) => true,
+            (_, RoleViewEventModel::Ciphertext) => true,
+            (RoleModel::DeriverA, RoleViewEventModel::DeriverAMpcPrfPartialXClientBase) => true,
+            (RoleModel::DeriverA, RoleViewEventModel::DeriverAMpcPrfPartialXRelayerBase) => true,
+            (RoleModel::DeriverB, RoleViewEventModel::DeriverBMpcPrfPartialXClientBase) => true,
+            (RoleModel::DeriverB, RoleViewEventModel::DeriverBMpcPrfPartialXRelayerBase) => true,
+            (RoleModel::Client, RoleViewEventModel::ClientOpenedXClientBase) => true,
+            (
+                RoleModel::SigningWorker,
+                RoleViewEventModel::SigningWorkerOpenedXRelayerBase,
+            ) => true,
             _ => false,
         }
     }
@@ -82,18 +111,9 @@ verus! {
     pub open spec fn single_role_view_contains_forbidden_joined_state(
         role: RoleModel,
         state: ForbiddenJoinedStateModel,
+        event: RoleViewEventModel,
     ) -> bool {
-        match (role, state) {
-            (RoleModel::Client, ForbiddenJoinedStateModel::JoinedYRelayer) => false,
-            (RoleModel::Client, ForbiddenJoinedStateModel::JoinedTauRelayer) => false,
-            (RoleModel::Router, _) => false,
-            (RoleModel::SignerA, _) => false,
-            (RoleModel::SignerB, _) => false,
-            (RoleModel::Relayer, ForbiddenJoinedStateModel::JoinedD) => false,
-            (RoleModel::Relayer, ForbiddenJoinedStateModel::JoinedA) => false,
-            (RoleModel::Relayer, ForbiddenJoinedStateModel::JoinedXClientBase) => false,
-            _ => false,
-        }
+        role_may_observe_event(role, event) && event_contains_forbidden_joined_state(event, state)
     }
 
     proof fn client_opens_only_x_client_base(opened: OpenedValueKindModel)
@@ -102,8 +122,8 @@ verus! {
     {
     }
 
-    proof fn relayer_opens_only_x_relayer_base(opened: OpenedValueKindModel)
-        requires role_may_open(RoleModel::Relayer, opened)
+    proof fn signing_worker_opens_only_x_relayer_base(opened: OpenedValueKindModel)
+        requires role_may_open(RoleModel::SigningWorker, opened)
         ensures opened == OpenedValueKindModel::XRelayerBase
     {
     }
@@ -125,43 +145,47 @@ verus! {
     {
     }
 
-    proof fn relayer_observes_only_x_relayer_base_partials(
+    proof fn signing_worker_observes_only_x_relayer_base_partials(
         owner: MpcPrfPartialOwnerModel,
         opened: OpenedValueKindModel,
     )
-        requires role_may_observe_mpc_prf_partial(RoleModel::Relayer, owner, opened)
+        requires role_may_observe_mpc_prf_partial(RoleModel::SigningWorker, owner, opened)
         ensures opened == OpenedValueKindModel::XRelayerBase
     {
     }
 
-    proof fn router_observes_no_split_root_secret(owner: SplitRootShareOwnerModel)
-        ensures !role_may_observe_split_root_secret(RoleModel::Router, owner)
+    proof fn forbidden_joined_state_events_are_unobservable(
+        role: RoleModel,
+        state: ForbiddenJoinedStateModel,
+        event: RoleViewEventModel,
+    )
+        requires event_contains_forbidden_joined_state(event, state)
+        ensures !role_may_observe_event(role, event)
     {
     }
 
-    proof fn router_observes_no_split_root_plaintext_output_share(
-        owner: SplitRootShareOwnerModel,
-        opened: OpenedValueKindModel,
+    proof fn server_side_role_event_excludes_forbidden_joined_state(
+        role: RoleModel,
+        state: ForbiddenJoinedStateModel,
+        event: RoleViewEventModel,
     )
-        ensures !role_may_observe_split_root_output_share(RoleModel::Router, owner, opened)
+        requires
+            role == RoleModel::Router || role == RoleModel::DeriverA ||
+                role == RoleModel::DeriverB || role == RoleModel::SigningWorker
+        ensures !single_role_view_contains_forbidden_joined_state(role, state, event)
     {
     }
 
-    proof fn client_observes_only_x_client_base_split_root_shares(
-        owner: SplitRootShareOwnerModel,
-        opened: OpenedValueKindModel,
+    proof fn client_view_excludes_forbidden_joined_material(
+        state: ForbiddenJoinedStateModel,
+        event: RoleViewEventModel,
     )
-        requires role_may_observe_split_root_output_share(RoleModel::Client, owner, opened)
-        ensures opened == OpenedValueKindModel::XClientBase
-    {
-    }
-
-    proof fn relayer_observes_only_x_relayer_base_split_root_shares(
-        owner: SplitRootShareOwnerModel,
-        opened: OpenedValueKindModel,
-    )
-        requires role_may_observe_split_root_output_share(RoleModel::Relayer, owner, opened)
-        ensures opened == OpenedValueKindModel::XRelayerBase
+        requires
+            state == ForbiddenJoinedStateModel::JoinedD ||
+                state == ForbiddenJoinedStateModel::JoinedA ||
+            state == ForbiddenJoinedStateModel::JoinedYRelayer ||
+                state == ForbiddenJoinedStateModel::JoinedTauRelayer
+        ensures !single_role_view_contains_forbidden_joined_state(RoleModel::Client, state, event)
     {
     }
 }

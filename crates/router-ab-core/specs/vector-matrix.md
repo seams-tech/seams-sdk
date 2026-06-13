@@ -59,11 +59,11 @@ Required cases:
 - changed root epoch changes digest
 - changed ceremony id changes digest
 - changed role identity changes digest
-- changed signer-set id changes digest
-- changed signer index changes digest
-- changed signer key epoch changes digest
+- changed deriver-set id changes digest
+- changed deriver index changes digest
+- changed deriver key epoch changes digest
 - changed quorum policy changes digest
-- changed selected relayer identity changes digest
+- changed selected SigningWorker identity changes digest
 - changed client identity changes digest
 - changed client ephemeral public key changes digest
 - empty required field rejection
@@ -74,8 +74,8 @@ Required cases:
 
 Required cases:
 
-- valid Router-to-A signer input AAD
-- valid Router-to-B signer input AAD
+- valid Router-to-A deriver input AAD
+- valid Router-to-B deriver input AAD
 - valid A-to-client package commitment
 - valid B-to-client package commitment
 - valid A-to-relayer package commitment
@@ -95,9 +95,9 @@ Required acceptance cases:
 
 Required rejection cases:
 
-- duplicate Signer A/B identity
-- Signer A receipt under Signer B identity
-- Signer B receipt under Signer A identity
+- duplicate Deriver A/B identity
+- Deriver A receipt under Deriver B identity
+- Deriver B receipt under Deriver A identity
 - root epoch mismatch
 - transcript mismatch
 - recipient mismatch
@@ -117,9 +117,9 @@ For each candidate:
 - registration output share generation
 - export output share generation
 - refresh output share generation or explicit unsupported-refresh vector
-- malformed signer input
+- malformed deriver input
 - malformed recipient package
-- signer identity mismatch
+- deriver identity mismatch
 - epoch mismatch
 - candidate-specific proof acceptance
 - candidate-specific proof rejection

@@ -22,9 +22,6 @@ use crate::protocol::identity::{
     RelayerIdentityV1, RoleEnvelopeAssignmentV1, SignerIdentityV1, SignerSetPolicyV1, SignerSetV1,
 };
 use crate::protocol::lifecycle::LifecycleScopeV1;
-use crate::protocol::output::{
-    decode_recipient_output_ciphertext_v1, ClientOutputPackageV1, RelayerOutputPackageV1,
-};
 use crate::protocol::wire::CanonicalWireBytesV1;
 
 const ROUTER_TO_SIGNER_PAYLOAD_VERSION_V1: &[u8] =
@@ -34,9 +31,6 @@ const AB_PEER_MESSAGE_AUTHENTICATION_INPUT_VERSION_V1: &[u8] =
     b"router-ab-protocol/ab-peer-message-authentication-input/v1";
 const AB_DERIVATION_PROOF_BATCH_PAYLOAD_VERSION_V1: &[u8] =
     b"router-ab-protocol/ab-derivation-proof-batch-payload/v1";
-const SIGNER_RESPONSE_PAYLOAD_VERSION_V1: &[u8] = b"router-ab-protocol/signer-response-payload/v1";
-const RELAYER_ACTIVATION_PAYLOAD_VERSION_V1: &[u8] =
-    b"router-ab-protocol/relayer-activation-payload/v1";
 const RECIPIENT_PROOF_BUNDLE_PAYLOAD_VERSION_V1: &[u8] =
     b"router-ab-protocol/recipient-proof-bundle-payload/v1";
 
@@ -407,6 +401,108 @@ impl RouterToSignerPayloadV1 {
     /// Returns the SHA-256 digest of canonical bytes.
     pub fn digest(&self) -> PublicDigest32 {
         router_to_signer_payload_digest_v1(self)
+    }
+}
+
+/// Public context the SigningWorker needs to activate its recipient output.
+///
+/// This is derived from the Router-to-deriver payload but intentionally omits the
+/// role encrypted-envelope assignment. SigningWorker activation needs the public
+/// transcript context, signer set, and transcript digest, not deriver envelope
+/// ciphertext.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SigningWorkerActivationContextV1 {
+    /// Lifecycle scope bound into the derivation transcript.
+    pub lifecycle: LifecycleScopeV1,
+    /// Deriver set and selected SigningWorker identity.
+    pub signer_set: SignerSetV1,
+    /// Public transcript metadata.
+    pub transcript_metadata: RouterTranscriptMetadataV1,
+    /// Public transcript digest reconstructed from the context.
+    pub transcript_digest: PublicDigest32,
+}
+
+impl SigningWorkerActivationContextV1 {
+    /// Creates a validated SigningWorker activation context.
+    pub fn new(
+        lifecycle: LifecycleScopeV1,
+        signer_set: SignerSetV1,
+        transcript_metadata: RouterTranscriptMetadataV1,
+        transcript_digest: PublicDigest32,
+    ) -> RouterAbProtocolResult<Self> {
+        let context = Self {
+            lifecycle,
+            signer_set,
+            transcript_metadata,
+            transcript_digest,
+        };
+        context.validate()?;
+        Ok(context)
+    }
+
+    /// Builds the public activation context from a validated Router-to-deriver payload.
+    pub fn from_router_payload(payload: &RouterToSignerPayloadV1) -> RouterAbProtocolResult<Self> {
+        payload.validate()?;
+        Self::new(
+            payload.lifecycle().clone(),
+            payload.signer_set().clone(),
+            payload.transcript_metadata().clone(),
+            payload.transcript_digest(),
+        )
+    }
+
+    /// Validates lifecycle, signer-set, and transcript digest consistency.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.lifecycle.validate()?;
+        self.signer_set.validate()?;
+        self.transcript_metadata.validate()?;
+        if self.lifecycle.signer_set_id != self.signer_set.signer_set_id {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "SigningWorker activation lifecycle signer-set id does not match signer set",
+            ));
+        }
+        if self.lifecycle.selected_relayer_id != self.signer_set.selected_relayer.relayer_id {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "SigningWorker activation selected worker does not match signer set",
+            ));
+        }
+        let expected_transcript_digest = router_transcript_digest_v1(
+            &self.lifecycle,
+            &self.signer_set,
+            &self.transcript_metadata,
+            CandidateId::MpcThresholdPrfV1,
+            CorrectnessLevel::MinimumLevelC,
+            self.lifecycle.root_share_epoch.clone(),
+        )?;
+        if self.transcript_digest != expected_transcript_digest {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "SigningWorker activation transcript digest does not match reconstructed transcript",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Returns the lifecycle scope.
+    pub fn lifecycle(&self) -> &LifecycleScopeV1 {
+        &self.lifecycle
+    }
+
+    /// Returns the signer set.
+    pub fn signer_set(&self) -> &SignerSetV1 {
+        &self.signer_set
+    }
+
+    /// Returns public transcript metadata.
+    pub fn transcript_metadata(&self) -> &RouterTranscriptMetadataV1 {
+        &self.transcript_metadata
+    }
+
+    /// Returns the transcript digest.
+    pub fn transcript_digest(&self) -> PublicDigest32 {
+        self.transcript_digest
     }
 }
 
@@ -824,116 +920,6 @@ impl AbPeerMessageVerifyingKeyV1 {
     }
 }
 
-/// Signer response payload before canonical transport encoding.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SignerResponsePayloadV1 {
-    /// Lifecycle id.
-    pub lifecycle_id: String,
-    /// Responding signer.
-    pub signer: SignerIdentityV1,
-    /// Transcript digest.
-    pub transcript_digest: PublicDigest32,
-    /// Client-targeted output package.
-    pub client_output: ClientOutputPackageV1,
-    /// Public response commitment.
-    pub response_commitment: PublicDigest32,
-}
-
-impl SignerResponsePayloadV1 {
-    /// Creates a validated signer response payload.
-    pub fn new(
-        lifecycle_id: impl Into<String>,
-        signer: SignerIdentityV1,
-        transcript_digest: PublicDigest32,
-        client_output: ClientOutputPackageV1,
-        response_commitment: PublicDigest32,
-    ) -> RouterAbProtocolResult<Self> {
-        let payload = Self {
-            lifecycle_id: lifecycle_id.into(),
-            signer,
-            transcript_digest,
-            client_output,
-            response_commitment,
-        };
-        payload.validate()?;
-        Ok(payload)
-    }
-
-    /// Validates signer response metadata.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_non_empty("lifecycle_id", &self.lifecycle_id)?;
-        self.signer.validate()?;
-        require_transcript_match(
-            self.transcript_digest,
-            self.client_output.transcript_digest(),
-            "client output transcript mismatch",
-        )
-    }
-
-    /// Returns canonical bytes for this payload.
-    pub fn canonical_bytes(&self) -> Vec<u8> {
-        encode_signer_response_payload_v1(self)
-    }
-
-    /// Returns the SHA-256 digest of canonical bytes.
-    pub fn digest(&self) -> PublicDigest32 {
-        signer_response_payload_digest_v1(self)
-    }
-}
-
-/// Relayer activation payload before canonical transport encoding.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RelayerActivationPayloadV1 {
-    /// Lifecycle id.
-    pub lifecycle_id: String,
-    /// Selected relayer identity.
-    pub relayer: RelayerIdentityV1,
-    /// Transcript digest.
-    pub transcript_digest: PublicDigest32,
-    /// Relayer-targeted output package.
-    pub relayer_output: RelayerOutputPackageV1,
-}
-
-impl RelayerActivationPayloadV1 {
-    /// Creates a validated relayer activation payload.
-    pub fn new(
-        lifecycle_id: impl Into<String>,
-        relayer: RelayerIdentityV1,
-        transcript_digest: PublicDigest32,
-        relayer_output: RelayerOutputPackageV1,
-    ) -> RouterAbProtocolResult<Self> {
-        let payload = Self {
-            lifecycle_id: lifecycle_id.into(),
-            relayer,
-            transcript_digest,
-            relayer_output,
-        };
-        payload.validate()?;
-        Ok(payload)
-    }
-
-    /// Validates relayer activation metadata.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        require_non_empty("lifecycle_id", &self.lifecycle_id)?;
-        self.relayer.validate()?;
-        require_transcript_match(
-            self.transcript_digest,
-            self.relayer_output.transcript_digest(),
-            "relayer activation transcript mismatch",
-        )
-    }
-
-    /// Returns canonical bytes for this payload.
-    pub fn canonical_bytes(&self) -> Vec<u8> {
-        encode_relayer_activation_payload_v1(self)
-    }
-
-    /// Returns the SHA-256 digest of canonical bytes.
-    pub fn digest(&self) -> PublicDigest32 {
-        relayer_activation_payload_digest_v1(self)
-    }
-}
-
 /// Encodes Router-to-signer payload bytes with fixed field order.
 pub fn encode_router_to_signer_payload_v1(payload: &RouterToSignerPayloadV1) -> Vec<u8> {
     let mut out = Vec::new();
@@ -1325,7 +1311,7 @@ pub fn build_mpc_prf_signer_partial_input_v1(
         plaintext.root_share_epoch.clone(),
     )?;
     MpcPrfSignerPartialInputV1::new(
-        transcript.context.clone(),
+        transcript.context().clone(),
         transcript,
         plaintext.mpc_prf_suite_id,
         plaintext.recipient_role,
@@ -1452,82 +1438,6 @@ pub fn ab_peer_message_payload_digest_v1(payload: &AbPeerMessagePayloadV1) -> Pu
     digest_bytes(&encode_ab_peer_message_payload_v1(payload))
 }
 
-/// Encodes signer response payload bytes with fixed field order.
-pub fn encode_signer_response_payload_v1(payload: &SignerResponsePayloadV1) -> Vec<u8> {
-    let mut out = Vec::new();
-    push_len32(&mut out, SIGNER_RESPONSE_PAYLOAD_VERSION_V1);
-    push_string(&mut out, &payload.lifecycle_id);
-    push_signer_identity(&mut out, &payload.signer);
-    push_public_digest(&mut out, payload.transcript_digest);
-    push_client_output_package(&mut out, &payload.client_output);
-    push_public_digest(&mut out, payload.response_commitment);
-    out
-}
-
-/// Computes the public digest of signer response canonical bytes.
-pub fn signer_response_payload_digest_v1(payload: &SignerResponsePayloadV1) -> PublicDigest32 {
-    digest_bytes(&encode_signer_response_payload_v1(payload))
-}
-
-/// Decodes signer response payload bytes.
-pub fn decode_signer_response_payload_v1(
-    bytes: &[u8],
-) -> RouterAbProtocolResult<SignerResponsePayloadV1> {
-    let mut decoder = PayloadDecoder::new(bytes);
-    decoder.expect_bytes(
-        SIGNER_RESPONSE_PAYLOAD_VERSION_V1,
-        "signer response payload version",
-    )?;
-    let lifecycle_id = decoder.read_string("lifecycle_id")?;
-    let signer = decoder.read_signer_identity()?;
-    let transcript_digest = decoder.read_public_digest("transcript_digest")?;
-    let client_output = decoder.read_client_output_package()?;
-    let response_commitment = decoder.read_public_digest("response_commitment")?;
-    decoder.finish()?;
-    SignerResponsePayloadV1::new(
-        lifecycle_id,
-        signer,
-        transcript_digest,
-        client_output,
-        response_commitment,
-    )
-}
-
-/// Encodes relayer activation payload bytes with fixed field order.
-pub fn encode_relayer_activation_payload_v1(payload: &RelayerActivationPayloadV1) -> Vec<u8> {
-    let mut out = Vec::new();
-    push_len32(&mut out, RELAYER_ACTIVATION_PAYLOAD_VERSION_V1);
-    push_string(&mut out, &payload.lifecycle_id);
-    push_relayer_identity(&mut out, &payload.relayer);
-    push_public_digest(&mut out, payload.transcript_digest);
-    push_relayer_output_package(&mut out, &payload.relayer_output);
-    out
-}
-
-/// Computes the public digest of relayer activation canonical bytes.
-pub fn relayer_activation_payload_digest_v1(
-    payload: &RelayerActivationPayloadV1,
-) -> PublicDigest32 {
-    digest_bytes(&encode_relayer_activation_payload_v1(payload))
-}
-
-/// Decodes relayer activation payload bytes.
-pub fn decode_relayer_activation_payload_v1(
-    bytes: &[u8],
-) -> RouterAbProtocolResult<RelayerActivationPayloadV1> {
-    let mut decoder = PayloadDecoder::new(bytes);
-    decoder.expect_bytes(
-        RELAYER_ACTIVATION_PAYLOAD_VERSION_V1,
-        "relayer activation payload version",
-    )?;
-    let lifecycle_id = decoder.read_string("lifecycle_id")?;
-    let relayer = decoder.read_relayer_identity()?;
-    let transcript_digest = decoder.read_public_digest("transcript_digest")?;
-    let relayer_output = decoder.read_relayer_output_package()?;
-    decoder.finish()?;
-    RelayerActivationPayloadV1::new(lifecycle_id, relayer, transcript_digest, relayer_output)
-}
-
 fn validate_router_to_signer(
     lifecycle: &LifecycleScopeV1,
     signer_set: &SignerSetV1,
@@ -1608,20 +1518,6 @@ fn validate_recipient_delivery_policy(
     }
 }
 
-fn require_transcript_match(
-    expected: PublicDigest32,
-    actual: PublicDigest32,
-    message: &'static str,
-) -> RouterAbProtocolResult<()> {
-    if expected != actual {
-        return Err(RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            message,
-        ));
-    }
-    Ok(())
-}
-
 fn require_non_empty(field: &'static str, value: &str) -> RouterAbProtocolResult<()> {
     if value.is_empty() {
         return Err(RouterAbProtocolError::new(
@@ -1700,30 +1596,6 @@ fn push_role_encrypted_envelope(out: &mut Vec<u8>, envelope: &RoleEncryptedEnvel
     push_public_digest(out, envelope.header_digest);
     push_public_digest(out, envelope.aad_digest);
     push_len32(out, envelope.ciphertext.as_bytes());
-}
-
-fn push_client_output_package(out: &mut Vec<u8>, package: &ClientOutputPackageV1) {
-    push_role(out, package.recipient_role());
-    push_len32(out, package.opened_share_kind().as_str().as_bytes());
-    push_public_digest(out, package.transcript_digest());
-    push_public_digest(out, package.package_commitment());
-    let ciphertext = package
-        .ciphertext()
-        .canonical_bytes()
-        .expect("validated client output ciphertext must encode");
-    push_len32(out, &ciphertext);
-}
-
-fn push_relayer_output_package(out: &mut Vec<u8>, package: &RelayerOutputPackageV1) {
-    push_role(out, package.recipient_role());
-    push_len32(out, package.opened_share_kind().as_str().as_bytes());
-    push_public_digest(out, package.transcript_digest());
-    push_public_digest(out, package.package_commitment());
-    let ciphertext = package
-        .ciphertext()
-        .canonical_bytes()
-        .expect("validated relayer output ciphertext must encode");
-    push_len32(out, &ciphertext);
 }
 
 fn push_mpc_prf_partial_proof_bundle(out: &mut Vec<u8>, bundle: &MpcPrfPartialProofBundleV1) {
@@ -1921,38 +1793,6 @@ impl<'a> PayloadDecoder<'a> {
         Ok(PublicDigest32::new(digest))
     }
 
-    fn read_client_output_package(&mut self) -> RouterAbProtocolResult<ClientOutputPackageV1> {
-        let recipient_role = self.read_role()?;
-        let opened_share_kind = parse_opened_share_kind(&self.read_string("opened_share_kind")?)?;
-        if recipient_role != Role::Client || opened_share_kind != OpenedShareKind::XClientBase {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "client output package has invalid recipient or opened share kind",
-            ));
-        }
-        let transcript_digest = self.read_public_digest("client_output_transcript_digest")?;
-        let package_commitment = self.read_public_digest("client_output_package_commitment")?;
-        let ciphertext =
-            decode_recipient_output_ciphertext_v1(self.read_bytes("client_output_ciphertext")?)?;
-        ClientOutputPackageV1::new(transcript_digest, package_commitment, ciphertext)
-    }
-
-    fn read_relayer_output_package(&mut self) -> RouterAbProtocolResult<RelayerOutputPackageV1> {
-        let recipient_role = self.read_role()?;
-        let opened_share_kind = parse_opened_share_kind(&self.read_string("opened_share_kind")?)?;
-        if recipient_role != Role::Relayer || opened_share_kind != OpenedShareKind::XRelayerBase {
-            return Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::MalformedWirePayload,
-                "relayer output package has invalid recipient or opened share kind",
-            ));
-        }
-        let transcript_digest = self.read_public_digest("relayer_output_transcript_digest")?;
-        let package_commitment = self.read_public_digest("relayer_output_package_commitment")?;
-        let ciphertext =
-            decode_recipient_output_ciphertext_v1(self.read_bytes("relayer_output_ciphertext")?)?;
-        RelayerOutputPackageV1::new(transcript_digest, package_commitment, ciphertext)
-    }
-
     fn read_mpc_prf_partial_proof_bundle(
         &mut self,
     ) -> RouterAbProtocolResult<MpcPrfPartialProofBundleV1> {
@@ -2087,9 +1927,7 @@ fn parse_request_kind(value: &str) -> RouterAbProtocolResult<RequestKind> {
 
 fn parse_mpc_prf_suite_id(value: &str) -> RouterAbProtocolResult<MpcPrfSuiteId> {
     match value {
-        "threshold_prf_ristretto255_sha512_v1" => {
-            Ok(MpcPrfSuiteId::ThresholdPrfRistretto255Sha512V1)
-        }
+        "threshold_prf_ristretto255_sha512" => Ok(MpcPrfSuiteId::ThresholdPrfRistretto255Sha512),
         _ => Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
             "unknown MPC PRF suite id",

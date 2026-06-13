@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{de::Error as DeError, Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::derivation::error::{
@@ -73,7 +73,7 @@ impl CorrectnessLevel {
 }
 
 /// Monotonic epoch label for A/B root-share material.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct RootShareEpoch(String);
 
 impl RootShareEpoch {
@@ -90,15 +90,24 @@ impl RootShareEpoch {
     }
 }
 
+impl<'de> Deserialize<'de> for RootShareEpoch {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Self::new(String::deserialize(deserializer)?).map_err(D::Error::custom)
+    }
+}
+
 /// Account-scoped identity bound into a derivation ceremony.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AccountScope {
     /// Network namespace, such as `near-mainnet`.
-    pub network_id: String,
+    network_id: String,
     /// Account identifier in the target network namespace.
-    pub account_id: String,
+    account_id: String,
     /// Canonical account public key string.
-    pub account_public_key: String,
+    account_public_key: String,
 }
 
 impl AccountScope {
@@ -117,6 +126,21 @@ impl AccountScope {
         Ok(scope)
     }
 
+    /// Network namespace.
+    pub fn network_id(&self) -> &str {
+        &self.network_id
+    }
+
+    /// Account identifier.
+    pub fn account_id(&self) -> &str {
+        &self.account_id
+    }
+
+    /// Canonical account public key.
+    pub fn account_public_key(&self) -> &str {
+        &self.account_public_key
+    }
+
     /// Validates required account-scope fields.
     pub fn validate(&self) -> RouterAbDerivationResult<()> {
         require_non_empty("network_id", &self.network_id)?;
@@ -126,21 +150,39 @@ impl AccountScope {
     }
 }
 
+impl<'de> Deserialize<'de> for AccountScope {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Wire {
+            network_id: String,
+            account_id: String,
+            account_public_key: String,
+        }
+
+        let wire = Wire::deserialize(deserializer)?;
+        Self::new(wire.network_id, wire.account_id, wire.account_public_key)
+            .map_err(D::Error::custom)
+    }
+}
+
 /// Canonical derivation context shared by all candidate families.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DerivationContext {
     /// Candidate family being evaluated.
-    pub candidate_id: CandidateId,
+    candidate_id: CandidateId,
     /// Request kind for this derivation ceremony.
-    pub request_kind: RequestKind,
+    request_kind: RequestKind,
     /// Output correctness level for this ceremony.
-    pub correctness_level: CorrectnessLevel,
+    correctness_level: CorrectnessLevel,
     /// Account scope bound into derived material.
-    pub account_scope: AccountScope,
+    account_scope: AccountScope,
     /// Epoch of A/B root material.
-    pub root_share_epoch: RootShareEpoch,
+    root_share_epoch: RootShareEpoch,
     /// Router-generated ceremony identifier.
-    pub ceremony_id: String,
+    ceremony_id: String,
 }
 
 impl DerivationContext {
@@ -163,6 +205,36 @@ impl DerivationContext {
         };
         context.validate()?;
         Ok(context)
+    }
+
+    /// Candidate family.
+    pub fn candidate_id(&self) -> CandidateId {
+        self.candidate_id
+    }
+
+    /// Request kind.
+    pub fn request_kind(&self) -> RequestKind {
+        self.request_kind
+    }
+
+    /// Correctness level.
+    pub fn correctness_level(&self) -> CorrectnessLevel {
+        self.correctness_level
+    }
+
+    /// Account scope.
+    pub fn account_scope(&self) -> &AccountScope {
+        &self.account_scope
+    }
+
+    /// Root-share epoch.
+    pub fn root_share_epoch(&self) -> &RootShareEpoch {
+        &self.root_share_epoch
+    }
+
+    /// Router-generated ceremony identifier.
+    pub fn ceremony_id(&self) -> &str {
+        &self.ceremony_id
     }
 
     /// Validates required derivation-context fields.
@@ -193,6 +265,34 @@ impl DerivationContext {
     /// Computes the context digest specified by `encoding-and-transcript.md`.
     pub fn context_digest_v1(&self) -> RouterAbDerivationResult<PublicDigest32> {
         context_digest_v1(self)
+    }
+}
+
+impl<'de> Deserialize<'de> for DerivationContext {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct Wire {
+            candidate_id: CandidateId,
+            request_kind: RequestKind,
+            correctness_level: CorrectnessLevel,
+            account_scope: AccountScope,
+            root_share_epoch: RootShareEpoch,
+            ceremony_id: String,
+        }
+
+        let wire = Wire::deserialize(deserializer)?;
+        Self::new(
+            wire.candidate_id,
+            wire.request_kind,
+            wire.correctness_level,
+            wire.account_scope,
+            wire.root_share_epoch,
+            wire.ceremony_id,
+        )
+        .map_err(D::Error::custom)
     }
 }
 

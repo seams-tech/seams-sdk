@@ -22,10 +22,6 @@ pub enum WireMessageKindV1 {
     SignerAToSignerB,
     /// Signer B sending a transcript-bound protocol message to Signer A.
     SignerBToSignerA,
-    /// Signer response returned to Router.
-    SignerResponse,
-    /// Relayer activation package for the designated relayer.
-    RelayerActivation,
     /// Encrypted recipient-scoped proof bundle for client or relayer delivery.
     RecipientProofBundle,
 }
@@ -38,8 +34,6 @@ impl WireMessageKindV1 {
             Self::RouterToSignerB => "router_to_signer_b",
             Self::SignerAToSignerB => "signer_a_to_signer_b",
             Self::SignerBToSignerA => "signer_b_to_signer_a",
-            Self::SignerResponse => "signer_response",
-            Self::RelayerActivation => "relayer_activation",
             Self::RecipientProofBundle => "recipient_proof_bundle",
         }
     }

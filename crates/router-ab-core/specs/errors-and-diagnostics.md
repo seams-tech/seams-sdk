@@ -83,9 +83,9 @@ checks.
 | unknown candidate id | `UnsupportedCandidate` |
 | unsupported fixture version | `UnsupportedVectorVersion` |
 | wrong correctness level | `CorrectnessLevelMismatch` |
-| same identity for Signer A and Signer B | `DuplicateSignerIdentity` |
-| expected signer identity differs | `SignerIdentityMismatch` |
-| signer receipt does not bind expected transcript | `SignerReceiptMismatch` |
+| same identity for Deriver A and Deriver B | `DuplicateSignerIdentity` |
+| expected deriver identity differs | `SignerIdentityMismatch` |
+| deriver receipt does not bind expected transcript | `SignerReceiptMismatch` |
 | expected epoch differs | `RootEpochMismatch` |
 | transcript digest differs | `TranscriptMismatch` |
 | recipient role or identity differs | `RecipientMismatch` |
@@ -120,7 +120,7 @@ Allowlist:
 
 Diagnostics vectors must cover:
 
-- duplicate signer identity
+- duplicate deriver identity
 - transcript mismatch
 - replay mismatch
 - recipient mismatch

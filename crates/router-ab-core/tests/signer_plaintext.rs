@@ -25,7 +25,7 @@ fn relayer_output() -> MpcPrfOutputRequestV1 {
 fn plaintext() -> SignerInputPlaintextV1 {
     SignerInputPlaintextV1::new(
         CandidateId::MpcThresholdPrfV1,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512V1,
+        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         RequestKind::Registration,
         "lifecycle-1",
         "signer-set-v1",
@@ -73,7 +73,7 @@ fn signer_input_plaintext_decoder_rejects_trailing_bytes() {
 fn signer_input_plaintext_rejects_unsupported_candidate() {
     let err = SignerInputPlaintextV1::new(
         CandidateId::SplitRootDerivationV1,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512V1,
+        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         RequestKind::Registration,
         "lifecycle-1",
         "signer-set-v1",
@@ -101,7 +101,7 @@ fn signer_input_plaintext_rejects_unsupported_candidate() {
 fn signer_input_plaintext_rejects_duplicate_output_request() {
     let err = SignerInputPlaintextV1::new(
         CandidateId::MpcThresholdPrfV1,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512V1,
+        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         RequestKind::Registration,
         "lifecycle-1",
         "signer-set-v1",
@@ -129,7 +129,7 @@ fn signer_input_plaintext_rejects_relayer_recipient_mismatch() {
             .expect("wrong relayer output");
     let err = SignerInputPlaintextV1::new(
         CandidateId::MpcThresholdPrfV1,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512V1,
+        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         RequestKind::Registration,
         "lifecycle-1",
         "signer-set-v1",
@@ -154,7 +154,7 @@ fn signer_input_plaintext_rejects_relayer_recipient_mismatch() {
 fn signer_input_plaintext_rejects_non_signer_recipient_role() {
     let err = SignerInputPlaintextV1::new(
         CandidateId::MpcThresholdPrfV1,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512V1,
+        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         RequestKind::Registration,
         "lifecycle-1",
         "signer-set-v1",
@@ -171,59 +171,6 @@ fn signer_input_plaintext_rejects_non_signer_recipient_role() {
         vec![client_output()],
     )
     .expect_err("non-signer recipient role must fail");
-
-    assert_eq!(err.code(), RouterAbDerivationErrorCode::MalformedInput);
-}
-
-#[test]
-fn signer_input_plaintext_rejects_joined_state_marker_in_metadata() {
-    let err = SignerInputPlaintextV1::new(
-        CandidateId::MpcThresholdPrfV1,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512V1,
-        RequestKind::Registration,
-        "lifecycle-1",
-        "joined-state-set",
-        SignerInputQuorumPolicyV1::All2,
-        Role::SignerA,
-        "signer-a",
-        "signer-key-epoch-a",
-        root_epoch(),
-        "relayer-a",
-        "relayer-key-epoch",
-        digest(0x11),
-        digest(0x22),
-        digest(0x33),
-        vec![client_output()],
-    )
-    .expect_err("joined-state marker must fail");
-
-    assert_eq!(err.code(), RouterAbDerivationErrorCode::MalformedInput);
-}
-
-#[test]
-fn signer_input_plaintext_rejects_joined_state_marker_in_output_recipient() {
-    let marked_client_output =
-        MpcPrfOutputRequestV1::new(OpenedShareKind::XClientBase, Role::Client, "client-joined")
-            .expect("output request");
-    let err = SignerInputPlaintextV1::new(
-        CandidateId::MpcThresholdPrfV1,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512V1,
-        RequestKind::Registration,
-        "lifecycle-1",
-        "signer-set-v1",
-        SignerInputQuorumPolicyV1::All2,
-        Role::SignerA,
-        "signer-a",
-        "signer-key-epoch-a",
-        root_epoch(),
-        "relayer-a",
-        "relayer-key-epoch",
-        digest(0x11),
-        digest(0x22),
-        digest(0x33),
-        vec![marked_client_output],
-    )
-    .expect_err("joined-state marker must fail");
 
     assert_eq!(err.code(), RouterAbDerivationErrorCode::MalformedInput);
 }

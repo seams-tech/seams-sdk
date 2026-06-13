@@ -3,10 +3,11 @@ use core::fmt;
 use rand_core::{CryptoRng, RngCore};
 use threshold_prf::{
     combine_verified_partials, evaluate_partial_with_dleq_proof, verify_partial_dleq_proof,
-    PrfContext, PrfDleqProofV1, PrfOutputEncoding, PrfPartialProofBundleV1 as BackendProofBundle,
-    PrfPartialWireV1 as BackendPartialWire, PrfPurpose, SigningRootShareCommitmentV1,
-    SigningRootShareWireV1, SuiteId, ThresholdPrfError,
+    PrfDleqProof, PrfPartialProofBundle as BackendProofBundle,
+    PrfPartialWire as BackendPartialWire, SigningRootShareCommitment, SigningRootShareWire,
+    ThresholdPolicy, ValidatedThresholdSet,
 };
+use threshold_prf::{PrfContext, PrfOutputEncoding, PrfPurpose, SuiteId, ThresholdPrfError};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::derivation::candidate_mpc_prf::{
@@ -23,8 +24,43 @@ use crate::derivation::error::{
 use crate::derivation::material::{OpenedShareKind, PublicDigest32, Role, SecretMaterial32};
 use crate::derivation::transcript::TranscriptBinding;
 
-/// Router/A/B v1 signing-root share wire length: one share-id byte plus scalar.
-pub const MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN: usize = 33;
+/// Router/A/B signing-root share wire length for the threshold-prf backend.
+pub const MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN: usize = 34;
+
+/// Router/A/B threshold-prf backend protocol selection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouterAbThresholdPrfProtocolV1 {
+    /// `threshold-prf` Ristretto255/SHA-512 backend with an explicit policy.
+    ThresholdPrfRistretto255Sha512 {
+        /// Number of shares required to combine.
+        threshold: u16,
+        /// Total number of shares in the policy.
+        share_count: u16,
+    },
+}
+
+impl RouterAbThresholdPrfProtocolV1 {
+    /// Current Router/A/B backend policy: only share ids 1 and 3 are v1 roles.
+    pub const fn two_of_three() -> Self {
+        Self::ThresholdPrfRistretto255Sha512 {
+            threshold: 2,
+            share_count: 3,
+        }
+    }
+
+    /// Converts the Router/A/B protocol selection into the crypto backend policy.
+    pub fn to_threshold_policy(self) -> RouterAbDerivationResult<ThresholdPolicy> {
+        match self {
+            Self::ThresholdPrfRistretto255Sha512 {
+                threshold,
+                share_count,
+            } => ThresholdPolicy::from_u16s(threshold, share_count).map_err(map_threshold_error),
+        }
+    }
+}
+
+const DEFAULT_THRESHOLD_PRF_PROTOCOL: RouterAbThresholdPrfProtocolV1 =
+    RouterAbThresholdPrfProtocolV1::two_of_three();
 
 /// Signer-local secret signing-root-share wire. Debug output is always redacted.
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
@@ -208,10 +244,13 @@ where
     let purpose_plan = plan_mpc_prf_purpose_binding_v1(&input.signer_input, &input.output_request)?;
     let context = threshold_context_from_plan_v1(&purpose_plan)?;
     let backend_share_wire =
-        SigningRootShareWireV1::decode_slice(input.signing_root_share_wire.as_bytes())
+        SigningRootShareWire::decode_slice(input.signing_root_share_wire.as_bytes())
             .map_err(map_threshold_error)?;
     let backend_share = backend_share_wire.to_share().map_err(map_threshold_error)?;
-    require_backend_share_role(input.signer_input.signer_role, backend_share.id().get())?;
+    require_backend_share_role(
+        input.signer_input.signer_role,
+        backend_share.id().get().get(),
+    )?;
 
     let backend_bundle = evaluate_partial_with_dleq_proof(&backend_share, &context, proof_rng)
         .map_err(map_threshold_error)?;
@@ -280,8 +319,8 @@ pub fn verify_mpc_prf_partial_with_threshold_backend_v1(
     let purpose_plan =
         plan_mpc_prf_purpose_binding_for_output_v1(&input.transcript, plan.suite_id, &request)?;
     let context = threshold_context_from_plan_v1(&purpose_plan)?;
-    let backend_bundle = backend_bundle_from_router_bundle_v1(&context, &input.proof_bundle)?;
-    require_backend_share_role(plan.signer_role, backend_bundle.partial.id().get())?;
+    let backend_bundle = backend_bundle_from_router_bundle_v1(&input.proof_bundle)?;
+    require_backend_share_role(plan.signer_role, backend_bundle.partial.id().get().get())?;
     verify_partial_dleq_proof(
         &backend_bundle.commitment,
         &backend_bundle.partial,
@@ -333,10 +372,14 @@ pub fn combine_mpc_prf_proof_bundles_with_threshold_backend_v1(
     let purpose_plan =
         plan_mpc_prf_purpose_binding_for_output_v1(&input.transcript, suite_id, &request)?;
     let context = threshold_context_from_plan_v1(&purpose_plan)?;
-    let left_backend = backend_bundle_from_router_bundle_v1(&context, &input.left)?;
-    let right_backend = backend_bundle_from_router_bundle_v1(&context, &input.right)?;
-    let output = combine_verified_partials(&[left_backend, right_backend], &context)
-        .map_err(map_threshold_error)?;
+    let left_backend = backend_bundle_from_router_bundle_v1(&input.left)?;
+    let right_backend = backend_bundle_from_router_bundle_v1(&input.right)?;
+    let policy = DEFAULT_THRESHOLD_PRF_PROTOCOL.to_threshold_policy()?;
+    let backend_bundles =
+        ValidatedThresholdSet::from_proof_bundles(policy, vec![left_backend, right_backend])
+            .map_err(map_threshold_error)?;
+    let output =
+        combine_verified_partials(&backend_bundles, &context).map_err(map_threshold_error)?;
 
     Ok(MpcPrfThresholdCombinedOutputV1 {
         transcript_digest: plan.transcript_digest,
@@ -413,16 +456,15 @@ pub fn combine_mpc_prf_batch_outputs_with_threshold_backend_v1(
 }
 
 fn backend_bundle_from_router_bundle_v1(
-    context: &PrfContext,
     bundle: &MpcPrfPartialProofBundleV1,
 ) -> RouterAbDerivationResult<BackendProofBundle> {
-    let partial =
-        BackendPartialWire::decode_slice(context, bundle.signer_partial.partial_wire.as_bytes())
-            .map_err(map_threshold_error)?;
-    let commitment = SigningRootShareCommitmentV1::from_slice(bundle.commitment_wire.as_bytes())
+    let partial = BackendPartialWire::decode_slice(bundle.signer_partial.partial_wire.as_bytes())
+        .and_then(|wire| wire.to_partial())
+        .map_err(map_threshold_error)?;
+    let commitment = SigningRootShareCommitment::from_slice(bundle.commitment_wire.as_bytes())
         .map_err(map_threshold_error)?;
     let proof =
-        PrfDleqProofV1::from_slice(bundle.proof_wire.as_bytes()).map_err(map_threshold_error)?;
+        PrfDleqProof::from_slice(bundle.proof_wire.as_bytes()).map_err(map_threshold_error)?;
     Ok(BackendProofBundle {
         partial,
         commitment,
@@ -433,8 +475,8 @@ fn backend_bundle_from_router_bundle_v1(
 fn threshold_context_from_plan_v1(
     plan: &MpcPrfPurposeBindingPlanV1,
 ) -> RouterAbDerivationResult<PrfContext> {
-    if plan.suite_id != MpcPrfSuiteId::ThresholdPrfRistretto255Sha512V1
-        || plan.threshold_prf_suite_label != "threshold-prf/ristretto255-sha512/v1"
+    if plan.suite_id != MpcPrfSuiteId::ThresholdPrfRistretto255Sha512
+        || plan.threshold_prf_suite_label != "threshold-prf/ristretto255-sha512"
     {
         return Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::UnsupportedCandidate,
@@ -459,7 +501,7 @@ fn threshold_context_from_plan_v1(
     }
 
     Ok(PrfContext::new(
-        SuiteId::Ristretto255Sha512V1,
+        SuiteId::Ristretto255Sha512,
         purpose,
         plan.threshold_prf_context_bytes.clone(),
     ))
@@ -472,7 +514,7 @@ fn threshold_purpose_v1(purpose: MpcPrfOutputPurposeV1) -> RouterAbDerivationRes
     }
 }
 
-fn require_backend_share_role(role: Role, share_id: u8) -> RouterAbDerivationResult<()> {
+fn require_backend_share_role(role: Role, share_id: u16) -> RouterAbDerivationResult<()> {
     let expected = match role {
         Role::SignerA => 1,
         Role::SignerB => 3,

@@ -7,10 +7,11 @@ use router_ab_core::{
     RootShareEpoch, SignerSetBinding, TranscriptBinding,
 };
 use threshold_prf::{
-    combine_verified_partials, derive_output_from_signing_root_shares, evaluate_direct_reference,
-    evaluate_partial_with_dleq_proof, generate_signing_root, split_signing_root_2_of_3,
-    verify_partial_dleq_proof, PrfContext, PrfOutputEncoding, PrfPurpose, SuiteId,
+    combine_verified_partials, evaluate_direct_reference, evaluate_partial_with_dleq_proof,
+    generate_signing_root, split_signing_root, verify_partial_dleq_proof, ThresholdPolicy,
+    ValidatedThresholdSet,
 };
+use threshold_prf::{PrfContext, PrfOutputEncoding, PrfPurpose, SuiteId};
 
 fn digest(seed: u8) -> PublicDigest32 {
     PublicDigest32::new([seed; 32])
@@ -75,7 +76,7 @@ fn signer_input(output_requests: Vec<MpcPrfOutputRequestV1>) -> MpcPrfSignerPart
     MpcPrfSignerPartialInputV1::new(
         context,
         transcript,
-        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512V1,
+        MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
         Role::SignerA,
         "role:signer-a:local:sha256-a",
         RootShareEpoch::new("epoch-1").expect("epoch"),
@@ -94,7 +95,7 @@ fn threshold_purpose(output_purpose: MpcPrfOutputPurposeV1) -> PrfPurpose {
 fn threshold_context(plan: &router_ab_core::MpcPrfPurposeBindingPlanV1) -> PrfContext {
     assert_eq!(
         plan.threshold_prf_suite_label,
-        "threshold-prf/ristretto255-sha512/v1"
+        "threshold-prf/ristretto255-sha512"
     );
     assert_eq!(
         plan.output_encoding,
@@ -106,7 +107,7 @@ fn threshold_context(plan: &router_ab_core::MpcPrfPurposeBindingPlanV1) -> PrfCo
         PrfOutputEncoding::CanonicalEd25519Scalar32
     );
     PrfContext::new(
-        SuiteId::Ristretto255Sha512V1,
+        SuiteId::Ristretto255Sha512,
         purpose,
         plan.threshold_prf_context_bytes.clone(),
     )
@@ -114,6 +115,10 @@ fn threshold_context(plan: &router_ab_core::MpcPrfPurposeBindingPlanV1) -> PrfCo
 
 fn seeded_rng(seed: u8) -> ChaCha20Rng {
     ChaCha20Rng::from_seed([seed; 32])
+}
+
+fn policy() -> ThresholdPolicy {
+    ThresholdPolicy::from_u16s(2, 3).expect("2-of-3 policy")
 }
 
 #[test]
@@ -125,7 +130,8 @@ fn purpose_binding_plan_drives_threshold_prf_proof_and_combine_path() {
 
     let mut setup_rng = seeded_rng(42);
     let root = generate_signing_root(&mut setup_rng);
-    let shares = split_signing_root_2_of_3(&root, &mut setup_rng);
+    let policy = policy();
+    let shares = split_signing_root(&root, policy, &mut setup_rng).expect("split");
 
     let left =
         evaluate_partial_with_dleq_proof(&shares[0], &threshold_context, &mut seeded_rng(10))
@@ -142,8 +148,10 @@ fn purpose_binding_plan_drives_threshold_prf_proof_and_combine_path() {
     )
     .expect("left proof verifies");
 
+    let proof_set =
+        ValidatedThresholdSet::from_proof_bundles(policy, vec![left, right]).expect("proof set");
     let combined =
-        combine_verified_partials(&[left, right], &threshold_context).expect("verified combine");
+        combine_verified_partials(&proof_set, &threshold_context).expect("verified combine");
     let direct = evaluate_direct_reference(&root, &threshold_context).expect("direct reference");
 
     assert_eq!(combined, direct);
@@ -163,13 +171,10 @@ fn client_and_relayer_purpose_plans_produce_distinct_outputs() {
 
     let mut setup_rng = seeded_rng(43);
     let root = generate_signing_root(&mut setup_rng);
-    let shares = split_signing_root_2_of_3(&root, &mut setup_rng);
-    let share_pair = [shares[0].clone(), shares[2].clone()];
+    let _shares = split_signing_root(&root, policy(), &mut setup_rng).expect("split");
 
-    let client_output =
-        derive_output_from_signing_root_shares(&share_pair, &client_context).expect("client");
-    let relayer_output =
-        derive_output_from_signing_root_shares(&share_pair, &relayer_context).expect("relayer");
+    let client_output = evaluate_direct_reference(&root, &client_context).expect("client");
+    let relayer_output = evaluate_direct_reference(&root, &relayer_context).expect("relayer");
 
     assert_ne!(client_output, relayer_output);
 }
