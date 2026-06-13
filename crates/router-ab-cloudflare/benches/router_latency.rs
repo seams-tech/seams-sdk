@@ -1,23 +1,28 @@
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use router_ab_cloudflare::{
+    build_cloudflare_router_to_signing_worker_normal_signing_request_v1,
+    derive_cloudflare_router_normal_signing_trusted_admission_v1,
     derive_cloudflare_router_trusted_admission_from_provider_v1,
-    execute_cloudflare_router_public_admission_plan_v1, CloudflareDurableObjectBindingV1,
-    CloudflareDurableObjectCallV1, CloudflareDurableObjectRequestV1,
-    CloudflareDurableObjectResponseV1, CloudflareDurableObjectScopeV1,
-    CloudflareLifecyclePutReceiptV1, CloudflarePeerBindingV1, CloudflareReplayReserveResponseV1,
-    CloudflareRouterAbuseCheckV1, CloudflareRouterAdmissionChecksV1,
+    handle_cloudflare_signing_worker_normal_signing_private_request_v1,
+    CloudflareDurableObjectBindingV1, CloudflareDurableObjectScopeV1, CloudflarePeerBindingV1,
+    CloudflareRelayerOutputMaterialRecordV1, CloudflareRouterAbuseCheckV1,
+    CloudflareRouterAdmissionBindingsV1, CloudflareRouterAdmissionChecksV1,
     CloudflareRouterAdmissionProviderOutputV1, CloudflareRouterAdmissionProviderV1,
-    CloudflareRouterAuthContextV1, CloudflareRouterBindingsV1, CloudflareRouterProjectPolicyV1,
-    CloudflareRouterPublicPlanExecutorV1, CloudflareRouterQuotaCheckV1,
+    CloudflareRouterAdmissionStoreBindingsV1, CloudflareRouterAuthContextV1,
+    CloudflareRouterBindingsV1, CloudflareRouterJwtVerifierBindingV1,
+    CloudflareRouterNormalSigningTrustedMetadataV1, CloudflareRouterProjectPolicyV1,
+    CloudflareRouterPublicAdmissionPlanV1, CloudflareRouterQuotaCheckV1,
     CloudflareRouterTrustedRequestMetadataV1, CloudflareRouterWorkerRuntimeV1,
-    CloudflareWorkerRoleV1,
+    CloudflareSecretMaterial32V1, CloudflareSigningWorkerMaterializedNormalSigningRequestV1,
+    CloudflareSigningWorkerNormalSigningHandlerV1, CloudflareWorkerRoleV1,
 };
 use router_ab_core::{
-    router_transcript_digest_v1, CandidateId, CanonicalWireBytesV1, ExpensiveWorkKindV1,
-    LifecycleScopeV1, PublicDigest32, PublicRouterRequestV1, RelayerIdentityV1, Role,
-    RoleEncryptedEnvelopeV1, RootShareEpoch, RouterAbLifecycleStateV1, RouterAbProtocolError,
-    RouterAbProtocolErrorCode, RouterAbProtocolResult, RouterTranscriptMetadataV1,
-    SignerIdentityV1, SignerSetV1, WireMessageKindV1, WireMessageV1,
+    router_transcript_digest_v1, ActiveSigningWorkerStateV1, CandidateId, CanonicalWireBytesV1,
+    ExpensiveWorkKindV1, LifecycleScopeV1, NormalSigningRequestV1, NormalSigningResponseV1,
+    NormalSigningScopeV1, NormalSigningSignatureSchemeV1, PublicDigest32, PublicRouterRequestV1,
+    RelayerIdentityV1, Role, RoleEncryptedEnvelopeV1, RootShareEpoch, RouterAbLifecycleStateV1,
+    RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
+    RouterTranscriptMetadataV1, SignerIdentityV1, SignerSetV1, WireMessageV1,
 };
 
 fn bench_router_admission_and_simulated_roundtrips(c: &mut Criterion) {
@@ -34,11 +39,111 @@ fn bench_router_admission_and_simulated_roundtrips(c: &mut Criterion) {
     group.finish();
 }
 
+fn bench_router_normal_signing_hot_path(c: &mut Criterion) {
+    let mut group = c.benchmark_group("router_ab_normal_signing_hot_path_v1");
+    group.bench_function("router_to_signing_worker", |b| {
+        b.iter_batched(
+            NormalSigningBenchmarkFixture::new,
+            |mut fixture| black_box(fixture.run()),
+            BatchSize::SmallInput,
+        )
+    });
+    group.finish();
+}
+
 struct BenchmarkFixture {
     runtime: CloudflareRouterWorkerRuntimeV1,
     request: PublicRouterRequestV1,
     provider: StaticAdmissionProvider,
     executor: SimulatedRoundTripExecutor,
+}
+
+struct NormalSigningBenchmarkFixture {
+    runtime: CloudflareRouterWorkerRuntimeV1,
+    request: NormalSigningRequestV1,
+    metadata: CloudflareRouterNormalSigningTrustedMetadataV1,
+    checks: CloudflareRouterAdmissionChecksV1,
+    active_signing_worker: ActiveSigningWorkerStateV1,
+    material: CloudflareRelayerOutputMaterialRecordV1,
+    handler: BenchmarkNormalSigningHandler,
+}
+
+impl NormalSigningBenchmarkFixture {
+    fn new() -> Self {
+        Self {
+            runtime: router_runtime(),
+            request: normal_signing_request(2_000),
+            metadata: normal_signing_trusted_metadata(),
+            checks: allow_checks("normal-signing-gate-request-1"),
+            active_signing_worker: active_signing_worker_state_for_normal_signing(),
+            material: normal_signing_material_record(),
+            handler: BenchmarkNormalSigningHandler,
+        }
+    }
+
+    fn run(&mut self) -> RouterAbProtocolResult<()> {
+        let admission = derive_cloudflare_router_normal_signing_trusted_admission_v1(
+            &self.request,
+            self.metadata.clone(),
+            self.checks.clone(),
+        )?;
+        if !admission.allows_signing_worker_forwarding()? {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "benchmark normal-signing admission did not allow forwarding",
+            ));
+        }
+        let admission_calls = self.runtime.normal_signing_admission_store_calls_at(
+            1_000,
+            &self.request,
+            self.metadata.clone(),
+        )?;
+        black_box(admission_calls.project_policy.storage_key());
+        black_box(admission_calls.quota.storage_key());
+        black_box(admission_calls.abuse.storage_key());
+        let replay_call = self
+            .runtime
+            .normal_signing_replay_reserve_call(&self.request)?;
+        black_box(replay_call.storage_key());
+        let forwarded = build_cloudflare_router_to_signing_worker_normal_signing_request_v1(
+            1_000,
+            self.request.clone(),
+            self.active_signing_worker.clone(),
+        )?;
+        forwarded.validate()?;
+        black_box(forwarded);
+        let response = handle_cloudflare_signing_worker_normal_signing_private_request_v1(
+            &self.handler,
+            1_000,
+            self.request.clone(),
+            self.active_signing_worker.clone(),
+            self.material.clone(),
+        )?;
+        response.validate_for_request(&self.request)?;
+        black_box(response);
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BenchmarkNormalSigningHandler;
+
+impl CloudflareSigningWorkerNormalSigningHandlerV1 for BenchmarkNormalSigningHandler {
+    fn handle_normal_signing_request(
+        &self,
+        request: CloudflareSigningWorkerMaterializedNormalSigningRequestV1,
+    ) -> RouterAbProtocolResult<NormalSigningResponseV1> {
+        request.validate()?;
+        let forwarded = &request.forwarded;
+        NormalSigningResponseV1::new(
+            forwarded.request.scope.clone(),
+            forwarded.request.signing_payload_digest(),
+            forwarded.active_signing_worker.signing_worker.clone(),
+            NormalSigningSignatureSchemeV1::Ed25519V1,
+            CanonicalWireBytesV1::new(vec![0x9a; 64]).expect("normal signing signature"),
+            forwarded.active_signing_worker.activated_at_ms + 1,
+        )
+    }
 }
 
 impl BenchmarkFixture {
@@ -67,12 +172,17 @@ impl BenchmarkFixture {
             self.request.clone(),
             trusted_admission,
         )?;
-        let response = execute_cloudflare_router_public_admission_plan_v1(
-            &self.runtime,
-            &plan,
-            &mut self.executor,
-        )?;
-        black_box(response);
+        black_box(plan.replay_reserve_call().storage_key());
+        black_box(plan.lifecycle_put_call().storage_key());
+        if let CloudflareRouterPublicAdmissionPlanV1::Forward {
+            deriver_a_message,
+            deriver_b_message,
+            ..
+        } = &plan
+        {
+            self.executor.send_signer_message(deriver_a_message)?;
+            self.executor.send_signer_message(deriver_b_message)?;
+        }
         Ok(())
     }
 }
@@ -107,35 +217,8 @@ impl SimulatedRoundTripExecutor {
     }
 }
 
-impl CloudflareRouterPublicPlanExecutorV1 for SimulatedRoundTripExecutor {
-    fn execute_durable_object_call(
-        &mut self,
-        call: &CloudflareDurableObjectCallV1,
-    ) -> RouterAbProtocolResult<CloudflareDurableObjectResponseV1> {
-        call.validate()?;
-        match &call.request {
-            CloudflareDurableObjectRequestV1::RouterReplayReserve { request } => {
-                CloudflareDurableObjectResponseV1::router_replay_reserve(
-                    CloudflareReplayReserveResponseV1::new(request.request_id.clone(), true)?,
-                )
-            }
-            CloudflareDurableObjectRequestV1::RouterLifecyclePutPublicState { state } => {
-                CloudflareDurableObjectResponseV1::router_lifecycle_put_public_state(
-                    CloudflareLifecyclePutReceiptV1::new(state.scope().lifecycle_id.clone(), true)?,
-                )
-            }
-            _ => Err(RouterAbProtocolError::new(
-                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                "benchmark executor received unexpected Durable Object operation",
-            )),
-        }
-    }
-
-    fn send_signer_message(
-        &mut self,
-        _peer: &CloudflarePeerBindingV1,
-        message: &WireMessageV1,
-    ) -> RouterAbProtocolResult<WireMessageV1> {
+impl SimulatedRoundTripExecutor {
+    fn send_signer_message(&mut self, message: &WireMessageV1) -> RouterAbProtocolResult<()> {
         for _ in 0..self.round_trips {
             let json = serde_json::to_vec(message).map_err(|err| {
                 RouterAbProtocolError::new(
@@ -152,7 +235,7 @@ impl CloudflareRouterPublicPlanExecutorV1 for SimulatedRoundTripExecutor {
             black_box(decoded.digest());
             black_box(decoded.canonical_bytes());
         }
-        signer_response(message.transcript_digest, 0x80)
+        Ok(())
     }
 }
 
@@ -167,8 +250,10 @@ fn router_runtime() -> CloudflareRouterWorkerRuntimeV1 {
                 CloudflareDurableObjectScopeV1::RouterLifecycle,
                 "ROUTER_LIFECYCLE_DO",
             ),
-            peer(CloudflareWorkerRoleV1::SignerARelayer, "SIGNER_A"),
+            router_admission_bindings(),
+            peer(CloudflareWorkerRoleV1::SignerA, "SIGNER_A"),
             peer(CloudflareWorkerRoleV1::SignerB, "SIGNER_B"),
+            peer(CloudflareWorkerRoleV1::SigningWorker, "SIGNING_WORKER"),
         )
         .expect("router bindings"),
     )
@@ -188,6 +273,33 @@ fn do_binding(
     .expect("durable object binding")
 }
 
+fn router_admission_bindings() -> CloudflareRouterAdmissionBindingsV1 {
+    CloudflareRouterAdmissionBindingsV1::new(
+        CloudflareRouterJwtVerifierBindingV1::new(
+            "https://issuer.example",
+            "router-ab",
+            "https://issuer.example/.well-known/jwks.json",
+        )
+        .expect("jwt verifier binding"),
+        CloudflareRouterAdmissionStoreBindingsV1::new(
+            do_binding(
+                CloudflareDurableObjectScopeV1::RouterProjectPolicy,
+                "ROUTER_PROJECT_POLICY_DO",
+            ),
+            do_binding(
+                CloudflareDurableObjectScopeV1::RouterQuota,
+                "ROUTER_QUOTA_DO",
+            ),
+            do_binding(
+                CloudflareDurableObjectScopeV1::RouterAbuse,
+                "ROUTER_ABUSE_DO",
+            ),
+        )
+        .expect("admission store bindings"),
+    )
+    .expect("router admission bindings")
+}
+
 fn peer(peer_role: CloudflareWorkerRoleV1, binding_name: &str) -> CloudflarePeerBindingV1 {
     CloudflarePeerBindingV1::new(peer_role, binding_name).expect("peer binding")
 }
@@ -204,6 +316,19 @@ fn trusted_metadata() -> CloudflareRouterTrustedRequestMetadataV1 {
         digest(0x90),
     )
     .expect("trusted metadata")
+}
+
+fn normal_signing_trusted_metadata() -> CloudflareRouterNormalSigningTrustedMetadataV1 {
+    CloudflareRouterNormalSigningTrustedMetadataV1::new(
+        "org-1",
+        "project-1",
+        "dev",
+        "account.near",
+        CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
+            .expect("auth context"),
+        digest(0x91),
+    )
+    .expect("normal signing trusted metadata")
 }
 
 fn allow_checks(request_id: &str) -> CloudflareRouterAdmissionChecksV1 {
@@ -237,6 +362,40 @@ fn public_router_request(expires_at_ms: u64) -> PublicRouterRequestV1 {
         role_envelope(Role::SignerB, 0x20),
     )
     .expect("public router request")
+}
+
+fn normal_signing_request(expires_at_ms: u64) -> NormalSigningRequestV1 {
+    NormalSigningRequestV1::new(
+        NormalSigningScopeV1::new("sign-request-1", "account.near", "session-1", "relayer-a")
+            .expect("normal signing scope"),
+        expires_at_ms,
+        CanonicalWireBytesV1::new(vec![0x7a, 0x7b, 0x7c]).expect("normal signing payload"),
+    )
+    .expect("normal signing request")
+}
+
+fn active_signing_worker_state_for_normal_signing() -> ActiveSigningWorkerStateV1 {
+    ActiveSigningWorkerStateV1::new(
+        "account.near",
+        "session-1",
+        signer_set().selected_relayer,
+        digest(0x81),
+        digest(0x82),
+        "signing-worker-output/lifecycle-1/material",
+        1_000,
+    )
+    .expect("active SigningWorker state")
+}
+
+fn normal_signing_material_record() -> CloudflareRelayerOutputMaterialRecordV1 {
+    CloudflareRelayerOutputMaterialRecordV1::new(
+        digest(0x81),
+        router_ab_core::OpenedShareKind::XRelayerBase,
+        Role::Relayer,
+        "relayer-a",
+        CloudflareSecretMaterial32V1::new([0x5a; 32]),
+    )
+    .expect("normal signing material")
 }
 
 fn lifecycle_scope() -> LifecycleScopeV1 {
@@ -304,17 +463,6 @@ fn role_envelope(role: Role, seed: u8) -> RoleEncryptedEnvelopeV1 {
     .expect("role envelope")
 }
 
-fn signer_response(
-    transcript_digest: PublicDigest32,
-    seed: u8,
-) -> RouterAbProtocolResult<WireMessageV1> {
-    WireMessageV1::new(
-        WireMessageKindV1::SignerResponse,
-        transcript_digest,
-        CanonicalWireBytesV1::new(vec![seed, seed + 1]).expect("signer response bytes"),
-    )
-}
-
 fn digest(byte: u8) -> PublicDigest32 {
     PublicDigest32::new([byte; 32])
 }
@@ -323,5 +471,9 @@ fn root_epoch() -> RootShareEpoch {
     RootShareEpoch::new("epoch-1").expect("root epoch")
 }
 
-criterion_group!(benches, bench_router_admission_and_simulated_roundtrips);
+criterion_group!(
+    benches,
+    bench_router_admission_and_simulated_roundtrips,
+    bench_router_normal_signing_hot_path
+);
 criterion_main!(benches);

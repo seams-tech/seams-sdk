@@ -20,15 +20,15 @@ strict-worker-entrypoint = ["workers-rs"]
 strict-worker-router-entrypoint = ["workers-rs"]
 strict-worker-signer-a-entrypoint = ["workers-rs"]
 strict-worker-signer-b-entrypoint = ["workers-rs"]
+strict-worker-signing-worker-entrypoint = ["workers-rs"]
 workers-rs = [
-    "dep:base64",
     "dep:wasm-bindgen",
     "dep:worker",
-    "dep:zeroize",
 ]
 
 [dependencies]
-base64 = { version = "0.22", optional = true }
+base64 = "0.22"
+ed25519-dalek = { version = "2.1", default-features = false }
 futures = "0.3"
 getrandom = { version = "0.2.17", features = ["js"] }
 hpke-ng = { version = "=0.1.0", default-features = false }
@@ -37,11 +37,11 @@ rand_core_06 = { package = "rand_core", version = "0.6.4" }
 router-ab-core = { path = "../router-ab-core" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "0.10"
 wasm-bindgen = { version = "0.2", optional = true }
 worker = { version = "=0.8.4", optional = true }
-zeroize = { version = "1.8", optional = true }
+zeroize = { version = "1.8", features = ["zeroize_derive"] }
 
 [dev-dependencies]
-criterion = "0.5"
-ed25519-dalek = { version = "2.1", default-features = false }
+criterion = { version = "0.5", default-features = false }
 wasm-bindgen-test = "0.3"

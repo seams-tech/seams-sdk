@@ -62,7 +62,7 @@ fn validate_payload_vector_case_through_cloudflare_adapter(case: &PayloadVectorC
             )
             .expect("wire message");
             validate_cloudflare_signer_private_request_v1(
-                CloudflareWorkerRoleV1::SignerARelayer,
+                CloudflareWorkerRoleV1::SignerA,
                 &message,
             )
             .expect("signer a private vector");
@@ -106,16 +106,11 @@ fn validate_payload_vector_case_through_cloudflare_adapter(case: &PayloadVectorC
                 payload,
             )
             .expect("wire message");
-            validate_cloudflare_signer_peer_request_v1(
-                CloudflareWorkerRoleV1::SignerARelayer,
-                &message,
-            )
-            .expect("signer a peer vector");
+            validate_cloudflare_signer_peer_request_v1(CloudflareWorkerRoleV1::SignerA, &message)
+                .expect("signer a peer vector");
             true
         }
-        WireMessageKindV1::SignerResponse
-        | WireMessageKindV1::RelayerActivation
-        | WireMessageKindV1::RecipientProofBundle => false,
+        WireMessageKindV1::RecipientProofBundle => false,
     }
 }
 

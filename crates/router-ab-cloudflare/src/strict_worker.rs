@@ -2,26 +2,34 @@
     feature = "strict-worker-entrypoint",
     feature = "strict-worker-router-entrypoint",
     feature = "strict-worker-signer-a-entrypoint",
-    feature = "strict-worker-signer-b-entrypoint"
+    feature = "strict-worker-signer-b-entrypoint",
+    feature = "strict-worker-signing-worker-entrypoint"
 ))]
 
 use crate::{
-    cloudflare_now_unix_ms_v1, cloudflare_router_error_status,
+    cloudflare_now_unix_ms_v1, cloudflare_router_error_status, cloudflare_trusted_source_digest_v1,
     decrypt_and_handle_cloudflare_mpc_prf_recipient_proof_bundle_signer_private_request_v1,
-    handle_cloudflare_router_recipient_proof_bundle_public_request_v1,
-    handle_cloudflare_signer_a_recipient_proof_bundle_activation_fetch_v1,
-    preload_cloudflare_signer_a_host_v1, preload_cloudflare_signer_b_host_v1,
-    CloudflareEnvReaderV1, CloudflareRouterTrustedAdmissionV1, CloudflareRouterWorkerRuntimeV1,
-    CloudflareSignerARelayerWorkerRuntimeV1, CloudflareSignerBWorkerRuntimeV1,
-    CloudflareSignerHostPreloadPlanV1, CloudflareSignerPrivateBootstrapRequestV1,
-    CloudflareWorkerEnvReaderV1, CloudflareWorkerRoleV1, CLOUDFLARE_ROUTER_PUBLIC_REQUEST_PATH_V1,
-    CLOUDFLARE_SIGNER_A_PRIVATE_REQUEST_PATH_V1,
-    CLOUDFLARE_SIGNER_A_RELAYER_PROOF_BUNDLE_ACTIVATION_PATH_V1,
-    CLOUDFLARE_SIGNER_B_PRIVATE_REQUEST_PATH_V1,
+    handle_cloudflare_router_normal_signing_authenticated_public_request_v1,
+    handle_cloudflare_router_recipient_proof_bundle_authenticated_public_request_v1,
+    handle_cloudflare_signing_worker_normal_signing_private_fetch_v1,
+    handle_cloudflare_signing_worker_recipient_proof_bundle_activation_fetch_v1,
+    load_cloudflare_router_ed25519_jwks_jwt_verifier_v1,
+    parse_cloudflare_router_bearer_authorization_from_request_v1,
+    preload_cloudflare_deriver_a_host_v1, preload_cloudflare_deriver_b_host_v1,
+    CloudflareEnvReaderV1, CloudflareRouterWorkerRuntimeV1, CloudflareSignerAWorkerRuntimeV1,
+    CloudflareSignerBWorkerRuntimeV1, CloudflareSignerHostPreloadPlanV1,
+    CloudflareSignerPrivateBootstrapRequestV1,
+    CloudflareSigningWorkerMaterializedNormalSigningRequestV1,
+    CloudflareSigningWorkerNormalSigningHandlerV1, CloudflareSigningWorkerRuntimeV1,
+    CloudflareWorkerEnvReaderV1, CloudflareWorkerRoleV1,
+    CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH_V1,
+    CLOUDFLARE_ROUTER_PUBLIC_REQUEST_PATH_V1, CLOUDFLARE_SIGNER_A_PRIVATE_REQUEST_PATH_V1,
+    CLOUDFLARE_SIGNER_B_PRIVATE_REQUEST_PATH_V1, CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1,
+    CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH_V1,
 };
 use router_ab_core::{
-    PublicRouterRequestV1, Role, RouterAbProtocolError, RouterAbProtocolErrorCode,
-    RouterAbProtocolResult,
+    NormalSigningRequestV1, NormalSigningResponseV1, PublicRouterRequestV1, Role,
+    RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
 use serde::{Deserialize, Serialize};
 use worker::{Context, Env, Method, Request, Response};
@@ -50,36 +58,6 @@ impl CloudflareStrictRouteProfileV1 {
     }
 }
 
-/// Trusted Router bootstrap body for strict proof-bundle public requests.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CloudflareStrictRouterBootstrapRequestV1 {
-    /// Normalized public Router request.
-    pub request: PublicRouterRequestV1,
-    /// Router-owned admission result produced by an authenticated gateway.
-    pub trusted_admission: CloudflareRouterTrustedAdmissionV1,
-}
-
-impl CloudflareStrictRouterBootstrapRequestV1 {
-    /// Creates a validated strict Router bootstrap request.
-    pub fn new(
-        request: PublicRouterRequestV1,
-        trusted_admission: CloudflareRouterTrustedAdmissionV1,
-    ) -> RouterAbProtocolResult<Self> {
-        let bootstrap = Self {
-            request,
-            trusted_admission,
-        };
-        bootstrap.validate()?;
-        Ok(bootstrap)
-    }
-
-    /// Validates public request and trusted admission bindings.
-    pub fn validate(&self) -> RouterAbProtocolResult<()> {
-        self.request.validate()?;
-        self.trusted_admission.validate_for_request(&self.request)
-    }
-}
-
 /// Deployable workers-rs fetch entrypoint for strict Router/A/B proof-bundle Workers.
 #[worker::event(fetch)]
 pub async fn fetch(request: Request, env: Env, _ctx: Context) -> worker::Result<Response> {
@@ -99,7 +77,7 @@ pub async fn fetch(request: Request, env: Env, _ctx: Context) -> worker::Result<
         if let Err(err) = require_cloudflare_strict_route_profile_v1(&env) {
             return cloudflare_protocol_error_response_v1(err);
         }
-        return handle_strict_signer_a_relayer_fetch_v1(request, env).await;
+        return handle_strict_signer_a_fetch_v1(request, env).await;
     }
     #[cfg(feature = "strict-worker-signer-b-entrypoint")]
     {
@@ -107,6 +85,13 @@ pub async fn fetch(request: Request, env: Env, _ctx: Context) -> worker::Result<
             return cloudflare_protocol_error_response_v1(err);
         }
         return handle_strict_signer_b_fetch_v1(request, env).await;
+    }
+    #[cfg(feature = "strict-worker-signing-worker-entrypoint")]
+    {
+        if let Err(err) = require_cloudflare_strict_route_profile_v1(&env) {
+            return cloudflare_protocol_error_response_v1(err);
+        }
+        return handle_strict_signing_worker_fetch_v1(request, env).await;
     }
 }
 
@@ -124,10 +109,11 @@ pub async fn handle_cloudflare_strict_worker_fetch_v1(
     }
     match role {
         CloudflareWorkerRoleV1::Router => handle_strict_router_fetch_v1(request, env).await,
-        CloudflareWorkerRoleV1::SignerARelayer => {
-            handle_strict_signer_a_relayer_fetch_v1(request, env).await
-        }
+        CloudflareWorkerRoleV1::SignerA => handle_strict_signer_a_fetch_v1(request, env).await,
         CloudflareWorkerRoleV1::SignerB => handle_strict_signer_b_fetch_v1(request, env).await,
+        CloudflareWorkerRoleV1::SigningWorker => {
+            handle_strict_signing_worker_fetch_v1(request, env).await
+        }
     }
 }
 
@@ -138,8 +124,9 @@ pub fn parse_cloudflare_strict_worker_role_v1(
     let value = require_cloudflare_bootstrap_env_text_v1(env, ROUTER_AB_WORKER_ROLE_ENV)?;
     match value.as_str() {
         "router" => Ok(CloudflareWorkerRoleV1::Router),
-        "signer_a_relayer" => Ok(CloudflareWorkerRoleV1::SignerARelayer),
+        "signer_a" => Ok(CloudflareWorkerRoleV1::SignerA),
         "signer_b" => Ok(CloudflareWorkerRoleV1::SignerB),
+        "signing_worker" => Ok(CloudflareWorkerRoleV1::SigningWorker),
         _ => Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
             "Router A/B Worker role Env value is unsupported",
@@ -178,30 +165,28 @@ async fn handle_strict_router_fetch_v1(mut request: Request, env: Env) -> worker
     if request.method() != Method::Post {
         return Response::error("Router A/B strict public route requires POST", 405);
     }
-    if request.path() != CLOUDFLARE_ROUTER_PUBLIC_REQUEST_PATH_V1 {
+    let path = request.path();
+    if path != CLOUDFLARE_ROUTER_PUBLIC_REQUEST_PATH_V1
+        && path != CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH_V1
+    {
         return Response::error(
             format!(
-                "Router A/B strict public request must be served at {}",
-                CLOUDFLARE_ROUTER_PUBLIC_REQUEST_PATH_V1
+                "Router A/B strict public request must be served at {} or {}",
+                CLOUDFLARE_ROUTER_PUBLIC_REQUEST_PATH_V1,
+                CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH_V1
             ),
             404,
         );
     }
-    let bootstrap = match request
-        .json::<CloudflareStrictRouterBootstrapRequestV1>()
-        .await
+    let authorization = match parse_cloudflare_router_bearer_authorization_from_request_v1(&request)
     {
-        Ok(parsed) => parsed,
-        Err(err) => {
-            return Response::error(
-                format!("Router A/B strict bootstrap JSON parse failed: {err}"),
-                400,
-            );
-        }
+        Ok(authorization) => authorization,
+        Err(err) => return cloudflare_protocol_error_response_v1(err),
     };
-    if let Err(err) = bootstrap.validate() {
-        return cloudflare_protocol_error_response_v1(err);
-    }
+    let trusted_source_digest = match cloudflare_trusted_source_digest_v1(&request) {
+        Ok(digest) => digest,
+        Err(err) => return cloudflare_protocol_error_response_v1(err),
+    };
     let runtime = match CloudflareRouterWorkerRuntimeV1::from_worker_env(&env) {
         Ok(runtime) => runtime,
         Err(err) => return cloudflare_protocol_error_response_v1(err),
@@ -210,12 +195,58 @@ async fn handle_strict_router_fetch_v1(mut request: Request, env: Env) -> worker
         Ok(now_unix_ms) => now_unix_ms,
         Err(err) => return cloudflare_protocol_error_response_v1(err),
     };
-    match handle_cloudflare_router_recipient_proof_bundle_public_request_v1(
+    let verifier = match load_cloudflare_router_ed25519_jwks_jwt_verifier_v1(
+        &runtime.admission_bindings().jwt,
+    )
+    .await
+    {
+        Ok(verifier) => verifier,
+        Err(err) => return cloudflare_protocol_error_response_v1(err),
+    };
+
+    if path == CLOUDFLARE_ROUTER_NORMAL_SIGNING_PUBLIC_REQUEST_PATH_V1 {
+        let normal_signing_request = match request.json::<NormalSigningRequestV1>().await {
+            Ok(parsed) => parsed,
+            Err(err) => {
+                return Response::error(
+                    format!("Router A/B strict normal-signing request JSON parse failed: {err}"),
+                    400,
+                );
+            }
+        };
+        return match handle_cloudflare_router_normal_signing_authenticated_public_request_v1(
+            &env,
+            &runtime,
+            now_unix_ms,
+            normal_signing_request,
+            authorization,
+            trusted_source_digest,
+            verifier,
+        )
+        .await
+        {
+            Ok(response) => Response::from_json(&response),
+            Err(err) => cloudflare_protocol_error_response_v1(err),
+        };
+    }
+
+    let public_request = match request.json::<PublicRouterRequestV1>().await {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            return Response::error(
+                format!("Router A/B strict public request JSON parse failed: {err}"),
+                400,
+            );
+        }
+    };
+    match handle_cloudflare_router_recipient_proof_bundle_authenticated_public_request_v1(
         &env,
         &runtime,
         now_unix_ms,
-        bootstrap.request,
-        bootstrap.trusted_admission,
+        public_request,
+        authorization,
+        trusted_source_digest,
+        verifier,
     )
     .await
     {
@@ -224,20 +255,15 @@ async fn handle_strict_router_fetch_v1(mut request: Request, env: Env) -> worker
     }
 }
 
-async fn handle_strict_signer_a_relayer_fetch_v1(
+async fn handle_strict_signer_a_fetch_v1(
     mut request: Request,
     env: Env,
 ) -> worker::Result<Response> {
-    let runtime = match CloudflareSignerARelayerWorkerRuntimeV1::from_worker_env(&env) {
+    let runtime = match CloudflareSignerAWorkerRuntimeV1::from_worker_env(&env) {
         Ok(runtime) => runtime,
         Err(err) => return cloudflare_protocol_error_response_v1(err),
     };
-    let path = request.path();
-    if path == CLOUDFLARE_SIGNER_A_RELAYER_PROOF_BUNDLE_ACTIVATION_PATH_V1 {
-        return handle_cloudflare_signer_a_recipient_proof_bundle_activation_fetch_v1(request)
-            .await;
-    }
-    if path == CLOUDFLARE_SIGNER_A_PRIVATE_REQUEST_PATH_V1 {
+    if request.path() == CLOUDFLARE_SIGNER_A_PRIVATE_REQUEST_PATH_V1 {
         let bootstrap = match request
             .json::<CloudflareSignerPrivateBootstrapRequestV1>()
             .await
@@ -250,12 +276,11 @@ async fn handle_strict_signer_a_relayer_fetch_v1(
                 );
             }
         };
-        if let Err(err) = bootstrap.validate_for_worker_role(CloudflareWorkerRoleV1::SignerARelayer)
-        {
+        if let Err(err) = bootstrap.validate_for_worker_role(CloudflareWorkerRoleV1::SignerA) {
             return cloudflare_protocol_error_response_v1(err);
         }
         let preload_plan = match CloudflareSignerHostPreloadPlanV1::from_private_bootstrap(
-            CloudflareWorkerRoleV1::SignerARelayer,
+            CloudflareWorkerRoleV1::SignerA,
             &bootstrap,
         ) {
             Ok(plan) => plan,
@@ -271,7 +296,7 @@ async fn handle_strict_signer_a_relayer_fetch_v1(
             Ok(input) => input,
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
-        let host = match preload_cloudflare_signer_a_host_v1(&env, &runtime, preload_input).await {
+        let host = match preload_cloudflare_deriver_a_host_v1(&env, &runtime, preload_input).await {
             Ok(host) => host,
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
@@ -285,7 +310,7 @@ async fn handle_strict_signer_a_relayer_fetch_v1(
         let router_request_digest = bootstrap.router_request_digest;
         return match decrypt_and_handle_cloudflare_mpc_prf_recipient_proof_bundle_signer_private_request_v1(
             &env,
-            CloudflareWorkerRoleV1::SignerARelayer,
+            CloudflareWorkerRoleV1::SignerA,
             &host,
             message,
             runtime.envelope_decrypt_key(),
@@ -302,12 +327,66 @@ async fn handle_strict_signer_a_relayer_fetch_v1(
     }
     Response::error(
         format!(
-            "Signer A strict Worker route must be served at {} or {}",
-            CLOUDFLARE_SIGNER_A_PRIVATE_REQUEST_PATH_V1,
-            CLOUDFLARE_SIGNER_A_RELAYER_PROOF_BUNDLE_ACTIVATION_PATH_V1
+            "Signer A strict Worker route must be served at {}",
+            CLOUDFLARE_SIGNER_A_PRIVATE_REQUEST_PATH_V1
         ),
         404,
     )
+}
+
+async fn handle_strict_signing_worker_fetch_v1(
+    request: Request,
+    env: Env,
+) -> worker::Result<Response> {
+    let runtime = match CloudflareSigningWorkerRuntimeV1::from_worker_env(&env) {
+        Ok(runtime) => runtime,
+        Err(err) => return cloudflare_protocol_error_response_v1(err),
+    };
+    if request.path() == CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH_V1 {
+        return handle_cloudflare_signing_worker_recipient_proof_bundle_activation_fetch_v1(
+            request, &env, &runtime,
+        )
+        .await;
+    }
+    if request.path() == CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1 {
+        let now_unix_ms = match cloudflare_now_unix_ms_v1() {
+            Ok(now_unix_ms) => now_unix_ms,
+            Err(err) => return cloudflare_protocol_error_response_v1(err),
+        };
+        let handler = CloudflareStrictSigningWorkerNormalSigningHandlerV1;
+        return handle_cloudflare_signing_worker_normal_signing_private_fetch_v1(
+            request,
+            &env,
+            &runtime,
+            &handler,
+            now_unix_ms,
+        )
+        .await;
+    }
+    Response::error(
+        format!(
+            "SigningWorker strict Worker route must be served at {} or {}",
+            CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH_V1,
+            CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1
+        ),
+        404,
+    )
+}
+
+struct CloudflareStrictSigningWorkerNormalSigningHandlerV1;
+
+impl CloudflareSigningWorkerNormalSigningHandlerV1
+    for CloudflareStrictSigningWorkerNormalSigningHandlerV1
+{
+    fn handle_normal_signing_request(
+        &self,
+        _request: CloudflareSigningWorkerMaterializedNormalSigningRequestV1,
+    ) -> RouterAbProtocolResult<NormalSigningResponseV1> {
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "strict SigningWorker normal-signing handler is not configured",
+        ))
+    }
 }
 
 async fn handle_strict_signer_b_fetch_v1(
@@ -351,7 +430,7 @@ async fn handle_strict_signer_b_fetch_v1(
             Ok(input) => input,
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
-        let host = match preload_cloudflare_signer_b_host_v1(&env, &runtime, preload_input).await {
+        let host = match preload_cloudflare_deriver_b_host_v1(&env, &runtime, preload_input).await {
             Ok(host) => host,
             Err(err) => return cloudflare_protocol_error_response_v1(err),
         };
