@@ -6,7 +6,7 @@ This track is deferred until the Rust-facing boundary is stable.
 
 ## Deferred Preconditions
 
-- production `threshold-prf` API and `PrfPartialWireV1` are frozen
+- production `threshold-prf` API and `PrfPartialWire` are frozen
 - first Verus model exists
 - committed JSON vectors exist
 - boundary candidate is stable enough to freeze

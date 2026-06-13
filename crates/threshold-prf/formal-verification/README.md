@@ -17,38 +17,31 @@ The active strategy is:
 - a narrow Lean privacy model for one-server/two-server execution-state
   visibility
 
-## V1 Threshold Policy Model
+## Threshold Policy Model
 
-The active model is intentionally v1-specific:
+The active model is policy-shaped:
 
 ```text
-threshold = 2
-share_count = 3
-valid_share_ids = {1, 2, 3}
-combine_count = 2
+1 <= threshold <= share_count <= MAX_SHARE_COUNT
+valid_share_ids = {1, ..., share_count}
+combine_count = threshold
 ```
 
-Current subset, Shamir, partial-combine, wire-tag, and transcript proofs model
-that fixed policy. A future generic `t-of-N` protocol needs a separate
-threshold-set model and vector corpus instead of widening the v1 proof names in
-place.
+Current subset, Shamir, share-wire, and reconstruction proofs model the
+policy-shaped boundary used by production Rust and WASM callers.
 
 ## Current Status
 
 This formal-verification track now has a Verus abstract spec model, committed
 vector anti-drift parity tests, a narrow Lean privacy execution-state model,
 concrete transcript fixtures, generated production property tests, DLEQ nonce
-contract tests, and `just threshold-prf-fv` / `just threshold-prf-fv2`
-commands. Lean boundary extraction remains deferred.
+contract tests, and the `just threshold-prf-fv` gate. Lean boundary extraction
+remains deferred.
 
 The current Verus track covers:
 
-- an abstract spec model for subset, Shamir, partial-combine, and wire-tag
+- an abstract spec model for threshold-policy, subset, Shamir, and share-wire
   behavior
-- an abstract server-SDK `SigningRootShareWireV1` decode and Option A
-  derivation boundary model
-- transcript length-prefix and field-order proofs for PRF and DLEQ transcript
-  encodings
 - production anti-drift parity against the committed JSON vector corpus
 - a structural Lean privacy model proving that one-server mode is not a privacy
   boundary, while one two-server participant, combiner state, and public output
@@ -69,20 +62,14 @@ be shaped around proof targets:
 The first active proof slice is implemented in
 [`verus/src/model.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/formal-verification/verus/src/model.rs):
 
-1. input-domain and output-width model
-2. 2-of-3 subset validation model
-3. duplicate/insufficient-share rejection model
-4. zero-root rejection and zero-share acceptance model
-5. direct reference evaluation shape
-6. threshold partial-combine shape
-7. direct-vs-threshold equivalence over the abstract model
-8. partial wire context-tag validation model
-9. abstract malformed scalar-encoding rejection
-10. explicit output-derivation input tuple binding
-11. abstract DLEQ commitment/proof boundary model
-12. DLEQ-enforced verified-combine boundary model
-13. secret signing-root share wire decode and Option A derivation boundary model
-14. transcript length-prefix, field-order, and DLEQ challenge tuple model
+1. threshold policy bounds
+2. share-ID membership
+3. duplicate and out-of-range subset rejection
+4. representative 2-of-3 and 3-of-5 subset acceptance
+5. fixed-width share, partial, commitment, and proof wire claims
+6. signing-root share wire decode
+7. proof-bundle ID-binding rejection
+8. 2-of-N and 3-of-N abstract reconstruction claims
 
 Do not add placeholder proofs that are disconnected from production formulas.
 
@@ -90,10 +77,4 @@ Run the current threshold-prf FV gate with:
 
 ```bash
 just threshold-prf-fv
-```
-
-Run the additive high-impact FV2 gate with:
-
-```bash
-just threshold-prf-fv2
 ```

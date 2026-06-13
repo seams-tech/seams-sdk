@@ -1,277 +1,119 @@
 # `threshold-prf` `t-of-N` Refactor Preparation Plan
 
 Date created: June 12, 2026
+Last updated: June 13, 2026
+
+## Current Status
+
+The API-neutral preparation work is complete. The crate now exposes the active
+configurable threshold protocol through `threshold_prf`, including generic
+policy validation, split/reconstruct, partial-combine, verified-combine,
+fixtures, WASM exports, benchmarks, and formal-verification models.
+
+The old fixed-pair threshold-prf public surface, vectors, local benchmark
+baselines, WASM exports, and FV anti-drift paths have been deleted. Remaining
+`V1` names in Router/A/B and server SDK code must be treated as serialized
+Router/A/B or persistence-boundary version names unless the Phase 7 audit marks
+them for rename.
 
 ## Scope
 
-This plan prepares
+This plan tracks work that prepared
 [crates/threshold-prf](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf)
-for a future generic `t-of-N` threshold-PRF protocol.
+for configurable `t-of-N` use without changing downstream public request shapes
+prematurely. Public protocol/API migration details now live in
+[threshold-prf-t-of-n-spec.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/docs/threshold-prf-t-of-n-spec.md).
 
-Version 1 remains fixed 2-of-3. This plan should make that fixed shape
-explicit, localized, and easy to replace later. It should not implement
-generic `t-of-N`, change v1 wire formats, change v1 vectors, or add unused
-generic abstractions.
+## Completed Phases
 
-## Current V1 Policy
+### Phase 1: Localize Fixed Assumptions
 
-The current protocol policy is:
+- [x] Document the former fixed `2-of-3` policy before refactoring.
+- [x] Add focused tests around subset size, duplicate IDs, and share-ID domain.
+- [x] Route fixed-pair validation through narrow internal helpers.
+- [x] Isolate interpolation math behind a generic Lagrange-at-zero helper.
+- [x] Add private `3-of-5`, `5-of-7`, `1-of-N`, and `N-of-N` interpolation
+      coverage before exposing the API.
 
-```text
-threshold = 2
-share_count = 3
-valid_share_ids = {1, 2, 3}
-combine_count = 2
-```
+### Phase 2: Add Public Canonical `t-of-N` API
 
-Current public v1 APIs encode this directly:
+- [x] Add `ThresholdPolicy`, `ThresholdShareId`, and
+      `ValidatedThresholdSet`.
+- [x] Add `SigningRootShare`, `SigningRootShareWire`, partial wires,
+      commitments, and proof-bundle wires.
+- [x] Add public split/reconstruct APIs with `2-of-3`, `3-of-5`, and invalid
+      policy tests.
+- [x] Add direct evaluation, partial evaluation, verified combine, and DLEQ
+      proof verification APIs.
+- [x] Add committed fixture corpora and anti-drift tests.
 
-- `split_signing_root_2_of_3`
-- `reconstruct_signing_root_2_of_3`
-- `refresh_signing_root_shares_2_of_3`
-- `derive_output_from_signing_root_shares`
-- `derive_output_from_signing_root_share_wires`
-- `combine_partials`
-- `combine_verified_partials`
+### Phase 3: Add Boundaries And Downstream Prep
 
-The future `t-of-N` refactor should be a v2 protocol/API revision. V1 should
-stay stable for existing vectors, WASM bindings, Router/A/B adapters, and HSS
-integration.
+- [x] Expose WASM HSS bindings for flattened policy-shaped share wires.
+- [x] Expose WASM distributed-combine bindings for partial wires and proof
+      bundles.
+- [x] Add `just threshold-prf-wasm-test` and `just threshold-prf-wasm-smoke`.
+- [x] Add server SDK threshold-prf HSS wrapper functions.
+- [x] Add hosted and self-hosted server SDK signing-root resolver boundaries.
+- [x] Move active server SDK ECDSA and Ed25519 HSS callers to policy-shaped
+      resolver inputs.
+- [x] Migrate Router/A/B Candidate A backend code to `threshold_prf` with
+      the current `2-of-3` policy and wire widths.
+- [x] Refresh Router/A/B contract, payload, and wire fixtures after the backend
+      migration.
 
-## Goals
+### Phase 4: Measure And Verify
 
-- Make every fixed 2-of-3 assumption easy to find.
-- Keep v1 behavior byte-for-byte unchanged.
-- Create clear internal seams for future `ValidatedThresholdSet` style inputs.
-- Keep current FV and vector coverage focused on v1.
-- Avoid speculative generic APIs that are not needed by current callers.
+- [x] Record native, local WASM, and production WASM size baselines before the
+      canonical API cleanup.
+- [x] Extend native Criterion and local smoke timing harnesses with `2-of-3`
+      and `3-of-5` coverage.
+- [x] Extend the local Node/V8 WASM benchmark harness with Option A and
+      DLEQ proof/verify/combine paths.
+- [x] Add a repeatable production WASM bundle-size command for before/after
+      comparisons. Bundle size remains informational because this crate runs
+      server-side.
+- [x] Extend FV prep with a threshold-policy/subset model and anti-drift
+      parity for committed fixtures.
 
-## Non-Goals
+### Phase 5: Remove Obsolete Fixed-Pair Threshold-Prf Surfaces
 
-- implementing generic `t-of-N`
-- changing share ID encoding
-- changing v1 wire formats
-- changing v1 purpose labels or output encodings
-- changing committed vectors
-- changing WASM exports
-- introducing a generic curve or field abstraction
-- preserving a compatibility path inside core logic after a future v2 lands
+- [x] Remove direct fixed-pair imports from active Router/A/B benchmark, library,
+      and test code.
+- [x] Remove fixed-pair committed-vector verification from the `threshold-prf`
+      vector test target.
+- [x] Remove fixed-pair formal-verification anti-drift paths.
+- [x] Remove server SDK fixed-pair sealed-share resolver config, public exports,
+      and resolver-only tests.
+- [x] Remove server SDK and Cloudflare unit-test dependencies on the deleted
+      fixed-pair fixture corpus.
+- [x] Move the ECDSA presign benchmark harness to the fixture and
+      policy-shaped resolver.
+- [x] Remove native and local WASM fixed-pair benchmark baselines, exports, and
+      guard labels while retaining `2-of-3` and `3-of-5` benchmark coverage.
+- [x] Delete fixed-pair fixture generators and fixture corpora.
+- [x] Delete obsolete fixed-pair Rust APIs, helper structs, protocol tests, and
+      the old FV abstract model.
+- [x] Rename the Router/A/B Candidate A threshold-prf suite id to the active suite id and refresh downstream fixtures.
+- [x] Replace stale implementation, FV, spec, benchmark, and sealing docs with
+      current records.
 
-## Phase 1: Name And Document V1 Policy
+## Validation
 
-- [x] Add a short v1 threshold-policy section to
-  [protocol.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/docs/protocol.md)
-  with:
-  - `threshold = 2`
-  - `share_count = 3`
-  - `valid_share_ids = {1, 2, 3}`
-  - `combine_count = 2`
-- [x] Add the same policy summary to
-  [README.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/README.md).
-- [x] Add tests that assert the current v1 share ID domain accepts only `1`,
-  `2`, and `3`.
-- [x] Add tests that assert one-share, three-share, and duplicate-share inputs
-  fail through the intended errors.
+- [x] `cargo test --manifest-path crates/threshold-prf/Cargo.toml`
+- [x] `cargo test --manifest-path crates/router-ab-core/Cargo.toml`
+- [x] `pnpm -C packages/sdk-server-ts type-check`
+- [x] focused server SDK resolver/WASM Playwright script tests
+- [x] `just threshold-prf-fv`
+- [x] `just threshold-prf-wasm-smoke`
+- [x] `git diff --check`
 
-Exit criteria:
+## Remaining Work
 
-- v1 fixed policy is visible in docs and tests
-- no API suggests generic threshold behavior
-
-## Phase 2: Localize Fixed Pair Validation
-
-Introduce private pair-shaped boundary helpers. Public APIs may keep slices for
-now, but all v1 core logic should receive validated pair shapes.
-
-Candidate private types:
-
-```rust
-struct SigningRootSharePair<'a> {
-    left: &'a SigningRootShare,
-    right: &'a SigningRootShare,
-}
-
-struct PrfPartialPair<'a> {
-    left: &'a PrfPartial,
-    right: &'a PrfPartial,
-}
-
-struct PrfProofBundlePair<'a> {
-    left: &'a PrfPartialProofBundleV1,
-    right: &'a PrfPartialProofBundleV1,
-}
-```
-
-Tasks:
-
-- [x] Replace ad hoc internal `[left, right]` validation returns with private
-  pair types.
-- [x] Keep public error behavior unchanged:
-  - wrong subset size -> `InvalidThresholdSubset`
-  - duplicate share ID -> `DuplicateShareId`
-- [x] Route `derive_output_from_signing_root_shares`,
-  `combine_partials`, and `combine_verified_partials` through the pair helpers.
-- [x] Add focused tests proving the public APIs still reject invalid subset
-  shapes.
-
-Exit criteria:
-
-- v1 pair validation has one implementation per domain shape
-- future v2 can replace pair types with threshold-set types without searching
-  through combine logic
-
-## Phase 3: Isolate Lagrange Math
-
-The current coefficient calculation is v1-specific. Make that explicit.
-
-Tasks:
-
-- [x] Rename or wrap the current coefficient function as
-  `lagrange_coefficients_2_of_3`.
-- [x] Remove the old internal function name instead of preserving a delegating
-  shim.
-- [x] Add tests for every ordered valid v1 pair:
-  - `(1, 2)`
-  - `(2, 1)`
-  - `(1, 3)`
-  - `(3, 1)`
-  - `(2, 3)`
-  - `(3, 2)`
-- [x] Add tests proving duplicate IDs fail before coefficient use.
-
-Exit criteria:
-
-- all v1 interpolation math is behind a v1-specific seam
-- future generic Lagrange code has an obvious replacement point
-
-## Phase 4: Keep Wire Types Explicitly Versioned
-
-The v1 wire types should remain fixed-width and versioned. A future `t-of-N`
-revision can add new types if the encoding changes.
-
-Tasks:
-
-- [x] Audit docs and comments for generic wording around:
-  - `SigningRootShareWireV1`
-  - `PrfPartialWireV1`
-  - `SigningRootShareCommitmentV1`
-  - `PrfDleqProofV1`
-- [x] Ensure each wire type states its v1 width and v1 assumptions.
-- [x] Add source guards or tests that pin the fixed widths.
-- [x] Document that generic `t-of-N` may require `V2` wire types if share ID,
-  threshold policy, or proof bundle metadata changes.
-
-Exit criteria:
-
-- v1 wire formats remain stable and visibly fixed
-- future v2 wire design cannot accidentally mutate v1 in place
-
-## Phase 5: FV And Vector Preparation
-
-Keep the existing FV model v1-specific. Add only prep that makes future v2
-work easier.
-
-Tasks:
-
-- [x] Add a v1 threshold-policy model section to the Verus documentation.
-- [x] Keep the current Verus proofs named or documented as 2-of-3/v1 proofs.
-- [x] Add a short future-work note in
-  [threshold-prf-formal-verification-2.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/docs/threshold-prf-formal-verification-2.md)
-  explaining that generic `t-of-N` needs a new threshold-set model.
-- [x] Document that v2 vectors must include:
-  - multiple `N` values
-  - multiple `t` values
-  - all valid subset sizes
-  - duplicate and insufficient-subset rejection
-  - DLEQ verified-combine cases for more than two partials
-
-Exit criteria:
-
-- FV docs clearly separate v1 2-of-3 proofs from future `t-of-N` proof work
-- vector expectations for future v2 are written down
-
-## Phase 6: V2 API Sketch
-
-Write a design stub only. Do not implement it.
-
-Expanded spec:
-[threshold-prf-v2-t-of-n-spec.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/docs/threshold-prf-v2-t-of-n-spec.md)
-
-Candidate API sketch:
-
-```rust
-pub struct ThresholdPolicyV2 {
-    pub threshold: NonZeroU16,
-    pub share_count: NonZeroU16,
-}
-
-pub struct ValidatedThresholdSetV2<T> {
-    policy: ThresholdPolicyV2,
-    values: Vec<T>,
-}
-```
-
-Questions to answer in the stub:
-
-- Share ID range: support non-zero numeric share IDs and choose the maximum
-  after the largest expected deployment size is known.
-- Share ID width: prefer `u16` unless deployment requirements justify `u32`.
-  Avoid variable-length IDs unless wire compactness or external identifiers
-  require them.
-- Wire formats: keep v2 wire formats fixed-width when threshold policy is
-  carried out of band. Add explicit policy metadata only at protocol boundaries
-  that need self-describing messages.
-- WASM APIs: expose policy-shaped constructors and validated threshold-set
-  combine APIs. Leave v1 bindings as explicit v1 exports.
-- Specialization: keep optimized v1 2-of-3 paths. Add v2 specialization for
-  common policies after benchmarks show generic interpolation cost matters.
-- Vector separation: store v1 and v2 vectors as separate corpora with separate
-  suite or protocol version labels.
-- Router/A/B selection: route by an explicit protocol version in Router/A/B
-  config and context construction, then pass that version into the threshold-PRF
-  binding layer.
-
-Exit criteria:
-
-- future `t-of-N` design questions are explicit
-- v1 implementation remains unchanged
-
-## Recommended Order
-
-1. Name and document v1 policy.
-2. Localize fixed pair validation.
-3. Isolate Lagrange math.
-4. Audit v1 wire type wording.
-5. Update FV/vector prep notes.
-6. Write the v2 API sketch.
-
-If only one preparation slice is funded, do Phases 1 and 2. They provide the
-best future leverage without adding speculative generic code.
-
-## API-Neutral Follow-Up Prep
-
-Implemented after the initial prep:
-
-- [x] Add a private threshold-policy shape for internal validation.
-- [x] Route v1 share, partial, and proof-bundle subset validation through one
-  v1 policy helper.
-- [x] Add a private generic Lagrange-at-zero helper.
-- [x] Keep the public 2-of-3 APIs, v1 wire formats, vectors, and WASM exports
-  unchanged.
-- [x] Add hidden 3-of-5 interpolation tests to exercise the future math seam.
-- [x] Add a local ignored timing harness for private generic interpolation:
-  `just threshold-prf-t-of-n-prep-bench`.
-- [x] Extend the local timing harness to separate:
-  - Lagrange coefficient computation for `2-of-3`, `3-of-5`, and `5-of-7`
-  - point interpolation for those same private generic policies
-  - current v1 partial evaluation, combine, share-wire derive, DLEQ proof, and
-    verified-combine costs
-- [x] Add private `5-of-7` scalar and point interpolation tests for the future
-  generic combine seam.
-
-Remaining for the public v2 refactor:
-
-- introduce public v2 policy and share-id types
-- add v2 wire types and vector corpus
-- expose v2 WASM bindings
-- extend benchmarks and FV models to generic threshold sets
+1. Defer deployed Worker benchmarks until live Cloudflare testing resumes.
+2. Complete the Phase 7 naming audit in
+   [threshold-prf-t-of-n-spec.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/docs/threshold-prf-t-of-n-spec.md):
+   retain `V1` suffixes only for active serialized Router/A/B request,
+   payload, route, purpose-label, and persistence boundaries.
+3. Plan any downstream Router/A/B expansion beyond the current `2-of-3` policy
+   as a separate protocol-shape change.

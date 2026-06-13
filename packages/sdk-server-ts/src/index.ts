@@ -14,9 +14,7 @@ export {
   createEcdsaAuthSessionStore,
   CloudflareDurableObjectSigningRootSecretStore,
   createConfiguredSigningRootShareResolver,
-  createSigningRootSecretAesGcmDecryptAdapter,
   createHostedSigningRootShareResolver,
-  createSealedSelfHostedSigningRootShareResolver,
   createSelfHostedSigningRootShareResolver,
   deriveEcdsaHssYRelayerFromSigningRootShareResolver,
   deriveEd25519HssServerInputsFromSigningRootShareResolver,
@@ -26,28 +24,26 @@ export {
 } from './core/ThresholdService';
 export type {
   CreateHostedSigningRootShareResolverInput,
-  CreateSealedSelfHostedSigningRootShareResolverInput,
   CreateSelfHostedSigningRootShareResolverInput,
   DeriveEcdsaHssYRelayerFromSigningRootShareResolverInput,
   DeriveEd25519HssServerInputsFromSigningRootShareResolverInput,
   FixedSigningRootScope,
+  SealedSigningRootShare,
+  SigningRootShareDecryptAdapter,
+  SigningRootShareSource,
   SigningRootSecretShareId,
   SigningRootSecretShareKekResolver,
   SigningRootSecretShareKekResolutionInput,
-  SigningRootSecretDecryptAdapterKind,
-  SigningRootSecretDecryptAdapter,
-  SigningRootSecretResolver,
-  SigningRootSecretResolverAdapters,
-  SigningRootSecretShare,
   SigningRootSecretStore,
-  SigningRootSecretStorageAdapterKind,
   SealedSigningRootSecretShare,
-  SigningRootSecretShareInput,
   SigningRootSecretShareSource,
   SigningRootSecretShareWireV1,
-  SigningRootSharePair,
-  SigningRootShareResolver,
+  SigningRootShareInput,
   SigningRootShareResolverInput,
+  SigningRootShareResolver,
+  SigningRootShareSet,
+  SigningRootShareWire,
+  ThresholdPrfPolicy,
 } from './core/ThresholdService';
 export {
   ensureEthSignerWasm,
@@ -121,6 +117,20 @@ export {
 } from './router/recoveryExecutionTracking';
 export * from './email-recovery';
 export * from './threshold/session/signingSessionSeal';
+export type {
+  RelayRouterModule,
+  RelayRouterModuleKind,
+  RelayRouterModuleOptions,
+} from './router/modules';
+export { createRelayRouterModule } from './router/modules';
+export type {
+  RelayCloudflareRouteExtension,
+  RelayCloudflareRouteExtensionInput,
+  RelayExpressRouteExtension,
+  RelayExpressRouteExtensionInput,
+  RelayRouteExtension,
+  RelayRouteExtensionTransport,
+} from './router/routeExtensions';
 export * from './router/ror';
 export * from './console/account';
 export * from './console/gasSponsorship';

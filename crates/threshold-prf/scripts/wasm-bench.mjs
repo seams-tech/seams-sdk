@@ -22,23 +22,18 @@ run("wasm-pack", [
 ]);
 
 const wasmModule = await import(pathToFileURL(join(pkgDir, "threshold_prf_wasm_bench.js")));
-const wasm = wasmModule.default?.benchmark_option_a ? wasmModule.default : wasmModule;
+const wasm = wasmModule.default?.benchmark_option_a_2_of_3 ? wasmModule.default : wasmModule;
 
 const benches = [
   {
-    name: "option_a_evaluate_two_partials_and_combine",
+    name: "option_a_2_of_3_evaluate_partials_and_combine",
     iterations: 20_000,
-    fn: wasm.benchmark_option_a,
+    fn: wasm.benchmark_option_a_2_of_3,
   },
   {
-    name: "derive_output_from_signing_root_shares",
-    iterations: 20_000,
-    fn: wasm.benchmark_option_a_helper,
-  },
-  {
-    name: "derive_output_from_signing_root_share_wires",
-    iterations: 20_000,
-    fn: wasm.benchmark_option_a_share_wires,
+    name: "option_a_3_of_5_evaluate_partials_and_combine",
+    iterations: 10_000,
+    fn: wasm.benchmark_option_a_3_of_5,
   },
   {
     name: "evaluate_partial_with_dleq_proof",
@@ -51,9 +46,9 @@ const benches = [
     fn: wasm.benchmark_dleq_verify,
   },
   {
-    name: "combine_verified_partials",
-    iterations: 5_000,
-    fn: wasm.benchmark_dleq_combine_verified,
+    name: "combine_verified_partials_3_of_5",
+    iterations: 3_000,
+    fn: wasm.benchmark_dleq_combine_verified_3_of_5,
   },
 ];
 
@@ -77,6 +72,10 @@ const payload = {
   date: new Date().toISOString(),
   runtime: `node ${process.version}`,
   target: "wasm32-unknown-unknown via wasm-pack --target nodejs --release",
+  git: {
+    revision: commandOutput("git", ["rev-parse", "HEAD"]),
+    dirty_status: commandOutput("git", ["status", "--short"]),
+  },
   results,
 };
 
@@ -104,6 +103,17 @@ function run(command, args) {
   if (result.status !== 0) {
     process.exit(result.status ?? 1);
   }
+}
+
+function commandOutput(command, args) {
+  const result = spawnSync(command, args, {
+    cwd: crateDir,
+    encoding: "utf8",
+  });
+  if (result.error || result.status !== 0) {
+    return null;
+  }
+  return result.stdout.trim();
 }
 
 function formatNs(ns) {

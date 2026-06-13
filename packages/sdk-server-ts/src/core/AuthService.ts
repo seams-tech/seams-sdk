@@ -416,16 +416,23 @@ function pushRegistrationRouteDuration(
 
 function pushRegistrationHssPrepareTimingEntries(
   entries: WalletRegistrationRouteTimingEntry[],
-  timings: {
-    prepareSessionMs: number;
-    extractDriverStatesMs: number;
-    clientOfferMessageMs: number;
-    cachePreparedSessionMs: number;
-    encodeStatesMs: number;
-  } | null | undefined,
+  timings:
+    | {
+        prepareSessionMs: number;
+        extractDriverStatesMs: number;
+        clientOfferMessageMs: number;
+        cachePreparedSessionMs: number;
+        encodeStatesMs: number;
+      }
+    | null
+    | undefined,
 ): void {
   if (!timings) return;
-  pushRegistrationRouteDuration(entries, 'registrationHssPrepareSessionMs', timings.prepareSessionMs);
+  pushRegistrationRouteDuration(
+    entries,
+    'registrationHssPrepareSessionMs',
+    timings.prepareSessionMs,
+  );
   pushRegistrationRouteDuration(
     entries,
     'registrationHssPrepareExtractDriverStatesMs',
@@ -1536,8 +1543,7 @@ function toThresholdEcdsaBootstrapSession(session: {
 // =============================
 
 // Server dist location when this file is emitted to `dist/esm/server/core/AuthService.js`.
-const SIGNER_WASM_SERVER_DIST_PATH =
-  '../wasm/near_signer/pkg-server/wasm_signer_worker_bg.wasm';
+const SIGNER_WASM_SERVER_DIST_PATH = '../wasm/near_signer/pkg-server/wasm_signer_worker_bg.wasm';
 // Browser dist location can initialize the same signer in local package runs.
 const SIGNER_WASM_BROWSER_DIST_PATH = '../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm';
 // Worker copy location from `dist/esm/server/core/AuthService.js`.
@@ -1595,9 +1601,10 @@ function summarizeThresholdStoreConfig(cfg: AuthServiceConfig['thresholdStore'])
 
   const hasSigningRootSecretShares = Boolean(
     cfg.signingRootShareResolver ||
-    cfg.signingRootSecretResolverAdapters ||
-    (cfg.signingRootSecretStore &&
-      (cfg.signingRootSecretDecryptAdapter || cfg.signingRootSecretShareKekResolver)),
+    cfg.signingRootShareResolverAdapters ||
+    (cfg.signingRootSharePolicy &&
+      cfg.signingRootShareStore &&
+      cfg.signingRootShareDecryptAdapter),
   );
   const parts = [
     `thresholdStore: configured`,
@@ -3738,11 +3745,9 @@ export class AuthService {
       return this.registrationPrepareRateLimiter;
     }
     const limiterKind =
-      (this.readRegistrationPrepareRateLimitConfigValue('REGISTRATION_PREPARE_RATE_LIMITER_KIND') as
-        | 'in-memory'
-        | 'upstash-redis-rest'
-        | 'redis-tcp'
-        | '') || null;
+      (this.readRegistrationPrepareRateLimitConfigValue(
+        'REGISTRATION_PREPARE_RATE_LIMITER_KIND',
+      ) as 'in-memory' | 'upstash-redis-rest' | 'redis-tcp' | '') || null;
     const limiter = resolveSigningSessionSealRateLimitFromEnv({
       limiterKind,
       upstashUrl:
@@ -3838,7 +3843,9 @@ export class AuthService {
     const policy = this.resolveRegistrationPrepareRateLimitPolicy();
     const authMethod = args.storedIntent.intent.authMethod;
     const email =
-      authMethod.kind === 'email_otp' ? toOptionalTrimmedString(authMethod.email).toLowerCase() : '';
+      authMethod.kind === 'email_otp'
+        ? toOptionalTrimmedString(authMethod.email).toLowerCase()
+        : '';
     const keySuffix = [
       `limit=${policy.limit}`,
       `windowMs=${policy.windowMs}`,
@@ -6121,10 +6128,13 @@ export class AuthService {
       const preparedRegistration =
         selection.mode === 'ecdsa_only'
           ? null
-          : await measureRegistrationRouteTiming(routeTimings, 'registrationPreparationLoadMs', () =>
-              request.registrationPreparationId
-                ? ceremonyStore.getPreparation(request.registrationPreparationId)
-                : Promise.resolve(null),
+          : await measureRegistrationRouteTiming(
+              routeTimings,
+              'registrationPreparationLoadMs',
+              () =>
+                request.registrationPreparationId
+                  ? ceremonyStore.getPreparation(request.registrationPreparationId)
+                  : Promise.resolve(null),
             );
       if (selection.mode !== 'ecdsa_only' && !preparedRegistration) {
         return {
@@ -6190,12 +6200,12 @@ export class AuthService {
           selection.mode === 'ecdsa_only'
             ? ceremonyStore.takeIntent(grant).then((intent) =>
                 intent
-                  ? ({ ok: true as const, intent })
-                  : ({
+                  ? { ok: true as const, intent }
+                  : {
                       ok: false as const,
                       code: 'invalid_grant' as const,
                       message: 'registration intent grant expired',
-                    }),
+                    },
               )
             : ceremonyStore.consumeRegistrationIntentForPreparation({
                 registrationIntentGrant: grant,
@@ -6296,18 +6306,18 @@ export class AuthService {
       const combinedEcdsaPrepare =
         selection.mode === 'ed25519_and_ecdsa'
           ? await measureRegistrationRouteTiming(routeTimings, 'registrationEcdsaPrepareMs', () =>
-                this.prepareEcdsaRegistrationStartPayload({
-                  registrationCeremonyId,
-                  registrationPreparationId: request.registrationPreparationId!,
-                  walletId: storedIntent.intent.walletId,
-                  rpId: storedIntent.intent.rpId,
-                  signingRootId: signingRootId!,
-                  signingRootVersion,
-                  chainTargets: normalizedEcdsaChainTargets as ThresholdEcdsaChainTarget[],
-                  participantIds: selection.ecdsa.participantIds,
-                  ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-                }),
-              )
+              this.prepareEcdsaRegistrationStartPayload({
+                registrationCeremonyId,
+                registrationPreparationId: request.registrationPreparationId!,
+                walletId: storedIntent.intent.walletId,
+                rpId: storedIntent.intent.rpId,
+                signingRootId: signingRootId!,
+                signingRootVersion,
+                chainTargets: normalizedEcdsaChainTargets as ThresholdEcdsaChainTarget[],
+                participantIds: selection.ecdsa.participantIds,
+                ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+              }),
+            )
           : null;
 
       const responseEd25519 = {
@@ -6654,10 +6664,7 @@ export class AuthService {
       };
     }
     if (responded.serverInputDeliveryTimings) {
-      pushRegistrationHssRespondTimingEntries(
-        routeTimings,
-        responded.serverInputDeliveryTimings,
-      );
+      pushRegistrationHssRespondTimingEntries(routeTimings, responded.serverInputDeliveryTimings);
     }
     const respondedEd25519 = {
       contextBindingB64u: responded.contextBindingB64u,
@@ -7744,19 +7751,22 @@ export class AuthService {
         if (policyBindingError) {
           return { ok: false, code: 'invalid_body', message: policyBindingError };
         }
-        const session = await measureRegistrationRouteTiming(routeTimings, 'relaySessionMintMs', () =>
-          threshold.mintEd25519SessionFromRegistration({
-            nearAccountId: ed25519.nearAccountId,
-            rpId: ceremony.intent.rpId,
-            relayerKeyId: keygen.relayerKeyId,
-            sessionPolicy: {
-              ...requestedPolicy,
+        const session = await measureRegistrationRouteTiming(
+          routeTimings,
+          'relaySessionMintMs',
+          () =>
+            threshold.mintEd25519SessionFromRegistration({
               nearAccountId: ed25519.nearAccountId,
               rpId: ceremony.intent.rpId,
               relayerKeyId: keygen.relayerKeyId,
-              ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-            } as any,
-          }),
+              sessionPolicy: {
+                ...requestedPolicy,
+                nearAccountId: ed25519.nearAccountId,
+                rpId: ceremony.intent.rpId,
+                relayerKeyId: keygen.relayerKeyId,
+                ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+              } as any,
+            }),
         );
         if (!session.ok || !session.sessionId || !Number.isFinite(Number(session.expiresAtMs))) {
           return {
@@ -7823,23 +7833,26 @@ export class AuthService {
           }),
       );
       if (!googleEmailOtpActivation.ok) return googleEmailOtpActivation;
-      const persisted = await measureRegistrationRouteTiming(routeTimings, 'relayPersistenceMs', () =>
-        this.consumeRegistrationCeremonyAndPersist({
-          registrationCeremonyId: ceremony.registrationCeremonyId,
-          ...(googleEmailOtpActivation.activation
-            ? { googleEmailOtpActivation: googleEmailOtpActivation.activation }
-            : {}),
-          records: {
-            webAuthnAuthenticators: authorityPersistence.webAuthnAuthenticators,
-            credentialBindings: authorityPersistence.credentialBindings,
-            wallet,
-            walletAuthMethods: authorityPersistence.walletAuthMethods,
-            walletSigners,
-            ...(emailOtpEnrollment.persistence
-              ? { emailOtpEnrollment: emailOtpEnrollment.persistence }
+      const persisted = await measureRegistrationRouteTiming(
+        routeTimings,
+        'relayPersistenceMs',
+        () =>
+          this.consumeRegistrationCeremonyAndPersist({
+            registrationCeremonyId: ceremony.registrationCeremonyId,
+            ...(googleEmailOtpActivation.activation
+              ? { googleEmailOtpActivation: googleEmailOtpActivation.activation }
               : {}),
-          },
-        }),
+            records: {
+              webAuthnAuthenticators: authorityPersistence.webAuthnAuthenticators,
+              credentialBindings: authorityPersistence.credentialBindings,
+              wallet,
+              walletAuthMethods: authorityPersistence.walletAuthMethods,
+              walletSigners,
+              ...(emailOtpEnrollment.persistence
+                ? { emailOtpEnrollment: emailOtpEnrollment.persistence }
+                : {}),
+            },
+          }),
       );
       if (!persisted.ok) return persisted;
 
@@ -7863,17 +7876,14 @@ export class AuthService {
           walletKeys: walletKeyResult.walletKeys,
         },
       };
-      await measureRegistrationRouteTiming(
-        routeTimings,
-        'registrationFinalizeReplayCacheMs',
-        () =>
-          this.cacheGoogleEmailOtpRegistrationFinalizeReplay({
-            authority: ceremony.authority,
-            registrationCeremonyId: ceremony.registrationCeremonyId,
-            idempotencyKey: finalizeIdempotency.idempotencyKey,
-            expiresAtMs: ceremony.expiresAtMs,
-            response,
-          }),
+      await measureRegistrationRouteTiming(routeTimings, 'registrationFinalizeReplayCacheMs', () =>
+        this.cacheGoogleEmailOtpRegistrationFinalizeReplay({
+          authority: ceremony.authority,
+          registrationCeremonyId: ceremony.registrationCeremonyId,
+          idempotencyKey: finalizeIdempotency.idempotencyKey,
+          expiresAtMs: ceremony.expiresAtMs,
+          response,
+        }),
       );
       response.registrationDiagnostics = finalizeDiagnostics();
       return response;
@@ -7963,23 +7973,26 @@ export class AuthService {
           }),
       );
       if (!googleEmailOtpActivation.ok) return googleEmailOtpActivation;
-      const persisted = await measureRegistrationRouteTiming(routeTimings, 'relayPersistenceMs', () =>
-        this.consumeRegistrationCeremonyAndPersist({
-          registrationCeremonyId: ceremony.registrationCeremonyId,
-          ...(googleEmailOtpActivation.activation
-            ? { googleEmailOtpActivation: googleEmailOtpActivation.activation }
-            : {}),
-          records: {
-            webAuthnAuthenticators: authorityPersistence.webAuthnAuthenticators,
-            credentialBindings: authorityPersistence.credentialBindings,
-            wallet,
-            walletAuthMethods: authorityPersistence.walletAuthMethods,
-            walletSigners,
-            ...(emailOtpEnrollment.persistence
-              ? { emailOtpEnrollment: emailOtpEnrollment.persistence }
+      const persisted = await measureRegistrationRouteTiming(
+        routeTimings,
+        'relayPersistenceMs',
+        () =>
+          this.consumeRegistrationCeremonyAndPersist({
+            registrationCeremonyId: ceremony.registrationCeremonyId,
+            ...(googleEmailOtpActivation.activation
+              ? { googleEmailOtpActivation: googleEmailOtpActivation.activation }
               : {}),
-          },
-        }),
+            records: {
+              webAuthnAuthenticators: authorityPersistence.webAuthnAuthenticators,
+              credentialBindings: authorityPersistence.credentialBindings,
+              wallet,
+              walletAuthMethods: authorityPersistence.walletAuthMethods,
+              walletSigners,
+              ...(emailOtpEnrollment.persistence
+                ? { emailOtpEnrollment: emailOtpEnrollment.persistence }
+                : {}),
+            },
+          }),
       );
       if (!persisted.ok) return persisted;
       const response: Extract<WalletRegistrationFinalizeResponse, { ok: true }> = {
@@ -7991,17 +8004,14 @@ export class AuthService {
           walletKeys,
         },
       };
-      await measureRegistrationRouteTiming(
-        routeTimings,
-        'registrationFinalizeReplayCacheMs',
-        () =>
-          this.cacheGoogleEmailOtpRegistrationFinalizeReplay({
-            authority: ceremony.authority,
-            registrationCeremonyId: ceremony.registrationCeremonyId,
-            idempotencyKey: finalizeIdempotency.idempotencyKey,
-            expiresAtMs: ceremony.expiresAtMs,
-            response,
-          }),
+      await measureRegistrationRouteTiming(routeTimings, 'registrationFinalizeReplayCacheMs', () =>
+        this.cacheGoogleEmailOtpRegistrationFinalizeReplay({
+          authority: ceremony.authority,
+          registrationCeremonyId: ceremony.registrationCeremonyId,
+          idempotencyKey: finalizeIdempotency.idempotencyKey,
+          expiresAtMs: ceremony.expiresAtMs,
+          response,
+        }),
       );
       response.registrationDiagnostics = finalizeDiagnostics();
       return response;
@@ -8082,18 +8092,15 @@ export class AuthService {
         message: `threshold scheme ${THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID} is not enabled`,
       };
     }
-    const keygen = await measureRegistrationRouteTiming(
-      routeTimings,
-      'registrationKeygenMs',
-      () =>
-        schemeAny.registration.keygenFromRegistrationMaterial({
-          nearAccountId: ed25519.nearAccountId,
-          rpId: ceremony.intent.rpId,
-          keyVersion: ed25519.keyVersion,
-          recoveryExportCapable: true,
-          publicKey: finalized.publicKey,
-          relayerKeyId: finalized.relayerKeyId,
-        }),
+    const keygen = await measureRegistrationRouteTiming(routeTimings, 'registrationKeygenMs', () =>
+      schemeAny.registration.keygenFromRegistrationMaterial({
+        nearAccountId: ed25519.nearAccountId,
+        rpId: ceremony.intent.rpId,
+        keyVersion: ed25519.keyVersion,
+        recoveryExportCapable: true,
+        publicKey: finalized.publicKey,
+        relayerKeyId: finalized.relayerKeyId,
+      }),
     );
     if (!keygen.ok) {
       return {
@@ -8254,17 +8261,14 @@ export class AuthService {
         ...(thresholdEd25519Session ? { session: thresholdEd25519Session } : {}),
       },
     };
-    await measureRegistrationRouteTiming(
-      routeTimings,
-      'registrationFinalizeReplayCacheMs',
-      () =>
-        this.cacheGoogleEmailOtpRegistrationFinalizeReplay({
-          authority: ceremony.authority,
-          registrationCeremonyId: ceremony.registrationCeremonyId,
-          idempotencyKey: finalizeIdempotency.idempotencyKey,
-          expiresAtMs: ceremony.expiresAtMs,
-          response,
-        }),
+    await measureRegistrationRouteTiming(routeTimings, 'registrationFinalizeReplayCacheMs', () =>
+      this.cacheGoogleEmailOtpRegistrationFinalizeReplay({
+        authority: ceremony.authority,
+        registrationCeremonyId: ceremony.registrationCeremonyId,
+        idempotencyKey: finalizeIdempotency.idempotencyKey,
+        expiresAtMs: ceremony.expiresAtMs,
+        response,
+      }),
     );
     response.registrationDiagnostics = finalizeDiagnostics();
     return response;

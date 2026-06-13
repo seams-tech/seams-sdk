@@ -4,9 +4,6 @@ import {
   createConfiguredSigningRootShareResolver,
   createThresholdSigningService,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService';
-import { createConfiguredSigningRootSecretResolver } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretConfig';
-import type { SigningRootSecretShareKekResolutionInput } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretSealing';
-import { InMemorySigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
 import type { ThresholdStoreConfigInput } from '../../packages/sdk-server-ts/src/core/types';
 
 function createAuthServiceMock(): AuthService {
@@ -17,86 +14,22 @@ function createAuthServiceMock(): AuthService {
   } as unknown as AuthService;
 }
 
-test('signing-root resolver config composes store and KEK resolver', async () => {
-  const store = new InMemorySigningRootSecretStore();
-  const resolverCalls: string[] = [];
-  const resolver = createConfiguredSigningRootSecretResolver({
-    signingRootSecretShareStore: store,
-    signingRootSecretShareKekResolver: async (input: SigningRootSecretShareKekResolutionInput) => {
-      resolverCalls.push(input.kekId);
-      return new Uint8Array(32).fill(0x42);
-    },
-  });
-
-  expect(resolver).not.toBeNull();
-  expect(await resolver!.listSealedSigningRootSecretShares({ signingRootId: 'missing' })).toEqual([]);
-  await expect(
-    resolver!.decryptSigningRootSecretShare({
-      signingRootId: 'project-alpha',
-      shareId: 1,
-      kekId: 'kek-v1',
-      sealedShare: new Uint8Array([0x00]),
-    }),
-  ).rejects.toThrow();
-  expect(resolverCalls).toEqual([]);
-});
-
-test('signing-root resolver config composes storage and decrypt adapters', async () => {
-  const store = new InMemorySigningRootSecretStore();
-  const decryptCalls: number[] = [];
-  const resolver = createConfiguredSigningRootSecretResolver({
-    signingRootSecretResolverAdapters: {
-      storageAdapter: store,
-      decryptAdapter: {
-        adapterKind: 'aws-kms',
-        decryptSigningRootSecretShare: async (record: any) => {
-          decryptCalls.push(record.shareId);
-          return new Uint8Array([record.shareId, ...new Uint8Array(32)]);
-        },
-      },
-    },
-  });
-
-  expect(resolver).not.toBeNull();
-  expect(await resolver!.listSealedSigningRootSecretShares({ signingRootId: 'missing' })).toEqual([]);
-  const decrypted = await resolver!.decryptSigningRootSecretShare({
-    signingRootId: 'project-alpha',
-    shareId: 1,
-    kekId: 'kms-key-v1',
-    sealedShare: new Uint8Array([0x00]),
-  });
-  expect(decrypted[0]).toBe(1);
-  expect(decrypted.length).toBe(33);
-  expect(decryptCalls).toEqual([1]);
-});
-
-test('signing-root resolver config accepts store plus external decrypt adapter', async () => {
-  const store = new InMemorySigningRootSecretStore();
-  const resolver = createConfiguredSigningRootSecretResolver({
-    signingRootSecretShareStore: store,
-    signingRootSecretShareDecryptAdapter: {
-      adapterKind: 'tee',
-      decryptSigningRootSecretShare: async (record: any) =>
-        new Uint8Array([record.shareId, ...new Uint8Array(32)]),
-    },
-  });
-
-  expect(resolver).not.toBeNull();
-  const decrypted = await resolver!.decryptSigningRootSecretShare({
-    signingRootId: 'project-alpha',
-    shareId: 2,
-    kekId: 'tee-key-v1',
-    sealedShare: new Uint8Array([0x00]),
-  });
-  expect(decrypted[0]).toBe(2);
-  expect(decrypted.length).toBe(33);
-});
-
 test('threshold signing service reports signing-root resolver configured from server SDK config', () => {
   const thresholdConfig: ThresholdStoreConfigInput = {
     kind: 'in-memory',
-    signingRootSecretStore: new InMemorySigningRootSecretStore(),
-    signingRootSecretShareKekResolver: async () => new Uint8Array(32).fill(0x42),
+    signingRootShareResolverAdapters: {
+      policy: {
+        protocol: 'threshold-prf',
+        threshold: 2,
+        shareCount: 3,
+      },
+      storageAdapter: {
+        listSealedSigningRootShares: async () => [],
+      },
+      decryptAdapter: {
+        decryptSigningRootShare: async () => new Uint8Array(34),
+      },
+    },
   };
 
   const service = createThresholdSigningService({
@@ -109,27 +42,44 @@ test('threshold signing service reports signing-root resolver configured from se
 });
 
 test('signing-root share resolver config composes storage and decrypt adapters', async () => {
-  const store = new InMemorySigningRootSecretStore();
   const decryptCalls: number[] = [];
   const resolver = createConfiguredSigningRootShareResolver({
-    signingRootSecretResolverAdapters: {
-      storageAdapter: store,
+    signingRootShareResolverAdapters: {
+      policy: {
+        protocol: 'threshold-prf',
+        threshold: 2,
+        shareCount: 3,
+      },
+      storageAdapter: {
+        listSealedSigningRootShares: async (input: {
+          signingRootId: string;
+          signingRootVersion?: string;
+        }) => [
+          {
+            signingRootId: input.signingRootId,
+            ...(input.signingRootVersion ? { signingRootVersion: input.signingRootVersion } : {}),
+            shareId: 1,
+            sealedShare: new Uint8Array([1]),
+          },
+          {
+            signingRootId: input.signingRootId,
+            ...(input.signingRootVersion ? { signingRootVersion: input.signingRootVersion } : {}),
+            shareId: 2,
+            sealedShare: new Uint8Array([2]),
+          },
+        ],
+      },
       decryptAdapter: {
-        adapterKind: 'aws-kms',
-        decryptSigningRootSecretShare: async (record: any) => {
+        decryptSigningRootShare: async (record: any) => {
           decryptCalls.push(record.shareId);
-          return new Uint8Array([record.shareId, ...new Uint8Array(32)]);
+          return new Uint8Array([0, record.shareId, ...new Uint8Array(32).fill(record.shareId)]);
         },
       },
     },
   });
 
   expect(resolver).not.toBeNull();
-  await expect(
-    resolver!.resolveSigningRootSharePair({
-      signingRootId: 'project-alpha',
-      preferredShareIds: [1, 2],
-    }),
-  ).rejects.toThrow(/requested signing-root shares are not available/);
-  expect(decryptCalls).toEqual([]);
+  const shares = await resolver!.resolveSigningRootShareSet({ signingRootId: 'project-alpha' });
+  expect(shares.map((share) => share[1])).toEqual([1, 2]);
+  expect(decryptCalls).toEqual([1, 2]);
 });

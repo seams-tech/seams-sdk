@@ -7,6 +7,7 @@ fv:
   just ecdsa-hss-fv
   just signer-core-fv
   just threshold-prf-fv
+  just router-ab-core-fv
 
 # Run the full gated formal-verification path for `ed25519-hss`, including the Aeneas boundary check.
 ed25519-hss-fv:
@@ -37,7 +38,7 @@ ed25519-hss-fv-verus:
   cargo hss-fv parity
   cargo hss-fv verus-check
 
-# Run the active V2 crate parity tests for `ecdsa-hss`.
+# Run the active crate parity tests for `ecdsa-hss`.
 ecdsa-hss-fv-parity:
   cargo test -q --manifest-path crates/ecdsa-hss/Cargo.toml --test role_local_mvp
 
@@ -84,20 +85,40 @@ threshold-prf-fv-verus:
 
 # Run the current full formal-verification path for `threshold-prf`.
 threshold-prf-fv:
+  cargo test -q --manifest-path crates/threshold-prf/Cargo.toml --tests
   just threshold-prf-fv-parity
   just threshold-prf-fv-verus
   just threshold-prf-fv-privacy
 
-# Run the high-impact FV2 gate for `threshold-prf`.
-threshold-prf-fv2:
-  just threshold-prf-fv
-  cargo test -q --manifest-path crates/threshold-prf/Cargo.toml --tests
-  cargo test -q --manifest-path crates/threshold-prf/formal-verification/verus/Cargo.toml --tests
-  cargo verus verify --manifest-path crates/threshold-prf/formal-verification/verus/Cargo.toml
-
 # Run the Lean privacy execution-state model for `threshold-prf`.
 threshold-prf-fv-privacy:
   cd crates/threshold-prf/formal-verification/lean-privacy && $HOME/.elan/bin/lake build
+
+# Run the Router A/B committed Rust boundary checks and formal-verification tracks.
+router-ab-core-fv-parity:
+  cargo test -q --manifest-path crates/router-ab-core/Cargo.toml --test source_guards
+  cargo test -q --manifest-path crates/router-ab-core/Cargo.toml --test evidence
+  cargo test -q --manifest-path crates/router-ab-core/Cargo.toml --test protocol_boundaries
+  cargo test -q --manifest-path crates/router-ab-core/formal-verification/verus/Cargo.toml --tests
+
+# Run the abstract Router A/B Verus model.
+router-ab-core-fv-verus:
+  cargo verus verify --manifest-path crates/router-ab-core/formal-verification/verus/Cargo.toml
+
+# Run the Router A/B Lean boundary workspace.
+router-ab-core-fv-boundary:
+  cd crates/router-ab-core/formal-verification/lean-boundary && $HOME/.elan/bin/lake build
+
+# Run the Router A/B Lean privacy workspace.
+router-ab-core-fv-privacy:
+  cd crates/router-ab-core/formal-verification/lean-privacy && $HOME/.elan/bin/lake build
+
+# Run the current full formal-verification path for `router-ab-core`.
+router-ab-core-fv:
+  just router-ab-core-fv-parity
+  just router-ab-core-fv-verus
+  just router-ab-core-fv-boundary
+  just router-ab-core-fv-privacy
 
 # Build the threshold-prf benchmark harness without running it.
 threshold-prf-bench-build:
@@ -120,6 +141,18 @@ threshold-prf-bench-gate:
 threshold-prf-wasm-bench:
   node crates/threshold-prf/scripts/wasm-bench.mjs
 
+# Run threshold-prf wasm-bindgen tests under Node.
+threshold-prf-wasm-test:
+  wasm-pack test --node wasm/threshold_prf
+
+# Build the production threshold-prf WASM package and record bundle sizes.
+threshold-prf-wasm-size:
+  node crates/threshold-prf/scripts/wasm-size.mjs
+
+# Build the production threshold-prf WASM package and smoke-test generated JS exports.
+threshold-prf-wasm-smoke:
+  node crates/threshold-prf/scripts/wasm-production-smoke.mjs
+
 # Run the API-neutral private t-of-N interpolation smoke timing harness.
 threshold-prf-t-of-n-prep-bench:
   cargo test --manifest-path crates/threshold-prf/Cargo.toml benchmark_private -- --ignored --nocapture --test-threads=1
@@ -132,6 +165,11 @@ threshold-prf-worker-bench-build:
 threshold-prf-worker-bench-dev:
   just threshold-prf-worker-bench-build
   cd crates/threshold-prf/worker-bench && pnpm exec wrangler dev
+
+# Check that warm local Worker requests reuse initialized threshold-prf WASM state.
+threshold-prf-worker-bench-init-check:
+  just threshold-prf-worker-bench-build
+  node crates/threshold-prf/scripts/worker-bench-init-check.mjs
 
 # Deploy the threshold-prf Worker benchmark fixture with Wrangler.
 threshold-prf-worker-bench-deploy:

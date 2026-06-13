@@ -834,7 +834,10 @@ test.describe('threshold-ed25519 scope (express)', () => {
       });
       const auth = await fetchJson(`${srv.baseUrl}/threshold-ed25519/authorize`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${thresholdAuthToken}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${thresholdAuthToken}`,
+        },
         body: JSON.stringify(authorizeBody),
       });
       expect(auth.status, auth.text).toBe(200);
@@ -948,7 +951,10 @@ test.describe('threshold-ed25519 scope (express)', () => {
       });
       const auth = await fetchJson(`${srv.baseUrl}/threshold-ed25519/authorize`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${thresholdAuthToken}` },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${thresholdAuthToken}`,
+        },
         body: JSON.stringify(authorizeBody),
       });
       expect(auth.status, auth.text).toBe(200);

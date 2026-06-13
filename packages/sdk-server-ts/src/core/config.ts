@@ -172,10 +172,10 @@ function normalizeThresholdStoreConfig(
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS) ||
     c.signingRootShareResolver ||
-    c.signingRootSecretResolverAdapters ||
-    c.signingRootSecretStore ||
-    c.signingRootSecretDecryptAdapter ||
-    c.signingRootSecretShareKekResolver ||
+    c.signingRootShareResolverAdapters ||
+    c.signingRootSharePolicy ||
+    c.signingRootShareStore ||
+    c.signingRootShareDecryptAdapter ||
     // Explicit store config (kind-shaped)
     toOptionalTrimmedString(c.kind) ||
     toOptionalTrimmedString(c.url) ||

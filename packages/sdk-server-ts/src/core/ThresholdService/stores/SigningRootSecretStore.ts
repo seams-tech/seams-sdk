@@ -8,12 +8,20 @@ import {
   type SigningRootSecretShareId,
   type SealedSigningRootSecretShare,
 } from '../signingRootSecretShareWires';
-import type {
-  SigningRootSecretShareSource,
-  ResolveSigningRootSecretSharesInput,
-} from '../signingRootSecretResolverAdapters';
 
 const DEFAULT_SIGNING_ROOT_VERSION_KEY = '';
+
+export type ResolveSigningRootSecretSharesInput = {
+  readonly signingRootId: string;
+  readonly signingRootVersion?: string;
+};
+
+export type SigningRootSecretShareSource = {
+  readonly listSealedSigningRootSecretShares: (
+    input: ResolveSigningRootSecretSharesInput,
+  ) => Promise<readonly SealedSigningRootSecretShare[]>;
+  readonly adapterKind?: string;
+};
 
 export type PutSigningRootSecretShareInput = {
   readonly signingRootId: string;

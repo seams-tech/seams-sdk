@@ -15,6 +15,12 @@ Run locally with Wrangler:
 just threshold-prf-worker-bench-dev
 ```
 
+Check that warm local Worker requests reuse initialized WASM state:
+
+```bash
+just threshold-prf-worker-bench-init-check
+```
+
 Deploy with Wrangler:
 
 ```bash

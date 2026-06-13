@@ -10,7 +10,7 @@ and two-server threshold-PRF execution-state visibility.
 - [x] production `threshold-prf` state boundaries are stable enough for the
   abstract visibility model
 - [x] one-server and two-server public/private state fields are explicit
-- [x] `PrfPartialWireV1` payload shape is stable enough for visibility modeling
+- [x] `PrfPartialWire` payload shape is stable enough for visibility modeling
 - [x] root/share/partial/output types are modeled structurally
 - [x] remaining trust assumptions are documented
 

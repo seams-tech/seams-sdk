@@ -75,10 +75,10 @@ export function makeAuthServiceForThreshold(
   const providedConfig = (thresholdStore || {}) as Partial<ThresholdStoreConfigInput>;
   const needsFixtureSigningRootResolver = !(
     providedConfig.signingRootShareResolver ||
-    providedConfig.signingRootSecretResolverAdapters ||
-    providedConfig.signingRootSecretStore ||
-    providedConfig.signingRootSecretDecryptAdapter ||
-    providedConfig.signingRootSecretShareKekResolver
+    providedConfig.signingRootShareResolverAdapters ||
+    providedConfig.signingRootSharePolicy ||
+    providedConfig.signingRootShareStore ||
+    providedConfig.signingRootShareDecryptAdapter
   );
   const thresholdConfig: ThresholdStoreConfigInput = {
     THRESHOLD_NODE_ROLE: 'coordinator',
@@ -426,8 +426,7 @@ export function corsHeadersForRoute(route: Route): Record<string, string> {
       : { 'Access-Control-Allow-Origin': '*' }),
     'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Allow-Methods': 'POST,OPTIONS',
-    'Access-Control-Allow-Headers':
-      'Content-Type,Authorization,X-Seams-Benchmark-Diagnostics',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization,X-Seams-Benchmark-Diagnostics',
   };
 }
 

@@ -1,9 +1,5 @@
 import { expect, test } from '@playwright/test';
 import {
-  createSigningRootSecretResolver,
-  resolveSigningRootSecretShareWirePairFromResolver,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretResolverAdapters';
-import {
   InMemorySigningRootSecretStore,
   type SigningRootSecretStore,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
@@ -93,42 +89,4 @@ test('in-memory signing-root share store supports default root version and delet
   expect(
     await store.listSealedSigningRootSecretShares({ signingRootId: PROJECT_ID, signingRootVersion: SIGNING_ROOT_VERSION }),
   ).toHaveLength(1);
-});
-
-test('signing-root share resolver composes storage listing with injected decrypt resolver', async () => {
-  const store = new InMemorySigningRootSecretStore();
-  await putShare({ store, signingRootVersion: SIGNING_ROOT_VERSION, shareId: 1, fill: 0x11 });
-  await putShare({ store, signingRootVersion: SIGNING_ROOT_VERSION, shareId: 2, fill: 0x22 });
-
-  const decryptedById = new Map<SigningRootSecretShareId, Uint8Array>([
-    [1, new Uint8Array([1, ...new Array(32).fill(0x11)])],
-    [2, new Uint8Array([2, ...new Array(32).fill(0x22)])],
-  ]);
-  const decryptCalls: SigningRootSecretShareId[] = [];
-  const resolver = createSigningRootSecretResolver({
-    store,
-    decryptAdapter: {
-      decryptSigningRootSecretShare: async (record) => {
-        decryptCalls.push(record.shareId);
-        const decrypted = decryptedById.get(record.shareId);
-        if (!decrypted) throw new Error(`missing share ${record.shareId}`);
-        return decrypted;
-      },
-    },
-  });
-
-  const resolved = await resolveSigningRootSecretShareWirePairFromResolver({
-    signingRootId: PROJECT_ID,
-    signingRootVersion: SIGNING_ROOT_VERSION,
-    resolver,
-    preferredShareIds: [1, 2],
-  });
-
-  expect(resolved.ok).toBe(true);
-  if (!resolved.ok) throw new Error(resolved.message);
-  expect(decryptCalls).toEqual([1, 2]);
-  expect(Array.from(resolved.value[0].slice(0, 2))).toEqual([1, 0x11]);
-  expect(Array.from(resolved.value[1].slice(0, 2))).toEqual([2, 0x22]);
-  expect(Array.from(decryptedById.get(1)!)).toEqual(new Array(33).fill(0));
-  expect(Array.from(decryptedById.get(2)!)).toEqual(new Array(33).fill(0));
 });

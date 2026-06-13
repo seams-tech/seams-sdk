@@ -1,86 +1,87 @@
 import { base64UrlDecode } from '@shared/utils/encoders';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
 import {
-  deriveEcdsaHssYRelayerFromSigningRootSecretShares,
-  deriveEd25519HssServerInputsFromSigningRootSecretShares,
+  deriveEcdsaHssYRelayerFromSigningRootShares,
+  deriveEd25519HssServerInputsFromSigningRootShares,
+  parseSigningRootShareWire,
   type EcdsaHssStableKeyPrfContext,
+  type SigningRootShareWireSet,
+  type SigningRootShareWire,
+  type ThresholdPrfPolicy,
 } from './thresholdPrfWasm';
 import type {
   ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519HssServerInputs,
 } from '../types';
-import type {
-  SigningRootSecretDecryptAdapter as AdapterSigningRootSecretDecryptAdapter,
-  SigningRootSecretResolverAdapters as AdapterSigningRootSecretResolverAdapters,
-  SigningRootSecretShareSource as AdapterSigningRootSecretShareSource,
-} from './signingRootSecretResolverAdapters';
 import {
-  parseSigningRootSecretShareWireV1,
-  resolveSigningRootSecretShareWirePair,
   zeroizeBytes,
-  zeroizeSigningRootSecretShareWireV1,
-  type SigningRootSecretShareId as SigningRootSecretShareIdValue,
-  type SigningRootSecretShareWirePair,
   type SigningRootSecretShareWireResult,
 } from './signingRootSecretShareWires';
 
-export type SigningRootShareResolverInput = {
-  readonly signingRootId: string;
-  readonly signingRootVersion?: string;
-  readonly preferredShareIds?: readonly [
-    SigningRootSecretShareIdValue,
-    SigningRootSecretShareIdValue,
-  ];
-};
-
-export type SigningRootSharePair = readonly [Uint8Array, Uint8Array];
+export type SigningRootShareSet = SigningRootShareWireSet;
 
 export type FixedSigningRootScope = {
   readonly signingRootId: string;
   readonly signingRootVersion?: string;
 };
 
-export type SigningRootShareResolver = {
-  readonly fixedSigningRootScope?: FixedSigningRootScope;
-  readonly resolveSigningRootSharePair: (
-    input: SigningRootShareResolverInput,
-  ) => Promise<SigningRootSharePair>;
+export type SigningRootShareResolverInput = {
+  readonly signingRootId: string;
+  readonly signingRootVersion?: string;
+  readonly preferredShareIds?: readonly number[];
 };
 
-export type SigningRootSecretResolver = SigningRootShareResolver;
-export type SigningRootSecretShareId = SigningRootSecretShareIdValue;
-export type SigningRootSecretResolverAdapters = AdapterSigningRootSecretResolverAdapters;
-export type SigningRootSecretDecryptAdapter = AdapterSigningRootSecretDecryptAdapter;
-export type SigningRootSecretShareSource = AdapterSigningRootSecretShareSource;
+export type SigningRootShareResolver = {
+  readonly fixedSigningRootScope?: FixedSigningRootScope;
+  readonly policy: ThresholdPrfPolicy;
+  readonly resolveSigningRootShareSet: (
+    input: SigningRootShareResolverInput,
+  ) => Promise<SigningRootShareSet>;
+};
 
-export type SigningRootSecretShareInput = {
-  readonly shareId: SigningRootSecretShareIdValue;
+export type SigningRootShareInput = {
+  readonly shareId: number;
   readonly shareWire?: Uint8Array;
   readonly shareWireB64u?: string;
   readonly shareWireHex?: string;
 };
 
-export type CreateHostedSigningRootShareResolverInput = SigningRootSecretResolverAdapters;
+export type SealedSigningRootShare = {
+  readonly signingRootId: string;
+  readonly shareId: number;
+  readonly sealedShare: Uint8Array;
+  readonly signingRootVersion?: string;
+  readonly storageId?: string;
+  readonly kekId?: string;
+};
+
+export type SigningRootShareSource = {
+  readonly listSealedSigningRootShares: (
+    input: Pick<SigningRootShareResolverInput, 'signingRootId' | 'signingRootVersion'>,
+  ) => Promise<readonly SealedSigningRootShare[]>;
+};
+
+export type SigningRootShareDecryptAdapter = {
+  readonly decryptSigningRootShare: (record: SealedSigningRootShare) => Promise<Uint8Array>;
+};
+
+export type CreateHostedSigningRootShareResolverInput = {
+  readonly policy: ThresholdPrfPolicy;
+  readonly storageAdapter: SigningRootShareSource;
+  readonly decryptAdapter: SigningRootShareDecryptAdapter;
+};
 
 export type CreateSelfHostedSigningRootShareResolverInput = {
   readonly signingRootId: string;
   readonly signingRootVersion?: string;
-  readonly shares: readonly SigningRootSecretShareInput[];
+  readonly policy: ThresholdPrfPolicy;
+  readonly shares: readonly SigningRootShareInput[];
 };
-
-export type CreateSealedSelfHostedSigningRootShareResolverInput =
-  CreateHostedSigningRootShareResolverInput & {
-    readonly signingRootId: string;
-    readonly signingRootVersion?: string;
-  };
 
 export type DeriveEcdsaHssYRelayerFromSigningRootShareResolverInput = {
   readonly signingRootId: string;
   readonly signingRootVersion?: string;
-  readonly preferredShareIds?: readonly [
-    SigningRootSecretShareIdValue,
-    SigningRootSecretShareIdValue,
-  ];
+  readonly preferredShareIds?: readonly number[];
   readonly resolver: SigningRootShareResolver;
   readonly context: EcdsaHssStableKeyPrfContext;
 };
@@ -88,10 +89,7 @@ export type DeriveEcdsaHssYRelayerFromSigningRootShareResolverInput = {
 export type DeriveEd25519HssServerInputsFromSigningRootShareResolverInput = {
   readonly signingRootId: string;
   readonly signingRootVersion?: string;
-  readonly preferredShareIds?: readonly [
-    SigningRootSecretShareIdValue,
-    SigningRootSecretShareIdValue,
-  ];
+  readonly preferredShareIds?: readonly number[];
   readonly resolver: SigningRootShareResolver;
   readonly context: ThresholdEd25519HssCanonicalContext;
 };
@@ -126,7 +124,11 @@ function hexToBytes(hex: string): Uint8Array {
   return out;
 }
 
-function shareWireInputToBytes(input: SigningRootSecretShareInput): Uint8Array {
+function shareWireInputToBytes(input: {
+  readonly shareWire?: Uint8Array;
+  readonly shareWireB64u?: string;
+  readonly shareWireHex?: string;
+}): Uint8Array {
   if (input.shareWire instanceof Uint8Array) return new Uint8Array(input.shareWire);
   const b64u = toOptionalTrimmedString(input.shareWireB64u);
   if (b64u) return base64UrlDecode(b64u);
@@ -135,38 +137,164 @@ function shareWireInputToBytes(input: SigningRootSecretShareInput): Uint8Array {
   throw new Error('signing-root share must include shareWire, shareWireB64u, or shareWireHex');
 }
 
-function parseShareInput(input: SigningRootSecretShareInput): Uint8Array {
+function normalizePolicy(policy: ThresholdPrfPolicy): ThresholdPrfPolicy {
+  if (policy.protocol !== 'threshold-prf') {
+    throw new Error('threshold-prf policy protocol must be threshold-prf');
+  }
+  if (!Number.isInteger(policy.threshold) || policy.threshold < 1 || policy.threshold > 0xffff) {
+    throw new Error('threshold must be an integer between 1 and 65535');
+  }
+  if (!Number.isInteger(policy.shareCount) || policy.shareCount < 1 || policy.shareCount > 0xffff) {
+    throw new Error('shareCount must be an integer between 1 and 65535');
+  }
+  if (policy.threshold > policy.shareCount) {
+    throw new Error('threshold must be less than or equal to shareCount');
+  }
+  return {
+    protocol: 'threshold-prf',
+    threshold: policy.threshold,
+    shareCount: policy.shareCount,
+  };
+}
+
+function shareWireShareId(wire: SigningRootShareWire): number {
+  return (wire[0] << 8) | wire[1];
+}
+
+function parseShareInput(input: SigningRootShareInput): SigningRootShareWire {
   const raw = shareWireInputToBytes(input);
   try {
-    const parsed = parseSigningRootSecretShareWireV1(raw);
-    if (!parsed.ok) throw new Error(parsed.message);
-    if (parsed.value[0] !== input.shareId) {
-      zeroizeSigningRootSecretShareWireV1(parsed.value);
+    const parsed = parseSigningRootShareWire(raw);
+    const shareId = shareWireShareId(parsed);
+    if (shareId !== input.shareId) {
+      parsed.fill(0);
       throw new Error('signing-root share id does not match share wire');
     }
-    return parsed.value;
+    return parsed;
   } finally {
     zeroizeBytes(raw);
   }
 }
 
-function selectPair(
-  shares: ReadonlyMap<SigningRootSecretShareIdValue, Uint8Array>,
-  preferredShareIds?: readonly [SigningRootSecretShareIdValue, SigningRootSecretShareIdValue],
-): SigningRootSharePair {
-  const selectedIds =
-    preferredShareIds ??
-    ([...shares.keys()].sort((a, b) => a - b).slice(0, 2) as [
-      SigningRootSecretShareId,
-      SigningRootSecretShareId,
-    ]);
-  if (selectedIds.length !== 2 || selectedIds[0] === selectedIds[1]) {
-    throw new Error('preferredShareIds must identify two distinct signing-root shares');
+function normalizePreferredShareIds(
+  policy: ThresholdPrfPolicy,
+  preferredShareIds: readonly number[] | undefined,
+): readonly number[] | null {
+  if (preferredShareIds === undefined) return null;
+  if (preferredShareIds.length !== policy.threshold) {
+    throw new Error(`preferredShareIds must contain exactly ${policy.threshold} share ids`);
   }
-  const first = shares.get(selectedIds[0]);
-  const second = shares.get(selectedIds[1]);
-  if (!first || !second) throw new Error('requested signing-root shares are not available');
-  return [new Uint8Array(first), new Uint8Array(second)] as const;
+  const seen = new Set<number>();
+  for (const shareId of preferredShareIds) {
+    if (!Number.isInteger(shareId) || shareId < 1 || shareId > policy.shareCount) {
+      throw new Error('preferredShareIds must be inside the threshold policy');
+    }
+    if (seen.has(shareId)) {
+      throw new Error('preferredShareIds must identify distinct shares');
+    }
+    seen.add(shareId);
+  }
+  return [...preferredShareIds];
+}
+
+function selectShareSet(
+  shares: ReadonlyMap<number, SigningRootShareWire>,
+  policy: ThresholdPrfPolicy,
+  preferredShareIds?: readonly number[],
+): SigningRootShareSet {
+  const selectedIds =
+    normalizePreferredShareIds(policy, preferredShareIds) ??
+    [...shares.keys()].sort((a, b) => a - b).slice(0, policy.threshold);
+  if (selectedIds.length !== policy.threshold) {
+    throw new Error(`at least ${policy.threshold} signing-root shares are required`);
+  }
+  return selectedIds.map((shareId) => {
+    const share = shares.get(shareId);
+    if (!share) throw new Error('requested signing-root shares are not available');
+    return new Uint8Array(share) as SigningRootShareWire;
+  });
+}
+
+function selectSealedShareRecords(input: {
+  readonly policy: ThresholdPrfPolicy;
+  readonly signingRootId: string;
+  readonly signingRootVersion?: string;
+  readonly records: readonly SealedSigningRootShare[];
+  readonly preferredShareIds?: readonly number[];
+}): readonly SealedSigningRootShare[] {
+  const selectedIds =
+    normalizePreferredShareIds(input.policy, input.preferredShareIds) ??
+    input.records
+      .map((record) => record.shareId)
+      .filter((shareId) => Number.isInteger(shareId))
+      .sort((a, b) => a - b)
+      .slice(0, input.policy.threshold);
+  if (selectedIds.length !== input.policy.threshold) {
+    throw new Error(`at least ${input.policy.threshold} signing-root shares are required`);
+  }
+
+  const byShareId = new Map<number, SealedSigningRootShare>();
+  for (const record of input.records) {
+    if (!record || typeof record !== 'object') {
+      throw new Error('sealed signing-root share record is required');
+    }
+    if (record.signingRootId !== input.signingRootId) {
+      throw new Error('sealed signing-root share record signingRootId mismatch');
+    }
+    if (
+      input.signingRootVersion !== undefined &&
+      (record.signingRootVersion || '') !== input.signingRootVersion
+    ) {
+      throw new Error('sealed signing-root share record signingRootVersion mismatch');
+    }
+    if (
+      !Number.isInteger(record.shareId) ||
+      record.shareId < 1 ||
+      record.shareId > input.policy.shareCount
+    ) {
+      throw new Error('sealed signing-root share record has invalid shareId');
+    }
+    if (!(record.sealedShare instanceof Uint8Array)) {
+      throw new Error('sealed signing-root share bytes must be a Uint8Array');
+    }
+    if (byShareId.has(record.shareId)) {
+      throw new Error('sealed signing-root share records contain a duplicate shareId');
+    }
+    byShareId.set(record.shareId, record);
+  }
+
+  return selectedIds.map((shareId) => {
+    const record = byShareId.get(shareId);
+    if (!record) throw new Error('requested signing-root shares are not available');
+    return record;
+  });
+}
+
+async function decryptSigningRootShareSet(input: {
+  readonly records: readonly SealedSigningRootShare[];
+  readonly decryptShare: SigningRootShareDecryptAdapter['decryptSigningRootShare'];
+}): Promise<SigningRootShareSet> {
+  const shares: SigningRootShareWire[] = [];
+  try {
+    for (const record of input.records) {
+      let decrypted: Uint8Array | null = null;
+      try {
+        decrypted = await input.decryptShare(record);
+        const parsed = parseSigningRootShareWire(decrypted);
+        if (shareWireShareId(parsed) !== record.shareId) {
+          parsed.fill(0);
+          throw new Error('decrypted signing-root share id does not match its record');
+        }
+        shares.push(parsed);
+      } finally {
+        if (decrypted) zeroizeBytes(decrypted);
+      }
+    }
+    return shares;
+  } catch (error) {
+    for (const share of shares) zeroizeBytes(share);
+    throw error;
+  }
 }
 
 function assertFixedScope(input: {
@@ -190,22 +318,27 @@ function assertFixedScope(input: {
 export function createHostedSigningRootShareResolver(
   input: CreateHostedSigningRootShareResolverInput,
 ): SigningRootShareResolver {
+  const policy = normalizePolicy(input.policy);
   return {
-    resolveSigningRootSharePair: async (request) => {
+    policy,
+    resolveSigningRootShareSet: async (request) => {
       const signingRootId = requireSigningRootId(request.signingRootId);
       const signingRootVersion = maybeSigningRootVersion(request.signingRootVersion);
-      const records = await input.storageAdapter.listSealedSigningRootSecretShares({
+      const records = await input.storageAdapter.listSealedSigningRootShares({
         signingRootId,
         ...(signingRootVersion ? { signingRootVersion } : {}),
       });
-      const resolved = await resolveSigningRootSecretShareWirePair({
+      const selected = selectSealedShareRecords({
+        policy,
         signingRootId,
+        signingRootVersion,
         records,
-        decryptShare: input.decryptAdapter.decryptSigningRootSecretShare,
         preferredShareIds: request.preferredShareIds,
       });
-      if (!resolved.ok) throw new Error(resolved.message);
-      return resolved.value;
+      return decryptSigningRootShareSet({
+        records: selected,
+        decryptShare: input.decryptAdapter.decryptSigningRootShare,
+      });
     },
   };
 }
@@ -215,102 +348,70 @@ export function createSelfHostedSigningRootShareResolver(
 ): SigningRootShareResolver {
   const signingRootId = requireSigningRootId(input.signingRootId);
   const signingRootVersion = maybeSigningRootVersion(input.signingRootVersion);
-  const shares = new Map<SigningRootSecretShareIdValue, Uint8Array>();
+  const policy = normalizePolicy(input.policy);
+  const shares = new Map<number, SigningRootShareWire>();
   try {
     for (const share of input.shares) {
-      if (share.shareId !== 1 && share.shareId !== 2 && share.shareId !== 3) {
-        throw new Error('signing-root shareId must be 1, 2, or 3');
+      if (
+        !Number.isInteger(share.shareId) ||
+        share.shareId < 1 ||
+        share.shareId > policy.shareCount
+      ) {
+        throw new Error('signing-root shareId must be inside the threshold policy');
       }
       if (shares.has(share.shareId)) throw new Error('duplicate signing-root share id');
       shares.set(share.shareId, parseShareInput(share));
     }
-    if (shares.size < 2) throw new Error('at least two signing-root shares are required');
+    if (shares.size < policy.threshold) {
+      throw new Error(`at least ${policy.threshold} signing-root shares are required`);
+    }
   } catch (error) {
     for (const wire of shares.values()) zeroizeBytes(wire);
     throw error;
   }
 
   return {
+    policy,
     fixedSigningRootScope: {
       signingRootId,
       ...(signingRootVersion ? { signingRootVersion } : {}),
     },
-    resolveSigningRootSharePair: async (request) => {
+    resolveSigningRootShareSet: async (request) => {
       assertFixedScope({
         expectedSigningRootId: signingRootId,
         expectedSigningRootVersion: signingRootVersion,
         actualSigningRootId: requireSigningRootId(request.signingRootId),
         actualSigningRootVersion: maybeSigningRootVersion(request.signingRootVersion),
       });
-      return selectPair(shares, request.preferredShareIds);
+      return selectShareSet(shares, policy, request.preferredShareIds);
     },
   };
 }
 
-export function createSealedSelfHostedSigningRootShareResolver(
-  input: CreateSealedSelfHostedSigningRootShareResolverInput,
-): SigningRootShareResolver {
-  const signingRootId = requireSigningRootId(input.signingRootId);
-  const signingRootVersion = maybeSigningRootVersion(input.signingRootVersion);
-  const hosted = createHostedSigningRootShareResolver(input);
-  return {
-    fixedSigningRootScope: {
-      signingRootId,
-      ...(signingRootVersion ? { signingRootVersion } : {}),
-    },
-    resolveSigningRootSharePair: async (request) => {
-      assertFixedScope({
-        expectedSigningRootId: signingRootId,
-        expectedSigningRootVersion: signingRootVersion,
-        actualSigningRootId: requireSigningRootId(request.signingRootId),
-        actualSigningRootVersion: maybeSigningRootVersion(request.signingRootVersion),
-      });
-      return hosted.resolveSigningRootSharePair(request);
-    },
-  };
-}
-
-function zeroizeSigningRootSharePair(pair: SigningRootSharePair): void {
-  zeroizeBytes(pair[0]);
-  zeroizeBytes(pair[1]);
-}
-
-function parseSigningRootSharePair(pair: SigningRootSharePair): SigningRootSecretShareWirePair {
-  const first = parseSigningRootSecretShareWireV1(pair[0]);
-  if (!first.ok) throw new Error(first.message);
-  const second = parseSigningRootSecretShareWireV1(pair[1]);
-  if (!second.ok) {
-    zeroizeSigningRootSecretShareWireV1(first.value);
-    throw new Error(second.message);
-  }
-  return [first.value, second.value] as const;
+function zeroizeSigningRootShareSet(shareSet: SigningRootShareSet): void {
+  for (const share of shareSet) zeroizeBytes(share);
 }
 
 export async function deriveEcdsaHssYRelayerFromSigningRootShareResolver(
   input: DeriveEcdsaHssYRelayerFromSigningRootShareResolverInput,
 ): Promise<SigningRootSecretShareWireResult<Uint8Array>> {
-  let pair: SigningRootSharePair | null = null;
-  let parsedPair: SigningRootSecretShareWirePair | null = null;
+  let shareSet: SigningRootShareSet | null = null;
   try {
-    pair = await input.resolver.resolveSigningRootSharePair({
+    shareSet = await input.resolver.resolveSigningRootShareSet({
       signingRootId: input.signingRootId,
       ...(input.signingRootVersion ? { signingRootVersion: input.signingRootVersion } : {}),
       ...(input.preferredShareIds ? { preferredShareIds: input.preferredShareIds } : {}),
     });
-    parsedPair = parseSigningRootSharePair(pair);
-    const yRelayer = await deriveEcdsaHssYRelayerFromSigningRootSecretShares({
-      shareWires: parsedPair,
+    const yRelayer = await deriveEcdsaHssYRelayerFromSigningRootShares({
+      policy: input.resolver.policy,
+      shareWires: shareSet,
       context: input.context,
     });
     return { ok: true, value: yRelayer };
   } catch (error) {
     return err(errorMessage(error, 'failed to derive ecdsa-hss y_relayer'));
   } finally {
-    if (parsedPair) {
-      zeroizeSigningRootSecretShareWireV1(parsedPair[0]);
-      zeroizeSigningRootSecretShareWireV1(parsedPair[1]);
-    }
-    if (pair) zeroizeSigningRootSharePair(pair);
+    if (shareSet) zeroizeSigningRootShareSet(shareSet);
   }
 }
 
@@ -322,27 +423,22 @@ export async function deriveEd25519HssServerInputsFromSigningRootShareResolver(
       ThresholdEd25519HssServerInputs & { contextBindingB64u: string }
   >
 > {
-  let pair: SigningRootSharePair | null = null;
-  let parsedPair: SigningRootSecretShareWirePair | null = null;
+  let shareSet: SigningRootShareSet | null = null;
   try {
-    pair = await input.resolver.resolveSigningRootSharePair({
+    shareSet = await input.resolver.resolveSigningRootShareSet({
       signingRootId: input.signingRootId,
       ...(input.signingRootVersion ? { signingRootVersion: input.signingRootVersion } : {}),
       ...(input.preferredShareIds ? { preferredShareIds: input.preferredShareIds } : {}),
     });
-    parsedPair = parseSigningRootSharePair(pair);
-    const serverInputs = await deriveEd25519HssServerInputsFromSigningRootSecretShares({
-      shareWires: parsedPair,
+    const serverInputs = await deriveEd25519HssServerInputsFromSigningRootShares({
+      policy: input.resolver.policy,
+      shareWires: shareSet,
       context: input.context,
     });
     return { ok: true, value: serverInputs };
   } catch (error) {
     return err(errorMessage(error, 'failed to derive ed25519-hss server inputs'));
   } finally {
-    if (parsedPair) {
-      zeroizeSigningRootSecretShareWireV1(parsedPair[0]);
-      zeroizeSigningRootSecretShareWireV1(parsedPair[1]);
-    }
-    if (pair) zeroizeSigningRootSharePair(pair);
+    if (shareSet) zeroizeSigningRootShareSet(shareSet);
   }
 }

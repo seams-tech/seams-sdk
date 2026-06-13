@@ -4,24 +4,20 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AuthService } from '../../packages/sdk-server-ts/src/core/AuthService';
 import { createThresholdSigningService } from '../../packages/sdk-server-ts/src/core/ThresholdService';
-import {
-  parseSigningRootSecretShareWireV1,
-  type SigningRootSecretShareId,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretShareWires';
-import {
-  sealSigningRootSecretShareWireV1,
-  type SigningRootSecretShareKekResolutionInput,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretSealing';
-import { InMemorySigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
+import type { SealedSigningRootShare } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootShareResolver';
 import type { ThresholdStoreConfigInput } from '../../packages/sdk-server-ts/src/core/types';
 
 type ThresholdPrfFixtureShare = {
-  readonly id: SigningRootSecretShareId;
+  readonly id: number;
   readonly wire_hex: string;
 };
 
 type ThresholdPrfFixtureVector = {
   readonly purpose: string;
+  readonly policy: {
+    readonly threshold: number;
+    readonly share_count: number;
+  };
   readonly shares: readonly ThresholdPrfFixtureShare[];
 };
 
@@ -30,13 +26,14 @@ type ThresholdPrfFixtureCorpus = {
 };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FIXTURE_PATH = resolve(__dirname, '../../crates/threshold-prf/fixtures/protocol-v1.json');
+const FIXTURE_PATH = resolve(
+  __dirname,
+  '../../crates/threshold-prf/fixtures/protocol-t-of-n.json',
+);
 const ORG_ID = 'org-alpha';
 const PROJECT_ID = 'project-alpha';
 const ENV_ID = 'dev';
 const SIGNING_ROOT_ID = `${PROJECT_ID}:${ENV_ID}`;
-const KEK_ID = 'kek-v1';
-const KEK_BYTES = new Uint8Array(32).fill(0x42);
 const CONTEXT = {
   signingRootId: SIGNING_ROOT_ID,
   nearAccountId: 'alice.near',
@@ -65,37 +62,57 @@ function hexToBytes(hex: string): Uint8Array {
   return new Uint8Array(Buffer.from(hex, 'hex'));
 }
 
-test('Ed25519 HSS prepare uses signing-root resolver when configured and preserves response shape', async () => {
-  const resolverCalls: SigningRootSecretShareKekResolutionInput[] = [];
-  const resolveKek = async (input: SigningRootSecretShareKekResolutionInput): Promise<Uint8Array> => {
-    resolverCalls.push(input);
-    return KEK_BYTES;
-  };
-  const store = new InMemorySigningRootSecretStore();
-  const vector = vectorForPurpose('ed25519-hss/y_relayer');
-  for (const share of vector.shares.slice(0, 2)) {
-    const parsed = parseSigningRootSecretShareWireV1(hexToBytes(share.wire_hex));
-    if (!parsed.ok) throw new Error(parsed.message);
-    const sealedShare = await sealSigningRootSecretShareWireV1({
-      signingRootId: SIGNING_ROOT_ID,
-      shareId: share.id,
-      kekId: KEK_ID,
-      plaintextShareWire: parsed.value,
-      resolveKek,
-    });
-    parsed.value.fill(0);
-    await store.putSealedSigningRootSecretShare({
-      signingRootId: SIGNING_ROOT_ID,
-      shareId: share.id,
-      kekId: KEK_ID,
-      sealedShare,
-    });
-  }
+function policyFromFixture(vector: ThresholdPrfFixtureVector) {
+  return {
+    protocol: 'threshold-prf',
+    threshold: vector.policy.threshold,
+    shareCount: vector.policy.share_count,
+  } as const;
+}
 
+function hostedResolverConfigFromFixture(input: {
+  readonly vector: ThresholdPrfFixtureVector;
+  readonly decryptCalls: number[];
+}) {
+  const sharesById = new Map<number, ThresholdPrfFixtureShare>(
+    input.vector.shares.map((share) => [share.id, share]),
+  );
+  return {
+    policy: policyFromFixture(input.vector),
+    storageAdapter: {
+      listSealedSigningRootShares: async (request: {
+        signingRootId: string;
+        signingRootVersion?: string;
+      }): Promise<readonly SealedSigningRootShare[]> =>
+        input.vector.shares.map((share) => ({
+          signingRootId: request.signingRootId,
+          ...(request.signingRootVersion ? { signingRootVersion: request.signingRootVersion } : {}),
+          shareId: share.id,
+          sealedShare: new Uint8Array([share.id]),
+          storageId: `fixture-share-${share.id}`,
+          kekId: 'fixture-share-kek',
+        })),
+    },
+    decryptAdapter: {
+      decryptSigningRootShare: async (record: SealedSigningRootShare): Promise<Uint8Array> => {
+        input.decryptCalls.push(record.shareId);
+        const share = sharesById.get(record.shareId);
+        if (!share) throw new Error(`missing share ${record.shareId}`);
+        return hexToBytes(share.wire_hex);
+      },
+    },
+  };
+}
+
+test('Ed25519 HSS prepare uses signing-root resolver when configured and preserves response shape', async () => {
+  const decryptCalls: number[] = [];
+  const vector = vectorForPurpose('ecdsa-hss/y_relayer');
   const thresholdConfig: ThresholdStoreConfigInput = {
     kind: 'in-memory',
-    signingRootSecretStore: store,
-    signingRootSecretShareKekResolver: resolveKek,
+    signingRootShareResolverAdapters: hostedResolverConfigFromFixture({
+      vector,
+      decryptCalls,
+    }),
   };
   const service = createThresholdSigningService({
     authService: createAuthServiceMock(),
@@ -120,12 +137,9 @@ test('Ed25519 HSS prepare uses signing-root resolver when configured and preserv
   expect(prepared.preparedSession.contextBindingB64u).toBeTruthy();
   expect(prepared.preparedSession.evaluatorDriverStateB64u).toBeTruthy();
   expect(prepared.clientOtOfferMessageB64u).toBeTruthy();
-  expect(resolverCalls.map((call) => call.shareId)).toEqual([1, 2, 1, 2]);
-  expect(new Set(resolverCalls.map((call) => call.signingRootId))).toEqual(
-    new Set([SIGNING_ROOT_ID]),
-  );
+  expect(decryptCalls).toEqual([1, 2]);
 
-  const resolverCallCount = resolverCalls.length;
+  const resolverCallCount = decryptCalls.length;
   const mismatchedPrepared = await service.ed25519Hss.prepareForRegistration({
     orgId: ORG_ID,
     signingRootId: `${PROJECT_ID}:staging`,
@@ -140,5 +154,5 @@ test('Ed25519 HSS prepare uses signing-root resolver when configured and preserv
   if (mismatchedPrepared.ok) throw new Error('expected mismatched signing root to fail');
   expect(mismatchedPrepared.code).toBe('unauthorized');
   expect(mismatchedPrepared.message).toContain('context.signingRootId');
-  expect(resolverCalls).toHaveLength(resolverCallCount);
+  expect(decryptCalls).toHaveLength(resolverCallCount);
 });

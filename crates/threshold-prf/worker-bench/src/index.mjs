@@ -11,11 +11,13 @@ const MAX_ITERATIONS = 100_000;
 const ISOLATE_STARTED_AT_MS = Date.now();
 const ISOLATE_STARTED_AT_ISO = new Date(ISOLATE_STARTED_AT_MS).toISOString();
 
+const THRESHOLD_PRF_THRESHOLD = 2;
+const THRESHOLD_PRF_SHARE_COUNT = 3;
 const SHARE_WIRE_1 = hexToBytes(
-  "011ba5f9c2f4003d409a9358a20b40b37eb32a28daacc5676a468b64a203c1e303",
+  "0001d73847ea1a0888265782eb6998f3d905b8275fa4e5fda6556ddacc3b28741702",
 );
-const SHARE_WIRE_3 = hexToBytes(
-  "032ef917611df8a3dae0fa9bd6545044d7a43843ed8dda35ce0fb4646ea093f707",
+const SHARE_WIRE_2 = hexToBytes(
+  "0002b3ee4da8422ffeebb66bd0b55afb5d072f55aa324698a89c0a8b234042fd6c0f",
 );
 
 const ECDSA_CONTEXT = Object.freeze({
@@ -33,7 +35,6 @@ const ED25519_CONTEXT = Object.freeze({
   accountId: "alice.near",
   keyPurpose: "wallet",
   keyVersion: "v1",
-  participantIds: Object.freeze([1, 2]),
   derivationVersion: 1,
 });
 
@@ -158,8 +159,9 @@ function benchmarkNoop(index) {
 
 function benchmarkEcdsaYRelayer() {
   const output = threshold_prf_derive_ecdsa_hss_y_relayer(
-    shareWire1(),
-    shareWire3(),
+    THRESHOLD_PRF_THRESHOLD,
+    THRESHOLD_PRF_SHARE_COUNT,
+    shareWires(),
     ECDSA_CONTEXT.walletId,
     ECDSA_CONTEXT.rpId,
     ECDSA_CONTEXT.ecdsaThresholdKeyId,
@@ -173,24 +175,23 @@ function benchmarkEcdsaYRelayer() {
 
 function benchmarkEd25519ServerInputs() {
   const output = threshold_prf_derive_ed25519_hss_server_inputs(
-    shareWire1(),
-    shareWire3(),
+    THRESHOLD_PRF_THRESHOLD,
+    THRESHOLD_PRF_SHARE_COUNT,
+    shareWires(),
     ED25519_CONTEXT.signingRootId,
     ED25519_CONTEXT.accountId,
     ED25519_CONTEXT.keyPurpose,
     ED25519_CONTEXT.keyVersion,
-    new Uint32Array(ED25519_CONTEXT.participantIds),
     ED25519_CONTEXT.derivationVersion,
   );
   return output.yRelayerB64u.charCodeAt(0) ^ output.tauRelayerB64u.charCodeAt(0);
 }
 
-function shareWire1() {
-  return new Uint8Array(SHARE_WIRE_1);
-}
-
-function shareWire3() {
-  return new Uint8Array(SHARE_WIRE_3);
+function shareWires() {
+  const out = new Uint8Array(SHARE_WIRE_1.length + SHARE_WIRE_2.length);
+  out.set(SHARE_WIRE_1, 0);
+  out.set(SHARE_WIRE_2, SHARE_WIRE_1.length);
+  return out;
 }
 
 function parseBoundedInteger(raw, fallback, min, max) {

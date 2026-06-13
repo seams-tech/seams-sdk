@@ -3,13 +3,16 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  parseSigningRootSecretShareWireV1,
-  type SigningRootSecretShareWirePair,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretShareWires';
-import {
-  deriveEcdsaHssYRelayerFromSigningRootSecretShares,
-  deriveEd25519HssServerInputsFromSigningRootSecretShares,
+  deriveEcdsaHssYRelayerFromSigningRootShares,
+  deriveEd25519HssServerInputsFromSigningRootShares,
+  parseSigningRootShareWire,
+  type SigningRootShareWire,
+  type ThresholdPrfPolicy,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm';
+import {
+  threshold_prf_derive_ecdsa_hss_y_relayer,
+  threshold_prf_derive_ed25519_hss_server_inputs,
+} from '../../wasm/threshold_prf/pkg/threshold_prf_bg.js';
 
 type ThresholdPrfFixtureShare = {
   readonly id: number;
@@ -21,14 +24,17 @@ type ThresholdPrfFixtureVector = {
   readonly context_hex: string;
   readonly shares: readonly ThresholdPrfFixtureShare[];
   readonly direct_output_hex: string;
-};
-
-type ThresholdPrfFixtureCorpus = {
-  readonly vectors: readonly ThresholdPrfFixtureVector[];
+  readonly policy: {
+    readonly threshold: number;
+    readonly share_count: number;
+  };
 };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FIXTURE_PATH = resolve(__dirname, '../../crates/threshold-prf/fixtures/protocol-v1.json');
+const FIXTURE_PATH = resolve(
+  __dirname,
+  '../../crates/threshold-prf/fixtures/protocol-t-of-n.json',
+);
 
 function hexToBytes(hex: string): Uint8Array {
   return new Uint8Array(Buffer.from(hex, 'hex'));
@@ -38,64 +44,148 @@ function bytesToHex(bytes: Uint8Array): string {
   return Buffer.from(bytes).toString('hex');
 }
 
-function hexToBase64Url(hex: string): string {
-  return Buffer.from(hex, 'hex').toString('base64url');
-}
-
-function loadCorpus(): ThresholdPrfFixtureCorpus {
-  return JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as ThresholdPrfFixtureCorpus;
+function loadFixtureCorpus(): { readonly vectors: readonly ThresholdPrfFixtureVector[] } {
+  return JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as {
+    readonly vectors: readonly ThresholdPrfFixtureVector[];
+  };
 }
 
 function vectorForPurpose(purpose: string): ThresholdPrfFixtureVector {
-  const vector = loadCorpus().vectors.find((candidate) => candidate.purpose === purpose);
+  const vector = loadFixtureCorpus().vectors.find((candidate) => candidate.purpose === purpose);
   if (!vector) throw new Error(`missing threshold-prf fixture vector for ${purpose}`);
   return vector;
 }
 
-function fixtureSharePair(vector: ThresholdPrfFixtureVector): SigningRootSecretShareWirePair {
-  const first = parseSigningRootSecretShareWireV1(hexToBytes(vector.shares[0].wire_hex));
-  const second = parseSigningRootSecretShareWireV1(hexToBytes(vector.shares[1].wire_hex));
-  if (!first.ok) throw new Error(first.message);
-  if (!second.ok) throw new Error(second.message);
-  return [first.value, second.value] as const;
+function policyForVector(vector: ThresholdPrfFixtureVector): ThresholdPrfPolicy {
+  return {
+    protocol: 'threshold-prf',
+    threshold: vector.policy.threshold,
+    shareCount: vector.policy.share_count,
+  };
 }
 
-test('threshold-prf WASM derives ECDSA HSS y_relayer from committed signing-root share vectors', async () => {
-  const vector = vectorForPurpose('ecdsa-hss/y_relayer');
-
-  const yRelayer = await deriveEcdsaHssYRelayerFromSigningRootSecretShares({
-    shareWires: fixtureSharePair(vector),
-    context: {
-      signingRootId: 'project-alpha:dev',
-      signingRootVersion: 'root-v1',
-      walletId: 'alice.near',
-      rpId: 'wallet.example.test',
-      ecdsaThresholdKeyId: 'ecdsa-alpha',
-      keyPurpose: 'wallet',
-      keyVersion: 'v1',
-    },
+function shareWires(
+  vector: ThresholdPrfFixtureVector,
+  ids: readonly number[],
+): readonly SigningRootShareWire[] {
+  return ids.map((id) => {
+    const share = vector.shares.find((candidate) => candidate.id === id);
+    if (!share) throw new Error(`missing share ${id}`);
+    return parseSigningRootShareWire(hexToBytes(share.wire_hex));
   });
+}
 
-  expect(bytesToHex(yRelayer)).toBe(vector.direct_output_hex);
+function flattenShareWires(
+  vector: ThresholdPrfFixtureVector,
+  ids: readonly number[],
+): Uint8Array {
+  const chunks = ids.map((id) => {
+    const share = vector.shares.find((candidate) => candidate.id === id);
+    if (!share) throw new Error(`missing share ${id}`);
+    return hexToBytes(share.wire_hex);
+  });
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const out = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+}
+
+test('threshold-prf WASM wrapper derives ECDSA HSS y_relayer through policy-shaped shares', async () => {
+  const vector = vectorForPurpose('ecdsa-hss/y_relayer');
+  const policy = policyForVector(vector);
+  const selectedIds = [1, 2] as const;
+  const context = {
+    signingRootId: 'project-alpha:dev',
+    signingRootVersion: 'root-v1',
+    walletId: 'alice.near',
+    rpId: 'wallet.example.test',
+    ecdsaThresholdKeyId: 'ecdsa-alpha',
+    keyPurpose: 'wallet',
+    keyVersion: 'v1',
+  };
+
+  const yRelayer = await deriveEcdsaHssYRelayerFromSigningRootShares({
+    policy,
+    shareWires: shareWires(vector, selectedIds),
+    context,
+  });
+  const expected = threshold_prf_derive_ecdsa_hss_y_relayer(
+    policy.threshold,
+    policy.shareCount,
+    flattenShareWires(vector, selectedIds),
+    context.walletId,
+    context.rpId,
+    context.ecdsaThresholdKeyId,
+    context.signingRootId,
+    context.signingRootVersion,
+    context.keyPurpose,
+    context.keyVersion,
+  );
+
+  expect(bytesToHex(yRelayer)).toBe(bytesToHex(expected));
 });
 
-test('threshold-prf WASM derives Ed25519 HSS relayer inputs from committed signing-root share vectors', async () => {
-  const yVector = vectorForPurpose('ed25519-hss/y_relayer');
-  const tauVector = vectorForPurpose('ed25519-hss/tau_relayer');
+test('threshold-prf WASM wrapper derives Ed25519 HSS server inputs through policy-shaped shares', async () => {
+  const vector = vectorForPurpose('ecdsa-hss/y_relayer');
+  const policy = policyForVector(vector);
+  const selectedIds = [1, 2] as const;
+  const context = {
+    signingRootId: 'project-alpha:dev',
+    nearAccountId: 'alice.near',
+    keyPurpose: 'wallet',
+    keyVersion: 'v1',
+    participantIds: [1, 2],
+    derivationVersion: 1,
+  };
 
-  const serverInputs = await deriveEd25519HssServerInputsFromSigningRootSecretShares({
-    shareWires: fixtureSharePair(yVector),
-    context: {
-      signingRootId: 'project-alpha:dev',
-      nearAccountId: 'alice.near',
-      keyPurpose: 'wallet',
-      keyVersion: 'v1',
-      participantIds: [1, 2],
-      derivationVersion: 1,
-    },
+  const serverInputs = await deriveEd25519HssServerInputsFromSigningRootShares({
+    policy,
+    shareWires: shareWires(vector, selectedIds),
+    context,
   });
+  const expected = threshold_prf_derive_ed25519_hss_server_inputs(
+    policy.threshold,
+    policy.shareCount,
+    flattenShareWires(vector, selectedIds),
+    context.signingRootId,
+    context.nearAccountId,
+    context.keyPurpose,
+    context.keyVersion,
+    context.derivationVersion,
+  ) as {
+    contextBindingB64u: string;
+    yRelayerB64u: string;
+    tauRelayerB64u: string;
+  };
 
-  expect(serverInputs.contextBindingB64u).toBe(hexToBase64Url(yVector.context_hex));
-  expect(serverInputs.yRelayerB64u).toBe(hexToBase64Url(yVector.direct_output_hex));
-  expect(serverInputs.tauRelayerB64u).toBe(hexToBase64Url(tauVector.direct_output_hex));
+  expect(serverInputs.contextBindingB64u).toBe(expected.contextBindingB64u);
+  expect(serverInputs.yRelayerB64u).toBe(expected.yRelayerB64u);
+  expect(serverInputs.tauRelayerB64u).toBe(expected.tauRelayerB64u);
+  expect(serverInputs.participantIds).toEqual([1, 2]);
+});
+
+test('threshold-prf WASM wrapper rejects duplicate signing-root share ids', async () => {
+  const vector = vectorForPurpose('ecdsa-hss/y_relayer');
+  const policy = policyForVector(vector);
+  const duplicate = shareWires(vector, [1, 1]);
+
+  await expect(
+    deriveEcdsaHssYRelayerFromSigningRootShares({
+      policy,
+      shareWires: duplicate,
+      context: {
+        signingRootId: 'project-alpha:dev',
+        signingRootVersion: 'root-v1',
+        walletId: 'alice.near',
+        rpId: 'wallet.example.test',
+        ecdsaThresholdKeyId: 'ecdsa-alpha',
+        keyPurpose: 'wallet',
+        keyVersion: 'v1',
+      },
+    }),
+  ).rejects.toThrow('distinct share ids');
 });

@@ -28,7 +28,7 @@ parallel legacy model.
   module split can compile under both Verus and normal Cargo parity tests
   without creating a duplicate legacy model
 - [x] add `formal-verification/verus/tests/anti_drift.rs`
-- [x] load committed vectors from `crates/threshold-prf/fixtures/protocol-v1.json`
+- [x] load committed vectors from the threshold-policy corpus
 - [x] wire `just threshold-prf-fv-parity`
 - [x] wire `just threshold-prf-fv-verus`
 - [x] wire `just threshold-prf-fv`
@@ -40,8 +40,8 @@ parallel legacy model.
 - [x] model signing-root share scalar domain, including zero share values
 - [x] model non-zero share IDs
 - [x] model fixed 32-byte PRF output
-- [x] model fixed 33-byte secret `SigningRootShareWireV1`
-- [x] model `PrfPartialWireV1` as share ID, context tag, and compressed point
+- [x] model fixed 34-byte secret `SigningRootShareWire`
+- [x] model threshold-policy share-wire shape
 - [x] pin canonical HSS context bytes through production anti-drift vectors
 - [x] prove malformed scalar encodings are rejected at the abstract model boundary
 - [x] prove zero root encodings are rejected while zero share encodings are accepted
@@ -78,13 +78,13 @@ parallel legacy model.
 
 ## Phase 5: Anti-Drift
 
-- [x] add fixture loader for `crates/threshold-prf/fixtures/protocol-v1.json`
+- [x] add fixture loader for the threshold-policy corpus
 - [x] compare production root generation against vectors
 - [x] compare production splitting against vectors
 - [x] compare production direct reference evaluation against vectors
 - [x] compare production pairwise combine against vectors
 - [x] compare production server-SDK share-wire derivation against vectors
-- [x] compare production `PrfPartialWireV1` against vectors
+- [x] compare production partial wires against vectors
 - [x] compare production refresh against vectors
 - [x] compare rejected malformed inputs against vectors
 
@@ -92,11 +92,25 @@ parallel legacy model.
 
 - [x] model share commitment wire width
 - [x] model DLEQ proof wire width
-- [x] model DLEQ challenge input tuple
-- [x] prove generated abstract DLEQ proof verifies for a valid evaluated partial
+- [x] model proof-bundle wire width
 - [x] prove commitment/partial share-ID mismatch is rejected
-- [x] prove wrong-context DLEQ verification is rejected
-- [x] model DLEQ proof generation as rejecting zero nonce input
-- [x] model and prove the DLEQ-enforced `combine_verified_partials` boundary
+- [x] prove commitment share IDs outside the selected policy are rejected
+- [ ] model DLEQ challenge input tuple
+- [ ] prove generated abstract DLEQ proof verifies for a valid evaluated partial
+- [ ] prove wrong-context DLEQ verification is rejected
+- [ ] model DLEQ proof generation as rejecting zero nonce input
+- [ ] model and prove the DLEQ-enforced `combine_verified_partials` boundary
 - [x] add DLEQ vector parity if DLEQ byte compatibility becomes a production
   compatibility boundary
+
+## Phase 7: The canonical API T-Of-N Prep
+
+- [x] model threshold policy bounds
+- [x] model share-ID membership against policy `share_count`
+- [x] prove duplicate threshold subsets are rejected for the active
+  `2-of-N` and `3-of-N` shapes
+- [x] prove out-of-range threshold subsets are rejected for `2-of-N`
+- [x] prove representative `2-of-3` and `3-of-5` subsets are accepted
+- [x] model fixed share, partial, commitment, and DLEQ proof wire widths
+- [x] add anti-drift parity for committed `2-of-3` and `3-of-5`
+  split/combine vectors

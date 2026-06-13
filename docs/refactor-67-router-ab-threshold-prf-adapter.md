@@ -3,7 +3,9 @@
 Date created: June 12, 2026
 
 Status: active follow-up. The Router/A/B primitive comparison selected
-Candidate A, `mpc_threshold_prf_v1`, for the production path.
+Candidate A for the production path. The adapter target is a `threshold_prf`
+policy-aware backend, initially configured as `2-of-3` to preserve current
+Router/A/B behavior while removing the fixed-pair backend dependency.
 
 ## Goal
 
@@ -56,14 +58,14 @@ imports `threshold_prf`.
 
 The adapter converts:
 
-| Router/A/B input | Threshold-PRF backend |
-| --- | --- |
-| `MpcPrfPurposeBindingPlanV1` | `threshold_prf::PrfContext` |
-| decrypted signer share bytes | `SigningRootShareWireV1::decode` |
-| signer output request | `evaluate_partial_with_dleq_proof` |
-| backend partial/proof bundle | Router/A/B partial, commitment, and proof wire wrappers |
+| Router/A/B input                   | Threshold-PRF backend                                       |
+| ---------------------------------- | ----------------------------------------------------------- |
+| `MpcPrfPurposeBindingPlanV1`       | `threshold_prf::PrfContext`                                 |
+| decrypted signer share bytes       | `threshold_prf::SigningRootShareWire::decode`           |
+| signer output request              | `evaluate_partial_with_dleq_proof`                          |
+| backend partial/proof bundle       | Router/A/B partial, commitment, and proof wire wrappers     |
 | recipient verified partial package | `verify_partial_dleq_proof` and `combine_verified_partials` |
-| backend output bytes | `x_client_base` or `x_relayer_base` recipient material |
+| backend output bytes               | `x_client_base` or `x_relayer_base` recipient material      |
 
 Keep dependency direction one-way:
 
@@ -84,7 +86,7 @@ Suggested signer-side API:
 pub struct MpcPrfThresholdSignerInputV1 {
     pub signer_input: MpcPrfSignerPartialInputV1,
     pub output_request: MpcPrfOutputRequestV1,
-    pub signing_root_share_wire: MpcPrfSigningRootShareWireV1,
+    pub signing_root_share_wire: MpcPrfSigningRootShareWire,
     pub proof_rng: R,
 }
 
@@ -111,9 +113,39 @@ pub fn combine_mpc_prf_verified_partials_with_threshold_backend_v1(
 ```
 
 The exact type names can change during implementation. The important boundary
-is that callers provide Router/A/B typed context and encrypted/decrypted share
-material at the adapter boundary, while the adapter owns conversion into
-`threshold-prf` types.
+is that callers provide Router/A/B typed context, a normalized threshold policy,
+and encrypted/decrypted share material at the adapter boundary, while the
+adapter owns conversion into `threshold-prf` types.
+
+## Policy Boundary
+
+Router/A/B should normalize threshold-prf protocol selection at the request or
+persistence boundary, then pass a precise internal policy into the adapter:
+
+```rust
+enum RouterAbThresholdPrfProtocol {
+    ThresholdPrfRistretto255Sha512 {
+        threshold: u16,
+        share_count: u16,
+    },
+}
+```
+
+Initial production migration target:
+
+- use `threshold_prf` with policy `2-of-3`
+- keep Router/A/B output purpose labels as `router-ab/x_client_base/v1` and
+  `router-ab/x_relayer_base/v1` until a separate Router/A/B context-version
+  revision is planned
+- replace backend wire assumptions at the adapter boundary:
+  - signing-root share wire: `34` bytes
+  - partial wire: `66` bytes
+  - share commitment wire: `34` bytes
+  - DLEQ proof wire: unchanged `64` bytes
+- require exactly `policy.threshold` signer proof bundles before verified
+  combine
+- add parity tests against
+  `crates/threshold-prf/fixtures/protocol-t-of-n.json`
 
 ## Secret Handling
 
@@ -163,20 +195,20 @@ source of truth for `threshold-prf::PrfContext` construction.
 - [x] Add `candidate_mpc_prf_threshold_backend.rs`.
 - [x] Re-export only the Router/A/B adapter functions and output types.
 - [x] Keep raw `threshold_prf` types out of Router/A/B public production APIs
-  unless there is a concrete reason to expose them.
+      unless there is a concrete reason to expose them.
 
 ### Phase 2: Signer Backend
 
 - [x] Add a zeroizing Router/A/B signing-root-share wire wrapper if the
-  existing `threshold-prf` wire type is too backend-specific for the public
-  Router/A/B API.
+      existing `threshold-prf` wire type is too backend-specific for the public
+      Router/A/B API.
 - [x] Convert Router/A/B purpose plans into `threshold_prf::PrfContext`.
 - [x] Decode the signer-local root-share wire.
 - [x] Call `evaluate_partial_with_dleq_proof`.
 - [x] Convert backend partial, commitment, and proof into existing Router/A/B
-  wire wrappers.
+      wire wrappers.
 - [x] Add tests for wrong share id, wrong signer role, wrong recipient, wrong
-  epoch, and malformed share wire.
+      epoch, and malformed share wire.
 
 ### Phase 3: Combiner Backend
 
@@ -184,22 +216,36 @@ source of truth for `threshold-prf::PrfContext` construction.
 - [x] Verify DLEQ proofs through `threshold-prf`.
 - [x] Combine verified partials through `threshold-prf`.
 - [x] Return a Router/A/B combined-output type scoped to the requested
-  recipient.
+      recipient.
 - [x] Add tests for proof mismatch, transcript mismatch, duplicate signer
-  role, recipient mismatch, and wrong-purpose partials.
+      role, recipient mismatch, and wrong-purpose partials.
 
 ### Phase 4: Vectors And Anti-Drift
 
 - [x] Add Router/A/B Candidate A vectors that include backend partial,
-  commitment, proof, verified-combine output, and rejection cases.
+      commitment, proof, verified-combine output, and rejection cases.
 - [x] Add anti-drift tests comparing committed vectors to backend output.
 - [x] Keep `threshold-prf` vectors as crypto primitive vectors.
 - [x] Keep Router/A/B vectors as protocol-binding vectors.
 
+### Phase 4A: Threshold-PRF Policy Boundary
+
+- [x] Update this adapter plan to target a `threshold_prf` policy-aware
+      backend.
+- [x] Add a Router/A/B threshold-prf protocol-selection type that normalizes to
+      `ThresholdPolicy`.
+- [x] Migrate signer backend imports from the fixed-pair backend to
+      `threshold_prf` with initial policy `2-of-3`.
+- [x] Replace Router/A/B backend wire-width assumptions with signing-root,
+      partial, and commitment widths.
+- [x] Update combiner validation to require exactly `policy.threshold` verified
+      proof bundles.
+- [x] Add Router/A/B parity tests against the committed threshold-prf `2-of-3` fixture before adding broader `t-of-N` policies.
+
 ### Phase 5: Benchmarks And Wasm
 
 - [ ] Keep native Candidate A crypto-path benchmarks in
-  `benches/derivation_candidates.rs`.
+      `benches/derivation_candidates.rs`.
 - [x] Add wasm build checks with the production dependency enabled.
 - [ ] Measure deployable Worker bundle size after a Worker adapter exists.
 - [ ] Measure Cloudflare Worker runtime p50/p95 before release.
@@ -236,7 +282,7 @@ rtk cargo bench --manifest-path crates/router-ab-core/Cargo.toml --bench derivat
 ## Open Decisions
 
 - Whether Router/A/B public APIs should wrap decrypted signing-root share wires
-  or accept `threshold_prf::SigningRootShareWireV1` directly.
+  or accept `threshold_prf::SigningRootShareWire` directly.
 - Whether proof verification is mandatory for Minimum Level C release or a
   stronger release gate.
 - Whether the adapter should be feature-gated until Worker bundle and runtime

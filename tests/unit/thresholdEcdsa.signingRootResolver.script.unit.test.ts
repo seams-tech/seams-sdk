@@ -5,49 +5,29 @@ import { fileURLToPath } from 'node:url';
 import type { AuthService } from '../../packages/sdk-server-ts/src/core/AuthService';
 import { createThresholdSigningService } from '../../packages/sdk-server-ts/src/core/ThresholdService';
 import {
-  deriveEcdsaHssYRelayerFromSigningRootSecretResolver,
-  type SigningRootSecretDecryptAdapter,
-  type SigningRootSecretShareSource,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretResolverAdapters';
-import { createSelfHostedSigningRootShareResolver } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootShareResolver';
-import { deriveEcdsaHssYRelayerFromSigningRootSecretShares } from '../../packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm';
-import { parseSigningRootSecretShareWireV1 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretShareWires';
+  createSelfHostedSigningRootShareResolver,
+  type SealedSigningRootShare,
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootShareResolver';
+import { secp256k1PrivateKey32ToPublicKey33 } from '../../packages/sdk-server-ts/src/core/ThresholdService/ethSignerWasm';
 import {
-  sealSigningRootSecretShareWireV1,
-  type SigningRootSecretShareKekResolutionInput,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretSealing';
-import { InMemorySigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
-import {
-  roleLocalThresholdEcdsaHssRelayerBootstrap,
-  secp256k1PrivateKey32ToPublicKey33,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/ethSignerWasm';
-import {
-  build_ecdsa_role_local_export_artifact_v1,
-  threshold_ecdsa_hss_role_local_finalize_client_bootstrap,
   initSync as initHssClientSignerWasmSync,
 } from '../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 import { prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest } from '../helpers/thresholdEcdsaClientBootstrap';
 import type { EcdsaHssClientSharePublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
-import type {
-  SigningRootSecretShareId,
-  SealedSigningRootSecretShare,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretShareWires';
 import type { ThresholdStoreConfigInput } from '../../packages/sdk-server-ts/src/core/types';
 
 type ThresholdPrfFixtureShare = {
-  readonly id: SigningRootSecretShareId;
+  readonly id: number;
   readonly wire_hex: string;
-};
-
-type ThresholdPrfFixturePairwiseOutput = {
-  readonly ids: readonly [SigningRootSecretShareId, SigningRootSecretShareId];
-  readonly output_hex: string;
 };
 
 type ThresholdPrfFixtureVector = {
   readonly purpose: string;
+  readonly policy: {
+    readonly threshold: number;
+    readonly share_count: number;
+  };
   readonly shares: readonly ThresholdPrfFixtureShare[];
-  readonly pairwise_outputs: readonly ThresholdPrfFixturePairwiseOutput[];
 };
 
 type ThresholdPrfFixtureCorpus = {
@@ -55,7 +35,10 @@ type ThresholdPrfFixtureCorpus = {
 };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const FIXTURE_PATH = resolve(__dirname, '../../crates/threshold-prf/fixtures/protocol-v1.json');
+const FIXTURE_PATH = resolve(
+  __dirname,
+  '../../crates/threshold-prf/fixtures/protocol-t-of-n.json',
+);
 const HSS_CLIENT_SIGNER_WASM_URL = new URL(
   '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
   import.meta.url,
@@ -65,7 +48,6 @@ const ENV_ID = 'dev';
 const SIGNING_ROOT_ID = `${PROJECT_ID}:${ENV_ID}`;
 const SIGNING_ROOT_VERSION = 'root-v1';
 const KEK_ID = 'kek-v1';
-const KEK_BYTES = new Uint8Array(32).fill(0x42);
 const ECDSA_CHAIN_TARGET = {
   kind: 'evm',
   namespace: 'eip155',
@@ -83,8 +65,6 @@ const ECDSA_CONTEXT = {
   keyVersion: 'v1',
 };
 const ECDSA_SUBJECT_ID = ECDSA_CONTEXT.walletId;
-const ROLE_LOCAL_KEY_PURPOSE = 'evm-signing';
-const ROLE_LOCAL_KEY_VERSION = 'v1';
 let hssClientSignerWasmInitialized = false;
 
 function ensureHssClientSignerWasm(): void {
@@ -93,136 +73,64 @@ function ensureHssClientSignerWasm(): void {
   hssClientSignerWasmInitialized = true;
 }
 
-function loadCorpus(): ThresholdPrfFixtureCorpus {
+function loadFixtureCorpus(): ThresholdPrfFixtureCorpus {
   return JSON.parse(readFileSync(FIXTURE_PATH, 'utf8')) as ThresholdPrfFixtureCorpus;
 }
 
 function vectorForPurpose(purpose: string): ThresholdPrfFixtureVector {
-  const vector = loadCorpus().vectors.find((candidate) => candidate.purpose === purpose);
+  const vector = loadFixtureCorpus().vectors.find((candidate) => candidate.purpose === purpose);
   if (!vector) throw new Error(`missing threshold-prf fixture vector for ${purpose}`);
   return vector;
+}
+
+function policyFromFixture(vector: ThresholdPrfFixtureVector) {
+  return {
+    protocol: 'threshold-prf',
+    threshold: vector.policy.threshold,
+    shareCount: vector.policy.share_count,
+  } as const;
+}
+
+function hostedResolverConfigFromFixture(input: {
+  readonly vector: ThresholdPrfFixtureVector;
+  readonly decryptCalls: number[];
+}) {
+  const sharesById = new Map<number, ThresholdPrfFixtureShare>(
+    input.vector.shares.map((share) => [share.id, share]),
+  );
+  return {
+    policy: policyFromFixture(input.vector),
+    storageAdapter: {
+      listSealedSigningRootShares: async (request: {
+        signingRootId: string;
+        signingRootVersion?: string;
+      }): Promise<readonly SealedSigningRootShare[]> =>
+        input.vector.shares.map((share) => ({
+          signingRootId: request.signingRootId,
+          ...(request.signingRootVersion ? { signingRootVersion: request.signingRootVersion } : {}),
+          shareId: share.id,
+          sealedShare: new Uint8Array([share.id]),
+          storageId: `fixture-share-${share.id}`,
+          kekId: KEK_ID,
+        })),
+    },
+    decryptAdapter: {
+      decryptSigningRootShare: async (record: SealedSigningRootShare): Promise<Uint8Array> => {
+        input.decryptCalls.push(record.shareId);
+        const share = sharesById.get(record.shareId);
+        if (!share) throw new Error(`missing share ${record.shareId}`);
+        return hexToBytes(share.wire_hex);
+      },
+    },
+  };
 }
 
 function hexToBytes(hex: string): Uint8Array {
   return new Uint8Array(Buffer.from(hex, 'hex'));
 }
 
-function bytesToHex(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString('hex');
-}
-
-function bytesB64u(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString('base64url');
-}
-
-function hexToBytesPrefixed(hex: string): Uint8Array {
-  return hexToBytes(hex.replace(/^0x/i, ''));
-}
-
 function toHssClientSharePublicKey33B64uForTest(value: string): EcdsaHssClientSharePublicKey33B64u {
   return value as EcdsaHssClientSharePublicKey33B64u;
-}
-
-async function roleLocalWalletFromShares(input: {
-  yClient32Le: Uint8Array;
-  yRelayer32Le: Uint8Array;
-}) {
-  ensureHssClientSignerWasm();
-  const context = {
-    walletId: ECDSA_CONTEXT.walletId,
-    rpId: ECDSA_CONTEXT.rpId,
-    ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
-    signingRootId: ECDSA_CONTEXT.signingRootId,
-    signingRootVersion: ECDSA_CONTEXT.signingRootVersion,
-    keyPurpose: ROLE_LOCAL_KEY_PURPOSE,
-    keyVersion: ROLE_LOCAL_KEY_VERSION,
-  };
-  const clientBootstrap = prepareResolvedEmailOtpRootEcdsaClientBootstrapForTest({
-    context: {
-      walletId: context.walletId,
-      rpId: context.rpId,
-      chainTarget: ECDSA_CONTEXT.chainTarget,
-      ecdsaThresholdKeyId: context.ecdsaThresholdKeyId,
-      signingRootId: context.signingRootId,
-      signingRootVersion: context.signingRootVersion,
-    },
-    clientRootShare32B64u: bytesB64u(input.yClient32Le),
-  });
-  const relayerKeyId = 'ehss-relayer-signing-root-test';
-  const relayerBootstrap = await roleLocalThresholdEcdsaHssRelayerBootstrap({
-    ...context,
-    relayerKeyId,
-    yRelayer32Le: input.yRelayer32Le,
-    clientPublicKey33: Buffer.from(clientBootstrap.hssClientSharePublicKey33B64u, 'base64url'),
-    clientShareRetryCounter: clientBootstrap.clientShareRetryCounter,
-  });
-  const readyBootstrap = threshold_ecdsa_hss_role_local_finalize_client_bootstrap({
-    pendingStateBlobB64u: clientBootstrap.pendingStateBlobB64u,
-    relayerKeyId,
-    relayerPublicKey33B64u: bytesB64u(relayerBootstrap.relayerPublicKey33),
-    groupPublicKey33B64u: bytesB64u(relayerBootstrap.groupPublicKey33),
-    ethereumAddress: `0x${bytesToHex(relayerBootstrap.ethereumAddress20)}`,
-  }) as { stateBlobB64u: string };
-  const exportArtifact = JSON.parse(
-    build_ecdsa_role_local_export_artifact_v1(
-      JSON.stringify({
-        kind: 'build_ecdsa_role_local_export_artifact_v1',
-        algorithm: 'ecdsa_hss_secp256k1_role_local_v1',
-        stateBlob: {
-          kind: 'ecdsa_role_local_state_blob_v1',
-          curve: 'secp256k1',
-          encoding: 'base64url',
-          producer: 'signer_core',
-          stateBlobB64u: readyBootstrap.stateBlobB64u,
-        },
-        publicFacts: {
-          walletId: ECDSA_CONTEXT.walletId,
-          rpId: ECDSA_CONTEXT.rpId,
-          chainTarget: ECDSA_CONTEXT.chainTarget,
-          keyHandle: 'signing-root-resolver-test-key',
-          ecdsaThresholdKeyId: ECDSA_CONTEXT.ecdsaThresholdKeyId,
-          signingRootId: ECDSA_CONTEXT.signingRootId,
-          signingRootVersion: ECDSA_CONTEXT.signingRootVersion,
-          clientParticipantId: 1,
-          relayerParticipantId: 2,
-          participantIds: [1, 2],
-          contextBinding32B64u: clientBootstrap.contextBinding32B64u,
-          hssClientSharePublicKey33B64u: clientBootstrap.hssClientSharePublicKey33B64u,
-          relayerPublicKey33B64u: bytesB64u(relayerBootstrap.relayerPublicKey33),
-          groupPublicKey33B64u: bytesB64u(relayerBootstrap.groupPublicKey33),
-          ethereumAddress: `0x${bytesToHex(relayerBootstrap.ethereumAddress20)}`,
-        },
-        authorization: {
-          kind: 'passkey_export_authorized',
-          walletId: ECDSA_CONTEXT.walletId,
-          rpId: ECDSA_CONTEXT.rpId,
-          credentialIdB64u: bytesB64u(new Uint8Array([1])),
-        },
-        serverExportShare32B64u: bytesB64u(relayerBootstrap.relayerShare32),
-      }),
-    ),
-  ) as { publicKeyHex: string; ethereumAddress: string };
-
-  return {
-    groupPublicKey33: relayerBootstrap.groupPublicKey33,
-    ethereumAddress20: relayerBootstrap.ethereumAddress20,
-    exportedPublicKey33: hexToBytesPrefixed(exportArtifact.publicKeyHex),
-    exportedEthereumAddress20: hexToBytesPrefixed(exportArtifact.ethereumAddress),
-  };
-}
-
-function shareWirePairForIds(
-  vector: ThresholdPrfFixtureVector,
-  ids: readonly [SigningRootSecretShareId, SigningRootSecretShareId],
-) {
-  const parsed = ids.map((id) => {
-    const share = vector.shares.find((candidate) => candidate.id === id);
-    if (!share) throw new Error(`missing fixture share ${id}`);
-    const result = parseSigningRootSecretShareWireV1(hexToBytes(share.wire_hex));
-    if (!result.ok) throw new Error(result.message);
-    return result.value;
-  });
-  return [parsed[0], parsed[1]] as const;
 }
 
 function createAuthServiceMock(): AuthService {
@@ -279,141 +187,15 @@ async function roleLocalBootstrapWithClientShare(args: {
   });
 }
 
-function sealedShareRecord(shareId: SigningRootSecretShareId): SealedSigningRootSecretShare {
-  return {
-    signingRootId: SIGNING_ROOT_ID,
-    signingRootVersion: SIGNING_ROOT_VERSION,
-    shareId,
-    sealedShare: new Uint8Array([shareId, 0xaa]),
-    storageId: `store-${shareId}`,
-    kekId: `kek-${shareId}`,
-  };
-}
-
-function createFixtureResolver(vector: ThresholdPrfFixtureVector) {
-  const decryptedById = new Map<SigningRootSecretShareId, Uint8Array>(
-    vector.shares.map((share) => [share.id, hexToBytes(share.wire_hex)]),
-  );
-  const store: SigningRootSecretShareSource = {
-    listSealedSigningRootSecretShares: async () => [
-      sealedShareRecord(1),
-      sealedShareRecord(2),
-      sealedShareRecord(3),
-    ],
-  };
-  const decryptAdapter: SigningRootSecretDecryptAdapter = {
-    decryptSigningRootSecretShare: async (record) => {
-      const decrypted = decryptedById.get(record.shareId);
-      if (!decrypted) throw new Error(`missing share ${record.shareId}`);
-      return decrypted;
-    },
-  };
-  return {
-    listSealedSigningRootSecretShares: store.listSealedSigningRootSecretShares,
-    decryptSigningRootSecretShare: decryptAdapter.decryptSigningRootSecretShare,
-  };
-}
-
-test('ECDSA HSS consumes threshold-prf signing-root y_relayer without changing bootstrap/export identity semantics', async () => {
-  const vector = vectorForPurpose('ecdsa-hss/y_relayer');
-  const resolver = createFixtureResolver(vector);
-  const derivedYRelayer = await deriveEcdsaHssYRelayerFromSigningRootSecretResolver({
-    signingRootId: SIGNING_ROOT_ID,
-    signingRootVersion: SIGNING_ROOT_VERSION,
-    preferredShareIds: [1, 2],
-    resolver,
-    context: ECDSA_CONTEXT,
-  });
-  expect(derivedYRelayer.ok).toBe(true);
-  if (!derivedYRelayer.ok) throw new Error(derivedYRelayer.message);
-
-  const yClient32Le = new Uint8Array(32).fill(0x07);
-  const wallet = await roleLocalWalletFromShares({
-    yClient32Le,
-    yRelayer32Le: derivedYRelayer.value,
-  });
-
-  expect(bytesToHex(wallet.groupPublicKey33)).toBe(bytesToHex(wallet.exportedPublicKey33));
-  expect(bytesToHex(wallet.ethereumAddress20)).toBe(bytesToHex(wallet.exportedEthereumAddress20));
-
-  derivedYRelayer.value.fill(0);
-  yClient32Le.fill(0);
-});
-
-test('ECDSA wallet identity is stable across local and pairwise partial-combine outputs', async () => {
-  const vector = vectorForPurpose('ecdsa-hss/y_relayer');
-  const yClient32Le = new Uint8Array(32).fill(0x07);
-
-  for (const pairwise of vector.pairwise_outputs) {
-    const localShareWires = shareWirePairForIds(vector, pairwise.ids);
-    const localYRelayer = await deriveEcdsaHssYRelayerFromSigningRootSecretShares({
-      shareWires: localShareWires,
-      context: ECDSA_CONTEXT,
-    });
-    const pairwiseYRelayer = hexToBytes(pairwise.output_hex);
-
-    expect(bytesToHex(localYRelayer)).toBe(bytesToHex(pairwiseYRelayer));
-
-    const localWallet = await roleLocalWalletFromShares({
-      yClient32Le,
-      yRelayer32Le: localYRelayer,
-    });
-    const pairwiseWallet = await roleLocalWalletFromShares({
-      yClient32Le,
-      yRelayer32Le: pairwiseYRelayer,
-    });
-
-    expect(bytesToHex(localWallet.groupPublicKey33)).toBe(
-      bytesToHex(pairwiseWallet.groupPublicKey33),
-    );
-    expect(bytesToHex(localWallet.ethereumAddress20)).toBe(
-      bytesToHex(pairwiseWallet.ethereumAddress20),
-    );
-
-    localShareWires[0].fill(0);
-    localShareWires[1].fill(0);
-    localYRelayer.fill(0);
-    pairwiseYRelayer.fill(0);
-  }
-
-  yClient32Le.fill(0);
-});
-
 test('ECDSA role-local bootstrap uses signing-root resolver when configured and preserves response shape', async () => {
-  const resolverCalls: SigningRootSecretShareKekResolutionInput[] = [];
-  const resolveKek = async (
-    input: SigningRootSecretShareKekResolutionInput,
-  ): Promise<Uint8Array> => {
-    resolverCalls.push(input);
-    return KEK_BYTES;
-  };
-  const store = new InMemorySigningRootSecretStore();
+  const decryptCalls: number[] = [];
   const vector = vectorForPurpose('ecdsa-hss/y_relayer');
-  for (const share of vector.shares.slice(0, 2)) {
-    const parsed = parseSigningRootSecretShareWireV1(hexToBytes(share.wire_hex));
-    if (!parsed.ok) throw new Error(parsed.message);
-    const sealedShare = await sealSigningRootSecretShareWireV1({
-      signingRootId: SIGNING_ROOT_ID,
-      signingRootVersion: SIGNING_ROOT_VERSION,
-      shareId: share.id,
-      kekId: KEK_ID,
-      plaintextShareWire: parsed.value,
-      resolveKek,
-    });
-    parsed.value.fill(0);
-    await store.putSealedSigningRootSecretShare({
-      signingRootId: SIGNING_ROOT_ID,
-      signingRootVersion: SIGNING_ROOT_VERSION,
-      shareId: share.id,
-      kekId: KEK_ID,
-      sealedShare,
-    });
-  }
-
   const thresholdConfig: ThresholdStoreConfigInput = {
     kind: 'in-memory',
-    signingRootSecretStore: store,
-    signingRootSecretShareKekResolver: resolveKek,
+    signingRootShareResolverAdapters: hostedResolverConfigFromFixture({
+      vector,
+      decryptCalls,
+    }),
   };
   const service = createThresholdSigningService({
     authService: createAuthServiceMock(),
@@ -435,7 +217,7 @@ test('ECDSA role-local bootstrap uses signing-root resolver when configured and 
   expect(bootstrapped.value.ethereumAddress).toMatch(/^0x[0-9a-f]{40}$/);
   expect(bootstrapped.value.sessionId).toBe('ecdsa-session-1');
   expect(bootstrapped.value.walletSigningSessionId).toBe('wallet-signing-session-1');
-  expect(resolverCalls.map((call) => call.shareId)).toEqual([1, 2, 1, 2]);
+  expect(decryptCalls).toEqual([1, 2]);
 });
 
 test('ECDSA self-host signing-root resolver supplies fixed project scope when session policy has no runtime scope', async () => {
@@ -443,7 +225,8 @@ test('ECDSA self-host signing-root resolver supplies fixed project scope when se
   const signingRootShareResolver = createSelfHostedSigningRootShareResolver({
     signingRootId: SIGNING_ROOT_ID,
     signingRootVersion: SIGNING_ROOT_VERSION,
-    shares: vector.shares.slice(0, 2).map((share) => ({
+    policy: policyFromFixture(vector),
+    shares: vector.shares.slice(0, vector.policy.threshold).map((share) => ({
       shareId: share.id,
       shareWireHex: share.wire_hex,
     })),
@@ -473,43 +256,17 @@ test('ECDSA self-host signing-root resolver supplies fixed project scope when se
 });
 
 test('ECDSA signing-root wallet verification derives the known address from imported root-versioned shares', async () => {
-  const resolverCalls: SigningRootSecretShareKekResolutionInput[] = [];
-  const resolveKek = async (
-    input: SigningRootSecretShareKekResolutionInput,
-  ): Promise<Uint8Array> => {
-    resolverCalls.push(input);
-    return KEK_BYTES;
-  };
-  const store = new InMemorySigningRootSecretStore();
+  const decryptCalls: number[] = [];
   const vector = vectorForPurpose('ecdsa-hss/y_relayer');
-  for (const share of vector.shares.slice(0, 2)) {
-    const parsed = parseSigningRootSecretShareWireV1(hexToBytes(share.wire_hex));
-    if (!parsed.ok) throw new Error(parsed.message);
-    const sealedShare = await sealSigningRootSecretShareWireV1({
-      signingRootId: SIGNING_ROOT_ID,
-      signingRootVersion: SIGNING_ROOT_VERSION,
-      shareId: share.id,
-      kekId: KEK_ID,
-      plaintextShareWire: parsed.value,
-      resolveKek,
-    });
-    parsed.value.fill(0);
-    await store.putSealedSigningRootSecretShare({
-      signingRootId: SIGNING_ROOT_ID,
-      signingRootVersion: SIGNING_ROOT_VERSION,
-      shareId: share.id,
-      kekId: KEK_ID,
-      sealedShare,
-    });
-  }
-  resolverCalls.length = 0;
 
   const service = createThresholdSigningService({
     authService: createAuthServiceMock(),
     thresholdStore: {
       kind: 'in-memory',
-      signingRootSecretStore: store,
-      signingRootSecretShareKekResolver: resolveKek,
+      signingRootShareResolverAdapters: hostedResolverConfigFromFixture({
+        vector,
+        decryptCalls,
+      }),
     },
     isNode: true,
   });
@@ -563,12 +320,5 @@ test('ECDSA signing-root wallet verification derives the known address from impo
     verified: false,
     expectedEthereumAddress: `0x${'11'.repeat(20)}`,
   });
-  expect(resolverCalls.map((call) => `${call.shareId}:${call.signingRootVersion}`)).toEqual([
-    `1:${SIGNING_ROOT_VERSION}`,
-    `2:${SIGNING_ROOT_VERSION}`,
-    `1:${SIGNING_ROOT_VERSION}`,
-    `2:${SIGNING_ROOT_VERSION}`,
-    `1:${SIGNING_ROOT_VERSION}`,
-    `2:${SIGNING_ROOT_VERSION}`,
-  ]);
+  expect(decryptCalls).toEqual([1, 2, 1, 2, 1, 2]);
 });

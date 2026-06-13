@@ -26,7 +26,7 @@ Current status:
 - [x] Lean boundary track is explicitly deferred
 - [x] narrow Lean privacy execution-state model exists
 - [x] prototype `threshold-prf` API exists
-- [x] `PrfPartialWireV1` is frozen in Rust
+- [x] `PrfPartialWire` is frozen in Rust
 - [x] production `threshold-prf` API/spec boundary is stable enough for parity FV
 - [x] committed JSON vector corpus exists
 - [x] first Verus abstract spec model exists
@@ -59,9 +59,9 @@ Current status:
 - [x] create `formal-verification/verus/src/lib.rs`
 - [x] create `formal-verification/verus/src/model.rs`
 - [x] add abstract scalar, share, partial, context, purpose, and output models
-- [x] add an abstract `PrfPartialWireV1` model with share ID, context tag, and
+- [x] add an abstract `PrfPartialWire` model with share ID, context tag, and
   compressed point fields
-- [x] add an abstract `SigningRootShareWireV1` model with share ID and canonical
+- [x] add an abstract `SigningRootShareWire` model with share ID and canonical
   share scalar fields
 - [x] avoid proving against placeholder formulas disconnected from the specs
 - [ ] mirror the production module layout under `verus/src/` after the Rust/FV
@@ -110,14 +110,14 @@ parity tests.
 
 ## Phase 5: Vectors And Anti-Drift
 
-- [x] define `crates/threshold-prf/fixtures/protocol-v1.json`
+- [x] define the initial fixed 2-of-3 vector corpus
 - [x] mirror or reference the committed corpus from `formal-verification/fixtures/`
 - [x] add root-generation vectors from fixed seed material
 - [x] add 2-of-3 splitting vectors
 - [x] add direct reference evaluation vectors
 - [x] add every valid pairwise combine vector
 - [x] add refreshed-share vectors
-- [x] add `PrfPartialWireV1` vectors
+- [x] add `PrfPartialWire` vectors
 - [x] add malformed-input rejection vectors where practical
 - [x] add anti-drift tests comparing production helpers to vectors
 - [x] add anti-drift coverage for server-SDK signing-root share wire derivation
@@ -127,13 +127,17 @@ parity tests.
 
 - [x] model share commitment wire width
 - [x] model DLEQ proof wire width
-- [x] model DLEQ challenge input binding tuple
-- [x] prove generated abstract DLEQ proof verifies for a valid evaluated partial
+- [x] model proof-bundle wire width
 - [x] prove commitment/partial share-ID mismatch is rejected
-- [x] prove wrong-context DLEQ verification is rejected
-- [x] model and prove the DLEQ-enforced `combine_verified_partials` boundary
-- [x] add committed DLEQ vectors if DLEQ byte compatibility becomes a
-  production compatibility boundary
+- [x] prove commitment share IDs outside the selected policy are rejected
+- [x] add production Rust rejection coverage for wrong-context, duplicate-bundle,
+  malformed-proof, and commitment/partial share-ID mismatch cases
+- [ ] model DLEQ challenge input binding tuple
+- [ ] prove generated abstract DLEQ proof verifies for a valid evaluated partial
+- [ ] prove wrong-context DLEQ verification is rejected
+- [ ] model and prove the DLEQ-enforced `combine_verified_partials` boundary
+- [ ] add committed DLEQ vectors if DLEQ byte compatibility becomes a production
+  compatibility boundary
 - [x] decide whether DLEQ cryptographic soundness beyond the abstract boundary is
   in scope
 

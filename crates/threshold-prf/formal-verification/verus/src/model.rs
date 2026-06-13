@@ -1,500 +1,144 @@
-//! Abstract Verus model for the threshold-prf v1 specs.
+//! Abstract Verus model for the active threshold-prf policy surface.
 //!
-//! The model uses a tiny abstract field domain (`0..5`) to prove protocol
-//! wiring properties without depending on Ristretto, SHA-512, or production
-//! byte encoders. The cryptographic primitives remain trusted seams.
+//! The model proves boundary and subset properties without depending on
+//! Ristretto, SHA-512, or production byte encoders. Cryptographic primitives
+//! remain trusted seams.
 
 use vstd::prelude::*;
 
 verus! {
 
-pub type Bytes32 = [u8; 32];
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct PrfContextV1 {
-    pub suite_id: u8,
-    pub purpose_id: u8,
-    pub context_id: u8,
+#[derive(PartialEq, Eq)]
+pub struct ThresholdPolicySpec {
+    pub threshold: nat,
+    pub share_count: nat,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct PrfOutputDerivationInputV1 {
-    pub suite_id: u8,
-    pub purpose_id: u8,
-    pub context_id: u8,
-    pub point_coeff: u8,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct SigningRootShareV1 {
-    pub id: u8,
+pub struct SigningRootShareSpec {
+    pub id: u16,
     pub value: u8,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct SigningRootShareWireV1Spec {
-    pub share_id: u8,
+pub struct SigningRootShareWireSpec {
+    pub share_id: u16,
     pub scalar: u8,
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub struct PrfPartialV1 {
-    pub id: u8,
-    pub context_tag: Bytes32,
-    pub point_coeff: u8,
+pub struct PrfPartialProofBundleIdsSpec {
+    pub partial_id: u16,
+    pub commitment_id: u16,
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub struct PrfPartialWireV1 {
-    pub share_id: u8,
-    pub context_tag: Bytes32,
-    pub compressed_point: Bytes32,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct SigningRootShareCommitmentV1Spec {
-    pub id: u8,
-    pub point_coeff: u8,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct PrfDleqProofV1Spec {
-    pub challenge: u8,
-    pub response: u8,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct PrfPartialProofBundleV1Spec {
-    pub partial: PrfPartialV1,
-    pub commitment: SigningRootShareCommitmentV1Spec,
-    pub proof: PrfDleqProofV1Spec,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub struct DleqChallengeInputV1Spec {
-    pub suite_id: u8,
-    pub purpose_id: u8,
-    pub context_tag: Bytes32,
-    pub share_id: u8,
-    pub basepoint_id: u8,
-    pub input_point_id: u8,
-    pub commitment_point_coeff: u8,
-    pub partial_point_coeff: u8,
-    pub nonce_g_coeff: u8,
-    pub nonce_p_coeff: u8,
-}
-
-#[derive(PartialEq, Eq)]
-pub struct Len16EncodedFieldV1Spec {
-    pub len: nat,
-    pub value_id: u8,
-}
-
-#[derive(PartialEq, Eq)]
-pub struct Len32EncodedFieldV1Spec {
-    pub len: nat,
-    pub value_id: u8,
-}
-
-#[derive(PartialEq, Eq)]
-pub struct PrfTranscriptEncodingV1Spec {
-    pub domain_position: u8,
-    pub suite_position: u8,
-    pub purpose_position: u8,
-    pub context_position: u8,
-    pub payload_position: u8,
-    pub domain_id: u8,
-    pub suite_id: u8,
-    pub purpose_id: u8,
-    pub context_id: u8,
-    pub payload_id: u8,
-    pub domain_len: nat,
-    pub suite_len: nat,
-    pub purpose_len: nat,
-    pub context_len: nat,
-    pub payload_len: nat,
-}
-
-#[derive(PartialEq, Eq)]
-pub struct DleqTranscriptEncodingV1Spec {
-    pub domain_position: u8,
-    pub suite_position: u8,
-    pub purpose_position: u8,
-    pub context_tag_position: u8,
-    pub share_id_position: u8,
-    pub basepoint_position: u8,
-    pub input_point_position: u8,
-    pub commitment_point_position: u8,
-    pub partial_point_position: u8,
-    pub nonce_g_position: u8,
-    pub nonce_p_position: u8,
-    pub domain_id: u8,
-    pub suite_id: u8,
-    pub purpose_id: u8,
-    pub context_tag: Bytes32,
-    pub share_id: u8,
-    pub basepoint_id: u8,
-    pub input_point_id: u8,
-    pub commitment_point_coeff: u8,
-    pub partial_point_coeff: u8,
-    pub nonce_g_coeff: u8,
-    pub nonce_p_coeff: u8,
-    pub domain_len: nat,
-    pub suite_len: nat,
-    pub purpose_len: nat,
-}
-
-pub open spec fn abstract_field_order_v1_spec() -> nat {
-    5nat
-}
-
-pub open spec fn max_len16_v1_spec() -> nat {
+pub open spec fn max_share_count_spec() -> nat {
     65535nat
 }
 
-pub open spec fn max_len32_v1_spec() -> nat {
-    4294967295nat
-}
-
-pub open spec fn input_domain_len_v1_spec() -> nat {
-    22nat
-}
-
-pub open spec fn output_domain_len_v1_spec() -> nat {
-    23nat
-}
-
-pub open spec fn partial_context_domain_len_v1_spec() -> nat {
+pub open spec fn scalar_width_bytes_spec() -> nat {
     32nat
 }
 
-pub open spec fn dleq_domain_len_v1_spec() -> nat {
-    21nat
+pub open spec fn signing_root_share_wire_width_bytes_spec() -> nat {
+    34nat
 }
 
-pub open spec fn ristretto_suite_label_len_v1_spec() -> nat {
-    36nat
+pub open spec fn partial_wire_width_bytes_spec() -> nat {
+    66nat
 }
 
-pub open spec fn ecdsa_hss_y_relayer_purpose_len_v1_spec() -> nat {
-    19nat
+pub open spec fn share_commitment_wire_width_bytes_spec() -> nat {
+    34nat
 }
 
-pub open spec fn scalar_width_bytes_v1_spec() -> nat {
-    32nat
-}
-
-pub open spec fn signing_root_share_wire_width_bytes_v1_spec() -> nat {
-    33nat
-}
-
-pub open spec fn prf_output_width_bytes_v1_spec() -> nat {
-    32nat
-}
-
-pub open spec fn partial_context_tag_width_bytes_v1_spec() -> nat {
-    32nat
-}
-
-pub open spec fn compressed_point_width_bytes_v1_spec() -> nat {
-    32nat
-}
-
-pub open spec fn partial_wire_width_bytes_v1_spec() -> nat {
-    65nat
-}
-
-pub open spec fn share_commitment_wire_width_bytes_v1_spec() -> nat {
-    33nat
-}
-
-pub open spec fn dleq_proof_wire_width_bytes_v1_spec() -> nat {
+pub open spec fn dleq_proof_wire_width_bytes_spec() -> nat {
     64nat
 }
 
-pub open spec fn len16_fits_v1_spec(len: nat) -> bool {
-    len <= max_len16_v1_spec()
+pub open spec fn proof_bundle_wire_width_bytes_spec() -> nat {
+    partial_wire_width_bytes_spec() + share_commitment_wire_width_bytes_spec()
+        + dleq_proof_wire_width_bytes_spec()
 }
 
-pub open spec fn len32_fits_v1_spec(len: nat) -> bool {
-    len <= max_len32_v1_spec()
+pub open spec fn is_field_element_spec(value: u8) -> bool {
+    value < 251
 }
 
-pub open spec fn len16_field_v1_spec(len: nat, value_id: u8) -> Option<Len16EncodedFieldV1Spec> {
-    if len16_fits_v1_spec(len) {
-        Some(Len16EncodedFieldV1Spec { len, value_id })
-    } else {
-        None
-    }
+pub open spec fn is_valid_signing_root_scalar_spec(value: u8) -> bool {
+    is_field_element_spec(value) && value != 0
 }
 
-pub open spec fn len32_field_v1_spec(len: nat, value_id: u8) -> Option<Len32EncodedFieldV1Spec> {
-    if len32_fits_v1_spec(len) {
-        Some(Len32EncodedFieldV1Spec { len, value_id })
-    } else {
-        None
-    }
+pub open spec fn is_valid_signing_root_share_scalar_spec(value: u8) -> bool {
+    is_field_element_spec(value)
 }
 
-pub open spec fn prf_transcript_encoding_v1_spec(
-    domain_id: u8,
-    domain_len: nat,
-    suite_len: nat,
-    purpose_len: nat,
-    context: PrfContextV1,
-    context_len: nat,
-    payload_id: u8,
-    payload_len: nat,
-) -> Option<PrfTranscriptEncodingV1Spec> {
-    if len16_fits_v1_spec(domain_len)
-        && len16_fits_v1_spec(suite_len)
-        && len16_fits_v1_spec(purpose_len)
-        && len32_fits_v1_spec(context_len)
-        && len32_fits_v1_spec(payload_len)
+pub open spec fn threshold_policy_spec(
+    threshold: nat,
+    share_count: nat,
+) -> Option<ThresholdPolicySpec> {
+    if threshold >= 1nat && share_count >= 1nat && threshold <= share_count
+        && share_count <= max_share_count_spec()
     {
-        Some(PrfTranscriptEncodingV1Spec {
-            domain_position: 0u8,
-            suite_position: 1u8,
-            purpose_position: 2u8,
-            context_position: 3u8,
-            payload_position: 4u8,
-            domain_id,
-            suite_id: context.suite_id,
-            purpose_id: context.purpose_id,
-            context_id: context.context_id,
-            payload_id,
-            domain_len,
-            suite_len,
-            purpose_len,
-            context_len,
-            payload_len,
-        })
+        Some(ThresholdPolicySpec { threshold, share_count })
     } else {
         None
     }
 }
 
-pub open spec fn dleq_transcript_encoding_v1_spec(
-    input: DleqChallengeInputV1Spec,
-    domain_len: nat,
-    suite_len: nat,
-    purpose_len: nat,
-) -> Option<DleqTranscriptEncodingV1Spec> {
-    if len16_fits_v1_spec(domain_len)
-        && len16_fits_v1_spec(suite_len)
-        && len16_fits_v1_spec(purpose_len)
-    {
-        Some(DleqTranscriptEncodingV1Spec {
-            domain_position: 0u8,
-            suite_position: 1u8,
-            purpose_position: 2u8,
-            context_tag_position: 3u8,
-            share_id_position: 4u8,
-            basepoint_position: 5u8,
-            input_point_position: 6u8,
-            commitment_point_position: 7u8,
-            partial_point_position: 8u8,
-            nonce_g_position: 9u8,
-            nonce_p_position: 10u8,
-            domain_id: 4u8,
-            suite_id: input.suite_id,
-            purpose_id: input.purpose_id,
-            context_tag: input.context_tag,
-            share_id: input.share_id,
-            basepoint_id: input.basepoint_id,
-            input_point_id: input.input_point_id,
-            commitment_point_coeff: input.commitment_point_coeff,
-            partial_point_coeff: input.partial_point_coeff,
-            nonce_g_coeff: input.nonce_g_coeff,
-            nonce_p_coeff: input.nonce_p_coeff,
-            domain_len,
-            suite_len,
-            purpose_len,
-        })
-    } else {
-        None
-    }
+pub open spec fn is_valid_share_id_spec(policy: ThresholdPolicySpec, id: u16) -> bool {
+    1nat <= id as nat && id as nat <= policy.share_count
 }
 
-pub open spec fn is_field_element_v1_spec(value: u8) -> bool {
-    value < abstract_field_order_v1_spec()
-}
-
-pub open spec fn is_valid_signing_root_scalar_v1_spec(value: u8) -> bool {
-    is_field_element_v1_spec(value) && value != 0u8
-}
-
-pub open spec fn is_valid_signing_root_share_scalar_v1_spec(value: u8) -> bool {
-    is_field_element_v1_spec(value)
-}
-
-pub open spec fn is_valid_dleq_nonce_v1_spec(value: u8) -> bool {
-    is_field_element_v1_spec(value) && value != 0u8
-}
-
-pub open spec fn parse_signing_root_scalar_encoding_v1_spec(encoded: u8) -> Option<u8> {
-    if is_valid_signing_root_scalar_v1_spec(encoded) {
-        Some(encoded)
-    } else {
-        None
-    }
-}
-
-pub open spec fn parse_signing_root_share_scalar_encoding_v1_spec(encoded: u8) -> Option<u8> {
-    if is_valid_signing_root_share_scalar_v1_spec(encoded) {
-        Some(encoded)
-    } else {
-        None
-    }
-}
-
-pub open spec fn is_valid_share_id_v1_spec(id: u8) -> bool {
-    id == 1u8 || id == 2u8 || id == 3u8
-}
-
-pub open spec fn is_valid_share_pair_v1_spec(left: u8, right: u8) -> bool {
-    is_valid_share_id_v1_spec(left) && is_valid_share_id_v1_spec(right) && left != right
-}
-
-pub open spec fn validate_two_share_subset_v1_spec(
-    subset_len: nat,
-    left: u8,
-    right: u8,
+pub open spec fn validate_threshold_subset_2_spec(
+    policy: ThresholdPolicySpec,
+    first: u16,
+    second: u16,
 ) -> bool {
-    subset_len == 2nat && is_valid_share_pair_v1_spec(left, right)
+    policy.threshold == 2nat
+        && is_valid_share_id_spec(policy, first)
+        && is_valid_share_id_spec(policy, second)
+        && first != second
 }
 
-pub uninterp spec fn field_add_v1_spec(left: u8, right: u8) -> u8;
-
-pub uninterp spec fn field_mul_v1_spec(left: u8, right: u8) -> u8;
-
-pub uninterp spec fn field_sub_v1_spec(left: u8, right: u8) -> u8;
-
-pub open spec fn share_id_as_field_element_v1_spec(id: u8) -> u8 {
-    if id == 1u8 {
-        1u8
-    } else if id == 2u8 {
-        2u8
-    } else if id == 3u8 {
-        3u8
-    } else {
-        0u8
-    }
+pub open spec fn validate_threshold_subset_3_spec(
+    policy: ThresholdPolicySpec,
+    first: u16,
+    second: u16,
+    third: u16,
+) -> bool {
+    policy.threshold == 3nat
+        && is_valid_share_id_spec(policy, first)
+        && is_valid_share_id_spec(policy, second)
+        && is_valid_share_id_spec(policy, third)
+        && first != second
+        && first != third
+        && second != third
 }
 
-pub open spec fn lagrange_left_coeff_v1_spec(left: u8, right: u8) -> u8 {
-    if left == 1u8 && right == 2u8 {
-        2u8
-    } else if left == 2u8 && right == 1u8 {
-        4u8
-    } else if left == 1u8 && right == 3u8 {
-        4u8
-    } else if left == 3u8 && right == 1u8 {
-        2u8
-    } else if left == 2u8 && right == 3u8 {
-        3u8
-    } else if left == 3u8 && right == 2u8 {
-        3u8
-    } else {
-        0u8
-    }
+pub open spec fn signing_root_share_spec(id: u16, value: u8) -> SigningRootShareSpec {
+    SigningRootShareSpec { id, value }
 }
 
-pub open spec fn lagrange_right_coeff_v1_spec(left: u8, right: u8) -> u8 {
-    lagrange_left_coeff_v1_spec(right, left)
-}
-
-pub open spec fn shamir_share_value_v1_spec(root: u8, slope: u8, id: u8) -> u8 {
-    field_add_v1_spec(
-        root,
-        field_mul_v1_spec(slope, share_id_as_field_element_v1_spec(id)),
-    )
-}
-
-pub open spec fn signing_root_share_v1_spec(
-    root: u8,
-    slope: u8,
-    id: u8,
-) -> SigningRootShareV1 {
-    SigningRootShareV1 {
-        id,
-        value: shamir_share_value_v1_spec(root, slope, id),
-    }
-}
-
-pub open spec fn reconstruct_from_share_values_v1_spec(
-    left_id: u8,
-    left_value: u8,
-    right_id: u8,
-    right_value: u8,
-) -> u8 {
-    field_add_v1_spec(
-        field_mul_v1_spec(lagrange_left_coeff_v1_spec(left_id, right_id), left_value),
-        field_mul_v1_spec(lagrange_right_coeff_v1_spec(left_id, right_id), right_value),
-    )
-}
-
-pub open spec fn reconstruct_generated_root_v1_spec(
-    root: u8,
-    slope: u8,
-    left_id: u8,
-    right_id: u8,
-) -> u8 {
-    reconstruct_from_share_values_v1_spec(
-        left_id,
-        shamir_share_value_v1_spec(root, slope, left_id),
-        right_id,
-        shamir_share_value_v1_spec(root, slope, right_id),
-    )
-}
-
-pub open spec fn refresh_share_from_pair_v1_spec(
-    left: SigningRootShareV1,
-    right: SigningRootShareV1,
-    new_slope: u8,
-    refreshed_id: u8,
-) -> SigningRootShareV1 {
-    signing_root_share_v1_spec(
-        reconstruct_from_share_values_v1_spec(left.id, left.value, right.id, right.value),
-        new_slope,
-        refreshed_id,
-    )
-}
-
-pub open spec fn refresh_generated_share_v1_spec(
-    root: u8,
-    slope: u8,
-    left_id: u8,
-    right_id: u8,
-    new_slope: u8,
-    refreshed_id: u8,
-) -> SigningRootShareV1 {
-    refresh_share_from_pair_v1_spec(
-        signing_root_share_v1_spec(root, slope, left_id),
-        signing_root_share_v1_spec(root, slope, right_id),
-        new_slope,
-        refreshed_id,
-    )
-}
-
-pub open spec fn signing_root_share_wire_from_share_v1_spec(
-    share: SigningRootShareV1,
-) -> SigningRootShareWireV1Spec {
-    SigningRootShareWireV1Spec {
+pub open spec fn signing_root_share_wire_from_share_spec(
+    share: SigningRootShareSpec,
+) -> SigningRootShareWireSpec {
+    SigningRootShareWireSpec {
         share_id: share.id,
         scalar: share.value,
     }
 }
 
-pub open spec fn decode_signing_root_share_wire_v1_spec(
+pub open spec fn decode_signing_root_share_wire_spec(
+    policy: ThresholdPolicySpec,
     wire_len: nat,
-    wire: SigningRootShareWireV1Spec,
-) -> Option<SigningRootShareV1> {
-    if wire_len == signing_root_share_wire_width_bytes_v1_spec()
-        && is_valid_share_id_v1_spec(wire.share_id)
-        && is_valid_signing_root_share_scalar_v1_spec(wire.scalar)
+    wire: SigningRootShareWireSpec,
+) -> Option<SigningRootShareSpec> {
+    if wire_len == signing_root_share_wire_width_bytes_spec()
+        && is_valid_share_id_spec(policy, wire.share_id)
+        && is_valid_signing_root_share_scalar_spec(wire.scalar)
     {
-        Some(SigningRootShareV1 {
+        Some(SigningRootShareSpec {
             id: wire.share_id,
             value: wire.scalar,
         })
@@ -503,1226 +147,294 @@ pub open spec fn decode_signing_root_share_wire_v1_spec(
     }
 }
 
-pub uninterp spec fn partial_context_tag_v1_spec(context: PrfContextV1) -> Bytes32;
-
-pub open spec fn output_derivation_input_v1_spec(
-    context: PrfContextV1,
-    point_coeff: u8,
-) -> PrfOutputDerivationInputV1 {
-    PrfOutputDerivationInputV1 {
-        suite_id: context.suite_id,
-        purpose_id: context.purpose_id,
-        context_id: context.context_id,
-        point_coeff,
-    }
-}
-
-pub uninterp spec fn prf_output_hash_from_input_v1_spec(
-    input: PrfOutputDerivationInputV1,
-) -> Bytes32;
-
-pub open spec fn prf_output_hash_v1_spec(context: PrfContextV1, point_coeff: u8) -> Bytes32 {
-    prf_output_hash_from_input_v1_spec(output_derivation_input_v1_spec(context, point_coeff))
-}
-
-pub uninterp spec fn compressed_point_from_coeff_v1_spec(point_coeff: u8) -> Bytes32;
-
-pub uninterp spec fn decompress_point_coeff_v1_spec(compressed_point: Bytes32) -> u8;
-
-pub uninterp spec fn is_valid_compressed_point_v1_spec(compressed_point: Bytes32) -> bool;
-
-pub open spec fn evaluate_direct_reference_v1_spec(
-    root: u8,
-    context: PrfContextV1,
-) -> Bytes32 {
-    prf_output_hash_v1_spec(context, root)
-}
-
-pub open spec fn evaluate_partial_v1_spec(
-    share: SigningRootShareV1,
-    context: PrfContextV1,
-) -> PrfPartialV1 {
-    PrfPartialV1 {
-        id: share.id,
-        context_tag: partial_context_tag_v1_spec(context),
-        point_coeff: share.value,
-    }
-}
-
-pub open spec fn partial_context_matches_v1_spec(
-    partial: PrfPartialV1,
-    context: PrfContextV1,
+pub open spec fn validate_proof_bundle_id_binding_spec(
+    policy: ThresholdPolicySpec,
+    bundle: PrfPartialProofBundleIdsSpec,
 ) -> bool {
-    partial.context_tag == partial_context_tag_v1_spec(context)
+    is_valid_share_id_spec(policy, bundle.partial_id)
+        && is_valid_share_id_spec(policy, bundle.commitment_id)
+        && bundle.partial_id == bundle.commitment_id
 }
 
-pub open spec fn combine_partial_point_coeffs_v1_spec(
-    left: PrfPartialV1,
-    right: PrfPartialV1,
-) -> u8 {
-    reconstruct_from_share_values_v1_spec(left.id, left.point_coeff, right.id, right.point_coeff)
-}
-
-pub open spec fn combine_partials_v1_spec(
-    left: PrfPartialV1,
-    right: PrfPartialV1,
-    context: PrfContextV1,
-) -> Option<Bytes32> {
-    if is_valid_share_pair_v1_spec(left.id, right.id)
-        && partial_context_matches_v1_spec(left, context)
-        && partial_context_matches_v1_spec(right, context)
-    {
-        Some(prf_output_hash_v1_spec(
-            context,
-            combine_partial_point_coeffs_v1_spec(left, right),
-        ))
-    } else {
-        None
-    }
-}
-
-pub open spec fn option_a_output_v1_spec(
+pub uninterp spec fn reconstruct_generated_root_2_spec(
+    policy: ThresholdPolicySpec,
     root: u8,
     slope: u8,
-    left_id: u8,
-    right_id: u8,
-    context: PrfContextV1,
-) -> Option<Bytes32> {
-    combine_partials_v1_spec(
-        evaluate_partial_v1_spec(signing_root_share_v1_spec(root, slope, left_id), context),
-        evaluate_partial_v1_spec(signing_root_share_v1_spec(root, slope, right_id), context),
-        context,
-    )
+    first: u16,
+    second: u16,
+) -> u8;
+
+pub uninterp spec fn reconstruct_generated_root_3_spec(
+    policy: ThresholdPolicySpec,
+    root: u8,
+    slope_1: u8,
+    slope_2: u8,
+    first: u16,
+    second: u16,
+    third: u16,
+) -> u8;
+
+pub broadcast axiom fn axiom_two_share_reconstruction_outputs_root(
+    policy: ThresholdPolicySpec,
+    root: u8,
+    slope: u8,
+    first: u16,
+    second: u16,
+)
+    requires
+        is_valid_signing_root_scalar_spec(root),
+        is_valid_signing_root_scalar_spec(slope),
+        validate_threshold_subset_2_spec(policy, first, second),
+    ensures
+        #![trigger reconstruct_generated_root_2_spec(policy, root, slope, first, second)]
+        reconstruct_generated_root_2_spec(policy, root, slope, first, second) == root,
+;
+
+pub broadcast axiom fn axiom_three_share_reconstruction_outputs_root(
+    policy: ThresholdPolicySpec,
+    root: u8,
+    slope_1: u8,
+    slope_2: u8,
+    first: u16,
+    second: u16,
+    third: u16,
+)
+    requires
+        is_valid_signing_root_scalar_spec(root),
+        is_valid_signing_root_scalar_spec(slope_1),
+        is_valid_signing_root_scalar_spec(slope_2),
+        validate_threshold_subset_3_spec(policy, first, second, third),
+    ensures
+        #![trigger reconstruct_generated_root_3_spec(
+            policy,
+            root,
+            slope_1,
+            slope_2,
+            first,
+            second,
+            third,
+        )]
+        reconstruct_generated_root_3_spec(
+            policy,
+            root,
+            slope_1,
+            slope_2,
+            first,
+            second,
+            third,
+        ) == root,
+;
+
+pub proof fn wire_widths_are_fixed()
+    ensures
+        scalar_width_bytes_spec() == 32nat,
+        signing_root_share_wire_width_bytes_spec() == 34nat,
+        partial_wire_width_bytes_spec() == 66nat,
+        share_commitment_wire_width_bytes_spec() == 34nat,
+        dleq_proof_wire_width_bytes_spec() == 64nat,
+        proof_bundle_wire_width_bytes_spec() == 164nat,
+{
 }
 
-pub open spec fn option_a_output_from_share_wires_v1_spec(
-    left_wire_len: nat,
-    left_wire: SigningRootShareWireV1Spec,
-    right_wire_len: nat,
-    right_wire: SigningRootShareWireV1Spec,
-    context: PrfContextV1,
-) -> Option<Bytes32> {
-    match (
-        decode_signing_root_share_wire_v1_spec(left_wire_len, left_wire),
-        decode_signing_root_share_wire_v1_spec(right_wire_len, right_wire),
-    ) {
-        (Some(left_share), Some(right_share)) => combine_partials_v1_spec(
-            evaluate_partial_v1_spec(left_share, context),
-            evaluate_partial_v1_spec(right_share, context),
-            context,
+pub proof fn policy_rejects_zero_threshold(share_count: nat)
+    ensures
+        threshold_policy_spec(0nat, share_count) == None::<ThresholdPolicySpec>,
+{
+}
+
+pub proof fn policy_rejects_zero_share_count(threshold: nat)
+    ensures
+        threshold_policy_spec(threshold, 0nat) == None::<ThresholdPolicySpec>,
+{
+}
+
+pub proof fn policy_rejects_threshold_above_share_count(threshold: nat, share_count: nat)
+    requires
+        threshold > share_count,
+    ensures
+        threshold_policy_spec(threshold, share_count) == None::<ThresholdPolicySpec>,
+{
+}
+
+pub proof fn policy_accepts_common_thresholds()
+    ensures
+        threshold_policy_spec(1nat, 1nat)
+            == Some(ThresholdPolicySpec { threshold: 1nat, share_count: 1nat }),
+        threshold_policy_spec(2nat, 3nat)
+            == Some(ThresholdPolicySpec { threshold: 2nat, share_count: 3nat }),
+        threshold_policy_spec(3nat, 5nat)
+            == Some(ThresholdPolicySpec { threshold: 3nat, share_count: 5nat }),
+{
+}
+
+pub proof fn share_id_membership_matches_policy_range(policy: ThresholdPolicySpec, id: u16)
+    ensures
+        is_valid_share_id_spec(policy, id)
+            == (1nat <= id as nat && id as nat <= policy.share_count),
+{
+}
+
+pub proof fn two_share_subset_rejects_duplicate_id(policy: ThresholdPolicySpec, id: u16)
+    ensures
+        !validate_threshold_subset_2_spec(policy, id, id),
+{
+}
+
+pub proof fn three_share_subset_rejects_duplicate_id(
+    policy: ThresholdPolicySpec,
+    first: u16,
+    second: u16,
+    third: u16,
+)
+    requires
+        first == second || first == third || second == third,
+    ensures
+        !validate_threshold_subset_3_spec(policy, first, second, third),
+{
+}
+
+pub proof fn two_share_subset_rejects_id_outside_policy(
+    policy: ThresholdPolicySpec,
+    valid_id: u16,
+    outside_id: u16,
+)
+    requires
+        !(1nat <= outside_id as nat && outside_id as nat <= policy.share_count),
+    ensures
+        !validate_threshold_subset_2_spec(policy, valid_id, outside_id),
+{
+}
+
+pub proof fn two_of_three_subset_is_valid()
+    ensures
+        validate_threshold_subset_2_spec(
+            ThresholdPolicySpec { threshold: 2nat, share_count: 3nat },
+            1u16,
+            3u16,
         ),
-        _ => None,
-    }
-}
-
-pub open spec fn partial_wire_from_partial_v1_spec(partial: PrfPartialV1) -> PrfPartialWireV1 {
-    PrfPartialWireV1 {
-        share_id: partial.id,
-        context_tag: partial.context_tag,
-        compressed_point: compressed_point_from_coeff_v1_spec(partial.point_coeff),
-    }
-}
-
-pub open spec fn decode_partial_wire_with_context_v1_spec(
-    wire: PrfPartialWireV1,
-    context: PrfContextV1,
-) -> Option<PrfPartialV1> {
-    if is_valid_share_id_v1_spec(wire.share_id)
-        && wire.context_tag == partial_context_tag_v1_spec(context)
-        && is_valid_compressed_point_v1_spec(wire.compressed_point)
-    {
-        Some(PrfPartialV1 {
-            id: wire.share_id,
-            context_tag: wire.context_tag,
-            point_coeff: decompress_point_coeff_v1_spec(wire.compressed_point),
-        })
-    } else {
-        None
-    }
-}
-
-pub open spec fn commitment_from_share_v1_spec(
-    share: SigningRootShareV1,
-) -> SigningRootShareCommitmentV1Spec {
-    SigningRootShareCommitmentV1Spec {
-        id: share.id,
-        point_coeff: share.value,
-    }
-}
-
-pub open spec fn dleq_challenge_input_v1_spec(
-    context: PrfContextV1,
-    context_tag: Bytes32,
-    share_id: u8,
-    commitment_point_coeff: u8,
-    partial_point_coeff: u8,
-    nonce_g_coeff: u8,
-    nonce_p_coeff: u8,
-) -> DleqChallengeInputV1Spec {
-    DleqChallengeInputV1Spec {
-        suite_id: context.suite_id,
-        purpose_id: context.purpose_id,
-        context_tag,
-        share_id,
-        basepoint_id: 1u8,
-        input_point_id: context.context_id,
-        commitment_point_coeff,
-        partial_point_coeff,
-        nonce_g_coeff,
-        nonce_p_coeff,
-    }
-}
-
-pub uninterp spec fn dleq_challenge_v1_spec(input: DleqChallengeInputV1Spec) -> u8;
-
-pub open spec fn generated_dleq_proof_for_partial_v1_spec(
-    share: SigningRootShareV1,
-    partial: PrfPartialV1,
-    context: PrfContextV1,
-    nonce: u8,
-) -> PrfDleqProofV1Spec {
-    let commitment = commitment_from_share_v1_spec(share);
-    let challenge = dleq_challenge_v1_spec(dleq_challenge_input_v1_spec(
-        context,
-        partial.context_tag,
-        partial.id,
-        commitment.point_coeff,
-        partial.point_coeff,
-        nonce,
-        nonce,
-    ));
-    PrfDleqProofV1Spec {
-        challenge,
-        response: field_add_v1_spec(nonce, field_mul_v1_spec(challenge, share.value)),
-    }
-}
-
-pub open spec fn generate_dleq_proof_for_partial_v1_spec(
-    share: SigningRootShareV1,
-    partial: PrfPartialV1,
-    context: PrfContextV1,
-    nonce: u8,
-) -> Option<PrfDleqProofV1Spec> {
-    if is_valid_dleq_nonce_v1_spec(nonce) {
-        Some(generated_dleq_proof_for_partial_v1_spec(share, partial, context, nonce))
-    } else {
-        None
-    }
-}
-
-pub open spec fn generated_dleq_bundle_for_share_v1_spec(
-    share: SigningRootShareV1,
-    context: PrfContextV1,
-    nonce: u8,
-) -> PrfPartialProofBundleV1Spec {
-    let partial = evaluate_partial_v1_spec(share, context);
-    PrfPartialProofBundleV1Spec {
-        partial,
-        commitment: commitment_from_share_v1_spec(share),
-        proof: generated_dleq_proof_for_partial_v1_spec(share, partial, context, nonce),
-    }
-}
-
-pub open spec fn verify_dleq_proof_v1_spec(
-    commitment: SigningRootShareCommitmentV1Spec,
-    partial: PrfPartialV1,
-    context: PrfContextV1,
-    proof: PrfDleqProofV1Spec,
-) -> bool {
-    if is_valid_share_id_v1_spec(commitment.id)
-        && commitment.id == partial.id
-        && partial_context_matches_v1_spec(partial, context)
-    {
-        let nonce_g = field_sub_v1_spec(
-            proof.response,
-            field_mul_v1_spec(proof.challenge, commitment.point_coeff),
-        );
-        let nonce_p = field_sub_v1_spec(
-            proof.response,
-            field_mul_v1_spec(proof.challenge, partial.point_coeff),
-        );
-        proof.challenge == dleq_challenge_v1_spec(dleq_challenge_input_v1_spec(
-            context,
-            partial.context_tag,
-            partial.id,
-            commitment.point_coeff,
-            partial.point_coeff,
-            nonce_g,
-            nonce_p,
-        ))
-    } else {
-        false
-    }
-}
-
-pub open spec fn combine_verified_partials_v1_spec(
-    left: PrfPartialProofBundleV1Spec,
-    right: PrfPartialProofBundleV1Spec,
-    context: PrfContextV1,
-) -> Option<Bytes32> {
-    if left.partial.id == right.partial.id {
-        None
-    } else if verify_dleq_proof_v1_spec(left.commitment, left.partial, context, left.proof)
-        && verify_dleq_proof_v1_spec(right.commitment, right.partial, context, right.proof)
-    {
-        combine_partials_v1_spec(left.partial, right.partial, context)
-    } else {
-        None
-    }
-}
-
-pub open spec fn option_b_output_v1_spec(
-    root: u8,
-    slope: u8,
-    left_id: u8,
-    right_id: u8,
-    context: PrfContextV1,
-) -> Option<Bytes32> {
-    let left_partial =
-        evaluate_partial_v1_spec(signing_root_share_v1_spec(root, slope, left_id), context);
-    let right_partial =
-        evaluate_partial_v1_spec(signing_root_share_v1_spec(root, slope, right_id), context);
-    let left_wire = partial_wire_from_partial_v1_spec(left_partial);
-    let right_wire = partial_wire_from_partial_v1_spec(right_partial);
-    match (
-        decode_partial_wire_with_context_v1_spec(left_wire, context),
-        decode_partial_wire_with_context_v1_spec(right_wire, context),
-    ) {
-        (Some(decoded_left), Some(decoded_right)) => {
-            combine_partials_v1_spec(decoded_left, decoded_right, context)
-        },
-        _ => None,
-    }
-}
-
-pub broadcast axiom fn axiom_field_add_outputs_field_v1(left: u8, right: u8)
-    requires
-        is_field_element_v1_spec(left),
-        is_field_element_v1_spec(right),
-    ensures
-        #![trigger field_add_v1_spec(left, right)]
-        is_field_element_v1_spec(field_add_v1_spec(left, right)),
-;
-
-pub broadcast axiom fn axiom_field_mul_outputs_field_v1(left: u8, right: u8)
-    requires
-        is_field_element_v1_spec(left),
-        is_field_element_v1_spec(right),
-    ensures
-        #![trigger field_mul_v1_spec(left, right)]
-        is_field_element_v1_spec(field_mul_v1_spec(left, right)),
-;
-
-pub broadcast axiom fn axiom_field_sub_cancel_right_v1(nonce: u8, right: u8)
-    requires
-        is_field_element_v1_spec(nonce),
-        is_field_element_v1_spec(right),
-    ensures
-        #![trigger field_sub_v1_spec(field_add_v1_spec(nonce, right), right)]
-        field_sub_v1_spec(field_add_v1_spec(nonce, right), right) == nonce,
-;
-
-pub broadcast axiom fn axiom_dleq_challenge_outputs_field_v1(input: DleqChallengeInputV1Spec)
-    ensures
-        #![trigger dleq_challenge_v1_spec(input)]
-        is_field_element_v1_spec(dleq_challenge_v1_spec(input)),
-;
-
-pub broadcast axiom fn axiom_lagrange_reconstructs_generated_root_v1(
-    root: u8,
-    slope: u8,
-    left_id: u8,
-    right_id: u8,
-)
-    requires
-        is_valid_signing_root_scalar_v1_spec(root),
-        is_valid_signing_root_scalar_v1_spec(slope),
-        is_valid_share_pair_v1_spec(left_id, right_id),
-    ensures
-        #![trigger reconstruct_generated_root_v1_spec(root, slope, left_id, right_id)]
-        reconstruct_generated_root_v1_spec(root, slope, left_id, right_id) == root,
-;
-
-pub broadcast axiom fn axiom_generated_compressed_point_round_trips_v1(point_coeff: u8)
-    requires
-        is_valid_signing_root_share_scalar_v1_spec(point_coeff),
-    ensures
-        #![trigger compressed_point_from_coeff_v1_spec(point_coeff)]
-        is_valid_compressed_point_v1_spec(compressed_point_from_coeff_v1_spec(point_coeff)),
-        decompress_point_coeff_v1_spec(compressed_point_from_coeff_v1_spec(point_coeff))
-            == point_coeff,
-;
-
-pub proof fn scalar_and_wire_widths_are_fixed_v1()
-    ensures
-        scalar_width_bytes_v1_spec() == 32nat,
-        signing_root_share_wire_width_bytes_v1_spec() == 33nat,
-        prf_output_width_bytes_v1_spec() == 32nat,
-        partial_context_tag_width_bytes_v1_spec() == 32nat,
-        compressed_point_width_bytes_v1_spec() == 32nat,
-        partial_wire_width_bytes_v1_spec() == 65nat,
-        share_commitment_wire_width_bytes_v1_spec() == 33nat,
-        dleq_proof_wire_width_bytes_v1_spec() == 64nat,
 {
 }
 
-pub proof fn transcript_domain_lengths_are_fixed_v1()
+pub proof fn three_of_five_subset_is_valid()
     ensures
-        input_domain_len_v1_spec() == 22nat,
-        output_domain_len_v1_spec() == 23nat,
-        partial_context_domain_len_v1_spec() == 32nat,
-        dleq_domain_len_v1_spec() == 21nat,
-        ristretto_suite_label_len_v1_spec() == 36nat,
-        ecdsa_hss_y_relayer_purpose_len_v1_spec() == 19nat,
+        validate_threshold_subset_3_spec(
+            ThresholdPolicySpec { threshold: 3nat, share_count: 5nat },
+            1u16,
+            3u16,
+            5u16,
+        ),
 {
 }
 
-pub proof fn len16_field_rejects_overflow_v1(len: nat, value_id: u8)
-    requires
-        len > max_len16_v1_spec(),
-    ensures
-        len16_field_v1_spec(len, value_id) == None::<Len16EncodedFieldV1Spec>,
-{
-}
-
-pub proof fn len32_field_rejects_overflow_v1(len: nat, value_id: u8)
-    requires
-        len > max_len32_v1_spec(),
-    ensures
-        len32_field_v1_spec(len, value_id) == None::<Len32EncodedFieldV1Spec>,
-{
-}
-
-pub proof fn prf_transcript_includes_domain_suite_purpose_context_payload_v1(
-    domain_id: u8,
-    domain_len: nat,
-    suite_len: nat,
-    purpose_len: nat,
-    context: PrfContextV1,
-    context_len: nat,
-    payload_id: u8,
-    payload_len: nat,
-)
-    requires
-        len16_fits_v1_spec(domain_len),
-        len16_fits_v1_spec(suite_len),
-        len16_fits_v1_spec(purpose_len),
-        len32_fits_v1_spec(context_len),
-        len32_fits_v1_spec(payload_len),
-    ensures
-        prf_transcript_encoding_v1_spec(
-            domain_id,
-            domain_len,
-            suite_len,
-            purpose_len,
-            context,
-            context_len,
-            payload_id,
-            payload_len,
-        ) == Some(PrfTranscriptEncodingV1Spec {
-            domain_position: 0u8,
-            suite_position: 1u8,
-            purpose_position: 2u8,
-            context_position: 3u8,
-            payload_position: 4u8,
-            domain_id,
-            suite_id: context.suite_id,
-            purpose_id: context.purpose_id,
-            context_id: context.context_id,
-            payload_id,
-            domain_len,
-            suite_len,
-            purpose_len,
-            context_len,
-            payload_len,
-        }),
-{
-}
-
-pub proof fn input_transcript_uses_expected_domain_and_lengths_v1(
-    context: PrfContextV1,
-    context_len: nat,
-)
-    requires
-        len32_fits_v1_spec(context_len),
-    ensures
-        prf_transcript_encoding_v1_spec(
-            1u8,
-            input_domain_len_v1_spec(),
-            ristretto_suite_label_len_v1_spec(),
-            ecdsa_hss_y_relayer_purpose_len_v1_spec(),
-            context,
-            context_len,
-            0u8,
-            0nat,
-        ) == Some(PrfTranscriptEncodingV1Spec {
-            domain_position: 0u8,
-            suite_position: 1u8,
-            purpose_position: 2u8,
-            context_position: 3u8,
-            payload_position: 4u8,
-            domain_id: 1u8,
-            suite_id: context.suite_id,
-            purpose_id: context.purpose_id,
-            context_id: context.context_id,
-            payload_id: 0u8,
-            domain_len: 22nat,
-            suite_len: 36nat,
-            purpose_len: 19nat,
-            context_len,
-            payload_len: 0nat,
-        }),
-{
-}
-
-pub proof fn output_transcript_uses_expected_domain_and_payload_v1(
-    context: PrfContextV1,
-    context_len: nat,
-    payload_id: u8,
-    payload_len: nat,
-)
-    requires
-        len32_fits_v1_spec(context_len),
-        len32_fits_v1_spec(payload_len),
-    ensures
-        prf_transcript_encoding_v1_spec(
-            2u8,
-            output_domain_len_v1_spec(),
-            ristretto_suite_label_len_v1_spec(),
-            ecdsa_hss_y_relayer_purpose_len_v1_spec(),
-            context,
-            context_len,
-            payload_id,
-            payload_len,
-        ) == Some(PrfTranscriptEncodingV1Spec {
-            domain_position: 0u8,
-            suite_position: 1u8,
-            purpose_position: 2u8,
-            context_position: 3u8,
-            payload_position: 4u8,
-            domain_id: 2u8,
-            suite_id: context.suite_id,
-            purpose_id: context.purpose_id,
-            context_id: context.context_id,
-            payload_id,
-            domain_len: 23nat,
-            suite_len: 36nat,
-            purpose_len: 19nat,
-            context_len,
-            payload_len,
-        }),
-{
-}
-
-pub proof fn partial_context_transcript_uses_expected_domain_v1(
-    context: PrfContextV1,
-    context_len: nat,
-)
-    requires
-        len32_fits_v1_spec(context_len),
-    ensures
-        prf_transcript_encoding_v1_spec(
-            3u8,
-            partial_context_domain_len_v1_spec(),
-            ristretto_suite_label_len_v1_spec(),
-            ecdsa_hss_y_relayer_purpose_len_v1_spec(),
-            context,
-            context_len,
-            0u8,
-            0nat,
-        ) == Some(PrfTranscriptEncodingV1Spec {
-            domain_position: 0u8,
-            suite_position: 1u8,
-            purpose_position: 2u8,
-            context_position: 3u8,
-            payload_position: 4u8,
-            domain_id: 3u8,
-            suite_id: context.suite_id,
-            purpose_id: context.purpose_id,
-            context_id: context.context_id,
-            payload_id: 0u8,
-            domain_len: 32nat,
-            suite_len: 36nat,
-            purpose_len: 19nat,
-            context_len,
-            payload_len: 0nat,
-        }),
-{
-}
-
-pub proof fn dleq_transcript_includes_full_challenge_tuple_v1(
-    input: DleqChallengeInputV1Spec,
-)
-    ensures
-        dleq_transcript_encoding_v1_spec(
-            input,
-            dleq_domain_len_v1_spec(),
-            ristretto_suite_label_len_v1_spec(),
-            ecdsa_hss_y_relayer_purpose_len_v1_spec(),
-        ) == Some(DleqTranscriptEncodingV1Spec {
-            domain_position: 0u8,
-            suite_position: 1u8,
-            purpose_position: 2u8,
-            context_tag_position: 3u8,
-            share_id_position: 4u8,
-            basepoint_position: 5u8,
-            input_point_position: 6u8,
-            commitment_point_position: 7u8,
-            partial_point_position: 8u8,
-            nonce_g_position: 9u8,
-            nonce_p_position: 10u8,
-            domain_id: 4u8,
-            suite_id: input.suite_id,
-            purpose_id: input.purpose_id,
-            context_tag: input.context_tag,
-            share_id: input.share_id,
-            basepoint_id: input.basepoint_id,
-            input_point_id: input.input_point_id,
-            commitment_point_coeff: input.commitment_point_coeff,
-            partial_point_coeff: input.partial_point_coeff,
-            nonce_g_coeff: input.nonce_g_coeff,
-            nonce_p_coeff: input.nonce_p_coeff,
-            domain_len: 21nat,
-            suite_len: 36nat,
-            purpose_len: 19nat,
-        }),
-{
-}
-
-pub proof fn zero_root_scalar_is_rejected_v1()
-    ensures
-        !is_valid_signing_root_scalar_v1_spec(0u8),
-{
-}
-
-pub proof fn zero_share_scalar_is_accepted_v1()
-    ensures
-        is_valid_signing_root_share_scalar_v1_spec(0u8),
-{
-}
-
-pub proof fn malformed_root_scalar_encoding_is_rejected_v1(encoded: u8)
-    requires
-        !is_field_element_v1_spec(encoded),
-    ensures
-        parse_signing_root_scalar_encoding_v1_spec(encoded) == None::<u8>,
-{
-}
-
-pub proof fn malformed_share_scalar_encoding_is_rejected_v1(encoded: u8)
-    requires
-        !is_field_element_v1_spec(encoded),
-    ensures
-        parse_signing_root_share_scalar_encoding_v1_spec(encoded) == None::<u8>,
-{
-}
-
-pub proof fn zero_root_scalar_encoding_is_rejected_by_parser_v1()
-    ensures
-        parse_signing_root_scalar_encoding_v1_spec(0u8) == None::<u8>,
-{
-}
-
-pub proof fn zero_share_scalar_encoding_is_accepted_by_parser_v1()
-    ensures
-        parse_signing_root_share_scalar_encoding_v1_spec(0u8) == Some(0u8),
-{
-}
-
-pub proof fn signing_root_share_wire_rejects_wrong_length_v1(
+pub proof fn share_wire_rejects_wrong_length(
+    policy: ThresholdPolicySpec,
     wire_len: nat,
-    wire: SigningRootShareWireV1Spec,
+    wire: SigningRootShareWireSpec,
 )
     requires
-        wire_len != signing_root_share_wire_width_bytes_v1_spec(),
+        wire_len != signing_root_share_wire_width_bytes_spec(),
     ensures
-        decode_signing_root_share_wire_v1_spec(wire_len, wire) == None::<SigningRootShareV1>,
+        decode_signing_root_share_wire_spec(policy, wire_len, wire)
+            == None::<SigningRootShareSpec>,
 {
 }
 
-pub proof fn signing_root_share_wire_rejects_invalid_share_id_v1(
-    wire: SigningRootShareWireV1Spec,
+pub proof fn share_wire_rejects_id_outside_policy(
+    policy: ThresholdPolicySpec,
+    wire: SigningRootShareWireSpec,
 )
     requires
-        !is_valid_share_id_v1_spec(wire.share_id),
+        !is_valid_share_id_spec(policy, wire.share_id),
     ensures
-        decode_signing_root_share_wire_v1_spec(
-            signing_root_share_wire_width_bytes_v1_spec(),
+        decode_signing_root_share_wire_spec(
+            policy,
+            signing_root_share_wire_width_bytes_spec(),
             wire,
-        ) == None::<SigningRootShareV1>,
+        ) == None::<SigningRootShareSpec>,
 {
 }
 
-pub proof fn signing_root_share_wire_rejects_invalid_scalar_v1(
-    wire: SigningRootShareWireV1Spec,
+pub proof fn share_wire_round_trips_for_policy_member(
+    policy: ThresholdPolicySpec,
+    share: SigningRootShareSpec,
 )
     requires
-        !is_valid_signing_root_share_scalar_v1_spec(wire.scalar),
+        is_valid_share_id_spec(policy, share.id),
+        is_valid_signing_root_share_scalar_spec(share.value),
     ensures
-        decode_signing_root_share_wire_v1_spec(
-            signing_root_share_wire_width_bytes_v1_spec(),
-            wire,
-        ) == None::<SigningRootShareV1>,
+        decode_signing_root_share_wire_spec(
+            policy,
+            signing_root_share_wire_width_bytes_spec(),
+            signing_root_share_wire_from_share_spec(share),
+        ) == Some(share),
 {
 }
 
-pub proof fn signing_root_share_wire_accepts_zero_share_scalar_v1(id: u8)
+pub proof fn proof_bundle_id_binding_rejects_commitment_partial_id_mismatch(
+    policy: ThresholdPolicySpec,
+    bundle: PrfPartialProofBundleIdsSpec,
+)
     requires
-        is_valid_share_id_v1_spec(id),
+        bundle.partial_id != bundle.commitment_id,
     ensures
-        decode_signing_root_share_wire_v1_spec(
-            signing_root_share_wire_width_bytes_v1_spec(),
-            SigningRootShareWireV1Spec {
-                share_id: id,
-                scalar: 0u8,
-            },
-        ) == Some(SigningRootShareV1 { id, value: 0u8 }),
+        !validate_proof_bundle_id_binding_spec(policy, bundle),
 {
 }
 
-pub proof fn generated_signing_root_share_wire_round_trips_v1(
+pub proof fn proof_bundle_id_binding_rejects_commitment_id_outside_policy(
+    policy: ThresholdPolicySpec,
+    bundle: PrfPartialProofBundleIdsSpec,
+)
+    requires
+        !is_valid_share_id_spec(policy, bundle.commitment_id),
+    ensures
+        !validate_proof_bundle_id_binding_spec(policy, bundle),
+{
+}
+
+pub proof fn every_valid_two_share_subset_reconstructs_root(
+    policy: ThresholdPolicySpec,
     root: u8,
     slope: u8,
-    id: u8,
+    first: u16,
+    second: u16,
 )
     requires
-        is_valid_signing_root_scalar_v1_spec(root),
-        is_valid_signing_root_scalar_v1_spec(slope),
-        is_valid_share_id_v1_spec(id),
+        is_valid_signing_root_scalar_spec(root),
+        is_valid_signing_root_scalar_spec(slope),
+        validate_threshold_subset_2_spec(policy, first, second),
     ensures
-        decode_signing_root_share_wire_v1_spec(
-            signing_root_share_wire_width_bytes_v1_spec(),
-            signing_root_share_wire_from_share_v1_spec(signing_root_share_v1_spec(root, slope, id)),
-        ) == Some(signing_root_share_v1_spec(root, slope, id)),
+        reconstruct_generated_root_2_spec(policy, root, slope, first, second) == root,
 {
-    generated_share_value_is_canonical_v1(root, slope, id);
+    broadcast use axiom_two_share_reconstruction_outputs_root;
 }
 
-pub proof fn supported_share_ids_are_exactly_one_two_three_v1(id: u8)
-    ensures
-        is_valid_share_id_v1_spec(id) == (id == 1u8 || id == 2u8 || id == 3u8),
-{
-}
-
-pub proof fn duplicate_share_ids_are_rejected_v1(id: u8)
-    requires
-        is_valid_share_id_v1_spec(id),
-    ensures
-        !is_valid_share_pair_v1_spec(id, id),
-        !validate_two_share_subset_v1_spec(2nat, id, id),
-{
-}
-
-pub proof fn insufficient_share_subset_is_rejected_v1(left: u8, right: u8)
-    ensures
-        !validate_two_share_subset_v1_spec(1nat, left, right),
-{
-}
-
-pub proof fn oversized_share_subset_is_rejected_v1(left: u8, right: u8)
-    ensures
-        !validate_two_share_subset_v1_spec(3nat, left, right),
-{
-}
-
-pub proof fn generated_share_value_is_canonical_v1(root: u8, slope: u8, id: u8)
-    requires
-        is_valid_signing_root_scalar_v1_spec(root),
-        is_valid_signing_root_scalar_v1_spec(slope),
-        is_valid_share_id_v1_spec(id),
-    ensures
-        is_valid_signing_root_share_scalar_v1_spec(shamir_share_value_v1_spec(root, slope, id)),
-{
-    broadcast use axiom_field_add_outputs_field_v1;
-    broadcast use axiom_field_mul_outputs_field_v1;
-}
-
-pub proof fn every_valid_pair_reconstructs_root_v1(
+pub proof fn every_valid_three_share_subset_reconstructs_root(
+    policy: ThresholdPolicySpec,
     root: u8,
-    slope: u8,
-    left_id: u8,
-    right_id: u8,
+    slope_1: u8,
+    slope_2: u8,
+    first: u16,
+    second: u16,
+    third: u16,
 )
     requires
-        is_valid_signing_root_scalar_v1_spec(root),
-        is_valid_signing_root_scalar_v1_spec(slope),
-        is_valid_share_pair_v1_spec(left_id, right_id),
+        is_valid_signing_root_scalar_spec(root),
+        is_valid_signing_root_scalar_spec(slope_1),
+        is_valid_signing_root_scalar_spec(slope_2),
+        validate_threshold_subset_3_spec(policy, first, second, third),
     ensures
-        reconstruct_generated_root_v1_spec(root, slope, left_id, right_id) == root,
-{
-    broadcast use axiom_lagrange_reconstructs_generated_root_v1;
-    assert(reconstruct_generated_root_v1_spec(root, slope, left_id, right_id) == root);
-}
-
-pub proof fn refreshed_valid_pair_reconstructs_original_root_v1(
-    root: u8,
-    slope: u8,
-    old_left_id: u8,
-    old_right_id: u8,
-    new_slope: u8,
-    refreshed_left_id: u8,
-    refreshed_right_id: u8,
-)
-    requires
-        is_valid_signing_root_scalar_v1_spec(root),
-        is_valid_signing_root_scalar_v1_spec(slope),
-        is_valid_signing_root_scalar_v1_spec(new_slope),
-        is_valid_share_pair_v1_spec(old_left_id, old_right_id),
-        is_valid_share_pair_v1_spec(refreshed_left_id, refreshed_right_id),
-    ensures
-        reconstruct_from_share_values_v1_spec(
-            refreshed_left_id,
-            refresh_generated_share_v1_spec(
-                root,
-                slope,
-                old_left_id,
-                old_right_id,
-                new_slope,
-                refreshed_left_id,
-            ).value,
-            refreshed_right_id,
-            refresh_generated_share_v1_spec(
-                root,
-                slope,
-                old_left_id,
-                old_right_id,
-                new_slope,
-                refreshed_right_id,
-            ).value,
+        reconstruct_generated_root_3_spec(
+            policy,
+            root,
+            slope_1,
+            slope_2,
+            first,
+            second,
+            third,
         ) == root,
 {
-    broadcast use axiom_lagrange_reconstructs_generated_root_v1;
-
-    let reconstructed = reconstruct_generated_root_v1_spec(root, slope, old_left_id, old_right_id);
-    assert(reconstructed == root);
-    assert(is_valid_signing_root_scalar_v1_spec(reconstructed));
-
-    let refreshed_left = refresh_generated_share_v1_spec(
-        root,
-        slope,
-        old_left_id,
-        old_right_id,
-        new_slope,
-        refreshed_left_id,
-    );
-    let refreshed_right = refresh_generated_share_v1_spec(
-        root,
-        slope,
-        old_left_id,
-        old_right_id,
-        new_slope,
-        refreshed_right_id,
-    );
-
-    assert(refreshed_left == signing_root_share_v1_spec(reconstructed, new_slope, refreshed_left_id));
-    assert(refreshed_right == signing_root_share_v1_spec(reconstructed, new_slope, refreshed_right_id));
-    assert(reconstruct_generated_root_v1_spec(
-        reconstructed,
-        new_slope,
-        refreshed_left_id,
-        refreshed_right_id,
-    ) == reconstructed);
+    broadcast use axiom_three_share_reconstruction_outputs_root;
 }
 
-pub proof fn direct_and_option_a_outputs_match_v1(
-    root: u8,
-    slope: u8,
-    left_id: u8,
-    right_id: u8,
-    context: PrfContextV1,
-)
-    requires
-        is_valid_signing_root_scalar_v1_spec(root),
-        is_valid_signing_root_scalar_v1_spec(slope),
-        is_valid_share_pair_v1_spec(left_id, right_id),
-    ensures
-        option_a_output_v1_spec(root, slope, left_id, right_id, context)
-            == Some(evaluate_direct_reference_v1_spec(root, context)),
-{
-    broadcast use axiom_lagrange_reconstructs_generated_root_v1;
-    let left_share = signing_root_share_v1_spec(root, slope, left_id);
-    let right_share = signing_root_share_v1_spec(root, slope, right_id);
-    let left_partial = evaluate_partial_v1_spec(left_share, context);
-    let right_partial = evaluate_partial_v1_spec(right_share, context);
-    assert(combine_partial_point_coeffs_v1_spec(left_partial, right_partial)
-        == reconstruct_generated_root_v1_spec(root, slope, left_id, right_id));
-    assert(reconstruct_generated_root_v1_spec(root, slope, left_id, right_id) == root);
-}
-
-pub proof fn generated_share_wire_option_a_output_matches_direct_reference_v1(
-    root: u8,
-    slope: u8,
-    left_id: u8,
-    right_id: u8,
-    context: PrfContextV1,
-)
-    requires
-        is_valid_signing_root_scalar_v1_spec(root),
-        is_valid_signing_root_scalar_v1_spec(slope),
-        is_valid_share_pair_v1_spec(left_id, right_id),
-    ensures
-        option_a_output_from_share_wires_v1_spec(
-            signing_root_share_wire_width_bytes_v1_spec(),
-            signing_root_share_wire_from_share_v1_spec(signing_root_share_v1_spec(root, slope, left_id)),
-            signing_root_share_wire_width_bytes_v1_spec(),
-            signing_root_share_wire_from_share_v1_spec(signing_root_share_v1_spec(root, slope, right_id)),
-            context,
-        ) == Some(evaluate_direct_reference_v1_spec(root, context)),
-{
-    generated_signing_root_share_wire_round_trips_v1(root, slope, left_id);
-    generated_signing_root_share_wire_round_trips_v1(root, slope, right_id);
-    direct_and_option_a_outputs_match_v1(root, slope, left_id, right_id, context);
-}
-
-pub proof fn output_derivation_input_includes_context_tuple_v1(
-    context: PrfContextV1,
-    point_coeff: u8,
-)
-    ensures
-        output_derivation_input_v1_spec(context, point_coeff).suite_id == context.suite_id,
-        output_derivation_input_v1_spec(context, point_coeff).purpose_id == context.purpose_id,
-        output_derivation_input_v1_spec(context, point_coeff).context_id == context.context_id,
-        output_derivation_input_v1_spec(context, point_coeff).point_coeff == point_coeff,
-{
-}
-
-pub proof fn generated_dleq_proof_verifies_for_valid_partial_v1(
-    share: SigningRootShareV1,
-    context: PrfContextV1,
-    nonce: u8,
-)
-    requires
-        is_valid_share_id_v1_spec(share.id),
-        is_valid_signing_root_share_scalar_v1_spec(share.value),
-        is_valid_dleq_nonce_v1_spec(nonce),
-    ensures
-        generate_dleq_proof_for_partial_v1_spec(
-            share,
-            evaluate_partial_v1_spec(share, context),
-            context,
-            nonce,
-        )
-            == Some(generated_dleq_proof_for_partial_v1_spec(
-                share,
-                evaluate_partial_v1_spec(share, context),
-                context,
-                nonce,
-            )),
-        verify_dleq_proof_v1_spec(
-            commitment_from_share_v1_spec(share),
-            evaluate_partial_v1_spec(share, context),
-            context,
-            generated_dleq_proof_for_partial_v1_spec(
-                share,
-                evaluate_partial_v1_spec(share, context),
-                context,
-                nonce,
-            ),
-        ),
-{
-    broadcast use axiom_dleq_challenge_outputs_field_v1;
-    broadcast use axiom_field_mul_outputs_field_v1;
-    broadcast use axiom_field_sub_cancel_right_v1;
-
-    let partial = evaluate_partial_v1_spec(share, context);
-    let commitment = commitment_from_share_v1_spec(share);
-    let input = dleq_challenge_input_v1_spec(
-        context,
-        partial.context_tag,
-        partial.id,
-        commitment.point_coeff,
-        partial.point_coeff,
-        nonce,
-        nonce,
-    );
-    let challenge = dleq_challenge_v1_spec(input);
-    let challenge_share = field_mul_v1_spec(challenge, share.value);
-    assert(is_field_element_v1_spec(challenge));
-    assert(is_field_element_v1_spec(challenge_share));
-    assert(field_sub_v1_spec(field_add_v1_spec(nonce, challenge_share), challenge_share) == nonce);
-}
-
-pub proof fn generated_dleq_bundle_verifies_v1(
-    share: SigningRootShareV1,
-    context: PrfContextV1,
-    nonce: u8,
-)
-    requires
-        is_valid_share_id_v1_spec(share.id),
-        is_valid_signing_root_share_scalar_v1_spec(share.value),
-        is_valid_dleq_nonce_v1_spec(nonce),
-    ensures
-        verify_dleq_proof_v1_spec(
-            generated_dleq_bundle_for_share_v1_spec(share, context, nonce).commitment,
-            generated_dleq_bundle_for_share_v1_spec(share, context, nonce).partial,
-            context,
-            generated_dleq_bundle_for_share_v1_spec(share, context, nonce).proof,
-        ),
-{
-    generated_dleq_proof_verifies_for_valid_partial_v1(share, context, nonce);
-}
-
-pub proof fn zero_dleq_nonce_is_rejected_v1(
-    share: SigningRootShareV1,
-    partial: PrfPartialV1,
-    context: PrfContextV1,
-)
-    ensures
-        generate_dleq_proof_for_partial_v1_spec(share, partial, context, 0u8)
-            == None::<PrfDleqProofV1Spec>,
-{
-}
-
-pub proof fn dleq_rejects_commitment_partial_id_mismatch_v1(
-    commitment: SigningRootShareCommitmentV1Spec,
-    partial: PrfPartialV1,
-    context: PrfContextV1,
-    proof: PrfDleqProofV1Spec,
-)
-    requires
-        commitment.id != partial.id,
-    ensures
-        !verify_dleq_proof_v1_spec(commitment, partial, context, proof),
-{
-}
-
-pub proof fn dleq_rejects_wrong_context_tag_v1(
-    commitment: SigningRootShareCommitmentV1Spec,
-    partial: PrfPartialV1,
-    context: PrfContextV1,
-    proof: PrfDleqProofV1Spec,
-)
-    requires
-        partial.context_tag != partial_context_tag_v1_spec(context),
-    ensures
-        !verify_dleq_proof_v1_spec(commitment, partial, context, proof),
-{
-}
-
-pub proof fn combine_verified_partials_rejects_duplicate_partial_ids_v1(
-    left: PrfPartialProofBundleV1Spec,
-    right: PrfPartialProofBundleV1Spec,
-    context: PrfContextV1,
-)
-    requires
-        left.partial.id == right.partial.id,
-    ensures
-        combine_verified_partials_v1_spec(left, right, context) == None::<Bytes32>,
-{
-}
-
-pub proof fn combine_verified_partials_rejects_unverified_left_bundle_v1(
-    left: PrfPartialProofBundleV1Spec,
-    right: PrfPartialProofBundleV1Spec,
-    context: PrfContextV1,
-)
-    requires
-        left.partial.id != right.partial.id,
-        !verify_dleq_proof_v1_spec(left.commitment, left.partial, context, left.proof),
-    ensures
-        combine_verified_partials_v1_spec(left, right, context) == None::<Bytes32>,
-{
-}
-
-pub proof fn combine_verified_partials_rejects_unverified_right_bundle_v1(
-    left: PrfPartialProofBundleV1Spec,
-    right: PrfPartialProofBundleV1Spec,
-    context: PrfContextV1,
-)
-    requires
-        left.partial.id != right.partial.id,
-        !verify_dleq_proof_v1_spec(right.commitment, right.partial, context, right.proof),
-    ensures
-        combine_verified_partials_v1_spec(left, right, context) == None::<Bytes32>,
-{
-}
-
-pub proof fn generated_partial_wire_preserves_fields_v1(partial: PrfPartialV1)
-    ensures
-        partial_wire_from_partial_v1_spec(partial).share_id == partial.id,
-        partial_wire_from_partial_v1_spec(partial).context_tag == partial.context_tag,
-        partial_wire_from_partial_v1_spec(partial).compressed_point
-            == compressed_point_from_coeff_v1_spec(partial.point_coeff),
-{
-}
-
-pub proof fn wrong_context_tag_wire_is_rejected_v1(
-    wire: PrfPartialWireV1,
-    context: PrfContextV1,
-)
-    requires
-        wire.context_tag != partial_context_tag_v1_spec(context),
-    ensures
-        decode_partial_wire_with_context_v1_spec(wire, context) == None::<PrfPartialV1>,
-{
-}
-
-pub proof fn generated_partial_wire_round_trips_v1(partial: PrfPartialV1, context: PrfContextV1)
-    requires
-        is_valid_share_id_v1_spec(partial.id),
-        is_valid_signing_root_share_scalar_v1_spec(partial.point_coeff),
-        partial.context_tag == partial_context_tag_v1_spec(context),
-    ensures
-        decode_partial_wire_with_context_v1_spec(partial_wire_from_partial_v1_spec(partial), context)
-            == Some(partial),
-{
-    broadcast use axiom_generated_compressed_point_round_trips_v1;
-}
-
-pub proof fn option_b_placement_matches_option_a_v1(
-    root: u8,
-    slope: u8,
-    left_id: u8,
-    right_id: u8,
-    context: PrfContextV1,
-)
-    requires
-        is_valid_signing_root_scalar_v1_spec(root),
-        is_valid_signing_root_scalar_v1_spec(slope),
-        is_valid_share_pair_v1_spec(left_id, right_id),
-    ensures
-        option_b_output_v1_spec(root, slope, left_id, right_id, context)
-            == option_a_output_v1_spec(root, slope, left_id, right_id, context),
-{
-    broadcast use axiom_field_add_outputs_field_v1;
-    broadcast use axiom_field_mul_outputs_field_v1;
-    broadcast use axiom_generated_compressed_point_round_trips_v1;
-
-    let left_share = signing_root_share_v1_spec(root, slope, left_id);
-    let right_share = signing_root_share_v1_spec(root, slope, right_id);
-    generated_share_value_is_canonical_v1(root, slope, left_id);
-    generated_share_value_is_canonical_v1(root, slope, right_id);
-    generated_partial_wire_round_trips_v1(evaluate_partial_v1_spec(left_share, context), context);
-    generated_partial_wire_round_trips_v1(evaluate_partial_v1_spec(right_share, context), context);
-}
-
-pub proof fn direct_option_a_and_option_b_outputs_match_v1(
-    root: u8,
-    slope: u8,
-    left_id: u8,
-    right_id: u8,
-    context: PrfContextV1,
-)
-    requires
-        is_valid_signing_root_scalar_v1_spec(root),
-        is_valid_signing_root_scalar_v1_spec(slope),
-        is_valid_share_pair_v1_spec(left_id, right_id),
-    ensures
-        option_a_output_v1_spec(root, slope, left_id, right_id, context)
-            == Some(evaluate_direct_reference_v1_spec(root, context)),
-        option_b_output_v1_spec(root, slope, left_id, right_id, context)
-            == Some(evaluate_direct_reference_v1_spec(root, context)),
-{
-    direct_and_option_a_outputs_match_v1(root, slope, left_id, right_id, context);
-    option_b_placement_matches_option_a_v1(root, slope, left_id, right_id, context);
-}
-
-pub proof fn generated_verified_option_b_output_matches_direct_reference_v1(
-    root: u8,
-    slope: u8,
-    left_id: u8,
-    right_id: u8,
-    context: PrfContextV1,
-    left_nonce: u8,
-    right_nonce: u8,
-)
-    requires
-        is_valid_signing_root_scalar_v1_spec(root),
-        is_valid_signing_root_scalar_v1_spec(slope),
-        is_valid_share_pair_v1_spec(left_id, right_id),
-        is_valid_dleq_nonce_v1_spec(left_nonce),
-        is_valid_dleq_nonce_v1_spec(right_nonce),
-    ensures
-        combine_verified_partials_v1_spec(
-            generated_dleq_bundle_for_share_v1_spec(
-                signing_root_share_v1_spec(root, slope, left_id),
-                context,
-                left_nonce,
-            ),
-            generated_dleq_bundle_for_share_v1_spec(
-                signing_root_share_v1_spec(root, slope, right_id),
-                context,
-                right_nonce,
-            ),
-            context,
-        ) == Some(evaluate_direct_reference_v1_spec(root, context)),
-{
-    let left_share = signing_root_share_v1_spec(root, slope, left_id);
-    let right_share = signing_root_share_v1_spec(root, slope, right_id);
-    generated_share_value_is_canonical_v1(root, slope, left_id);
-    generated_share_value_is_canonical_v1(root, slope, right_id);
-    generated_dleq_bundle_verifies_v1(left_share, context, left_nonce);
-    generated_dleq_bundle_verifies_v1(right_share, context, right_nonce);
-    direct_and_option_a_outputs_match_v1(root, slope, left_id, right_id, context);
-}
-
-pub proof fn refreshed_option_a_output_matches_direct_reference_v1(
-    root: u8,
-    slope: u8,
-    old_left_id: u8,
-    old_right_id: u8,
-    new_slope: u8,
-    refreshed_left_id: u8,
-    refreshed_right_id: u8,
-    context: PrfContextV1,
-)
-    requires
-        is_valid_signing_root_scalar_v1_spec(root),
-        is_valid_signing_root_scalar_v1_spec(slope),
-        is_valid_signing_root_scalar_v1_spec(new_slope),
-        is_valid_share_pair_v1_spec(old_left_id, old_right_id),
-        is_valid_share_pair_v1_spec(refreshed_left_id, refreshed_right_id),
-    ensures
-        combine_partials_v1_spec(
-            evaluate_partial_v1_spec(refresh_generated_share_v1_spec(
-                root,
-                slope,
-                old_left_id,
-                old_right_id,
-                new_slope,
-                refreshed_left_id,
-            ), context),
-            evaluate_partial_v1_spec(refresh_generated_share_v1_spec(
-                root,
-                slope,
-                old_left_id,
-                old_right_id,
-                new_slope,
-                refreshed_right_id,
-            ), context),
-            context,
-        ) == Some(evaluate_direct_reference_v1_spec(root, context)),
-{
-    refreshed_valid_pair_reconstructs_original_root_v1(
-        root,
-        slope,
-        old_left_id,
-        old_right_id,
-        new_slope,
-        refreshed_left_id,
-        refreshed_right_id,
-    );
-    broadcast use axiom_lagrange_reconstructs_generated_root_v1;
-
-    let refreshed_left = refresh_generated_share_v1_spec(
-        root,
-        slope,
-        old_left_id,
-        old_right_id,
-        new_slope,
-        refreshed_left_id,
-    );
-    let refreshed_right = refresh_generated_share_v1_spec(
-        root,
-        slope,
-        old_left_id,
-        old_right_id,
-        new_slope,
-        refreshed_right_id,
-    );
-    let left_partial = evaluate_partial_v1_spec(refreshed_left, context);
-    let right_partial = evaluate_partial_v1_spec(refreshed_right, context);
-    assert(combine_partial_point_coeffs_v1_spec(left_partial, right_partial) == root);
-}
-
-}
+} // verus!

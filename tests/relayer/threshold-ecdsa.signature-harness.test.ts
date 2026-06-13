@@ -78,10 +78,10 @@ function makeAuthServiceForThreshold(thresholdStore?: ThresholdStoreConfigInput 
   const providedConfig = (thresholdStore || {}) as Partial<ThresholdStoreConfigInput>;
   const needsFixtureSigningRootResolver = !(
     providedConfig.signingRootShareResolver ||
-    providedConfig.signingRootSecretResolverAdapters ||
-    providedConfig.signingRootSecretStore ||
-    providedConfig.signingRootSecretDecryptAdapter ||
-    providedConfig.signingRootSecretShareKekResolver
+    providedConfig.signingRootShareResolverAdapters ||
+    providedConfig.signingRootSharePolicy ||
+    providedConfig.signingRootShareStore ||
+    providedConfig.signingRootShareDecryptAdapter
   );
   const thresholdConfigDefaults: ThresholdStoreConfigInput = {
     kind: 'in-memory',
@@ -609,9 +609,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(presignSessionId).toBeTruthy();
 
       const groupPublicKey33 = base64UrlDecode(thresholdEcdsaPublicKeyB64u);
-      const clientAdditiveShare32 = base64UrlDecode(
-        clientBootstrap.clientAdditiveShare32B64u,
-      );
+      const clientAdditiveShare32 = base64UrlDecode(clientBootstrap.clientAdditiveShare32B64u);
       const clientThresholdSigningShare32 = map_additive_share_to_threshold_signatures_share_2p(
         clientAdditiveShare32,
         clientParticipantId,

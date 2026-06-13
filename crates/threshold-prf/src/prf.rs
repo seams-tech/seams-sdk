@@ -3,6 +3,7 @@ use core::fmt;
 use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
 use curve25519_dalek::ristretto::{CompressedRistretto, RistrettoPoint};
 use curve25519_dalek::scalar::Scalar;
+use curve25519_dalek::traits::Identity;
 use rand_core::{CryptoRng, RngCore};
 use sha2::{Digest, Sha512};
 use subtle::ConstantTimeEq;
@@ -11,17 +12,17 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 use crate::context::{PrfContext, PrfOutputEncoding};
 use crate::error::{ThresholdPrfError, ThresholdPrfResult};
 use crate::shamir::{
-    exactly_two_shares, lagrange_coefficients_2_of_3, validate_v1_threshold_subset_ids,
-    SigningRootScalar, SigningRootShare, SigningRootShareId, SigningRootShareWireV1,
+    lagrange_coefficients_for_share_ids, validate_threshold_set_values, SigningRootScalar,
+    SigningRootShare, ThresholdPolicy, ThresholdShareId, ValidatedThresholdSet,
 };
 
-const INPUT_DOMAIN: &[u8] = b"threshold-prf:v1/input";
-const OUTPUT_DOMAIN: &[u8] = b"threshold-prf:v1/output";
-const PARTIAL_CONTEXT_DOMAIN: &[u8] = b"threshold-prf:v1/partial-context";
-const DLEQ_DOMAIN: &[u8] = b"threshold-prf:v1/dleq";
-const PRF_PARTIAL_WIRE_V1_LEN: usize = 65;
-const SIGNING_ROOT_SHARE_COMMITMENT_WIRE_V1_LEN: usize = 33;
-const PRF_DLEQ_PROOF_WIRE_V1_LEN: usize = 64;
+const INPUT_DOMAIN: &[u8] = b"threshold-prf/input";
+const OUTPUT_DOMAIN: &[u8] = b"threshold-prf/output";
+const PARTIAL_CONTEXT_DOMAIN: &[u8] = b"threshold-prf/partial-context";
+const DLEQ_DOMAIN: &[u8] = b"threshold-prf/dleq";
+const PRF_PARTIAL_WIRE_LEN: usize = 66;
+const SIGNING_ROOT_SHARE_COMMITMENT_WIRE_LEN: usize = 34;
+const PRF_DLEQ_PROOF_WIRE_LEN: usize = 64;
 
 /// A 32-byte threshold PRF output.
 #[derive(Clone, Eq, Zeroize, ZeroizeOnDrop)]
@@ -51,57 +52,83 @@ impl PrfOutput32 {
     }
 }
 
-/// A threshold PRF partial produced by one signing-root share.
+/// A canonical threshold PRF partial produced by one signing-root share.
 #[derive(Clone)]
 pub struct PrfPartial {
-    id: SigningRootShareId,
+    id: ThresholdShareId,
     context_tag: [u8; 32],
     point: RistrettoPoint,
 }
 
-/// Fixed-width v1 signing-root share commitment `[share_i]G`.
+/// Fixed-width canonical signing-root share commitment `[share_i]G`.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct SigningRootShareCommitmentV1 {
-    id: SigningRootShareId,
+pub struct SigningRootShareCommitment {
+    id: ThresholdShareId,
     point: RistrettoPoint,
 }
 
-/// Fixed-width v1 DLEQ proof for one PRF partial.
+/// Fixed-width canonical DLEQ proof for one PRF partial.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct PrfDleqProofV1 {
+pub struct PrfDleqProof {
     challenge: Scalar,
     response: Scalar,
 }
 
-/// Partial plus share commitment and DLEQ proof.
+/// Canonical partial plus share commitment and DLEQ proof.
 #[derive(Clone)]
-pub struct PrfPartialProofBundleV1 {
-    /// Threshold PRF partial `[share_i]P`.
+pub struct PrfPartialProofBundle {
+    /// Canonical threshold PRF partial `[share_i]P`.
     pub partial: PrfPartial,
-    /// Root-share commitment `[share_i]G`.
-    pub commitment: SigningRootShareCommitmentV1,
-    /// DLEQ proof that `partial` and `commitment` use the same share scalar.
-    pub proof: PrfDleqProofV1,
+    /// Canonical root-share commitment `[share_i]G`.
+    pub commitment: SigningRootShareCommitment,
+    /// Canonical DLEQ proof that `partial` and `commitment` use the same share scalar.
+    pub proof: PrfDleqProof,
 }
 
-impl fmt::Debug for SigningRootShareCommitmentV1 {
+impl ValidatedThresholdSet<PrfPartial> {
+    /// Validates canonical PRF partials against a threshold policy.
+    pub fn from_partials(
+        policy: ThresholdPolicy,
+        partials: Vec<PrfPartial>,
+    ) -> ThresholdPrfResult<Self> {
+        validate_threshold_set_values(policy, partials, PrfPartial::id)
+    }
+}
+
+impl ValidatedThresholdSet<PrfPartialProofBundle> {
+    /// Validates canonical PRF proof bundles against a threshold policy.
+    pub fn from_proof_bundles(
+        policy: ThresholdPolicy,
+        bundles: Vec<PrfPartialProofBundle>,
+    ) -> ThresholdPrfResult<Self> {
+        let set = validate_threshold_set_values(policy, bundles, |bundle| bundle.partial.id())?;
+        for bundle in set.values() {
+            if bundle.commitment.id() != bundle.partial.id() {
+                return Err(ThresholdPrfError::InvalidDleqProof);
+            }
+        }
+        Ok(set)
+    }
+}
+
+impl fmt::Debug for SigningRootShareCommitment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SigningRootShareCommitmentV1")
+        f.debug_struct("SigningRootShareCommitment")
             .field("id", &self.id)
             .field("point", &"[redacted]")
             .finish()
     }
 }
 
-impl fmt::Debug for PrfDleqProofV1 {
+impl fmt::Debug for PrfDleqProof {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("PrfDleqProofV1([redacted])")
+        f.write_str("PrfDleqProof([redacted])")
     }
 }
 
-impl fmt::Debug for PrfPartialProofBundleV1 {
+impl fmt::Debug for PrfPartialProofBundle {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PrfPartialProofBundleV1")
+        f.debug_struct("PrfPartialProofBundle")
             .field("partial", &self.partial)
             .field("commitment", &self.commitment)
             .field("proof", &self.proof)
@@ -109,11 +136,11 @@ impl fmt::Debug for PrfPartialProofBundleV1 {
     }
 }
 
-impl SigningRootShareCommitmentV1 {
-    /// Serialized commitment length: one share-id byte and 32-byte point.
-    pub const LEN: usize = SIGNING_ROOT_SHARE_COMMITMENT_WIRE_V1_LEN;
+impl SigningRootShareCommitment {
+    /// Serialized canonical commitment length: two share-id bytes and 32-byte point.
+    pub const LEN: usize = SIGNING_ROOT_SHARE_COMMITMENT_WIRE_LEN;
 
-    /// Creates a commitment from a signing-root share.
+    /// Creates a canonical commitment from a signing-root share.
     pub fn from_share(share: &SigningRootShare) -> Self {
         Self {
             id: share.id(),
@@ -121,19 +148,28 @@ impl SigningRootShareCommitmentV1 {
         }
     }
 
-    /// Parses a commitment from its fixed-width byte encoding.
-    pub fn from_bytes(bytes: [u8; Self::LEN]) -> ThresholdPrfResult<Self> {
-        let id = SigningRootShareId::new(bytes[0])?;
-        let point_bytes = bytes[1..]
-            .try_into()
-            .expect("fixed-width commitment point slice");
-        let point = CompressedRistretto(point_bytes)
+    /// Parses a canonical commitment from a share id and compressed point.
+    pub fn from_compressed(id: ThresholdShareId, compressed: [u8; 32]) -> ThresholdPrfResult<Self> {
+        let point = CompressedRistretto(compressed)
             .decompress()
             .ok_or(ThresholdPrfError::InvalidCommitmentEncoding)?;
         Ok(Self { id, point })
     }
 
-    /// Parses a commitment from a byte slice.
+    /// Parses a canonical commitment from its fixed-width byte encoding.
+    pub fn from_bytes(bytes: [u8; Self::LEN]) -> ThresholdPrfResult<Self> {
+        let id = ThresholdShareId::from_u16(u16::from_be_bytes(
+            bytes[0..2]
+                .try_into()
+                .expect("fixed-width canonical commitment share id slice"),
+        ))?;
+        let point_bytes = bytes[2..]
+            .try_into()
+            .expect("fixed-width canonical commitment point slice");
+        Self::from_compressed(id, point_bytes)
+    }
+
+    /// Parses a canonical commitment from a byte slice.
     pub fn from_slice(bytes: &[u8]) -> ThresholdPrfResult<Self> {
         let bytes: [u8; Self::LEN] = bytes
             .try_into()
@@ -141,37 +177,37 @@ impl SigningRootShareCommitmentV1 {
         Self::from_bytes(bytes)
     }
 
-    /// Returns the share id encoded in this commitment.
-    pub fn id(&self) -> SigningRootShareId {
+    /// Returns the share id encoded in this canonical commitment.
+    pub fn id(&self) -> ThresholdShareId {
         self.id
     }
 
-    /// Returns the compressed commitment point bytes.
+    /// Returns the compressed canonical commitment point bytes.
     pub fn to_compressed(&self) -> [u8; 32] {
         self.point.compress().to_bytes()
     }
 
-    /// Returns the fixed-width commitment bytes.
+    /// Returns the fixed-width canonical commitment bytes.
     pub fn to_bytes(self) -> [u8; Self::LEN] {
         let mut bytes = [0u8; Self::LEN];
-        bytes[0] = self.id.get();
-        bytes[1..].copy_from_slice(&self.to_compressed());
+        bytes[0..2].copy_from_slice(&self.id.get().get().to_be_bytes());
+        bytes[2..].copy_from_slice(&self.to_compressed());
         bytes
     }
 }
 
-impl PrfDleqProofV1 {
-    /// Serialized proof length: 32-byte challenge and 32-byte response.
-    pub const LEN: usize = PRF_DLEQ_PROOF_WIRE_V1_LEN;
+impl PrfDleqProof {
+    /// Serialized canonical proof length: 32-byte challenge and 32-byte response.
+    pub const LEN: usize = PRF_DLEQ_PROOF_WIRE_LEN;
 
-    /// Parses a DLEQ proof from fixed-width scalar encodings.
+    /// Parses a canonical DLEQ proof from fixed-width scalar encodings.
     pub fn from_bytes(bytes: [u8; Self::LEN]) -> ThresholdPrfResult<Self> {
         let challenge_bytes = bytes[..32]
             .try_into()
-            .expect("fixed-width challenge scalar slice");
+            .expect("fixed-width canonical challenge scalar slice");
         let response_bytes = bytes[32..]
             .try_into()
-            .expect("fixed-width response scalar slice");
+            .expect("fixed-width canonical response scalar slice");
         let challenge = Option::<Scalar>::from(Scalar::from_canonical_bytes(challenge_bytes))
             .ok_or(ThresholdPrfError::InvalidDleqProofEncoding)?;
         let response = Option::<Scalar>::from(Scalar::from_canonical_bytes(response_bytes))
@@ -182,7 +218,7 @@ impl PrfDleqProofV1 {
         })
     }
 
-    /// Parses a DLEQ proof from a byte slice.
+    /// Parses a canonical DLEQ proof from a byte slice.
     pub fn from_slice(bytes: &[u8]) -> ThresholdPrfResult<Self> {
         let bytes: [u8; Self::LEN] = bytes
             .try_into()
@@ -190,17 +226,17 @@ impl PrfDleqProofV1 {
         Self::from_bytes(bytes)
     }
 
-    /// Returns the challenge scalar bytes.
+    /// Returns the canonical challenge scalar bytes.
     pub fn challenge_bytes(&self) -> [u8; 32] {
         self.challenge.to_bytes()
     }
 
-    /// Returns the response scalar bytes.
+    /// Returns the canonical response scalar bytes.
     pub fn response_bytes(&self) -> [u8; 32] {
         self.response.to_bytes()
     }
 
-    /// Returns the fixed-width proof bytes.
+    /// Returns the fixed-width canonical proof bytes.
     pub fn to_bytes(self) -> [u8; Self::LEN] {
         let mut bytes = [0u8; Self::LEN];
         bytes[..32].copy_from_slice(&self.challenge_bytes());
@@ -209,87 +245,84 @@ impl PrfDleqProofV1 {
     }
 }
 
-/// Fixed-width v1 serialized PRF partial for worker-to-worker transport.
+/// Fixed-width canonical serialized PRF partial for worker-to-worker transport.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct PrfPartialWireV1 {
-    bytes: [u8; PRF_PARTIAL_WIRE_V1_LEN],
+pub struct PrfPartialWire {
+    bytes: [u8; PRF_PARTIAL_WIRE_LEN],
 }
 
-impl fmt::Debug for PrfPartialWireV1 {
+impl fmt::Debug for PrfPartialWire {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("PrfPartialWireV1([redacted])")
+        f.write_str("PrfPartialWire([redacted])")
     }
 }
 
-impl PrfPartialWireV1 {
-    /// Serialized partial length: one share-id byte, 32-byte context tag, and 32-byte point.
-    pub const LEN: usize = PRF_PARTIAL_WIRE_V1_LEN;
+impl PrfPartialWire {
+    /// Serialized canonical partial length: two share-id bytes, 32-byte context tag, and 32-byte point.
+    pub const LEN: usize = PRF_PARTIAL_WIRE_LEN;
 
-    /// Creates a wire partial from a validated partial.
+    /// Creates a canonical wire partial from a validated canonical partial.
     pub fn from_partial(partial: &PrfPartial) -> Self {
         let mut bytes = [0u8; Self::LEN];
-        bytes[0] = partial.id().get();
-        bytes[1..33].copy_from_slice(partial.context_tag());
-        bytes[33..].copy_from_slice(&partial.to_compressed());
+        bytes[0..2].copy_from_slice(&partial.id().get().get().to_be_bytes());
+        bytes[2..34].copy_from_slice(partial.context_tag());
+        bytes[34..].copy_from_slice(&partial.to_compressed());
         Self { bytes }
     }
 
-    /// Decodes a context-bound PRF partial from its fixed-width wire encoding.
-    ///
-    /// This is the only public decode path for transported partial bytes. It validates the fixed width,
-    /// share ID, context tag, and compressed point before returning a partial
-    /// that can be combined for the supplied context.
-    pub fn decode(context: &PrfContext, bytes: [u8; Self::LEN]) -> ThresholdPrfResult<PrfPartial> {
-        Self::parse_raw_bytes(bytes)?.into_partial(context)
+    /// Decodes and validates a fixed-width canonical PRF partial.
+    pub fn decode(bytes: [u8; Self::LEN]) -> ThresholdPrfResult<Self> {
+        let wire = Self { bytes };
+        wire.to_partial()?;
+        Ok(wire)
     }
 
-    /// Decodes a context-bound PRF partial from a byte slice.
-    ///
-    /// This is the only public decode path for transported partial byte slices.
-    pub fn decode_slice(context: &PrfContext, bytes: &[u8]) -> ThresholdPrfResult<PrfPartial> {
-        Self::parse_raw_slice(bytes)?.into_partial(context)
-    }
-
-    fn parse_raw_bytes(bytes: [u8; Self::LEN]) -> ThresholdPrfResult<Self> {
-        SigningRootShareId::new(bytes[0])?;
-        Ok(Self { bytes })
-    }
-
-    fn parse_raw_slice(bytes: &[u8]) -> ThresholdPrfResult<Self> {
+    /// Decodes and validates a fixed-width canonical PRF partial byte slice.
+    pub fn decode_slice(bytes: &[u8]) -> ThresholdPrfResult<Self> {
         let bytes: [u8; Self::LEN] = bytes
             .try_into()
             .map_err(|_| ThresholdPrfError::InvalidPartialEncoding)?;
-        Self::parse_raw_bytes(bytes)
+        Self::decode(bytes)
     }
 
-    /// Returns the share id encoded in this wire partial.
-    pub fn id(&self) -> SigningRootShareId {
-        SigningRootShareId::new(self.bytes[0]).expect("validated wire partial share id")
+    /// Returns the share id encoded in this canonical wire partial.
+    pub fn id(&self) -> ThresholdShareId {
+        self.parse_id()
+            .expect("validated canonical wire partial share id")
     }
 
-    /// Returns the context tag encoded in this wire partial.
+    fn parse_id(&self) -> ThresholdPrfResult<ThresholdShareId> {
+        ThresholdShareId::from_u16(u16::from_be_bytes(
+            self.bytes[0..2]
+                .try_into()
+                .expect("fixed-width canonical partial share id slice"),
+        ))
+    }
+
+    /// Returns the context tag encoded in this canonical wire partial.
     pub fn context_tag(&self) -> &[u8; 32] {
-        self.bytes[1..33]
+        self.bytes[2..34]
             .try_into()
-            .expect("fixed-width context tag slice")
+            .expect("fixed-width canonical context tag slice")
     }
 
-    /// Returns the compressed point bytes encoded in this wire partial.
+    /// Returns the compressed point bytes encoded in this canonical wire partial.
     pub fn compressed_point(&self) -> [u8; 32] {
         let mut compressed = [0u8; 32];
-        compressed.copy_from_slice(&self.bytes[33..]);
+        compressed.copy_from_slice(&self.bytes[34..]);
         compressed
     }
 
-    fn into_partial(self, context: &PrfContext) -> ThresholdPrfResult<PrfPartial> {
-        let expected_context_tag = partial_context_tag(context)?;
-        if !bool::from(self.context_tag().ct_eq(&expected_context_tag)) {
-            return Err(ThresholdPrfError::ContextMismatch);
-        }
-        partial_from_validated_wire_point(self.id(), context, self.compressed_point())
+    /// Decodes this canonical wire partial into a validated canonical partial value.
+    pub fn to_partial(&self) -> ThresholdPrfResult<PrfPartial> {
+        PrfPartial::from_compressed(
+            self.parse_id()?,
+            *self.context_tag(),
+            self.compressed_point(),
+        )
     }
 
-    /// Returns the fixed-width wire bytes.
+    /// Returns the fixed-width canonical wire bytes.
     pub fn to_bytes(self) -> [u8; Self::LEN] {
         self.bytes
     }
@@ -306,42 +339,42 @@ impl fmt::Debug for PrfPartial {
 }
 
 impl PrfPartial {
-    /// Returns the share id that produced this partial.
-    pub fn id(&self) -> SigningRootShareId {
+    /// Creates a canonical partial from validated public fields and a compressed point.
+    pub fn from_compressed(
+        id: ThresholdShareId,
+        context_tag: [u8; 32],
+        compressed: [u8; 32],
+    ) -> ThresholdPrfResult<Self> {
+        let point = CompressedRistretto(compressed)
+            .decompress()
+            .ok_or(ThresholdPrfError::InvalidPointEncoding)?;
+        Ok(Self {
+            id,
+            context_tag,
+            point,
+        })
+    }
+
+    /// Returns the canonical share id that produced this partial.
+    pub fn id(&self) -> ThresholdShareId {
         self.id
     }
 
-    /// Returns the compressed partial point.
+    /// Returns the compressed canonical partial point.
     pub fn to_compressed(&self) -> [u8; 32] {
         self.point.compress().to_bytes()
     }
 
-    /// Returns the context tag bound to this partial.
+    /// Returns the context tag bound to this canonical partial.
     pub fn context_tag(&self) -> &[u8; 32] {
         &self.context_tag
     }
 }
 
-fn partial_from_validated_wire_point(
-    id: SigningRootShareId,
-    context: &PrfContext,
-    compressed: [u8; 32],
-) -> ThresholdPrfResult<PrfPartial> {
-    let context_tag = partial_context_tag(context)?;
-    let point = CompressedRistretto(compressed)
-        .decompress()
-        .ok_or(ThresholdPrfError::InvalidPointEncoding)?;
-    Ok(PrfPartial {
-        id,
-        context_tag,
-        point,
-    })
-}
-
-/// Evaluates the PRF directly from the signing root.
+/// Evaluates the canonical PRF directly from the signing root.
 ///
-/// This is a reference path for tests and vectors. Production signing should
-/// use `evaluate_partial` and `combine_partials`.
+/// This is a reference path for tests, vectors, audits, and recovery checks.
+/// Production signing should use `evaluate_partial` and `combine_partials`.
 pub fn evaluate_direct_reference(
     root: &SigningRootScalar,
     context: &PrfContext,
@@ -350,7 +383,7 @@ pub fn evaluate_direct_reference(
     output_from_point(&(root.0 * p), context)
 }
 
-/// Evaluates one threshold PRF partial from one signing-root share.
+/// Evaluates one canonical threshold PRF partial from one canonical signing-root share.
 pub fn evaluate_partial(
     share: &SigningRootShare,
     context: &PrfContext,
@@ -362,41 +395,6 @@ pub fn evaluate_partial(
         context_tag,
         &input_point,
     ))
-}
-
-/// Derives the final PRF output from exactly two signing-root shares.
-///
-/// This is the canonical single-runtime Option A helper. It performs threshold
-/// partial evaluation and combine without reconstructing the signing root. The
-/// direct signing-root path remains reference-only for tests, vectors, audits,
-/// and recovery checks.
-pub fn derive_output_from_signing_root_shares(
-    shares: &[SigningRootShare],
-    context: &PrfContext,
-) -> ThresholdPrfResult<PrfOutput32> {
-    let pair = exactly_two_shares(shares)?;
-    let input_point = hash_to_group(context)?;
-    let context_tag = partial_context_tag(context)?;
-    let partials = [
-        evaluate_partial_with_input(pair.left, context_tag, &input_point),
-        evaluate_partial_with_input(pair.right, context_tag, &input_point),
-    ];
-    combine_partials_with_context_tag(&partials, context, &context_tag)
-}
-
-/// Derives the final PRF output from exactly two validated signing-root share wires.
-///
-/// This is the narrow server SDK boundary for one-runtime Option A after sealed
-/// share storage has decrypted the shares in memory.
-pub fn derive_output_from_signing_root_share_wires(
-    share_wires: &[SigningRootShareWireV1],
-    context: &PrfContext,
-) -> ThresholdPrfResult<PrfOutput32> {
-    if share_wires.len() != 2 {
-        return Err(ThresholdPrfError::InvalidThresholdSubset);
-    }
-    let shares = [share_wires[0].to_share()?, share_wires[1].to_share()?];
-    derive_output_from_signing_root_shares(&shares, context)
 }
 
 fn evaluate_partial_with_input(
@@ -411,33 +409,33 @@ fn evaluate_partial_with_input(
     }
 }
 
-/// Evaluates one PRF partial and proves it was produced from the committed share scalar.
+/// Evaluates one canonical PRF partial and proves it was produced from the committed share scalar.
 pub fn evaluate_partial_with_dleq_proof<R>(
     share: &SigningRootShare,
     context: &PrfContext,
     rng: &mut R,
-) -> ThresholdPrfResult<PrfPartialProofBundleV1>
+) -> ThresholdPrfResult<PrfPartialProofBundle>
 where
     R: RngCore + CryptoRng,
 {
     let input_point = hash_to_group(context)?;
     let context_tag = partial_context_tag(context)?;
     let partial = evaluate_partial_with_input(share, context_tag, &input_point);
-    let commitment = SigningRootShareCommitmentV1::from_share(share);
+    let commitment = SigningRootShareCommitment::from_share(share);
     let proof = prove_partial_dleq(share, &commitment, &partial, context, &input_point, rng)?;
-    Ok(PrfPartialProofBundleV1 {
+    Ok(PrfPartialProofBundle {
         partial,
         commitment,
         proof,
     })
 }
 
-/// Verifies that a PRF partial and root-share commitment use the same share scalar.
+/// Verifies that a canonical PRF partial and root-share commitment use the same share scalar.
 pub fn verify_partial_dleq_proof(
-    commitment: &SigningRootShareCommitmentV1,
+    commitment: &SigningRootShareCommitment,
     partial: &PrfPartial,
     context: &PrfContext,
-    proof: &PrfDleqProofV1,
+    proof: &PrfDleqProof,
 ) -> ThresholdPrfResult<()> {
     if commitment.id != partial.id {
         return Err(ThresholdPrfError::InvalidDleqProof);
@@ -468,89 +466,55 @@ pub fn verify_partial_dleq_proof(
     }
 }
 
-/// Verifies two DLEQ proof bundles and combines their partials into the final output.
-///
-/// This is the preferred combiner boundary for two-runtime Option B deployments
-/// when DLEQ is the chosen partial-authenticity mechanism.
+/// Verifies a canonical threshold set of DLEQ proof bundles and combines their partials.
 pub fn combine_verified_partials(
-    bundles: &[PrfPartialProofBundleV1],
+    bundles: &ValidatedThresholdSet<PrfPartialProofBundle>,
     context: &PrfContext,
 ) -> ThresholdPrfResult<PrfOutput32> {
-    let pair = exactly_two_proof_bundles(bundles)?;
-    verify_partial_dleq_proof(
-        &pair.left.commitment,
-        &pair.left.partial,
-        context,
-        &pair.left.proof,
-    )?;
-    verify_partial_dleq_proof(
-        &pair.right.commitment,
-        &pair.right.partial,
-        context,
-        &pair.right.proof,
-    )?;
-    combine_partials_with_context_tag(
-        &[pair.left.partial.clone(), pair.right.partial.clone()],
-        context,
-        &partial_context_tag(context)?,
-    )
+    for bundle in bundles.values() {
+        verify_partial_dleq_proof(&bundle.commitment, &bundle.partial, context, &bundle.proof)?;
+    }
+
+    let partials = bundles
+        .values()
+        .iter()
+        .map(|bundle| bundle.partial.clone())
+        .collect();
+    let partial_set = ValidatedThresholdSet::from_partials(*bundles.policy(), partials)?;
+    combine_partials(&partial_set, context)
 }
 
-/// Combines exactly two threshold PRF partials into the final output.
+/// Combines a validated canonical threshold partial set into the final PRF output.
 pub fn combine_partials(
-    partials: &[PrfPartial],
+    partials: &ValidatedThresholdSet<PrfPartial>,
     context: &PrfContext,
 ) -> ThresholdPrfResult<PrfOutput32> {
     let expected_context_tag = partial_context_tag(context)?;
     combine_partials_with_context_tag(partials, context, &expected_context_tag)
 }
 
-struct PrfProofBundlePair<'a> {
-    left: &'a PrfPartialProofBundleV1,
-    right: &'a PrfPartialProofBundleV1,
-}
-
-fn exactly_two_proof_bundles(
-    bundles: &[PrfPartialProofBundleV1],
-) -> ThresholdPrfResult<PrfProofBundlePair<'_>> {
-    if bundles.len() != 2 {
-        return Err(ThresholdPrfError::InvalidThresholdSubset);
-    }
-    validate_v1_threshold_subset_ids([bundles[0].partial.id, bundles[1].partial.id])?;
-    Ok(PrfProofBundlePair {
-        left: &bundles[0],
-        right: &bundles[1],
-    })
-}
-
 fn combine_partials_with_context_tag(
-    partials: &[PrfPartial],
+    partials: &ValidatedThresholdSet<PrfPartial>,
     context: &PrfContext,
     expected_context_tag: &[u8; 32],
 ) -> ThresholdPrfResult<PrfOutput32> {
-    let pair = exactly_two_partials(partials)?;
-    reject_context_mismatch(pair.left, expected_context_tag)?;
-    reject_context_mismatch(pair.right, expected_context_tag)?;
-
-    let (lambda_left, lambda_right) = lagrange_coefficients_2_of_3(pair.left.id, pair.right.id)?;
-    let z = (lambda_left * pair.left.point) + (lambda_right * pair.right.point);
-    output_from_point(&z, context)
-}
-
-struct PrfPartialPair<'a> {
-    left: &'a PrfPartial,
-    right: &'a PrfPartial,
-}
-
-fn exactly_two_partials(partials: &[PrfPartial]) -> ThresholdPrfResult<PrfPartialPair<'_>> {
-    if partials.len() != 2 {
-        return Err(ThresholdPrfError::InvalidThresholdSubset);
+    for partial in partials.values() {
+        reject_context_mismatch(partial, expected_context_tag)?;
     }
-    validate_v1_threshold_subset_ids([partials[0].id, partials[1].id])?;
-    Ok(PrfPartialPair {
-        left: &partials[0],
-        right: &partials[1],
-    })
+
+    let ids = partials
+        .values()
+        .iter()
+        .map(PrfPartial::id)
+        .collect::<Vec<_>>();
+    let coefficients = lagrange_coefficients_for_share_ids(&ids);
+    let mut z = RistrettoPoint::identity();
+
+    for (coefficient, partial) in coefficients.iter().zip(partials.values()) {
+        z += *coefficient * partial.point;
+    }
+
+    output_from_point(&z, context)
 }
 
 fn reject_context_mismatch(partial: &PrfPartial, expected: &[u8; 32]) -> ThresholdPrfResult<()> {
@@ -580,6 +544,13 @@ fn output_from_point(
 ) -> ThresholdPrfResult<PrfOutput32> {
     let compressed = point.compress();
     let transcript = encode_transcript(OUTPUT_DOMAIN, context, compressed.as_bytes())?;
+    output_from_transcript(transcript, context)
+}
+
+fn output_from_transcript(
+    transcript: Vec<u8>,
+    context: &PrfContext,
+) -> ThresholdPrfResult<PrfOutput32> {
     let digest = Sha512::digest(transcript);
     let mut out = [0u8; 32];
     out.copy_from_slice(&digest[..32]);
@@ -595,12 +566,12 @@ fn output_from_point(
 
 fn prove_partial_dleq<R>(
     share: &SigningRootShare,
-    commitment: &SigningRootShareCommitmentV1,
+    commitment: &SigningRootShareCommitment,
     partial: &PrfPartial,
     context: &PrfContext,
     input_point: &RistrettoPoint,
     rng: &mut R,
-) -> ThresholdPrfResult<PrfDleqProofV1>
+) -> ThresholdPrfResult<PrfDleqProof>
 where
     R: RngCore + CryptoRng,
 {
@@ -622,7 +593,7 @@ where
         &nonce_p,
     )?;
     let response = *blind + (challenge * share.value);
-    Ok(PrfDleqProofV1 {
+    Ok(PrfDleqProof {
         challenge,
         response,
     })
@@ -643,7 +614,7 @@ where
 fn dleq_challenge(
     context: &PrfContext,
     context_tag: &[u8; 32],
-    share_id: SigningRootShareId,
+    share_id: ThresholdShareId,
     input_point: &RistrettoPoint,
     commitment_point: &RistrettoPoint,
     partial_point: &RistrettoPoint,
@@ -669,7 +640,7 @@ fn dleq_challenge(
 fn encode_dleq_challenge_transcript(
     context: &PrfContext,
     context_tag: &[u8; 32],
-    share_id: SigningRootShareId,
+    share_id: ThresholdShareId,
     input_point: &RistrettoPoint,
     commitment_point: &RistrettoPoint,
     partial_point: &RistrettoPoint,
@@ -681,7 +652,7 @@ fn encode_dleq_challenge_transcript(
     push_len16(&mut transcript, context.suite_id.as_bytes())?;
     push_len16(&mut transcript, context.purpose.as_bytes())?;
     transcript.extend_from_slice(context_tag);
-    transcript.push(share_id.get());
+    transcript.extend_from_slice(&share_id.get().get().to_be_bytes());
     transcript.extend_from_slice(RISTRETTO_BASEPOINT_POINT.compress().as_bytes());
     transcript.extend_from_slice(input_point.compress().as_bytes());
     transcript.extend_from_slice(commitment_point.compress().as_bytes());
@@ -731,15 +702,16 @@ fn len32_bytes(len: usize) -> ThresholdPrfResult<[u8; 4]> {
 mod tests {
     use super::*;
     use crate::context::PrfPurpose;
-    use crate::shamir::{generate_signing_root, split_signing_root_2_of_3};
+    use crate::shamir::{generate_signing_root, split_signing_root};
     use crate::suite::SuiteId;
+    use curve25519_dalek::constants::RISTRETTO_BASEPOINT_POINT;
     use rand_chacha::ChaCha20Rng;
     use rand_core::SeedableRng;
     use std::time::Instant;
 
     fn fixture_context() -> PrfContext {
         PrfContext::new(
-            SuiteId::Ristretto255Sha512V1,
+            SuiteId::Ristretto255Sha512,
             PrfPurpose::EcdsaHssYRelayer,
             b"ctx",
         )
@@ -755,8 +727,8 @@ mod tests {
 
         assert_eq!(
             encode_transcript(INPUT_DOMAIN, &context, &[]).unwrap(),
-            b"\x00\x16threshold-prf:v1/input\
-              \x00\x24threshold-prf/ristretto255-sha512/v1\
+            b"\x00\x13threshold-prf/input\
+              \x00\x21threshold-prf/ristretto255-sha512\
               \x00\x13ecdsa-hss/y_relayer\
               \x00\x00\x00\x03ctx\
               \x00\x00\x00\x00"
@@ -764,8 +736,8 @@ mod tests {
         );
         assert_eq!(
             encode_transcript(PARTIAL_CONTEXT_DOMAIN, &context, &[]).unwrap(),
-            b"\x00\x20threshold-prf:v1/partial-context\
-              \x00\x24threshold-prf/ristretto255-sha512/v1\
+            b"\x00\x1dthreshold-prf/partial-context\
+              \x00\x21threshold-prf/ristretto255-sha512\
               \x00\x13ecdsa-hss/y_relayer\
               \x00\x00\x00\x03ctx\
               \x00\x00\x00\x00"
@@ -773,8 +745,8 @@ mod tests {
         );
         assert_eq!(
             encode_transcript(OUTPUT_DOMAIN, &context, b"payload").unwrap(),
-            b"\x00\x17threshold-prf:v1/output\
-              \x00\x24threshold-prf/ristretto255-sha512/v1\
+            b"\x00\x14threshold-prf/output\
+              \x00\x21threshold-prf/ristretto255-sha512\
               \x00\x13ecdsa-hss/y_relayer\
               \x00\x00\x00\x03ctx\
               \x00\x00\x00\x07payload"
@@ -786,7 +758,7 @@ mod tests {
     fn dleq_transcript_fixture_pins_field_order() {
         let context = fixture_context();
         let context_tag = [0x11u8; 32];
-        let share_id = SigningRootShareId::new(2).unwrap();
+        let share_id = ThresholdShareId::from_u16(2).unwrap();
         let input_point = RISTRETTO_BASEPOINT_POINT;
         let commitment_point = Scalar::from(2u64) * RISTRETTO_BASEPOINT_POINT;
         let partial_point = Scalar::from(3u64) * RISTRETTO_BASEPOINT_POINT;
@@ -806,11 +778,11 @@ mod tests {
         .unwrap();
 
         let mut expected = Vec::new();
-        expected.extend_from_slice(b"\x00\x15threshold-prf:v1/dleq");
-        expected.extend_from_slice(b"\x00\x24threshold-prf/ristretto255-sha512/v1");
+        expected.extend_from_slice(b"\x00\x12threshold-prf/dleq");
+        expected.extend_from_slice(b"\x00\x21threshold-prf/ristretto255-sha512");
         expected.extend_from_slice(b"\x00\x13ecdsa-hss/y_relayer");
         expected.extend_from_slice(&context_tag);
-        expected.push(2);
+        expected.extend_from_slice(&2u16.to_be_bytes());
         append_point(&mut expected, &RISTRETTO_BASEPOINT_POINT);
         append_point(&mut expected, &input_point);
         append_point(&mut expected, &commitment_point);
@@ -850,74 +822,74 @@ mod tests {
         let iterations = 1_000;
         let mut root_rng = ChaCha20Rng::from_seed([0x31u8; 32]);
         let root = generate_signing_root(&mut root_rng);
-        let shares = split_signing_root_2_of_3(&root, &mut root_rng);
+        let policy_2_of_3 = ThresholdPolicy::from_u16s(2, 3).unwrap();
+        let policy_3_of_5 = ThresholdPolicy::from_u16s(3, 5).unwrap();
         let context = PrfContext::new(
-            SuiteId::Ristretto255Sha512V1,
+            SuiteId::Ristretto255Sha512,
             PrfPurpose::RouterAbXRelayerBaseV1,
-            b"benchmark/private-prf-eval-combine-prep/v1",
+            b"benchmark/private-prf-eval-combine-prep/canonical",
         );
-        let left = evaluate_partial(&shares[0], &context).expect("fixture context is valid");
-        let right = evaluate_partial(&shares[2], &context).expect("fixture context is valid");
-        let share_wires = [
-            SigningRootShareWireV1::from_share(&shares[0]),
-            SigningRootShareWireV1::from_share(&shares[2]),
-        ];
-        let mut proof_rng = ChaCha20Rng::from_seed([0x41u8; 32]);
-        let proof_left =
-            evaluate_partial_with_dleq_proof(&shares[0], &context, &mut proof_rng).unwrap();
-        let proof_right =
-            evaluate_partial_with_dleq_proof(&shares[2], &context, &mut proof_rng).unwrap();
+        let shares_2_of_3 = split_signing_root(&root, policy_2_of_3, &mut root_rng).unwrap();
+        let shares_3_of_5 = split_signing_root(&root, policy_3_of_5, &mut root_rng).unwrap();
+        let partials_2_of_3 = ValidatedThresholdSet::from_partials(
+            policy_2_of_3,
+            vec![
+                evaluate_partial(&shares_2_of_3[0], &context).unwrap(),
+                evaluate_partial(&shares_2_of_3[2], &context).unwrap(),
+            ],
+        )
+        .unwrap();
+        let partials_3_of_5 = ValidatedThresholdSet::from_partials(
+            policy_3_of_5,
+            vec![
+                evaluate_partial(&shares_3_of_5[0], &context).unwrap(),
+                evaluate_partial(&shares_3_of_5[2], &context).unwrap(),
+                evaluate_partial(&shares_3_of_5[4], &context).unwrap(),
+            ],
+        )
+        .unwrap();
+        let mut proof_rng = ChaCha20Rng::from_seed([0x61u8; 32]);
+        let proof_bundles_3_of_5 = ValidatedThresholdSet::from_proof_bundles(
+            policy_3_of_5,
+            vec![
+                evaluate_partial_with_dleq_proof(&shares_3_of_5[0], &context, &mut proof_rng)
+                    .unwrap(),
+                evaluate_partial_with_dleq_proof(&shares_3_of_5[2], &context, &mut proof_rng)
+                    .unwrap(),
+                evaluate_partial_with_dleq_proof(&shares_3_of_5[4], &context, &mut proof_rng)
+                    .unwrap(),
+            ],
+        )
+        .unwrap();
 
-        measure_prf_case("prf_evaluate_partial_v1", iterations, || {
-            evaluate_partial(&shares[0], &context)
+        measure_prf_case("prf_evaluate_partial", iterations, || {
+            evaluate_partial(&shares_3_of_5[0], &context)
                 .unwrap()
                 .to_compressed()[0]
         });
-        measure_prf_case("prf_combine_partials_v1", iterations, || {
-            combine_partials(&[left.clone(), right.clone()], &context)
+        measure_prf_case("prf_combine_partials_2_of_3", iterations, || {
+            combine_partials(&partials_2_of_3, &context)
                 .unwrap()
                 .as_bytes()[0]
         });
-        measure_prf_case("prf_derive_output_from_two_shares_v1", iterations, || {
-            derive_output_from_signing_root_shares(
-                &[shares[0].clone(), shares[2].clone()],
-                &context,
-            )
-            .unwrap()
-            .as_bytes()[0]
-        });
-        measure_prf_case("prf_derive_output_from_share_wires_v1", iterations, || {
-            derive_output_from_signing_root_share_wires(&share_wires, &context)
+        measure_prf_case("prf_combine_partials_3_of_5", iterations, || {
+            combine_partials(&partials_3_of_5, &context)
                 .unwrap()
                 .as_bytes()[0]
         });
-        measure_prf_case("prf_verify_dleq_bundle_v1", iterations, || {
-            verify_partial_dleq_proof(
-                &proof_left.commitment,
-                &proof_left.partial,
-                &context,
-                &proof_left.proof,
-            )
-            .unwrap();
-            proof_left.proof.challenge_bytes()[0]
-        });
-        measure_prf_case("prf_combine_verified_partials_v1", iterations, || {
-            combine_verified_partials(&[proof_left.clone(), proof_right.clone()], &context)
+        measure_prf_case("prf_combine_verified_partials_3_of_5", iterations, || {
+            combine_verified_partials(&proof_bundles_3_of_5, &context)
                 .unwrap()
                 .as_bytes()[0]
         });
 
-        let mut fresh_proof_rng = ChaCha20Rng::from_seed([0x51u8; 32]);
-        measure_prf_case(
-            "prf_evaluate_partial_with_dleq_proof_v1",
-            iterations,
-            || {
-                evaluate_partial_with_dleq_proof(&shares[0], &context, &mut fresh_proof_rng)
-                    .unwrap()
-                    .proof
-                    .challenge_bytes()[0]
-            },
-        );
+        let mut fresh_proof_rng = ChaCha20Rng::from_seed([0x71u8; 32]);
+        measure_prf_case("prf_evaluate_partial_with_dleq_proof", iterations, || {
+            evaluate_partial_with_dleq_proof(&shares_3_of_5[0], &context, &mut fresh_proof_rng)
+                .unwrap()
+                .proof
+                .challenge_bytes()[0]
+        });
     }
 
     fn measure_prf_case<F>(name: &str, iterations: u32, mut run_once: F)

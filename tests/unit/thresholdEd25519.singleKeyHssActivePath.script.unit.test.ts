@@ -48,11 +48,12 @@ import {
   prepareThresholdEd25519HssServerSession,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/ed25519HssWasm';
 import type { ThresholdEd25519HssSessionOperation } from '../../packages/sdk-server-ts/src/core/types';
-import { deriveEd25519HssServerInputsFromSigningRootSecretShares } from '../../packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm';
 import {
-  parseSigningRootSecretShareWireV1,
-  type SigningRootSecretShareWirePair,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretShareWires';
+  deriveEd25519HssServerInputsFromSigningRootShares,
+  parseSigningRootShareWire,
+  type SigningRootShareWire,
+  type ThresholdPrfPolicy,
+} from '../../packages/sdk-server-ts/src/core/ThresholdService/thresholdPrfWasm';
 import {
   handle_signer_message,
   initSync as initNearSignerWasmSync,
@@ -91,6 +92,20 @@ class MemorySessionStorage implements Pick<
     this.store.clear();
   }
 }
+
+type ThresholdPrfFixtureShare = {
+  readonly id: number;
+  readonly wire_hex: string;
+};
+
+type ThresholdPrfFixtureVector = {
+  readonly purpose: string;
+  readonly policy: {
+    readonly threshold: number;
+    readonly share_count: number;
+  };
+  readonly shares: readonly ThresholdPrfFixtureShare[];
+};
 
 const NEAR_ACCOUNT_ID = 'single-key-hss-active.testnet';
 const RELAYER_URL = 'https://relay.example.test';
@@ -199,10 +214,6 @@ const CONTEXT = {
 } as const;
 const PRF_FIRST_B64U = Buffer.alloc(32, 11).toString('base64url');
 const EXPECTED_CLIENT_OUTPUT_MASK_B64U = 'sE_I9hyDmS1AdAYfb4CRx_rehIb4IaF9KOoAQTX2QyQ';
-const SIGNING_ROOT_SECRET_SHARE_WIRE_HEX = [
-  '011ba5f9c2f4003d409a9358a20b40b37eb32a28daacc5676a468b64a203c1e303',
-  '021bb9834016ae79b9a815f68d1f456b35acb1b5631dd04e1cab9f640852aaed0d',
-] as const;
 const NEAR_SIGNER_WASM_URL = new URL(
   '../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm',
   import.meta.url,
@@ -211,16 +222,39 @@ const HSS_CLIENT_SIGNER_WASM_URL = new URL(
   '../../wasm/hss_client_signer/pkg/hss_client_signer_bg.wasm',
   import.meta.url,
 );
+const THRESHOLD_PRF_FIXTURE_URL = new URL(
+  '../../crates/threshold-prf/fixtures/protocol-t-of-n.json',
+  import.meta.url,
+);
 let nearSignerWasmInitializedForDirectWorkerTests = false;
 let hssClientSignerWasmInitializedForDirectWorkerTests = false;
 
-function fixtureSigningRootSecretShareWirePair(): SigningRootSecretShareWirePair {
-  const parsed = SIGNING_ROOT_SECRET_SHARE_WIRE_HEX.map((wireHex) =>
-    parseSigningRootSecretShareWireV1(new Uint8Array(Buffer.from(wireHex, 'hex'))),
+function fixtureThresholdPrfVector(): ThresholdPrfFixtureVector {
+  const corpus = JSON.parse(readFileSync(THRESHOLD_PRF_FIXTURE_URL, 'utf8')) as {
+    readonly vectors?: readonly ThresholdPrfFixtureVector[];
+  };
+  const vector = corpus.vectors?.find((candidate) => candidate.purpose === 'ecdsa-hss/y_relayer');
+  if (!vector) throw new Error('missing threshold-prf fixture vector');
+  return vector;
+}
+
+function fixtureThresholdPrfPolicy(vector: ThresholdPrfFixtureVector): ThresholdPrfPolicy {
+  return {
+    protocol: 'threshold-prf',
+    threshold: vector.policy.threshold,
+    shareCount: vector.policy.share_count,
+  };
+}
+
+function fixtureSigningRootShareWireHexes(): readonly string[] {
+  const vector = fixtureThresholdPrfVector();
+  return vector.shares.slice(0, vector.policy.threshold).map((share) => share.wire_hex);
+}
+
+function fixtureSigningRootShareWireSet(): readonly SigningRootShareWire[] {
+  return fixtureSigningRootShareWireHexes().map((wireHex) =>
+    parseSigningRootShareWire(new Uint8Array(Buffer.from(wireHex, 'hex'))),
   );
-  if (!parsed[0].ok) throw new Error(parsed[0].message);
-  if (!parsed[1].ok) throw new Error(parsed[1].message);
-  return [parsed[0].value, parsed[1].value];
 }
 
 async function deriveFixtureThresholdEd25519HssServerInputs(
@@ -235,9 +269,11 @@ async function deriveFixtureThresholdEd25519HssServerInputs(
         derivationVersion: number;
       },
 ) {
-  const shareWires = fixtureSigningRootSecretShareWirePair();
+  const vector = fixtureThresholdPrfVector();
+  const shareWires = fixtureSigningRootShareWireSet();
   try {
-    return await deriveEd25519HssServerInputsFromSigningRootSecretShares({
+    return await deriveEd25519HssServerInputsFromSigningRootShares({
+      policy: fixtureThresholdPrfPolicy(vector),
       shareWires,
       context: {
         signingRootId: context.signingRootId,
@@ -255,7 +291,7 @@ async function deriveFixtureThresholdEd25519HssServerInputs(
 }
 
 function expectNoSigningRootSecretShareWire(payload: string): void {
-  for (const wireHex of SIGNING_ROOT_SECRET_SHARE_WIRE_HEX) {
+  for (const wireHex of fixtureSigningRootShareWireHexes()) {
     expect(payload.includes(wireHex)).toBe(false);
     expect(payload.includes(Buffer.from(wireHex, 'hex').toString('base64url'))).toBe(false);
   }

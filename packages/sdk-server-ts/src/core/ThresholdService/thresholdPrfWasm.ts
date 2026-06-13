@@ -1,16 +1,16 @@
 import { base64UrlDecode } from '@shared/utils/encoders';
-import initThresholdPrfWasm, {
+import * as thresholdPrfImports from '../../../../../wasm/threshold_prf/pkg/threshold_prf_bg.js';
+import {
+  __wbg_set_wasm as setThresholdPrfWasm,
   init_threshold_prf,
   threshold_prf_derive_ecdsa_hss_y_relayer,
   threshold_prf_derive_ed25519_hss_server_inputs,
-} from '../../../../../wasm/threshold_prf/pkg/threshold_prf.js';
-import type { InitInput } from '../../../../../wasm/threshold_prf/pkg/threshold_prf.js';
+} from '../../../../../wasm/threshold_prf/pkg/threshold_prf_bg.js';
 import { createWasmLoader } from '../wasm-loader';
 import type {
   ThresholdEd25519HssCanonicalContext,
   ThresholdEd25519HssServerInputs,
 } from '../types';
-import type { SigningRootSecretShareWirePair } from './signingRootSecretShareWires';
 
 const THRESHOLD_PRF_WASM_PATH_CANDIDATES = [
   '../../../wasm/threshold_prf/pkg/threshold_prf_bg.wasm',
@@ -23,6 +23,8 @@ const THRESHOLD_PRF_WASM_PATH_CANDIDATES = [
 let thresholdPrfWasmInitPromise: Promise<void> | null = null;
 let thresholdPrfWasmReady = false;
 
+const THRESHOLD_PRF_SIGNING_ROOT_SHARE_WIRE_LENGTH = 34;
+
 export type EcdsaHssStableKeyPrfContext = {
   readonly walletId: string;
   readonly rpId: string;
@@ -34,6 +36,18 @@ export type EcdsaHssStableKeyPrfContext = {
   readonly keyPurpose: string;
   readonly keyVersion: string;
 };
+
+export type ThresholdPrfPolicy = {
+  readonly protocol: 'threshold-prf';
+  readonly threshold: number;
+  readonly shareCount: number;
+};
+
+export type SigningRootShareWire = Uint8Array & {
+  readonly __signingRootShareWire: 'SigningRootShareWire';
+};
+
+export type SigningRootShareWireSet = readonly SigningRootShareWire[];
 
 function getThresholdPrfWasmUrls(): URL[] {
   const baseUrl = import.meta.url;
@@ -48,8 +62,36 @@ function getThresholdPrfWasmUrls(): URL[] {
   return resolved;
 }
 
-async function initThresholdPrfSignerWasm(input: { module_or_path: InitInput }): Promise<void> {
-  await initThresholdPrfWasm(input);
+async function compileThresholdPrfWasm(input: unknown): Promise<WebAssembly.Module> {
+  if (input instanceof WebAssembly.Module) return input;
+  if (input instanceof Response) {
+    return WebAssembly.compile(await input.arrayBuffer());
+  }
+  if (input instanceof URL || typeof input === 'string') {
+    const response = await fetch(input);
+    if (!response.ok) {
+      throw new Error(`failed to fetch threshold-prf WASM: ${response.status}`);
+    }
+    return WebAssembly.compile(await response.arrayBuffer());
+  }
+  if (input instanceof ArrayBuffer) {
+    return WebAssembly.compile(input);
+  }
+  if (ArrayBuffer.isView(input)) {
+    const view = input as ArrayBufferView;
+    return WebAssembly.compile(view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength));
+  }
+  throw new Error('unsupported threshold-prf WASM module input');
+}
+
+async function initThresholdPrfSignerWasm(input: { module_or_path: unknown }): Promise<void> {
+  const module = await compileThresholdPrfWasm(input.module_or_path);
+  const instance = await WebAssembly.instantiate(module, {
+    './threshold_prf_bg.js': thresholdPrfImports,
+  });
+  setThresholdPrfWasm(instance.exports);
+  const start = instance.exports.__wbindgen_start;
+  if (typeof start === 'function') start();
   init_threshold_prf();
   thresholdPrfWasmReady = true;
 }
@@ -78,6 +120,109 @@ function checkedBytes(label: string, value: Uint8Array, expectedLength: number):
   return value;
 }
 
+function requireU16(label: string, value: number): number {
+  if (!Number.isInteger(value) || value < 1 || value > 0xffff) {
+    throw new Error(`${label} must be an integer between 1 and 65535`);
+  }
+  return value;
+}
+
+function normalizeThresholdPrfPolicy(policy: ThresholdPrfPolicy): ThresholdPrfPolicy {
+  if (policy.protocol !== 'threshold-prf') {
+    throw new Error('threshold-prf policy protocol must be threshold-prf');
+  }
+  const threshold = requireU16('threshold', policy.threshold);
+  const shareCount = requireU16('shareCount', policy.shareCount);
+  if (threshold > shareCount) {
+    throw new Error('threshold must be less than or equal to shareCount');
+  }
+  return {
+    protocol: 'threshold-prf',
+    threshold,
+    shareCount,
+  };
+}
+
+function signingRootShareWireShareId(wire: SigningRootShareWire): number {
+  return (wire[0] << 8) | wire[1];
+}
+
+export function parseSigningRootShareWire(input: unknown): SigningRootShareWire {
+  if (!(input instanceof Uint8Array)) {
+    throw new Error('SigningRootShareWire must be a Uint8Array');
+  }
+  if (input.length !== THRESHOLD_PRF_SIGNING_ROOT_SHARE_WIRE_LENGTH) {
+    throw new Error(
+      `SigningRootShareWire must be ${THRESHOLD_PRF_SIGNING_ROOT_SHARE_WIRE_LENGTH} bytes`,
+    );
+  }
+  const wire = new Uint8Array(input) as SigningRootShareWire;
+  if (signingRootShareWireShareId(wire) === 0) {
+    wire.fill(0);
+    throw new Error('SigningRootShareWire share id must be non-zero');
+  }
+  return wire;
+}
+
+function validateSigningRootShareWireSet(
+  policy: ThresholdPrfPolicy,
+  shareWires: readonly SigningRootShareWire[],
+): SigningRootShareWireSet {
+  if (shareWires.length !== policy.threshold) {
+    throw new Error(`shareWires must contain exactly ${policy.threshold} share wires`);
+  }
+  const seen = new Set<number>();
+  const out: SigningRootShareWire[] = [];
+  try {
+    for (const shareWire of shareWires) {
+      const wire = parseSigningRootShareWire(shareWire);
+      const shareId = signingRootShareWireShareId(wire);
+      if (shareId > policy.shareCount) {
+        wire.fill(0);
+        throw new Error('SigningRootShareWire share id exceeds shareCount');
+      }
+      if (seen.has(shareId)) {
+        wire.fill(0);
+        throw new Error('shareWires must contain distinct share ids');
+      }
+      seen.add(shareId);
+      out.push(wire);
+    }
+  } catch (error) {
+    for (const wire of out) wire.fill(0);
+    throw error;
+  }
+  return out;
+}
+
+function flattenSigningRootShareWireSet(shareWires: SigningRootShareWireSet): Uint8Array {
+  const out = new Uint8Array(shareWires.length * THRESHOLD_PRF_SIGNING_ROOT_SHARE_WIRE_LENGTH);
+  shareWires.forEach((wire, index) => {
+    out.set(wire, index * THRESHOLD_PRF_SIGNING_ROOT_SHARE_WIRE_LENGTH);
+  });
+  return out;
+}
+
+function sortedSigningRootShareWireSetIds(shareWires: SigningRootShareWireSet): number[] {
+  return shareWires.map(signingRootShareWireShareId).sort((a, b) => a - b);
+}
+
+function requireMatchingParticipantIds(input: {
+  readonly participantIds: readonly number[];
+  readonly shareIds: readonly number[];
+}): void {
+  const participantIds = input.participantIds.map((value) => requireU16('participantIds', value));
+  participantIds.sort((a, b) => a - b);
+  if (participantIds.length !== input.shareIds.length) {
+    throw new Error('participantIds must match the selected share ids');
+  }
+  for (let i = 0; i < input.shareIds.length; i += 1) {
+    if (participantIds[i] !== input.shareIds[i]) {
+      throw new Error('participantIds must match the selected share ids');
+    }
+  }
+}
+
 function requiredTrimmed(label: string, value: string): string {
   const trimmed = String(value || '').trim();
   if (!trimmed) throw new Error(`${label} is required`);
@@ -95,29 +240,40 @@ function checkedB64u32(label: string, value: unknown): string {
   return text;
 }
 
-export async function deriveEcdsaHssYRelayerFromSigningRootSecretShares(input: {
-  readonly shareWires: SigningRootSecretShareWirePair;
+export async function deriveEcdsaHssYRelayerFromSigningRootShares(input: {
+  readonly policy: ThresholdPrfPolicy;
+  readonly shareWires: readonly SigningRootShareWire[];
   readonly context: EcdsaHssStableKeyPrfContext;
 }): Promise<Uint8Array> {
   await ensureThresholdPrfWasm();
   requireThresholdPrfWasmReady();
 
-  const out = threshold_prf_derive_ecdsa_hss_y_relayer(
-    new Uint8Array(input.shareWires[0]),
-    new Uint8Array(input.shareWires[1]),
-    requiredTrimmed('walletId', input.context.walletId),
-    requiredTrimmed('rpId', input.context.rpId),
-    requiredTrimmed('ecdsaThresholdKeyId', input.context.ecdsaThresholdKeyId),
-    requiredTrimmed('signingRootId', input.context.signingRootId),
-    requiredTrimmed('signingRootVersion', input.context.signingRootVersion),
-    requiredTrimmed('keyPurpose', input.context.keyPurpose),
-    requiredTrimmed('keyVersion', input.context.keyVersion),
-  ) as Uint8Array;
-  return checkedBytes('threshold-prf ecdsa-hss y_relayer', out, 32).slice();
+  const policy = normalizeThresholdPrfPolicy(input.policy);
+  const shareWires = validateSigningRootShareWireSet(policy, input.shareWires);
+  const flattened = flattenSigningRootShareWireSet(shareWires);
+  try {
+    const out = threshold_prf_derive_ecdsa_hss_y_relayer(
+      policy.threshold,
+      policy.shareCount,
+      flattened,
+      requiredTrimmed('walletId', input.context.walletId),
+      requiredTrimmed('rpId', input.context.rpId),
+      requiredTrimmed('ecdsaThresholdKeyId', input.context.ecdsaThresholdKeyId),
+      requiredTrimmed('signingRootId', input.context.signingRootId),
+      requiredTrimmed('signingRootVersion', input.context.signingRootVersion),
+      requiredTrimmed('keyPurpose', input.context.keyPurpose),
+      requiredTrimmed('keyVersion', input.context.keyVersion),
+    ) as Uint8Array;
+    return checkedBytes('threshold-prf ecdsa-hss y_relayer', out, 32).slice();
+  } finally {
+    flattened.fill(0);
+    for (const wire of shareWires) wire.fill(0);
+  }
 }
 
-export async function deriveEd25519HssServerInputsFromSigningRootSecretShares(input: {
-  readonly shareWires: SigningRootSecretShareWirePair;
+export async function deriveEd25519HssServerInputsFromSigningRootShares(input: {
+  readonly policy: ThresholdPrfPolicy;
+  readonly shareWires: readonly SigningRootShareWire[];
   readonly context: ThresholdEd25519HssCanonicalContext;
 }): Promise<
   ThresholdEd25519HssCanonicalContext &
@@ -126,30 +282,44 @@ export async function deriveEd25519HssServerInputsFromSigningRootSecretShares(in
   await ensureThresholdPrfWasm();
   requireThresholdPrfWasmReady();
 
-  const result = threshold_prf_derive_ed25519_hss_server_inputs(
-    new Uint8Array(input.shareWires[0]),
-    new Uint8Array(input.shareWires[1]),
-    requiredTrimmed('signingRootId', input.context.signingRootId),
-    requiredTrimmed('nearAccountId', input.context.nearAccountId),
-    requiredTrimmed('keyPurpose', input.context.keyPurpose),
-    requiredTrimmed('keyVersion', input.context.keyVersion),
-    new Uint32Array(input.context.participantIds.map((value) => Number(value))),
-    Number(input.context.derivationVersion),
-  ) as {
-    contextBindingB64u?: string;
-    yRelayerB64u?: string;
-    tauRelayerB64u?: string;
-  };
+  const policy = normalizeThresholdPrfPolicy(input.policy);
+  const shareWires = validateSigningRootShareWireSet(policy, input.shareWires);
+  const shareIds = sortedSigningRootShareWireSetIds(shareWires);
+  requireMatchingParticipantIds({
+    participantIds: input.context.participantIds,
+    shareIds,
+  });
 
-  return {
-    signingRootId: requiredTrimmed('signingRootId', input.context.signingRootId),
-    nearAccountId: requiredTrimmed('nearAccountId', input.context.nearAccountId),
-    keyPurpose: requiredTrimmed('keyPurpose', input.context.keyPurpose),
-    keyVersion: requiredTrimmed('keyVersion', input.context.keyVersion),
-    participantIds: input.context.participantIds.map((value) => Number(value)),
-    derivationVersion: Number(input.context.derivationVersion),
-    contextBindingB64u: checkedB64u32('contextBindingB64u', result.contextBindingB64u),
-    yRelayerB64u: checkedB64u32('yRelayerB64u', result.yRelayerB64u),
-    tauRelayerB64u: checkedB64u32('tauRelayerB64u', result.tauRelayerB64u),
-  };
+  const flattened = flattenSigningRootShareWireSet(shareWires);
+  try {
+    const result = threshold_prf_derive_ed25519_hss_server_inputs(
+      policy.threshold,
+      policy.shareCount,
+      flattened,
+      requiredTrimmed('signingRootId', input.context.signingRootId),
+      requiredTrimmed('nearAccountId', input.context.nearAccountId),
+      requiredTrimmed('keyPurpose', input.context.keyPurpose),
+      requiredTrimmed('keyVersion', input.context.keyVersion),
+      Number(input.context.derivationVersion),
+    ) as {
+      contextBindingB64u?: string;
+      yRelayerB64u?: string;
+      tauRelayerB64u?: string;
+    };
+
+    return {
+      signingRootId: requiredTrimmed('signingRootId', input.context.signingRootId),
+      nearAccountId: requiredTrimmed('nearAccountId', input.context.nearAccountId),
+      keyPurpose: requiredTrimmed('keyPurpose', input.context.keyPurpose),
+      keyVersion: requiredTrimmed('keyVersion', input.context.keyVersion),
+      participantIds: shareIds,
+      derivationVersion: Number(input.context.derivationVersion),
+      contextBindingB64u: checkedB64u32('contextBindingB64u', result.contextBindingB64u),
+      yRelayerB64u: checkedB64u32('yRelayerB64u', result.yRelayerB64u),
+      tauRelayerB64u: checkedB64u32('tauRelayerB64u', result.tauRelayerB64u),
+    };
+  } finally {
+    flattened.fill(0);
+    for (const wire of shareWires) wire.fill(0);
+  }
 }

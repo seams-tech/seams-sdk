@@ -1,220 +1,82 @@
 # `threshold-prf` Formal Verification Proof Inventory
 
-Last updated: 2026-04-17
+Last updated: June 13, 2026
 
-This inventory tracks planned crate-local proof targets for:
+This inventory tracks the active crate-local formal-verification surface for the
+configurable `t-of-N` threshold-prf API.
 
-- [`crates/threshold-prf`](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf)
+Current gates:
 
-## Current Posture
+```bash
+just threshold-prf-fv
+```
 
-- Verus has a first abstract spec-model track.
-- Executable anti-drift tests pin the committed vector corpus to production
-  helper behavior.
-- Lean/Aeneas boundary extraction is deferred until the Rust boundary is stable.
-- Lean privacy has a narrow structural execution-state model.
-- Current status: Verus abstract spec model exists, production anti-drift
-  parity exists, narrow Lean privacy exists, and `just threshold-prf-fv` is
-  wired. Lean boundary extraction remains deferred.
+## Verus Proof Surface
 
-## FV-THRESHOLD-PRF-001: Domains And Encodings
+Implemented in
+[`verus/src/model.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/formal-verification/verus/src/model.rs):
 
-Target:
-
-- suite id
-- purpose
-- context bytes
-- root scalar
-- share scalar
-- share ID
-- secret signing-root share wire fields
-- partial wire fields
-- PRF output
-
-Property:
-
-- fixed output width
-- explicit purpose/context inputs
-- non-zero signing-root scalar domain
-- canonical share scalar domain, including zero share values
-- non-zero share IDs
-- fixed-width secret signing-root share wires reject wrong width, invalid share
-  IDs, and invalid share scalars
-- fixed-width partial wire context tag
-- malformed encodings rejected
-
-Status:
-
-- proved in the abstract Verus spec model
+- threshold-policy validity:
+  `1 <= threshold <= share_count <= MAX_SHARE_COUNT`
+- share-ID membership:
+  `1 <= share_id <= share_count`
+- duplicate subset rejection for representative `2-of-N` and `3-of-N` shapes
+- out-of-policy share-ID rejection for representative subset shapes
+- representative `2-of-3` and `3-of-5` subset acceptance
+- fixed-width wire claims:
+  - signing-root share wire: 34 bytes
+  - partial wire: 66 bytes
+  - share commitment wire: 34 bytes
+  - DLEQ proof wire: 64 bytes
+  - proof bundle wire: 164 bytes
+- signing-root share-wire decode shape
+- proof-bundle ID binding:
+  - commitment/partial share-ID mismatch is rejected
+  - commitment share IDs outside the selected policy are rejected
+- representative abstract reconstruction claims for `2-of-N` and `3-of-N`
 
 Remaining trust:
 
-- concrete `curve25519-dalek` canonical scalar parsing remains a library seam;
-  production anti-drift tests cover the crate boundary for representative
-  malformed inputs
+- `curve25519-dalek` scalar and Ristretto point arithmetic
+- SHA-512 transcript hashing
+- Fiat-Shamir DLEQ soundness
+- production Lagrange interpolation helper linkage
 
-## FV-THRESHOLD-PRF-002: 2-of-3 Share Validation
+## Executable Anti-Drift
 
-Target:
+Implemented in
+[`verus/tests/anti_drift.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/formal-verification/verus/tests/anti_drift.rs)
+and the production crate tests:
 
-- 2-of-3 subset validation
+- committed `2-of-3` vector parity
+- committed `3-of-5` vector parity
+- Router/A/B-suite vector parity through current context bytes
+- fixed-width signing-root share and partial wire parity
+- subset-rejection behavior against production helpers
+- DLEQ verified-combine output parity for generated valid proof bundles
+- DLEQ malformed proof, wrong-context, duplicate-bundle, and
+  commitment/partial share-ID mismatch rejection in production Rust tests
 
-Property:
+## Lean Proof Surface
 
-- duplicate share IDs rejected
-- one-share subsets rejected
-- unknown/unsupported share IDs rejected if the selected suite fixes IDs to
-  `{1, 2, 3}`
-- each valid pair accepted
+Implemented in
+[`lean-privacy`](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/formal-verification/lean-privacy):
 
-Status:
+- one-server mode is not a privacy boundary
+- one two-server participant does not hold enough plaintext shares to reconstruct
+  the signing root
+- combiner-visible state does not include plaintext signing-root shares
+- public output state does not include enough material to reconstruct the signing
+  root
 
-- proved in the abstract Verus spec model
+## Remaining Proof Work
 
-## FV-THRESHOLD-PRF-003: Shamir Reconstruction
-
-Target:
-
-- Lagrange coefficient model
-- reconstruction from valid 2-of-3 subsets
-
-Property:
-
-- every valid pair reconstructs the same root scalar
-- all valid pairs are equivalent
-
-Status:
-
-- proved in the abstract Verus spec model for generated shares
-
-## FV-THRESHOLD-PRF-004: Share Refresh
-
-Target:
-
-- refreshed 2-of-3 share set
-
-Property:
-
-- share refresh preserves the root scalar
-- refreshed valid pairs reconstruct the same root scalar
-
-Status:
-
-- proved in the abstract Verus spec model for reconstruct-then-resplit refresh
-
-## FV-THRESHOLD-PRF-005: Direct Reference PRF
-
-Target:
-
-- direct reference evaluation
-
-Property:
-
-- deterministic for fixed root, suite, purpose, and context
-- output width is fixed
-- purpose/context are explicit output-derivation inputs
-
-Status:
-
-- proved in the abstract Verus spec model; concrete purpose/context byte
-  inclusion is pinned by the committed vector corpus
-
-## FV-THRESHOLD-PRF-006: Threshold PRF Equivalence
-
-Target:
-
-- partial evaluation
-- partial combination
-- partial wire context-tag validation
-
-Property:
-
-- each valid 2-of-3 partial combination equals direct reference output
-- one-worker and two-worker placement are byte-identical
-- server-SDK secret share-wire Option A derivation produces the same output as
-  direct reference evaluation for generated valid shares
-- transported partials with mismatched context tags are rejected
-- production Option A/Option B equivalence does not depend on direct reference
-  evaluation
-
-Status:
-
-- proved in the abstract Verus spec model
-
-## FV-THRESHOLD-PRF-007: Anti-Drift Vectors
-
-Target:
-
-- committed vector corpus
-- executable parity tests
-
-Property:
-
-- vectors cover root generation, share splitting, direct reference evaluation,
-  valid pairwise combination, server-SDK share-wire derivation, partial wire
-  encoding, share refresh, and malformed-input rejection where practical,
-  including malformed server-SDK signing-root share wires
-
-Status:
-
-- implemented through committed JSON vectors and executable anti-drift tests
-
-## FV-THRESHOLD-PRF-008: DLEQ Boundary
-
-Target:
-
-- DLEQ partial-authenticity boundary
-
-Property:
-
-- share commitment wire width is fixed
-- DLEQ proof wire width is fixed
-- challenge input model carries suite, purpose, context tag, share ID,
-  commitment point, partial point, and nonce points
-- generated abstract DLEQ proofs verify for valid evaluated partials
-- DLEQ proof generation rejects zero nonce input
-- commitment/partial share-ID mismatch is rejected
-- wrong-context DLEQ verification is rejected
-- DLEQ-enforced verified combine rejects duplicate or unverified bundles
-- generated verified bundles combine to the same output as direct reference
-- committed DLEQ vectors match production helpers
-
-Status:
-
-- proved in the abstract Verus spec model and covered by production anti-drift
-  tests for committed DLEQ vectors and verified-combine output parity
-
-Remaining trust:
-
-- Ristretto group arithmetic, SHA-512 challenge derivation, Fiat-Shamir
-  soundness, and concrete DLEQ malicious-worker security remain trusted
-  primitive/protocol seams unless a dedicated cryptographic proof track is added
-
-## FV-THRESHOLD-PRF-009: Two-Server Privacy
-
-Target:
-
-- one-server execution state
-- two-server participant execution state
-- combiner execution state
-- public output state
-
-Property:
-
-- one-server mode observes two plaintext root shares and is not modeled as a
-  malicious-runtime privacy boundary
-- one two-server participant observes only one plaintext root share
-- one two-server participant cannot reconstruct `k_org` in the structural
-  share-count model
-- combiner state excludes plaintext root and share scalars
-- public output state excludes root scalars, share scalars, and reconstructed
-  `k_org`
-
-Status:
-
-- proved in the narrow Lean privacy structural execution-state model
-
-Remaining trust:
-
-- runtime isolation, key wrapping, transport behavior, side-channel resistance,
-  and malicious-server partial correctness remain outside this model
+1. Prove generic interpolation for arbitrary valid threshold subsets.
+2. Connect the generic reconstruction lemma to the production Lagrange helper.
+3. Add symbolic DLEQ verified-combine obligations for wrong context, wrong
+   commitment, malformed proof, and duplicate bundle rejection.
+4. Model DLEQ challenge transcript binding beyond fixed-width wire shape.
+5. Model the Router/A/B context-binding boundary once Router/A/B protocol names
+   settle.
+6. Revisit Lean boundary extraction after the Rust API and downstream
+   boundary stop changing.

@@ -72,14 +72,13 @@ work.
 
 ### `wasm/threshold_prf`
 
-- [x] Add v2 ECDSA relayer-share derivation using the same canonical context
+- [x] Add ECDSA relayer-share derivation using the same canonical context
   bytes as `crates/ecdsa-hss`.
-- [x] Remove `subjectId` and `walletSessionUserId` from the v2 TypeScript PRF
+- [x] Remove `subjectId` and `walletSessionUserId` from the TypeScript PRF
   wrapper.
 - [x] Add parity vectors proving client WASM context binding and server PRF
   relayer derivation agree.
-- [x] Keep v1 derivation reachable only from stale-record classification or
-  test fixtures until those callers are deleted.
+- [x] Remove stale fixed-derivation callers after classification.
 
 ### TypeScript Digest, JWT, and Persistence Layers
 
@@ -209,19 +208,20 @@ pub struct EcdsaHssStableKeyContextV2 {
 - [x] Update formal-verification generated boundary models only after Rust v2
   context is settled.
 
-## Phase 3: Version Threshold PRF ECDSA Derivation
+## Phase 3: Canonicalize Threshold PRF ECDSA Derivation
 
-The relayer share derivation must use the same v2 context bytes as the client.
+The relayer share derivation must use the same canonical context bytes as the
+client.
 
 ### Tasks
 
-- [x] Add v2 ECDSA HSS PRF derivation in `wasm/threshold_prf`.
-- [x] Remove the `subjectId` parameter from the v2 TypeScript wrapper in
+- [x] Add ECDSA HSS PRF derivation in `wasm/threshold_prf`.
+- [x] Remove the `subjectId` parameter from the TypeScript wrapper in
   `server/src/core/ThresholdService/thresholdPrfWasm.ts`.
 - [x] Use the same canonical v2 fields and ordering as
   `crates/ecdsa-hss/src/shared/context.rs`.
-- [x] Add parity vectors proving client HSS v2 context binding and server PRF
-  v2 derivation agree.
+- [x] Add parity vectors proving client HSS context binding and server PRF
+  derivation agree.
 - [x] Delete direct core-code calls to v1 derivation after request/persistence
   boundaries reject v1 records.
 

@@ -1,15 +1,9 @@
 import { expect, test } from '@playwright/test';
 import {
-  createSigningRootSecretResolver,
-  resolveSigningRootSecretShareWirePairFromResolver,
-} from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretResolverAdapters';
-import {
-  createSigningRootSecretAesGcmDecryptAdapter,
   openSigningRootSecretShareWireV1,
   sealSigningRootSecretShareWireV1,
   type SigningRootSecretShareKekResolutionInput,
 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootSecretSealing';
-import { InMemorySigningRootSecretStore } from '../../packages/sdk-server-ts/src/core/ThresholdService/stores/SigningRootSecretStore';
 import type {
   SigningRootSecretShareId,
   SigningRootSecretShareWireV1,
@@ -106,47 +100,4 @@ test('signing-root AES-GCM sealing rejects wrong metadata and malformed envelope
       resolveKek,
     }),
   ).rejects.toThrow(/too short/);
-});
-
-test('signing-root AES-GCM decrypt resolver plugs into the share resolver boundary', async () => {
-  const calls: SigningRootSecretShareKekResolutionInput[] = [];
-  const resolveKek = createKekResolver(calls);
-  const store = new InMemorySigningRootSecretStore();
-  for (const shareId of [1, 2] as const) {
-    const sealedShare = await sealSigningRootSecretShareWireV1({
-      signingRootId: PROJECT_ID,
-      signingRootVersion: SIGNING_ROOT_VERSION,
-      shareId,
-      kekId: KEK_ID,
-      plaintextShareWire: signingRootSecretShareWire(shareId, shareId === 1 ? 0x11 : 0x22),
-      resolveKek,
-    });
-    await store.putSealedSigningRootSecretShare({
-      signingRootId: PROJECT_ID,
-      signingRootVersion: SIGNING_ROOT_VERSION,
-      shareId,
-      sealedShare,
-      kekId: KEK_ID,
-    });
-  }
-
-  const resolver = createSigningRootSecretResolver({
-    store,
-    decryptAdapter: createSigningRootSecretAesGcmDecryptAdapter({ resolveKek }),
-  });
-
-  const resolved = await resolveSigningRootSecretShareWirePairFromResolver({
-    signingRootId: PROJECT_ID,
-    signingRootVersion: SIGNING_ROOT_VERSION,
-    resolver,
-    preferredShareIds: [1, 2],
-  });
-
-  expect(resolved.ok).toBe(true);
-  if (!resolved.ok) throw new Error(resolved.message);
-  expect(Array.from(resolved.value[0].slice(0, 2))).toEqual([1, 0x11]);
-  expect(Array.from(resolved.value[1].slice(0, 2))).toEqual([2, 0x22]);
-  resolved.value[0].fill(0);
-  resolved.value[1].fill(0);
-  expect(calls.map((call) => call.shareId)).toEqual([1, 2, 1, 2]);
 });

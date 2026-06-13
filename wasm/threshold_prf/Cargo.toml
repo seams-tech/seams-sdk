@@ -30,3 +30,8 @@ sha2 = "0.10"
 threshold-prf = { path = "../../crates/threshold-prf" }
 wasm-bindgen = "0.2"
 zeroize = "1.8"
+
+[dev-dependencies]
+rand_chacha = "0.3"
+rand_core = "0.6"
+wasm-bindgen-test = "0.3"

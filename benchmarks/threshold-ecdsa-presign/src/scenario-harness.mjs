@@ -157,18 +157,28 @@ async function deriveBenchmarkKeyHandle(input) {
 function createBenchmarkSigningRootShareResolver() {
   const corpus = JSON.parse(
     fs.readFileSync(
-      new URL('../../../crates/threshold-prf/fixtures/protocol-v1.json', import.meta.url),
+      new URL('../../../crates/threshold-prf/fixtures/protocol-t-of-n.json', import.meta.url),
       'utf8',
     ),
   );
   const vector = (corpus.vectors || []).find((entry) => entry.purpose === 'ecdsa-hss/y_relayer');
-  if (!vector || !Array.isArray(vector.shares) || vector.shares.length < 2) {
+  const threshold = Number(vector?.policy?.threshold);
+  const shareCount = Number(vector?.policy?.share_count);
+  if (!vector || !Number.isInteger(threshold) || !Number.isInteger(shareCount)) {
+    throw new Error('Missing ecdsa-hss/y_relayer threshold-prf policy');
+  }
+  if (!Array.isArray(vector.shares) || vector.shares.length < threshold) {
     throw new Error('Missing ecdsa-hss/y_relayer threshold-prf fixture shares');
   }
   return createSelfHostedSigningRootShareResolver({
     signingRootId: BENCH_SIGNING_ROOT_ID,
     signingRootVersion: BENCH_SIGNING_ROOT_VERSION,
-    shares: vector.shares.slice(0, 2).map((share) => ({
+    policy: {
+      protocol: 'threshold-prf',
+      threshold,
+      shareCount,
+    },
+    shares: vector.shares.slice(0, threshold).map((share) => ({
       shareId: share.id,
       shareWireHex: share.wire_hex,
     })),
@@ -455,7 +465,7 @@ function parseThresholdStoreConfigFromEnv() {
 function makeAuthServiceForThreshold(logger) {
   const thresholdStore = {
     ...parseThresholdStoreConfigFromEnv(),
-    signingRootShareResolver: createBenchmarkSigningRootShareResolver(),
+    signingRootShareResolverV2: createBenchmarkSigningRootShareResolver(),
   };
   const service = new AuthService({
     relayerAccount: 'relayer.testnet',
@@ -475,7 +485,7 @@ function makeAuthServiceForThreshold(logger) {
     createThresholdSigningService({
       authService: service,
       thresholdStore,
-      signingRootShareResolver: thresholdStore.signingRootShareResolver,
+      signingRootShareResolverV2: thresholdStore.signingRootShareResolverV2,
       logger,
     });
 

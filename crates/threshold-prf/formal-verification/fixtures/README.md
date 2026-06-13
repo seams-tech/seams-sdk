@@ -3,23 +3,19 @@
 This directory references committed anti-drift vectors for the
 `threshold-prf` formal-verification track.
 
-Canonical first corpus:
+Canonical current corpora:
 
-- [`../../fixtures/protocol-v1.json`](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/fixtures/protocol-v1.json)
+- [`../../fixtures/protocol-t-of-n.json`](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/fixtures/protocol-t-of-n.json)
+- [`../../fixtures/protocol-wire.json`](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/fixtures/protocol-wire.json)
 
-The first corpus includes:
+The threshold-policy corpus includes:
 
 - root generation from fixed seed material
-- 2-of-3 share splitting
+- 2-of-3 and 3-of-5 share splitting
 - direct reference evaluation
-- each valid pairwise threshold combine path
-- `PrfPartialWireV1` encoding with share ID, context tag, and compressed point
-- refreshed-share behavior
-- malformed-input rejection cases where practical
+- each valid threshold subset for the committed policies
+- `PrfPartialWire` encoding with share ID, context tag, and compressed point
 - purpose vectors for `ecdsa-hss/y_relayer`
-- purpose vectors for `ed25519-hss/y_relayer`
-- purpose vectors for `ed25519-hss/tau_relayer`
-- purpose vectors for `router-ab/x_client_base/v1`
 - purpose vectors for `router-ab/x_relayer_base/v1`
 
 If formal-verification tests need a local copy, it must be byte-identical to the

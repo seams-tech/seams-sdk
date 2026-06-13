@@ -4,11 +4,16 @@ use base64ct::{Base64UrlUnpadded, Encoding};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use threshold_prf::{
-    derive_output_from_signing_root_share_wires, PrfContext, PrfPurpose, SigningRootShareWireV1,
-    SuiteId,
+    combine_partials, combine_verified_partials, evaluate_partial, PrfDleqProof, PrfPartial,
+    PrfPartialProofBundle, PrfPartialWire, SigningRootShare, SigningRootShareCommitment,
+    SigningRootShareWire, ThresholdPolicy, ValidatedThresholdSet,
 };
+use threshold_prf::{PrfContext, PrfPurpose, SuiteId};
 use wasm_bindgen::prelude::*;
 use zeroize::Zeroize;
+
+const PROOF_BUNDLE_WIRE_LEN: usize =
+    PrfPartialWire::LEN + SigningRootShareCommitment::LEN + PrfDleqProof::LEN;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -39,6 +44,25 @@ fn validate_ascii_field<'a>(label: &str, value: &'a str) -> Result<&'a str, JsVa
     Ok(value)
 }
 
+fn parse_prf_purpose(purpose: &str) -> Result<PrfPurpose, JsValue> {
+    match purpose {
+        "ecdsa-hss/y_relayer" => Ok(PrfPurpose::EcdsaHssYRelayer),
+        "ed25519-hss/y_relayer" => Ok(PrfPurpose::Ed25519HssYRelayer),
+        "ed25519-hss/tau_relayer" => Ok(PrfPurpose::Ed25519HssTauRelayer),
+        "router-ab/x_client_base/v1" => Ok(PrfPurpose::RouterAbXClientBaseV1),
+        "router-ab/x_relayer_base/v1" => Ok(PrfPurpose::RouterAbXRelayerBaseV1),
+        _ => Err(js_error("unknown threshold-prf purpose")),
+    }
+}
+
+fn prf_context(purpose: &str, context_bytes: Vec<u8>) -> Result<PrfContext, JsValue> {
+    Ok(PrfContext::new(
+        SuiteId::Ristretto255Sha512,
+        parse_prf_purpose(purpose)?,
+        context_bytes,
+    ))
+}
+
 fn push_len16(out: &mut Vec<u8>, label: &str, value: &str) -> Result<(), JsValue> {
     let value = validate_ascii_field(label, value)?;
     out.extend_from_slice(&(value.len() as u16).to_be_bytes());
@@ -46,7 +70,7 @@ fn push_len16(out: &mut Vec<u8>, label: &str, value: &str) -> Result<(), JsValue
     Ok(())
 }
 
-fn encode_ecdsa_hss_context_v2(
+fn encode_ecdsa_hss_context_with_participants(
     wallet_id: &str,
     rp_id: &str,
     ecdsa_threshold_key_id: &str,
@@ -54,7 +78,14 @@ fn encode_ecdsa_hss_context_v2(
     signing_root_version: &str,
     key_purpose: &str,
     key_version: &str,
+    participant_ids: &[u16],
 ) -> Result<Vec<u8>, JsValue> {
+    let participant_count = u8::try_from(participant_ids.len())
+        .map_err(|_| js_error("participant count exceeds ecdsa-hss context capacity"))?;
+    if participant_count == 0 {
+        return Err(js_error("participant_ids must be non-empty"));
+    }
+
     let mut out = Vec::new();
     out.extend_from_slice(b"ecdsa-hss:context:v2");
     push_len16(&mut out, "scheme_id", "ecdsa-hss-v2")?;
@@ -62,18 +93,15 @@ fn encode_ecdsa_hss_context_v2(
     push_len16(&mut out, "wallet_id", wallet_id)?;
     push_len16(&mut out, "rp_id", rp_id)?;
     push_len16(&mut out, "key_scope", "evm-family")?;
-    push_len16(
-        &mut out,
-        "ecdsa_threshold_key_id",
-        ecdsa_threshold_key_id,
-    )?;
+    push_len16(&mut out, "ecdsa_threshold_key_id", ecdsa_threshold_key_id)?;
     push_len16(&mut out, "signing_root_id", signing_root_id)?;
     push_len16(&mut out, "signing_root_version", signing_root_version)?;
     push_len16(&mut out, "key_purpose", key_purpose)?;
     push_len16(&mut out, "key_version", key_version)?;
-    out.push(2);
-    out.extend_from_slice(&1u16.to_be_bytes());
-    out.extend_from_slice(&2u16.to_be_bytes());
+    out.push(participant_count);
+    for participant_id in participant_ids {
+        out.extend_from_slice(&participant_id.to_be_bytes());
+    }
     Ok(out)
 }
 
@@ -94,13 +122,14 @@ fn update_len32(hasher: &mut Sha256, value: &str) {
     hasher.update(value.as_bytes());
 }
 
-fn ed25519_hss_context_binding_v1(
+fn ed25519_hss_context_binding_v1_with_min_participants(
     signing_root_id: &str,
     account_id: &str,
     key_purpose: &str,
     key_version: &str,
     mut participant_ids: Vec<u16>,
     derivation_version: u32,
+    min_participants: usize,
 ) -> Result<[u8; 32], JsValue> {
     validate_ed25519_field("signing_root_id", signing_root_id)?;
     validate_ed25519_field("account_id", account_id)?;
@@ -110,9 +139,9 @@ fn ed25519_hss_context_binding_v1(
     participant_ids.retain(|value| *value > 0);
     participant_ids.sort_unstable();
     participant_ids.dedup();
-    if participant_ids.len() < 2 {
+    if participant_ids.len() < min_participants {
         return Err(js_error(
-            "participant_ids must contain at least two non-zero identifiers",
+            "participant_ids must contain the required non-zero identifiers",
         ));
     }
 
@@ -134,42 +163,179 @@ fn ed25519_hss_context_binding_v1(
     Ok(out)
 }
 
-fn decode_signing_root_share_wire(mut bytes: Vec<u8>) -> Result<SigningRootShareWireV1, JsValue> {
-    let decoded = SigningRootShareWireV1::decode_slice(&bytes).map_err(js_threshold_error);
-    bytes.zeroize();
-    decoded
+fn decode_policy(threshold: u32, share_count: u32) -> Result<ThresholdPolicy, JsValue> {
+    let threshold = u16::try_from(threshold).map_err(|_| js_error("threshold must fit in u16"))?;
+    let share_count =
+        u16::try_from(share_count).map_err(|_| js_error("share_count must fit in u16"))?;
+    ThresholdPolicy::from_u16s(threshold, share_count).map_err(js_threshold_error)
 }
 
-fn derive_hss_output(
-    share_wire_i: Vec<u8>,
-    share_wire_j: Vec<u8>,
-    purpose: PrfPurpose,
-    context_bytes: Vec<u8>,
-) -> Result<Vec<u8>, JsValue> {
-    let left = decode_signing_root_share_wire(share_wire_i)?;
-    let right = decode_signing_root_share_wire(share_wire_j)?;
-    derive_hss_output_from_wires(&[left, right], purpose, context_bytes)
+fn decode_signing_root_share_set(
+    threshold: u32,
+    share_count: u32,
+    mut share_wire_bytes: Vec<u8>,
+) -> Result<ValidatedThresholdSet<SigningRootShare>, JsValue> {
+    let policy = match decode_policy(threshold, share_count) {
+        Ok(policy) => policy,
+        Err(error) => {
+            share_wire_bytes.zeroize();
+            return Err(error);
+        }
+    };
+    let expected_len = usize::from(policy.threshold().get()) * SigningRootShareWire::LEN;
+    if share_wire_bytes.len() != expected_len {
+        share_wire_bytes.zeroize();
+        return Err(js_error(format!(
+            "share_wires must contain exactly {} share wires",
+            policy.threshold()
+        )));
+    }
+
+    let shares = share_wire_bytes
+        .chunks_exact(SigningRootShareWire::LEN)
+        .map(|chunk| {
+            SigningRootShareWire::decode_slice(chunk)
+                .and_then(|wire| wire.to_share())
+                .map_err(js_threshold_error)
+        })
+        .collect::<Result<Vec<_>, _>>();
+    share_wire_bytes.zeroize();
+    ValidatedThresholdSet::from_signing_root_shares(policy, shares?).map_err(js_threshold_error)
 }
 
-fn derive_hss_output_from_wires(
-    share_wires: &[SigningRootShareWireV1; 2],
-    purpose: PrfPurpose,
-    context_bytes: Vec<u8>,
-) -> Result<Vec<u8>, JsValue> {
-    let context = PrfContext::new(SuiteId::Ristretto255Sha512V1, purpose, context_bytes);
-    let output = derive_output_from_signing_root_share_wires(share_wires, &context)
+fn decode_partial_set(
+    threshold: u32,
+    share_count: u32,
+    mut partial_wire_bytes: Vec<u8>,
+) -> Result<ValidatedThresholdSet<PrfPartial>, JsValue> {
+    let policy = match decode_policy(threshold, share_count) {
+        Ok(policy) => policy,
+        Err(error) => {
+            partial_wire_bytes.zeroize();
+            return Err(error);
+        }
+    };
+    let expected_len = usize::from(policy.threshold().get()) * PrfPartialWire::LEN;
+    if partial_wire_bytes.len() != expected_len {
+        partial_wire_bytes.zeroize();
+        return Err(js_error(format!(
+            "partial_wires must contain exactly {} partial wires",
+            policy.threshold()
+        )));
+    }
+
+    let partials = partial_wire_bytes
+        .chunks_exact(PrfPartialWire::LEN)
+        .map(|chunk| {
+            PrfPartialWire::decode_slice(chunk)
+                .and_then(|wire| wire.to_partial())
+                .map_err(js_threshold_error)
+        })
+        .collect::<Result<Vec<_>, _>>();
+    partial_wire_bytes.zeroize();
+    ValidatedThresholdSet::from_partials(policy, partials?).map_err(js_threshold_error)
+}
+
+fn decode_proof_bundle_set(
+    threshold: u32,
+    share_count: u32,
+    mut proof_bundle_bytes: Vec<u8>,
+) -> Result<ValidatedThresholdSet<PrfPartialProofBundle>, JsValue> {
+    let policy = match decode_policy(threshold, share_count) {
+        Ok(policy) => policy,
+        Err(error) => {
+            proof_bundle_bytes.zeroize();
+            return Err(error);
+        }
+    };
+    let expected_len = usize::from(policy.threshold().get()) * PROOF_BUNDLE_WIRE_LEN;
+    if proof_bundle_bytes.len() != expected_len {
+        proof_bundle_bytes.zeroize();
+        return Err(js_error(format!(
+            "proof_bundle_wires must contain exactly {} proof bundles",
+            policy.threshold()
+        )));
+    }
+
+    let bundles = proof_bundle_bytes
+        .chunks_exact(PROOF_BUNDLE_WIRE_LEN)
+        .map(decode_proof_bundle)
+        .collect::<Result<Vec<_>, _>>();
+    proof_bundle_bytes.zeroize();
+    ValidatedThresholdSet::from_proof_bundles(policy, bundles?).map_err(js_threshold_error)
+}
+
+fn decode_proof_bundle(chunk: &[u8]) -> Result<PrfPartialProofBundle, JsValue> {
+    let commitment_start = PrfPartialWire::LEN;
+    let proof_start = commitment_start + SigningRootShareCommitment::LEN;
+    let proof_end = proof_start + PrfDleqProof::LEN;
+
+    let partial = PrfPartialWire::decode_slice(&chunk[..commitment_start])
+        .and_then(|wire| wire.to_partial())
         .map_err(js_threshold_error)?;
+    let commitment = SigningRootShareCommitment::from_slice(&chunk[commitment_start..proof_start])
+        .map_err(js_threshold_error)?;
+    let proof =
+        PrfDleqProof::from_slice(&chunk[proof_start..proof_end]).map_err(js_threshold_error)?;
+
+    Ok(PrfPartialProofBundle {
+        partial,
+        commitment,
+        proof,
+    })
+}
+
+fn derive_hss_output_from_shares(
+    shares: &ValidatedThresholdSet<SigningRootShare>,
+    purpose: PrfPurpose,
+    context_bytes: Vec<u8>,
+) -> Result<Vec<u8>, JsValue> {
+    let context = PrfContext::new(SuiteId::Ristretto255Sha512, purpose, context_bytes);
+    let partials = shares
+        .values()
+        .iter()
+        .map(|share| evaluate_partial(share, &context).map_err(js_threshold_error))
+        .collect::<Result<Vec<_>, _>>()?;
+    let partial_set = ValidatedThresholdSet::from_partials(*shares.policy(), partials)
+        .map_err(js_threshold_error)?;
+    let output = combine_partials(&partial_set, &context).map_err(js_threshold_error)?;
     Ok(output.as_bytes().to_vec())
 }
 
-fn participant_ids_u16(participant_ids: Vec<u32>) -> Result<Vec<u16>, JsValue> {
-    participant_ids
-        .into_iter()
-        .map(|value| {
-            u16::try_from(value)
-                .map_err(|_| js_error("participantIds must contain only u16 values"))
-        })
-        .collect()
+fn combine_partial_wires(
+    threshold: u32,
+    share_count: u32,
+    partial_wires: Vec<u8>,
+    purpose: String,
+    context_bytes: Vec<u8>,
+) -> Result<Vec<u8>, JsValue> {
+    let partials = decode_partial_set(threshold, share_count, partial_wires)?;
+    let context = prf_context(&purpose, context_bytes)?;
+    let output = combine_partials(&partials, &context).map_err(js_threshold_error)?;
+    Ok(output.as_bytes().to_vec())
+}
+
+fn combine_proof_bundles(
+    threshold: u32,
+    share_count: u32,
+    proof_bundle_wires: Vec<u8>,
+    purpose: String,
+    context_bytes: Vec<u8>,
+) -> Result<Vec<u8>, JsValue> {
+    let bundles = decode_proof_bundle_set(threshold, share_count, proof_bundle_wires)?;
+    let context = prf_context(&purpose, context_bytes)?;
+    let output = combine_verified_partials(&bundles, &context).map_err(js_threshold_error)?;
+    Ok(output.as_bytes().to_vec())
+}
+
+fn sorted_share_ids(shares: &ValidatedThresholdSet<SigningRootShare>) -> Vec<u16> {
+    let mut ids = shares
+        .values()
+        .iter()
+        .map(|share| share.id().get().get())
+        .collect::<Vec<_>>();
+    ids.sort_unstable();
+    ids
 }
 
 #[wasm_bindgen]
@@ -179,8 +345,9 @@ pub fn init_threshold_prf() {
 
 #[wasm_bindgen]
 pub fn threshold_prf_derive_ecdsa_hss_y_relayer(
-    share_wire_i: Vec<u8>,
-    share_wire_j: Vec<u8>,
+    threshold: u32,
+    share_count: u32,
+    share_wires: Vec<u8>,
     wallet_id: String,
     rp_id: String,
     ecdsa_threshold_key_id: String,
@@ -189,7 +356,9 @@ pub fn threshold_prf_derive_ecdsa_hss_y_relayer(
     key_purpose: String,
     key_version: String,
 ) -> Result<Vec<u8>, JsValue> {
-    let context_bytes = encode_ecdsa_hss_context_v2(
+    let shares = decode_signing_root_share_set(threshold, share_count, share_wires)?;
+    let participant_ids = sorted_share_ids(&shares);
+    let context_bytes = encode_ecdsa_hss_context_with_participants(
         &wallet_id,
         &rp_id,
         &ecdsa_threshold_key_id,
@@ -197,47 +366,71 @@ pub fn threshold_prf_derive_ecdsa_hss_y_relayer(
         &signing_root_version,
         &key_purpose,
         &key_version,
+        &participant_ids,
     )?;
-    derive_hss_output(
-        share_wire_i,
-        share_wire_j,
-        PrfPurpose::EcdsaHssYRelayer,
+    derive_hss_output_from_shares(&shares, PrfPurpose::EcdsaHssYRelayer, context_bytes)
+}
+
+#[wasm_bindgen]
+pub fn threshold_prf_combine_partials(
+    threshold: u32,
+    share_count: u32,
+    partial_wires: Vec<u8>,
+    purpose: String,
+    context_bytes: Vec<u8>,
+) -> Result<Vec<u8>, JsValue> {
+    combine_partial_wires(
+        threshold,
+        share_count,
+        partial_wires,
+        purpose,
+        context_bytes,
+    )
+}
+
+#[wasm_bindgen]
+pub fn threshold_prf_combine_verified_partials(
+    threshold: u32,
+    share_count: u32,
+    proof_bundle_wires: Vec<u8>,
+    purpose: String,
+    context_bytes: Vec<u8>,
+) -> Result<Vec<u8>, JsValue> {
+    combine_proof_bundles(
+        threshold,
+        share_count,
+        proof_bundle_wires,
+        purpose,
         context_bytes,
     )
 }
 
 #[wasm_bindgen]
 pub fn threshold_prf_derive_ed25519_hss_server_inputs(
-    share_wire_i: Vec<u8>,
-    share_wire_j: Vec<u8>,
+    threshold: u32,
+    share_count: u32,
+    share_wires: Vec<u8>,
     signing_root_id: String,
     account_id: String,
     key_purpose: String,
     key_version: String,
-    participant_ids: Vec<u32>,
     derivation_version: u32,
 ) -> Result<JsValue, JsValue> {
-    let binding = ed25519_hss_context_binding_v1(
+    let shares = decode_signing_root_share_set(threshold, share_count, share_wires)?;
+    let participant_ids = sorted_share_ids(&shares);
+    let binding = ed25519_hss_context_binding_v1_with_min_participants(
         &signing_root_id,
         &account_id,
         &key_purpose,
         &key_version,
-        participant_ids_u16(participant_ids)?,
+        participant_ids,
         derivation_version,
+        usize::from(shares.policy().threshold().get()),
     )?;
-    let left = decode_signing_root_share_wire(share_wire_i)?;
-    let right = decode_signing_root_share_wire(share_wire_j)?;
-    let share_wires = [left, right];
-    let y_relayer = derive_hss_output_from_wires(
-        &share_wires,
-        PrfPurpose::Ed25519HssYRelayer,
-        binding.to_vec(),
-    )?;
-    let tau_relayer = derive_hss_output_from_wires(
-        &share_wires,
-        PrfPurpose::Ed25519HssTauRelayer,
-        binding.to_vec(),
-    )?;
+    let y_relayer =
+        derive_hss_output_from_shares(&shares, PrfPurpose::Ed25519HssYRelayer, binding.to_vec())?;
+    let tau_relayer =
+        derive_hss_output_from_shares(&shares, PrfPurpose::Ed25519HssTauRelayer, binding.to_vec())?;
 
     serde_wasm_bindgen::to_value(&Ed25519HssServerInputsOutput {
         context_binding_b64u: Base64UrlUnpadded::encode_string(&binding),
@@ -249,4 +442,186 @@ pub fn threshold_prf_derive_ed25519_hss_server_inputs(
             "failed to serialize ed25519-hss server inputs: {error}"
         ))
     })
+}
+
+#[cfg(all(test, target_arch = "wasm32"))]
+mod tests {
+    use rand_chacha::ChaCha20Rng;
+    use rand_core::SeedableRng;
+    use threshold_prf::{
+        combine_partials as core_combine_partials,
+        combine_verified_partials as core_combine_verified_partials,
+        evaluate_partial as core_evaluate_partial,
+        evaluate_partial_with_dleq_proof as core_evaluate_partial_with_dleq_proof,
+        generate_signing_root, split_signing_root,
+    };
+    use wasm_bindgen_test::wasm_bindgen_test;
+
+    use super::*;
+
+    const ROUTER_CLIENT_PURPOSE: &str = "router-ab/x_client_base/v1";
+
+    fn seeded_rng(seed: u8) -> ChaCha20Rng {
+        ChaCha20Rng::from_seed([seed; 32])
+    }
+
+    fn router_context(bytes: &'static [u8]) -> PrfContext {
+        PrfContext::new(
+            SuiteId::Ristretto255Sha512,
+            PrfPurpose::RouterAbXClientBaseV1,
+            bytes,
+        )
+    }
+
+    #[wasm_bindgen_test]
+    fn combine_partials_export_matches_core_api() {
+        let policy = ThresholdPolicy::from_u16s(3, 5).unwrap();
+        let mut rng = seeded_rng(11);
+        let root = generate_signing_root(&mut rng);
+        let shares = split_signing_root(&root, policy, &mut rng).unwrap();
+        let context = router_context(b"wasm:partials");
+        let partials = vec![
+            core_evaluate_partial(&shares[0], &context).unwrap(),
+            core_evaluate_partial(&shares[2], &context).unwrap(),
+            core_evaluate_partial(&shares[4], &context).unwrap(),
+        ];
+        let partial_set = ValidatedThresholdSet::from_partials(policy, partials.clone()).unwrap();
+        let expected = core_combine_partials(&partial_set, &context)
+            .unwrap()
+            .as_bytes()
+            .to_vec();
+        let partial_wires = partials
+            .iter()
+            .flat_map(|partial| PrfPartialWire::from_partial(partial).to_bytes())
+            .collect();
+
+        let actual = threshold_prf_combine_partials(
+            3,
+            5,
+            partial_wires,
+            ROUTER_CLIENT_PURPOSE.to_owned(),
+            b"wasm:partials".to_vec(),
+        )
+        .unwrap();
+
+        assert_eq!(actual, expected);
+    }
+
+    #[wasm_bindgen_test]
+    fn combine_verified_partials_export_matches_core_api() {
+        let policy = ThresholdPolicy::from_u16s(3, 5).unwrap();
+        let mut root_rng = seeded_rng(21);
+        let root = generate_signing_root(&mut root_rng);
+        let shares = split_signing_root(&root, policy, &mut root_rng).unwrap();
+        let context = router_context(b"wasm:proof-bundles");
+        let bundles = vec![
+            core_evaluate_partial_with_dleq_proof(&shares[0], &context, &mut seeded_rng(22))
+                .unwrap(),
+            core_evaluate_partial_with_dleq_proof(&shares[2], &context, &mut seeded_rng(23))
+                .unwrap(),
+            core_evaluate_partial_with_dleq_proof(&shares[4], &context, &mut seeded_rng(24))
+                .unwrap(),
+        ];
+        let bundle_set =
+            ValidatedThresholdSet::from_proof_bundles(policy, bundles.clone()).unwrap();
+        let expected = core_combine_verified_partials(&bundle_set, &context)
+            .unwrap()
+            .as_bytes()
+            .to_vec();
+        let bundle_wires = bundles
+            .iter()
+            .flat_map(|bundle| {
+                let mut bytes = Vec::with_capacity(PROOF_BUNDLE_WIRE_LEN);
+                bytes.extend_from_slice(&PrfPartialWire::from_partial(&bundle.partial).to_bytes());
+                bytes.extend_from_slice(&bundle.commitment.to_bytes());
+                bytes.extend_from_slice(&bundle.proof.to_bytes());
+                bytes
+            })
+            .collect();
+
+        let actual = threshold_prf_combine_verified_partials(
+            3,
+            5,
+            bundle_wires,
+            ROUTER_CLIENT_PURPOSE.to_owned(),
+            b"wasm:proof-bundles".to_vec(),
+        )
+        .unwrap();
+
+        assert_eq!(actual, expected);
+    }
+
+    #[wasm_bindgen_test]
+    fn combine_partials_export_rejects_invalid_boundary_inputs() {
+        let policy = ThresholdPolicy::from_u16s(2, 3).unwrap();
+        let mut rng = seeded_rng(31);
+        let root = generate_signing_root(&mut rng);
+        let shares = split_signing_root(&root, policy, &mut rng).unwrap();
+        let context = router_context(b"wasm:reject");
+        let partial = core_evaluate_partial(&shares[0], &context).unwrap();
+        let wire = PrfPartialWire::from_partial(&partial).to_bytes();
+
+        assert!(threshold_prf_combine_partials(
+            2,
+            3,
+            wire.into_iter().chain(wire).collect(),
+            ROUTER_CLIENT_PURPOSE.to_owned(),
+            b"wasm:reject".to_vec(),
+        )
+        .is_err());
+
+        assert!(threshold_prf_combine_partials(
+            2,
+            3,
+            PrfPartialWire::from_partial(&partial).to_bytes().to_vec(),
+            ROUTER_CLIENT_PURPOSE.to_owned(),
+            b"wasm:reject".to_vec(),
+        )
+        .is_err());
+
+        let other_partial = core_evaluate_partial(&shares[1], &context).unwrap();
+        let valid_wires = [partial, other_partial]
+            .iter()
+            .flat_map(|partial| PrfPartialWire::from_partial(partial).to_bytes())
+            .collect();
+        assert!(threshold_prf_combine_partials(
+            2,
+            3,
+            valid_wires,
+            ROUTER_CLIENT_PURPOSE.to_owned(),
+            b"wasm:wrong-context".to_vec(),
+        )
+        .is_err());
+    }
+
+    #[wasm_bindgen_test]
+    fn combine_verified_partials_export_rejects_malformed_bundle_bytes() {
+        let mut malformed = vec![0u8; PROOF_BUNDLE_WIRE_LEN - 1];
+        assert!(threshold_prf_combine_verified_partials(
+            1,
+            1,
+            malformed.clone(),
+            ROUTER_CLIENT_PURPOSE.to_owned(),
+            b"wasm:malformed-bundle".to_vec(),
+        )
+        .is_err());
+
+        malformed.resize(PROOF_BUNDLE_WIRE_LEN, 0);
+        assert!(threshold_prf_combine_verified_partials(
+            1,
+            1,
+            malformed,
+            ROUTER_CLIENT_PURPOSE.to_owned(),
+            b"wasm:malformed-bundle".to_vec(),
+        )
+        .is_err());
+    }
+
+    #[wasm_bindgen_test]
+    fn proof_bundle_wire_length_matches_public_component_widths() {
+        assert_eq!(
+            PROOF_BUNDLE_WIRE_LEN,
+            PrfPartialWire::LEN + SigningRootShareCommitment::LEN + PrfDleqProof::LEN
+        );
+    }
 }

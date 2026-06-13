@@ -17,18 +17,18 @@ const ROOT = path.resolve(path.join(__dirname, '../..'));
 const RELAY_DIR = path.join(ROOT, 'examples', 'relay-server');
 const DEFAULT_CACHE = path.join(RELAY_DIR, '.provision-cache.json');
 const CACHE_PATH = process.env.RELAY_PROVISION_CACHE_PATH || DEFAULT_CACHE;
-const SIGNING_ROOT_SECRET_SHARE_WIRES = [
+const SIGNING_ROOT_SHARE_WIRES = [
   {
     shareId: 1,
-    wireHex: '011ba5f9c2f4003d409a9358a20b40b37eb32a28daacc5676a468b64a203c1e303',
+    wireHex: '0001d73847ea1a0888265782eb6998f3d905b8275fa4e5fda6556ddacc3b28741702',
   },
   {
     shareId: 2,
-    wireHex: '021bb9834016ae79b9a815f68d1f456b35acb1b5631dd04e1cab9f640852aaed0d',
+    wireHex: '0002b3ee4da8422ffeebb66bd0b55afb5d072f55aa324698a89c0a8b234042fd6c0f',
   },
   {
     shareId: 3,
-    wireHex: '032ef917611df8a3dae0fa9bd6545044d7a43843ed8dda35ce0fb4646ea093f707',
+    wireHex: '0003a2d05e0950f3615940b8bd5e3e0903f4a582f5c0a632aae3a73b7a445c86c20c',
   },
 ];
 
@@ -37,15 +37,15 @@ async function readCache() {
   return JSON.parse(txt);
 }
 
-function createFixtureSigningRootSecretResolver() {
+function createFixtureSigningRootShareResolver() {
   const shares = new Map(
-    SIGNING_ROOT_SECRET_SHARE_WIRES.map((share) => [
+    SIGNING_ROOT_SHARE_WIRES.map((share) => [
       share.shareId,
       new Uint8Array(Buffer.from(share.wireHex, 'hex')),
     ]),
   );
   return {
-    listSealedSigningRootSecretShares: async (input) =>
+    listSealedSigningRootShares: async (input) =>
       Array.from(shares.keys())
         .sort((a, b) => a - b)
         .map((shareId) => ({
@@ -86,20 +86,25 @@ async function main() {
   } catch {}
 
   // Threshold signing services (in-memory stores are sufficient for test runs).
-  const fixtureSigningRootSecretResolver = createFixtureSigningRootSecretResolver();
+  const fixtureSigningRootShareResolver = createFixtureSigningRootShareResolver();
   const threshold = createThresholdSigningService({
     authService,
     thresholdStore: {
       kind: 'in-memory',
       THRESHOLD_NODE_ROLE: 'coordinator',
       signingRootShareResolver: createHostedSigningRootShareResolver({
+        policy: {
+          protocol: 'threshold-prf',
+          threshold: 2,
+          shareCount: 3,
+        },
         storageAdapter: {
-          listSealedSigningRootSecretShares: (request) =>
-            fixtureSigningRootSecretResolver.listSealedSigningRootSecretShares(request),
+          listSealedSigningRootShares: (request) =>
+            fixtureSigningRootShareResolver.listSealedSigningRootShares(request),
         },
         decryptAdapter: {
-          decryptSigningRootSecretShare: (record) =>
-            fixtureSigningRootSecretResolver.decryptSigningRootSecretShare(record),
+          decryptSigningRootShare: (record) =>
+            fixtureSigningRootShareResolver.decryptSigningRootSecretShare(record),
         },
       }),
     },

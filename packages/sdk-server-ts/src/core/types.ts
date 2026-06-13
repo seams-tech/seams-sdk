@@ -35,12 +35,12 @@ import type {
   WalletId,
 } from '@shared/utils/registrationIntent';
 import type {
-  SigningRootSecretDecryptAdapter,
-  SigningRootSecretResolverAdapters,
-  SigningRootSecretShareSource,
-} from './ThresholdService/signingRootSecretResolverAdapters';
-import type { SigningRootSecretShareKekResolver } from './ThresholdService/signingRootSecretSealing';
-import type { SigningRootShareResolver } from './ThresholdService/signingRootShareResolver';
+  CreateHostedSigningRootShareResolverInput,
+  SigningRootShareDecryptAdapter,
+  SigningRootShareResolver,
+  SigningRootShareSource,
+} from './ThresholdService/signingRootShareResolver';
+import type { ThresholdPrfPolicy } from './ThresholdService/thresholdPrfWasm';
 
 /**
  * WASM Bindgen generates a `free` method and a `[Symbol.dispose]` method on all structs.
@@ -1260,15 +1260,15 @@ export type ThresholdStoreEnvInput = {
   SIGNING_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX?: string;
   SIGNING_SESSION_SEAL_IDEMPOTENCY_TTL_MS?: string;
   /**
-   * Core signing-root dependency for signing. Hosted deployments usually build
-   * this from storage/decrypt adapters. Direct self-host deployments can supply
-   * a resolver backed by imported signing-root shares and do not need a KEK env.
+   * Core signing-root dependency for active signing. Hosted deployments
+   * usually build this from storage/decrypt adapters. Direct self-host
+   * deployments can supply a resolver backed by imported signing-root shares.
    */
   signingRootShareResolver?: SigningRootShareResolver;
-  signingRootSecretResolverAdapters?: SigningRootSecretResolverAdapters;
-  signingRootSecretStore?: SigningRootSecretShareSource;
-  signingRootSecretDecryptAdapter?: SigningRootSecretDecryptAdapter;
-  signingRootSecretShareKekResolver?: SigningRootSecretShareKekResolver;
+  signingRootShareResolverAdapters?: CreateHostedSigningRootShareResolverInput;
+  signingRootSharePolicy?: ThresholdPrfPolicy;
+  signingRootShareStore?: SigningRootShareSource;
+  signingRootShareDecryptAdapter?: SigningRootShareDecryptAdapter;
 };
 
 /**

@@ -2,20 +2,24 @@ use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
 use threshold_prf::{
-    combine_partials, combine_verified_partials, derive_output_from_signing_root_share_wires,
-    derive_output_from_signing_root_shares, evaluate_direct_reference, evaluate_partial,
-    evaluate_partial_with_dleq_proof, generate_signing_root, refresh_signing_root_shares_2_of_3,
-    split_signing_root_2_of_3, verify_partial_dleq_proof, PrfContext, PrfOutput32, PrfPartial,
-    PrfPurpose, SigningRootScalar, SigningRootShare, SigningRootShareWireV1, SuiteId,
+    combine_partials, combine_verified_partials, evaluate_direct_reference, evaluate_partial,
+    evaluate_partial_with_dleq_proof, generate_signing_root, split_signing_root,
+    verify_partial_dleq_proof, PrfPartial, SigningRootScalar, SigningRootShare, ThresholdPolicy,
+    ValidatedThresholdSet,
 };
+use threshold_prf::{PrfContext, PrfOutput32, PrfPurpose, SuiteId};
 
 fn seeded_rng(seed: u8) -> ChaCha20Rng {
     ChaCha20Rng::from_seed([seed; 32])
 }
 
+fn policy(threshold: u16, share_count: u16) -> ThresholdPolicy {
+    ThresholdPolicy::from_u16s(threshold, share_count).expect("benchmark policy is valid")
+}
+
 fn wallet_context() -> PrfContext {
     PrfContext::new(
-        SuiteId::Ristretto255Sha512V1,
+        SuiteId::Ristretto255Sha512,
         PrfPurpose::EcdsaHssYRelayer,
         b"project:alpha/wallet:0",
     )
@@ -32,13 +36,30 @@ fn partial(share: &SigningRootShare, context: &PrfContext) -> PrfPartial {
 fn bench_threshold_prf(c: &mut Criterion) {
     let mut setup_rng = seeded_rng(42);
     let root = generate_signing_root(&mut setup_rng);
-    let shares = split_signing_root_2_of_3(&root, &mut setup_rng);
+    let policy_2_of_3 = policy(2, 3);
+    let policy_3_of_5 = policy(3, 5);
     let context = wallet_context();
-    let partials = [partial(&shares[0], &context), partial(&shares[1], &context)];
-    let share_wires = [
-        SigningRootShareWireV1::from_share(&shares[0]),
-        SigningRootShareWireV1::from_share(&shares[2]),
-    ];
+    let shares_2_of_3 =
+        split_signing_root(&root, policy_2_of_3, &mut setup_rng).expect("benchmark split succeeds");
+    let shares_3_of_5 =
+        split_signing_root(&root, policy_3_of_5, &mut setup_rng).expect("benchmark split succeeds");
+    let partials_2_of_3 = ValidatedThresholdSet::from_partials(
+        policy_2_of_3,
+        vec![
+            partial(&shares_2_of_3[0], &context),
+            partial(&shares_2_of_3[2], &context),
+        ],
+    )
+    .expect("benchmark partial set is valid");
+    let partials_3_of_5 = ValidatedThresholdSet::from_partials(
+        policy_3_of_5,
+        vec![
+            partial(&shares_3_of_5[0], &context),
+            partial(&shares_3_of_5[2], &context),
+            partial(&shares_3_of_5[4], &context),
+        ],
+    )
+    .expect("benchmark partial set is valid");
 
     let mut group = c.benchmark_group("threshold_prf");
 
@@ -52,8 +73,30 @@ fn bench_threshold_prf(c: &mut Criterion) {
 
     group.bench_function("split_signing_root_2_of_3", |b| {
         b.iter_batched(
-            || seeded_rng(2),
-            |mut rng| split_signing_root_2_of_3(black_box(&root), black_box(&mut rng)),
+            || seeded_rng(12),
+            |mut rng| {
+                split_signing_root(
+                    black_box(&root),
+                    black_box(policy_2_of_3),
+                    black_box(&mut rng),
+                )
+                .unwrap()
+            },
+            BatchSize::SmallInput,
+        )
+    });
+
+    group.bench_function("split_signing_root_3_of_5", |b| {
+        b.iter_batched(
+            || seeded_rng(13),
+            |mut rng| {
+                split_signing_root(
+                    black_box(&root),
+                    black_box(policy_3_of_5),
+                    black_box(&mut rng),
+                )
+                .unwrap()
+            },
             BatchSize::SmallInput,
         )
     });
@@ -63,47 +106,52 @@ fn bench_threshold_prf(c: &mut Criterion) {
     });
 
     group.bench_function("evaluate_partial", |b| {
-        b.iter(|| partial(black_box(&shares[0]), black_box(&context)))
+        b.iter(|| partial(black_box(&shares_3_of_5[0]), black_box(&context)))
     });
 
-    group.bench_function("combine_partials", |b| {
-        b.iter(|| combine_partials(black_box(&partials), black_box(&context)).unwrap())
+    group.bench_function("combine_partials_2_of_3", |b| {
+        b.iter(|| combine_partials(black_box(&partials_2_of_3), black_box(&context)).unwrap())
     });
 
-    group.bench_function("option_a_evaluate_two_partials_and_combine", |b| {
+    group.bench_function("combine_partials_3_of_5", |b| {
+        b.iter(|| combine_partials(black_box(&partials_3_of_5), black_box(&context)).unwrap())
+    });
+
+    group.bench_function("option_a_evaluate_2_of_3_partials_and_combine", |b| {
         b.iter(|| {
-            let left = partial(black_box(&shares[0]), black_box(&context));
-            let right = partial(black_box(&shares[2]), black_box(&context));
-            combine_partials(black_box(&[left, right]), black_box(&context)).unwrap()
+            let set = ValidatedThresholdSet::from_partials(
+                policy_2_of_3,
+                vec![
+                    partial(black_box(&shares_2_of_3[0]), black_box(&context)),
+                    partial(black_box(&shares_2_of_3[2]), black_box(&context)),
+                ],
+            )
+            .unwrap();
+            combine_partials(black_box(&set), black_box(&context)).unwrap()
         })
     });
 
-    group.bench_function("derive_output_from_signing_root_shares", |b| {
+    group.bench_function("option_a_evaluate_3_of_5_partials_and_combine", |b| {
         b.iter(|| {
-            derive_output_from_signing_root_shares(
-                black_box(&[shares[0].clone(), shares[2].clone()]),
-                black_box(&context),
+            let set = ValidatedThresholdSet::from_partials(
+                policy_3_of_5,
+                vec![
+                    partial(black_box(&shares_3_of_5[0]), black_box(&context)),
+                    partial(black_box(&shares_3_of_5[2]), black_box(&context)),
+                    partial(black_box(&shares_3_of_5[4]), black_box(&context)),
+                ],
             )
-            .unwrap()
-        })
-    });
-
-    group.bench_function("derive_output_from_signing_root_share_wires", |b| {
-        b.iter(|| {
-            derive_output_from_signing_root_share_wires(
-                black_box(&share_wires),
-                black_box(&context),
-            )
-            .unwrap()
+            .unwrap();
+            combine_partials(black_box(&set), black_box(&context)).unwrap()
         })
     });
 
     group.bench_function("evaluate_partial_with_dleq_proof", |b| {
         b.iter_batched(
-            || seeded_rng(4),
+            || seeded_rng(14),
             |mut rng| {
                 evaluate_partial_with_dleq_proof(
-                    black_box(&shares[0]),
+                    black_box(&shares_3_of_5[0]),
                     black_box(&context),
                     black_box(&mut rng),
                 )
@@ -113,13 +161,20 @@ fn bench_threshold_prf(c: &mut Criterion) {
         )
     });
 
-    let proof_bundle = evaluate_partial_with_dleq_proof(&shares[0], &context, &mut seeded_rng(5))
-        .expect("benchmark proof fixture");
-    let proof_bundles = [
-        proof_bundle.clone(),
-        evaluate_partial_with_dleq_proof(&shares[2], &context, &mut seeded_rng(6))
-            .expect("benchmark proof fixture"),
-    ];
+    let proof_bundle =
+        evaluate_partial_with_dleq_proof(&shares_3_of_5[0], &context, &mut seeded_rng(15))
+            .expect("benchmark proof fixture");
+    let proof_bundles = ValidatedThresholdSet::from_proof_bundles(
+        policy_3_of_5,
+        vec![
+            proof_bundle.clone(),
+            evaluate_partial_with_dleq_proof(&shares_3_of_5[2], &context, &mut seeded_rng(16))
+                .expect("benchmark proof fixture"),
+            evaluate_partial_with_dleq_proof(&shares_3_of_5[4], &context, &mut seeded_rng(17))
+                .expect("benchmark proof fixture"),
+        ],
+    )
+    .expect("benchmark proof set is valid");
     group.bench_function("verify_partial_dleq_proof", |b| {
         b.iter(|| {
             verify_partial_dleq_proof(
@@ -132,20 +187,10 @@ fn bench_threshold_prf(c: &mut Criterion) {
         })
     });
 
-    group.bench_function("combine_verified_partials", |b| {
+    group.bench_function("combine_verified_partials_3_of_5", |b| {
         b.iter(|| {
             combine_verified_partials(black_box(&proof_bundles), black_box(&context)).unwrap()
         })
-    });
-
-    group.bench_function("refresh_signing_root_shares_2_of_3", |b| {
-        b.iter_batched(
-            || ([shares[0].clone(), shares[2].clone()], seeded_rng(3)),
-            |(shares, mut rng)| {
-                refresh_signing_root_shares_2_of_3(black_box(&shares), black_box(&mut rng)).unwrap()
-            },
-            BatchSize::SmallInput,
-        )
     });
 
     group.finish();

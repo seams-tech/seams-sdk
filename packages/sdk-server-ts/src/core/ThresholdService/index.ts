@@ -35,73 +35,53 @@ export {
   prepareThresholdEd25519HssServerCeremony,
 } from './ed25519HssWasm';
 export {
-  copySigningRootSecretShareWireV1,
   normalizeSigningRootSecretShareId,
   parseSigningRootSecretShareWireV1,
-  signingRootSecretShareIdFromWire,
-  resolveSigningRootSecretShareWirePair,
   zeroizeSigningRootSecretShareWireV1,
-  type SigningRootSecretShareDecryptor,
   type SigningRootSecretShareId,
-  type SigningRootSecretShare,
   type SigningRootSecretShareWireErrorCode,
-  type SigningRootSecretShareWirePair,
   type SigningRootSecretShareWireResult,
   type SigningRootSecretShareWireV1,
-  type ResolveSigningRootSecretShareWirePairInput,
   type SealedSigningRootSecretShare,
 } from './signingRootSecretShareWires';
 export {
-  createSigningRootSecretResolver,
-  createSigningRootSecretResolverFromAdapters,
-  deriveEcdsaHssYRelayerFromSigningRootSecretResolver,
-  deriveEd25519HssServerInputsFromSigningRootSecretResolver,
-  resolveSigningRootSecretShareWirePairFromResolver,
-  type DeriveEcdsaHssYRelayerFromSigningRootSecretResolverInput,
-  type DeriveEd25519HssServerInputsFromSigningRootSecretResolverInput,
-  type SigningRootSecretDecryptAdapterKind,
-  type SigningRootSecretDecryptAdapter,
-  type SigningRootSecretResolverAdapters,
-  type SigningRootSecretResolver,
-  type SigningRootSecretShareSource,
-  type SigningRootSecretStorageAdapterKind,
-  type ResolveSigningRootSecretShareWirePairFromResolverInput,
-  type ResolveSigningRootSecretSharesInput,
-} from './signingRootSecretResolverAdapters';
-export {
   createHostedSigningRootShareResolver,
-  createSealedSelfHostedSigningRootShareResolver,
   createSelfHostedSigningRootShareResolver,
   deriveEcdsaHssYRelayerFromSigningRootShareResolver,
   deriveEd25519HssServerInputsFromSigningRootShareResolver,
   type CreateHostedSigningRootShareResolverInput,
-  type CreateSealedSelfHostedSigningRootShareResolverInput,
   type CreateSelfHostedSigningRootShareResolverInput,
   type DeriveEcdsaHssYRelayerFromSigningRootShareResolverInput,
   type DeriveEd25519HssServerInputsFromSigningRootShareResolverInput,
   type FixedSigningRootScope,
-  type SigningRootSecretShareInput,
-  type SigningRootSharePair,
-  type SigningRootShareResolver,
+  type SealedSigningRootShare,
+  type SigningRootShareDecryptAdapter,
+  type SigningRootShareSource,
+  type SigningRootShareInput,
   type SigningRootShareResolverInput,
+  type SigningRootShareResolver,
+  type SigningRootShareSet,
 } from './signingRootShareResolver';
 export {
   CloudflareDurableObjectSigningRootSecretStore,
   InMemorySigningRootSecretStore,
   PostgresSigningRootSecretStore,
   type DeleteSigningRootSecretSharesInput,
+  type ResolveSigningRootSecretSharesInput,
+  type SigningRootSecretShareSource,
   type SigningRootSecretStore,
   type PutSigningRootSecretShareInput,
 } from './stores/SigningRootSecretStore';
 export {
-  createSigningRootSecretAesGcmDecryptAdapter,
   openSigningRootSecretShareWireV1,
   sealSigningRootSecretShareWireV1,
   type SigningRootSecretShareKekResolutionInput,
   type SigningRootSecretShareKekResolver,
   type SealSigningRootSecretShareWireInput,
 } from './signingRootSecretSealing';
-export { createConfiguredSigningRootShareResolver } from './signingRootSecretConfig';
+export {
+  createConfiguredSigningRootShareResolver,
+} from './signingRootSecretConfig';
 export {
   SIGNING_ROOT_MIGRATION_BUNDLE_VERSION_V1,
   SIGNING_ROOT_MIGRATION_EXPORT_ARTIFACT_VERSION_V1,
@@ -122,8 +102,12 @@ export {
   type SigningRootRecordSource,
 } from './signingRootRecords';
 export {
-  deriveEcdsaHssYRelayerFromSigningRootSecretShares,
-  deriveEd25519HssServerInputsFromSigningRootSecretShares,
+  deriveEcdsaHssYRelayerFromSigningRootShares,
+  deriveEd25519HssServerInputsFromSigningRootShares,
   ensureThresholdPrfWasm,
+  parseSigningRootShareWire,
   type EcdsaHssStableKeyPrfContext,
+  type SigningRootShareWireSet,
+  type SigningRootShareWire,
+  type ThresholdPrfPolicy,
 } from './thresholdPrfWasm';

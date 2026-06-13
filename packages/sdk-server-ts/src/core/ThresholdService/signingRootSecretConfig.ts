@@ -1,53 +1,49 @@
 import { isObject } from './validation';
 import {
-  createSigningRootSecretResolver,
-  createSigningRootSecretResolverFromAdapters,
-  type SigningRootSecretResolver,
-  type SigningRootSecretResolverAdapters,
-  type SigningRootSecretDecryptAdapter,
-  type SigningRootSecretShareSource,
-} from './signingRootSecretResolverAdapters';
-import {
-  createSigningRootSecretAesGcmDecryptAdapter,
-  type SigningRootSecretShareKekResolver,
-} from './signingRootSecretSealing';
-import {
   createHostedSigningRootShareResolver,
+  type CreateHostedSigningRootShareResolverInput,
+  type SigningRootShareDecryptAdapter,
   type SigningRootShareResolver,
+  type SigningRootShareSource,
 } from './signingRootShareResolver';
-
-function isSigningRootSecretResolver(input: unknown): input is SigningRootSecretResolver {
-  return (
-    isObject(input) &&
-    typeof input.listSealedSigningRootSecretShares === 'function' &&
-    typeof input.decryptSigningRootSecretShare === 'function'
-  );
-}
-
-function isSigningRootSecretShareSource(input: unknown): input is SigningRootSecretShareSource {
-  return isObject(input) && typeof input.listSealedSigningRootSecretShares === 'function';
-}
-
-function isSigningRootSecretShareKekResolver(input: unknown): input is SigningRootSecretShareKekResolver {
-  return typeof input === 'function';
-}
-
-function isSigningRootSecretDecryptAdapter(
-  input: unknown,
-): input is SigningRootSecretDecryptAdapter {
-  return isObject(input) && typeof input.decryptSigningRootSecretShare === 'function';
-}
-
-function isSigningRootSecretShareAdapters(input: unknown): input is SigningRootSecretResolverAdapters {
-  return (
-    isObject(input) &&
-    isSigningRootSecretShareSource(input.storageAdapter) &&
-    isSigningRootSecretDecryptAdapter(input.decryptAdapter)
-  );
-}
+import type { ThresholdPrfPolicy } from './thresholdPrfWasm';
 
 function isSigningRootShareResolver(input: unknown): input is SigningRootShareResolver {
-  return isObject(input) && typeof input.resolveSigningRootSharePair === 'function';
+  return (
+    isObject(input) &&
+    isThresholdPrfPolicy(input.policy) &&
+    typeof input.resolveSigningRootShareSet === 'function'
+  );
+}
+
+function isThresholdPrfPolicy(input: unknown): input is ThresholdPrfPolicy {
+  return (
+    isObject(input) &&
+    input.protocol === 'threshold-prf' &&
+    typeof input.threshold === 'number' &&
+    typeof input.shareCount === 'number'
+  );
+}
+
+function isSigningRootShareSource(input: unknown): input is SigningRootShareSource {
+  return isObject(input) && typeof input.listSealedSigningRootShares === 'function';
+}
+
+function isSigningRootShareDecryptAdapter(
+  input: unknown,
+): input is SigningRootShareDecryptAdapter {
+  return isObject(input) && typeof input.decryptSigningRootShare === 'function';
+}
+
+function isSigningRootShareAdapters(
+  input: unknown,
+): input is CreateHostedSigningRootShareResolverInput {
+  return (
+    isObject(input) &&
+    isThresholdPrfPolicy(input.policy) &&
+    isSigningRootShareSource(input.storageAdapter) &&
+    isSigningRootShareDecryptAdapter(input.decryptAdapter)
+  );
 }
 
 export function createConfiguredSigningRootShareResolver(
@@ -59,67 +55,19 @@ export function createConfiguredSigningRootShareResolver(
     return config.signingRootShareResolver;
   }
 
-  if (isSigningRootSecretShareAdapters(config.signingRootSecretResolverAdapters)) {
-    return createHostedSigningRootShareResolver(config.signingRootSecretResolverAdapters);
+  if (isSigningRootShareAdapters(config.signingRootShareResolverAdapters)) {
+    return createHostedSigningRootShareResolver(config.signingRootShareResolverAdapters);
   }
 
   if (
-    isSigningRootSecretShareSource(config.signingRootSecretStore) &&
-    isSigningRootSecretDecryptAdapter(config.signingRootSecretDecryptAdapter)
+    isThresholdPrfPolicy(config.signingRootSharePolicy) &&
+    isSigningRootShareSource(config.signingRootShareStore) &&
+    isSigningRootShareDecryptAdapter(config.signingRootShareDecryptAdapter)
   ) {
     return createHostedSigningRootShareResolver({
-      storageAdapter: config.signingRootSecretStore,
-      decryptAdapter: config.signingRootSecretDecryptAdapter,
-    });
-  }
-
-  if (
-    isSigningRootSecretShareSource(config.signingRootSecretStore) &&
-    isSigningRootSecretShareKekResolver(config.signingRootSecretShareKekResolver)
-  ) {
-    return createHostedSigningRootShareResolver({
-      storageAdapter: config.signingRootSecretStore,
-      decryptAdapter: createSigningRootSecretAesGcmDecryptAdapter({
-        resolveKek: config.signingRootSecretShareKekResolver,
-      }),
-    });
-  }
-
-  return null;
-}
-
-export function createConfiguredSigningRootSecretResolver(
-  config: unknown,
-): SigningRootSecretResolver | null {
-  if (!isObject(config)) return null;
-
-  if (isSigningRootSecretResolver(config.signingRootSecretResolver)) {
-    return config.signingRootSecretResolver;
-  }
-
-  if (isSigningRootSecretShareAdapters(config.signingRootSecretResolverAdapters)) {
-    return createSigningRootSecretResolverFromAdapters(config.signingRootSecretResolverAdapters);
-  }
-
-  if (
-    isSigningRootSecretShareSource(config.signingRootSecretShareStore) &&
-    isSigningRootSecretDecryptAdapter(config.signingRootSecretShareDecryptAdapter)
-  ) {
-    return createSigningRootSecretResolverFromAdapters({
-      storageAdapter: config.signingRootSecretShareStore,
-      decryptAdapter: config.signingRootSecretShareDecryptAdapter,
-    });
-  }
-
-  if (
-    isSigningRootSecretShareSource(config.signingRootSecretShareStore) &&
-    isSigningRootSecretShareKekResolver(config.signingRootSecretShareKekResolver)
-  ) {
-    return createSigningRootSecretResolver({
-      store: config.signingRootSecretShareStore,
-      decryptAdapter: createSigningRootSecretAesGcmDecryptAdapter({
-        resolveKek: config.signingRootSecretShareKekResolver,
-      }),
+      policy: config.signingRootSharePolicy,
+      storageAdapter: config.signingRootShareStore,
+      decryptAdapter: config.signingRootShareDecryptAdapter,
     });
   }
 

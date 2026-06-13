@@ -1,15 +1,43 @@
 # Signing Root Share Sealing
 
-This document freezes the server SDK v1 sealed-share format used before
-`SigningRootShareWireV1` bytes enter the threshold-prf derivation boundary.
+Last updated: June 13, 2026
+
+## Scope
 
 The threshold-prf Rust crate does not define storage, KMS, HSM, TEE, or
-database behavior. This format is a server SDK envelope for storing encrypted
-signing-root share wires and feeding the SDK `SigningRootShareResolver`.
+database behavior. Signing-root share sealing is a server SDK persistence
+boundary for encrypted share bytes.
 
-## Envelope V1
+The active threshold-prf derivation API expects signing-root share wires:
 
-`sealed_signing_root_share_v1` is:
+```text
+u16be(share_id) || canonical_scalar(share_i)[32]
+```
+
+total length: 34 bytes.
+
+## Active The canonical API Resolver Boundary
+
+The server SDK active resolver shape is policy-aware:
+
+- storage lists sealed share records by signing root id/version
+- a decrypt adapter returns plaintext share-wire bytes
+- the resolver parses the plaintext with the threshold-prf WASM parser
+- the resolver selects exactly `threshold` distinct shares from the configured
+  policy
+- scratch plaintext buffers are zeroized after parsing
+
+The resolver types are:
+
+- `SigningRootShareResolver`
+- `SealedSigningRootShare`
+- `SigningRootShareSource`
+- `SigningRootShareDecryptAdapter`
+
+## Retained SDK Persistence Envelope
+
+The server SDK still contains a `tprs || 0x01` AES-GCM envelope for existing
+sealed signing-root records:
 
 ```text
 magic[5] || nonce[12] || aes_gcm_ciphertext_and_tag
@@ -17,18 +45,14 @@ magic[5] || nonce[12] || aes_gcm_ciphertext_and_tag
 
 where:
 
-- `magic = 0x74 0x70 0x72 0x73 0x01`, the ASCII string `tprs` plus version
-  byte `1`
+- `magic = 0x74 0x70 0x72 0x73 0x01`
 - `nonce` is a fresh 96-bit AES-GCM nonce from WebCrypto `getRandomValues`
-- plaintext is exactly one decrypted `SigningRootShareWireV1`
 - the AEAD tag is the WebCrypto AES-GCM default 128-bit tag
 - KEK material is AES-256-GCM only
 
-The encrypted plaintext remains the fixed-width secret wire:
-
-```text
-u8(share_id) || canonical_scalar(share_i)[32]
-```
+This retained envelope is a persistence format. It is not a core
+threshold-prf protocol version and should not be used as a reason to reintroduce
+fixed-pair threshold-prf APIs.
 
 ## AAD
 
@@ -47,20 +71,13 @@ with:
 - `domain = "seams/signing-root-share/aes-gcm/v1"`
 - `signing_root_id` trimmed and non-empty
 - `signing_root_version` trimmed, or empty bytes when absent
-- `share_id` exactly `1`, `2`, or `3`
 - `kek_id` trimmed and non-empty
 
-Opening a sealed share with a different signing root id, signing root version,
-share id, or KEK id must fail before the plaintext wire is accepted.
+Opening a sealed share with different signing root id, signing root version,
+share id, or KEK id must fail before plaintext is accepted.
 
-## Boundary Rules
+## Cleanup Direction
 
-- Store implementations persist only `sealedShare` bytes plus public metadata.
-- Decrypt adapters return plaintext bytes only to
-  `resolveSigningRootShareWirePair`; that resolver copies validated wires and
-  zeroizes adapter scratch buffers.
-- The server SDK host parser validates fixed width and share-id consistency.
-  Canonical scalar validation remains in the Rust/WASM threshold-prf parser.
-- The raw KEK helper is for SDK integration and self-hosted deployments. A
-  production SaaS deployment should resolve KEKs through KMS, HSM, or an
-  equivalent non-exportable key boundary.
+Future storage migrations should move persisted plaintext shape to 34-byte
+share wires and expose that only through the resolver/decrypt adapter
+boundary. Compatibility code belongs at persistence import/export boundaries.

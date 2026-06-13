@@ -7,11 +7,11 @@ Date created: June 12, 2026
 This plan covers only high-impact performance work for
 [crates/threshold-prf](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf).
 
-The local crypto path is already fast: recorded results are about `0.10 ms`
-native for `derive_output_from_signing_root_shares` and about `0.21 ms` in the
-local Node/V8 WASM proxy. End-to-end latency risk is therefore more likely to
-come from Worker startup, WASM initialization, storage, request dispatch,
-serialization, and Option B coordination.
+The local crypto path is already fast: recorded `2-of-3` Option A results
+are about `0.10 ms` native and about `0.21 ms` in the local Node/V8 WASM proxy.
+End-to-end latency risk is therefore more likely to come from Worker startup,
+WASM initialization, storage, request dispatch, serialization, and Option B
+coordination.
 
 Active optimization work should answer production questions or reduce cost in a
 path known to be hot. Micro-optimizations stay deferred until deployed
@@ -64,15 +64,15 @@ Harness status:
 If Worker measurements show startup or initialization cost dominates, reduce
 that cost before touching curve arithmetic.
 
-- [ ] Confirm whether the WASM module is initialized once per isolate or once
+- [x] Confirm whether the WASM module is initialized once per isolate or once
   per request.
-- [ ] Cache initialized module state at the Worker isolate boundary where the
+- [x] Cache initialized module state at the Worker isolate boundary where the
   runtime allows it.
-- [ ] Avoid repeated package imports and redundant `init_threshold_prf` calls in
+- [x] Avoid repeated package imports and redundant `init_threshold_prf` calls in
   hot request paths.
-- [ ] Add a regression benchmark that catches accidental per-request WASM
+- [x] Add a regression benchmark that catches accidental per-request WASM
   initialization.
-- [ ] Document the expected initialization lifecycle in
+- [x] Document the expected initialization lifecycle in
   [benchmarks.md](/Users/pta/Dev/rust/simple-threshold-signer/crates/threshold-prf/docs/benchmarks.md).
 
 Exit criteria:
@@ -80,6 +80,19 @@ Exit criteria:
 - a warm request avoids repeated WASM initialization
 - cold-start cost is measured and documented
 - a benchmark fails if warm requests regress to cold-start behavior
+
+Status as of June 13, 2026:
+
+- The Worker benchmark fixture uses module-scope `wasmReadyPromise` state, so a
+  warm `/bench` request reuses the initialized WASM module inside the same
+  isolate.
+- The server SDK `ensureThresholdPrfWasm()` path uses a module-scope init
+  promise and avoids redundant `init_threshold_prf()` calls after the first
+  successful load in a process.
+- `just threshold-prf-worker-bench-init-check` starts local Wrangler and fails
+  if the second `/bench` request reports `wasmWasReadyBeforeRequest: false`.
+- Deployed cold-start measurement remains pending until live Cloudflare testing
+  resumes.
 
 ### 3. DLEQ Hot-Path Optimization
 
@@ -148,6 +161,16 @@ just threshold-prf-bench-gate
 just threshold-prf-wasm-bench
 ```
 
+- [x] Add local WASM t-of-N benchmark coverage for before/after API
+  migration comparisons.
+- [x] Add production WASM bundle-size measurement with:
+
+```bash
+just threshold-prf-wasm-size
+```
+
+- [x] Record t-of-N before-API-migration baseline for native performance,
+  local WASM performance, and production WASM package size.
 - [ ] Record deployed Worker baseline before merging any performance-focused
   implementation change.
 - [ ] Treat any output-vector change as a protocol change.
@@ -159,7 +182,10 @@ Status as of June 13, 2026:
 - Native Criterion coverage now includes share-wire Option A and verified DLEQ
   combine paths.
 - Local Node/V8 WASM coverage now includes the same share-wire Option A and
-  verified DLEQ combine paths.
+  verified DLEQ combine paths, plus `2-of-3` and `3-of-5` Option A and DLEQ
+  paths.
+- Production WASM bundle-size measurement records raw, gzip, and brotli sizes
+  for before/after refactor comparisons.
 - Native share-wire Option A is about `0.10 ms`; local Node/V8 WASM share-wire
   Option A is about `0.21 ms`.
 - Native verified DLEQ combine is about `0.25 ms`; local Node/V8 WASM verified

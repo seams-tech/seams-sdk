@@ -15,6 +15,10 @@ const THRESHOLDS: &[BenchmarkThreshold] = &[
         max_upper_bound_ns: 100_000.0,
     },
     BenchmarkThreshold {
+        name: "split_signing_root_3_of_5",
+        max_upper_bound_ns: 100_000.0,
+    },
+    BenchmarkThreshold {
         name: "evaluate_direct_reference",
         max_upper_bound_ns: 1_000_000.0,
     },
@@ -23,19 +27,19 @@ const THRESHOLDS: &[BenchmarkThreshold] = &[
         max_upper_bound_ns: 1_000_000.0,
     },
     BenchmarkThreshold {
-        name: "combine_partials",
+        name: "combine_partials_2_of_3",
         max_upper_bound_ns: 1_000_000.0,
     },
     BenchmarkThreshold {
-        name: "option_a_evaluate_two_partials_and_combine",
+        name: "combine_partials_3_of_5",
+        max_upper_bound_ns: 1_000_000.0,
+    },
+    BenchmarkThreshold {
+        name: "option_a_evaluate_2_of_3_partials_and_combine",
         max_upper_bound_ns: 2_000_000.0,
     },
     BenchmarkThreshold {
-        name: "derive_output_from_signing_root_shares",
-        max_upper_bound_ns: 2_000_000.0,
-    },
-    BenchmarkThreshold {
-        name: "derive_output_from_signing_root_share_wires",
+        name: "option_a_evaluate_3_of_5_partials_and_combine",
         max_upper_bound_ns: 2_000_000.0,
     },
     BenchmarkThreshold {
@@ -47,12 +51,8 @@ const THRESHOLDS: &[BenchmarkThreshold] = &[
         max_upper_bound_ns: 2_000_000.0,
     },
     BenchmarkThreshold {
-        name: "combine_verified_partials",
+        name: "combine_verified_partials_3_of_5",
         max_upper_bound_ns: 4_000_000.0,
-    },
-    BenchmarkThreshold {
-        name: "refresh_signing_root_shares_2_of_3",
-        max_upper_bound_ns: 1_000_000.0,
     },
 ];
 

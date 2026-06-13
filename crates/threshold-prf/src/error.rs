@@ -16,7 +16,7 @@ pub enum ThresholdPrfError {
     InvalidShareEncoding,
     /// A secret scalar was zero where the protocol requires non-zero material.
     ZeroScalar,
-    /// The share id is outside the supported 2-of-3 signing-root range.
+    /// The share id is zero or outside the selected threshold policy.
     InvalidShareId,
     /// The operation received the wrong number of shares or partials.
     InvalidThresholdSubset,
@@ -44,9 +44,11 @@ impl fmt::Display for ThresholdPrfError {
                 f.write_str("invalid threshold PRF signing-root share encoding")
             }
             Self::ZeroScalar => f.write_str("zero scalar is not valid threshold PRF material"),
-            Self::InvalidShareId => f.write_str("share id must be one of 1, 2, or 3"),
+            Self::InvalidShareId => {
+                f.write_str("share id must be non-zero and inside the threshold policy")
+            }
             Self::InvalidThresholdSubset => {
-                f.write_str("threshold operation requires exactly two shares")
+                f.write_str("threshold operation received an invalid threshold subset")
             }
             Self::DuplicateShareId => {
                 f.write_str("threshold operation received duplicate share ids")

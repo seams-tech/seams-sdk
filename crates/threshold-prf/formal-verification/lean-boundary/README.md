@@ -7,7 +7,7 @@ that is important enough to mechanically extract and compare against a
 handwritten Lean model.
 
 Do not create generated artifacts here until the extraction boundary,
-`PrfPartialWireV1`, and the JSON vector corpus are frozen.
+`PrfPartialWire`, and the JSON vector corpus are frozen.
 
 Planned boundary candidates:
 

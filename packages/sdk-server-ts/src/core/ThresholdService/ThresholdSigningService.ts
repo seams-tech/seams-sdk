@@ -1834,7 +1834,6 @@ export class ThresholdSigningService {
         ? { signingRootVersion: input.signingRootMetadata.signingRootVersion }
         : {}),
       resolver: this.signingRootShareResolver,
-      preferredShareIds: [1, 2],
       context: input.hssContext,
     });
     if (!derived.ok) {
@@ -5106,7 +5105,6 @@ export class ThresholdSigningService {
       signingRootId: context.signingRootId,
       ...(signingRootVersion ? { signingRootVersion } : {}),
       resolver: this.signingRootShareResolver,
-      preferredShareIds: [1, 2],
       context,
     });
     if (!derived.ok) {
