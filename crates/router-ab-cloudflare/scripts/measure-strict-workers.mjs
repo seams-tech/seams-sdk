@@ -24,6 +24,11 @@ const roles = [
     feature: "strict-worker-signer-b-entrypoint",
     outDir: "build/signer-b",
   },
+  {
+    label: "signing-worker",
+    feature: "strict-worker-signing-worker-entrypoint",
+    outDir: "build/signing-worker",
+  },
 ];
 
 function run(command, args) {

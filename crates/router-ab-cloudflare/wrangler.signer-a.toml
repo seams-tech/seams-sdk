@@ -9,15 +9,11 @@ command = "cargo install -q worker-build --version 0.8.4 && worker-build --relea
 [durable_objects]
 bindings = [
   { name = "SIGNER_A_ROOT_SHARE_DO", class_name = "RouterAbSignerARootShareDurableObject" },
-  { name = "SIGNER_A_RELAYER_OUTPUT_DO", class_name = "RouterAbSignerARelayerOutputDurableObject" },
 ]
 
 [[migrations]]
 tag = "router_ab_signer_a_v1"
-new_classes = [
-  "RouterAbSignerARootShareDurableObject",
-  "RouterAbSignerARelayerOutputDurableObject",
-]
+new_classes = ["RouterAbSignerARootShareDurableObject"]
 
 [[services]]
 binding = "SIGNER_B"
@@ -28,9 +24,6 @@ ROUTER_AB_ROUTE_PROFILE = "strict_proof_bundle"
 SIGNER_A_ROOT_SHARE_DO_BINDING = "SIGNER_A_ROOT_SHARE_DO"
 SIGNER_A_ROOT_SHARE_DO_OBJECT = "signer-a-root-share"
 SIGNER_A_ROOT_SHARE_DO_KEY_PREFIX = "signer-a-root-share/"
-SIGNER_A_RELAYER_OUTPUT_DO_BINDING = "SIGNER_A_RELAYER_OUTPUT_DO"
-SIGNER_A_RELAYER_OUTPUT_DO_OBJECT = "signer-a-relayer-output"
-SIGNER_A_RELAYER_OUTPUT_DO_KEY_PREFIX = "signer-a-relayer-output/"
 SIGNER_A_ROOT_SHARE_WIRE_SECRET_BINDING = "SIGNER_A_ROOT_SHARE_WIRE_SECRET"
 SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING = "SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY"
 SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH = "epoch-1"
