@@ -22,18 +22,18 @@ run("wasm-pack", [
 ]);
 
 const wasmModule = await import(pathToFileURL(join(pkgDir, "threshold_prf_wasm_bench.js")));
-const wasm = wasmModule.default?.benchmark_option_a_2_of_3 ? wasmModule.default : wasmModule;
+const wasm = wasmModule.default?.benchmark_one_runtime_2_of_3 ? wasmModule.default : wasmModule;
 
 const benches = [
   {
-    name: "option_a_2_of_3_evaluate_partials_and_combine",
+    name: "one_runtime_2_of_3_evaluate_partials_and_combine",
     iterations: 20_000,
-    fn: wasm.benchmark_option_a_2_of_3,
+    fn: wasm.benchmark_one_runtime_2_of_3,
   },
   {
-    name: "option_a_3_of_5_evaluate_partials_and_combine",
+    name: "one_runtime_3_of_5_evaluate_partials_and_combine",
     iterations: 10_000,
-    fn: wasm.benchmark_option_a_3_of_5,
+    fn: wasm.benchmark_one_runtime_3_of_5,
   },
   {
     name: "evaluate_partial_with_dleq_proof",

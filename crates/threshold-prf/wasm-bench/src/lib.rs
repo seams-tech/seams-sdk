@@ -5,15 +5,15 @@ use std::hint::black_box;
 use rand_chacha::ChaCha20Rng;
 use rand_core::SeedableRng;
 use threshold_prf::{
-    combine_partials, combine_verified_partials, evaluate_partial, evaluate_partial_with_dleq_proof,
-    generate_signing_root, split_signing_root, verify_partial_dleq_proof, SigningRootShare,
-    ThresholdPolicy, ValidatedThresholdSet,
+    combine_partials, combine_verified_partials, evaluate_partial,
+    evaluate_partial_with_dleq_proof, generate_signing_root, split_signing_root,
+    verify_partial_dleq_proof, SigningRootShare, ThresholdPolicy, ValidatedThresholdSet,
 };
 use threshold_prf::{PrfContext, PrfPurpose, SuiteId};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
-pub fn benchmark_option_a_2_of_3(iterations: u32) -> u8 {
+pub fn benchmark_one_runtime_2_of_3(iterations: u32) -> u8 {
     let (policy, shares, context) = fixture(2, 3);
     let mut checksum = 0u8;
 
@@ -37,7 +37,7 @@ pub fn benchmark_option_a_2_of_3(iterations: u32) -> u8 {
 }
 
 #[wasm_bindgen]
-pub fn benchmark_option_a_3_of_5(iterations: u32) -> u8 {
+pub fn benchmark_one_runtime_3_of_5(iterations: u32) -> u8 {
     let (policy, shares, context) = fixture(3, 5);
     let mut checksum = 0u8;
 

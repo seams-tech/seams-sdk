@@ -172,7 +172,8 @@ Rules:
 
 ## Production Evaluation
 
-Option A evaluates and combines a threshold subset in one runtime:
+One-runtime derivation evaluates and combines a threshold subset in the current
+server SDK runtime:
 
 ```text
 load ThresholdPolicy(threshold, share_count)
@@ -182,8 +183,8 @@ partials = evaluate_partial(each share, context)
 output = combine_partials(validated partial set, context)
 ```
 
-Option B evaluates partials across workers and combines a transported threshold
-set:
+Distributed verified partial combine evaluates partials across workers and
+combines a transported threshold set:
 
 ```text
 workers:
@@ -208,11 +209,11 @@ direct_prf(k_org, context, purpose)
 
 The trust model is split by deployment mode:
 
-- One-runtime Option A observes a complete threshold subset of plaintext
+- One-runtime derivation observes a complete threshold subset of plaintext
   signing-root shares in one runtime. This protects against durable plaintext
   root storage. It does not claim malicious-runtime privacy.
-- Multi-runtime Option B can keep every honest worker below threshold when share
-  placement is configured that way.
+- Distributed verified partial combine can keep every honest worker below
+  threshold when share placement is configured that way.
 - A combiner learns the requested output for the selected context and purpose.
   It must not receive plaintext signing-root scalars or plaintext
   signing-root share scalars.
@@ -340,7 +341,7 @@ Committed fixtures cover:
 - Router/A/B `2-of-3` context bytes through the suite label
 - direct reference evaluation
 - every valid threshold subset for committed policies
-- Option A and Option B equivalence through `PrfPartialWire`
+- one-runtime and distributed-combine equivalence through `PrfPartialWire`
 - fixed-width signing-root share and partial wire encodings
 
 Current validation:

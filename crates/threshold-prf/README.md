@@ -10,7 +10,7 @@ The crate is intentionally narrow:
 - encode and explicitly decode decrypted signing-root shares at the server SDK
   boundary
 - evaluate threshold-PRF partials from shares
-- derive a one-runtime Option A output from threshold shares without
+- derive a one-runtime output from threshold shares without
   reconstructing `k_org`
 - serialize partials for worker-to-worker transport
 - optionally prove partial correctness with DLEQ against root-share commitments
@@ -65,9 +65,11 @@ Current status:
 - DLEQ proof generation rejects and retries zero nonces; nonce uniqueness
   depends on a correct `CryptoRng`
 - native benchmarks and guardrail checks pass for the current crate surface
-- local Node/V8 WASM proxy benchmarks are sub-millisecond for Option A and DLEQ
-- Option B still needs an authenticated commitment registry, TEE attestation, or
-  equivalent deployment binding before malicious-worker safety can be claimed
+- local Node/V8 WASM proxy benchmarks are sub-millisecond for one-runtime and
+  DLEQ paths
+- distributed verified partial combine still needs an authenticated commitment
+  registry, TEE attestation, or equivalent deployment binding before
+  malicious-worker safety can be claimed
 
 Canonical docs:
 

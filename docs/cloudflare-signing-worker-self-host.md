@@ -125,7 +125,7 @@ POST /threshold-ecdsa/hss/prepare
   -> scheme.hss.prepare
   -> ThresholdSigningService.ecdsaHss.prepare
   -> deriveEcdsaHssYRelayerFromSigningRootSecretResolver
-  -> threshold-prf WASM Option A partial evaluation and combine
+  -> threshold-prf WASM one-runtime partial evaluation and combine
   -> prepareThresholdEcdsaHssServerSession
 
 POST /threshold-ecdsa/hss/respond
@@ -378,7 +378,7 @@ factor-derived secret -> client MPC share
 ```
 
 The self-hosted worker derives server inputs through the same threshold-prf
-Option A semantics used by the hosted Phase 1 model:
+one-runtime semantics used by the hosted Phase 1 model:
 
 ```text
 share_i, share_j = decrypt_two_signing_root_secret_shares(signing_root_id, signing_root_version)

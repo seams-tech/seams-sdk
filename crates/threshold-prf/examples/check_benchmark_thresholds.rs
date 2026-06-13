@@ -35,11 +35,11 @@ const THRESHOLDS: &[BenchmarkThreshold] = &[
         max_upper_bound_ns: 1_000_000.0,
     },
     BenchmarkThreshold {
-        name: "option_a_evaluate_2_of_3_partials_and_combine",
+        name: "one_runtime_evaluate_2_of_3_partials_and_combine",
         max_upper_bound_ns: 2_000_000.0,
     },
     BenchmarkThreshold {
-        name: "option_a_evaluate_3_of_5_partials_and_combine",
+        name: "one_runtime_evaluate_3_of_5_partials_and_combine",
         max_upper_bound_ns: 2_000_000.0,
     },
     BenchmarkThreshold {

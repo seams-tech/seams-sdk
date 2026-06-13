@@ -117,7 +117,7 @@ fn bench_threshold_prf(c: &mut Criterion) {
         b.iter(|| combine_partials(black_box(&partials_3_of_5), black_box(&context)).unwrap())
     });
 
-    group.bench_function("option_a_evaluate_2_of_3_partials_and_combine", |b| {
+    group.bench_function("one_runtime_evaluate_2_of_3_partials_and_combine", |b| {
         b.iter(|| {
             let set = ValidatedThresholdSet::from_partials(
                 policy_2_of_3,
@@ -131,7 +131,7 @@ fn bench_threshold_prf(c: &mut Criterion) {
         })
     });
 
-    group.bench_function("option_a_evaluate_3_of_5_partials_and_combine", |b| {
+    group.bench_function("one_runtime_evaluate_3_of_5_partials_and_combine", |b| {
         b.iter(|| {
             let set = ValidatedThresholdSet::from_partials(
                 policy_3_of_5,

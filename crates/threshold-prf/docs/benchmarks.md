@@ -68,8 +68,8 @@ The guardrail check reads Criterion mean confidence-interval upper bounds after
 | `evaluate_partial` | <= 1 ms |
 | `combine_partials_2_of_3` | <= 1 ms |
 | `combine_partials_3_of_5` | <= 1 ms |
-| `option_a_evaluate_2_of_3_partials_and_combine` | <= 2 ms |
-| `option_a_evaluate_3_of_5_partials_and_combine` | <= 2 ms |
+| `one_runtime_evaluate_2_of_3_partials_and_combine` | <= 2 ms |
+| `one_runtime_evaluate_3_of_5_partials_and_combine` | <= 2 ms |
 | `evaluate_partial_with_dleq_proof` | <= 2 ms |
 | `verify_partial_dleq_proof` | <= 2 ms |
 | `combine_verified_partials_3_of_5` | <= 4 ms |
@@ -94,8 +94,8 @@ Native Criterion mean estimates:
 
 | Benchmark | Mean |
 | --- | ---: |
-| `option_a_evaluate_2_of_3_partials_and_combine` | 103.775 us |
-| `option_a_evaluate_3_of_5_partials_and_combine` | 153.817 us |
+| `one_runtime_evaluate_2_of_3_partials_and_combine` | 103.775 us |
+| `one_runtime_evaluate_3_of_5_partials_and_combine` | 153.817 us |
 | `combine_partials_2_of_3` | 55.170 us |
 | `combine_partials_3_of_5` | 82.456 us |
 | `combine_verified_partials_3_of_5` | 367.413 us |
@@ -104,18 +104,18 @@ Local Node/V8 WASM results:
 
 | Benchmark | Iterations | Time/op |
 | --- | ---: | ---: |
-| `option_a_2_of_3_evaluate_partials_and_combine` | 20,000 | 214.509 us |
-| `option_a_3_of_5_evaluate_partials_and_combine` | 10,000 | 324.272 us |
+| `one_runtime_2_of_3_evaluate_partials_and_combine` | 20,000 | 214.509 us |
+| `one_runtime_3_of_5_evaluate_partials_and_combine` | 10,000 | 324.272 us |
 | `evaluate_partial_with_dleq_proof` | 10,000 | 201.487 us |
 | `verify_partial_dleq_proof` | 10,000 | 200.762 us |
 | `combine_verified_partials_3_of_5` | 3,000 | 769.549 us |
 
 Interpretation:
 
-- `2-of-3` Option A remains about `0.10 ms` native and about `0.21 ms` in the
-  local Node/V8 WASM proxy.
-- `3-of-5` Option A is about 1.5x the `2-of-3` path, matching the extra
-  interpolation and partial-evaluation work.
+- `2-of-3` one-runtime derivation remains about `0.10 ms` native and about
+  `0.21 ms` in the local Node/V8 WASM proxy.
+- `3-of-5` one-runtime derivation is about 1.5x the `2-of-3` path, matching
+  the extra interpolation and partial-evaluation work.
 - `3-of-5` verified combine remains sub-millisecond in the local Node/V8
   proxy.
 - The native guardrail check passed all active benchmark thresholds.
@@ -179,7 +179,7 @@ Record the first deployed run with:
 
 ## Performance Readiness Decision
 
-Decision: threshold-prf performance is sufficient for server SDK Option A
+Decision: threshold-prf performance is sufficient for server SDK one-runtime
 integration.
 
 Rationale:
@@ -200,7 +200,7 @@ High-impact optimization work should target measured runtime costs:
 - deployed Worker cold and warm request timings
 - storage and decrypt overhead around sealed share resolution
 - WASM initialization lifecycle regressions
-- Option B coordination overhead
+- distributed-combine coordination overhead
 - DLEQ proof generation or verification only when profiling shows it is
   material
 

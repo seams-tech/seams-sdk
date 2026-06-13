@@ -115,7 +115,8 @@ Decision:
 
 - Revisit exact version pins before publishing or integrating into a larger
   workspace.
-- Re-review DLEQ proof dependencies before Option B; the current implementation
-  uses existing Ristretto, SHA-512, `rand_core`, `subtle`, and `zeroize`
+- Re-review DLEQ proof dependencies before distributed verified partial combine
+  becomes a production deployment path; the current implementation uses
+  existing Ristretto, SHA-512, `rand_core`, `subtle`, and `zeroize`
   dependencies.
 - Run Cloudflare Worker or WASM benchmarks before making Worker latency claims.
