@@ -1,0 +1,47 @@
+{
+  "generatedAt": "2026-06-14T14:11:55.253Z",
+  "mode": "dry_run",
+  "env": null,
+  "measurements": [
+    {
+      "role": "router",
+      "config": "wrangler.router.toml",
+      "status": 0,
+      "startupTimeMs": null,
+      "upload": {
+        "totalKiB": 1769.26,
+        "gzipKiB": 573.83
+      }
+    },
+    {
+      "role": "deriver-a",
+      "config": "wrangler.signer-a.toml",
+      "status": 0,
+      "startupTimeMs": null,
+      "upload": {
+        "totalKiB": 1763.24,
+        "gzipKiB": 598.97
+      }
+    },
+    {
+      "role": "deriver-b",
+      "config": "wrangler.signer-b.toml",
+      "status": 0,
+      "startupTimeMs": null,
+      "upload": {
+        "totalKiB": 1763.23,
+        "gzipKiB": 599.92
+      }
+    },
+    {
+      "role": "signing-worker",
+      "config": "wrangler.signing-worker.toml",
+      "status": 0,
+      "startupTimeMs": null,
+      "upload": {
+        "totalKiB": 1710.06,
+        "gzipKiB": 567.14
+      }
+    }
+  ]
+}

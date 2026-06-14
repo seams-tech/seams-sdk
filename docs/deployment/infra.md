@@ -40,7 +40,7 @@ environment.
 | `SIGNER_B_ROOT_SHARE_WIRE_SECRET`                | Router A/B deploy               | Deriver B root-share wire secret. Written to the Deriver B Worker environment.         |
 | `SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY`             | Router A/B deploy               | Deriver B signer-envelope HPKE private key.                                            |
 | `SIGNER_B_PEER_SIGNING_KEY`                      | Router A/B deploy               | Deriver B private key for A/B peer messages.                                           |
-| `SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY` | Router A/B deploy               | SigningWorker relayer-output HPKE private key.                                         |
+| `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY`  | Router A/B deploy               | SigningWorker server-output HPKE private key.                                          |
 
 ### Variables
 
@@ -52,7 +52,7 @@ environment.
 | `ROUTER_AB_JWT_JWKS_URL`                                  | Router A/B deploy | JWKS URL used by Router JWT verification.                                    |
 | `ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY`             | Router A/B deploy | Public key matching `SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY`.                    |
 | `ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY`             | Router A/B deploy | Public key matching `SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY`.                    |
-| `ROUTER_AB_SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY` | Router A/B deploy | Public key matching `SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY`.        |
+| `ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY`  | Router A/B deploy | Public key matching `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY`.         |
 | `ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX`               | Router A/B deploy | Public verifying key matching `SIGNER_A_PEER_SIGNING_KEY`.                   |
 | `ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX`               | Router A/B deploy | Public verifying key matching `SIGNER_B_PEER_SIGNING_KEY`.                   |
 | `VITE_RELAYER_URL`                                        | Pages build       | Public relay API base URL.                                                   |
@@ -193,17 +193,23 @@ For production, use `--ref main -f target=production`.
 Local Cloudflare-shape checks:
 
 ```bash
-pnpm router-ab:cloudflare:startup:dry-run
-pnpm router-ab:cloudflare:startup:upload -- --env staging
+pnpm router:deploy:dry-run
+pnpm router:deploy:upload -- --env staging
 ```
 
+Latest local dry-run evidence:
+
+- `crates/router-ab-cloudflare/reports/startup-latencies/startup-latencies-2026-06-14T14-11-55-253Z.json`
+- mode: `dry_run`
+- gzip upload sizes: Router `573.83 KiB`, Deriver A `598.97 KiB`, Deriver B
+  `599.92 KiB`, SigningWorker `567.14 KiB`
+
 Router A/B deployment is prepared for Cloudflare validation and version-upload
-evidence. `operation=deploy` runs `pnpm -C crates/router-ab-cloudflare
-assert:release-ready` and fails while release blockers remain. Current blockers:
-the Cloudflare strict SigningWorker normal-signing handler is still fail-closed
-until the production role-separated Ed25519-HSS signer is wired, and full
-`DerivationCeremony` persistence is not yet enforced at the Cloudflare Durable
-Object boundary.
+evidence. `operation=deploy` runs `pnpm router:deploy:check` and fails while
+release blockers remain. Current blocker from the local release gate: the
+Cloudflare strict SigningWorker normal-signing finalizer still lacks persisted
+server round-1 nonce material for the production role-separated Ed25519-HSS
+signer.
 
 ## Postgres
 

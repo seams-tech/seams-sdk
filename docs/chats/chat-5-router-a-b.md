@@ -395,20 +395,43 @@ Completed since the first handoff draft:
 - [x] Fixed `pnpm router` startup so it waits for
       `https://localhost:9444/.well-known/webauthn` to stay healthy before
       starting Router A/B workers.
+- [x] Committed the scoped local-dev launcher/docs slice:
+      `bd5610b6d router-ab: harden local dev launcher`.
+- [x] Committed the scoped SDK ECDSA exact-session slice:
+      `a41f87ce6 sdk-web: require exact passkey ecdsa session records`.
+- [x] Re-ran `cargo test --manifest-path crates/router-ab-dev/Cargo.toml`:
+      50 tests passed.
+- [x] Re-ran `pnpm router:smoke` and `pnpm router:smoke:bundled`; both passed
+      setup, A/B peer coordination, SigningWorker activation, and normal
+      signing with Deriver A/B normal-signing request counts at `0`.
+- [x] Captured current local four-worker timing evidence with
+      `pnpm router:measure -- --out /tmp/router-ab-local-smoke-2026-06-14.json`:
+      total `36 ms`, setup `18 ms`, SigningWorker activation `1 ms`, normal
+      signing `0 ms`.
+- [x] Re-ran `pnpm router:deploy:check`; it fails only on the current P1
+      release blocker: strict SigningWorker normal-signing finalizer lacks
+      persisted server round-1 nonce material.
+- [x] Re-ran `pnpm router:deploy:dry-run`; all four strict Worker roles bundled
+      and wrote
+      `crates/router-ab-cloudflare/reports/startup-latencies/startup-latencies-2026-06-14T14-11-55-253Z.json`.
+      Dry-run gzip upload sizes: Router `573.83 KiB`, Deriver A `598.97 KiB`,
+      Deriver B `599.92 KiB`, SigningWorker `567.14 KiB`.
 
 ## Remaining Open Tasks
 
-### 1. Replace Local Dev Normal Signing With Production Ed25519-HSS
+### 1. Finish Production Ed25519-HSS Normal Signing
 
 Current local normal-signing smoke proves Router -> SigningWorker routing and
 successful payload signing with a deterministic dev-only Ed25519 key. It must be
-replaced with the production role-separated Ed25519-HSS normal signer once that
-API exists.
+replaced with the production role-separated Ed25519-HSS normal signer before
+release.
 
 Required:
 
 - Implement the real SigningWorker normal-signing handler.
-- Materialize active SigningWorker state plus opened `x_relayer_base` material
+- Persist server round-1 nonce material for the strict SigningWorker
+  normal-signing finalizer.
+- Materialize active SigningWorker state plus opened `x_server_base` material
   inside SigningWorker only.
 - Keep Deriver A/B off the signing hot path.
 - Replace `local_dev_ed25519_v1` smoke signatures with the production
@@ -455,7 +478,8 @@ Router A/B work, keep commits scoped to:
 Avoid mixing VoiceID, threshold-prf t-of-N refactor, or SDK-server changes into
 Router A/B commits unless explicitly requested.
 
-Current scoped inventory to inspect before staging:
+Current scoped inventory to inspect before staging the remaining Router A/B
+work:
 
 - Handoff and local-dev docs:
   - `chats/chat-5-router-a-b.md`
@@ -495,19 +519,17 @@ only contains the intended Router A/B slice.
 Run:
 
 ```sh
-rtk cargo test --manifest-path crates/router-ab-dev/Cargo.toml
-rtk pnpm router:smoke
-rtk pnpm router:smoke:bundled
-rtk pnpm router:measure -- --out /tmp/router-ab-local-smoke.json
+rtk pnpm router:deploy:check
+rtk pnpm router:deploy:dry-run
 ```
 
 Then choose one of:
 
-1. Re-run deployed Cloudflare startup/runtime evidence after
+1. Finish the P1 strict SigningWorker server round-1 nonce persistence.
+2. Re-run deployed Cloudflare startup/runtime evidence after
    GitHub Environment secrets and vars are available.
-2. Replace the local dev normal-signing signature with the production
-   role-separated Ed25519-HSS signer once that API exists.
-3. Prepare scoped Router A/B commits.
+3. Prepare scoped Router A/B commits from the remaining dirty core,
+   Cloudflare, and docs files.
 
 Deployment-prep commands:
 

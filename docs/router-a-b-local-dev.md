@@ -489,8 +489,17 @@ Release gates before Cloudflare deployment:
       checks, local smoke, and Wrangler startup dry-run.
 - [x] Add manual Router A/B upload/deploy workflow for Cloudflare startup
       evidence and target deployment.
-- [ ] Record local smoke timings next to deployed Cloudflare startup and
-      hot-path benchmarks.
+- [x] Re-run local Wrangler startup dry-run after the local browser-flow fixes.
+      Evidence:
+      `crates/router-ab-cloudflare/reports/startup-latencies/startup-latencies-2026-06-14T14-11-55-253Z.json`.
+      Dry-run gzip upload sizes: Router `573.83 KiB`, Deriver A `598.97 KiB`,
+      Deriver B `599.92 KiB`, SigningWorker `567.14 KiB`.
+- [x] Capture current local four-worker smoke timing evidence.
+      2026-06-14 local run: setup `18 ms`, SigningWorker activation `1 ms`,
+      normal signing `0 ms`, total `36 ms`; Deriver A/B normal-signing request
+      counts stayed `0`.
+- [ ] Record deployed Cloudflare startup and hot-path benchmarks next to the
+      local timing evidence.
 
 `router:check` and `router:smoke` emit local per-phase
 elapsed times in milliseconds. `router:measure` writes the same data
