@@ -34,6 +34,8 @@ pub struct NormalSigningRequestV1 {
     pub scope: NormalSigningScopeV1,
     /// Request expiry in Unix milliseconds.
     pub expires_at_ms: u64,
+    /// Digest of the canonical user intent authorized by policy.
+    pub intent_digest: PublicDigest32,
     /// Canonical payload bytes to sign.
     pub signing_payload: CanonicalWireBytesV1,
 }
@@ -43,11 +45,13 @@ impl NormalSigningRequestV1 {
     pub fn new(
         scope: NormalSigningScopeV1,
         expires_at_ms: u64,
+        intent_digest: PublicDigest32,
         signing_payload: CanonicalWireBytesV1,
     ) -> RouterAbProtocolResult<Self> {
         let request = Self {
             scope,
             expires_at_ms,
+            intent_digest,
             signing_payload,
         };
         request.validate()?;
@@ -84,6 +88,7 @@ impl NormalSigningRequestV1 {
         push_len32(&mut out, NORMAL_SIGNING_REQUEST_VERSION_V1);
         push_normal_signing_scope(&mut out, &self.scope);
         push_u64(&mut out, self.expires_at_ms);
+        out.extend_from_slice(self.intent_digest.as_bytes());
         push_len32(&mut out, self.signing_payload.as_bytes());
         out
     }

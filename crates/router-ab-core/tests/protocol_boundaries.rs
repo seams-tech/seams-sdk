@@ -507,6 +507,36 @@ fn lifecycle_applies_gate_decision_into_branch_specific_state() {
 }
 
 #[test]
+fn lifecycle_transition_requires_requested_before_gate_outcome() {
+    let scope = scope(ExpensiveWorkKindV1::RegistrationPrepare);
+    let requested = RouterAbLifecycleStateV1::requested(scope.clone()).expect("requested");
+    let accepted = RouterAbLifecycleStateV1::apply_gate_decision(
+        scope.clone(),
+        ExpensiveWorkGateDecisionV1::accepted("request-1").expect("accepted"),
+    )
+    .expect("accepted");
+    let deferred = RouterAbLifecycleStateV1::apply_gate_decision(
+        scope,
+        ExpensiveWorkGateDecisionV1::defer(GateDeferReasonV1::ShortWindowSaturated),
+    )
+    .expect("deferred");
+
+    RouterAbLifecycleStateV1::validate_transition_from(None, &requested)
+        .expect("requested starts lifecycle");
+    let err = RouterAbLifecycleStateV1::validate_transition_from(None, &accepted)
+        .expect_err("gate outcome cannot create lifecycle");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
+
+    RouterAbLifecycleStateV1::validate_transition_from(Some(&requested), &accepted)
+        .expect("requested advances to accepted");
+    RouterAbLifecycleStateV1::validate_transition_from(Some(&accepted), &accepted)
+        .expect("exact retry is idempotent");
+    let err = RouterAbLifecycleStateV1::validate_transition_from(Some(&accepted), &deferred)
+        .expect_err("terminal gate outcome cannot be rewritten");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
+}
+
+#[test]
 fn lifecycle_rejects_empty_scope_identity() {
     let err = LifecycleScopeV1::new(
         "",
@@ -572,14 +602,15 @@ fn normal_signing_scope_rejects_empty_identity_fields() {
 }
 
 #[test]
-fn normal_signing_request_binds_payload_and_expiry() {
+fn normal_signing_request_binds_intent_payload_and_expiry() {
     let scope =
         NormalSigningScopeV1::new("sign-1", "wallet-1", "session-1", "relayer-a").expect("scope");
     let payload = CanonicalWireBytesV1::new(vec![0xaa, 0xbb, 0xcc]).expect("payload");
-    let request =
-        NormalSigningRequestV1::new(scope, 2_000, payload).expect("normal signing request");
+    let request = NormalSigningRequestV1::new(scope.clone(), 2_000, digest(0x91), payload)
+        .expect("normal signing request");
 
     request.validate_at(1_000).expect("request is live");
+    assert_eq!(request.intent_digest, digest(0x91));
     assert_ne!(request.digest(), request.signing_payload_digest());
     assert_eq!(
         request.signing_payload_digest(),
@@ -587,10 +618,22 @@ fn normal_signing_request_binds_payload_and_expiry() {
             NormalSigningScopeV1::new("sign-2", "wallet-1", "session-1", "relayer-a")
                 .expect("scope"),
             3_000,
+            digest(0x91),
             CanonicalWireBytesV1::new(vec![0xaa, 0xbb, 0xcc]).expect("payload"),
         )
         .expect("same payload")
         .signing_payload_digest()
+    );
+    assert_ne!(
+        request.digest(),
+        NormalSigningRequestV1::new(
+            scope,
+            2_000,
+            digest(0x92),
+            CanonicalWireBytesV1::new(vec![0xaa, 0xbb, 0xcc]).expect("payload"),
+        )
+        .expect("different intent")
+        .digest()
     );
 
     let err = request
@@ -606,6 +649,7 @@ fn router_to_signing_worker_signing_request_requires_active_signing_worker_match
     let request = NormalSigningRequestV1::new(
         scope.clone(),
         2_000,
+        digest(0x91),
         CanonicalWireBytesV1::new(vec![0xaa]).expect("payload"),
     )
     .expect("request");
@@ -649,6 +693,7 @@ fn normal_signing_response_must_bind_to_request_payload_and_signing_worker() {
     let request = NormalSigningRequestV1::new(
         scope.clone(),
         2_000,
+        digest(0x91),
         CanonicalWireBytesV1::new(vec![0xaa, 0xbb]).expect("payload"),
     )
     .expect("request");
@@ -671,6 +716,7 @@ fn normal_signing_response_must_bind_to_request_payload_and_signing_worker() {
     let wrong_request = NormalSigningRequestV1::new(
         scope,
         2_000,
+        digest(0x91),
         CanonicalWireBytesV1::new(vec![0xcc]).expect("payload"),
     )
     .expect("wrong request");

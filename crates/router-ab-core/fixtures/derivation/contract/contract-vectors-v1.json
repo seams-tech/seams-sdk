@@ -1113,13 +1113,13 @@
       "recipient_identity": "role:client:local:sha256-c",
       "context_digest_hex": "4e6002c4eaefc4786dabc761d28e74d737573ffec91b73bad7ba152e9020ff79",
       "transcript_digest_hex": "fc63321324fff5b6b37aacf93789ef6e8e1f8c48762702a50cc63965562b0461",
-      "signer_a_partial_wire_hex": "000106457b048351bd8db4d3427f2e9f7f7c9ac7171aa6dca1e4c10a34ce0d809833c89334d355015175b6b9d1ff7b271896e375ba6becc6ad1192f0da6c02700b70",
+      "signer_a_partial_wire_hex": "00018685ef3ba5be8c4da6e28ef3a7dc9914bd18177aa9e2f61c21ff30f1808dca97f0f1e3641c27627c0645b00bffa696ccc4b2aa061b145bf390025c7225a38a7c",
       "signer_a_commitment_wire_hex": "0001bce83f8ba5dd2fa572864c24ba1810f9522bc6004afe95877ac73241cafdab42",
-      "signer_a_proof_wire_hex": "c0c3259e710491417dc160f1773bb678f19647cf6111a3dad4a6a255b149b401b464a72a5896bf1812de3bd7ac4cec78c5137170303a200283e7c3f2cbf9d803",
-      "signer_b_partial_wire_hex": "000306457b048351bd8db4d3427f2e9f7f7c9ac7171aa6dca1e4c10a34ce0d809833fcf43aa311f250942ba5837dc4d7db64cab80c49e7be6a15523dc4f9b250c323",
+      "signer_a_proof_wire_hex": "3c87f359ef06675a02c4d9b6ee815494c6ea455400a07d8ad2600933642c1c041bf788dfa44edfd1f35c77b0e859da93edad5e27005b849069e52d767bb74f0e",
+      "signer_b_partial_wire_hex": "00038685ef3ba5be8c4da6e28ef3a7dc9914bd18177aa9e2f61c21ff30f1808dca97f4b945e510c208cc6831a66a4a895b5042f0d1a1310f4ba5ddb24a1748fe3470",
       "signer_b_commitment_wire_hex": "00032809be5a1c388c4c0070a5c66ace507feade48828590314674cb0a6fd971e903",
-      "signer_b_proof_wire_hex": "aff5adfe9155f5e714be3201a6f4aa8f7e8fc1815e4f1924a9666b7056d0c30eb3d85744a54f5b84faaf8a4ddaaa220ea5ffff826be537136501064ec659d102",
-      "combined_output_hex": "e4f9ff422153f1daf49c61bd61f9e7599b5d17107089cce94e5d709b6cee5e0b"
+      "signer_b_proof_wire_hex": "ca5941df285011454774365bbebb94ddefd0d54b06a8909abf90653d08020d08de1e9010f9576331bbad91230cef11dc7b694b676df0bc7ef0c55c86eafa1b00",
+      "combined_output_hex": "e01ef56926b1443c7e81c2b9492fd892e5554d262f8d2808221681a95a3b1d08"
     },
     {
       "case_id": "mpc_threshold_prf_backend_registration_x_relayer_base_v1",
@@ -1129,13 +1129,13 @@
       "recipient_identity": "role:relayer:local:sha256-r",
       "context_digest_hex": "b7b751bab73efa90a9ed7933bd872c110e9df60601f15eb6d71972a0d96df806",
       "transcript_digest_hex": "5a6e14fb3b48afe0e06146865aaab9bedc45ee4aa2737e95100d9b3758f70a75",
-      "signer_a_partial_wire_hex": "0001c8a750cd03a6b837a68708c8e22800924a0e06fa2e1a1012f8a76aa8a7fbabd85602301fc23915214c4d6fde127ba5fa8cb3f16ae3df744b6ff223703873996c",
+      "signer_a_partial_wire_hex": "0001831e75bfb2b01d1b7e5f3350656d42a13888429e179c9d4d1c9ce8991a1bfc788463b25a17bb5328a183d1f48290efefebc191f5eaf09d414afed644ab743a06",
       "signer_a_commitment_wire_hex": "0001bce83f8ba5dd2fa572864c24ba1810f9522bc6004afe95877ac73241cafdab42",
-      "signer_a_proof_wire_hex": "de9feaf4133918e3d8ab5b22abad5439bf88947d489ccbec48cb2a0db8be9207cc7258238f4496c0572d096471b4b06f24d6dc9102f9fefe364f1d1ffb4a880a",
-      "signer_b_partial_wire_hex": "0003c8a750cd03a6b837a68708c8e22800924a0e06fa2e1a1012f8a76aa8a7fbabd81cad43dfa7fd1129be149090132f19f40b37579cb6959da62c8fe6ed72b15a02",
+      "signer_a_proof_wire_hex": "1deeaff28ba519d854da92ac792cf501913e399d9d7d818a0ed4d2965509740022f39fdb3add0100db3c3e83aa08f17628a6f0edaaa7cfc5b4af5509c07f360c",
+      "signer_b_partial_wire_hex": "0003831e75bfb2b01d1b7e5f3350656d42a13888429e179c9d4d1c9ce8991a1bfc787c5246fa3c48bfa2e7f4173a8bfb0f37add96955cce1574fa518b9e86df7001b",
       "signer_b_commitment_wire_hex": "00032809be5a1c388c4c0070a5c66ace507feade48828590314674cb0a6fd971e903",
-      "signer_b_proof_wire_hex": "438a1552e439aa94cbd42481a101465bac228cea845509896ac35e0196ce490c1633217632b5dbd0ce4f0d33374d17f62482dc0b6a9a8cc584791b1c4cd12f07",
-      "combined_output_hex": "57d4b1951ff69644b2ea242e94db3a6451e0db3c49cf9bf9090efb4465898400"
+      "signer_b_proof_wire_hex": "fb80fd708981f611883d9ad72757a4905489ca55e32493782422e0ca50e82c0f4d029b2563e3234af91c84cf151c6c993223ee311c1829e89434c3ef74bbe90a",
+      "combined_output_hex": "4cf13ca8801b3626a2eb0ed14dc45e4948d8bd879e6068729b4149eb0a627b0b"
     },
     {
       "case_id": "mpc_threshold_prf_backend_export_x_client_base_v1",
@@ -1145,13 +1145,13 @@
       "recipient_identity": "role:client:local:sha256-c",
       "context_digest_hex": "44f9f4240b7eb345ef3a5295978eb246074afda77871f9acaaca82de5ac370b2",
       "transcript_digest_hex": "cb8f757bd02f16d097cf7c13fe34f23a3d3f882d477705789438fa9d01b6e71e",
-      "signer_a_partial_wire_hex": "000164fc86599589fe979060eb3f3de2ae9d00366aa81593920bda2084b57a31c997580b910b8d610c2e0c866e68f406a32fb9ab0ec763251f2b33e23b424c342001",
+      "signer_a_partial_wire_hex": "0001cccd0fc7b7b7c05c43bcd25f6da16cac9ee223218fdfde11d2bdaa9ce941eea1d051e7f665ad944c1ce03a7f83374b9109896cad70672e09381e7e8d2145d74a",
       "signer_a_commitment_wire_hex": "0001bce83f8ba5dd2fa572864c24ba1810f9522bc6004afe95877ac73241cafdab42",
-      "signer_a_proof_wire_hex": "af4a0cc8f5e167d78be2381a2ef2c18de4db5df82dfe57524058aa14b6492003e9e1ce06f4f9daa6fcc3ed862971fb2aefba7927eef94246a8f835cfc812c204",
-      "signer_b_partial_wire_hex": "000364fc86599589fe979060eb3f3de2ae9d00366aa81593920bda2084b57a31c997b48296a58c628a08248e6b6946b686a22220466e300a37c4a43d57f0bf727e52",
+      "signer_a_proof_wire_hex": "012dea64350005306967a752927bc0d03a17685044075051e8a33f9a4564e60482c7616795e3881da9dcb550995e0cf7a347eaefe35deb3ae038a08cf3364508",
+      "signer_b_partial_wire_hex": "0003cccd0fc7b7b7c05c43bcd25f6da16cac9ee223218fdfde11d2bdaa9ce941eea14c68f0141679f0cd393889b4ab45ce1af79680cef2fd1a84ffd108801b8d4439",
       "signer_b_commitment_wire_hex": "00032809be5a1c388c4c0070a5c66ace507feade48828590314674cb0a6fd971e903",
-      "signer_b_proof_wire_hex": "427f2225082d08fed8b9fe2ca658887296d37e0193270cff144c72101d7e140d2116172037b66fc97bd907717b8b9ec0cb75912059eab49096594c0903c7bf0f",
-      "combined_output_hex": "fc789ac5e797e5e6829100c5f743746d65eafc61b93e216f9bcdbee8081a7d01"
+      "signer_b_proof_wire_hex": "95bd99cb3b9a971f020922e8c40797170e2791ea41ffb83da39358ccac9d3f0fd4d5c187a7886536cb5d29187c7acc1f59eaa487295949aab37462524b5aa20e",
+      "combined_output_hex": "4414385dc839a499937369d0d8b6137bd3028c4791db8abdc49bb6f4e5253506"
     },
     {
       "case_id": "mpc_threshold_prf_backend_export_x_relayer_base_v1",
@@ -1161,13 +1161,13 @@
       "recipient_identity": "role:relayer:local:sha256-r",
       "context_digest_hex": "05c94716263afd81239b3d41b9c9b547a708323fd13200f052ab1200ccc78ec0",
       "transcript_digest_hex": "b784ac36a380598fbb31a44fbd62cdb29187d6a5c62a02561151dee9fbfc1e53",
-      "signer_a_partial_wire_hex": "000151b902d944c815f0596575d74125d3398b1d8f5626e10d92e616afae58185054d820cea742c3ab371c081836ff68f4450e0153ad800685a9754096789fcdd511",
+      "signer_a_partial_wire_hex": "000104b18d6f6ed6c31a3d4409724075c27638058c6ffb5a6efc457c125015223c9980880a98cc49e079db55a41bbf860f60a31f53dcdb037f12124a043aade57d49",
       "signer_a_commitment_wire_hex": "0001bce83f8ba5dd2fa572864c24ba1810f9522bc6004afe95877ac73241cafdab42",
-      "signer_a_proof_wire_hex": "60d6d882fb1ecc26c12cb81b6ab66ee8f1daa5ef25fd88eec5b1289e130df40339801c294edddef79941eb0a0e1c5fd8803a17199d25de82b7d8a2566400b604",
-      "signer_b_partial_wire_hex": "000351b902d944c815f0596575d74125d3398b1d8f5626e10d92e616afae58185054806caf1bea1b0f1f7ee5c109f764e5daf1bb271ebe93f8c0e6b50e335dac8951",
+      "signer_a_proof_wire_hex": "4b0b45045694b916e40fd655dab3a9d3fcbf3bfb374966ecf664ed8f5ff87c001942a4cf80114a4f9dda1a737ced8432f9118898636a606bd28b16baa71c980e",
+      "signer_b_partial_wire_hex": "000304b18d6f6ed6c31a3d4409724075c27638058c6ffb5a6efc457c125015223c99a6b9661c3f2d6c8791c6413dd02bea3993f96a99dc8d6128ffcc543e43d9a15c",
       "signer_b_commitment_wire_hex": "00032809be5a1c388c4c0070a5c66ace507feade48828590314674cb0a6fd971e903",
-      "signer_b_proof_wire_hex": "c3843f209bca96f927236ed8fb33b05cab027d5b24b3d217e28130a636707801d4c67b2116a01699a0d419d7e23c1c869d6862650fc78f6bd0791970b7948606",
-      "combined_output_hex": "fb0686bae195f9440b4b4ff09c8d5ed0fbe8382300bab513b1c81502439ee30b"
+      "signer_b_proof_wire_hex": "3e17472ecef910f9c7578c395cf6759a8c22d015eb49780ac44bc62a7888780c3fd02275cf3a7ea8018a2d1c69bc17e41f05cd8092db51e86858117523548905",
+      "combined_output_hex": "2305bcdaa4deffb6435802113c50f0fd125385db1042480f9f5d751647c3fe0c"
     },
     {
       "case_id": "mpc_threshold_prf_backend_refresh_x_client_base_v1",
@@ -1177,13 +1177,13 @@
       "recipient_identity": "role:client:local:sha256-c",
       "context_digest_hex": "ce0f761c26bb61e019721493b7899d1f5f0a09cc1f3507674d807398c20b29f7",
       "transcript_digest_hex": "93162171977991ce179f8c31b7ac877d931cdca61e6b2549cf6fd594987422b0",
-      "signer_a_partial_wire_hex": "00019e792ffd6c51cf6305a6d4e3d703c35a728982c7954d239f35f71d94136602c786399c7fd9c5f768f55b93124b322c1603c7f0290726083334f7797d02f84f61",
+      "signer_a_partial_wire_hex": "0001070208f73e9a78470a6c32922c495c189f6274431015b29cb0e81fd7771067e88acafc10526a6422d4dbbae5663c1b494e5bf689e5ac11620e765391bbf65830",
       "signer_a_commitment_wire_hex": "0001bce83f8ba5dd2fa572864c24ba1810f9522bc6004afe95877ac73241cafdab42",
-      "signer_a_proof_wire_hex": "278e285e190e5aa5f265528843d633fc12e772cef71b4a6ca2ea146487b00007ca4d7c970579f8f996a2fcd16dc32c1c5da8b0e40cc2d7d140bacf30b1a7ec09",
-      "signer_b_partial_wire_hex": "00039e792ffd6c51cf6305a6d4e3d703c35a728982c7954d239f35f71d94136602c766f830cf26c7d4a563954b987a6c20730f2200be74441e25838e84562447b344",
+      "signer_a_proof_wire_hex": "dc4df8039a5a721e493ad9b7b5204307da3afbfad2ce39aea345b5c605a6590ab7e27dfd57fcde7da188d8969802176cea418cce777124a74ea3b36d1f34bf0e",
+      "signer_b_partial_wire_hex": "0003070208f73e9a78470a6c32922c495c189f6274431015b29cb0e81fd7771067e8163e88c66b58114990bf13c6da6c59c29e8814f5056e22a8a61a5a3a5ef78c50",
       "signer_b_commitment_wire_hex": "00032809be5a1c388c4c0070a5c66ace507feade48828590314674cb0a6fd971e903",
-      "signer_b_proof_wire_hex": "c9a0e15c3b6b78e5d2fbcafa869219cf93aca73537798439d3f279aecf9f89033dcd9455121cc02d9758518926585d0df92e73043e4993df40839345bd9d0f09",
-      "combined_output_hex": "adef6c54018a5cd8ab09e19d57427a87459751d575affd97889263dd2c8abc06"
+      "signer_b_proof_wire_hex": "5390d25d1b09dfab875a4735309bf0d7c8d6035f7a5a3448ad215fca7104b3088a7c3b2c8582ba8e888fb36e7e8ae251faf6e3b3d9cd7f89f4d1896e1a04c00e",
+      "combined_output_hex": "54d1340a89ebdbda39eee63fc1804d1e8748b1e4aafc8091ef97f362aaf1a206"
     },
     {
       "case_id": "mpc_threshold_prf_backend_refresh_x_relayer_base_v1",
@@ -1193,13 +1193,13 @@
       "recipient_identity": "role:relayer:local:sha256-r",
       "context_digest_hex": "3daf42b4e4195588d2d839d915b918a0891e9dd7692f683be72fc97983aa6f68",
       "transcript_digest_hex": "e01dad245e4ce32ba2dabb6676d48147d18d8670de3b4670d9c8b0ab0c9fb48b",
-      "signer_a_partial_wire_hex": "00012e4ff5144ce9323ed3224bc98e8ca7bffd47ec764ec861cc3439748b0f453d16f419b316986c711e45026f9fd8508053082e5a70ac419803e55e6720e03b5306",
+      "signer_a_partial_wire_hex": "00014b45cdf72200102b400996e501ff0058849cc7ccd104b5360520fc84915c3649e027c12764e24175379563fd643f1a2475254d5022cbdf28481149b0e2787171",
       "signer_a_commitment_wire_hex": "0001bce83f8ba5dd2fa572864c24ba1810f9522bc6004afe95877ac73241cafdab42",
-      "signer_a_proof_wire_hex": "61b547cbaf6cd6a7a5efa92f29a72e45a0b305ba42bb6182310ae3107f210c00b82170393ea8dc0e9e54c984e516497944fdc73ca74e6287afc147c0c578880b",
-      "signer_b_partial_wire_hex": "00032e4ff5144ce9323ed3224bc98e8ca7bffd47ec764ec861cc3439748b0f453d162ca9280d534476e59e034c47817714ac5ff9fce0b7386183e5dab51223490517",
+      "signer_a_proof_wire_hex": "44051d1eabd132710cc98a5b5da379a5d44043709cfaa7b9b353db762cb3be0b11f1ebe037e641f555c5b54f2e1e8af5830e6d11820767e747eaf22139bb340c",
+      "signer_b_partial_wire_hex": "00034b45cdf72200102b400996e501ff0058849cc7ccd104b5360520fc84915c36491c29816ac95f10778317fda0ef2475dd070705397afacee12af7c45070c7b10b",
       "signer_b_commitment_wire_hex": "00032809be5a1c388c4c0070a5c66ace507feade48828590314674cb0a6fd971e903",
-      "signer_b_proof_wire_hex": "43a1231ea5409a33da7d72fb7d736edd6e2c678b822607c07d2c9b0ae9cbd1038f7475dd10c27a0b368357b1570332501be220f3cb96096d26b982f44a19db0d",
-      "combined_output_hex": "5928317ebb85b66d69d85dddf23d734eb43c9d613619817fcece90337411a209"
+      "signer_b_proof_wire_hex": "bf8611028f36105ed4ad2cf0572e23da5a2a6a9d46bc8e03274b98832d68e5003c973580138d3393bc024599610f0659d7a577fd018e651353322fa90ccd1309",
+      "combined_output_hex": "0e45e907000716bee5f9d733ceca3acbd09bbc8680bd437df2a81ea89a2e4605"
     }
   ],
   "mpc_threshold_prf_backend_rejection_cases": [

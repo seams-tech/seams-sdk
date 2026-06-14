@@ -243,6 +243,67 @@ impl RouterAbLifecycleStateV1 {
             | Self::AuthorityVerifiedFallback { scope, .. } => scope,
         }
     }
+
+    /// Validates required state fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.scope().validate()?;
+        match self {
+            Self::Requested { .. }
+            | Self::GateDeferred { .. }
+            | Self::GateRejected { .. }
+            | Self::AuthorityVerifiedFallback { .. } => Ok(()),
+            Self::GateAccepted { request_id, .. } => require_non_empty("request_id", request_id),
+            Self::GateReusingExisting {
+                request_id,
+                existing_lifecycle_id,
+                ..
+            } => {
+                require_non_empty("request_id", request_id)?;
+                require_non_empty("existing_lifecycle_id", existing_lifecycle_id)
+            }
+        }
+    }
+
+    /// Validates the Router admission lifecycle transition before persistence.
+    pub fn validate_transition_from(
+        previous: Option<&Self>,
+        next: &Self,
+    ) -> RouterAbProtocolResult<()> {
+        next.validate()?;
+        let Some(previous) = previous else {
+            return match next {
+                Self::Requested { .. } => Ok(()),
+                _ => Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLifecycleState,
+                    "router lifecycle must start in requested state",
+                )),
+            };
+        };
+        previous.validate()?;
+        if previous == next {
+            return Ok(());
+        }
+        if previous.scope() != next.scope() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "router lifecycle transition changed scope",
+            ));
+        }
+        match (previous, next) {
+            (
+                Self::Requested { .. },
+                Self::GateAccepted { .. }
+                | Self::GateReusingExisting { .. }
+                | Self::GateDeferred { .. }
+                | Self::GateRejected { .. }
+                | Self::AuthorityVerifiedFallback { .. },
+            ) => Ok(()),
+            _ => Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "invalid router lifecycle transition",
+            )),
+        }
+    }
 }
 
 fn require_non_empty(field: &'static str, value: &str) -> RouterAbProtocolResult<()> {
