@@ -1,10 +1,11 @@
 # Deployment Infra
 
-This repo deploys three hosted surfaces:
+This repo deploys these hosted surfaces:
 
 - SDK runtime bundles in Cloudflare R2.
 - App and wallet Pages projects from `examples/seams-site`.
 - Relay Worker from `examples/relay-cloudflare-worker`.
+- Router A/B Workers from `crates/router-ab-cloudflare`.
 
 The relay also needs durable persistence. Use split Postgres databases for
 signer/runtime state and console/control-plane state.
@@ -21,46 +22,61 @@ environment.
 
 ### Secrets
 
-| Secret                                 | Used by             | Notes                                                                                  |
-| -------------------------------------- | ------------------- | -------------------------------------------------------------------------------------- |
-| `CLOUDFLARE_API_TOKEN`                 | Pages, relay deploy | Needs Pages deploy, Worker deploy, Worker secrets, and Email Routing permissions.      |
-| `CLOUDFLARE_ACCOUNT_ID`                | Pages, relay deploy | Cloudflare account id.                                                                 |
-| `CLOUDFLARE_ZONE_ID`                   | relay deploy        | Required only when the workflow should manage Email Routing.                           |
-| `CF_PAGES_PROJECT_VITE`                | Pages deploy        | Cloudflare Pages project for the app/site surface.                                     |
-| `CF_PAGES_PROJECT_WALLET`              | Pages deploy        | Cloudflare Pages project for the wallet origin.                                        |
-| `R2_ENDPOINT`                          | SDK R2 publish      | S3-compatible R2 endpoint URL.                                                         |
-| `R2_BUCKET`                            | SDK R2 publish      | Bucket that stores `releases/*` and `releases-dev/*`.                                  |
-| `R2_ACCESS_KEY_ID`                     | SDK R2 publish      | R2 access key with write access to the SDK bucket.                                     |
-| `R2_SECRET_ACCESS_KEY`                 | SDK R2 publish      | R2 secret access key.                                                                  |
-| `THRESHOLD_ED25519_MASTER_SECRET_B64U` | relay deploy        | Optional. When present, the relay workflow writes it as a Worker secret before deploy. |
+| Secret                                           | Used by                         | Notes                                                                                  |
+| ------------------------------------------------ | ------------------------------- | -------------------------------------------------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN`                           | Pages, relay, Router A/B deploy | Needs Pages deploy, Worker deploy, Worker secrets, and Email Routing permissions.      |
+| `CLOUDFLARE_ACCOUNT_ID`                          | Pages, relay, Router A/B deploy | Cloudflare account id.                                                                 |
+| `CLOUDFLARE_ZONE_ID`                             | relay deploy                    | Required only when the workflow should manage Email Routing.                           |
+| `CF_PAGES_PROJECT_VITE`                          | Pages deploy                    | Cloudflare Pages project for the app/site surface.                                     |
+| `CF_PAGES_PROJECT_WALLET`                        | Pages deploy                    | Cloudflare Pages project for the wallet origin.                                        |
+| `R2_ENDPOINT`                                    | SDK R2 publish                  | S3-compatible R2 endpoint URL.                                                         |
+| `R2_BUCKET`                                      | SDK R2 publish                  | Bucket that stores `releases/*` and `releases-dev/*`.                                  |
+| `R2_ACCESS_KEY_ID`                               | SDK R2 publish                  | R2 access key with write access to the SDK bucket.                                     |
+| `R2_SECRET_ACCESS_KEY`                           | SDK R2 publish                  | R2 secret access key.                                                                  |
+| `THRESHOLD_ED25519_MASTER_SECRET_B64U`           | relay deploy                    | Optional. When present, the relay workflow writes it as a Worker secret before deploy. |
+| `SIGNER_A_ROOT_SHARE_WIRE_SECRET`                | Router A/B deploy               | Deriver A root-share wire secret. Written to the Deriver A Worker environment.         |
+| `SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY`             | Router A/B deploy               | Deriver A signer-envelope HPKE private key.                                            |
+| `SIGNER_A_PEER_SIGNING_KEY`                      | Router A/B deploy               | Deriver A private key for A/B peer messages.                                           |
+| `SIGNER_B_ROOT_SHARE_WIRE_SECRET`                | Router A/B deploy               | Deriver B root-share wire secret. Written to the Deriver B Worker environment.         |
+| `SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY`             | Router A/B deploy               | Deriver B signer-envelope HPKE private key.                                            |
+| `SIGNER_B_PEER_SIGNING_KEY`                      | Router A/B deploy               | Deriver B private key for A/B peer messages.                                           |
+| `SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY` | Router A/B deploy               | SigningWorker relayer-output HPKE private key.                                         |
 
 ### Variables
 
-| Variable                                | Used by      | Notes                                                                        |
-| --------------------------------------- | ------------ | ---------------------------------------------------------------------------- |
-| `RECOVER_EMAIL_RECIPIENT`               | relay deploy | Email address routed to the relay Worker.                                    |
-| `VITE_RELAYER_URL`                      | Pages build  | Public relay API base URL.                                                   |
-| `VITE_CONSOLE_BASE_URL`                 | Pages build  | Optional console API base URL; defaults in app code when unset.              |
-| `VITE_RELAYER_ACCOUNT_ID`               | Pages build  | Parent NEAR account used for account creation.                               |
-| `VITE_SEAMS_ENVIRONMENT_ID`            | Pages build  | Hosted environment id for managed registration and sponsored actions.        |
-| `VITE_SEAMS_PUBLISHABLE_KEY`           | Pages build  | Publishable key for browser-managed relay calls.                             |
-| `VITE_WALLET_ORIGIN`                    | Pages build  | Wallet origin. Must match CORS and WebAuthn RP configuration.                |
-| `VITE_WALLET_SERVICE_PATH`              | Pages build  | Wallet service path; defaults to `/wallet-service` when unset.               |
-| `VITE_SDK_BASE_PATH`                    | Pages build  | SDK asset path; defaults to `/sdk` when unset.                               |
-| `VITE_RP_ID_BASE`                       | Pages build  | WebAuthn RP id base.                                                         |
-| `VITE_DOCS_ORIGIN`                      | Pages build  | Public docs origin used by site links and local header rules.                |
-| `VITE_NEAR_NETWORK`                     | Pages build  | `testnet` or `mainnet`.                                                      |
-| `VITE_NEAR_RPC_URL`                     | Pages build  | NEAR RPC URL.                                                                |
-| `VITE_NEAR_EXPLORER`                    | Pages build  | Explorer base URL.                                                           |
-| `VITE_TEMPO_RPC_URL`                    | Pages build  | Optional Tempo RPC URL.                                                      |
-| `VITE_TEMPO_EXPLORER`                   | Pages build  | Optional Tempo explorer URL.                                                 |
-| `VITE_TEMPO_FEE_TOKEN`                  | Pages build  | Optional Tempo fee token address.                                            |
-| `VITE_ARC_RPC_URL`                      | Pages build  | Optional Arc RPC URL.                                                        |
-| `VITE_ARC_EXPLORER`                     | Pages build  | Optional Arc explorer URL.                                                   |
-| `VITE_SIGNING_SESSION_PERSISTENCE_MODE` | Pages build  | Set when enabling sealed-refresh client flows.                               |
-| `VITE_SIGNING_SESSION_SEAL_KEY_VERSION` | Pages build  | Must match the active relay seal key version when sealed-refresh is enabled. |
-| `VITE_SIGNING_SESSION_SHAMIR_P_B64U`    | Pages build  | Public Shamir prime value for sealed-refresh clients.                        |
-| `VITE_DASHBOARD_WALLETS_ROUTES_ENABLED` | Pages build  | Optional dashboard route gate.                                               |
+| Variable                                                  | Used by           | Notes                                                                        |
+| --------------------------------------------------------- | ----------------- | ---------------------------------------------------------------------------- |
+| `RECOVER_EMAIL_RECIPIENT`                                 | relay deploy      | Email address routed to the relay Worker.                                    |
+| `ROUTER_AB_JWT_ISSUER`                                    | Router A/B deploy | JWT issuer accepted by the Router admission boundary.                        |
+| `ROUTER_AB_JWT_AUDIENCE`                                  | Router A/B deploy | JWT audience accepted by the Router; defaults operationally to `router-ab`.  |
+| `ROUTER_AB_JWT_JWKS_URL`                                  | Router A/B deploy | JWKS URL used by Router JWT verification.                                    |
+| `ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY`             | Router A/B deploy | Public key matching `SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY`.                    |
+| `ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY`             | Router A/B deploy | Public key matching `SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY`.                    |
+| `ROUTER_AB_SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY` | Router A/B deploy | Public key matching `SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY`.        |
+| `ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX`               | Router A/B deploy | Public verifying key matching `SIGNER_A_PEER_SIGNING_KEY`.                   |
+| `ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX`               | Router A/B deploy | Public verifying key matching `SIGNER_B_PEER_SIGNING_KEY`.                   |
+| `VITE_RELAYER_URL`                                        | Pages build       | Public relay API base URL.                                                   |
+| `VITE_CONSOLE_BASE_URL`                                   | Pages build       | Optional console API base URL; defaults in app code when unset.              |
+| `VITE_RELAYER_ACCOUNT_ID`                                 | Pages build       | Parent NEAR account used for account creation.                               |
+| `VITE_SEAMS_ENVIRONMENT_ID`                               | Pages build       | Hosted environment id for managed registration and sponsored actions.        |
+| `VITE_SEAMS_PUBLISHABLE_KEY`                              | Pages build       | Publishable key for browser-managed relay calls.                             |
+| `VITE_WALLET_ORIGIN`                                      | Pages build       | Wallet origin. Must match CORS and WebAuthn RP configuration.                |
+| `VITE_WALLET_SERVICE_PATH`                                | Pages build       | Wallet service path; defaults to `/wallet-service` when unset.               |
+| `VITE_SDK_BASE_PATH`                                      | Pages build       | SDK asset path; defaults to `/sdk` when unset.                               |
+| `VITE_RP_ID_BASE`                                         | Pages build       | WebAuthn RP id base.                                                         |
+| `VITE_DOCS_ORIGIN`                                        | Pages build       | Public docs origin used by site links and local header rules.                |
+| `VITE_NEAR_NETWORK`                                       | Pages build       | `testnet` or `mainnet`.                                                      |
+| `VITE_NEAR_RPC_URL`                                       | Pages build       | NEAR RPC URL.                                                                |
+| `VITE_NEAR_EXPLORER`                                      | Pages build       | Explorer base URL.                                                           |
+| `VITE_TEMPO_RPC_URL`                                      | Pages build       | Optional Tempo RPC URL.                                                      |
+| `VITE_TEMPO_EXPLORER`                                     | Pages build       | Optional Tempo explorer URL.                                                 |
+| `VITE_TEMPO_FEE_TOKEN`                                    | Pages build       | Optional Tempo fee token address.                                            |
+| `VITE_ARC_RPC_URL`                                        | Pages build       | Optional Arc RPC URL.                                                        |
+| `VITE_ARC_EXPLORER`                                       | Pages build       | Optional Arc explorer URL.                                                   |
+| `VITE_SIGNING_SESSION_PERSISTENCE_MODE`                   | Pages build       | Set when enabling sealed-refresh client flows.                               |
+| `VITE_SIGNING_SESSION_SEAL_KEY_VERSION`                   | Pages build       | Must match the active relay seal key version when sealed-refresh is enabled. |
+| `VITE_SIGNING_SESSION_SHAMIR_P_B64U`                      | Pages build       | Public Shamir prime value for sealed-refresh clients.                        |
+| `VITE_DASHBOARD_WALLETS_ROUTES_ENABLED`                   | Pages build       | Optional dashboard route gate.                                               |
 
 ## Cloudflare Pages
 
@@ -137,6 +153,57 @@ pnpm -C examples/relay-cloudflare-worker exec wrangler secret put WEBHOOK_RETRY_
 Repeat for production. Enable cron jobs by editing the relevant `*_ENABLED`,
 `*_CRONS`, namespace, and org-id vars in `wrangler.toml` or by managing them in
 Cloudflare.
+
+## Router A/B Workers
+
+Router A/B Worker configuration lives in:
+
+- `crates/router-ab-cloudflare/wrangler.router.toml`
+- `crates/router-ab-cloudflare/wrangler.signer-a.toml`
+- `crates/router-ab-cloudflare/wrangler.signer-b.toml`
+- `crates/router-ab-cloudflare/wrangler.signing-worker.toml`
+
+Wrangler environments:
+
+| Target       | Router                            | Deriver A                           | Deriver B                           | SigningWorker                             |
+| ------------ | --------------------------------- | ----------------------------------- | ----------------------------------- | ----------------------------------------- |
+| `staging`    | `router-ab-strict-router-staging` | `router-ab-strict-signer-a-staging` | `router-ab-strict-signer-b-staging` | `router-ab-strict-signing-worker-staging` |
+| `production` | `router-ab-strict-router-prod`    | `router-ab-strict-signer-a-prod`    | `router-ab-strict-signer-b-prod`    | `router-ab-strict-signing-worker-prod`    |
+
+The checked-in Wrangler vars contain placeholder public keys so dry-run builds
+work without environment configuration. The `deploy-router-ab` workflow injects
+the real public keys and Router JWT values from GitHub Environment variables
+during `upload-version` and `deploy`.
+
+Set the GitHub Environment variables listed above before the first upload. Set
+the seven Router A/B secrets in the same GitHub Environment. The workflow writes
+them to the corresponding Cloudflare Worker secrets before uploading versions
+or deploying Workers.
+
+Manual validation and deployment:
+
+```bash
+gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=validate -f role=all
+gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=upload-version -f role=all
+gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=deploy -f role=all
+```
+
+For production, use `--ref main -f target=production`.
+
+Local Cloudflare-shape checks:
+
+```bash
+pnpm router-ab:cloudflare:startup:dry-run
+pnpm router-ab:cloudflare:startup:upload -- --env staging
+```
+
+Router A/B deployment is prepared for Cloudflare validation and version-upload
+evidence. `operation=deploy` runs `pnpm -C crates/router-ab-cloudflare
+assert:release-ready` and fails while release blockers remain. Current blockers:
+the Cloudflare strict SigningWorker normal-signing handler is still fail-closed
+until the production role-separated Ed25519-HSS signer is wired, and full
+`DerivationCeremony` persistence is not yet enforced at the Cloudflare Durable
+Object boundary.
 
 ## Postgres
 

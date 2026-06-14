@@ -1,4 +1,4 @@
-# Router A/B Signer Spec
+# Router A/B Deriver Spec
 
 Date created: June 11, 2026
 
@@ -10,11 +10,16 @@ Related plan:
 ## Purpose
 
 This spec records the security, protocol, lifecycle, observability, and release
-gates for the Router A/B signer architecture before implementation starts.
+gates for the Router A/B deriver architecture before implementation starts.
 
 The implementation plan lives in `docs/router-A-B-signer.md`. This file owns
 the decisions that must be settled or explicitly gated before code can claim the
 Router A/B security boundary.
+
+Terminology: target architecture prose uses `Deriver A`, `Deriver B`, and
+`SigningWorker`. Current implementation labels such as `SignerA`, `SignerB`,
+`SIGNER_A_*`, `SIGNER_B_*`, and relayer-labelled activation types are
+transitional and should be renamed during the slimming refactor.
 
 ## Protocol Decision Gates
 
@@ -70,8 +75,8 @@ inputs:
   signing_root_version
   root_share_epoch
   wallet_context
-  signer_a_share
-  signer_b_share
+  deriver_a_share
+  deriver_b_share
   derivation_version
   transcript_binding
 
@@ -134,7 +139,7 @@ Forbidden A/B API inputs and outputs:
 Allowed outputs:
 
 - encrypted client-output package share
-- relayer-output package share
+- SigningWorker-output package share
 - public transcript digest
 - typed redacted diagnostics
 
@@ -156,7 +161,7 @@ pub struct RoleSeparatedHssStepOutput<R> {
     pub role: R,
     pub peer_messages: Vec<AuthenticatedPeerMessage>,
     pub client_output_package: Option<EncryptedClientOutputPackage>,
-    pub relayer_output_package: Option<RelayerOutputPackage>,
+    pub signing_worker_output_package: Option<SigningWorkerOutputPackage>,
     pub transcript_digest: TranscriptDigest,
     pub diagnostics: RedactedCeremonyDiagnostics,
 }
@@ -177,45 +182,53 @@ Forbidden imports in production Router A/B paths:
 - evaluator driver state bytes for secret ceremony values
 - current output-projector APIs that materialize joined client output state
 
-### Gate 3: Relayer Placement
+### Gate 3: SigningWorker Placement
 
-Decision: initial relayer is Signer A.
+Decision: normal signing uses a standalone `SigningWorker`.
 
 Initial topology:
 
 ```text
 Registration/export/recovery/refresh:
-  Client -> Router -> A and B
-  A <-> B
-  A activates x_relayer_base
+  Client -> Router -> Deriver A and Deriver B
+  Deriver A <-> Deriver B
+  Deriver A/B -> SigningWorker
+  SigningWorker activates x_relayer_base
+  SigningWorker -> Router activation receipt
 
 Normal signing:
-  Client -> Router -> A
+  Client -> Router -> SigningWorker -> Router -> Client
 ```
 
-Signer A is allowed to open `x_relayer_base`. Signer A must never open
+Deriver A and Deriver B are derivation workers. They hold role-local derivation
+material and produce recipient-scoped proof bundles for the client and
+SigningWorker. The SigningWorker is allowed to open `x_relayer_base`.
+Deriver A, Deriver B, Router, and diagnostics sinks must never open
 `x_client_base`, joined `d`, joined `a`, joined `y_relayer`, or joined
 `tau_relayer`.
 
 Rationale:
 
-- simplest product shape
-- lowest normal-signing latency
-- B is needed only for derivation-time ceremonies
+- normal signing stays on a Router plus one worker path
+- Deriver A and Deriver B leave the hot signing path after derivation-time
+  ceremonies
+- the role name describes signing responsibility and avoids transaction-relayer
+  ambiguity
 - Router remains secret-light
-
-Later hardening option: use a separate relayer service if operational separation
-or customer requirements justify the extra deployment surface.
+- direct Deriver A/B -> SigningWorker delivery avoids an extra Router relay
+  hop during activation
+- failover uses multiple instances of the same SigningWorker identity or a
+  refresh ceremony that activates a new SigningWorker identity
 
 ### Gate 4: Non-Circular Envelope Binding
 
 Decision: implemented for canonical-byte construction. The derivation
 transcript, request-context digest, Router replay digest, and strict
-signer-envelope AAD bootstrap are non-circular. The strict signer bootstrap can
-now derive typed signer-host preload coordinates, and signer Workers can load
+deriver-envelope AAD bootstrap are non-circular. The strict deriver bootstrap can
+now derive typed deriver-host preload coordinates, and deriver Workers can load
 trusted A/B peer verifying keys from role-local config. Router A/B v1 strict
-proof-bundle delivery uses independent Router dispatch to Signer A and Signer B;
-Router aggregation requires both signer responses for liveness.
+proof-bundle delivery uses independent Router dispatch to Deriver A and Deriver B;
+Router aggregation requires both deriver responses for liveness.
 
 The current field graph is too circular for real envelope construction:
 
@@ -225,7 +238,7 @@ RoleEnvelopeAadV1.aad_digest
   depends on RoleEnvelopeAadV1.router_request_digest
 
 legacy router_transcript_digest_v1 shape
-  depended on signer envelope digests
+  depended on deriver envelope digests
   depended on RoleEncryptedEnvelopeV1.aad_digest
 
 PublicRouterRequestV1::router_replay_digest()
@@ -233,7 +246,7 @@ PublicRouterRequestV1::router_replay_digest()
   depend on RoleEncryptedEnvelopeV1.aad_digest
 ```
 
-That made it unclear which bytes are known when A/B signer envelopes are
+That made it unclear which bytes are known when A/B deriver envelopes are
 encrypted. The implementation now splits public pre-envelope transcript context
 from encrypted-envelope assignment metadata:
 
@@ -243,24 +256,24 @@ from encrypted-envelope assignment metadata:
   HSS/output transcript digest before role envelopes are encrypted.
 - `PublicRouterRequestV1` rejects supplied transcript digests that do not match
   the pre-envelope derivation transcript.
-- Derivation `TranscriptBinding` binds signer-set id, signer index, role,
-  signer identity, key epoch, quorum policy, selected relayer, client identity,
-  client ephemeral key, and account context. It no longer binds encrypted
-  envelope digests.
+- Derivation `TranscriptBinding` binds deriver-set id, deriver index, role,
+  deriver identity, key epoch, quorum policy, selected SigningWorker, client
+  identity, client ephemeral key, and account context. It no longer binds
+  encrypted envelope digests.
 - `RouterEnvelopeDigestSetV1` carries encrypted-envelope digests only for
-  Router-to-signer assignment validation.
+  Router-to-deriver assignment validation.
 
 Implemented fix:
 
 - Add public `root_share_epoch` to the Router request scope. It is needed to
-  compute derivation transcript bytes before signer-envelope encryption.
+  compute derivation transcript bytes before deriver-envelope encryption.
 - Define `RouterRequestContextDigestV1` over public request fields that exclude
   role envelopes, role-envelope `aad_digest`, and ciphertext bytes. Use this
-  digest inside signer-envelope AAD and signer plaintext.
+  digest inside deriver-envelope AAD and deriver plaintext.
 - Define `DerivationTranscriptDigestV1` over lifecycle scope including
-  `root_share_epoch`, signer set, selected relayer, client identity, client
-  ephemeral public key, request kind, and `RouterRequestContextDigestV1`. This
-  digest is known before encryption and is used inside signer plaintext,
+  `root_share_epoch`, deriver set, selected SigningWorker, client identity,
+  client ephemeral public key, request kind, and `RouterRequestContextDigestV1`.
+  This digest is known before encryption and is used inside deriver plaintext,
   A/B proof batches, recipient proof bundles, and output package bindings.
 
 Remaining release gates:
@@ -268,29 +281,29 @@ Remaining release gates:
 - Keep final `RouterReplayDigestV1` over the full public request, including
   encrypted role envelopes, for Router replay/idempotency storage only.
   Implemented as `PublicRouterRequestV1::router_replay_digest()`.
-- Make signer private service bodies carry the exact typed AAD object supplied
+- Make deriver private service bodies carry the exact typed AAD object supplied
   by Router, then require `aad.digest()` to match the envelope's public
   `aad_digest`. Implemented as
-  `CloudflareSignerPrivateBootstrapRequestV1`.
+  `CloudflareDeriverPrivateBootstrapRequestV1`.
 
 Release rule: production vectors must show the complete order of operations for
-creating A and B encrypted signer envelopes, computing transcript bytes,
-computing Router replay bytes, and decrypting at each signer without any digest
+creating A and B encrypted deriver envelopes, computing transcript bytes,
+computing Router replay bytes, and decrypting at each deriver without any digest
 fixed point.
 
 ## Threat Claim Matrix
 
-| Compromise | Expected exposure | Required containment |
-| --- | --- | --- |
-| Router | public metadata, ciphertext, hashes, timings | no signer plaintext, no root shares, no output shares |
-| Signer A | A custody material, A local derived material, `x_relayer_base` after activation | no B plaintext, no `x_client_base`, no joined `d` or `a` |
-| Signer B | B custody material, B local derived material | no A plaintext, no `x_relayer_base` unless B is configured as relayer, no joined `d` or `a` |
-| A and B | server-side custody may be compromised | incident response may require root replacement or wallet migration |
-| Relayer role in Signer A | `x_relayer_base` | no `k_org`, no joined `y_relayer`, no joined `d`, no `x_client_base` |
-| Client | that user's client output path and local material | no server root material, no `y_relayer`, no `tau_relayer` |
-| A storage or KEK only | A sealed/plain share according to the key boundary | no B share, no joined root |
-| B storage or KEK only | B sealed/plain share according to the key boundary | no A share, no joined root |
-| Logs/observability | public metadata, hashes, state transitions, timings | no protocol payload plaintext |
+| Compromise            | Expected exposure                                   | Required containment                                                          |
+| --------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------- |
+| Router                | public metadata, ciphertext, hashes, timings        | no deriver plaintext, no root shares, no output shares                        |
+| Deriver A             | A custody material, A local derived material        | no B plaintext, no `x_client_base`, no `x_relayer_base`, no joined `d` or `a` |
+| Deriver B             | B custody material, B local derived material        | no A plaintext, no `x_client_base`, no `x_relayer_base`, no joined `d` or `a` |
+| A and B               | server-side custody may be compromised              | incident response may require root replacement or wallet migration            |
+| SigningWorker         | `x_relayer_base` and normal-signing state           | no `k_org`, no joined `y_relayer`, no joined `d`, no `x_client_base`          |
+| Client                | that user's client output path and local material   | no server root material, no `y_relayer`, no `tau_relayer`                     |
+| A storage or KEK only | A sealed/plain share according to the key boundary  | no B share, no joined root                                                    |
+| B storage or KEK only | B sealed/plain share according to the key boundary  | no A share, no joined root                                                    |
+| Logs/observability    | public metadata, hashes, state transitions, timings | no protocol payload plaintext                                                 |
 
 Claim language for initial release:
 
@@ -325,7 +338,7 @@ pub enum DerivationCeremony {
     BEnvelopeForwarded(BEnvelopeForwardedCeremony),
     AbRunning(AbRunningCeremony),
     ClientOutputReady(ClientOutputReadyCeremony),
-    RelayerOutputReady(RelayerOutputReadyCeremony),
+    SigningWorkerOutputReady(SigningWorkerOutputReadyCeremony),
     Activated(ActivatedCeremony),
     Failed(FailedCeremony),
     Expired(ExpiredCeremony),
@@ -346,9 +359,9 @@ Required common scope:
 - `signing_root_id`
 - `signing_root_version`
 - `root_share_epoch`
-- signer A identity and key epoch
-- signer B identity and key epoch
-- relayer identity and key epoch
+- deriver A identity and key epoch
+- deriver B identity and key epoch
+- SigningWorker identity and key epoch
 - client ephemeral public key
 - transcript nonce
 - expiry
@@ -357,10 +370,10 @@ State rules:
 
 - `Created` has parsed public metadata and encrypted-envelope digest metadata.
 - `Admitted` has an accepted or reused expensive-work gate decision.
-- `AbRunning` has both signer envelopes forwarded and peer identities pinned.
+- `AbRunning` has both deriver envelopes forwarded and peer identities pinned.
 - `ClientOutputReady` can expose only encrypted client-output packages.
-- `RelayerOutputReady` can expose only relayer-output packages.
-- `Activated` is valid only after the designated relayer opens and records
+- `SigningWorkerOutputReady` can expose only SigningWorker-output packages.
+- `Activated` is valid only after the SigningWorker opens and records
   `x_relayer_base`.
 - terminal states are `Activated`, `Failed`, `Expired`, and `Abandoned`.
 - stale, expired, or wrong-epoch messages must fail closed.
@@ -370,29 +383,44 @@ timings, and error codes.
 
 Transition table:
 
-| From | Event | To | Actor | Persisted fields |
-| --- | --- | --- | --- | --- |
-| none | create request | `Created` | Router | public metadata, encrypted-envelope digests, expiry |
-| `Created` | gate accepted | `Admitted` | Router | gate decision, request id |
-| `Created` | gate reused | `Admitted` | Router | reused lifecycle id |
-| `Created` | gate rejected | `Failed` | Router | redacted error code |
-| `Admitted` | forward A envelope | `AEnvelopeForwarded` | Router | A envelope digest, A signer id |
-| `AEnvelopeForwarded` | forward B envelope | `BEnvelopeForwarded` | Router | B envelope digest, B signer id |
-| `BEnvelopeForwarded` | A/B protocol starts | `AbRunning` | A or B | public transcript digest |
-| `AbRunning` | client packages ready | `ClientOutputReady` | A and B | encrypted package hashes |
-| `ClientOutputReady` | relayer packages ready | `RelayerOutputReady` | A and B | relayer package hashes |
-| `RelayerOutputReady` | relayer activates | `Activated` | Signer A relayer role | activation hash, public transcript digest |
-| any nonterminal | expiry reached | `Expired` | Router | expiry reason |
-| any nonterminal | user cancels | `Abandoned` | Router | abandon reason |
-| any nonterminal | protocol error | `Failed` | Router, A, or B | redacted error code |
+| From                       | Event                        | To                         | Actor           | Persisted fields                                    |
+| -------------------------- | ---------------------------- | -------------------------- | --------------- | --------------------------------------------------- |
+| none                       | create request               | `Created`                  | Router          | public metadata, encrypted-envelope digests, expiry |
+| `Created`                  | gate accepted                | `Admitted`                 | Router          | gate decision, request id                           |
+| `Created`                  | gate reused                  | `Admitted`                 | Router          | reused lifecycle id                                 |
+| `Created`                  | gate rejected                | `Failed`                   | Router          | redacted error code                                 |
+| `Admitted`                 | forward A envelope           | `AEnvelopeForwarded`       | Router          | A envelope digest, A deriver id                     |
+| `AEnvelopeForwarded`       | forward B envelope           | `BEnvelopeForwarded`       | Router          | B envelope digest, B deriver id                     |
+| `BEnvelopeForwarded`       | A/B protocol starts          | `AbRunning`                | A or B          | public transcript digest                            |
+| `AbRunning`                | client packages ready        | `ClientOutputReady`        | A and B         | encrypted package hashes                            |
+| `ClientOutputReady`        | SigningWorker packages ready | `SigningWorkerOutputReady` | A and B         | SigningWorker package hashes                        |
+| `SigningWorkerOutputReady` | SigningWorker activates      | `Activated`                | SigningWorker   | activation hash, public transcript digest           |
+| any nonterminal            | expiry reached               | `Expired`                  | Router          | expiry reason                                       |
+| any nonterminal            | user cancels                 | `Abandoned`                | Router          | abandon reason                                      |
+| any nonterminal            | protocol error               | `Failed`                   | Router, A, or B | redacted error code                                 |
 
 Invalid transitions must be rejected at the type boundary where practical and
 at the parser/store boundary for persisted records.
 
+Implementation status as of 2026-06-14:
+
+- `router-ab-core` has the platform-neutral ceremony builder chain for the
+  derivation protocol state machine.
+- `router-ab-core` and `router-ab-cloudflare` now enforce the persisted Router
+  admission lifecycle transition at the Cloudflare Durable Object boundary:
+  a stored lifecycle starts as `Requested`, advances once to a gate or fallback
+  outcome, accepts exact idempotent retries, and rejects skipped or rewritten
+  transitions.
+- The full `DerivationCeremony` persistence record for `Created -> ... ->
+Activated/Failed/Expired/Abandoned` is still a production release blocker.
+  The deploy workflow runs `pnpm -C crates/router-ab-cloudflare
+assert:release-ready`, which fails until that dedicated Cloudflare ceremony
+  lifecycle record exists.
+
 ## Transcript Binding Spec
 
-Every encrypted envelope, A/B protocol message, output package, relayer
-activation, and signer response must bind to the same transcript.
+Every encrypted envelope, A/B protocol message, output package, SigningWorker
+activation, and deriver response must bind to the same transcript.
 
 Minimum transcript fields:
 
@@ -407,19 +435,19 @@ Minimum transcript fields:
 - `signing_root_id`
 - `signing_root_version`
 - `root_share_epoch`
-- signer A identity
-- signer A key epoch
-- signer B identity
-- signer B key epoch
-- relayer identity
-- relayer key epoch
+- deriver A identity
+- deriver A key epoch
+- deriver B identity
+- deriver B key epoch
+- SigningWorker identity
+- SigningWorker key epoch
 - client ephemeral public key
 - Router request digest
 - transcript nonce
 - expiry
 
-Signer-envelope AAD and transcript bytes must be non-circular. Any digest used
-inside signer-envelope AAD must be computable before the envelope's
+Deriver-envelope AAD and transcript bytes must be non-circular. Any digest used
+inside deriver-envelope AAD must be computable before the envelope's
 `aad_digest`, ciphertext, or encrypted-envelope digest is computed. The
 full Router replay/idempotency digest may bind final envelope bytes, but that
 digest must not be required to create those same envelope bytes.
@@ -441,8 +469,8 @@ Canonical encoding:
   encoding with fixed field ordering and length rules
 - no transcript digest may depend on `JSON.stringify` field ordering
 
-Rotation rule: signer key rotation, relayer rotation, root-share refresh, and
-protocol version changes must change transcript-bound epochs or versions.
+Rotation rule: deriver key rotation, SigningWorker rotation, root-share refresh,
+and protocol version changes must change transcript-bound epochs or versions.
 
 Canonical encoding decision:
 
@@ -463,9 +491,9 @@ should be newtypes, not raw `Vec<u8>` aliases, in the actual implementation.
 ```rust
 pub enum Role {
     Router,
-    SignerA,
-    SignerB,
-    Relayer,
+    DeriverA,
+    DeriverB,
+    SigningWorker,
     Client,
 }
 
@@ -476,10 +504,10 @@ pub enum RequestKind {
     RelayerShareRefresh,
 }
 
-pub struct SignerIdentity {
+pub struct RoleIdentity {
     pub role: Role,
-    pub signer_id: SignerId,
-    pub key_epoch: SignerKeyEpoch,
+    pub role_id: RoleId,
+    pub key_epoch: RoleKeyEpoch,
     pub verifying_key: PublicKeyBytes,
 }
 
@@ -495,16 +523,16 @@ pub struct TranscriptBinding {
     pub signing_root_id: SigningRootId,
     pub signing_root_version: SigningRootVersion,
     pub root_share_epoch: RootShareEpoch,
-    pub signer_a: SignerIdentity,
-    pub signer_b: SignerIdentity,
-    pub relayer: SignerIdentity,
+    pub deriver_a: RoleIdentity,
+    pub deriver_b: RoleIdentity,
+    pub signing_worker: RoleIdentity,
     pub client_ephemeral_public_key: PublicKeyBytes,
     pub router_request_digest: DigestBytes,
     pub transcript_nonce: NonceBytes,
     pub expires_at_ms: UnixMillis,
 }
 
-pub struct EncryptedSignerEnvelope<R> {
+pub struct EncryptedDeriverEnvelope<R> {
     pub role: R,
     pub transcript_digest: TranscriptDigest,
     pub aad_digest: DigestBytes,
@@ -512,8 +540,8 @@ pub struct EncryptedSignerEnvelope<R> {
 }
 
 pub enum AbProtocolMessage {
-    AToB(AuthenticatedPeerMessage<SignerARole, SignerBRole>),
-    BToA(AuthenticatedPeerMessage<SignerBRole, SignerARole>),
+    AToB(AuthenticatedPeerMessage<DeriverARole, DeriverBRole>),
+    BToA(AuthenticatedPeerMessage<DeriverBRole, DeriverARole>),
 }
 
 pub struct EncryptedClientOutputPackage {
@@ -523,10 +551,10 @@ pub struct EncryptedClientOutputPackage {
     pub ciphertext: CiphertextBytes,
 }
 
-pub struct RelayerOutputPackage {
+pub struct SigningWorkerOutputPackage {
     pub transcript_digest: TranscriptDigest,
-    pub output_kind: RelayerOutputKind,
-    pub recipient_relayer: SignerIdentity,
+    pub output_kind: SigningWorkerOutputKind,
+    pub recipient_signing_worker: RoleIdentity,
     pub package_bytes: CanonicalBytes,
 }
 
@@ -541,11 +569,11 @@ pub enum ExpensiveWorkGateDecision {
 Role marker types should make invalid engine calls unrepresentable:
 
 ```rust
-pub enum SignerARole {}
-pub enum SignerBRole {}
+pub enum DeriverARole {}
+pub enum DeriverBRole {}
 
-pub type SignerAEnvelope = EncryptedSignerEnvelope<SignerARole>;
-pub type SignerBEnvelope = EncryptedSignerEnvelope<SignerBRole>;
+pub type DeriverAEnvelope = EncryptedDeriverEnvelope<DeriverARole>;
+pub type DeriverBEnvelope = EncryptedDeriverEnvelope<DeriverBRole>;
 ```
 
 ## Host Trait Appendix
@@ -562,8 +590,8 @@ pub trait Csprng {
     fn fill_random(&mut self, out: &mut [u8]) -> Result<(), HostError>;
 }
 
-pub trait SignerKeyStore {
-    fn signer_identity(&self, role: Role) -> Result<SignerIdentity, HostError>;
+pub trait DeriverKeyStore {
+    fn deriver_identity(&self, role: Role) -> Result<RoleIdentity, HostError>;
     fn decrypt_envelope_key(&self, role: Role) -> Result<KeyBytes, HostError>;
     fn sign_transcript(&self, digest: TranscriptDigest) -> Result<SignatureBytes, HostError>;
 }
@@ -579,29 +607,29 @@ pub trait SigningRootShareStore {
 pub trait PeerTransport {
     fn send_peer_message(
         &self,
-        peer: SignerIdentity,
+        peer: RoleIdentity,
         message: AbProtocolMessage,
     ) -> Result<AbProtocolMessage, HostError>;
 }
 
-pub trait RelayerStateStore {
-    fn activate_relayer_output(
+pub trait SigningWorkerStateStore {
+    fn activate_signing_worker_output(
         &self,
         transcript: TranscriptDigest,
-        package: RelayerOutputPackage,
-    ) -> Result<RelayerActivationReceipt, HostError>;
+        package: SigningWorkerOutputPackage,
+    ) -> Result<SigningWorkerActivationReceipt, HostError>;
 }
 
 pub trait AuditSink {
     fn record(&self, event: RedactedCeremonyDiagnostics) -> Result<(), HostError>;
 }
 
-pub trait SignerHost:
-    Clock + Csprng + SignerKeyStore + SigningRootShareStore + PeerTransport + AuditSink
+pub trait DeriverHost:
+    Clock + Csprng + DeriverKeyStore + SigningRootShareStore + PeerTransport + AuditSink
 {
 }
 
-pub trait RelayerHost: Clock + RelayerStateStore + AuditSink {}
+pub trait SigningWorkerHost: Clock + SigningWorkerStateStore + AuditSink {}
 ```
 
 Host implementations must not expose decrypted payloads to logging or diagnostics
@@ -626,15 +654,15 @@ returning accepted startup descriptors.
 
 Strict server-blind production uses recipient-side combine. A and B return only
 recipient-scoped proof-batch material: the client receives only `x_client_base`
-proof bundles, and the designated relayer receives only `x_relayer_base` proof
-bundles. Each recipient combines its own output locally.
+proof bundles, and the standalone SigningWorker receives only `x_relayer_base`
+proof bundles. Each recipient combines its own output locally.
 
 The decrypted strict delivery payload is `RecipientProofBundlePayloadV1`. The
 public wire payload for `WireMessageKindV1::RecipientProofBundle` is
 `RecipientProofBundleCiphertextV1`. The decrypted payload binds:
 
 - lifecycle id
-- producing signer identity
+- producing deriver identity
 - recipient role
 - opened-share kind
 - recipient identity
@@ -643,13 +671,13 @@ public wire payload for `WireMessageKindV1::RecipientProofBundle` is
 
 The nested proof batch must contain exactly one proof bundle. The one bundle's
 binding must match the declared recipient role, opened-share kind, recipient
-identity, transcript digest, and producing signer identity.
+identity, transcript digest, and producing deriver identity.
 
 `RecipientProofBundleCiphertextV1` encrypts the canonical proof-bundle payload
 to the final recipient. Its AAD binds:
 
 - algorithm
-- producing signer identity
+- producing deriver identity
 - recipient role
 - opened-share kind
 - recipient identity
@@ -661,10 +689,10 @@ to the final recipient. Its AAD binds:
 The Cloudflare adapter uses HPKE base mode with X25519, HKDF-SHA256, and
 AES-256-GCM for this proof-bundle envelope.
 
-The preloaded synchronous signer host remains an adapter-test boundary and a
+The preloaded synchronous deriver host remains an adapter-test boundary and a
 weaker deployment-profile building block. It must not satisfy the strict
 server-blind release gate because it combines final output packages inside a
-signer process.
+deriver process.
 
 Alternative orchestration profiles:
 
@@ -672,13 +700,13 @@ Alternative orchestration profiles:
   a Durable Object, and encrypt peer bundles to the specific peer or final
   recipient. This keeps Router opaque and adds timeout, replay, cleanup, and
   equivocation rules.
-- **Signer-side combine:** A or B combines proof batches and emits final output
+- **Deriver-side combine:** A or B combines proof batches and emits final output
   packages. This is the simplest path and matches the preloaded test handler,
   but it is a weaker deployment profile unless the combiner runs inside a
   separately trusted boundary.
 
 Live direct-peer coordination requires more than an authenticated peer message.
-The recipient signer also needs its own Router-to-signer encrypted envelope,
+The recipient deriver also needs its own Router-to-deriver encrypted envelope,
 role-envelope AAD, request-context digest, root-share metadata, and root-share
 wire before it can produce its proof batch. The deployable strict path must
 choose either transcript-scoped rendezvous for both role-specific private
@@ -687,14 +715,14 @@ as a transcript/liveness check.
 
 Strict release gates:
 
-- The client path must reject any relayer-output proof bundle.
-- The relayer path must reject any client-output proof bundle.
+- The client path must reject any SigningWorker-output proof bundle.
+- The SigningWorker path must reject any client-output proof bundle.
 - Router may relay opaque bundles, but it must not decrypt them or combine
   recipient outputs.
 - Strict production delivery must use `RecipientProofBundleCiphertextV1` or a
   later encrypted version, and the decrypted payload must preserve the same
   one-recipient invariant.
-- Signer-side combine must have its own release profile and must not satisfy the
+- Deriver-side combine must have its own release profile and must not satisfy the
   strict server-blind release gate.
 
 Durable Object scopes:
@@ -707,94 +735,98 @@ pub enum CloudflareDurableObjectScopeV1 {
     RouterQuota,
     RouterAbuse,
     SignerRootShare { role: Role },
-    RelayerOutput { owner_role: Role },
+    SigningWorkerOutput,
 }
 ```
 
 Visibility rules:
 
-| Worker | Allowed Durable Object scopes |
-| --- | --- |
-| Router | `RouterReplay`, `RouterLifecycle`, `RouterProjectPolicy`, `RouterQuota`, `RouterAbuse` |
-| Signer A/Relayer | `SignerRootShare { role: SignerA }`, `RelayerOutput { owner_role: SignerA }` |
-| Signer B | `SignerRootShare { role: SignerB }` |
+| Worker        | Allowed Durable Object scopes                                                          |
+| ------------- | -------------------------------------------------------------------------------------- |
+| Router        | `RouterReplay`, `RouterLifecycle`, `RouterProjectPolicy`, `RouterQuota`, `RouterAbuse` |
+| Deriver A     | `SignerRootShare { role: DeriverA }`                                                   |
+| Deriver B     | `SignerRootShare { role: DeriverB }`                                                   |
+| SigningWorker | `SigningWorkerOutput`                                                                  |
 
-Signer-envelope key-source rules:
+Deriver-envelope key-source rules:
 
-Production signer envelopes use public-key HPKE. Clients encrypt the Signer A
-and Signer B envelopes to signer role public envelope keys. The selected public
+Production deriver envelopes use public-key HPKE. Clients encrypt the Deriver A
+and Deriver B envelopes to deriver role public envelope keys. The selected public
 key epoch is bound into the request transcript and role-envelope AAD. Daily key
-rotation is acceptable when each signer keeps current and previous private
+rotation is acceptable when each deriver keeps current and previous private
 decrypt keys only through request TTL plus retry grace, then rejects stale
 epochs.
 
 Implemented production metadata:
 
-- `SignerEnvelopeHpkePayloadV1` canonical bytes bind recipient role, key epoch,
+- `DeriverEnvelopeHpkePayloadV1` canonical bytes bind recipient role, key epoch,
   recipient public key, role-envelope AAD digest, HPKE encapsulated X25519 key,
   and ciphertext/tag bytes before any platform decrypt.
-- `CloudflareSignerEnvelopeHpkePublicKeyV1`,
-  `CloudflareSignerEnvelopeHpkePublicKeySetV1`, and
-  `CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1` validate signer role,
+- `CloudflareDeriverEnvelopeHpkePublicKeyV1`,
+  `CloudflareDeriverEnvelopeHpkePublicKeySetV1`, and
+  `CloudflareDeriverEnvelopeHpkeDecryptKeyBindingV1` validate deriver role,
   canonical `x25519:<64 lowercase hex chars>` public-key encoding, key epoch,
   and role-local private binding visibility.
-- Cloudflare Router and opposite-signer startup guards reject HPKE private-key
+- Cloudflare Router and opposite-deriver startup guards reject HPKE private-key
   binding Env keys.
-- `router-ab-cloudflare` exposes native signer-envelope HPKE seal/open helpers
+- `router-ab-cloudflare` exposes native deriver-envelope HPKE seal/open helpers
   and a `workers-rs` HPKE Secret-loading decrypt wrapper. The wrapper decodes a
   versioned private-key Secret, validates public HPKE payload metadata, checks
   the supplied AAD digest, and then calls HPKE open.
-- Strict Signer A/B Worker startup bindings and decrypt-and-handle paths use
+- Strict Deriver A/B Worker startup bindings and decrypt-and-handle paths use
   the HPKE decrypt-key descriptor and HPKE open wrapper.
 
-Signer-envelope HPKE private-key source rules:
+Deriver-envelope HPKE private-key source rules:
 
-| Worker | Allowed signer-envelope Secret bindings |
-| --- | --- |
-| Router | none |
-| Signer A/Relayer | `SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY` only |
-| Signer B | `SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY` only |
+| Worker        | Allowed deriver-envelope Secret bindings   |
+| ------------- | ------------------------------------------ |
+| Router        | none                                       |
+| Deriver A     | `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY` only |
+| Deriver B     | `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY` only |
+| SigningWorker | none                                       |
 
 Direct A/B peer-message signing key-source rules:
 
-| Worker | Allowed peer-message signing Secret bindings |
-| --- | --- |
-| Router | none |
-| Signer A/Relayer | `SIGNER_A_PEER_SIGNING_KEY` only |
-| Signer B | `SIGNER_B_PEER_SIGNING_KEY` only |
+| Worker        | Allowed peer-message signing Secret bindings |
+| ------------- | -------------------------------------------- |
+| Router        | none                                         |
+| Deriver A     | `DERIVER_A_PEER_SIGNING_KEY` only            |
+| Deriver B     | `DERIVER_B_PEER_SIGNING_KEY` only            |
+| SigningWorker | none                                         |
 
 Direct A/B peer-message verifying key-source rules:
 
-| Worker | Allowed peer-message verifying keys |
-| --- | --- |
-| Router | optional public config only |
-| Signer A/Relayer | `SIGNER_A_PEER_VERIFYING_KEY_HEX`, `SIGNER_B_PEER_VERIFYING_KEY_HEX` |
-| Signer B | `SIGNER_A_PEER_VERIFYING_KEY_HEX`, `SIGNER_B_PEER_VERIFYING_KEY_HEX` |
+| Worker        | Allowed peer-message verifying keys                                    |
+| ------------- | ---------------------------------------------------------------------- |
+| Router        | optional public config only                                            |
+| Deriver A     | `DERIVER_A_PEER_VERIFYING_KEY_HEX`, `DERIVER_B_PEER_VERIFYING_KEY_HEX` |
+| Deriver B     | `DERIVER_A_PEER_VERIFYING_KEY_HEX`, `DERIVER_B_PEER_VERIFYING_KEY_HEX` |
+| SigningWorker | optional public config only                                            |
 
 The Cloudflare parser receives public key-source descriptors and public
 verifying-key bytes:
 
 ```text
-SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
-SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH
-SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY
-SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
-SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH
-SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY
-SIGNER_A_PEER_SIGNING_KEY_BINDING
-SIGNER_A_PEER_SIGNING_KEY_EPOCH
-SIGNER_B_PEER_SIGNING_KEY_BINDING
-SIGNER_B_PEER_SIGNING_KEY_EPOCH
-SIGNER_A_PEER_VERIFYING_KEY_HEX
-SIGNER_B_PEER_VERIFYING_KEY_HEX
+DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
+DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH
+DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY
+DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
+DERIVER_B_ENVELOPE_HPKE_KEY_EPOCH
+DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY
+DERIVER_A_PEER_SIGNING_KEY_BINDING
+DERIVER_A_PEER_SIGNING_KEY_EPOCH
+DERIVER_B_PEER_SIGNING_KEY_BINDING
+DERIVER_B_PEER_SIGNING_KEY_EPOCH
+DERIVER_A_PEER_VERIFYING_KEY_HEX
+DERIVER_B_PEER_VERIFYING_KEY_HEX
 ```
 
 For the production HPKE path, `*_PRIVATE_KEY_BINDING` names a role-local
 Cloudflare Secret binding containing the HPKE private key material. The paired
 `*_PUBLIC_KEY` is public `x25519:<64 lowercase hex chars>` metadata and
 `*_KEY_EPOCH` is public rotation metadata. Router may receive public keys and
-key epochs. Router must reject private-key binding Env keys, and each signer
-must reject the other signer's private-key binding Env key.
+key epochs. Router must reject private-key binding Env keys, and each deriver
+must reject the other deriver's private-key binding Env key.
 
 The HPKE private-key Secret text format is:
 
@@ -808,14 +840,14 @@ key parse errors before attempting HPKE open.
 
 For peer signing keys, `*_BINDING` names a Cloudflare Secret containing an
 unpadded base64url Ed25519 signing seed of exactly 32 bytes. `*_EPOCH` must
-match the sender `SignerIdentityV1.key_epoch` before the Worker signs a peer
+match the sender `RoleIdentityV1.key_epoch` before the Worker signs a peer
 message.
 
-Production signer-envelope ciphertext uses a strict public HPKE payload wrapper
+Production deriver-envelope ciphertext uses a strict public HPKE payload wrapper
 inside the outer `EncryptedPayloadV1`:
 
 ```text
-lp("router-ab-protocol/signer-envelope-hpke/v1")
+lp("router-ab-protocol/deriver-envelope-hpke/v1")
 lp("hpke-x25519-hkdf-sha256-aes256gcm/v1")
 lp(recipient_role)
 lp(key_epoch)
@@ -826,25 +858,26 @@ u32be(tag_len = 16)
 lp(ciphertext || tag)
 ```
 
-The parser must reject unsupported versions or algorithms, non-signer recipient
+The parser must reject unsupported versions or algorithms, non-deriver recipient
 roles, empty key epochs, malformed recipient public-key encodings, AAD digest
 mismatches with the outer envelope, key epoch mismatches with the role-local
 decrypt-key descriptor, public-key mismatches with the role-local descriptor,
 non-32-byte encapsulated keys, non-128-bit tags, tag-only payloads, and trailing
 bytes. Platform decryptors pass `encapped_key`, canonical AAD bytes, and
 `ciphertext || tag` to HPKE open, then feed decrypted bytes into the
-post-decrypt `SignerInputPlaintextV1` validation boundary.
+post-decrypt `DeriverInputPlaintextV1` validation boundary.
 
 Startup validation must reject:
 
-- Router bindings that include signer root-share or relayer-output scopes
-- Router bindings that include Signer A or Signer B envelope-key descriptors
-- Signer A bindings that include Signer B root-share scopes
-- Signer A bindings that include Signer B envelope-key descriptors
-- Signer B bindings that include Signer A root-share or relayer-output scopes
-- Signer B bindings that include Signer A envelope-key descriptors
-- relayer-output scopes owned by any role except Signer A in v1
-- root-share startup checks whose signer role differs from the Worker role
+- Router bindings that include deriver root-share or SigningWorker-output scopes
+- Router bindings that include Deriver A or Deriver B envelope-key descriptors
+- Deriver A bindings that include Deriver B root-share scopes
+- Deriver A bindings that include Deriver B envelope-key descriptors
+- Deriver B bindings that include Deriver A root-share or SigningWorker-output
+  scopes
+- Deriver B bindings that include Deriver A envelope-key descriptors
+- Deriver A or Deriver B bindings that include SigningWorker-output scopes
+- root-share startup checks whose deriver role differs from the Worker role
 
 Durable Object operations should be explicit Router A/B operations:
 
@@ -853,7 +886,15 @@ root_share.has
 root_share.startup_metadata
 router_replay.reserve
 router_lifecycle.put_public_state
-relayer_output.activate
+router_project_policy.evaluate
+router_quota.evaluate
+router_abuse.evaluate
+router_normal_signing_project_policy.evaluate
+router_normal_signing_quota.evaluate
+router_normal_signing_abuse.evaluate
+signing_worker_output.activate
+signing_worker_output.active_state_get
+signing_worker_output.material_get
 ```
 
 The Cloudflare adapter owns typed request and response structs for these
@@ -863,6 +904,9 @@ It rejects calls whose operation requires a different storage scope or whose
 Worker role cannot see the binding. The `workers-rs` executor posts the typed
 operation JSON to the Durable Object stub selected by `binding.object_name` and
 validates that the typed response branch matches the request before returning.
+`router_lifecycle.put_public_state` currently stores the Router admission
+lifecycle with transition enforcement. The full derivation ceremony lifecycle
+needs a dedicated Cloudflare record before production release.
 
 Generic key/value Durable Object access can exist inside the adapter
 implementation, while Router A/B host traits should receive typed operations and
@@ -905,7 +949,8 @@ Router response:
 }
 ```
 
-Relayer-share refresh uses the same outer shape with:
+SigningWorker-share refresh uses the same outer shape with the current
+`relayer_share_refresh` request-kind label:
 
 ```json
 {
@@ -918,23 +963,24 @@ Relayer-share refresh uses the same outer shape with:
 Normal signing after activation:
 
 ```text
-Client -> Router -> Signer A relayer role
+Client -> Router -> SigningWorker -> Router -> Client
 ```
 
-Normal signing does not invoke Signer B and does not unwrap signing-root shares.
+Normal signing does not invoke Deriver A or Deriver B and does not unwrap
+signing-root shares.
 
 ## Source Guard Spec
 
 Add source guards for these boundaries:
 
-| Boundary | Forbidden |
-| --- | --- |
-| Router production code | signer plaintext modules, signer decrypt keys, joined HSS executor types |
-| Signer A routes | B plaintext input, B-only envelope decrypt helpers |
-| Signer B routes | A plaintext input, A-only envelope decrypt helpers |
-| Cloudflare adapters | HSS joined-state APIs, output projector APIs that materialize `x_client_base` |
-| Logging/diagnostics | protocol payload types, root shares, output shares |
-| Relayer activation | client-output packages, client-output decrypt helpers |
+| Boundary                 | Forbidden                                                                     |
+| ------------------------ | ----------------------------------------------------------------------------- |
+| Router production code   | deriver plaintext modules, deriver decrypt keys, joined HSS executor types    |
+| Deriver A routes         | B plaintext input, B-only envelope decrypt helpers                            |
+| Deriver B routes         | A plaintext input, A-only envelope decrypt helpers                            |
+| Cloudflare adapters      | HSS joined-state APIs, output projector APIs that materialize `x_client_base` |
+| Logging/diagnostics      | protocol payload types, root shares, output shares                            |
+| SigningWorker activation | client-output packages, client-output decrypt helpers                         |
 
 Guard tests should fail on imports, route input types, and logging function
 signatures. Prefer allowlists for role modules over broad deny-only grep rules
@@ -949,7 +995,7 @@ Decision: implement Minimum Level C first.
 Required:
 
 - Router opacity
-- role-specific signer envelopes
+- role-specific deriver envelopes
 - A-only and B-only plaintext boundaries
 - transcript binding
 - output-kind checks
@@ -957,7 +1003,7 @@ Required:
 - no single server process materializes joined `d`, `a`, `x_client_base`,
   `y_relayer`, or `tau_relayer`
 - client opens only `x_client_base`
-- Signer A's relayer role opens only `x_relayer_base`
+- SigningWorker opens only `x_relayer_base`
 
 Known limitation:
 
@@ -991,7 +1037,7 @@ Allowed logs and metrics:
 - public transcript digest
 - state transition
 - role
-- signer key epoch
+- deriver key epoch
 - root-share epoch
 - payload hash
 - timing
@@ -1001,7 +1047,7 @@ Allowed logs and metrics:
 
 Forbidden logs and metrics:
 
-- decrypted signer envelopes
+- decrypted deriver envelopes
 - A/B protocol payload plaintext
 - root shares
 - `y_A`, `y_B`, `tau_A`, `tau_B`
@@ -1022,7 +1068,7 @@ pub struct RedactedCeremonyDiagnostics {
     pub role: Option<Role>,
     pub state: CeremonyStateName,
     pub root_share_epoch: RootShareEpoch,
-    pub signer_key_epochs: SignerKeyEpochs,
+    pub deriver_key_epochs: DeriverKeyEpochs,
     pub timings: CeremonyTimings,
     pub error: Option<RedactedErrorCode>,
 }
@@ -1037,7 +1083,7 @@ Recommendation: strict parity from day one.
 
 Local simulation must use:
 
-- separate Router, Signer A/Relayer, and Signer B processes
+- separate Router, Deriver A, Deriver B, and SigningWorker processes
 - separate env files
 - separate role keys
 - role-specific sealed shares
@@ -1053,7 +1099,7 @@ Local shortcuts allowed:
 
 Local shortcuts forbidden:
 
-- Router has signer decrypt keys
+- Router has deriver decrypt keys
 - A has B-only keys or B-only plaintext types
 - B has A-only keys or A-only plaintext types
 - one local process combines joined `d`, `a`, or `x_client_base`
@@ -1066,9 +1112,9 @@ Recommendation: separate bundles per role and measure every release candidate.
 Required measurements:
 
 - Router compressed Worker size
-- Signer A/Relayer compressed Worker size
-- Signer B compressed Worker size
-- optional separate Relayer compressed Worker size if that split is enabled
+- Deriver A compressed Worker size
+- Deriver B compressed Worker size
+- SigningWorker compressed Worker size
 - uncompressed size for each Worker
 - Wrangler `startup_time_ms` for each Worker
 - setup/export/refresh CPU time
@@ -1086,13 +1132,17 @@ unacceptable startup_time_ms: approaching 1000 ms
 Implementation rules:
 
 - keep Router dependencies narrow
-- keep Router, A/Relayer, and B as separate Worker bundles
+- keep Router, A, B, and SigningWorker as separate Worker bundles
 - avoid expensive global-scope initialization
 - run expensive derivation inside request handlers
 - use release size optimizations and `wasm-opt`
 - track size and startup in benchmark artifacts
 
 Current local release artifacts, captured June 12, 2026:
+
+These measurements were captured before the standalone SigningWorker split.
+New release candidates must add a SigningWorker row and remove the embedded
+pre-split Deriver A activation target.
 
 ```text
 command:
@@ -1112,12 +1162,16 @@ profile:
 sizes:
   strict-worker-entrypoint          combined role dispatch  2,370,450 bytes  gzip 671,138 bytes
   strict-worker-router-entrypoint   Router                  1,836,346 bytes  gzip 487,682 bytes
-  strict-worker-signer-a-entrypoint Signer A/Relayer        2,126,483 bytes  gzip 614,303 bytes
-  strict-worker-signer-b-entrypoint Signer B                1,990,085 bytes  gzip 577,469 bytes
+  strict-worker-signer-a-entrypoint pre-split Deriver A activation        2,126,483 bytes  gzip 614,303 bytes
+  strict-worker-signer-b-entrypoint Deriver B                1,990,085 bytes  gzip 577,469 bytes
 ```
 
 Current optimized `worker-build` and Wrangler dry-run artifacts, captured
 June 12, 2026:
+
+These measurements were captured before the standalone SigningWorker split.
+New release candidates must add a SigningWorker row and remove the embedded
+pre-split Deriver A activation target.
 
 ```text
 commands:
@@ -1136,13 +1190,13 @@ profile:
 optimized worker-build wasm:
   strict-worker-entrypoint          combined role dispatch  1,505,206 bytes  gzip 561,307 bytes
   strict-worker-router-entrypoint   Router                  1,066,608 bytes  gzip 380,786 bytes
-  strict-worker-signer-a-entrypoint Signer A/Relayer        1,321,089 bytes  gzip 498,834 bytes
-  strict-worker-signer-b-entrypoint Signer B                1,252,900 bytes  gzip 479,720 bytes
+  strict-worker-signer-a-entrypoint pre-split Deriver A activation        1,321,089 bytes  gzip 498,834 bytes
+  strict-worker-signer-b-entrypoint Deriver B                1,252,900 bytes  gzip 479,720 bytes
 
 wrangler dry-run Total Upload:
   Router           1088.52 KiB  gzip 381.52 KiB
-  Signer A/Relayer 1340.19 KiB  gzip 497.55 KiB
-  Signer B         1273.60 KiB  gzip 478.68 KiB
+  pre-split Deriver A activation 1340.19 KiB  gzip 497.55 KiB
+  Deriver B         1273.60 KiB  gzip 478.68 KiB
 ```
 
 `startup_time_ms` remains a release gate. The current Wrangler files include
@@ -1181,10 +1235,10 @@ Required vectors and checks:
 
 - before root-share refresh
 - after root-share refresh
-- after relayer-share refresh
+- after signing-worker share refresh
 - after self-host export/import
-- after signer key rotation
-- after relayer identity rotation
+- after deriver key rotation
+- after SigningWorker identity rotation
 
 Root-share refresh must prove:
 
@@ -1217,9 +1271,9 @@ Every vector file should be deterministic and cross-host verifiable.
     "session_id": "sess_123",
     "signing_root_version": "1",
     "root_share_epoch": "1",
-    "signer_a_key_epoch": "1",
-    "signer_b_key_epoch": "1",
-    "relayer_key_epoch": "1"
+    "deriver_a_key_epoch": "1",
+    "deriver_b_key_epoch": "1",
+    "signing_worker_key_epoch": "1"
   },
   "canonical_transcript_bytes_b64u": "b64u_bytes",
   "transcript_digest_b64u": "b64u_digest",
@@ -1232,25 +1286,26 @@ Every vector file should be deterministic and cross-host verifiable.
 
 Rejection vectors should include:
 
-- wrong signer role
-- wrong signer key epoch
+- wrong deriver role
+- wrong deriver key epoch
 - expired transcript
 - replayed nonce
-- client-output package sent to relayer
-- relayer-output package sent to client
+- client-output package sent to SigningWorker
+- SigningWorker-output package sent to client
 - mismatched root-share epoch
 - mismatched registration intent digest
 
 ## Architecture Examples
 
-Registration and relayer activation:
+Registration and SigningWorker activation:
 
 ```mermaid
 sequenceDiagram
   participant C as Client
   participant R as Router
-  participant A as Signer A / Relayer
-  participant B as Signer B
+  participant A as Deriver A
+  participant B as Deriver B
+  participant SW as SigningWorker
 
   C->>R: registration request with encrypted A/B envelopes
   R->>R: auth, policy, expensive-work gate
@@ -1260,8 +1315,10 @@ sequenceDiagram
   B->>A: A/B protocol message
   A->>R: encrypted client package A
   B->>R: encrypted client package B
-  B->>A: relayer-output package B
-  A->>A: open and activate x_relayer_base
+  A->>SW: encrypted SigningWorker package A
+  B->>SW: encrypted SigningWorker package B
+  SW->>SW: open and activate x_relayer_base
+  SW->>R: activation receipt/status
   R->>C: encrypted client packages
   C->>C: open x_client_base
 ```
@@ -1272,13 +1329,13 @@ Normal signing:
 sequenceDiagram
   participant C as Client
   participant R as Router
-  participant A as Signer A / Relayer
+  participant SW as SigningWorker
 
   C->>R: signing request
   R->>R: auth, policy, rate limit
-  R->>A: normal signing request
-  A->>A: use active x_relayer_base
-  A->>R: threshold signing response
+  R->>SW: normal signing request
+  SW->>SW: use active x_relayer_base
+  SW->>R: threshold signing response
   R->>C: signature response
 ```
 
@@ -1288,8 +1345,8 @@ Root-share refresh:
 sequenceDiagram
   participant Admin as Authorized Operator
   participant R as Router
-  participant A as Signer A / Relayer
-  participant B as Signer B
+  participant A as Deriver A
+  participant B as Deriver B
   participant Store as Sealed Share Stores
 
   Admin->>R: root-share refresh request
@@ -1319,7 +1376,7 @@ Required before Cloudflare prototype is considered complete:
 
 - same vectors pass through `workers-rs` adapters
 - separate local and Cloudflare role env checks pass
-- rejected gate decisions do not reach Signer A or Signer B
+- rejected gate decisions do not reach Deriver A or Deriver B
 - size and `startup_time_ms` recorded for all role Workers
 - setup/export/refresh latency recorded for 1, 2, 3, and 4 A/B round trips
 
@@ -1333,7 +1390,7 @@ Required before real split derivation is considered complete:
 Required before production root rotation:
 
 - address verification passes before and after refresh
-- relayer-share refresh is tested
+- signing-worker share refresh is tested
 - rollback behavior is tested
 - old epoch retirement is tested
 - audit evidence export is tested
@@ -1347,8 +1404,8 @@ Required before production recipient-output encryption:
   for `hpke_x25519_hkdf_sha256_aes256gcm_v1`
 - adapter rejects malformed `x25519:<64 lowercase hex chars>` recipient keys
 - ciphertext AAD matches `encode_recipient_output_ciphertext_aad_v1`
-- client and relayer decryption tests reject wrong transcript, wrong recipient,
-  wrong opened-share kind, and modified package commitments
+- client and SigningWorker decryption tests reject wrong transcript, wrong
+  recipient, wrong opened-share kind, and modified package commitments
 - AES-256-GCM constant-time posture is established for the Cloudflare Wasm
   target, or a ChaCha20-Poly1305 HPKE suite is introduced as a new protocol
   algorithm before production use
@@ -1373,44 +1430,45 @@ Required before production recipient-output encryption:
 
 - [x] Create `crates/router-ab-core`.
 - [x] Add role marker types and role-specific envelope aliases.
-- [x] Add `RequestKind`, `TranscriptBinding`, signer identity, root epoch, and
-  request id types.
+- [x] Add `RequestKind`, `TranscriptBinding`, deriver identity, root epoch, and
+      request id types.
 - [x] Add canonical encode/decode helpers.
 - [x] Add transcript digest construction.
-- [x] Resolve non-circular canonical bytes for signer-envelope AAD, transcript
+- [x] Resolve non-circular canonical bytes for deriver-envelope AAD, transcript
       digest, and Router replay digest.
   - [x] Add public root-share epoch to Router request scope and payload vectors.
   - [x] Add pre-envelope request-context digest for AAD/plaintext.
   - [x] Add pre-envelope derivation transcript digest for HSS/output bindings.
   - [x] Keep full-envelope replay digest scoped to Router storage.
-  - [x] Add strict signer bootstrap body carrying typed AAD from Router.
+  - [x] Add strict deriver bootstrap body carrying typed AAD from Router.
 - [x] Add `DerivationCeremony` lifecycle types.
 - [x] Add host traits for clock, RNG, keys, share storage, peer transport,
-  relayer state, and audit.
+      SigningWorker state, and audit.
 - [x] Add redacted diagnostics types.
 
 ### Phase 2: Wire Vectors And Type Guards
 
 - [x] Add canonical transcript vectors.
-- [x] Add valid registration, export, recovery, and relayer-refresh wire
-  vectors.
+- [x] Add valid registration, export, recovery, and signing-worker refresh wire
+      vectors.
 - [x] Add rejection vectors for wrong role, wrong epoch, expiry, replay, and
-  output-kind confusion.
+      output-kind confusion.
 - [x] Add type fixtures that reject A/B branch mixing.
-- [x] Add source guards for Router, Signer A, Signer B, relayer activation, and
-  logging modules.
+- [x] Add source guards for Router, Deriver A, Deriver B, SigningWorker
+      activation, and logging modules.
 - [x] Add native Rust tests for transcript and lifecycle transitions.
 
 ### Phase 3: Local Boundary Simulation
 
-- [x] Add local Router, Signer A/Relayer, and Signer B service entrypoints.
+- [x] Add local Router, Deriver A, Deriver B, and SigningWorker service
+      entrypoints.
 - [x] Add separate local env files and forbidden-key checks.
 - [x] Seed local SQLite/Postgres plans with role-specific sealed shares.
 - [x] Use deterministic transcript-bound dev output packages.
 - [x] Run one end-to-end request through Router with encrypted A/B envelopes.
-- [x] Verify Router cannot decrypt signer payloads.
+- [x] Verify Router cannot decrypt deriver payloads.
 - [x] Verify A rejects B-only payloads and B rejects A-only payloads.
-- [x] Verify Signer A activates only relayer output.
+- [x] Verify SigningWorker activates only SigningWorker output.
 
 ### Phase 4: Split Derivation Experiment
 
@@ -1421,47 +1479,68 @@ Required before production recipient-output encryption:
 - [x] Record estimated A/B round trips.
 - [ ] Verify candidate outputs can feed the role-separated HSS API.
 - [x] Select the candidate or explicitly continue both as experiments.
-  - [x] Add the selected `mpc_threshold_prf_v1` signer batch-evaluation
-        backend for all requested signer outputs.
-  - [x] Wire the batch evaluator into platform-agnostic signer engines.
+  - [x] Add the selected `mpc_threshold_prf_v1` deriver batch-evaluation
+        backend for all requested deriver outputs.
+  - [x] Wire the batch evaluator into platform-agnostic deriver engines.
   - [x] Add canonical A/B derivation proof-batch payloads under authenticated
         peer envelopes and validate sender, recipient, transcript, root epoch,
         and proof-bundle bindings.
   - [x] Add source guards preventing A/B peer payload modules from importing
         combined outputs, root-share wires, or raw secret material.
-  - [x] Add a signer-identity-checked builder that signs threshold-PRF proof
-        bundles for client and relayer outputs into authenticated A/B peer
+  - [x] Add a deriver-identity-checked builder that signs threshold-PRF proof
+        bundles for client and SigningWorker outputs into authenticated A/B peer
         payloads.
   - [x] Add a recipient-side batch combiner that verifies matching A/B proof
-        bundles and produces combined client and relayer output material.
+        bundles and produces combined client and SigningWorker output material.
 
 ### Phase 5: Role-Separated HSS Integration
 
 - [ ] Add the new role-separated HSS API.
 - [ ] Wire selected split derivation output into A/B HSS.
-- [ ] Produce encrypted client-output packages.
-- [ ] Produce relayer-output packages for Signer A.
+- [x] Produce encrypted client-output packages.
+      Cloudflare and local deriver paths now deliver encrypted recipient proof
+      bundles for the client recipient path instead of joined server-side output.
+- [x] Produce SigningWorker-output packages for the active SigningWorker.
+      SigningWorker activation now receives encrypted `x_relayer_base ->
+SigningWorker` proof bundles and opens them only at the SigningWorker
+      boundary.
+- [x] Materialize active SigningWorker state plus SigningWorker-local material
+      before the normal-signing handler boundary.
+      Cloudflare now has a typed `SigningWorkerOutputMaterialGet` Durable Object
+      operation and a materialized normal-signing request shape. The production
+      signing handler remains blocked on the role-separated Ed25519-HSS signing API.
 - [ ] Verify no joined `d`, `a`, `y_relayer`, `tau_relayer`, or
-  `x_client_base` appears in production role paths.
+      `x_client_base` appears in production role paths.
+      Existing source guards cover the current Router/A/B boundary. Final
+      production-path evidence remains open until the role-separated Ed25519-HSS
+      normal signer is wired.
 - [ ] Add address/public-key parity vectors.
+- [ ] Persist and enforce the full Cloudflare `DerivationCeremony` lifecycle
+      state machine at the Durable Object boundary.
+      Current Cloudflare storage enforces only the Router admission lifecycle
+      transition table.
 
 ### Phase 6: Cloudflare Prototype
 
 - [x] Create `crates/router-ab-cloudflare`.
 - [x] Define typed Durable Object scopes, role-specific binding descriptors,
-      and signer startup-check descriptors.
+      and deriver startup-check descriptors.
 - [x] Add typed Env-reader parsing behind Cloudflare binding descriptors.
 - [x] Add the optional `worker::Env` bridge and real binding-presence checks.
 - [x] Add typed Durable Object call descriptors and Worker-side request
       execution.
-- [x] Implement actual Durable Object handler storage for replay, lifecycle,
-      root-share startup metadata, and relayer-output activation.
+- [x] Implement actual Durable Object handler storage for replay, Router
+      admission lifecycle, root-share startup metadata, and SigningWorker-output
+      activation.
+      Router admission lifecycle storage rejects skipped and rewritten
+      transitions. Full derivation ceremony lifecycle storage remains tracked in
+      Phase 5 as a production release blocker.
 - [x] Add feature-gated `workers-rs` Durable Object fetch/storage wrapper.
 - [x] Add initial thin `workers-rs` Router startup/runtime wrapper.
 - [x] Add transport-neutral public Router request boundary.
 - [x] Normalize public Router requests into Router-scoped work plans.
 - [x] Add thin `workers-rs` public Router request handler.
-- [x] Require trusted Router admission before public signer forwarding.
+- [x] Require trusted Router admission before public deriver forwarding.
 - [x] Derive trusted Router admission from typed trusted metadata and
       policy/quota/abuse outcomes.
 - [x] Add a typed Router admission-provider boundary for auth/session, project
@@ -1476,61 +1555,58 @@ Required before production recipient-output encryption:
       and store-backed project-policy, quota, and abuse provider adapters.
 - [ ] Implement the concrete Worker/JWKS JWT verifier and Durable Object-backed
       project-policy, quota, and abuse store handlers behind those adapters.
-- [x] Add thin `workers-rs` Signer A/Relayer wrapper.
-- [x] Add thin `workers-rs` Signer B wrapper.
-- [x] Add Signer A/Relayer and Signer B runtime contexts around validated
-      Cloudflare bindings.
-- [x] Add preloaded synchronous Cloudflare signer host implementing the current
+- [x] Add thin `workers-rs` Deriver A wrapper.
+- [x] Add thin `workers-rs` Deriver B wrapper.
+- [x] Add Deriver A, Deriver B, and SigningWorker runtime contexts around
+      validated Cloudflare bindings.
+- [x] Add preloaded synchronous Cloudflare deriver host implementing the current
       core host traits.
 - [x] Wire workers-rs async Env, Durable Object, and randomness preload into
-      the Cloudflare signer host.
+      the Cloudflare deriver host.
 - [x] Add direct A/B peer service-binding endpoint.
-- [x] Wire direct A/B peer service-binding preload into the Cloudflare signer
+- [x] Wire direct A/B peer service-binding preload into the Cloudflare deriver
       host.
-- [x] Decode Router-to-signer canonical payloads at private signer endpoints
-      and verify signer role plus payload/wire transcript binding.
-- [x] Enforce Router-to-signer lifecycle/signer-set/relayer binding and signer
-      assignment identity before local signer handlers produce output.
-- [x] Specify the `signer_input` plaintext schema and strict rejection rules in
+- [x] Decode Router-to-deriver canonical payloads at private deriver endpoints
+      and verify deriver role plus payload/wire transcript binding.
+- [x] Enforce Router-to-deriver lifecycle/deriver-set/SigningWorker binding and
+      deriver assignment identity before local deriver handlers produce output.
+- [x] Specify the `deriver_input` plaintext schema and strict rejection rules in
       `crates/router-ab-core/specs/envelopes-and-delivery.md`.
-- [x] Implement `SignerInputPlaintextV1` canonical encoding/decoding with
-      Candidate A-only, duplicate-output, selected-relayer, and trailing-byte
-      rejection tests.
-- [x] Validate decoded signer-input plaintext against Router-to-signer payload,
-      Router request digest, AAD digest, signer identity, relayer identity, and
-      local root-share epoch.
+- [x] Implement `DeriverInputPlaintextV1` canonical encoding/decoding with
+      Candidate A-only, duplicate-output, selected-SigningWorker, and
+      trailing-byte rejection tests.
+- [x] Validate decoded deriver-input plaintext against Router-to-deriver payload,
+      Router request digest, AAD digest, deriver identity, SigningWorker
+      identity, and local root-share epoch.
 - [x] Add a Router boundary source guard preventing Router-facing protocol
-      modules from importing signer-input plaintext decoder APIs.
-- [x] Add a deterministic local signer-envelope decryptor boundary returning
-      typed `SignerInputPlaintextV1` before local signer output generation.
+      modules from importing deriver-input plaintext decoder APIs.
+- [x] Add a deterministic local deriver-envelope decryptor boundary returning
+      typed `DeriverInputPlaintextV1` before local deriver output generation.
 - [x] Add a Cloudflare post-decrypt validation boundary that decodes
-      `SignerInputPlaintextV1` and binds it to Router payload, Router request
-      digest, AAD digest, root metadata role, signer identity, and root-share
+      `DeriverInputPlaintextV1` and binds it to Router payload, Router request
+      digest, AAD digest, root metadata role, deriver identity, and root-share
       epoch.
-- [x] Add signer-envelope HPKE/X25519 public envelope-key descriptors,
+- [x] Add deriver-envelope HPKE/X25519 public envelope-key descriptors,
       role-local private decrypt-key descriptors, Env-reader parsers, private
       key visibility guards, and strict public HPKE payload parsing/binding.
-- [x] Add signer-envelope HPKE/X25519 seal/open helpers, versioned private-key
+- [x] Add deriver-envelope HPKE/X25519 seal/open helpers, versioned private-key
       Secret parsing, `workers-rs` HPKE decrypt wrapper, and native runtime
       tests for successful open, AAD mismatch, and wrong private key.
-- [x] Switch strict Signer A/B Worker handlers and startup bindings to the
+- [x] Switch strict Deriver A/B Worker handlers and startup bindings to the
       HPKE/X25519 decrypt path before production release.
-- [x] Remove the obsolete signer-envelope AEAD parser, Cloudflare key
+- [x] Remove the obsolete deriver-envelope AEAD parser, Cloudflare key
       descriptors, WebCrypto decrypt helper, tests, docs, and wrangler
       variables after the HPKE strict-worker switch.
-- [ ] Add daily envelope key rotation semantics: key epoch in transcript/AAD,
-      request-TTL overlap, stale-epoch rejection, and current/previous epoch
-      tests.
-- [x] Add a narrow validated private signer request boundary for production
-      signer-engine wrappers.
-- [x] Reject joined-state marker text in decoded signer plaintext identifier
+- [x] Add a narrow validated private deriver request boundary for production
+      deriver-engine wrappers.
+- [x] Reject joined-state marker text in decoded deriver plaintext identifier
       fields and output recipient labels.
-- [x] Wire the real private signer engine wrapper through the Cloudflare
+- [x] Wire the real private deriver engine wrapper through the Cloudflare
       decrypt-then-validate boundary.
   - [x] Promote or add a platform-neutral builder from
-        `RouterToSignerPayloadV1` plus `SignerInputPlaintextV1` into
-        `MpcPrfThresholdSignerBatchInputV1`.
-  - [x] Add a production root-share wire source to the Cloudflare signer host.
+        `RouterToSignerPayloadV1` plus `DeriverInputPlaintextV1` into
+        `MpcPrfThresholdDeriverBatchInputV1`.
+  - [x] Add a production root-share wire source to the Cloudflare deriver host.
     - [x] Add redacted preloaded root-share wire records and a role-local host
           accessor for deterministic production-adapter tests.
     - [x] Add a versioned lower-hex root-share wire secret decoder that returns
@@ -1540,30 +1616,30 @@ Required before production recipient-output encryption:
     - [x] Load the role-local root-share wire from the selected Cloudflare
           Secret binding path, validate it against startup metadata, and return
           only the redacted preloaded record.
-    - [x] Wire async Cloudflare signer-host preload to attach the validated
-          role-local root-share wire Secret to the synchronous signer host.
+    - [x] Wire async Cloudflare deriver-host preload to attach the validated
+          role-local root-share wire Secret to the synchronous deriver host.
     - [ ] Add a sealed Durable Object or KMS-backed storage path if production
           rotations need runtime unsealing beyond Cloudflare Secret binding
           rotation.
-  - [x] Add Signer A and Signer B validated handlers that run
-        `SignerAEngine`/`SignerBEngine`, authenticate A/B proof-batch messages,
+  - [x] Add Deriver A and Deriver B validated handlers that run
+        `DeriverAEngine`/`DeriverBEngine`, authenticate A/B proof-batch messages,
         combine threshold outputs, and use
         `CloudflareHpkeRecipientOutputEncryptorV1` for recipient delivery.
     - [x] Promote shared A/B proof-batch combine plus recipient-output
           packaging so local dev and Cloudflare use the same transcript and
           package-commitment logic.
     - [x] Add a Cloudflare validated MPC PRF engine bridge that turns a
-          decrypt-validated signer request plus role-local root-share wire into
-          a real `SignerAEngine`/`SignerBEngine` proof batch.
+          decrypt-validated deriver request plus role-local root-share wire into
+          a real `DeriverAEngine`/`DeriverBEngine` proof batch.
     - [x] Add shared Cloudflare proof-batch peer-message helpers that sign
           local proof batches, verify/decode authenticated peer proof batches,
-          combine A/B outputs, and build canonical signer responses.
-    - [x] Add a synchronous Cloudflare validated MPC PRF signer handler that
+          combine A/B outputs, and build canonical deriver responses.
+    - [x] Add a synchronous Cloudflare validated MPC PRF deriver handler that
           evaluates the local proof batch, sends the signed peer proof batch
           through host transport, combines verified A/B outputs, and returns
-          `SignerResponsePayloadV1`.
+          `DeriverResponsePayloadV1`.
     - [x] Add a testable peer signing-key/request binding check for Worker
-          role, signer identity, and signer key epoch before loading the secret
+          role, deriver identity, and deriver key epoch before loading the secret
           signing key bytes.
     - [x] Wire the workers-rs wrapper to load the role-local peer signing key
           Secret, call the synchronous validated MPC PRF handler, and pass
@@ -1573,12 +1649,12 @@ Required before production recipient-output encryption:
           Worker entrypoint supplies role-envelope AAD, Router request digest,
           root-share metadata, and root-share wire.
       - [x] Resolve the production A/B orchestration shape before exposing this
-            as a deployable signer route: strict server-blind production uses
-            recipient-side combine, and signer-side combine remains a preloaded
+            as a deployable deriver route: strict server-blind production uses
+            recipient-side combine, and deriver-side combine remains a preloaded
             test or weaker deployment profile.
       - [x] Add core recipient-scoped proof-batch views so client delivery can
-            carry only `x_client_base` proof bundles and relayer delivery can
-            carry only `x_relayer_base` proof bundles.
+            carry only `x_client_base` proof bundles and SigningWorker delivery
+            can carry only `x_relayer_base` proof bundles.
       - [x] Add a core one-recipient combine helper that opens exactly one
             requested output binding and rejects missing or mismatched recipient
             proof bundles.
@@ -1590,56 +1666,56 @@ Required before production recipient-output encryption:
               `WireMessageKindV1::RecipientProofBundle` for one-recipient
               proof-batch delivery.
         - [x] Add `RecipientProofBundleCiphertextV1`, AAD binding, and
-              Cloudflare HPKE encryption for client or designated relayer
+              Cloudflare HPKE encryption for client or active SigningWorker
               recipient keys.
-        - [x] Add typed strict Cloudflare private signer response, Router
-              client-bundle aggregation, and Signer A relayer activation
+        - [x] Add typed strict Cloudflare private deriver response, Router
+              client-bundle aggregation, and SigningWorker activation
               containers around encrypted recipient proof-bundle payloads.
-        - [x] Wire the strict containers through `workers-rs` private signer,
-              Router aggregation, and Signer A relayer activation entrypoints.
+        - [x] Wire the strict containers through `workers-rs` private deriver,
+              Router aggregation, and SigningWorker activation entrypoints.
         - [x] Add deployable Worker bootstrap modules that choose the strict
               proof-bundle route profile.
-        - [x] Add strict private-bootstrap-to-signer-host preload plan
-              derivation before signer-host execution.
+        - [x] Add strict private-bootstrap-to-deriver-host preload plan
+              derivation before deriver-host execution.
         - [x] Add a deployable trusted A/B verifying-key provider for the
-              strict signer-host preload input.
+              strict deriver-host preload input.
         - [x] Decide the deployable live peer-coordination shape:
               independent Router dispatch to A and B, with Router aggregation
-              requiring both signer responses for liveness.
-        - [x] Scope async direct A/B peer coordination to signer-side combine,
+              requiring both deriver responses for liveness.
+        - [x] Scope async direct A/B peer coordination to deriver-side combine,
               rendezvous, or later hardening profiles outside v1 strict
               proof-bundle delivery.
-        - [x] Wire deployable Signer A/Relayer and Signer B private route
-              bootstraps to the signer-host preload provider.
+        - [x] Wire deployable Deriver A and Deriver B private route
+              bootstraps to the deriver-host preload provider.
     - [x] Promote shared MPC PRF combined-output packaging so local dev and
           Cloudflare adapters use the same package commitment logic with
           adapter-specific recipient encryption.
-    - [x] Specify and bind the selected relayer recipient encryption key in
-          `RelayerIdentityV1`, signer-set canonical bytes, and transcript
-          digests for HPKE relayer delivery.
+    - [x] Specify and bind the selected SigningWorker recipient encryption key
+          in the current relayer-labelled identity type, deriver-set canonical
+          bytes, and transcript digests for HPKE SigningWorker delivery.
 - [x] Add required authenticated A/B peer-message envelopes with canonical
       bytes-to-sign, sender/recipient direction binding, transcript binding,
       payload digest binding, signature scheme, and signature bytes.
 - [x] Decode Cloudflare A/B peer payloads before handler execution and reject
       direction, transcript, or authentication-digest mismatches.
-- [x] Require authenticated A/B peer payloads in Cloudflare signer-host
+- [x] Require authenticated A/B peer payloads in Cloudflare deriver-host
       preloaded peer request/response inputs.
 - [x] Add a core Ed25519 verifier for authenticated A/B peer payloads.
-- [x] Add signer-host access to trusted signer verifying keys.
+- [x] Add deriver-host access to trusted deriver verifying keys.
 - [x] Verify Ed25519 peer request signatures before Cloudflare handler
       execution.
 - [x] Verify preloaded peer request/response signatures before synchronous
-      signer-engine execution.
+      deriver-engine execution.
 - [x] Add local peer signing-key access for outbound A/B messages.
 - [x] Add production Cloudflare signing-key loading for outbound A/B messages.
-- [x] Bind preloaded signer hosts to one expected signer role and reject
+- [x] Bind preloaded deriver hosts to one expected deriver role and reject
       opposite-role root-share metadata before host construction.
 - [x] Run the same wire and payload vectors through Cloudflare adapter boundary
       tests, including a Node `wasm-bindgen-test` pass with the workers-rs
       Router entrypoint feature enabled, and verify the Worker wasm build still
       compiles.
 - [x] Add Cloudflare production route source guards proving public Router and
-      wire-level signer routes do not decode signer plaintext or reference
+      wire-level deriver routes do not decode deriver plaintext or reference
       joined-state material.
 - [x] Evaluate `hpke = "=0.14.0-pre.2"` as the first direct Rust dependency
       candidate for recipient-output delivery. Deferred: its pre-release
@@ -1657,12 +1733,12 @@ Required before production recipient-output encryption:
         2,370,450 bytes uncompressed, 671,138 bytes gzip.
   - [x] Record role-specific strict Worker release Wasm sizes:
         Router 1,836,346 bytes uncompressed / 487,682 bytes gzip;
-        Signer A/Relayer 2,126,483 / 614,303;
-        Signer B 1,990,085 / 577,469.
+        pre-split Deriver A activation 2,126,483 / 614,303;
+        Deriver B 1,990,085 / 577,469.
   - [x] Record Wrangler-bundled and `wasm-opt` sizes for each role:
         Router 1088.52 KiB / gzip 381.52 KiB;
-        Signer A/Relayer 1340.19 KiB / gzip 497.55 KiB;
-        Signer B 1273.60 KiB / gzip 478.68 KiB.
+        pre-split Deriver A activation 1340.19 KiB / gzip 497.55 KiB;
+        Deriver B 1273.60 KiB / gzip 478.68 KiB.
   - [ ] Record Wrangler `startup_time_ms` from deployed or Wrangler-profiled
         role Worker bundles.
 - [ ] Benchmark setup/export/refresh with 1, 2, 3, and 4 A/B round trips.
@@ -1675,8 +1751,8 @@ Required before production recipient-output encryption:
 - [ ] Implement role-local share rewrap.
 - [ ] Implement distributed or approved-provisioning root-share refresh.
 - [ ] Verify address/public-key parity before and after root-share refresh.
-- [ ] Run relayer-share refresh after root-share epoch changes when policy
-  requires it.
+- [ ] Run signing-worker share refresh after root-share epoch changes when
+      policy requires it.
 - [ ] Implement self-host export/import vectors.
 - [ ] Verify hosted disablement and share retirement evidence.
 - [ ] Test rollback behavior.
@@ -1684,22 +1760,65 @@ Required before production recipient-output encryption:
 ### Phase 8: Production Hardening
 
 - [ ] Split Router, A, and B across separate Cloudflare accounts if required.
-- [ ] Add signer identity pinning and key-epoch rotation runbooks.
-- [ ] Add alerting for unusual gate, share access, and signer error patterns.
-- [ ] Add incident runbooks for Router, A, B, A+B, relayer, storage, and KEK
-  compromise.
+- [ ] Add deriver identity pinning and key-epoch rotation runbooks.
+- [ ] Revisit deriver-envelope HPKE rotation semantics after MVP: current and
+      previous epoch descriptors, request-TTL overlap, stale-epoch rejection,
+      and current/previous epoch tests.
+- [ ] Add alerting for unusual gate, share access, and deriver error patterns.
+- [ ] Add incident runbooks for Router, A, B, A+B, SigningWorker, storage, and
+      KEK compromise.
 - [ ] Evaluate strong output correctness once performance data exists.
 - [ ] Evaluate multi-cloud TEE placement once operational need justifies it.
+
+### Post-MVP Phase: ECDSA-HSS Router-A-B Version
+
+Decision: keep ECDSA-HSS as a separate post-MVP protocol version. Router-A-B
+for ECDSA-HSS is a provisioning/export hardening layer, while normal ECDSA
+signing remains:
+
+```text
+Client -> Router -> SigningWorker -> Router -> Client
+```
+
+Rationale:
+
+- The active ECDSA-HSS design is role-local additive derivation:
+  `x = x_client + x_relayer mod n`.
+- The ECDSA-HSS server-blindness invariant requires production server paths to
+  avoid reconstructing canonical `x` and to avoid combining client-owned secret
+  input with server-owned secret input.
+- A single provisioning worker that handles client bootstrap state plus relayer
+  derivation/export material can reconstruct or log export-capable material.
+  Router-A-B segregation keeps ECDSA registration, export, recovery, and
+  activation material split across Deriver A and Deriver B before the
+  SigningWorker receives activation material.
+- The ECDSA-HSS version needs its own domain labels, transcript fields,
+  secp256k1 validation rules, address/public-key parity vectors, export policy,
+  activation records, and leakage review.
+
+Todo:
+
+- [ ] Define `router_ab_ecdsa_hss_secp256k1_v1` or equivalent.
+- [ ] Specify ECDSA-HSS Deriver A/B outputs and SigningWorker activation
+      records.
+- [ ] Bind secp256k1 compressed public keys, Ethereum address, context binding,
+      deriver identities, SigningWorker identity, export authorization digest,
+      and replay nonce into ECDSA-specific transcripts.
+- [ ] Preserve explicit export semantics: only the authorized client export
+      runtime reconstructs `privateKeyHex`.
+- [ ] Add source guards and fixtures proving production Router, Deriver, and
+      SigningWorker paths cannot materialize canonical `x`.
+- [ ] Benchmark ECDSA-HSS setup/export/activation separately from normal signing.
 
 ## Spec Status Summary
 
 - Split derivation primitive: `mpc_threshold_prf_v1`.
 - HSS integration boundary: new role-separated API.
 - Malicious correctness: Minimum Level C first, strong path later.
-- Relayer placement: Signer A initially.
+- SigningWorker placement: standalone worker for activation and normal signing.
 - Lifecycle: one `DerivationCeremony` state machine with request-kind-specific
   scope.
-- Signer identity and rotation: bind the minimum transcript fields listed above.
+- Deriver identity and rotation: bind the minimum transcript fields listed above.
 - Observability: typed redacted diagnostics plus source guards.
 - Local/prod parity: strict from day one.
 - Rust/Wasm bundle discipline: separate role bundles and measure every

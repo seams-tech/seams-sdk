@@ -116,6 +116,20 @@ and observability. A and B stay off the normal-signing fallback path. Failover
 uses multiple instances of the same `SigningWorker` identity or a refresh
 ceremony that activates a new signing-worker identity.
 
+Local development also has a bundled single-server profile:
+
+```sh
+pnpm router:bundled
+pnpm router-ab:local:smoke:bundled
+```
+
+That profile exposes Router, Deriver A, Deriver B, and SigningWorker routes
+from one process. It is useful for TEE-shaped deployments and customers that
+choose one-server custody, but it is a weaker security profile than the
+four-role deployment because process compromise reaches every role boundary.
+The protocol routes remain explicit so the deployment can move back to
+separate workers without changing client-facing semantics.
+
 Activation delivery should support a direct Deriver A/B -> SigningWorker fast
 path because activation latency matters. Router still owns the public request,
 admission, replay, lifecycle, selected SigningWorker identity, and final client
@@ -230,11 +244,7 @@ role-specific encrypted envelopes:
 ```ts
 type RouterSplitDerivationRequest = {
   protocolVersion: string;
-  requestKind:
-    | 'registration'
-    | 'key_export'
-    | 'recovery'
-    | 'relayer_share_refresh';
+  requestKind: 'registration' | 'key_export' | 'recovery' | 'relayer_share_refresh';
   accountId: string;
   sessionId: string;
   transcriptNonce: string;
@@ -265,12 +275,12 @@ The plaintext inside `aEnvelope` is valid only for A. The plaintext inside
 Router-facing product operations remain more specific than primitive derivation
 request kinds:
 
-| Product operation | Primitive request kind | Reason |
-| --- | --- | --- |
-| `registration_prepare` | `registration` | creates the first account output relation after registration authorization |
-| `key_export` | `export` | re-opens existing account output material under export authorization |
-| `recovery` | `export` | re-opens existing account output material under recovery authorization |
-| `relayer_share_refresh` | `refresh` | rotates future SigningWorker/root-share material and requires activation checks |
+| Product operation       | Primitive request kind | Reason                                                                          |
+| ----------------------- | ---------------------- | ------------------------------------------------------------------------------- |
+| `registration_prepare`  | `registration`         | creates the first account output relation after registration authorization      |
+| `key_export`            | `export`               | re-opens existing account output material under export authorization            |
+| `recovery`              | `export`               | re-opens existing account output material under recovery authorization          |
+| `relayer_share_refresh` | `refresh`              | rotates future SigningWorker/root-share material and requires activation checks |
 
 Recovery stays distinct in Router policy, auth, abuse controls, diagnostics,
 and lifecycle state. It maps to primitive `export` because the derivation layer
@@ -313,16 +323,9 @@ type SplitDeriverSet = {
 
 type RouterSplitDerivationRequestV1 = {
   protocolVersion: string;
-  requestKind:
-    | 'registration'
-    | 'key_export'
-    | 'recovery'
-    | 'relayer_share_refresh';
+  requestKind: 'registration' | 'key_export' | 'recovery' | 'relayer_share_refresh';
   deriverSet: SplitDeriverSet;
-  deriverEnvelopes: readonly [
-    RoleEncryptedEnvelope<'A'>,
-    RoleEncryptedEnvelope<'B'>,
-  ];
+  deriverEnvelopes: readonly [RoleEncryptedEnvelope<'A'>, RoleEncryptedEnvelope<'B'>];
 };
 ```
 
@@ -2210,8 +2213,8 @@ Immediate next steps:
 ### Phase 1: Protocol Types And Invariants
 
 - [x] Create or consolidate the pure Rust protocol crate for role-specific
-  protocol types, state machines, transcript binding, envelope framing,
-  engines, and host traits.
+      protocol types, state machines, transcript binding, envelope framing,
+      engines, and host traits.
   - [x] Consolidate primitive and service-level protocol modules into
         `crates/router-ab-core`.
   - [x] Keep derivation code under `src/derivation` and service protocol code
@@ -2223,13 +2226,13 @@ Immediate next steps:
   - [x] Add initial encrypted deriver-envelope wrappers.
   - [x] Add initial canonical wire-message wrappers.
 - [x] Keep `router-ab-core` free of Cloudflare APIs, filesystem APIs,
-  ambient time, ambient randomness, and transport dependencies.
+      ambient time, ambient randomness, and transport dependencies.
 - [x] Define `router-ab-core/src/protocol/engine` with Router, Deriver A,
-  Deriver B, SigningWorker activation, and host-trait modules.
+      Deriver B, SigningWorker activation, and host-trait modules.
 - [x] Define host traits inside `router-ab-core` for clock, randomness,
-  deriver keys, signing-root share storage, peer transport, and audit sinks.
+      deriver keys, signing-root share storage, peer transport, and audit sinks.
 - [x] Define canonical request/response bytes for Router-to-A, Router-to-B,
-  A-to-B, B-to-A, and recipient-proof-bundle delivery.
+      A-to-B, B-to-A, and recipient-proof-bundle delivery.
   - [x] Add initial versioned, length-prefixed `WireMessageV1` canonical bytes
         and digest helper.
   - [x] Define exact service payload structs for Router-to-deriver, A/B peer
@@ -2237,22 +2240,17 @@ Immediate next steps:
   - [x] Add canonical encoders for exact service payload structs.
   - [x] Add committed fixtures for exact service payload structs.
 - [x] Add cross-host wire vectors so Rust native, Rust/Wasm, and TypeScript
-  hosts can verify the same transcript bytes.
+      hosts can verify the same transcript bytes.
 - [x] Define role-specific Router, A, B, client-output, and relayer-output
-  types.
+      types.
 - [x] Model Router A/B v1 around a deriver-set and indexed role-envelope shape,
-  while enforcing an `all(2)` quorum policy for the first release.
+      while enforcing an `all(2)` quorum policy for the first release.
 - [x] Define encrypted envelope framing with transcript-bound associated data.
   - [x] Add first role-encrypted envelope wrapper with header and AAD digests.
   - [x] Define exact role-envelope AAD fields and canonical AAD digest helper.
   - [x] Resolve non-circular canonical bytes for deriver-envelope AAD,
-        transcript digest, and Router replay digest.
-        - [x] Add public root-share epoch to Router request scope.
-        - [x] Add pre-envelope request-context digest for AAD/plaintext.
-        - [x] Add pre-envelope derivation transcript digest for HSS/output
-              bindings.
-        - [x] Keep full-envelope replay digest scoped to Router storage.
-        - [x] Add strict deriver bootstrap body carrying typed AAD from Router.
+        transcript digest, and Router replay digest. - [x] Add public root-share epoch to Router request scope. - [x] Add pre-envelope request-context digest for AAD/plaintext. - [x] Add pre-envelope derivation transcript digest for HSS/output
+        bindings. - [x] Keep full-envelope replay digest scoped to Router storage. - [x] Add strict deriver bootstrap body carrying typed AAD from Router.
 - [x] Define deriver identities and key rotation rules.
 - [x] Add type fixtures rejecting invalid branch combinations.
   - [x] Add constructor tests for invalid gate branches, lifecycle scope,
@@ -2260,7 +2258,7 @@ Immediate next steps:
         output package recipient semantics.
 - [x] Add source guards for forbidden imports in Router and deriver code.
 - [x] Add initial Verus-friendly invariant notes for role separation,
-  output-kind separation, and transcript binding.
+      output-kind separation, and transcript binding.
 
 ### Phase 2: Local Boundary Simulation
 
@@ -2277,7 +2275,7 @@ Immediate next steps:
   - [x] Wire snapshots into role-checked local service startup configs.
   - [x] Wire startup configs into executable in-process local service startup.
 - [x] Add local Postgres or SQLite seeding for signing-root metadata and role-specific
-  sealed-share records.
+      sealed-share records.
   - [x] Add transport-neutral seed records for signing-root metadata and
         role-specific sealed shares.
   - [x] Wire seed records into a Postgres/SQLite SQL seed plan.
@@ -2294,9 +2292,9 @@ Immediate next steps:
   - [x] Add typed local HTTP handlers on top of the checked envelopes.
 - [x] Add a `dev:router-ab-signer` script that starts the full local stack.
 - [x] Add end-to-end local tests that send one client request to the Router and
-  verify encrypted A/B package delivery.
+      verify encrypted A/B package delivery.
 - [x] Add negative local Router/A/B tests for wrong-role payloads and
-  output-kind confusion.
+      output-kind confusion.
   - [x] Add in-process local test covering Router dispatch, Deriver A/B
         responses, A/B peer messages, and SigningWorker activation routing.
   - [x] Add in-process local test running the service stack from startup
@@ -2304,7 +2302,7 @@ Immediate next steps:
   - [x] Add typed local HTTP test running one client-to-Router request through
         the local service stack.
 - [x] Add negative local tests for Router plaintext access, wrong-role payloads,
-  replay, expiry, transcript mismatch, and output-kind confusion.
+      replay, expiry, transcript mismatch, and output-kind confusion.
   - [x] Add negative local tests for wrong routes, wrong HTTP path/method, and
         transcript mismatch.
   - [x] Add negative local tests for client request expiry and replayed request
@@ -2319,11 +2317,14 @@ Immediate next steps:
       descriptors.
 - [x] Add typed Env-reader parsing behind the Cloudflare binding descriptors.
 - [x] Add the optional `worker::Env` bridge and real binding-presence checks.
-- [x] Add typed Durable Object call execution for replay reservations, public
-      lifecycle state, root-share startup checks, and SigningWorker-owned
-      relayer-output activation.
+- [x] Add typed Durable Object call execution for replay reservations, Router
+      admission lifecycle state, root-share startup checks, and
+      SigningWorker-owned relayer-output activation.
 - [x] Implement Router Durable Object handler storage for replay reservations
-      and public lifecycle state.
+      and Router admission lifecycle state.
+      Cloudflare storage now rejects skipped and rewritten Router admission
+      lifecycle transitions. Full `DerivationCeremony` persistence remains a
+      production release blocker.
 - [x] Add the feature-gated `workers-rs` Durable Object fetch/storage wrapper.
 - [x] Add the initial thin `workers-rs` Router startup/runtime wrapper around
       validated Router-scoped core types.
@@ -2333,9 +2334,9 @@ Immediate next steps:
 - [x] Define the transport-neutral public Router request boundary.
 - [x] Parse and normalize public request metadata once into Router-scoped work.
 - [x] Verify auth, project policy, quota, abuse controls, expiry, and replay
-  window.
+      window.
 - [x] Add typed trusted Router metadata and admission-check derivation for
-  auth, project policy, quota, and abuse outcomes.
+      auth, project policy, quota, and abuse outcomes.
 - [x] Add a typed Router admission-provider boundary that owns auth/session,
       project policy, quota, and abuse checks before trusted admission is
       derived.
@@ -2364,12 +2365,12 @@ Immediate next steps:
         route with Router-derived admission from bearer JWT plus store-backed
         project-policy, quota, and abuse providers.
 - [x] Add the Router-owned expensive-work admission gate before deriver
-  forwarding.
+      forwarding.
 - [x] Derive gate context from trusted Router metadata, never from client
-  JSON.
+      JSON.
 - [x] Implement accepted, reuse-existing, defer, and rejected gate decisions.
 - [x] Add route tests proving rejected requests do not reach Deriver A, Deriver B,
-  or HSS prepare.
+      or HSS prepare.
 - [x] Forward A/B encrypted envelopes without decrypting them.
 - [x] Persist only public lifecycle state and payload hashes.
 - [x] Aggregate encrypted client proof bundles into one response.
@@ -2379,13 +2380,13 @@ Immediate next steps:
 - [x] Implement Deriver A/B Durable Object handler storage for root-share startup
       checks and current SigningWorker activation.
 - [x] Add thin `workers-rs` Deriver A and Deriver B wrappers around the
-  platform-agnostic deriver engines.
+      platform-agnostic deriver engines.
 - [x] Add Deriver A, Deriver B, and current SigningWorker runtime contexts
       around validated Cloudflare bindings.
 - [x] Add a preloaded synchronous Cloudflare deriver host that implements the
-  current core host traits.
+      current core host traits.
 - [x] Wire workers-rs async preload from Env, Durable Objects, and randomness
-  into the preloaded deriver host.
+      into the preloaded deriver host.
 - [x] Add the direct A/B peer service-binding endpoint.
 - [x] Wire direct A/B peer-response preload into the preloaded deriver host.
 - [x] Add private A and B deriver endpoints.
@@ -2567,7 +2568,7 @@ Immediate next steps:
 ### Phase 6: Output Delivery
 
 - [x] Encrypt A and B client-output proof bundles directly to the client
-  ephemeral key.
+      ephemeral key.
   - [x] Public Router requests now require a client ephemeral public key, and
         the key is bound into the derivation transcript digest and
         Router-to-deriver payload metadata.
@@ -2695,16 +2696,16 @@ MVP blockers:
 Recommended order:
 
 1. [x] Tighten Minimum Level C package-shape verification and add rejection tests
-   for missing Deriver A or Deriver B output.
+       for missing Deriver A or Deriver B output.
 2. [x] Remove central server-side combine/package exports and the old
-   Cloudflare deriver-response handler.
+       Cloudflare deriver-response handler.
 3. [x] Rewrite the local ceremony around encrypted recipient-proof-bundle
-   delivery.
+       delivery.
 4. [x] Move recipient output opening behind recipient-local combine APIs.
 5. [x] Continue Router admission and Cloudflare Durable Object adapter work.
-   SigningWorker Durable Object storage should accept the strict encrypted
-   SigningWorker proof-bundle activation request instead of the old joined
-   output payload.
+       SigningWorker Durable Object storage should accept the strict encrypted
+       SigningWorker proof-bundle activation request instead of the old joined
+       output payload.
    - [x] Replace SigningWorker activation request state that carried the full
          Router-to-deriver payload with a public
          `SigningWorkerActivationContextV1`. The activation context carries
@@ -2843,7 +2844,7 @@ product behavior should use the dedicated SigningWorker boundary.
   - [x] Source guard proving normal-signing routes cannot call A/B derivation
         setup/export handlers for the SigningWorker boundary functions.
 - [x] Ensure normal signing routes cannot invoke A/B derivation paths
-  accidentally.
+      accidentally.
 - [x] Add operational controls for signing-worker share refresh.
       SigningWorker relayer-output activation now checks the current active
       state before writing a new activation. A refresh for the same
@@ -2851,10 +2852,27 @@ product behavior should use the dedicated SigningWorker boundary.
       activation timestamp is newer; stale and same-time refresh attempts are
       rejected so active signing material cannot roll back.
 
+Current release status as of 2026-06-14:
+
+- Normal signing has the target production boundary
+  `Client -> Router -> SigningWorker -> Router -> Client`, and A/B derivation
+  is off the hot path.
+- The strict Cloudflare SigningWorker still returns a fail-closed normal-signing
+  handler error until the production role-separated Ed25519-HSS signer API is
+  wired behind `CloudflareSigningWorkerNormalSigningHandlerV1`.
+- Cloudflare Durable Object storage enforces the Router admission lifecycle
+  transition (`Requested -> gate/fallback outcome`) and rejects skipped,
+  rewritten, or scope-changing writes.
+- Full `DerivationCeremony` persistence for
+  `Created -> ... -> Activated/Failed/Expired/Abandoned` is still open.
+- The manual `deploy-router-ab` workflow runs
+  `pnpm -C crates/router-ab-cloudflare assert:release-ready` for
+  `operation=deploy`; validation and version upload can still run for evidence.
+
 ### Phase 8: Local Cryptographic Simulation
 
 - [x] Replace deterministic dev output shares with the selected split derivation
-  primitive.
+      primitive.
   - [x] Local in-process ceremonies now convert signed A/B threshold-PRF proof
         batches into recipient-scoped encrypted proof bundles. Router output is
         limited to client bundles, while SigningWorker activation receives only
@@ -2879,7 +2897,7 @@ product behavior should use the dedicated SigningWorker boundary.
         HTTP harness that mirrors Router, Deriver A, Deriver B, and
         SigningWorker deployment boundaries.
 - [x] Wire threshold-PRF partial evaluation or the selected split root
-  derivation into local A/B services.
+      derivation into local A/B services.
   - [x] Replace opaque local A/B peer-message bodies with signed
         threshold-PRF proof-batch peer payloads.
   - [x] Carry or reconstruct the production transcript binding at the local
@@ -2893,7 +2911,7 @@ product behavior should use the dedicated SigningWorker boundary.
         imports to use the fixed `threshold_prf::v1` API after the
         `threshold-prf` t-of-N module split.
 - [x] Wire split `y_relayer` and `tau_relayer` material into the local A/B HSS
-  derivation protocol.
+      derivation protocol.
   - [x] Document the HSS adapter boundary: keep `ed25519-hss` fixture/reference
         execution outside `router-ab-core` service modules, initially in a dev
         or test-only adapter, and require role-scoped inputs plus
@@ -2938,7 +2956,7 @@ product behavior should use the dedicated SigningWorker boundary.
         Deriver A/B `y_relayer` and `tau_relayer` share commitments preserve
         the same committed public key and NEAR `ed25519:<base58>` key string.
 - [x] Verify no local process materializes joined `d`, `a`, or
-  `x_client_base`.
+      `x_client_base`.
   - [x] Add a local source guard preventing `src/protocol/local.rs` from
         importing or calling recipient output combine APIs, combined-output
         types, split-root combined outputs, `SecretMaterial32`, or
@@ -2967,13 +2985,13 @@ product behavior should use the dedicated SigningWorker boundary.
         `threshold-prf` canonical 34-byte signing-root-share wire; the full
         `crates/router-ab-cloudflare --test bindings` suite now passes.
 - [x] Add native Rust tests for platform-agnostic deriver engines without
-  Cloudflare dependencies.
+      Cloudflare dependencies.
 - [x] Add Wasm tests proving the same canonical wire vectors pass through the
-  `workers-rs` adapters.
+      `workers-rs` adapters.
   - [x] Add `tests/wasm_vector_adapters.rs` and
         `pnpm -C crates/router-ab-cloudflare test:wasm-vectors`.
 - [x] Add optional TypeScript compatibility tests that parse and verify the
-  canonical wire protocol.
+      canonical wire protocol.
   - [x] Add a Playwright unit test that parses
         `crates/router-ab-core/fixtures/protocol/wire/wire-vectors-v1.json`
         through a boundary parser, recomputes TypeScript canonical wire bytes,
@@ -3014,7 +3032,7 @@ product behavior should use the dedicated SigningWorker boundary.
         1 round trip 62.882 us; 2 round trips 82.568 us;
         3 round trips 102.72 us; 4 round trips 123.85 us.
 - [x] Benchmark normal signing latency to confirm it remains close to the
-  current single-SigningWorker path.
+      current single-SigningWorker path.
   - [x] Add and run native Router-to-SigningWorker hot-path benchmark:
         6.3362 us in a short Criterion sample. Scope: Router normal-signing
         admission metadata/check derivation, admission-store call construction,
@@ -3030,8 +3048,8 @@ product behavior should use the dedicated SigningWorker boundary.
   - [x] Add initial Rust/FV anti-drift tests proving production role names and
         recipient-output authorization match the FV opened-value model.
 - [x] Add activation-context anti-drift tests proving SigningWorker
-        activation derives from public transcript state and rejects transcript
-        digest or root-epoch drift.
+      activation derives from public transcript state and rejects transcript
+      digest or root-epoch drift.
 
 ### Phase 9B: Cloudflare Startup Latency Benchmark
 
