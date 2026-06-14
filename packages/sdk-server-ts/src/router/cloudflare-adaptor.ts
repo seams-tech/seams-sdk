@@ -27,6 +27,22 @@ export type {
   RelayRuntimeSnapshotConsumer,
 } from './relay';
 export type {
+  RelayCloudflareRouteExtensionInput,
+  RelayCloudflareRouteExtension,
+  RelayExpressRouteExtensionInput,
+  RelayExpressRouteExtension,
+  RelayRouteExtension,
+  RelayRouteExtensionTransport,
+} from './routeExtensions';
+export type {
+  RelayRouterModule,
+  RelayRouterModuleKind,
+  RelayRouterModuleOptions,
+} from './modules';
+export { createRelayRouterModule } from './modules';
+export type { RouteDefinition } from './routeDefinitions';
+export { defineRoute } from './routeDefinitions';
+export type {
   ConsoleRouterOptions,
   ConsoleAuthAdapter,
   ConsoleAuthClaims,

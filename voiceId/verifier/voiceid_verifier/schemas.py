@@ -146,7 +146,15 @@ class AudioQualityRejected:
 @dataclass(frozen=True)
 class AudioQualityUncertain:
     kind: Literal["uncertain"]
-    reason: Literal["noisy_audio", "too_short", "model_low_confidence"]
+    reason: Literal[
+        "noisy_audio",
+        "too_short",
+        "model_low_confidence",
+        "undecodable_audio",
+        "clipped_audio",
+        "low_speech",
+        "low_snr",
+    ]
     duration_ms: int
 
     def to_json(self) -> dict[str, Any]:
@@ -254,7 +262,7 @@ class SpeakerRejected:
 @dataclass(frozen=True)
 class SpeakerUncertain:
     kind: Literal["uncertain"]
-    reason: Literal["model_low_confidence", "verifier_unavailable"]
+    reason: Literal["model_low_confidence", "verifier_unavailable", "low_audio_quality"]
     score: float
     threshold: float
     model_version: str

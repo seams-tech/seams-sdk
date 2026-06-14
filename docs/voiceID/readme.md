@@ -20,7 +20,7 @@ The signing authority remains cryptographic:
 
 ```text
 owner speaks near embedded device
-  -> device captures audio/video context
+  -> device captures local voice and device context
   -> device derives or receives a bounded intent
   -> VoiceID checks local owner presence
   -> server policy checks risk and session constraints
@@ -74,7 +74,7 @@ FaceID
 
 Embedded VoiceID
   -> checks local owner voice presence
-  -> pairs with audio/video liveness and command context
+  -> pairs with command context, device policy, and optional step-up
   -> device + server policy gates MPC signing
 ```
 
@@ -91,9 +91,10 @@ Required controls:
 
 1. **Intent binding**: the spoken phrase or recognized command is bound to the
    exact action, recipient, amount, device, and expiry.
-2. **Audio/video liveness**: the robot or embedded device checks that speech is
-   coming from a live nearby person, ideally with synchronized mouth movement
-   and camera context.
+2. **Local freshness and replay resistance**: the robot or embedded device
+   checks that speech is fresh, captured locally, and bound to the current
+   command window. Camera-backed liveness is a separate future plan in
+   `docs/voiceID/voiceId-camera-liveness-future.md`.
 3. **Device-bound key material**: the client signing share remains on the
    embedded device or its sidecar.
 4. **Server policy**: the server co-signer checks risk, rate limits, device
@@ -125,7 +126,7 @@ Embedded wallet flow:
 
 ```text
 nearby owner command
-  -> local microphone + camera context
+  -> local microphone + device context
   -> owner presence check
   -> intent digest
   -> device-bound client share
@@ -176,7 +177,7 @@ Use VoiceID differently based on risk.
 | Low-risk robot command | Voice match + local freshness |
 | Owner-only robot action | Voice match + basic liveness |
 | Low-value known-recipient payment | Voice match + intent binding + server policy + MPC |
-| New recipient or medium-value payment | Voice + audio/video liveness + MPC + tighter policy |
+| New recipient or medium-value payment | Voice + intent binding + MPC + tighter policy or step-up |
 | High-value or anomalous payment | Voice + liveness + MPC + phone/watch/passkey step-up |
 
 This keeps the happy path natural while preserving a clear escalation path.
@@ -201,22 +202,41 @@ Before VoiceID can authorize embedded transaction signing:
 1. Every signing request must have an `intentDigest`.
 2. The spoken phrase or parsed command must bind to that `intentDigest`.
 3. Voice matching must be separated from phrase or intent transcription.
-4. Audio/video liveness should be required for wallet actions.
+4. Camera-backed liveness belongs to
+   `docs/voiceID/voiceId-camera-liveness-future.md`.
 5. The embedded device should keep its signing share device-bound.
 6. The server co-signer should enforce risk policy before participating.
-7. Raw audio/video should have explicit retention rules.
+7. Raw audio and diagnostic media should have explicit retention rules.
 8. High-risk transactions should require step-up authentication.
 
 ## What This Means For The MVP
 
-The browser VoiceID MVP remains speaker verification only. It proves the
-enrollment, verification, phrase-match, and verifier-boundary mechanics.
+The browser VoiceID MVP now proves enrollment, verification, phrase-match,
+verifier-boundary mechanics, intent binding, liveness-aware owner-presence
+policy, and wallet policy handoff.
 
-Embedded transaction signing requires later phases:
+Completed embedded transaction-signing prerequisites:
 
 1. Intent-digest binding.
-2. Audio/video liveness.
-3. Device-bound client share policy.
-4. Server co-signer policy.
-5. MPC signing integration.
-6. Step-up auth policy for risky transactions.
+2. Owner-presence policy and replay resistance.
+3. Device and sidecar policy context.
+4. Wallet policy tiers and step-up results.
+5. Router A/B normal-signing admission with matching `intentDigest`.
+6. SigningWorker admission checks for admitted intent-bound requests.
+
+Remaining implementation work:
+
+1. Add normal SDK coverage for typed wallet policy consumption after
+   owner-presence authorization.
+2. Expand normal SDK demo or fixture coverage around that policy consumption.
+3. Implement the concrete Router A/B policy issuer and key-management path in
+   `docs/voiceID/voiceId-router-policy-issuer.md`.
+4. Add an end-to-end test from accepted VoiceID wallet policy decision to Router
+   JWT to admitted normal-signing request after the normal SDK path works.
+5. Re-run fixture evaluation after verifier, threshold, or liveness-policy
+   changes.
+6. Collect true independent human different-speaker clips before tightening
+   speaker thresholds.
+
+Camera, face, mouth, and lip-sync work is tracked separately in
+`docs/voiceID/voiceId-camera-liveness-future.md`.

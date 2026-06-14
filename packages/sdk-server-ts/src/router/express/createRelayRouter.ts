@@ -28,6 +28,11 @@ import { registerSigningSessionSealRoutes } from '../../threshold/session/signin
 import { DEFAULT_SESSION_COOKIE_NAME } from '../relay';
 import { attachRelayRouteSurface, resolveRelayRouteSurface } from '../relayRouteSurface';
 import type { RouteDefinition } from '../routeDefinitions';
+import {
+  getRelayRouteExtensionRoutes,
+  getRelayRouteExtensionsForTransport,
+} from '../routeExtensions';
+import { resolveRelayRouterModuleRouteExtensions } from '../modules';
 
 export interface ExpressRelayContext {
   service: AuthService;
@@ -47,14 +52,25 @@ export function createRelayRouter(
   const threshold = resolveThresholdOption(service, opts);
   const sessionCookieName =
     String(opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
-  const effectiveOpts: RelayRouterOptions = { ...opts, threshold, sessionCookieName };
+  const routeExtensions = resolveRelayRouterModuleRouteExtensions(opts);
+  const effectiveOpts: RelayRouterOptions = {
+    ...opts,
+    threshold,
+    sessionCookieName,
+    routeExtensions,
+    modules: [],
+  };
   if (effectiveOpts.ror) {
     validateRelayRouterRorOptions(effectiveOpts.ror);
   }
 
   const logger = coerceRouterLogger(effectiveOpts.logger);
-  const routeSurface = resolveRelayRouteSurface(effectiveOpts);
+  const routeSurface = resolveRelayRouteSurface(effectiveOpts, { transport: 'express' });
   const { mePath, routeDefinitions, signedDelegatePath } = routeSurface;
+  const expressRouteExtensions = getRelayRouteExtensionsForTransport(
+    routeExtensions,
+    'express',
+  );
 
   installCors(router, effectiveOpts);
 
@@ -87,6 +103,12 @@ export function createRelayRouter(
   registerNearPublicKeysRoutes(router, ctx);
   registerSessionRoutes(router, ctx);
   registerRecoverEmailRoute(router, ctx);
+  for (const extension of expressRouteExtensions) {
+    extension.registerExpressRoutes({
+      router,
+      routes: getRelayRouteExtensionRoutes(extension, 'express'),
+    });
+  }
   registerHealthRoutes(router, ctx);
   registerWellKnownRoutes(router, ctx);
 

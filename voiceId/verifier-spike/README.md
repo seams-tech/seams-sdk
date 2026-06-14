@@ -47,6 +47,11 @@ The first ECAPA report is in `reports/speechbrain-ecapa-2026-06-11.md`.
 Compare x-vector, pyannote, or NeMo only if ECAPA calibration, licensing, or
 deployment constraints need another option.
 
+The production-shaped verifier runtime now supports the same ECAPA model behind
+the Python verifier app boundary. Start that process with
+`VOICEID_VERIFIER_BACKEND=ecapa`; browser and mobile clients remain capture-only
+clients.
+
 Fixture manifest fields:
 
 - `schemaVersion`

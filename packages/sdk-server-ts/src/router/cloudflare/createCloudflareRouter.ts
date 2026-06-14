@@ -54,7 +54,15 @@ import { validateRelayRouterRorOptions } from '../ror/provider';
 import { handleSigningSessionSealRoutes } from '../../threshold/session/signingSessionSeal';
 import { DEFAULT_SESSION_COOKIE_NAME } from '../relay';
 import { attachRelayRouteSurface, resolveRelayRouteSurface } from '../relayRouteSurface';
-import type { RouteDefinition } from '../routeDefinitions';
+import {
+  findRouteDefinitionForRequest,
+  type RouteDefinition,
+} from '../routeDefinitions';
+import {
+  getRelayRouteExtensionRoutes,
+  getRelayRouteExtensionsForTransport,
+} from '../routeExtensions';
+import { resolveRelayRouterModuleRouteExtensions } from '../modules';
 
 export interface CloudflareRelayContext {
   request: Request;
@@ -82,14 +90,25 @@ export function createCloudflareRouter(
   const threshold = resolveThresholdOption(service, opts);
   const sessionCookieName =
     String(opts.sessionCookieName || '').trim() || DEFAULT_SESSION_COOKIE_NAME;
-  const effectiveOpts: RelayRouterOptions = { ...opts, threshold, sessionCookieName };
+  const routeExtensions = resolveRelayRouterModuleRouteExtensions(opts);
+  const effectiveOpts: RelayRouterOptions = {
+    ...opts,
+    threshold,
+    sessionCookieName,
+    routeExtensions,
+    modules: [],
+  };
   if (effectiveOpts.ror) {
     validateRelayRouterRorOptions(effectiveOpts.ror);
   }
 
   const logger = coerceRouterLogger(effectiveOpts.logger);
-  const routeSurface = resolveRelayRouteSurface(effectiveOpts);
+  const routeSurface = resolveRelayRouteSurface(effectiveOpts, { transport: 'cloudflare' });
   const { mePath, routeDefinitions, signedDelegatePath } = routeSurface;
+  const cloudflareRouteExtensions = getRelayRouteExtensionsForTransport(
+    routeExtensions,
+    'cloudflare',
+  );
 
   const handlers: Array<(c: CloudflareRelayContext) => Promise<Response | null>> = [
     handleWellKnown,
@@ -142,6 +161,21 @@ export function createCloudflareRouter(
     handleWalletEmailOtpDevOtpOutbox,
     handleWalletState,
     handleWalletLock,
+    ...cloudflareRouteExtensions.map((extension) => {
+      const extensionRoutes = getRelayRouteExtensionRoutes(extension, 'cloudflare');
+      return async (c: CloudflareRelayContext): Promise<Response | null> => {
+        const route = findRouteDefinitionForRequest(extensionRoutes, c.method, c.pathname);
+        if (!route) return null;
+        return await extension.handleCloudflareRoute({
+          request: c.request,
+          route,
+          pathname: c.pathname,
+          method: c.method,
+          env: c.env,
+          cfCtx: c.cfCtx,
+        });
+      };
+    }),
     handleRecoverEmail,
     handleHealth,
     handleReady,

@@ -8,7 +8,8 @@ liveness. Those remain separate follow-on tracks.
 
 Follow-on plan: `docs/voiceID/voiceId-mvp-2.md` covers the next stage:
 ECAPA-backed verification, quality-first gating, expanded calibration fixtures,
-intent binding, audio-visual liveness, and wallet/robot policy integration.
+intent binding, and wallet/robot policy integration. Camera-backed liveness is
+tracked separately in `docs/voiceID/voiceId-camera-liveness-future.md`.
 
 ## Purpose
 
@@ -553,6 +554,12 @@ After the standalone MVP proves the lifecycle:
 3. Integrate `voiceId/server` routes through a server capability module.
 4. Keep VoiceID-specific lifecycle under the VoiceID module.
 5. Let wallet/auth policy consume only typed `VoiceIdVerificationResult`.
+
+Current test target: feed the accepted normal-SDK owner-presence result into
+wallet auth policy experiments. The normal SDK relay/module path can mount
+VoiceID routes, call enrollment and verification APIs, and authorize
+owner-presence for an intent. Router A/B signing integration remains a later
+phase.
 
 Target client module shape:
 

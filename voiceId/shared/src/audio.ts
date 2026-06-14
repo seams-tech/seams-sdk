@@ -61,7 +61,14 @@ export type VoiceIdAudioQualityResult =
     }
   | {
       kind: 'uncertain';
-      reason: 'noisy_audio' | 'too_short' | 'model_low_confidence';
+      reason:
+        | 'noisy_audio'
+        | 'too_short'
+        | 'model_low_confidence'
+        | 'undecodable_audio'
+        | 'clipped_audio'
+        | 'low_speech'
+        | 'low_snr';
       durationMs: number;
     };
 

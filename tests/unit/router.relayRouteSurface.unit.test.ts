@@ -1,10 +1,22 @@
 import { expect, test } from '@playwright/test';
+import type { Request, Response } from 'express';
 import { createInMemoryConsoleApiKeyService } from '../../packages/sdk-server-ts/src/console/apiKeys';
 import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots';
 import { createInMemoryConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls';
 import { createCloudflareRouter } from '../../packages/sdk-server-ts/src/router/cloudflare/createCloudflareRouter';
 import { createRelayRouter } from '../../packages/sdk-server-ts/src/router/express/createRelayRouter';
+import {
+  createRelayRouterModule,
+  type RelayRouterModule,
+} from '../../packages/sdk-server-ts/src/router/modules';
+import type { RelayRouteExtension } from '../../packages/sdk-server-ts/src/router/routeExtensions';
+import { defineRoute } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
 import { getRelayRouteSurface } from '../../packages/sdk-server-ts/src/router/relayRouteSurface';
+import {
+  createDefaultVoiceIdService,
+  createVoiceIdRelayRouterModule,
+  createVoiceIdServerCapability,
+} from '../../voiceId/server/src/index';
 import { callCf } from '../relayer/helpers';
 import { makeFakeAuthService } from '../relayer/helpers';
 
@@ -12,6 +24,8 @@ type ExpressRouteEntry = {
   method: string;
   path: string;
 };
+
+type CloudflareRelayHandler = ReturnType<typeof createCloudflareRouter>;
 
 function listExpressRoutes(router: unknown): ExpressRouteEntry[] {
   const entries: ExpressRouteEntry[] = [];
@@ -54,6 +68,129 @@ function materializeRoutePath(path: string): string {
     if (normalized.includes('id')) return 'test_id';
     return `test_${normalized}`;
   });
+}
+
+function voiceIdTestRoute(id: string, method: 'GET' | 'POST', path: string) {
+  return defineRoute({
+    id,
+    surface: 'relay',
+    method,
+    path,
+    auth: {
+      plane: 'public',
+      proof: 'intent_grant',
+      rationale: 'VoiceID extension routes exchange caller-held owner-presence evidence.',
+    },
+    metering: { kind: 'none' },
+    summary: `VoiceID test route ${id}`,
+  });
+}
+
+async function callCfFormData(
+  handler: CloudflareRelayHandler,
+  path: string,
+  form: FormData,
+): Promise<{
+  status: number;
+  headers: Headers;
+  json: Record<string, unknown> | null;
+  text: string;
+}> {
+  const response = await handler(
+    new Request(new URL(path, 'https://relay.test').toString(), {
+      method: 'POST',
+      body: form,
+    }),
+  );
+  return await readResponse(response);
+}
+
+async function readResponse(response: Response): Promise<{
+  status: number;
+  headers: Headers;
+  json: Record<string, unknown> | null;
+  text: string;
+}> {
+  const text = await response.text();
+  let json: Record<string, unknown> | null = null;
+  try {
+    const parsed: unknown = text ? JSON.parse(text) : null;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      json = parsed as Record<string, unknown>;
+    }
+  } catch {
+    json = null;
+  }
+  return { status: response.status, headers: response.headers, json, text };
+}
+
+function okValue<TValue>(body: Record<string, unknown> | null): TValue {
+  expect(body?.kind).toBe('ok');
+  const value = body?.value;
+  expect(value).toBeTruthy();
+  return value as TValue;
+}
+
+const VOICE_ID_TEST_INTENT_DIGEST = 'A'.repeat(43);
+
+function voiceIdIntentBindingBody(): Record<string, unknown> {
+  return {
+    intentDigest: VOICE_ID_TEST_INTENT_DIGEST,
+    intentExpiresAt: '2099-01-01T00:00:00.000Z',
+    intentNonce: 'nonce_123456',
+  };
+}
+
+function voiceIdOwnerPresenceAuthorizationBody(verificationId: string): Record<string, unknown> {
+  return {
+    verificationId,
+    intentDigest: VOICE_ID_TEST_INTENT_DIGEST,
+    useCase: 'wallet_mpc_signing',
+    policyVersion: 'voiceid-wallet-policy-v1',
+    audio: {
+      kind: 'audio_liveness_signals_v1',
+      promptOpenedAt: '2026-06-13T00:00:00.000Z',
+      speechStartedAt: '2026-06-13T00:00:00.600Z',
+      speechEndedAt: '2026-06-13T00:00:01.900Z',
+      captureSource: {
+        kind: 'trusted_microphone',
+        deviceId: 'sdk-router-surface-test-mic',
+      },
+      replayRisk: { kind: 'low' },
+    },
+    context: {
+      kind: 'local_device_context_v1',
+      deviceId: 'sdk-router-surface-device',
+      sidecarId: 'sdk-router-surface-sidecar',
+      captureStartedAt: '2026-06-13T00:00:00.000Z',
+      evaluatedAt: '2026-06-13T00:00:02.200Z',
+      localPolicyVersion: 'voiceid-liveness-policy-v1',
+    },
+  };
+}
+
+function voiceIdSampleForm(input: {
+  fields: Record<string, unknown>;
+  speakerLabel: string;
+}): FormData {
+  const bytes = new Uint8Array([1, 2, 3]);
+  const form = new FormData();
+  form.set('audio', new Blob([bytes], { type: 'audio/webm' }));
+  form.set(
+    'metadata',
+    JSON.stringify({
+      mimeType: 'audio/webm',
+      durationMs: 1500,
+      sampleRate: { kind: 'unknown' },
+      channelCount: { kind: 'unknown' },
+      byteLength: bytes.byteLength,
+      capturedAt: '2026-06-13T00:00:00.000Z',
+      recorder: 'router-module-test',
+      fixtureBehavior: { kind: 'speaker_label', speakerLabel: input.speakerLabel },
+    }),
+  );
+  form.set('fields', JSON.stringify(input.fields));
+  return form;
 }
 
 test.describe('relay route surface wiring', () => {
@@ -213,5 +350,292 @@ test.describe('relay route surface wiring', () => {
       });
       expect(response.status, `${route.method} ${route.path}`).not.toBe(404);
     }
+  });
+
+  test('route extensions are surfaced and mounted by supported transport', async () => {
+    const service = makeFakeAuthService();
+    const cloudflareRoute = voiceIdTestRoute(
+      'voiceid_owner_presence_cloudflare',
+      'POST',
+      '/voiceid/owner-presence',
+    );
+    const expressRoute = voiceIdTestRoute(
+      'voiceid_owner_presence_express',
+      'GET',
+      '/voiceid/express-owner-presence',
+    );
+    const universalRoute = voiceIdTestRoute(
+      'voiceid_capabilities',
+      'GET',
+      '/voiceid/capabilities',
+    );
+    const extensions: RelayRouteExtension[] = [
+      {
+        kind: 'cloudflare_route_extension',
+        id: 'voiceid-cloudflare',
+        routes: [cloudflareRoute],
+        handleCloudflareRoute: ({ route }) =>
+          new Response(JSON.stringify({ routeId: route.id, runtime: 'cloudflare' }), {
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      },
+      {
+        kind: 'express_route_extension',
+        id: 'voiceid-express',
+        routes: [expressRoute],
+        registerExpressRoutes: ({ router, routes }) => {
+          for (const route of routes) {
+            router.get(route.path, (_req: Request, res: Response) => {
+              res.json({ routeId: route.id, runtime: 'express' });
+            });
+          }
+        },
+      },
+      {
+        kind: 'universal_route_extension',
+        id: 'voiceid-universal',
+        routes: [universalRoute],
+        handleCloudflareRoute: ({ route }) =>
+          new Response(JSON.stringify({ routeId: route.id, runtime: 'cloudflare' }), {
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        registerExpressRoutes: ({ router, routes }) => {
+          for (const route of routes) {
+            router.get(route.path, (_req: Request, res: Response) => {
+              res.json({ routeId: route.id, runtime: 'express' });
+            });
+          }
+        },
+      },
+    ];
+
+    const cloudflareHandler = createCloudflareRouter(service, { routeExtensions: extensions });
+    const cloudflareSurface = getRelayRouteSurface(cloudflareHandler);
+    const cloudflareIds = new Set(
+      (cloudflareSurface?.routeDefinitions || []).map((route) => route.id),
+    );
+    expect(cloudflareIds.has('voiceid_owner_presence_cloudflare')).toBe(true);
+    expect(cloudflareIds.has('voiceid_owner_presence_express')).toBe(false);
+    expect(cloudflareIds.has('voiceid_capabilities')).toBe(true);
+
+    const ownerPresenceResponse = await callCf(cloudflareHandler, {
+      method: 'POST',
+      path: '/voiceid/owner-presence',
+      body: {},
+    });
+    expect(ownerPresenceResponse.status).toBe(200);
+    expect(ownerPresenceResponse.json).toEqual({
+      routeId: 'voiceid_owner_presence_cloudflare',
+      runtime: 'cloudflare',
+    });
+
+    const expressRouter = createRelayRouter(service, { routeExtensions: extensions });
+    const expressSurface = getRelayRouteSurface(expressRouter);
+    const expressIds = new Set((expressSurface?.routeDefinitions || []).map((route) => route.id));
+    expect(expressIds.has('voiceid_owner_presence_cloudflare')).toBe(false);
+    expect(expressIds.has('voiceid_owner_presence_express')).toBe(true);
+    expect(expressIds.has('voiceid_capabilities')).toBe(true);
+
+    const expressKeys = new Set(
+      listExpressRoutes(expressRouter).map((entry) => `${entry.method} ${entry.path}`),
+    );
+    expect(expressKeys.has('GET /voiceid/express-owner-presence')).toBe(true);
+    expect(expressKeys.has('GET /voiceid/capabilities')).toBe(true);
+    expect(expressKeys.has('POST /voiceid/owner-presence')).toBe(false);
+  });
+
+  test('route extensions cannot shadow existing relay routes', async () => {
+    const service = makeFakeAuthService();
+    const extension: RelayRouteExtension = {
+      kind: 'cloudflare_route_extension',
+      id: 'conflicting-extension',
+      routes: [voiceIdTestRoute('conflicting_session_state', 'GET', '/session/state')],
+      handleCloudflareRoute: () => new Response(null, { status: 204 }),
+    };
+
+    expect(() => createCloudflareRouter(service, { routeExtensions: [extension] })).toThrow(
+      /duplicate relay route definition path GET \/session\/state/,
+    );
+  });
+
+  test('relay routers run without optional VoiceID module registered', async () => {
+    const service = makeFakeAuthService();
+
+    const cloudflareHandler = createCloudflareRouter(service, {});
+    const cloudflareSurface = getRelayRouteSurface(cloudflareHandler);
+    const cloudflareIds = new Set(
+      (cloudflareSurface?.routeDefinitions || []).map((route) => route.id),
+    );
+    expect(cloudflareIds.has('voice_id_health')).toBe(false);
+
+    const missingVoiceIdResponse = await callCf(cloudflareHandler, {
+      method: 'GET',
+      path: '/voice-id/health',
+    });
+    expect(missingVoiceIdResponse.status).toBe(404);
+
+    const expressRouter = createRelayRouter(service, {});
+    const expressSurface = getRelayRouteSurface(expressRouter);
+    const expressIds = new Set((expressSurface?.routeDefinitions || []).map((route) => route.id));
+    expect(expressIds.has('voice_id_health')).toBe(false);
+
+    const expressKeys = new Set(
+      listExpressRoutes(expressRouter).map((entry) => `${entry.method} ${entry.path}`),
+    );
+    expect(expressKeys.has('GET /voice-id/health')).toBe(false);
+  });
+
+  test('relay modules register VoiceID routes across Cloudflare and Express', async () => {
+    const service = makeFakeAuthService();
+    const voiceIdModule: RelayRouterModule = createVoiceIdRelayRouterModule(
+      createVoiceIdServerCapability({
+        kind: 'service',
+        service: createDefaultVoiceIdService({ verifierMode: 'fake' }),
+      }),
+    );
+
+    const cloudflareHandler = createCloudflareRouter(service, { modules: [voiceIdModule] });
+    const cloudflareSurface = getRelayRouteSurface(cloudflareHandler);
+    const cloudflareIds = new Set(
+      (cloudflareSurface?.routeDefinitions || []).map((route) => route.id),
+    );
+    expect(cloudflareIds.has('voice_id_health')).toBe(true);
+    expect(cloudflareIds.has('voice_id_verification_sample')).toBe(true);
+    expect(cloudflareIds.has('voice_id_owner_presence_authorize')).toBe(true);
+
+    const healthResponse = await callCf(cloudflareHandler, {
+      method: 'GET',
+      path: '/voice-id/health',
+    });
+    expect(healthResponse.status).toBe(200);
+    expect(healthResponse.json?.kind).toBe('ok');
+    expect(healthResponse.json?.service).toBe('voice-id-api');
+
+    const enrollmentStart = okValue<{ record: { enrollmentId: string } }>(
+      (
+        await callCf(cloudflareHandler, {
+          method: 'POST',
+          path: '/voice-id/enrollment/start',
+          body: {
+            userId: 'owner',
+            phrase: 'Walking on clouds',
+          },
+        })
+      ).json,
+    );
+
+    for (let attemptNumber = 1; attemptNumber <= 3; attemptNumber += 1) {
+      const sample = await callCfFormData(
+        cloudflareHandler,
+        '/voice-id/enrollment/sample',
+        voiceIdSampleForm({
+          fields: {
+            userId: 'owner',
+            enrollmentId: enrollmentStart.record.enrollmentId,
+            expectedPhrase: 'Walking on clouds',
+            spokenPhrase: 'Walking on clouds',
+            attemptNumber,
+          },
+          speakerLabel: 'owner',
+        }),
+      );
+      expect(sample.status).toBe(200);
+      expect(sample.json?.kind).toBe('ok');
+    }
+
+    const finalized = okValue<{ state: string }>(
+      (
+        await callCf(cloudflareHandler, {
+          method: 'POST',
+          path: '/voice-id/enrollment/finalize',
+          body: {
+            userId: 'owner',
+            enrollmentId: enrollmentStart.record.enrollmentId,
+          },
+        })
+      ).json,
+    );
+    expect(finalized.state).toBe('enrolled');
+
+    const verificationStart = okValue<{ record: { verificationId: string } }>(
+      (
+        await callCf(cloudflareHandler, {
+          method: 'POST',
+          path: '/voice-id/verification/start',
+          body: {
+            userId: 'owner',
+            enrollmentId: enrollmentStart.record.enrollmentId,
+            phrase: 'Walking on clouds',
+            ...voiceIdIntentBindingBody(),
+          },
+        })
+      ).json,
+    );
+
+    const verificationSample = await callCfFormData(
+      cloudflareHandler,
+      '/voice-id/verification/sample',
+      voiceIdSampleForm({
+        fields: {
+          userId: 'owner',
+          enrollmentId: enrollmentStart.record.enrollmentId,
+          verificationId: verificationStart.record.verificationId,
+          expectedPhrase: 'Walking on clouds',
+          spokenPhrase: 'Walking on clouds',
+          attemptNumber: 1,
+        },
+        speakerLabel: 'owner',
+      }),
+    );
+    const verificationResult = okValue<{ kind: string }>(verificationSample.json);
+    expect(verificationResult.kind).toBe('accepted');
+
+    const ownerPresence = okValue<{
+      ownerPresence: { kind: string; intentDigest: string };
+      decision: { kind: string; evidence?: { intentDigest: string } };
+    }>(
+      (
+        await callCf(cloudflareHandler, {
+          method: 'POST',
+          path: '/voice-id/owner-presence/authorize',
+          body: voiceIdOwnerPresenceAuthorizationBody(verificationStart.record.verificationId),
+        })
+      ).json,
+    );
+    expect(ownerPresence.ownerPresence.kind).toBe('accepted');
+    expect(ownerPresence.ownerPresence.intentDigest).toBe(VOICE_ID_TEST_INTENT_DIGEST);
+    expect(ownerPresence.decision.kind).toBe('accepted');
+    expect(ownerPresence.decision.evidence?.intentDigest).toBe(VOICE_ID_TEST_INTENT_DIGEST);
+
+    const expressRouter = createRelayRouter(service, { modules: [voiceIdModule] });
+    const expressSurface = getRelayRouteSurface(expressRouter);
+    const expressIds = new Set((expressSurface?.routeDefinitions || []).map((route) => route.id));
+    expect(expressIds.has('voice_id_health')).toBe(true);
+    expect(expressIds.has('voice_id_verification_sample')).toBe(true);
+    expect(expressIds.has('voice_id_owner_presence_authorize')).toBe(true);
+
+    const expressKeys = new Set(
+      listExpressRoutes(expressRouter).map((entry) => `${entry.method} ${entry.path}`),
+    );
+    expect(expressKeys.has('GET /voice-id/health')).toBe(true);
+    expect(expressKeys.has('POST /voice-id/verification/sample')).toBe(true);
+    expect(expressKeys.has('POST /voice-id/owner-presence/authorize')).toBe(true);
+  });
+
+  test('relay modules reject duplicate module ids', async () => {
+    const service = makeFakeAuthService();
+    const route = voiceIdTestRoute('voiceid_duplicate_module_route', 'GET', '/voiceid/dupe');
+    const extension: RelayRouteExtension = {
+      kind: 'cloudflare_route_extension',
+      id: 'duplicate-module-extension',
+      routes: [route],
+      handleCloudflareRoute: () => new Response(null, { status: 204 }),
+    };
+    const first = createRelayRouterModule({ id: 'voiceid', routeExtensions: [extension] });
+    const second = createRelayRouterModule({ id: 'voiceid', routeExtensions: [extension] });
+
+    expect(() => createCloudflareRouter(service, { modules: [first, second] })).toThrow(
+      /duplicate relay router module id voiceid/,
+    );
   });
 });

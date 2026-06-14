@@ -47,7 +47,7 @@ export type VoiceIdSpeakerMatchResult =
     }
   | {
       kind: 'uncertain';
-      reason: 'model_low_confidence' | 'verifier_unavailable';
+      reason: 'model_low_confidence' | 'verifier_unavailable' | 'low_audio_quality';
       score: number;
       threshold: number;
       modelVersion: VoiceIdModelVersion;

@@ -1,9 +1,25 @@
 import { buildVoiceIdAudioFormData } from './capture/audioBlob.ts';
 import type { VoiceIdAudioMetadata } from '../../shared/src/audio.ts';
+import type {
+  VoiceIdAudioLivenessSignals,
+  VoiceIdAudioLivenessPolicy,
+  VoiceIdAuthPolicyUseCase,
+  VoiceIdLocalDeviceContext,
+} from '../../shared/src/index.ts';
 
 export type VoiceIdApiClientConfig = {
   baseUrl: string;
   fetch: typeof fetch;
+};
+
+export type AuthorizeVoiceIdOwnerPresenceClientInput = {
+  verificationId: string;
+  intentDigest: string;
+  useCase: VoiceIdAuthPolicyUseCase;
+  policyVersion: string;
+  audio: VoiceIdAudioLivenessSignals;
+  context: VoiceIdLocalDeviceContext;
+  policy?: VoiceIdAudioLivenessPolicy;
 };
 
 export class VoiceIdClient {
@@ -53,6 +69,9 @@ export class VoiceIdClient {
     userId: string;
     enrollmentId: string;
     phrase: string;
+    intentDigest: string;
+    intentExpiresAt: string;
+    intentNonce: string;
   }): Promise<unknown> {
     return await this.postJson('/voice-id/verification/start', input);
   }
@@ -78,6 +97,18 @@ export class VoiceIdClient {
         spokenPhrase: input.spokenPhrase,
         attemptNumber: input.attemptNumber,
       },
+    });
+  }
+
+  async authorizeOwnerPresence(input: AuthorizeVoiceIdOwnerPresenceClientInput): Promise<unknown> {
+    return await this.postJson('/voice-id/owner-presence/authorize', {
+      verificationId: input.verificationId,
+      intentDigest: input.intentDigest,
+      useCase: input.useCase,
+      policyVersion: input.policyVersion,
+      audio: input.audio,
+      context: input.context,
+      ...(input.policy !== undefined ? { policy: input.policy } : {}),
     });
   }
 

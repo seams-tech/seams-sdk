@@ -2,6 +2,7 @@ import type {
   VoiceIdEnrollmentSample,
   VoiceIdEnrollmentRecord,
   VoiceIdEnrollmentState,
+  VoiceIdIntent,
   VoiceIdVerificationRecord,
   VoiceIdVerificationResult,
 } from '../../shared/src/index.ts';
@@ -17,6 +18,13 @@ import {
   parseThresholdVersion,
   parseUserId,
   parseVerificationId,
+  parseVoiceIdIntentDigest,
+  parseVoiceIdIntentDeviceId,
+  parseVoiceIdIntentNonce,
+  parseVoiceIdPaymentRecipient,
+  parseVoiceIdRobotCommandText,
+  parseVoiceIdTokenAmount,
+  parseVoiceIdTokenSymbol,
 } from '../../shared/src/index.ts';
 
 const userId = parseUserId('owner');
@@ -28,6 +36,8 @@ const thresholdVersion = parseThresholdVersion('threshold_1');
 const promptSetId = parsePromptSetId('prompt_1');
 const isoDateTime = parseIsoDateTime('2026-06-08T00:00:00.000Z');
 const encryptedTemplate = parseEncryptedBytes('ciphertext');
+const intentDigest = parseVoiceIdIntentDigest('A'.repeat(43));
+const intentNonce = parseVoiceIdIntentNonce('nonce_123456');
 
 const validNotEnrolled: VoiceIdEnrollmentState = {
   kind: 'not_enrolled',
@@ -109,6 +119,9 @@ const invalidIssuedRecord: VoiceIdVerificationRecord = {
   userId,
   enrollmentId,
   expectedPhrase: parsePromptPhrase('Walking on clouds'),
+  intentDigest,
+  intentExpiresAt: isoDateTime,
+  intentNonce,
   verificationId,
   createdAt: isoDateTime,
   expiresAt: isoDateTime,
@@ -122,6 +135,50 @@ const invalidIssuedRecord: VoiceIdVerificationRecord = {
 };
 
 invalidIssuedRecord;
+
+const invalidRejectedRecordWithOwnerPresenceEvidence: VoiceIdVerificationRecord = {
+  state: 'rejected',
+  userId,
+  enrollmentId,
+  expectedPhrase: parsePromptPhrase('Walking on clouds'),
+  intentDigest,
+  intentExpiresAt: isoDateTime,
+  intentNonce,
+  verificationId,
+  createdAt: isoDateTime,
+  expiresAt: isoDateTime,
+  completedAt: isoDateTime,
+  result: {
+    kind: 'rejected',
+    verificationId,
+    reason: 'speaker_mismatch',
+    checks: {
+      phrase: {
+        kind: 'accepted',
+        expectedNormalized: 'walking on clouds',
+        spokenNormalized: 'walking on clouds',
+        confidence: 0.9,
+      },
+      speaker: {
+        kind: 'rejected',
+        reason: 'speaker_mismatch',
+        score: 0.1,
+        threshold: 0.8,
+        modelVersion,
+        thresholdVersion,
+      },
+      quality: {
+        kind: 'accepted',
+        durationMs: 1200,
+        signalScore: 0.9,
+      },
+    },
+  },
+  // @ts-expect-error rejected verification records cannot carry owner-presence evidence state.
+  ownerPresenceEvidence: { kind: 'available' },
+};
+
+invalidRejectedRecordWithOwnerPresenceEvidence;
 
 const invalidAcceptedResult: VoiceIdVerificationResult = {
   kind: 'accepted',
@@ -155,6 +212,64 @@ const invalidAcceptedResult: VoiceIdVerificationResult = {
 };
 
 invalidAcceptedResult;
+
+const validTransferIntent: VoiceIdIntent = {
+  kind: 'token_transfer',
+  schemaVersion: 'voice_id_intent_v1',
+  amount: parseVoiceIdTokenAmount('1'),
+  tokenSymbol: parseVoiceIdTokenSymbol('USDC'),
+  recipient: parseVoiceIdPaymentRecipient('bob.near'),
+  expiresAt: isoDateTime,
+  nonce: intentNonce,
+};
+
+validTransferIntent;
+
+// @ts-expect-error token transfer intents require a recipient.
+const invalidTransferIntentMissingRecipient: VoiceIdIntent = {
+  kind: 'token_transfer',
+  schemaVersion: 'voice_id_intent_v1',
+  amount: parseVoiceIdTokenAmount('1'),
+  tokenSymbol: parseVoiceIdTokenSymbol('USDC'),
+  expiresAt: isoDateTime,
+  nonce: intentNonce,
+};
+
+invalidTransferIntentMissingRecipient;
+
+const invalidTransferIntentWithDevice: VoiceIdIntent = {
+  kind: 'token_transfer',
+  schemaVersion: 'voice_id_intent_v1',
+  amount: parseVoiceIdTokenAmount('1'),
+  tokenSymbol: parseVoiceIdTokenSymbol('USDC'),
+  recipient: parseVoiceIdPaymentRecipient('bob.near'),
+  // @ts-expect-error wallet-session fields are invalid on token transfer intents.
+  deviceId: parseVoiceIdIntentDeviceId('device-x'),
+  expiresAt: isoDateTime,
+  nonce: intentNonce,
+};
+
+invalidTransferIntentWithDevice;
+
+// @ts-expect-error robot command intents require command text.
+const invalidRobotCommandIntent: VoiceIdIntent = {
+  kind: 'robot_command',
+  schemaVersion: 'voice_id_intent_v1',
+  expiresAt: isoDateTime,
+  nonce: intentNonce,
+};
+
+invalidRobotCommandIntent;
+
+const validRobotCommandIntent: VoiceIdIntent = {
+  kind: 'robot_command',
+  schemaVersion: 'voice_id_intent_v1',
+  command: parseVoiceIdRobotCommandText('stir the pot'),
+  expiresAt: isoDateTime,
+  nonce: intentNonce,
+};
+
+validRobotCommandIntent;
 
 declare const service: VoiceIdService;
 declare const rawRequestBody: Record<string, unknown>;

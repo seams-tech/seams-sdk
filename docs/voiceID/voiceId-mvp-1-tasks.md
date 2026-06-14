@@ -26,9 +26,64 @@ rejects all current different-speaker clips. A pretrained SpeechBrain ECAPA-TDNN
 evaluation has also been run against the same 30-clip fixture set, and
 `speechbrain/spkrec-ecapa-voxceleb` is the recommended first real
 speaker-embedding model for the MVP verifier boundary. Independent human
-different-speaker fixtures, model-backed verifier service integration, Python
-process lifecycle, durable storage, existing server integration, and SDK module
-integration remain open.
+different-speaker fixtures, SDK module integration, and live wallet/MPC policy
+consumption remain open.
+MVP 2 now documents the recommended answers for verifier runtime mode, quality
+semantics, template format, threshold config, fixture targets, transcript
+provider, intent digest schema, policy result shape, storage boundary, and
+fallback model policy. Camera-backed liveness work has moved to
+`docs/voiceID/voiceId-camera-liveness-future.md`.
+The Python verifier now has an ECAPA runtime path behind the existing app
+boundary: it decodes/resamples audio with `ffmpeg`, runs quality-first gates,
+applies a lightweight frame-energy VAD before speaker scoring, extracts
+SpeechBrain ECAPA embeddings when selected, builds mean enrollment templates,
+and scores verification clips with cosine similarity. Cloudflare is the primary
+hosted deployment target: Worker entrypoints are guarded against Node-only
+imports, the Python ECAPA sidecar has Container packaging, robot deployments can
+use a local sidecar that reports typed owner-presence evidence to
+Cloudflare-hosted policy and signing flows, and Cloudflare-compatible storage
+row serializers now preserve encrypted templates and typed verification results
+without raw capture data. A concrete Cloudflare D1/Durable-Object-compatible
+store adapter now roundtrips enrollment and verification records through
+prepared-statement reads and writes. Enrolled templates are now wrapped with
+AES-GCM at the storage boundary and unwrapped before verifier scoring. The
+Cloudflare Worker factory now supports `VOICEID_STORAGE_KIND=cloudflare-d1` with
+a `VOICEID_D1_DATABASE` binding and template wrapping enabled. AWS ordinary-
+server and Nitro Enclave notes remain optional SDK portability references, not
+the production deployment path.
+Phase 10 now has a generic VoiceID server capability boundary that exposes typed
+route metadata and a `Request -> Response` handler for existing servers to mount
+without importing concrete stores, verifiers, or transcript providers.
+It also exposes a typed owner-presence policy result surface with required
+`intentDigest` binding and liveness-aware accepted/rejected/uncertain branches.
+The SDK server routers now expose a generic `routeExtensions` hook so
+Cloudflare and Express relay entrypoints can mount VoiceID-owned routes without
+adding concrete VoiceID imports to wallet/auth core.
+The SDK server routers now also expose generic `RelayRouterModule` registration,
+and VoiceID provides a `createVoiceIdRelayRouterModule()` factory that registers
+the VoiceID route extension without importing concrete VoiceID code into SDK
+router core.
+VoiceID now has an SDK-facing auth-policy adapter that converts accepted,
+intent-bound owner-presence into typed evidence for wallet sessions, wallet MPC
+signing, and robot commands while preserving rejected, uncertain, expired, and
+intent-mismatch branches as non-signing policy decisions.
+The immediate integration target is the normal SDK: mount VoiceID through
+`RelayRouterModule`, exercise the API and owner-presence policy result, and keep
+Router A/B out of the first SDK test path. The later Router A/B policy issuer
+contract is documented in `docs/voiceID/voiceId-router-policy-issuer.md` for
+the signing phase after normal SDK testing works.
+The VoiceID API now exposes `POST /voice-id/owner-presence/authorize`, which
+combines a completed verification record, `intentDigest`, use case, and typed
+liveness or owner-presence signals into one authorization decision. Camera,
+face, mouth, and lip-sync extraction are explicitly out of scope for this MVP
+and tracked separately in `docs/voiceID/voiceId-camera-liveness-future.md`.
+The TypeScript service and Cloudflare factory now expose a typed speaker
+threshold config boundary. Fake mode defaults to `0.82`; ECAPA local-dev and
+Cloudflare sidecar flows default to the current fixture-calibrated `0.6352`
+threshold unless `VOICEID_SPEAKER_SCORE_THRESHOLD` overrides it.
+The browser/shared VoiceID layer now has typed intent structures, a canonical
+WebCrypto-backed `intentDigest` builder, and a spoken-command parser for token
+transfers, wallet-session authorization, and basic robot commands.
 
 This task plan implements the standalone browser-captured, server-verified
 VoiceID MVP described in `docs/voiceID/voiceId-mvp-1.md`.
@@ -168,31 +223,46 @@ Phase gates:
 - Gate 8: transcript provider boundary supports fake and external ASR adapters.
 - Gate 9: intent-digest binding connects spoken commands to typed wallet
   intents.
-- Gate 10: embedded liveness policy can combine audio, video, and device
-  context.
+- Gate 10: embedded owner-presence policy can consume typed liveness and device
+  context without making camera extraction part of this MVP.
 - Gate 11: MPC policy consumes owner-presence and intent-bound results without
   treating voice as a signing secret.
 
 ## Next Implementation Track
 
-The working scaffold proves browser capture, fake speaker verification,
-lifecycle state, route shape, and fake transcript separation. The next
-implementation track should proceed in this order:
+The implementation track has moved past the original browser-capture scaffold.
 
-1. Wire `speechbrain/spkrec-ecapa-voxceleb` into the Python verifier behind the
-   existing `VoiceIdVerifier` interface.
-2. Add explicit audio quality gating before speaker scoring so noisy, clipped,
-   or too-short captures return `uncertain`.
-3. Keep transcript/phrase matching as a separate provider boundary. Speaker
-   embeddings prove speaker similarity; they do not prove command correctness.
-4. Add independent human different-speaker clips before tightening thresholds or
-   making stronger security claims.
-5. Compare fallback models only if ECAPA has calibration, licensing, latency, or
-   deployment problems.
-6. Add intent binding for transaction commands and `intentDigest`.
-7. Add audio/video liveness policy for embedded devices.
-8. Feed owner-presence and intent-bound results into wallet policy.
-9. Integrate MPC signing only after policy and liveness boundaries are typed.
+Completed:
+
+- [x] Wire `speechbrain/spkrec-ecapa-voxceleb` into the Python verifier behind
+  the existing `VoiceIdVerifier` interface.
+- [x] Add explicit audio quality gating before speaker scoring so noisy,
+  clipped, or too-short captures return `uncertain`.
+- [x] Keep transcript/phrase matching as a separate provider boundary. Speaker
+  embeddings prove speaker similarity; they do not prove command correctness.
+- [x] Add intent binding for transaction commands and `intentDigest`.
+- [x] Add typed owner-presence/liveness policy boundaries for embedded devices.
+- [x] Feed owner-presence and intent-bound results into wallet policy.
+- [x] Document the later Router A/B normal-signing admission contract after
+  policy and liveness boundaries are typed.
+
+Remaining:
+
+- [x] Test VoiceID through the normal SDK relay/module path before Router A/B
+  signing integration.
+- [x] Add normal SDK coverage for mounting VoiceID routes, enrollment,
+  verification, and owner-presence authorization.
+- [ ] Add normal SDK coverage for typed wallet policy consumption after
+  owner-presence authorization.
+- [ ] Add independent human different-speaker clips before tightening thresholds
+  or making stronger security claims.
+- [ ] Compare fallback pretrained speaker-verification models only if ECAPA has
+  calibration, licensing, latency, or deployment problems.
+- [ ] After normal SDK testing works, implement the concrete Router A/B policy
+  issuer service and key-management path described in
+  `docs/voiceID/voiceId-router-policy-issuer.md`.
+- [ ] Add a later Router A/B signing test from accepted VoiceID wallet policy
+  decision to Router JWT to admitted normal-signing request.
 
 ## Model Recommendation
 
@@ -242,12 +312,22 @@ Goal: create an isolated `voiceId/` workspace with no wallet/auth SDK coupling.
   - [x] `pnpm -C voiceId test`
   - [x] `pnpm -C voiceId dev`
   - [x] `pnpm -C voiceId dev:all`
+  - [x] `pnpm -C voiceId dev:all:verifier`
+  - [x] `pnpm -C voiceId dev:verifier`
   - [x] `pnpm -C voiceId fixtures:validate`
   - [x] `pnpm -C voiceId fixtures:validate:media`
   - [x] `pnpm -C voiceId fixtures:validate:json`
   - [x] `pnpm -C voiceId fixtures:report`
   - [x] `pnpm -C voiceId fixtures:evaluate:spectral`
   - [x] `pnpm -C voiceId fixtures:evaluate:ecapa`
+  - [x] `pnpm -C voiceId bundle:guard`
+  - [x] `pnpm -C voiceId worker:guard`
+  - [x] `pnpm -C voiceId container:guard`
+  - [x] `pnpm -C voiceId aws:guard`
+  - [x] `pnpm -C voiceId nitro:guard`
+  - [x] `pnpm -C voiceId robot:guard`
+  - [x] `pnpm -C voiceId container:build:cloudflare`
+  - [x] `pnpm -C voiceId smoke:python-http`
   - [x] `pnpm -C voiceId verifier:test`
 - [x] Add folder structure:
   - [x] `voiceId/shared/src`
@@ -327,7 +407,7 @@ Goal: implement the verifier interface with deterministic fake behavior.
   - [x] enrollment embedding result
   - [x] template build result
   - [x] speaker verification result
-  - [ ] verifier unavailable error
+  - [x] verifier unavailable error
 - [x] Add fake audio quality evaluator:
   - [x] too short -> `uncertain`
   - [x] marked noisy fixture -> `uncertain`
@@ -564,7 +644,7 @@ Goal: choose the first real speaker-verification model with measured evidence.
   - [ ] `speechbrain/spkrec-xvect-voxceleb`
   - [ ] `pyannote/embedding`
   - [ ] `nvidia/speakerverification_en_titanet_large`
-- [ ] Measure:
+- [x] Measure:
   - [x] baseline embedding extraction latency
   - [x] baseline same-user score distribution
   - [x] baseline different-user score distribution
@@ -614,28 +694,28 @@ Goal: replace fake verifier with a real verifier behind the same boundary.
   - [x] template build JSON handler
   - [x] speaker verification JSON handler
   - [x] cosine scoring over placeholder embeddings
-- [ ] Implement:
-  - [ ] normalize/resample audio
-  - [ ] voice activity detection
-  - [ ] log-mel/MFCC-like feature extraction or model-required preprocessing
-  - [ ] embedding extraction
-  - [ ] cosine scoring
+- [x] Implement:
+  - [x] normalize/resample audio
+  - [x] voice activity detection
+  - [x] log-mel/MFCC-like feature extraction or model-required preprocessing
+  - [x] embedding extraction
+  - [x] cosine scoring
   - [x] placeholder model/threshold version reporting
-- [ ] Integrate selected ECAPA model:
-  - [ ] load `speechbrain/spkrec-ecapa-voxceleb` once per verifier process
-  - [ ] extract 192-dimensional enrollment embeddings
-  - [ ] build mean owner template from accepted enrollment embeddings
-  - [ ] extract verification embedding
-  - [ ] score verification with cosine similarity against the owner template
-  - [ ] report ECAPA model id, adapter id, template version, and threshold version
-- [ ] Add quality-first decision policy:
-  - [ ] too-short clips return `uncertain`
-  - [ ] clipped or header-only clips return `uncertain`
-  - [ ] low-speech or low-SNR clips return `uncertain`
-  - [ ] speaker scoring runs only after quality accepts the capture
-- [ ] Add threshold calibration config:
-  - [ ] default to the ECAPA fixture threshold for local MVP testing
-  - [ ] store threshold version with enrollment templates
+- [x] Integrate selected ECAPA model:
+  - [x] load `speechbrain/spkrec-ecapa-voxceleb` once per verifier process
+  - [x] extract 192-dimensional enrollment embeddings
+  - [x] build mean owner template from accepted enrollment embeddings
+  - [x] extract verification embedding
+  - [x] score verification with cosine similarity against the owner template
+  - [x] report ECAPA model id, adapter id, template version, and threshold version
+- [x] Add quality-first decision policy:
+  - [x] too-short clips return `uncertain`
+  - [x] clipped or header-only clips return `uncertain`
+  - [x] low-speech or low-SNR clips return `uncertain`
+  - [x] speaker scoring runs only after quality accepts the capture
+- [x] Add threshold calibration config:
+  - [x] default to the ECAPA fixture threshold for local MVP testing
+  - [x] store threshold version with enrollment templates
   - [ ] require recalibration after independent human different-speaker fixtures
 - [x] Add TypeScript verifier adapter that parses Python responses into
   `VoiceIdSpeakerMatchResult`.
@@ -652,17 +732,55 @@ Goal: replace fake verifier with a real verifier behind the same boundary.
   - [x] enrollment embedding response
   - [x] built/rejected template response
   - [x] accepted/rejected/uncertain speaker response
-- [ ] Keep Python process lifecycle explicit:
-  - [ ] local subprocess mode for dev
-  - [ ] HTTP sidecar mode for later deployment
-  - [ ] timeout and unavailable handling
-- [ ] Lock verifier runtime mode:
-  - [ ] Python verifier runs server-side or in a local robot sidecar
-  - [ ] browser clients capture and upload audio; they do not run ECAPA
-  - [ ] iOS/mobile clients capture and upload audio through the same typed API
-  - [ ] robot clients call a local sidecar or remote VoiceID server
-  - [ ] client bundle checks prove no PyTorch, SpeechBrain, or model weights ship
+- [x] Keep Python process lifecycle explicit:
+  - [x] local subprocess mode for dev
+  - [x] HTTP sidecar transport client for later deployment
+  - [x] long-running Python HTTP sidecar server
+  - [x] timeout handling for subprocess transport
+  - [x] unavailable handling mapped into service-level verifier errors
+  - [x] env-based verifier selection for fake, subprocess, and HTTP modes
+  - [x] sidecar-backed dev launcher for API, demo, and verifier
+- [x] Document verifier runtime mode in MVP 2:
+  - [x] Python verifier runs server-side or in a local robot sidecar
+  - [x] browser clients capture and upload audio; they do not run ECAPA
+  - [x] iOS/mobile clients capture and upload audio through the same typed API
+  - [x] robot clients call a local sidecar or remote VoiceID server
+  - [x] Cloudflare deployment keeps Workers capture/API/policy code separate
+    from Container-hosted ECAPA inference
+  - [x] Cloudflare signing uses the existing Router A/B SigningWorker design in
+    `docs/router-A-B-signer.md`
+  - [x] AWS deployment supports normal servers and Nitro Enclave custody through
+    a parent-instance bridge while preserving Router A/B signer semantics
+  - [x] on-device browser/iOS verification is deferred to a later portability
+    track
+- [x] Validate verifier runtime mode in implementation:
+  - [x] client bundle checks prove no PyTorch, SpeechBrain, or model weights ship
     to browser/mobile clients
+  - [x] server-side Python verifier can run through a local subprocess entrypoint
+  - [x] HTTP sidecar transport exposes the same typed verifier operations from
+    TypeScript callers
+  - [x] Python HTTP sidecar server exposes the same typed verifier operations
+  - [x] API smoke test completes enrollment and verification through
+    `python-http`
+  - [x] Cloudflare Worker adapter avoids Node-only APIs in request, policy,
+    intent, and storage logic
+  - [x] Cloudflare Container deployment can host the Python ECAPA verifier
+    sidecar
+  - [x] Container packaging guard validates Dockerfile, `.dockerignore`,
+    verifier package metadata, and container runbook
+  - [x] Optional AWS ordinary-server SDK portability can host the same HTTP
+    verifier sidecar
+  - [x] Optional AWS ordinary-server guard validates the verifier service runbook
+    against the shared Python HTTP sidecar contract
+  - [x] Optional Nitro Enclave SDK portability shape can carry verifier/policy
+    requests over parent-instance vsock
+  - [x] Optional Nitro Enclave guard validates that raw audio and ECAPA inference
+    stay outside the enclave, while typed policy/custody requests cross the
+    bridge
+  - [x] robot-local sidecar path can call the same typed verifier API
+  - [x] robot-local guard validates the Reachy-style app, local sidecar, wallet
+    sidecar, ownerPresence, liveness, `intentDigest`, and Cloudflare policy
+    boundaries
 
 Validation:
 
@@ -677,69 +795,163 @@ Validation:
 
 Goal: replace in-memory storage with encrypted template storage.
 
-- [ ] Design storage records for enrollment and verification.
-- [ ] Add encrypted template serialization.
-- [ ] Add template encryption key config.
-- [ ] Add raw audio deletion after extraction/verification.
-- [ ] Add optional diagnostic retention config with retention window.
-- [ ] Add audit events with score bands and result kinds.
-- [ ] Add storage adapter interface before choosing concrete persistence.
-- [ ] Store model version, template version, threshold version, and enrollment
+- [x] Design storage records for enrollment and verification.
+- [x] Add Cloudflare-compatible enrollment and verification row serializers:
+  - [x] pending enrollment rows carry no template material
+  - [x] enrolled/disabled enrollment rows require encrypted template material
+  - [x] issued verification rows carry no result data
+  - [x] completed verification rows carry typed result JSON
+- [x] Add encrypted template serialization.
+- [x] Add template encryption key config:
+  - [x] Cloudflare Workers secret binding source
+  - [x] robot-local secret environment source
+  - [x] AES-GCM-256 algorithm validation
+  - [x] key id, rotation version, and AAD label validation
+  - [x] config carries key references, not secret values
+- [x] Add raw capture exclusion after extraction/verification:
+  - [x] storage rows contain no raw audio bytes
+  - [x] storage rows contain no raw media capture payloads
+  - [x] storage parser rejects raw capture columns at the persistence boundary
+- [x] Add optional diagnostic retention config with retention window:
+  - [x] diagnostics default to disabled
+  - [x] Cloudflare R2 diagnostic artifact target
+  - [x] robot-local diagnostic file target
+  - [x] explicit raw diagnostic media opt-in
+  - [x] retention TTL validation
+  - [x] artifact size cap validation
+- [x] Add audit events with score bands and result kinds:
+  - [x] typed audit result kind
+  - [x] enrollment sample quality score band
+  - [x] verification phrase confidence score band
+  - [x] verification speaker score and threshold score bands
+  - [x] verification quality signal score band
+  - [x] audit events exclude raw capture fields
+- [x] Add storage adapter interface before choosing concrete persistence.
+- [x] Add Cloudflare D1/Durable-Object-compatible store adapter:
+  - [x] schema statements create enrollment and verification tables
+  - [x] D1 enrollment store implements `VoiceIdEnrollmentStore`
+  - [x] D1 verification store implements `VoiceIdVerificationStore`
+  - [x] reads parse persisted rows at the storage boundary
+  - [x] writes use prepared statements and bound parameters
+- [x] Store model version, template version, threshold version, and enrollment
   prompt set id with each template.
+- [x] Wire template key config into actual template wrapping/unwrapping:
+  - [x] parse AES-GCM-256 raw keys from configured Cloudflare/robot secret
+    locations
+  - [x] wrap enrolled/disabled templates before persistence
+  - [x] unwrap templates after persistence reads before verifier scoring
+  - [x] bind envelope AAD to user id, enrollment id, model version, template
+    version, threshold version, key id, rotation version, and AAD label
+- [x] Wire Cloudflare Worker runtime storage:
+  - [x] `VOICEID_STORAGE_KIND=cloudflare-d1` selects D1-backed stores
+  - [x] `VOICEID_D1_DATABASE` binding is validated at the Worker boundary
+  - [x] D1 enrollment store is wrapped with AES-GCM template encryption
+  - [x] D1 verification store persists typed verification records
 
 Validation:
 
-- [ ] Pending enrollment records cannot contain encrypted templates.
-- [ ] Enrolled records require encrypted templates.
-- [ ] Verification records do not store raw audio.
-- [ ] Retention config controls diagnostic artifact persistence.
+- [x] Pending enrollment records cannot contain encrypted templates.
+- [x] Enrolled records require encrypted templates.
+- [x] Verification records do not store raw audio.
+- [x] D1-compatible stores roundtrip enrollment and verification records.
+- [x] D1-compatible stores reject malformed persisted rows with raw capture
+  columns.
+- [x] Template wrapping store persists AES-GCM envelopes and returns verifier
+  templates to core service code.
+- [x] Template envelope decryption rejects records whose enrollment metadata no
+  longer matches the wrapped template AAD.
+- [x] Cloudflare Worker flow stores wrapped templates in D1 and sends unwrapped
+  verifier templates to the Python HTTP sidecar.
+- [x] Template encryption key config rejects missing or invalid key source,
+  algorithm, key id, rotation version, and AAD label.
+- [x] Retention config controls diagnostic artifact persistence.
+- [x] Audit events include result kinds and score bands without raw audio or
+  diagnostic media capture data.
 
 ## Phase 10: Existing Server Integration
 
 Goal: integrate routes after standalone VoiceID passes tests.
 
-- [ ] Add a VoiceID server capability module boundary.
-- [ ] Register VoiceID routes through the module boundary.
-- [ ] Keep VoiceID lifecycle/stores under VoiceID ownership.
-- [ ] Keep existing wallet/auth routes free of VoiceID concrete imports.
-- [ ] Expose only typed route registration and policy result surfaces to the
-  existing server.
-- [ ] Add route tests against the integrated server adapter.
+- [x] Add a VoiceID server capability module boundary.
+- [x] Register VoiceID routes through the module boundary.
+- [x] Keep VoiceID lifecycle/stores under VoiceID ownership.
+- [x] Keep existing wallet/auth routes free of VoiceID concrete imports.
+- [x] Expose typed route registration surfaces to the existing server.
+- [x] Expose typed policy result surfaces to the existing server:
+  - [x] `VoiceIdIntentDigest` requires an unpadded base64url 32-byte digest
+  - [x] owner-presence accepted result requires accepted VoiceID, matching
+    `intentDigest`, and accepted or explicitly-not-required liveness
+  - [x] rejected and uncertain results carry typed reasons and no signing
+    authority
+  - [x] intent mismatch rejects otherwise accepted owner-presence evidence
+- [x] Add route tests against the integrated server adapter.
+- [x] Mount the VoiceID capability in the actual SDK server/router entrypoints:
+  - [x] `RelayRouterOptions.routeExtensions` accepts Cloudflare-only,
+    Express-only, or universal route extensions
+  - [x] Cloudflare relay router includes Cloudflare/universal extension routes
+    in its route surface and dispatch chain
+  - [x] Express relay router includes Express/universal extension routes in its
+    route surface and registration chain
+  - [x] SDK router route surfaces reject duplicate extension route ids and
+    method/path collisions
+- [x] Add server-side VoiceID SDK relay-extension adapter:
+  - [x] `createVoiceIdRelayRouteExtension()` converts a
+    `VoiceIdServerCapability` into a universal relay route extension
+  - [x] Cloudflare dispatch calls the capability `Request -> Response` handler
+    directly
+  - [x] Express registration bridges Express requests/responses at the adapter
+    boundary
+  - [x] Adapter stays structurally compatible with SDK route extensions without
+    importing SDK runtime code into the standalone VoiceID package
 
 Validation:
 
 - [ ] Existing server tests pass.
-- [ ] VoiceID routes work through integrated server.
-- [ ] No direct VoiceID imports appear in unrelated wallet/auth core files.
+- [x] `pnpm -C packages/sdk-server-ts type-check`
+- [x] `pnpm -C voiceId type-check`
+- [x] `pnpm -C voiceId test`
+- [x] `pnpm -C tests test:router-surface`
+- [x] VoiceID routes work through integrated server adapter.
+- [x] VoiceID policy surface rejects mismatched `intentDigest` values.
+- [x] No direct VoiceID imports appear in unrelated wallet/auth core files.
+- [x] Run `tests/unit/router.relayRouteSurface.unit.test.ts` through a
+  no-webserver Playwright router config.
 
 ## Phase 11: SDK Module Integration
 
 Goal: expose VoiceID as an optional SDK capability.
 
-- [ ] Add wallet/auth module registration types.
-- [ ] Add `VoiceIdCapability` client module.
-- [ ] Add VoiceID route client.
-- [ ] Add lazy loading for VoiceID browser capture.
-- [ ] Keep VoiceID out of the default SDK happy-path bundle.
-- [ ] Add an SDK-facing typed result adapter from `VoiceIdVerificationResult`
+- [x] Add server-side relay-extension adapter for VoiceID API routes.
+- [x] Add wallet/auth module registration types.
+- [x] Add `VoiceIdCapability` client module:
+  - [x] API-only capability exposes the existing `VoiceIdClient`
+  - [x] Browser-capture capability exposes `createRecorder()`
+- [x] Add VoiceID route client.
+- [x] Add lazy loading for VoiceID browser capture.
+- [x] Keep VoiceID out of the default SDK happy-path bundle.
+- [x] Add an SDK-facing typed result adapter from `VoiceIdOwnerPresenceResult`
   into the auth policy module.
-- [ ] Add module integration tests.
+- [x] Add module integration tests.
 
 Validation:
 
-- [ ] SDK can run without VoiceID module registered.
-- [ ] SDK can register VoiceID module and call enroll/verify APIs.
-- [ ] Bundle report confirms no verifier/model code ships to browser.
+- [x] SDK can run without VoiceID module registered.
+- [x] Standalone VoiceID client can create API-only and browser-capture
+  capabilities.
+- [x] VoiceID auth-policy adapter tests cover accepted, rejected, uncertain,
+  expired, and intent-mismatch decisions.
+- [x] Wallet/auth SDK can register VoiceID module and call enroll/verify APIs.
+- [x] Bundle guard confirms no verifier/model code ships to browser.
 
 ## Phase 12: Cutover Review
 
 Goal: decide whether the browser VoiceID MVP is ready for policy experiments.
 
-- [ ] Review false accept / false reject fixture metrics.
-- [ ] Review privacy and retention behavior.
-- [ ] Review browser bundle impact.
-- [ ] Review route and storage security.
-- [ ] Confirm phase 1 is still labeled speaker verification only.
+- [x] Review false accept / false reject fixture metrics.
+- [x] Review privacy and retention behavior.
+- [x] Review browser bundle impact.
+- [x] Review route and storage security.
+- [x] Confirm phase 1 is still labeled speaker verification only.
 
 ## Phase 13: Transcript Provider Boundary
 
@@ -752,8 +964,12 @@ Goal: separate "what did the user say" from "does this sound like the owner".
   - [x] uncertain transcript
   - [x] provider unavailable
 - [x] Add `FakeTranscriptProvider`.
-- [ ] Add provider config for external ASR services.
+- [x] Add provider config for external ASR services:
+  - [x] `VOICEID_TRANSCRIPT_PROVIDER=fake`
+  - [x] `VOICEID_TRANSCRIPT_PROVIDER=cloudflare-workers-ai`
+  - [x] `VOICEID_CLOUDFLARE_ASR_MODEL=@cf/openai/whisper`
 - [ ] Add planned adapters:
+  - [x] `CloudflareWorkersAiTranscriptProvider`
   - [ ] `DeepgramTranscriptProvider`
   - [ ] `ElevenLabsTranscriptProvider`
   - [ ] `WisprFlowTranscriptProvider` if API access is available
@@ -764,6 +980,9 @@ Goal: separate "what did the user say" from "does this sound like the owner".
 Validation:
 
 - [x] Unit tests prove phrase match can use a fake transcript provider.
+- [x] Unit tests prove phrase match can use Cloudflare Workers AI ASR.
+- [x] Cloudflare fetch-handler test verifies Workers AI ASR participates in the
+  verification path.
 - [x] Provider failure returns `uncertain`, not accepted.
 - [x] Server service still separates phrase, speaker, and quality checks.
 
@@ -814,81 +1033,131 @@ Validation:
 
 Goal: bind spoken commands to concrete wallet or robot actions.
 
-- [ ] Add typed intent structures:
-  - [ ] robot command intent
-  - [ ] token transfer intent
-  - [ ] wallet session intent
-- [ ] Add `intentDigest` builder.
-- [ ] Add spoken-command parser boundary.
-- [ ] Add canonical command examples:
-  - [ ] `send 1 USDC to Bob`
-  - [ ] `send 50 USDC to bob.near`
-  - [ ] `authorize wallet session for device X`
-- [ ] Bind phrase or transcript result to the canonical intent.
-- [ ] Add expiry and replay protection to intent-bound verification records.
+- [x] Add typed intent structures:
+  - [x] robot command intent
+  - [x] token transfer intent
+  - [x] wallet session intent
+- [x] Add `intentDigest` builder.
+- [x] Add spoken-command parser boundary.
+- [x] Add canonical command examples:
+  - [x] `send 1 USDC to Bob`
+  - [x] `send 50 USDC to bob.near`
+  - [x] `authorize wallet session for device X`
+- [x] Bind phrase or transcript result to the canonical intent.
+- [x] Add expiry and replay protection to intent-bound verification records.
 
 Validation:
 
-- [ ] Same spoken command produces the same canonical intent and digest.
-- [ ] Different amount, recipient, device, or expiry changes the digest.
-- [ ] Voice verification cannot be accepted for a different intent.
+- [x] Same spoken command produces the same canonical intent and digest.
+- [x] Different amount, recipient, device, or expiry changes the digest.
+- [x] Voice verification cannot be accepted for a different intent.
+- [x] Accepted owner-presence evidence is consumed after successful authorization.
+- [x] Expired, replayed, mismatched, and accepted intent-bound evidence has route
+  coverage.
 
-## Phase 16: Embedded Liveness Policy
+## Phase 16: Embedded Owner-Presence Boundary
 
 Goal: add local owner-presence policy for robotics and embedded devices.
+Camera, face, mouth, and lip-sync tasks are tracked separately in
+`docs/voiceID/voiceId-camera-liveness-future.md`. This phase keeps only the
+typed owner-presence boundary needed by the current MVP.
 
-- [ ] Add liveness result types:
-  - [ ] accepted
-  - [ ] rejected
-  - [ ] uncertain
-- [ ] Add audio liveness signals:
-  - [ ] speech duration
-  - [ ] speech freshness
-  - [ ] microphone capture source
-  - [ ] replay-risk heuristics
-- [ ] Add visual liveness signals:
-  - [ ] face present
-  - [ ] rough mouth movement
-  - [ ] audio/video timing correlation
-- [ ] Add local device context:
-  - [ ] device id
-  - [ ] robot sidecar id
-  - [ ] capture timestamp
-  - [ ] local policy version
-- [ ] Keep liveness separate from speaker verification and transcript matching.
-
-Validation:
-
-- [ ] Voice-only verification can be accepted for demo policy only.
-- [ ] Wallet policy requires liveness result for embedded signing flows.
-- [ ] Missing liveness returns `uncertain` or requires step-up.
-
-## Phase 17: Wallet Policy And MPC Integration
-
-Goal: consume VoiceID as owner presence for intent-bound MPC signing.
-
-- [ ] Add wallet policy input:
-  - [ ] owner presence result
-  - [ ] transcript result
-  - [ ] speaker result
-  - [ ] liveness result
-  - [ ] `intentDigest`
-  - [ ] model and policy versions
-- [ ] Add policy tiers:
-  - [ ] low-risk robot command
-  - [ ] low-value known-recipient payment
-  - [ ] new-recipient payment
-  - [ ] high-value or anomalous payment
-- [ ] Add step-up requirements for risky actions.
-- [ ] Bind MPC signing session to `intentDigest`.
-- [ ] Ensure VoiceID never signs directly and never acts as a bearer secret.
-- [ ] Add server co-signer policy checks before participation.
-- [ ] Add embedded device/sidecar policy boundary.
+- [x] Add liveness result types:
+  - [x] accepted
+  - [x] rejected
+  - [x] uncertain
+- [x] Add audio liveness signals:
+  - [x] speech duration
+  - [x] speech freshness
+  - [x] microphone capture source
+  - [x] replay-risk heuristics
+- [x] Add local device context:
+  - [x] device id
+  - [x] robot sidecar id
+  - [x] capture timestamp
+  - [x] local policy version
+- [x] Keep liveness separate from speaker verification and transcript matching.
+- [x] Add route or sidecar boundary for submitting liveness signals with
+  verification results.
+- [x] Move camera, face, mouth, and lip-sync extraction to the future camera
+  liveness plan.
+- [x] Remove camera, face, mouth, and lip-sync payloads from active client,
+  server, parser, policy, and test surfaces.
 
 Validation:
 
-- [ ] Accepted VoiceID alone cannot create a signature.
-- [ ] MPC signing requires an accepted policy decision and matching
+- [x] Voice-only verification can be accepted for demo policy only.
+- [x] Local liveness rejects replay-risk audio.
+- [x] Wallet policy requires liveness result for embedded signing flows.
+- [x] Owner-presence authorization route returns accepted, uncertain, and
+  rejected decisions from liveness-aware verification evidence.
+- [x] Owner-presence authorization route rejects issued-but-incomplete
+  verification records before policy evaluation.
+- [x] Missing or unattested liveness signals return `uncertain` or rejected
+  policy branches.
+
+## Phase 17: Wallet Policy And Future MPC Integration
+
+Goal: consume VoiceID as owner presence in the normal SDK first, then connect
+that policy result to intent-bound Router A/B signing later.
+
+VoiceID must integrate with the existing Router A/B signer architecture in
+`docs/router-A-B-signer.md` for the later signing phase. The first integration
+test should stay on the normal SDK route/module path:
+
+```text
+Normal SDK host -> VoiceID routes -> owner-presence policy -> wallet policy
+```
+
+When Router A/B signing is enabled, owner-presence and `intentDigest` evidence
+feed Router admission. Normal signing stays on:
+
+```text
+Client -> Router -> SigningWorker -> Router -> Client
+```
+
+Deriver A/B remain setup/export/recovery/SigningWorker-refresh workers and
+should not enter the normal VoiceID signing path.
+
+- [x] Add wallet policy input:
+  - [x] owner presence result
+  - [x] transcript result
+  - [x] speaker result
+  - [x] liveness result
+  - [x] `intentDigest`
+  - [x] model and policy versions
+- [x] Add policy tiers:
+  - [x] low-risk robot command
+  - [x] low-value known-recipient payment
+  - [x] new-recipient payment
+  - [x] high-value or anomalous payment
+- [x] Add step-up requirements for risky actions.
+- [x] Bind Router A/B normal-signing request to `intentDigest`.
+- [x] Require Router normal-signing JWT `intentDigest` as an unpadded base64url
+  32-byte digest string.
+- [x] Ensure VoiceID never signs directly and never acts as a bearer secret.
+- [x] Add Router admission checks before forwarding to SigningWorker.
+- [x] Add SigningWorker checks for accepted policy evidence and matching
   `intentDigest`.
-- [ ] Step-up is required for configured high-risk policies.
-- [ ] Server logs include policy version and result kind without raw audio.
+- [x] Add embedded device/sidecar policy boundary.
+- [x] Document the Router A/B policy issuer JWT contract in
+  `docs/voiceID/voiceId-router-policy-issuer.md`.
+- [x] Test the normal SDK path before implementing the Router A/B issuer:
+  - [x] mount VoiceID through `RelayRouterModule`
+  - [x] enroll and verify through the normal SDK-hosted routes
+  - [x] call owner-presence authorization for a concrete `intentDigest`
+  - [ ] feed the accepted policy result into wallet auth policy code
+  - [x] keep Router A/B signing out of this test path
+
+Validation:
+
+- [x] Accepted VoiceID alone cannot create a signature.
+- [x] Router A/B signing requires an accepted policy decision and matching
+  `intentDigest`.
+- [x] Router rejects missing, malformed, or mismatched normal-signing JWT
+  `intentDigest` claims.
+- [x] Deriver A and Deriver B are not invoked for normal VoiceID signing.
+- [x] SigningWorker receives only admitted, intent-bound normal-signing
+  requests.
+- [x] Step-up is required for configured high-risk policies.
+- [x] Server logs include policy version and result kind without raw audio.

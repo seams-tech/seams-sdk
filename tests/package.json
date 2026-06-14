@@ -9,6 +9,7 @@
     "test:inline": "pnpm -C ../packages/sdk-web run build:prepare && USE_RELAY_SERVER=1 playwright test --reporter=line",
     "test:e2e": "pnpm -C ../packages/sdk-web run build:prepare && USE_RELAY_SERVER=1 playwright test ./e2e --reporter=line",
     "test:unit": "pnpm -C ../packages/sdk-web run build:prepare && playwright test -c playwright.unit.config.ts --reporter=line",
+    "test:router-surface": "playwright test -c playwright.router.config.ts --reporter=line",
     "test:source-guards": "pnpm -C ../packages/sdk-web run build:prepare && playwright test -c playwright.source.config.ts --reporter=line",
     "test:integration:signing": "pnpm -C ../packages/sdk-web run build:prepare && USE_RELAY_SERVER=1 playwright test -c playwright.integration.config.ts --reporter=line",
     "test:threshold-core": "playwright test -c playwright.relayer.config.ts ./relayer/threshold-ecdsa.signature-harness.test.ts ./relayer/threshold-ecdsa.durable-stores.test.ts --reporter=line && playwright test ./unit/thresholdEcdsa.tempoHighLevel.integration.test.ts --reporter=line",

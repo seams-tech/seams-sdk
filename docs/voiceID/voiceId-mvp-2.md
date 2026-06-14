@@ -15,12 +15,16 @@ Build a production-shaped VoiceID policy signal that can:
 2. Gate low-quality audio before speaker scoring.
 3. Verify spoken phrases or commands through a transcript boundary.
 4. Bind accepted speech to a canonical intent digest.
-5. Add audio-visual liveness signals for embedded robotics.
-6. Feed a typed owner-presence result into wallet/MPC policy.
+5. Feed a typed owner-presence result into wallet/MPC policy.
 
 VoiceID remains a recoverable owner-presence and liveness signal. The actual
-cryptographic operation still comes from device-bound key material, MPC shares,
-server policy, or another signing primitive.
+cryptographic operation uses the existing Router A/B signer architecture in
+`docs/router-A-B-signer.md`: Router owns public admission and policy, normal
+signing flows through the dedicated SigningWorker, and Deriver A/B remain off
+the hot signing path except for setup/export/recovery/SigningWorker refresh.
+
+Camera, face, mouth, and lip-sync extraction are outside MVP 2. They are tracked
+in `docs/voiceID/voiceId-camera-liveness-future.md`.
 
 ## Scope Boundary
 
@@ -32,8 +36,7 @@ MVP 2 includes:
 4. Transcript provider integration for phrase and command checks.
 5. Intent digest binding for wallet sessions, token transfers, and robot
    commands.
-6. Audio-visual liveness policy for robot/embedded flows.
-7. Typed policy output for wallet/MPC signing session decisions.
+6. Typed policy output for wallet/MPC signing session decisions.
 
 MVP 2 does not include:
 
@@ -41,21 +44,19 @@ MVP 2 does not include:
 2. Treating voice as a cryptographic signature.
 3. Full spoof-proof guarantees.
 4. A final production storage/backend choice.
-5. Requiring phone OTP when audio-visual liveness is available and policy
-   accepts the risk.
+5. Camera, face, mouth, or lip-sync extraction.
+6. Requiring phone OTP when policy accepts the risk without step-up.
 
 ## Architecture
 
 ```text
 Browser or embedded device
   -> audio capture
-  -> optional camera capture for embedded flows
   -> VoiceID client/module
   -> VoiceID server routes or local robot sidecar
   -> quality gate
   -> transcript provider
   -> ECAPA speaker verifier
-  -> optional audio-visual liveness policy
   -> intent canonicalizer
   -> owner-presence policy result
   -> wallet/MPC/robot policy
@@ -70,8 +71,35 @@ Ownership boundaries:
   embedding extraction, template building, and scoring.
 - `voiceId/verifier-spike`: offline model comparison and calibration reports.
 - `voiceId/research`: source PDFs and brief literature review.
-- future embedded sidecar: local process on the robot that hosts capture,
-  local policy, and optional wallet sidecar integration.
+- robot-local sidecar: local process on the robot that hosts capture, local
+  owner-presence policy, liveness, and optional wallet sidecar integration. The
+  current runbook lives at `voiceId/deploy/robot-local/sidecar/README.md`, with
+  `pnpm -C voiceId robot:guard` covering the shared Python HTTP verifier API
+  and Cloudflare-hosted policy boundary.
+- Cloudflare deployment: Workers/Pages host capture-facing API and static demo,
+  Workers AI handles ASR where possible, D1/Durable Objects store typed state
+  and Router A/B signer state, R2 stores opt-in diagnostics, Cloudflare
+  Containers host the Python ECAPA verifier sidecar, and the existing Router A/B
+  SigningWorker path performs MPC signing. The current container package lives
+  at `voiceId/deploy/cloudflare/verifier-container/`, with
+  `pnpm -C voiceId container:guard` covering the Dockerfile, `.dockerignore`,
+  Python package metadata, and runbook shape.
+- SDK relay integration: wallet/auth relay routers expose
+  `RelayRouterOptions.routeExtensions` and generic `RelayRouterModule`
+  registration, with Cloudflare-only, Express-only, and universal runtime
+  branches. `createVoiceIdRelayRouteExtension()` converts a VoiceID server
+  capability into a universal relay extension, and
+  `createVoiceIdRelayRouterModule()` wraps that extension in the SDK module
+  shape. Concrete VoiceID stores, verifiers, transcript providers, and liveness
+  policy remain owned by `voiceId/`.
+- Optional SDK portability: API Gateway/ALB plus ECS/EKS/EC2 can host the same
+  API and Python verifier sidecar on ordinary servers. High-assurance
+  SigningWorker custody or template-key custody can also move into AWS Nitro
+  Enclaves behind a parent-instance bridge. These are optional SDK portability
+  references, not the primary deployment target. The current ordinary-server
+  runbook lives at
+  `voiceId/deploy/aws/verifier-service/README.md`, with
+  `pnpm -C voiceId aws:guard` covering the shared Python HTTP sidecar contract.
 
 ## Resolved Spec Decisions
 
@@ -86,17 +114,58 @@ runs behind the VoiceID service boundary:
   the server calls the Python verifier sidecar.
 - Mobile iOS deployment: native or web capture records audio and uploads it to
   the same VoiceID API; the server calls the Python verifier sidecar.
-- Robot-local deployment: the robot app captures audio/video and calls a local
+- Robot-local deployment: the robot app captures audio and calls a local
   Python verifier sidecar running on the robot or a nearby embedded computer.
 - Server-backed robot deployment: the robot uploads typed captures to a remote
   VoiceID server, which calls the Python verifier sidecar.
+- Cloudflare-backed deployment: browser, mobile, or robot clients call a
+  Cloudflare Worker API. The Worker performs request parsing, policy assembly,
+  ASR calls, state writes, and intent binding, then calls a Python verifier
+  running in a Cloudflare Container over the same HTTP sidecar interface. If the
+  policy accepts the owner-presence result, the Worker admits the request into
+  the existing Router A/B normal-signing path; SigningWorker performs the MPC
+  server-share operation.
+- Optional AWS-backed SDK portability: browser, mobile, or robot clients can
+  call the API running on ordinary AWS infrastructure. The Python verifier can
+  run as a normal HTTP sidecar or service. TEE-sensitive SigningWorker material,
+  template-key unwrap, or SigningWorker server-share operations can run inside a
+  Nitro Enclave, with the parent EC2 instance translating the service request
+  into enclave-local vsock messages.
+
+The TypeScript API selects the verifier transport with
+`VOICEID_VERIFIER_TRANSPORT=fake|python-subprocess|python-http`. The Python
+verifier selects its model backend with `VOICEID_VERIFIER_BACKEND`, currently
+`placeholder` or `ecapa`.
+
+Cloudflare compatibility is a first-class constraint. Keep PyTorch,
+SpeechBrain, ffmpeg, and ECAPA model weights out of ordinary Workers and Python
+Workers; those dependencies belong in the verifier Container or in a robot-local
+sidecar. Worker code should stay TypeScript-first and use typed HTTP/service
+bindings to reach the verifier. Avoid Node-only APIs in shared request, policy,
+intent, and storage modules unless they are isolated behind a server adapter.
+The current verifier Container uses the same Python HTTP sidecar endpoints as
+local development, binds to `0.0.0.0:8797`, supports optional ECAPA model
+preload through `PRELOAD_ECAPA_MODEL=1`, and stores model caches under
+container-local cache paths.
+
+AWS compatibility is an optional SDK portability constraint. Keep the verifier
+and policy interfaces transport-neutral enough to run on plain AWS servers,
+ECS/EKS, or EC2 if needed. Nitro Enclaves are suitable for high-assurance secret
+handling, SigningWorker custody, and server-share policy, but they have no
+ordinary network access or persistent local storage. Anything inside an enclave
+must communicate through the parent instance bridge, usually over vsock, and any
+persistent state must live outside the enclave with authenticated/encrypted
+request boundaries. The current Nitro bridge runbook lives at
+`voiceId/deploy/aws/nitro-enclave-bridge/README.md`, with
+`pnpm -C voiceId nitro:guard` covering the no-raw-audio, no-ECAPA-runtime,
+attestation, KMS, Router A/B, and SigningWorker boundaries.
 
 Client platforms need capture adapters, not separate speaker-verifier
 implementations:
 
 - browser: `getUserMedia` plus `MediaRecorder`
 - iOS native: `AVAudioEngine` or equivalent native audio capture
-- robot: microphone/camera capture from the robot runtime
+- robot: microphone capture from the robot runtime
 
 All clients send the same typed request shape to the VoiceID boundary. The
 server or local sidecar owns decoding, normalization, VAD, quality checks,
@@ -120,10 +189,12 @@ Recommended outcomes:
 - clipped or saturated audio -> `uncertain`
 - phrase mismatch -> `rejected`
 - speaker mismatch after quality acceptance -> `rejected`
-- verifier unavailable -> `uncertain`
+- verifier unavailable -> service-level `verifier_unavailable` error
 
 This keeps bad capture conditions out of the hard-rejection path and avoids
 training policy code to treat microphone problems as identity failures.
+Verifier outages stay outside biometric result scoring so callers can retry or
+route to another sidecar without recording a false identity outcome.
 
 ### 3. Template Format
 
@@ -177,12 +248,22 @@ Next fixture target before spoof-resistance claims:
 
 ### 6. Transcript Provider
 
-Keep the fake transcript provider for tests. Add one real ASR provider after
-ECAPA integration and quality gating are stable.
+Keep the fake transcript provider for tests. The first real ASR provider is now
+Cloudflare Workers AI using `@cf/openai/whisper`, selected because it is the
+cheapest current hosted option for short MVP command clips and stays inside the
+Cloudflare deployment path.
 
-Recommended first real provider: Deepgram, because it has a public API and fits
-the server-side transcript-provider boundary. ElevenLabs and Wispr Flow remain
-useful to track for voice-agent UX, but they are not the speaker-verification
+Enable it with:
+
+```sh
+VOICEID_TRANSCRIPT_PROVIDER=cloudflare-workers-ai
+VOICEID_CLOUDFLARE_ASR_MODEL=@cf/openai/whisper
+```
+
+The Worker also needs a Cloudflare Workers AI binding named `AI`. Deepgram
+Nova-3 remains the fallback for low-latency streaming or better command accuracy
+if Cloudflare Whisper is not good enough. ElevenLabs and Wispr Flow remain useful
+to track for voice-agent UX, but they are not the speaker-verification
 foundation.
 
 Transcript results stay separate from speaker results. ASR decides what the user
@@ -227,7 +308,78 @@ returns `uncertain` or triggers step-up.
 ### 9. Storage Boundary
 
 Use in-memory storage for local MVP tests. Durable storage must encrypt
-templates and store model/threshold metadata.
+templates and store model/threshold metadata. Cloudflare deployments should use
+D1 or Durable Objects for enrollment, verification, pending intent, consumed
+intent, and audit records. Use R2 only for explicit diagnostic media
+retention with a deletion policy.
+AWS deployments should use DynamoDB or Postgres/RDS for typed records, S3 for
+explicit diagnostic retention, and KMS-backed envelope encryption for templates
+and policy secrets.
+
+The current Cloudflare storage boundary lives in
+`voiceId/server/src/store/CloudflareVoiceIdStorageRows.ts`. It serializes
+enrollment and verification records into D1/Durable-Object-friendly rows, parses
+raw rows back into typed domain records, rejects raw capture columns, and keeps
+encrypted template material only on enrolled or disabled enrollment states.
+The concrete D1-compatible store adapter lives in
+`voiceId/server/src/store/CloudflareVoiceIdD1Stores.ts`. It exposes schema
+statements for enrollment and verification tables, uses Cloudflare-style
+`prepare(...).bind(...).first()` reads and `prepare(...).bind(...).run()`
+writes, and keeps persisted rows parsed at the storage boundary before core
+service code sees them. Durable Object storage can use the same row serializers
+and either call D1 through the same adapter or implement the same store
+interfaces locally.
+The Cloudflare Worker factory in `voiceId/server/src/cloudflare.ts` selects this
+path with `VOICEID_STORAGE_KIND=cloudflare-d1` and a `VOICEID_D1_DATABASE`
+binding. The enrollment store is automatically wrapped with AES-GCM template
+encryption before persistence; verification records go directly through the
+typed D1 store.
+Template encryption key configuration lives in
+`voiceId/server/src/store/VoiceIdTemplateEncryptionConfig.ts`. Cloudflare
+deployments use a Workers secret binding source:
+
+```sh
+VOICEID_TEMPLATE_KEY_SOURCE=cloudflare-workers-secret
+VOICEID_TEMPLATE_KEY_ALGORITHM=AES-GCM-256
+VOICEID_TEMPLATE_KEY_ID=voiceid-template-key-<version>
+VOICEID_TEMPLATE_KEY_SECRET_BINDING=VOICEID_TEMPLATE_ENCRYPTION_KEY
+VOICEID_TEMPLATE_KEY_ROTATION_VERSION=<rotation-version>
+VOICEID_TEMPLATE_KEY_AAD_LABEL=voiceid-template-v1
+```
+
+Robot-local deployments use the same config shape with
+`VOICEID_TEMPLATE_KEY_SOURCE=robot-local-secret` and
+`VOICEID_TEMPLATE_KEY_SECRET_ENV=<local-secret-env-name>`. The config boundary
+stores key references and rotation metadata, not secret values.
+
+Template wrapping lives in
+`voiceId/server/src/store/VoiceIdTemplateEncryption.ts`. The current wrapper
+expects the secret value to decode to a 32-byte AES-GCM-256 key, encrypts
+enrolled and disabled templates before persistence, and unwraps templates after
+store reads before verifier scoring. The AES-GCM additional authenticated data
+binds the envelope to the user id, enrollment id, model version, template
+version, threshold version, key id, rotation version, and AAD label. A template
+copied to another enrollment or read under a different key rotation fails to
+unwrap.
+
+Diagnostic retention config lives in
+`voiceId/server/src/store/VoiceIdDiagnosticRetentionConfig.ts`. Diagnostics
+default to disabled. Cloudflare deployments can opt into bounded R2 diagnostics:
+
+```sh
+VOICEID_DIAGNOSTIC_RETENTION=cloudflare-r2
+VOICEID_DIAGNOSTIC_POLICY_VERSION=diagnostics-v1
+VOICEID_DIAGNOSTIC_R2_BUCKET_BINDING=VOICEID_DIAGNOSTICS_BUCKET
+VOICEID_DIAGNOSTIC_RETENTION_TTL_SECONDS=3600
+VOICEID_DIAGNOSTIC_CAPTURE_AUDIO=true
+VOICEID_DIAGNOSTIC_CAPTURE_VIDEO=false
+VOICEID_DIAGNOSTIC_MAX_ARTIFACT_BYTES=1048576
+```
+
+Robot-local diagnostics use `VOICEID_DIAGNOSTIC_RETENTION=robot-local-files`
+and `VOICEID_DIAGNOSTIC_LOCAL_DIRECTORY=<path>`. Enabled diagnostics require at
+least one explicit raw capture type, a TTL between 60 seconds and 7 days, and a
+bounded artifact size.
 
 Recommended storage rule:
 
@@ -236,23 +388,38 @@ Recommended storage rule:
 - request compatibility handling belongs at route/storage boundaries only
 - core verifier and policy code receives typed internal records
 
+VoiceID audit events now include typed result kinds and coarse score bands.
+Enrollment sample events record only a quality signal band. Verification
+completion events record phrase-confidence, speaker-score, speaker-threshold,
+and quality-signal bands. Audit events do not carry raw audio, raw media,
+embedding vectors, or full raw model outputs.
+
 Before real users, define where the template encryption key lives. For robot
 local mode, this may be the robot sidecar keystore or OS keychain equivalent.
-For server mode, this should be a server-managed KMS or equivalent secret
-manager.
+For Cloudflare mode, prefer Workers Secrets for MVP wiring and move to a
+dedicated KMS/HSM-style envelope before production custody. The verifier
+Container should receive only the minimum secret material required for template
+decrypt/encrypt or should call back to the Worker/storage boundary for template
+access.
+For AWS mode, use KMS-backed envelope encryption as the ordinary server path.
+For Nitro Enclave mode, bind KMS decrypt/use to enclave attestation and keep
+plaintext template keys or MPC share material inside the enclave for the
+shortest possible operation window.
 
-### 10. Audio-Visual Liveness Timing
+### 10. Liveness Boundary
 
-Define liveness types in MVP 2. Full visual tracking can wait until a robot or
-camera target is active.
+MVP 2 keeps a typed liveness/owner-presence result boundary so wallet, robot,
+and Router A/B policy can distinguish accepted, rejected, and uncertain
+branches. Camera-backed liveness timing is deferred to
+`docs/voiceID/voiceId-camera-liveness-future.md`.
 
-The first liveness implementation should check:
+The current MVP liveness boundary should focus on:
 
 - audio capture time window
-- camera frame time window
-- face present during speech
-- mouth movement during speech
-- rough correlation between mouth movement and audio energy
+- speech freshness
+- microphone/source attestation when available
+- replay-risk heuristics
+- explicit `not_required` policy branches for browser-only experiments
 
 ### 11. Fallback Models
 
@@ -317,9 +484,21 @@ type VoiceIdOwnerPresenceResult =
     };
 ```
 
-Accepted results require accepted phrase, speaker, quality, liveness, and intent
-checks for embedded signing flows. Browser-only policy experiments may configure
-liveness as `not_required` only when the policy explicitly allows it.
+Accepted results require accepted phrase, speaker, quality, and intent checks.
+Browser-only policy experiments may configure liveness as `not_required` only
+when the policy explicitly allows it. Camera-backed liveness requirements belong
+to `docs/voiceID/voiceId-camera-liveness-future.md`.
+
+The implemented policy surface lives in `voiceId/shared/src/policy.ts` and is
+exported through the VoiceID server index. `VoiceIdIntentDigest` is an unpadded
+base64url 32-byte digest. `buildVoiceIdOwnerPresenceResult()` converts completed
+verification records into accepted/rejected/uncertain owner-presence evidence,
+and `evaluateVoiceIdOwnerPresenceForIntent()` rejects otherwise accepted
+evidence when the requested intent digest differs.
+The SDK-facing adapter now lives in `voiceId/shared/src/authPolicy.ts`.
+`authorizeVoiceIdOwnerPresence()` maps owner-presence results into wallet,
+signing-session, or robot-command policy decisions and keeps rejected,
+uncertain, expired, and intent-mismatch branches outside signing authority.
 
 ## Workstream 1: ECAPA Verifier Integration
 
@@ -449,40 +628,39 @@ Validation:
 3. A VoiceID result cannot authorize a different intent.
 4. Expired intents cannot be accepted.
 
-## Workstream 5: Audio-Visual Liveness
+## Workstream 5: Owner-Presence Policy Boundary
 
-Goal: add owner-presence signals for embedded robot flows where phone OTP is
-optional.
+Goal: keep liveness and owner-presence decisions typed without adding camera
+work to this MVP.
 
-Audio liveness signals:
+Audio and device signals:
 
 1. Fresh microphone capture.
 2. Speech starts after the prompt or command window opens.
 3. Speech duration is plausible for the command.
 4. Replay-risk heuristics from audio quality and channel artifacts.
-
-Visual liveness signals:
-
-1. Face present near the robot.
-2. Mouth movement detected during the speech window.
-3. Audio energy roughly correlates with mouth movement timing.
-4. Face track is present before and during the command.
-5. Camera frame timestamp overlaps the audio capture window.
+5. Local device or sidecar context.
 
 Policy:
 
-1. Embedded privileged actions require audio liveness and visual liveness.
-2. Missing camera or failed visual liveness returns `uncertain` for privileged
-   actions.
-3. Phone/watch OTP remains an optional step-up factor for high-value or
+1. Embedded privileged actions can require liveness or step-up once risk policy
+   is defined.
+2. Phone/watch OTP remains an optional step-up factor for high-value or
    uncertain flows.
+3. Current browser-first policy experiments use voice, phrase, intent binding,
+   device/session policy, and step-up rules without claiming camera liveness.
+4. Camera-backed liveness policy is tracked separately in
+   `docs/voiceID/voiceId-camera-liveness-future.md`.
 
 Validation:
 
-1. Accepted liveness requires overlapping audio and video timestamps.
-2. Audio-only replay without mouth movement fails embedded liveness policy.
-3. Visual-only presence without accepted speaker verification fails policy.
-4. Missing liveness does not silently downgrade into accepted policy.
+1. Accepted owner presence requires accepted speaker, phrase, quality, and
+   matching intent.
+2. Replay-risk audio returns rejected or uncertain policy branches.
+3. Missing liveness does not silently downgrade into accepted policy when policy
+   requires liveness.
+4. Camera-specific validation lives in
+   `docs/voiceID/voiceId-camera-liveness-future.md`.
 
 ## Workstream 6: Wallet, MPC, And Robot Policy
 
@@ -494,14 +672,27 @@ Wallet/MPC policy flow:
 VoiceID accepted owner presence
   + intentDigest
   + device/session policy
-  -> signing-session policy decision
-  -> MPC signing session or rejection
+  -> Router admission policy decision
+  -> Router A/B normal-signing request or rejection
+  -> SigningWorker MPC server-share participation
 ```
+
+The signing architecture is the existing Router A/B signer design in
+`docs/router-A-B-signer.md`. VoiceID supplies typed owner-presence evidence and
+the bound `intentDigest`. Router admission checks policy, quota, replay,
+session, and risk. Normal signing remains:
+
+```text
+Client -> Router -> SigningWorker -> Router -> Client
+```
+
+Deriver A and Deriver B stay on setup/export/recovery/SigningWorker-refresh
+ceremonies and are not introduced into the normal VoiceID signing path.
 
 Robot policy flow:
 
 ```text
-owner voice + optional face/liveness
+owner voice + policy-approved owner presence
   -> accepted owner command
   -> robot performs allowed command
 
@@ -514,16 +705,17 @@ Rules:
 
 1. VoiceID never directly signs.
 2. VoiceID outputs typed policy evidence.
-3. MPC policy decides whether an owner-presence result can create a signing
-   session.
-4. Signing sessions bind to `intentDigest`, expiry, device id, and nonce.
+3. Router admission decides whether an owner-presence result can be forwarded to
+   the active SigningWorker.
+4. SigningWorker participation binds to `intentDigest`, expiry, device id,
+   nonce, request digest, and the existing Router A/B signer transcript fields.
 5. High-value actions can require additional factors.
 
 Validation:
 
 1. Accepted owner presence can authorize only the matching intent.
 2. Rejected or uncertain VoiceID cannot create a signing session.
-3. MPC signing refuses stale or mismatched intent digests.
+3. Router A/B signing refuses stale or mismatched intent digests.
 4. Audit events include result kinds and score bands, not raw audio.
 
 ## Deployment Shape
@@ -554,10 +746,14 @@ browser or robot
   -> VoiceID server routes
   -> verifier service
   -> encrypted template store
-  -> policy/MPC service
+  -> Router A/B admission
+  -> SigningWorker
 ```
 
-The same typed result boundaries should support all three deployment shapes.
+The same typed result boundaries should support all deployment shapes. The
+Cloudflare production path should reuse `docs/router-A-B-signer.md`; AWS
+ordinary-server and Nitro deployments should preserve the same Router,
+SigningWorker, and intent-binding semantics.
 
 ## Acceptance Criteria
 
@@ -570,23 +766,44 @@ MVP 2 is ready for policy experiments when:
 4. Threshold version and model version are stored with templates.
 5. Transcript/phrase verification is separate from speaker scoring.
 6. Intent digest binding prevents reuse across commands.
-7. Embedded liveness can combine audio and visual signals into typed policy
-   results.
+7. Owner-presence policy can distinguish accepted, rejected, and uncertain
+   liveness branches without requiring camera extraction in this MVP.
 8. Wallet/MPC policy consumes VoiceID as owner presence only.
 9. Raw audio retention remains disabled by default.
 
 ## Implementation Order
 
-1. Wire ECAPA into `voiceId/verifier`.
-2. Add quality-first gates and tests.
-3. Add ECAPA model metadata to TypeScript verifier adapter responses.
-4. Expand fixtures and rerun calibration reports.
-5. Add canonical intent and `intentDigest` types.
-6. Add transcript provider config for one real ASR provider.
-7. Add wallet/robot policy result type.
-8. Add audio-visual liveness types and local policy implementation.
-9. Add embedded/robot sidecar architecture proof of concept.
-10. Connect accepted owner-presence results to wallet/MPC policy simulation.
+Current completed pieces:
+
+- [x] ECAPA runtime path is available behind the Python verifier boundary.
+- [x] Quality-first gates run before speaker scoring.
+- [x] ECAPA model and threshold metadata roundtrip through TypeScript adapter
+  responses.
+- [x] Canonical `VoiceIdIntentDigest` typing and intent-binding checks exist.
+- [x] Wallet/robot auth-policy adapter maps owner-presence into typed accepted
+  or rejected policy decisions.
+- [x] SDK relay module registration can mount VoiceID routes while the SDK still
+  runs without VoiceID registered.
+- [x] Cloudflare Workers AI ASR provider can verify spoken phrase text behind
+  the transcript-provider boundary.
+- [x] Liveness policy can feed typed accepted/rejected/uncertain branches into
+  owner-presence authorization.
+- [x] Owner-presence authorization route combines completed verification,
+  `intentDigest`, use case, and liveness evidence into an accepted or rejected
+  auth-policy decision.
+- [x] Cloudflare deployment boundaries keep browser/mobile clients free of
+  Python, PyTorch, SpeechBrain, and model weights.
+
+Remaining order:
+
+1. Add normal SDK coverage for typed wallet policy consumption after
+   owner-presence authorization.
+2. Expand normal SDK demo or fixture coverage around that policy consumption.
+3. Expand fixtures and rerun calibration reports.
+4. Add embedded/robot sidecar architecture proof of concept.
+5. Defer Router A/B issuer and signing tests until the normal SDK path works.
+6. Future camera, face, mouth, and lip-sync work lives in
+   `docs/voiceID/voiceId-camera-liveness-future.md`.
 
 ## Research Basis
 
@@ -595,7 +812,7 @@ The short literature review in `voiceId/research/README.md` supports this plan:
 1. ECAPA/x-vector style embeddings are standard speaker-verification practice.
 2. ASVspoof and speech deepfake literature treat spoof detection as a separate
    countermeasure layer.
-3. Audio-visual spoofing work supports transcript and synchrony checks for
-   liveness-sensitive command flows.
+3. Audio-visual spoofing work supports the separate future camera-liveness
+   plan.
 4. The product architecture should keep speaker, phrase, quality, liveness, and
    policy as separate typed branches.

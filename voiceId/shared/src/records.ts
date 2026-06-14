@@ -3,12 +3,14 @@ import type {
   IsoDateTime,
   UserId,
   VoiceIdEnrollmentId,
+  VoiceIdIntentDigest,
   VoiceIdModelVersion,
   VoiceIdPromptSetId,
   VoiceIdTemplateVersion,
   VoiceIdThresholdVersion,
   VoiceIdVerificationId,
 } from './ids.ts';
+import type { VoiceIdIntentNonce } from './intents.ts';
 import type { VoiceIdPromptPhrase } from './prompts.ts';
 import type { VoiceIdVerificationResult } from './results.ts';
 
@@ -69,6 +71,9 @@ export type VoiceIdVerificationRecord = {
   userId: UserId;
   enrollmentId: VoiceIdEnrollmentId;
   expectedPhrase: VoiceIdPromptPhrase;
+  intentDigest: VoiceIdIntentDigest;
+  intentExpiresAt: IsoDateTime;
+  intentNonce: VoiceIdIntentNonce;
 } & (
   | {
       state: 'issued';
@@ -78,6 +83,7 @@ export type VoiceIdVerificationRecord = {
       attemptCount: number;
       completedAt?: never;
       result?: never;
+      ownerPresenceEvidence?: never;
     }
   | {
       state: 'accepted';
@@ -86,6 +92,7 @@ export type VoiceIdVerificationRecord = {
       expiresAt: IsoDateTime;
       completedAt: IsoDateTime;
       result: Extract<VoiceIdVerificationResult, { kind: 'accepted' }>;
+      ownerPresenceEvidence: VoiceIdOwnerPresenceEvidenceState;
     }
   | {
       state: 'rejected';
@@ -94,6 +101,7 @@ export type VoiceIdVerificationRecord = {
       expiresAt: IsoDateTime;
       completedAt: IsoDateTime;
       result: Extract<VoiceIdVerificationResult, { kind: 'rejected' }>;
+      ownerPresenceEvidence?: never;
     }
   | {
       state: 'uncertain';
@@ -102,6 +110,7 @@ export type VoiceIdVerificationRecord = {
       expiresAt: IsoDateTime;
       completedAt: IsoDateTime;
       result: Extract<VoiceIdVerificationResult, { kind: 'uncertain' }>;
+      ownerPresenceEvidence?: never;
     }
   | {
       state: 'expired';
@@ -110,5 +119,16 @@ export type VoiceIdVerificationRecord = {
       expiresAt: IsoDateTime;
       completedAt: IsoDateTime;
       result?: never;
+      ownerPresenceEvidence?: never;
     }
 );
+
+export type VoiceIdOwnerPresenceEvidenceState =
+  | {
+      kind: 'available';
+      consumedAt?: never;
+    }
+  | {
+      kind: 'consumed';
+      consumedAt: IsoDateTime;
+    };

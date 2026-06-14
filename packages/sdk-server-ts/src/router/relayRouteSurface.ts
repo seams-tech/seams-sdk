@@ -5,6 +5,12 @@ import {
   type RelayRouteDefinitionOptions,
   type RouteDefinition,
 } from './routeDefinitions';
+import {
+  assertUniqueRelayRouteDefinitions,
+  getRelayRouteExtensionDefinitions,
+  type RelayRouteExtensionTransport,
+} from './routeExtensions';
+import { resolveRelayRouterModuleRouteExtensions } from './modules';
 
 const RELAY_ROUTE_SURFACE_SYMBOL = Symbol.for('seams.relayRouteSurface');
 
@@ -34,18 +40,25 @@ export function resolveRelayRouteDefinitionOptions(
   };
 }
 
-export function resolveRelayRouteSurface(opts: RelayRouterOptions): RelayRouteSurface {
+export function resolveRelayRouteSurface(
+  opts: RelayRouterOptions,
+  input: { transport?: RelayRouteExtensionTransport } = {},
+): RelayRouteSurface {
   const mePath = String(opts.sessionRoutes?.state || '').trim() || '/session/state';
   let signedDelegatePath = '';
   if (opts.signedDelegate) {
     signedDelegatePath = ensureLeadingSlash(opts.signedDelegate.route) || '/signed-delegate';
   }
-  const routeDefinitions = Object.freeze(
-    createRelayRouteDefinitions(resolveRelayRouteDefinitionOptions(opts)),
-  );
+  const transport = input.transport || 'cloudflare';
+  const routeExtensions = resolveRelayRouterModuleRouteExtensions(opts);
+  const routeDefinitions = [
+    ...createRelayRouteDefinitions(resolveRelayRouteDefinitionOptions(opts)),
+    ...getRelayRouteExtensionDefinitions(routeExtensions, transport),
+  ];
+  assertUniqueRelayRouteDefinitions(routeDefinitions);
   return {
     mePath,
-    routeDefinitions,
+    routeDefinitions: Object.freeze(routeDefinitions),
     signedDelegatePath,
   };
 }

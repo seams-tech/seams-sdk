@@ -194,7 +194,7 @@ export function parsePythonSpeakerVerificationResponse(
 
 function buildPythonAudioRequest(audio: VoiceIdAudioInput): PythonAudioRequest {
   return {
-    audioBase64: Buffer.from(audio.bytes.buffer, audio.bytes.byteOffset, audio.bytes.byteLength).toString('base64'),
+    audioBase64: encodeBase64Bytes(audio.bytes),
     metadata: {
       mimeType: audio.metadata.mimeType,
       durationMs: audio.metadata.durationMs,
@@ -205,6 +205,35 @@ function buildPythonAudioRequest(audio: VoiceIdAudioInput): PythonAudioRequest {
       recorder: audio.metadata.recorder,
     },
   };
+}
+
+export function encodeBase64Bytes(bytes: Uint8Array): string {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let output = '';
+  let index = 0;
+  for (; index + 2 < bytes.length; index += 3) {
+    const value = (bytes[index] << 16) | (bytes[index + 1] << 8) | bytes[index + 2];
+    output += alphabet[(value >> 18) & 63];
+    output += alphabet[(value >> 12) & 63];
+    output += alphabet[(value >> 6) & 63];
+    output += alphabet[value & 63];
+  }
+
+  const remaining = bytes.length - index;
+  if (remaining === 1) {
+    const value = bytes[index] << 16;
+    output += alphabet[(value >> 18) & 63];
+    output += alphabet[(value >> 12) & 63];
+    output += '==';
+  } else if (remaining === 2) {
+    const value = (bytes[index] << 16) | (bytes[index + 1] << 8);
+    output += alphabet[(value >> 18) & 63];
+    output += alphabet[(value >> 12) & 63];
+    output += alphabet[(value >> 6) & 63];
+    output += '=';
+  }
+
+  return output;
 }
 
 function parsePythonAudioQuality(value: unknown): VoiceIdAudioQualityResult {
@@ -228,7 +257,15 @@ function parsePythonAudioQuality(value: unknown): VoiceIdAudioQualityResult {
         kind: 'uncertain',
         reason: requireOneOf(
           response.reason,
-          ['noisy_audio', 'too_short', 'model_low_confidence'],
+          [
+            'noisy_audio',
+            'too_short',
+            'model_low_confidence',
+            'undecodable_audio',
+            'clipped_audio',
+            'low_speech',
+            'low_snr',
+          ],
           'quality.reason',
         ),
         durationMs: requirePositiveNumber(response.durationMs, 'quality.durationMs'),
@@ -243,7 +280,7 @@ function parsePythonSpeaker(value: unknown): VoiceIdSpeakerMatchResult {
     case 'accepted':
       return {
         kind: 'accepted',
-        score: requireProbability(response.score, 'speaker.score'),
+        score: requireCosineScore(response.score, 'speaker.score'),
         threshold: requireProbability(response.threshold, 'speaker.threshold'),
         modelVersion: parseModelVersion(requireNonEmptyString(response, 'modelVersion')),
         thresholdVersion: parseThresholdVersion(requireNonEmptyString(response, 'thresholdVersion')),
@@ -252,7 +289,7 @@ function parsePythonSpeaker(value: unknown): VoiceIdSpeakerMatchResult {
       return {
         kind: 'rejected',
         reason: requireOneOf(response.reason, ['speaker_mismatch'], 'speaker.reason'),
-        score: requireProbability(response.score, 'speaker.score'),
+        score: requireCosineScore(response.score, 'speaker.score'),
         threshold: requireProbability(response.threshold, 'speaker.threshold'),
         modelVersion: parseModelVersion(requireNonEmptyString(response, 'modelVersion')),
         thresholdVersion: parseThresholdVersion(requireNonEmptyString(response, 'thresholdVersion')),
@@ -262,10 +299,10 @@ function parsePythonSpeaker(value: unknown): VoiceIdSpeakerMatchResult {
         kind: 'uncertain',
         reason: requireOneOf(
           response.reason,
-          ['model_low_confidence', 'verifier_unavailable'],
+          ['model_low_confidence', 'verifier_unavailable', 'low_audio_quality'],
           'speaker.reason',
         ),
-        score: requireProbability(response.score, 'speaker.score'),
+        score: requireCosineScore(response.score, 'speaker.score'),
         threshold: requireProbability(response.threshold, 'speaker.threshold'),
         modelVersion: parseModelVersion(requireNonEmptyString(response, 'modelVersion')),
         thresholdVersion: parseThresholdVersion(requireNonEmptyString(response, 'thresholdVersion')),
@@ -329,6 +366,14 @@ function requireProbability(value: unknown, fieldName: string): number {
   const parsed = requireFiniteNumber(value, fieldName);
   if (parsed < 0 || parsed > 1) {
     throw new Error(`${fieldName} must be between 0 and 1`);
+  }
+  return parsed;
+}
+
+function requireCosineScore(value: unknown, fieldName: string): number {
+  const parsed = requireFiniteNumber(value, fieldName);
+  if (parsed < -1 || parsed > 1) {
+    throw new Error(`${fieldName} must be between -1 and 1`);
   }
   return parsed;
 }

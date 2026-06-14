@@ -1,3 +1,4 @@
+export * from './VoiceIdCapability.ts';
 export * from './VoiceIdClient.ts';
 export * from './VoiceIdRecorder.ts';
 export * from './capture/audioBlob.ts';

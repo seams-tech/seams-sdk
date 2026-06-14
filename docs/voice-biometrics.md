@@ -252,6 +252,12 @@ digest changes and the voice authorization is invalid.
 MPC signing starts only after human-presence verification, intent digest
 verification, and policy admission have all succeeded.
 
+The Cloudflare signing architecture is the existing Router A/B signer plan in
+`docs/router-A-B-signer.md`. Voice verification feeds Router admission.
+Normal signing remains `Client -> Router -> SigningWorker -> Router -> Client`;
+Deriver A and Deriver B remain setup/export/recovery/SigningWorker-refresh
+roles and do not enter the normal voice-authorized signing path.
+
 The `intentDigest` is the authorization object:
 
 ```text
@@ -264,21 +270,22 @@ The threshold ECDSA protocol signs the actual chain transaction hash:
 txHash = HASH(rlp_or_typed_transaction)
 ```
 
-The server must connect those two objects before joining MPC signing:
+Router admission must connect those two objects before forwarding normal signing
+to SigningWorker:
 
 ```text
 accepted human presence for Alice
 + accepted command transcript
 + canonical VoiceTransferIntent recomputes intentDigest
 + prepared transaction is derived from VoiceTransferIntent
-+ server policy allows this digest
-= server joins MPC signing for txHash
++ Router policy allows this digest
+= Router forwards admitted normal-signing request to SigningWorker for txHash
 ```
 
-The server must refuse to co-sign when any field in the prepared transaction
-does not derive from the accepted `VoiceTransferIntent`. The robot's local share
-and the server share produce one wallet signature only for that admitted
-transaction.
+Router and SigningWorker must refuse participation when any field in the
+prepared transaction does not derive from the accepted `VoiceTransferIntent`.
+The robot's local share and the SigningWorker server-side material produce one
+wallet signature only for that admitted transaction.
 
 For the Reachy Mini MVP, verifier placement is server-side:
 
@@ -743,9 +750,9 @@ sequenceDiagram
   participant Alice
   participant ReachyApp as reachy_app.py
   participant Sidecar as wallet_sidecar
-  participant Server
+  participant Router
   participant Verifier as AV Verifier
-  participant MPC as MPC Server Share
+  participant SigningWorker
   participant Chain
 
   Alice->>ReachyApp: "Reachy, send 1 USDC to Bob"
@@ -753,16 +760,16 @@ sequenceDiagram
   ReachyApp->>Sidecar: Media samples + command candidate
   Sidecar->>Sidecar: Resolve Bob and build VoiceTransferIntent
   Sidecar->>Sidecar: Compute intentDigest
-  Sidecar->>Server: Submit media, transcript, intent, intentDigest
-  Server->>Server: Recompute canonical intentDigest
-  Server->>Verifier: Match voice, face, lip sync, audio direction
-  Verifier->>Server: LocalHumanPresence result
-  Server->>Server: Verify policy and derive txHash from intent
-  Server->>MPC: Admit txHash for server share
-  Sidecar->>MPC: Start threshold ECDSA with local share
-  MPC-->>Sidecar: Return completed signature
-  Server->>Chain: Broadcast signed transaction
-  Server->>Sidecar: Final transaction result
+  Sidecar->>Router: Submit media, transcript, intent, intentDigest
+  Router->>Router: Recompute canonical intentDigest
+  Router->>Verifier: Match voice, face, lip sync, audio direction
+  Verifier->>Router: LocalHumanPresence result
+  Router->>Router: Verify policy and derive txHash from intent
+  Router->>SigningWorker: Admit intent-bound normal-signing request
+  Sidecar->>SigningWorker: Start threshold ECDSA with local share
+  SigningWorker-->>Sidecar: Return completed signature
+  Router->>Chain: Broadcast signed transaction
+  Router->>Sidecar: Final transaction result
   Sidecar->>ReachyApp: Speak final status
 ```
 
@@ -777,7 +784,7 @@ Server verification order:
 7. Apply attempt limits, rate limits, value caps, recipient policy, and budget.
 8. Derive the prepared transaction from the same `VoiceTransferIntent`.
 9. Recompute the prepared transaction's chain `txHash`.
-10. Join MPC signing only for that `txHash`.
+10. Forward to SigningWorker only for that `txHash`.
 11. Mark the `intentDigest` consumed before broadcast.
 
 ## Domain State

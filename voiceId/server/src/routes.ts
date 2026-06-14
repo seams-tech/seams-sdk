@@ -1,13 +1,17 @@
 import {
   parseEnrollmentId,
+  parseIsoDateTime,
   parsePromptPhrase,
   parseUserId,
+  parseVoiceIdIntentDigest,
+  parseVoiceIdIntentNonce,
 } from '../../shared/src/index.ts';
 import { VoiceIdService, type VoiceIdServiceError } from './VoiceIdService.ts';
 import { jsonResponse, serviceResultResponse } from './http/jsonResponses.ts';
 import {
   parseEnrollmentSampleRequest,
   parseJsonRequest,
+  parseOwnerPresenceAuthorizationRequest,
   parseVerificationSampleRequest,
 } from './http/requestParsing.ts';
 
@@ -22,7 +26,10 @@ export function createVoiceIdFetchHandler(service: VoiceIdService): VoiceIdFetch
         return jsonResponse({ kind: 'ok' });
       }
 
-      if (request.method === 'GET' && (url.pathname === '/' || url.pathname === '/health')) {
+      if (
+        request.method === 'GET'
+        && (url.pathname === '/' || url.pathname === '/health' || url.pathname === '/voice-id/health')
+      ) {
         return jsonResponse({
           kind: 'ok',
           service: 'voice-id-api',
@@ -34,6 +41,7 @@ export function createVoiceIdFetchHandler(service: VoiceIdService): VoiceIdFetch
             'POST /voice-id/enrollment/disable',
             'POST /voice-id/verification/start',
             'POST /voice-id/verification/sample',
+            'POST /voice-id/owner-presence/authorize',
           ],
         });
       }
@@ -79,12 +87,21 @@ export function createVoiceIdFetchHandler(service: VoiceIdService): VoiceIdFetch
             userId: parseUserId(body.userId),
             enrollmentId: parseEnrollmentId(body.enrollmentId),
             phrase: parsePromptPhrase(body.phrase),
+            intentDigest: parseVoiceIdIntentDigest(body.intentDigest),
+            intentExpiresAt: parseIsoDateTime(body.intentExpiresAt),
+            intentNonce: parseVoiceIdIntentNonce(body.intentNonce),
           }),
         );
       }
 
       if (request.method === 'POST' && url.pathname === '/voice-id/verification/sample') {
         return serviceResultResponse(await service.verifySample(await parseVerificationSampleRequest(request)));
+      }
+
+      if (request.method === 'POST' && url.pathname === '/voice-id/owner-presence/authorize') {
+        return serviceResultResponse(
+          await service.authorizeOwnerPresence(await parseOwnerPresenceAuthorizationRequest(request)),
+        );
       }
 
       return jsonResponse({ kind: 'error', error: { kind: 'not_found' } }, 404);

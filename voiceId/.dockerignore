@@ -1,0 +1,14 @@
+.DS_Store
+.git
+node_modules
+fixtures
+research
+tests
+verifier-spike
+verifier/.cache
+verifier/**/__pycache__
+verifier/**/*.pyc
+*.ogg
+*.webm
+*.wav
+*.mp3

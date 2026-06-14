@@ -7,6 +7,8 @@ export type VoiceIdPromptSetId = Brand<string, 'VoiceIdPromptSetId'>;
 export type VoiceIdModelVersion = Brand<string, 'VoiceIdModelVersion'>;
 export type VoiceIdTemplateVersion = Brand<string, 'VoiceIdTemplateVersion'>;
 export type VoiceIdThresholdVersion = Brand<string, 'VoiceIdThresholdVersion'>;
+export type VoiceIdIntentDigest = Brand<string, 'VoiceIdIntentDigest'>;
+export type VoiceIdPolicyVersion = Brand<string, 'VoiceIdPolicyVersion'>;
 export type IsoDateTime = Brand<string, 'IsoDateTime'>;
 export type EncryptedBytes = Brand<string, 'EncryptedBytes'>;
 
@@ -47,6 +49,19 @@ export function parseTemplateVersion(value: unknown): VoiceIdTemplateVersion {
 
 export function parseThresholdVersion(value: unknown): VoiceIdThresholdVersion {
   return parseNonEmptyBrandedString(value, 'thresholdVersion');
+}
+
+export function parseVoiceIdPolicyVersion(value: unknown): VoiceIdPolicyVersion {
+  return parseNonEmptyBrandedString(value, 'policyVersion');
+}
+
+export function parseVoiceIdIntentDigest(value: unknown): VoiceIdIntentDigest {
+  const parsed = parseNonEmptyBrandedString<'VoiceIdIntentDigest'>(value, 'intentDigest');
+  if (!/^[A-Za-z0-9_-]{43}$/.test(parsed)) {
+    throw new Error('intentDigest must be an unpadded base64url-encoded 32-byte digest');
+  }
+
+  return parsed;
 }
 
 export function parseEncryptedBytes(value: unknown): EncryptedBytes {

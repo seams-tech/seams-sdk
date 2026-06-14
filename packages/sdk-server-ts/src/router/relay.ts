@@ -10,6 +10,8 @@ import type {
   ThresholdEd25519HssRespondWithSessionResponse,
 } from '../core/types';
 import type { RelayRouterRorOptions } from './ror/provider';
+import type { RelayRouterModule } from './modules';
+import type { RelayRouteExtension } from './routeExtensions';
 import type { SigningSessionSealRoutesOptions } from '../threshold/session/signingSessionSeal/types';
 import type { ConsoleBootstrapTokenService } from '../console/bootstrapTokens';
 import type { ConsoleWebhookService } from '../console/webhooks';
@@ -501,6 +503,17 @@ export interface RelayRouterOptions {
     runtimeSnapshots: ConsoleRuntimeSnapshotService;
     config: SponsoredEvmCallExecutorConfig | null;
   };
+  /**
+   * Optional route extensions mounted by the relay router. Each extension declares
+   * explicit runtime support so a Cloudflare Worker can expose Worker-native
+   * handlers while an Express server can mount Express-native handlers.
+   */
+  routeExtensions?: readonly RelayRouteExtension[];
+  /**
+   * Optional high-level relay modules. Modules compose route extensions while
+   * keeping concrete feature ownership outside wallet/auth router core.
+   */
+  modules?: readonly RelayRouterModule[];
   /**
    * Optional high-level wallet read service used by API credential wallet routes.
    */
