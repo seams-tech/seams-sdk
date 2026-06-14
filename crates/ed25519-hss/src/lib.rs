@@ -9,6 +9,7 @@ pub mod ddh;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod fixtures;
 pub mod protocol;
+pub mod role_signing;
 pub mod runtime;
 pub mod server;
 pub mod shared;

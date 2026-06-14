@@ -14,5 +14,7 @@ mod protocol_flow;
 mod protocol_validation;
 #[path = "reference_context/mod.rs"]
 mod reference_context;
+#[path = "role_signing/mod.rs"]
+mod role_signing;
 #[path = "support/mod.rs"]
 mod support;
