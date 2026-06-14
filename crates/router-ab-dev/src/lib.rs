@@ -5,32 +5,1272 @@
 //! The protocol crate remains transport-neutral and wasm-safe by default.
 
 use curve25519_dalek::scalar::Scalar;
+use ed25519_dalek::{Signer, SigningKey};
 use ed25519_hss::fixtures::{committed_fixture_corpus, FExpandFixture};
 use ed25519_hss::shared::{
     add_le_bytes_mod_2_256, eval_f_expand, public_key_from_base_shares, FExpandOutput,
 };
 use router_ab_core::{
+    decode_ab_peer_message_payload_v1,
+    decode_and_validate_ab_derivation_proof_batch_peer_payload_v1,
     execute_local_persistence_sql_seed_plan_v1, local_persistence_seed_sql_plan_v1,
-    router_transcript_digest_v1, CandidateId, CorrectnessLevel, EncryptedPayloadV1,
-    ExpensiveWorkKindV1, LifecycleScopeV1, LocalDeriverAEndpointV1, LocalDeriverBEndpointV1,
-    LocalEnvSnapshotV1, LocalInProcessCeremonyResultV1, LocalPersistenceSeedV1,
+    router_transcript_digest_v1, CandidateId, CanonicalWireBytesV1, CorrectnessLevel,
+    EncryptedPayloadV1, ExpensiveWorkKindV1, LifecycleScopeV1, LocalDeriverAEndpointV1,
+    LocalDeriverBEndpointV1, LocalEnvSnapshotV1, LocalHttpCeremonyResultV1, LocalHttpMethodV1,
+    LocalHttpPathV1, LocalHttpRequestV1, LocalInProcessCeremonyResultV1, LocalPersistenceSeedV1,
     LocalPersistenceSqlDialectV1, LocalPersistenceSqlExecutionReceiptV1,
     LocalPersistenceSqlSeedExecutorV1, LocalPersistenceSqlStatementV1, LocalPersistenceSqlValueV1,
-    LocalRouterEndpointV1, LocalSealedRootShareRecordV1, LocalServiceRoleV1, LocalServiceStackV1,
-    LocalServiceStartupV1, LocalSigningRootMetadataV1, LocalSigningWorkerEndpointV1,
-    PublicRouterRequestV1, RelayerIdentityV1, RoleEncryptedEnvelopeV1, RouterAbProtocolError,
-    RouterAbProtocolErrorCode, RouterAbProtocolResult, RouterTranscriptMetadataV1,
-    SignerIdentityV1, SignerSetV1, SigningRootShareStore,
+    LocalRouterEndpointV1, LocalRouterRecipientProofBundleResponseV1, LocalSealedRootShareRecordV1,
+    LocalServiceRoleV1, LocalServiceStackV1, LocalServiceStartupV1, LocalSigningRootMetadataV1,
+    LocalSigningWorkerEndpointV1, LocalSigningWorkerRecipientProofBundleActivationV1,
+    LocalTransportEnvelopeV1, LocalTransportRouteV1, PublicRouterRequestV1, RelayerIdentityV1,
+    RoleEncryptedEnvelopeV1, RouterAbProtocolError, RouterAbProtocolErrorCode,
+    RouterAbProtocolResult, RouterTranscriptMetadataV1, SignerIdentityV1, SignerSetV1,
+    SigningRootShareStore, WireMessageKindV1, WireMessageV1,
 };
 use router_ab_core::{OpenedShareKind, PublicDigest32, Role, RootShareEpoch};
-use rusqlite::{params, params_from_iter, types::Value, Connection};
-use serde::Serialize;
+use rusqlite::{params, params_from_iter, types::Value, Connection, OptionalExtension};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::fmt;
+use std::{
+    collections::BTreeMap,
+    fmt,
+    io::{Read, Write},
+    net::{Shutdown, TcpStream},
+    time::Duration,
+};
 
 const LOCAL_ED25519_HSS_SPLIT_RELAYER_LABEL_V1: &[u8] =
     b"router-ab-dev/ed25519-hss/split-relayer/v1";
+const LOCAL_NORMAL_SIGNING_SMOKE_LABEL_V1: &[u8] = b"router-ab-dev/normal-signing-smoke/v1";
 const LOCAL_ED25519_HSS_DEFAULT_SPLIT_EPOCH_V1: &str = "split-epoch-1";
+
+/// Local worker role env key used by the four-process development harness.
+pub const LOCAL_WORKER_ROLE_ENV_V1: &str = "ROUTER_AB_LOCAL_WORKER_ROLE";
+/// Router public URL env key.
+pub const LOCAL_ROUTER_PUBLIC_URL_ENV_V1: &str = "ROUTER_PUBLIC_URL";
+/// Deriver A private URL env key.
+pub const LOCAL_DERIVER_A_URL_ENV_V1: &str = "DERIVER_A_URL";
+/// Deriver B private URL env key.
+pub const LOCAL_DERIVER_B_URL_ENV_V1: &str = "DERIVER_B_URL";
+/// SigningWorker private URL env key.
+pub const LOCAL_SIGNING_WORKER_URL_ENV_V1: &str = "SIGNING_WORKER_URL";
+/// Router replay storage path env key.
+pub const LOCAL_ROUTER_REPLAY_STORAGE_PATH_ENV_V1: &str = "ROUTER_REPLAY_STORAGE_PATH";
+/// Router lifecycle storage path env key.
+pub const LOCAL_ROUTER_LIFECYCLE_STORAGE_PATH_ENV_V1: &str = "ROUTER_LIFECYCLE_STORAGE_PATH";
+/// Router project-policy storage path env key.
+pub const LOCAL_ROUTER_PROJECT_POLICY_STORAGE_PATH_ENV_V1: &str =
+    "ROUTER_PROJECT_POLICY_STORAGE_PATH";
+/// Router quota storage path env key.
+pub const LOCAL_ROUTER_QUOTA_STORAGE_PATH_ENV_V1: &str = "ROUTER_QUOTA_STORAGE_PATH";
+/// Router abuse storage path env key.
+pub const LOCAL_ROUTER_ABUSE_STORAGE_PATH_ENV_V1: &str = "ROUTER_ABUSE_STORAGE_PATH";
+/// Deriver A envelope HPKE private-key env key.
+pub const LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1: &str =
+    "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY";
+/// Deriver B envelope HPKE private-key env key.
+pub const LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1: &str =
+    "DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY";
+/// Deriver A root-share wire secret env key.
+pub const LOCAL_DERIVER_A_ROOT_SHARE_WIRE_SECRET_ENV_V1: &str = "DERIVER_A_ROOT_SHARE_WIRE_SECRET";
+/// Deriver B root-share wire secret env key.
+pub const LOCAL_DERIVER_B_ROOT_SHARE_WIRE_SECRET_ENV_V1: &str = "DERIVER_B_ROOT_SHARE_WIRE_SECRET";
+/// Deriver A peer signing key env key.
+pub const LOCAL_DERIVER_A_PEER_SIGNING_KEY_ENV_V1: &str = "DERIVER_A_PEER_SIGNING_KEY";
+/// Deriver B peer signing key env key.
+pub const LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1: &str = "DERIVER_B_PEER_SIGNING_KEY";
+/// Deriver A peer verifying key env key.
+pub const LOCAL_DERIVER_A_PEER_VERIFYING_KEY_ENV_V1: &str = "DERIVER_A_PEER_VERIFYING_KEY";
+/// Deriver B peer verifying key env key.
+pub const LOCAL_DERIVER_B_PEER_VERIFYING_KEY_ENV_V1: &str = "DERIVER_B_PEER_VERIFYING_KEY";
+/// Deriver A root-share metadata storage path env key.
+pub const LOCAL_DERIVER_A_ROOT_SHARE_STORAGE_PATH_ENV_V1: &str =
+    "DERIVER_A_ROOT_SHARE_STORAGE_PATH";
+/// Deriver B root-share metadata storage path env key.
+pub const LOCAL_DERIVER_B_ROOT_SHARE_STORAGE_PATH_ENV_V1: &str =
+    "DERIVER_B_ROOT_SHARE_STORAGE_PATH";
+/// Deriver A sealed root-share storage path env key.
+pub const LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1: &str =
+    "DERIVER_A_SEALED_ROOT_SHARES_PATH";
+/// Deriver B sealed root-share storage path env key.
+pub const LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1: &str =
+    "DERIVER_B_SEALED_ROOT_SHARES_PATH";
+/// SigningWorker relayer-output HPKE private-key env key.
+pub const LOCAL_SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1: &str =
+    "SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY";
+/// SigningWorker relayer-output storage path env key.
+pub const LOCAL_SIGNING_WORKER_RELAYER_OUTPUT_STORAGE_PATH_ENV_V1: &str =
+    "SIGNING_WORKER_RELAYER_OUTPUT_STORAGE_PATH";
+/// SigningWorker public identity env key.
+pub const LOCAL_SIGNING_WORKER_ID_ENV_V1: &str = "SIGNING_WORKER_ID";
+/// SigningWorker key epoch env key.
+pub const LOCAL_SIGNING_WORKER_KEY_EPOCH_ENV_V1: &str = "SIGNING_WORKER_KEY_EPOCH";
+/// SigningWorker relayer-output HPKE public key env key.
+pub const LOCAL_SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY_ENV_V1: &str =
+    "SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY";
+/// Generated Router env file path for local development.
+pub const LOCAL_ROUTER_ENV_FILE_V1: &str = ".env.router-ab.router.local";
+/// Generated Deriver A env file path for local development.
+pub const LOCAL_DERIVER_A_ENV_FILE_V1: &str = ".env.router-ab.deriver-a.local";
+/// Generated Deriver B env file path for local development.
+pub const LOCAL_DERIVER_B_ENV_FILE_V1: &str = ".env.router-ab.deriver-b.local";
+/// Generated SigningWorker env file path for local development.
+pub const LOCAL_SIGNING_WORKER_ENV_FILE_V1: &str = ".env.router-ab.signing-worker.local";
+/// Local Router state directory.
+pub const LOCAL_ROUTER_STATE_DIR_V1: &str = ".router-ab-local/router";
+/// Local Deriver A state directory.
+pub const LOCAL_DERIVER_A_STATE_DIR_V1: &str = ".router-ab-local/deriver-a";
+/// Local Deriver B state directory.
+pub const LOCAL_DERIVER_B_STATE_DIR_V1: &str = ".router-ab-local/deriver-b";
+/// Local SigningWorker state directory.
+pub const LOCAL_SIGNING_WORKER_STATE_DIR_V1: &str = ".router-ab-local/signing-worker";
+/// Local worker startup epoch for redacted diagnostics.
+pub const LOCAL_WORKER_STARTUP_EPOCH_V1: &str = "local-dev-v1";
+/// Local health endpoint path.
+pub const LOCAL_WORKER_HEALTH_PATH_V1: &str = "/healthz";
+/// Local readiness endpoint path.
+pub const LOCAL_WORKER_READY_PATH_V1: &str = "/readyz";
+/// Router public setup/export/refresh path mirrored from production.
+pub const LOCAL_ROUTER_SPLIT_DERIVATION_PATH_V1: &str = "/v1/hss/split-derivation";
+/// Router public normal-signing path mirrored from production.
+pub const LOCAL_ROUTER_NORMAL_SIGNING_PATH_V1: &str = "/v1/hss/sign";
+/// Deriver A private Router-dispatch path mirrored from production.
+pub const LOCAL_DERIVER_A_PRIVATE_PATH_V1: &str = "/router-ab/v1/signer-a";
+/// Deriver B private Router-dispatch path mirrored from production.
+pub const LOCAL_DERIVER_B_PRIVATE_PATH_V1: &str = "/router-ab/v1/signer-b";
+/// Deriver A private peer path mirrored from production.
+pub const LOCAL_DERIVER_A_PEER_PATH_V1: &str = "/router-ab/v1/signer-a/peer";
+/// Deriver B private peer path mirrored from production.
+pub const LOCAL_DERIVER_B_PEER_PATH_V1: &str = "/router-ab/v1/signer-b/peer";
+/// SigningWorker activation path mirrored from production.
+pub const LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1: &str =
+    "/router-ab/v1/signing-worker/proof-bundle-activation";
+/// SigningWorker normal-signing path mirrored from production.
+pub const LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1: &str = "/router-ab/v1/signing-worker/sign";
+/// Local HTTP service-binding content type for canonical protocol bytes.
+pub const LOCAL_HTTP_CANONICAL_WIRE_CONTENT_TYPE_V1: &str = "application/octet-stream";
+/// Local HTTP service-binding content type for Worker-shaped JSON protocol calls.
+pub const LOCAL_HTTP_JSON_CONTENT_TYPE_V1: &str = "application/json";
+/// Default local HTTP service-binding timeout.
+pub const LOCAL_HTTP_SERVICE_BINDING_TIMEOUT_MS_V1: u64 = 10_000;
+
+const LOCAL_ROUTER_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
+    LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
+    LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
+    LOCAL_DERIVER_A_ROOT_SHARE_WIRE_SECRET_ENV_V1,
+    LOCAL_DERIVER_B_ROOT_SHARE_WIRE_SECRET_ENV_V1,
+    LOCAL_DERIVER_A_PEER_SIGNING_KEY_ENV_V1,
+    LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1,
+    LOCAL_DERIVER_A_ROOT_SHARE_STORAGE_PATH_ENV_V1,
+    LOCAL_DERIVER_B_ROOT_SHARE_STORAGE_PATH_ENV_V1,
+    LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1,
+    LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1,
+    LOCAL_SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
+    LOCAL_SIGNING_WORKER_RELAYER_OUTPUT_STORAGE_PATH_ENV_V1,
+];
+
+const LOCAL_DERIVER_A_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
+    LOCAL_ROUTER_REPLAY_STORAGE_PATH_ENV_V1,
+    LOCAL_ROUTER_LIFECYCLE_STORAGE_PATH_ENV_V1,
+    LOCAL_ROUTER_PROJECT_POLICY_STORAGE_PATH_ENV_V1,
+    LOCAL_ROUTER_QUOTA_STORAGE_PATH_ENV_V1,
+    LOCAL_ROUTER_ABUSE_STORAGE_PATH_ENV_V1,
+    LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
+    LOCAL_DERIVER_B_ROOT_SHARE_WIRE_SECRET_ENV_V1,
+    LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1,
+    LOCAL_DERIVER_B_ROOT_SHARE_STORAGE_PATH_ENV_V1,
+    LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1,
+    LOCAL_SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
+    LOCAL_SIGNING_WORKER_RELAYER_OUTPUT_STORAGE_PATH_ENV_V1,
+];
+
+const LOCAL_DERIVER_B_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
+    LOCAL_ROUTER_REPLAY_STORAGE_PATH_ENV_V1,
+    LOCAL_ROUTER_LIFECYCLE_STORAGE_PATH_ENV_V1,
+    LOCAL_ROUTER_PROJECT_POLICY_STORAGE_PATH_ENV_V1,
+    LOCAL_ROUTER_QUOTA_STORAGE_PATH_ENV_V1,
+    LOCAL_ROUTER_ABUSE_STORAGE_PATH_ENV_V1,
+    LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
+    LOCAL_DERIVER_A_ROOT_SHARE_WIRE_SECRET_ENV_V1,
+    LOCAL_DERIVER_A_PEER_SIGNING_KEY_ENV_V1,
+    LOCAL_DERIVER_A_ROOT_SHARE_STORAGE_PATH_ENV_V1,
+    LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1,
+    LOCAL_SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
+    LOCAL_SIGNING_WORKER_RELAYER_OUTPUT_STORAGE_PATH_ENV_V1,
+];
+
+const LOCAL_SIGNING_WORKER_FORBIDDEN_ENV_KEYS_V1: &[&str] = &[
+    LOCAL_ROUTER_REPLAY_STORAGE_PATH_ENV_V1,
+    LOCAL_ROUTER_LIFECYCLE_STORAGE_PATH_ENV_V1,
+    LOCAL_ROUTER_PROJECT_POLICY_STORAGE_PATH_ENV_V1,
+    LOCAL_ROUTER_QUOTA_STORAGE_PATH_ENV_V1,
+    LOCAL_ROUTER_ABUSE_STORAGE_PATH_ENV_V1,
+    LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
+    LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
+    LOCAL_DERIVER_A_ROOT_SHARE_WIRE_SECRET_ENV_V1,
+    LOCAL_DERIVER_B_ROOT_SHARE_WIRE_SECRET_ENV_V1,
+    LOCAL_DERIVER_A_PEER_SIGNING_KEY_ENV_V1,
+    LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1,
+    LOCAL_DERIVER_A_ROOT_SHARE_STORAGE_PATH_ENV_V1,
+    LOCAL_DERIVER_B_ROOT_SHARE_STORAGE_PATH_ENV_V1,
+    LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1,
+    LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1,
+];
+
+/// Router local worker config after raw env parsing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocalRouterWorkerConfigV1 {
+    /// Router public URL.
+    pub public_url: String,
+    /// Deriver A private URL.
+    pub deriver_a_url: String,
+    /// Deriver B private URL.
+    pub deriver_b_url: String,
+    /// SigningWorker private URL.
+    pub signing_worker_url: String,
+    /// Router replay storage path.
+    pub replay_storage_path: String,
+    /// Router lifecycle storage path.
+    pub lifecycle_storage_path: String,
+    /// Router project-policy storage path.
+    pub project_policy_storage_path: String,
+    /// Router quota storage path.
+    pub quota_storage_path: String,
+    /// Router abuse storage path.
+    pub abuse_storage_path: String,
+}
+
+/// Deriver A local worker config after raw env parsing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocalDeriverAWorkerConfigV1 {
+    /// Deriver A private URL.
+    pub deriver_a_url: String,
+    /// Deriver B private URL.
+    pub deriver_b_url: String,
+    /// Deriver A envelope HPKE private key.
+    pub envelope_hpke_private_key: String,
+    /// Deriver A root-share wire secret.
+    pub root_share_wire_secret: String,
+    /// Deriver A peer signing key.
+    pub peer_signing_key: String,
+    /// Deriver A peer verifying key.
+    pub deriver_a_peer_verifying_key: String,
+    /// Deriver B peer verifying key.
+    pub deriver_b_peer_verifying_key: String,
+    /// Deriver A root-share metadata storage path.
+    pub root_share_storage_path: String,
+    /// Deriver A sealed root-share storage path.
+    pub sealed_root_shares_path: String,
+}
+
+/// Deriver B local worker config after raw env parsing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocalDeriverBWorkerConfigV1 {
+    /// Deriver B private URL.
+    pub deriver_b_url: String,
+    /// Deriver A private URL.
+    pub deriver_a_url: String,
+    /// Deriver B envelope HPKE private key.
+    pub envelope_hpke_private_key: String,
+    /// Deriver B root-share wire secret.
+    pub root_share_wire_secret: String,
+    /// Deriver B peer signing key.
+    pub peer_signing_key: String,
+    /// Deriver A peer verifying key.
+    pub deriver_a_peer_verifying_key: String,
+    /// Deriver B peer verifying key.
+    pub deriver_b_peer_verifying_key: String,
+    /// Deriver B root-share metadata storage path.
+    pub root_share_storage_path: String,
+    /// Deriver B sealed root-share storage path.
+    pub sealed_root_shares_path: String,
+}
+
+/// SigningWorker local worker config after raw env parsing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocalSigningWorkerConfigV1 {
+    /// SigningWorker private URL.
+    pub signing_worker_url: String,
+    /// SigningWorker public identity.
+    pub signing_worker_id: String,
+    /// SigningWorker key epoch.
+    pub signing_worker_key_epoch: String,
+    /// SigningWorker relayer-output HPKE public key.
+    pub relayer_output_hpke_public_key: String,
+    /// SigningWorker relayer-output HPKE private key.
+    pub relayer_output_hpke_private_key: String,
+    /// SigningWorker relayer-output storage path.
+    pub relayer_output_storage_path: String,
+}
+
+/// Redacted local worker health response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocalWorkerHealthResponseV1 {
+    /// Local worker role.
+    pub role: LocalServiceRoleV1,
+    /// Stable role label.
+    pub role_label: String,
+    /// URL this worker is expected to bind.
+    pub bind_url: String,
+    /// Redacted startup status.
+    pub status: String,
+    /// Local startup epoch safe for diagnostics.
+    pub startup_epoch: String,
+    /// Config branch label safe for diagnostics.
+    pub config_branch: String,
+}
+
+/// Role-specific local worker config.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "role", rename_all = "snake_case")]
+pub enum LocalWorkerRoleConfigV1 {
+    /// Router config branch.
+    Router(LocalRouterWorkerConfigV1),
+    /// Deriver A config branch.
+    DeriverA(LocalDeriverAWorkerConfigV1),
+    /// Deriver B config branch.
+    DeriverB(LocalDeriverBWorkerConfigV1),
+    /// SigningWorker config branch.
+    SigningWorker(LocalSigningWorkerConfigV1),
+}
+
+impl LocalWorkerRoleConfigV1 {
+    /// Returns this config's local service role.
+    pub fn role(&self) -> LocalServiceRoleV1 {
+        match self {
+            Self::Router(_) => LocalServiceRoleV1::Router,
+            Self::DeriverA(_) => LocalServiceRoleV1::DeriverA,
+            Self::DeriverB(_) => LocalServiceRoleV1::DeriverB,
+            Self::SigningWorker(_) => LocalServiceRoleV1::SigningWorker,
+        }
+    }
+
+    /// Returns the configured local URL for this worker.
+    pub fn bind_url(&self) -> &str {
+        match self {
+            Self::Router(config) => &config.public_url,
+            Self::DeriverA(config) => &config.deriver_a_url,
+            Self::DeriverB(config) => &config.deriver_b_url,
+            Self::SigningWorker(config) => &config.signing_worker_url,
+        }
+    }
+}
+
+/// Returns the host:port bind address from one local worker config.
+pub fn local_worker_bind_addr_v1(
+    config: &LocalWorkerRoleConfigV1,
+) -> RouterAbProtocolResult<String> {
+    parse_http_bind_addr_v1(config.bind_url())
+}
+
+/// Returns known local HTTP paths owned by one worker role.
+pub fn local_worker_owned_paths_v1(role: LocalServiceRoleV1) -> &'static [&'static str] {
+    match role {
+        LocalServiceRoleV1::Router => &[
+            LOCAL_WORKER_HEALTH_PATH_V1,
+            LOCAL_WORKER_READY_PATH_V1,
+            LOCAL_ROUTER_SPLIT_DERIVATION_PATH_V1,
+            LOCAL_ROUTER_NORMAL_SIGNING_PATH_V1,
+        ],
+        LocalServiceRoleV1::DeriverA => &[
+            LOCAL_WORKER_HEALTH_PATH_V1,
+            LOCAL_WORKER_READY_PATH_V1,
+            LOCAL_DERIVER_A_PRIVATE_PATH_V1,
+            LOCAL_DERIVER_A_PEER_PATH_V1,
+        ],
+        LocalServiceRoleV1::DeriverB => &[
+            LOCAL_WORKER_HEALTH_PATH_V1,
+            LOCAL_WORKER_READY_PATH_V1,
+            LOCAL_DERIVER_B_PRIVATE_PATH_V1,
+            LOCAL_DERIVER_B_PEER_PATH_V1,
+        ],
+        LocalServiceRoleV1::SigningWorker => &[
+            LOCAL_WORKER_HEALTH_PATH_V1,
+            LOCAL_WORKER_READY_PATH_V1,
+            LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
+            LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1,
+        ],
+    }
+}
+
+/// Returns true when a path is owned by the selected local worker role.
+pub fn local_worker_owns_path_v1(role: LocalServiceRoleV1, path: &str) -> bool {
+    local_worker_owned_paths_v1(role).contains(&path)
+}
+
+/// Builds a redacted health response for one local worker config.
+pub fn local_worker_health_response_v1(
+    config: &LocalWorkerRoleConfigV1,
+) -> RouterAbProtocolResult<LocalWorkerHealthResponseV1> {
+    let bind_url = config.bind_url();
+    require_non_empty("local worker bind URL", bind_url)?;
+    Ok(LocalWorkerHealthResponseV1 {
+        role: config.role(),
+        role_label: config.role().as_str().to_owned(),
+        bind_url: bind_url.to_owned(),
+        status: "ready".to_owned(),
+        startup_epoch: LOCAL_WORKER_STARTUP_EPOCH_V1.to_owned(),
+        config_branch: config.role().as_str().to_owned(),
+    })
+}
+
+/// Builds a redacted health response JSON body for one local worker config.
+pub fn local_worker_health_response_json_v1(
+    config: &LocalWorkerRoleConfigV1,
+) -> RouterAbProtocolResult<String> {
+    serde_json::to_string(&local_worker_health_response_v1(config)?).map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("local worker health response JSON failed: {error}"),
+        )
+    })
+}
+
+/// Parsed local HTTP service-binding endpoint.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalHttpServiceBindingEndpointV1 {
+    /// Role that owns the target path.
+    pub owner: LocalServiceRoleV1,
+    /// Full URL requested by the local transport.
+    pub url: String,
+    /// Host header value.
+    pub host_header: String,
+    /// Host:port address used by `TcpStream`.
+    pub bind_addr: String,
+    /// Production-style request path.
+    pub path: String,
+}
+
+/// Blocking local HTTP client for service-binding parity tests.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalHttpServiceBindingClientV1 {
+    timeout: Duration,
+}
+
+impl LocalHttpServiceBindingClientV1 {
+    /// Creates a local HTTP service-binding client with a non-zero timeout.
+    pub fn new(timeout: Duration) -> RouterAbProtocolResult<Self> {
+        if timeout.is_zero() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                "local HTTP service-binding timeout must be non-zero",
+            ));
+        }
+        Ok(Self { timeout })
+    }
+
+    /// Posts canonical wire bytes to one checked local service-binding path.
+    pub fn post_canonical_wire_bytes_v1(
+        &self,
+        base_url: &str,
+        path: LocalHttpPathV1,
+        body: &CanonicalWireBytesV1,
+    ) -> RouterAbProtocolResult<CanonicalWireBytesV1> {
+        let endpoint = local_http_service_binding_endpoint_v1(base_url, path)?;
+        let response_body = self.post_bytes_to_endpoint_v1(
+            &endpoint,
+            LOCAL_HTTP_CANONICAL_WIRE_CONTENT_TYPE_V1,
+            body.as_bytes(),
+        )?;
+        CanonicalWireBytesV1::new(response_body)
+    }
+
+    /// Posts JSON to one checked local service-binding path and parses JSON response.
+    pub fn post_json_v1<Request, Response>(
+        &self,
+        base_url: &str,
+        path: LocalHttpPathV1,
+        body: &Request,
+    ) -> RouterAbProtocolResult<Response>
+    where
+        Request: Serialize,
+        Response: DeserializeOwned,
+    {
+        let endpoint = local_http_service_binding_endpoint_v1(base_url, path)?;
+        let request_body = serde_json::to_vec(body).map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("local HTTP service-binding JSON request serialization failed: {error}"),
+            )
+        })?;
+        let response_body = self.post_bytes_to_endpoint_v1(
+            &endpoint,
+            LOCAL_HTTP_JSON_CONTENT_TYPE_V1,
+            &request_body,
+        )?;
+        serde_json::from_slice(&response_body).map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("local HTTP service-binding JSON response parse failed: {error}"),
+            )
+        })
+    }
+
+    fn post_bytes_to_endpoint_v1(
+        &self,
+        endpoint: &LocalHttpServiceBindingEndpointV1,
+        content_type: &str,
+        body: &[u8],
+    ) -> RouterAbProtocolResult<Vec<u8>> {
+        let mut stream = TcpStream::connect(&endpoint.bind_addr).map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+                format!(
+                    "local HTTP service-binding connect to {} failed: {error}",
+                    endpoint.bind_addr
+                ),
+            )
+        })?;
+        stream
+            .set_read_timeout(Some(self.timeout))
+            .map_err(|error| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+                    format!("local HTTP service-binding read-timeout setup failed: {error}"),
+                )
+            })?;
+        stream
+            .set_write_timeout(Some(self.timeout))
+            .map_err(|error| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+                    format!("local HTTP service-binding write-timeout setup failed: {error}"),
+                )
+            })?;
+
+        write!(
+            stream,
+            "POST {} HTTP/1.1\r\nhost: {}\r\ncontent-type: {}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+            endpoint.path,
+            endpoint.host_header,
+            content_type,
+            body.len()
+        )
+        .map_err(map_local_http_io_error_v1)?;
+        stream.write_all(body).map_err(map_local_http_io_error_v1)?;
+        stream.flush().map_err(map_local_http_io_error_v1)?;
+        stream
+            .shutdown(Shutdown::Write)
+            .map_err(map_local_http_io_error_v1)?;
+
+        let mut response = Vec::new();
+        stream
+            .read_to_end(&mut response)
+            .map_err(map_local_http_io_error_v1)?;
+        let (status, response_body) = split_local_http_response_v1(&response)?;
+        if !(200..=299).contains(&status) {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+                format!("local HTTP service-binding request failed with status {status}"),
+            ));
+        }
+        Ok(response_body)
+    }
+}
+
+impl Default for LocalHttpServiceBindingClientV1 {
+    fn default() -> Self {
+        Self {
+            timeout: Duration::from_millis(LOCAL_HTTP_SERVICE_BINDING_TIMEOUT_MS_V1),
+        }
+    }
+}
+
+/// Returns the production-style path for a checked local transport path.
+pub fn local_http_service_binding_path_v1(path: LocalHttpPathV1) -> &'static str {
+    match path {
+        LocalHttpPathV1::RouterToSignerA => LOCAL_DERIVER_A_PRIVATE_PATH_V1,
+        LocalHttpPathV1::RouterToSignerB => LOCAL_DERIVER_B_PRIVATE_PATH_V1,
+        LocalHttpPathV1::SignerAToSignerB => LOCAL_DERIVER_B_PEER_PATH_V1,
+        LocalHttpPathV1::SignerBToSignerA => LOCAL_DERIVER_A_PEER_PATH_V1,
+    }
+}
+
+/// Returns the destination role that owns a checked local transport path.
+pub fn local_http_service_binding_owner_v1(path: LocalHttpPathV1) -> LocalServiceRoleV1 {
+    match path {
+        LocalHttpPathV1::RouterToSignerA | LocalHttpPathV1::SignerBToSignerA => {
+            LocalServiceRoleV1::DeriverA
+        }
+        LocalHttpPathV1::RouterToSignerB | LocalHttpPathV1::SignerAToSignerB => {
+            LocalServiceRoleV1::DeriverB
+        }
+    }
+}
+
+/// Builds the full production-style local service-binding URL for a base URL.
+pub fn local_http_service_binding_url_v1(
+    base_url: &str,
+    path: LocalHttpPathV1,
+) -> RouterAbProtocolResult<String> {
+    require_non_empty("local HTTP service-binding base URL", base_url)?;
+    let route_path = local_http_service_binding_path_v1(path);
+    let base = base_url.trim_end_matches('/');
+    Ok(format!("{base}{route_path}"))
+}
+
+/// Builds the parsed endpoint used by the blocking local HTTP transport.
+pub fn local_http_service_binding_endpoint_v1(
+    base_url: &str,
+    path: LocalHttpPathV1,
+) -> RouterAbProtocolResult<LocalHttpServiceBindingEndpointV1> {
+    let url = local_http_service_binding_url_v1(base_url, path)?;
+    let parts = parse_http_url_parts_v1(&url)?;
+    let owner = local_http_service_binding_owner_v1(path);
+    if !local_worker_owns_path_v1(owner, &parts.path) {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+            format!(
+                "local HTTP service-binding path {} is not owned by {}",
+                parts.path,
+                owner.as_str()
+            ),
+        ));
+    }
+    Ok(LocalHttpServiceBindingEndpointV1 {
+        owner,
+        url,
+        host_header: parts.authority.clone(),
+        bind_addr: parts.authority,
+        path: parts.path,
+    })
+}
+
+/// Local Durable Object storage scope for the four-process harness.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalDurableObjectScopeV1 {
+    /// Router replay and idempotency state.
+    RouterReplay,
+    /// Router public lifecycle state.
+    RouterLifecycle,
+    /// Router project-policy state.
+    RouterProjectPolicy,
+    /// Router quota and request-budget state.
+    RouterQuota,
+    /// Router abuse-control state.
+    RouterAbuse,
+    /// Deriver A root-share metadata and sealed-share state.
+    DeriverARootShare,
+    /// Deriver B root-share metadata and sealed-share state.
+    DeriverBRootShare,
+    /// SigningWorker activation and active relayer-output state.
+    SigningWorkerRelayerOutput,
+}
+
+impl LocalDurableObjectScopeV1 {
+    /// Returns the stable local storage scope label.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RouterReplay => "router_replay",
+            Self::RouterLifecycle => "router_lifecycle",
+            Self::RouterProjectPolicy => "router_project_policy",
+            Self::RouterQuota => "router_quota",
+            Self::RouterAbuse => "router_abuse",
+            Self::DeriverARootShare => "deriver_a_root_share",
+            Self::DeriverBRootShare => "deriver_b_root_share",
+            Self::SigningWorkerRelayerOutput => "signing_worker_relayer_output",
+        }
+    }
+
+    /// Returns the worker role that owns this local storage scope.
+    pub fn owner(self) -> LocalServiceRoleV1 {
+        match self {
+            Self::RouterReplay
+            | Self::RouterLifecycle
+            | Self::RouterProjectPolicy
+            | Self::RouterQuota
+            | Self::RouterAbuse => LocalServiceRoleV1::Router,
+            Self::DeriverARootShare => LocalServiceRoleV1::DeriverA,
+            Self::DeriverBRootShare => LocalServiceRoleV1::DeriverB,
+            Self::SigningWorkerRelayerOutput => LocalServiceRoleV1::SigningWorker,
+        }
+    }
+}
+
+/// SQLite-backed local Durable Object key/value storage.
+#[derive(Debug)]
+pub struct LocalDurableObjectSqliteStorageV1<'connection> {
+    connection: &'connection Connection,
+    scope: LocalDurableObjectScopeV1,
+}
+
+impl<'connection> LocalDurableObjectSqliteStorageV1<'connection> {
+    /// Creates a role-scoped local Durable Object store.
+    pub fn new(
+        connection: &'connection Connection,
+        scope: LocalDurableObjectScopeV1,
+    ) -> RouterAbProtocolResult<Self> {
+        ensure_local_durable_object_sqlite_schema_v1(connection)?;
+        Ok(Self { connection, scope })
+    }
+
+    /// Returns this store's local Durable Object scope.
+    pub fn scope(&self) -> LocalDurableObjectScopeV1 {
+        self.scope
+    }
+
+    /// Returns the worker role that owns this store.
+    pub fn owner(&self) -> LocalServiceRoleV1 {
+        self.scope.owner()
+    }
+
+    /// Stores non-empty bytes under a role-local key.
+    pub fn put_bytes(&self, key: &str, value: &[u8]) -> RouterAbProtocolResult<()> {
+        require_non_empty("local durable object key", key)?;
+        if value.is_empty() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::EmptyField,
+                "local durable object value must not be empty",
+            ));
+        }
+        self.connection
+            .execute(
+                "
+                INSERT INTO local_durable_object_kv (scope, key, value)
+                VALUES (?1, ?2, ?3)
+                ON CONFLICT(scope, key) DO UPDATE SET value = excluded.value
+                ",
+                params![self.scope.as_str(), key, value],
+            )
+            .map_err(map_sqlite_error)?;
+        Ok(())
+    }
+
+    /// Reads bytes from a role-local key.
+    pub fn get_bytes(&self, key: &str) -> RouterAbProtocolResult<Option<Vec<u8>>> {
+        require_non_empty("local durable object key", key)?;
+        self.connection
+            .query_row(
+                "SELECT value FROM local_durable_object_kv WHERE scope = ?1 AND key = ?2",
+                params![self.scope.as_str(), key],
+                |row| row.get::<_, Vec<u8>>(0),
+            )
+            .optional()
+            .map_err(map_sqlite_error)
+    }
+
+    /// Deletes one role-local key and returns whether a row was removed.
+    pub fn delete_key(&self, key: &str) -> RouterAbProtocolResult<bool> {
+        require_non_empty("local durable object key", key)?;
+        let rows = self
+            .connection
+            .execute(
+                "DELETE FROM local_durable_object_kv WHERE scope = ?1 AND key = ?2",
+                params![self.scope.as_str(), key],
+            )
+            .map_err(map_sqlite_error)?;
+        Ok(rows > 0)
+    }
+
+    /// Lists keys in this role-local store.
+    pub fn list_keys(&self) -> RouterAbProtocolResult<Vec<String>> {
+        let mut statement = self
+            .connection
+            .prepare("SELECT key FROM local_durable_object_kv WHERE scope = ?1 ORDER BY key")
+            .map_err(map_sqlite_error)?;
+        let rows = statement
+            .query_map(params![self.scope.as_str()], |row| row.get::<_, String>(0))
+            .map_err(map_sqlite_error)?;
+        let mut keys = Vec::new();
+        for row in rows {
+            keys.push(row.map_err(map_sqlite_error)?);
+        }
+        Ok(keys)
+    }
+}
+
+/// One deterministic local Durable Object seed entry.
+#[derive(Clone, PartialEq, Eq)]
+pub struct LocalDurableObjectSeedEntryV1 {
+    /// Scope that owns the seed entry.
+    pub scope: LocalDurableObjectScopeV1,
+    /// Role-local key.
+    pub key: String,
+    value: Vec<u8>,
+}
+
+impl LocalDurableObjectSeedEntryV1 {
+    /// Creates a validated local Durable Object seed entry.
+    pub fn new(
+        scope: LocalDurableObjectScopeV1,
+        key: impl Into<String>,
+        value: impl Into<Vec<u8>>,
+    ) -> RouterAbProtocolResult<Self> {
+        let entry = Self {
+            scope,
+            key: key.into(),
+            value: value.into(),
+        };
+        entry.validate()?;
+        Ok(entry)
+    }
+
+    /// Returns the seed value bytes.
+    pub fn value(&self) -> &[u8] {
+        &self.value
+    }
+
+    /// Validates required seed fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("local durable object seed key", &self.key)?;
+        if self.value.is_empty() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::EmptyField,
+                "local durable object seed value must not be empty",
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for LocalDurableObjectSeedEntryV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LocalDurableObjectSeedEntryV1")
+            .field("scope", &self.scope)
+            .field("key", &self.key)
+            .field("value_len", &self.value.len())
+            .field("value", &"[redacted]")
+            .finish()
+    }
+}
+
+/// Deterministic local Durable Object seed plan.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalDurableObjectSeedPlanV1 {
+    /// Entries to write.
+    pub entries: Vec<LocalDurableObjectSeedEntryV1>,
+}
+
+impl LocalDurableObjectSeedPlanV1 {
+    /// Creates a validated local Durable Object seed plan.
+    pub fn new(entries: Vec<LocalDurableObjectSeedEntryV1>) -> RouterAbProtocolResult<Self> {
+        if entries.is_empty() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::EmptyField,
+                "local durable object seed plan requires at least one entry",
+            ));
+        }
+        for entry in &entries {
+            entry.validate()?;
+        }
+        Ok(Self { entries })
+    }
+}
+
+/// Redacted receipt from a local Durable Object seed operation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocalDurableObjectSeedReceiptV1 {
+    /// Number of entries written.
+    pub written_entry_count: u32,
+    /// Scope labels touched by the seed operation.
+    pub scope_labels: Vec<String>,
+}
+
+/// Redacted receipt from seeding all local storage parity state.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocalStorageParitySeedReceiptV1 {
+    /// SQL seed receipt for signing-root metadata.
+    pub signing_root_metadata: LocalPersistenceSqlExecutionReceiptV1,
+    /// Durable Object seed receipt.
+    pub durable_objects: LocalDurableObjectSeedReceiptV1,
+}
+
+/// Returns the deterministic local Durable Object seed plan used by smoke tests.
+pub fn example_local_durable_object_seed_plan_v1(
+) -> RouterAbProtocolResult<LocalDurableObjectSeedPlanV1> {
+    LocalDurableObjectSeedPlanV1::new(vec![
+        LocalDurableObjectSeedEntryV1::new(
+            LocalDurableObjectScopeV1::RouterReplay,
+            "replay/request/dev",
+            br#"{"state":"available"}"#.to_vec(),
+        )?,
+        LocalDurableObjectSeedEntryV1::new(
+            LocalDurableObjectScopeV1::RouterLifecycle,
+            "lifecycle/dev",
+            br#"{"state":"initialized"}"#.to_vec(),
+        )?,
+        LocalDurableObjectSeedEntryV1::new(
+            LocalDurableObjectScopeV1::RouterProjectPolicy,
+            "project/default",
+            br#"{"admission":"allow"}"#.to_vec(),
+        )?,
+        LocalDurableObjectSeedEntryV1::new(
+            LocalDurableObjectScopeV1::RouterQuota,
+            "quota/default",
+            br#"{"remaining":1}"#.to_vec(),
+        )?,
+        LocalDurableObjectSeedEntryV1::new(
+            LocalDurableObjectScopeV1::RouterAbuse,
+            "abuse/default",
+            br#"{"decision":"allow"}"#.to_vec(),
+        )?,
+        LocalDurableObjectSeedEntryV1::new(
+            LocalDurableObjectScopeV1::DeriverARootShare,
+            "sealed/share/a",
+            b"local-dev-sealed-root-share-a".to_vec(),
+        )?,
+        LocalDurableObjectSeedEntryV1::new(
+            LocalDurableObjectScopeV1::DeriverBRootShare,
+            "sealed/share/b",
+            b"local-dev-sealed-root-share-b".to_vec(),
+        )?,
+        LocalDurableObjectSeedEntryV1::new(
+            LocalDurableObjectScopeV1::SigningWorkerRelayerOutput,
+            "activation/dev",
+            br#"{"state":"activated"}"#.to_vec(),
+        )?,
+        LocalDurableObjectSeedEntryV1::new(
+            LocalDurableObjectScopeV1::SigningWorkerRelayerOutput,
+            "active-state/dev",
+            br#"{"state":"active"}"#.to_vec(),
+        )?,
+    ])
+}
+
+/// Seeds local Durable Object SQLite storage with deterministic smoke state.
+pub fn seed_example_local_durable_object_sqlite_v1(
+    connection: &Connection,
+) -> RouterAbProtocolResult<LocalDurableObjectSeedReceiptV1> {
+    let plan = example_local_durable_object_seed_plan_v1()?;
+    seed_local_durable_object_sqlite_v1(connection, &plan)
+}
+
+/// Seeds local Durable Object SQLite storage from a validated plan.
+pub fn seed_local_durable_object_sqlite_v1(
+    connection: &Connection,
+    plan: &LocalDurableObjectSeedPlanV1,
+) -> RouterAbProtocolResult<LocalDurableObjectSeedReceiptV1> {
+    if plan.entries.is_empty() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::EmptyField,
+            "local durable object seed plan requires at least one entry",
+        ));
+    }
+    let mut scope_labels = Vec::<String>::new();
+    for entry in &plan.entries {
+        entry.validate()?;
+        let store = LocalDurableObjectSqliteStorageV1::new(connection, entry.scope)?;
+        store.put_bytes(&entry.key, entry.value())?;
+        let scope_label = entry.scope.as_str().to_owned();
+        if !scope_labels.contains(&scope_label) {
+            scope_labels.push(scope_label);
+        }
+    }
+    let written_entry_count = u32::try_from(plan.entries.len()).map_err(|_| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "local durable object seed entry count did not fit u32",
+        )
+    })?;
+    Ok(LocalDurableObjectSeedReceiptV1 {
+        written_entry_count,
+        scope_labels,
+    })
+}
+
+/// Seeds deterministic signing-root metadata and local Durable Object state.
+pub fn seed_example_local_storage_parity_v1(
+    connection: &Connection,
+) -> RouterAbProtocolResult<LocalStorageParitySeedReceiptV1> {
+    Ok(LocalStorageParitySeedReceiptV1 {
+        signing_root_metadata: seed_example_local_sqlite_v1(connection)?,
+        durable_objects: seed_example_local_durable_object_sqlite_v1(connection)?,
+    })
+}
+
+/// One generated local env file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocalEnvMaterializedFileV1 {
+    /// Role that owns this env file.
+    pub role: LocalServiceRoleV1,
+    /// Relative path to write.
+    pub path: String,
+    /// File contents.
+    pub contents: String,
+}
+
+/// Files and directories needed by the local Router/A/B dev harness.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocalEnvMaterializationPlanV1 {
+    /// Directories to create before writing env files.
+    pub directories: Vec<String>,
+    /// Env files to write.
+    pub files: Vec<LocalEnvMaterializedFileV1>,
+}
+
+impl LocalEnvMaterializationPlanV1 {
+    /// Validates every generated env file parses into the matching role branch.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_exact_len_v1(
+            "local env materialization directories",
+            self.directories.len(),
+            4,
+        )?;
+        require_exact_len_v1("local env materialization files", self.files.len(), 4)?;
+        for directory in &self.directories {
+            require_non_empty("local state directory", directory)?;
+        }
+        for file in &self.files {
+            require_non_empty("local env file path", &file.path)?;
+            require_non_empty("local env file contents", &file.contents)?;
+            let config = parse_local_worker_role_config_for_role_v1(
+                file.role,
+                parse_local_env_file_contents_v1(&file.contents)?,
+            )?;
+            if config.role() != file.role {
+                return Err(RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                    "local env materialization produced wrong role branch",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Builds generated local env files and state directories from a caller-provided seed.
+pub fn local_env_materialization_plan_v1(
+    seed: &[u8],
+) -> RouterAbProtocolResult<LocalEnvMaterializationPlanV1> {
+    require_non_empty("local env materialization seed", &hex::encode(seed))?;
+    let plan = LocalEnvMaterializationPlanV1 {
+        directories: vec![
+            LOCAL_ROUTER_STATE_DIR_V1.to_owned(),
+            LOCAL_DERIVER_A_STATE_DIR_V1.to_owned(),
+            LOCAL_DERIVER_B_STATE_DIR_V1.to_owned(),
+            LOCAL_SIGNING_WORKER_STATE_DIR_V1.to_owned(),
+        ],
+        files: vec![
+            LocalEnvMaterializedFileV1 {
+                role: LocalServiceRoleV1::Router,
+                path: LOCAL_ROUTER_ENV_FILE_V1.to_owned(),
+                contents: materialize_template_v1(
+                    include_str!("../env/router.local.example"),
+                    seed,
+                )?,
+            },
+            LocalEnvMaterializedFileV1 {
+                role: LocalServiceRoleV1::DeriverA,
+                path: LOCAL_DERIVER_A_ENV_FILE_V1.to_owned(),
+                contents: materialize_template_v1(
+                    include_str!("../env/deriver-a.local.example"),
+                    seed,
+                )?,
+            },
+            LocalEnvMaterializedFileV1 {
+                role: LocalServiceRoleV1::DeriverB,
+                path: LOCAL_DERIVER_B_ENV_FILE_V1.to_owned(),
+                contents: materialize_template_v1(
+                    include_str!("../env/deriver-b.local.example"),
+                    seed,
+                )?,
+            },
+            LocalEnvMaterializedFileV1 {
+                role: LocalServiceRoleV1::SigningWorker,
+                path: LOCAL_SIGNING_WORKER_ENV_FILE_V1.to_owned(),
+                contents: materialize_template_v1(
+                    include_str!("../env/signing-worker.local.example"),
+                    seed,
+                )?,
+            },
+        ],
+    };
+    plan.validate()?;
+    Ok(plan)
+}
+
+/// Parses simple `KEY=value` local env file contents.
+pub fn parse_local_env_file_contents_v1(
+    contents: &str,
+) -> RouterAbProtocolResult<Vec<(String, String)>> {
+    let mut entries = Vec::new();
+    for (index, line) in contents.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("local env line {} must use KEY=value", index + 1),
+            ));
+        };
+        entries.push((key.to_owned(), value.to_owned()));
+    }
+    Ok(entries)
+}
+
+/// Parses one local worker role label.
+pub fn parse_local_service_role_label_v1(
+    label: &str,
+) -> RouterAbProtocolResult<LocalServiceRoleV1> {
+    match label {
+        "router" => Ok(LocalServiceRoleV1::Router),
+        "deriver-a" | "deriver_a" => Ok(LocalServiceRoleV1::DeriverA),
+        "deriver-b" | "deriver_b" => Ok(LocalServiceRoleV1::DeriverB),
+        "signing-worker" | "signing_worker" => Ok(LocalServiceRoleV1::SigningWorker),
+        _ => Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("unknown local worker role '{label}'"),
+        )),
+    }
+}
+
+/// Parses raw local worker env entries into one role-specific config branch.
+pub fn parse_local_worker_role_config_v1(
+    entries: impl IntoIterator<Item = (String, String)>,
+) -> RouterAbProtocolResult<LocalWorkerRoleConfigV1> {
+    let env = local_env_map_v1(entries)?;
+    let role =
+        parse_local_service_role_label_v1(&required_env_v1(&env, LOCAL_WORKER_ROLE_ENV_V1)?)?;
+    parse_local_worker_role_config_for_role_v1(role, entries_from_env_map_v1(&env))
+}
+
+/// Parses raw local worker env entries for a CLI-selected role and checks env role agreement.
+pub fn parse_local_worker_role_config_for_role_v1(
+    expected_role: LocalServiceRoleV1,
+    entries: impl IntoIterator<Item = (String, String)>,
+) -> RouterAbProtocolResult<LocalWorkerRoleConfigV1> {
+    let env = local_env_map_v1(entries)?;
+    let actual_role =
+        parse_local_service_role_label_v1(&required_env_v1(&env, LOCAL_WORKER_ROLE_ENV_V1)?)?;
+    if actual_role != expected_role {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            format!(
+                "local worker env role {} does not match selected role {}",
+                actual_role.as_str(),
+                expected_role.as_str()
+            ),
+        ));
+    }
+    match expected_role {
+        LocalServiceRoleV1::Router => {
+            reject_forbidden_env_keys_v1(&env, LOCAL_ROUTER_FORBIDDEN_ENV_KEYS_V1)?;
+            Ok(LocalWorkerRoleConfigV1::Router(LocalRouterWorkerConfigV1 {
+                public_url: required_env_v1(&env, LOCAL_ROUTER_PUBLIC_URL_ENV_V1)?,
+                deriver_a_url: required_env_v1(&env, LOCAL_DERIVER_A_URL_ENV_V1)?,
+                deriver_b_url: required_env_v1(&env, LOCAL_DERIVER_B_URL_ENV_V1)?,
+                signing_worker_url: required_env_v1(&env, LOCAL_SIGNING_WORKER_URL_ENV_V1)?,
+                replay_storage_path: required_env_v1(
+                    &env,
+                    LOCAL_ROUTER_REPLAY_STORAGE_PATH_ENV_V1,
+                )?,
+                lifecycle_storage_path: required_env_v1(
+                    &env,
+                    LOCAL_ROUTER_LIFECYCLE_STORAGE_PATH_ENV_V1,
+                )?,
+                project_policy_storage_path: required_env_v1(
+                    &env,
+                    LOCAL_ROUTER_PROJECT_POLICY_STORAGE_PATH_ENV_V1,
+                )?,
+                quota_storage_path: required_env_v1(&env, LOCAL_ROUTER_QUOTA_STORAGE_PATH_ENV_V1)?,
+                abuse_storage_path: required_env_v1(&env, LOCAL_ROUTER_ABUSE_STORAGE_PATH_ENV_V1)?,
+            }))
+        }
+        LocalServiceRoleV1::DeriverA => {
+            reject_forbidden_env_keys_v1(&env, LOCAL_DERIVER_A_FORBIDDEN_ENV_KEYS_V1)?;
+            Ok(LocalWorkerRoleConfigV1::DeriverA(
+                LocalDeriverAWorkerConfigV1 {
+                    deriver_a_url: required_env_v1(&env, LOCAL_DERIVER_A_URL_ENV_V1)?,
+                    deriver_b_url: required_env_v1(&env, LOCAL_DERIVER_B_URL_ENV_V1)?,
+                    envelope_hpke_private_key: required_env_v1(
+                        &env,
+                        LOCAL_DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
+                    )?,
+                    root_share_wire_secret: required_env_v1(
+                        &env,
+                        LOCAL_DERIVER_A_ROOT_SHARE_WIRE_SECRET_ENV_V1,
+                    )?,
+                    peer_signing_key: required_env_v1(
+                        &env,
+                        LOCAL_DERIVER_A_PEER_SIGNING_KEY_ENV_V1,
+                    )?,
+                    deriver_a_peer_verifying_key: required_env_v1(
+                        &env,
+                        LOCAL_DERIVER_A_PEER_VERIFYING_KEY_ENV_V1,
+                    )?,
+                    deriver_b_peer_verifying_key: required_env_v1(
+                        &env,
+                        LOCAL_DERIVER_B_PEER_VERIFYING_KEY_ENV_V1,
+                    )?,
+                    root_share_storage_path: required_env_v1(
+                        &env,
+                        LOCAL_DERIVER_A_ROOT_SHARE_STORAGE_PATH_ENV_V1,
+                    )?,
+                    sealed_root_shares_path: required_env_v1(
+                        &env,
+                        LOCAL_DERIVER_A_SEALED_ROOT_SHARES_PATH_ENV_V1,
+                    )?,
+                },
+            ))
+        }
+        LocalServiceRoleV1::DeriverB => {
+            reject_forbidden_env_keys_v1(&env, LOCAL_DERIVER_B_FORBIDDEN_ENV_KEYS_V1)?;
+            Ok(LocalWorkerRoleConfigV1::DeriverB(
+                LocalDeriverBWorkerConfigV1 {
+                    deriver_b_url: required_env_v1(&env, LOCAL_DERIVER_B_URL_ENV_V1)?,
+                    deriver_a_url: required_env_v1(&env, LOCAL_DERIVER_A_URL_ENV_V1)?,
+                    envelope_hpke_private_key: required_env_v1(
+                        &env,
+                        LOCAL_DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_ENV_V1,
+                    )?,
+                    root_share_wire_secret: required_env_v1(
+                        &env,
+                        LOCAL_DERIVER_B_ROOT_SHARE_WIRE_SECRET_ENV_V1,
+                    )?,
+                    peer_signing_key: required_env_v1(
+                        &env,
+                        LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1,
+                    )?,
+                    deriver_a_peer_verifying_key: required_env_v1(
+                        &env,
+                        LOCAL_DERIVER_A_PEER_VERIFYING_KEY_ENV_V1,
+                    )?,
+                    deriver_b_peer_verifying_key: required_env_v1(
+                        &env,
+                        LOCAL_DERIVER_B_PEER_VERIFYING_KEY_ENV_V1,
+                    )?,
+                    root_share_storage_path: required_env_v1(
+                        &env,
+                        LOCAL_DERIVER_B_ROOT_SHARE_STORAGE_PATH_ENV_V1,
+                    )?,
+                    sealed_root_shares_path: required_env_v1(
+                        &env,
+                        LOCAL_DERIVER_B_SEALED_ROOT_SHARES_PATH_ENV_V1,
+                    )?,
+                },
+            ))
+        }
+        LocalServiceRoleV1::SigningWorker => {
+            reject_forbidden_env_keys_v1(&env, LOCAL_SIGNING_WORKER_FORBIDDEN_ENV_KEYS_V1)?;
+            Ok(LocalWorkerRoleConfigV1::SigningWorker(
+                LocalSigningWorkerConfigV1 {
+                    signing_worker_url: required_env_v1(&env, LOCAL_SIGNING_WORKER_URL_ENV_V1)?,
+                    signing_worker_id: required_env_v1(&env, LOCAL_SIGNING_WORKER_ID_ENV_V1)?,
+                    signing_worker_key_epoch: required_env_v1(
+                        &env,
+                        LOCAL_SIGNING_WORKER_KEY_EPOCH_ENV_V1,
+                    )?,
+                    relayer_output_hpke_public_key: required_env_v1(
+                        &env,
+                        LOCAL_SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY_ENV_V1,
+                    )?,
+                    relayer_output_hpke_private_key: required_env_v1(
+                        &env,
+                        LOCAL_SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
+                    )?,
+                    relayer_output_storage_path: required_env_v1(
+                        &env,
+                        LOCAL_SIGNING_WORKER_RELAYER_OUTPUT_STORAGE_PATH_ENV_V1,
+                    )?,
+                },
+            ))
+        }
+    }
+}
 
 /// Summary read back from local SQLite after seeding.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -216,6 +1456,597 @@ pub struct LocalRouterAbHssDevCeremonyResultV1 {
     pub hss_derivation: LocalEd25519HssRoleScopedDerivationOutputV1,
     /// Public HSS parity report for Deriver A/B split relayer shares.
     pub hss_parity: LocalEd25519HssSplitRelayerParityReportV1,
+}
+
+/// Combined dev harness output for the typed local HTTP Router/A/B ceremony.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalRouterAbHssDevHttpCeremonyResultV1 {
+    /// Public Router request used for the core local ceremony.
+    pub router_request: PublicRouterRequestV1,
+    /// Initial Router-to-Deriver A request over the checked local HTTP boundary.
+    pub deriver_a_request: LocalHttpRequestV1,
+    /// Initial Router-to-Deriver B request over the checked local HTTP boundary.
+    pub deriver_b_request: LocalHttpRequestV1,
+    /// Result of the typed local HTTP Router/Deriver/SigningWorker ceremony.
+    pub core_http_ceremony: LocalHttpCeremonyResultV1,
+    /// HSS recipient-scoped output evidence for the same account public key.
+    pub hss_derivation: LocalEd25519HssRoleScopedDerivationOutputV1,
+    /// Public HSS parity report for Deriver A/B split relayer shares.
+    pub hss_parity: LocalEd25519HssSplitRelayerParityReportV1,
+}
+
+/// Public local Router setup-smoke request body.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalRouterSetupSmokeRequestV1 {
+    /// Committed Ed25519-HSS fixture name to drive through local Router/A/B.
+    pub fixture_name: String,
+    /// Local split epoch for role-scoped HSS shares.
+    pub split_epoch: String,
+}
+
+impl LocalRouterSetupSmokeRequestV1 {
+    /// Creates a validated local Router setup-smoke request.
+    pub fn new(
+        fixture_name: impl Into<String>,
+        split_epoch: impl Into<String>,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self {
+            fixture_name: fixture_name.into(),
+            split_epoch: split_epoch.into(),
+        };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Validates required smoke request fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("local setup-smoke fixture_name", &self.fixture_name)?;
+        require_non_empty("local setup-smoke split_epoch", &self.split_epoch)
+    }
+}
+
+/// Public local Router setup-smoke response body.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct LocalRouterSetupSmokeResponseV1 {
+    /// Public fixture name used by the smoke request.
+    pub fixture_name: String,
+    /// Public split epoch used by the smoke request.
+    pub split_epoch: String,
+    /// Account public key for the fixture.
+    pub near_public_key: String,
+    /// Raw public key hex for cross-checks.
+    pub public_key_hex: String,
+    /// Router response carrying only client-output proof bundles.
+    pub router_response: LocalRouterRecipientProofBundleResponseV1,
+    /// Digest proving the SigningWorker accepted relayer-output activation.
+    pub signing_worker_activation_digest_hex: String,
+    /// Redacted activation status.
+    pub signing_worker_activation_status: String,
+}
+
+/// Handles the public local Router setup-smoke request body.
+pub fn handle_local_router_setup_smoke_request_v1(
+    request: LocalRouterSetupSmokeRequestV1,
+) -> RouterAbProtocolResult<LocalRouterSetupSmokeResponseV1> {
+    request.validate()?;
+    let result = run_example_local_router_ab_hss_dev_http_ceremony_v1(
+        &request.fixture_name,
+        &request.split_epoch,
+    )?;
+    result.core_http_ceremony.router_response.validate()?;
+    Ok(LocalRouterSetupSmokeResponseV1 {
+        fixture_name: request.fixture_name,
+        split_epoch: request.split_epoch,
+        near_public_key: result.hss_derivation.near_public_key,
+        public_key_hex: result.hss_derivation.public_key_hex,
+        router_response: result.core_http_ceremony.router_response,
+        signing_worker_activation_digest_hex: hex::encode(
+            result
+                .core_http_ceremony
+                .signing_worker_activation_receipt
+                .activation_digest
+                .as_bytes(),
+        ),
+        signing_worker_activation_status: "activated".to_owned(),
+    })
+}
+
+/// Parses and handles a public local Router setup-smoke request JSON body.
+pub fn handle_local_router_setup_smoke_request_json_v1(
+    body: &[u8],
+) -> RouterAbProtocolResult<String> {
+    let request =
+        serde_json::from_slice::<LocalRouterSetupSmokeRequestV1>(body).map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("local Router setup-smoke request JSON parse failed: {error}"),
+            )
+        })?;
+    serde_json::to_string(&handle_local_router_setup_smoke_request_v1(request)?).map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("local Router setup-smoke response JSON serialization failed: {error}"),
+        )
+    })
+}
+
+/// Redacted receipt from a local Deriver peer-message route.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalDeriverPeerMessageReceiptV1 {
+    /// Deriver worker role that accepted the peer message.
+    pub receiver_role: LocalServiceRoleV1,
+    /// Producing signer role bound inside the peer message.
+    pub accepted_from_role: Role,
+    /// Stable peer wire-message kind.
+    pub peer_message_kind: WireMessageKindV1,
+    /// Transcript digest for routing and smoke assertions.
+    pub transcript_digest_hex: String,
+    /// Number of proof bundles in the peer payload.
+    pub proof_bundle_count: usize,
+    /// Redacted receipt status.
+    pub status: String,
+}
+
+/// Parses and validates a Deriver peer-message JSON body for local worker routes.
+pub fn handle_local_deriver_peer_message_json_v1(
+    receiver_role: LocalServiceRoleV1,
+    path: &str,
+    body: &[u8],
+) -> RouterAbProtocolResult<String> {
+    let receipt = handle_local_deriver_peer_message_v1(
+        receiver_role,
+        path,
+        serde_json::from_slice::<WireMessageV1>(body).map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("local Deriver peer message JSON parse failed: {error}"),
+            )
+        })?,
+    )?;
+    serde_json::to_string(&receipt).map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("local Deriver peer receipt JSON serialization failed: {error}"),
+        )
+    })
+}
+
+/// Validates a Deriver peer message and returns a redacted local receipt.
+pub fn handle_local_deriver_peer_message_v1(
+    receiver_role: LocalServiceRoleV1,
+    path: &str,
+    message: WireMessageV1,
+) -> RouterAbProtocolResult<LocalDeriverPeerMessageReceiptV1> {
+    let (expected_path, expected_kind, expected_from, expected_to) = match receiver_role {
+        LocalServiceRoleV1::DeriverA => (
+            LOCAL_DERIVER_A_PEER_PATH_V1,
+            WireMessageKindV1::SignerBToSignerA,
+            Role::SignerB,
+            Role::SignerA,
+        ),
+        LocalServiceRoleV1::DeriverB => (
+            LOCAL_DERIVER_B_PEER_PATH_V1,
+            WireMessageKindV1::SignerAToSignerB,
+            Role::SignerA,
+            Role::SignerB,
+        ),
+        LocalServiceRoleV1::Router | LocalServiceRoleV1::SigningWorker => {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidRole,
+                "local Deriver peer route requires Deriver A or Deriver B receiver",
+            ));
+        }
+    };
+    if path != expected_path {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+            format!(
+                "{} peer route must be served at {}",
+                receiver_role.as_str(),
+                expected_path
+            ),
+        ));
+    }
+    if message.kind != expected_kind {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalRoute,
+            format!(
+                "{} peer route expected {} message, received {}",
+                receiver_role.as_str(),
+                expected_kind.as_str(),
+                message.kind.as_str()
+            ),
+        ));
+    }
+    let peer_payload = decode_ab_peer_message_payload_v1(message.payload.as_bytes())?;
+    let proof_batch = decode_and_validate_ab_derivation_proof_batch_peer_payload_v1(&peer_payload)?;
+    if peer_payload.transcript_digest != message.transcript_digest
+        || proof_batch.transcript_digest != message.transcript_digest
+    {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "local Deriver peer payload transcript does not match wire message",
+        ));
+    }
+    if peer_payload.from.role != expected_from || peer_payload.to.role != expected_to {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidSignerIdentity,
+            "local Deriver peer message signer direction does not match route",
+        ));
+    }
+    Ok(LocalDeriverPeerMessageReceiptV1 {
+        receiver_role,
+        accepted_from_role: peer_payload.from.role,
+        peer_message_kind: message.kind,
+        transcript_digest_hex: hex::encode(message.transcript_digest.as_bytes()),
+        proof_bundle_count: proof_batch.proof_bundles.len(),
+        status: "accepted".to_owned(),
+    })
+}
+
+/// Redacted receipt from a local SigningWorker activation route.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalSigningWorkerActivationRouteReceiptV1 {
+    /// Worker role that accepted the activation.
+    pub receiver_role: LocalServiceRoleV1,
+    /// Accepted opened share kind.
+    pub accepted_opened_share_kind: String,
+    /// Accepted recipient role.
+    pub accepted_recipient_role: Role,
+    /// Transcript digest shared by the relayer-output bundles.
+    pub transcript_digest_hex: String,
+    /// Digest of Deriver A's encrypted relayer-output bundle.
+    pub deriver_a_bundle_digest_hex: String,
+    /// Digest of Deriver B's encrypted relayer-output bundle.
+    pub deriver_b_bundle_digest_hex: String,
+    /// Redacted receipt status.
+    pub status: String,
+}
+
+/// Local normal-signing smoke request body.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalNormalSigningSmokeRequestV1 {
+    /// Request id used for smoke traceability.
+    pub request_id: String,
+    /// Account id that would be signed for.
+    pub account_id: String,
+    /// Session id that would resolve active SigningWorker state.
+    pub session_id: String,
+    /// Hex-encoded payload bytes to sign.
+    pub signing_payload_hex: String,
+}
+
+impl LocalNormalSigningSmokeRequestV1 {
+    /// Validates the smoke request shape.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("normal-signing smoke request_id", &self.request_id)?;
+        require_non_empty("normal-signing smoke account_id", &self.account_id)?;
+        require_non_empty("normal-signing smoke session_id", &self.session_id)?;
+        require_non_empty(
+            "normal-signing smoke signing_payload_hex",
+            &self.signing_payload_hex,
+        )?;
+        let _ = parse_local_normal_signing_payload_hex_v1(&self.signing_payload_hex)?;
+        Ok(())
+    }
+}
+
+/// Successful local SigningWorker normal-signing smoke response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalSigningWorkerNormalSigningSmokeResponseV1 {
+    /// Worker role that handled the request.
+    pub receiver_role: LocalServiceRoleV1,
+    /// Smoke request id.
+    pub request_id: String,
+    /// Local smoke signing status.
+    pub status: String,
+    /// Signature scheme used by the local smoke signer.
+    pub signature_scheme: String,
+    /// Digest of signed payload bytes.
+    pub signing_payload_digest_hex: String,
+    /// Local smoke signature bytes.
+    pub signature_hex: String,
+    /// Public key for verifying the local smoke signature.
+    pub verifying_key_hex: String,
+}
+
+/// Public Router normal-signing smoke response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalRouterNormalSigningSmokeResponseV1 {
+    /// Router status.
+    pub status: String,
+    /// Role the Router forwarded to.
+    pub forwarded_to_role: LocalServiceRoleV1,
+    /// SigningWorker status.
+    pub signing_worker_status: String,
+    /// Signature scheme used by the local smoke signer.
+    pub signature_scheme: String,
+    /// Digest of signed payload bytes.
+    pub signing_payload_digest_hex: String,
+    /// Local smoke signature bytes.
+    pub signature_hex: String,
+    /// Public key for verifying the local smoke signature.
+    pub verifying_key_hex: String,
+    /// Number of Deriver A requests issued on the normal-signing hot path.
+    pub deriver_a_request_count: u32,
+    /// Number of Deriver B requests issued on the normal-signing hot path.
+    pub deriver_b_request_count: u32,
+}
+
+/// Raw local HTTP response from a direct JSON POST.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalHttpPostResponseV1 {
+    /// HTTP status code.
+    pub status: u16,
+    /// Response body bytes.
+    pub body: Vec<u8>,
+}
+
+/// Handles the local SigningWorker normal-signing route with a dev-only smoke signer.
+pub fn handle_local_signing_worker_normal_signing_smoke_json_v1(
+    receiver_role: LocalServiceRoleV1,
+    path: &str,
+    body: &[u8],
+) -> RouterAbProtocolResult<String> {
+    if receiver_role != LocalServiceRoleV1::SigningWorker {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "local normal-signing private route requires SigningWorker receiver",
+        ));
+    }
+    if path != LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1 {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+            format!(
+                "SigningWorker normal-signing route must be served at {}",
+                LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1
+            ),
+        ));
+    }
+    let request = parse_local_normal_signing_smoke_request_v1(body)?;
+    let signing_payload = parse_local_normal_signing_payload_hex_v1(&request.signing_payload_hex)?;
+    let signing_payload_digest = local_normal_signing_payload_digest_hex_v1(&signing_payload);
+    let signing_key = local_normal_signing_smoke_key_v1(&request);
+    let signature = signing_key.sign(&signing_payload);
+    serde_json::to_string(&LocalSigningWorkerNormalSigningSmokeResponseV1 {
+        receiver_role,
+        request_id: request.request_id,
+        status: "signed".to_owned(),
+        signature_scheme: "local_dev_ed25519_v1".to_owned(),
+        signing_payload_digest_hex: signing_payload_digest,
+        signature_hex: hex::encode(signature.to_bytes()),
+        verifying_key_hex: hex::encode(signing_key.verifying_key().to_bytes()),
+    })
+    .map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!(
+                "local SigningWorker normal-signing response JSON serialization failed: {error}"
+            ),
+        )
+    })
+}
+
+/// Handles the local Router normal-signing public route by forwarding only to SigningWorker.
+pub fn handle_local_router_normal_signing_smoke_request_json_v1(
+    signing_worker_url: &str,
+    body: &[u8],
+) -> RouterAbProtocolResult<String> {
+    let request = parse_local_normal_signing_smoke_request_v1(body)?;
+    let url = format!(
+        "{}{}",
+        signing_worker_url.trim_end_matches('/'),
+        LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1
+    );
+    let response = local_http_post_json_url_v1(
+        &url,
+        &request,
+        Duration::from_millis(LOCAL_HTTP_SERVICE_BINDING_TIMEOUT_MS_V1),
+    )?;
+    if response.status != 200 {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+            format!(
+                "local Router normal-signing smoke expected SigningWorker status 200, received {}",
+                response.status
+            ),
+        ));
+    }
+    let signing_worker =
+        serde_json::from_slice::<LocalSigningWorkerNormalSigningSmokeResponseV1>(&response.body)
+            .map_err(|error| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    format!(
+                        "local SigningWorker normal-signing response JSON parse failed: {error}"
+                    ),
+                )
+            })?;
+    serde_json::to_string(&LocalRouterNormalSigningSmokeResponseV1 {
+        status: "signed".to_owned(),
+        forwarded_to_role: LocalServiceRoleV1::SigningWorker,
+        signing_worker_status: signing_worker.status,
+        signature_scheme: signing_worker.signature_scheme,
+        signing_payload_digest_hex: signing_worker.signing_payload_digest_hex,
+        signature_hex: signing_worker.signature_hex,
+        verifying_key_hex: signing_worker.verifying_key_hex,
+        deriver_a_request_count: 0,
+        deriver_b_request_count: 0,
+    })
+    .map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!(
+                "local Router normal-signing smoke response JSON serialization failed: {error}"
+            ),
+        )
+    })
+}
+
+fn parse_local_normal_signing_smoke_request_v1(
+    body: &[u8],
+) -> RouterAbProtocolResult<LocalNormalSigningSmokeRequestV1> {
+    let request =
+        serde_json::from_slice::<LocalNormalSigningSmokeRequestV1>(body).map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("local normal-signing smoke request JSON parse failed: {error}"),
+            )
+        })?;
+    request.validate()?;
+    Ok(request)
+}
+
+fn parse_local_normal_signing_payload_hex_v1(value: &str) -> RouterAbProtocolResult<Vec<u8>> {
+    require_non_empty("normal-signing smoke signing_payload_hex", value)?;
+    if value.len() % 2 != 0 {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            "normal-signing smoke signing_payload_hex must contain an even number of hex characters",
+        ));
+    }
+    hex::decode(value).map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("normal-signing smoke signing_payload_hex parse failed: {error}"),
+        )
+    })
+}
+
+fn local_normal_signing_payload_digest_hex_v1(signing_payload: &[u8]) -> String {
+    hex::encode(Sha256::digest(signing_payload))
+}
+
+fn local_normal_signing_smoke_key_v1(request: &LocalNormalSigningSmokeRequestV1) -> SigningKey {
+    let mut hasher = Sha256::new();
+    push_hash_field_v1(&mut hasher, LOCAL_NORMAL_SIGNING_SMOKE_LABEL_V1);
+    push_hash_field_v1(&mut hasher, request.account_id.as_bytes());
+    push_hash_field_v1(&mut hasher, request.session_id.as_bytes());
+    SigningKey::from_bytes(&hasher.finalize().into())
+}
+
+fn local_http_post_json_url_v1<T: Serialize>(
+    url: &str,
+    body: &T,
+    timeout: Duration,
+) -> RouterAbProtocolResult<LocalHttpPostResponseV1> {
+    if timeout.is_zero() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "local HTTP POST timeout must be non-zero",
+        ));
+    }
+    let parts = parse_http_url_parts_v1(url)?;
+    let request_body = serde_json::to_vec(body).map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("local HTTP POST JSON request serialization failed: {error}"),
+        )
+    })?;
+    let mut stream = TcpStream::connect(&parts.authority).map_err(map_local_http_io_error_v1)?;
+    stream
+        .set_read_timeout(Some(timeout))
+        .map_err(map_local_http_io_error_v1)?;
+    stream
+        .set_write_timeout(Some(timeout))
+        .map_err(map_local_http_io_error_v1)?;
+    write!(
+        stream,
+        "POST {} HTTP/1.1\r\nhost: {}\r\ncontent-type: {}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+        parts.path,
+        parts.authority,
+        LOCAL_HTTP_JSON_CONTENT_TYPE_V1,
+        request_body.len()
+    )
+    .map_err(map_local_http_io_error_v1)?;
+    stream
+        .write_all(&request_body)
+        .map_err(map_local_http_io_error_v1)?;
+    stream.flush().map_err(map_local_http_io_error_v1)?;
+    stream
+        .shutdown(Shutdown::Write)
+        .map_err(map_local_http_io_error_v1)?;
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .map_err(map_local_http_io_error_v1)?;
+    let (status, body) = split_local_http_response_v1(&response)?;
+    Ok(LocalHttpPostResponseV1 { status, body })
+}
+
+/// Parses and validates a SigningWorker activation JSON body for local worker routes.
+pub fn handle_local_signing_worker_activation_json_v1(
+    receiver_role: LocalServiceRoleV1,
+    path: &str,
+    body: &[u8],
+) -> RouterAbProtocolResult<String> {
+    let activation =
+        serde_json::from_slice::<LocalSigningWorkerRecipientProofBundleActivationV1>(body)
+            .map_err(|error| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MalformedWirePayload,
+                    format!("local SigningWorker activation JSON parse failed: {error}"),
+                )
+            })?;
+    serde_json::to_string(&handle_local_signing_worker_activation_v1(
+        receiver_role,
+        path,
+        activation,
+    )?)
+    .map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("local SigningWorker activation receipt JSON serialization failed: {error}"),
+        )
+    })
+}
+
+/// Validates a SigningWorker activation and returns a redacted local receipt.
+pub fn handle_local_signing_worker_activation_v1(
+    receiver_role: LocalServiceRoleV1,
+    path: &str,
+    activation: LocalSigningWorkerRecipientProofBundleActivationV1,
+) -> RouterAbProtocolResult<LocalSigningWorkerActivationRouteReceiptV1> {
+    if receiver_role != LocalServiceRoleV1::SigningWorker {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidRole,
+            "local SigningWorker activation route requires SigningWorker receiver",
+        ));
+    }
+    if path != LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1 {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+            format!(
+                "SigningWorker activation route must be served at {}",
+                LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1
+            ),
+        ));
+    }
+    activation.validate()?;
+    Ok(LocalSigningWorkerActivationRouteReceiptV1 {
+        receiver_role,
+        accepted_opened_share_kind: "x_relayer_base".to_owned(),
+        accepted_recipient_role: Role::Relayer,
+        transcript_digest_hex: hex::encode(
+            activation
+                .deriver_a_signing_worker_bundle
+                .transcript_digest
+                .as_bytes(),
+        ),
+        deriver_a_bundle_digest_hex: hex::encode(
+            activation
+                .deriver_a_signing_worker_bundle
+                .digest()
+                .as_bytes(),
+        ),
+        deriver_b_bundle_digest_hex: hex::encode(
+            activation
+                .deriver_b_signing_worker_bundle
+                .digest()
+                .as_bytes(),
+        ),
+        status: "accepted".to_owned(),
+    })
 }
 
 /// Role-scoped local HSS relayer-input share held by one Deriver.
@@ -585,6 +2416,53 @@ pub fn run_example_local_router_ab_hss_dev_ceremony_v1(
     })
 }
 
+/// Runs the local Router/Deriver/SigningWorker ceremony through checked local HTTP requests.
+pub fn run_example_local_router_ab_hss_dev_http_ceremony_v1(
+    fixture_name: &str,
+    split_epoch: &str,
+) -> RouterAbProtocolResult<LocalRouterAbHssDevHttpCeremonyResultV1> {
+    require_non_empty("fixture_name", fixture_name)?;
+    require_non_empty("split_epoch", split_epoch)?;
+    let fixture = committed_ed25519_hss_fixture_v1(fixture_name)?;
+    let (deriver_a, deriver_b) =
+        derive_committed_ed25519_hss_split_relayer_role_shares_v1(fixture_name, split_epoch)?;
+    let hss_derivation = evaluate_committed_ed25519_hss_role_scoped_derivation_v1(
+        fixture_name,
+        deriver_a.clone(),
+        deriver_b.clone(),
+    )?;
+    let hss_parity = verify_committed_ed25519_hss_split_relayer_role_shares_v1(
+        fixture_name,
+        deriver_a,
+        deriver_b,
+    )?;
+    let router_request = local_router_request_for_hss_fixture_v1(&fixture, &hss_derivation)?;
+    let (signer_a_request, signer_b_request) = router_request.to_signer_wire_messages()?;
+    let deriver_a_request = LocalHttpRequestV1::new(
+        LocalHttpMethodV1::Post,
+        LocalHttpPathV1::RouterToSignerA,
+        LocalTransportEnvelopeV1::new(LocalTransportRouteV1::RouterToSignerA, signer_a_request)?,
+    )?;
+    let deriver_b_request = LocalHttpRequestV1::new(
+        LocalHttpMethodV1::Post,
+        LocalHttpPathV1::RouterToSignerB,
+        LocalTransportEnvelopeV1::new(LocalTransportRouteV1::RouterToSignerB, signer_b_request)?,
+    )?;
+    let core_http_ceremony = local_service_stack_v1()?.run_deterministic_http_ceremony(
+        router_request.lifecycle.lifecycle_id.clone(),
+        deriver_a_request.clone(),
+        deriver_b_request.clone(),
+    )?;
+    Ok(LocalRouterAbHssDevHttpCeremonyResultV1 {
+        router_request,
+        deriver_a_request,
+        deriver_b_request,
+        core_http_ceremony,
+        hss_derivation,
+        hss_parity,
+    })
+}
+
 fn verify_ed25519_hss_split_relayer_fixture_v1(
     fixture: &FExpandFixture,
     split_epoch: &str,
@@ -686,6 +2564,26 @@ fn evaluate_ed25519_hss_split_relayer_fixture_with_role_shares_v1(
 /// Encodes a NEAR Ed25519 public key string from raw 32-byte public key material.
 pub fn encode_near_ed25519_public_key_v1(public_key: [u8; 32]) -> String {
     format!("ed25519:{}", bs58::encode(public_key).into_string())
+}
+
+/// Ensures local SQLite tables used by file-backed Durable Object storage exist.
+pub fn ensure_local_durable_object_sqlite_schema_v1(
+    connection: &Connection,
+) -> RouterAbProtocolResult<()> {
+    connection
+        .execute_batch(
+            "
+            PRAGMA foreign_keys = ON;
+
+            CREATE TABLE IF NOT EXISTS local_durable_object_kv (
+                scope TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value BLOB NOT NULL CHECK (length(value) > 0),
+                PRIMARY KEY (scope, key)
+            );
+            ",
+        )
+        .map_err(map_sqlite_error)
 }
 
 /// Ensures local SQLite tables used by Router/A/B seed tests exist.
@@ -1134,6 +3032,218 @@ fn require_non_empty(field: &str, value: &str) -> RouterAbProtocolResult<()> {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::EmptyField,
             format!("{field} must not be empty"),
+        ));
+    }
+    Ok(())
+}
+
+fn local_env_map_v1(
+    entries: impl IntoIterator<Item = (String, String)>,
+) -> RouterAbProtocolResult<BTreeMap<String, String>> {
+    let mut env = BTreeMap::new();
+    for (key, value) in entries {
+        require_non_empty("local env key", &key)?;
+        if env.insert(key.clone(), value).is_some() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                format!("duplicate local env key {key}"),
+            ));
+        }
+    }
+    Ok(env)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct LocalHttpUrlPartsV1 {
+    authority: String,
+    path: String,
+}
+
+fn parse_http_bind_addr_v1(url: &str) -> RouterAbProtocolResult<String> {
+    Ok(parse_http_url_parts_v1(url)?.authority)
+}
+
+fn parse_http_url_parts_v1(url: &str) -> RouterAbProtocolResult<LocalHttpUrlPartsV1> {
+    require_non_empty("local worker bind URL", url)?;
+    let Some(rest) = url.strip_prefix("http://") else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "local worker bind URL must start with http://",
+        ));
+    };
+    let (authority, path) = match rest.split_once('/') {
+        Some((authority, path)) => (authority, format!("/{path}")),
+        None => (rest, "/".to_owned()),
+    };
+    require_non_empty("local worker bind authority", authority)?;
+    let Some((host, port)) = authority.rsplit_once(':') else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "local worker bind URL must include host:port",
+        ));
+    };
+    require_non_empty("local worker bind host", host)?;
+    require_non_empty("local worker bind port", port)?;
+    let parsed_port = port.parse::<u16>().map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("local worker bind port is invalid: {error}"),
+        )
+    })?;
+    Ok(LocalHttpUrlPartsV1 {
+        authority: format!("{host}:{parsed_port}"),
+        path,
+    })
+}
+
+fn split_local_http_response_v1(response: &[u8]) -> RouterAbProtocolResult<(u16, Vec<u8>)> {
+    let Some(header_end) = response.windows(4).position(|window| window == b"\r\n\r\n") else {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+            "local HTTP service-binding response missing header terminator",
+        ));
+    };
+    let headers = std::str::from_utf8(&response[..header_end]).map_err(|error| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+            format!("local HTTP service-binding response headers are not UTF-8: {error}"),
+        )
+    })?;
+    let status_line = headers.lines().next().unwrap_or_default();
+    let mut status_parts = status_line.split_whitespace();
+    let protocol = status_parts.next().unwrap_or_default();
+    if protocol != "HTTP/1.1" && protocol != "HTTP/1.0" {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+            "local HTTP service-binding response has invalid HTTP version",
+        ));
+    }
+    let status = status_parts
+        .next()
+        .unwrap_or_default()
+        .parse::<u16>()
+        .map_err(|error| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+                format!("local HTTP service-binding response status is invalid: {error}"),
+            )
+        })?;
+    Ok((status, response[header_end + 4..].to_vec()))
+}
+
+fn map_local_http_io_error_v1(error: std::io::Error) -> RouterAbProtocolError {
+    RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::InvalidLocalHttpRequest,
+        format!("local HTTP service-binding I/O failed: {error}"),
+    )
+}
+
+fn materialize_template_v1(template: &str, seed: &[u8]) -> RouterAbProtocolResult<String> {
+    require_non_empty("local env materialization template", template)?;
+    let replacements = [
+        (
+            "dev-only-deriver-a-envelope-hpke-private-key",
+            "deriver-a-envelope-hpke-private-key",
+        ),
+        (
+            "dev-only-deriver-b-envelope-hpke-private-key",
+            "deriver-b-envelope-hpke-private-key",
+        ),
+        (
+            "dev-only-deriver-a-root-share-wire-secret",
+            "deriver-a-root-share-wire-secret",
+        ),
+        (
+            "dev-only-deriver-b-root-share-wire-secret",
+            "deriver-b-root-share-wire-secret",
+        ),
+        (
+            "dev-only-deriver-a-peer-signing-key",
+            "deriver-a-peer-signing-key",
+        ),
+        (
+            "dev-only-deriver-b-peer-signing-key",
+            "deriver-b-peer-signing-key",
+        ),
+        (
+            "dev-only-deriver-a-peer-verifying-key",
+            "deriver-a-peer-verifying-key",
+        ),
+        (
+            "dev-only-deriver-b-peer-verifying-key",
+            "deriver-b-peer-verifying-key",
+        ),
+        (
+            "dev-only-signing-worker-relayer-output-hpke-private-key",
+            "signing-worker-relayer-output-hpke-private-key",
+        ),
+    ];
+    let mut contents = template.to_owned();
+    for (placeholder, label) in replacements {
+        let material = local_generated_secret_v1(label, seed)?;
+        contents = contents.replace(placeholder, &material);
+    }
+    Ok(contents)
+}
+
+fn local_generated_secret_v1(label: &str, seed: &[u8]) -> RouterAbProtocolResult<String> {
+    require_non_empty("local generated secret label", label)?;
+    if seed.is_empty() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::EmptyField,
+            "local env materialization seed must not be empty",
+        ));
+    }
+    let mut hasher = Sha256::new();
+    push_hash_field_v1(&mut hasher, b"router-ab-dev/local-env-materialization/v1");
+    push_hash_field_v1(&mut hasher, label.as_bytes());
+    push_hash_field_v1(&mut hasher, seed);
+    Ok(format!(
+        "dev-only-generated-{label}-{}",
+        hex::encode(hasher.finalize())
+    ))
+}
+
+fn entries_from_env_map_v1(env: &BTreeMap<String, String>) -> Vec<(String, String)> {
+    env.iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
+}
+
+fn required_env_v1(
+    env: &BTreeMap<String, String>,
+    key: &'static str,
+) -> RouterAbProtocolResult<String> {
+    let value = env.get(key).ok_or_else(|| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MissingLocalBinding,
+            format!("missing local worker env key {key}"),
+        )
+    })?;
+    require_non_empty(key, value)?;
+    Ok(value.clone())
+}
+
+fn reject_forbidden_env_keys_v1(
+    env: &BTreeMap<String, String>,
+    forbidden_keys: &[&'static str],
+) -> RouterAbProtocolResult<()> {
+    for key in forbidden_keys {
+        if env.contains_key(*key) {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                format!("local worker role cannot receive env key {key}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn require_exact_len_v1(field: &str, actual: usize, expected: usize) -> RouterAbProtocolResult<()> {
+    if actual != expected {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            format!("{field} expected {expected} entries, received {actual}"),
         ));
     }
     Ok(())

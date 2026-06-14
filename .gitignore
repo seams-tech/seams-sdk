@@ -55,6 +55,7 @@ server/src/**/*.js.map
 
 # Local tooling caches
 .tooling/
+.router-ab-local/
 
 # editor configs
 .vscode/*

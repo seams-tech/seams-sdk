@@ -1,0 +1,10 @@
+ROUTER_AB_LOCAL_WORKER_ROLE=deriver-b
+DERIVER_B_URL=http://127.0.0.1:8789
+DERIVER_A_URL=http://127.0.0.1:8788
+DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY=dev-only-deriver-b-envelope-hpke-private-key
+DERIVER_B_ROOT_SHARE_WIRE_SECRET=dev-only-deriver-b-root-share-wire-secret
+DERIVER_B_PEER_SIGNING_KEY=dev-only-deriver-b-peer-signing-key
+DERIVER_A_PEER_VERIFYING_KEY=dev-only-deriver-a-peer-verifying-key
+DERIVER_B_PEER_VERIFYING_KEY=dev-only-deriver-b-peer-verifying-key
+DERIVER_B_ROOT_SHARE_STORAGE_PATH=.router-ab-local/deriver-b/root-share.sqlite
+DERIVER_B_SEALED_ROOT_SHARES_PATH=.router-ab-local/deriver-b/sealed-root-shares.sqlite
