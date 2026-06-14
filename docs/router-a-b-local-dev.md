@@ -200,7 +200,7 @@ Minimum bindings:
 | Router        | Router public URL, Deriver A URL, Deriver B URL, SigningWorker URL, Router replay/lifecycle/admission storage                |
 | Deriver A     | A envelope HPKE private key, A root-share wire secret, A peer signing key, A/B peer verifying keys, Deriver B URL, A storage |
 | Deriver B     | B envelope HPKE private key, B root-share wire secret, B peer signing key, A/B peer verifying keys, Deriver A URL, B storage |
-| SigningWorker | SigningWorker relayer-output HPKE private key, SigningWorker relayer-output storage, SigningWorker public identity           |
+| SigningWorker | SigningWorker server-output HPKE private key, SigningWorker server-output storage, SigningWorker public identity             |
 
 Forbidden local env checks should mirror production source guards:
 
@@ -267,12 +267,12 @@ the production role-separated Ed25519-HSS signer API.
 Add these commands after the binary exists:
 
 ```text
-pnpm router-ab:local:init
-pnpm router-ab:local:up
-pnpm router-ab:local:smoke
-pnpm router-ab:local:smoke:ci
-pnpm router-ab:local:smoke:bundled
-pnpm router-ab:local:down
+pnpm router:init
+pnpm router:up
+pnpm router:check
+pnpm router:smoke
+pnpm router:smoke:bundled
+pnpm router:down
 pnpm router
 pnpm router:multiplex
 pnpm router:bundled
@@ -280,16 +280,17 @@ pnpm router:bundled
 
 Expected behavior:
 
-- `local:init` generates dev-only env files, keys, and SQLite seed data.
-- `local:up` starts four processes and writes pids under `.router-ab-local/pids`.
-- `local:smoke` runs setup/activation and normal-signing smoke tests through
-  the Router public URL.
-- `local:smoke:ci` starts four ephemeral workers, runs the same smoke checks,
-  and tears the workers down.
-- `local:smoke:bundled` starts one ephemeral bundled server, runs the same
+- `router:init` generates dev-only env files, keys, and SQLite seed data.
+- `router:up` starts four detached processes and writes pids under
+  `.router-ab-local/pids`.
+- `router:check` runs setup/activation and normal-signing smoke tests through
+  an already running Router public URL.
+- `router:smoke` starts four ephemeral workers, runs the same smoke checks, and
+  tears the workers down.
+- `router:smoke:bundled` starts one ephemeral bundled server, runs the same
   setup/activation and normal-signing checks through one listener, and tears it
   down.
-- `local:down` stops only pids created by `local:up`.
+- `router:down` stops only pids created by `router:up`.
 - `router` starts Router, Deriver A, Deriver B, and SigningWorker in one
   terminal with interleaved color-labeled logs and stops all four workers on
   Ctrl-C.
@@ -300,6 +301,20 @@ Expected behavior:
   local TEE-shaped profile for deployments that deliberately give up process
   segregation.
 
+Frontend account-creation testing uses the regular local app stack:
+
+```sh
+pnpm site
+pnpm router:multiplex
+```
+
+Run those commands in separate terminals. `pnpm site` owns
+`https://localhost`, and `pnpm router:multiplex` starts the relay upstream at
+`127.0.0.1:8444` when it is not already running. It verifies
+`https://localhost:9444/.well-known/webauthn` and starts the local Caddy proxy
+when that HTTPS endpoint is absent. The Router A/B harness workers still run on
+their own local ports for protocol work.
+
 `pnpm server` still starts the main SDK relay server in `apps/web-server`. It
 does not mean Router A/B bundled mode.
 
@@ -307,14 +322,14 @@ When default ports `8787-8790` are occupied, initialize with free localhost
 ports:
 
 ```sh
-pnpm router-ab:local:init -- --force --ephemeral-ports
-pnpm router-ab:local:up
-pnpm router-ab:local:smoke
-pnpm router-ab:local:down
+pnpm router:init -- --force --ephemeral-ports
+pnpm router:up
+pnpm router:check
+pnpm router:down
 ```
 
-The generated env files record the selected URLs, so `local:up` and
-`local:smoke` use the same four-worker topology without extra flags.
+The generated env files record the selected URLs, so `router:up` and
+`router:check` use the same four-worker topology without extra flags.
 
 For fresh single-terminal runs with free ports:
 
@@ -335,17 +350,34 @@ Use `--url http://127.0.0.1:<port>` to override the Router env file's
 To smoke-test a running bundled server from another terminal:
 
 ```sh
-pnpm router-ab:local:smoke -- --topology bundled
+pnpm router:check -- --topology bundled
 ```
 
 For a one-command bundled smoke with temp state and an ephemeral port:
 
 ```sh
-pnpm router-ab:local:smoke:bundled
+pnpm router:smoke:bundled
 ```
 
 The implementation can also expose equivalent `just` recipes if the repo
 standardizes Router/A/B developer commands there.
+
+## Local Browser Evidence
+
+2026-06-14 local development evidence:
+
+- [x] `pnpm build:sdk && pnpm router` starts the frontend relay, verifies
+      `https://localhost:9444/.well-known/webauthn`, and starts Router,
+      Deriver A, Deriver B, and SigningWorker after the browser-facing relay
+      path is stable.
+- [x] Passkey wallet unlock succeeds against the local stack.
+- [x] Passkey account registration succeeds against the local stack.
+- [x] Ed25519 transaction signing succeeds against the local stack.
+- [x] ECDSA transaction signing succeeds against the local stack.
+- [x] Ctrl-C stops the started local workers and frontend relay.
+
+This is local development evidence. It does not replace deployed Cloudflare
+runtime evidence or the production Ed25519-HSS normal-signing release gate.
 
 ## Test Gates
 
@@ -425,10 +457,10 @@ Release gates before Cloudflare deployment:
 
 ### Phase 6: Developer Commands
 
-- [x] Add `pnpm router-ab:local:init`.
-- [x] Add `pnpm router-ab:local:up`.
-- [x] Add `pnpm router-ab:local:smoke`.
-- [x] Add `pnpm router-ab:local:down`.
+- [x] Add `pnpm router:init`.
+- [x] Add `pnpm router:up`.
+- [x] Add `pnpm router:check`.
+- [x] Add `pnpm router:down`.
 - [x] Add `pnpm router` interleaved logs with Ctrl-C cleanup.
 - [x] Add `pnpm router:multiplex` 2x2 dashboard with Ctrl-C cleanup.
 - [x] Add `pnpm router:bundled` single-server mode for local TEE-shaped
@@ -438,6 +470,11 @@ Release gates before Cloudflare deployment:
       command.
 - [x] Add persistent local init mode that materializes free ports when defaults
       are occupied.
+- [x] Make `pnpm router` and `pnpm router:multiplex` auto-start the
+      `127.0.0.1:8444` frontend relay upstream when it is not already running.
+- [x] Make `pnpm router` and `pnpm router:multiplex` verify the
+      `https://localhost:9444/.well-known/webauthn` proxy path before workers
+      are marked ready.
 
 ### Phase 7: Cloudflare Parity Checks
 
@@ -455,8 +492,8 @@ Release gates before Cloudflare deployment:
 - [ ] Record local smoke timings next to deployed Cloudflare startup and
       hot-path benchmarks.
 
-`router-ab:local:smoke` and `router-ab:local:smoke:ci` emit local per-phase
-elapsed times in milliseconds. `router-ab:local:measure` writes the same data
+`router:check` and `router:smoke` emit local per-phase
+elapsed times in milliseconds. `router:measure` writes the same data
 to `crates/router-ab-dev/reports/local-smoke-timings/`. Keep the deployed
 benchmark checkbox open until Cloudflare startup and hot-path measurements are
 recorded next to those local numbers.

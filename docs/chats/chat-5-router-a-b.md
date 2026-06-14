@@ -140,13 +140,13 @@ Local roles:
 Commands added to root `package.json`:
 
 ```sh
-pnpm router-ab:local:init
-pnpm router-ab:local:up
-pnpm router-ab:local:smoke
-pnpm router-ab:local:smoke:ci
-pnpm router-ab:local:smoke:bundled
-pnpm router-ab:local:measure
-pnpm router-ab:local:down
+pnpm router:init
+pnpm router:up
+pnpm router:check
+pnpm router:smoke
+pnpm router:smoke:bundled
+pnpm router:measure
+pnpm router:down
 pnpm router
 pnpm router:multiplex
 pnpm router:bundled
@@ -155,19 +155,19 @@ pnpm router:bundled
 Persistent local development setup:
 
 ```sh
-pnpm router-ab:local:init -- --force
-pnpm router-ab:local:up
-pnpm router-ab:local:smoke
-pnpm router-ab:local:down
+pnpm router:init -- --force
+pnpm router:up
+pnpm router:check
+pnpm router:down
 ```
 
 If default ports `8787-8790` are occupied:
 
 ```sh
-pnpm router-ab:local:init -- --force --ephemeral-ports
-pnpm router-ab:local:up
-pnpm router-ab:local:smoke
-pnpm router-ab:local:down
+pnpm router:init -- --force --ephemeral-ports
+pnpm router:up
+pnpm router:check
+pnpm router:down
 ```
 
 Current local smoke behavior:
@@ -210,10 +210,10 @@ HTTP listener. It is the local TEE-shaped deployment profile, separate from
 Smoke-test the bundled topology with:
 
 ```sh
-pnpm router-ab:local:smoke:bundled
+pnpm router:smoke:bundled
 ```
 
-`router-ab:local:measure` writes local timing evidence to:
+`router:measure` writes local timing evidence to:
 
 ```text
 crates/router-ab-dev/reports/local-smoke-timings/
@@ -222,11 +222,11 @@ crates/router-ab-dev/reports/local-smoke-timings/
 Latest persistent four-worker local run:
 
 - Default `8787` was occupied by an existing Node process.
-- `router-ab:local:init -- --force --ephemeral-ports` generated free ports
+- `router:init -- --force --ephemeral-ports` generated free ports
   `52310-52313`.
-- `router-ab:local:up` started Router, Deriver A, Deriver B, and SigningWorker
+- `router:up` started Router, Deriver A, Deriver B, and SigningWorker
   as four detached local processes.
-- `router-ab:local:smoke -- --out /tmp/router-ab-local-four-worker-smoke.json`
+- `router:check -- --out /tmp/router-ab-local-four-worker-smoke.json`
   passed:
   - setup status: `accepted`
   - Deriver B peer status: `accepted`
@@ -234,18 +234,18 @@ Latest persistent four-worker local run:
   - SigningWorker activation status: `accepted`
   - normal signing status: `signed`
   - Deriver A/B normal-signing request counts: `0`
-- `router-ab:local:down` terminated all four worker pids.
+- `router:down` terminated all four worker pids.
 
 Latest ephemeral topology smoke checks:
 
-- `router-ab:local:smoke:ci` passed with `topology: four-worker`.
+- `router:smoke` passed with `topology: four-worker`.
   - setup status: `accepted`
   - Deriver B peer status: `accepted`
   - Deriver A peer status: `accepted`
   - SigningWorker activation status: `accepted`
   - normal signing status: `signed`
   - Deriver A/B normal-signing request counts: `0`
-- `router-ab:local:smoke:bundled` passed with `topology: bundled`.
+- `router:smoke:bundled` passed with `topology: bundled`.
   - one bundled process exposed Router, Deriver A, Deriver B, and
     SigningWorker routes through one localhost listener.
   - setup status: `accepted`
@@ -327,10 +327,10 @@ Last focused validation run:
 cargo test --manifest-path crates/router-ab-dev/Cargo.toml
 49 passed
 
-pnpm router-ab:local:smoke:ci
+pnpm router:smoke
 passed with normal_signing_status="signed" and Deriver A/B normal-signing counts 0
 
-pnpm router-ab:local:measure -- --out /tmp/router-ab-local-smoke.json
+pnpm router:measure -- --out /tmp/router-ab-local-smoke.json
 passed and wrote timing evidence
 
 cargo test --manifest-path crates/router-ab-core/Cargo.toml
@@ -388,6 +388,13 @@ Completed since the first handoff draft:
       keys.
 - [x] Updated deployment runbooks with Router A/B secrets, vars, workflow
       commands, and deploy order.
+- [x] Confirmed local browser passkey wallet unlock with `pnpm build:sdk &&
+      pnpm router`.
+- [x] Confirmed local browser passkey account registration, Ed25519 transaction
+      signing, and ECDSA transaction signing with the same local stack.
+- [x] Fixed `pnpm router` startup so it waits for
+      `https://localhost:9444/.well-known/webauthn` to stay healthy before
+      starting Router A/B workers.
 
 ## Remaining Open Tasks
 
@@ -489,9 +496,9 @@ Run:
 
 ```sh
 rtk cargo test --manifest-path crates/router-ab-dev/Cargo.toml
-rtk pnpm router-ab:local:smoke:ci
-rtk pnpm router-ab:local:smoke:bundled
-rtk pnpm router-ab:local:measure -- --out /tmp/router-ab-local-smoke.json
+rtk pnpm router:smoke
+rtk pnpm router:smoke:bundled
+rtk pnpm router:measure -- --out /tmp/router-ab-local-smoke.json
 ```
 
 Then choose one of:

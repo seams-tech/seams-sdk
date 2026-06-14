@@ -34,16 +34,16 @@ Deriver A and Deriver B do not participate in each normal ECDSA signature.
 The current ECDSA-HSS role-local design is:
 
 ```text
-x = x_client + x_relayer mod n
+x = x_client + x_server mod n
 X_client = x_client * G
-X_relayer = x_relayer * G
-X = X_client + X_relayer
+X_server = x_server * G
+X = X_client + X_server
 address = ethereum_address(X)
 ```
 
 The active ECDSA-HSS server-blindness invariant is that production server paths
 must not reconstruct canonical `x`, must not return `privateKeyHex`, and must
-not accept both `y_client` and `y_relayer` in one process.
+not accept both `y_client` and `y_server` in one process.
 
 Router-A-B strengthens that boundary operationally:
 
@@ -55,7 +55,7 @@ Router-A-B strengthens that boundary operationally:
 - The authorized client export runtime is the only place allowed to reconstruct
   canonical `x`.
 
-A single compromised Deriver cannot reconstruct `x_relayer`, canonical `x`, or
+A single compromised Deriver cannot reconstruct `x_server`, canonical `x`, or
 `privateKeyHex`. A single compromised Router sees only public metadata and
 ciphertext. A single compromised SigningWorker may expose active signing-worker
 material, but should not expose Deriver A/B root material or client export
@@ -83,10 +83,10 @@ This version must have ECDSA-specific:
 
 Do not reuse the Ed25519-HSS Router-A-B protocol version for ECDSA-HSS.
 
-Terminology: existing ECDSA-HSS specs use `relayer` for the server-side ECDSA
-share role and variables such as `y_relayer` and `x_relayer`. This plan uses
+Terminology: existing ECDSA-HSS specs use `server` for the server-side ECDSA
+share role and variables such as `y_server` and `x_server`. This plan uses
 `SigningWorker` for the Router-A-B runtime role and keeps the existing
-`*_relayer` variable names until the ECDSA-specific version freezes a rename.
+`*_server` variable names until the ECDSA-specific version freezes a rename.
 
 ## Role Mapping
 
@@ -116,8 +116,8 @@ Router -> Client: public identity, activation receipt, client-facing evidence
 The SigningWorker opens only the material intended for it. It derives or
 receives enough public evidence to return:
 
-- `X_relayer`
-- `X = X_client + X_relayer`
+- `X_server`
+- `X = X_client + X_server`
 - Ethereum address
 - activation digest
 - SigningWorker identity and key epoch
@@ -154,7 +154,7 @@ The server-side export response must never contain:
 - `privateKeyHex`
 - `x_client`
 - `y_client`
-- `y_relayer`
+- `y_server`
 - backend threshold private shares
 
 ### Normal ECDSA Signing
@@ -181,14 +181,26 @@ SigningWorker/client signing protocol. Deriver A/B stay out of online signing.
 | `x_client` | Client only |
 | Deriver A root/provisioning share | Deriver A only |
 | Deriver B root/provisioning share | Deriver B only |
-| Joined `y_relayer` | No single production worker |
-| Joined `x_relayer` before activation | No Deriver or Router plaintext |
+| Joined `y_server` | No single production worker |
+| Joined `x_server` before activation | No Deriver or Router plaintext |
 | Activated SigningWorker material | SigningWorker only |
 | Canonical `x` / `privateKeyHex` | Authorized client export runtime only |
 | ECDSA presign/triple/nonce material | SigningWorker/signing backend only |
-| Public `X_client`, `X_relayer`, `X`, address | Public transcript, after validation |
+| Public `X_client`, `X_server`, `X`, address | Public transcript, after validation |
 
 ## Implementation Plan
+
+Current status as of 2026-06-14:
+
+- [x] Existing passkey ECDSA transaction signing works in the local browser stack
+      started with `pnpm build:sdk && pnpm router`.
+- [x] Normal ECDSA signing remains off the A/B derivation path in the validated
+      local stack.
+- [ ] Router A/B ECDSA-HSS registration, activation, export, recovery, and
+      refresh are still future protocol work in this plan.
+
+Treat the local ECDSA transaction result as hot-path signing evidence. It does
+not complete `router_ab_ecdsa_hss_secp256k1_v1`.
 
 ### Phase 0: Scope Freeze
 
@@ -214,7 +226,7 @@ SigningWorker/client signing protocol. Deriver A/B stay out of online signing.
       signing root version, key purpose, key version, Deriver A identity,
       Deriver B identity, SigningWorker identity, client identity, replay nonce,
       and request kind.
-- [ ] Define how `X_client`, `X_relayer`, `X`, and Ethereum address are produced,
+- [ ] Define how `X_client`, `X_server`, `X`, and Ethereum address are produced,
       verified, and persisted.
 - [ ] Define activation receipt contents and failure cases.
 
@@ -236,9 +248,9 @@ SigningWorker/client signing protocol. Deriver A/B stay out of online signing.
       secp256k1 scalar material under ECDSA-specific domain labels.
 - [ ] Define non-zero scalar reduction and retry semantics.
 - [ ] Produce recipient-scoped proof bundles for:
-      `x_relayer -> SigningWorker` and `x_relayer_export -> client`.
-- [ ] Produce public commitments sufficient to verify `X_relayer`,
-      `X = X_client + X_relayer`, and Ethereum address parity.
+      `x_server -> SigningWorker` and `x_server_export -> client`.
+- [ ] Produce public commitments sufficient to verify `X_server`,
+      `X = X_client + X_server`, and Ethereum address parity.
 - [ ] Add deterministic vectors for scalar validity, zero-sum retry, public key
       parity, address parity, transcript mismatch, wrong recipient, and wrong
       SigningWorker identity.
@@ -269,7 +281,7 @@ SigningWorker/client signing protocol. Deriver A/B stay out of online signing.
 - [ ] Add nonce replay protection and failure-burning behavior.
 - [ ] Add audit events that include operation kind, public key/address
       fingerprint, authorization digest, nonce fingerprint, and result.
-- [ ] Source-guard logs and telemetry against `x`, `x_client`, `x_relayer`,
+- [ ] Source-guard logs and telemetry against `x`, `x_client`, `x_server`,
       `privateKeyHex`, raw root material, and presign scalar material.
 
 ### Phase 6: Normal Signing Integration
@@ -311,8 +323,8 @@ SigningWorker/client signing protocol. Deriver A/B stay out of online signing.
   key identity or require fresh ECDSA keys?
 - Should ECDSA-HSS export always rederive export material from Deriver A/B, or
   can a hardened deployment allow SigningWorker export under stronger policy?
-- Which public proof is enough to bind `X_relayer` to A/B output without
-  leaking `x_relayer` to Router or a Deriver?
+- Which public proof is enough to bind `X_server` to A/B output without
+  leaking `x_server` to Router or a Deriver?
 - Do Deriver A and Deriver B live in separate Cloudflare accounts for ECDSA-HSS
   production?
 - Does ECDSA-HSS need direct A/B -> SigningWorker activation in v1, or is

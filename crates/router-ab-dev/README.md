@@ -19,11 +19,10 @@ cargo run --manifest-path crates/router-ab-dev/Cargo.toml --bin router_ab_local_
 Run the local process harness through the repo-level wrappers:
 
 ```sh
-pnpm router-ab:local:init -- --force
-pnpm router-ab:local:up
-pnpm router-ab:local:smoke
-pnpm router-ab:local:smoke:bundled
-pnpm router-ab:local:down
+pnpm router:init -- --force
+pnpm router:up
+pnpm router:check
+pnpm router:down
 ```
 
 For a single terminal with Docker-style interleaved logs, launch all four
@@ -39,6 +38,13 @@ For a single-terminal 2x2 dashboard:
 pnpm router:multiplex
 ```
 
+`pnpm router` and `pnpm router:multiplex` launch the Router A/B protocol
+harness and start the frontend relay upstream at `127.0.0.1:8444` when it is
+not already running. They also verify
+`https://localhost:9444/.well-known/webauthn` and start the local Caddy proxy
+when that HTTPS endpoint is absent. Browser account creation still needs the
+local app from `pnpm site`.
+
 For a single bundled server that exposes Router, Deriver A, Deriver B, and
 SigningWorker routes from one process:
 
@@ -49,7 +55,7 @@ pnpm router:bundled
 Verify a running bundled server from a second terminal:
 
 ```sh
-pnpm router-ab:local:smoke -- --topology bundled
+pnpm router:check -- --topology bundled
 ```
 
 Pass `--fresh` to regenerate env files with free localhost ports before launch:
@@ -66,23 +72,23 @@ If the default ports `8787-8790` are already in use, generate the same local
 environment with free localhost ports:
 
 ```sh
-pnpm router-ab:local:init -- --force --ephemeral-ports
-pnpm router-ab:local:up
-pnpm router-ab:local:smoke
-pnpm router-ab:local:down
+pnpm router:init -- --force --ephemeral-ports
+pnpm router:up
+pnpm router:check
+pnpm router:down
 ```
 
 For CI-safe local parity smoke with temp state and ephemeral ports:
 
 ```sh
-pnpm router-ab:local:smoke:ci
-pnpm router-ab:local:smoke:bundled
+pnpm router:smoke
+pnpm router:smoke:bundled
 ```
 
 Capture a timestamped local timing evidence artifact:
 
 ```sh
-pnpm router-ab:local:measure
+pnpm router:measure
 ```
 
 The local deployment parity plan lives at
