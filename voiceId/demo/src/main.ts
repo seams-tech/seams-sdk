@@ -53,6 +53,8 @@ type DemoRecordingSession =
       durationMs: number;
     };
 
+type DemoMode = 'fixture_capture' | 'demo_flow';
+
 type FixtureCaptureForm = {
   speakerLabel: string;
   phraseLabel: string;
@@ -152,6 +154,7 @@ let capturedFixtures: CapturedFixtureView[] = [];
 let isSavingFixtureSet = false;
 let enrollmentAttempts = 0;
 let verificationAttempts = 0;
+let activeMode: DemoMode = 'fixture_capture';
 
 const app = document.querySelector<HTMLElement>('#app');
 if (!app) {
@@ -170,50 +173,104 @@ function render(): void {
         <h1>VoiceID MVP</h1>
         <p>Browser speaker verification demo.</p>
       </header>
-      <section class="panel voice-panel">
-        <div class="voice-layout">
-          <div class="prompt-block">
-            <span class="eyebrow">Speak</span>
-            <div class="prompt-text">${escapeHtml(displayedPrompt)}</div>
-            <div class="sample-progress" aria-label="Enrollment samples accepted">
-              ${renderSampleDots(getEnrollmentSampleCount(state))}
-              <span>${getEnrollmentSampleCount(state)} / 3 enrollment samples</span>
-            </div>
-          </div>
-          <dl class="status-grid">
-            <div><dt>Status</dt><dd>${escapeHtml(formatStateKind(state.kind))}</dd></div>
-            <div><dt>Message</dt><dd>${escapeHtml(state.message)}</dd></div>
-            <div><dt>Quality</dt><dd>${escapeHtml(diagnostics.quality)}</dd></div>
-            <div><dt>Phrase</dt><dd>${escapeHtml(diagnostics.phrase)}</dd></div>
-            <div><dt>Speaker</dt><dd>${escapeHtml(diagnostics.speaker)}</dd></div>
-            <div><dt>Final</dt><dd>${escapeHtml(diagnostics.finalResult)}</dd></div>
-          </dl>
-        </div>
-        ${renderRecordingBanner()}
-        <div class="action-groups">
-          <div class="action-group">
-            <span>Enrollment</span>
-            <button id="start-enrollment" ${disabledAttribute(!controls.canStartEnrollment)}>Start</button>
-            <button id="record-enrollment" ${disabledAttribute(!controls.canRecordEnrollment)}>Record sample</button>
-            <button id="finalize-enrollment" ${disabledAttribute(!controls.canFinalizeEnrollment)}>Finalize</button>
-          </div>
-          <div class="action-group">
-            <span>Verification</span>
-            <button id="start-verification" ${disabledAttribute(!controls.canStartVerification)}>Start</button>
-            <button id="record-verification" ${disabledAttribute(!controls.canRecordVerification)}>Record</button>
-          </div>
-        </div>
-      </section>
-      ${renderFixtureCapturePanel()}
+      ${renderModeSwitch()}
+      ${activeMode === 'fixture_capture' ? renderFixtureCapturePanel() : renderDemoPanel(displayedPrompt, controls)}
     </section>
   `;
 
+  bindModeSwitch();
+  if (activeMode === 'fixture_capture') {
+    bindFixtureCaptureControls();
+    return;
+  }
   document.querySelector('#start-enrollment')?.addEventListener('click', startEnrollment);
   document.querySelector('#record-enrollment')?.addEventListener('click', recordEnrollmentSample);
   document.querySelector('#finalize-enrollment')?.addEventListener('click', finalizeEnrollment);
   document.querySelector('#start-verification')?.addEventListener('click', startVerification);
   document.querySelector('#record-verification')?.addEventListener('click', recordVerificationSample);
-  bindFixtureCaptureControls();
+}
+
+function renderModeSwitch(): string {
+  const canSwitchMode = activeRecording.kind === 'none' && !isSavingFixtureSet;
+  return `
+    <div class="mode-switch" role="tablist" aria-label="VoiceID workflow">
+      <button
+        id="mode-fixture-capture"
+        class="mode-button ${activeMode === 'fixture_capture' ? 'active' : ''}"
+        role="tab"
+        aria-selected="${activeMode === 'fixture_capture'}"
+        ${disabledAttribute(!canSwitchMode)}
+      >
+        Fixture capture
+      </button>
+      <button
+        id="mode-demo-flow"
+        class="mode-button ${activeMode === 'demo_flow' ? 'active' : ''}"
+        role="tab"
+        aria-selected="${activeMode === 'demo_flow'}"
+        ${disabledAttribute(!canSwitchMode)}
+      >
+        Demo flow
+      </button>
+    </div>
+  `;
+}
+
+function renderDemoPanel(
+  displayedPrompt: string,
+  controls: ReturnType<typeof getDemoControls>,
+): string {
+  return `
+    <section class="panel voice-panel">
+      <div class="voice-layout">
+        <div class="prompt-block">
+          <span class="eyebrow">Speak</span>
+          <div class="prompt-text">${escapeHtml(displayedPrompt)}</div>
+          <div class="sample-progress" aria-label="Enrollment samples accepted">
+            ${renderSampleDots(getEnrollmentSampleCount(state))}
+            <span>${getEnrollmentSampleCount(state)} / 3 enrollment samples</span>
+          </div>
+        </div>
+        <dl class="status-grid">
+          <div><dt>Status</dt><dd>${escapeHtml(formatStateKind(state.kind))}</dd></div>
+          <div><dt>Message</dt><dd>${escapeHtml(state.message)}</dd></div>
+          <div><dt>Quality</dt><dd>${escapeHtml(diagnostics.quality)}</dd></div>
+          <div><dt>Phrase</dt><dd>${escapeHtml(diagnostics.phrase)}</dd></div>
+          <div><dt>Speaker</dt><dd>${escapeHtml(diagnostics.speaker)}</dd></div>
+          <div><dt>Final</dt><dd>${escapeHtml(diagnostics.finalResult)}</dd></div>
+        </dl>
+      </div>
+      ${renderRecordingBanner()}
+      <div class="action-groups">
+        <div class="action-group">
+          <span>Enrollment</span>
+          <button id="start-enrollment" ${disabledAttribute(!controls.canStartEnrollment)}>Start</button>
+          <button id="record-enrollment" ${disabledAttribute(!controls.canRecordEnrollment)}>Record sample</button>
+          <button id="finalize-enrollment" ${disabledAttribute(!controls.canFinalizeEnrollment)}>Finalize</button>
+        </div>
+        <div class="action-group">
+          <span>Verification</span>
+          <button id="start-verification" ${disabledAttribute(!controls.canStartVerification)}>Start</button>
+          <button id="record-verification" ${disabledAttribute(!controls.canRecordVerification)}>Record</button>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+function bindModeSwitch(): void {
+  document.querySelector('#mode-fixture-capture')?.addEventListener('click', () => {
+    switchDemoMode('fixture_capture');
+  });
+  document.querySelector('#mode-demo-flow')?.addEventListener('click', () => {
+    switchDemoMode('demo_flow');
+  });
+}
+
+function switchDemoMode(nextMode: DemoMode): void {
+  if (activeMode === nextMode || activeRecording.kind !== 'none' || isSavingFixtureSet) return;
+  activeMode = nextMode;
+  render();
 }
 
 function renderFixtureCapturePanel(): string {
@@ -1056,8 +1113,38 @@ style.textContent = `
     box-shadow: 0 1px 2px rgb(22 32 39 / 4%);
   }
 
-  .voice-panel {
+  .mode-switch {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
     margin-top: 24px;
+    padding: 4px;
+  }
+
+  .mode-button {
+    border-color: transparent;
+    background: transparent;
+    color: var(--muted);
+    min-height: 34px;
+    padding: 0 12px;
+  }
+
+  .mode-button:hover:not(:disabled) {
+    background: var(--surface-muted);
+    color: var(--primary);
+  }
+
+  .mode-button.active {
+    border-color: var(--primary);
+    background: var(--primary);
+    color: #fff;
+  }
+
+  .voice-panel {
+    margin-top: 16px;
   }
 
   .fixture-panel {
@@ -1481,6 +1568,11 @@ style.textContent = `
     .fixture-actions button,
     .action-group button {
       flex: 1 1 140px;
+    }
+
+    .mode-switch {
+      display: grid;
+      grid-template-columns: 1fr;
     }
   }
 `;
