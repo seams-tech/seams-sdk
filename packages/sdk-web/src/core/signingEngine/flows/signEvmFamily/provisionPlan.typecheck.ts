@@ -1,13 +1,29 @@
-import type { ReadyEvmFamilyEcdsaMaterial } from '../../session/identity/evmFamilyEcdsaIdentity';
+import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import { buildEvmFamilyPasskeyEcdsaProvisionPlan } from './provisionPlan';
+import type { ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
 import type { EvmFamilyEcdsaPasskeyStepUpAuthorization } from './stepUpAuthorization';
 
 declare const authorization: EvmFamilyEcdsaPasskeyStepUpAuthorization;
-declare const material: ReadyEvmFamilyEcdsaMaterial;
+declare const lane: Pick<ResolvedEvmFamilyEcdsaSigningLane, 'key' | 'keyHandle' | 'chainTarget'>;
+declare const record: ThresholdEcdsaSessionRecord;
 
 void buildEvmFamilyPasskeyEcdsaProvisionPlan({
   authorization,
-  material,
+  material: { kind: 'session_record', lane, record },
+  sessionBudgetUses: 1,
+});
+
+void buildEvmFamilyPasskeyEcdsaProvisionPlan({
+  authorization,
+  // @ts-expect-error passkey ECDSA provision must not accept sealed recovery material
+  material: { kind: 'sealed_recovery', lane, record },
+  sessionBudgetUses: 1,
+});
+
+void buildEvmFamilyPasskeyEcdsaProvisionPlan({
+  authorization,
+  // @ts-expect-error passkey ECDSA provision requires an exact session record
+  material: { kind: 'session_record', lane, record: null },
   sessionBudgetUses: 1,
 });
 

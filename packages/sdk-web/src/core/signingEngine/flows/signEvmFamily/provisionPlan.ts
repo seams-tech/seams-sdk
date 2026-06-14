@@ -1,7 +1,5 @@
 import { getPrfFirstB64uFromCredential } from '../../webauthnAuth/credentials/credentialExtensions';
-import {
-  type ThresholdEcdsaSessionRecord,
-} from '../../session/persistence/records';
+import { type ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import {
   buildEcdsaReconnectMaterial,
   buildEcdsaSessionIdentity,
@@ -20,7 +18,8 @@ import type {
 } from './stepUpAuthorization';
 
 type PasskeyEcdsaProvisionMaterial = {
-  lane: Pick<ResolvedEvmFamilyEcdsaSigningLane, 'key' | 'chainTarget'>;
+  kind: 'session_record';
+  lane: Pick<ResolvedEvmFamilyEcdsaSigningLane, 'key' | 'keyHandle' | 'chainTarget'>;
   record: ThresholdEcdsaSessionRecord;
 };
 
@@ -87,8 +86,10 @@ export async function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
       passkeyPrfFirstB64u,
       webauthnAuthentication: args.authorization.credential,
     }),
+    activationMaterial: { kind: 'session_record' } as const,
   };
-  if (args.material.record.runtimePolicyScope) {
+  const runtimePolicyScope = args.material.record.runtimePolicyScope;
+  if (runtimePolicyScope) {
     return buildPasskeyEcdsaSessionProvision({
       key: baseArgs.key,
       chainTarget: baseArgs.chainTarget,
@@ -98,7 +99,8 @@ export async function buildEvmFamilyPasskeyEcdsaProvisionPlan(args: {
       sessionBudgetUses: baseArgs.sessionBudgetUses,
       requestId: baseArgs.requestId,
       provisionSecretSource: baseArgs.provisionSecretSource,
-      runtimePolicyScope: args.material.record.runtimePolicyScope,
+      activationMaterial: baseArgs.activationMaterial,
+      runtimePolicyScope,
     });
   }
   return buildPasskeyEcdsaSessionProvision(baseArgs);

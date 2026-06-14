@@ -86,6 +86,12 @@ test.describe('EVM family threshold reconnect events', () => {
         record: staleRecord,
       }),
     });
+    if (
+      reconnectPlan.kind !== 'threshold_session_auth_ecdsa_reconnect' &&
+      reconnectPlan.kind !== 'cookie_ecdsa_reconnect'
+    ) {
+      throw new Error(`expected exact-record reconnect plan: ${reconnectPlan.kind}`);
+    }
 
     const readyRecord = await ensureEvmFamilyThresholdEcdsaRecordReady({
       deps: {

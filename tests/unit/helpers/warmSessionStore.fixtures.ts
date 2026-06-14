@@ -1041,6 +1041,7 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
                     },
                   },
                 }),
+                activationMaterial: { kind: 'session_record' },
                 ...(record.runtimePolicyScope
                   ? { runtimePolicyScope: record.runtimePolicyScope }
                   : {}),
@@ -1057,36 +1058,52 @@ export function createWarmSessionTestServices(deps: WarmSessionTestServicesDeps 
             });
           })();
 
-        return await ensureWarmEcdsaCapabilityReady(
-          {
-            getWarmSession,
-            listThresholdEcdsaRecordsForWalletTarget:
-              deps.listThresholdEcdsaRecordsForWalletTarget || (() => []),
-            canProvisionEcdsaCapability: typeof deps.provisionThresholdEcdsaSession === 'function',
-            provisionThresholdEcdsaSession:
-              deps.provisionThresholdEcdsaSession ||
-              (async () => {
-                throw new Error('provisionThresholdEcdsaSession test dependency is required');
-              }),
-            touchConfirm: deps.touchConfirm || {},
-            resolveExactEcdsaRecord: (recordArgs) =>
-              statusReader.resolveExactEcdsaRecord(recordArgs),
-            readEcdsaCapabilityByThresholdSessionId:
-              capabilityReader.getEcdsaCapabilityByThresholdSessionId,
-            reconnectInFlightByCapability,
-            onTransition: deps.onTransition,
-          },
-          {
-            walletId,
-            source: args.source || record.source,
-            usesNeeded: args.usesNeeded ?? args.requiredSignatureUses,
-            runtimeScopeBootstrap: args.runtimeScopeBootstrap,
-            chainTarget,
-            record,
-            plan: await resolvedPlan,
-            sessionBudgetUses: Number(args.sessionBudgetUses || 1),
-          },
-        );
+        const plan = await resolvedPlan;
+        const readinessDeps = {
+          getWarmSession,
+          listThresholdEcdsaRecordsForWalletTarget:
+            deps.listThresholdEcdsaRecordsForWalletTarget || (() => []),
+          canProvisionEcdsaCapability: typeof deps.provisionThresholdEcdsaSession === 'function',
+          provisionThresholdEcdsaSession:
+            deps.provisionThresholdEcdsaSession ||
+            (async () => {
+              throw new Error('provisionThresholdEcdsaSession test dependency is required');
+            }),
+          touchConfirm: deps.touchConfirm || {},
+          resolveExactEcdsaRecord: (
+            recordArgs: Parameters<typeof statusReader.resolveExactEcdsaRecord>[0],
+          ) => statusReader.resolveExactEcdsaRecord(recordArgs),
+          readEcdsaCapabilityByThresholdSessionId:
+            capabilityReader.getEcdsaCapabilityByThresholdSessionId,
+          reconnectInFlightByCapability,
+          onTransition: deps.onTransition,
+        };
+        const readinessArgsBase = {
+          walletId,
+          source: args.source || record.source,
+          usesNeeded: args.usesNeeded ?? args.requiredSignatureUses,
+          runtimeScopeBootstrap: args.runtimeScopeBootstrap,
+          chainTarget,
+          sessionBudgetUses: Number(args.sessionBudgetUses || 1),
+        };
+        switch (plan.kind) {
+          case 'threshold_session_auth_ecdsa_reconnect':
+          case 'cookie_ecdsa_reconnect':
+          case 'passkey_ecdsa_session_provision':
+            return await ensureWarmEcdsaCapabilityReady(readinessDeps, {
+              ...readinessArgsBase,
+              record,
+              plan,
+            });
+          case 'email_otp_ecdsa_session_provision':
+            return await ensureWarmEcdsaCapabilityReady(readinessDeps, {
+              ...readinessArgsBase,
+              record,
+              plan,
+            });
+        }
+        plan satisfies never;
+        throw new Error('unsupported test ECDSA provision plan');
       })(),
     assertEcdsaSigningSessionReady: (args: {
       walletId: AccountId | string;

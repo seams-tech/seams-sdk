@@ -12,26 +12,90 @@ import type {
 import type { ThresholdEcdsaSessionRecord } from '../persistence/records';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
 
+type FreshEcdsaSessionProvisionPlan = Extract<
+  EcdsaSessionProvisionPlan,
+  { kind: 'passkey_ecdsa_session_provision' | 'email_otp_ecdsa_session_provision' }
+>;
+type PasskeyEcdsaSessionProvisionPlan = Extract<
+  EcdsaSessionProvisionPlan,
+  { kind: 'passkey_ecdsa_session_provision' }
+>;
+type EmailOtpEcdsaSessionProvisionPlan = Extract<
+  EcdsaSessionProvisionPlan,
+  { kind: 'email_otp_ecdsa_session_provision' }
+>;
+type ReconnectEcdsaSessionProvisionPlan = Extract<
+  EcdsaSessionProvisionPlan,
+  { kind: 'threshold_session_auth_ecdsa_reconnect' | 'cookie_ecdsa_reconnect' }
+>;
+
 declare const walletId: WalletId;
 declare const chainTarget: ThresholdEcdsaChainTarget;
-declare const plan: EcdsaSessionProvisionPlan;
+declare const freshPlan: FreshEcdsaSessionProvisionPlan;
+declare const passkeyFreshPlan: PasskeyEcdsaSessionProvisionPlan;
+declare const emailOtpFreshPlan: EmailOtpEcdsaSessionProvisionPlan;
+declare const reconnectPlan: ReconnectEcdsaSessionProvisionPlan;
 declare const selectedRecord: ThresholdEcdsaSessionRecord;
 declare const keyRef: ThresholdEcdsaSecp256k1KeyRef;
 
 const validEnsureWarmEcdsaProvisionPlanReadyArgs = {
   walletId,
   chainTarget,
-  plan,
+  plan: reconnectPlan,
   record: selectedRecord,
   source: 'login',
   sessionBudgetUses: 1,
 } satisfies EnsureWarmEcdsaProvisionPlanReadyArgs;
 void validEnsureWarmEcdsaProvisionPlanReadyArgs;
 
+const validEnsureWarmEcdsaProvisionPlanReadyArgsWithFreshPlan = {
+  walletId,
+  chainTarget,
+  plan: emailOtpFreshPlan,
+  record: null,
+  source: 'login',
+  sessionBudgetUses: 1,
+} satisfies EnsureWarmEcdsaProvisionPlanReadyArgs;
+void validEnsureWarmEcdsaProvisionPlanReadyArgsWithFreshPlan;
+
+const validEnsureWarmEcdsaProvisionPlanReadyArgsWithPasskeyPlan = {
+  walletId,
+  chainTarget,
+  plan: passkeyFreshPlan,
+  record: selectedRecord,
+  source: 'login',
+  sessionBudgetUses: 1,
+} satisfies EnsureWarmEcdsaProvisionPlanReadyArgs;
+void validEnsureWarmEcdsaProvisionPlanReadyArgsWithPasskeyPlan;
+
+const invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithPasskeyNullRecord = {
+  walletId,
+  chainTarget,
+  plan: passkeyFreshPlan,
+  record: null,
+  source: 'login',
+  sessionBudgetUses: 1,
+  // @ts-expect-error passkey ECDSA readiness requires an exact ECDSA record.
+} satisfies EnsureWarmEcdsaProvisionPlanReadyArgs;
+void invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithPasskeyNullRecord;
+
+const invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithReconnectNullRecord = {
+  walletId,
+  chainTarget,
+  plan: reconnectPlan,
+  record: null,
+  source: 'login',
+  sessionBudgetUses: 1,
+  // @ts-expect-error reconnect readiness requires an exact ECDSA record.
+} satisfies EnsureWarmEcdsaProvisionPlanReadyArgs;
+void invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithReconnectNullRecord;
+
+void freshPlan;
+
 const invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithSubjectId = {
   walletId,
   chainTarget,
-  plan,
+  plan: reconnectPlan,
   record: selectedRecord,
   source: 'login',
   sessionBudgetUses: 1,
@@ -44,7 +108,7 @@ const invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithRawWalletId = {
   // @ts-expect-error ECDSA provision readiness requires a normalized WalletId.
   walletId: 'wallet.testnet',
   chainTarget,
-  plan,
+  plan: reconnectPlan,
   record: selectedRecord,
   source: 'login',
   sessionBudgetUses: 1,
@@ -54,7 +118,7 @@ void invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithRawWalletId;
 const invalidEnsureWarmEcdsaProvisionPlanReadyArgsWithKeyRef = {
   walletId,
   chainTarget,
-  plan,
+  plan: reconnectPlan,
   record: selectedRecord,
   source: 'login',
   sessionBudgetUses: 1,

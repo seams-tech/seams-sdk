@@ -1,6 +1,4 @@
-import {
-  thresholdEcdsaChainTargetFromChainFamily,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { thresholdEcdsaChainTargetFromChainFamily } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import type { EmailOtpWorkerIssuedSessionHandle } from '@/core/platform';
 import { toAccountId } from '@/core/types/accountIds';
 import type { ThresholdEcdsaSecp256k1KeyRef } from '../../interfaces/signing';
@@ -11,10 +9,7 @@ import {
   buildEvmFamilyEcdsaKeyIdentityFromRecord,
   toEvmFamilyEcdsaKeyHandle,
 } from '../identity/evmFamilyEcdsaIdentity';
-import {
-  thresholdEcdsaRecordRpId,
-  type ThresholdEcdsaSessionRecord,
-} from '../persistence/records';
+import { thresholdEcdsaRecordRpId, type ThresholdEcdsaSessionRecord } from '../persistence/records';
 import {
   buildEcdsaReconnectMaterial,
   buildEcdsaSessionIdentity,
@@ -69,6 +64,7 @@ const passkeyProvisionSecretSource = buildPasskeyEcdsaProvisionSecretSource({
   passkeyPrfFirstB64u: 'prf-first',
   webauthnAuthentication,
 });
+const recordBackedPasskeyActivationMaterial = { kind: 'session_record' } as const;
 const invalidUnbrandedPasskeyProvisionSecretSource: PasskeyEcdsaProvisionSecretSource = {
   kind: 'webauthn_prf_first_v1',
   // @ts-expect-error PRF.first must be normalized by buildPasskeyEcdsaProvisionSecretSource.
@@ -137,6 +133,7 @@ void buildPasskeyEcdsaSessionProvision({
   sessionBudgetUses: 1,
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
+  activationMaterial: recordBackedPasskeyActivationMaterial,
 });
 
 void buildPasskeyEcdsaSessionProvision({
@@ -148,6 +145,7 @@ void buildPasskeyEcdsaSessionProvision({
   sessionBudgetUses: 1,
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
+  activationMaterial: recordBackedPasskeyActivationMaterial,
   // @ts-expect-error passkey provision PRF.first must be wrapped in provisionSecretSource
   passkeyPrfFirstB64u: 'prf-first',
 });
@@ -161,6 +159,7 @@ void buildPasskeyEcdsaSessionProvision({
   sessionBudgetUses: 1,
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
+  activationMaterial: recordBackedPasskeyActivationMaterial,
   // @ts-expect-error passkey provision must not accept threshold-session auth
   thresholdSessionAuth,
 });
@@ -176,6 +175,7 @@ void buildPasskeyEcdsaSessionProvision({
   sessionBudgetUses: 1,
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
+  activationMaterial: recordBackedPasskeyActivationMaterial,
 });
 
 void buildThresholdSessionAuthEcdsaReconnect({
@@ -255,17 +255,19 @@ void buildEcdsaSessionProvisionPlan({
   }),
 });
 
-const invalidReconnectPlanWithSubjectId: EcdsaSessionProvisionPlan = buildEcdsaSessionProvisionPlan({
-  kind: 'ecdsa_session_reconnect',
-  // @ts-expect-error reconnect planning derives subject from exact paired material
-  subjectId,
-  chainTarget,
-  sessionIdentity: identity,
-  sessionBudgetUses: 1,
-  reconnectMaterial: buildEcdsaReconnectMaterial({
-    record: reconnectRecord,
-  }),
-});
+const invalidReconnectPlanWithSubjectId: EcdsaSessionProvisionPlan = buildEcdsaSessionProvisionPlan(
+  {
+    kind: 'ecdsa_session_reconnect',
+    // @ts-expect-error reconnect planning derives subject from exact paired material
+    subjectId,
+    chainTarget,
+    sessionIdentity: identity,
+    sessionBudgetUses: 1,
+    reconnectMaterial: buildEcdsaReconnectMaterial({
+      record: reconnectRecord,
+    }),
+  },
+);
 void invalidReconnectPlanWithSubjectId;
 
 // @ts-expect-error passkey planning must not accept reconnect material
@@ -279,6 +281,7 @@ void buildEcdsaSessionProvisionPlan({
   sessionBudgetUses: 1,
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
+  activationMaterial: recordBackedPasskeyActivationMaterial,
   reconnectMaterial: buildEcdsaReconnectMaterial({
     record: reconnectRecord,
   }),
@@ -294,6 +297,20 @@ void buildEcdsaSessionProvisionPlan({
   sessionBudgetUses: 1,
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
+  activationMaterial: recordBackedPasskeyActivationMaterial,
+});
+
+// @ts-expect-error passkey planning requires explicit activation material
+void buildEcdsaSessionProvisionPlan({
+  kind: 'passkey_ecdsa_session_provision',
+  key: exactKey,
+  chainTarget,
+  sessionIdentity: identity,
+  signingKeyContext,
+  sessionKind: 'jwt',
+  sessionBudgetUses: 1,
+  requestId: 'request-1',
+  provisionSecretSource: passkeyProvisionSecretSource,
 });
 
 void buildEcdsaSessionProvisionPlan({
@@ -306,6 +323,7 @@ void buildEcdsaSessionProvisionPlan({
   sessionBudgetUses: 1,
   requestId: 'request-1',
   provisionSecretSource: passkeyProvisionSecretSource,
+  activationMaterial: recordBackedPasskeyActivationMaterial,
   // @ts-expect-error passkey planning must not accept top-level WebAuthn credentials
   webauthnAuthentication,
 });
@@ -321,6 +339,7 @@ void buildEcdsaSessionProvisionPlan({
   sessionKind: 'jwt',
   sessionBudgetUses: 1,
   provisionSecretSource: passkeyProvisionSecretSource,
+  activationMaterial: recordBackedPasskeyActivationMaterial,
 });
 
 export {};

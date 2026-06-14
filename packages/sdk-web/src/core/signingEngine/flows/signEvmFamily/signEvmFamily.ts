@@ -1446,7 +1446,9 @@ async function signEvmFamilyAttempt(
             record: thresholdEcdsaRecord,
           })
         : null;
-    const thresholdOwnerAddress = toOptionalEvmAddress(publicFacts?.thresholdOwnerAddress);
+    const thresholdOwnerAddress =
+      toOptionalEvmAddress(publicFacts?.thresholdOwnerAddress) ||
+      toOptionalEvmAddress(preparedExecutorSession.signingLane.key.thresholdOwnerAddress);
     if (!thresholdOwnerAddress) {
       if (signingSessionPlan.kind === SigningSessionPlanKind.EmailOtpReauth) {
         return {

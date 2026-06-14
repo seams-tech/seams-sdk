@@ -477,12 +477,10 @@ export type ProvisionWarmEd25519CapabilityResult =
   | ProvisionWarmEd25519CapabilitySuccessResult
   | ProvisionWarmEd25519CapabilityFailureResult;
 
-export type EnsureWarmEcdsaProvisionPlanReadyArgs = {
+type EnsureWarmEcdsaProvisionPlanReadyCommonArgs = {
   walletId: WalletId;
   subjectId?: never;
   chainTarget: ThresholdEcdsaChainTarget;
-  plan: EcdsaSessionProvisionPlan;
-  record: ThresholdEcdsaSessionRecord;
   keyRef?: never;
   source: ThresholdEcdsaSessionStoreSource;
   runtimeScopeBootstrap?: {
@@ -495,6 +493,27 @@ export type EnsureWarmEcdsaProvisionPlanReadyArgs = {
   beforeReconnect?: () => void | Promise<void>;
   assertNotCancelled?: () => void;
 };
+
+export type EnsureWarmEcdsaProvisionPlanReadyArgs =
+  | (EnsureWarmEcdsaProvisionPlanReadyCommonArgs & {
+      plan: Extract<
+        EcdsaSessionProvisionPlan,
+        {
+          kind:
+            | 'threshold_session_auth_ecdsa_reconnect'
+            | 'cookie_ecdsa_reconnect'
+            | 'passkey_ecdsa_session_provision';
+        }
+      >;
+      record: ThresholdEcdsaSessionRecord;
+    })
+  | (EnsureWarmEcdsaProvisionPlanReadyCommonArgs & {
+      plan: Extract<
+        EcdsaSessionProvisionPlan,
+        { kind: 'email_otp_ecdsa_session_provision' }
+      >;
+      record: ThresholdEcdsaSessionRecord | null;
+    });
 
 export type EnsureWarmEcdsaCapabilityReadyResult = {
   record: ThresholdEcdsaSessionRecord;

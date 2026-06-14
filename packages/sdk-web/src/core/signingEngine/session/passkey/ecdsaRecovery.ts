@@ -4,12 +4,8 @@ import type { RestorePersistedEcdsaSessionPurpose } from '@/core/signingEngine/s
 import type { PasskeyEcdsaSealedRecoveryRecord } from '@/core/signingEngine/session/sealedRecovery/recoveryRecord';
 import type { WarmSessionStatusResult } from '@/core/signingEngine/uiConfirm/types';
 import { toAccountId } from '@/core/types/accountIds';
-import {
-  thresholdEcdsaChainTargetsEqual,
-} from '@/core/signingEngine/interfaces/ecdsaChainTarget';
-import {
-  toEvmFamilyEcdsaKeyHandle,
-} from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
+import { thresholdEcdsaChainTargetsEqual } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { toEvmFamilyEcdsaKeyHandle } from '@/core/signingEngine/session/identity/evmFamilyEcdsaIdentity';
 import { publishResolvedIdentity } from '@/core/signingEngine/session/persistence/sealedSessionStore';
 import {
   getStoredThresholdEcdsaSessionRecordByThresholdSessionId,
@@ -118,6 +114,10 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
   const publishRecord = (policy: { expiresAtMs: number; remainingUses: number }): void => {
     const existingRecord =
       getStoredThresholdEcdsaSessionRecordByThresholdSessionId(thresholdSessionId);
+    const ecdsaRoleLocalReadyRecord = existingRecord?.ecdsaRoleLocalReadyRecord;
+    if (!ecdsaRoleLocalReadyRecord) {
+      throw new Error('passkey ECDSA restore requires existing role-local ready record');
+    }
 
     upsertStoredThresholdEcdsaSessionRecord(
       { recordsByLane: new Map() },
@@ -130,6 +130,7 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
         ecdsaThresholdKeyId: args.record.ecdsaThresholdKeyId,
         relayerKeyId: args.record.relayerKeyId,
         clientVerifyingShareB64u: args.record.clientVerifyingShareB64u,
+        ecdsaRoleLocalReadyRecord,
         participantIds: [...args.record.participantIds],
         ...(args.record.thresholdEcdsaPublicKeyB64u
           ? { thresholdEcdsaPublicKeyB64u: args.record.thresholdEcdsaPublicKeyB64u }
@@ -166,10 +167,18 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
     });
   };
 
-  publishRecord({
-    expiresAtMs: Math.floor(Number(args.record.expiresAtMs) || 0),
-    remainingUses: Math.max(0, Math.floor(Number(args.record.remainingUses) || 0)),
-  });
+  try {
+    publishRecord({
+      expiresAtMs: Math.floor(Number(args.record.expiresAtMs) || 0),
+      remainingUses: Math.max(0, Math.floor(Number(args.record.remainingUses) || 0)),
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'missing_role_local_ready_record',
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
 
   const rehydrated = await args.rehydrateWarmSessionMaterial({
     sessionId: thresholdSessionId,
@@ -190,10 +199,18 @@ export async function restorePasskeyEcdsaSealedRecordForWallet(args: {
     return rehydrated;
   }
 
-  publishRecord({
-    expiresAtMs: rehydrated.expiresAtMs,
-    remainingUses: rehydrated.remainingUses,
-  });
+  try {
+    publishRecord({
+      expiresAtMs: rehydrated.expiresAtMs,
+      remainingUses: rehydrated.remainingUses,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      code: 'missing_role_local_ready_record',
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
   await args.recordSessionMaterialRestored(rehydrated);
   const parsed = await args.readWarmSessionStatusFromWorker(thresholdSessionId);
   if (!parsed) {

@@ -1,9 +1,5 @@
-import type {
-  EvmFamilyWalletSignerStorePort,
-} from '../flows/signEvmFamily/accountAuth';
-import type {
-  EvmFamilyPasskeyAuthenticatorStorePort,
-} from './passkeyAuthenticatorStore';
+import type { EvmFamilyWalletSignerStorePort } from '../flows/signEvmFamily/accountAuth';
+import type { EvmFamilyPasskeyAuthenticatorStorePort } from './passkeyAuthenticatorStore';
 import type { RecoveryNearKeyMaterialStorePort } from '../flows/recovery/recoveryStorePorts';
 import type { RegistrationAccountStorePort } from '../flows/registration/registrationStorePorts';
 import type { AccountId } from '@/core/types/accountIds';
@@ -78,9 +74,7 @@ export type NearSigningApiDeps = {
     curve: 'ed25519';
   }) => EmailOtpAuthLane | null;
   isEmailOtpEd25519WarmupPending?: (args: { nearAccountId: AccountId }) => boolean;
-  waitForPendingEmailOtpEd25519Warmup?: (args: {
-    nearAccountId: AccountId;
-  }) => Promise<boolean>;
+  waitForPendingEmailOtpEd25519Warmup?: (args: { nearAccountId: AccountId }) => Promise<boolean>;
   loginWithEmailOtpEd25519CapabilityForSigning?: (args: {
     nearAccountId: AccountId;
     challengeId: string;

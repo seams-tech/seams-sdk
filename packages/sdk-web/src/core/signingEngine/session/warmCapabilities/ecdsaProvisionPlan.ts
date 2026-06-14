@@ -60,6 +60,12 @@ export type PasskeyEcdsaProvisionSecretSource = {
   emailOtpAuthContext?: never;
 };
 
+export type PasskeyEcdsaActivationMaterial = {
+  kind: 'session_record';
+  relayerUrl?: never;
+  walletKey?: never;
+};
+
 export type EmailOtpEcdsaProvisionSecretSource = {
   kind: 'email_otp_worker_session_v1';
   workerHandle: Extract<EmailOtpWorkerIssuedSessionHandle, { action: 'threshold_ecdsa_bootstrap' }>;
@@ -80,6 +86,7 @@ export type PasskeyEcdsaSessionProvision = {
 
   // Branch-specific fields.
   provisionSecretSource: PasskeyEcdsaProvisionSecretSource;
+  activationMaterial: PasskeyEcdsaActivationMaterial;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   thresholdSessionAuth?: never;
   emailOtpAuthContext?: never;
@@ -159,6 +166,7 @@ type BuildPasskeyEcdsaSessionProvisionPlanArgs = {
   sessionBudgetUses: number;
   requestId: string;
   provisionSecretSource: PasskeyEcdsaProvisionSecretSource;
+  activationMaterial: PasskeyEcdsaActivationMaterial;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   emailOtpAuthContext?: never;
   reconnectMaterial?: never;
@@ -401,6 +409,7 @@ export function buildPasskeyEcdsaSessionProvision(args: {
   sessionBudgetUses: number;
   requestId: string;
   provisionSecretSource: PasskeyEcdsaProvisionSecretSource;
+  activationMaterial: PasskeyEcdsaActivationMaterial;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
 }): PasskeyEcdsaSessionProvision {
   return {
@@ -415,6 +424,7 @@ export function buildPasskeyEcdsaSessionProvision(args: {
 
     // Branch-specific fields.
     provisionSecretSource: args.provisionSecretSource,
+    activationMaterial: args.activationMaterial,
     ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
   } satisfies PasskeyEcdsaSessionProvision;
 }
@@ -534,6 +544,7 @@ export function buildEcdsaSessionProvisionPlan(
         sessionBudgetUses: args.sessionBudgetUses,
         requestId: args.requestId,
         provisionSecretSource: args.provisionSecretSource,
+        activationMaterial: args.activationMaterial,
         ...(args.runtimePolicyScope ? { runtimePolicyScope: args.runtimePolicyScope } : {}),
       });
     case 'ecdsa_session_reconnect':

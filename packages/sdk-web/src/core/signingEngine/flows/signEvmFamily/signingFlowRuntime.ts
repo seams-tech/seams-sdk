@@ -17,7 +17,9 @@ import {
   emitSigningBoundaryTrace,
   emitSigningSessionFlowTrace,
 } from '../../session/operationState/trace';
-import type { EvmFamilySigningDeps } from '../../interfaces/operationDeps';
+import type {
+  EvmFamilySigningDeps,
+} from '../../interfaces/operationDeps';
 import { resolveThresholdEcdsaCommitQueueKey } from '../../threshold/ecdsa/commitQueue';
 import { emitEvmFamilySigningEvent, emitEvmFamilySigningOperationTrace } from './events';
 import { throwIfEvmFamilySigningCancelled } from './errors';
@@ -27,17 +29,20 @@ import { loadSecp256k1EngineCtor, loadWebAuthnP256EngineCtor } from './signerLoa
 import { createEvmFamilyWarmSessionServices } from './warmSessionServices';
 import { ensureEvmFamilyThresholdEcdsaRecordReady } from './ecdsaReadiness';
 import {
-  findSharedEvmFamilyEcdsaSessionRecordForLane,
   readSelectedEcdsaRecordForLane,
   type ResolvedEvmFamilyEcdsaSigningLane,
 } from './ecdsaLanes';
 import { type ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type { EvmSigningRequest } from '../../chains/evm/types';
 import type { TempoSigningRequest } from '../../chains/tempo/types';
-import { buildEcdsaSessionPolicy } from '../../threshold/sessionPolicy';
+import {
+  buildEcdsaSessionPolicy,
+  type ThresholdRuntimePolicyScope,
+} from '../../threshold/sessionPolicy';
 import {
   buildEcdsaSessionIdentity,
   buildEcdsaSigningKeyContextFromRecord,
+  type EcdsaSigningKeyContext,
 } from '../../session/warmCapabilities/ecdsaProvisionPlan';
 import type { EvmFamilyThresholdEcdsaReauthResult } from './thresholdAdmission';
 import type { EvmFamilyThresholdEcdsaStepUpRuntime } from './requireEvmFamilyStepUpAuth';
@@ -64,6 +69,39 @@ import {
   computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u,
   computeEcdsaHssRoleLocalRelayerKeyId,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+
+type PasskeyEcdsaReconnectMaterial =
+  {
+    kind: 'session_record';
+    record: ThresholdEcdsaSessionRecord;
+  };
+
+function signingKeyContextFromPasskeyEcdsaReconnectMaterial(
+  material: PasskeyEcdsaReconnectMaterial,
+): EcdsaSigningKeyContext {
+  return buildEcdsaSigningKeyContextFromRecord(material.record);
+}
+
+function relayerKeyIdFromPasskeyEcdsaReconnectMaterial(
+  material: PasskeyEcdsaReconnectMaterial,
+): string {
+  return String(material.record.relayerKeyId || '').trim();
+}
+
+function runtimePolicyScopeFromPasskeyEcdsaReconnectMaterial(
+  material: PasskeyEcdsaReconnectMaterial,
+): ThresholdRuntimePolicyScope | undefined {
+  return material.record.runtimePolicyScope;
+}
+
+function readPasskeyEcdsaReconnectMaterialForLane(args: {
+  deps: EvmFamilySigningDeps;
+  lane?: ResolvedEvmFamilyEcdsaSigningLane;
+}): PasskeyEcdsaReconnectMaterial | undefined {
+  const record = readSelectedEcdsaRecordForLane({ deps: args.deps, lane: args.lane });
+  if (record) return { kind: 'session_record', record };
+  return undefined;
+}
 
 function resolveEvmFamilyStepUpOperationId(
   operation: SigningOperationContext | undefined,
@@ -193,15 +231,11 @@ export async function createEvmFamilySigningFlowRuntime(args: {
       prepare: async ({ usesNeeded }: { usesNeeded: number }) => {
         void usesNeeded;
         const lane = args.getResolvedEcdsaSigningLane();
-        const exactRecord = readSelectedEcdsaRecordForLane({ deps: args.deps, lane });
-        const record =
-          exactRecord ||
-          findSharedEvmFamilyEcdsaSessionRecordForLane({
-            deps: args.deps,
-            lane,
-            chainTargets: configuredEcdsaChainTargets,
-          });
-        if (!record) {
+        const material = readPasskeyEcdsaReconnectMaterialForLane({
+          deps: args.deps,
+          lane,
+        });
+        if (!material) {
           throw new Error(
             '[SigningEngine][ecdsa] passkey ECDSA reconnect requires exact session record material',
           );
@@ -210,8 +244,8 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         if (!rpId) {
           throw new Error('[SigningEngine] missing rpId for passkey ECDSA reconnect');
         }
-        const signingKeyContext = buildEcdsaSigningKeyContextFromRecord(record);
-        const materialRelayerKeyId = String(record.relayerKeyId || '').trim();
+        const signingKeyContext = signingKeyContextFromPasskeyEcdsaReconnectMaterial(material);
+        const materialRelayerKeyId = relayerKeyIdFromPasskeyEcdsaReconnectMaterial(material);
         if (!materialRelayerKeyId) {
           throw new Error('[SigningEngine] missing relayerKeyId for passkey ECDSA reconnect');
         }
@@ -233,13 +267,14 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         const participantIds = signingKeyContext.participantIds.map((participantId) =>
           Number(participantId),
         );
+        const runtimePolicyScope = runtimePolicyScopeFromPasskeyEcdsaReconnectMaterial(material);
         const { policy } = await buildEcdsaSessionPolicy({
           walletId,
           rpId,
           relayerKeyId,
           chainTarget: lane.chainTarget,
           ecdsaThresholdKeyId,
-          ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
+          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           ...(participantIds?.length ? { participantIds } : {}),
           remainingUses,
         });
@@ -279,24 +314,21 @@ export async function createEvmFamilySigningFlowRuntime(args: {
         usesNeeded: number;
       }) => {
         const lane = args.getResolvedEcdsaSigningLane();
-        const exactRecord = readSelectedEcdsaRecordForLane({ deps: args.deps, lane });
-        const record =
-          exactRecord ||
-          findSharedEvmFamilyEcdsaSessionRecordForLane({
-            deps: args.deps,
-            lane,
-            chainTargets: configuredEcdsaChainTargets,
-          });
-        if (!record) {
+        const material = readPasskeyEcdsaReconnectMaterialForLane({
+          deps: args.deps,
+          lane,
+        });
+        if (!material) {
           throw new Error(
             '[SigningEngine][ecdsa] passkey ECDSA reconnect requires exact session record material',
           );
         }
         const reconnectPlan = await buildEvmFamilyPasskeyEcdsaProvisionPlan({
           authorization,
-          material: { lane, record },
+          material: { kind: 'session_record', lane, record: material.record },
           sessionBudgetUses: postExhaustionStepUpSessionBudgetUses,
         });
+        const selectedRecord = material.record;
         const reconnectSessionIdentity = requirePlannedReconnectSessionIdentity({
           sessionId: reconnectPlan.newSessionIdentity.thresholdSessionId,
           walletSigningSessionId: reconnectPlan.newSessionIdentity.walletSigningSessionId,
@@ -321,7 +353,7 @@ export async function createEvmFamilySigningFlowRuntime(args: {
               deps: args.deps,
               lane,
               chainId: requestChainId,
-              record,
+              record: selectedRecord,
               reconnectSessionIdentity,
               reconnectPlan,
               operationUsesNeeded: Math.max(1, Math.floor(Number(usesNeeded) || 1)),

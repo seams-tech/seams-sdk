@@ -5,15 +5,11 @@ import {
   createEvmFamilyWarmSessionServices,
   type EvmFamilyWarmSessionServicesDeps,
 } from './warmSessionServices';
-import {
-  type ResolvedEvmFamilyEcdsaSigningLane,
-} from './ecdsaLanes';
+import { type ResolvedEvmFamilyEcdsaSigningLane } from './ecdsaLanes';
 import { emitEvmFamilySigningEvent } from './events';
 import type { EvmFamilyLifecycleEventCallback } from './types';
 import { throwIfEvmFamilySigningCancelled } from './errors';
-import type {
-  ThresholdEcdsaSessionRecord,
-} from '../../session/persistence/records';
+import type { ThresholdEcdsaSessionRecord } from '../../session/persistence/records';
 import type { ThresholdEcdsaSessionStoreSource } from '../../session/identity/laneIdentity';
 import {
   thresholdEcdsaChainTargetFromChainFamily,
@@ -43,11 +39,32 @@ type EvmFamilyThresholdEcdsaReadinessBaseArgs = {
   onEvent?: EvmFamilyLifecycleEventCallback;
 };
 
-type PlannedEvmFamilyThresholdEcdsaReadinessArgs = EvmFamilyThresholdEcdsaReadinessBaseArgs & {
-  record: ThresholdEcdsaSessionRecord;
-  keyRef?: never;
-  reconnectPlan: EcdsaSessionProvisionPlan;
-};
+type EvmFamilyThresholdEcdsaExistingRecordPlan = Extract<
+  EcdsaSessionProvisionPlan,
+  {
+    kind:
+      | 'threshold_session_auth_ecdsa_reconnect'
+      | 'cookie_ecdsa_reconnect'
+      | 'passkey_ecdsa_session_provision';
+  }
+>;
+
+type EvmFamilyThresholdEcdsaFreshProvisionPlan = Extract<
+  EcdsaSessionProvisionPlan,
+  { kind: 'email_otp_ecdsa_session_provision' }
+>;
+
+type PlannedEvmFamilyThresholdEcdsaReadinessArgs =
+  | (EvmFamilyThresholdEcdsaReadinessBaseArgs & {
+      record: ThresholdEcdsaSessionRecord;
+      keyRef?: never;
+      reconnectPlan: EvmFamilyThresholdEcdsaExistingRecordPlan;
+    })
+  | (EvmFamilyThresholdEcdsaReadinessBaseArgs & {
+      record: ThresholdEcdsaSessionRecord | null;
+      keyRef?: never;
+      reconnectPlan: EvmFamilyThresholdEcdsaFreshProvisionPlan;
+    });
 
 function resolveManagedRuntimeScopeBootstrap(
   configs: SeamsConfigsReadonly,
@@ -92,14 +109,8 @@ export async function ensureEvmFamilyThresholdEcdsaRecordReady(
   });
   const { thresholdSessionId, walletSigningSessionId } = reconnectSessionIdentity;
   const warmSessionServices = createEvmFamilyWarmSessionServices(args.deps);
-  const operationUsesNeeded = Math.max(
-    1,
-    Math.floor(Number(args.operationUsesNeeded) || 1),
-  );
-  const sessionBudgetUses = Math.max(
-    1,
-    Math.floor(Number(args.sessionBudgetUses) || 1),
-  );
+  const operationUsesNeeded = Math.max(1, Math.floor(Number(args.operationUsesNeeded) || 1));
+  const sessionBudgetUses = Math.max(1, Math.floor(Number(args.sessionBudgetUses) || 1));
   const selectedRecord = args.record;
   const reconnectPlan = args.reconnectPlan;
   const reconnectPlanIdentity = getEcdsaSessionProvisionIdentity(reconnectPlan);
@@ -107,13 +118,13 @@ export async function ensureEvmFamilyThresholdEcdsaRecordReady(
     reconnectPlanIdentity.thresholdSessionId !== thresholdSessionId ||
     reconnectPlanIdentity.walletSigningSessionId !== walletSigningSessionId
   ) {
-    throw new Error('[SigningEngine][ecdsa] reconnect plan identity does not match requested reconnect identity');
+    throw new Error(
+      '[SigningEngine][ecdsa] reconnect plan identity does not match requested reconnect identity',
+    );
   }
-  const readyCapability = await warmSessionServices.ensureEcdsaCapabilityReady({
+  const readyCapabilityArgs = {
     walletId,
     chainTarget,
-    plan: reconnectPlan,
-    record: selectedRecord,
     source,
     runtimeScopeBootstrap: resolveManagedRuntimeScopeBootstrap(args.deps.seamsWebConfigs),
     usesNeeded: operationUsesNeeded,
@@ -133,16 +144,33 @@ export async function ensureEvmFamilyThresholdEcdsaRecordReady(
     assertNotCancelled: () => {
       throwIfEvmFamilySigningCancelled(args.shouldAbort);
     },
-  });
+  };
+  const readyCapability =
+    reconnectPlan.kind === 'threshold_session_auth_ecdsa_reconnect' ||
+    reconnectPlan.kind === 'cookie_ecdsa_reconnect' ||
+    reconnectPlan.kind === 'passkey_ecdsa_session_provision'
+      ? await (async () => {
+          if (!selectedRecord) {
+            throw new Error('[SigningEngine][ecdsa] reconnect readiness requires session record');
+          }
+          return await warmSessionServices.ensureEcdsaCapabilityReady({
+            ...readyCapabilityArgs,
+            plan: reconnectPlan,
+            record: selectedRecord,
+          });
+        })()
+      : await warmSessionServices.ensureEcdsaCapabilityReady({
+          ...readyCapabilityArgs,
+          plan: reconnectPlan,
+          record: selectedRecord,
+        });
 
   const refreshedRecord = readyCapability.capability.record;
   if (!refreshedRecord) {
     throw new Error('[SigningEngine] ECDSA reconnect did not return a ready session record');
   }
   const refreshedThresholdSessionId = String(refreshedRecord.thresholdSessionId).trim();
-  const refreshedWalletSigningSessionId = String(
-    refreshedRecord.walletSigningSessionId,
-  ).trim();
+  const refreshedWalletSigningSessionId = String(refreshedRecord.walletSigningSessionId).trim();
   if (
     refreshedThresholdSessionId !== thresholdSessionId ||
     refreshedWalletSigningSessionId !== walletSigningSessionId

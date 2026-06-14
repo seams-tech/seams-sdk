@@ -182,7 +182,15 @@ test.describe('EVM-family step-up provision-plan builders', () => {
           },
         },
       },
-      material,
+      material: {
+        kind: 'session_record',
+        lane: {
+          key: material.key,
+          keyHandle: material.record.keyHandle,
+          chainTarget: material.record.chainTarget,
+        },
+        record: material.record,
+      },
       sessionBudgetUses: 1,
     });
     expect(plan.kind).toBe('passkey_ecdsa_session_provision');

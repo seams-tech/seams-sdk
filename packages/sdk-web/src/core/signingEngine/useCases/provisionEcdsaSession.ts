@@ -259,8 +259,8 @@ function provisionPlanRequiresExistingRecordIdentity(plan: EcdsaSessionProvision
   switch (plan.kind) {
     case 'threshold_session_auth_ecdsa_reconnect':
     case 'cookie_ecdsa_reconnect':
-      return true;
     case 'passkey_ecdsa_session_provision':
+      return true;
     case 'email_otp_ecdsa_session_provision':
       return false;
   }
@@ -838,11 +838,12 @@ export async function tryReuseReadyWarmEcdsaBootstrap(
 }
 
 function requireActivationRelayerUrl(args: {
+  plan: EcdsaSessionProvisionPlan;
   reconnectRecord: ThresholdEcdsaSessionRecord | null;
   secondaryRecord: ThresholdEcdsaSessionRecord | null;
 }): string {
   const relayerUrl = String(
-    args.reconnectRecord?.relayerUrl || args.secondaryRecord?.relayerUrl || '',
+    args.reconnectRecord?.relayerUrl || args.secondaryRecord?.relayerUrl,
   ).trim();
   if (!relayerUrl) {
     throw new Error('[WarmSessionStore] ECDSA activation requires relayerUrl');
@@ -909,8 +910,13 @@ export async function ensureWarmEcdsaCapabilityReady(
   const chainId = chainTarget.chainId;
   const warmSession = await deps.getWarmSession(exactWalletId);
   const plannedRecord = args.record;
+  const planRequiresExistingRecord = provisionPlanRequiresExistingRecordIdentity(args.plan);
+  if (planRequiresExistingRecord && !plannedRecord) {
+    throw new Error('[WarmSessionStore] ECDSA reconnect readiness requires a session record');
+  }
   if (
-    provisionPlanRequiresExistingRecordIdentity(args.plan) &&
+    planRequiresExistingRecord &&
+    plannedRecord &&
     !thresholdEcdsaChainTargetsEqual(plannedRecord.chainTarget, chainTarget)
   ) {
     throw new Error(
@@ -918,20 +924,22 @@ export async function ensureWarmEcdsaCapabilityReady(
     );
   }
   const plannedIdentity = getEcdsaSessionProvisionIdentity(args.plan);
-  const plannedRecordIdentity = buildEcdsaSessionIdentity({
-    thresholdSessionId: plannedRecord.thresholdSessionId,
-    walletSigningSessionId: plannedRecord.walletSigningSessionId,
-  });
+  const plannedRecordIdentity = plannedRecord
+    ? buildEcdsaSessionIdentity({
+        thresholdSessionId: plannedRecord.thresholdSessionId,
+        walletSigningSessionId: plannedRecord.walletSigningSessionId,
+      })
+    : null;
   if (
-    provisionPlanRequiresExistingRecordIdentity(args.plan) &&
-    !ecdsaSessionIdentitiesEqual(plannedRecordIdentity, plannedIdentity)
+    planRequiresExistingRecord &&
+    (!plannedRecordIdentity || !ecdsaSessionIdentitiesEqual(plannedRecordIdentity, plannedIdentity))
   ) {
     throw new Error('[WarmSessionStore] ECDSA readiness record identity does not match plan');
   }
   const recordCandidates: EcdsaRecordCandidate[] = [];
   const seenRecordCandidates = new Set<string>();
   for (const candidate of [
-    { source: args.source, record: plannedRecord },
+    ...(plannedRecord ? [{ source: args.source, record: plannedRecord }] : []),
     ...readEcdsaRecordCandidates(deps, {
       walletId: exactWalletId,
       chainTarget,
@@ -1118,6 +1126,7 @@ export async function ensureWarmEcdsaCapabilityReady(
       );
       const activationOptions = buildActivationOptions(args);
       const relayerUrl = requireActivationRelayerUrl({
+        plan: effectivePlan,
         reconnectRecord,
         secondaryRecord: secondaryRecord || reconnectCandidateRecord || plannedRecord,
       });
