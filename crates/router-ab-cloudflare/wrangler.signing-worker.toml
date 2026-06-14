@@ -16,6 +16,7 @@ tag = "router_ab_signing_worker_v1"
 new_classes = ["RouterAbSigningWorkerRelayerOutputDurableObject"]
 
 [vars]
+ROUTER_AB_WORKER_ROLE = "signing_worker"
 ROUTER_AB_ROUTE_PROFILE = "strict_proof_bundle"
 SIGNING_WORKER_RELAYER_OUTPUT_DO_BINDING = "SIGNING_WORKER_RELAYER_OUTPUT_DO"
 SIGNING_WORKER_RELAYER_OUTPUT_DO_OBJECT = "signing-worker-relayer-output"
@@ -23,3 +24,45 @@ SIGNING_WORKER_RELAYER_OUTPUT_DO_KEY_PREFIX = "signing-worker-relayer-output/"
 SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY_BINDING = "SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY"
 SIGNING_WORKER_RELAYER_OUTPUT_HPKE_KEY_EPOCH = "epoch-1"
 SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:3333333333333333333333333333333333333333333333333333333333333333"
+
+[env.staging]
+name = "router-ab-strict-signing-worker-staging"
+workers_dev = true
+
+[[env.staging.durable_objects.bindings]]
+name = "SIGNING_WORKER_RELAYER_OUTPUT_DO"
+class_name = "RouterAbSigningWorkerRelayerOutputDurableObject"
+
+[env.staging.vars]
+ROUTER_AB_WORKER_ROLE = "signing_worker"
+ROUTER_AB_ROUTE_PROFILE = "strict_proof_bundle"
+SIGNING_WORKER_RELAYER_OUTPUT_DO_BINDING = "SIGNING_WORKER_RELAYER_OUTPUT_DO"
+SIGNING_WORKER_RELAYER_OUTPUT_DO_OBJECT = "signing-worker-relayer-output"
+SIGNING_WORKER_RELAYER_OUTPUT_DO_KEY_PREFIX = "signing-worker-relayer-output/"
+SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY_BINDING = "SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY"
+SIGNING_WORKER_RELAYER_OUTPUT_HPKE_KEY_EPOCH = "epoch-1"
+SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:3333333333333333333333333333333333333333333333333333333333333333"
+
+[env.production]
+name = "router-ab-strict-signing-worker-prod"
+workers_dev = true
+
+[[env.production.durable_objects.bindings]]
+name = "SIGNING_WORKER_RELAYER_OUTPUT_DO"
+class_name = "RouterAbSigningWorkerRelayerOutputDurableObject"
+
+[env.production.vars]
+ROUTER_AB_WORKER_ROLE = "signing_worker"
+ROUTER_AB_ROUTE_PROFILE = "strict_proof_bundle"
+SIGNING_WORKER_RELAYER_OUTPUT_DO_BINDING = "SIGNING_WORKER_RELAYER_OUTPUT_DO"
+SIGNING_WORKER_RELAYER_OUTPUT_DO_OBJECT = "signing-worker-relayer-output"
+SIGNING_WORKER_RELAYER_OUTPUT_DO_KEY_PREFIX = "signing-worker-relayer-output/"
+SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY_BINDING = "SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY"
+SIGNING_WORKER_RELAYER_OUTPUT_HPKE_KEY_EPOCH = "epoch-1"
+SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY = "x25519:3333333333333333333333333333333333333333333333333333333333333333"
+
+[observability]
+  [observability.logs]
+  enabled = true
+  head_sampling_rate = 1
+  invocation_logs = true

@@ -155,6 +155,28 @@ pub const CLOUDFLARE_SIGNING_WORKER_PROOF_BUNDLE_ACTIVATION_PATH_V1: &str =
 /// Private SigningWorker endpoint for normal signing.
 pub const CLOUDFLARE_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1: &str =
     "/router-ab/v1/signing-worker/sign";
+
+/// Serializes one Cloudflare Service Binding JSON request body.
+pub fn cloudflare_service_json_request_body_v1<T: Serialize>(
+    request_kind: &str,
+    request: &T,
+) -> RouterAbProtocolResult<String> {
+    require_non_empty("Cloudflare service JSON request kind", request_kind)?;
+    serde_json::to_string(request).map_err(|err| {
+        RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::MalformedWirePayload,
+            format!("{request_kind} serialization failed: {err}"),
+        )
+    })
+}
+
+/// Serializes one Cloudflare Service Binding JSON request body as UTF-8 bytes.
+pub fn cloudflare_service_json_request_body_bytes_v1<T: Serialize>(
+    request_kind: &str,
+    request: &T,
+) -> RouterAbProtocolResult<Vec<u8>> {
+    Ok(cloudflare_service_json_request_body_v1(request_kind, request)?.into_bytes())
+}
 /// Router replay Durable Object binding env key.
 pub const ROUTER_REPLAY_DO_BINDING_ENV: &str = "ROUTER_REPLAY_DO_BINDING";
 /// Router replay Durable Object object-name env key.
@@ -420,11 +442,59 @@ pub trait CloudflareSigningWorkerNormalSigningHandlerV1 {
     ) -> RouterAbProtocolResult<NormalSigningResponseV1>;
 }
 
+/// Router-admitted normal-signing request sent to SigningWorker.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerAdmittedNormalSigningRequestV1 {
+    /// Client-facing normal-signing request.
+    pub request: NormalSigningRequestV1,
+    /// Router-owned admission decision that allowed this request.
+    pub trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+}
+
+impl CloudflareSigningWorkerAdmittedNormalSigningRequestV1 {
+    /// Creates a validated admitted normal-signing service request.
+    pub fn new(
+        request: NormalSigningRequestV1,
+        trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let admitted = Self {
+            request,
+            trusted_admission,
+        };
+        admitted.validate()?;
+        Ok(admitted)
+    }
+
+    /// Validates that Router admission accepted this exact request.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.request.validate()?;
+        self.trusted_admission.validate_for_request(&self.request)?;
+        if self.trusted_admission.allows_signing_worker_forwarding()? {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidGateDecision,
+            "SigningWorker normal-signing request requires accepted Router admission",
+        ))
+    }
+}
+
+impl core::fmt::Debug for CloudflareSigningWorkerAdmittedNormalSigningRequestV1 {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("CloudflareSigningWorkerAdmittedNormalSigningRequestV1")
+            .field("request", &self.request)
+            .field("trusted_admission", &self.trusted_admission)
+            .finish()
+    }
+}
+
 /// SigningWorker normal-signing request after active material lookup.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudflareSigningWorkerMaterializedNormalSigningRequestV1 {
     /// Router-forwarded normal-signing request.
     pub forwarded: RouterToSigningWorkerSigningRequestV1,
+    /// Router-owned admission decision already checked by SigningWorker.
+    pub trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
     /// Active SigningWorker material opened during activation.
     pub material: CloudflareRelayerOutputMaterialRecordV1,
 }
@@ -433,10 +503,12 @@ impl CloudflareSigningWorkerMaterializedNormalSigningRequestV1 {
     /// Creates a validated materialized SigningWorker request.
     pub fn new(
         forwarded: RouterToSigningWorkerSigningRequestV1,
+        trusted_admission: CloudflareRouterNormalSigningTrustedAdmissionV1,
         material: CloudflareRelayerOutputMaterialRecordV1,
     ) -> RouterAbProtocolResult<Self> {
         let request = Self {
             forwarded,
+            trusted_admission,
             material,
         };
         request.validate()?;
@@ -446,6 +518,14 @@ impl CloudflareSigningWorkerMaterializedNormalSigningRequestV1 {
     /// Validates forwarded request and active material agree.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.forwarded.validate()?;
+        self.trusted_admission
+            .validate_for_request(&self.forwarded.request)?;
+        if !self.trusted_admission.allows_signing_worker_forwarding()? {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "materialized normal-signing request requires accepted Router admission",
+            ));
+        }
         self.material.validate()?;
         let active = &self.forwarded.active_signing_worker;
         if self.material.transcript_digest == active.activation_transcript_digest
@@ -464,6 +544,7 @@ impl core::fmt::Debug for CloudflareSigningWorkerMaterializedNormalSigningReques
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("CloudflareSigningWorkerMaterializedNormalSigningRequestV1")
             .field("forwarded", &self.forwarded)
+            .field("trusted_admission", &self.trusted_admission)
             .field("material", &self.material)
             .finish()
     }
@@ -3197,6 +3278,8 @@ pub struct CloudflareRouterNormalSigningTrustedMetadataV1 {
     pub auth: CloudflareRouterAuthContextV1,
     /// Digest of trusted source metadata, such as edge client address.
     pub trusted_source_digest: PublicDigest32,
+    /// Digest of the canonical user intent authorized by policy.
+    pub intent_digest: PublicDigest32,
 }
 
 impl CloudflareRouterNormalSigningTrustedMetadataV1 {
@@ -3208,6 +3291,7 @@ impl CloudflareRouterNormalSigningTrustedMetadataV1 {
         account_id: impl Into<String>,
         auth: CloudflareRouterAuthContextV1,
         trusted_source_digest: PublicDigest32,
+        intent_digest: PublicDigest32,
     ) -> RouterAbProtocolResult<Self> {
         let metadata = Self {
             org_id: org_id.into(),
@@ -3216,6 +3300,7 @@ impl CloudflareRouterNormalSigningTrustedMetadataV1 {
             account_id: account_id.into(),
             auth,
             trusted_source_digest,
+            intent_digest,
         };
         metadata.validate()?;
         Ok(metadata)
@@ -3257,6 +3342,12 @@ impl CloudflareRouterNormalSigningTrustedMetadataV1 {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
                 "trusted normal-signing session id does not match request scope",
+            ));
+        }
+        if self.intent_digest != request.intent_digest {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "trusted normal-signing intent digest does not match request intent",
             ));
         }
         Ok(())
@@ -3584,8 +3675,55 @@ impl CloudflareRouterVerifiedJwtClaimsV1 {
         }
         Ok(())
     }
+}
 
-    /// Converts verified claims into trusted Router metadata for normal signing.
+/// Already verified JWT claims for intent-bound normal signing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareRouterVerifiedNormalSigningJwtClaimsV1 {
+    /// Common verified JWT/session claims.
+    pub claims: CloudflareRouterVerifiedJwtClaimsV1,
+    /// Digest of the canonical user intent authorized by policy.
+    pub intent_digest: PublicDigest32,
+}
+
+impl CloudflareRouterVerifiedNormalSigningJwtClaimsV1 {
+    /// Creates validated normal-signing claims from a verified JWT boundary.
+    pub fn new(
+        claims: CloudflareRouterVerifiedJwtClaimsV1,
+        intent_digest: PublicDigest32,
+    ) -> RouterAbProtocolResult<Self> {
+        let claims = Self {
+            claims,
+            intent_digest,
+        };
+        claims.validate()?;
+        Ok(claims)
+    }
+
+    /// Validates common claims before request-specific checks.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.claims.validate()
+    }
+
+    /// Validates that verified JWT claims authorize this normal-signing request.
+    pub fn validate_for_normal_signing_request(
+        &self,
+        request: &NormalSigningRequestV1,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        self.claims
+            .validate_for_normal_signing_request(request, now_unix_ms)?;
+        if self.intent_digest != request.intent_digest {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidGateDecision,
+                "Router normal-signing JWT intent digest does not match request intent",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Converts verified normal-signing claims into trusted Router metadata.
     pub fn to_normal_signing_trusted_metadata(
         &self,
         request: &NormalSigningRequestV1,
@@ -3593,15 +3731,16 @@ impl CloudflareRouterVerifiedJwtClaimsV1 {
     ) -> RouterAbProtocolResult<CloudflareRouterNormalSigningTrustedMetadataV1> {
         self.validate_for_normal_signing_request(request, now_unix_ms)?;
         CloudflareRouterNormalSigningTrustedMetadataV1::new(
-            self.org_id.clone(),
-            self.project_id.clone(),
-            self.environment.clone(),
-            self.account_id.clone(),
+            self.claims.org_id.clone(),
+            self.claims.project_id.clone(),
+            self.claims.environment.clone(),
+            self.claims.account_id.clone(),
             CloudflareRouterAuthContextV1::authenticated_session(
-                self.subject_id.clone(),
-                self.session_id.clone(),
+                self.claims.subject_id.clone(),
+                self.claims.session_id.clone(),
             )?,
-            self.trusted_source_digest,
+            self.claims.trusted_source_digest,
+            self.intent_digest,
         )
     }
 }
@@ -3947,7 +4086,7 @@ impl CloudflareRouterNormalSigningJwtVerifierV1 for CloudflareRouterEd25519JwksJ
         request: &NormalSigningRequestV1,
         now_unix_ms: u64,
         trusted_source_digest: PublicDigest32,
-    ) -> RouterAbProtocolResult<CloudflareRouterVerifiedJwtClaimsV1> {
+    ) -> RouterAbProtocolResult<CloudflareRouterVerifiedNormalSigningJwtClaimsV1> {
         self.validate()?;
         verifier.validate()?;
         authorization.validate()?;
@@ -4073,6 +4212,28 @@ struct CloudflareRouterJwtClaimsPayloadV1 {
     project_id: String,
     environment: String,
     account_id: String,
+    #[serde(
+        rename = "intentDigest",
+        default,
+        deserialize_with = "deserialize_optional_public_digest32_base64url_v1"
+    )]
+    intent_digest: Option<PublicDigest32>,
+}
+
+fn deserialize_optional_public_digest32_base64url_v1<'de, D>(
+    deserializer: D,
+) -> Result<Option<PublicDigest32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let encoded = Option::<String>::deserialize(deserializer)?;
+    encoded
+        .map(|value| {
+            decode_base64url_fixed_32_v1("Router JWT intentDigest", &value)
+                .map(PublicDigest32::new)
+                .map_err(serde::de::Error::custom)
+        })
+        .transpose()
 }
 
 impl CloudflareRouterJwtClaimsPayloadV1 {
@@ -4103,15 +4264,22 @@ impl CloudflareRouterJwtClaimsPayloadV1 {
         request: &NormalSigningRequestV1,
         now_unix_ms: u64,
         trusted_source_digest: PublicDigest32,
-    ) -> RouterAbProtocolResult<CloudflareRouterVerifiedJwtClaimsV1> {
+    ) -> RouterAbProtocolResult<CloudflareRouterVerifiedNormalSigningJwtClaimsV1> {
         verifier.validate()?;
         request.validate_at(now_unix_ms)?;
+        let intent_digest = self.intent_digest.ok_or_else(|| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                "Router normal-signing JWT requires intentDigest",
+            )
+        })?;
         let claims = self.validate_common_for_request_expiry(
             verifier,
             request.expires_at_ms,
             now_unix_ms,
             trusted_source_digest,
         )?;
+        let claims = CloudflareRouterVerifiedNormalSigningJwtClaimsV1::new(claims, intent_digest)?;
         claims.validate_for_normal_signing_request(request, now_unix_ms)?;
         Ok(claims)
     }
@@ -4220,7 +4388,7 @@ pub trait CloudflareRouterNormalSigningJwtVerifierV1 {
         request: &NormalSigningRequestV1,
         now_unix_ms: u64,
         trusted_source_digest: PublicDigest32,
-    ) -> RouterAbProtocolResult<CloudflareRouterVerifiedJwtClaimsV1>;
+    ) -> RouterAbProtocolResult<CloudflareRouterVerifiedNormalSigningJwtClaimsV1>;
 }
 
 /// Session provider backed by a Router JWT verifier.
@@ -4844,6 +5012,8 @@ pub enum CloudflareRouterPublicAdmissionPlanV1 {
     Forward {
         /// Replay reservation call for the public request nonce.
         replay_reserve_call: CloudflareDurableObjectCallV1,
+        /// Public lifecycle persistence call for the requested state.
+        lifecycle_requested_put_call: CloudflareDurableObjectCallV1,
         /// Public lifecycle persistence call after gate application.
         lifecycle_put_call: CloudflareDurableObjectCallV1,
         /// Trusted Router-owned gate data.
@@ -4857,6 +5027,8 @@ pub enum CloudflareRouterPublicAdmissionPlanV1 {
     Stop {
         /// Replay reservation call for the public request nonce.
         replay_reserve_call: CloudflareDurableObjectCallV1,
+        /// Public lifecycle persistence call for the requested state.
+        lifecycle_requested_put_call: CloudflareDurableObjectCallV1,
         /// Public lifecycle persistence call after gate application.
         lifecycle_put_call: CloudflareDurableObjectCallV1,
         /// Trusted Router-owned gate data.
@@ -4868,6 +5040,7 @@ impl CloudflareRouterPublicAdmissionPlanV1 {
     /// Validates Router-only storage calls and admission branch consistency.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.replay_reserve_call().validate()?;
+        self.lifecycle_requested_put_call().validate()?;
         self.lifecycle_put_call().validate()?;
         self.trusted_admission().validate()?;
         if self.replay_reserve_call().worker_role != CloudflareWorkerRoleV1::Router
@@ -4886,6 +5059,15 @@ impl CloudflareRouterPublicAdmissionPlanV1 {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::ForbiddenLocalBinding,
                 "public Router admission plan lifecycle call must use Router lifecycle scope",
+            ));
+        }
+        if self.lifecycle_requested_put_call().worker_role != CloudflareWorkerRoleV1::Router
+            || self.lifecycle_requested_put_call().binding.scope
+                != CloudflareDurableObjectScopeV1::RouterLifecycle
+        {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ForbiddenLocalBinding,
+                "public Router admission plan requested lifecycle call must use Router lifecycle scope",
             ));
         }
         match self {
@@ -4946,6 +5128,20 @@ impl CloudflareRouterPublicAdmissionPlanV1 {
                 replay_reserve_call,
                 ..
             } => replay_reserve_call,
+        }
+    }
+
+    /// Returns the requested lifecycle persistence call.
+    pub fn lifecycle_requested_put_call(&self) -> &CloudflareDurableObjectCallV1 {
+        match self {
+            Self::Forward {
+                lifecycle_requested_put_call,
+                ..
+            }
+            | Self::Stop {
+                lifecycle_requested_put_call,
+                ..
+            } => lifecycle_requested_put_call,
         }
     }
 
@@ -5500,6 +5696,9 @@ impl CloudflareRouterWorkerRuntimeV1 {
             request.expires_at_ms,
         )?;
         let replay_reserve_call = self.replay_reserve_call(replay_request)?;
+        let lifecycle_requested_put_call = self.lifecycle_put_public_state_call(
+            RouterAbLifecycleStateV1::requested(request.lifecycle.clone())?,
+        )?;
         let lifecycle_put_call = self.lifecycle_put_public_state_call(
             trusted_admission.lifecycle_state_for_request(&request)?,
         )?;
@@ -5507,6 +5706,7 @@ impl CloudflareRouterWorkerRuntimeV1 {
             let (deriver_a_message, deriver_b_message) = request.to_signer_wire_messages()?;
             CloudflareRouterPublicAdmissionPlanV1::Forward {
                 replay_reserve_call,
+                lifecycle_requested_put_call,
                 lifecycle_put_call,
                 trusted_admission,
                 deriver_a_message,
@@ -5515,6 +5715,7 @@ impl CloudflareRouterWorkerRuntimeV1 {
         } else {
             CloudflareRouterPublicAdmissionPlanV1::Stop {
                 replay_reserve_call,
+                lifecycle_requested_put_call,
                 lifecycle_put_call,
                 trusted_admission,
             }
@@ -6024,6 +6225,9 @@ async fn handle_cloudflare_router_recipient_proof_bundle_public_request_v1(
             "public Router request replay reservation already exists",
         ));
     }
+    let _requested_lifecycle =
+        execute_cloudflare_router_lifecycle_put_v1(env, plan.lifecycle_requested_put_call())
+            .await?;
     let lifecycle =
         execute_cloudflare_router_lifecycle_put_v1(env, plan.lifecycle_put_call()).await?;
     match &plan {
@@ -6334,6 +6538,7 @@ where
         env,
         runtime.signing_worker_peer(),
         &request,
+        &admission,
     )
     .await
 }
@@ -6383,22 +6588,26 @@ pub fn build_cloudflare_router_to_signing_worker_normal_signing_request_v1(
 pub fn handle_cloudflare_signing_worker_normal_signing_private_request_v1<Handler>(
     handler: &Handler,
     now_unix_ms: u64,
-    request: NormalSigningRequestV1,
+    request: CloudflareSigningWorkerAdmittedNormalSigningRequestV1,
     active_signing_worker: ActiveSigningWorkerStateV1,
     material: CloudflareRelayerOutputMaterialRecordV1,
 ) -> RouterAbProtocolResult<NormalSigningResponseV1>
 where
     Handler: CloudflareSigningWorkerNormalSigningHandlerV1,
 {
+    request.validate()?;
     let forwarded = build_cloudflare_router_to_signing_worker_normal_signing_request_v1(
         now_unix_ms,
-        request.clone(),
+        request.request.clone(),
         active_signing_worker,
     )?;
-    let materialized =
-        CloudflareSigningWorkerMaterializedNormalSigningRequestV1::new(forwarded, material)?;
+    let materialized = CloudflareSigningWorkerMaterializedNormalSigningRequestV1::new(
+        forwarded,
+        request.trusted_admission,
+        material,
+    )?;
     let response = handler.handle_normal_signing_request(materialized)?;
-    response.validate_for_request(&request)?;
+    response.validate_for_request(&request.request)?;
     Ok(response)
 }
 
@@ -7466,7 +7675,10 @@ where
             404,
         );
     }
-    let parsed = match request.json::<NormalSigningRequestV1>().await {
+    let parsed = match request
+        .json::<CloudflareSigningWorkerAdmittedNormalSigningRequestV1>()
+        .await
+    {
         Ok(parsed) => parsed,
         Err(err) => {
             return worker::Response::error(
@@ -7475,8 +7687,14 @@ where
             );
         }
     };
+    if let Err(err) = parsed.validate() {
+        return worker::Response::error(
+            format!("{:?}: {}", err.code(), err.message()),
+            cloudflare_router_error_status(err.code()),
+        );
+    }
     let lookup = match CloudflareActiveSigningWorkerStateLookupV1::from_normal_signing_scope(
-        &parsed.scope,
+        &parsed.request.scope,
     ) {
         Ok(lookup) => lookup,
         Err(err) => {
@@ -7975,15 +8193,10 @@ async fn execute_cloudflare_signer_recipient_proof_bundle_service_call_v1(
             err,
         )
     })?;
-    let request_body = serde_json::to_string(message).map_err(|err| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            format!(
-                "{} strict service request serialization failed: {err}",
-                peer.peer_role.as_str()
-            ),
-        )
-    })?;
+    let request_body = cloudflare_service_json_request_body_v1(
+        &format!("{} strict service request", peer.peer_role.as_str()),
+        message,
+    )?;
     let headers = worker::Headers::new();
     headers
         .set("content-type", "application/json")
@@ -8071,12 +8284,10 @@ async fn execute_cloudflare_signing_worker_recipient_proof_bundle_activation_ser
             err,
         )
     })?;
-    let request_body = serde_json::to_string(request).map_err(|err| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            format!("SigningWorker proof-bundle activation serialization failed: {err}"),
-        )
-    })?;
+    let request_body = cloudflare_service_json_request_body_v1(
+        "SigningWorker proof-bundle activation request",
+        request,
+    )?;
     let headers = worker::Headers::new();
     headers
         .set("content-type", "application/json")
@@ -8132,6 +8343,7 @@ pub async fn execute_cloudflare_signing_worker_normal_signing_service_call_v1(
     env: &worker::Env,
     peer: &CloudflarePeerBindingV1,
     request: &NormalSigningRequestV1,
+    trusted_admission: &CloudflareRouterNormalSigningTrustedAdmissionV1,
 ) -> RouterAbProtocolResult<NormalSigningResponseV1> {
     peer.validate()?;
     if peer.peer_role != CloudflareWorkerRoleV1::SigningWorker {
@@ -8140,7 +8352,10 @@ pub async fn execute_cloudflare_signing_worker_normal_signing_service_call_v1(
             "normal signing must target SigningWorker",
         ));
     }
-    request.validate()?;
+    let admitted = CloudflareSigningWorkerAdmittedNormalSigningRequestV1::new(
+        request.clone(),
+        trusted_admission.clone(),
+    )?;
     let fetcher = env.service(&peer.binding_name).map_err(|err| {
         worker_binding_error(
             worker_binding_error_code(&err, &peer.binding_name),
@@ -8149,12 +8364,8 @@ pub async fn execute_cloudflare_signing_worker_normal_signing_service_call_v1(
             err,
         )
     })?;
-    let request_body = serde_json::to_string(request).map_err(|err| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            format!("normal-signing request serialization failed: {err}"),
-        )
-    })?;
+    let request_body =
+        cloudflare_service_json_request_body_v1("normal-signing request", &admitted)?;
     let headers = worker::Headers::new();
     headers
         .set("content-type", "application/json")
@@ -8224,15 +8435,10 @@ pub async fn execute_cloudflare_signer_peer_service_call_v1(
             err,
         )
     })?;
-    let request_body = serde_json::to_string(message).map_err(|err| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            format!(
-                "{} peer request serialization failed: {err}",
-                peer.peer_role.as_str()
-            ),
-        )
-    })?;
+    let request_body = cloudflare_service_json_request_body_v1(
+        &format!("{} peer request", peer.peer_role.as_str()),
+        message,
+    )?;
     let headers = worker::Headers::new();
     headers
         .set("content-type", "application/json")
@@ -9960,24 +10166,24 @@ mod tests {
             "4b90e236700389abcba20540ca0d6924d1c660353fd3e0dc4c68631f56fd14bc",
             "02a111b0106c967f261a5ad44a7a7955d1b23903484accd5bcbae95d7f32d81f",
             "c8697f1f1d6e91bd7a1d7ae758630708309304f70dc22aa16867560f0d9e95d4",
-            "a0be1fffdc55037c8495f239a82ce4a070cbcfc709b5703f734621b1ed69e714",
+            "a0be1fffdc55037c8495f239a82ce4a070cbcfc709b5703f7345dcb1ed69e714",
             "fc224de9de6249ee85247b35862adea0d6d91a771561a7e816f6e4759f4d5c93",
             "36b59743f86dd5b9d3ab00b43b913f2da23023f01f9c2745ff9135f38a67a3ba",
             "88110a4dab6ad58568d7fc7c6df2634a7a7e0b84744a7ff7810f8737f49c4fc1",
             "45829106819c2bb713bfac1a47a5cf3a68b46145a3bd5c08b4c07158ba243519",
             "33ad6c0a80928dbae32e54d466d7b164e79360a9dd60e2e526094ccf4a25ea3a",
-            "2beda19132251de85dc40d8b1ceaf0fa04522381ef0659a8ec10cd5d95a1fc98",
-            "bbed00b45ae74cf2e598f313648a0333f75b64522165c904d89250b5b041cfde",
-            "72235deb8aee7be3ef50c27fd86f188cd2a5d6c7589536b989bb601572df6a47",
-            "62cb0abdc70e61b5810544777c003a452531067eedfb98663228169c4eb8ba66",
-            "430d95665dd9f65d4a52381715132d4979ad66df97241061a3f4bec6cc97f08b",
-            "c4cc22a4b1da80836aaeb5ba906b73f8ba010ef812b7db182640e6cf420eca20",
-            "5d6beaed924ee6606b714463e4725627cae7d96103c70a1fbe6df33c4e9d2325",
-            "633052c652e19c9fc976a2a7aaef602265dc34817878de644c1062acdfb169a3",
-            "bb271a812f5c2c3947bf08f91a5079daa1710ecc86eec549e67e72aea20e536c",
-            "1165861fca386a977109050b6e5b45e3d63d014e30a8e87e1ebb2e67ac6a4814",
-            "301ed9b1d0a53021c0311c77e2f71d5b5f7f04b2a2fd827d19ce8092468d0300",
-            "26d0f978c792e2428ce9b7",
+            "2beda19132251de85dc40d8b1ceaf0fa04522381ef0659a8ec10c85d95a1fc98",
+            "bbed00b45ae74cf2e598f313648a0333f75b64522165c904d89250b5ef37fdfe",
+            "05540aeb8aee7be3ef50c27fd86f188cd2a5d6c7589536b989bb601572df6a47",
+            "15bc7dbaa27e09b39947161f5131373d7a5f1248ebf9855c3e3d3a9b2fcbdf60",
+            "2061fa605fc493333e545b7b7a152f541cc312d7e44d7f7cafe18fc2bec891",
+            "83b7a54db9bdcfc3871883d4f8e71c46f8ba010ef812b7db182640e6cf420",
+            "eca205d6beaed924ee6606b714463e4725627cae7d96103c70a1fbe6df33c",
+            "4e9d2325633052c652e19c9fc976a2a7aaef175512fe4cf92278de644c106",
+            "2acdfb169a3bb271a812f5c2c3947bf08f91a5079daa1710eccfe96bd099f",
+            "074baea20e536c1165861fca386a977109050b6e5b45e3d63d014e30a8e87",
+            "e1ebb2e67ac6a4814301ed9b1d0a53021c0311c77e2f71d5b5f7f04b",
+            "2a2fd827dbb4123849695607c7c9c52699cb500d2",
         );
         assert_eq!(
             lower_hex(&ciphertext_and_tag),

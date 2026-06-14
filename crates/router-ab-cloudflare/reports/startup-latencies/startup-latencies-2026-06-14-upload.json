@@ -1,0 +1,34 @@
+{
+  "generatedAt": "2026-06-14T03:55:03.298Z",
+  "mode": "versions_upload",
+  "measurements": [
+    {
+      "role": "router",
+      "config": "wrangler.router.toml",
+      "status": 1,
+      "startupTimeMs": null,
+      "upload": null
+    },
+    {
+      "role": "deriver-a",
+      "config": "wrangler.signer-a.toml",
+      "status": 1,
+      "startupTimeMs": null,
+      "upload": null
+    },
+    {
+      "role": "deriver-b",
+      "config": "wrangler.signer-b.toml",
+      "status": 1,
+      "startupTimeMs": null,
+      "upload": null
+    },
+    {
+      "role": "signing-worker",
+      "config": "wrangler.signing-worker.toml",
+      "status": 1,
+      "startupTimeMs": null,
+      "upload": null
+    }
+  ]
+}

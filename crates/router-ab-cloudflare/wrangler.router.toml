@@ -38,6 +38,7 @@ binding = "SIGNING_WORKER"
 service = "router-ab-strict-signing-worker"
 
 [vars]
+ROUTER_AB_WORKER_ROLE = "router"
 ROUTER_AB_ROUTE_PROFILE = "strict_proof_bundle"
 ROUTER_JWT_ISSUER = "https://issuer.example"
 ROUTER_JWT_AUDIENCE = "router-ab"
@@ -60,3 +61,132 @@ ROUTER_ABUSE_DO_KEY_PREFIX = "router-abuse/"
 SIGNER_A_PEER_BINDING = "SIGNER_A"
 SIGNER_B_PEER_BINDING = "SIGNER_B"
 SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
+
+# Deployment targets keep Worker names and service bindings explicit.
+[env.staging]
+name = "router-ab-strict-router-staging"
+workers_dev = true
+
+[[env.staging.durable_objects.bindings]]
+name = "ROUTER_REPLAY_DO"
+class_name = "RouterAbRouterReplayDurableObject"
+
+[[env.staging.durable_objects.bindings]]
+name = "ROUTER_LIFECYCLE_DO"
+class_name = "RouterAbRouterLifecycleDurableObject"
+
+[[env.staging.durable_objects.bindings]]
+name = "ROUTER_PROJECT_POLICY_DO"
+class_name = "RouterAbRouterProjectPolicyDurableObject"
+
+[[env.staging.durable_objects.bindings]]
+name = "ROUTER_QUOTA_DO"
+class_name = "RouterAbRouterQuotaDurableObject"
+
+[[env.staging.durable_objects.bindings]]
+name = "ROUTER_ABUSE_DO"
+class_name = "RouterAbRouterAbuseDurableObject"
+
+[[env.staging.services]]
+binding = "SIGNER_A"
+service = "router-ab-strict-signer-a-staging"
+
+[[env.staging.services]]
+binding = "SIGNER_B"
+service = "router-ab-strict-signer-b-staging"
+
+[[env.staging.services]]
+binding = "SIGNING_WORKER"
+service = "router-ab-strict-signing-worker-staging"
+
+[env.staging.vars]
+ROUTER_AB_WORKER_ROLE = "router"
+ROUTER_AB_ROUTE_PROFILE = "strict_proof_bundle"
+ROUTER_JWT_ISSUER = "https://issuer-staging.example"
+ROUTER_JWT_AUDIENCE = "router-ab"
+ROUTER_JWT_JWKS_URL = "https://issuer-staging.example/.well-known/jwks.json"
+ROUTER_REPLAY_DO_BINDING = "ROUTER_REPLAY_DO"
+ROUTER_REPLAY_DO_OBJECT = "router-replay"
+ROUTER_REPLAY_DO_KEY_PREFIX = "router-replay/"
+ROUTER_LIFECYCLE_DO_BINDING = "ROUTER_LIFECYCLE_DO"
+ROUTER_LIFECYCLE_DO_OBJECT = "router-lifecycle"
+ROUTER_LIFECYCLE_DO_KEY_PREFIX = "router-lifecycle/"
+ROUTER_PROJECT_POLICY_DO_BINDING = "ROUTER_PROJECT_POLICY_DO"
+ROUTER_PROJECT_POLICY_DO_OBJECT = "router-project-policy"
+ROUTER_PROJECT_POLICY_DO_KEY_PREFIX = "router-project-policy/"
+ROUTER_QUOTA_DO_BINDING = "ROUTER_QUOTA_DO"
+ROUTER_QUOTA_DO_OBJECT = "router-quota"
+ROUTER_QUOTA_DO_KEY_PREFIX = "router-quota/"
+ROUTER_ABUSE_DO_BINDING = "ROUTER_ABUSE_DO"
+ROUTER_ABUSE_DO_OBJECT = "router-abuse"
+ROUTER_ABUSE_DO_KEY_PREFIX = "router-abuse/"
+SIGNER_A_PEER_BINDING = "SIGNER_A"
+SIGNER_B_PEER_BINDING = "SIGNER_B"
+SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
+
+[env.production]
+name = "router-ab-strict-router-prod"
+workers_dev = true
+
+[[env.production.durable_objects.bindings]]
+name = "ROUTER_REPLAY_DO"
+class_name = "RouterAbRouterReplayDurableObject"
+
+[[env.production.durable_objects.bindings]]
+name = "ROUTER_LIFECYCLE_DO"
+class_name = "RouterAbRouterLifecycleDurableObject"
+
+[[env.production.durable_objects.bindings]]
+name = "ROUTER_PROJECT_POLICY_DO"
+class_name = "RouterAbRouterProjectPolicyDurableObject"
+
+[[env.production.durable_objects.bindings]]
+name = "ROUTER_QUOTA_DO"
+class_name = "RouterAbRouterQuotaDurableObject"
+
+[[env.production.durable_objects.bindings]]
+name = "ROUTER_ABUSE_DO"
+class_name = "RouterAbRouterAbuseDurableObject"
+
+[[env.production.services]]
+binding = "SIGNER_A"
+service = "router-ab-strict-signer-a-prod"
+
+[[env.production.services]]
+binding = "SIGNER_B"
+service = "router-ab-strict-signer-b-prod"
+
+[[env.production.services]]
+binding = "SIGNING_WORKER"
+service = "router-ab-strict-signing-worker-prod"
+
+[env.production.vars]
+ROUTER_AB_WORKER_ROLE = "router"
+ROUTER_AB_ROUTE_PROFILE = "strict_proof_bundle"
+ROUTER_JWT_ISSUER = "https://issuer.example"
+ROUTER_JWT_AUDIENCE = "router-ab"
+ROUTER_JWT_JWKS_URL = "https://issuer.example/.well-known/jwks.json"
+ROUTER_REPLAY_DO_BINDING = "ROUTER_REPLAY_DO"
+ROUTER_REPLAY_DO_OBJECT = "router-replay"
+ROUTER_REPLAY_DO_KEY_PREFIX = "router-replay/"
+ROUTER_LIFECYCLE_DO_BINDING = "ROUTER_LIFECYCLE_DO"
+ROUTER_LIFECYCLE_DO_OBJECT = "router-lifecycle"
+ROUTER_LIFECYCLE_DO_KEY_PREFIX = "router-lifecycle/"
+ROUTER_PROJECT_POLICY_DO_BINDING = "ROUTER_PROJECT_POLICY_DO"
+ROUTER_PROJECT_POLICY_DO_OBJECT = "router-project-policy"
+ROUTER_PROJECT_POLICY_DO_KEY_PREFIX = "router-project-policy/"
+ROUTER_QUOTA_DO_BINDING = "ROUTER_QUOTA_DO"
+ROUTER_QUOTA_DO_OBJECT = "router-quota"
+ROUTER_QUOTA_DO_KEY_PREFIX = "router-quota/"
+ROUTER_ABUSE_DO_BINDING = "ROUTER_ABUSE_DO"
+ROUTER_ABUSE_DO_OBJECT = "router-abuse"
+ROUTER_ABUSE_DO_KEY_PREFIX = "router-abuse/"
+SIGNER_A_PEER_BINDING = "SIGNER_A"
+SIGNER_B_PEER_BINDING = "SIGNER_B"
+SIGNING_WORKER_PEER_BINDING = "SIGNING_WORKER"
+
+[observability]
+  [observability.logs]
+  enabled = true
+  head_sampling_rate = 1
+  invocation_logs = true

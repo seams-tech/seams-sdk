@@ -25,10 +25,26 @@ const roles = [
   },
 ];
 
+const roleVarKeys = {
+  router: ["ROUTER_JWT_ISSUER", "ROUTER_JWT_AUDIENCE", "ROUTER_JWT_JWKS_URL"],
+  "deriver-a": [
+    "SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY",
+    "SIGNER_A_PEER_VERIFYING_KEY_HEX",
+    "SIGNER_B_PEER_VERIFYING_KEY_HEX",
+  ],
+  "deriver-b": [
+    "SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY",
+    "SIGNER_A_PEER_VERIFYING_KEY_HEX",
+    "SIGNER_B_PEER_VERIFYING_KEY_HEX",
+  ],
+  "signing-worker": ["SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY"],
+};
+
 const argv = process.argv.slice(2);
 const upload = argv.includes("--upload");
 const dryRun = argv.includes("--dry-run");
 const selectedRole = readOption("--role");
+const envName = readOption("--env");
 const reportPath =
   readOption("--out") ??
   join(
@@ -46,6 +62,7 @@ Options:
   --upload       Run wrangler versions upload and parse startup_time_ms.
   --dry-run      Validate build/upload shape without creating Worker versions.
   --role <role>  Limit to one role: router, deriver-a, deriver-b, signing-worker.
+  --env <env>    Target a Wrangler environment, usually staging or production.
   --out <path>   Write JSON report to a custom path.
 
 Dry-run output does not emit startup_time_ms. Use --upload for release evidence.`);
@@ -63,6 +80,7 @@ if (selectedRoles.length === 0) {
 const report = {
   generatedAt: new Date().toISOString(),
   mode: upload ? "versions_upload" : "dry_run",
+  env: envName ?? null,
   measurements: [],
 };
 
@@ -78,6 +96,12 @@ for (const role of selectedRoles) {
     "--message",
     `Router A/B startup latency capture for ${role.label}`,
   ];
+  if (envName) {
+    args.push("--env", envName);
+  }
+  for (const [key, value] of roleVars(role.label)) {
+    args.push("--var", `${key}:${value}`);
+  }
   if (dryRun) {
     args.push("--dry-run");
   }
@@ -122,6 +146,13 @@ function readOption(name) {
     throw new Error(`${name} requires a value`);
   }
   return value;
+}
+
+function roleVars(label) {
+  const keys = roleVarKeys[label] ?? [];
+  return keys
+    .map((key) => [key, process.env[key]])
+    .filter((entry) => entry[1] !== undefined && entry[1] !== "");
 }
 
 function parseStartupTimeMs(output) {

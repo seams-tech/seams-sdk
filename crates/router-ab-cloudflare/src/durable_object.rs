@@ -498,6 +498,8 @@ pub struct CloudflareRouterNormalSigningAdmissionStoreRequestV1 {
     pub expires_at_ms: u64,
     /// Current Worker time in Unix milliseconds.
     pub now_unix_ms: u64,
+    /// Digest of the canonical user intent authorized by policy.
+    pub intent_digest: PublicDigest32,
     /// Digest of canonical normal-signing request bytes.
     pub request_digest: PublicDigest32,
 }
@@ -516,6 +518,7 @@ impl CloudflareRouterNormalSigningAdmissionStoreRequestV1 {
             request_id: request.scope.request_id.clone(),
             expires_at_ms: request.expires_at_ms,
             now_unix_ms,
+            intent_digest: request.intent_digest,
             request_digest: request.digest(),
         };
         request.validate()?;
@@ -1953,6 +1956,12 @@ pub trait CloudflareDurableObjectStorageV1 {
         state: RouterAbLifecycleStateV1,
     ) -> RouterAbProtocolResult<()>;
 
+    /// Reads public Router lifecycle state by storage key.
+    fn router_lifecycle_state(
+        &self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<RouterAbLifecycleStateV1>>;
+
     /// Reads project-policy state by storage key.
     fn router_project_policy(
         &self,
@@ -2140,6 +2149,14 @@ impl CloudflareDurableObjectStorageV1 for CloudflareDurableObjectMemoryStorageV1
         Ok(())
     }
 
+    fn router_lifecycle_state(
+        &self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<RouterAbLifecycleStateV1>> {
+        require_non_empty("storage_key", storage_key)?;
+        Ok(self.lifecycle_states.get(storage_key).cloned())
+    }
+
     fn router_project_policy(
         &self,
         storage_key: &str,
@@ -2298,6 +2315,8 @@ pub fn handle_cloudflare_durable_object_call_v1(
             )?
         }
         CloudflareDurableObjectRequestV1::RouterLifecyclePutPublicState { state } => {
+            let previous = storage.router_lifecycle_state(&storage_key)?;
+            RouterAbLifecycleStateV1::validate_transition_from(previous.as_ref(), state)?;
             storage.put_router_lifecycle_state(&storage_key, state.clone())?;
             CloudflareDurableObjectResponseV1::router_lifecycle_put_public_state(
                 CloudflareLifecyclePutReceiptV1::new(state.scope().lifecycle_id.clone(), true)?,
@@ -2685,6 +2704,13 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
             )?
         }
         CloudflareDurableObjectRequestV1::RouterLifecyclePutPublicState { state } => {
+            let previous = worker_storage_get::<RouterAbLifecycleStateV1>(
+                storage,
+                &storage_key,
+                call.operation_kind(),
+            )
+            .await?;
+            RouterAbLifecycleStateV1::validate_transition_from(previous.as_ref(), state)?;
             worker_storage_put(storage, &storage_key, state.clone(), call.operation_kind()).await?;
             CloudflareDurableObjectResponseV1::router_lifecycle_put_public_state(
                 CloudflareLifecyclePutReceiptV1::new(state.scope().lifecycle_id.clone(), true)?,
@@ -3017,24 +3043,7 @@ pub async fn execute_cloudflare_durable_object_call_v1(
 }
 
 fn validate_lifecycle_state(state: &RouterAbLifecycleStateV1) -> RouterAbProtocolResult<()> {
-    state.scope().validate()?;
-    match state {
-        RouterAbLifecycleStateV1::Requested { .. }
-        | RouterAbLifecycleStateV1::GateDeferred { .. }
-        | RouterAbLifecycleStateV1::GateRejected { .. }
-        | RouterAbLifecycleStateV1::AuthorityVerifiedFallback { .. } => Ok(()),
-        RouterAbLifecycleStateV1::GateAccepted { request_id, .. } => {
-            require_non_empty("request_id", request_id)
-        }
-        RouterAbLifecycleStateV1::GateReusingExisting {
-            request_id,
-            existing_lifecycle_id,
-            ..
-        } => {
-            require_non_empty("request_id", request_id)?;
-            require_non_empty("existing_lifecycle_id", existing_lifecycle_id)
-        }
-    }
+    state.validate()
 }
 
 #[cfg(feature = "workers-rs")]

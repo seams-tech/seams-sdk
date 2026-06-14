@@ -57,27 +57,28 @@ use router_ab_cloudflare::{
     CloudflareRouterConfiguredQuotaProviderV1, CloudflareRouterEd25519JwksJwtVerifierV1,
     CloudflareRouterJwtSessionProviderV1, CloudflareRouterJwtVerifierBindingV1,
     CloudflareRouterJwtVerifierV1, CloudflareRouterNormalSigningAdmissionStoreRequestV1,
-    CloudflareRouterNormalSigningJwtVerifierV1, CloudflareRouterNormalSigningTrustedMetadataV1,
-    CloudflareRouterProjectPolicyRecordV1, CloudflareRouterProjectPolicyStoreV1,
-    CloudflareRouterProjectPolicyV1, CloudflareRouterPublicAdmissionPlanV1,
-    CloudflareRouterQuotaCheckV1, CloudflareRouterQuotaReservationV1, CloudflareRouterQuotaStoreV1,
+    CloudflareRouterNormalSigningJwtVerifierV1, CloudflareRouterNormalSigningTrustedAdmissionV1,
+    CloudflareRouterNormalSigningTrustedMetadataV1, CloudflareRouterProjectPolicyRecordV1,
+    CloudflareRouterProjectPolicyStoreV1, CloudflareRouterProjectPolicyV1,
+    CloudflareRouterPublicAdmissionPlanV1, CloudflareRouterQuotaCheckV1,
+    CloudflareRouterQuotaReservationV1, CloudflareRouterQuotaStoreV1,
     CloudflareRouterRecipientProofBundleAdmissionResponseV1,
     CloudflareRouterRecipientProofBundleResponseV1, CloudflareRouterStoredAbuseProviderV1,
     CloudflareRouterStoredProjectPolicyProviderV1, CloudflareRouterStoredQuotaProviderV1,
     CloudflareRouterTrustedAdmissionV1, CloudflareRouterTrustedRequestMetadataV1,
-    CloudflareRouterVerifiedJwtClaimsV1, CloudflareRouterVerifiedSessionProviderV1,
-    CloudflareRouterVerifiedSessionV1, CloudflareRouterWorkerRuntimeV1,
-    CloudflareSecretMaterial32V1, CloudflareSignerABindingsV1, CloudflareSignerAWorkerRuntimeV1,
-    CloudflareSignerBBindingsV1, CloudflareSignerBWorkerRuntimeV1,
-    CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1, CloudflareSignerEnvelopeHpkePublicKeySetV1,
-    CloudflareSignerEnvelopeHpkePublicKeyV1, CloudflareSignerHostPeerPreloadInputV1,
-    CloudflareSignerHostPreloadInputV1, CloudflareSignerHostPreloadPlanV1,
-    CloudflareSignerPeerSigningKeyBindingV1, CloudflareSignerPeerVerifyingKeyBytesV1,
-    CloudflareSignerPeerVerifyingKeySetV1, CloudflareSignerPrivateBootstrapRequestV1,
-    CloudflareSignerRecipientProofBundleResponseV1,
+    CloudflareRouterVerifiedJwtClaimsV1, CloudflareRouterVerifiedNormalSigningJwtClaimsV1,
+    CloudflareRouterVerifiedSessionProviderV1, CloudflareRouterVerifiedSessionV1,
+    CloudflareRouterWorkerRuntimeV1, CloudflareSecretMaterial32V1, CloudflareSignerABindingsV1,
+    CloudflareSignerAWorkerRuntimeV1, CloudflareSignerBBindingsV1,
+    CloudflareSignerBWorkerRuntimeV1, CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1,
+    CloudflareSignerEnvelopeHpkePublicKeySetV1, CloudflareSignerEnvelopeHpkePublicKeyV1,
+    CloudflareSignerHostPeerPreloadInputV1, CloudflareSignerHostPreloadInputV1,
+    CloudflareSignerHostPreloadPlanV1, CloudflareSignerPeerSigningKeyBindingV1,
+    CloudflareSignerPeerVerifyingKeyBytesV1, CloudflareSignerPeerVerifyingKeySetV1,
+    CloudflareSignerPrivateBootstrapRequestV1, CloudflareSignerRecipientProofBundleResponseV1,
     CloudflareSignerRecipientProofBundleWireHandlerV1, CloudflareSignerStartupCheckV1,
-    CloudflareSignerWireHandlerV1, CloudflareSigningWorkerBindingsV1,
-    CloudflareSigningWorkerMaterializedNormalSigningRequestV1,
+    CloudflareSignerWireHandlerV1, CloudflareSigningWorkerAdmittedNormalSigningRequestV1,
+    CloudflareSigningWorkerBindingsV1, CloudflareSigningWorkerMaterializedNormalSigningRequestV1,
     CloudflareSigningWorkerNormalSigningHandlerV1,
     CloudflareSigningWorkerOutputActivationReceiptV1,
     CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
@@ -177,6 +178,7 @@ fn normal_signing_request(expires_at_ms: u64) -> NormalSigningRequestV1 {
     NormalSigningRequestV1::new(
         normal_signing_scope(),
         expires_at_ms,
+        digest(0x91),
         CanonicalWireBytesV1::new(vec![0x7a, 0x7b, 0x7c]).expect("normal signing payload"),
     )
     .expect("normal signing request")
@@ -490,6 +492,14 @@ fn lifecycle_scope() -> LifecycleScopeV1 {
     lifecycle_state().scope().clone()
 }
 
+fn accepted_lifecycle_state() -> RouterAbLifecycleStateV1 {
+    RouterAbLifecycleStateV1::apply_gate_decision(
+        lifecycle_scope(),
+        ExpensiveWorkGateDecisionV1::accepted("gate-request-1").expect("accepted"),
+    )
+    .expect("accepted lifecycle state")
+}
+
 fn signer_set() -> SignerSetV1 {
     SignerSetV1::v1_all2(
         "signer-set-v1",
@@ -571,8 +581,27 @@ fn normal_signing_trusted_metadata() -> CloudflareRouterNormalSigningTrustedMeta
         CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
             .expect("auth context"),
         digest(0x90),
+        digest(0x91),
     )
     .expect("normal signing metadata")
+}
+
+fn normal_signing_trusted_admission() -> CloudflareRouterNormalSigningTrustedAdmissionV1 {
+    CloudflareRouterNormalSigningTrustedAdmissionV1::new(
+        normal_signing_trusted_metadata(),
+        ExpensiveWorkGateDecisionV1::accepted("gate-request-1").expect("accepted"),
+    )
+    .expect("normal signing trusted admission")
+}
+
+fn normal_signing_admitted_request(
+    request: NormalSigningRequestV1,
+) -> CloudflareSigningWorkerAdmittedNormalSigningRequestV1 {
+    CloudflareSigningWorkerAdmittedNormalSigningRequestV1::new(
+        request,
+        normal_signing_trusted_admission(),
+    )
+    .expect("normal signing admitted request")
 }
 
 fn admission_store_request(now_unix_ms: u64) -> CloudflareRouterAdmissionStoreRequestV1 {
@@ -662,6 +691,16 @@ fn valid_router_jwt_claims() -> serde_json::Value {
         "environment": "dev",
         "account_id": "account.near",
     })
+}
+
+fn digest_json(byte: u8) -> serde_json::Value {
+    serde_json::json!(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([byte; 32]))
+}
+
+fn valid_normal_signing_jwt_claims() -> serde_json::Value {
+    let mut claims = valid_router_jwt_claims();
+    claims["intentDigest"] = digest_json(0x91);
+    claims
 }
 
 fn composite_admission_provider(
@@ -755,7 +794,7 @@ impl CloudflareRouterNormalSigningJwtVerifierV1 for StaticJwtVerifier {
         request: &NormalSigningRequestV1,
         now_unix_ms: u64,
         trusted_source_digest: PublicDigest32,
-    ) -> RouterAbProtocolResult<CloudflareRouterVerifiedJwtClaimsV1> {
+    ) -> RouterAbProtocolResult<CloudflareRouterVerifiedNormalSigningJwtClaimsV1> {
         verifier.validate()?;
         authorization.validate()?;
         request.validate_at(now_unix_ms)?;
@@ -763,7 +802,7 @@ impl CloudflareRouterNormalSigningJwtVerifierV1 for StaticJwtVerifier {
         let mut claims = self.claims.clone();
         claims.trusted_source_digest = trusted_source_digest;
         claims.validate_for_normal_signing_request(request, now_unix_ms)?;
-        Ok(claims)
+        CloudflareRouterVerifiedNormalSigningJwtClaimsV1::new(claims, request.intent_digest)
     }
 }
 
@@ -1232,6 +1271,10 @@ impl CloudflareSigningWorkerNormalSigningHandlerV1 for TestNormalSigningHandler 
     ) -> router_ab_core::RouterAbProtocolResult<NormalSigningResponseV1> {
         request.validate()?;
         let forwarded = &request.forwarded;
+        assert_eq!(
+            request.trusted_admission.metadata.intent_digest,
+            forwarded.request.intent_digest
+        );
         NormalSigningResponseV1::new(
             forwarded.request.scope.clone(),
             forwarded.request.signing_payload_digest(),
@@ -1819,6 +1862,10 @@ fn router_worker_runtime_normalizes_public_request_into_admission_plan() {
         plan.lifecycle_put_call().binding.scope,
         CloudflareDurableObjectScopeV1::RouterLifecycle
     );
+    assert_eq!(
+        plan.lifecycle_requested_put_call().binding.scope,
+        CloudflareDurableObjectScopeV1::RouterLifecycle
+    );
     let CloudflareRouterPublicAdmissionPlanV1::Forward {
         deriver_a_message,
         deriver_b_message,
@@ -1870,6 +1917,7 @@ fn router_worker_runtime_builds_forward_plan_for_accepted_admission() {
 
     plan.validate().expect("plan validation");
     let CloudflareRouterPublicAdmissionPlanV1::Forward {
+        lifecycle_requested_put_call,
         lifecycle_put_call,
         deriver_a_message,
         deriver_b_message,
@@ -1880,6 +1928,12 @@ fn router_worker_runtime_builds_forward_plan_for_accepted_admission() {
     };
     assert_eq!(deriver_a_message.kind, WireMessageKindV1::RouterToSignerA);
     assert_eq!(deriver_b_message.kind, WireMessageKindV1::RouterToSignerB);
+    let CloudflareDurableObjectRequestV1::RouterLifecyclePutPublicState { state } =
+        lifecycle_requested_put_call.request
+    else {
+        panic!("expected requested lifecycle put request");
+    };
+    assert!(matches!(state, RouterAbLifecycleStateV1::Requested { .. }));
     let CloudflareDurableObjectRequestV1::RouterLifecyclePutPublicState { state } =
         lifecycle_put_call.request
     else {
@@ -1924,11 +1978,19 @@ fn router_worker_runtime_builds_stop_plan_for_rejected_admission() {
 
     plan.validate().expect("plan validation");
     let CloudflareRouterPublicAdmissionPlanV1::Stop {
-        lifecycle_put_call, ..
+        lifecycle_requested_put_call,
+        lifecycle_put_call,
+        ..
     } = plan
     else {
         panic!("rejected admission must stop");
     };
+    let CloudflareDurableObjectRequestV1::RouterLifecyclePutPublicState { state } =
+        lifecycle_requested_put_call.request
+    else {
+        panic!("expected requested lifecycle put request");
+    };
+    assert!(matches!(state, RouterAbLifecycleStateV1::Requested { .. }));
     let CloudflareDurableObjectRequestV1::RouterLifecyclePutPublicState { state } =
         lifecycle_put_call.request
     else {
@@ -2353,6 +2415,31 @@ fn router_verified_jwt_claims_bind_normal_signing_scope() {
 }
 
 #[test]
+fn router_verified_normal_signing_jwt_claims_bind_intent_digest() {
+    let claims = CloudflareRouterVerifiedNormalSigningJwtClaimsV1::new(
+        verified_jwt_claims("session-1", "account.near"),
+        digest(0x91),
+    )
+    .expect("normal signing claims");
+    let request = normal_signing_request(2_000);
+
+    claims
+        .validate_for_normal_signing_request(&request, 1_000)
+        .expect("normal signing claims bind request intent");
+
+    let mismatched = CloudflareRouterVerifiedNormalSigningJwtClaimsV1::new(
+        verified_jwt_claims("session-1", "account.near"),
+        digest(0x92),
+    )
+    .expect("mismatched normal signing claims");
+    let err = mismatched
+        .validate_for_normal_signing_request(&request, 1_000)
+        .expect_err("intent digest mismatch must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+}
+
+#[test]
 fn router_verified_jwt_claims_reject_normal_signing_account_mismatch() {
     let claims = verified_jwt_claims("session-1", "different.near");
     let request = normal_signing_request(2_000);
@@ -2382,7 +2469,11 @@ fn router_ed25519_jwks_jwt_verifier_accepts_normal_signing_bound_claims() {
     let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
     let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
         .expect("ed25519 jwks verifier");
-    let token = ed25519_jwt(&signing_key, "router-key-1", valid_router_jwt_claims());
+    let token = ed25519_jwt(
+        &signing_key,
+        "router-key-1",
+        valid_normal_signing_jwt_claims(),
+    );
     let authorization = CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
         "Bearer {token}"
     ))
@@ -2398,10 +2489,11 @@ fn router_ed25519_jwks_jwt_verifier_accepts_normal_signing_bound_claims() {
         )
         .expect("verified normal signing claims");
 
-    assert_eq!(claims.subject_id, "user-1");
-    assert_eq!(claims.session_id, "session-1");
-    assert_eq!(claims.account_id, "account.near");
-    assert_eq!(claims.trusted_source_digest, digest(0x91));
+    assert_eq!(claims.claims.subject_id, "user-1");
+    assert_eq!(claims.claims.session_id, "session-1");
+    assert_eq!(claims.claims.account_id, "account.near");
+    assert_eq!(claims.claims.trusted_source_digest, digest(0x91));
+    assert_eq!(claims.intent_digest, digest(0x91));
 }
 
 #[test]
@@ -2410,7 +2502,7 @@ fn router_ed25519_jwks_jwt_verifier_rejects_normal_signing_scope_mismatch() {
     let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
     let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
         .expect("ed25519 jwks verifier");
-    let mut claims = valid_router_jwt_claims();
+    let mut claims = valid_normal_signing_jwt_claims();
     claims["sid"] = serde_json::json!("different-session");
     let token = ed25519_jwt(&signing_key, "router-key-1", claims);
     let authorization = CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
@@ -2427,6 +2519,85 @@ fn router_ed25519_jwks_jwt_verifier_rejects_normal_signing_scope_mismatch() {
             digest(0x91),
         )
         .expect_err("normal signing scope mismatch must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+}
+
+#[test]
+fn router_ed25519_jwks_jwt_verifier_rejects_normal_signing_missing_intent_digest() {
+    let signing_key = SigningKey::from_bytes(&[0x42; 32]);
+    let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
+    let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
+        .expect("ed25519 jwks verifier");
+    let token = ed25519_jwt(&signing_key, "router-key-1", valid_router_jwt_claims());
+    let authorization = CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
+        "Bearer {token}"
+    ))
+    .expect("authorization");
+
+    let err = verifier
+        .verify_normal_signing_jwt(
+            &router_admission_bindings().jwt,
+            &authorization,
+            &normal_signing_request(2_000),
+            1_000,
+            digest(0x91),
+        )
+        .expect_err("normal signing JWT without intentDigest must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+}
+
+#[test]
+fn router_ed25519_jwks_jwt_verifier_rejects_normal_signing_malformed_intent_digest() {
+    let signing_key = SigningKey::from_bytes(&[0x42; 32]);
+    let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
+    let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
+        .expect("ed25519 jwks verifier");
+    let mut claims = valid_normal_signing_jwt_claims();
+    claims["intentDigest"] = serde_json::json!("not-a-32-byte-digest");
+    let token = ed25519_jwt(&signing_key, "router-key-1", claims);
+    let authorization = CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
+        "Bearer {token}"
+    ))
+    .expect("authorization");
+
+    let err = verifier
+        .verify_normal_signing_jwt(
+            &router_admission_bindings().jwt,
+            &authorization,
+            &normal_signing_request(2_000),
+            1_000,
+            digest(0x91),
+        )
+        .expect_err("normal signing JWT with malformed intentDigest must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+}
+
+#[test]
+fn router_ed25519_jwks_jwt_verifier_rejects_normal_signing_intent_mismatch() {
+    let signing_key = SigningKey::from_bytes(&[0x42; 32]);
+    let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
+    let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
+        .expect("ed25519 jwks verifier");
+    let mut claims = valid_normal_signing_jwt_claims();
+    claims["intentDigest"] = digest_json(0x92);
+    let token = ed25519_jwt(&signing_key, "router-key-1", claims);
+    let authorization = CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
+        "Bearer {token}"
+    ))
+    .expect("authorization");
+
+    let err = verifier
+        .verify_normal_signing_jwt(
+            &router_admission_bindings().jwt,
+            &authorization,
+            &normal_signing_request(2_000),
+            1_000,
+            digest(0x91),
+        )
+        .expect_err("normal signing JWT intent mismatch must fail");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 }
@@ -2661,6 +2832,37 @@ fn router_runtime_builds_normal_signing_admission_store_calls() {
         calls.abuse.storage_key(),
         "router-abuse:abuse/9090909090909090909090909090909090909090909090909090909090909090/account.near"
     );
+    let CloudflareDurableObjectRequestV1::RouterNormalSigningProjectPolicyEvaluate {
+        request: policy_request,
+    } = &calls.project_policy.request
+    else {
+        panic!("expected normal signing project policy request");
+    };
+    assert_eq!(policy_request.intent_digest, request.intent_digest);
+    assert_eq!(policy_request.request_digest, request.digest());
+}
+
+#[test]
+fn router_runtime_normal_signing_admission_store_calls_reject_intent_mismatch() {
+    let runtime = router_runtime();
+    let request = normal_signing_request(2_000);
+    let mismatched = CloudflareRouterNormalSigningTrustedMetadataV1::new(
+        "org-1",
+        "project-1",
+        "dev",
+        "account.near",
+        CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
+            .expect("auth context"),
+        digest(0x90),
+        digest(0x92),
+    )
+    .expect("mismatched normal signing metadata");
+
+    let err = runtime
+        .normal_signing_admission_store_calls_at(1_000, &request, mismatched)
+        .expect_err("mismatched normal signing intent must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 }
 
 #[test]
@@ -4485,7 +4687,7 @@ fn deriver_a_normal_signing_private_request_binds_active_signing_worker_state() 
     let response = handle_cloudflare_signing_worker_normal_signing_private_request_v1(
         &TestNormalSigningHandler,
         1_000,
-        request.clone(),
+        normal_signing_admitted_request(request.clone()),
         active_signing_worker,
         normal_signing_material_record(),
     )
@@ -4493,6 +4695,70 @@ fn deriver_a_normal_signing_private_request_binds_active_signing_worker_state() 
     response
         .validate_for_request(&request)
         .expect("response binds to request");
+}
+
+#[test]
+fn signing_worker_normal_signing_private_request_rejects_intent_mismatched_admission() {
+    let request = normal_signing_request(2_000);
+    let active_signing_worker = active_signing_worker_state_for_normal_signing();
+    let mismatched_metadata = CloudflareRouterNormalSigningTrustedMetadataV1::new(
+        "org-1",
+        "project-1",
+        "dev",
+        "account.near",
+        CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
+            .expect("auth context"),
+        digest(0x90),
+        digest(0x92),
+    )
+    .expect("mismatched metadata");
+    let mismatched_admission = CloudflareRouterNormalSigningTrustedAdmissionV1::new(
+        mismatched_metadata,
+        ExpensiveWorkGateDecisionV1::accepted("gate-request-1").expect("accepted"),
+    )
+    .expect("mismatched admission");
+    let admitted = CloudflareSigningWorkerAdmittedNormalSigningRequestV1 {
+        request,
+        trusted_admission: mismatched_admission,
+    };
+
+    let err = handle_cloudflare_signing_worker_normal_signing_private_request_v1(
+        &TestNormalSigningHandler,
+        1_000,
+        admitted,
+        active_signing_worker,
+        normal_signing_material_record(),
+    )
+    .expect_err("SigningWorker must reject mismatched admission");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+}
+
+#[test]
+fn signing_worker_normal_signing_private_request_rejects_non_accepted_admission() {
+    let request = normal_signing_request(2_000);
+    let active_signing_worker = active_signing_worker_state_for_normal_signing();
+    let rejected_admission = CloudflareRouterNormalSigningTrustedAdmissionV1::new(
+        normal_signing_trusted_metadata(),
+        ExpensiveWorkGateDecisionV1::rejected(GateRejectReasonV1::AbusePolicy, 1_000)
+            .expect("rejected"),
+    )
+    .expect("rejected admission");
+    let admitted = CloudflareSigningWorkerAdmittedNormalSigningRequestV1 {
+        request,
+        trusted_admission: rejected_admission,
+    };
+
+    let err = handle_cloudflare_signing_worker_normal_signing_private_request_v1(
+        &TestNormalSigningHandler,
+        1_000,
+        admitted,
+        active_signing_worker,
+        normal_signing_material_record(),
+    )
+    .expect_err("SigningWorker must reject non-accepted admission");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 }
 
 #[test]
@@ -4504,7 +4770,7 @@ fn deriver_a_normal_signing_private_request_rejects_invalid_active_signing_worke
     let err = handle_cloudflare_signing_worker_normal_signing_private_request_v1(
         &TestNormalSigningHandler,
         1_000,
-        request,
+        normal_signing_admitted_request(request),
         active_signing_worker,
         normal_signing_material_record(),
     )
@@ -4521,7 +4787,7 @@ fn deriver_a_normal_signing_private_request_rejects_expired_request() {
     let err = handle_cloudflare_signing_worker_normal_signing_private_request_v1(
         &TestNormalSigningHandler,
         1_000,
-        request,
+        normal_signing_admitted_request(request),
         active_signing_worker,
         normal_signing_material_record(),
     )
@@ -4546,7 +4812,7 @@ fn signing_worker_normal_signing_private_request_rejects_wrong_material() {
     let err = handle_cloudflare_signing_worker_normal_signing_private_request_v1(
         &TestNormalSigningHandler,
         1_000,
-        request,
+        normal_signing_admitted_request(request),
         active_signing_worker,
         wrong_material,
     )
@@ -5757,6 +6023,115 @@ fn durable_object_handler_stores_router_lifecycle_state() {
 }
 
 #[test]
+fn durable_object_handler_rejects_lifecycle_gate_state_without_requested_state() {
+    let state = accepted_lifecycle_state();
+    let call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        do_binding(
+            CloudflareDurableObjectScopeV1::RouterLifecycle,
+            "ROUTER_LIFECYCLE_DO",
+        ),
+        CloudflareDurableObjectRequestV1::router_lifecycle_put_public_state(state)
+            .expect("accepted lifecycle op"),
+    )
+    .expect("accepted lifecycle call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    let err = handle_cloudflare_durable_object_call_v1(&call, &mut storage)
+        .expect_err("gate outcome cannot create lifecycle storage");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
+    assert_eq!(storage.lifecycle_state(&call.storage_key()), None);
+}
+
+#[test]
+fn durable_object_handler_enforces_router_lifecycle_transition() {
+    let requested = lifecycle_state();
+    let accepted = accepted_lifecycle_state();
+    let binding = do_binding(
+        CloudflareDurableObjectScopeV1::RouterLifecycle,
+        "ROUTER_LIFECYCLE_DO",
+    );
+    let requested_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        binding.clone(),
+        CloudflareDurableObjectRequestV1::router_lifecycle_put_public_state(requested)
+            .expect("requested lifecycle op"),
+    )
+    .expect("requested lifecycle call");
+    let accepted_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        binding,
+        CloudflareDurableObjectRequestV1::router_lifecycle_put_public_state(accepted.clone())
+            .expect("accepted lifecycle op"),
+    )
+    .expect("accepted lifecycle call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    handle_cloudflare_durable_object_call_v1(&requested_call, &mut storage)
+        .expect("requested lifecycle put");
+    handle_cloudflare_durable_object_call_v1(&accepted_call, &mut storage)
+        .expect("accepted lifecycle put");
+    handle_cloudflare_durable_object_call_v1(&accepted_call, &mut storage)
+        .expect("idempotent accepted lifecycle retry");
+
+    assert_eq!(
+        storage.lifecycle_state(&accepted_call.storage_key()),
+        Some(&accepted)
+    );
+}
+
+#[test]
+fn durable_object_handler_rejects_terminal_lifecycle_rewrite() {
+    let requested = lifecycle_state();
+    let accepted = accepted_lifecycle_state();
+    let deferred = RouterAbLifecycleStateV1::apply_gate_decision(
+        lifecycle_scope(),
+        ExpensiveWorkGateDecisionV1::defer(GateDeferReasonV1::ShortWindowSaturated),
+    )
+    .expect("deferred lifecycle");
+    let binding = do_binding(
+        CloudflareDurableObjectScopeV1::RouterLifecycle,
+        "ROUTER_LIFECYCLE_DO",
+    );
+    let requested_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        binding.clone(),
+        CloudflareDurableObjectRequestV1::router_lifecycle_put_public_state(requested)
+            .expect("requested lifecycle op"),
+    )
+    .expect("requested lifecycle call");
+    let accepted_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        binding.clone(),
+        CloudflareDurableObjectRequestV1::router_lifecycle_put_public_state(accepted.clone())
+            .expect("accepted lifecycle op"),
+    )
+    .expect("accepted lifecycle call");
+    let deferred_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        binding,
+        CloudflareDurableObjectRequestV1::router_lifecycle_put_public_state(deferred)
+            .expect("deferred lifecycle op"),
+    )
+    .expect("deferred lifecycle call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    handle_cloudflare_durable_object_call_v1(&requested_call, &mut storage)
+        .expect("requested lifecycle put");
+    handle_cloudflare_durable_object_call_v1(&accepted_call, &mut storage)
+        .expect("accepted lifecycle put");
+    let err = handle_cloudflare_durable_object_call_v1(&deferred_call, &mut storage)
+        .expect_err("terminal lifecycle rewrite must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
+    assert_eq!(
+        storage.lifecycle_state(&accepted_call.storage_key()),
+        Some(&accepted)
+    );
+}
+
+#[test]
 fn durable_object_handler_evaluates_router_project_policy() {
     let request = admission_store_request(1_000);
     let call = CloudflareDurableObjectCallV1::new(
@@ -5904,6 +6279,7 @@ fn durable_object_handler_evaluates_normal_signing_quota() {
         NormalSigningScopeV1::new("sign-request-2", "account.near", "session-1", "relayer-a")
             .expect("second normal signing scope"),
         2_000,
+        digest(0x91),
         CanonicalWireBytesV1::new(vec![0x7d, 0x7e]).expect("second signing payload"),
     )
     .expect("second normal signing request");

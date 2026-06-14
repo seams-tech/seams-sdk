@@ -13,7 +13,8 @@ use router_ab_cloudflare::{
     CloudflareRouterNormalSigningTrustedMetadataV1, CloudflareRouterProjectPolicyV1,
     CloudflareRouterPublicAdmissionPlanV1, CloudflareRouterQuotaCheckV1,
     CloudflareRouterTrustedRequestMetadataV1, CloudflareRouterWorkerRuntimeV1,
-    CloudflareSecretMaterial32V1, CloudflareSigningWorkerMaterializedNormalSigningRequestV1,
+    CloudflareSecretMaterial32V1, CloudflareSigningWorkerAdmittedNormalSigningRequestV1,
+    CloudflareSigningWorkerMaterializedNormalSigningRequestV1,
     CloudflareSigningWorkerNormalSigningHandlerV1, CloudflareWorkerRoleV1,
 };
 use router_ab_core::{
@@ -115,7 +116,10 @@ impl NormalSigningBenchmarkFixture {
         let response = handle_cloudflare_signing_worker_normal_signing_private_request_v1(
             &self.handler,
             1_000,
-            self.request.clone(),
+            CloudflareSigningWorkerAdmittedNormalSigningRequestV1::new(
+                self.request.clone(),
+                admission,
+            )?,
             self.active_signing_worker.clone(),
             self.material.clone(),
         )?;
@@ -326,6 +330,7 @@ fn normal_signing_trusted_metadata() -> CloudflareRouterNormalSigningTrustedMeta
         "account.near",
         CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
             .expect("auth context"),
+        digest(0x90),
         digest(0x91),
     )
     .expect("normal signing trusted metadata")
@@ -369,6 +374,7 @@ fn normal_signing_request(expires_at_ms: u64) -> NormalSigningRequestV1 {
         NormalSigningScopeV1::new("sign-request-1", "account.near", "session-1", "relayer-a")
             .expect("normal signing scope"),
         expires_at_ms,
+        digest(0x91),
         CanonicalWireBytesV1::new(vec![0x7a, 0x7b, 0x7c]).expect("normal signing payload"),
     )
     .expect("normal signing request")
