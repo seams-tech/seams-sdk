@@ -54,7 +54,7 @@ fn local_durable_sqlite_storage_is_scope_isolated() -> Result<(), Box<dyn std::e
     )?;
     let signing_worker = LocalDurableObjectSqliteStorageV1::new(
         &connection,
-        LocalDurableObjectScopeV1::SigningWorkerRelayerOutput,
+        LocalDurableObjectScopeV1::SigningWorkerServerOutput,
     )?;
 
     router.put_bytes("same-key", b"router-value")?;
@@ -110,7 +110,7 @@ fn local_durable_sqlite_seed_writes_role_owned_smoke_state(
         .contains(&"deriver_a_root_share".to_owned()));
     assert!(receipt
         .scope_labels
-        .contains(&"signing_worker_relayer_output".to_owned()));
+        .contains(&"signing_worker_server_output".to_owned()));
 
     let router_replay = LocalDurableObjectSqliteStorageV1::new(
         &connection,
@@ -126,7 +126,7 @@ fn local_durable_sqlite_seed_writes_role_owned_smoke_state(
     )?;
     let signing_worker = LocalDurableObjectSqliteStorageV1::new(
         &connection,
-        LocalDurableObjectScopeV1::SigningWorkerRelayerOutput,
+        LocalDurableObjectScopeV1::SigningWorkerServerOutput,
     )?;
 
     assert_eq!(
@@ -166,7 +166,7 @@ fn local_storage_parity_seed_includes_signing_root_metadata_and_durable_state(
 
     let signing_worker = LocalDurableObjectSqliteStorageV1::new(
         &connection,
-        LocalDurableObjectScopeV1::SigningWorkerRelayerOutput,
+        LocalDurableObjectScopeV1::SigningWorkerServerOutput,
     )?;
     assert_eq!(
         signing_worker.list_keys()?,
@@ -196,7 +196,7 @@ fn local_storage_parity_seed_survives_reopened_connection() -> Result<(), Box<dy
         )?;
         let signing_worker = LocalDurableObjectSqliteStorageV1::new(
             &connection,
-            LocalDurableObjectScopeV1::SigningWorkerRelayerOutput,
+            LocalDurableObjectScopeV1::SigningWorkerServerOutput,
         )?;
         assert_eq!(
             deriver_a.get_bytes("sealed/share/a")?,

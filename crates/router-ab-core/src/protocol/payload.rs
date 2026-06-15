@@ -19,7 +19,7 @@ use crate::protocol::error::{
 };
 use crate::protocol::gate::ExpensiveWorkKindV1;
 use crate::protocol::identity::{
-    RelayerIdentityV1, RoleEnvelopeAssignmentV1, SignerIdentityV1, SignerSetPolicyV1, SignerSetV1,
+    RoleEnvelopeAssignmentV1, ServerIdentityV1, SignerIdentityV1, SignerSetPolicyV1, SignerSetV1,
 };
 use crate::protocol::lifecycle::LifecycleScopeV1;
 use crate::protocol::wire::CanonicalWireBytesV1;
@@ -101,8 +101,8 @@ impl RouterTranscriptMetadataV1 {
             context,
             self.router_id.clone(),
             transcript_signer_set,
-            signer_set.selected_relayer.relayer_id.clone(),
-            signer_set.selected_relayer.recipient_encryption_key.clone(),
+            signer_set.selected_server.server_id.clone(),
+            signer_set.selected_server.recipient_encryption_key.clone(),
             self.client_id.clone(),
             self.client_ephemeral_public_key.clone(),
         )
@@ -462,7 +462,7 @@ impl SigningWorkerActivationContextV1 {
                 "SigningWorker activation lifecycle signer-set id does not match signer set",
             ));
         }
-        if self.lifecycle.selected_relayer_id != self.signer_set.selected_relayer.relayer_id {
+        if self.lifecycle.selected_server_id != self.signer_set.selected_server.server_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLifecycleState,
                 "SigningWorker activation selected worker does not match signer set",
@@ -703,7 +703,7 @@ impl AbDerivationProofBatchPayloadV1 {
     }
 }
 
-/// Recipient-scoped proof-bundle payload for final client or relayer delivery.
+/// Recipient-scoped proof-bundle payload for final client or server delivery.
 #[derive(Clone, PartialEq, Eq)]
 pub struct RecipientProofBundlePayloadV1 {
     /// Lifecycle id.
@@ -1238,12 +1238,12 @@ pub fn validate_signer_input_plaintext_binding_v1(
             "signer input plaintext recipient identity does not match assignment",
         ));
     }
-    if plaintext.selected_relayer_id != signer_set.selected_relayer.relayer_id
-        || plaintext.selected_relayer_key_epoch != signer_set.selected_relayer.key_epoch
+    if plaintext.selected_server_id != signer_set.selected_server.server_id
+        || plaintext.selected_server_key_epoch != signer_set.selected_server.key_epoch
     {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidSignerIdentity,
-            "signer input plaintext relayer identity does not match signer set",
+            "signer input plaintext server identity does not match signer set",
         ));
     }
     if plaintext.transcript_digest != payload.transcript_digest() {
@@ -1456,10 +1456,10 @@ fn validate_router_to_signer(
             "router-to-signer lifecycle signer-set id does not match signer set",
         ));
     }
-    if lifecycle.selected_relayer_id != signer_set.selected_relayer.relayer_id {
+    if lifecycle.selected_server_id != signer_set.selected_server.server_id {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLifecycleState,
-            "router-to-signer lifecycle selected relayer does not match signer set",
+            "router-to-signer lifecycle selected server does not match signer set",
         ));
     }
     if assignment.signer.role != expected_role {
@@ -1510,7 +1510,7 @@ fn validate_recipient_delivery_policy(
 ) -> RouterAbProtocolResult<()> {
     match (opened_share_kind, recipient_role) {
         (OpenedShareKind::XClientBase, Role::Client)
-        | (OpenedShareKind::XRelayerBase, Role::Relayer) => Ok(()),
+        | (OpenedShareKind::XServerBase, Role::Server) => Ok(()),
         _ => Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
             "recipient delivery binding violates recipient policy",
@@ -1546,7 +1546,7 @@ fn push_lifecycle_scope(out: &mut Vec<u8>, scope: &LifecycleScopeV1) {
     push_string(out, &scope.account_id);
     push_string(out, &scope.session_id);
     push_string(out, &scope.signer_set_id);
-    push_string(out, &scope.selected_relayer_id);
+    push_string(out, &scope.selected_server_id);
 }
 
 fn push_signer_set(out: &mut Vec<u8>, signer_set: &SignerSetV1) {
@@ -1554,7 +1554,7 @@ fn push_signer_set(out: &mut Vec<u8>, signer_set: &SignerSetV1) {
     push_signer_set_policy(out, signer_set.policy);
     push_signer_identity(out, &signer_set.signer_a);
     push_signer_identity(out, &signer_set.signer_b);
-    push_relayer_identity(out, &signer_set.selected_relayer);
+    push_server_identity(out, &signer_set.selected_server);
 }
 
 fn push_signer_set_policy(out: &mut Vec<u8>, policy: SignerSetPolicyV1) {
@@ -1580,8 +1580,8 @@ fn push_signer_identity(out: &mut Vec<u8>, identity: &SignerIdentityV1) {
     push_string(out, &identity.key_epoch);
 }
 
-fn push_relayer_identity(out: &mut Vec<u8>, identity: &RelayerIdentityV1) {
-    push_string(out, &identity.relayer_id);
+fn push_server_identity(out: &mut Vec<u8>, identity: &ServerIdentityV1) {
+    push_string(out, &identity.server_id);
     push_string(out, &identity.key_epoch);
     push_string(out, &identity.recipient_encryption_key);
 }
@@ -1682,7 +1682,7 @@ impl<'a> PayloadDecoder<'a> {
         let account_id = self.read_string("account_id")?;
         let session_id = self.read_string("session_id")?;
         let signer_set_id = self.read_string("signer_set_id")?;
-        let selected_relayer_id = self.read_string("selected_relayer_id")?;
+        let selected_server_id = self.read_string("selected_server_id")?;
         let lifecycle = LifecycleScopeV1::new(
             lifecycle_id,
             work_kind,
@@ -1690,7 +1690,7 @@ impl<'a> PayloadDecoder<'a> {
             account_id,
             session_id,
             signer_set_id,
-            selected_relayer_id,
+            selected_server_id,
         )?;
         if lifecycle.primitive_request_kind != primitive_request_kind {
             return Err(RouterAbProtocolError::new(
@@ -1706,8 +1706,8 @@ impl<'a> PayloadDecoder<'a> {
         let policy = parse_signer_set_policy(&self.read_string("signer_set_policy")?)?;
         let signer_a = self.read_signer_identity()?;
         let signer_b = self.read_signer_identity()?;
-        let selected_relayer = self.read_relayer_identity()?;
-        let signer_set = SignerSetV1::v1_all2(signer_set_id, signer_a, signer_b, selected_relayer)?;
+        let selected_server = self.read_server_identity()?;
+        let signer_set = SignerSetV1::v1_all2(signer_set_id, signer_a, signer_b, selected_server)?;
         if signer_set.policy != policy {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidSignerIdentity,
@@ -1768,11 +1768,11 @@ impl<'a> PayloadDecoder<'a> {
         SignerIdentityV1::new(role, signer_id, key_epoch)
     }
 
-    fn read_relayer_identity(&mut self) -> RouterAbProtocolResult<RelayerIdentityV1> {
-        let relayer_id = self.read_string("relayer_id")?;
-        let key_epoch = self.read_string("relayer_key_epoch")?;
-        let recipient_encryption_key = self.read_string("relayer_recipient_encryption_key")?;
-        RelayerIdentityV1::new(relayer_id, key_epoch, recipient_encryption_key)
+    fn read_server_identity(&mut self) -> RouterAbProtocolResult<ServerIdentityV1> {
+        let server_id = self.read_string("server_id")?;
+        let key_epoch = self.read_string("server_key_epoch")?;
+        let recipient_encryption_key = self.read_string("server_recipient_encryption_key")?;
+        ServerIdentityV1::new(server_id, key_epoch, recipient_encryption_key)
     }
 
     fn read_role(&mut self) -> RouterAbProtocolResult<Role> {
@@ -1905,7 +1905,7 @@ fn parse_work_kind(value: &str) -> RouterAbProtocolResult<ExpensiveWorkKindV1> {
         "registration_prepare" => Ok(ExpensiveWorkKindV1::RegistrationPrepare),
         "key_export" => Ok(ExpensiveWorkKindV1::KeyExport),
         "recovery" => Ok(ExpensiveWorkKindV1::Recovery),
-        "relayer_share_refresh" => Ok(ExpensiveWorkKindV1::RelayerShareRefresh),
+        "server_share_refresh" => Ok(ExpensiveWorkKindV1::ServerShareRefresh),
         _ => Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
             "unknown lifecycle work kind",
@@ -1938,7 +1938,7 @@ fn parse_mpc_prf_suite_id(value: &str) -> RouterAbProtocolResult<MpcPrfSuiteId> 
 fn parse_opened_share_kind(value: &str) -> RouterAbProtocolResult<OpenedShareKind> {
     match value {
         "x_client_base" => Ok(OpenedShareKind::XClientBase),
-        "x_relayer_base" => Ok(OpenedShareKind::XRelayerBase),
+        "x_server_base" => Ok(OpenedShareKind::XServerBase),
         _ => Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
             "unknown opened share kind",
@@ -1971,7 +1971,7 @@ fn parse_role(value: &str) -> RouterAbProtocolResult<Role> {
         "router" => Ok(Role::Router),
         "signer_a" => Ok(Role::SignerA),
         "signer_b" => Ok(Role::SignerB),
-        "relayer" => Ok(Role::Relayer),
+        "server" => Ok(Role::Server),
         "client" => Ok(Role::Client),
         _ => Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidRole,

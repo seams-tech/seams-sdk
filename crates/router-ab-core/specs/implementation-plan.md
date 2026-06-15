@@ -92,7 +92,7 @@ root-generation, anti-bias, refresh, and address-verification gates.
 - [ ] Fill exact export flow for `split_root_derivation_v1`
 - [ ] Fill exact refresh flow for `split_root_derivation_v1`
 - [ ] Write A/B state visibility tables for each candidate flow
-- [ ] Write Router, client, and relayer visibility tables for each candidate
+- [ ] Write Router, client, and server visibility tables for each candidate
       flow
 - [x] Decide candidate A preferred combine location: recipient-side combine
 - [x] Specify Minimum Level C transcript checks in field-level detail

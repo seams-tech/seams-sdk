@@ -45,8 +45,8 @@ const VECTOR_SIGNER_A_ID: &str = "role:signer-a:local:sha256-a";
 const VECTOR_SIGNER_B_ID: &str = "role:signer-b:local:sha256-b";
 const VECTOR_SIGNER_A_KEY_EPOCH: &str = "key-epoch-a-1";
 const VECTOR_SIGNER_B_KEY_EPOCH: &str = "key-epoch-b-1";
-const VECTOR_RELAYER_ID: &str = "role:relayer:local:sha256-r";
-const VECTOR_RELAYER_RECIPIENT_ENCRYPTION_KEY: &str =
+const VECTOR_SERVER_ID: &str = "role:server:local:sha256-r";
+const VECTOR_SERVER_RECIPIENT_ENCRYPTION_KEY: &str =
     "x25519:1111111111111111111111111111111111111111111111111111111111111111";
 const VECTOR_CLIENT_ID: &str = "role:client:local:sha256-c";
 const VECTOR_CLIENT_EPHEMERAL_PUBLIC_KEY: &str = "x25519:client-ephemeral-public-key";
@@ -129,8 +129,8 @@ pub struct ContextTranscriptVectorV1 {
     pub signer_set_id: String,
     /// Quorum policy bound into the transcript.
     pub quorum_policy: String,
-    /// Selected relayer identity.
-    pub selected_relayer_id: String,
+    /// Selected server identity.
+    pub selected_server_id: String,
 }
 
 /// Envelope commitment vector.
@@ -380,8 +380,8 @@ pub fn vector_case_transcript_v1(
             VECTOR_SIGNER_B_ID,
             VECTOR_SIGNER_B_KEY_EPOCH,
         )?,
-        VECTOR_RELAYER_ID,
-        VECTOR_RELAYER_RECIPIENT_ENCRYPTION_KEY,
+        VECTOR_SERVER_ID,
+        VECTOR_SERVER_RECIPIENT_ENCRYPTION_KEY,
         VECTOR_CLIENT_ID,
         VECTOR_CLIENT_EPHEMERAL_PUBLIC_KEY,
     )
@@ -517,7 +517,7 @@ fn sample_context_transcript_vector(
             .signer_set()
             .quorum_policy()
             .as_canonical_string(),
-        selected_relayer_id: transcript.selected_relayer_id().to_owned(),
+        selected_server_id: transcript.selected_server_id().to_owned(),
     })
 }
 
@@ -628,7 +628,7 @@ fn sample_mpc_threshold_prf_backend_vectors(
         RequestKind::Export,
         RequestKind::Refresh,
     ] {
-        for opened_share_kind in [OpenedShareKind::XClientBase, OpenedShareKind::XRelayerBase] {
+        for opened_share_kind in [OpenedShareKind::XClientBase, OpenedShareKind::XServerBase] {
             vectors.push(sample_mpc_threshold_prf_backend_vector(
                 request_kind,
                 opened_share_kind,
@@ -695,8 +695,8 @@ fn sample_mpc_threshold_prf_backend_rejection_vectors(
         context.clone(),
         "role:router:local:sha256-other",
         transcript.signer_set().clone(),
-        transcript.selected_relayer_id(),
-        transcript.selected_relayer_recipient_encryption_key(),
+        transcript.selected_server_id(),
+        transcript.selected_server_recipient_encryption_key(),
         transcript.client_id(),
         transcript.client_ephemeral_public_key(),
     )?;
@@ -856,7 +856,7 @@ fn mpc_signer_input(
         context.root_share_epoch().clone(),
         vec![
             mpc_output_request(OpenedShareKind::XClientBase)?,
-            mpc_output_request(OpenedShareKind::XRelayerBase)?,
+            mpc_output_request(OpenedShareKind::XServerBase)?,
         ],
     )
 }
@@ -868,11 +868,9 @@ fn mpc_output_request(
         OpenedShareKind::XClientBase => {
             MpcPrfOutputRequestV1::new(OpenedShareKind::XClientBase, Role::Client, VECTOR_CLIENT_ID)
         }
-        OpenedShareKind::XRelayerBase => MpcPrfOutputRequestV1::new(
-            OpenedShareKind::XRelayerBase,
-            Role::Relayer,
-            VECTOR_RELAYER_ID,
-        ),
+        OpenedShareKind::XServerBase => {
+            MpcPrfOutputRequestV1::new(OpenedShareKind::XServerBase, Role::Server, VECTOR_SERVER_ID)
+        }
     }
 }
 
@@ -963,27 +961,27 @@ fn sample_minimum_level_c_input(
         ContentKind::ClientOutputShare,
         deterministic_public_digest("minimum-level-c/b-client", 0),
     )?;
-    let a_relayer = sample_delivery_package(
+    let a_server = sample_delivery_package(
         &context,
         transcript_digest,
-        EnvelopeKind::SignerAToRelayer,
+        EnvelopeKind::SignerAToServer,
         Role::SignerA,
         "role:signer-a:local:sha256-a",
-        Role::Relayer,
-        "role:relayer:local:sha256-r",
-        ContentKind::RelayerOutputShare,
-        deterministic_public_digest("minimum-level-c/a-relayer", 0),
+        Role::Server,
+        "role:server:local:sha256-r",
+        ContentKind::ServerOutputShare,
+        deterministic_public_digest("minimum-level-c/a-server", 0),
     )?;
-    let b_relayer = sample_delivery_package(
+    let b_server = sample_delivery_package(
         &context,
         transcript_digest,
-        EnvelopeKind::SignerBToRelayer,
+        EnvelopeKind::SignerBToServer,
         Role::SignerB,
         "role:signer-b:local:sha256-b",
-        Role::Relayer,
-        "role:relayer:local:sha256-r",
-        ContentKind::RelayerOutputShare,
-        deterministic_public_digest("minimum-level-c/b-relayer", 0),
+        Role::Server,
+        "role:server:local:sha256-r",
+        ContentKind::ServerOutputShare,
+        deterministic_public_digest("minimum-level-c/b-server", 0),
     )?;
 
     let input = MinimumLevelCVerificationInputV1 {
@@ -997,7 +995,7 @@ fn sample_minimum_level_c_input(
             context.root_share_epoch().clone(),
             vec![
                 package_commitment_v1(&a_client)?,
-                package_commitment_v1(&a_relayer)?,
+                package_commitment_v1(&a_server)?,
             ],
         )?,
         signer_b_receipt: AuthenticatedSignerReceiptV1::new(
@@ -1008,11 +1006,11 @@ fn sample_minimum_level_c_input(
             context.root_share_epoch().clone(),
             vec![
                 package_commitment_v1(&b_client)?,
-                package_commitment_v1(&b_relayer)?,
+                package_commitment_v1(&b_server)?,
             ],
         )?,
         client_packages: vec![a_client, b_client],
-        relayer_packages: vec![a_relayer, b_relayer],
+        server_packages: vec![a_server, b_server],
         replay_cache_decision: AcceptedReplayCacheDecisionV1 {
             replay_cache_key: deterministic_public_digest("minimum-level-c/replay", 0),
             accepted_transcript_digest: transcript_digest,
@@ -1147,7 +1145,7 @@ fn sample_rejection_vectors(
         new_signer_set_id: "signer-set-v2".to_owned(),
         expected_router_id: "role:router:local:sha256-router".to_owned(),
         expected_client_id: "role:client:local:sha256-c".to_owned(),
-        expected_relayer_id: "role:relayer:local:sha256-r".to_owned(),
+        expected_server_id: "role:server:local:sha256-r".to_owned(),
         address_verification_requirement: "required".to_owned(),
     };
 

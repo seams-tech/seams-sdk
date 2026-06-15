@@ -102,8 +102,8 @@ pub struct OutputBindingInput {
     pub state: CoordinationComplete,
     /// Client package commitments.
     pub client_package_commitments: Vec<PublicDigest32>,
-    /// Relayer package commitments.
-    pub relayer_package_commitments: Vec<PublicDigest32>,
+    /// Server package commitments.
+    pub server_package_commitments: Vec<PublicDigest32>,
     /// Signer A output receipt digest.
     pub signer_a_output_receipt_digest: PublicDigest32,
     /// Signer B output receipt digest.
@@ -117,8 +117,8 @@ pub struct OutputsBound {
     pub coordination: CoordinationComplete,
     /// Client package commitments.
     pub client_package_commitments: Vec<PublicDigest32>,
-    /// Relayer package commitments.
-    pub relayer_package_commitments: Vec<PublicDigest32>,
+    /// Server package commitments.
+    pub server_package_commitments: Vec<PublicDigest32>,
     /// Signer A output receipt digest.
     pub signer_a_output_receipt_digest: PublicDigest32,
     /// Signer B output receipt digest.
@@ -293,17 +293,17 @@ pub fn complete_coordination(
 
 /// Binds output package commitments.
 pub fn bind_outputs(input: OutputBindingInput) -> RouterAbDerivationResult<OutputsBound> {
-    if input.client_package_commitments.len() != 2 || input.relayer_package_commitments.len() != 2 {
+    if input.client_package_commitments.len() != 2 || input.server_package_commitments.len() != 2 {
         return Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::MalformedInput,
-            "Minimum Level C output binding requires exactly two client and two relayer package commitments",
+            "Minimum Level C output binding requires exactly two client and two server package commitments",
         ));
     }
 
     Ok(OutputsBound {
         coordination: input.state,
         client_package_commitments: input.client_package_commitments,
-        relayer_package_commitments: input.relayer_package_commitments,
+        server_package_commitments: input.server_package_commitments,
         signer_a_output_receipt_digest: input.signer_a_output_receipt_digest,
         signer_b_output_receipt_digest: input.signer_b_output_receipt_digest,
     })

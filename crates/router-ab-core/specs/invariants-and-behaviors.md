@@ -18,8 +18,8 @@ The client may not materialize:
 
 - joined `d`
 - joined `a`
-- joined `y_relayer`
-- joined `tau_relayer`
+- joined `y_server`
+- joined `tau_server`
 
 Router may not materialize:
 
@@ -32,7 +32,7 @@ Router may not materialize:
 Allowed openings are:
 
 - client opens `x_client_base`
-- active SigningWorker opens `x_relayer_base`
+- active SigningWorker opens `x_server_base`
 
 All other openings are invalid.
 

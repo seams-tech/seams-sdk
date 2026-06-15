@@ -11,7 +11,7 @@
 | Context encoding includes root epoch | Planned | Required for refresh safety |
 | Context encoding includes ceremony id | Planned | Required for replay protection |
 | Transcript digest includes role identities | Planned | Router, Deriver A, Deriver B, SigningWorker, client |
-| Allowed opened-value kinds are role scoped | Model entry added | Client receives `x_client_base`; SigningWorker receives `x_relayer_base` |
+| Allowed opened-value kinds are role scoped | Model entry added | Client receives `x_client_base`; SigningWorker receives `x_server_base` |
 | Context field order is fixed | Planned | Required for anti-drift |
 | Transcript field order is fixed | Planned | Required for anti-drift |
 | Empty required fields are rejected | Planned | Boundary validation model |
@@ -30,7 +30,7 @@
 | Candidate A SigningWorker observes only SigningWorker-targeted partials | Model entry added | Abstract visibility predicate in Verus model |
 | Role-view events exclude forbidden joined state | Model entry added | Forbidden joined events are modeled explicitly and are unobservable |
 | Production service roles match the FV role set | Anti-drift test added | `formal-verification/verus/tests/anti_drift.rs` |
-| Production output authorization matches the FV opened-value model | Anti-drift test added | Client opens `x_client_base`; SigningWorker path uses `x_relayer_base` |
+| Production output authorization matches the FV opened-value model | Anti-drift test added | Client opens `x_client_base`; SigningWorker path uses `x_server_base` |
 
 ## Planned Lean Proofs
 
@@ -40,7 +40,7 @@
 | Client view excludes joined `d`, `a`, and SigningWorker material | Model entry added | Event-based privacy predicate |
 | Router view excludes plaintext A/B share pairs | Planned | Privacy model |
 | Client opens only `x_client_base` | Planned | Role/output authorization |
-| SigningWorker opens only `x_relayer_base` | Model entry added | Role/output authorization |
+| SigningWorker opens only `x_server_base` | Model entry added | Role/output authorization |
 | Deriver A alone excludes forbidden joined state | Planned | Role-view privacy |
 | Deriver B alone excludes forbidden joined state | Planned | Role-view privacy |
 | Router-mediated transport does not alter visibility claim | Planned | Topology-independent view model |
@@ -48,7 +48,7 @@
 | A+B collusion is outside server-blind claim | Planned | Threat matrix boundary |
 | Candidate A Router view excludes plaintext PRF partials | Model entry added | Lean privacy predicate |
 | Candidate A client observes only `x_client_base` partials | Model entry added | Lean privacy predicate |
-| Candidate A SigningWorker observes only `x_relayer_base` partials | Model entry added | Lean privacy predicate |
+| Candidate A SigningWorker observes only `x_server_base` partials | Model entry added | Lean privacy predicate |
 
 ## Out Of Scope Until Candidate Selection
 

@@ -12,8 +12,8 @@ Invariant: a role-encrypted signer envelope is addressed only to `SignerA` or
 
 Current Rust boundary:
 
-- `RoleEncryptedEnvelopeV1::new` rejects Router, Client, and Relayer roles.
-- `SignerIdentityV1::new` rejects Router, Client, and Relayer roles.
+- `RoleEncryptedEnvelopeV1::new` rejects Router, Client, and Server roles.
+- `SignerIdentityV1::new` rejects Router, Client, and Server roles.
 - `RoleEnvelopeAssignmentV1::new` requires signer role and envelope recipient
   role to match.
 - `RouterToSignerPayloadV1::deriver_a` accepts only a Signer A assignment.
@@ -49,15 +49,15 @@ valid_peer_message(m) ==> (
 ## Output Kind Separation
 
 Invariant: client-output packages always represent `x_client_base` for Client,
-and relayer-output packages always represent `x_relayer_base` for Relayer.
+and server-output packages always represent `x_server_base` for Server.
 
 Current Rust boundary:
 
 - `ClientOutputPackageV1::recipient_role()` always returns `Client`.
 - `ClientOutputPackageV1::opened_share_kind()` always returns `XClientBase`.
-- `RelayerOutputPackageV1::recipient_role()` always returns `Relayer`.
-- `RelayerOutputPackageV1::opened_share_kind()` always returns
-  `XRelayerBase`.
+- `ServerOutputPackageV1::recipient_role()` always returns `Server`.
+- `ServerOutputPackageV1::opened_share_kind()` always returns
+  `XServerBase`.
 - `RecipientOutputPackageV1` preserves branch-specific recipient and output
   kind.
 
@@ -66,8 +66,8 @@ Verus target:
 ```text
 client_output(p) ==> p.recipient_role == Client
 client_output(p) ==> p.opened_share_kind == XClientBase
-relayer_output(p) ==> p.recipient_role == Relayer
-relayer_output(p) ==> p.opened_share_kind == XRelayerBase
+server_output(p) ==> p.recipient_role == Server
+server_output(p) ==> p.opened_share_kind == XServerBase
 ```
 
 ## Transcript Binding
@@ -78,8 +78,8 @@ same transcript digest as the parent payload.
 Current Rust boundary:
 
 - `SignerResponsePayloadV1::new` requires the client-output transcript digest
-  and relayer-output transcript digest to match the response transcript digest.
-- `RelayerActivationPayloadV1::new` requires the relayer-output transcript
+  and server-output transcript digest to match the response transcript digest.
+- `ServerActivationPayloadV1::new` requires the server-output transcript
   digest to match the activation transcript digest.
 - `WireMessageV1` binds the transport message kind, transcript digest, and
   canonical payload bytes into a SHA-256 digest.
@@ -90,8 +90,8 @@ Verus target:
 
 ```text
 valid_signer_response(r) ==> r.client_output.transcript == r.transcript
-valid_signer_response(r) ==> r.relayer_output.transcript == r.transcript
-valid_relayer_activation(a) ==> a.relayer_output.transcript == a.transcript
+valid_signer_response(r) ==> r.server_output.transcript == r.transcript
+valid_server_activation(a) ==> a.server_output.transcript == a.transcript
 wire_digest(m) == sha256(encode_wire_message(m))
 ```
 

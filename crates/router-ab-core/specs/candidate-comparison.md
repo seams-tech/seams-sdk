@@ -18,7 +18,7 @@ Current answers:
   and DLEQ proof wires through a Router/A/B adapter.
 - Purpose binding: `MpcPrfPurposeBindingPlanV1` defines deriver-neutral
   context bytes for `router-ab/x_client_base/v1` and
-  `router-ab/x_relayer_base/v1`.
+  `router-ab/x_server_base/v1`.
 - Combiner placement: final recipient combines plaintext partials. Router sees
   only public metadata, encrypted packages, commitments, and receipts.
 - Role visibility: covered in

@@ -46,7 +46,7 @@ fn transcript(context: DerivationContext) -> TranscriptBinding {
             "key-epoch-b-1",
         )
         .expect("signer set"),
-        "role:relayer:local:sha256-r",
+        "role:server:local:sha256-r",
         "x25519:1111111111111111111111111111111111111111111111111111111111111111",
         "role:client:local:sha256-c",
         "x25519:client-ephemeral-public-key",
@@ -61,10 +61,10 @@ fn output_request(opened_share_kind: OpenedShareKind) -> MpcPrfOutputRequestV1 {
             Role::Client,
             "role:client:local:sha256-c",
         ),
-        OpenedShareKind::XRelayerBase => MpcPrfOutputRequestV1::new(
-            OpenedShareKind::XRelayerBase,
-            Role::Relayer,
-            "role:relayer:local:sha256-r",
+        OpenedShareKind::XServerBase => MpcPrfOutputRequestV1::new(
+            OpenedShareKind::XServerBase,
+            Role::Server,
+            "role:server:local:sha256-r",
         ),
     }
     .expect("output request")
@@ -88,7 +88,7 @@ fn signer_input(output_requests: Vec<MpcPrfOutputRequestV1>) -> MpcPrfSignerPart
 fn threshold_purpose(output_purpose: MpcPrfOutputPurposeV1) -> PrfPurpose {
     match output_purpose {
         MpcPrfOutputPurposeV1::RouterAbXClientBase => PrfPurpose::RouterAbXClientBaseV1,
-        MpcPrfOutputPurposeV1::RouterAbXRelayerBase => PrfPurpose::RouterAbXRelayerBaseV1,
+        MpcPrfOutputPurposeV1::RouterAbXServerBase => PrfPurpose::RouterAbXServerBaseV1,
     }
 }
 
@@ -158,23 +158,23 @@ fn purpose_binding_plan_drives_threshold_prf_proof_and_combine_path() {
 }
 
 #[test]
-fn client_and_relayer_purpose_plans_produce_distinct_outputs() {
+fn client_and_server_purpose_plans_produce_distinct_outputs() {
     let client_request = output_request(OpenedShareKind::XClientBase);
-    let relayer_request = output_request(OpenedShareKind::XRelayerBase);
-    let signer_input = signer_input(vec![client_request.clone(), relayer_request.clone()]);
+    let server_request = output_request(OpenedShareKind::XServerBase);
+    let signer_input = signer_input(vec![client_request.clone(), server_request.clone()]);
     let client_plan =
         plan_mpc_prf_purpose_binding_v1(&signer_input, &client_request).expect("client plan");
-    let relayer_plan =
-        plan_mpc_prf_purpose_binding_v1(&signer_input, &relayer_request).expect("relayer plan");
+    let server_plan =
+        plan_mpc_prf_purpose_binding_v1(&signer_input, &server_request).expect("server plan");
     let client_context = threshold_context(&client_plan);
-    let relayer_context = threshold_context(&relayer_plan);
+    let server_context = threshold_context(&server_plan);
 
     let mut setup_rng = seeded_rng(43);
     let root = generate_signing_root(&mut setup_rng);
     let _shares = split_signing_root(&root, policy(), &mut setup_rng).expect("split");
 
     let client_output = evaluate_direct_reference(&root, &client_context).expect("client");
-    let relayer_output = evaluate_direct_reference(&root, &relayer_context).expect("relayer");
+    let server_output = evaluate_direct_reference(&root, &server_context).expect("server");
 
-    assert_ne!(client_output, relayer_output);
+    assert_ne!(client_output, server_output);
 }

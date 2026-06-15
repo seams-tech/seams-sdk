@@ -29,7 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for spec in LOCAL_WORKER_PROCESS_SPECS {
         if read_pid(&root, *spec)?.is_some() {
             return Err(format!(
-                "{} already exists; run pnpm router-ab:local:down first",
+                "{} already exists; run pnpm router:down first",
                 local_dev_process::pid_path(&root, *spec).display()
             )
             .into());

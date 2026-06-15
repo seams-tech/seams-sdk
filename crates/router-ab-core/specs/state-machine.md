@@ -14,7 +14,7 @@ Every ceremony is in exactly one state:
 | `deriver_inputs_accepted` | Deriver A and Deriver B | Both derivers accepted their own input envelope |
 | `coordination_complete` | Deriver A and Deriver B | Candidate-specific coordination finished |
 | `outputs_bound` | Deriver A and Deriver B | Output packages and receipts committed to transcript |
-| `delivered` | Router or direct transport | Packages delivered to client and relayer endpoints |
+| `delivered` | Router or direct transport | Packages delivered to client and server endpoints |
 | `verified` | verifier | Minimum Level C or stronger evidence accepted |
 | `aborted` | Router or verifier | Ceremony closed without activation |
 

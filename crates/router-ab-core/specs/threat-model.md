@@ -12,8 +12,8 @@ Protected assets:
 - joined `d`
 - joined `a`
 - joined `x_client_base`
-- joined `y_relayer`
-- joined `tau_relayer`
+- joined `y_server`
+- joined `tau_server`
 - A-side derivation state
 - B-side derivation state
 - plaintext client delivery material before client receipt
@@ -65,7 +65,7 @@ behavior as an output-correctness and availability risk.
 ### SigningWorker
 
 The active SigningWorker receives encrypted SigningWorker-output delivery
-material and opens `x_relayer_base` for normal signing.
+material and opens `x_server_base` for normal signing.
 
 SigningWorker compromise exposes SigningWorker-opened material. It must not
 expose client-opened material or joined `d`/`a`.
@@ -80,11 +80,11 @@ delivery material or both plaintext A/B derivation states.
 
 | Compromised set | Privacy claim | Correctness claim | Availability claim |
 | --- | --- | --- | --- |
-| Router only | Cannot reconstruct joined `d`, `a`, `x_client_base`, `y_relayer`, or `tau_relayer` from allowed state | Can drop, reorder, or replay unless replay cache rejects | Can deny service |
+| Router only | Cannot reconstruct joined `d`, `a`, `x_client_base`, `y_server`, or `tau_server` from allowed state | Can drop, reorder, or replay unless replay cache rejects | Can deny service |
 | Deriver A only | Cannot reconstruct joined forbidden state without B | Can return malformed A-side output | Can deny A-side progress |
 | Deriver B only | Cannot reconstruct joined forbidden state without A | Can return malformed B-side output | Can deny B-side progress |
 | Client only | Can reveal its own opened `x_client_base` | Can cause bad client-side use of outputs | Can abandon ceremonies |
-| SigningWorker only | Can reveal opened `x_relayer_base` | Can misuse SigningWorker-side output | Can deny signing service |
+| SigningWorker only | Can reveal opened `x_server_base` | Can misuse SigningWorker-side output | Can deny signing service |
 | Storage only | Sees metadata and encrypted packages only | Cannot forge transcript evidence without role keys | Can lose replay or package state |
 | Router + Deriver A | Cannot reconstruct B-side state or joined forbidden state if B remains honest and envelopes hold | Can bias/drop A-side behavior and Router routing | Can deny service |
 | Router + Deriver B | Cannot reconstruct A-side state or joined forbidden state if A remains honest and envelopes hold | Can bias/drop B-side behavior and Router routing | Can deny service |

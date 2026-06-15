@@ -202,10 +202,10 @@ fn forbidden_joined_state_names_stay_in_allowlisted_modules() {
         "joined_a",
         "joined x_client_base",
         "joined_x_client_base",
-        "joined y_relayer",
-        "joined_y_relayer",
-        "joined tau_relayer",
-        "joined_tau_relayer",
+        "joined y_server",
+        "joined_y_server",
+        "joined tau_server",
+        "joined_tau_server",
     ];
 
     for path in rust_source_files() {
@@ -339,7 +339,7 @@ fn local_deriver_and_signing_worker_state_stay_role_separated() {
         "LocalDeriverBServiceV1",
     ] {
         let block = extract_struct_block(&local_rs, struct_name);
-        for forbidden in ["relayer_output_storage", "relayer: RelayerIdentityV1"] {
+        for forbidden in ["server_output_storage", "server: ServerIdentityV1"] {
             assert!(
                 !block.contains(forbidden),
                 "{struct_name} must not own SigningWorker state through `{forbidden}`"

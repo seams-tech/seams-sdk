@@ -43,7 +43,7 @@ fn transcript(context: DerivationContext) -> TranscriptBinding {
             "key-epoch-b-1",
         )
         .expect("signer set"),
-        "role:relayer:local:sha256-r",
+        "role:server:local:sha256-r",
         "x25519:1111111111111111111111111111111111111111111111111111111111111111",
         "role:client:local:sha256-c",
         "x25519:client-ephemeral-public-key",
@@ -60,13 +60,13 @@ fn output_request() -> MpcPrfOutputRequestV1 {
     .expect("output request")
 }
 
-fn relayer_output_request() -> MpcPrfOutputRequestV1 {
+fn server_output_request() -> MpcPrfOutputRequestV1 {
     MpcPrfOutputRequestV1::new(
-        OpenedShareKind::XRelayerBase,
-        Role::Relayer,
-        "role:relayer:local:sha256-r",
+        OpenedShareKind::XServerBase,
+        Role::Server,
+        "role:server:local:sha256-r",
     )
-    .expect("relayer output request")
+    .expect("server output request")
 }
 
 fn signer_input(role: Role, identity: &str) -> MpcPrfSignerPartialInputV1 {
@@ -177,8 +177,8 @@ fn signer_partial_input_rejects_identity_mismatch() {
 fn output_request_rejects_wrong_recipient_role() {
     let err = MpcPrfOutputRequestV1::new(
         OpenedShareKind::XClientBase,
-        Role::Relayer,
-        "role:relayer:local:sha256-r",
+        Role::Server,
+        "role:server:local:sha256-r",
     )
     .expect_err("wrong recipient should fail");
 
@@ -253,38 +253,38 @@ fn purpose_binding_plan_is_signer_neutral_for_same_output() {
 }
 
 #[test]
-fn purpose_binding_plan_separates_client_and_relayer_outputs() {
+fn purpose_binding_plan_separates_client_and_server_outputs() {
     let client_request = output_request();
-    let relayer_request = relayer_output_request();
+    let server_request = server_output_request();
     let signer = signer_input_with_requests(
         Role::SignerA,
         "role:signer-a:local:sha256-a",
-        vec![client_request.clone(), relayer_request.clone()],
+        vec![client_request.clone(), server_request.clone()],
     );
 
     let client_plan =
         plan_mpc_prf_purpose_binding_v1(&signer, &client_request).expect("client plan");
-    let relayer_plan =
-        plan_mpc_prf_purpose_binding_v1(&signer, &relayer_request).expect("relayer plan");
+    let server_plan =
+        plan_mpc_prf_purpose_binding_v1(&signer, &server_request).expect("server plan");
 
     assert_eq!(
-        relayer_plan.output_purpose,
-        MpcPrfOutputPurposeV1::RouterAbXRelayerBase
+        server_plan.output_purpose,
+        MpcPrfOutputPurposeV1::RouterAbXServerBase
     );
     assert_eq!(
-        relayer_plan.threshold_prf_purpose_label,
-        "router-ab/x_relayer_base/v1"
+        server_plan.threshold_prf_purpose_label,
+        "router-ab/x_server_base/v1"
     );
     assert_ne!(
         client_plan.threshold_prf_context_digest,
-        relayer_plan.threshold_prf_context_digest
+        server_plan.threshold_prf_context_digest
     );
 }
 
 #[test]
 fn purpose_binding_plan_rejects_request_missing_from_signer_input() {
     let signer = signer_input(Role::SignerA, "role:signer-a:local:sha256-a");
-    let err = plan_mpc_prf_purpose_binding_v1(&signer, &relayer_output_request())
+    let err = plan_mpc_prf_purpose_binding_v1(&signer, &server_output_request())
         .expect_err("missing request should fail");
 
     assert_eq!(err.code(), RouterAbDerivationErrorCode::RecipientMismatch);

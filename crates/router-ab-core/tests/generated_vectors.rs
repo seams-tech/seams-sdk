@@ -36,7 +36,7 @@ fn generated_contract_vectors_include_required_sections() {
             vector.quorum_policy, "all(2)",
             "v1 vectors must enforce all(2)"
         );
-        assert_eq!(vector.selected_relayer_id, "role:relayer:local:sha256-r");
+        assert_eq!(vector.selected_server_id, "role:server:local:sha256-r");
         assert!(!vector.context_digest_hex.is_empty());
         assert!(!vector.transcript_digest_hex.is_empty());
     }
@@ -51,7 +51,7 @@ fn generated_contract_vectors_include_required_sections() {
     assert_eq!(corpus.minimum_level_c_cases.len(), 3);
     for case in &corpus.minimum_level_c_cases {
         assert_eq!(case.evidence.client_package_commitments().len(), 2);
-        assert_eq!(case.evidence.relayer_package_commitments().len(), 2);
+        assert_eq!(case.evidence.server_package_commitments().len(), 2);
     }
     assert_eq!(corpus.candidate_output_cases.len(), 6);
     for candidate_id in [
@@ -86,7 +86,7 @@ fn generated_contract_vectors_include_required_sections() {
         RequestKind::Export,
         RequestKind::Refresh,
     ] {
-        for opened_share_kind in [OpenedShareKind::XClientBase, OpenedShareKind::XRelayerBase] {
+        for opened_share_kind in [OpenedShareKind::XClientBase, OpenedShareKind::XServerBase] {
             let vector = corpus
                 .mpc_threshold_prf_backend_cases
                 .iter()

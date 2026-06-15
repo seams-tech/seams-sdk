@@ -1,30 +1,42 @@
+use base64::Engine;
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+use ed25519_hss::role_signing::{
+    RoleSeparatedEd25519Round1SecretV1, RoleSeparatedEd25519Round1StateV1,
+};
 use router_ab_cloudflare::{
-    build_cloudflare_router_to_signing_worker_normal_signing_request_v1,
-    derive_cloudflare_router_normal_signing_trusted_admission_v1,
     derive_cloudflare_router_trusted_admission_from_provider_v1,
-    handle_cloudflare_signing_worker_normal_signing_private_request_v1,
+    handle_cloudflare_signing_worker_normal_signing_finalize_private_request_v2,
     CloudflareDurableObjectBindingV1, CloudflareDurableObjectScopeV1, CloudflarePeerBindingV1,
-    CloudflareRelayerOutputMaterialRecordV1, CloudflareRouterAbuseCheckV1,
-    CloudflareRouterAdmissionBindingsV1, CloudflareRouterAdmissionChecksV1,
-    CloudflareRouterAdmissionProviderOutputV1, CloudflareRouterAdmissionProviderV1,
-    CloudflareRouterAdmissionStoreBindingsV1, CloudflareRouterAuthContextV1,
-    CloudflareRouterBindingsV1, CloudflareRouterJwtVerifierBindingV1,
-    CloudflareRouterNormalSigningTrustedMetadataV1, CloudflareRouterProjectPolicyV1,
+    CloudflareRouterAbuseCheckV1, CloudflareRouterAdmissionBindingsV1,
+    CloudflareRouterAdmissionChecksV1, CloudflareRouterAdmissionProviderOutputV1,
+    CloudflareRouterAdmissionProviderV1, CloudflareRouterAdmissionStoreBindingsV1,
+    CloudflareRouterAuthContextV1, CloudflareRouterBindingsV1,
+    CloudflareRouterJwtVerifierBindingV1,
+    CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2,
+    CloudflareRouterNormalSigningPrepareAdmissionCandidateV2,
+    CloudflareRouterNormalSigningTrustedAdmissionV1, CloudflareRouterProjectPolicyV1,
     CloudflareRouterPublicAdmissionPlanV1, CloudflareRouterQuotaCheckV1,
-    CloudflareRouterTrustedRequestMetadataV1, CloudflareRouterWorkerRuntimeV1,
-    CloudflareSecretMaterial32V1, CloudflareSigningWorkerAdmittedNormalSigningRequestV1,
-    CloudflareSigningWorkerMaterializedNormalSigningRequestV1,
-    CloudflareSigningWorkerNormalSigningHandlerV1, CloudflareWorkerRoleV1,
+    CloudflareRouterTrustedRequestMetadataV1, CloudflareRouterVerifiedWalletSessionV1,
+    CloudflareRouterWorkerRuntimeV1, CloudflareSecretMaterial32V1,
+    CloudflareServerOutputMaterialRecordV1,
+    CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2,
+    CloudflareSigningWorkerMaterializedNormalSigningFinalizeRequestV2,
+    CloudflareSigningWorkerNormalSigningFinalizeHandlerV2, CloudflareSigningWorkerRound1RecordV1,
+    CloudflareWorkerRoleV1,
 };
 use router_ab_core::{
     router_transcript_digest_v1, ActiveSigningWorkerStateV1, CandidateId, CanonicalWireBytesV1,
-    ExpensiveWorkKindV1, LifecycleScopeV1, NormalSigningRequestV1, NormalSigningResponseV1,
-    NormalSigningScopeV1, NormalSigningSignatureSchemeV1, PublicDigest32, PublicRouterRequestV1,
-    RelayerIdentityV1, Role, RoleEncryptedEnvelopeV1, RootShareEpoch, RouterAbLifecycleStateV1,
+    ExpensiveWorkKindV1, LifecycleScopeV1, NormalSigningEd25519TwoPartyFrostCommitmentsV1,
+    NormalSigningResponseV1, NormalSigningScopeV1, PublicDigest32, PublicRouterRequestV1, Role,
+    RoleEncryptedEnvelopeV1, RootShareEpoch, RouterAbEd25519NormalSigningFinalizeProtocolV2,
+    RouterAbEd25519NormalSigningFinalizeRequestV2, RouterAbEd25519NormalSigningIntentV2,
+    RouterAbEd25519NormalSigningPrepareBindingV2, RouterAbEd25519NormalSigningPrepareRequestV2,
+    RouterAbEd25519SigningPayloadV2, RouterAbEd25519TwoPartyFrostFinalizeProtocolV2,
+    RouterAbLifecycleStateV1, RouterAbNearNetworkIdV2, RouterAbNearTransactionIntentV1,
     RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
-    RouterTranscriptMetadataV1, SignerIdentityV1, SignerSetV1, WireMessageV1,
+    RouterTranscriptMetadataV1, ServerIdentityV1, SignerIdentityV1, SignerSetV1, WireMessageV1,
 };
+use sha2::{Digest as Sha2Digest, Sha256};
 
 fn bench_router_admission_and_simulated_roundtrips(c: &mut Criterion) {
     let mut group = c.benchmark_group("router_ab_setup_export_simulated_roundtrips_v1");
@@ -61,11 +73,13 @@ struct BenchmarkFixture {
 
 struct NormalSigningBenchmarkFixture {
     runtime: CloudflareRouterWorkerRuntimeV1,
-    request: NormalSigningRequestV1,
-    metadata: CloudflareRouterNormalSigningTrustedMetadataV1,
+    prepare_request: RouterAbEd25519NormalSigningPrepareRequestV2,
+    finalize_request: RouterAbEd25519NormalSigningFinalizeRequestV2,
+    wallet_session: CloudflareRouterVerifiedWalletSessionV1,
     checks: CloudflareRouterAdmissionChecksV1,
     active_signing_worker: ActiveSigningWorkerStateV1,
-    material: CloudflareRelayerOutputMaterialRecordV1,
+    material: CloudflareServerOutputMaterialRecordV1,
+    round1: CloudflareSigningWorkerRound1RecordV1,
     handler: BenchmarkNormalSigningHandler,
 }
 
@@ -73,57 +87,77 @@ impl NormalSigningBenchmarkFixture {
     fn new() -> Self {
         Self {
             runtime: router_runtime(),
-            request: normal_signing_request(2_000),
-            metadata: normal_signing_trusted_metadata(),
+            prepare_request: normal_signing_v2_prepare_request(2_000),
+            finalize_request: normal_signing_v2_finalize_request(2_000),
+            wallet_session: normal_signing_v2_wallet_session(3_000),
             checks: allow_checks("normal-signing-gate-request-1"),
             active_signing_worker: active_signing_worker_state_for_normal_signing(),
             material: normal_signing_material_record(),
+            round1: normal_signing_round1_record(),
             handler: BenchmarkNormalSigningHandler,
         }
     }
 
     fn run(&mut self) -> RouterAbProtocolResult<()> {
-        let admission = derive_cloudflare_router_normal_signing_trusted_admission_v1(
-            &self.request,
-            self.metadata.clone(),
-            self.checks.clone(),
+        let prepare_admission =
+            CloudflareRouterNormalSigningPrepareAdmissionCandidateV2::from_prepare_request(
+                &self.wallet_session,
+                &self.prepare_request,
+                1_000,
+            )?;
+        let prepare_calls = self
+            .runtime
+            .normal_signing_v2_prepare_admission_store_calls_at(
+                1_000,
+                &self.prepare_request,
+                &prepare_admission,
+            )?;
+        black_box(prepare_calls.project_policy.storage_key());
+        black_box(prepare_calls.quota.storage_key());
+        black_box(prepare_calls.abuse.storage_key());
+        let replay_call = self
+            .runtime
+            .normal_signing_v2_prepare_replay_reserve_call(&self.prepare_request)?;
+        black_box(replay_call.storage_key());
+
+        let finalize_admission =
+            CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2::from_finalize_request(
+                &self.wallet_session,
+                &self.finalize_request,
+                1_000,
+            )?;
+        let admission_calls = self
+            .runtime
+            .normal_signing_v2_finalize_admission_store_calls_at(
+                1_000,
+                &self.finalize_request,
+                &finalize_admission,
+            )?;
+        black_box(admission_calls.project_policy.storage_key());
+        black_box(admission_calls.quota.storage_key());
+        black_box(admission_calls.abuse.storage_key());
+        let trusted_admission = CloudflareRouterNormalSigningTrustedAdmissionV1::new(
+            finalize_admission.to_v1_trusted_metadata()?,
+            self.checks.to_gate_decision()?,
         )?;
-        if !admission.allows_signing_worker_forwarding()? {
+        if !trusted_admission.allows_signing_worker_forwarding()? {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidGateDecision,
                 "benchmark normal-signing admission did not allow forwarding",
             ));
         }
-        let admission_calls = self.runtime.normal_signing_admission_store_calls_at(
-            1_000,
-            &self.request,
-            self.metadata.clone(),
-        )?;
-        black_box(admission_calls.project_policy.storage_key());
-        black_box(admission_calls.quota.storage_key());
-        black_box(admission_calls.abuse.storage_key());
-        let replay_call = self
-            .runtime
-            .normal_signing_replay_reserve_call(&self.request)?;
-        black_box(replay_call.storage_key());
-        let forwarded = build_cloudflare_router_to_signing_worker_normal_signing_request_v1(
-            1_000,
-            self.request.clone(),
-            self.active_signing_worker.clone(),
-        )?;
-        forwarded.validate()?;
-        black_box(forwarded);
-        let response = handle_cloudflare_signing_worker_normal_signing_private_request_v1(
+        let response = handle_cloudflare_signing_worker_normal_signing_finalize_private_request_v2(
             &self.handler,
             1_000,
-            CloudflareSigningWorkerAdmittedNormalSigningRequestV1::new(
-                self.request.clone(),
-                admission,
+            CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2::new(
+                self.finalize_request.clone(),
+                trusted_admission,
             )?,
             self.active_signing_worker.clone(),
             self.material.clone(),
+            self.round1.clone(),
         )?;
-        response.validate_for_request(&self.request)?;
+        response.validate_for_v2_finalize_request(&self.finalize_request)?;
         black_box(response);
         Ok(())
     }
@@ -132,20 +166,20 @@ impl NormalSigningBenchmarkFixture {
 #[derive(Debug, Clone, Copy)]
 struct BenchmarkNormalSigningHandler;
 
-impl CloudflareSigningWorkerNormalSigningHandlerV1 for BenchmarkNormalSigningHandler {
-    fn handle_normal_signing_request(
+impl CloudflareSigningWorkerNormalSigningFinalizeHandlerV2 for BenchmarkNormalSigningHandler {
+    fn handle_normal_signing_finalize_request_v2(
         &self,
-        request: CloudflareSigningWorkerMaterializedNormalSigningRequestV1,
+        request: CloudflareSigningWorkerMaterializedNormalSigningFinalizeRequestV2,
     ) -> RouterAbProtocolResult<NormalSigningResponseV1> {
         request.validate()?;
-        let forwarded = &request.forwarded;
+        let finalize_request = &request.request.request;
         NormalSigningResponseV1::new(
-            forwarded.request.scope.clone(),
-            forwarded.request.signing_payload_digest(),
-            forwarded.active_signing_worker.signing_worker.clone(),
-            NormalSigningSignatureSchemeV1::Ed25519V1,
+            finalize_request.scope.clone(),
+            finalize_request.signing_payload_digest(),
+            request.active_signing_worker.signing_worker.clone(),
+            finalize_request.protocol.signature_scheme(),
             CanonicalWireBytesV1::new(vec![0x9a; 64]).expect("normal signing signature"),
-            forwarded.active_signing_worker.activated_at_ms + 1,
+            request.active_signing_worker.activated_at_ms + 1,
         )
     }
 }
@@ -322,20 +356,6 @@ fn trusted_metadata() -> CloudflareRouterTrustedRequestMetadataV1 {
     .expect("trusted metadata")
 }
 
-fn normal_signing_trusted_metadata() -> CloudflareRouterNormalSigningTrustedMetadataV1 {
-    CloudflareRouterNormalSigningTrustedMetadataV1::new(
-        "org-1",
-        "project-1",
-        "dev",
-        "account.near",
-        CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
-            .expect("auth context"),
-        digest(0x90),
-        digest(0x91),
-    )
-    .expect("normal signing trusted metadata")
-}
-
 fn allow_checks(request_id: &str) -> CloudflareRouterAdmissionChecksV1 {
     CloudflareRouterAdmissionChecksV1::new(
         CloudflareRouterProjectPolicyV1::Allowed,
@@ -369,22 +389,99 @@ fn public_router_request(expires_at_ms: u64) -> PublicRouterRequestV1 {
     .expect("public router request")
 }
 
-fn normal_signing_request(expires_at_ms: u64) -> NormalSigningRequestV1 {
-    NormalSigningRequestV1::new(
-        NormalSigningScopeV1::new("sign-request-1", "account.near", "session-1", "relayer-a")
+fn normal_signing_v2_wallet_session(expires_at_ms: u64) -> CloudflareRouterVerifiedWalletSessionV1 {
+    CloudflareRouterVerifiedWalletSessionV1::new(
+        "user-1",
+        "account.near",
+        "session-1",
+        "org-1",
+        "project-1",
+        "dev",
+        "normal-signing",
+        "server-a",
+        digest(0x90),
+        expires_at_ms,
+    )
+    .expect("normal signing wallet session")
+}
+
+fn normal_signing_v2_prepare_request(
+    expires_at_ms: u64,
+) -> RouterAbEd25519NormalSigningPrepareRequestV2 {
+    let unsigned_transaction_borsh = normal_signing_v2_unsigned_transaction_borsh();
+    let unsigned_transaction_borsh_b64u = b64u(&unsigned_transaction_borsh);
+    let intent = RouterAbEd25519NormalSigningIntentV2::NearTransactionV1 {
+        operation_id: "operation-1".to_owned(),
+        operation_fingerprint: "fingerprint-1".to_owned(),
+        near_account_id: "account.near".to_owned(),
+        near_network_id: RouterAbNearNetworkIdV2::Testnet,
+        transactions: vec![RouterAbNearTransactionIntentV1::new(
+            "receiver.near",
+            normal_signing_v2_action_fingerprint(),
+        )
+        .expect("transaction intent")],
+        unsigned_transaction_borsh_b64u: unsigned_transaction_borsh_b64u.clone(),
+    };
+    let signing_payload = RouterAbEd25519SigningPayloadV2::NearUnsignedTransactionBorshV1 {
+        unsigned_transaction_borsh_b64u,
+        expected_signing_digest_b64u: sha256_digest_b64u(&unsigned_transaction_borsh),
+    };
+    RouterAbEd25519NormalSigningPrepareRequestV2::new(
+        NormalSigningScopeV1::new("sign-request-1", "account.near", "session-1", "server-a")
             .expect("normal signing scope"),
         expires_at_ms,
-        digest(0x91),
-        CanonicalWireBytesV1::new(vec![0x7a, 0x7b, 0x7c]).expect("normal signing payload"),
+        intent,
+        signing_payload,
     )
-    .expect("normal signing request")
+    .expect("normal signing v2 prepare request")
+}
+
+fn normal_signing_v2_finalize_request(
+    expires_at_ms: u64,
+) -> RouterAbEd25519NormalSigningFinalizeRequestV2 {
+    let prepare = normal_signing_v2_prepare_request(expires_at_ms);
+    let material = prepare.admission_material().expect("admission material");
+    let prepare_binding = RouterAbEd25519NormalSigningPrepareBindingV2::new(
+        "server-round1/sign-request-1",
+        prepare.round1_binding_digest().expect("round1 binding"),
+        material.intent_digest,
+        material.signing_payload_digest,
+    )
+    .expect("prepare binding");
+    let protocol = RouterAbEd25519NormalSigningFinalizeProtocolV2::Ed25519TwoPartyFrostFinalizeV1(
+        RouterAbEd25519TwoPartyFrostFinalizeProtocolV2::new(
+            "ed25519:11111111111111111111111111111111",
+            NormalSigningEd25519TwoPartyFrostCommitmentsV1::new(
+                b64u(&[0x11; 32]),
+                b64u(&[0x12; 32]),
+            )
+            .expect("client commitments"),
+            NormalSigningEd25519TwoPartyFrostCommitmentsV1::new(
+                b64u(&[0x21; 32]),
+                b64u(&[0x22; 32]),
+            )
+            .expect("server commitments"),
+            b64u(&[0x31; 32]),
+            b64u(&[0x32; 32]),
+            b64u(&[0x41; 32]),
+        )
+        .expect("finalize protocol"),
+    );
+    RouterAbEd25519NormalSigningFinalizeRequestV2::new(
+        NormalSigningScopeV1::new("sign-request-1", "account.near", "session-1", "server-a")
+            .expect("normal signing scope"),
+        expires_at_ms,
+        prepare_binding,
+        protocol,
+    )
+    .expect("normal signing v2 finalize request")
 }
 
 fn active_signing_worker_state_for_normal_signing() -> ActiveSigningWorkerStateV1 {
     ActiveSigningWorkerStateV1::new(
         "account.near",
         "session-1",
-        signer_set().selected_relayer,
+        signer_set().selected_server,
         digest(0x81),
         digest(0x82),
         "signing-worker-output/lifecycle-1/material",
@@ -393,15 +490,40 @@ fn active_signing_worker_state_for_normal_signing() -> ActiveSigningWorkerStateV
     .expect("active SigningWorker state")
 }
 
-fn normal_signing_material_record() -> CloudflareRelayerOutputMaterialRecordV1 {
-    CloudflareRelayerOutputMaterialRecordV1::new(
+fn normal_signing_material_record() -> CloudflareServerOutputMaterialRecordV1 {
+    CloudflareServerOutputMaterialRecordV1::new(
         digest(0x81),
-        router_ab_core::OpenedShareKind::XRelayerBase,
-        Role::Relayer,
-        "relayer-a",
+        router_ab_core::OpenedShareKind::XServerBase,
+        Role::Server,
+        "server-a",
         CloudflareSecretMaterial32V1::new([0x5a; 32]),
     )
     .expect("normal signing material")
+}
+
+fn normal_signing_round1_record() -> CloudflareSigningWorkerRound1RecordV1 {
+    let prepare = normal_signing_v2_prepare_request(2_000);
+    let material = prepare.admission_material().expect("admission material");
+    CloudflareSigningWorkerRound1RecordV1::new(
+        active_signing_worker_state_for_normal_signing(),
+        "server-round1/sign-request-1",
+        prepare.round1_binding_digest().expect("round1 binding"),
+        material.admitted_signing_digest,
+        RoleSeparatedEd25519Round1StateV1::new(
+            RoleSeparatedEd25519Round1SecretV1::new(scalar_bytes(11), scalar_bytes(12))
+                .expect("round1 secret"),
+        )
+        .expect("round1 state"),
+        1_000,
+        2_000,
+    )
+    .expect("normal signing round1 record")
+}
+
+fn scalar_bytes(value: u64) -> [u8; 32] {
+    let mut bytes = [0u8; 32];
+    bytes[..8].copy_from_slice(&value.to_le_bytes());
+    bytes
 }
 
 fn lifecycle_scope() -> LifecycleScopeV1 {
@@ -413,7 +535,7 @@ fn lifecycle_scope() -> LifecycleScopeV1 {
             "account.near",
             "session-1",
             "signer-set-v1",
-            "relayer-a",
+            "server-a",
         )
         .expect("lifecycle scope"),
     )
@@ -427,12 +549,12 @@ fn signer_set() -> SignerSetV1 {
         "signer-set-v1",
         SignerIdentityV1::new(Role::SignerA, "signer-a", "key-epoch-a").expect("signer a"),
         SignerIdentityV1::new(Role::SignerB, "signer-b", "key-epoch-b").expect("signer b"),
-        RelayerIdentityV1::new(
-            "relayer-a",
-            "relayer-epoch",
+        ServerIdentityV1::new(
+            "server-a",
+            "server-epoch",
             "x25519:1111111111111111111111111111111111111111111111111111111111111111",
         )
-        .expect("relayer"),
+        .expect("server"),
     )
     .expect("signer set")
 }
@@ -471,6 +593,48 @@ fn role_envelope(role: Role, seed: u8) -> RoleEncryptedEnvelopeV1 {
 
 fn digest(byte: u8) -> PublicDigest32 {
     PublicDigest32::new([byte; 32])
+}
+
+fn b64u(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn sha256_digest_b64u(bytes: &[u8]) -> String {
+    b64u(&Sha256::digest(bytes))
+}
+
+fn push_borsh_string(out: &mut Vec<u8>, value: &str) {
+    out.extend_from_slice(&(value.len() as u32).to_le_bytes());
+    out.extend_from_slice(value.as_bytes());
+}
+
+fn push_borsh_bytes(out: &mut Vec<u8>, value: &[u8]) {
+    out.extend_from_slice(&(value.len() as u32).to_le_bytes());
+    out.extend_from_slice(value);
+}
+
+fn normal_signing_v2_unsigned_transaction_borsh() -> Vec<u8> {
+    let mut out = Vec::new();
+    push_borsh_string(&mut out, "account.near");
+    out.push(0);
+    out.extend_from_slice(&[0; 32]);
+    out.extend_from_slice(&7_u64.to_le_bytes());
+    push_borsh_string(&mut out, "receiver.near");
+    out.extend_from_slice(&[0x44; 32]);
+    out.extend_from_slice(&1_u32.to_le_bytes());
+    out.push(2);
+    push_borsh_string(&mut out, "transfer");
+    push_borsh_bytes(&mut out, br#"{"amount":"1"}"#);
+    out.extend_from_slice(&30_000_000_000_000_u64.to_le_bytes());
+    out.extend_from_slice(&0_u128.to_le_bytes());
+    out
+}
+
+fn normal_signing_v2_action_fingerprint() -> String {
+    sha256_digest_b64u(
+        r#"[{"action_type":"FunctionCall","args":"{\"amount\":\"1\"}","deposit":"0","gas":"30000000000000","method_name":"transfer"}]"#
+            .as_bytes(),
+    )
 }
 
 fn root_epoch() -> RootShareEpoch {

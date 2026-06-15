@@ -55,8 +55,8 @@ fn raw_transcript_json() -> Value {
         "context": raw_context_json(),
         "router_id": "role:router:local:sha256-router",
         "signer_set": raw_signer_set_json(),
-        "selected_relayer_id": "role:relayer:local:sha256-r",
-        "selected_relayer_recipient_encryption_key": "x25519:1111111111111111111111111111111111111111111111111111111111111111",
+        "selected_server_id": "role:server:local:sha256-r",
+        "selected_server_recipient_encryption_key": "x25519:1111111111111111111111111111111111111111111111111111111111111111",
         "client_id": "role:client:local:sha256-c",
         "client_ephemeral_public_key": "x25519:client-ephemeral-public-key"
     })
@@ -88,7 +88,7 @@ fn raw_minimum_level_c_evidence_json() -> Value {
             digest_json(0xa1),
             digest_json(0xb1)
         ],
-        "relayer_package_commitments": [
+        "server_package_commitments": [
             digest_json(0xa2),
             digest_json(0xb2)
         ],
@@ -196,7 +196,7 @@ fn typed_minimum_level_c_evidence_deserialize_accepts_public_shape() {
         serde_json::from_value(raw_minimum_level_c_evidence_json()).expect("evidence parses");
 
     assert_eq!(evidence.client_package_commitments().len(), 2);
-    assert_eq!(evidence.relayer_package_commitments().len(), 2);
+    assert_eq!(evidence.server_package_commitments().len(), 2);
 }
 
 #[test]

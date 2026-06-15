@@ -36,7 +36,7 @@ pub use self::gate::{
     GateDeferReasonV1, GatePrincipalV1, GateRejectReasonV1, RegistrationPrepareHandleV1,
 };
 pub use self::identity::{
-    RelayerIdentityV1, RoleEnvelopeAssignmentV1, SignerIdentityV1, SignerSetPolicyV1, SignerSetV1,
+    RoleEnvelopeAssignmentV1, ServerIdentityV1, SignerIdentityV1, SignerSetPolicyV1, SignerSetV1,
 };
 pub use self::lifecycle::{
     AuthorityVerifiedFallbackReasonV1, LifecycleScopeV1, NormalSigningScopeV1,
@@ -61,8 +61,21 @@ pub use self::local::{
     LocalTransportEnvelopeV1, LocalTransportRouteV1,
 };
 pub use self::normal_signing::{
-    ActiveSigningWorkerStateV1, NormalSigningRequestV1, NormalSigningResponseV1,
-    NormalSigningSignatureSchemeV1, RouterToSigningWorkerSigningRequestV1,
+    derive_router_ab_ed25519_normal_signing_admission_material_v2,
+    parse_router_ab_ed25519_normal_signing_finalize_request_v2_json,
+    parse_router_ab_ed25519_normal_signing_prepare_request_v2_json,
+    router_ab_delegate_action_fingerprint_from_canonical_borsh_b64u_v2,
+    router_ab_ed25519_nep413_canonical_message_b64u_v2,
+    router_ab_near_transaction_action_fingerprint_from_unsigned_borsh_b64u_v2,
+    ActiveSigningWorkerStateV1, NormalSigningEd25519TwoPartyFrostCommitmentsV1,
+    NormalSigningEd25519TwoPartyFrostFinalizeV1, NormalSigningProtocolV1, NormalSigningResponseV1,
+    NormalSigningRound1PrepareResponseV1, NormalSigningSignatureSchemeV1,
+    RouterAbEd25519NormalSigningAdmissionMaterialV2,
+    RouterAbEd25519NormalSigningFinalizeProtocolV2, RouterAbEd25519NormalSigningFinalizeRequestV2,
+    RouterAbEd25519NormalSigningIntentV2, RouterAbEd25519NormalSigningPrepareBindingV2,
+    RouterAbEd25519NormalSigningPrepareRequestV2, RouterAbEd25519SigningPayloadV2,
+    RouterAbEd25519TwoPartyFrostFinalizeProtocolV2, RouterAbNearDelegateActionIntentV1,
+    RouterAbNearNetworkIdV2, RouterAbNearTransactionIntentV1,
 };
 pub use self::output::{
     ab_derivation_proof_batch_recipient_view_v1,
@@ -105,11 +118,14 @@ pub use self::public_request::{
 };
 pub use self::signer_input::build_mpc_prf_threshold_signer_batch_input_v1;
 pub use self::vectors::{
+    generated_normal_signing_vector_fixture_json_v2, generated_normal_signing_vector_fixture_v2,
     generated_payload_vector_fixture_json_v1, generated_payload_vector_fixture_v1,
     generated_wire_vector_fixture_json_v1, generated_wire_vector_fixture_v1,
-    parse_payload_vector_fixture_v1, parse_wire_vector_fixture_v1,
-    validate_payload_vector_fixture_v1, validate_wire_vector_fixture_v1, PayloadVectorCaseV1,
-    PayloadVectorFixtureV1, WireMessageVectorCaseV1, WireVectorFixtureV1,
+    parse_normal_signing_vector_fixture_v2, parse_payload_vector_fixture_v1,
+    parse_wire_vector_fixture_v1, validate_normal_signing_vector_fixture_v2,
+    validate_payload_vector_fixture_v1, validate_wire_vector_fixture_v1, NormalSigningVectorCaseV2,
+    NormalSigningVectorFixtureV2, PayloadVectorCaseV1, PayloadVectorFixtureV1,
+    WireMessageVectorCaseV1, WireVectorFixtureV1, NORMAL_SIGNING_VECTOR_FIXTURE_VERSION_V2,
     PAYLOAD_VECTOR_FIXTURE_VERSION_V1, WIRE_VECTOR_FIXTURE_VERSION_V1,
 };
 pub use self::wire::{

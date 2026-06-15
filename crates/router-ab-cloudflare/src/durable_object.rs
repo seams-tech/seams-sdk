@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
 
+use ed25519_hss::role_signing::{
+    RoleSeparatedEd25519CommitmentsV1, RoleSeparatedEd25519Round1StateV1,
+};
 use router_ab_core::{
-    ActiveSigningWorkerStateV1, ExpensiveWorkKindV1, NormalSigningRequestV1, NormalSigningScopeV1,
+    ActiveSigningWorkerStateV1, ExpensiveWorkKindV1, LifecycleScopeV1, NormalSigningScopeV1,
     PublicDigest32, PublicRouterRequestV1, Role, RootShareEpoch,
 };
 use router_ab_core::{
@@ -17,10 +20,10 @@ use wasm_bindgen as _;
 use crate::{
     cloudflare_active_signing_worker_state_from_activation_request_v1,
     cloudflare_signing_worker_recipient_proof_bundle_activation_digest_v1,
-    CloudflareDurableObjectBindingV1, CloudflareDurableObjectScopeV1,
-    CloudflareRelayerOutputMaterialRecordV1, CloudflareRouterAbuseCheckV1,
+    CloudflareDurableObjectBindingV1, CloudflareDurableObjectScopeV1, CloudflareRouterAbuseCheckV1,
     CloudflareRouterNormalSigningTrustedMetadataV1, CloudflareRouterProjectPolicyV1,
     CloudflareRouterQuotaCheckV1, CloudflareRouterTrustedRequestMetadataV1,
+    CloudflareServerOutputMaterialRecordV1,
     CloudflareSigningWorkerRecipientProofBundleActivationRequestV1, CloudflareWorkerRoleV1,
 };
 #[cfg(feature = "workers-rs")]
@@ -34,8 +37,8 @@ use crate::{
     SIGNER_A_ROOT_SHARE_DO_BINDING_ENV, SIGNER_A_ROOT_SHARE_DO_KEY_PREFIX_ENV,
     SIGNER_A_ROOT_SHARE_DO_OBJECT_ENV, SIGNER_B_ROOT_SHARE_DO_BINDING_ENV,
     SIGNER_B_ROOT_SHARE_DO_KEY_PREFIX_ENV, SIGNER_B_ROOT_SHARE_DO_OBJECT_ENV,
-    SIGNING_WORKER_RELAYER_OUTPUT_DO_BINDING_ENV, SIGNING_WORKER_RELAYER_OUTPUT_DO_KEY_PREFIX_ENV,
-    SIGNING_WORKER_RELAYER_OUTPUT_DO_OBJECT_ENV,
+    SIGNING_WORKER_SERVER_OUTPUT_DO_BINDING_ENV, SIGNING_WORKER_SERVER_OUTPUT_DO_KEY_PREFIX_ENV,
+    SIGNING_WORKER_SERVER_OUTPUT_DO_OBJECT_ENV,
 };
 
 /// Version label for the Router/A/B Cloudflare Durable Object API.
@@ -211,26 +214,26 @@ impl worker::DurableObject for RouterAbSignerARootShareDurableObject {
     }
 }
 
-/// SigningWorker relayer-output Durable Object class.
+/// SigningWorker server-output Durable Object class.
 #[cfg(feature = "workers-rs")]
 #[worker::durable_object(fetch)]
-pub struct RouterAbSigningWorkerRelayerOutputDurableObject {
+pub struct RouterAbSigningWorkerServerOutputDurableObject {
     state: worker::State,
     env: worker::Env,
 }
 
 #[cfg(feature = "workers-rs")]
-impl worker::DurableObject for RouterAbSigningWorkerRelayerOutputDurableObject {
+impl worker::DurableObject for RouterAbSigningWorkerServerOutputDurableObject {
     fn new(state: worker::State, env: worker::Env) -> Self {
         Self { state, env }
     }
 
     async fn fetch(&self, request: worker::Request) -> worker::Result<worker::Response> {
         handle_cloudflare_durable_object_class_fetch_v1(
-            CloudflareDurableObjectScopeV1::signing_worker_relayer_output(),
-            SIGNING_WORKER_RELAYER_OUTPUT_DO_BINDING_ENV,
-            SIGNING_WORKER_RELAYER_OUTPUT_DO_OBJECT_ENV,
-            SIGNING_WORKER_RELAYER_OUTPUT_DO_KEY_PREFIX_ENV,
+            CloudflareDurableObjectScopeV1::signing_worker_server_output(),
+            SIGNING_WORKER_SERVER_OUTPUT_DO_BINDING_ENV,
+            SIGNING_WORKER_SERVER_OUTPUT_DO_OBJECT_ENV,
+            SIGNING_WORKER_SERVER_OUTPUT_DO_KEY_PREFIX_ENV,
             &self.env,
             &self.state,
             request,
@@ -279,12 +282,18 @@ pub enum CloudflareDurableObjectOperationKindV1 {
     RootShareStartupMetadata,
     /// Reserve a Router replay nonce or request id.
     RouterReplayReserve,
+    /// Remove expired Router replay reservations.
+    RouterReplayCleanupExpired,
     /// Persist public Router lifecycle state.
     RouterLifecyclePutPublicState,
+    /// Persist Cloudflare derivation ceremony state.
+    DerivationCeremonyPutState,
     /// Evaluate Router project policy.
     RouterProjectPolicyEvaluate,
     /// Evaluate Router quota and active lifecycle state.
     RouterQuotaEvaluate,
+    /// Remove expired Router quota reservations.
+    RouterQuotaCleanupExpired,
     /// Evaluate Router abuse-control state.
     RouterAbuseEvaluate,
     /// Evaluate Router project policy for normal signing.
@@ -293,12 +302,18 @@ pub enum CloudflareDurableObjectOperationKindV1 {
     RouterNormalSigningQuotaEvaluate,
     /// Evaluate Router abuse-control state for normal signing.
     RouterNormalSigningAbuseEvaluate,
-    /// Activate relayer-output material for the designated relayer.
+    /// Activate server-output material for the designated server.
     SigningWorkerOutputActivate,
     /// Read active SigningWorker state for normal signing.
     SigningWorkerOutputActiveStateGet,
     /// Read active SigningWorker material for normal signing.
     SigningWorkerOutputMaterialGet,
+    /// Store one SigningWorker round-1 nonce record for normal signing.
+    SigningWorkerRound1Put,
+    /// Take one SigningWorker round-1 nonce record for normal signing.
+    SigningWorkerRound1Take,
+    /// Remove expired SigningWorker round-1 nonce records.
+    SigningWorkerRound1CleanupExpired,
 }
 
 impl CloudflareDurableObjectOperationKindV1 {
@@ -308,9 +323,12 @@ impl CloudflareDurableObjectOperationKindV1 {
             Self::RootShareHas => "root_share.has",
             Self::RootShareStartupMetadata => "root_share.startup_metadata",
             Self::RouterReplayReserve => "router_replay.reserve",
+            Self::RouterReplayCleanupExpired => "router_replay.cleanup_expired",
             Self::RouterLifecyclePutPublicState => "router_lifecycle.put_public_state",
+            Self::DerivationCeremonyPutState => "cloudflare_derivation_ceremony.put_state",
             Self::RouterProjectPolicyEvaluate => "router_project_policy.evaluate",
             Self::RouterQuotaEvaluate => "router_quota.evaluate",
+            Self::RouterQuotaCleanupExpired => "router_quota.cleanup_expired",
             Self::RouterAbuseEvaluate => "router_abuse.evaluate",
             Self::RouterNormalSigningProjectPolicyEvaluate => {
                 "router_normal_signing_project_policy.evaluate"
@@ -320,6 +338,9 @@ impl CloudflareDurableObjectOperationKindV1 {
             Self::SigningWorkerOutputActivate => "signing_worker_output.activate",
             Self::SigningWorkerOutputActiveStateGet => "signing_worker_output.active_state_get",
             Self::SigningWorkerOutputMaterialGet => "signing_worker_output.material_get",
+            Self::SigningWorkerRound1Put => "signing_worker_round1.put",
+            Self::SigningWorkerRound1Take => "signing_worker_round1.take",
+            Self::SigningWorkerRound1CleanupExpired => "signing_worker_round1.cleanup_expired",
         }
     }
 
@@ -329,9 +350,12 @@ impl CloudflareDurableObjectOperationKindV1 {
             Self::RootShareHas => "/router-ab/do/v1/root-share/has",
             Self::RootShareStartupMetadata => "/router-ab/do/v1/root-share/startup-metadata",
             Self::RouterReplayReserve => "/router-ab/do/v1/router-replay/reserve",
+            Self::RouterReplayCleanupExpired => "/router-ab/do/v1/router-replay/cleanup-expired",
             Self::RouterLifecyclePutPublicState => "/router-ab/do/v1/router-lifecycle/put",
+            Self::DerivationCeremonyPutState => "/router-ab/do/v1/derivation-ceremony/put",
             Self::RouterProjectPolicyEvaluate => "/router-ab/do/v1/router-project-policy/evaluate",
             Self::RouterQuotaEvaluate => "/router-ab/do/v1/router-quota/evaluate",
+            Self::RouterQuotaCleanupExpired => "/router-ab/do/v1/router-quota/cleanup-expired",
             Self::RouterAbuseEvaluate => "/router-ab/do/v1/router-abuse/evaluate",
             Self::RouterNormalSigningProjectPolicyEvaluate => {
                 "/router-ab/do/v1/router-project-policy/normal-signing/evaluate"
@@ -348,6 +372,11 @@ impl CloudflareDurableObjectOperationKindV1 {
             }
             Self::SigningWorkerOutputMaterialGet => {
                 "/router-ab/do/v1/signing-worker-output/material/get"
+            }
+            Self::SigningWorkerRound1Put => "/router-ab/do/v1/signing-worker-round1/put",
+            Self::SigningWorkerRound1Take => "/router-ab/do/v1/signing-worker-round1/take",
+            Self::SigningWorkerRound1CleanupExpired => {
+                "/router-ab/do/v1/signing-worker-round1/cleanup-expired"
             }
         }
     }
@@ -505,26 +534,6 @@ pub struct CloudflareRouterNormalSigningAdmissionStoreRequestV1 {
 }
 
 impl CloudflareRouterNormalSigningAdmissionStoreRequestV1 {
-    /// Creates an admission-store request from normalized normal-signing inputs.
-    pub fn new(
-        metadata: CloudflareRouterNormalSigningTrustedMetadataV1,
-        request: &NormalSigningRequestV1,
-        now_unix_ms: u64,
-    ) -> RouterAbProtocolResult<Self> {
-        metadata.validate_for_request(request)?;
-        request.validate_at(now_unix_ms)?;
-        let request = Self {
-            metadata,
-            request_id: request.scope.request_id.clone(),
-            expires_at_ms: request.expires_at_ms,
-            now_unix_ms,
-            intent_digest: request.intent_digest,
-            request_digest: request.digest(),
-        };
-        request.validate()?;
-        Ok(request)
-    }
-
     /// Validates normal-signing admission-store identity and timing fields.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         self.metadata.validate()?;
@@ -704,6 +713,60 @@ impl CloudflareRouterQuotaReservationV1 {
     }
 }
 
+/// Request body for an explicit expired-state cleanup pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareExpiredStateCleanupRequestV1 {
+    /// Current Worker time in Unix milliseconds.
+    pub now_unix_ms: u64,
+}
+
+impl CloudflareExpiredStateCleanupRequestV1 {
+    /// Creates a validated expired-state cleanup request.
+    pub fn new(now_unix_ms: u64) -> RouterAbProtocolResult<Self> {
+        let request = Self { now_unix_ms };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Validates cleanup time.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_positive_ms("cleanup now_unix_ms", self.now_unix_ms)
+    }
+}
+
+/// Summary returned after one expired-state cleanup pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareExpiredStateCleanupReportV1 {
+    /// Current Worker time used for expiry comparisons.
+    pub now_unix_ms: u64,
+    /// Primary storage records removed.
+    pub records_removed: u64,
+    /// Secondary index records removed.
+    pub index_records_removed: u64,
+}
+
+impl CloudflareExpiredStateCleanupReportV1 {
+    /// Creates a validated cleanup report.
+    pub fn new(
+        now_unix_ms: u64,
+        records_removed: u64,
+        index_records_removed: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let report = Self {
+            now_unix_ms,
+            records_removed,
+            index_records_removed,
+        };
+        report.validate()?;
+        Ok(report)
+    }
+
+    /// Validates cleanup report fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_positive_ms("cleanup report now_unix_ms", self.now_unix_ms)
+    }
+}
+
 /// Metadata returned by `root_share.startup_metadata`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudflareRootShareStartupMetadataV1 {
@@ -823,6 +886,684 @@ impl CloudflareLifecyclePutReceiptV1 {
     }
 }
 
+/// Public Cloudflare derivation ceremony state label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CloudflareDerivationCeremonyStateLabelV1 {
+    /// Ceremony was created from a normalized lifecycle scope.
+    Created,
+    /// Router admission accepted work and assigned a request id.
+    Admitted,
+    /// Router forwarded the A envelope.
+    AEnvelopeForwarded,
+    /// Router forwarded the B envelope.
+    BEnvelopeForwarded,
+    /// A/B peer coordination started.
+    AbRunning,
+    /// Encrypted client output packages are ready.
+    ClientOutputReady,
+    /// Encrypted SigningWorker output packages are ready.
+    SigningWorkerOutputReady,
+    /// SigningWorker activation completed and normal signing can use the active state.
+    Activated,
+    /// Ceremony failed with a redacted reason.
+    Failed,
+    /// Ceremony expired before activation.
+    Expired,
+    /// Caller or authority abandoned the ceremony.
+    Abandoned,
+}
+
+impl CloudflareDerivationCeremonyStateLabelV1 {
+    /// Returns whether this label is terminal.
+    pub fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            Self::Activated | Self::Failed | Self::Expired | Self::Abandoned
+        )
+    }
+}
+
+/// Dedicated Cloudflare record for derivation ceremony lifecycle persistence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum CloudflareDerivationCeremonyV1 {
+    /// Ceremony was created and no Router admission outcome has been stored.
+    Created {
+        /// Public lifecycle scope.
+        scope: LifecycleScopeV1,
+        /// Creation timestamp in Unix milliseconds.
+        created_at_ms: u64,
+    },
+    /// Router admitted the ceremony for private signer work.
+    Admitted {
+        /// Public lifecycle scope.
+        scope: LifecycleScopeV1,
+        /// Router-assigned request id.
+        request_id: String,
+        /// Admission timestamp in Unix milliseconds.
+        admitted_at_ms: u64,
+    },
+    /// Router forwarded the A envelope.
+    AEnvelopeForwarded {
+        /// Public lifecycle scope.
+        scope: LifecycleScopeV1,
+        /// Router-assigned request id.
+        request_id: String,
+        /// Deriver A identity that received the envelope.
+        deriver_a_id: String,
+        /// Public A envelope digest.
+        a_envelope_digest: PublicDigest32,
+        /// Forward timestamp in Unix milliseconds.
+        forwarded_at_ms: u64,
+    },
+    /// Router forwarded the B envelope.
+    BEnvelopeForwarded {
+        /// Public lifecycle scope.
+        scope: LifecycleScopeV1,
+        /// Router-assigned request id.
+        request_id: String,
+        /// Deriver A identity that received the first envelope.
+        deriver_a_id: String,
+        /// Public A envelope digest.
+        a_envelope_digest: PublicDigest32,
+        /// Deriver B identity that received the second envelope.
+        deriver_b_id: String,
+        /// Public B envelope digest.
+        b_envelope_digest: PublicDigest32,
+        /// Forward timestamp in Unix milliseconds.
+        forwarded_at_ms: u64,
+    },
+    /// A/B peer protocol is running.
+    AbRunning {
+        /// Public lifecycle scope.
+        scope: LifecycleScopeV1,
+        /// Router-assigned request id.
+        request_id: String,
+        /// Public transcript digest.
+        transcript_digest: PublicDigest32,
+        /// Start timestamp in Unix milliseconds.
+        started_at_ms: u64,
+    },
+    /// Encrypted client output packages are ready.
+    ClientOutputReady {
+        /// Public lifecycle scope.
+        scope: LifecycleScopeV1,
+        /// Router-assigned request id.
+        request_id: String,
+        /// Public client package digests.
+        client_package_digests: Vec<PublicDigest32>,
+        /// Ready timestamp in Unix milliseconds.
+        ready_at_ms: u64,
+    },
+    /// Encrypted SigningWorker output packages are ready.
+    SigningWorkerOutputReady {
+        /// Public lifecycle scope.
+        scope: LifecycleScopeV1,
+        /// Router-assigned request id.
+        request_id: String,
+        /// Public SigningWorker package digests.
+        signing_worker_package_digests: Vec<PublicDigest32>,
+        /// Ready timestamp in Unix milliseconds.
+        ready_at_ms: u64,
+    },
+    /// SigningWorker activation completed.
+    Activated {
+        /// Public lifecycle scope.
+        scope: LifecycleScopeV1,
+        /// Router-assigned request id.
+        request_id: String,
+        /// Active SigningWorker descriptor created by activation.
+        active_signing_worker_state: ActiveSigningWorkerStateV1,
+    },
+    /// Ceremony failed before activation.
+    Failed {
+        /// Public lifecycle scope.
+        scope: LifecycleScopeV1,
+        /// Last nonterminal state before failure.
+        last_active_state: CloudflareDerivationCeremonyStateLabelV1,
+        /// Stable failure code for operators.
+        error_code: String,
+        /// Redacted failure reason.
+        redacted_reason: String,
+        /// Failure timestamp in Unix milliseconds.
+        failed_at_ms: u64,
+    },
+    /// Ceremony expired before activation.
+    Expired {
+        /// Public lifecycle scope.
+        scope: LifecycleScopeV1,
+        /// Last nonterminal state before expiry.
+        last_active_state: CloudflareDerivationCeremonyStateLabelV1,
+        /// Expiry timestamp in Unix milliseconds.
+        expired_at_ms: u64,
+    },
+    /// Ceremony was abandoned before activation.
+    Abandoned {
+        /// Public lifecycle scope.
+        scope: LifecycleScopeV1,
+        /// Last nonterminal state before abandonment.
+        last_active_state: CloudflareDerivationCeremonyStateLabelV1,
+        /// Redacted abandon reason.
+        redacted_reason: String,
+        /// Abandonment timestamp in Unix milliseconds.
+        abandoned_at_ms: u64,
+    },
+}
+
+impl CloudflareDerivationCeremonyV1 {
+    /// Creates a validated Created ceremony state.
+    pub fn created(scope: LifecycleScopeV1, created_at_ms: u64) -> RouterAbProtocolResult<Self> {
+        let ceremony = Self::Created {
+            scope,
+            created_at_ms,
+        };
+        ceremony.validate()?;
+        Ok(ceremony)
+    }
+
+    /// Creates a validated Admitted ceremony state.
+    pub fn admitted(
+        scope: LifecycleScopeV1,
+        request_id: impl Into<String>,
+        admitted_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let ceremony = Self::Admitted {
+            scope,
+            request_id: request_id.into(),
+            admitted_at_ms,
+        };
+        ceremony.validate()?;
+        Ok(ceremony)
+    }
+
+    /// Creates a validated A-envelope-forwarded ceremony state.
+    pub fn a_envelope_forwarded(
+        scope: LifecycleScopeV1,
+        request_id: impl Into<String>,
+        deriver_a_id: impl Into<String>,
+        a_envelope_digest: PublicDigest32,
+        forwarded_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let ceremony = Self::AEnvelopeForwarded {
+            scope,
+            request_id: request_id.into(),
+            deriver_a_id: deriver_a_id.into(),
+            a_envelope_digest,
+            forwarded_at_ms,
+        };
+        ceremony.validate()?;
+        Ok(ceremony)
+    }
+
+    /// Creates a validated B-envelope-forwarded ceremony state.
+    pub fn b_envelope_forwarded(
+        scope: LifecycleScopeV1,
+        request_id: impl Into<String>,
+        deriver_a_id: impl Into<String>,
+        a_envelope_digest: PublicDigest32,
+        deriver_b_id: impl Into<String>,
+        b_envelope_digest: PublicDigest32,
+        forwarded_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let ceremony = Self::BEnvelopeForwarded {
+            scope,
+            request_id: request_id.into(),
+            deriver_a_id: deriver_a_id.into(),
+            a_envelope_digest,
+            deriver_b_id: deriver_b_id.into(),
+            b_envelope_digest,
+            forwarded_at_ms,
+        };
+        ceremony.validate()?;
+        Ok(ceremony)
+    }
+
+    /// Creates a validated A/B-running ceremony state.
+    pub fn ab_running(
+        scope: LifecycleScopeV1,
+        request_id: impl Into<String>,
+        transcript_digest: PublicDigest32,
+        started_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let ceremony = Self::AbRunning {
+            scope,
+            request_id: request_id.into(),
+            transcript_digest,
+            started_at_ms,
+        };
+        ceremony.validate()?;
+        Ok(ceremony)
+    }
+
+    /// Creates a validated client-output-ready ceremony state.
+    pub fn client_output_ready(
+        scope: LifecycleScopeV1,
+        request_id: impl Into<String>,
+        client_package_digests: Vec<PublicDigest32>,
+        ready_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let ceremony = Self::ClientOutputReady {
+            scope,
+            request_id: request_id.into(),
+            client_package_digests,
+            ready_at_ms,
+        };
+        ceremony.validate()?;
+        Ok(ceremony)
+    }
+
+    /// Creates a validated SigningWorker-output-ready ceremony state.
+    pub fn signing_worker_output_ready(
+        scope: LifecycleScopeV1,
+        request_id: impl Into<String>,
+        signing_worker_package_digests: Vec<PublicDigest32>,
+        ready_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let ceremony = Self::SigningWorkerOutputReady {
+            scope,
+            request_id: request_id.into(),
+            signing_worker_package_digests,
+            ready_at_ms,
+        };
+        ceremony.validate()?;
+        Ok(ceremony)
+    }
+
+    /// Creates a validated Activated ceremony state.
+    pub fn activated(
+        scope: LifecycleScopeV1,
+        request_id: impl Into<String>,
+        active_signing_worker_state: ActiveSigningWorkerStateV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let ceremony = Self::Activated {
+            scope,
+            request_id: request_id.into(),
+            active_signing_worker_state,
+        };
+        ceremony.validate()?;
+        Ok(ceremony)
+    }
+
+    /// Creates a validated Failed ceremony state.
+    pub fn failed(
+        scope: LifecycleScopeV1,
+        last_active_state: CloudflareDerivationCeremonyStateLabelV1,
+        error_code: impl Into<String>,
+        redacted_reason: impl Into<String>,
+        failed_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let ceremony = Self::Failed {
+            scope,
+            last_active_state,
+            error_code: error_code.into(),
+            redacted_reason: redacted_reason.into(),
+            failed_at_ms,
+        };
+        ceremony.validate()?;
+        Ok(ceremony)
+    }
+
+    /// Creates a validated Expired ceremony state.
+    pub fn expired(
+        scope: LifecycleScopeV1,
+        last_active_state: CloudflareDerivationCeremonyStateLabelV1,
+        expired_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let ceremony = Self::Expired {
+            scope,
+            last_active_state,
+            expired_at_ms,
+        };
+        ceremony.validate()?;
+        Ok(ceremony)
+    }
+
+    /// Creates a validated Abandoned ceremony state.
+    pub fn abandoned(
+        scope: LifecycleScopeV1,
+        last_active_state: CloudflareDerivationCeremonyStateLabelV1,
+        redacted_reason: impl Into<String>,
+        abandoned_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let ceremony = Self::Abandoned {
+            scope,
+            last_active_state,
+            redacted_reason: redacted_reason.into(),
+            abandoned_at_ms,
+        };
+        ceremony.validate()?;
+        Ok(ceremony)
+    }
+
+    /// Returns the lifecycle scope carried by this ceremony state.
+    pub fn scope(&self) -> &LifecycleScopeV1 {
+        match self {
+            Self::Created { scope, .. }
+            | Self::Admitted { scope, .. }
+            | Self::AEnvelopeForwarded { scope, .. }
+            | Self::BEnvelopeForwarded { scope, .. }
+            | Self::AbRunning { scope, .. }
+            | Self::ClientOutputReady { scope, .. }
+            | Self::SigningWorkerOutputReady { scope, .. }
+            | Self::Activated { scope, .. }
+            | Self::Failed { scope, .. }
+            | Self::Expired { scope, .. }
+            | Self::Abandoned { scope, .. } => scope,
+        }
+    }
+
+    /// Returns the state label.
+    pub fn label(&self) -> CloudflareDerivationCeremonyStateLabelV1 {
+        match self {
+            Self::Created { .. } => CloudflareDerivationCeremonyStateLabelV1::Created,
+            Self::Admitted { .. } => CloudflareDerivationCeremonyStateLabelV1::Admitted,
+            Self::AEnvelopeForwarded { .. } => {
+                CloudflareDerivationCeremonyStateLabelV1::AEnvelopeForwarded
+            }
+            Self::BEnvelopeForwarded { .. } => {
+                CloudflareDerivationCeremonyStateLabelV1::BEnvelopeForwarded
+            }
+            Self::AbRunning { .. } => CloudflareDerivationCeremonyStateLabelV1::AbRunning,
+            Self::ClientOutputReady { .. } => {
+                CloudflareDerivationCeremonyStateLabelV1::ClientOutputReady
+            }
+            Self::SigningWorkerOutputReady { .. } => {
+                CloudflareDerivationCeremonyStateLabelV1::SigningWorkerOutputReady
+            }
+            Self::Activated { .. } => CloudflareDerivationCeremonyStateLabelV1::Activated,
+            Self::Failed { .. } => CloudflareDerivationCeremonyStateLabelV1::Failed,
+            Self::Expired { .. } => CloudflareDerivationCeremonyStateLabelV1::Expired,
+            Self::Abandoned { .. } => CloudflareDerivationCeremonyStateLabelV1::Abandoned,
+        }
+    }
+
+    /// Returns the timestamp associated with this state.
+    pub fn recorded_at_ms(&self) -> u64 {
+        match self {
+            Self::Created { created_at_ms, .. } => *created_at_ms,
+            Self::Admitted { admitted_at_ms, .. } => *admitted_at_ms,
+            Self::AEnvelopeForwarded {
+                forwarded_at_ms, ..
+            }
+            | Self::BEnvelopeForwarded {
+                forwarded_at_ms, ..
+            } => *forwarded_at_ms,
+            Self::AbRunning { started_at_ms, .. } => *started_at_ms,
+            Self::ClientOutputReady { ready_at_ms, .. }
+            | Self::SigningWorkerOutputReady { ready_at_ms, .. } => *ready_at_ms,
+            Self::Activated {
+                active_signing_worker_state,
+                ..
+            } => active_signing_worker_state.activated_at_ms,
+            Self::Failed { failed_at_ms, .. } => *failed_at_ms,
+            Self::Expired { expired_at_ms, .. } => *expired_at_ms,
+            Self::Abandoned {
+                abandoned_at_ms, ..
+            } => *abandoned_at_ms,
+        }
+    }
+
+    /// Validates ceremony state fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.scope().validate()?;
+        require_positive_ms("derivation ceremony recorded_at_ms", self.recorded_at_ms())?;
+        match self {
+            Self::Created { .. } => Ok(()),
+            Self::Admitted { request_id, .. } | Self::AbRunning { request_id, .. } => {
+                require_non_empty("derivation ceremony request_id", request_id)
+            }
+            Self::AEnvelopeForwarded {
+                request_id,
+                deriver_a_id,
+                ..
+            } => {
+                require_non_empty("derivation ceremony request_id", request_id)?;
+                require_non_empty("derivation ceremony deriver_a_id", deriver_a_id)
+            }
+            Self::BEnvelopeForwarded {
+                request_id,
+                deriver_a_id,
+                deriver_b_id,
+                ..
+            } => {
+                require_non_empty("derivation ceremony request_id", request_id)?;
+                require_non_empty("derivation ceremony deriver_a_id", deriver_a_id)?;
+                require_non_empty("derivation ceremony deriver_b_id", deriver_b_id)
+            }
+            Self::ClientOutputReady {
+                request_id,
+                client_package_digests,
+                ..
+            } => {
+                require_non_empty("derivation ceremony request_id", request_id)?;
+                require_non_empty_vec(
+                    "derivation ceremony client_package_digests",
+                    client_package_digests,
+                )
+            }
+            Self::SigningWorkerOutputReady {
+                request_id,
+                signing_worker_package_digests,
+                ..
+            } => {
+                require_non_empty("derivation ceremony request_id", request_id)?;
+                require_non_empty_vec(
+                    "derivation ceremony signing_worker_package_digests",
+                    signing_worker_package_digests,
+                )
+            }
+            Self::Activated {
+                scope,
+                request_id,
+                active_signing_worker_state,
+            } => {
+                require_non_empty("derivation ceremony request_id", request_id)?;
+                active_signing_worker_state.validate()?;
+                if active_signing_worker_state.account_id == scope.account_id
+                    && active_signing_worker_state.session_id == scope.session_id
+                    && active_signing_worker_state.signing_worker.server_id
+                        == scope.selected_server_id
+                {
+                    Ok(())
+                } else {
+                    Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidLifecycleState,
+                        "activated derivation ceremony does not match active SigningWorker state",
+                    ))
+                }
+            }
+            Self::Failed {
+                last_active_state,
+                error_code,
+                redacted_reason,
+                ..
+            } => {
+                validate_nonterminal_ceremony_label(*last_active_state)?;
+                require_non_empty("derivation ceremony error_code", error_code)?;
+                require_non_empty("derivation ceremony redacted_reason", redacted_reason)
+            }
+            Self::Expired {
+                last_active_state, ..
+            } => validate_nonterminal_ceremony_label(*last_active_state),
+            Self::Abandoned {
+                last_active_state,
+                redacted_reason,
+                ..
+            } => {
+                validate_nonterminal_ceremony_label(*last_active_state)?;
+                require_non_empty("derivation ceremony redacted_reason", redacted_reason)
+            }
+        }
+    }
+
+    /// Validates a stored ceremony transition.
+    pub fn validate_transition_from(
+        existing: Option<&Self>,
+        replacement: &Self,
+    ) -> RouterAbProtocolResult<()> {
+        replacement.validate()?;
+        let Some(existing) = existing else {
+            if replacement.label() == CloudflareDerivationCeremonyStateLabelV1::Created {
+                return Ok(());
+            }
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "derivation ceremony storage must start in created state",
+            ));
+        };
+        existing.validate()?;
+        if existing == replacement {
+            return Ok(());
+        }
+        if existing.scope() != replacement.scope() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "derivation ceremony transition cannot change lifecycle scope",
+            ));
+        }
+        if existing.label().is_terminal() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "terminal derivation ceremony state cannot be rewritten",
+            ));
+        }
+        if replacement.recorded_at_ms() < existing.recorded_at_ms() {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidTimeRange,
+                "derivation ceremony transition cannot move backwards in time",
+            ));
+        }
+        match (existing.label(), replacement) {
+            (
+                CloudflareDerivationCeremonyStateLabelV1::Created,
+                Self::Admitted { .. }
+                | Self::Failed { .. }
+                | Self::Expired { .. }
+                | Self::Abandoned { .. },
+            ) => validate_terminal_transition_source(existing.label(), replacement),
+            (
+                CloudflareDerivationCeremonyStateLabelV1::Admitted,
+                Self::AEnvelopeForwarded { .. }
+                | Self::Failed { .. }
+                | Self::Expired { .. }
+                | Self::Abandoned { .. },
+            ) => validate_terminal_transition_source(existing.label(), replacement),
+            (
+                CloudflareDerivationCeremonyStateLabelV1::AEnvelopeForwarded,
+                Self::BEnvelopeForwarded { .. }
+                | Self::Failed { .. }
+                | Self::Expired { .. }
+                | Self::Abandoned { .. },
+            ) => validate_terminal_transition_source(existing.label(), replacement),
+            (
+                CloudflareDerivationCeremonyStateLabelV1::BEnvelopeForwarded,
+                Self::AbRunning { .. }
+                | Self::Failed { .. }
+                | Self::Expired { .. }
+                | Self::Abandoned { .. },
+            ) => validate_terminal_transition_source(existing.label(), replacement),
+            (
+                CloudflareDerivationCeremonyStateLabelV1::AbRunning,
+                Self::ClientOutputReady { .. }
+                | Self::Failed { .. }
+                | Self::Expired { .. }
+                | Self::Abandoned { .. },
+            ) => validate_terminal_transition_source(existing.label(), replacement),
+            (
+                CloudflareDerivationCeremonyStateLabelV1::ClientOutputReady,
+                Self::SigningWorkerOutputReady { .. }
+                | Self::Failed { .. }
+                | Self::Expired { .. }
+                | Self::Abandoned { .. },
+            ) => validate_terminal_transition_source(existing.label(), replacement),
+            (
+                CloudflareDerivationCeremonyStateLabelV1::SigningWorkerOutputReady,
+                Self::Activated { .. }
+                | Self::Failed { .. }
+                | Self::Expired { .. }
+                | Self::Abandoned { .. },
+            ) => validate_terminal_transition_source(existing.label(), replacement),
+            _ => Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::InvalidLifecycleState,
+                "invalid derivation ceremony lifecycle transition",
+            )),
+        }
+    }
+}
+
+fn validate_nonterminal_ceremony_label(
+    label: CloudflareDerivationCeremonyStateLabelV1,
+) -> RouterAbProtocolResult<()> {
+    if !label.is_terminal() {
+        return Ok(());
+    }
+    Err(RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::InvalidLifecycleState,
+        "terminal derivation ceremony state must reference a nonterminal prior state",
+    ))
+}
+
+fn validate_terminal_transition_source(
+    existing_label: CloudflareDerivationCeremonyStateLabelV1,
+    replacement: &CloudflareDerivationCeremonyV1,
+) -> RouterAbProtocolResult<()> {
+    let replacement_last_active_state = match replacement {
+        CloudflareDerivationCeremonyV1::Failed {
+            last_active_state, ..
+        }
+        | CloudflareDerivationCeremonyV1::Expired {
+            last_active_state, ..
+        }
+        | CloudflareDerivationCeremonyV1::Abandoned {
+            last_active_state, ..
+        } => Some(*last_active_state),
+        _ => None,
+    };
+    if replacement_last_active_state.is_none()
+        || replacement_last_active_state == Some(existing_label)
+    {
+        return Ok(());
+    }
+    Err(RouterAbProtocolError::new(
+        RouterAbProtocolErrorCode::InvalidLifecycleState,
+        "terminal derivation ceremony state does not match previous active state",
+    ))
+}
+
+/// Cloudflare derivation ceremony persistence receipt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareDerivationCeremonyPutReceiptV1 {
+    /// Lifecycle id stored in the ceremony Durable Object record.
+    pub lifecycle_id: String,
+    /// Stored ceremony state label.
+    pub state: CloudflareDerivationCeremonyStateLabelV1,
+    /// Whether the requested state changed storage.
+    pub stored: bool,
+}
+
+impl CloudflareDerivationCeremonyPutReceiptV1 {
+    /// Creates a validated ceremony persistence receipt.
+    pub fn new(
+        lifecycle_id: impl Into<String>,
+        state: CloudflareDerivationCeremonyStateLabelV1,
+        stored: bool,
+    ) -> RouterAbProtocolResult<Self> {
+        let receipt = Self {
+            lifecycle_id: lifecycle_id.into(),
+            state,
+            stored,
+        };
+        receipt.validate()?;
+        Ok(receipt)
+    }
+
+    /// Validates receipt fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        require_non_empty("lifecycle_id", &self.lifecycle_id)
+    }
+}
+
 /// SigningWorker-output activation receipt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CloudflareSigningWorkerOutputActivationReceiptV1 {
@@ -863,7 +1604,7 @@ impl CloudflareSigningWorkerOutputActivationReceiptV1 {
         require_non_empty("lifecycle_id", &self.lifecycle_id)?;
         require_non_empty("signing_worker_id", &self.signing_worker_id)?;
         self.active_signing_worker_state.validate()?;
-        if self.active_signing_worker_state.signing_worker.relayer_id != self.signing_worker_id
+        if self.active_signing_worker_state.signing_worker.server_id != self.signing_worker_id
             || self
                 .active_signing_worker_state
                 .activation_transcript_digest
@@ -886,7 +1627,7 @@ pub struct CloudflareSigningWorkerOutputActivationRecordV1 {
     /// Active SigningWorker state descriptor indexed for normal signing.
     pub active_signing_worker_state: ActiveSigningWorkerStateV1,
     /// SigningWorker-local opened output material.
-    pub material: CloudflareRelayerOutputMaterialRecordV1,
+    pub material: CloudflareServerOutputMaterialRecordV1,
 }
 
 impl CloudflareSigningWorkerOutputActivationRecordV1 {
@@ -894,7 +1635,7 @@ impl CloudflareSigningWorkerOutputActivationRecordV1 {
     pub fn new(
         activation: CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
         active_signing_worker_state: ActiveSigningWorkerStateV1,
-        material: CloudflareRelayerOutputMaterialRecordV1,
+        material: CloudflareServerOutputMaterialRecordV1,
     ) -> RouterAbProtocolResult<Self> {
         let record = Self {
             activation,
@@ -913,10 +1654,10 @@ impl CloudflareSigningWorkerOutputActivationRecordV1 {
             .validate_for_activation_request(&self.activation)?;
         let activation_context = &self.activation.activation_context;
         let lifecycle = activation_context.lifecycle();
-        let selected_relayer = &activation_context.signer_set().selected_relayer;
+        let selected_server = &activation_context.signer_set().selected_server;
         if self.active_signing_worker_state.account_id != lifecycle.account_id
             || self.active_signing_worker_state.session_id != lifecycle.session_id
-            || self.active_signing_worker_state.signing_worker != *selected_relayer
+            || self.active_signing_worker_state.signing_worker != *selected_server
             || self
                 .active_signing_worker_state
                 .activation_transcript_digest
@@ -930,7 +1671,7 @@ impl CloudflareSigningWorkerOutputActivationRecordV1 {
                     .active_signing_worker_state
                     .activation_transcript_digest
             || self.material.recipient_identity
-                != self.active_signing_worker_state.signing_worker.relayer_id
+                != self.active_signing_worker_state.signing_worker.server_id
         {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
@@ -997,7 +1738,7 @@ impl CloudflareActiveSigningWorkerStateLookupV1 {
         active_signing_worker_state.validate()?;
         if active_signing_worker_state.account_id == self.account_id
             && active_signing_worker_state.session_id == self.session_id
-            && active_signing_worker_state.signing_worker.relayer_id == self.signing_worker_id
+            && active_signing_worker_state.signing_worker.server_id == self.signing_worker_id
         {
             return Ok(());
         }
@@ -1035,7 +1776,7 @@ impl CloudflareSigningWorkerOutputMaterialLookupV1 {
     /// Validates returned material matches the active state used for lookup.
     pub fn validate_material(
         &self,
-        material: &CloudflareRelayerOutputMaterialRecordV1,
+        material: &CloudflareServerOutputMaterialRecordV1,
     ) -> RouterAbProtocolResult<()> {
         self.validate()?;
         material.validate()?;
@@ -1044,13 +1785,208 @@ impl CloudflareSigningWorkerOutputMaterialLookupV1 {
                 .active_signing_worker_state
                 .activation_transcript_digest
             && material.recipient_identity
-                == self.active_signing_worker_state.signing_worker.relayer_id
+                == self.active_signing_worker_state.signing_worker.server_id
         {
             return Ok(());
         }
         Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
             "SigningWorker material does not match active SigningWorker state",
+        ))
+    }
+}
+
+/// Stored SigningWorker round-1 nonce material for one normal-signing request.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerRound1RecordV1 {
+    /// Active SigningWorker descriptor that owns this nonce material.
+    pub active_signing_worker_state: ActiveSigningWorkerStateV1,
+    /// SigningWorker-local nonce handle returned to the client.
+    pub server_round1_handle: String,
+    /// Digest binding this nonce material to the exact normal-signing context.
+    pub round1_binding_digest: PublicDigest32,
+    /// Router-admitted digest that this nonce material may sign.
+    pub admitted_signing_digest: PublicDigest32,
+    /// Persisted round-1 nonce material and public commitments.
+    pub round1_state: RoleSeparatedEd25519Round1StateV1,
+    /// Creation timestamp in Unix milliseconds.
+    pub created_at_ms: u64,
+    /// Expiry timestamp in Unix milliseconds.
+    pub expires_at_ms: u64,
+}
+
+impl CloudflareSigningWorkerRound1RecordV1 {
+    /// Creates a validated round-1 record.
+    pub fn new(
+        active_signing_worker_state: ActiveSigningWorkerStateV1,
+        server_round1_handle: impl Into<String>,
+        round1_binding_digest: PublicDigest32,
+        admitted_signing_digest: PublicDigest32,
+        round1_state: RoleSeparatedEd25519Round1StateV1,
+        created_at_ms: u64,
+        expires_at_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let record = Self {
+            active_signing_worker_state,
+            server_round1_handle: server_round1_handle.into(),
+            round1_binding_digest,
+            admitted_signing_digest,
+            round1_state,
+            created_at_ms,
+            expires_at_ms,
+        };
+        record.validate()?;
+        Ok(record)
+    }
+
+    /// Validates persisted round-1 state and lifecycle timing.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.active_signing_worker_state.validate()?;
+        require_non_empty("server_round1_handle", &self.server_round1_handle)?;
+        self.round1_state.validate().map_err(|err| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("SigningWorker round-1 state is invalid: {err}"),
+            )
+        })?;
+        require_positive_ms("SigningWorker round-1 created_at_ms", self.created_at_ms)?;
+        require_positive_ms("SigningWorker round-1 expires_at_ms", self.expires_at_ms)?;
+        if self.expires_at_ms > self.created_at_ms {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidTimeRange,
+            "SigningWorker round-1 expiry must be after creation",
+        ))
+    }
+
+    /// Validates this record is live and matches the lookup used to load it.
+    pub fn validate_for_lookup(
+        &self,
+        lookup: &CloudflareSigningWorkerRound1LookupV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        lookup.validate()?;
+        if lookup.now_unix_ms >= self.expires_at_ms {
+            return Err(RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::ExpiredLocalRequest,
+                "SigningWorker round-1 nonce material expired",
+            ));
+        }
+        if self.server_round1_handle == lookup.server_round1_handle
+            && self.round1_binding_digest == lookup.round1_binding_digest
+            && self.active_signing_worker_state == lookup.active_signing_worker_state
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "SigningWorker round-1 record does not match lookup",
+        ))
+    }
+}
+
+/// Lookup for one stored SigningWorker round-1 nonce record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerRound1LookupV1 {
+    /// Active SigningWorker descriptor that owns this nonce material.
+    pub active_signing_worker_state: ActiveSigningWorkerStateV1,
+    /// SigningWorker-local nonce handle returned to the client.
+    pub server_round1_handle: String,
+    /// Expected digest binding this nonce material to the normal-signing context.
+    pub round1_binding_digest: PublicDigest32,
+    /// Current time for expiry enforcement.
+    pub now_unix_ms: u64,
+}
+
+impl CloudflareSigningWorkerRound1LookupV1 {
+    /// Creates a validated round-1 lookup.
+    pub fn new(
+        active_signing_worker_state: ActiveSigningWorkerStateV1,
+        server_round1_handle: impl Into<String>,
+        round1_binding_digest: PublicDigest32,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<Self> {
+        let lookup = Self {
+            active_signing_worker_state,
+            server_round1_handle: server_round1_handle.into(),
+            round1_binding_digest,
+            now_unix_ms,
+        };
+        lookup.validate()?;
+        Ok(lookup)
+    }
+
+    /// Validates lookup fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.active_signing_worker_state.validate()?;
+        require_non_empty("server_round1_handle", &self.server_round1_handle)?;
+        require_positive_ms("SigningWorker round-1 lookup now_unix_ms", self.now_unix_ms)
+    }
+}
+
+/// Receipt for a stored SigningWorker round-1 nonce record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CloudflareSigningWorkerRound1PutReceiptV1 {
+    /// Active SigningWorker descriptor that owns this nonce material.
+    pub active_signing_worker_state: ActiveSigningWorkerStateV1,
+    /// SigningWorker-local nonce handle returned to the client.
+    pub server_round1_handle: String,
+    /// Digest binding this nonce material to the exact normal-signing context.
+    pub round1_binding_digest: PublicDigest32,
+    /// Server public round-1 commitments.
+    pub server_commitments: RoleSeparatedEd25519CommitmentsV1,
+    /// Whether storage changed.
+    pub stored: bool,
+}
+
+impl CloudflareSigningWorkerRound1PutReceiptV1 {
+    /// Creates a validated round-1 put receipt from the stored record.
+    pub fn from_record(
+        record: &CloudflareSigningWorkerRound1RecordV1,
+        stored: bool,
+    ) -> RouterAbProtocolResult<Self> {
+        record.validate()?;
+        let receipt = Self {
+            active_signing_worker_state: record.active_signing_worker_state.clone(),
+            server_round1_handle: record.server_round1_handle.clone(),
+            round1_binding_digest: record.round1_binding_digest,
+            server_commitments: record.round1_state.commitments,
+            stored,
+        };
+        receipt.validate()?;
+        Ok(receipt)
+    }
+
+    /// Validates receipt fields.
+    pub fn validate(&self) -> RouterAbProtocolResult<()> {
+        self.active_signing_worker_state.validate()?;
+        require_non_empty("server_round1_handle", &self.server_round1_handle)?;
+        self.server_commitments.validate().map_err(|err| {
+            RouterAbProtocolError::new(
+                RouterAbProtocolErrorCode::MalformedWirePayload,
+                format!("SigningWorker round-1 commitments are invalid: {err}"),
+            )
+        })
+    }
+
+    /// Validates receipt identity against the record that created it.
+    pub fn validate_for_record(
+        &self,
+        record: &CloudflareSigningWorkerRound1RecordV1,
+    ) -> RouterAbProtocolResult<()> {
+        self.validate()?;
+        record.validate()?;
+        if self.active_signing_worker_state == record.active_signing_worker_state
+            && self.server_round1_handle == record.server_round1_handle
+            && self.round1_binding_digest == record.round1_binding_digest
+            && self.server_commitments == record.round1_state.commitments
+        {
+            return Ok(());
+        }
+        Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            "SigningWorker round-1 put receipt does not match record",
         ))
     }
 }
@@ -1074,10 +2010,20 @@ pub enum CloudflareDurableObjectRequestV1 {
         /// Replay request.
         request: CloudflareReplayReserveRequestV1,
     },
+    /// Remove expired replay reservations.
+    RouterReplayCleanupExpired {
+        /// Cleanup request.
+        cleanup: CloudflareExpiredStateCleanupRequestV1,
+    },
     /// Store public lifecycle state.
     RouterLifecyclePutPublicState {
         /// Public lifecycle state.
         state: RouterAbLifecycleStateV1,
+    },
+    /// Store Cloudflare derivation ceremony state.
+    DerivationCeremonyPutState {
+        /// Dedicated ceremony lifecycle state.
+        ceremony: CloudflareDerivationCeremonyV1,
     },
     /// Evaluate project policy.
     RouterProjectPolicyEvaluate {
@@ -1088,6 +2034,11 @@ pub enum CloudflareDurableObjectRequestV1 {
     RouterQuotaEvaluate {
         /// Admission-store request.
         request: CloudflareRouterAdmissionStoreRequestV1,
+    },
+    /// Remove expired quota reservations.
+    RouterQuotaCleanupExpired {
+        /// Cleanup request.
+        cleanup: CloudflareExpiredStateCleanupRequestV1,
     },
     /// Evaluate abuse-control state.
     RouterAbuseEvaluate {
@@ -1109,24 +2060,39 @@ pub enum CloudflareDurableObjectRequestV1 {
         /// Normal-signing admission-store request.
         request: CloudflareRouterNormalSigningAdmissionStoreRequestV1,
     },
-    /// Activate relayer-output material.
+    /// Activate server-output material.
     SigningWorkerOutputActivate {
         /// Strict SigningWorker proof-bundle activation request.
         activation: CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
-        /// Relayer-local opened output material.
-        material: CloudflareRelayerOutputMaterialRecordV1,
+        /// Server-local opened output material.
+        material: CloudflareServerOutputMaterialRecordV1,
         /// Activation timestamp in Unix milliseconds.
         activated_at_ms: u64,
     },
     /// Read active SigningWorker state for normal signing.
     SigningWorkerOutputActiveStateGet {
-        /// Account/session/relayer lookup.
+        /// Account/session/server lookup.
         lookup: CloudflareActiveSigningWorkerStateLookupV1,
     },
     /// Read active SigningWorker material for normal signing.
     SigningWorkerOutputMaterialGet {
         /// Active-state descriptor and material handle.
         lookup: CloudflareSigningWorkerOutputMaterialLookupV1,
+    },
+    /// Store SigningWorker round-1 nonce material for normal signing.
+    SigningWorkerRound1Put {
+        /// Round-1 record.
+        record: CloudflareSigningWorkerRound1RecordV1,
+    },
+    /// Take SigningWorker round-1 nonce material for normal signing.
+    SigningWorkerRound1Take {
+        /// Round-1 lookup.
+        lookup: CloudflareSigningWorkerRound1LookupV1,
+    },
+    /// Remove expired SigningWorker round-1 records.
+    SigningWorkerRound1CleanupExpired {
+        /// Cleanup request.
+        cleanup: CloudflareExpiredStateCleanupRequestV1,
     },
 }
 
@@ -1158,11 +2124,29 @@ impl CloudflareDurableObjectRequestV1 {
         Ok(request)
     }
 
+    /// Creates an expired replay cleanup request.
+    pub fn router_replay_cleanup_expired(
+        cleanup: CloudflareExpiredStateCleanupRequestV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::RouterReplayCleanupExpired { cleanup };
+        request.validate()?;
+        Ok(request)
+    }
+
     /// Creates a public lifecycle persistence request.
     pub fn router_lifecycle_put_public_state(
         state: RouterAbLifecycleStateV1,
     ) -> RouterAbProtocolResult<Self> {
         let request = Self::RouterLifecyclePutPublicState { state };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates a derivation ceremony persistence request.
+    pub fn derivation_ceremony_put_state(
+        ceremony: CloudflareDerivationCeremonyV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::DerivationCeremonyPutState { ceremony };
         request.validate()?;
         Ok(request)
     }
@@ -1181,6 +2165,15 @@ impl CloudflareDurableObjectRequestV1 {
         request: CloudflareRouterAdmissionStoreRequestV1,
     ) -> RouterAbProtocolResult<Self> {
         let request = Self::RouterQuotaEvaluate { request };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates an expired quota cleanup request.
+    pub fn router_quota_cleanup_expired(
+        cleanup: CloudflareExpiredStateCleanupRequestV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::RouterQuotaCleanupExpired { cleanup };
         request.validate()?;
         Ok(request)
     }
@@ -1224,7 +2217,7 @@ impl CloudflareDurableObjectRequestV1 {
     /// Creates a SigningWorker-output activation request.
     pub fn signing_worker_output_activate(
         activation: CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
-        material: CloudflareRelayerOutputMaterialRecordV1,
+        material: CloudflareServerOutputMaterialRecordV1,
         activated_at_ms: u64,
     ) -> RouterAbProtocolResult<Self> {
         let request = Self::SigningWorkerOutputActivate {
@@ -1254,6 +2247,33 @@ impl CloudflareDurableObjectRequestV1 {
         Ok(request)
     }
 
+    /// Creates a SigningWorker round-1 put request.
+    pub fn signing_worker_round1_put(
+        record: CloudflareSigningWorkerRound1RecordV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::SigningWorkerRound1Put { record };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates a SigningWorker round-1 take request.
+    pub fn signing_worker_round1_take(
+        lookup: CloudflareSigningWorkerRound1LookupV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::SigningWorkerRound1Take { lookup };
+        request.validate()?;
+        Ok(request)
+    }
+
+    /// Creates an expired SigningWorker round-1 cleanup request.
+    pub fn signing_worker_round1_cleanup_expired(
+        cleanup: CloudflareExpiredStateCleanupRequestV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let request = Self::SigningWorkerRound1CleanupExpired { cleanup };
+        request.validate()?;
+        Ok(request)
+    }
+
     /// Returns the stable operation kind.
     pub fn operation_kind(&self) -> CloudflareDurableObjectOperationKindV1 {
         match self {
@@ -1264,14 +2284,23 @@ impl CloudflareDurableObjectRequestV1 {
             Self::RouterReplayReserve { .. } => {
                 CloudflareDurableObjectOperationKindV1::RouterReplayReserve
             }
+            Self::RouterReplayCleanupExpired { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterReplayCleanupExpired
+            }
             Self::RouterLifecyclePutPublicState { .. } => {
                 CloudflareDurableObjectOperationKindV1::RouterLifecyclePutPublicState
+            }
+            Self::DerivationCeremonyPutState { .. } => {
+                CloudflareDurableObjectOperationKindV1::DerivationCeremonyPutState
             }
             Self::RouterProjectPolicyEvaluate { .. } => {
                 CloudflareDurableObjectOperationKindV1::RouterProjectPolicyEvaluate
             }
             Self::RouterQuotaEvaluate { .. } => {
                 CloudflareDurableObjectOperationKindV1::RouterQuotaEvaluate
+            }
+            Self::RouterQuotaCleanupExpired { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterQuotaCleanupExpired
             }
             Self::RouterAbuseEvaluate { .. } => {
                 CloudflareDurableObjectOperationKindV1::RouterAbuseEvaluate
@@ -1294,6 +2323,15 @@ impl CloudflareDurableObjectRequestV1 {
             Self::SigningWorkerOutputMaterialGet { .. } => {
                 CloudflareDurableObjectOperationKindV1::SigningWorkerOutputMaterialGet
             }
+            Self::SigningWorkerRound1Put { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerRound1Put
+            }
+            Self::SigningWorkerRound1Take { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerRound1Take
+            }
+            Self::SigningWorkerRound1CleanupExpired { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerRound1CleanupExpired
+            }
         }
     }
 
@@ -1304,13 +2342,18 @@ impl CloudflareDurableObjectRequestV1 {
                 lookup.expected_scope()
             }
             Self::RouterReplayReserve { .. } => CloudflareDurableObjectScopeV1::RouterReplay,
+            Self::RouterReplayCleanupExpired { .. } => CloudflareDurableObjectScopeV1::RouterReplay,
             Self::RouterLifecyclePutPublicState { .. } => {
+                CloudflareDurableObjectScopeV1::RouterLifecycle
+            }
+            Self::DerivationCeremonyPutState { .. } => {
                 CloudflareDurableObjectScopeV1::RouterLifecycle
             }
             Self::RouterProjectPolicyEvaluate { .. } => {
                 CloudflareDurableObjectScopeV1::RouterProjectPolicy
             }
             Self::RouterQuotaEvaluate { .. } => CloudflareDurableObjectScopeV1::RouterQuota,
+            Self::RouterQuotaCleanupExpired { .. } => CloudflareDurableObjectScopeV1::RouterQuota,
             Self::RouterAbuseEvaluate { .. } => CloudflareDurableObjectScopeV1::RouterAbuse,
             Self::RouterNormalSigningProjectPolicyEvaluate { .. } => {
                 CloudflareDurableObjectScopeV1::RouterProjectPolicy
@@ -1323,8 +2366,11 @@ impl CloudflareDurableObjectRequestV1 {
             }
             Self::SigningWorkerOutputActivate { .. }
             | Self::SigningWorkerOutputActiveStateGet { .. }
-            | Self::SigningWorkerOutputMaterialGet { .. } => {
-                CloudflareDurableObjectScopeV1::signing_worker_relayer_output()
+            | Self::SigningWorkerOutputMaterialGet { .. }
+            | Self::SigningWorkerRound1Put { .. }
+            | Self::SigningWorkerRound1Take { .. }
+            | Self::SigningWorkerRound1CleanupExpired { .. } => {
+                CloudflareDurableObjectScopeV1::signing_worker_server_output()
             }
         }
     }
@@ -1336,10 +2382,13 @@ impl CloudflareDurableObjectRequestV1 {
                 lookup.validate()
             }
             Self::RouterReplayReserve { request } => request.validate(),
+            Self::RouterReplayCleanupExpired { cleanup } => cleanup.validate(),
             Self::RouterLifecyclePutPublicState { state } => validate_lifecycle_state(state),
+            Self::DerivationCeremonyPutState { ceremony } => ceremony.validate(),
             Self::RouterProjectPolicyEvaluate { request }
             | Self::RouterQuotaEvaluate { request }
             | Self::RouterAbuseEvaluate { request } => request.validate(),
+            Self::RouterQuotaCleanupExpired { cleanup } => cleanup.validate(),
             Self::RouterNormalSigningProjectPolicyEvaluate { request }
             | Self::RouterNormalSigningQuotaEvaluate { request }
             | Self::RouterNormalSigningAbuseEvaluate { request } => request.validate(),
@@ -1354,6 +2403,9 @@ impl CloudflareDurableObjectRequestV1 {
             }
             Self::SigningWorkerOutputActiveStateGet { lookup } => lookup.validate(),
             Self::SigningWorkerOutputMaterialGet { lookup } => lookup.validate(),
+            Self::SigningWorkerRound1Put { record } => record.validate(),
+            Self::SigningWorkerRound1Take { lookup } => lookup.validate(),
+            Self::SigningWorkerRound1CleanupExpired { cleanup } => cleanup.validate(),
         }
     }
 }
@@ -1377,10 +2429,20 @@ pub enum CloudflareDurableObjectResponseV1 {
         /// Reservation response.
         response: CloudflareReplayReserveResponseV1,
     },
+    /// Expired replay cleanup response.
+    RouterReplayCleanupExpired {
+        /// Cleanup report.
+        report: CloudflareExpiredStateCleanupReportV1,
+    },
     /// Lifecycle persistence response.
     RouterLifecyclePutPublicState {
         /// Lifecycle receipt.
         receipt: CloudflareLifecyclePutReceiptV1,
+    },
+    /// Derivation ceremony persistence response.
+    DerivationCeremonyPutState {
+        /// Ceremony persistence receipt.
+        receipt: CloudflareDerivationCeremonyPutReceiptV1,
     },
     /// Project-policy evaluation response.
     RouterProjectPolicyEvaluate {
@@ -1391,6 +2453,11 @@ pub enum CloudflareDurableObjectResponseV1 {
     RouterQuotaEvaluate {
         /// Quota outcome.
         quota: CloudflareRouterQuotaCheckV1,
+    },
+    /// Expired quota cleanup response.
+    RouterQuotaCleanupExpired {
+        /// Cleanup report.
+        report: CloudflareExpiredStateCleanupReportV1,
     },
     /// Abuse-control evaluation response.
     RouterAbuseEvaluate {
@@ -1417,7 +2484,7 @@ pub enum CloudflareDurableObjectResponseV1 {
         /// Activation receipt.
         receipt: CloudflareSigningWorkerOutputActivationReceiptV1,
     },
-    /// Active relayer-state lookup response.
+    /// Active server-state lookup response.
     SigningWorkerOutputActiveStateGet {
         /// Active SigningWorker state.
         active_signing_worker_state: ActiveSigningWorkerStateV1,
@@ -1425,7 +2492,22 @@ pub enum CloudflareDurableObjectResponseV1 {
     /// Active SigningWorker material lookup response.
     SigningWorkerOutputMaterialGet {
         /// Active SigningWorker material.
-        material: CloudflareRelayerOutputMaterialRecordV1,
+        material: CloudflareServerOutputMaterialRecordV1,
+    },
+    /// SigningWorker round-1 put response.
+    SigningWorkerRound1Put {
+        /// Put receipt.
+        receipt: CloudflareSigningWorkerRound1PutReceiptV1,
+    },
+    /// SigningWorker round-1 take response.
+    SigningWorkerRound1Take {
+        /// Stored round-1 record.
+        record: CloudflareSigningWorkerRound1RecordV1,
+    },
+    /// Expired SigningWorker round-1 cleanup response.
+    SigningWorkerRound1CleanupExpired {
+        /// Cleanup report.
+        report: CloudflareExpiredStateCleanupReportV1,
     },
 }
 
@@ -1453,11 +2535,29 @@ impl CloudflareDurableObjectResponseV1 {
         Ok(response)
     }
 
+    /// Creates an expired replay cleanup response.
+    pub fn router_replay_cleanup_expired(
+        report: CloudflareExpiredStateCleanupReportV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::RouterReplayCleanupExpired { report };
+        response.validate()?;
+        Ok(response)
+    }
+
     /// Creates a lifecycle persistence response.
     pub fn router_lifecycle_put_public_state(
         receipt: CloudflareLifecyclePutReceiptV1,
     ) -> RouterAbProtocolResult<Self> {
         let response = Self::RouterLifecyclePutPublicState { receipt };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates a derivation ceremony persistence response.
+    pub fn derivation_ceremony_put_state(
+        receipt: CloudflareDerivationCeremonyPutReceiptV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::DerivationCeremonyPutState { receipt };
         response.validate()?;
         Ok(response)
     }
@@ -1476,6 +2576,15 @@ impl CloudflareDurableObjectResponseV1 {
         quota: CloudflareRouterQuotaCheckV1,
     ) -> RouterAbProtocolResult<Self> {
         let response = Self::RouterQuotaEvaluate { quota };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates an expired quota cleanup response.
+    pub fn router_quota_cleanup_expired(
+        report: CloudflareExpiredStateCleanupReportV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::RouterQuotaCleanupExpired { report };
         response.validate()?;
         Ok(response)
     }
@@ -1538,9 +2647,36 @@ impl CloudflareDurableObjectResponseV1 {
 
     /// Creates a SigningWorker-output material lookup response.
     pub fn signing_worker_output_material_get(
-        material: CloudflareRelayerOutputMaterialRecordV1,
+        material: CloudflareServerOutputMaterialRecordV1,
     ) -> RouterAbProtocolResult<Self> {
         let response = Self::SigningWorkerOutputMaterialGet { material };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates a SigningWorker round-1 put response.
+    pub fn signing_worker_round1_put(
+        receipt: CloudflareSigningWorkerRound1PutReceiptV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::SigningWorkerRound1Put { receipt };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates a SigningWorker round-1 take response.
+    pub fn signing_worker_round1_take(
+        record: CloudflareSigningWorkerRound1RecordV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::SigningWorkerRound1Take { record };
+        response.validate()?;
+        Ok(response)
+    }
+
+    /// Creates an expired SigningWorker round-1 cleanup response.
+    pub fn signing_worker_round1_cleanup_expired(
+        report: CloudflareExpiredStateCleanupReportV1,
+    ) -> RouterAbProtocolResult<Self> {
+        let response = Self::SigningWorkerRound1CleanupExpired { report };
         response.validate()?;
         Ok(response)
     }
@@ -1555,14 +2691,23 @@ impl CloudflareDurableObjectResponseV1 {
             Self::RouterReplayReserve { .. } => {
                 CloudflareDurableObjectOperationKindV1::RouterReplayReserve
             }
+            Self::RouterReplayCleanupExpired { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterReplayCleanupExpired
+            }
             Self::RouterLifecyclePutPublicState { .. } => {
                 CloudflareDurableObjectOperationKindV1::RouterLifecyclePutPublicState
+            }
+            Self::DerivationCeremonyPutState { .. } => {
+                CloudflareDurableObjectOperationKindV1::DerivationCeremonyPutState
             }
             Self::RouterProjectPolicyEvaluate { .. } => {
                 CloudflareDurableObjectOperationKindV1::RouterProjectPolicyEvaluate
             }
             Self::RouterQuotaEvaluate { .. } => {
                 CloudflareDurableObjectOperationKindV1::RouterQuotaEvaluate
+            }
+            Self::RouterQuotaCleanupExpired { .. } => {
+                CloudflareDurableObjectOperationKindV1::RouterQuotaCleanupExpired
             }
             Self::RouterAbuseEvaluate { .. } => {
                 CloudflareDurableObjectOperationKindV1::RouterAbuseEvaluate
@@ -1585,6 +2730,15 @@ impl CloudflareDurableObjectResponseV1 {
             Self::SigningWorkerOutputMaterialGet { .. } => {
                 CloudflareDurableObjectOperationKindV1::SigningWorkerOutputMaterialGet
             }
+            Self::SigningWorkerRound1Put { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerRound1Put
+            }
+            Self::SigningWorkerRound1Take { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerRound1Take
+            }
+            Self::SigningWorkerRound1CleanupExpired { .. } => {
+                CloudflareDurableObjectOperationKindV1::SigningWorkerRound1CleanupExpired
+            }
         }
     }
 
@@ -1594,9 +2748,12 @@ impl CloudflareDurableObjectResponseV1 {
             Self::RootShareHas { .. } => Ok(()),
             Self::RootShareStartupMetadata { metadata } => metadata.validate(),
             Self::RouterReplayReserve { response } => response.validate(),
+            Self::RouterReplayCleanupExpired { report } => report.validate(),
             Self::RouterLifecyclePutPublicState { receipt } => receipt.validate(),
+            Self::DerivationCeremonyPutState { receipt } => receipt.validate(),
             Self::RouterProjectPolicyEvaluate { policy } => policy.validate(),
             Self::RouterQuotaEvaluate { quota } => quota.validate(),
+            Self::RouterQuotaCleanupExpired { report } => report.validate(),
             Self::RouterAbuseEvaluate { abuse } => abuse.validate(),
             Self::RouterNormalSigningProjectPolicyEvaluate { policy } => policy.validate(),
             Self::RouterNormalSigningQuotaEvaluate { quota } => quota.validate(),
@@ -1606,6 +2763,9 @@ impl CloudflareDurableObjectResponseV1 {
                 active_signing_worker_state,
             } => active_signing_worker_state.validate(),
             Self::SigningWorkerOutputMaterialGet { material } => material.validate(),
+            Self::SigningWorkerRound1Put { receipt } => receipt.validate(),
+            Self::SigningWorkerRound1Take { record } => record.validate(),
+            Self::SigningWorkerRound1CleanupExpired { report } => report.validate(),
         }
     }
 
@@ -1653,6 +2813,21 @@ impl CloudflareDurableObjectResponseV1 {
                 }
             }
             (
+                Self::DerivationCeremonyPutState { receipt },
+                CloudflareDurableObjectRequestV1::DerivationCeremonyPutState { ceremony },
+            ) => {
+                if receipt.lifecycle_id == ceremony.scope().lifecycle_id
+                    && receipt.state == ceremony.label()
+                {
+                    Ok(())
+                } else {
+                    Err(RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                        "derivation ceremony receipt does not match request state",
+                    ))
+                }
+            }
+            (
                 Self::RouterProjectPolicyEvaluate { .. },
                 CloudflareDurableObjectRequestV1::RouterProjectPolicyEvaluate { request },
             )
@@ -1685,15 +2860,15 @@ impl CloudflareDurableObjectResponseV1 {
                 },
             ) => {
                 let activation_context = &activation.activation_context;
-                let selected_relayer = &activation_context.signer_set().selected_relayer;
+                let selected_server = &activation_context.signer_set().selected_server;
                 if receipt.lifecycle_id == activation_context.lifecycle().lifecycle_id
-                    && receipt.signing_worker_id == selected_relayer.relayer_id
+                    && receipt.signing_worker_id == selected_server.server_id
                     && receipt.transcript_digest == activation_context.transcript_digest()
                     && receipt.active_signing_worker_state.account_id
                         == activation_context.lifecycle().account_id
                     && receipt.active_signing_worker_state.session_id
                         == activation_context.lifecycle().session_id
-                    && receipt.active_signing_worker_state.signing_worker == *selected_relayer
+                    && receipt.active_signing_worker_state.signing_worker == *selected_server
                 {
                     Ok(())
                 } else {
@@ -1713,6 +2888,14 @@ impl CloudflareDurableObjectResponseV1 {
                 Self::SigningWorkerOutputMaterialGet { material },
                 CloudflareDurableObjectRequestV1::SigningWorkerOutputMaterialGet { lookup },
             ) => lookup.validate_material(material),
+            (
+                Self::SigningWorkerRound1Put { receipt },
+                CloudflareDurableObjectRequestV1::SigningWorkerRound1Put { record },
+            ) => receipt.validate_for_record(record),
+            (
+                Self::SigningWorkerRound1Take { record },
+                CloudflareDurableObjectRequestV1::SigningWorkerRound1Take { lookup },
+            ) => record.validate_for_lookup(lookup),
             _ => Ok(()),
         }
     }
@@ -1793,11 +2976,21 @@ impl CloudflareDurableObjectCallV1 {
                 request.request_id,
                 digest_hex(request.replay_material_digest)
             ),
+            CloudflareDurableObjectRequestV1::RouterReplayCleanupExpired { .. } => {
+                self.replay_storage_prefix()
+            }
             CloudflareDurableObjectRequestV1::RouterLifecyclePutPublicState { state } => {
                 format!(
                     "{}lifecycle/{}",
                     self.binding.key_prefix,
                     state.scope().lifecycle_id
+                )
+            }
+            CloudflareDurableObjectRequestV1::DerivationCeremonyPutState { ceremony } => {
+                format!(
+                    "{}derivation-ceremony/{}",
+                    self.binding.key_prefix,
+                    ceremony.scope().lifecycle_id
                 )
             }
             CloudflareDurableObjectRequestV1::RouterProjectPolicyEvaluate { request } => format!(
@@ -1816,6 +3009,9 @@ impl CloudflareDurableObjectCallV1 {
                 request.metadata.account_id,
                 request.metadata.work_kind.as_str()
             ),
+            CloudflareDurableObjectRequestV1::RouterQuotaCleanupExpired { .. } => {
+                self.quota_storage_prefix()
+            }
             CloudflareDurableObjectRequestV1::RouterAbuseEvaluate { request } => format!(
                 "{}abuse/{}/{}",
                 self.binding.key_prefix,
@@ -1870,7 +3066,46 @@ impl CloudflareDurableObjectCallV1 {
                 .active_signing_worker_state
                 .signing_worker_material_handle
                 .clone(),
+            CloudflareDurableObjectRequestV1::SigningWorkerRound1Put { record } => format!(
+                "{}signing-worker-round1/{}/{}/{}/{}",
+                self.binding.key_prefix,
+                record.active_signing_worker_state.account_id,
+                record.active_signing_worker_state.session_id,
+                record.active_signing_worker_state.signing_worker.server_id,
+                record.server_round1_handle
+            ),
+            CloudflareDurableObjectRequestV1::SigningWorkerRound1Take { lookup } => format!(
+                "{}signing-worker-round1/{}/{}/{}/{}",
+                self.binding.key_prefix,
+                lookup.active_signing_worker_state.account_id,
+                lookup.active_signing_worker_state.session_id,
+                lookup.active_signing_worker_state.signing_worker.server_id,
+                lookup.server_round1_handle
+            ),
+            CloudflareDurableObjectRequestV1::SigningWorkerRound1CleanupExpired { .. } => {
+                self.signing_worker_round1_storage_prefix()
+            }
         }
+    }
+
+    /// Returns the prefix used by replay primary storage records.
+    pub fn replay_storage_prefix(&self) -> String {
+        format!("{}replay/", self.binding.key_prefix)
+    }
+
+    /// Returns the prefix used by replay request-id index records.
+    pub fn replay_request_index_storage_prefix(&self) -> String {
+        format!("{}replay-request/", self.binding.key_prefix)
+    }
+
+    /// Returns the prefix used by quota storage records.
+    pub fn quota_storage_prefix(&self) -> String {
+        format!("{}quota/", self.binding.key_prefix)
+    }
+
+    /// Returns the prefix used by SigningWorker round-1 storage records.
+    pub fn signing_worker_round1_storage_prefix(&self) -> String {
+        format!("{}signing-worker-round1/", self.binding.key_prefix)
     }
 
     /// Returns the request-id replay index key used by replay reservations.
@@ -1895,13 +3130,13 @@ impl CloudflareDurableObjectCallV1 {
         match &self.request {
             CloudflareDurableObjectRequestV1::SigningWorkerOutputActivate { activation, .. } => {
                 let lifecycle = activation.activation_context.lifecycle();
-                let selected_relayer = &activation.activation_context.signer_set().selected_relayer;
+                let selected_server = &activation.activation_context.signer_set().selected_server;
                 Ok(format!(
                     "{}active-signing-worker/{}/{}/{}",
                     self.binding.key_prefix,
                     lifecycle.account_id,
                     lifecycle.session_id,
-                    selected_relayer.relayer_id
+                    selected_server.server_id
                 ))
             }
             CloudflareDurableObjectRequestV1::SigningWorkerOutputActiveStateGet { lookup } => {
@@ -1949,6 +3184,12 @@ pub trait CloudflareDurableObjectStorageV1 {
         request: CloudflareReplayReserveRequestV1,
     ) -> RouterAbProtocolResult<()>;
 
+    /// Removes expired replay reservations and request-id indexes.
+    fn cleanup_expired_replay_reservations(
+        &mut self,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<CloudflareExpiredStateCleanupReportV1>;
+
     /// Stores public Router lifecycle state.
     fn put_router_lifecycle_state(
         &mut self,
@@ -1961,6 +3202,19 @@ pub trait CloudflareDurableObjectStorageV1 {
         &self,
         storage_key: &str,
     ) -> RouterAbProtocolResult<Option<RouterAbLifecycleStateV1>>;
+
+    /// Stores Cloudflare derivation ceremony state.
+    fn put_derivation_ceremony(
+        &mut self,
+        storage_key: &str,
+        ceremony: CloudflareDerivationCeremonyV1,
+    ) -> RouterAbProtocolResult<()>;
+
+    /// Reads Cloudflare derivation ceremony state by storage key.
+    fn derivation_ceremony(
+        &self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareDerivationCeremonyV1>>;
 
     /// Reads project-policy state by storage key.
     fn router_project_policy(
@@ -1987,6 +3241,12 @@ pub trait CloudflareDurableObjectStorageV1 {
         reservation: CloudflareRouterQuotaReservationV1,
     ) -> RouterAbProtocolResult<()>;
 
+    /// Removes expired quota reservations.
+    fn cleanup_expired_router_quota_reservations(
+        &mut self,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<CloudflareExpiredStateCleanupReportV1>;
+
     /// Reads SigningWorker-output activation by storage key.
     fn signing_worker_output_activation(
         &self,
@@ -2006,6 +3266,31 @@ pub trait CloudflareDurableObjectStorageV1 {
         &self,
         active_state_index_key: &str,
     ) -> RouterAbProtocolResult<Option<ActiveSigningWorkerStateV1>>;
+
+    /// Reads SigningWorker round-1 nonce material by storage key.
+    fn signing_worker_round1(
+        &self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerRound1RecordV1>>;
+
+    /// Stores SigningWorker round-1 nonce material.
+    fn put_signing_worker_round1(
+        &mut self,
+        storage_key: &str,
+        record: CloudflareSigningWorkerRound1RecordV1,
+    ) -> RouterAbProtocolResult<()>;
+
+    /// Removes and returns SigningWorker round-1 nonce material.
+    fn take_signing_worker_round1(
+        &mut self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerRound1RecordV1>>;
+
+    /// Removes expired SigningWorker round-1 nonce records.
+    fn cleanup_expired_signing_worker_round1_records(
+        &mut self,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<CloudflareExpiredStateCleanupReportV1>;
 }
 
 /// Deterministic in-memory Durable Object storage used by tests and local checks.
@@ -2015,11 +3300,13 @@ pub struct CloudflareDurableObjectMemoryStorageV1 {
     replay_by_request_id: BTreeMap<String, CloudflareReplayReserveRequestV1>,
     replay_by_storage_key: BTreeMap<String, CloudflareReplayReserveRequestV1>,
     lifecycle_states: BTreeMap<String, RouterAbLifecycleStateV1>,
+    derivation_ceremonies: BTreeMap<String, CloudflareDerivationCeremonyV1>,
     project_policies: BTreeMap<String, CloudflareRouterProjectPolicyRecordV1>,
     abuse_records: BTreeMap<String, CloudflareRouterAbuseRecordV1>,
     quota_reservations: BTreeMap<String, CloudflareRouterQuotaReservationV1>,
     signing_worker_activations: BTreeMap<String, CloudflareSigningWorkerOutputActivationRecordV1>,
     active_signing_worker_states: BTreeMap<String, ActiveSigningWorkerStateV1>,
+    signing_worker_round1_records: BTreeMap<String, CloudflareSigningWorkerRound1RecordV1>,
 }
 
 impl CloudflareDurableObjectMemoryStorageV1 {
@@ -2070,6 +3357,14 @@ impl CloudflareDurableObjectMemoryStorageV1 {
     /// Reads a stored lifecycle state for tests and local smoke checks.
     pub fn lifecycle_state(&self, storage_key: &str) -> Option<&RouterAbLifecycleStateV1> {
         self.lifecycle_states.get(storage_key)
+    }
+
+    /// Reads a stored derivation ceremony for tests and local smoke checks.
+    pub fn derivation_ceremony(
+        &self,
+        storage_key: &str,
+    ) -> Option<&CloudflareDerivationCeremonyV1> {
+        self.derivation_ceremonies.get(storage_key)
     }
 
     /// Reads a stored SigningWorker activation for tests and local smoke checks.
@@ -2138,6 +3433,24 @@ impl CloudflareDurableObjectStorageV1 for CloudflareDurableObjectMemoryStorageV1
         Ok(())
     }
 
+    fn cleanup_expired_replay_reservations(
+        &mut self,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<CloudflareExpiredStateCleanupReportV1> {
+        require_positive_ms("cleanup now_unix_ms", now_unix_ms)?;
+        let storage_before = self.replay_by_storage_key.len();
+        self.replay_by_storage_key
+            .retain(|_, request| request.expires_at_ms > now_unix_ms);
+        let index_before = self.replay_by_request_id.len();
+        self.replay_by_request_id
+            .retain(|_, request| request.expires_at_ms > now_unix_ms);
+        CloudflareExpiredStateCleanupReportV1::new(
+            now_unix_ms,
+            (storage_before - self.replay_by_storage_key.len()) as u64,
+            (index_before - self.replay_by_request_id.len()) as u64,
+        )
+    }
+
     fn put_router_lifecycle_state(
         &mut self,
         storage_key: &str,
@@ -2155,6 +3468,26 @@ impl CloudflareDurableObjectStorageV1 for CloudflareDurableObjectMemoryStorageV1
     ) -> RouterAbProtocolResult<Option<RouterAbLifecycleStateV1>> {
         require_non_empty("storage_key", storage_key)?;
         Ok(self.lifecycle_states.get(storage_key).cloned())
+    }
+
+    fn put_derivation_ceremony(
+        &mut self,
+        storage_key: &str,
+        ceremony: CloudflareDerivationCeremonyV1,
+    ) -> RouterAbProtocolResult<()> {
+        require_non_empty("storage_key", storage_key)?;
+        ceremony.validate()?;
+        self.derivation_ceremonies
+            .insert(storage_key.to_owned(), ceremony);
+        Ok(())
+    }
+
+    fn derivation_ceremony(
+        &self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareDerivationCeremonyV1>> {
+        require_non_empty("storage_key", storage_key)?;
+        Ok(self.derivation_ceremonies.get(storage_key).cloned())
     }
 
     fn router_project_policy(
@@ -2193,6 +3526,21 @@ impl CloudflareDurableObjectStorageV1 for CloudflareDurableObjectMemoryStorageV1
         Ok(())
     }
 
+    fn cleanup_expired_router_quota_reservations(
+        &mut self,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<CloudflareExpiredStateCleanupReportV1> {
+        require_positive_ms("cleanup now_unix_ms", now_unix_ms)?;
+        let before = self.quota_reservations.len();
+        self.quota_reservations
+            .retain(|_, reservation| reservation.is_active_at(now_unix_ms));
+        CloudflareExpiredStateCleanupReportV1::new(
+            now_unix_ms,
+            (before - self.quota_reservations.len()) as u64,
+            0,
+        )
+    }
+
     fn signing_worker_output_activation(
         &self,
         storage_key: &str,
@@ -2229,6 +3577,49 @@ impl CloudflareDurableObjectStorageV1 for CloudflareDurableObjectMemoryStorageV1
             .get(active_state_index_key)
             .cloned())
     }
+
+    fn signing_worker_round1(
+        &self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerRound1RecordV1>> {
+        require_non_empty("storage_key", storage_key)?;
+        Ok(self.signing_worker_round1_records.get(storage_key).cloned())
+    }
+
+    fn put_signing_worker_round1(
+        &mut self,
+        storage_key: &str,
+        record: CloudflareSigningWorkerRound1RecordV1,
+    ) -> RouterAbProtocolResult<()> {
+        require_non_empty("storage_key", storage_key)?;
+        record.validate()?;
+        self.signing_worker_round1_records
+            .insert(storage_key.to_owned(), record);
+        Ok(())
+    }
+
+    fn take_signing_worker_round1(
+        &mut self,
+        storage_key: &str,
+    ) -> RouterAbProtocolResult<Option<CloudflareSigningWorkerRound1RecordV1>> {
+        require_non_empty("storage_key", storage_key)?;
+        Ok(self.signing_worker_round1_records.remove(storage_key))
+    }
+
+    fn cleanup_expired_signing_worker_round1_records(
+        &mut self,
+        now_unix_ms: u64,
+    ) -> RouterAbProtocolResult<CloudflareExpiredStateCleanupReportV1> {
+        require_positive_ms("cleanup now_unix_ms", now_unix_ms)?;
+        let before = self.signing_worker_round1_records.len();
+        self.signing_worker_round1_records
+            .retain(|_, record| record.expires_at_ms > now_unix_ms);
+        CloudflareExpiredStateCleanupReportV1::new(
+            now_unix_ms,
+            (before - self.signing_worker_round1_records.len()) as u64,
+            0,
+        )
+    }
 }
 
 fn validate_signing_worker_output_active_state_replacement_v1(
@@ -2242,7 +3633,7 @@ fn validate_signing_worker_output_active_state_replacement_v1(
     existing.validate()?;
     if existing.account_id != replacement.account_id
         || existing.session_id != replacement.session_id
-        || existing.signing_worker.relayer_id != replacement.signing_worker.relayer_id
+        || existing.signing_worker.server_id != replacement.signing_worker.server_id
     {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
@@ -2314,12 +3705,33 @@ pub fn handle_cloudflare_durable_object_call_v1(
                 CloudflareReplayReserveResponseV1::new(request.request_id.clone(), reserved)?,
             )?
         }
+        CloudflareDurableObjectRequestV1::RouterReplayCleanupExpired { cleanup } => {
+            cleanup.validate()?;
+            CloudflareDurableObjectResponseV1::router_replay_cleanup_expired(
+                storage.cleanup_expired_replay_reservations(cleanup.now_unix_ms)?,
+            )?
+        }
         CloudflareDurableObjectRequestV1::RouterLifecyclePutPublicState { state } => {
             let previous = storage.router_lifecycle_state(&storage_key)?;
             RouterAbLifecycleStateV1::validate_transition_from(previous.as_ref(), state)?;
             storage.put_router_lifecycle_state(&storage_key, state.clone())?;
             CloudflareDurableObjectResponseV1::router_lifecycle_put_public_state(
                 CloudflareLifecyclePutReceiptV1::new(state.scope().lifecycle_id.clone(), true)?,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::DerivationCeremonyPutState { ceremony } => {
+            let previous = storage.derivation_ceremony(&storage_key)?;
+            CloudflareDerivationCeremonyV1::validate_transition_from(previous.as_ref(), ceremony)?;
+            let stored = previous.as_ref() != Some(ceremony);
+            if stored {
+                storage.put_derivation_ceremony(&storage_key, ceremony.clone())?;
+            }
+            CloudflareDurableObjectResponseV1::derivation_ceremony_put_state(
+                CloudflareDerivationCeremonyPutReceiptV1::new(
+                    ceremony.scope().lifecycle_id.clone(),
+                    ceremony.label(),
+                    stored,
+                )?,
             )?
         }
         CloudflareDurableObjectRequestV1::RouterProjectPolicyEvaluate { request } => {
@@ -2356,6 +3768,12 @@ pub fn handle_cloudflare_durable_object_call_v1(
                 }
             };
             CloudflareDurableObjectResponseV1::router_quota_evaluate(quota)?
+        }
+        CloudflareDurableObjectRequestV1::RouterQuotaCleanupExpired { cleanup } => {
+            cleanup.validate()?;
+            CloudflareDurableObjectResponseV1::router_quota_cleanup_expired(
+                storage.cleanup_expired_router_quota_reservations(cleanup.now_unix_ms)?,
+            )?
         }
         CloudflareDurableObjectRequestV1::RouterAbuseEvaluate { request } => {
             request.validate()?;
@@ -2438,7 +3856,7 @@ pub fn handle_cloudflare_durable_object_call_v1(
                     } else {
                         return Err(RouterAbProtocolError::new(
                                 RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                                "relayer-output activation conflicts with existing activation or material",
+                                "server-output activation conflicts with existing activation or material",
                             ));
                     }
                 }
@@ -2469,11 +3887,11 @@ pub fn handle_cloudflare_durable_object_call_v1(
                 }
             };
             let activation_context = &activation.activation_context;
-            let selected_relayer = &activation_context.signer_set().selected_relayer;
+            let selected_server = &activation_context.signer_set().selected_server;
             CloudflareDurableObjectResponseV1::signing_worker_output_activate(
                 CloudflareSigningWorkerOutputActivationReceiptV1::new(
                     activation_context.lifecycle().lifecycle_id.clone(),
-                    selected_relayer.relayer_id.clone(),
+                    selected_server.server_id.clone(),
                     activation_context.transcript_digest(),
                     active_signing_worker_state,
                     activated,
@@ -2514,6 +3932,49 @@ pub fn handle_cloudflare_durable_object_call_v1(
             }
             lookup.validate_material(&record.material)?;
             CloudflareDurableObjectResponseV1::signing_worker_output_material_get(record.material)?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerRound1Put { record } => {
+            record.validate()?;
+            let stored = match storage.signing_worker_round1(&storage_key)? {
+                Some(existing) => {
+                    existing.validate()?;
+                    if existing == *record {
+                        false
+                    } else {
+                        return Err(RouterAbProtocolError::new(
+                            RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                            "SigningWorker round-1 handle is already stored for different material",
+                        ));
+                    }
+                }
+                None => {
+                    storage.put_signing_worker_round1(&storage_key, record.clone())?;
+                    true
+                }
+            };
+            CloudflareDurableObjectResponseV1::signing_worker_round1_put(
+                CloudflareSigningWorkerRound1PutReceiptV1::from_record(record, stored)?,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerRound1Take { lookup } => {
+            lookup.validate()?;
+            let record = storage
+                .signing_worker_round1(&storage_key)?
+                .ok_or_else(|| {
+                    RouterAbProtocolError::new(
+                        RouterAbProtocolErrorCode::MissingLocalBinding,
+                        "SigningWorker round-1 nonce material is missing",
+                    )
+                })?;
+            record.validate_for_lookup(lookup)?;
+            storage.take_signing_worker_round1(&storage_key)?;
+            CloudflareDurableObjectResponseV1::signing_worker_round1_take(record)?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerRound1CleanupExpired { cleanup } => {
+            cleanup.validate()?;
+            CloudflareDurableObjectResponseV1::signing_worker_round1_cleanup_expired(
+                storage.cleanup_expired_signing_worker_round1_records(cleanup.now_unix_ms)?,
+            )?
         }
     };
     response.validate_for_request(&call.request)?;
@@ -2703,6 +4164,32 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
                 CloudflareReplayReserveResponseV1::new(request.request_id.clone(), reserved)?,
             )?
         }
+        CloudflareDurableObjectRequestV1::RouterReplayCleanupExpired { cleanup } => {
+            cleanup.validate()?;
+            let records_removed = worker_storage_cleanup_expired_values(
+                storage,
+                &call.replay_storage_prefix(),
+                cleanup.now_unix_ms,
+                call.operation_kind(),
+                cloudflare_replay_reservation_expires_at_ms_v1,
+            )
+            .await?;
+            let index_records_removed = worker_storage_cleanup_expired_values(
+                storage,
+                &call.replay_request_index_storage_prefix(),
+                cleanup.now_unix_ms,
+                call.operation_kind(),
+                cloudflare_replay_reservation_expires_at_ms_v1,
+            )
+            .await?;
+            CloudflareDurableObjectResponseV1::router_replay_cleanup_expired(
+                CloudflareExpiredStateCleanupReportV1::new(
+                    cleanup.now_unix_ms,
+                    records_removed,
+                    index_records_removed,
+                )?,
+            )?
+        }
         CloudflareDurableObjectRequestV1::RouterLifecyclePutPublicState { state } => {
             let previous = worker_storage_get::<RouterAbLifecycleStateV1>(
                 storage,
@@ -2714,6 +4201,32 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
             worker_storage_put(storage, &storage_key, state.clone(), call.operation_kind()).await?;
             CloudflareDurableObjectResponseV1::router_lifecycle_put_public_state(
                 CloudflareLifecyclePutReceiptV1::new(state.scope().lifecycle_id.clone(), true)?,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::DerivationCeremonyPutState { ceremony } => {
+            let previous = worker_storage_get::<CloudflareDerivationCeremonyV1>(
+                storage,
+                &storage_key,
+                call.operation_kind(),
+            )
+            .await?;
+            CloudflareDerivationCeremonyV1::validate_transition_from(previous.as_ref(), ceremony)?;
+            let stored = previous.as_ref() != Some(ceremony);
+            if stored {
+                worker_storage_put(
+                    storage,
+                    &storage_key,
+                    ceremony.clone(),
+                    call.operation_kind(),
+                )
+                .await?;
+            }
+            CloudflareDurableObjectResponseV1::derivation_ceremony_put_state(
+                CloudflareDerivationCeremonyPutReceiptV1::new(
+                    ceremony.scope().lifecycle_id.clone(),
+                    ceremony.label(),
+                    stored,
+                )?,
             )?
         }
         CloudflareDurableObjectRequestV1::RouterProjectPolicyEvaluate { request } => {
@@ -2761,6 +4274,24 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
                 }
             };
             CloudflareDurableObjectResponseV1::router_quota_evaluate(quota)?
+        }
+        CloudflareDurableObjectRequestV1::RouterQuotaCleanupExpired { cleanup } => {
+            cleanup.validate()?;
+            let records_removed = worker_storage_cleanup_expired_values(
+                storage,
+                &call.quota_storage_prefix(),
+                cleanup.now_unix_ms,
+                call.operation_kind(),
+                cloudflare_quota_reservation_expires_at_ms_v1,
+            )
+            .await?;
+            CloudflareDurableObjectResponseV1::router_quota_cleanup_expired(
+                CloudflareExpiredStateCleanupReportV1::new(
+                    cleanup.now_unix_ms,
+                    records_removed,
+                    0,
+                )?,
+            )?
         }
         CloudflareDurableObjectRequestV1::RouterAbuseEvaluate { request } => {
             request.validate()?;
@@ -2872,7 +4403,7 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
                     } else {
                         return Err(RouterAbProtocolError::new(
                                 RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                                "relayer-output activation conflicts with existing activation or material",
+                                "server-output activation conflicts with existing activation or material",
                             ));
                     }
                 }
@@ -2911,11 +4442,11 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
                 }
             };
             let activation_context = &activation.activation_context;
-            let selected_relayer = &activation_context.signer_set().selected_relayer;
+            let selected_server = &activation_context.signer_set().selected_server;
             CloudflareDurableObjectResponseV1::signing_worker_output_activate(
                 CloudflareSigningWorkerOutputActivationReceiptV1::new(
                     activation_context.lifecycle().lifecycle_id.clone(),
-                    selected_relayer.relayer_id.clone(),
+                    selected_server.server_id.clone(),
                     activation_context.transcript_digest(),
                     active_signing_worker_state,
                     activated,
@@ -2964,6 +4495,77 @@ pub async fn handle_cloudflare_durable_object_worker_request_v1(
             }
             lookup.validate_material(&record.material)?;
             CloudflareDurableObjectResponseV1::signing_worker_output_material_get(record.material)?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerRound1Put { record } => {
+            record.validate()?;
+            let stored = match worker_storage_get::<CloudflareSigningWorkerRound1RecordV1>(
+                storage,
+                &storage_key,
+                call.operation_kind(),
+            )
+            .await?
+            {
+                Some(existing) => {
+                    existing.validate()?;
+                    if existing == *record {
+                        false
+                    } else {
+                        return Err(RouterAbProtocolError::new(
+                            RouterAbProtocolErrorCode::ReplayedLocalRequest,
+                            "SigningWorker round-1 handle is already stored for different material",
+                        ));
+                    }
+                }
+                None => {
+                    worker_storage_put(
+                        storage,
+                        &storage_key,
+                        record.clone(),
+                        call.operation_kind(),
+                    )
+                    .await?;
+                    true
+                }
+            };
+            CloudflareDurableObjectResponseV1::signing_worker_round1_put(
+                CloudflareSigningWorkerRound1PutReceiptV1::from_record(record, stored)?,
+            )?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerRound1Take { lookup } => {
+            lookup.validate()?;
+            let record = worker_storage_get::<CloudflareSigningWorkerRound1RecordV1>(
+                storage,
+                &storage_key,
+                call.operation_kind(),
+            )
+            .await?
+            .ok_or_else(|| {
+                RouterAbProtocolError::new(
+                    RouterAbProtocolErrorCode::MissingLocalBinding,
+                    "SigningWorker round-1 nonce material is missing",
+                )
+            })?;
+            record.validate_for_lookup(lookup)?;
+            worker_storage_delete(storage, &storage_key, call.operation_kind()).await?;
+            CloudflareDurableObjectResponseV1::signing_worker_round1_take(record)?
+        }
+        CloudflareDurableObjectRequestV1::SigningWorkerRound1CleanupExpired { cleanup } => {
+            cleanup.validate()?;
+            let records_removed = worker_storage_cleanup_expired_values(
+                storage,
+                &call.signing_worker_round1_storage_prefix(),
+                cleanup.now_unix_ms,
+                call.operation_kind(),
+                cloudflare_signing_worker_round1_expires_at_ms_v1,
+            )
+            .await?;
+            CloudflareDurableObjectResponseV1::signing_worker_round1_cleanup_expired(
+                CloudflareExpiredStateCleanupReportV1::new(
+                    cleanup.now_unix_ms,
+                    records_removed,
+                    0,
+                )?,
+            )?
         }
     };
     response.validate_for_request(&call.request)?;
@@ -3063,7 +4665,7 @@ fn worker_role_for_durable_object_scope(
         CloudflareDurableObjectScopeV1::SignerRootShare {
             role: Role::SignerB,
         } => Ok(CloudflareWorkerRoleV1::SignerB),
-        CloudflareDurableObjectScopeV1::RelayerOutput {
+        CloudflareDurableObjectScopeV1::ServerOutput {
             owner_role: CloudflareWorkerRoleV1::SigningWorker,
         } => Ok(CloudflareWorkerRoleV1::SigningWorker),
         CloudflareDurableObjectScopeV1::SignerRootShare { role } => {
@@ -3075,11 +4677,11 @@ fn worker_role_for_durable_object_scope(
                 ),
             ))
         }
-        CloudflareDurableObjectScopeV1::RelayerOutput { owner_role } => {
+        CloudflareDurableObjectScopeV1::ServerOutput { owner_role } => {
             Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidRole,
                 format!(
-                    "no Router A/B Worker role can own relayer-output Durable Object scope for {}",
+                    "no Router A/B Worker role can own server-output Durable Object scope for {}",
                     owner_role.as_str()
                 ),
             ))
@@ -3126,6 +4728,92 @@ where
             format!("Durable Object storage write failed: {err}"),
         )
     })
+}
+
+#[cfg(feature = "workers-rs")]
+async fn worker_storage_cleanup_expired_values<T>(
+    storage: &worker::Storage,
+    storage_prefix: &str,
+    now_unix_ms: u64,
+    operation_kind: CloudflareDurableObjectOperationKindV1,
+    expires_at_ms: fn(&T) -> u64,
+) -> RouterAbProtocolResult<u64>
+where
+    T: DeserializeOwned,
+{
+    require_non_empty("storage_prefix", storage_prefix)?;
+    require_positive_ms("cleanup now_unix_ms", now_unix_ms)?;
+    let values = storage
+        .list_with_options(worker::ListOptions::new().prefix(storage_prefix))
+        .await
+        .map_err(|err| {
+            worker_storage_error(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                operation_kind,
+                storage_prefix,
+                format!("Durable Object storage list failed: {err}"),
+            )
+        })?;
+    let keys = worker::js_sys::Array::from(&values.keys());
+    let mut removed = 0u64;
+    for key in keys.iter() {
+        let storage_key = key.as_string().ok_or_else(|| {
+            worker_storage_error(
+                RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+                operation_kind,
+                storage_prefix,
+                "Durable Object storage list returned a non-string key".to_owned(),
+            )
+        })?;
+        let Some(record) = worker_storage_get::<T>(storage, &storage_key, operation_kind).await?
+        else {
+            continue;
+        };
+        if expires_at_ms(&record) <= now_unix_ms {
+            worker_storage_delete(storage, &storage_key, operation_kind).await?;
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+#[cfg(feature = "workers-rs")]
+fn cloudflare_replay_reservation_expires_at_ms_v1(
+    request: &CloudflareReplayReserveRequestV1,
+) -> u64 {
+    request.expires_at_ms
+}
+
+#[cfg(feature = "workers-rs")]
+fn cloudflare_quota_reservation_expires_at_ms_v1(
+    reservation: &CloudflareRouterQuotaReservationV1,
+) -> u64 {
+    reservation.expires_at_ms
+}
+
+#[cfg(feature = "workers-rs")]
+fn cloudflare_signing_worker_round1_expires_at_ms_v1(
+    record: &CloudflareSigningWorkerRound1RecordV1,
+) -> u64 {
+    record.expires_at_ms
+}
+
+#[cfg(feature = "workers-rs")]
+async fn worker_storage_delete(
+    storage: &worker::Storage,
+    storage_key: &str,
+    operation_kind: CloudflareDurableObjectOperationKindV1,
+) -> RouterAbProtocolResult<()> {
+    require_non_empty("storage_key", storage_key)?;
+    storage.delete(storage_key).await.map_err(|err| {
+        worker_storage_error(
+            RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
+            operation_kind,
+            storage_key,
+            format!("Durable Object storage delete failed: {err}"),
+        )
+    })?;
+    Ok(())
 }
 
 #[cfg(feature = "workers-rs")]
@@ -3185,6 +4873,16 @@ fn digest_hex(digest: PublicDigest32) -> String {
 }
 
 fn require_non_empty(field: &str, value: &str) -> RouterAbProtocolResult<()> {
+    if value.is_empty() {
+        return Err(RouterAbProtocolError::new(
+            RouterAbProtocolErrorCode::EmptyField,
+            format!("{field} must not be empty"),
+        ));
+    }
+    Ok(())
+}
+
+fn require_non_empty_vec<T>(field: &str, value: &[T]) -> RouterAbProtocolResult<()> {
     if value.is_empty() {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::EmptyField,

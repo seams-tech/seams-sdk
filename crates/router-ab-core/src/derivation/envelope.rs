@@ -43,10 +43,10 @@ pub enum EnvelopeKind {
     SignerAToClient,
     /// Signer B sends client output material to the client.
     SignerBToClient,
-    /// Signer A sends relayer output material to the relayer.
-    SignerAToRelayer,
-    /// Signer B sends relayer output material to the relayer.
-    SignerBToRelayer,
+    /// Signer A sends server output material to the server.
+    SignerAToServer,
+    /// Signer B sends server output material to the server.
+    SignerBToServer,
 }
 
 impl EnvelopeKind {
@@ -58,8 +58,8 @@ impl EnvelopeKind {
             Self::SignerBToSignerA => "signer_b_to_signer_a",
             Self::SignerAToClient => "signer_a_to_client",
             Self::SignerBToClient => "signer_b_to_client",
-            Self::SignerAToRelayer => "signer_a_to_relayer",
-            Self::SignerBToRelayer => "signer_b_to_relayer",
+            Self::SignerAToServer => "signer_a_to_server",
+            Self::SignerBToServer => "signer_b_to_server",
         }
     }
 
@@ -71,8 +71,8 @@ impl EnvelopeKind {
             Self::SignerBToSignerA => (Role::SignerB, Role::SignerA),
             Self::SignerAToClient => (Role::SignerA, Role::Client),
             Self::SignerBToClient => (Role::SignerB, Role::Client),
-            Self::SignerAToRelayer => (Role::SignerA, Role::Relayer),
-            Self::SignerBToRelayer => (Role::SignerB, Role::Relayer),
+            Self::SignerAToServer => (Role::SignerA, Role::Server),
+            Self::SignerBToServer => (Role::SignerB, Role::Server),
         }
     }
 }
@@ -89,8 +89,8 @@ pub enum ContentKind {
     BToACoordination,
     /// Client-output share.
     ClientOutputShare,
-    /// Relayer-output share.
-    RelayerOutputShare,
+    /// Server-output share.
+    ServerOutputShare,
     /// Minimum Level C evidence.
     MinimumLevelCEvidence,
     /// Public-share-binding evidence.
@@ -104,7 +104,7 @@ impl ContentKind {
             Self::AToBCoordination => "a_to_b_coordination",
             Self::BToACoordination => "b_to_a_coordination",
             Self::ClientOutputShare => "client_output_share",
-            Self::RelayerOutputShare => "relayer_output_share",
+            Self::ServerOutputShare => "server_output_share",
             Self::MinimumLevelCEvidence => "minimum_level_c_evidence",
             Self::PublicShareBindingEvidence => "public_share_binding_evidence",
         }

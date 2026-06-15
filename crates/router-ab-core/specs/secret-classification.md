@@ -93,7 +93,7 @@ SigningWorker recipient secrets:
 
 - decrypted SigningWorker package plaintext
 - SigningWorker-output shares
-- opened `x_relayer_base`
+- opened `x_server_base`
 
 ## Forbidden Joined Secrets
 
@@ -108,8 +108,8 @@ These values must never be materialized by client code:
 
 - joined `d`
 - joined `a`
-- joined `y_relayer`
-- joined `tau_relayer`
+- joined `y_server`
+- joined `tau_server`
 
 ## Constant-Time Requirements
 

@@ -1,0 +1,171 @@
+{
+  "version": "router_ab_core_normal_signing_vectors_v2",
+  "cases": [
+    {
+      "case_id": "near_transaction_v1",
+      "builder_args_json": {
+        "expectedSigningDigestB64u": "Nre4iYnG098CZQXfaTx4IjuENB9twMeqEV45RB2DD8M",
+        "expiresAtMs": 1900000000000,
+        "nearAccountId": "alice.testnet",
+        "nearNetworkId": "testnet",
+        "operationFingerprint": "fingerprint-near-transaction-v2",
+        "operationId": "operation-near-transaction-v2",
+        "scope": {
+          "account_id": "alice.testnet",
+          "request_id": "router-ab-normal-signing/request-v2",
+          "session_id": "threshold-session-v2",
+          "signing_worker_id": "signing-worker-v2"
+        },
+        "transactions": [
+          {
+            "actionFingerprint": "aQ1G3YrY0hKjrgXedL1dopwqJTaP4UqiPYPJESGxAPw",
+            "receiverId": "contract.testnet"
+          }
+        ],
+        "unsignedTransactionBorshB64u": "DQAAAGFsaWNlLnRlc3RuZXQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHAAAAAAAAABAAAABjb250cmFjdC50ZXN0bmV0REREREREREREREREREREREREREREREREREREREREREQBAAAAAggAAAB0cmFuc2Zlcg4AAAB7ImFtb3VudCI6IjEifQDgV-tIGwAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "prepare_request_json": {
+        "expires_at_ms": 1900000000000,
+        "intent": {
+          "kind": "near_transaction_v1",
+          "near_account_id": "alice.testnet",
+          "near_network_id": "testnet",
+          "operation_fingerprint": "fingerprint-near-transaction-v2",
+          "operation_id": "operation-near-transaction-v2",
+          "transactions": [
+            {
+              "action_fingerprint": "aQ1G3YrY0hKjrgXedL1dopwqJTaP4UqiPYPJESGxAPw",
+              "receiver_id": "contract.testnet"
+            }
+          ],
+          "unsigned_transaction_borsh_b64u": "DQAAAGFsaWNlLnRlc3RuZXQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHAAAAAAAAABAAAABjb250cmFjdC50ZXN0bmV0REREREREREREREREREREREREREREREREREREREREREQBAAAAAggAAAB0cmFuc2Zlcg4AAAB7ImFtb3VudCI6IjEifQDgV-tIGwAAAAAAAAAAAAAAAAAAAAAAAA"
+        },
+        "scope": {
+          "account_id": "alice.testnet",
+          "request_id": "router-ab-normal-signing/request-v2",
+          "session_id": "threshold-session-v2",
+          "signing_worker_id": "signing-worker-v2"
+        },
+        "signing_payload": {
+          "expected_signing_digest_b64u": "Nre4iYnG098CZQXfaTx4IjuENB9twMeqEV45RB2DD8M",
+          "kind": "near_unsigned_transaction_borsh_v1",
+          "unsigned_transaction_borsh_b64u": "DQAAAGFsaWNlLnRlc3RuZXQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHAAAAAAAAABAAAABjb250cmFjdC50ZXN0bmV0REREREREREREREREREREREREREREREREREREREREREQBAAAAAggAAAB0cmFuc2Zlcg4AAAB7ImFtb3VudCI6IjEifQDgV-tIGwAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      },
+      "intent_digest_b64u": "wG1HA83w_kucYdPlO1IxE8_dGrwKCgY5x5K-YsiWLuo",
+      "signing_payload_digest_b64u": "UMkwa3cBLeo1egROtMEO2U2FHWp88fVglw47WykXIbc",
+      "admitted_signing_digest_b64u": "Nre4iYnG098CZQXfaTx4IjuENB9twMeqEV45RB2DD8M",
+      "round1_binding_digest_b64u": "w4tGic_Y4PJfVvhAa7suBF-DqzFPGtjcLE_GOjaR4cE"
+    },
+    {
+      "case_id": "nep413_v1",
+      "builder_args_json": {
+        "callbackUrl": "https://wallet.example/callback",
+        "expectedSigningDigestB64u": "JZuedIKlTa9uFN6iEy_oaKKD-QYl7Yh3EeinIINM8FA",
+        "expiresAtMs": 1900000000000,
+        "message": "Sign in to Seams",
+        "nearAccountId": "alice.testnet",
+        "nearNetworkId": "testnet",
+        "nonce": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE",
+        "operationFingerprint": "fingerprint-nep413-v2",
+        "operationId": "operation-nep413-v2",
+        "recipient": "wallet.example.near",
+        "scope": {
+          "account_id": "alice.testnet",
+          "request_id": "router-ab-normal-signing/request-v2",
+          "session_id": "threshold-session-v2",
+          "signing_worker_id": "signing-worker-v2"
+        }
+      },
+      "prepare_request_json": {
+        "expires_at_ms": 1900000000000,
+        "intent": {
+          "callback_url": "https://wallet.example/callback",
+          "kind": "nep413_v1",
+          "message": "Sign in to Seams",
+          "near_account_id": "alice.testnet",
+          "near_network_id": "testnet",
+          "nonce_b64u": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE",
+          "operation_fingerprint": "fingerprint-nep413-v2",
+          "operation_id": "operation-nep413-v2",
+          "recipient": "wallet.example.near"
+        },
+        "scope": {
+          "account_id": "alice.testnet",
+          "request_id": "router-ab-normal-signing/request-v2",
+          "session_id": "threshold-session-v2",
+          "signing_worker_id": "signing-worker-v2"
+        },
+        "signing_payload": {
+          "canonical_message_b64u": "nQEAgBAAAABTaWduIGluIHRvIFNlYW1zEwAAAHdhbGxldC5leGFtcGxlLm5lYXJBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQQEfAAAAaHR0cHM6Ly93YWxsZXQuZXhhbXBsZS9jYWxsYmFjaw",
+          "expected_signing_digest_b64u": "JZuedIKlTa9uFN6iEy_oaKKD-QYl7Yh3EeinIINM8FA",
+          "kind": "nep413_message_v1"
+        }
+      },
+      "intent_digest_b64u": "DpsbOLTw8ZAe0gHAjA8tBcXIztFiNU20NAgLmuxEUig",
+      "signing_payload_digest_b64u": "StWUSR49LhWUFyQGTXMsQy9U2Q2qeuw4F5aMgsdUKzE",
+      "admitted_signing_digest_b64u": "JZuedIKlTa9uFN6iEy_oaKKD-QYl7Yh3EeinIINM8FA",
+      "round1_binding_digest_b64u": "zdQprG-rp-2H1H4I3C4xxDnZuivshryxrKtkcMxySBU"
+    },
+    {
+      "case_id": "near_delegate_action_v1",
+      "builder_args_json": {
+        "delegate": {
+          "actionFingerprint": "UMyS1kwjfOajnw54eVtRvPNutmksAXTnecMpK5lA8kU",
+          "canonicalDelegateBorshB64u": "bgEAQA0AAABhbGljZS50ZXN0bmV0EAAAAGNvbnRyYWN0LnRlc3RuZXQBAAAAAwEAAAAAAAAAAAAAAAAAAAAHAAAAAAAAAD9CDwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "maxBlockHeight": "999999",
+          "nonce": "7",
+          "publicKey": "ed25519:11111111111111111111111111111111",
+          "receiverId": "contract.testnet",
+          "senderId": "alice.testnet"
+        },
+        "expectedSigningDigestB64u": "aWzqg_Yi38tZZWNvIaj5qh0NywcuejkJMKTU3-ICpqI",
+        "expiresAtMs": 1900000000000,
+        "nearAccountId": "alice.testnet",
+        "nearNetworkId": "testnet",
+        "operationFingerprint": "fingerprint-delegate-v2",
+        "operationId": "operation-delegate-v2",
+        "scope": {
+          "account_id": "alice.testnet",
+          "request_id": "router-ab-normal-signing/request-v2",
+          "session_id": "threshold-session-v2",
+          "signing_worker_id": "signing-worker-v2"
+        }
+      },
+      "prepare_request_json": {
+        "expires_at_ms": 1900000000000,
+        "intent": {
+          "delegate": {
+            "action_fingerprint": "UMyS1kwjfOajnw54eVtRvPNutmksAXTnecMpK5lA8kU",
+            "canonical_delegate_borsh_b64u": "bgEAQA0AAABhbGljZS50ZXN0bmV0EAAAAGNvbnRyYWN0LnRlc3RuZXQBAAAAAwEAAAAAAAAAAAAAAAAAAAAHAAAAAAAAAD9CDwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "max_block_height": "999999",
+            "nonce": "7",
+            "public_key": "ed25519:11111111111111111111111111111111",
+            "receiver_id": "contract.testnet",
+            "sender_id": "alice.testnet"
+          },
+          "kind": "near_delegate_action_v1",
+          "near_account_id": "alice.testnet",
+          "near_network_id": "testnet",
+          "operation_fingerprint": "fingerprint-delegate-v2",
+          "operation_id": "operation-delegate-v2"
+        },
+        "scope": {
+          "account_id": "alice.testnet",
+          "request_id": "router-ab-normal-signing/request-v2",
+          "session_id": "threshold-session-v2",
+          "signing_worker_id": "signing-worker-v2"
+        },
+        "signing_payload": {
+          "canonical_delegate_borsh_b64u": "bgEAQA0AAABhbGljZS50ZXN0bmV0EAAAAGNvbnRyYWN0LnRlc3RuZXQBAAAAAwEAAAAAAAAAAAAAAAAAAAAHAAAAAAAAAD9CDwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          "expected_signing_digest_b64u": "aWzqg_Yi38tZZWNvIaj5qh0NywcuejkJMKTU3-ICpqI",
+          "kind": "near_delegate_action_v1"
+        }
+      },
+      "intent_digest_b64u": "6bymIEzHEuTJdmmnStPOCyWbvFRa6eubBpJ35RUVOec",
+      "signing_payload_digest_b64u": "Ex48kVDiecMR1sKTWb3zYGUSwc2ofuDystl1NPWy4aY",
+      "admitted_signing_digest_b64u": "aWzqg_Yi38tZZWNvIaj5qh0NywcuejkJMKTU3-ICpqI",
+      "round1_binding_digest_b64u": "DJSuCsFoR4bA5ltoLHyQFKOWzueaJOxuSI4H9Cbot1E"
+    }
+  ]
+}

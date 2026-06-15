@@ -602,30 +602,30 @@ pub fn combine_mpc_prf_recipient_output_from_proof_bundle_payloads_v1(
     )
 }
 
-/// Combines SigningWorker `x_relayer_base` output from decrypted A/B proof-bundle payloads.
+/// Combines SigningWorker `x_server_base` output from decrypted A/B proof-bundle payloads.
 pub fn combine_mpc_prf_signing_worker_output_from_activation_context_v1(
     activation_context: &SigningWorkerActivationContextV1,
     signer_a_payload: RecipientProofBundlePayloadV1,
     signer_b_payload: RecipientProofBundlePayloadV1,
 ) -> RouterAbProtocolResult<MpcPrfThresholdCombinedOutputV1> {
     activation_context.validate()?;
-    let selected_worker = &activation_context.signer_set().selected_relayer;
+    let selected_worker = &activation_context.signer_set().selected_server;
     require_recipient_proof_bundle_payload_for_transcript_v1(
         "signer_a_payload",
         &signer_a_payload,
         Role::SignerA,
-        OpenedShareKind::XRelayerBase,
-        Role::Relayer,
-        &selected_worker.relayer_id,
+        OpenedShareKind::XServerBase,
+        Role::Server,
+        &selected_worker.server_id,
         activation_context.transcript_digest(),
     )?;
     require_recipient_proof_bundle_payload_for_transcript_v1(
         "signer_b_payload",
         &signer_b_payload,
         Role::SignerB,
-        OpenedShareKind::XRelayerBase,
-        Role::Relayer,
-        &selected_worker.relayer_id,
+        OpenedShareKind::XServerBase,
+        Role::Server,
+        &selected_worker.server_id,
         activation_context.transcript_digest(),
     )?;
     combine_mpc_prf_recipient_output_from_public_context_v1(
@@ -635,9 +635,9 @@ pub fn combine_mpc_prf_signing_worker_output_from_activation_context_v1(
         activation_context.transcript_digest(),
         signer_a_payload.proof_batch,
         signer_b_payload.proof_batch,
-        OpenedShareKind::XRelayerBase,
-        Role::Relayer,
-        &selected_worker.relayer_id,
+        OpenedShareKind::XServerBase,
+        Role::Server,
+        &selected_worker.server_id,
     )
 }
 
@@ -1025,10 +1025,10 @@ fn parse_recipient_output_algorithm(
 fn parse_role(value: &str) -> RouterAbProtocolResult<Role> {
     match value {
         "client" => Ok(Role::Client),
-        "relayer" => Ok(Role::Relayer),
+        "server" => Ok(Role::Server),
         _ => Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidRole,
-            "recipient output ciphertext role must be client or relayer",
+            "recipient output ciphertext role must be client or server",
         )),
     }
 }
@@ -1047,7 +1047,7 @@ fn parse_signer_role(value: &str) -> RouterAbProtocolResult<Role> {
 fn parse_opened_share_kind(value: &str) -> RouterAbProtocolResult<OpenedShareKind> {
     match value {
         "x_client_base" => Ok(OpenedShareKind::XClientBase),
-        "x_relayer_base" => Ok(OpenedShareKind::XRelayerBase),
+        "x_server_base" => Ok(OpenedShareKind::XServerBase),
         _ => Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
             "unknown recipient output opened share kind",
@@ -1061,7 +1061,7 @@ fn validate_recipient_output_binding(
 ) -> RouterAbProtocolResult<()> {
     match (recipient_role, opened_share_kind) {
         (Role::Client, OpenedShareKind::XClientBase)
-        | (Role::Relayer, OpenedShareKind::XRelayerBase) => Ok(()),
+        | (Role::Server, OpenedShareKind::XServerBase) => Ok(()),
         _ => Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::MalformedWirePayload,
             "recipient output has invalid recipient or opened share kind",

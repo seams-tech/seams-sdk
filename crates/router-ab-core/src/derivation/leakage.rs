@@ -7,8 +7,8 @@ pub enum LeakageQuestionId {
     JoinedAServerSide,
     /// Can one server role reconstruct joined `x_client_base`?
     JoinedXClientBaseServerSide,
-    /// Can the client reconstruct joined relayer material?
-    JoinedRelayerMaterialClientSide,
+    /// Can the client reconstruct joined server material?
+    JoinedServerMaterialClientSide,
     /// Are opened values role-scoped and transcript-bound?
     OpenedValueScope,
 }
@@ -43,13 +43,13 @@ pub fn default_leakage_questions() -> Vec<LeakageQuestion> {
             release_gate: "answer must be no for the selected candidate",
         },
         LeakageQuestion {
-            id: LeakageQuestionId::JoinedRelayerMaterialClientSide,
-            question: "Does the client hold enough state to reconstruct joined y_relayer or tau_relayer?",
+            id: LeakageQuestionId::JoinedServerMaterialClientSide,
+            question: "Does the client hold enough state to reconstruct joined y_server or tau_server?",
             release_gate: "answer must be no for the selected candidate",
         },
         LeakageQuestion {
             id: LeakageQuestionId::OpenedValueScope,
-            question: "Are opened values limited to x_client_base for the client and x_relayer_base for the relayer?",
+            question: "Are opened values limited to x_client_base for the client and x_server_base for the server?",
             release_gate: "answer must be yes for the selected candidate",
         },
     ]

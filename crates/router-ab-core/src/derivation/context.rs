@@ -35,7 +35,7 @@ impl CandidateId {
 pub enum RequestKind {
     /// Initial account registration.
     Registration,
-    /// Client or relayer export ceremony.
+    /// Client or server export ceremony.
     Export,
     /// Root or role-share refresh ceremony.
     Refresh,

@@ -20,10 +20,10 @@ transport, and identity through explicit boundaries.
 The target invariant is:
 
 - server-side code never materializes joined `d`, `a`, or `x_client_base`
-- client-side code never materializes joined `d`, `a`, `y_relayer`, or
-  `tau_relayer`
+- client-side code never materializes joined `d`, `a`, `y_server`, or
+  `tau_server`
 - client opens only `x_client_base`
-- server opens only `x_relayer_base`
+- server opens only `x_server_base`
 
 This crate owns the derivation and protocol boundaries that make those state
 claims enforceable.
@@ -32,7 +32,7 @@ claims enforceable.
 
 - typed derivation contexts and selected Candidate A backend
 - transcript binding and canonical wire payloads
-- role-specific client-output and relayer-output packages
+- role-specific client-output and server-output packages
 - host traits and platform-neutral local simulation
 - committed derivation and protocol vectors
 - measurement gates and leakage checklist scaffolding

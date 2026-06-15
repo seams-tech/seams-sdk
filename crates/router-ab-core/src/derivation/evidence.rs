@@ -190,8 +190,8 @@ pub struct MinimumLevelCEvidenceV1 {
     signer_b_receipt_digest: PublicDigest32,
     /// Client package commitments.
     client_package_commitments: Vec<PublicDigest32>,
-    /// Relayer package commitments.
-    relayer_package_commitments: Vec<PublicDigest32>,
+    /// Server package commitments.
+    server_package_commitments: Vec<PublicDigest32>,
     /// Replay cache key.
     replay_cache_key: PublicDigest32,
 }
@@ -206,7 +206,7 @@ impl MinimumLevelCEvidenceV1 {
         signer_a_receipt_digest: PublicDigest32,
         signer_b_receipt_digest: PublicDigest32,
         client_package_commitments: Vec<PublicDigest32>,
-        relayer_package_commitments: Vec<PublicDigest32>,
+        server_package_commitments: Vec<PublicDigest32>,
         replay_cache_key: PublicDigest32,
     ) -> RouterAbDerivationResult<Self> {
         let evidence = Self {
@@ -217,7 +217,7 @@ impl MinimumLevelCEvidenceV1 {
             signer_a_receipt_digest,
             signer_b_receipt_digest,
             client_package_commitments,
-            relayer_package_commitments,
+            server_package_commitments,
             replay_cache_key,
         };
         evidence.validate()?;
@@ -259,9 +259,9 @@ impl MinimumLevelCEvidenceV1 {
         &self.client_package_commitments
     }
 
-    /// Relayer package commitments.
-    pub fn relayer_package_commitments(&self) -> &[PublicDigest32] {
-        &self.relayer_package_commitments
+    /// Server package commitments.
+    pub fn server_package_commitments(&self) -> &[PublicDigest32] {
+        &self.server_package_commitments
     }
 
     /// Replay cache key.
@@ -285,10 +285,10 @@ impl MinimumLevelCEvidenceV1 {
             ));
         }
 
-        if self.relayer_package_commitments.len() != 2 {
+        if self.server_package_commitments.len() != 2 {
             return Err(RouterAbDerivationError::new(
                 RouterAbDerivationErrorCode::MalformedInput,
-                "Minimum Level C evidence requires exactly two relayer package commitments",
+                "Minimum Level C evidence requires exactly two server package commitments",
             ));
         }
 
@@ -310,7 +310,7 @@ impl<'de> Deserialize<'de> for MinimumLevelCEvidenceV1 {
             signer_a_receipt_digest: PublicDigest32,
             signer_b_receipt_digest: PublicDigest32,
             client_package_commitments: Vec<PublicDigest32>,
-            relayer_package_commitments: Vec<PublicDigest32>,
+            server_package_commitments: Vec<PublicDigest32>,
             replay_cache_key: PublicDigest32,
         }
 
@@ -323,7 +323,7 @@ impl<'de> Deserialize<'de> for MinimumLevelCEvidenceV1 {
             wire.signer_a_receipt_digest,
             wire.signer_b_receipt_digest,
             wire.client_package_commitments,
-            wire.relayer_package_commitments,
+            wire.server_package_commitments,
             wire.replay_cache_key,
         )
         .map_err(D::Error::custom)
@@ -368,8 +368,8 @@ pub struct MinimumLevelCVerificationInputV1 {
     pub signer_b_receipt: AuthenticatedSignerReceiptV1,
     /// Client delivery packages.
     pub client_packages: Vec<DeliveryPackageV1>,
-    /// Relayer delivery packages.
-    pub relayer_packages: Vec<DeliveryPackageV1>,
+    /// Server delivery packages.
+    pub server_packages: Vec<DeliveryPackageV1>,
     /// Accepted replay-cache decision.
     pub replay_cache_decision: AcceptedReplayCacheDecisionV1,
 }
@@ -423,11 +423,11 @@ pub fn verify_minimum_level_c_v1(
         &input.transcript,
         transcript_digest,
     )?;
-    let relayer_package_commitments = verify_packages(
-        &input.relayer_packages,
-        Role::Relayer,
-        input.transcript.selected_relayer_id(),
-        ContentKind::RelayerOutputShare,
+    let server_package_commitments = verify_packages(
+        &input.server_packages,
+        Role::Server,
+        input.transcript.selected_server_id(),
+        ContentKind::ServerOutputShare,
         &input.context,
         &input.transcript,
         transcript_digest,
@@ -436,12 +436,12 @@ pub fn verify_minimum_level_c_v1(
     verify_receipt_commitments(
         &input.signer_a_receipt,
         client_package_commitments.signer_a,
-        relayer_package_commitments.signer_a,
+        server_package_commitments.signer_a,
     )?;
     verify_receipt_commitments(
         &input.signer_b_receipt,
         client_package_commitments.signer_b,
-        relayer_package_commitments.signer_b,
+        server_package_commitments.signer_b,
     )?;
 
     let evidence = MinimumLevelCEvidenceV1::new(
@@ -452,7 +452,7 @@ pub fn verify_minimum_level_c_v1(
         signer_receipt_digest_v1(&input.signer_a_receipt)?,
         signer_receipt_digest_v1(&input.signer_b_receipt)?,
         client_package_commitments.to_vec(),
-        relayer_package_commitments.to_vec(),
+        server_package_commitments.to_vec(),
         input.replay_cache_decision.replay_cache_key,
     )?;
 
@@ -676,9 +676,9 @@ fn verify_packages(
 fn verify_receipt_commitments(
     receipt: &AuthenticatedSignerReceiptV1,
     client_package_commitment: PublicDigest32,
-    relayer_package_commitment: PublicDigest32,
+    server_package_commitment: PublicDigest32,
 ) -> RouterAbDerivationResult<()> {
-    let expected = vec![client_package_commitment, relayer_package_commitment];
+    let expected = vec![client_package_commitment, server_package_commitment];
     if receipt.output_package_commitments != expected {
         return Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::PackageCommitmentMismatch,
@@ -712,8 +712,8 @@ fn expected_package_envelope_kind(
     match (sender_role, recipient_role) {
         (Role::SignerA, Role::Client) => Ok(EnvelopeKind::SignerAToClient),
         (Role::SignerB, Role::Client) => Ok(EnvelopeKind::SignerBToClient),
-        (Role::SignerA, Role::Relayer) => Ok(EnvelopeKind::SignerAToRelayer),
-        (Role::SignerB, Role::Relayer) => Ok(EnvelopeKind::SignerBToRelayer),
+        (Role::SignerA, Role::Server) => Ok(EnvelopeKind::SignerAToServer),
+        (Role::SignerB, Role::Server) => Ok(EnvelopeKind::SignerBToServer),
         _ => Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::RecipientMismatch,
             "Minimum Level C package has unsupported sender or recipient role",

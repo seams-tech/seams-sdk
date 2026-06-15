@@ -510,7 +510,7 @@ fn threshold_context_from_plan_v1(
 fn threshold_purpose_v1(purpose: MpcPrfOutputPurposeV1) -> RouterAbDerivationResult<PrfPurpose> {
     match purpose {
         MpcPrfOutputPurposeV1::RouterAbXClientBase => Ok(PrfPurpose::RouterAbXClientBaseV1),
-        MpcPrfOutputPurposeV1::RouterAbXRelayerBase => Ok(PrfPurpose::RouterAbXRelayerBaseV1),
+        MpcPrfOutputPurposeV1::RouterAbXServerBase => Ok(PrfPurpose::RouterAbXServerBaseV1),
     }
 }
 

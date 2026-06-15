@@ -25,8 +25,8 @@ pub struct LifecycleScopeV1 {
     pub session_id: String,
     /// Signer set id bound into the transcript.
     pub signer_set_id: String,
-    /// Selected relayer identity.
-    pub selected_relayer_id: String,
+    /// Selected server identity.
+    pub selected_server_id: String,
 }
 
 impl LifecycleScopeV1 {
@@ -38,7 +38,7 @@ impl LifecycleScopeV1 {
         account_id: impl Into<String>,
         session_id: impl Into<String>,
         signer_set_id: impl Into<String>,
-        selected_relayer_id: impl Into<String>,
+        selected_server_id: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
         let scope = Self {
             lifecycle_id: lifecycle_id.into(),
@@ -48,7 +48,7 @@ impl LifecycleScopeV1 {
             account_id: account_id.into(),
             session_id: session_id.into(),
             signer_set_id: signer_set_id.into(),
-            selected_relayer_id: selected_relayer_id.into(),
+            selected_server_id: selected_server_id.into(),
         };
         scope.validate()?;
         Ok(scope)
@@ -61,7 +61,7 @@ impl LifecycleScopeV1 {
         require_non_empty("account_id", &self.account_id)?;
         require_non_empty("session_id", &self.session_id)?;
         require_non_empty("signer_set_id", &self.signer_set_id)?;
-        require_non_empty("selected_relayer_id", &self.selected_relayer_id)?;
+        require_non_empty("selected_server_id", &self.selected_server_id)?;
         if self.primitive_request_kind != self.work_kind.primitive_request_kind() {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLifecycleState,
@@ -74,6 +74,7 @@ impl LifecycleScopeV1 {
 
 /// Normal signing scope that bypasses A/B derivation setup.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NormalSigningScopeV1 {
     /// Router-assigned signing request id.
     pub request_id: String,

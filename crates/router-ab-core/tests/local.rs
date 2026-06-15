@@ -16,9 +16,9 @@ use router_ab_core::{
     LocalSigningRootMetadataV1, LocalSigningWorkerEndpointV1,
     LocalSigningWorkerRecipientProofBundleActivationV1, LocalTransportEnvelopeV1,
     LocalTransportRouteV1, NormalSigningScopeV1, PublicRouterRequestV1,
-    RecipientProofBundleCiphertextV1, RelayerIdentityV1, RoleEncryptedEnvelopeV1,
-    RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
-    RouterTranscriptMetadataV1, SignerIdentityV1, SignerSetV1, SigningWorkerActivationContextV1,
+    RecipientProofBundleCiphertextV1, RoleEncryptedEnvelopeV1, RouterAbProtocolError,
+    RouterAbProtocolErrorCode, RouterAbProtocolResult, RouterTranscriptMetadataV1,
+    ServerIdentityV1, SignerIdentityV1, SignerSetV1, SigningWorkerActivationContextV1,
     WireMessageKindV1, WireMessageV1,
 };
 use router_ab_core::{
@@ -186,18 +186,18 @@ fn assert_local_client_bundle(message: &WireMessageV1, signer_role: Role) {
     );
 }
 
-fn assert_local_relayer_bundle(message: &WireMessageV1, signer_role: Role) {
+fn assert_local_server_bundle(message: &WireMessageV1, signer_role: Role) {
     let envelope = decode_local_recipient_bundle(
         message,
         signer_role,
-        Role::Relayer,
-        OpenedShareKind::XRelayerBase,
+        Role::Server,
+        OpenedShareKind::XServerBase,
     );
-    let relayer = relayer_identity();
-    assert_eq!(envelope.recipient_identity, relayer.relayer_id);
+    let server = server_identity();
+    assert_eq!(envelope.recipient_identity, server.server_id);
     assert_eq!(
         envelope.recipient_encryption_key,
-        relayer.recipient_encryption_key
+        server.recipient_encryption_key
     );
 }
 
@@ -268,13 +268,13 @@ fn lifecycle_scope() -> LifecycleScopeV1 {
         "alice.testnet",
         "session-1",
         "signer-set-v1",
-        "relayer-a",
+        "server-a",
     )
     .expect("lifecycle scope")
 }
 
 fn normal_signing_scope() -> NormalSigningScopeV1 {
-    NormalSigningScopeV1::new("sign-request-1", "alice.testnet", "session-1", "relayer-a")
+    NormalSigningScopeV1::new("sign-request-1", "alice.testnet", "session-1", "server-a")
         .expect("normal signing scope")
 }
 
@@ -283,7 +283,7 @@ fn signer_set() -> SignerSetV1 {
         "signer-set-v1",
         signer_a_identity(),
         signer_b_identity(),
-        relayer_identity(),
+        server_identity(),
     )
     .expect("signer set")
 }
@@ -319,7 +319,7 @@ fn deriver_b_endpoint() -> LocalDeriverBEndpointV1 {
 }
 
 fn signing_worker_endpoint() -> LocalSigningWorkerEndpointV1 {
-    LocalSigningWorkerEndpointV1::new("http://127.0.0.1:8790", "local-relayer-output")
+    LocalSigningWorkerEndpointV1::new("http://127.0.0.1:8790", "local-server-output")
         .expect("signing worker endpoint")
 }
 
@@ -335,13 +335,13 @@ fn root_epoch() -> RootShareEpoch {
     RootShareEpoch::new("epoch-1").expect("root epoch")
 }
 
-fn relayer_identity() -> RelayerIdentityV1 {
-    RelayerIdentityV1::new(
-        "relayer-a",
-        "relayer-epoch",
+fn server_identity() -> ServerIdentityV1 {
+    ServerIdentityV1::new(
+        "server-a",
+        "server-epoch",
         "x25519:1111111111111111111111111111111111111111111111111111111111111111",
     )
-    .expect("relayer")
+    .expect("server")
 }
 
 fn local_router_request_digest() -> PublicDigest32 {
@@ -354,7 +354,7 @@ fn signer_a_context() -> LocalSignerHandlerContextV1 {
         local_router_request_digest(),
         root_epoch(),
         signer_b_identity(),
-        relayer_identity(),
+        server_identity(),
     )
     .expect("signer a context")
 }
@@ -365,7 +365,7 @@ fn signer_b_context() -> LocalSignerHandlerContextV1 {
         local_router_request_digest(),
         root_epoch(),
         signer_a_identity(),
-        relayer_identity(),
+        server_identity(),
     )
     .expect("signer b context")
 }
@@ -491,7 +491,7 @@ fn deriver_b_env_snapshot() -> LocalEnvSnapshotV1 {
 fn signing_worker_env_snapshot() -> LocalEnvSnapshotV1 {
     LocalEnvSnapshotV1::new(
         LocalServiceRoleV1::SigningWorker,
-        vec!["RELAYER_OUTPUT_STORAGE".to_owned()],
+        vec!["SERVER_OUTPUT_STORAGE".to_owned()],
     )
     .expect("signing worker env snapshot")
 }
@@ -528,7 +528,7 @@ fn local_router_endpoint_requires_all_routing_urls() {
 }
 
 #[test]
-fn local_router_env_keys_forbid_signer_and_relayer_secrets() {
+fn local_router_env_keys_forbid_signer_and_server_secrets() {
     let err = validate_local_env_keys_v1(
         LocalServiceRoleV1::Router,
         &[
@@ -576,7 +576,7 @@ fn local_deriver_a_env_keys_forbid_b_material_and_signing_worker_storage() {
             "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY",
             "SIGNING_ROOT_SHARE_A_KEK",
             "DERIVER_B_URL",
-            "RELAYER_OUTPUT_STORAGE",
+            "SERVER_OUTPUT_STORAGE",
         ],
     )
     .expect_err("deriver a must reject signing worker storage");
@@ -592,10 +592,10 @@ fn local_deriver_b_env_keys_forbid_signing_worker_activation_storage() {
             "DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY",
             "SIGNING_ROOT_SHARE_B_KEK",
             "DERIVER_A_URL",
-            "RELAYER_OUTPUT_STORAGE",
+            "SERVER_OUTPUT_STORAGE",
         ],
     )
-    .expect_err("deriver b must reject relayer storage");
+    .expect_err("deriver b must reject server storage");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
 }
@@ -631,10 +631,10 @@ fn local_env_snapshot_rejects_role_forbidden_bindings() {
             "DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY".to_owned(),
             "SIGNING_ROOT_SHARE_B_KEK".to_owned(),
             "DERIVER_A_URL".to_owned(),
-            "RELAYER_OUTPUT_STORAGE".to_owned(),
+            "SERVER_OUTPUT_STORAGE".to_owned(),
         ],
     )
-    .expect_err("deriver b env snapshot must reject relayer storage");
+    .expect_err("deriver b env snapshot must reject server storage");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
 }
@@ -643,14 +643,14 @@ fn local_env_snapshot_rejects_role_forbidden_bindings() {
 fn local_signing_worker_env_keys_require_activation_storage_and_forbid_deriver_material() {
     validate_local_env_keys_v1(
         LocalServiceRoleV1::SigningWorker,
-        &["RELAYER_OUTPUT_STORAGE"],
+        &["SERVER_OUTPUT_STORAGE"],
     )
     .expect("signing worker bindings");
 
     let err = validate_local_env_keys_v1(
         LocalServiceRoleV1::SigningWorker,
         &[
-            "RELAYER_OUTPUT_STORAGE",
+            "SERVER_OUTPUT_STORAGE",
             "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY",
         ],
     )
@@ -886,7 +886,7 @@ fn local_service_startup_pairs_service_with_matching_env_snapshot() {
 
     let signing_worker = LocalServiceStartupV1::signing_worker(
         signing_worker_endpoint(),
-        relayer_identity(),
+        server_identity(),
         signing_worker_env_snapshot(),
     )
     .expect("signing worker startup");
@@ -922,7 +922,7 @@ fn local_service_stack_runs_in_process_ceremony_from_startup_configs() {
         .expect("deriver b startup"),
         LocalServiceStartupV1::signing_worker(
             signing_worker_endpoint(),
-            relayer_identity(),
+            server_identity(),
             signing_worker_env_snapshot(),
         )
         .expect("signing worker startup"),
@@ -946,7 +946,7 @@ fn local_service_stack_runs_in_process_ceremony_from_startup_configs() {
     );
     assert_eq!(
         result.signing_worker_activation_receipt.signing_worker,
-        relayer_identity()
+        server_identity()
     );
     let active_signing_worker = &result
         .signing_worker_activation_receipt
@@ -965,7 +965,7 @@ fn local_service_stack_runs_in_process_ceremony_from_startup_configs() {
     assert_eq!(
         active_signing_worker.signing_worker_material_handle,
         format!(
-            "local-relayer-output/relayer-a/{}",
+            "local-server-output/server-a/{}",
             hex::encode(
                 result
                     .signing_worker_activation_receipt
@@ -991,13 +991,13 @@ fn local_service_stack_runs_in_process_ceremony_from_startup_configs() {
         &result.router_response.deriver_b_client_bundle,
         Role::SignerB,
     );
-    assert_local_relayer_bundle(
+    assert_local_server_bundle(
         &result
             .signing_worker_activation
             .deriver_a_signing_worker_bundle,
         Role::SignerA,
     );
-    assert_local_relayer_bundle(
+    assert_local_server_bundle(
         &result
             .signing_worker_activation
             .deriver_b_signing_worker_bundle,
@@ -1037,7 +1037,7 @@ fn local_signing_worker_rejects_tampered_activation_ciphertext() {
         .expect("deriver b startup"),
         LocalServiceStartupV1::signing_worker(
             signing_worker_endpoint(),
-            relayer_identity(),
+            server_identity(),
             signing_worker_env_snapshot(),
         )
         .expect("signing worker startup"),
@@ -1142,7 +1142,7 @@ fn local_service_stack_runs_http_ceremony_from_router_requests() {
         .expect("deriver b startup"),
         LocalServiceStartupV1::signing_worker(
             signing_worker_endpoint(),
-            relayer_identity(),
+            server_identity(),
             signing_worker_env_snapshot(),
         )
         .expect("signing worker startup"),
@@ -1183,7 +1183,7 @@ fn local_service_stack_runs_http_ceremony_from_router_requests() {
         .expect("SigningWorker proof-bundle activation validates");
     assert_eq!(
         result.signing_worker_activation_receipt.signing_worker,
-        relayer_identity()
+        server_identity()
     );
     result
         .signing_worker_activation_receipt
@@ -1246,7 +1246,7 @@ fn local_service_stack_handles_one_client_router_request() {
         .expect("deriver b startup"),
         LocalServiceStartupV1::signing_worker(
             signing_worker_endpoint(),
-            relayer_identity(),
+            server_identity(),
             signing_worker_env_snapshot(),
         )
         .expect("signing worker startup"),
@@ -1318,7 +1318,7 @@ fn local_replay_cache_rejects_replayed_client_request_nonce() {
         .expect("deriver b startup"),
         LocalServiceStartupV1::signing_worker(
             signing_worker_endpoint(),
-            relayer_identity(),
+            server_identity(),
             signing_worker_env_snapshot(),
         )
         .expect("signing worker startup"),
@@ -1459,7 +1459,7 @@ fn local_signer_handlers_return_peer_proof_batch_envelopes() {
                 bundle.signer_partial.binding.opened_share_kind == OpenedShareKind::XClientBase
             }));
             assert!(proof_batch.proof_bundles.iter().any(|bundle| {
-                bundle.signer_partial.binding.opened_share_kind == OpenedShareKind::XRelayerBase
+                bundle.signer_partial.binding.opened_share_kind == OpenedShareKind::XServerBase
             }));
             proof_batch
         }
@@ -1501,7 +1501,7 @@ fn local_deterministic_decryptor_returns_bound_signer_input_plaintext() {
         plaintext.router_request_digest,
         local_router_request_digest()
     );
-    assert_eq!(plaintext.selected_relayer_id, "relayer-a");
+    assert_eq!(plaintext.selected_server_id, "server-a");
 }
 
 #[test]
@@ -1553,7 +1553,7 @@ fn local_signer_handler_rejects_payload_for_other_local_signer() {
         "signer-set-v1",
         other_signer_a,
         signer_b_identity(),
-        relayer_identity(),
+        server_identity(),
     )
     .expect("signer set");
     let lifecycle = lifecycle_scope();

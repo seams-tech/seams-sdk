@@ -1,7 +1,7 @@
 use router_ab_core::{
     role_encrypted_envelope_digest_v1, CandidateId, EncryptedPayloadV1, ExpensiveWorkKindV1,
-    LifecycleScopeV1, PublicDigest32, PublicRouterRequestContextV1, PublicRouterRequestV1,
-    RelayerIdentityV1, Role, RoleEncryptedEnvelopeV1, RootShareEpoch, RouterAbProtocolErrorCode,
+    LifecycleScopeV1, PublicDigest32, PublicRouterRequestContextV1, PublicRouterRequestV1, Role,
+    RoleEncryptedEnvelopeV1, RootShareEpoch, RouterAbProtocolErrorCode, ServerIdentityV1,
     SignerIdentityV1, SignerSetV1, WireMessageKindV1,
 };
 
@@ -17,7 +17,7 @@ fn lifecycle() -> LifecycleScopeV1 {
         "account.near",
         "session-1",
         "signer-set-v1",
-        "relayer-a",
+        "server-a",
     )
     .expect("lifecycle")
 }
@@ -27,12 +27,12 @@ fn signer_set() -> SignerSetV1 {
         "signer-set-v1",
         SignerIdentityV1::new(Role::SignerA, "signer-a", "key-epoch-a").expect("signer a"),
         SignerIdentityV1::new(Role::SignerB, "signer-b", "key-epoch-b").expect("signer b"),
-        RelayerIdentityV1::new(
-            "relayer-a",
-            "relayer-epoch",
+        ServerIdentityV1::new(
+            "server-a",
+            "server-epoch",
             "x25519:1111111111111111111111111111111111111111111111111111111111111111",
         )
-        .expect("relayer"),
+        .expect("server"),
     )
     .expect("signer set")
 }

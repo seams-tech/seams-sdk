@@ -12,7 +12,7 @@ use crate::protocol::envelope::EncryptedPayloadV1;
 use crate::protocol::error::{
     RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
-use crate::protocol::identity::{RelayerIdentityV1, SignerIdentityV1};
+use crate::protocol::identity::{ServerIdentityV1, SignerIdentityV1};
 use crate::protocol::normal_signing::ActiveSigningWorkerStateV1;
 use crate::protocol::output::{
     decode_recipient_proof_bundle_ciphertext_v1,
@@ -43,8 +43,8 @@ const ROUTER_FORBIDDEN_KEYS: &[&str] = &[
     "DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY",
     "SIGNING_ROOT_SHARE_A_KEK",
     "SIGNING_ROOT_SHARE_B_KEK",
-    "RELAYER_OUTPUT_AEAD_KEY",
-    "RELAYER_OUTPUT_STORAGE",
+    "SERVER_OUTPUT_AEAD_KEY",
+    "SERVER_OUTPUT_STORAGE",
 ];
 const DERIVER_A_REQUIRED_KEYS: &[&str] = &[
     "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY",
@@ -54,8 +54,8 @@ const DERIVER_A_REQUIRED_KEYS: &[&str] = &[
 const DERIVER_A_FORBIDDEN_KEYS: &[&str] = &[
     "DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY",
     "SIGNING_ROOT_SHARE_B_KEK",
-    "RELAYER_OUTPUT_AEAD_KEY",
-    "RELAYER_OUTPUT_STORAGE",
+    "SERVER_OUTPUT_AEAD_KEY",
+    "SERVER_OUTPUT_STORAGE",
 ];
 const DERIVER_B_REQUIRED_KEYS: &[&str] = &[
     "DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY",
@@ -65,10 +65,10 @@ const DERIVER_B_REQUIRED_KEYS: &[&str] = &[
 const DERIVER_B_FORBIDDEN_KEYS: &[&str] = &[
     "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY",
     "SIGNING_ROOT_SHARE_A_KEK",
-    "RELAYER_OUTPUT_AEAD_KEY",
-    "RELAYER_OUTPUT_STORAGE",
+    "SERVER_OUTPUT_AEAD_KEY",
+    "SERVER_OUTPUT_STORAGE",
 ];
-const SIGNING_WORKER_REQUIRED_KEYS: &[&str] = &["RELAYER_OUTPUT_STORAGE"];
+const SIGNING_WORKER_REQUIRED_KEYS: &[&str] = &["SERVER_OUTPUT_STORAGE"];
 const SIGNING_WORKER_FORBIDDEN_KEYS: &[&str] = &[
     "DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY",
     "DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY",
@@ -207,19 +207,19 @@ impl LocalDeriverBEndpointV1 {
 pub struct LocalSigningWorkerEndpointV1 {
     /// Private SigningWorker URL.
     pub private_url: String,
-    /// Local storage binding name for relayer output activation.
-    pub relayer_output_storage: String,
+    /// Local storage binding name for server output activation.
+    pub server_output_storage: String,
 }
 
 impl LocalSigningWorkerEndpointV1 {
     /// Creates a validated local SigningWorker entrypoint.
     pub fn new(
         private_url: impl Into<String>,
-        relayer_output_storage: impl Into<String>,
+        server_output_storage: impl Into<String>,
     ) -> RouterAbProtocolResult<Self> {
         let endpoint = Self {
             private_url: private_url.into(),
-            relayer_output_storage: relayer_output_storage.into(),
+            server_output_storage: server_output_storage.into(),
         };
         endpoint.validate()?;
         Ok(endpoint)
@@ -228,7 +228,7 @@ impl LocalSigningWorkerEndpointV1 {
     /// Validates required endpoint fields.
     pub fn validate(&self) -> RouterAbProtocolResult<()> {
         require_non_empty("private_url", &self.private_url)?;
-        require_non_empty("relayer_output_storage", &self.relayer_output_storage)
+        require_non_empty("server_output_storage", &self.server_output_storage)
     }
 }
 
@@ -733,15 +733,15 @@ pub struct LocalRouterDispatchV1 {
     pub to_deriver_b: LocalTransportEnvelopeV1,
 }
 
-/// Local signer response carrying opaque client and relayer proof bundles.
+/// Local signer response carrying opaque client and server proof bundles.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalSignerRecipientProofBundleResponseV1 {
     /// Producing signer role.
     pub signer_role: Role,
     /// Opaque client-delivery proof bundle for `x_client_base`.
     pub client_bundle: WireMessageV1,
-    /// Opaque relayer-delivery proof bundle for `x_relayer_base`.
-    pub relayer_bundle: WireMessageV1,
+    /// Opaque server-delivery proof bundle for `x_server_base`.
+    pub server_bundle: WireMessageV1,
 }
 
 impl LocalSignerRecipientProofBundleResponseV1 {
@@ -749,12 +749,12 @@ impl LocalSignerRecipientProofBundleResponseV1 {
     pub fn new(
         signer_role: Role,
         client_bundle: WireMessageV1,
-        relayer_bundle: WireMessageV1,
+        server_bundle: WireMessageV1,
     ) -> RouterAbProtocolResult<Self> {
         let response = Self {
             signer_role,
             client_bundle,
-            relayer_bundle,
+            server_bundle,
         };
         response.validate()?;
         Ok(response)
@@ -770,20 +770,20 @@ impl LocalSignerRecipientProofBundleResponseV1 {
             Role::Client,
             OpenedShareKind::XClientBase,
         )?;
-        let relayer = decode_local_recipient_proof_bundle_wire_v1(
-            "relayer_bundle",
-            &self.relayer_bundle,
+        let server = decode_local_recipient_proof_bundle_wire_v1(
+            "server_bundle",
+            &self.server_bundle,
             self.signer_role,
-            Role::Relayer,
-            OpenedShareKind::XRelayerBase,
+            Role::Server,
+            OpenedShareKind::XServerBase,
         )?;
-        if client.signer != relayer.signer {
+        if client.signer != server.signer {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidSignerIdentity,
                 "local proof-bundle response signer identities must match",
             ));
         }
-        require_matching_transcripts(&self.client_bundle, &self.relayer_bundle)
+        require_matching_transcripts(&self.client_bundle, &self.server_bundle)
     }
 
     /// Validates this signer response against the Router payload that produced it.
@@ -800,12 +800,12 @@ impl LocalSignerRecipientProofBundleResponseV1 {
             Role::Client,
             OpenedShareKind::XClientBase,
         )?;
-        let relayer = decode_local_recipient_proof_bundle_wire_v1(
-            "relayer_bundle",
-            &self.relayer_bundle,
+        let server = decode_local_recipient_proof_bundle_wire_v1(
+            "server_bundle",
+            &self.server_bundle,
             self.signer_role,
-            Role::Relayer,
-            OpenedShareKind::XRelayerBase,
+            Role::Server,
+            OpenedShareKind::XServerBase,
         )?;
         let expected_signer =
             expected_local_signer_identity_for_role_v1(router_payload, self.signer_role)?;
@@ -816,8 +816,8 @@ impl LocalSignerRecipientProofBundleResponseV1 {
             expected_signer,
         )?;
         validate_local_recipient_proof_bundle_envelope_for_router_payload_v1(
-            "relayer_bundle",
-            &relayer,
+            "server_bundle",
+            &server,
             router_payload,
             expected_signer,
         )
@@ -908,7 +908,7 @@ impl LocalRouterRecipientProofBundleResponseV1 {
     }
 }
 
-/// Local SigningWorker activation package carrying opaque `x_relayer_base` proof bundles.
+/// Local SigningWorker activation package carrying opaque `x_server_base` proof bundles.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalSigningWorkerRecipientProofBundleActivationV1 {
     /// Signer A opaque SigningWorker proof bundle.
@@ -937,15 +937,15 @@ impl LocalSigningWorkerRecipientProofBundleActivationV1 {
             "deriver_a_signing_worker_bundle",
             &self.deriver_a_signing_worker_bundle,
             Role::SignerA,
-            Role::Relayer,
-            OpenedShareKind::XRelayerBase,
+            Role::Server,
+            OpenedShareKind::XServerBase,
         )?;
         let deriver_b = decode_local_recipient_proof_bundle_wire_v1(
             "deriver_b_signing_worker_bundle",
             &self.deriver_b_signing_worker_bundle,
             Role::SignerB,
-            Role::Relayer,
-            OpenedShareKind::XRelayerBase,
+            Role::Server,
+            OpenedShareKind::XServerBase,
         )?;
         if deriver_a.transcript_digest != deriver_b.transcript_digest {
             return Err(RouterAbProtocolError::new(
@@ -967,15 +967,15 @@ impl LocalSigningWorkerRecipientProofBundleActivationV1 {
             "deriver_a_signing_worker_bundle",
             &self.deriver_a_signing_worker_bundle,
             Role::SignerA,
-            Role::Relayer,
-            OpenedShareKind::XRelayerBase,
+            Role::Server,
+            OpenedShareKind::XServerBase,
         )?;
         let deriver_b = decode_local_recipient_proof_bundle_wire_v1(
             "deriver_b_signing_worker_bundle",
             &self.deriver_b_signing_worker_bundle,
             Role::SignerB,
-            Role::Relayer,
-            OpenedShareKind::XRelayerBase,
+            Role::Server,
+            OpenedShareKind::XServerBase,
         )?;
         validate_local_recipient_proof_bundle_envelope_for_activation_context_v1(
             "deriver_a_signing_worker_bundle",
@@ -1003,8 +1003,8 @@ pub struct LocalSignerHandlerContextV1 {
     pub root_share_epoch: RootShareEpoch,
     /// Peer signer identity for the A/B coordination message.
     pub peer_signer: SignerIdentityV1,
-    /// Selected relayer identity.
-    pub selected_relayer: RelayerIdentityV1,
+    /// Selected server identity.
+    pub selected_server: ServerIdentityV1,
 }
 
 impl LocalSignerHandlerContextV1 {
@@ -1014,14 +1014,14 @@ impl LocalSignerHandlerContextV1 {
         router_request_digest: PublicDigest32,
         root_share_epoch: RootShareEpoch,
         peer_signer: SignerIdentityV1,
-        selected_relayer: RelayerIdentityV1,
+        selected_server: ServerIdentityV1,
     ) -> RouterAbProtocolResult<Self> {
         let context = Self {
             lifecycle_id: lifecycle_id.into(),
             router_request_digest,
             root_share_epoch,
             peer_signer,
-            selected_relayer,
+            selected_server,
         };
         context.validate()?;
         Ok(context)
@@ -1032,7 +1032,7 @@ impl LocalSignerHandlerContextV1 {
         require_non_empty("lifecycle_id", &self.lifecycle_id)?;
         require_non_empty("root_share_epoch", self.root_share_epoch.as_str())?;
         self.peer_signer.validate()?;
-        self.selected_relayer.validate()
+        self.selected_server.validate()
     }
 }
 
@@ -1070,17 +1070,17 @@ impl LocalSignerEnvelopeDecryptorV1 for LocalDeterministicSignerEnvelopeDecrypto
             assignment.signer.signer_id.clone(),
             assignment.signer.key_epoch.clone(),
             context.root_share_epoch.clone(),
-            signer_set.selected_relayer.relayer_id.clone(),
-            signer_set.selected_relayer.key_epoch.clone(),
+            signer_set.selected_server.server_id.clone(),
+            signer_set.selected_server.key_epoch.clone(),
             payload.transcript_digest(),
             context.router_request_digest,
             assignment.envelope.aad_digest,
             vec![
                 local_mpc_prf_output_request(OpenedShareKind::XClientBase, Role::Client, "client")?,
                 local_mpc_prf_output_request(
-                    OpenedShareKind::XRelayerBase,
-                    Role::Relayer,
-                    signer_set.selected_relayer.relayer_id.clone(),
+                    OpenedShareKind::XServerBase,
+                    Role::Server,
+                    signer_set.selected_server.server_id.clone(),
                 )?,
             ],
         )
@@ -1161,19 +1161,19 @@ impl LocalDeriverAServiceV1 {
 pub struct LocalSigningWorkerServiceV1 {
     /// Local SigningWorker endpoint descriptor.
     pub endpoint: LocalSigningWorkerEndpointV1,
-    /// Selected relayer identity hosted by the SigningWorker.
-    pub relayer: RelayerIdentityV1,
+    /// Selected server identity hosted by the SigningWorker.
+    pub server: ServerIdentityV1,
 }
 
 impl LocalSigningWorkerServiceV1 {
     /// Creates a local SigningWorker handler.
     pub fn new(
         endpoint: LocalSigningWorkerEndpointV1,
-        relayer: RelayerIdentityV1,
+        server: ServerIdentityV1,
     ) -> RouterAbProtocolResult<Self> {
         endpoint.validate()?;
-        relayer.validate()?;
-        Ok(Self { endpoint, relayer })
+        server.validate()?;
+        Ok(Self { endpoint, server })
     }
 
     /// Accepts recipient-scoped SigningWorker proof bundles routed to the local SigningWorker role.
@@ -1188,29 +1188,29 @@ impl LocalSigningWorkerServiceV1 {
             "deriver_a_signing_worker_bundle",
             &activation.deriver_a_signing_worker_bundle,
             Role::SignerA,
-            Role::Relayer,
-            OpenedShareKind::XRelayerBase,
+            Role::Server,
+            OpenedShareKind::XServerBase,
         )?;
         let deriver_b = decode_local_recipient_proof_bundle_wire_v1(
             "deriver_b_signing_worker_bundle",
             &activation.deriver_b_signing_worker_bundle,
             Role::SignerB,
-            Role::Relayer,
-            OpenedShareKind::XRelayerBase,
+            Role::Server,
+            OpenedShareKind::XServerBase,
         )?;
-        if deriver_a.recipient_identity != self.relayer.relayer_id
-            || deriver_b.recipient_identity != self.relayer.relayer_id
-            || deriver_a.recipient_encryption_key != self.relayer.recipient_encryption_key
-            || deriver_b.recipient_encryption_key != self.relayer.recipient_encryption_key
+        if deriver_a.recipient_identity != self.server.server_id
+            || deriver_b.recipient_identity != self.server.server_id
+            || deriver_a.recipient_encryption_key != self.server.recipient_encryption_key
+            || deriver_b.recipient_encryption_key != self.server.recipient_encryption_key
         {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
                 "local SigningWorker proof-bundle activation recipient does not match selected worker",
             ));
         }
-        let router_relayer = &activation_context.signer_set().selected_relayer;
-        if router_relayer != &self.relayer
-            || activation_context.lifecycle().selected_relayer_id != self.relayer.relayer_id
+        let router_server = &activation_context.signer_set().selected_server;
+        if router_server != &self.server
+            || activation_context.lifecycle().selected_server_id != self.server.server_id
         {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
@@ -1219,15 +1219,15 @@ impl LocalSigningWorkerServiceV1 {
         }
         local_open_recipient_proof_bundle_payload_v1(
             &deriver_a,
-            &self.relayer.recipient_encryption_key,
+            &self.server.recipient_encryption_key,
         )?;
         local_open_recipient_proof_bundle_payload_v1(
             &deriver_b,
-            &self.relayer.recipient_encryption_key,
+            &self.server.recipient_encryption_key,
         )?;
         let mut hasher = Sha256::new();
         push_hash_field(&mut hasher, LOCAL_DEV_OUTPUT_LABEL_V1);
-        push_hash_field(&mut hasher, b"relayer-proof-bundle-activation");
+        push_hash_field(&mut hasher, b"server-proof-bundle-activation");
         push_hash_field(
             &mut hasher,
             activation
@@ -1244,22 +1244,22 @@ impl LocalSigningWorkerServiceV1 {
         );
         let activation_digest = PublicDigest32::new(hasher.finalize().into());
         let signing_worker_material_handle = local_signing_worker_material_handle_v1(
-            &self.endpoint.relayer_output_storage,
-            &self.relayer,
+            &self.endpoint.server_output_storage,
+            &self.server,
             activation_digest,
         );
         let lifecycle = activation_context.lifecycle();
         let active_signing_worker_state = ActiveSigningWorkerStateV1::new(
             lifecycle.account_id.clone(),
             lifecycle.session_id.clone(),
-            self.relayer.clone(),
+            self.server.clone(),
             activation.deriver_a_signing_worker_bundle.transcript_digest,
             activation_digest,
             signing_worker_material_handle,
             activated_at_ms,
         )?;
         Ok(LocalSigningWorkerActivationReceiptV1 {
-            signing_worker: self.relayer.clone(),
+            signing_worker: self.server.clone(),
             transcript_digest: activation.deriver_a_signing_worker_bundle.transcript_digest,
             activation_digest,
             active_signing_worker_state,
@@ -1345,7 +1345,7 @@ impl LocalSignerHandlerOutputV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalSigningWorkerActivationReceiptV1 {
     /// SigningWorker identity that accepted the activation.
-    pub signing_worker: RelayerIdentityV1,
+    pub signing_worker: ServerIdentityV1,
     /// Transcript digest of the activation message.
     pub transcript_digest: PublicDigest32,
     /// Digest of the activation wire message.
@@ -1430,12 +1430,12 @@ impl LocalServiceStartupV1 {
     /// Creates a validated SigningWorker startup config.
     pub fn signing_worker(
         endpoint: LocalSigningWorkerEndpointV1,
-        relayer: RelayerIdentityV1,
+        server: ServerIdentityV1,
         env: LocalEnvSnapshotV1,
     ) -> RouterAbProtocolResult<Self> {
         require_env_role(&env, LocalServiceRoleV1::SigningWorker)?;
         Ok(Self::SigningWorker {
-            service: LocalSigningWorkerServiceV1::new(endpoint, relayer)?,
+            service: LocalSigningWorkerServiceV1::new(endpoint, server)?,
             env,
         })
     }
@@ -1519,14 +1519,14 @@ impl LocalServiceStackV1 {
             router_request_digest,
             root_share_epoch.clone(),
             self.deriver_b.signer.clone(),
-            self.signing_worker.relayer.clone(),
+            self.signing_worker.server.clone(),
         )?;
         let deriver_b_context = LocalSignerHandlerContextV1::new(
             lifecycle_id.clone(),
             router_request_digest,
             root_share_epoch,
             self.deriver_a.signer.clone(),
-            self.signing_worker.relayer.clone(),
+            self.signing_worker.server.clone(),
         )?;
         let deriver_a_output = self
             .deriver_a
@@ -1550,8 +1550,8 @@ impl LocalServiceStackV1 {
             decode_router_to_signer_payload_v1(dispatch.to_deriver_a.message.payload.as_bytes())?;
         router_response.validate_for_router_payload(&router_payload)?;
         let signing_worker_activation = LocalSigningWorkerRecipientProofBundleActivationV1::new(
-            deriver_a_response.relayer_bundle.clone(),
-            deriver_b_response.relayer_bundle.clone(),
+            deriver_a_response.server_bundle.clone(),
+            deriver_b_response.server_bundle.clone(),
         )?;
         let signing_worker_activation_context =
             SigningWorkerActivationContextV1::from_router_payload(&router_payload)?;
@@ -1644,7 +1644,7 @@ pub struct LocalInProcessCeremonyResultV1 {
     pub deriver_a_peer_message: LocalTransportEnvelopeV1,
     /// B-to-A coordination message.
     pub deriver_b_peer_message: LocalTransportEnvelopeV1,
-    /// SigningWorker activation carrying opaque x_relayer_base proof bundles.
+    /// SigningWorker activation carrying opaque x_server_base proof bundles.
     pub signing_worker_activation: LocalSigningWorkerRecipientProofBundleActivationV1,
     /// Receipt from the local SigningWorker role.
     pub signing_worker_activation_receipt: LocalSigningWorkerActivationReceiptV1,
@@ -1768,7 +1768,7 @@ pub struct LocalHttpCeremonyResultV1 {
     pub deriver_a_peer_request: LocalHttpRequestV1,
     /// B-to-A local HTTP peer request.
     pub deriver_b_peer_request: LocalHttpRequestV1,
-    /// SigningWorker activation carrying opaque x_relayer_base proof bundles.
+    /// SigningWorker activation carrying opaque x_server_base proof bundles.
     pub signing_worker_activation: LocalSigningWorkerRecipientProofBundleActivationV1,
     /// Receipt from the local SigningWorker role.
     pub signing_worker_activation_receipt: LocalSigningWorkerActivationReceiptV1,
@@ -2233,20 +2233,20 @@ fn local_recipient_proof_bundle_response_from_ab_proof_batch_v1(
             .client_ephemeral_public_key,
         encryptor,
     )?;
-    let relayer_bundle = recipient_proof_bundle_wire_message_from_ab_proof_batch_v1(
+    let server_bundle = recipient_proof_bundle_wire_message_from_ab_proof_batch_v1(
         &router_payload.lifecycle().lifecycle_id,
         proof_batch,
-        OpenedShareKind::XRelayerBase,
-        Role::Relayer,
-        &router_payload.signer_set().selected_relayer.relayer_id,
+        OpenedShareKind::XServerBase,
+        Role::Server,
+        &router_payload.signer_set().selected_server.server_id,
         &router_payload
             .signer_set()
-            .selected_relayer
+            .selected_server
             .recipient_encryption_key,
         encryptor,
     )?;
     let response =
-        LocalSignerRecipientProofBundleResponseV1::new(signer_role, client_bundle, relayer_bundle)?;
+        LocalSignerRecipientProofBundleResponseV1::new(signer_role, client_bundle, server_bundle)?;
     response.validate_for_router_payload(router_payload)?;
     Ok(response)
 }
@@ -2349,14 +2349,14 @@ fn validate_local_recipient_proof_bundle_envelope_for_router_payload_v1(
                 ));
             }
         }
-        (Role::Relayer, OpenedShareKind::XRelayerBase) => {
-            let relayer = &router_payload.signer_set().selected_relayer;
-            if envelope.recipient_identity != relayer.relayer_id
-                || envelope.recipient_encryption_key != relayer.recipient_encryption_key
+        (Role::Server, OpenedShareKind::XServerBase) => {
+            let server = &router_payload.signer_set().selected_server;
+            if envelope.recipient_identity != server.server_id
+                || envelope.recipient_encryption_key != server.recipient_encryption_key
             {
                 return Err(RouterAbProtocolError::new(
                     RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
-                    format!("{field} relayer recipient binding does not match Router payload"),
+                    format!("{field} server recipient binding does not match Router payload"),
                 ));
             }
         }
@@ -2391,17 +2391,17 @@ fn validate_local_recipient_proof_bundle_envelope_for_activation_context_v1(
             format!("{field} transcript digest does not match activation context"),
         ));
     }
-    if envelope.recipient_role != Role::Relayer
-        || envelope.opened_share_kind != OpenedShareKind::XRelayerBase
+    if envelope.recipient_role != Role::Server
+        || envelope.opened_share_kind != OpenedShareKind::XServerBase
     {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
             format!("{field} SigningWorker activation bundle has invalid output binding"),
         ));
     }
-    let relayer = &activation_context.signer_set().selected_relayer;
-    if envelope.recipient_identity != relayer.relayer_id
-        || envelope.recipient_encryption_key != relayer.recipient_encryption_key
+    let server = &activation_context.signer_set().selected_server;
+    if envelope.recipient_identity != server.server_id
+        || envelope.recipient_encryption_key != server.recipient_encryption_key
     {
         return Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidLocalServiceConfig,
@@ -2963,13 +2963,13 @@ fn push_hash_field(hasher: &mut Sha256, bytes: &[u8]) {
 
 fn local_signing_worker_material_handle_v1(
     storage_binding: &str,
-    relayer: &RelayerIdentityV1,
+    server: &ServerIdentityV1,
     activation_digest: PublicDigest32,
 ) -> String {
     format!(
         "{}/{}/{}",
         storage_binding,
-        relayer.relayer_id,
+        server.server_id,
         hex::encode(activation_digest.as_bytes())
     )
 }

@@ -41,7 +41,7 @@ fn transcript(context: DerivationContext) -> TranscriptBinding {
             "key-epoch-b-1",
         )
         .expect("signer set"),
-        "role:relayer:local:sha256-r",
+        "role:server:local:sha256-r",
         "x25519:1111111111111111111111111111111111111111111111111111111111111111",
         "role:client:local:sha256-c",
         "x25519:client-ephemeral-public-key",
@@ -136,7 +136,7 @@ fn ceremony_can_progress_to_verified_through_branch_builders() {
     let outputs = bind_outputs(OutputBindingInput {
         state: coordination,
         client_package_commitments: vec![digest(0xc2), digest(0xc4)],
-        relayer_package_commitments: vec![digest(0xc3), digest(0xc5)],
+        server_package_commitments: vec![digest(0xc3), digest(0xc5)],
         signer_a_output_receipt_digest: digest(0xa2),
         signer_b_output_receipt_digest: digest(0xb2),
     })
@@ -175,7 +175,7 @@ fn ceremony_can_progress_to_verified_through_branch_builders() {
 }
 
 #[test]
-fn output_binding_requires_client_and_relayer_commitments() {
+fn output_binding_requires_client_and_server_commitments() {
     let signer_inputs = accept_signer_inputs(SignerInputAcceptance {
         state: role_envelopes(),
         signer_a_acceptance_digest: digest(0xa1),
@@ -191,7 +191,7 @@ fn output_binding_requires_client_and_relayer_commitments() {
     let err = bind_outputs(OutputBindingInput {
         state: coordination,
         client_package_commitments: Vec::new(),
-        relayer_package_commitments: vec![digest(0xc3)],
+        server_package_commitments: vec![digest(0xc3)],
         signer_a_output_receipt_digest: digest(0xa2),
         signer_b_output_receipt_digest: digest(0xb2),
     })

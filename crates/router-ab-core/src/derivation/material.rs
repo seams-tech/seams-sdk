@@ -13,8 +13,8 @@ pub enum Role {
     SignerA,
     /// Second split signer role.
     SignerB,
-    /// Relayer role that receives relayer-output material.
-    Relayer,
+    /// Server role that receives server-output material.
+    Server,
     /// Client role that receives client-output material.
     Client,
 }
@@ -26,7 +26,7 @@ impl Role {
             Self::Router => "router",
             Self::SignerA => "signer_a",
             Self::SignerB => "signer_b",
-            Self::Relayer => "relayer",
+            Self::Server => "server",
             Self::Client => "client",
         }
     }
@@ -38,8 +38,8 @@ impl Role {
 pub enum OpenedShareKind {
     /// Client-side base output opened to the client.
     XClientBase,
-    /// Relayer-side base output opened to the designated relayer.
-    XRelayerBase,
+    /// Server-side base output opened to the designated server.
+    XServerBase,
 }
 
 impl OpenedShareKind {
@@ -47,7 +47,7 @@ impl OpenedShareKind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::XClientBase => "x_client_base",
-            Self::XRelayerBase => "x_relayer_base",
+            Self::XServerBase => "x_server_base",
         }
     }
 }

@@ -46,7 +46,7 @@ pub struct CandidateRoundTripProfileV1 {
     pub signer_b_invocations: u32,
     /// Direct A/B coordination round trips.
     pub direct_ab_coordination_round_trips: u32,
-    /// Output packages emitted by A/B for client and relayer recipients.
+    /// Output packages emitted by A/B for client and server recipients.
     pub signer_output_packages: u32,
 }
 

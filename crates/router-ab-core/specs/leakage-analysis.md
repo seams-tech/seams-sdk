@@ -8,10 +8,10 @@ Leakage analysis must be done before selecting the primitive.
 - Does any single server-side role hold enough state to reconstruct joined `a`?
 - Does any single server-side role hold enough state to reconstruct joined
   `x_client_base`?
-- Does the client hold enough state to reconstruct joined `y_relayer` or
-  `tau_relayer`?
+- Does the client hold enough state to reconstruct joined `y_server` or
+  `tau_server`?
 - Are opened values limited to `x_client_base` for the client and
-  `x_relayer_base` for the SigningWorker?
+  `x_server_base` for the SigningWorker?
 - Can Router observe both role shares in plaintext?
 - Can A or B bias output without detection at Minimum Level C?
 - What changes when public verifying shares are bound?
@@ -24,7 +24,7 @@ Production use requires a candidate-specific leakage table covering:
 - Deriver A view
 - Deriver B view
 - client view
-- relayer view
+- server view
 - storage view
 - diagnostics/logging view
 - replayed transcript view
@@ -46,7 +46,7 @@ Summary:
 - Deriver B sees only B-side PRF share material and B-side plaintext partials
   before recipient encryption.
 - Client opens only `x_client_base`.
-- SigningWorker opens only `x_relayer_base`.
+- SigningWorker opens only `x_server_base`.
 - Plaintext partial wrappers are debug-redacted, zeroizing, and excluded from
   Serde serialization.
 - Minimum Level C does not prove partial correctness by itself; production
@@ -78,7 +78,7 @@ Summary:
 - Deriver B sees only `root_b` and B-side plaintext output shares before
   recipient encryption.
 - Client opens only `x_client_base`.
-- SigningWorker opens only `x_relayer_base`.
+- SigningWorker opens only `x_server_base`.
 - Plaintext root and output-share wrappers are debug-redacted, zeroizing, and
   excluded from Serde serialization.
 - Refresh creates a new verified output relation; preserving refresh is outside

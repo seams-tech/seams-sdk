@@ -81,10 +81,10 @@ pub struct RawTranscriptV1 {
     pub router_id: String,
     /// Raw signer set.
     pub signer_set: RawSignerSetBindingV1,
-    /// Selected relayer identity string.
-    pub selected_relayer_id: String,
-    /// Selected relayer recipient encryption public key.
-    pub selected_relayer_recipient_encryption_key: String,
+    /// Selected server identity string.
+    pub selected_server_id: String,
+    /// Selected server recipient encryption public key.
+    pub selected_server_recipient_encryption_key: String,
     /// Client identity string.
     pub client_id: String,
     /// Client ephemeral public key for client-output encryption.
@@ -143,8 +143,8 @@ pub struct RawMinimumLevelCEvidenceV1 {
     pub signer_b_receipt_digest: RawPublicDigest32V1,
     /// Client package commitment digests.
     pub client_package_commitments: Vec<RawPublicDigest32V1>,
-    /// Relayer package commitment digests.
-    pub relayer_package_commitments: Vec<RawPublicDigest32V1>,
+    /// Server package commitment digests.
+    pub server_package_commitments: Vec<RawPublicDigest32V1>,
     /// Replay cache key bytes.
     pub replay_cache_key: RawPublicDigest32V1,
 }
@@ -171,8 +171,8 @@ pub fn parse_transcript_v1(raw: RawTranscriptV1) -> RouterAbDerivationResult<Tra
         parse_context_v1(raw.context)?,
         raw.router_id,
         parse_signer_set_v1(raw.signer_set)?,
-        raw.selected_relayer_id,
-        raw.selected_relayer_recipient_encryption_key,
+        raw.selected_server_id,
+        raw.selected_server_recipient_encryption_key,
         raw.client_id,
         raw.client_ephemeral_public_key,
     )
@@ -213,10 +213,7 @@ pub fn parse_minimum_level_c_evidence_v1(
         parse_public_digest32_v1(raw.signer_a_receipt_digest, "signer_a_receipt_digest")?,
         parse_public_digest32_v1(raw.signer_b_receipt_digest, "signer_b_receipt_digest")?,
         parse_public_digest32_vec_v1(raw.client_package_commitments, "client_package_commitments")?,
-        parse_public_digest32_vec_v1(
-            raw.relayer_package_commitments,
-            "relayer_package_commitments",
-        )?,
+        parse_public_digest32_vec_v1(raw.server_package_commitments, "server_package_commitments")?,
         parse_public_digest32_v1(raw.replay_cache_key, "replay_cache_key")?,
     )
 }
@@ -322,7 +319,7 @@ fn parse_role_v1(raw: &str) -> RouterAbDerivationResult<Role> {
         "router" => Ok(Role::Router),
         "signer_a" => Ok(Role::SignerA),
         "signer_b" => Ok(Role::SignerB),
-        "relayer" => Ok(Role::Relayer),
+        "server" => Ok(Role::Server),
         "client" => Ok(Role::Client),
         _ => malformed_enum("role", raw),
     }
@@ -346,8 +343,8 @@ fn parse_envelope_kind_v1(raw: &str) -> RouterAbDerivationResult<EnvelopeKind> {
         "signer_b_to_signer_a" => Ok(EnvelopeKind::SignerBToSignerA),
         "signer_a_to_client" => Ok(EnvelopeKind::SignerAToClient),
         "signer_b_to_client" => Ok(EnvelopeKind::SignerBToClient),
-        "signer_a_to_relayer" => Ok(EnvelopeKind::SignerAToRelayer),
-        "signer_b_to_relayer" => Ok(EnvelopeKind::SignerBToRelayer),
+        "signer_a_to_server" => Ok(EnvelopeKind::SignerAToServer),
+        "signer_b_to_server" => Ok(EnvelopeKind::SignerBToServer),
         _ => malformed_enum("envelope_kind", raw),
     }
 }
@@ -358,7 +355,7 @@ fn parse_content_kind_v1(raw: &str) -> RouterAbDerivationResult<ContentKind> {
         "a_to_b_coordination" => Ok(ContentKind::AToBCoordination),
         "b_to_a_coordination" => Ok(ContentKind::BToACoordination),
         "client_output_share" => Ok(ContentKind::ClientOutputShare),
-        "relayer_output_share" => Ok(ContentKind::RelayerOutputShare),
+        "server_output_share" => Ok(ContentKind::ServerOutputShare),
         "minimum_level_c_evidence" => Ok(ContentKind::MinimumLevelCEvidence),
         "public_share_binding_evidence" => Ok(ContentKind::PublicShareBindingEvidence),
         _ => malformed_enum("content_kind", raw),

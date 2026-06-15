@@ -49,10 +49,10 @@ pub struct SignerInputPlaintextV1 {
     pub recipient_key_epoch: String,
     /// Signer-local root-share epoch.
     pub root_share_epoch: RootShareEpoch,
-    /// Selected relayer identity.
-    pub selected_relayer_id: String,
-    /// Selected relayer key epoch.
-    pub selected_relayer_key_epoch: String,
+    /// Selected server identity.
+    pub selected_server_id: String,
+    /// Selected server key epoch.
+    pub selected_server_key_epoch: String,
     /// Public transcript digest.
     pub transcript_digest: PublicDigest32,
     /// Router public request digest.
@@ -77,8 +77,8 @@ impl SignerInputPlaintextV1 {
         recipient_signer_id: impl Into<String>,
         recipient_key_epoch: impl Into<String>,
         root_share_epoch: RootShareEpoch,
-        selected_relayer_id: impl Into<String>,
-        selected_relayer_key_epoch: impl Into<String>,
+        selected_server_id: impl Into<String>,
+        selected_server_key_epoch: impl Into<String>,
         transcript_digest: PublicDigest32,
         router_request_digest: PublicDigest32,
         aad_digest: PublicDigest32,
@@ -95,8 +95,8 @@ impl SignerInputPlaintextV1 {
             recipient_signer_id: recipient_signer_id.into(),
             recipient_key_epoch: recipient_key_epoch.into(),
             root_share_epoch,
-            selected_relayer_id: selected_relayer_id.into(),
-            selected_relayer_key_epoch: selected_relayer_key_epoch.into(),
+            selected_server_id: selected_server_id.into(),
+            selected_server_key_epoch: selected_server_key_epoch.into(),
             transcript_digest,
             router_request_digest,
             aad_digest,
@@ -120,11 +120,8 @@ impl SignerInputPlaintextV1 {
         require_non_empty("recipient_signer_id", &self.recipient_signer_id)?;
         require_non_empty("recipient_key_epoch", &self.recipient_key_epoch)?;
         require_non_empty("root_share_epoch", self.root_share_epoch.as_str())?;
-        require_non_empty("selected_relayer_id", &self.selected_relayer_id)?;
-        require_non_empty(
-            "selected_relayer_key_epoch",
-            &self.selected_relayer_key_epoch,
-        )?;
+        require_non_empty("selected_server_id", &self.selected_server_id)?;
+        require_non_empty("selected_server_key_epoch", &self.selected_server_key_epoch)?;
         if self.output_requests.is_empty() {
             return Err(RouterAbDerivationError::new(
                 RouterAbDerivationErrorCode::MalformedInput,
@@ -133,13 +130,13 @@ impl SignerInputPlaintextV1 {
         }
         for (index, request) in self.output_requests.iter().enumerate() {
             request.validate()?;
-            if request.opened_share_kind == OpenedShareKind::XRelayerBase
-                && (request.recipient_role != Role::Relayer
-                    || request.recipient_identity != self.selected_relayer_id)
+            if request.opened_share_kind == OpenedShareKind::XServerBase
+                && (request.recipient_role != Role::Server
+                    || request.recipient_identity != self.selected_server_id)
             {
                 return Err(RouterAbDerivationError::new(
                     RouterAbDerivationErrorCode::RecipientMismatch,
-                    "signer input plaintext relayer output recipient mismatch",
+                    "signer input plaintext server output recipient mismatch",
                 ));
             }
             for prior in &self.output_requests[..index] {
@@ -180,8 +177,8 @@ pub fn encode_signer_input_plaintext_v1(
     push_string(&mut out, &plaintext.recipient_signer_id);
     push_string(&mut out, &plaintext.recipient_key_epoch);
     push_string(&mut out, plaintext.root_share_epoch.as_str());
-    push_string(&mut out, &plaintext.selected_relayer_id);
-    push_string(&mut out, &plaintext.selected_relayer_key_epoch);
+    push_string(&mut out, &plaintext.selected_server_id);
+    push_string(&mut out, &plaintext.selected_server_key_epoch);
     push_digest(&mut out, plaintext.transcript_digest);
     push_digest(&mut out, plaintext.router_request_digest);
     push_digest(&mut out, plaintext.aad_digest);
@@ -213,8 +210,8 @@ pub fn decode_signer_input_plaintext_v1(
     let recipient_signer_id = decoder.read_string("recipient signer id")?;
     let recipient_key_epoch = decoder.read_string("recipient key epoch")?;
     let root_share_epoch = RootShareEpoch::new(decoder.read_string("root share epoch")?)?;
-    let selected_relayer_id = decoder.read_string("selected relayer id")?;
-    let selected_relayer_key_epoch = decoder.read_string("selected relayer key epoch")?;
+    let selected_server_id = decoder.read_string("selected server id")?;
+    let selected_server_key_epoch = decoder.read_string("selected server key epoch")?;
     let transcript_digest = decoder.read_digest("transcript digest")?;
     let router_request_digest = decoder.read_digest("router request digest")?;
     let aad_digest = decoder.read_digest("aad digest")?;
@@ -242,8 +239,8 @@ pub fn decode_signer_input_plaintext_v1(
         recipient_signer_id,
         recipient_key_epoch,
         root_share_epoch,
-        selected_relayer_id,
-        selected_relayer_key_epoch,
+        selected_server_id,
+        selected_server_key_epoch,
         transcript_digest,
         router_request_digest,
         aad_digest,
@@ -404,7 +401,7 @@ fn parse_quorum_policy(value: &str) -> RouterAbDerivationResult<SignerInputQuoru
 fn parse_opened_share_kind(value: &str) -> RouterAbDerivationResult<OpenedShareKind> {
     match value {
         "x_client_base" => Ok(OpenedShareKind::XClientBase),
-        "x_relayer_base" => Ok(OpenedShareKind::XRelayerBase),
+        "x_server_base" => Ok(OpenedShareKind::XServerBase),
         _ => Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::MalformedInput,
             "unknown signer input plaintext opened share kind",
@@ -417,7 +414,7 @@ fn parse_role(value: &str) -> RouterAbDerivationResult<Role> {
         "router" => Ok(Role::Router),
         "signer_a" => Ok(Role::SignerA),
         "signer_b" => Ok(Role::SignerB),
-        "relayer" => Ok(Role::Relayer),
+        "server" => Ok(Role::Server),
         "client" => Ok(Role::Client),
         _ => Err(RouterAbDerivationError::new(
             RouterAbDerivationErrorCode::MalformedInput,

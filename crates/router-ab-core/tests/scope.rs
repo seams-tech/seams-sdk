@@ -20,7 +20,7 @@ fn refresh_scope_rejects_same_old_and_new_epoch() {
         new_signer_set_id: "signer-set-new".to_owned(),
         expected_router_id: "role:router:local:sha256-r".to_owned(),
         expected_client_id: "role:client:local:sha256-c".to_owned(),
-        expected_relayer_id: "role:relayer:local:sha256-relayer".to_owned(),
+        expected_server_id: "role:server:local:sha256-server".to_owned(),
         address_verification_requirement: "required".to_owned(),
     }
     .validate()
@@ -40,7 +40,7 @@ fn refresh_scope_accepts_distinct_old_and_new_epochs() {
         new_signer_set_id: "signer-set-new".to_owned(),
         expected_router_id: "role:router:local:sha256-r".to_owned(),
         expected_client_id: "role:client:local:sha256-c".to_owned(),
-        expected_relayer_id: "role:relayer:local:sha256-relayer".to_owned(),
+        expected_server_id: "role:server:local:sha256-server".to_owned(),
         address_verification_requirement: "required".to_owned(),
     }
     .validate()

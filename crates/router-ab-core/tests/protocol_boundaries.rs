@@ -27,24 +27,22 @@ use router_ab_core::{
     verify_ab_peer_message_ed25519_signature_v1,
     verify_recipient_proof_bundle_ciphertext_payload_v1, wire_message_digest_v1,
     AbDerivationProofBatchPayloadV1, AbPeerMessageAuthenticationV1, AbPeerMessagePayloadV1,
-    AbPeerMessageSignatureSchemeV1, AbPeerMessageVerifyingKeyV1, AccountScope,
-    ActiveSigningWorkerStateV1, AuditEventV1, AuditSink, AuthorityVerifiedFallbackReasonV1,
-    CandidateId, CanonicalWireBytesV1, Clock, CorrectnessLevel, Csprng, DerivationContext,
-    DeriverAEngine, DeriverBEngine, EncryptedPayloadV1, ExpensiveWorkGateDecisionV1,
-    ExpensiveWorkKindV1, GateDeferReasonV1, LifecycleScopeV1, MpcPrfOutputRequestV1,
-    MpcPrfSignerPartialInputV1, MpcPrfSigningRootShareWireV1, MpcPrfSuiteId,
-    MpcPrfThresholdSignerBatchInputV1, MpcPrfThresholdSignerBatchOutputV1, NormalSigningRequestV1,
-    NormalSigningResponseV1, NormalSigningScopeV1, NormalSigningSignatureSchemeV1, PeerTransport,
+    AbPeerMessageSignatureSchemeV1, AbPeerMessageVerifyingKeyV1, AccountScope, AuditEventV1,
+    AuditSink, AuthorityVerifiedFallbackReasonV1, CandidateId, CanonicalWireBytesV1, Clock,
+    CorrectnessLevel, Csprng, DerivationContext, DeriverAEngine, DeriverBEngine,
+    EncryptedPayloadV1, ExpensiveWorkGateDecisionV1, ExpensiveWorkKindV1, GateDeferReasonV1,
+    LifecycleScopeV1, MpcPrfOutputRequestV1, MpcPrfSignerPartialInputV1,
+    MpcPrfSigningRootShareWireV1, MpcPrfSuiteId, MpcPrfThresholdSignerBatchInputV1,
+    MpcPrfThresholdSignerBatchOutputV1, NormalSigningScopeV1, PeerTransport,
     RecipientOutputCiphertextV1, RecipientOutputEncryptionAlgorithmV1,
     RecipientOutputEncryptionRequestV1, RecipientProofBundleCiphertextV1,
     RecipientProofBundleEncryptionRequestV1, RecipientProofBundleEncryptorV1,
-    RecipientProofBundlePayloadV1, RelayerIdentityV1, RequestKind, RoleEncryptedEnvelopeV1,
-    RoleEnvelopeAadV1, RoleEnvelopeAssignmentV1, RouterAbDerivationErrorCode,
-    RouterAbLifecycleStateV1, RouterAbProtocolErrorCode, RouterAbProtocolResult,
-    RouterEnvelopeDigestSetV1, RouterToSignerPayloadV1, RouterToSigningWorkerSigningRequestV1,
-    RouterTranscriptMetadataV1, SignerIdentityV1, SignerInputPlaintextV1,
-    SignerInputQuorumPolicyV1, SignerKeyStore, SignerSetBinding, SignerSetV1,
-    SigningRootShareStore, TranscriptBinding, WireMessageKindV1, WireMessageV1,
+    RecipientProofBundlePayloadV1, RequestKind, RoleEncryptedEnvelopeV1, RoleEnvelopeAadV1,
+    RoleEnvelopeAssignmentV1, RouterAbDerivationErrorCode, RouterAbLifecycleStateV1,
+    RouterAbProtocolErrorCode, RouterAbProtocolResult, RouterEnvelopeDigestSetV1,
+    RouterToSignerPayloadV1, RouterTranscriptMetadataV1, ServerIdentityV1, SignerIdentityV1,
+    SignerInputPlaintextV1, SignerInputQuorumPolicyV1, SignerKeyStore, SignerSetBinding,
+    SignerSetV1, SigningRootShareStore, TranscriptBinding, WireMessageKindV1, WireMessageV1,
 };
 use router_ab_core::{OpenedShareKind, PublicDigest32, Role, RootShareEpoch, SecretMaterial32};
 use threshold_prf::{
@@ -137,7 +135,7 @@ fn scope(work_kind: ExpensiveWorkKindV1) -> LifecycleScopeV1 {
         "wallet-1",
         "session-1",
         "signer-set-v1",
-        "relayer-a",
+        "server-a",
     )
     .expect("lifecycle scope")
 }
@@ -147,13 +145,13 @@ fn signer_set() -> SignerSetV1 {
         SignerIdentityV1::new(Role::SignerA, "signer-a", "epoch-a").expect("signer a identity");
     let deriver_b =
         SignerIdentityV1::new(Role::SignerB, "signer-b", "epoch-b").expect("signer b identity");
-    let relayer = RelayerIdentityV1::new(
-        "relayer-a",
-        "relayer-epoch",
+    let server = ServerIdentityV1::new(
+        "server-a",
+        "server-epoch",
         "x25519:1111111111111111111111111111111111111111111111111111111111111111",
     )
-    .expect("relayer");
-    SignerSetV1::v1_all2("signer-set-v1", deriver_a, deriver_b, relayer).expect("signer set")
+    .expect("server");
+    SignerSetV1::v1_all2("signer-set-v1", deriver_a, deriver_b, server).expect("signer set")
 }
 
 fn transcript_metadata() -> RouterTranscriptMetadataV1 {
@@ -225,9 +223,9 @@ fn client_output_request() -> MpcPrfOutputRequestV1 {
         .expect("client output")
 }
 
-fn relayer_output_request() -> MpcPrfOutputRequestV1 {
-    MpcPrfOutputRequestV1::new(OpenedShareKind::XRelayerBase, Role::Relayer, "relayer-a")
-        .expect("relayer output")
+fn server_output_request() -> MpcPrfOutputRequestV1 {
+    MpcPrfOutputRequestV1::new(OpenedShareKind::XServerBase, Role::Server, "server-a")
+        .expect("server output")
 }
 
 fn mpc_context() -> DerivationContext {
@@ -259,7 +257,7 @@ fn mpc_transcript(context: DerivationContext) -> TranscriptBinding {
             "epoch-b",
         )
         .expect("signer set binding"),
-        "relayer-a",
+        "server-a",
         "x25519:1111111111111111111111111111111111111111111111111111111111111111",
         "client-1",
         "x25519:client-ephemeral-public-key",
@@ -281,7 +279,7 @@ fn mpc_signer_input(role: Role) -> MpcPrfSignerPartialInputV1 {
         role,
         signer_identity,
         root_epoch(),
-        vec![client_output_request(), relayer_output_request()],
+        vec![client_output_request(), server_output_request()],
     )
     .expect("mpc signer input")
 }
@@ -445,12 +443,12 @@ fn signer_input_plaintext(
         assignment.signer.signer_id.clone(),
         assignment.signer.key_epoch.clone(),
         root_share_epoch,
-        signer_set.selected_relayer.relayer_id.clone(),
-        signer_set.selected_relayer.key_epoch.clone(),
+        signer_set.selected_server.server_id.clone(),
+        signer_set.selected_server.key_epoch.clone(),
         payload.transcript_digest(),
         router_request_digest,
         assignment.envelope.aad_digest,
-        vec![client_output_request(), relayer_output_request()],
+        vec![client_output_request(), server_output_request()],
     )
     .expect("signer input plaintext")
 }
@@ -545,7 +543,7 @@ fn lifecycle_rejects_empty_scope_identity() {
         "wallet-1",
         "session-1",
         "signer-set-v1",
-        "role:relayer:local:sha256-r",
+        "role:server:local:sha256-r",
     )
     .expect_err("empty lifecycle id must fail");
 
@@ -587,143 +585,18 @@ fn gate_defer_reason_maps_to_authority_verified_fallback_reason() {
 #[test]
 fn normal_signing_scope_stays_outside_derivation_lifecycle() {
     let scope =
-        NormalSigningScopeV1::new("sign-1", "wallet-1", "session-1", "relayer-a").expect("scope");
+        NormalSigningScopeV1::new("sign-1", "wallet-1", "session-1", "server-a").expect("scope");
 
     assert_eq!(scope.request_id, "sign-1");
-    assert_eq!(scope.signing_worker_id, "relayer-a");
+    assert_eq!(scope.signing_worker_id, "server-a");
 }
 
 #[test]
 fn normal_signing_scope_rejects_empty_identity_fields() {
-    let err = NormalSigningScopeV1::new("", "wallet-1", "session-1", "relayer-a")
+    let err = NormalSigningScopeV1::new("", "wallet-1", "session-1", "server-a")
         .expect_err("empty request id must fail");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::EmptyField);
-}
-
-#[test]
-fn normal_signing_request_binds_intent_payload_and_expiry() {
-    let scope =
-        NormalSigningScopeV1::new("sign-1", "wallet-1", "session-1", "relayer-a").expect("scope");
-    let payload = CanonicalWireBytesV1::new(vec![0xaa, 0xbb, 0xcc]).expect("payload");
-    let request = NormalSigningRequestV1::new(scope.clone(), 2_000, digest(0x91), payload)
-        .expect("normal signing request");
-
-    request.validate_at(1_000).expect("request is live");
-    assert_eq!(request.intent_digest, digest(0x91));
-    assert_ne!(request.digest(), request.signing_payload_digest());
-    assert_eq!(
-        request.signing_payload_digest(),
-        NormalSigningRequestV1::new(
-            NormalSigningScopeV1::new("sign-2", "wallet-1", "session-1", "relayer-a")
-                .expect("scope"),
-            3_000,
-            digest(0x91),
-            CanonicalWireBytesV1::new(vec![0xaa, 0xbb, 0xcc]).expect("payload"),
-        )
-        .expect("same payload")
-        .signing_payload_digest()
-    );
-    assert_ne!(
-        request.digest(),
-        NormalSigningRequestV1::new(
-            scope,
-            2_000,
-            digest(0x92),
-            CanonicalWireBytesV1::new(vec![0xaa, 0xbb, 0xcc]).expect("payload"),
-        )
-        .expect("different intent")
-        .digest()
-    );
-
-    let err = request
-        .validate_at(2_000)
-        .expect_err("expired request must fail");
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::ExpiredLocalRequest);
-}
-
-#[test]
-fn router_to_signing_worker_signing_request_requires_active_signing_worker_match() {
-    let scope =
-        NormalSigningScopeV1::new("sign-1", "wallet-1", "session-1", "relayer-a").expect("scope");
-    let request = NormalSigningRequestV1::new(
-        scope.clone(),
-        2_000,
-        digest(0x91),
-        CanonicalWireBytesV1::new(vec![0xaa]).expect("payload"),
-    )
-    .expect("request");
-    let relayer =
-        RelayerIdentityV1::new("relayer-a", "relayer-epoch", "relayer-key").expect("relayer");
-    let active = ActiveSigningWorkerStateV1::new(
-        "wallet-1",
-        "session-1",
-        relayer,
-        digest(0x44),
-        digest(0x45),
-        "relayer-material/sign-1",
-        1_000,
-    )
-    .expect("active SigningWorker");
-
-    RouterToSigningWorkerSigningRequestV1::new(request.clone(), active)
-        .expect("router-to-SigningWorker request");
-
-    let wrong_relayer = ActiveSigningWorkerStateV1::new(
-        "wallet-1",
-        "session-1",
-        RelayerIdentityV1::new("relayer-b", "relayer-epoch", "relayer-key").expect("relayer"),
-        digest(0x44),
-        digest(0x45),
-        "relayer-material/sign-1",
-        1_000,
-    )
-    .expect("wrong SigningWorker");
-    let err = RouterToSigningWorkerSigningRequestV1::new(request, wrong_relayer)
-        .expect_err("SigningWorker mismatch must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
-    assert_eq!(scope.signing_worker_id, "relayer-a");
-}
-
-#[test]
-fn normal_signing_response_must_bind_to_request_payload_and_signing_worker() {
-    let scope =
-        NormalSigningScopeV1::new("sign-1", "wallet-1", "session-1", "relayer-a").expect("scope");
-    let request = NormalSigningRequestV1::new(
-        scope.clone(),
-        2_000,
-        digest(0x91),
-        CanonicalWireBytesV1::new(vec![0xaa, 0xbb]).expect("payload"),
-    )
-    .expect("request");
-    let relayer =
-        RelayerIdentityV1::new("relayer-a", "relayer-epoch", "relayer-key").expect("relayer");
-    let response = NormalSigningResponseV1::new(
-        scope.clone(),
-        request.signing_payload_digest(),
-        relayer,
-        NormalSigningSignatureSchemeV1::Ed25519V1,
-        CanonicalWireBytesV1::new(vec![0xed, 0x19]).expect("signature"),
-        1_500,
-    )
-    .expect("response");
-
-    response
-        .validate_for_request(&request)
-        .expect("response binds to request");
-
-    let wrong_request = NormalSigningRequestV1::new(
-        scope,
-        2_000,
-        digest(0x91),
-        CanonicalWireBytesV1::new(vec![0xcc]).expect("payload"),
-    )
-    .expect("wrong request");
-    let err = response
-        .validate_for_request(&wrong_request)
-        .expect_err("payload mismatch must fail");
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
 }
 
 #[test]
@@ -754,18 +627,18 @@ fn encrypted_payload_debug_redacts_bytes() {
 fn role_envelope_aad_binds_identity_and_expiry() {
     let deriver_a =
         SignerIdentityV1::new(Role::SignerA, "signer-a", "epoch-a").expect("signer a identity");
-    let relayer = RelayerIdentityV1::new(
-        "relayer-a",
-        "relayer-epoch",
+    let server = ServerIdentityV1::new(
+        "server-a",
+        "server-epoch",
         "x25519:1111111111111111111111111111111111111111111111111111111111111111",
     )
-    .expect("relayer");
+    .expect("server");
     let aad = RoleEnvelopeAadV1::new(
         "lifecycle-1",
         ExpensiveWorkKindV1::RegistrationPrepare,
         "signer-set-v1",
         deriver_a,
-        relayer,
+        server,
         digest(0x01),
         digest(0x02),
         1_000,
@@ -790,18 +663,18 @@ fn role_envelope_aad_binds_identity_and_expiry() {
 fn role_envelope_aad_rejects_zero_expiry() {
     let deriver_a =
         SignerIdentityV1::new(Role::SignerA, "signer-a", "epoch-a").expect("signer a identity");
-    let relayer = RelayerIdentityV1::new(
-        "relayer-a",
-        "relayer-epoch",
+    let server = ServerIdentityV1::new(
+        "server-a",
+        "server-epoch",
         "x25519:1111111111111111111111111111111111111111111111111111111111111111",
     )
-    .expect("relayer");
+    .expect("server");
     let err = RoleEnvelopeAadV1::new(
         "lifecycle-1",
         ExpensiveWorkKindV1::RegistrationPrepare,
         "signer-set-v1",
         deriver_a,
-        relayer,
+        server,
         digest(0x01),
         digest(0x02),
         0,
@@ -979,7 +852,7 @@ fn recipient_output_encryption_request_rejects_invalid_binding() {
 
     let err = RecipientOutputEncryptionRequestV1::new(
         Role::Client,
-        OpenedShareKind::XRelayerBase,
+        OpenedShareKind::XServerBase,
         "client",
         "x25519:client-ephemeral-public-key",
         digest(0x01),
@@ -998,15 +871,15 @@ fn signer_set_enforces_all2_roles_and_distinct_ids() {
         SignerIdentityV1::new(Role::SignerA, "signer-a", "epoch-a").expect("signer a identity");
     let deriver_b =
         SignerIdentityV1::new(Role::SignerB, "signer-b", "epoch-b").expect("signer b identity");
-    let relayer = RelayerIdentityV1::new(
-        "relayer-a",
-        "relayer-epoch",
+    let server = ServerIdentityV1::new(
+        "server-a",
+        "server-epoch",
         "x25519:1111111111111111111111111111111111111111111111111111111111111111",
     )
-    .expect("relayer");
+    .expect("server");
 
     let signer_set =
-        SignerSetV1::v1_all2("signer-set-v1", deriver_a, deriver_b, relayer).expect("signer set");
+        SignerSetV1::v1_all2("signer-set-v1", deriver_a, deriver_b, server).expect("signer set");
     assert_eq!(signer_set.signer_set_id, "signer-set-v1");
 }
 
@@ -1016,14 +889,14 @@ fn signer_set_rejects_duplicate_signer_ids() {
         SignerIdentityV1::new(Role::SignerA, "signer", "epoch-a").expect("signer a identity");
     let deriver_b =
         SignerIdentityV1::new(Role::SignerB, "signer", "epoch-b").expect("signer b identity");
-    let relayer = RelayerIdentityV1::new(
-        "relayer-a",
-        "relayer-epoch",
+    let server = ServerIdentityV1::new(
+        "server-a",
+        "server-epoch",
         "x25519:1111111111111111111111111111111111111111111111111111111111111111",
     )
-    .expect("relayer");
+    .expect("server");
 
-    let err = SignerSetV1::v1_all2("signer-set-v1", deriver_a, deriver_b, relayer)
+    let err = SignerSetV1::v1_all2("signer-set-v1", deriver_a, deriver_b, server)
         .expect_err("duplicate signer ids must fail");
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidSignerIdentity);
 }
@@ -1116,7 +989,7 @@ fn router_to_signer_payload_requires_lifecycle_signer_set_binding() {
         "wallet-1",
         "session-1",
         "other-signer-set",
-        "relayer-a",
+        "server-a",
     )
     .expect("lifecycle scope");
     let deriver_a =
@@ -1137,7 +1010,7 @@ fn router_to_signer_payload_requires_lifecycle_signer_set_binding() {
 }
 
 #[test]
-fn router_to_signer_payload_requires_lifecycle_relayer_binding() {
+fn router_to_signer_payload_requires_lifecycle_server_binding() {
     let lifecycle = LifecycleScopeV1::new(
         "lifecycle-1",
         ExpensiveWorkKindV1::RegistrationPrepare,
@@ -1145,7 +1018,7 @@ fn router_to_signer_payload_requires_lifecycle_relayer_binding() {
         "wallet-1",
         "session-1",
         "signer-set-v1",
-        "other-relayer",
+        "other-server",
     )
     .expect("lifecycle scope");
     let deriver_a =
@@ -1160,7 +1033,7 @@ fn router_to_signer_payload_requires_lifecycle_relayer_binding() {
     let assignment_a = RoleEnvelopeAssignmentV1::new(deriver_a, envelope_a).expect("assignment a");
 
     let err = router_to_deriver_a_payload(lifecycle, assignment_a)
-        .expect_err("lifecycle relayer mismatch must fail");
+        .expect_err("lifecycle server mismatch must fail");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
 }
@@ -1562,16 +1435,16 @@ fn ab_derivation_proof_batch_recipient_view_keeps_only_requested_output() {
         "client-1",
     )
     .expect("client proof-batch view");
-    let relayer_view = ab_derivation_proof_batch_recipient_view_v1(
+    let server_view = ab_derivation_proof_batch_recipient_view_v1(
         proof_batch_a.clone(),
-        OpenedShareKind::XRelayerBase,
-        Role::Relayer,
-        "relayer-a",
+        OpenedShareKind::XServerBase,
+        Role::Server,
+        "server-a",
     )
-    .expect("relayer proof-batch view");
+    .expect("server proof-batch view");
 
     assert_eq!(client_view.proof_bundles.len(), 1);
-    assert_eq!(relayer_view.proof_bundles.len(), 1);
+    assert_eq!(server_view.proof_bundles.len(), 1);
     assert_eq!(
         client_view.proof_bundles[0]
             .signer_partial
@@ -1587,18 +1460,18 @@ fn ab_derivation_proof_batch_recipient_view_keeps_only_requested_output() {
         Role::Client
     );
     assert_eq!(
-        relayer_view.proof_bundles[0]
+        server_view.proof_bundles[0]
             .signer_partial
             .binding
             .opened_share_kind,
-        OpenedShareKind::XRelayerBase
+        OpenedShareKind::XServerBase
     );
     assert_eq!(
-        relayer_view.proof_bundles[0]
+        server_view.proof_bundles[0]
             .signer_partial
             .binding
             .recipient_role,
-        Role::Relayer
+        Role::Server
     );
 
     let err = ab_derivation_proof_batch_recipient_view_v1(
@@ -1642,22 +1515,22 @@ fn recipient_proof_bundle_payload_round_trips_and_enforces_scope() {
 #[test]
 fn recipient_proof_bundle_payload_rejects_wrong_recipient_scope() {
     let (_, proof_batch_a, _) = router_scoped_ab_proof_batches();
-    let relayer_view = ab_derivation_proof_batch_recipient_view_v1(
+    let server_view = ab_derivation_proof_batch_recipient_view_v1(
         proof_batch_a,
-        OpenedShareKind::XRelayerBase,
-        Role::Relayer,
-        "relayer-a",
+        OpenedShareKind::XServerBase,
+        Role::Server,
+        "server-a",
     )
-    .expect("relayer proof-batch view");
+    .expect("server proof-batch view");
 
     let err = RecipientProofBundlePayloadV1::new(
         "lifecycle-1",
-        relayer_view.from.clone(),
+        server_view.from.clone(),
         Role::Client,
         OpenedShareKind::XClientBase,
         "client-1",
-        relayer_view.transcript_digest,
-        relayer_view,
+        server_view.transcript_digest,
+        server_view,
     )
     .expect_err("wrong recipient scope must fail");
 
@@ -1800,15 +1673,15 @@ fn mpc_prf_recipient_scoped_combine_opens_only_requested_output() {
         "client-1",
     )
     .expect("client recipient output");
-    let relayer_output = combine_mpc_prf_recipient_output_from_ab_proof_batches_v1(
+    let server_output = combine_mpc_prf_recipient_output_from_ab_proof_batches_v1(
         &payload,
         proof_batch_a,
         proof_batch_b,
-        OpenedShareKind::XRelayerBase,
-        Role::Relayer,
-        "relayer-a",
+        OpenedShareKind::XServerBase,
+        Role::Server,
+        "server-a",
     )
-    .expect("relayer recipient output");
+    .expect("server recipient output");
 
     assert_eq!(
         client_output.opened_share_kind,
@@ -1817,14 +1690,14 @@ fn mpc_prf_recipient_scoped_combine_opens_only_requested_output() {
     assert_eq!(client_output.recipient_role, Role::Client);
     assert_eq!(client_output.recipient_identity, "client-1");
     assert_eq!(
-        relayer_output.opened_share_kind,
-        OpenedShareKind::XRelayerBase
+        server_output.opened_share_kind,
+        OpenedShareKind::XServerBase
     );
-    assert_eq!(relayer_output.recipient_role, Role::Relayer);
-    assert_eq!(relayer_output.recipient_identity, "relayer-a");
+    assert_eq!(server_output.recipient_role, Role::Server);
+    assert_eq!(server_output.recipient_identity, "server-a");
     assert_ne!(
         client_output.output_material.as_bytes(),
-        relayer_output.output_material.as_bytes()
+        server_output.output_material.as_bytes()
     );
 }
 
@@ -1880,11 +1753,11 @@ fn mpc_prf_recipient_scoped_combine_rejects_mixed_proof_bundle_recipients() {
     let deriver_b_payload = recipient_proof_bundle_payload_from_ab_proof_batch_v1(
         &payload.lifecycle().lifecycle_id,
         proof_batch_b,
-        OpenedShareKind::XRelayerBase,
-        Role::Relayer,
-        "relayer-a",
+        OpenedShareKind::XServerBase,
+        Role::Server,
+        "server-a",
     )
-    .expect("signer b relayer proof-bundle payload");
+    .expect("signer b server proof-bundle payload");
 
     let err = combine_mpc_prf_recipient_output_from_proof_bundle_payloads_v1(
         &payload,

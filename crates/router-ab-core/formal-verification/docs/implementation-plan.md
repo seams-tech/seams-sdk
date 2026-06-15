@@ -38,11 +38,11 @@ treated as production-ready:
 The formal track must model these behaviors:
 
 - client opens only `x_client_base`
-- SigningWorker opens only `x_relayer_base`
+- SigningWorker opens only `x_server_base`
 - Router cannot observe plaintext A/B derivation shares for one ceremony
 - A alone cannot reconstruct forbidden joined state
 - B alone cannot reconstruct forbidden joined state
-- client view excludes joined relayer material
+- client view excludes joined server material
 - refresh cannot verify new-epoch material under the old epoch
 - changed transcript field changes the abstract transcript identity
 

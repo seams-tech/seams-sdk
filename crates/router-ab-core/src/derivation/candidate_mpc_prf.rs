@@ -51,8 +51,8 @@ impl MpcPrfSuiteId {
 pub enum MpcPrfOutputPurposeV1 {
     /// Router/A/B client-base output.
     RouterAbXClientBase,
-    /// Router/A/B relayer-base output.
-    RouterAbXRelayerBase,
+    /// Router/A/B server-base output.
+    RouterAbXServerBase,
 }
 
 impl MpcPrfOutputPurposeV1 {
@@ -61,7 +61,7 @@ impl MpcPrfOutputPurposeV1 {
         request.validate()?;
         match request.opened_share_kind {
             OpenedShareKind::XClientBase => Ok(Self::RouterAbXClientBase),
-            OpenedShareKind::XRelayerBase => Ok(Self::RouterAbXRelayerBase),
+            OpenedShareKind::XServerBase => Ok(Self::RouterAbXServerBase),
         }
     }
 
@@ -69,7 +69,7 @@ impl MpcPrfOutputPurposeV1 {
     pub fn threshold_prf_purpose_label(self) -> &'static str {
         match self {
             Self::RouterAbXClientBase => "router-ab/x_client_base/v1",
-            Self::RouterAbXRelayerBase => "router-ab/x_relayer_base/v1",
+            Self::RouterAbXServerBase => "router-ab/x_server_base/v1",
         }
     }
 }
@@ -150,7 +150,7 @@ impl MpcPrfOutputRequestV1 {
         require_non_empty("recipient_identity", &self.recipient_identity)?;
         match (self.opened_share_kind, self.recipient_role) {
             (OpenedShareKind::XClientBase, Role::Client)
-            | (OpenedShareKind::XRelayerBase, Role::Relayer) => Ok(()),
+            | (OpenedShareKind::XServerBase, Role::Server) => Ok(()),
             _ => Err(RouterAbDerivationError::new(
                 RouterAbDerivationErrorCode::RecipientMismatch,
                 "MPC PRF output request recipient does not match opened share kind",

@@ -6,7 +6,7 @@ begins. It is candidate-neutral unless a section explicitly names
 
 Terminology: target protocol prose uses `DeriverA`, `DeriverB`, and
 `SigningWorker`. Current implementation labels that still contain `SignerA`,
-`SignerB`, or relayer names are transitional and should be renamed in the
+`SignerB`, or server names are transitional and should be renamed in the
 slimming refactor.
 
 ## Roles
@@ -18,7 +18,7 @@ slimming refactor.
 - `Client`: receives client-output delivery material and opens only
   `x_client_base`.
 - `SigningWorker`: receives SigningWorker-output delivery material and opens
-  only `x_relayer_base` for normal signing.
+  only `x_server_base` for normal signing.
 
 The primitive must be useful with a Router-mediated deployment and with direct
 A/B coordination. Routing topology is outside the cryptographic claim. The
@@ -218,8 +218,8 @@ Persistent state must not include:
 - joined `d`
 - joined `a`
 - joined `x_client_base`
-- joined `y_relayer`
-- joined `tau_relayer`
+- joined `y_server`
+- joined `tau_server`
 - plaintext A/B root-share pairs in one record
 - decrypted client or SigningWorker delivery material outside the recipient
 

@@ -53,8 +53,8 @@ fn raw_transcript() -> RawTranscriptV1 {
         context: raw_context(),
         router_id: "role:router:local:sha256-router".to_owned(),
         signer_set: raw_signer_set("all(2)"),
-        selected_relayer_id: "role:relayer:local:sha256-r".to_owned(),
-        selected_relayer_recipient_encryption_key:
+        selected_server_id: "role:server:local:sha256-r".to_owned(),
+        selected_server_recipient_encryption_key:
             "x25519:1111111111111111111111111111111111111111111111111111111111111111".to_owned(),
         client_id: "role:client:local:sha256-c".to_owned(),
         client_ephemeral_public_key: "x25519:client-ephemeral-public-key".to_owned(),
@@ -90,7 +90,7 @@ fn raw_evidence() -> RawMinimumLevelCEvidenceV1 {
         signer_a_receipt_digest: digest(0x03),
         signer_b_receipt_digest: digest(0x04),
         client_package_commitments: vec![digest(0xa1), digest(0xb1)],
-        relayer_package_commitments: vec![digest(0xa2), digest(0xb2)],
+        server_package_commitments: vec![digest(0xa2), digest(0xb2)],
         replay_cache_key: digest(0x99),
     }
 }
@@ -139,7 +139,7 @@ fn parse_envelope_header_accepts_role_bound_shape() {
 #[test]
 fn parse_envelope_header_rejects_kind_role_mismatch() {
     let mut raw = raw_envelope_header();
-    raw.recipient_role = "relayer".to_owned();
+    raw.recipient_role = "server".to_owned();
 
     let err = parse_envelope_header_v1(raw).expect_err("role mismatch should fail");
 
@@ -155,7 +155,7 @@ fn parse_minimum_level_c_evidence_accepts_public_evidence() {
         CorrectnessLevel::MinimumLevelC
     );
     assert_eq!(evidence.client_package_commitments().len(), 2);
-    assert_eq!(evidence.relayer_package_commitments().len(), 2);
+    assert_eq!(evidence.server_package_commitments().len(), 2);
 }
 
 #[test]

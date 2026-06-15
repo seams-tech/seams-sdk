@@ -15,8 +15,8 @@ pub enum ExpensiveWorkKindV1 {
     KeyExport,
     /// Recovery setup ceremony.
     Recovery,
-    /// Relayer-share refresh ceremony.
-    RelayerShareRefresh,
+    /// Server-share refresh ceremony.
+    ServerShareRefresh,
 }
 
 impl ExpensiveWorkKindV1 {
@@ -26,7 +26,7 @@ impl ExpensiveWorkKindV1 {
             Self::RegistrationPrepare => "registration_prepare",
             Self::KeyExport => "key_export",
             Self::Recovery => "recovery",
-            Self::RelayerShareRefresh => "relayer_share_refresh",
+            Self::ServerShareRefresh => "server_share_refresh",
         }
     }
 
@@ -35,7 +35,7 @@ impl ExpensiveWorkKindV1 {
         match self {
             Self::RegistrationPrepare => RequestKind::Registration,
             Self::KeyExport | Self::Recovery => RequestKind::Export,
-            Self::RelayerShareRefresh => RequestKind::Refresh,
+            Self::ServerShareRefresh => RequestKind::Refresh,
         }
     }
 }

@@ -3,7 +3,7 @@ use router_ab_core::{
     LocalDeriverBEndpointV1, LocalEnvSnapshotV1, LocalHttpMethodV1, LocalHttpPathV1,
     LocalHttpRequestV1, LocalReplayCacheV1, LocalRouterEndpointV1, LocalServiceRoleV1,
     LocalServiceStackV1, LocalServiceStartupV1, LocalSigningWorkerEndpointV1,
-    LocalTransportEnvelopeV1, LocalTransportRouteV1, RelayerIdentityV1, SignerIdentityV1,
+    LocalTransportEnvelopeV1, LocalTransportRouteV1, ServerIdentityV1, SignerIdentityV1,
     WireMessageKindV1, WireMessageV1,
 };
 use router_ab_core::{PublicDigest32, Role};
@@ -39,7 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?,
         LocalServiceStartupV1::signing_worker(
             signing_worker_endpoint()?,
-            relayer_identity()?,
+            server_identity()?,
             signing_worker_env_snapshot()?,
         )?,
     )?;
@@ -88,7 +88,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         signing_worker_id: result
             .signing_worker_activation_receipt
             .signing_worker
-            .relayer_id
+            .server_id
             .clone(),
         transcript_digest_hex: digest_hex(
             result.signing_worker_activation_receipt.transcript_digest,
@@ -163,7 +163,7 @@ fn deriver_b_endpoint() -> Result<LocalDeriverBEndpointV1, Box<dyn std::error::E
 fn signing_worker_endpoint() -> Result<LocalSigningWorkerEndpointV1, Box<dyn std::error::Error>> {
     Ok(LocalSigningWorkerEndpointV1::new(
         "http://127.0.0.1:8790",
-        "local-relayer-output",
+        "local-server-output",
     )?)
 }
 
@@ -175,10 +175,10 @@ fn signer_b_identity() -> Result<SignerIdentityV1, Box<dyn std::error::Error>> {
     Ok(SignerIdentityV1::new(Role::SignerB, "signer-b", "epoch-b")?)
 }
 
-fn relayer_identity() -> Result<RelayerIdentityV1, Box<dyn std::error::Error>> {
-    Ok(RelayerIdentityV1::new(
-        "relayer-a",
-        "relayer-epoch",
+fn server_identity() -> Result<ServerIdentityV1, Box<dyn std::error::Error>> {
+    Ok(ServerIdentityV1::new(
+        "server-a",
+        "server-epoch",
         "x25519:1111111111111111111111111111111111111111111111111111111111111111",
     )?)
 }
@@ -220,6 +220,6 @@ fn deriver_b_env_snapshot() -> Result<LocalEnvSnapshotV1, Box<dyn std::error::Er
 fn signing_worker_env_snapshot() -> Result<LocalEnvSnapshotV1, Box<dyn std::error::Error>> {
     Ok(LocalEnvSnapshotV1::new(
         LocalServiceRoleV1::SigningWorker,
-        vec!["RELAYER_OUTPUT_STORAGE".to_owned()],
+        vec!["SERVER_OUTPUT_STORAGE".to_owned()],
     )?)
 }

@@ -78,8 +78,8 @@ Required cases:
 - valid Router-to-B deriver input AAD
 - valid A-to-client package commitment
 - valid B-to-client package commitment
-- valid A-to-relayer package commitment
-- valid B-to-relayer package commitment
+- valid A-to-server package commitment
+- valid B-to-server package commitment
 - recipient mismatch rejection
 - content kind mismatch rejection
 - same idempotency key with same ciphertext digest acceptance

@@ -1,9 +1,18 @@
-use router_ab_core::{LocalHttpPathV1, LocalServiceRoleV1};
+use router_ab_core::{
+    LocalHttpPathV1, LocalServiceRoleV1, NormalSigningResponseV1,
+    NormalSigningRound1PrepareResponseV1, NormalSigningSignatureSchemeV1,
+    RouterAbEd25519NormalSigningPrepareRequestV2,
+};
 use router_ab_dev::{
-    local_env_materialization_plan_v1, run_example_local_router_ab_hss_dev_http_ceremony_v1,
-    LocalDeriverPeerMessageReceiptV1, LocalHttpServiceBindingClientV1,
-    LocalRouterNormalSigningSmokeResponseV1, LocalSigningWorkerActivationRouteReceiptV1,
-    LOCAL_ROUTER_NORMAL_SIGNING_PATH_V1, LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
+    build_local_normal_signing_delegate_action_prepare_request_v2,
+    build_local_normal_signing_finalize_request_v2,
+    build_local_normal_signing_near_transaction_prepare_request_v2,
+    build_local_normal_signing_nep413_prepare_request_v2, local_env_materialization_plan_v1,
+    run_example_local_router_ab_hss_dev_http_ceremony_v1, LocalDeriverPeerMessageReceiptV1,
+    LocalHttpServiceBindingClientV1, LocalSigningWorkerActivationRouteReceiptV1,
+    LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2, LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2,
+    LOCAL_ROUTER_NORMAL_SIGNING_WALLET_SESSION_AUTHORIZATION_V2,
+    LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
 };
 use serde::Serialize;
 use std::{
@@ -98,7 +107,7 @@ fn local_worker_accepts_only_signing_worker_activation_over_http(
     assert_eq!(status, 200);
     let receipt: LocalSigningWorkerActivationRouteReceiptV1 = serde_json::from_str(&body)?;
     assert_eq!(receipt.receiver_role, LocalServiceRoleV1::SigningWorker);
-    assert_eq!(receipt.accepted_opened_share_kind, "x_relayer_base");
+    assert_eq!(receipt.accepted_opened_share_kind, "x_server_base");
     assert_eq!(receipt.status, "accepted");
 
     let client_bundle_activation = serde_json::json!({
@@ -137,27 +146,21 @@ fn local_router_normal_signing_forwards_only_to_signing_worker_and_signs_smoke_p
     wait_for_health(&router_url, router.child_mut())?;
     wait_for_health(&signing_worker_url, signing_worker.child_mut())?;
 
-    let request = serde_json::json!({
-        "request_id": "sign-smoke-1",
-        "account_id": "gamma.test.near",
-        "session_id": "session-1",
-        "signing_payload_hex": hex::encode(b"router-ab local worker HTTP test payload")
-    });
-    let (status, body) =
-        post_json_to_path(&router_url, LOCAL_ROUTER_NORMAL_SIGNING_PATH_V1, &request)?;
-    assert_eq!(status, 200);
-    let response: LocalRouterNormalSigningSmokeResponseV1 = serde_json::from_str(&body)?;
-    assert_eq!(response.status, "signed");
-    assert_eq!(
-        response.forwarded_to_role,
-        LocalServiceRoleV1::SigningWorker
-    );
-    assert_eq!(response.signing_worker_status, "signed");
-    assert_eq!(response.signature_scheme, "local_dev_ed25519_v1");
-    assert_eq!(response.signature_hex.len(), 128);
-    assert_eq!(response.verifying_key_hex.len(), 64);
-    assert_eq!(response.deriver_a_request_count, 0);
-    assert_eq!(response.deriver_b_request_count, 0);
+    let mut prepare_requests = local_normal_signing_prepare_requests_v2("sign-http")?;
+    let unauthenticated_prepare = prepare_requests
+        .first()
+        .ok_or("normal-signing prepare fixture missing")?;
+    let (status, body) = post_json_to_path(
+        &router_url,
+        LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2,
+        unauthenticated_prepare,
+    )?;
+    assert_eq!(status, 401);
+    assert!(body.contains("Wallet Session authorization is missing"));
+
+    for prepare_request in prepare_requests.drain(..) {
+        assert_local_normal_signing_round_trip_v2(&router_url, prepare_request)?;
+    }
 
     drop(router);
     drop(signing_worker);
@@ -183,29 +186,107 @@ fn local_bundled_server_exposes_router_and_signing_worker_paths_from_one_listene
         .spawn()?;
     wait_for_health(&bundled_url, &mut bundled)?;
 
-    let request = serde_json::json!({
-        "request_id": "bundled-sign-smoke-1",
-        "account_id": "gamma.test.near",
-        "session_id": "session-1",
-        "signing_payload_hex": hex::encode(b"router-ab bundled server HTTP test payload")
-    });
-    let (status, body) =
-        post_json_to_path(&bundled_url, LOCAL_ROUTER_NORMAL_SIGNING_PATH_V1, &request)?;
-    assert_eq!(status, 200);
-    let response: LocalRouterNormalSigningSmokeResponseV1 = serde_json::from_str(&body)?;
-    assert_eq!(response.status, "signed");
-    assert_eq!(
-        response.forwarded_to_role,
-        LocalServiceRoleV1::SigningWorker
-    );
-    assert_eq!(response.signature_scheme, "local_dev_ed25519_v1");
-    assert_eq!(response.deriver_a_request_count, 0);
-    assert_eq!(response.deriver_b_request_count, 0);
+    for prepare_request in local_normal_signing_prepare_requests_v2("bundled-sign-http")? {
+        assert_local_normal_signing_round_trip_v2(&bundled_url, prepare_request)?;
+    }
 
     let _ = bundled.kill();
     let _ = bundled.wait();
     let _ = fs::remove_dir_all(temp);
     Ok(())
+}
+
+fn assert_local_normal_signing_round_trip_v2(
+    router_url: &str,
+    prepare_request: RouterAbEd25519NormalSigningPrepareRequestV2,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let (status, body) = post_json_to_path_with_authorization(
+        router_url,
+        LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2,
+        LOCAL_ROUTER_NORMAL_SIGNING_WALLET_SESSION_AUTHORIZATION_V2,
+        &prepare_request,
+    )?;
+    assert_eq!(status, 200);
+    let prepare_response: NormalSigningRound1PrepareResponseV1 = serde_json::from_str(&body)?;
+    let request =
+        build_local_normal_signing_finalize_request_v2(prepare_request, prepare_response)?;
+    let (status, body) = post_json_to_path_with_authorization(
+        router_url,
+        LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2,
+        LOCAL_ROUTER_NORMAL_SIGNING_WALLET_SESSION_AUTHORIZATION_V2,
+        &request,
+    )?;
+    assert_eq!(status, 200);
+    let response: NormalSigningResponseV1 = serde_json::from_str(&body)?;
+    assert_eq!(
+        response.signature_scheme,
+        NormalSigningSignatureSchemeV1::Ed25519V1
+    );
+    assert_eq!(response.signature.as_bytes().len(), 64);
+    Ok(())
+}
+
+fn local_normal_signing_prepare_requests_v2(
+    request_id_prefix: &str,
+) -> Result<Vec<RouterAbEd25519NormalSigningPrepareRequestV2>, Box<dyn std::error::Error>> {
+    Ok(vec![
+        build_local_normal_signing_near_transaction_prepare_request_v2(
+            format!("{request_id_prefix}-near-transaction"),
+            &local_unsigned_transaction_borsh_v2(),
+        )?,
+        build_local_normal_signing_nep413_prepare_request_v2(
+            format!("{request_id_prefix}-nep413"),
+            "Sign in to the local Router A/B HTTP test",
+            "wallet.local.test.near",
+            Some("https://local.example/callback".to_owned()),
+        )?,
+        build_local_normal_signing_delegate_action_prepare_request_v2(
+            format!("{request_id_prefix}-delegate-action"),
+            &local_delegate_action_borsh_v2(),
+        )?,
+    ])
+}
+
+fn local_unsigned_transaction_borsh_v2() -> Vec<u8> {
+    let mut out = Vec::new();
+    push_borsh_string(&mut out, "gamma.test.near");
+    out.push(0);
+    out.extend_from_slice(&[0; 32]);
+    out.extend_from_slice(&7_u64.to_le_bytes());
+    push_borsh_string(&mut out, "local-router.test.near");
+    out.extend_from_slice(&[0x44; 32]);
+    out.extend_from_slice(&1_u32.to_le_bytes());
+    out.push(2);
+    push_borsh_string(&mut out, "transfer");
+    push_borsh_bytes(&mut out, br#"{"amount":"1"}"#);
+    out.extend_from_slice(&30_000_000_000_000_u64.to_le_bytes());
+    out.extend_from_slice(&0_u128.to_le_bytes());
+    out
+}
+
+fn local_delegate_action_borsh_v2() -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(&1_073_742_190_u32.to_le_bytes());
+    push_borsh_string(&mut out, "gamma.test.near");
+    push_borsh_string(&mut out, "local-router.test.near");
+    out.extend_from_slice(&1_u32.to_le_bytes());
+    out.push(3);
+    out.extend_from_slice(&1_u128.to_le_bytes());
+    out.extend_from_slice(&7_u64.to_le_bytes());
+    out.extend_from_slice(&2_000_000_u64.to_le_bytes());
+    out.push(0);
+    out.extend_from_slice(&[0; 32]);
+    out
+}
+
+fn push_borsh_string(out: &mut Vec<u8>, value: &str) {
+    out.extend_from_slice(&(value.len() as u32).to_le_bytes());
+    out.extend_from_slice(value.as_bytes());
+}
+
+fn push_borsh_bytes(out: &mut Vec<u8>, value: &[u8]) {
+    out.extend_from_slice(&(value.len() as u32).to_le_bytes());
+    out.extend_from_slice(value);
 }
 
 struct ChildGuard {
@@ -310,6 +391,24 @@ fn post_json_to_path<T: Serialize>(
     path: &str,
     body: &T,
 ) -> Result<(u16, String), Box<dyn std::error::Error>> {
+    post_json_to_path_with_headers(base_url, path, body, &[])
+}
+
+fn post_json_to_path_with_authorization<T: Serialize>(
+    base_url: &str,
+    path: &str,
+    authorization: &str,
+    body: &T,
+) -> Result<(u16, String), Box<dyn std::error::Error>> {
+    post_json_to_path_with_headers(base_url, path, body, &[("authorization", authorization)])
+}
+
+fn post_json_to_path_with_headers<T: Serialize>(
+    base_url: &str,
+    path: &str,
+    body: &T,
+    headers: &[(&str, &str)],
+) -> Result<(u16, String), Box<dyn std::error::Error>> {
     let authority = base_url
         .strip_prefix("http://")
         .ok_or("post URL must use http://")?;
@@ -317,7 +416,14 @@ fn post_json_to_path<T: Serialize>(
     let mut stream = TcpStream::connect(authority)?;
     write!(
         stream,
-        "POST {path} HTTP/1.1\r\nhost: {authority}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+        "POST {path} HTTP/1.1\r\nhost: {authority}\r\ncontent-type: application/json\r\n",
+    )?;
+    for (name, value) in headers {
+        write!(stream, "{name}: {value}\r\n")?;
+    }
+    write!(
+        stream,
+        "content-length: {}\r\nconnection: close\r\n\r\n",
         body.len()
     )?;
     stream.write_all(&body)?;

@@ -12,13 +12,13 @@ inductive ForbiddenJoinedState where
   | joinedD
   | joinedA
   | joinedXClientBase
-  | joinedYRelayer
-  | joinedTauRelayer
+  | joinedYServer
+  | joinedTauServer
 deriving DecidableEq, Repr
 
 inductive OpenedValueKind where
   | xClientBase
-  | xRelayerBase
+  | xServerBase
 deriving DecidableEq, Repr
 
 inductive MpcPrfPartialOwner where
@@ -30,16 +30,16 @@ inductive RoleViewEvent where
   | publicMetadata
   | ciphertext
   | deriverAMpcPrfPartialXClientBase
-  | deriverAMpcPrfPartialXRelayerBase
+  | deriverAMpcPrfPartialXServerBase
   | deriverBMpcPrfPartialXClientBase
-  | deriverBMpcPrfPartialXRelayerBase
+  | deriverBMpcPrfPartialXServerBase
   | clientOpenedXClientBase
-  | signingWorkerOpenedXRelayerBase
+  | signingWorkerOpenedXServerBase
   | joinedD
   | joinedA
   | joinedXClientBase
-  | joinedYRelayer
-  | joinedTauRelayer
+  | joinedYServer
+  | joinedTauServer
 deriving DecidableEq, Repr
 
 def eventContainsForbiddenJoinedState
@@ -49,8 +49,8 @@ def eventContainsForbiddenJoinedState
   | RoleViewEvent.joinedD, ForbiddenJoinedState.joinedD => true
   | RoleViewEvent.joinedA, ForbiddenJoinedState.joinedA => true
   | RoleViewEvent.joinedXClientBase, ForbiddenJoinedState.joinedXClientBase => true
-  | RoleViewEvent.joinedYRelayer, ForbiddenJoinedState.joinedYRelayer => true
-  | RoleViewEvent.joinedTauRelayer, ForbiddenJoinedState.joinedTauRelayer => true
+  | RoleViewEvent.joinedYServer, ForbiddenJoinedState.joinedYServer => true
+  | RoleViewEvent.joinedTauServer, ForbiddenJoinedState.joinedTauServer => true
   | _, _ => false
 
 def roleMayObserveEvent
@@ -60,11 +60,11 @@ def roleMayObserveEvent
   | _, RoleViewEvent.publicMetadata => true
   | _, RoleViewEvent.ciphertext => true
   | Role.deriverA, RoleViewEvent.deriverAMpcPrfPartialXClientBase => true
-  | Role.deriverA, RoleViewEvent.deriverAMpcPrfPartialXRelayerBase => true
+  | Role.deriverA, RoleViewEvent.deriverAMpcPrfPartialXServerBase => true
   | Role.deriverB, RoleViewEvent.deriverBMpcPrfPartialXClientBase => true
-  | Role.deriverB, RoleViewEvent.deriverBMpcPrfPartialXRelayerBase => true
+  | Role.deriverB, RoleViewEvent.deriverBMpcPrfPartialXServerBase => true
   | Role.client, RoleViewEvent.clientOpenedXClientBase => true
-  | Role.signingWorker, RoleViewEvent.signingWorkerOpenedXRelayerBase => true
+  | Role.signingWorker, RoleViewEvent.signingWorkerOpenedXServerBase => true
   | _, _ => false
 
 def roleViewContainsForbiddenJoinedState
@@ -81,7 +81,7 @@ def roleMayObserveMpcPrfPartial
   | Role.deriverA, MpcPrfPartialOwner.deriverA, _ => true
   | Role.deriverB, MpcPrfPartialOwner.deriverB, _ => true
   | Role.client, _, OpenedValueKind.xClientBase => true
-  | Role.signingWorker, _, OpenedValueKind.xRelayerBase => true
+  | Role.signingWorker, _, OpenedValueKind.xServerBase => true
   | _, _, _ => false
 
 theorem forbidden_joined_state_events_are_unobservable
@@ -122,11 +122,11 @@ theorem client_view_excludes_forbidden_joined_material
       event = false ∧
     roleViewContainsForbiddenJoinedState
       Role.client
-      ForbiddenJoinedState.joinedYRelayer
+      ForbiddenJoinedState.joinedYServer
       event = false ∧
     roleViewContainsForbiddenJoinedState
       Role.client
-      ForbiddenJoinedState.joinedTauRelayer
+      ForbiddenJoinedState.joinedTauServer
       event = false := by
   cases event <;>
     simp [
@@ -148,11 +148,11 @@ theorem client_observes_only_x_client_base_partials
     opened = OpenedValueKind.xClientBase := by
   cases owner <;> cases opened <;> simp [roleMayObserveMpcPrfPartial] at hVisible
 
-theorem signing_worker_observes_only_x_relayer_base_partials
+theorem signing_worker_observes_only_x_server_base_partials
     (owner : MpcPrfPartialOwner)
     (opened : OpenedValueKind)
     (hVisible : roleMayObserveMpcPrfPartial Role.signingWorker owner opened = true) :
-    opened = OpenedValueKind.xRelayerBase := by
+    opened = OpenedValueKind.xServerBase := by
   cases owner <;> cases opened <;> simp [roleMayObserveMpcPrfPartial] at hVisible
 
 end RouterAbDerivationPrivacy

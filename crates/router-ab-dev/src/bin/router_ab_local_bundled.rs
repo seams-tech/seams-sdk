@@ -1,14 +1,17 @@
-use router_ab_core::{LocalServiceRoleV1, RouterAbProtocolError, RouterAbProtocolErrorCode};
+use router_ab_core::{LocalServiceRoleV1, RouterAbProtocolError};
 use router_ab_dev::{
     handle_local_deriver_peer_message_json_v1, handle_local_router_setup_smoke_request_json_v1,
     handle_local_signing_worker_activation_json_v1,
-    handle_local_signing_worker_normal_signing_smoke_json_v1, local_worker_owns_path_v1,
+    handle_local_signing_worker_normal_signing_json_v1,
+    handle_local_signing_worker_normal_signing_round1_prepare_json_v1, local_worker_owns_path_v1,
     parse_local_env_file_contents_v1, parse_local_worker_role_config_for_role_v1,
-    LocalRouterNormalSigningSmokeResponseV1, LocalSigningWorkerNormalSigningSmokeResponseV1,
-    LocalWorkerHealthResponseV1, LOCAL_DERIVER_A_PEER_PATH_V1, LOCAL_DERIVER_B_PEER_PATH_V1,
-    LOCAL_ROUTER_ENV_FILE_V1, LOCAL_ROUTER_NORMAL_SIGNING_PATH_V1,
+    LocalSigningWorkerConfigV1, LocalWorkerHealthResponseV1, LOCAL_DERIVER_A_PEER_PATH_V1,
+    LOCAL_DERIVER_B_PEER_PATH_V1, LOCAL_ROUTER_ENV_FILE_V1, LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2,
+    LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2,
+    LOCAL_ROUTER_NORMAL_SIGNING_WALLET_SESSION_AUTHORIZATION_V2,
     LOCAL_ROUTER_SPLIT_DERIVATION_PATH_V1, LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
-    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1, LOCAL_WORKER_HEALTH_PATH_V1,
+    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1,
+    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH_V1, LOCAL_WORKER_HEALTH_PATH_V1,
     LOCAL_WORKER_READY_PATH_V1,
 };
 use serde::Serialize;
@@ -45,6 +48,7 @@ struct BundledHttpErrorBody {
 struct LocalHttpRequestParts {
     method: String,
     path: String,
+    authorization: Option<String>,
     body: Vec<u8>,
 }
 
@@ -90,167 +94,204 @@ fn handle_connection(mut stream: TcpStream) -> Result<(), Box<dyn std::error::Er
     let method = request.method.as_str();
     let path = request.path.as_str();
 
-    let (status, body) =
-        if path == LOCAL_WORKER_HEALTH_PATH_V1 || path == LOCAL_WORKER_READY_PATH_V1 {
-            if method == "GET" {
-                (
-                    200,
-                    serde_json::to_string(&LocalWorkerHealthResponseV1 {
-                        role: LocalServiceRoleV1::Router,
-                        role_label: "bundled".to_owned(),
-                        bind_url: "bundled".to_owned(),
-                        status: "ready".to_owned(),
-                        startup_epoch: "local-dev".to_owned(),
-                        config_branch: "bundled_single_server".to_owned(),
-                    })?,
-                )
-            } else {
-                error_body(LocalServiceRoleV1::Router, path, 405, "method not allowed")?
+    let (status, body) = if path == LOCAL_WORKER_HEALTH_PATH_V1
+        || path == LOCAL_WORKER_READY_PATH_V1
+    {
+        if method == "GET" {
+            (
+                200,
+                serde_json::to_string(&LocalWorkerHealthResponseV1 {
+                    role: LocalServiceRoleV1::Router,
+                    role_label: "bundled".to_owned(),
+                    bind_url: "bundled".to_owned(),
+                    status: "ready".to_owned(),
+                    startup_epoch: "local-dev".to_owned(),
+                    config_branch: "bundled_single_server".to_owned(),
+                })?,
+            )
+        } else {
+            error_body(LocalServiceRoleV1::Router, path, 405, "method not allowed")?
+        }
+    } else if path == LOCAL_ROUTER_SPLIT_DERIVATION_PATH_V1 {
+        if method == "POST" {
+            match handle_local_router_setup_smoke_request_json_v1(&request.body) {
+                Ok(response) => (200, response),
+                Err(error) => route_error(LocalServiceRoleV1::Router, path, error)?,
             }
-        } else if path == LOCAL_ROUTER_SPLIT_DERIVATION_PATH_V1 {
-            if method == "POST" {
-                match handle_local_router_setup_smoke_request_json_v1(&request.body) {
+        } else {
+            error_body(LocalServiceRoleV1::Router, path, 405, "method not allowed")?
+        }
+    } else if path == LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2 {
+        if method == "POST" {
+            if let Err(error) = require_local_normal_signing_wallet_session_v2(&request) {
+                error_body(LocalServiceRoleV1::Router, path, 401, error)?
+            } else {
+                match handle_bundled_router_normal_signing_round1_prepare_json_v1(&request.body) {
                     Ok(response) => (200, response),
                     Err(error) => route_error(LocalServiceRoleV1::Router, path, error)?,
                 }
-            } else {
-                error_body(LocalServiceRoleV1::Router, path, 405, "method not allowed")?
             }
-        } else if path == LOCAL_ROUTER_NORMAL_SIGNING_PATH_V1 {
-            if method == "POST" {
+        } else {
+            error_body(LocalServiceRoleV1::Router, path, 405, "method not allowed")?
+        }
+    } else if path == LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2 {
+        if method == "POST" {
+            if let Err(error) = require_local_normal_signing_wallet_session_v2(&request) {
+                error_body(LocalServiceRoleV1::Router, path, 401, error)?
+            } else {
                 match handle_bundled_router_normal_signing_json_v1(&request.body) {
                     Ok(response) => (200, response),
                     Err(error) => route_error(LocalServiceRoleV1::Router, path, error)?,
                 }
-            } else {
-                error_body(LocalServiceRoleV1::Router, path, 405, "method not allowed")?
             }
-        } else if path == LOCAL_DERIVER_A_PEER_PATH_V1 {
-            if method == "POST" {
-                match handle_local_deriver_peer_message_json_v1(
-                    LocalServiceRoleV1::DeriverA,
-                    path,
-                    &request.body,
-                ) {
-                    Ok(response) => (200, response),
-                    Err(error) => route_error(LocalServiceRoleV1::DeriverA, path, error)?,
-                }
-            } else {
-                error_body(
-                    LocalServiceRoleV1::DeriverA,
-                    path,
-                    405,
-                    "method not allowed",
-                )?
-            }
-        } else if path == LOCAL_DERIVER_B_PEER_PATH_V1 {
-            if method == "POST" {
-                match handle_local_deriver_peer_message_json_v1(
-                    LocalServiceRoleV1::DeriverB,
-                    path,
-                    &request.body,
-                ) {
-                    Ok(response) => (200, response),
-                    Err(error) => route_error(LocalServiceRoleV1::DeriverB, path, error)?,
-                }
-            } else {
-                error_body(
-                    LocalServiceRoleV1::DeriverB,
-                    path,
-                    405,
-                    "method not allowed",
-                )?
-            }
-        } else if path == LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1 {
-            if method == "POST" {
-                match handle_local_signing_worker_activation_json_v1(
-                    LocalServiceRoleV1::SigningWorker,
-                    path,
-                    &request.body,
-                ) {
-                    Ok(response) => (200, response),
-                    Err(error) => route_error(LocalServiceRoleV1::SigningWorker, path, error)?,
-                }
-            } else {
-                error_body(
-                    LocalServiceRoleV1::SigningWorker,
-                    path,
-                    405,
-                    "method not allowed",
-                )?
-            }
-        } else if path == LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1 {
-            if method == "POST" {
-                match handle_local_signing_worker_normal_signing_smoke_json_v1(
-                    LocalServiceRoleV1::SigningWorker,
-                    path,
-                    &request.body,
-                ) {
-                    Ok(response) => (200, response),
-                    Err(error) => route_error(LocalServiceRoleV1::SigningWorker, path, error)?,
-                }
-            } else {
-                error_body(
-                    LocalServiceRoleV1::SigningWorker,
-                    path,
-                    405,
-                    "method not allowed",
-                )?
-            }
-        } else if local_worker_owns_path_v1(LocalServiceRoleV1::Router, path) {
-            error_body(
-                LocalServiceRoleV1::Router,
+        } else {
+            error_body(LocalServiceRoleV1::Router, path, 405, "method not allowed")?
+        }
+    } else if path == LOCAL_DERIVER_A_PEER_PATH_V1 {
+        if method == "POST" {
+            match handle_local_deriver_peer_message_json_v1(
+                LocalServiceRoleV1::DeriverA,
                 path,
-                501,
-                "local protocol route is not implemented yet",
-            )?
+                &request.body,
+            ) {
+                Ok(response) => (200, response),
+                Err(error) => route_error(LocalServiceRoleV1::DeriverA, path, error)?,
+            }
         } else {
             error_body(
-                LocalServiceRoleV1::Router,
+                LocalServiceRoleV1::DeriverA,
                 path,
-                404,
-                "path is not owned by bundled server",
+                405,
+                "method not allowed",
             )?
-        };
+        }
+    } else if path == LOCAL_DERIVER_B_PEER_PATH_V1 {
+        if method == "POST" {
+            match handle_local_deriver_peer_message_json_v1(
+                LocalServiceRoleV1::DeriverB,
+                path,
+                &request.body,
+            ) {
+                Ok(response) => (200, response),
+                Err(error) => route_error(LocalServiceRoleV1::DeriverB, path, error)?,
+            }
+        } else {
+            error_body(
+                LocalServiceRoleV1::DeriverB,
+                path,
+                405,
+                "method not allowed",
+            )?
+        }
+    } else if path == LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1 {
+        if method == "POST" {
+            match handle_local_signing_worker_activation_json_v1(
+                LocalServiceRoleV1::SigningWorker,
+                path,
+                &request.body,
+            ) {
+                Ok(response) => (200, response),
+                Err(error) => route_error(LocalServiceRoleV1::SigningWorker, path, error)?,
+            }
+        } else {
+            error_body(
+                LocalServiceRoleV1::SigningWorker,
+                path,
+                405,
+                "method not allowed",
+            )?
+        }
+    } else if path == LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH_V1 {
+        if method == "POST" {
+            match handle_local_signing_worker_normal_signing_round1_prepare_json_v1(
+                &local_bundled_signing_worker_config_v1(),
+                LocalServiceRoleV1::SigningWorker,
+                path,
+                &request.body,
+            ) {
+                Ok(response) => (200, response),
+                Err(error) => route_error(LocalServiceRoleV1::SigningWorker, path, error)?,
+            }
+        } else {
+            error_body(
+                LocalServiceRoleV1::SigningWorker,
+                path,
+                405,
+                "method not allowed",
+            )?
+        }
+    } else if path == LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1 {
+        if method == "POST" {
+            match handle_local_signing_worker_normal_signing_json_v1(
+                &local_bundled_signing_worker_config_v1(),
+                LocalServiceRoleV1::SigningWorker,
+                path,
+                &request.body,
+            ) {
+                Ok(response) => (200, response),
+                Err(error) => route_error(LocalServiceRoleV1::SigningWorker, path, error)?,
+            }
+        } else {
+            error_body(
+                LocalServiceRoleV1::SigningWorker,
+                path,
+                405,
+                "method not allowed",
+            )?
+        }
+    } else if local_worker_owns_path_v1(LocalServiceRoleV1::Router, path) {
+        error_body(
+            LocalServiceRoleV1::Router,
+            path,
+            501,
+            "local protocol route is not implemented yet",
+        )?
+    } else {
+        error_body(
+            LocalServiceRoleV1::Router,
+            path,
+            404,
+            "path is not owned by bundled server",
+        )?
+    };
 
     write_response(&mut stream, status, &body)?;
     Ok(())
 }
 
+fn handle_bundled_router_normal_signing_round1_prepare_json_v1(
+    body: &[u8],
+) -> Result<String, RouterAbProtocolError> {
+    handle_local_signing_worker_normal_signing_round1_prepare_json_v1(
+        &local_bundled_signing_worker_config_v1(),
+        LocalServiceRoleV1::SigningWorker,
+        LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH_V1,
+        body,
+    )
+}
+
 fn handle_bundled_router_normal_signing_json_v1(
     body: &[u8],
 ) -> Result<String, RouterAbProtocolError> {
-    let signing_worker_json = handle_local_signing_worker_normal_signing_smoke_json_v1(
+    handle_local_signing_worker_normal_signing_json_v1(
+        &local_bundled_signing_worker_config_v1(),
         LocalServiceRoleV1::SigningWorker,
         LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1,
         body,
-    )?;
-    let signing_worker = serde_json::from_str::<LocalSigningWorkerNormalSigningSmokeResponseV1>(
-        &signing_worker_json,
     )
-    .map_err(|error| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            format!("bundled SigningWorker normal-signing response JSON parse failed: {error}"),
-        )
-    })?;
-    serde_json::to_string(&LocalRouterNormalSigningSmokeResponseV1 {
-        status: "signed".to_owned(),
-        forwarded_to_role: LocalServiceRoleV1::SigningWorker,
-        signing_worker_status: signing_worker.status,
-        signature_scheme: signing_worker.signature_scheme,
-        signing_payload_digest_hex: signing_worker.signing_payload_digest_hex,
-        signature_hex: signing_worker.signature_hex,
-        verifying_key_hex: signing_worker.verifying_key_hex,
-        deriver_a_request_count: 0,
-        deriver_b_request_count: 0,
-    })
-    .map_err(|error| {
-        RouterAbProtocolError::new(
-            RouterAbProtocolErrorCode::MalformedWirePayload,
-            format!("bundled Router normal-signing response JSON serialization failed: {error}"),
-        )
-    })
+}
+
+fn local_bundled_signing_worker_config_v1() -> LocalSigningWorkerConfigV1 {
+    LocalSigningWorkerConfigV1 {
+        signing_worker_url: "bundled".to_owned(),
+        signing_worker_id: "local-signing-worker".to_owned(),
+        signing_worker_key_epoch: "epoch-1".to_owned(),
+        server_output_hpke_public_key:
+            "x25519:3333333333333333333333333333333333333333333333333333333333333333".to_owned(),
+        server_output_hpke_private_key:
+            "dev-only-bundled-signing-worker-server-output-hpke-private-key".to_owned(),
+        server_output_storage_path: "bundled".to_owned(),
+    }
 }
 
 fn route_error(
@@ -289,6 +330,7 @@ fn read_http_request(
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or_default().to_owned();
     let path = parts.next().unwrap_or_default().to_owned();
+    let authorization = authorization_header(headers);
     let content_length = content_length(headers)?;
     let body_start = header_end + 4;
     while request.len() < body_start + content_length {
@@ -304,8 +346,31 @@ fn read_http_request(
     Ok(LocalHttpRequestParts {
         method,
         path,
+        authorization,
         body: request[body_start..body_start + content_length].to_vec(),
     })
+}
+
+fn require_local_normal_signing_wallet_session_v2(
+    request: &LocalHttpRequestParts,
+) -> Result<(), &'static str> {
+    match request.authorization.as_deref() {
+        Some(LOCAL_ROUTER_NORMAL_SIGNING_WALLET_SESSION_AUTHORIZATION_V2) => Ok(()),
+        Some(_) => Err("local Router normal-signing Wallet Session authorization is invalid"),
+        None => Err("local Router normal-signing Wallet Session authorization is missing"),
+    }
+}
+
+fn authorization_header(headers: &str) -> Option<String> {
+    for line in headers.lines().skip(1) {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if name.eq_ignore_ascii_case("authorization") {
+            return Some(value.trim().to_owned());
+        }
+    }
+    None
 }
 
 fn content_length(headers: &str) -> Result<usize, Box<dyn std::error::Error>> {
@@ -327,6 +392,7 @@ fn write_response(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let reason = match status {
         200 => "OK",
+        401 => "Unauthorized",
         400 => "Bad Request",
         404 => "Not Found",
         405 => "Method Not Allowed",

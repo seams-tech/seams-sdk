@@ -42,8 +42,8 @@ pub struct RegistrationScope {
     pub expected_router_id: String,
     /// Expected client identity.
     pub expected_client_id: String,
-    /// Expected selected relayer identity.
-    pub expected_relayer_id: String,
+    /// Expected selected server identity.
+    pub expected_server_id: String,
 }
 
 impl RegistrationScope {
@@ -55,7 +55,7 @@ impl RegistrationScope {
         require_non_empty("signer_set_id", &self.signer_set_id)?;
         require_non_empty("expected_router_id", &self.expected_router_id)?;
         require_non_empty("expected_client_id", &self.expected_client_id)?;
-        require_non_empty("expected_relayer_id", &self.expected_relayer_id)?;
+        require_non_empty("expected_server_id", &self.expected_server_id)?;
         Ok(())
     }
 }
@@ -109,8 +109,8 @@ pub struct RefreshScope {
     pub expected_router_id: String,
     /// Expected client identity.
     pub expected_client_id: String,
-    /// Expected selected relayer identity.
-    pub expected_relayer_id: String,
+    /// Expected selected server identity.
+    pub expected_server_id: String,
     /// Address verification requirement label.
     pub address_verification_requirement: String,
 }
@@ -134,7 +134,7 @@ impl RefreshScope {
         require_non_empty("new_signer_set_id", &self.new_signer_set_id)?;
         require_non_empty("expected_router_id", &self.expected_router_id)?;
         require_non_empty("expected_client_id", &self.expected_client_id)?;
-        require_non_empty("expected_relayer_id", &self.expected_relayer_id)?;
+        require_non_empty("expected_server_id", &self.expected_server_id)?;
         require_non_empty(
             "address_verification_requirement",
             &self.address_verification_requirement,

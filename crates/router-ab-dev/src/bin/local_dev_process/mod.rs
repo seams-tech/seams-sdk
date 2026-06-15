@@ -283,12 +283,37 @@ pub fn post_json_to_path<T: Serialize>(
     path: &str,
     body: &T,
 ) -> Result<(u16, String), Box<dyn std::error::Error>> {
+    post_json_to_path_with_headers(base_url, path, body, &[])
+}
+
+pub fn post_json_to_path_with_authorization<T: Serialize>(
+    base_url: &str,
+    path: &str,
+    authorization: &str,
+    body: &T,
+) -> Result<(u16, String), Box<dyn std::error::Error>> {
+    post_json_to_path_with_headers(base_url, path, body, &[("authorization", authorization)])
+}
+
+fn post_json_to_path_with_headers<T: Serialize>(
+    base_url: &str,
+    path: &str,
+    body: &T,
+    headers: &[(&str, &str)],
+) -> Result<(u16, String), Box<dyn std::error::Error>> {
     let authority = http_authority(base_url)?;
     let body = serde_json::to_vec(body)?;
     let mut stream = TcpStream::connect(authority)?;
     write!(
         stream,
-        "POST {path} HTTP/1.1\r\nhost: {authority}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+        "POST {path} HTTP/1.1\r\nhost: {authority}\r\ncontent-type: application/json\r\n",
+    )?;
+    for (name, value) in headers {
+        write!(stream, "{name}: {value}\r\n")?;
+    }
+    write!(
+        stream,
+        "content-length: {}\r\nconnection: close\r\n\r\n",
         body.len()
     )?;
     stream.write_all(&body)?;

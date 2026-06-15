@@ -107,7 +107,7 @@ Initial content kinds:
 - `a_to_b_coordination`
 - `b_to_a_coordination`
 - `client_output_share`
-- `relayer_output_share`
+- `server_output_share`
 - `minimum_level_c_evidence`
 - `public_share_binding_evidence`
 
@@ -143,7 +143,7 @@ Canonical `DeriverInputPlaintextV1` bytes bind:
 Allowed output request pairs are:
 
 - `x_client_base` opened to the client recipient
-- `x_relayer_base` opened to the selected SigningWorker recipient
+- `x_server_base` opened to the selected SigningWorker recipient
 
 Request-kind policy may narrow the output-request list for a specific product
 operation. The decoder must reject an output request whose opened share kind and
@@ -154,8 +154,8 @@ Forbidden plaintext fields:
 - joined `d`
 - joined `a`
 - joined `x_client_base`
-- joined `y_relayer`
-- joined `tau_relayer`
+- joined `y_server`
+- joined `tau_server`
 - raw root shares
 - peer deriver root shares
 - HSS joined executor state

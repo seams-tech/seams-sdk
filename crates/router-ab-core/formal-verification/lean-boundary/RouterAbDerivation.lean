@@ -10,12 +10,12 @@ deriving DecidableEq, Repr
 
 inductive OpenedValueKind where
   | xClientBase
-  | xRelayerBase
+  | xServerBase
 deriving DecidableEq, Repr
 
 def roleMayOpen : Role -> OpenedValueKind -> Bool
   | Role.client, OpenedValueKind.xClientBase => true
-  | Role.signingWorker, OpenedValueKind.xRelayerBase => true
+  | Role.signingWorker, OpenedValueKind.xServerBase => true
   | _, _ => false
 
 theorem client_opens_only_x_client_base
@@ -24,10 +24,10 @@ theorem client_opens_only_x_client_base
     opened = OpenedValueKind.xClientBase := by
   cases opened <;> simp [roleMayOpen] at h
 
-theorem signing_worker_opens_only_x_relayer_base
+theorem signing_worker_opens_only_x_server_base
     (opened : OpenedValueKind)
     (h : roleMayOpen Role.signingWorker opened = true) :
-    opened = OpenedValueKind.xRelayerBase := by
+    opened = OpenedValueKind.xServerBase := by
   cases opened <;> simp [roleMayOpen] at h
 
 end RouterAbDerivation

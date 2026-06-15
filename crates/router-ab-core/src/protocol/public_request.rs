@@ -121,10 +121,10 @@ impl PublicRouterRequestContextV1 {
                 "public Router request context lifecycle signer-set id does not match signer set",
             ));
         }
-        if self.lifecycle.selected_relayer_id != self.signer_set.selected_relayer.relayer_id {
+        if self.lifecycle.selected_server_id != self.signer_set.selected_server.server_id {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::InvalidLifecycleState,
-                "public Router request context selected relayer does not match signer set",
+                "public Router request context selected server does not match signer set",
             ));
         }
         Ok(())
@@ -462,7 +462,7 @@ fn push_lifecycle_scope(out: &mut Vec<u8>, lifecycle: &LifecycleScopeV1) {
     push_string(out, &lifecycle.account_id);
     push_string(out, &lifecycle.session_id);
     push_string(out, &lifecycle.signer_set_id);
-    push_string(out, &lifecycle.selected_relayer_id);
+    push_string(out, &lifecycle.selected_server_id);
 }
 
 fn push_public_request_context_v1(out: &mut Vec<u8>, context: &PublicRouterRequestContextV1) {
@@ -492,9 +492,9 @@ fn push_signer_set(out: &mut Vec<u8>, signer_set: &SignerSetV1) {
     push_len32(out, signer_set.signer_b.role.as_str().as_bytes());
     push_string(out, &signer_set.signer_b.signer_id);
     push_string(out, &signer_set.signer_b.key_epoch);
-    push_string(out, &signer_set.selected_relayer.relayer_id);
-    push_string(out, &signer_set.selected_relayer.key_epoch);
-    push_string(out, &signer_set.selected_relayer.recipient_encryption_key);
+    push_string(out, &signer_set.selected_server.server_id);
+    push_string(out, &signer_set.selected_server.key_epoch);
+    push_string(out, &signer_set.selected_server.recipient_encryption_key);
 }
 
 fn push_role_envelope(out: &mut Vec<u8>, envelope: &RoleEncryptedEnvelopeV1) {

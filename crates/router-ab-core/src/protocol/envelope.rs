@@ -8,7 +8,7 @@ use crate::protocol::error::{
     RouterAbProtocolError, RouterAbProtocolErrorCode, RouterAbProtocolResult,
 };
 use crate::protocol::gate::ExpensiveWorkKindV1;
-use crate::protocol::identity::{RelayerIdentityV1, SignerIdentityV1};
+use crate::protocol::identity::{ServerIdentityV1, SignerIdentityV1};
 
 const ROLE_ENVELOPE_AAD_VERSION_V1: &[u8] = b"router-ab-protocol/role-envelope-aad/v1";
 const ROLE_ENCRYPTED_ENVELOPE_DIGEST_VERSION_V1: &[u8] =
@@ -189,8 +189,8 @@ pub struct RoleEnvelopeAadV1 {
     pub signer_set_id: String,
     /// Recipient signer identity.
     pub recipient: SignerIdentityV1,
-    /// Selected relayer identity.
-    pub selected_relayer: RelayerIdentityV1,
+    /// Selected server identity.
+    pub selected_server: ServerIdentityV1,
     /// Public transcript digest.
     pub transcript_digest: PublicDigest32,
     /// Router request digest.
@@ -207,7 +207,7 @@ impl RoleEnvelopeAadV1 {
         work_kind: ExpensiveWorkKindV1,
         signer_set_id: impl Into<String>,
         recipient: SignerIdentityV1,
-        selected_relayer: RelayerIdentityV1,
+        selected_server: ServerIdentityV1,
         transcript_digest: PublicDigest32,
         router_request_digest: PublicDigest32,
         expires_at_ms: u64,
@@ -218,7 +218,7 @@ impl RoleEnvelopeAadV1 {
             primitive_request_kind: work_kind.primitive_request_kind(),
             signer_set_id: signer_set_id.into(),
             recipient,
-            selected_relayer,
+            selected_server,
             transcript_digest,
             router_request_digest,
             expires_at_ms,
@@ -232,7 +232,7 @@ impl RoleEnvelopeAadV1 {
         require_non_empty("lifecycle_id", &self.lifecycle_id)?;
         require_non_empty("signer_set_id", &self.signer_set_id)?;
         self.recipient.validate()?;
-        self.selected_relayer.validate()?;
+        self.selected_server.validate()?;
         if self.primitive_request_kind != self.work_kind.primitive_request_kind() {
             return Err(RouterAbProtocolError::new(
                 RouterAbProtocolErrorCode::MalformedWirePayload,
@@ -322,7 +322,7 @@ pub fn encode_role_envelope_aad_v1(aad: &RoleEnvelopeAadV1) -> Vec<u8> {
     push_len32(&mut out, aad.primitive_request_kind.as_str().as_bytes());
     push_string(&mut out, &aad.signer_set_id);
     push_signer_identity(&mut out, &aad.recipient);
-    push_relayer_identity(&mut out, &aad.selected_relayer);
+    push_server_identity(&mut out, &aad.selected_server);
     push_public_digest(&mut out, aad.transcript_digest);
     push_public_digest(&mut out, aad.router_request_digest);
     push_u64(&mut out, aad.expires_at_ms);
@@ -462,8 +462,8 @@ fn push_signer_identity(out: &mut Vec<u8>, identity: &SignerIdentityV1) {
     push_string(out, &identity.key_epoch);
 }
 
-fn push_relayer_identity(out: &mut Vec<u8>, identity: &RelayerIdentityV1) {
-    push_string(out, &identity.relayer_id);
+fn push_server_identity(out: &mut Vec<u8>, identity: &ServerIdentityV1) {
+    push_string(out, &identity.server_id);
     push_string(out, &identity.key_epoch);
     push_string(out, &identity.recipient_encryption_key);
 }
@@ -494,7 +494,7 @@ fn parse_role(value: &str) -> RouterAbProtocolResult<Role> {
         "signer_a" => Ok(Role::SignerA),
         "signer_b" => Ok(Role::SignerB),
         "router" => Ok(Role::Router),
-        "relayer" => Ok(Role::Relayer),
+        "server" => Ok(Role::Server),
         "client" => Ok(Role::Client),
         _ => Err(RouterAbProtocolError::new(
             RouterAbProtocolErrorCode::InvalidRole,

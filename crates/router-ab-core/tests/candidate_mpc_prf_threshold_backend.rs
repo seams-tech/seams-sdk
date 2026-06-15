@@ -98,7 +98,7 @@ fn transcript(context: DerivationContext) -> TranscriptBinding {
             "key-epoch-b-1",
         )
         .expect("signer set"),
-        "role:relayer:local:sha256-r",
+        "role:server:local:sha256-r",
         "x25519:1111111111111111111111111111111111111111111111111111111111111111",
         "role:client:local:sha256-c",
         "x25519:client-ephemeral-public-key",
@@ -113,10 +113,10 @@ fn output_request(opened_share_kind: OpenedShareKind) -> MpcPrfOutputRequestV1 {
             Role::Client,
             "role:client:local:sha256-c",
         ),
-        OpenedShareKind::XRelayerBase => MpcPrfOutputRequestV1::new(
-            OpenedShareKind::XRelayerBase,
-            Role::Relayer,
-            "role:relayer:local:sha256-r",
+        OpenedShareKind::XServerBase => MpcPrfOutputRequestV1::new(
+            OpenedShareKind::XServerBase,
+            Role::Server,
+            "role:server:local:sha256-r",
         ),
     }
     .expect("output request")
@@ -256,8 +256,8 @@ fn threshold_context_from_router_plan(
         router_ab_core::MpcPrfOutputPurposeV1::RouterAbXClientBase => {
             PrfPurpose::RouterAbXClientBaseV1
         }
-        router_ab_core::MpcPrfOutputPurposeV1::RouterAbXRelayerBase => {
-            PrfPurpose::RouterAbXRelayerBaseV1
+        router_ab_core::MpcPrfOutputPurposeV1::RouterAbXServerBase => {
+            PrfPurpose::RouterAbXServerBaseV1
         }
     };
     assert_eq!(
@@ -348,12 +348,12 @@ fn threshold_backend_matches_committed_threshold_prf_router_ab_2_of_3_fixture() 
         .vectors
         .iter()
         .find(|vector| {
-            vector.purpose == "router-ab/x_relayer_base/v1"
+            vector.purpose == "router-ab/x_server_base/v1"
                 && vector.policy.threshold == 2
                 && vector.policy.share_count == 3
         })
         .expect("Router/A/B 2-of-3 fixture exists");
-    let request = output_request(OpenedShareKind::XRelayerBase);
+    let request = output_request(OpenedShareKind::XServerBase);
     let signer_a = signer_input(
         Role::SignerA,
         "role:signer-a:local:sha256-a",
@@ -401,9 +401,9 @@ fn threshold_backend_matches_committed_threshold_prf_router_ab_2_of_3_fixture() 
     let combined =
         combine_mpc_prf_proof_bundles_with_threshold_backend_v1(MpcPrfThresholdCombineInputV1 {
             transcript: signer_a.transcript,
-            opened_share_kind: OpenedShareKind::XRelayerBase,
-            recipient_role: Role::Relayer,
-            recipient_identity: "role:relayer:local:sha256-r".to_owned(),
+            opened_share_kind: OpenedShareKind::XServerBase,
+            recipient_role: Role::Server,
+            recipient_identity: "role:server:local:sha256-r".to_owned(),
             left: bundle_a,
             right: bundle_b,
         })
@@ -417,10 +417,10 @@ fn threshold_backend_matches_committed_threshold_prf_router_ab_2_of_3_fixture() 
 }
 
 #[test]
-fn threshold_backend_separates_client_and_relayer_outputs() {
+fn threshold_backend_separates_client_and_server_outputs() {
     let client_request = output_request(OpenedShareKind::XClientBase);
-    let relayer_request = output_request(OpenedShareKind::XRelayerBase);
-    let requests = vec![client_request.clone(), relayer_request.clone()];
+    let server_request = output_request(OpenedShareKind::XServerBase);
+    let requests = vec![client_request.clone(), server_request.clone()];
     let signer_a = signer_input(
         Role::SignerA,
         "role:signer-a:local:sha256-a",
@@ -453,28 +453,28 @@ fn threshold_backend_separates_client_and_relayer_outputs() {
         &mut seeded_rng(13),
     )
     .expect("client B");
-    let relayer_a = evaluate_mpc_prf_signer_partial_with_threshold_backend_v1(
+    let server_a = evaluate_mpc_prf_signer_partial_with_threshold_backend_v1(
         MpcPrfThresholdSignerInputV1 {
             signer_input: signer_a.clone(),
-            output_request: relayer_request.clone(),
+            output_request: server_request.clone(),
             signing_root_share_wire: share_wire(
                 SigningRootShareWire::from_share(&shares[0]).to_bytes(),
             ),
         },
         &mut seeded_rng(14),
     )
-    .expect("relayer A");
-    let relayer_b = evaluate_mpc_prf_signer_partial_with_threshold_backend_v1(
+    .expect("server A");
+    let server_b = evaluate_mpc_prf_signer_partial_with_threshold_backend_v1(
         MpcPrfThresholdSignerInputV1 {
             signer_input: signer_b,
-            output_request: relayer_request,
+            output_request: server_request,
             signing_root_share_wire: share_wire(
                 SigningRootShareWire::from_share(&shares[2]).to_bytes(),
             ),
         },
         &mut seeded_rng(15),
     )
-    .expect("relayer B");
+    .expect("server B");
 
     let client =
         combine_mpc_prf_proof_bundles_with_threshold_backend_v1(MpcPrfThresholdCombineInputV1 {
@@ -486,25 +486,25 @@ fn threshold_backend_separates_client_and_relayer_outputs() {
             right: client_b,
         })
         .expect("client output");
-    let relayer =
+    let server =
         combine_mpc_prf_proof_bundles_with_threshold_backend_v1(MpcPrfThresholdCombineInputV1 {
             transcript: signer_a.transcript,
-            opened_share_kind: OpenedShareKind::XRelayerBase,
-            recipient_role: Role::Relayer,
-            recipient_identity: "role:relayer:local:sha256-r".to_owned(),
-            left: relayer_a,
-            right: relayer_b,
+            opened_share_kind: OpenedShareKind::XServerBase,
+            recipient_role: Role::Server,
+            recipient_identity: "role:server:local:sha256-r".to_owned(),
+            left: server_a,
+            right: server_b,
         })
-        .expect("relayer output");
+        .expect("server output");
 
-    assert_ne!(client.output_material, relayer.output_material);
+    assert_ne!(client.output_material, server.output_material);
 }
 
 #[test]
 fn threshold_backend_batch_evaluates_all_requested_outputs() {
     let client_request = output_request(OpenedShareKind::XClientBase);
-    let relayer_request = output_request(OpenedShareKind::XRelayerBase);
-    let requests = vec![client_request, relayer_request];
+    let server_request = output_request(OpenedShareKind::XServerBase);
+    let requests = vec![client_request, server_request];
     let signer_a = signer_input(
         Role::SignerA,
         "role:signer-a:local:sha256-a",
@@ -546,7 +546,7 @@ fn threshold_backend_batch_evaluates_all_requested_outputs() {
             .signer_partial
             .binding
             .opened_share_kind,
-        OpenedShareKind::XRelayerBase
+        OpenedShareKind::XServerBase
     );
 
     let client =
@@ -559,27 +559,27 @@ fn threshold_backend_batch_evaluates_all_requested_outputs() {
             right: batch_bundle_for_kind(&batch_b, OpenedShareKind::XClientBase),
         })
         .expect("client output");
-    let relayer =
+    let server =
         combine_mpc_prf_proof_bundles_with_threshold_backend_v1(MpcPrfThresholdCombineInputV1 {
             transcript: signer_a.transcript,
-            opened_share_kind: OpenedShareKind::XRelayerBase,
-            recipient_role: Role::Relayer,
-            recipient_identity: "role:relayer:local:sha256-r".to_owned(),
-            left: batch_bundle_for_kind(&batch_a, OpenedShareKind::XRelayerBase),
-            right: batch_bundle_for_kind(&batch_b, OpenedShareKind::XRelayerBase),
+            opened_share_kind: OpenedShareKind::XServerBase,
+            recipient_role: Role::Server,
+            recipient_identity: "role:server:local:sha256-r".to_owned(),
+            left: batch_bundle_for_kind(&batch_a, OpenedShareKind::XServerBase),
+            right: batch_bundle_for_kind(&batch_b, OpenedShareKind::XServerBase),
         })
-        .expect("relayer output");
+        .expect("server output");
 
     assert_eq!(client.opened_share_kind, OpenedShareKind::XClientBase);
-    assert_eq!(relayer.opened_share_kind, OpenedShareKind::XRelayerBase);
-    assert_ne!(client.output_material, relayer.output_material);
+    assert_eq!(server.opened_share_kind, OpenedShareKind::XServerBase);
+    assert_ne!(client.output_material, server.output_material);
 }
 
 #[test]
 fn threshold_backend_batch_combines_all_matching_outputs() {
     let client_request = output_request(OpenedShareKind::XClientBase);
-    let relayer_request = output_request(OpenedShareKind::XRelayerBase);
-    let requests = vec![client_request, relayer_request];
+    let server_request = output_request(OpenedShareKind::XServerBase);
+    let requests = vec![client_request, server_request];
     let signer_a = signer_input(
         Role::SignerA,
         "role:signer-a:local:sha256-a",
@@ -620,7 +620,7 @@ fn threshold_backend_batch_combines_all_matching_outputs() {
     );
     assert_eq!(
         combined.outputs[1].opened_share_kind,
-        OpenedShareKind::XRelayerBase
+        OpenedShareKind::XServerBase
     );
     assert_ne!(
         combined.outputs[0].output_material,
@@ -631,11 +631,11 @@ fn threshold_backend_batch_combines_all_matching_outputs() {
 #[test]
 fn threshold_backend_batch_combine_rejects_missing_peer_output() {
     let client_request = output_request(OpenedShareKind::XClientBase);
-    let relayer_request = output_request(OpenedShareKind::XRelayerBase);
+    let server_request = output_request(OpenedShareKind::XServerBase);
     let signer_a = signer_input(
         Role::SignerA,
         "role:signer-a:local:sha256-a",
-        vec![client_request.clone(), relayer_request],
+        vec![client_request.clone(), server_request],
     );
     let signer_b = signer_input(
         Role::SignerB,
@@ -667,7 +667,7 @@ fn threshold_backend_batch_combine_rejects_missing_peer_output() {
             right: batch_b,
         },
     )
-    .expect_err("missing relayer peer output must fail");
+    .expect_err("missing server peer output must fail");
 
     assert_eq!(err.code(), RouterAbDerivationErrorCode::RecipientMismatch);
 }
@@ -732,7 +732,7 @@ fn threshold_backend_rejects_non_signer_role() {
         "role:signer-a:local:sha256-a",
         vec![request.clone()],
     );
-    signer_a.signer_role = Role::Relayer;
+    signer_a.signer_role = Role::Server;
     let [share_a, _share_b] = share_wires();
 
     let err = evaluate_mpc_prf_signer_partial_with_threshold_backend_v1(
@@ -806,8 +806,8 @@ fn threshold_backend_rejects_transcript_mismatch() {
         original_transcript.context().clone(),
         "role:router:local:sha256-other",
         original_transcript.signer_set().clone(),
-        original_transcript.selected_relayer_id(),
-        original_transcript.selected_relayer_recipient_encryption_key(),
+        original_transcript.selected_server_id(),
+        original_transcript.selected_server_recipient_encryption_key(),
         original_transcript.client_id(),
         original_transcript.client_ephemeral_public_key(),
     )
@@ -929,8 +929,8 @@ fn threshold_backend_rejects_wrong_recipient_combine() {
 #[test]
 fn threshold_backend_rejects_wrong_purpose_combine() {
     let client_request = output_request(OpenedShareKind::XClientBase);
-    let relayer_request = output_request(OpenedShareKind::XRelayerBase);
-    let requests = vec![client_request.clone(), relayer_request.clone()];
+    let server_request = output_request(OpenedShareKind::XServerBase);
+    let requests = vec![client_request.clone(), server_request.clone()];
     let signer_a = signer_input(
         Role::SignerA,
         "role:signer-a:local:sha256-a",
@@ -951,17 +951,17 @@ fn threshold_backend_rejects_wrong_purpose_combine() {
         &mut seeded_rng(18),
     )
     .expect("client A");
-    let relayer_b = evaluate_mpc_prf_signer_partial_with_threshold_backend_v1(
+    let server_b = evaluate_mpc_prf_signer_partial_with_threshold_backend_v1(
         MpcPrfThresholdSignerInputV1 {
             signer_input: signer_b,
-            output_request: relayer_request,
+            output_request: server_request,
             signing_root_share_wire: share_wire(
                 SigningRootShareWire::from_share(&shares[2]).to_bytes(),
             ),
         },
         &mut seeded_rng(19),
     )
-    .expect("relayer B");
+    .expect("server B");
 
     let err =
         combine_mpc_prf_proof_bundles_with_threshold_backend_v1(MpcPrfThresholdCombineInputV1 {
@@ -970,7 +970,7 @@ fn threshold_backend_rejects_wrong_purpose_combine() {
             recipient_role: Role::Client,
             recipient_identity: "role:client:local:sha256-c".to_owned(),
             left: client_a,
-            right: relayer_b,
+            right: server_b,
         })
         .expect_err("mixed purposes should fail");
 

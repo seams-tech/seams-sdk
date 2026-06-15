@@ -17,9 +17,9 @@ fn client_output() -> MpcPrfOutputRequestV1 {
         .expect("client output")
 }
 
-fn relayer_output() -> MpcPrfOutputRequestV1 {
-    MpcPrfOutputRequestV1::new(OpenedShareKind::XRelayerBase, Role::Relayer, "relayer-a")
-        .expect("relayer output")
+fn server_output() -> MpcPrfOutputRequestV1 {
+    MpcPrfOutputRequestV1::new(OpenedShareKind::XServerBase, Role::Server, "server-a")
+        .expect("server output")
 }
 
 fn plaintext() -> SignerInputPlaintextV1 {
@@ -34,12 +34,12 @@ fn plaintext() -> SignerInputPlaintextV1 {
         "signer-a",
         "signer-key-epoch-a",
         root_epoch(),
-        "relayer-a",
-        "relayer-key-epoch",
+        "server-a",
+        "server-key-epoch",
         digest(0x11),
         digest(0x22),
         digest(0x33),
-        vec![client_output(), relayer_output()],
+        vec![client_output(), server_output()],
     )
     .expect("signer input plaintext")
 }
@@ -82,8 +82,8 @@ fn signer_input_plaintext_rejects_unsupported_candidate() {
         "signer-a",
         "signer-key-epoch-a",
         root_epoch(),
-        "relayer-a",
-        "relayer-key-epoch",
+        "server-a",
+        "server-key-epoch",
         digest(0x11),
         digest(0x22),
         digest(0x33),
@@ -110,8 +110,8 @@ fn signer_input_plaintext_rejects_duplicate_output_request() {
         "signer-a",
         "signer-key-epoch-a",
         root_epoch(),
-        "relayer-a",
-        "relayer-key-epoch",
+        "server-a",
+        "server-key-epoch",
         digest(0x11),
         digest(0x22),
         digest(0x33),
@@ -123,10 +123,10 @@ fn signer_input_plaintext_rejects_duplicate_output_request() {
 }
 
 #[test]
-fn signer_input_plaintext_rejects_relayer_recipient_mismatch() {
-    let wrong_relayer_output =
-        MpcPrfOutputRequestV1::new(OpenedShareKind::XRelayerBase, Role::Relayer, "relayer-b")
-            .expect("wrong relayer output");
+fn signer_input_plaintext_rejects_server_recipient_mismatch() {
+    let wrong_server_output =
+        MpcPrfOutputRequestV1::new(OpenedShareKind::XServerBase, Role::Server, "server-b")
+            .expect("wrong server output");
     let err = SignerInputPlaintextV1::new(
         CandidateId::MpcThresholdPrfV1,
         MpcPrfSuiteId::ThresholdPrfRistretto255Sha512,
@@ -138,14 +138,14 @@ fn signer_input_plaintext_rejects_relayer_recipient_mismatch() {
         "signer-a",
         "signer-key-epoch-a",
         root_epoch(),
-        "relayer-a",
-        "relayer-key-epoch",
+        "server-a",
+        "server-key-epoch",
         digest(0x11),
         digest(0x22),
         digest(0x33),
-        vec![wrong_relayer_output],
+        vec![wrong_server_output],
     )
-    .expect_err("wrong relayer recipient must fail");
+    .expect_err("wrong server recipient must fail");
 
     assert_eq!(err.code(), RouterAbDerivationErrorCode::RecipientMismatch);
 }
@@ -163,8 +163,8 @@ fn signer_input_plaintext_rejects_non_signer_recipient_role() {
         "router",
         "router-key-epoch",
         root_epoch(),
-        "relayer-a",
-        "relayer-key-epoch",
+        "server-a",
+        "server-key-epoch",
         digest(0x11),
         digest(0x22),
         digest(0x33),

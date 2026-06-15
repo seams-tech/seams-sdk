@@ -3,25 +3,25 @@ use router_ab_core::{
     RouterAbProtocolErrorCode,
 };
 use router_ab_dev::{
-    derive_committed_ed25519_hss_split_relayer_role_shares_v1,
+    derive_committed_ed25519_hss_split_server_role_shares_v1,
     evaluate_committed_ed25519_hss_role_scoped_derivation_v1,
     handle_local_deriver_peer_message_json_v1, handle_local_router_setup_smoke_request_json_v1,
     handle_local_router_setup_smoke_request_v1, handle_local_signing_worker_activation_json_v1,
     local_http_service_binding_endpoint_v1, run_example_local_router_ab_hss_dev_ceremony_v1,
     run_example_local_router_ab_hss_dev_http_ceremony_v1,
-    verify_committed_ed25519_hss_split_relayer_fixture_at_epoch_v1,
-    verify_committed_ed25519_hss_split_relayer_fixture_v1,
-    verify_committed_ed25519_hss_split_relayer_fixtures_v1,
-    verify_committed_ed25519_hss_split_relayer_role_shares_v1, LocalRouterSetupSmokeRequestV1,
+    verify_committed_ed25519_hss_split_server_fixture_at_epoch_v1,
+    verify_committed_ed25519_hss_split_server_fixture_v1,
+    verify_committed_ed25519_hss_split_server_fixtures_v1,
+    verify_committed_ed25519_hss_split_server_role_shares_v1, LocalRouterSetupSmokeRequestV1,
     LOCAL_DERIVER_A_PEER_PATH_V1, LOCAL_DERIVER_A_PRIVATE_PATH_V1, LOCAL_DERIVER_B_PEER_PATH_V1,
     LOCAL_DERIVER_B_PRIVATE_PATH_V1, LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
 };
 use std::{fs, path::Path};
 
 #[test]
-fn dev_adapter_verifies_committed_ed25519_hss_split_relayer_fixture() {
-    let report = verify_committed_ed25519_hss_split_relayer_fixture_v1("derived-gamma")
-        .expect("committed split-relayer HSS fixture verifies");
+fn dev_adapter_verifies_committed_ed25519_hss_split_server_fixture() {
+    let report = verify_committed_ed25519_hss_split_server_fixture_v1("derived-gamma")
+        .expect("committed split-server HSS fixture verifies");
 
     assert_eq!(report.fixture_name, "derived-gamma");
     assert_eq!(report.split_epoch, "split-epoch-1");
@@ -39,23 +39,23 @@ fn dev_adapter_verifies_committed_ed25519_hss_split_relayer_fixture() {
     assert_eq!(near_key_bytes.len(), 32);
     assert_eq!(hex::encode(near_key_bytes), report.public_key_hex);
     assert_eq!(report.x_client_base_commitment_hex.len(), 64);
-    assert_eq!(report.x_relayer_base_commitment_hex.len(), 64);
+    assert_eq!(report.x_server_base_commitment_hex.len(), 64);
     assert_eq!(report.deriver_a.role, Role::SignerA);
     assert_eq!(report.deriver_b.role, Role::SignerB);
     assert_ne!(
-        report.deriver_a.y_relayer_share_commitment_hex,
-        report.deriver_b.y_relayer_share_commitment_hex
+        report.deriver_a.y_server_share_commitment_hex,
+        report.deriver_b.y_server_share_commitment_hex
     );
     assert_ne!(
-        report.deriver_a.tau_relayer_share_commitment_hex,
-        report.deriver_b.tau_relayer_share_commitment_hex
+        report.deriver_a.tau_server_share_commitment_hex,
+        report.deriver_b.tau_server_share_commitment_hex
     );
 }
 
 #[test]
 fn dev_adapter_returns_recipient_scoped_hss_base_share_outputs() {
     let (deriver_a, deriver_b) =
-        derive_committed_ed25519_hss_split_relayer_role_shares_v1("derived-gamma", "split-epoch-1")
+        derive_committed_ed25519_hss_split_server_role_shares_v1("derived-gamma", "split-epoch-1")
             .expect("derive role-scoped shares");
     let output = evaluate_committed_ed25519_hss_role_scoped_derivation_v1(
         "derived-gamma",
@@ -72,10 +72,10 @@ fn dev_adapter_returns_recipient_scoped_hss_base_share_outputs() {
         output.client_output.opened_share_kind(),
         OpenedShareKind::XClientBase
     );
-    assert_eq!(output.signing_worker_output.recipient_role(), Role::Relayer);
+    assert_eq!(output.signing_worker_output.recipient_role(), Role::Server);
     assert_eq!(
         output.signing_worker_output.opened_share_kind(),
-        OpenedShareKind::XRelayerBase
+        OpenedShareKind::XServerBase
     );
     assert_eq!(client_commitment.base_share_commitment_hex.len(), 64);
     assert_eq!(
@@ -122,14 +122,14 @@ fn dev_adapter_runs_local_router_ab_ceremony_with_hss_role_scoped_outputs() {
     );
     assert_eq!(
         result.hss_derivation.signing_worker_output.recipient_role(),
-        Role::Relayer
+        Role::Server
     );
     assert_eq!(
         result
             .hss_derivation
             .signing_worker_output
             .opened_share_kind(),
-        OpenedShareKind::XRelayerBase
+        OpenedShareKind::XServerBase
     );
 
     result
@@ -142,13 +142,9 @@ fn dev_adapter_runs_local_router_ab_ceremony_with_hss_role_scoped_outputs() {
         .signing_worker_activation
         .validate()
         .expect("SigningWorker proof-bundle activation validates");
-    let normal_scope = NormalSigningScopeV1::new(
-        "sign-request-1",
-        "gamma.test.near",
-        "session-1",
-        "relayer-a",
-    )
-    .expect("normal signing scope");
+    let normal_scope =
+        NormalSigningScopeV1::new("sign-request-1", "gamma.test.near", "session-1", "server-a")
+            .expect("normal signing scope");
     result
         .core_ceremony
         .signing_worker_activation_receipt
@@ -248,7 +244,7 @@ fn dev_adapter_setup_smoke_response_returns_only_client_facing_router_output() {
     assert!(json.contains("deriver_a_client_bundle"));
     assert!(json.contains("deriver_b_client_bundle"));
     assert!(!json.contains("signing_worker_bundle"));
-    assert!(!json.contains("relayer_bundle"));
+    assert!(!json.contains("server_bundle"));
     assert!(!json.contains("signing_worker_material_handle"));
 }
 
@@ -303,7 +299,7 @@ fn dev_adapter_deriver_peer_receipts_validate_direct_ab_messages() {
 }
 
 #[test]
-fn dev_adapter_signing_worker_activation_accepts_only_x_relayer_base_bundles() {
+fn dev_adapter_signing_worker_activation_accepts_only_x_server_base_bundles() {
     let result =
         run_example_local_router_ab_hss_dev_http_ceremony_v1("derived-gamma", "split-epoch-1")
             .expect("typed HTTP ceremony runs");
@@ -315,15 +311,12 @@ fn dev_adapter_signing_worker_activation_accepts_only_x_relayer_base_bundles() {
         LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
         &activation_body,
     )
-    .expect("SigningWorker accepts relayer-output activation");
+    .expect("SigningWorker accepts server-output activation");
     let receipt_value: serde_json::Value =
         serde_json::from_str(&receipt).expect("activation receipt JSON");
     assert_eq!(receipt_value["receiver_role"], "signing_worker");
-    assert_eq!(
-        receipt_value["accepted_opened_share_kind"],
-        "x_relayer_base"
-    );
-    assert_eq!(receipt_value["accepted_recipient_role"], "relayer");
+    assert_eq!(receipt_value["accepted_opened_share_kind"], "x_server_base");
+    assert_eq!(receipt_value["accepted_recipient_role"], "server");
     assert_eq!(receipt_value["status"], "accepted");
     assert_eq!(
         receipt_value["deriver_a_bundle_digest_hex"]
@@ -389,8 +382,8 @@ fn dev_adapter_local_route_diagnostics_stay_redacted() {
         "root_share_wire",
         "PRIVATE",
         "SECRET",
-        "y_relayer_share",
-        "tau_relayer_share",
+        "y_server_share",
+        "tau_server_share",
         "base_share",
     ] {
         assert!(
@@ -401,9 +394,9 @@ fn dev_adapter_local_route_diagnostics_stay_redacted() {
 }
 
 #[test]
-fn dev_adapter_verifies_explicit_role_scoped_hss_relayer_shares() {
+fn dev_adapter_verifies_explicit_role_scoped_hss_server_shares() {
     let (deriver_a, deriver_b) =
-        derive_committed_ed25519_hss_split_relayer_role_shares_v1("derived-gamma", "split-epoch-1")
+        derive_committed_ed25519_hss_split_server_role_shares_v1("derived-gamma", "split-epoch-1")
             .expect("derive role-scoped shares");
 
     assert_eq!(deriver_a.role(), Role::SignerA);
@@ -412,7 +405,7 @@ fn dev_adapter_verifies_explicit_role_scoped_hss_relayer_shares() {
     assert_eq!(deriver_b.split_epoch(), "split-epoch-1");
     assert!(format!("{deriver_a:?}").contains("[redacted]"));
 
-    let report = verify_committed_ed25519_hss_split_relayer_role_shares_v1(
+    let report = verify_committed_ed25519_hss_split_server_role_shares_v1(
         "derived-gamma",
         deriver_a,
         deriver_b,
@@ -426,30 +419,30 @@ fn dev_adapter_verifies_explicit_role_scoped_hss_relayer_shares() {
 #[test]
 fn dev_adapter_hss_role_share_type_stays_redacted_and_non_serializable() {
     let source = read_dev_src("lib.rs");
-    let share_block = extract_struct_block(&source, "LocalEd25519HssRelayerInputShareV1");
+    let share_block = extract_struct_block(&source, "LocalEd25519HssServerInputShareV1");
 
     assert!(share_block.contains("role: Role"));
     assert!(share_block.contains("split_epoch: String"));
-    assert!(share_block.contains("y_relayer_share: [u8; 32]"));
-    assert!(share_block.contains("tau_relayer_share: [u8; 32]"));
-    assert!(!share_block.contains("pub y_relayer_share"));
-    assert!(!share_block.contains("pub tau_relayer_share"));
+    assert!(share_block.contains("y_server_share: [u8; 32]"));
+    assert!(share_block.contains("tau_server_share: [u8; 32]"));
+    assert!(!share_block.contains("pub y_server_share"));
+    assert!(!share_block.contains("pub tau_server_share"));
     assert!(!share_block.contains("Serialize"));
     assert!(!share_block.contains("Deserialize"));
-    assert!(source.contains("impl fmt::Debug for LocalEd25519HssRelayerInputShareV1"));
-    assert!(source.contains(".field(\"y_relayer_share\", &\"[redacted]\")"));
-    assert!(source.contains(".field(\"tau_relayer_share\", &\"[redacted]\")"));
+    assert!(source.contains("impl fmt::Debug for LocalEd25519HssServerInputShareV1"));
+    assert!(source.contains(".field(\"y_server_share\", &\"[redacted]\")"));
+    assert!(source.contains(".field(\"tau_server_share\", &\"[redacted]\")"));
 }
 
 #[test]
-fn dev_adapter_rejects_mixed_split_epoch_hss_relayer_shares() {
+fn dev_adapter_rejects_mixed_split_epoch_hss_server_shares() {
     let (deriver_a, _) =
-        derive_committed_ed25519_hss_split_relayer_role_shares_v1("derived-gamma", "split-epoch-1")
+        derive_committed_ed25519_hss_split_server_role_shares_v1("derived-gamma", "split-epoch-1")
             .expect("derive first epoch shares");
     let (_, deriver_b) =
-        derive_committed_ed25519_hss_split_relayer_role_shares_v1("derived-gamma", "split-epoch-2")
+        derive_committed_ed25519_hss_split_server_role_shares_v1("derived-gamma", "split-epoch-2")
             .expect("derive second epoch shares");
-    let err = verify_committed_ed25519_hss_split_relayer_role_shares_v1(
+    let err = verify_committed_ed25519_hss_split_server_role_shares_v1(
         "derived-gamma",
         deriver_a,
         deriver_b,
@@ -463,13 +456,13 @@ fn dev_adapter_rejects_mixed_split_epoch_hss_relayer_shares() {
 }
 
 #[test]
-fn dev_adapter_refreshes_split_relayer_shares_without_changing_wallet_identity() {
-    let before = verify_committed_ed25519_hss_split_relayer_fixture_at_epoch_v1(
+fn dev_adapter_refreshes_split_server_shares_without_changing_wallet_identity() {
+    let before = verify_committed_ed25519_hss_split_server_fixture_at_epoch_v1(
         "derived-gamma",
         "split-epoch-1",
     )
     .expect("first split epoch verifies");
-    let after = verify_committed_ed25519_hss_split_relayer_fixture_at_epoch_v1(
+    let after = verify_committed_ed25519_hss_split_server_fixture_at_epoch_v1(
         "derived-gamma",
         "split-epoch-2",
     )
@@ -480,27 +473,27 @@ fn dev_adapter_refreshes_split_relayer_shares_without_changing_wallet_identity()
     assert_eq!(before.public_key_hex, after.public_key_hex);
     assert_eq!(before.near_public_key, after.near_public_key);
     assert_ne!(
-        before.deriver_a.y_relayer_share_commitment_hex,
-        after.deriver_a.y_relayer_share_commitment_hex
+        before.deriver_a.y_server_share_commitment_hex,
+        after.deriver_a.y_server_share_commitment_hex
     );
     assert_ne!(
-        before.deriver_a.tau_relayer_share_commitment_hex,
-        after.deriver_a.tau_relayer_share_commitment_hex
+        before.deriver_a.tau_server_share_commitment_hex,
+        after.deriver_a.tau_server_share_commitment_hex
     );
     assert_ne!(
-        before.deriver_b.y_relayer_share_commitment_hex,
-        after.deriver_b.y_relayer_share_commitment_hex
+        before.deriver_b.y_server_share_commitment_hex,
+        after.deriver_b.y_server_share_commitment_hex
     );
     assert_ne!(
-        before.deriver_b.tau_relayer_share_commitment_hex,
-        after.deriver_b.tau_relayer_share_commitment_hex
+        before.deriver_b.tau_server_share_commitment_hex,
+        after.deriver_b.tau_server_share_commitment_hex
     );
 }
 
 #[test]
-fn dev_adapter_verifies_all_committed_ed25519_hss_split_relayer_fixtures() {
-    let reports = verify_committed_ed25519_hss_split_relayer_fixtures_v1()
-        .expect("committed split-relayer HSS fixture corpus verifies");
+fn dev_adapter_verifies_all_committed_ed25519_hss_split_server_fixtures() {
+    let reports = verify_committed_ed25519_hss_split_server_fixtures_v1()
+        .expect("committed split-server HSS fixture corpus verifies");
 
     assert!(reports.len() >= 3);
     assert!(reports
@@ -510,7 +503,7 @@ fn dev_adapter_verifies_all_committed_ed25519_hss_split_relayer_fixtures() {
 
 #[test]
 fn dev_adapter_rejects_unknown_ed25519_hss_fixture() {
-    let err = verify_committed_ed25519_hss_split_relayer_fixture_v1("missing-fixture")
+    let err = verify_committed_ed25519_hss_split_server_fixture_v1("missing-fixture")
         .expect_err("unknown fixture must fail");
 
     assert_eq!(

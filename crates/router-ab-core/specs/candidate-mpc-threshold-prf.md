@@ -36,7 +36,7 @@ Router does not hold plaintext PRF shares or plaintext output partials.
 Each output derivation binds:
 
 - transcript digest
-- output kind: `x_client_base` or `x_relayer_base`
+- output kind: `x_client_base` or `x_server_base`
 - recipient role
 - recipient identity
 - candidate id
@@ -48,7 +48,7 @@ The preferred combine location is the final recipient:
 
 - client combines client-output partials and opens `x_client_base`
 - SigningWorker combines SigningWorker-output partials and opens
-  `x_relayer_base`
+  `x_server_base`
 
 Router must not combine plaintext partials.
 
@@ -59,12 +59,12 @@ Registration, export, and refresh use the same candidate-local shape:
 1. Router creates transcript and role envelopes.
 2. Router sends encrypted deriver input to A and B.
 3. A and B validate transcript, deriver identity, and epoch.
-4. A derives A-side partials for client and relayer outputs.
-5. B derives B-side partials for client and relayer outputs.
-6. A encrypts client partials to the client and relayer partials to the
-   relayer.
-7. B encrypts client partials to the client and relayer partials to the
-   relayer.
+4. A derives A-side partials for client and server outputs.
+5. B derives B-side partials for client and server outputs.
+6. A encrypts client partials to the client and server partials to the
+   server.
+7. B encrypts client partials to the client and server partials to the
+   server.
 8. A and B return authenticated receipts and package commitments.
 9. Minimum Level C verifies transcript and delivery binding.
 10. Recipients decrypt and combine their own partials.
@@ -87,7 +87,7 @@ Required public binding fields:
 - suite id
 - transcript digest
 - root-share epoch
-- output kind: `x_client_base` or `x_relayer_base`
+- output kind: `x_client_base` or `x_server_base`
 - recipient role
 - recipient identity
 - deriver role
@@ -160,7 +160,7 @@ The context bytes bind:
 Canonical external purpose labels:
 
 - `router-ab/x_client_base/v1`
-- `router-ab/x_relayer_base/v1`
+- `router-ab/x_server_base/v1`
 
 Both outputs require `canonical_ed25519_scalar_32` encoding.
 
@@ -183,10 +183,10 @@ Reasons:
 Current adapter boundary:
 
 - `threshold-prf::PrfPurpose` includes `router-ab/x_client_base/v1` and
-  `router-ab/x_relayer_base/v1`.
+  `router-ab/x_server_base/v1`.
 - Both Router/A/B purposes return canonical Ed25519 scalar bytes.
 - Router/A/B Candidate A has a typed purpose-binding plan for `x_client_base`
-  and `x_relayer_base`.
+  and `x_server_base`.
 
 Target backend boundary:
 
@@ -205,7 +205,7 @@ Target backend boundary:
 - The backend imports `threshold_prf` and passes the normalized
   `ThresholdPolicy` into signer and combiner calls.
 - Router/A/B purpose labels remain `router-ab/x_client_base/v1` and
-  `router-ab/x_relayer_base/v1` until a separate Router/A/B context-version
+  `router-ab/x_server_base/v1` until a separate Router/A/B context-version
   revision is planned.
 - Adapter wire widths move to signing-root share `34` bytes, partial `66`
   bytes, share commitment `34` bytes, and DLEQ proof `64` bytes.
@@ -224,7 +224,7 @@ The planner validates:
 - two verified partials bind the same transcript digest
 - partials bind the requested recipient role and identity
 - `x_client_base` outputs target the client
-- `x_relayer_base` outputs target the SigningWorker
+- `x_server_base` outputs target the SigningWorker
 - deriver roles are distinct
 - deriver identities match the transcript deriver set
 
@@ -270,10 +270,10 @@ The exact refresh formula is a P0 candidate-specific spec item.
 | View                     | Visible plaintext                                                                                                   | Forbidden material excluded                                                                           | Adapter guard                                                                               |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | Router                   | context, transcript, deriver-set metadata, encrypted package headers, commitments, receipts, replay decisions       | PRF shares, plaintext partial wires, joined outputs                                                   | Router APIs only accept public metadata and package commitments                             |
-| Deriver A                | A PRF share, A-side partial wires before encryption, A commitment, A proof, deriver input metadata                  | B PRF share, B partial wires, joined `x_client_base`, joined `x_relayer_base`, joined `d`, joined `a` | deriver input validates Deriver A identity, transcript digest, recipient binding, and epoch |
-| Deriver B                | B PRF share, B-side partial wires before encryption, B commitment, B proof, deriver input metadata                  | A PRF share, A partial wires, joined `x_client_base`, joined `x_relayer_base`, joined `d`, joined `a` | deriver input validates Deriver B identity, transcript digest, recipient binding, and epoch |
-| Client                   | client-targeted A/B partial wires after decryption, `x_client_base` after combine, Minimum Level C evidence         | SigningWorker-targeted partial wires, `x_relayer_base`, SigningWorker HSS material                    | output request enforces `x_client_base -> client`                                           |
-| SigningWorker            | SigningWorker-targeted A/B partial wires after decryption, `x_relayer_base` after combine, Minimum Level C evidence | client-targeted partial wires, `x_client_base`, client hidden computation material                    | output request enforces `x_relayer_base -> SigningWorker`                                   |
+| Deriver A                | A PRF share, A-side partial wires before encryption, A commitment, A proof, deriver input metadata                  | B PRF share, B partial wires, joined `x_client_base`, joined `x_server_base`, joined `d`, joined `a` | deriver input validates Deriver A identity, transcript digest, recipient binding, and epoch |
+| Deriver B                | B PRF share, B-side partial wires before encryption, B commitment, B proof, deriver input metadata                  | A PRF share, A partial wires, joined `x_client_base`, joined `x_server_base`, joined `d`, joined `a` | deriver input validates Deriver B identity, transcript digest, recipient binding, and epoch |
+| Client                   | client-targeted A/B partial wires after decryption, `x_client_base` after combine, Minimum Level C evidence         | SigningWorker-targeted partial wires, `x_server_base`, SigningWorker HSS material                    | output request enforces `x_client_base -> client`                                           |
+| SigningWorker            | SigningWorker-targeted A/B partial wires after decryption, `x_server_base` after combine, Minimum Level C evidence | client-targeted partial wires, `x_client_base`, client hidden computation material                    | output request enforces `x_server_base -> SigningWorker`                                   |
 | Sealed-share storage     | encrypted A/B PRF shares, key epoch labels, deriver identity labels                                                 | decrypted PRF shares, partial wires, joined outputs                                                   | storage is outside this crate; adapters must decrypt into zeroizing wrappers                |
 | Diagnostics/logging      | stable error codes, redacted diagnostics, public digests                                                            | PRF share bytes, partial wire bytes, proof scalar internals, plaintext package bytes                  | source guards reject logging macros and secret serialization                                |
 | Replayed transcript view | replay cache key, accepted transcript digest, prior public package commitments                                      | fresh partial wires or alternate recipient openings                                                   | Minimum Level C replay binding rejects changed transcript digest                            |

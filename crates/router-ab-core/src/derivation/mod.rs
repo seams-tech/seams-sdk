@@ -2,7 +2,7 @@
 //! Split derivation primitive candidates for the Router/A/B signer architecture.
 //!
 //! The crate is intentionally scoped to derivation and transcript-bound output
-//! material. Router, signer, and relayer networking lives in adapters around
+//! material. Router, signer, and server networking lives in adapters around
 //! this crate.
 
 mod bench;

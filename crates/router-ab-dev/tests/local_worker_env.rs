@@ -15,11 +15,14 @@ use router_ab_dev::{
     LOCAL_DERIVER_B_PEER_PATH_V1, LOCAL_DERIVER_B_PEER_SIGNING_KEY_ENV_V1,
     LOCAL_DERIVER_B_PRIVATE_PATH_V1, LOCAL_DERIVER_B_STATE_DIR_V1,
     LOCAL_HTTP_CANONICAL_WIRE_CONTENT_TYPE_V1, LOCAL_HTTP_JSON_CONTENT_TYPE_V1,
-    LOCAL_ROUTER_ENV_FILE_V1, LOCAL_ROUTER_PUBLIC_URL_ENV_V1,
+    LOCAL_ROUTER_ENV_FILE_V1, LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2,
+    LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2, LOCAL_ROUTER_PUBLIC_URL_ENV_V1,
     LOCAL_ROUTER_SPLIT_DERIVATION_PATH_V1, LOCAL_ROUTER_STATE_DIR_V1,
     LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1, LOCAL_SIGNING_WORKER_ENV_FILE_V1,
-    LOCAL_SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
-    LOCAL_SIGNING_WORKER_RELAYER_OUTPUT_STORAGE_PATH_ENV_V1, LOCAL_SIGNING_WORKER_STATE_DIR_V1,
+    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1,
+    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH_V1,
+    LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1,
+    LOCAL_SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH_ENV_V1, LOCAL_SIGNING_WORKER_STATE_DIR_V1,
     LOCAL_WORKER_HEALTH_PATH_V1, LOCAL_WORKER_READY_PATH_V1, LOCAL_WORKER_ROLE_ENV_V1,
     LOCAL_WORKER_STARTUP_EPOCH_V1,
 };
@@ -97,7 +100,7 @@ fn local_router_env_rejects_deriver_and_signing_worker_secret_keys() {
 
     let mut env = parse_template(include_str!("../env/router.local.example"));
     env.push((
-        LOCAL_SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1.to_owned(),
+        LOCAL_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_ENV_V1.to_owned(),
         "leaked-signing-worker-key".to_owned(),
     ));
     let err = parse_local_worker_role_config_v1(env).expect_err("Router rejects SigningWorker key");
@@ -124,8 +127,8 @@ fn local_deriver_env_rejects_peer_private_material_and_signing_worker_storage() 
 
     let mut env = parse_template(include_str!("../env/deriver-a.local.example"));
     env.push((
-        LOCAL_SIGNING_WORKER_RELAYER_OUTPUT_STORAGE_PATH_ENV_V1.to_owned(),
-        ".router-ab-local/signing-worker/relayer-output.sqlite".to_owned(),
+        LOCAL_SIGNING_WORKER_SERVER_OUTPUT_STORAGE_PATH_ENV_V1.to_owned(),
+        ".router-ab-local/signing-worker/server-output.sqlite".to_owned(),
     ));
     let err = parse_local_worker_role_config_v1(env)
         .expect_err("Deriver A rejects SigningWorker storage");
@@ -208,9 +211,18 @@ fn local_worker_route_ownership_uses_production_style_paths() {
             LOCAL_WORKER_HEALTH_PATH_V1,
             LOCAL_WORKER_READY_PATH_V1,
             LOCAL_ROUTER_SPLIT_DERIVATION_PATH_V1,
-            "/v1/hss/sign",
+            LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2,
+            LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2,
         ]
     );
+    assert!(local_worker_owns_path_v1(
+        LocalServiceRoleV1::SigningWorker,
+        LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH_V1
+    ));
+    assert!(local_worker_owns_path_v1(
+        LocalServiceRoleV1::SigningWorker,
+        LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1
+    ));
     assert!(local_worker_owns_path_v1(
         LocalServiceRoleV1::DeriverA,
         LOCAL_DERIVER_A_PRIVATE_PATH_V1

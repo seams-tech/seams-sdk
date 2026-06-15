@@ -7,10 +7,10 @@ process.
 ## Target Invariant
 
 - server-side code never materializes joined `d`, `a`, or `x_client_base`
-- client-side code never materializes joined `d`, `a`, `y_relayer`, or
-  `tau_relayer`
+- client-side code never materializes joined `d`, `a`, `y_server`, or
+  `tau_server`
 - client opens only `x_client_base`
-- SigningWorker opens only `x_relayer_base`
+- SigningWorker opens only `x_server_base`
 
 ## Protocol Boundary
 
@@ -29,7 +29,7 @@ This crate does not own:
 - HTTP envelope encryption
 - session auth
 - rate limiting
-- relayer deployment topology
+- server deployment topology
 - storage backends
 
 Those pieces should call into this crate through a thin adapter.

@@ -1,7 +1,7 @@
 use router_ab_core::{
     CandidateId, EncryptedPayloadV1, ExpensiveWorkKindV1, LifecycleScopeV1, LocalServiceRoleV1,
     MpcPrfOutputRequestV1, OpenedShareKind, PublicDigest32, PublicRouterRequestContextV1,
-    PublicRouterRequestV1, RelayerIdentityV1, Role, RoleEncryptedEnvelopeV1, RootShareEpoch,
+    PublicRouterRequestV1, ServerIdentityV1, Role, RoleEncryptedEnvelopeV1, RootShareEpoch,
     RouterAbProtocolErrorCode, SignerIdentityV1, SignerSetV1, SigningWorkerActivationContextV1,
 };
 
@@ -33,7 +33,7 @@ fn signer_set() -> SignerSetV1 {
             .expect("deriver a"),
         SignerIdentityV1::new(Role::SignerB, "deriver-b", "deriver-b-key-epoch")
             .expect("deriver b"),
-        RelayerIdentityV1::new(
+        ServerIdentityV1::new(
             "signing-worker-1",
             "signing-worker-key-epoch",
             "x25519:signing-worker-recipient-key",
@@ -103,16 +103,16 @@ fn production_output_authorization_matches_fv_opened_value_model() {
     MpcPrfOutputRequestV1::new(OpenedShareKind::XClientBase, Role::Client, "client-1")
         .expect("client can open x_client_base");
     MpcPrfOutputRequestV1::new(
-        OpenedShareKind::XRelayerBase,
-        Role::Relayer,
+        OpenedShareKind::XServerBase,
+        Role::Server,
         "signing-worker-1",
     )
-    .expect("SigningWorker cryptographic output uses the x_relayer_base label");
+    .expect("SigningWorker cryptographic output uses the x_server_base label");
 
-    MpcPrfOutputRequestV1::new(OpenedShareKind::XClientBase, Role::Relayer, "relayer-1")
-        .expect_err("relayer label cannot open x_client_base");
-    MpcPrfOutputRequestV1::new(OpenedShareKind::XRelayerBase, Role::Client, "client-1")
-        .expect_err("client cannot open x_relayer_base");
+    MpcPrfOutputRequestV1::new(OpenedShareKind::XClientBase, Role::Server, "server-1")
+        .expect_err("server label cannot open x_client_base");
+    MpcPrfOutputRequestV1::new(OpenedShareKind::XServerBase, Role::Client, "client-1")
+        .expect_err("client cannot open x_server_base");
 }
 
 #[test]

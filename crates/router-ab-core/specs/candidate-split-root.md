@@ -92,10 +92,10 @@ Registration and export:
 1. Router creates transcript and role envelopes.
 2. Router sends encrypted deriver input to A and B.
 3. A and B validate transcript, deriver identity, and epoch.
-4. A derives A-side client and relayer output shares.
-5. B derives B-side client and relayer output shares.
-6. A encrypts client share to client and relayer share to relayer.
-7. B encrypts client share to client and relayer share to relayer.
+4. A derives A-side client and server output shares.
+5. B derives B-side client and server output shares.
+6. A encrypts client share to client and server share to server.
+7. B encrypts client share to client and server share to server.
 8. A and B return authenticated receipts and package commitments.
 9. Minimum Level C verifies transcript and delivery binding.
 10. Recipients decrypt and add their own two shares.
@@ -116,7 +116,7 @@ Required public binding fields:
 - derivation label
 - transcript digest
 - root-share epoch
-- output kind: `x_client_base` or `x_relayer_base`
+- output kind: `x_client_base` or `x_server_base`
 - recipient role
 - recipient identity
 - deriver role
@@ -137,7 +137,7 @@ The planner validates:
 - two verified shares bind the same transcript digest
 - shares bind the requested recipient role and identity
 - `x_client_base` outputs target the client
-- `x_relayer_base` outputs target the SigningWorker
+- `x_server_base` outputs target the SigningWorker
 - deriver roles are distinct
 - deriver identities match the transcript deriver set
 
@@ -185,10 +185,10 @@ combined output. Before implementation, the spec must define:
 | View | Visible plaintext | Forbidden material excluded | Adapter guard |
 | --- | --- | --- | --- |
 | Router | context, transcript, deriver-set metadata, encrypted package headers, commitments, receipts, replay decisions | split roots, plaintext output-share wires, joined outputs | Router APIs only accept public metadata and package commitments |
-| Deriver A | `root_a`, A-side output-share wires before encryption, deriver input metadata | `root_b`, B-side output-share wires, joined `x_client_base`, joined `x_relayer_base`, joined `d`, joined `a` | deriver input validates Deriver A identity, transcript digest, recipient binding, and epoch |
-| Deriver B | `root_b`, B-side output-share wires before encryption, deriver input metadata | `root_a`, A-side output-share wires, joined `x_client_base`, joined `x_relayer_base`, joined `d`, joined `a` | deriver input validates Deriver B identity, transcript digest, recipient binding, and epoch |
-| Client | client-targeted A/B output-share wires after decryption, `x_client_base` after combine, Minimum Level C evidence | SigningWorker-targeted output-share wires, `x_relayer_base`, SigningWorker HSS material | output request enforces `x_client_base -> client` |
-| SigningWorker | SigningWorker-targeted A/B output-share wires after decryption, `x_relayer_base` after combine, Minimum Level C evidence | client-targeted output-share wires, `x_client_base`, client hidden computation material | output request enforces `x_relayer_base -> SigningWorker` |
+| Deriver A | `root_a`, A-side output-share wires before encryption, deriver input metadata | `root_b`, B-side output-share wires, joined `x_client_base`, joined `x_server_base`, joined `d`, joined `a` | deriver input validates Deriver A identity, transcript digest, recipient binding, and epoch |
+| Deriver B | `root_b`, B-side output-share wires before encryption, deriver input metadata | `root_a`, A-side output-share wires, joined `x_client_base`, joined `x_server_base`, joined `d`, joined `a` | deriver input validates Deriver B identity, transcript digest, recipient binding, and epoch |
+| Client | client-targeted A/B output-share wires after decryption, `x_client_base` after combine, Minimum Level C evidence | SigningWorker-targeted output-share wires, `x_server_base`, SigningWorker HSS material | output request enforces `x_client_base -> client` |
+| SigningWorker | SigningWorker-targeted A/B output-share wires after decryption, `x_server_base` after combine, Minimum Level C evidence | client-targeted output-share wires, `x_client_base`, client hidden computation material | output request enforces `x_server_base -> SigningWorker` |
 | Sealed-root storage | encrypted A/B split roots, key epoch labels, deriver identity labels | decrypted split roots, output-share wires, joined outputs | storage is outside this crate; adapters must decrypt into zeroizing wrappers |
 | Diagnostics/logging | stable error codes, redacted diagnostics, public digests | split-root bytes, output-share wire bytes, plaintext package bytes | source guards reject logging macros and secret serialization |
 | Replayed transcript view | replay cache key, accepted transcript digest, prior public package commitments | fresh output-share wires or alternate recipient openings | Minimum Level C replay binding rejects changed transcript digest |

@@ -40,7 +40,7 @@ fn transcript(context: DerivationContext) -> TranscriptBinding {
             "key-epoch-b-1",
         )
         .expect("signer set"),
-        "role:relayer:local:sha256-r",
+        "role:server:local:sha256-r",
         "x25519:1111111111111111111111111111111111111111111111111111111111111111",
         "role:client:local:sha256-c",
         "x25519:client-ephemeral-public-key",
@@ -109,26 +109,26 @@ fn accepted_input() -> MinimumLevelCVerificationInputV1 {
         ContentKind::ClientOutputShare,
         0xb1,
     );
-    let a_relayer = package(
+    let a_server = package(
         &context,
         transcript_digest,
-        EnvelopeKind::SignerAToRelayer,
+        EnvelopeKind::SignerAToServer,
         Role::SignerA,
         "role:signer-a:local:sha256-a",
-        Role::Relayer,
-        "role:relayer:local:sha256-r",
-        ContentKind::RelayerOutputShare,
+        Role::Server,
+        "role:server:local:sha256-r",
+        ContentKind::ServerOutputShare,
         0xa2,
     );
-    let b_relayer = package(
+    let b_server = package(
         &context,
         transcript_digest,
-        EnvelopeKind::SignerBToRelayer,
+        EnvelopeKind::SignerBToServer,
         Role::SignerB,
         "role:signer-b:local:sha256-b",
-        Role::Relayer,
-        "role:relayer:local:sha256-r",
-        ContentKind::RelayerOutputShare,
+        Role::Server,
+        "role:server:local:sha256-r",
+        ContentKind::ServerOutputShare,
         0xb2,
     );
 
@@ -140,7 +140,7 @@ fn accepted_input() -> MinimumLevelCVerificationInputV1 {
         context.root_share_epoch().clone(),
         vec![
             package_commitment_v1(&a_client).expect("a client commitment"),
-            package_commitment_v1(&a_relayer).expect("a relayer commitment"),
+            package_commitment_v1(&a_server).expect("a server commitment"),
         ],
     )
     .expect("signer A receipt");
@@ -152,7 +152,7 @@ fn accepted_input() -> MinimumLevelCVerificationInputV1 {
         context.root_share_epoch().clone(),
         vec![
             package_commitment_v1(&b_client).expect("b client commitment"),
-            package_commitment_v1(&b_relayer).expect("b relayer commitment"),
+            package_commitment_v1(&b_server).expect("b server commitment"),
         ],
     )
     .expect("signer B receipt");
@@ -163,7 +163,7 @@ fn accepted_input() -> MinimumLevelCVerificationInputV1 {
         signer_a_receipt,
         signer_b_receipt,
         client_packages: vec![a_client, b_client],
-        relayer_packages: vec![a_relayer, b_relayer],
+        server_packages: vec![a_server, b_server],
         replay_cache_decision: AcceptedReplayCacheDecisionV1 {
             replay_cache_key: digest(0x99),
             accepted_transcript_digest: transcript_digest,
@@ -181,7 +181,7 @@ fn minimum_level_c_accepts_consistent_transcript_and_packages() {
         CorrectnessLevel::MinimumLevelC
     );
     assert_eq!(verified.evidence().client_package_commitments().len(), 2);
-    assert_eq!(verified.evidence().relayer_package_commitments().len(), 2);
+    assert_eq!(verified.evidence().server_package_commitments().len(), 2);
 }
 
 #[test]

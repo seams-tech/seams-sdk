@@ -11,7 +11,7 @@ verus! {
 
     pub enum OpenedValueKindModel {
         XClientBase,
-        XRelayerBase,
+        XServerBase,
     }
 
     pub enum MpcPrfPartialOwnerModel {
@@ -23,30 +23,30 @@ verus! {
         JoinedD,
         JoinedA,
         JoinedXClientBase,
-        JoinedYRelayer,
-        JoinedTauRelayer,
+        JoinedYServer,
+        JoinedTauServer,
     }
 
     pub enum RoleViewEventModel {
         PublicMetadata,
         Ciphertext,
         DeriverAMpcPrfPartialXClientBase,
-        DeriverAMpcPrfPartialXRelayerBase,
+        DeriverAMpcPrfPartialXServerBase,
         DeriverBMpcPrfPartialXClientBase,
-        DeriverBMpcPrfPartialXRelayerBase,
+        DeriverBMpcPrfPartialXServerBase,
         ClientOpenedXClientBase,
-        SigningWorkerOpenedXRelayerBase,
+        SigningWorkerOpenedXServerBase,
         JoinedD,
         JoinedA,
         JoinedXClientBase,
-        JoinedYRelayer,
-        JoinedTauRelayer,
+        JoinedYServer,
+        JoinedTauServer,
     }
 
     pub open spec fn role_may_open(role: RoleModel, opened: OpenedValueKindModel) -> bool {
         match (role, opened) {
             (RoleModel::Client, OpenedValueKindModel::XClientBase) => true,
-            (RoleModel::SigningWorker, OpenedValueKindModel::XRelayerBase) => true,
+            (RoleModel::SigningWorker, OpenedValueKindModel::XServerBase) => true,
             _ => false,
         }
     }
@@ -60,7 +60,7 @@ verus! {
             (RoleModel::DeriverA, MpcPrfPartialOwnerModel::DeriverA, _) => true,
             (RoleModel::DeriverB, MpcPrfPartialOwnerModel::DeriverB, _) => true,
             (RoleModel::Client, _, OpenedValueKindModel::XClientBase) => true,
-            (RoleModel::SigningWorker, _, OpenedValueKindModel::XRelayerBase) => true,
+            (RoleModel::SigningWorker, _, OpenedValueKindModel::XServerBase) => true,
             _ => false,
         }
     }
@@ -77,12 +77,12 @@ verus! {
                 ForbiddenJoinedStateModel::JoinedXClientBase,
             ) => true,
             (
-                RoleViewEventModel::JoinedYRelayer,
-                ForbiddenJoinedStateModel::JoinedYRelayer,
+                RoleViewEventModel::JoinedYServer,
+                ForbiddenJoinedStateModel::JoinedYServer,
             ) => true,
             (
-                RoleViewEventModel::JoinedTauRelayer,
-                ForbiddenJoinedStateModel::JoinedTauRelayer,
+                RoleViewEventModel::JoinedTauServer,
+                ForbiddenJoinedStateModel::JoinedTauServer,
             ) => true,
             _ => false,
         }
@@ -96,13 +96,13 @@ verus! {
             (_, RoleViewEventModel::PublicMetadata) => true,
             (_, RoleViewEventModel::Ciphertext) => true,
             (RoleModel::DeriverA, RoleViewEventModel::DeriverAMpcPrfPartialXClientBase) => true,
-            (RoleModel::DeriverA, RoleViewEventModel::DeriverAMpcPrfPartialXRelayerBase) => true,
+            (RoleModel::DeriverA, RoleViewEventModel::DeriverAMpcPrfPartialXServerBase) => true,
             (RoleModel::DeriverB, RoleViewEventModel::DeriverBMpcPrfPartialXClientBase) => true,
-            (RoleModel::DeriverB, RoleViewEventModel::DeriverBMpcPrfPartialXRelayerBase) => true,
+            (RoleModel::DeriverB, RoleViewEventModel::DeriverBMpcPrfPartialXServerBase) => true,
             (RoleModel::Client, RoleViewEventModel::ClientOpenedXClientBase) => true,
             (
                 RoleModel::SigningWorker,
-                RoleViewEventModel::SigningWorkerOpenedXRelayerBase,
+                RoleViewEventModel::SigningWorkerOpenedXServerBase,
             ) => true,
             _ => false,
         }
@@ -122,9 +122,9 @@ verus! {
     {
     }
 
-    proof fn signing_worker_opens_only_x_relayer_base(opened: OpenedValueKindModel)
+    proof fn signing_worker_opens_only_x_server_base(opened: OpenedValueKindModel)
         requires role_may_open(RoleModel::SigningWorker, opened)
-        ensures opened == OpenedValueKindModel::XRelayerBase
+        ensures opened == OpenedValueKindModel::XServerBase
     {
     }
 
@@ -145,12 +145,12 @@ verus! {
     {
     }
 
-    proof fn signing_worker_observes_only_x_relayer_base_partials(
+    proof fn signing_worker_observes_only_x_server_base_partials(
         owner: MpcPrfPartialOwnerModel,
         opened: OpenedValueKindModel,
     )
         requires role_may_observe_mpc_prf_partial(RoleModel::SigningWorker, owner, opened)
-        ensures opened == OpenedValueKindModel::XRelayerBase
+        ensures opened == OpenedValueKindModel::XServerBase
     {
     }
 
@@ -183,8 +183,8 @@ verus! {
         requires
             state == ForbiddenJoinedStateModel::JoinedD ||
                 state == ForbiddenJoinedStateModel::JoinedA ||
-            state == ForbiddenJoinedStateModel::JoinedYRelayer ||
-                state == ForbiddenJoinedStateModel::JoinedTauRelayer
+            state == ForbiddenJoinedStateModel::JoinedYServer ||
+                state == ForbiddenJoinedStateModel::JoinedTauServer
         ensures !single_role_view_contains_forbidden_joined_state(RoleModel::Client, state, event)
     {
     }

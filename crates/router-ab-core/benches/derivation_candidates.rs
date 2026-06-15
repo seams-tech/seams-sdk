@@ -65,7 +65,7 @@ fn sample_transcript(context: DerivationContext) -> TranscriptBinding {
             "key-epoch-b-1",
         )
         .expect("signer set"),
-        "role:relayer:local:sha256-r",
+        "role:server:local:sha256-r",
         "role:client:local:sha256-c",
     )
     .expect("transcript")
@@ -104,7 +104,7 @@ fn mpc_prf_purpose_plan() -> MpcPrfPurposeBindingPlanV1 {
 fn threshold_purpose(output_purpose: MpcPrfOutputPurposeV1) -> PrfPurpose {
     match output_purpose {
         MpcPrfOutputPurposeV1::RouterAbXClientBase => PrfPurpose::RouterAbXClientBaseV1,
-        MpcPrfOutputPurposeV1::RouterAbXRelayerBase => PrfPurpose::RouterAbXRelayerBaseV1,
+        MpcPrfOutputPurposeV1::RouterAbXServerBase => PrfPurpose::RouterAbXServerBaseV1,
     }
 }
 
@@ -235,7 +235,7 @@ fn refresh_scope() -> RefreshScope {
         new_signer_set_id: "signer-set-new".to_owned(),
         expected_router_id: "role:router:local:sha256-router".to_owned(),
         expected_client_id: "role:client:local:sha256-c".to_owned(),
-        expected_relayer_id: "role:relayer:local:sha256-r".to_owned(),
+        expected_server_id: "role:server:local:sha256-r".to_owned(),
         address_verification_requirement: "required".to_owned(),
     }
 }

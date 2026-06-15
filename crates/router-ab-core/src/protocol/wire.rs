@@ -22,7 +22,7 @@ pub enum WireMessageKindV1 {
     SignerAToSignerB,
     /// Signer B sending a transcript-bound protocol message to Signer A.
     SignerBToSignerA,
-    /// Encrypted recipient-scoped proof bundle for client or relayer delivery.
+    /// Encrypted recipient-scoped proof bundle for client or server delivery.
     RecipientProofBundle,
 }
 

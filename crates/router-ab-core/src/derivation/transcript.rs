@@ -254,10 +254,10 @@ pub struct TranscriptBinding {
     router_id: String,
     /// Transcript-bound signer set.
     signer_set: SignerSetBinding,
-    /// Selected relayer identity string.
-    selected_relayer_id: String,
-    /// Selected relayer recipient encryption public key.
-    selected_relayer_recipient_encryption_key: String,
+    /// Selected server identity string.
+    selected_server_id: String,
+    /// Selected server recipient encryption public key.
+    selected_server_recipient_encryption_key: String,
     /// Client identity string.
     client_id: String,
     /// Client ephemeral public key for client-output encryption.
@@ -270,8 +270,8 @@ impl TranscriptBinding {
         context: DerivationContext,
         router_id: impl Into<String>,
         signer_set: SignerSetBinding,
-        selected_relayer_id: impl Into<String>,
-        selected_relayer_recipient_encryption_key: impl Into<String>,
+        selected_server_id: impl Into<String>,
+        selected_server_recipient_encryption_key: impl Into<String>,
         client_id: impl Into<String>,
         client_ephemeral_public_key: impl Into<String>,
     ) -> RouterAbDerivationResult<Self> {
@@ -279,8 +279,8 @@ impl TranscriptBinding {
             context,
             router_id: router_id.into(),
             signer_set,
-            selected_relayer_id: selected_relayer_id.into(),
-            selected_relayer_recipient_encryption_key: selected_relayer_recipient_encryption_key
+            selected_server_id: selected_server_id.into(),
+            selected_server_recipient_encryption_key: selected_server_recipient_encryption_key
                 .into(),
             client_id: client_id.into(),
             client_ephemeral_public_key: client_ephemeral_public_key.into(),
@@ -304,14 +304,14 @@ impl TranscriptBinding {
         &self.signer_set
     }
 
-    /// Selected SigningWorker/relayer identity.
-    pub fn selected_relayer_id(&self) -> &str {
-        &self.selected_relayer_id
+    /// Selected SigningWorker/server identity.
+    pub fn selected_server_id(&self) -> &str {
+        &self.selected_server_id
     }
 
-    /// Selected SigningWorker/relayer recipient encryption public key.
-    pub fn selected_relayer_recipient_encryption_key(&self) -> &str {
-        &self.selected_relayer_recipient_encryption_key
+    /// Selected SigningWorker/server recipient encryption public key.
+    pub fn selected_server_recipient_encryption_key(&self) -> &str {
+        &self.selected_server_recipient_encryption_key
     }
 
     /// Client identity.
@@ -329,10 +329,10 @@ impl TranscriptBinding {
         self.context.validate()?;
         require_non_empty("router_id", &self.router_id)?;
         self.signer_set.validate_v1_all2()?;
-        require_non_empty("selected_relayer_id", &self.selected_relayer_id)?;
+        require_non_empty("selected_server_id", &self.selected_server_id)?;
         require_non_empty(
-            "selected_relayer_recipient_encryption_key",
-            &self.selected_relayer_recipient_encryption_key,
+            "selected_server_recipient_encryption_key",
+            &self.selected_server_recipient_encryption_key,
         )?;
         require_non_empty("client_id", &self.client_id)?;
         require_non_empty(
@@ -354,8 +354,8 @@ impl<'de> Deserialize<'de> for TranscriptBinding {
             context: DerivationContext,
             router_id: String,
             signer_set: SignerSetBinding,
-            selected_relayer_id: String,
-            selected_relayer_recipient_encryption_key: String,
+            selected_server_id: String,
+            selected_server_recipient_encryption_key: String,
             client_id: String,
             client_ephemeral_public_key: String,
         }
@@ -365,8 +365,8 @@ impl<'de> Deserialize<'de> for TranscriptBinding {
             wire.context,
             wire.router_id,
             wire.signer_set,
-            wire.selected_relayer_id,
-            wire.selected_relayer_recipient_encryption_key,
+            wire.selected_server_id,
+            wire.selected_server_recipient_encryption_key,
             wire.client_id,
             wire.client_ephemeral_public_key,
         )
@@ -410,11 +410,11 @@ pub fn transcript_digest_v1(
         push_field(&mut hasher, signer.signer_id().as_bytes());
         push_field(&mut hasher, signer.key_epoch().as_bytes());
     }
-    push_field(&mut hasher, binding.selected_relayer_id().as_bytes());
+    push_field(&mut hasher, binding.selected_server_id().as_bytes());
     push_field(
         &mut hasher,
         binding
-            .selected_relayer_recipient_encryption_key()
+            .selected_server_recipient_encryption_key()
             .as_bytes(),
     );
     push_field(&mut hasher, binding.client_id().as_bytes());

@@ -1,17 +1,21 @@
 use router_ab_core::LocalServiceRoleV1;
 use router_ab_dev::{
-    handle_local_deriver_peer_message_json_v1,
-    handle_local_router_normal_signing_smoke_request_json_v1,
+    handle_local_deriver_peer_message_json_v1, handle_local_router_normal_signing_request_json_v1,
+    handle_local_router_normal_signing_round1_prepare_request_json_v1,
     handle_local_router_setup_smoke_request_json_v1,
     handle_local_signing_worker_activation_json_v1,
-    handle_local_signing_worker_normal_signing_smoke_json_v1, local_worker_bind_addr_v1,
+    handle_local_signing_worker_normal_signing_json_v1,
+    handle_local_signing_worker_normal_signing_round1_prepare_json_v1, local_worker_bind_addr_v1,
     local_worker_health_response_json_v1, local_worker_owns_path_v1,
     parse_local_env_file_contents_v1, parse_local_service_role_label_v1,
     parse_local_worker_role_config_for_role_v1, LocalWorkerRoleConfigV1,
     LOCAL_DERIVER_A_PEER_PATH_V1, LOCAL_DERIVER_B_PEER_PATH_V1,
-    LOCAL_ROUTER_NORMAL_SIGNING_PATH_V1, LOCAL_ROUTER_SPLIT_DERIVATION_PATH_V1,
-    LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1, LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1,
-    LOCAL_WORKER_HEALTH_PATH_V1, LOCAL_WORKER_READY_PATH_V1,
+    LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2, LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2,
+    LOCAL_ROUTER_NORMAL_SIGNING_WALLET_SESSION_AUTHORIZATION_V2,
+    LOCAL_ROUTER_SPLIT_DERIVATION_PATH_V1, LOCAL_SIGNING_WORKER_ACTIVATION_PATH_V1,
+    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1,
+    LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH_V1, LOCAL_WORKER_HEALTH_PATH_V1,
+    LOCAL_WORKER_READY_PATH_V1,
 };
 use serde::Serialize;
 use std::{
@@ -48,6 +52,7 @@ struct LocalHttpErrorBody {
 struct LocalHttpRequestParts {
     method: String,
     path: String,
+    authorization: Option<String>,
     body: Vec<u8>,
 }
 
@@ -109,23 +114,53 @@ fn handle_connection(
             error_body(config.role(), path, 405, "method not allowed")?
         }
     } else if matches!(config, LocalWorkerRoleConfigV1::Router(_))
-        && path == LOCAL_ROUTER_NORMAL_SIGNING_PATH_V1
+        && path == LOCAL_ROUTER_NORMAL_SIGNING_PREPARE_PATH_V2
     {
         if method == "POST" {
-            let LocalWorkerRoleConfigV1::Router(router_config) = config else {
-                unreachable!("matches! checked Router branch");
-            };
-            match handle_local_router_normal_signing_smoke_request_json_v1(
-                &router_config.signing_worker_url,
-                &request.body,
-            ) {
-                Ok(response) => (200, response),
-                Err(error) => error_body(
-                    config.role(),
-                    path,
-                    400,
-                    &format!("{:?}: {}", error.code(), error.message()),
-                )?,
+            if let Err(error) = require_local_normal_signing_wallet_session_v2(&request) {
+                error_body(config.role(), path, 401, error)?
+            } else {
+                let LocalWorkerRoleConfigV1::Router(router_config) = config else {
+                    unreachable!("matches! checked Router branch");
+                };
+                match handle_local_router_normal_signing_round1_prepare_request_json_v1(
+                    &router_config.signing_worker_url,
+                    &request.body,
+                ) {
+                    Ok(response) => (200, response),
+                    Err(error) => error_body(
+                        config.role(),
+                        path,
+                        400,
+                        &format!("{:?}: {}", error.code(), error.message()),
+                    )?,
+                }
+            }
+        } else {
+            error_body(config.role(), path, 405, "method not allowed")?
+        }
+    } else if matches!(config, LocalWorkerRoleConfigV1::Router(_))
+        && path == LOCAL_ROUTER_NORMAL_SIGNING_PATH_V2
+    {
+        if method == "POST" {
+            if let Err(error) = require_local_normal_signing_wallet_session_v2(&request) {
+                error_body(config.role(), path, 401, error)?
+            } else {
+                let LocalWorkerRoleConfigV1::Router(router_config) = config else {
+                    unreachable!("matches! checked Router branch");
+                };
+                match handle_local_router_normal_signing_request_json_v1(
+                    &router_config.signing_worker_url,
+                    &request.body,
+                ) {
+                    Ok(response) => (200, response),
+                    Err(error) => error_body(
+                        config.role(),
+                        path,
+                        400,
+                        &format!("{:?}: {}", error.code(), error.message()),
+                    )?,
+                }
             }
         } else {
             error_body(config.role(), path, 405, "method not allowed")?
@@ -165,11 +200,39 @@ fn handle_connection(
         } else {
             error_body(config.role(), path, 405, "method not allowed")?
         }
-    } else if config.role() == LocalServiceRoleV1::SigningWorker
+    } else if matches!(config, LocalWorkerRoleConfigV1::SigningWorker(_))
+        && path == LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PREPARE_PATH_V1
+    {
+        if method == "POST" {
+            let LocalWorkerRoleConfigV1::SigningWorker(signing_worker_config) = config else {
+                unreachable!("matches! checked SigningWorker branch");
+            };
+            match handle_local_signing_worker_normal_signing_round1_prepare_json_v1(
+                signing_worker_config,
+                config.role(),
+                path,
+                &request.body,
+            ) {
+                Ok(response) => (200, response),
+                Err(error) => error_body(
+                    config.role(),
+                    path,
+                    400,
+                    &format!("{:?}: {}", error.code(), error.message()),
+                )?,
+            }
+        } else {
+            error_body(config.role(), path, 405, "method not allowed")?
+        }
+    } else if matches!(config, LocalWorkerRoleConfigV1::SigningWorker(_))
         && path == LOCAL_SIGNING_WORKER_NORMAL_SIGNING_PATH_V1
     {
         if method == "POST" {
-            match handle_local_signing_worker_normal_signing_smoke_json_v1(
+            let LocalWorkerRoleConfigV1::SigningWorker(signing_worker_config) = config else {
+                unreachable!("matches! checked SigningWorker branch");
+            };
+            match handle_local_signing_worker_normal_signing_json_v1(
+                signing_worker_config,
                 config.role(),
                 path,
                 &request.body,
@@ -227,6 +290,7 @@ fn read_http_request(
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or_default().to_owned();
     let path = parts.next().unwrap_or_default().to_owned();
+    let authorization = authorization_header(headers);
     let content_length = content_length(headers)?;
     let body_start = header_end + 4;
     while request.len() < body_start + content_length {
@@ -242,8 +306,31 @@ fn read_http_request(
     Ok(LocalHttpRequestParts {
         method,
         path,
+        authorization,
         body: request[body_start..body_start + content_length].to_vec(),
     })
+}
+
+fn require_local_normal_signing_wallet_session_v2(
+    request: &LocalHttpRequestParts,
+) -> Result<(), &'static str> {
+    match request.authorization.as_deref() {
+        Some(LOCAL_ROUTER_NORMAL_SIGNING_WALLET_SESSION_AUTHORIZATION_V2) => Ok(()),
+        Some(_) => Err("local Router normal-signing Wallet Session authorization is invalid"),
+        None => Err("local Router normal-signing Wallet Session authorization is missing"),
+    }
+}
+
+fn authorization_header(headers: &str) -> Option<String> {
+    for line in headers.lines().skip(1) {
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if name.eq_ignore_ascii_case("authorization") {
+            return Some(value.trim().to_owned());
+        }
+    }
+    None
 }
 
 fn content_length(headers: &str) -> Result<usize, Box<dyn std::error::Error>> {
@@ -265,6 +352,7 @@ fn write_response(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let reason = match status {
         200 => "OK",
+        401 => "Unauthorized",
         400 => "Bad Request",
         404 => "Not Found",
         405 => "Method Not Allowed",

@@ -1,53 +1,63 @@
 use base64::Engine;
-use ed25519_dalek::{Signer, SigningKey};
+use ed25519_dalek::{Signature as Ed25519Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_hss::fixtures::deterministic_fixture_corpus;
+use ed25519_hss::role_signing::{
+    create_role_separated_ed25519_client_signature_share_v1,
+    role_separated_ed25519_client_verifying_share_v1,
+    role_separated_ed25519_server_verifying_share_v1, RoleSeparatedEd25519ClientShareRequestV1,
+    RoleSeparatedEd25519Round1SecretV1, RoleSeparatedEd25519Round1StateV1,
+};
 use hpke_ng::{DhKemX25519HkdfSha256, Kem};
 use router_ab_cloudflare::{
     build_cloudflare_ab_derivation_proof_batch_peer_message_v1,
     build_cloudflare_preloaded_signer_host_v1,
     build_cloudflare_preloaded_signer_host_with_root_share_wire_v1,
-    build_cloudflare_router_to_signing_worker_normal_signing_request_v1,
+    build_cloudflare_router_public_keyset_v1,
     cloudflare_active_signing_worker_state_from_activation_request_v1,
     cloudflare_recipient_proof_bundle_response_from_ab_proof_batch_v1,
+    cloudflare_router_normal_signing_cors_allowed_origin_v1,
     decode_and_validate_cloudflare_root_share_wire_secret_v1,
     decode_and_validate_cloudflare_signer_envelope_hpke_payload_v1,
     decode_and_validate_cloudflare_signer_input_plaintext_v1,
     decode_and_verify_cloudflare_ab_derivation_proof_batch_message_v1,
-    decode_cloudflare_peer_verifying_key_hex_v1,
-    decode_cloudflare_relayer_output_hpke_private_key_secret_v1,
-    decode_cloudflare_root_share_wire_secret_v1,
+    decode_cloudflare_peer_verifying_key_hex_v1, decode_cloudflare_root_share_wire_secret_v1,
+    decode_cloudflare_server_output_hpke_private_key_secret_v1,
     decode_cloudflare_signer_envelope_hpke_private_key_secret_v1,
     derive_cloudflare_router_trusted_admission_from_provider_v1,
     derive_cloudflare_router_trusted_admission_v1,
-    encode_cloudflare_relayer_output_hpke_private_key_secret_v1,
+    encode_cloudflare_server_output_hpke_private_key_secret_v1,
     encode_cloudflare_signer_envelope_hpke_private_key_secret_v1,
     evaluate_cloudflare_validated_mpc_prf_batch_output_v1,
     handle_cloudflare_deriver_a_recipient_proof_bundle_activation_request_v1,
     handle_cloudflare_durable_object_call_v1, handle_cloudflare_signer_peer_request_v1,
     handle_cloudflare_signer_recipient_proof_bundle_private_request_v1,
-    handle_cloudflare_signing_worker_normal_signing_private_request_v1,
+    handle_cloudflare_signing_worker_normal_signing_finalize_private_request_v2,
+    handle_cloudflare_signing_worker_normal_signing_prepare_private_request_v2,
     handle_cloudflare_validated_mpc_prf_recipient_proof_bundle_signer_request_v1,
     open_cloudflare_signer_envelope_hpke_payload_v1, parse_cloudflare_deriver_a_bindings_v1,
     parse_cloudflare_deriver_b_bindings_v1, parse_cloudflare_router_admission_bindings_v1,
     parse_cloudflare_signer_envelope_hpke_decrypt_key_binding_v1,
     parse_cloudflare_signer_envelope_hpke_public_key_set_v1,
-    parse_cloudflare_signing_worker_bindings_v1, parse_cloudflare_worker_bindings_v1,
-    seal_cloudflare_signer_envelope_hpke_payload_v1,
+    parse_cloudflare_signer_peer_verifying_key_set_v1, parse_cloudflare_signing_worker_bindings_v1,
+    parse_cloudflare_worker_bindings_v1, seal_cloudflare_signer_envelope_hpke_payload_v1,
     validate_cloudflare_peer_signing_key_matches_request_v1,
     validate_cloudflare_signer_peer_request_v1, validate_cloudflare_signer_peer_response_v1,
     validate_cloudflare_signer_private_request_plaintext_v1,
     validate_cloudflare_signer_private_request_v1,
     validate_cloudflare_signer_recipient_proof_bundle_private_response_v1,
     verify_cloudflare_signer_peer_message_authentication_v1,
-    CloudflareActiveSigningWorkerStateLookupV1, CloudflareDurableObjectBindingV1,
-    CloudflareDurableObjectCallV1, CloudflareDurableObjectMemoryStorageV1,
-    CloudflareDurableObjectOperationKindV1, CloudflareDurableObjectRequestV1,
-    CloudflareDurableObjectResponseV1, CloudflareDurableObjectScopeV1, CloudflareEnvMapV1,
+    CloudflareActiveSigningWorkerStateLookupV1, CloudflareDerivationCeremonyPutReceiptV1,
+    CloudflareDerivationCeremonyStateLabelV1, CloudflareDerivationCeremonyV1,
+    CloudflareDurableObjectBindingV1, CloudflareDurableObjectCallV1,
+    CloudflareDurableObjectMemoryStorageV1, CloudflareDurableObjectOperationKindV1,
+    CloudflareDurableObjectRequestV1, CloudflareDurableObjectResponseV1,
+    CloudflareDurableObjectScopeV1, CloudflareDurableObjectStorageV1, CloudflareEnvMapV1,
+    CloudflareExpiredStateCleanupReportV1, CloudflareExpiredStateCleanupRequestV1,
     CloudflareLifecyclePutReceiptV1, CloudflarePeerBindingV1, CloudflarePreloadedSignerHostV1,
-    CloudflareRelayerOutputHpkeDecryptKeyBindingV1, CloudflareRelayerOutputMaterialRecordV1,
     CloudflareReplayReserveRequestV1, CloudflareReplayReserveResponseV1,
-    CloudflareRootShareLookupRequestV1, CloudflareRootShareStartupMetadataV1,
-    CloudflareRootShareWireSecretBindingV1, CloudflareRouterAbuseCheckV1,
-    CloudflareRouterAbuseRecordV1, CloudflareRouterAbuseStoreV1,
+    CloudflareRoleSeparatedEd25519NormalSigningHandlerV1, CloudflareRootShareLookupRequestV1,
+    CloudflareRootShareStartupMetadataV1, CloudflareRootShareWireSecretBindingV1,
+    CloudflareRouterAbuseCheckV1, CloudflareRouterAbuseRecordV1, CloudflareRouterAbuseStoreV1,
     CloudflareRouterAdmissionBindingsV1, CloudflareRouterAdmissionChecksV1,
     CloudflareRouterAdmissionProviderOutputV1, CloudflareRouterAdmissionProviderV1,
     CloudflareRouterAdmissionStoreRequestV1,
@@ -57,7 +67,9 @@ use router_ab_cloudflare::{
     CloudflareRouterConfiguredQuotaProviderV1, CloudflareRouterEd25519JwksJwtVerifierV1,
     CloudflareRouterJwtSessionProviderV1, CloudflareRouterJwtVerifierBindingV1,
     CloudflareRouterJwtVerifierV1, CloudflareRouterNormalSigningAdmissionStoreRequestV1,
-    CloudflareRouterNormalSigningJwtVerifierV1, CloudflareRouterNormalSigningTrustedAdmissionV1,
+    CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2,
+    CloudflareRouterNormalSigningPrepareAdmissionCandidateV2,
+    CloudflareRouterNormalSigningTrustedAdmissionV1,
     CloudflareRouterNormalSigningTrustedMetadataV1, CloudflareRouterProjectPolicyRecordV1,
     CloudflareRouterProjectPolicyStoreV1, CloudflareRouterProjectPolicyV1,
     CloudflareRouterPublicAdmissionPlanV1, CloudflareRouterQuotaCheckV1,
@@ -66,10 +78,12 @@ use router_ab_cloudflare::{
     CloudflareRouterRecipientProofBundleResponseV1, CloudflareRouterStoredAbuseProviderV1,
     CloudflareRouterStoredProjectPolicyProviderV1, CloudflareRouterStoredQuotaProviderV1,
     CloudflareRouterTrustedAdmissionV1, CloudflareRouterTrustedRequestMetadataV1,
-    CloudflareRouterVerifiedJwtClaimsV1, CloudflareRouterVerifiedNormalSigningJwtClaimsV1,
-    CloudflareRouterVerifiedSessionProviderV1, CloudflareRouterVerifiedSessionV1,
-    CloudflareRouterWorkerRuntimeV1, CloudflareSecretMaterial32V1, CloudflareSignerABindingsV1,
-    CloudflareSignerAWorkerRuntimeV1, CloudflareSignerBBindingsV1,
+    CloudflareRouterVerifiedJwtClaimsV1, CloudflareRouterVerifiedSessionProviderV1,
+    CloudflareRouterVerifiedSessionV1, CloudflareRouterVerifiedWalletSessionV1,
+    CloudflareRouterWalletSessionCredentialV1, CloudflareRouterWalletSessionVerifierV1,
+    CloudflareRouterWorkerRuntimeV1, CloudflareSecretMaterial32V1,
+    CloudflareServerOutputHpkeDecryptKeyBindingV1, CloudflareServerOutputMaterialRecordV1,
+    CloudflareSignerABindingsV1, CloudflareSignerAWorkerRuntimeV1, CloudflareSignerBBindingsV1,
     CloudflareSignerBWorkerRuntimeV1, CloudflareSignerEnvelopeHpkeDecryptKeyBindingV1,
     CloudflareSignerEnvelopeHpkePublicKeySetV1, CloudflareSignerEnvelopeHpkePublicKeyV1,
     CloudflareSignerHostPeerPreloadInputV1, CloudflareSignerHostPreloadInputV1,
@@ -77,15 +91,15 @@ use router_ab_cloudflare::{
     CloudflareSignerPeerVerifyingKeyBytesV1, CloudflareSignerPeerVerifyingKeySetV1,
     CloudflareSignerPrivateBootstrapRequestV1, CloudflareSignerRecipientProofBundleResponseV1,
     CloudflareSignerRecipientProofBundleWireHandlerV1, CloudflareSignerStartupCheckV1,
-    CloudflareSignerWireHandlerV1, CloudflareSigningWorkerAdmittedNormalSigningRequestV1,
-    CloudflareSigningWorkerBindingsV1, CloudflareSigningWorkerMaterializedNormalSigningRequestV1,
-    CloudflareSigningWorkerNormalSigningHandlerV1,
-    CloudflareSigningWorkerOutputActivationReceiptV1,
+    CloudflareSignerWireHandlerV1, CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2,
+    CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2,
+    CloudflareSigningWorkerBindingsV1, CloudflareSigningWorkerOutputActivationReceiptV1,
     CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
-    CloudflareSigningWorkerRecipientProofBundleActivationV1, CloudflareSigningWorkerRuntimeV1,
-    CloudflareWorkerBindingsV1, CloudflareWorkerRoleV1,
-    CLOUDFLARE_RELAYER_OUTPUT_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1,
+    CloudflareSigningWorkerRecipientProofBundleActivationV1, CloudflareSigningWorkerRound1LookupV1,
+    CloudflareSigningWorkerRound1PutReceiptV1, CloudflareSigningWorkerRound1RecordV1,
+    CloudflareSigningWorkerRuntimeV1, CloudflareWorkerBindingsV1, CloudflareWorkerRoleV1,
     CLOUDFLARE_ROOT_SHARE_WIRE_SECRET_PREFIX_V1,
+    CLOUDFLARE_SERVER_OUTPUT_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1,
     CLOUDFLARE_SIGNER_ENVELOPE_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1, ROUTER_ABUSE_DO_BINDING_ENV,
     ROUTER_ABUSE_DO_KEY_PREFIX_ENV, ROUTER_ABUSE_DO_OBJECT_ENV, ROUTER_JWT_AUDIENCE_ENV,
     ROUTER_JWT_ISSUER_ENV, ROUTER_JWT_JWKS_URL_ENV, ROUTER_LIFECYCLE_DO_BINDING_ENV,
@@ -105,11 +119,11 @@ use router_ab_cloudflare::{
     SIGNER_B_PEER_SIGNING_KEY_EPOCH_ENV, SIGNER_B_PEER_VERIFYING_KEY_HEX_ENV,
     SIGNER_B_ROOT_SHARE_DO_BINDING_ENV, SIGNER_B_ROOT_SHARE_DO_KEY_PREFIX_ENV,
     SIGNER_B_ROOT_SHARE_DO_OBJECT_ENV, SIGNER_B_ROOT_SHARE_WIRE_SECRET_BINDING_ENV,
-    SIGNING_WORKER_PEER_BINDING_ENV, SIGNING_WORKER_RELAYER_OUTPUT_DO_BINDING_ENV,
-    SIGNING_WORKER_RELAYER_OUTPUT_DO_KEY_PREFIX_ENV, SIGNING_WORKER_RELAYER_OUTPUT_DO_OBJECT_ENV,
-    SIGNING_WORKER_RELAYER_OUTPUT_HPKE_KEY_EPOCH_ENV,
-    SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY_BINDING_ENV,
-    SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY_ENV,
+    SIGNING_WORKER_PEER_BINDING_ENV, SIGNING_WORKER_SERVER_OUTPUT_DO_BINDING_ENV,
+    SIGNING_WORKER_SERVER_OUTPUT_DO_KEY_PREFIX_ENV, SIGNING_WORKER_SERVER_OUTPUT_DO_OBJECT_ENV,
+    SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH_ENV,
+    SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_BINDING_ENV,
+    SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY_ENV,
 };
 use router_ab_core::{
     ab_peer_message_authentication_input_digest_v1, decode_recipient_proof_bundle_ciphertext_v1,
@@ -119,21 +133,27 @@ use router_ab_core::{
     CorrectnessLevel, Csprng, DeriverAEngine, EncryptedPayloadV1, ExpensiveWorkGateContextV1,
     ExpensiveWorkGateDecisionV1, ExpensiveWorkKindV1, GateDeferReasonV1, GatePrincipalV1,
     GateRejectReasonV1, LifecycleScopeV1, MpcPrfOutputRequestV1, MpcPrfSigningRootShareWireV1,
-    MpcPrfSuiteId, NormalSigningRequestV1, NormalSigningResponseV1, NormalSigningScopeV1,
-    NormalSigningSignatureSchemeV1, OpenedShareKind, PeerTransport, PublicRouterRequestV1,
-    RecipientOutputEncryptionAlgorithmV1, RecipientProofBundleCiphertextV1,
-    RecipientProofBundleEncryptionRequestV1, RecipientProofBundleEncryptorV1, RelayerIdentityV1,
-    RoleEncryptedEnvelopeV1, RoleEnvelopeAadV1, RouterAbLifecycleStateV1,
-    RouterAbProtocolErrorCode, RouterAbProtocolResult, RouterToSignerPayloadV1,
-    RouterTranscriptMetadataV1, SignerEnvelopeHpkePayloadV1, SignerIdentityV1,
-    SignerInputPlaintextV1, SignerInputQuorumPolicyV1, SignerKeyStore, SignerSetV1,
-    SigningRootShareStore, WireMessageKindV1, WireMessageV1,
-    MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN, SIGNER_ENVELOPE_HPKE_ENCAPPED_KEY_LEN_V1,
-    SIGNER_ENVELOPE_HPKE_TAG_LEN_V1,
+    MpcPrfSuiteId, NormalSigningEd25519TwoPartyFrostCommitmentsV1, NormalSigningResponseV1,
+    NormalSigningRound1PrepareResponseV1, NormalSigningScopeV1, NormalSigningSignatureSchemeV1,
+    OpenedShareKind, PeerTransport, PublicRouterRequestV1, RecipientOutputEncryptionAlgorithmV1,
+    RecipientProofBundleCiphertextV1, RecipientProofBundleEncryptionRequestV1,
+    RecipientProofBundleEncryptorV1, RoleEncryptedEnvelopeV1, RoleEnvelopeAadV1,
+    RouterAbLifecycleStateV1, RouterAbProtocolErrorCode, RouterAbProtocolResult,
+    RouterToSignerPayloadV1, RouterTranscriptMetadataV1, ServerIdentityV1,
+    SignerEnvelopeHpkePayloadV1, SignerIdentityV1, SignerInputPlaintextV1,
+    SignerInputQuorumPolicyV1, SignerKeyStore, SignerSetV1, SigningRootShareStore,
+    WireMessageKindV1, WireMessageV1, MPC_PRF_SIGNING_ROOT_SHARE_WIRE_V1_LEN,
+    SIGNER_ENVELOPE_HPKE_ENCAPPED_KEY_LEN_V1, SIGNER_ENVELOPE_HPKE_TAG_LEN_V1,
 };
 use router_ab_core::{
     router_transcript_digest_v1, CandidateId, PublicDigest32, RequestKind, Role, RootShareEpoch,
+    RouterAbEd25519NormalSigningFinalizeProtocolV2, RouterAbEd25519NormalSigningFinalizeRequestV2,
+    RouterAbEd25519NormalSigningIntentV2, RouterAbEd25519NormalSigningPrepareBindingV2,
+    RouterAbEd25519NormalSigningPrepareRequestV2, RouterAbEd25519SigningPayloadV2,
+    RouterAbEd25519TwoPartyFrostFinalizeProtocolV2, RouterAbNearNetworkIdV2,
+    RouterAbNearTransactionIntentV1,
 };
+use sha2::{Digest as Sha2Digest, Sha256};
 
 const TEST_ACTIVATED_AT_MS: u64 = 1_000;
 
@@ -170,42 +190,169 @@ fn active_signing_worker_state_for_activation(
 }
 
 fn normal_signing_scope() -> NormalSigningScopeV1 {
-    NormalSigningScopeV1::new("sign-request-1", "account.near", "session-1", "relayer-a")
+    normal_signing_scope_for_request_id("sign-request-1")
+}
+
+fn normal_signing_scope_for_request_id(request_id: &str) -> NormalSigningScopeV1 {
+    NormalSigningScopeV1::new(request_id, "account.near", "session-1", "server-a")
         .expect("normal signing scope")
 }
 
-fn normal_signing_request(expires_at_ms: u64) -> NormalSigningRequestV1 {
-    NormalSigningRequestV1::new(
+fn normal_signing_v2_wallet_session(expires_at_ms: u64) -> CloudflareRouterVerifiedWalletSessionV1 {
+    CloudflareRouterVerifiedWalletSessionV1::new(
+        "user-1",
+        "account.near",
+        "session-1",
+        "org-1",
+        "project-1",
+        "dev",
+        "normal-signing",
+        "server-a",
+        digest(0x90),
+        expires_at_ms,
+    )
+    .expect("wallet session")
+}
+
+fn normal_signing_v2_prepare_request(
+    expires_at_ms: u64,
+) -> RouterAbEd25519NormalSigningPrepareRequestV2 {
+    normal_signing_v2_prepare_request_for_id("sign-request-1", expires_at_ms)
+}
+
+fn normal_signing_v2_prepare_request_for_id(
+    request_id: &str,
+    expires_at_ms: u64,
+) -> RouterAbEd25519NormalSigningPrepareRequestV2 {
+    let unsigned_transaction_borsh = normal_signing_v2_unsigned_transaction_borsh();
+    let unsigned_transaction_borsh_b64u = b64u(&unsigned_transaction_borsh);
+    let intent = RouterAbEd25519NormalSigningIntentV2::NearTransactionV1 {
+        operation_id: "operation-1".to_owned(),
+        operation_fingerprint: "fingerprint-1".to_owned(),
+        near_account_id: "account.near".to_owned(),
+        near_network_id: RouterAbNearNetworkIdV2::Testnet,
+        transactions: vec![RouterAbNearTransactionIntentV1::new(
+            "receiver.near",
+            normal_signing_v2_action_fingerprint(),
+        )
+        .expect("near transaction intent")],
+        unsigned_transaction_borsh_b64u: unsigned_transaction_borsh_b64u.clone(),
+    };
+    let signing_payload = RouterAbEd25519SigningPayloadV2::NearUnsignedTransactionBorshV1 {
+        unsigned_transaction_borsh_b64u,
+        expected_signing_digest_b64u: sha256_digest_b64u(&unsigned_transaction_borsh),
+    };
+    RouterAbEd25519NormalSigningPrepareRequestV2::new(
+        normal_signing_scope_for_request_id(request_id),
+        expires_at_ms,
+        intent,
+        signing_payload,
+    )
+    .expect("normal signing v2 prepare request")
+}
+
+fn normal_signing_v2_finalize_request(
+    expires_at_ms: u64,
+) -> RouterAbEd25519NormalSigningFinalizeRequestV2 {
+    let prepare = normal_signing_v2_prepare_request(expires_at_ms);
+    let material = prepare.admission_material().expect("admission material");
+    let prepare_binding = RouterAbEd25519NormalSigningPrepareBindingV2::new(
+        "server-round1/sign-request-1",
+        prepare.round1_binding_digest().expect("round1 binding"),
+        material.intent_digest,
+        material.signing_payload_digest,
+    )
+    .expect("prepare binding");
+    let protocol = RouterAbEd25519NormalSigningFinalizeProtocolV2::Ed25519TwoPartyFrostFinalizeV1(
+        RouterAbEd25519TwoPartyFrostFinalizeProtocolV2::new(
+            "ed25519:11111111111111111111111111111111",
+            NormalSigningEd25519TwoPartyFrostCommitmentsV1::new(
+                b64u(&[0x11; 32]),
+                b64u(&[0x12; 32]),
+            )
+            .expect("client commitments"),
+            NormalSigningEd25519TwoPartyFrostCommitmentsV1::new(
+                b64u(&[0x21; 32]),
+                b64u(&[0x22; 32]),
+            )
+            .expect("server commitments"),
+            b64u(&[0x31; 32]),
+            b64u(&[0x32; 32]),
+            b64u(&[0x41; 32]),
+        )
+        .expect("v2 finalize protocol"),
+    );
+    RouterAbEd25519NormalSigningFinalizeRequestV2::new(
         normal_signing_scope(),
         expires_at_ms,
-        digest(0x91),
-        CanonicalWireBytesV1::new(vec![0x7a, 0x7b, 0x7c]).expect("normal signing payload"),
+        prepare_binding,
+        protocol,
     )
-    .expect("normal signing request")
+    .expect("normal signing v2 finalize request")
 }
 
 fn active_signing_worker_state_for_normal_signing() -> ActiveSigningWorkerStateV1 {
     ActiveSigningWorkerStateV1::new(
         "account.near",
         "session-1",
-        signer_set().selected_relayer,
+        signer_set().selected_server,
         digest(0x81),
         digest(0x82),
-        "relayer-output/lifecycle-1/material",
+        "server-output/lifecycle-1/material",
         TEST_ACTIVATED_AT_MS,
     )
     .expect("active SigningWorker state")
 }
 
-fn normal_signing_material_record() -> CloudflareRelayerOutputMaterialRecordV1 {
-    CloudflareRelayerOutputMaterialRecordV1::new(
+fn normal_signing_material_record() -> CloudflareServerOutputMaterialRecordV1 {
+    CloudflareServerOutputMaterialRecordV1::new(
         digest(0x81),
-        OpenedShareKind::XRelayerBase,
-        Role::Relayer,
-        "relayer-a",
+        OpenedShareKind::XServerBase,
+        Role::Server,
+        "server-a",
         CloudflareSecretMaterial32V1::new([0x5a; 32]),
     )
     .expect("normal signing material")
+}
+
+fn normal_signing_round1_state() -> RoleSeparatedEd25519Round1StateV1 {
+    RoleSeparatedEd25519Round1StateV1::new(
+        RoleSeparatedEd25519Round1SecretV1::new(scalar_bytes(11), scalar_bytes(12))
+            .expect("round1 secret"),
+    )
+    .expect("round1 state")
+}
+
+fn normal_signing_round1_record() -> CloudflareSigningWorkerRound1RecordV1 {
+    let request = normal_signing_v2_prepare_request(2_000);
+    let material = request.admission_material().expect("admission material");
+    CloudflareSigningWorkerRound1RecordV1::new(
+        active_signing_worker_state_for_normal_signing(),
+        "server-round1/sign-request-1",
+        request.round1_binding_digest().expect("round1 binding"),
+        material.admitted_signing_digest,
+        normal_signing_round1_state(),
+        1_000,
+        2_000,
+    )
+    .expect("round1 record")
+}
+
+fn normal_signing_round1_lookup(now_unix_ms: u64) -> CloudflareSigningWorkerRound1LookupV1 {
+    let request = normal_signing_v2_prepare_request(2_000);
+    CloudflareSigningWorkerRound1LookupV1::new(
+        active_signing_worker_state_for_normal_signing(),
+        "server-round1/sign-request-1",
+        request.round1_binding_digest().expect("round1 binding"),
+        now_unix_ms,
+    )
+    .expect("round1 lookup")
+}
+
+fn scalar_bytes(value: u64) -> [u8; 32] {
+    let mut bytes = [0u8; 32];
+    bytes[..8].copy_from_slice(&value.to_le_bytes());
+    bytes
 }
 
 fn request_context_digest(request: &PublicRouterRequestV1) -> PublicDigest32 {
@@ -227,7 +374,7 @@ fn role_envelope_aad_for_request(role: Role, request: &PublicRouterRequestV1) ->
         payload.lifecycle().work_kind,
         payload.signer_set().signer_set_id.clone(),
         assignment.signer.clone(),
-        payload.signer_set().selected_relayer.clone(),
+        payload.signer_set().selected_server.clone(),
         payload.transcript_digest(),
         request_context_digest(request),
         request.expires_at_ms,
@@ -396,10 +543,10 @@ fn root_share_metadata(role: Role) -> CloudflareRootShareStartupMetadataV1 {
     .expect("root-share startup metadata")
 }
 
-fn relayer_output_binding() -> CloudflareDurableObjectBindingV1 {
+fn server_output_binding() -> CloudflareDurableObjectBindingV1 {
     do_binding(
-        CloudflareDurableObjectScopeV1::signing_worker_relayer_output(),
-        "SIGNING_WORKER_RELAYER_OUTPUT_DO",
+        CloudflareDurableObjectScopeV1::signing_worker_server_output(),
+        "SIGNING_WORKER_SERVER_OUTPUT_DO",
     )
 }
 
@@ -423,14 +570,14 @@ fn deriver_b_envelope_hpke_decrypt_key() -> CloudflareSignerEnvelopeHpkeDecryptK
     .expect("signer b hpke envelope decrypt key")
 }
 
-fn relayer_output_hpke_decrypt_key() -> CloudflareRelayerOutputHpkeDecryptKeyBindingV1 {
-    let relayer = &signer_set().selected_relayer;
-    CloudflareRelayerOutputHpkeDecryptKeyBindingV1::new(
-        "SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY",
-        relayer.key_epoch.clone(),
-        relayer.recipient_encryption_key.clone(),
+fn server_output_hpke_decrypt_key() -> CloudflareServerOutputHpkeDecryptKeyBindingV1 {
+    let server = &signer_set().selected_server;
+    CloudflareServerOutputHpkeDecryptKeyBindingV1::new(
+        "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY",
+        server.key_epoch.clone(),
+        server.recipient_encryption_key.clone(),
     )
-    .expect("relayer-output hpke decrypt key")
+    .expect("server-output hpke decrypt key")
 }
 
 fn deriver_a_peer_signing_key() -> CloudflareSignerPeerSigningKeyBindingV1 {
@@ -481,7 +628,7 @@ fn lifecycle_state() -> RouterAbLifecycleStateV1 {
             "account.near",
             "session-1",
             "signer-set-v1",
-            "relayer-a",
+            "server-a",
         )
         .expect("lifecycle scope"),
     )
@@ -500,17 +647,92 @@ fn accepted_lifecycle_state() -> RouterAbLifecycleStateV1 {
     .expect("accepted lifecycle state")
 }
 
+fn created_derivation_ceremony() -> CloudflareDerivationCeremonyV1 {
+    CloudflareDerivationCeremonyV1::created(lifecycle_scope(), TEST_ACTIVATED_AT_MS - 2)
+        .expect("created derivation ceremony")
+}
+
+fn accepted_derivation_ceremony() -> CloudflareDerivationCeremonyV1 {
+    CloudflareDerivationCeremonyV1::admitted(
+        lifecycle_scope(),
+        "gate-request-1",
+        TEST_ACTIVATED_AT_MS - 1,
+    )
+    .expect("accepted derivation ceremony")
+}
+
+fn a_envelope_forwarded_derivation_ceremony() -> CloudflareDerivationCeremonyV1 {
+    CloudflareDerivationCeremonyV1::a_envelope_forwarded(
+        lifecycle_scope(),
+        "gate-request-1",
+        "signer-a",
+        digest(0xa1),
+        TEST_ACTIVATED_AT_MS - 1,
+    )
+    .expect("A-envelope-forwarded derivation ceremony")
+}
+
+fn b_envelope_forwarded_derivation_ceremony() -> CloudflareDerivationCeremonyV1 {
+    CloudflareDerivationCeremonyV1::b_envelope_forwarded(
+        lifecycle_scope(),
+        "gate-request-1",
+        "signer-a",
+        digest(0xa1),
+        "signer-b",
+        digest(0xb1),
+        TEST_ACTIVATED_AT_MS - 1,
+    )
+    .expect("B-envelope-forwarded derivation ceremony")
+}
+
+fn ab_running_derivation_ceremony() -> CloudflareDerivationCeremonyV1 {
+    CloudflareDerivationCeremonyV1::ab_running(
+        lifecycle_scope(),
+        "gate-request-1",
+        digest(0xc1),
+        TEST_ACTIVATED_AT_MS - 1,
+    )
+    .expect("A/B-running derivation ceremony")
+}
+
+fn client_output_ready_derivation_ceremony() -> CloudflareDerivationCeremonyV1 {
+    CloudflareDerivationCeremonyV1::client_output_ready(
+        lifecycle_scope(),
+        "gate-request-1",
+        vec![digest(0xd1), digest(0xd2)],
+        TEST_ACTIVATED_AT_MS - 1,
+    )
+    .expect("client-output-ready derivation ceremony")
+}
+
+fn signing_worker_output_ready_derivation_ceremony() -> CloudflareDerivationCeremonyV1 {
+    CloudflareDerivationCeremonyV1::signing_worker_output_ready(
+        lifecycle_scope(),
+        "gate-request-1",
+        vec![digest(0xe1), digest(0xe2)],
+        TEST_ACTIVATED_AT_MS - 1,
+    )
+    .expect("SigningWorker-output-ready derivation ceremony")
+}
+
+fn activated_derivation_ceremony() -> CloudflareDerivationCeremonyV1 {
+    let activation = signing_worker_activation();
+    let active_state = active_signing_worker_state_for_activation(&activation, "material-handle-1");
+    CloudflareDerivationCeremonyV1::activated(lifecycle_scope(), "gate-request-1", active_state)
+        .expect("activated derivation ceremony")
+}
+
 fn signer_set() -> SignerSetV1 {
     SignerSetV1::v1_all2(
         "signer-set-v1",
         SignerIdentityV1::new(Role::SignerA, "signer-a", "key-epoch-a").expect("signer a"),
         SignerIdentityV1::new(Role::SignerB, "signer-b", "key-epoch-b").expect("signer b"),
-        RelayerIdentityV1::new(
-            "relayer-a",
-            "relayer-epoch",
+        ServerIdentityV1::new(
+            "server-a",
+            "server-epoch",
             "x25519:1111111111111111111111111111111111111111111111111111111111111111",
         )
-        .expect("relayer"),
+        .expect("server"),
     )
     .expect("signer set")
 }
@@ -586,24 +808,6 @@ fn normal_signing_trusted_metadata() -> CloudflareRouterNormalSigningTrustedMeta
     .expect("normal signing metadata")
 }
 
-fn normal_signing_trusted_admission() -> CloudflareRouterNormalSigningTrustedAdmissionV1 {
-    CloudflareRouterNormalSigningTrustedAdmissionV1::new(
-        normal_signing_trusted_metadata(),
-        ExpensiveWorkGateDecisionV1::accepted("gate-request-1").expect("accepted"),
-    )
-    .expect("normal signing trusted admission")
-}
-
-fn normal_signing_admitted_request(
-    request: NormalSigningRequestV1,
-) -> CloudflareSigningWorkerAdmittedNormalSigningRequestV1 {
-    CloudflareSigningWorkerAdmittedNormalSigningRequestV1::new(
-        request,
-        normal_signing_trusted_admission(),
-    )
-    .expect("normal signing admitted request")
-}
-
 fn admission_store_request(now_unix_ms: u64) -> CloudflareRouterAdmissionStoreRequestV1 {
     CloudflareRouterAdmissionStoreRequestV1::new(
         trusted_metadata(),
@@ -616,12 +820,24 @@ fn admission_store_request(now_unix_ms: u64) -> CloudflareRouterAdmissionStoreRe
 fn normal_signing_admission_store_request(
     now_unix_ms: u64,
 ) -> CloudflareRouterNormalSigningAdmissionStoreRequestV1 {
-    CloudflareRouterNormalSigningAdmissionStoreRequestV1::new(
-        normal_signing_trusted_metadata(),
-        &normal_signing_request(2_000),
+    normal_signing_admission_store_request_for_id("sign-request-1", now_unix_ms)
+}
+
+fn normal_signing_admission_store_request_for_id(
+    request_id: &str,
+    now_unix_ms: u64,
+) -> CloudflareRouterNormalSigningAdmissionStoreRequestV1 {
+    let request = normal_signing_v2_prepare_request_for_id(request_id, 2_000);
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let admission = CloudflareRouterNormalSigningPrepareAdmissionCandidateV2::from_prepare_request(
+        &wallet_session,
+        &request,
         now_unix_ms,
     )
-    .expect("normal signing admission store request")
+    .expect("normal signing v2 admission");
+    admission
+        .to_v1_prepare_admission_store_request(&request, now_unix_ms)
+        .expect("normal signing admission store request")
 }
 
 type TestCompositeAdmissionProvider = CloudflareRouterCompositeAdmissionProviderV1<
@@ -647,6 +863,55 @@ fn verified_jwt_claims(session_id: &str, account_id: &str) -> CloudflareRouterVe
 fn encode_jwt_segment(value: &serde_json::Value) -> String {
     let bytes = serde_json::to_vec(value).expect("json segment");
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn b64u(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn sha256_public_digest(bytes: &[u8]) -> PublicDigest32 {
+    let digest = Sha256::digest(bytes);
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&digest);
+    PublicDigest32::new(out)
+}
+
+fn sha256_digest_b64u(bytes: &[u8]) -> String {
+    b64u(sha256_public_digest(bytes).as_bytes())
+}
+
+fn push_borsh_string(out: &mut Vec<u8>, value: &str) {
+    out.extend_from_slice(&(value.len() as u32).to_le_bytes());
+    out.extend_from_slice(value.as_bytes());
+}
+
+fn push_borsh_bytes(out: &mut Vec<u8>, value: &[u8]) {
+    out.extend_from_slice(&(value.len() as u32).to_le_bytes());
+    out.extend_from_slice(value);
+}
+
+fn normal_signing_v2_unsigned_transaction_borsh() -> Vec<u8> {
+    let mut out = Vec::new();
+    push_borsh_string(&mut out, "account.near");
+    out.push(0);
+    out.extend_from_slice(&[0; 32]);
+    out.extend_from_slice(&7_u64.to_le_bytes());
+    push_borsh_string(&mut out, "receiver.near");
+    out.extend_from_slice(&[0x44; 32]);
+    out.extend_from_slice(&1_u32.to_le_bytes());
+    out.push(2);
+    push_borsh_string(&mut out, "transfer");
+    push_borsh_bytes(&mut out, br#"{"amount":"1"}"#);
+    out.extend_from_slice(&30_000_000_000_000_u64.to_le_bytes());
+    out.extend_from_slice(&0_u128.to_le_bytes());
+    out
+}
+
+fn normal_signing_v2_action_fingerprint() -> String {
+    sha256_digest_b64u(
+        r#"[{"action_type":"FunctionCall","args":"{\"amount\":\"1\"}","deposit":"0","gas":"30000000000000","method_name":"transfer"}]"#
+            .as_bytes(),
+    )
 }
 
 fn ed25519_jwks_json(signing_key: &SigningKey, key_id: &str) -> String {
@@ -693,14 +958,43 @@ fn valid_router_jwt_claims() -> serde_json::Value {
     })
 }
 
-fn digest_json(byte: u8) -> serde_json::Value {
-    serde_json::json!(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([byte; 32]))
+fn valid_wallet_session_jwt_claims() -> serde_json::Value {
+    let mut claims = valid_router_jwt_claims();
+    claims["routerAbNormalSigning"] = serde_json::json!({
+        "authorizationLevel": "normal-signing",
+        "signingWorkerId": "server-a",
+    });
+    claims
 }
 
-fn valid_normal_signing_jwt_claims() -> serde_json::Value {
-    let mut claims = valid_router_jwt_claims();
-    claims["intentDigest"] = digest_json(0x91);
-    claims
+#[test]
+fn normal_signing_cors_requires_exact_configured_origin() {
+    assert_eq!(
+        cloudflare_router_normal_signing_cors_allowed_origin_v1(
+            Some("https://wallet.example, https://app.example"),
+            "https://app.example",
+        ),
+        Some("https://app.example".to_owned())
+    );
+    assert_eq!(
+        cloudflare_router_normal_signing_cors_allowed_origin_v1(None, "https://app.example"),
+        None
+    );
+    assert_eq!(
+        cloudflare_router_normal_signing_cors_allowed_origin_v1(Some(""), "https://app.example"),
+        None
+    );
+    assert_eq!(
+        cloudflare_router_normal_signing_cors_allowed_origin_v1(Some("*"), "https://app.example"),
+        None
+    );
+    assert_eq!(
+        cloudflare_router_normal_signing_cors_allowed_origin_v1(
+            Some("https://wallet.example"),
+            "https://app.example",
+        ),
+        None
+    );
 }
 
 fn composite_admission_provider(
@@ -783,26 +1077,6 @@ impl CloudflareRouterJwtVerifierV1 for StaticJwtVerifier {
         claims.trusted_source_digest = trusted_source_digest;
         claims.validate()?;
         Ok(claims)
-    }
-}
-
-impl CloudflareRouterNormalSigningJwtVerifierV1 for StaticJwtVerifier {
-    fn verify_normal_signing_jwt(
-        &mut self,
-        verifier: &CloudflareRouterJwtVerifierBindingV1,
-        authorization: &CloudflareRouterBearerAuthorizationV1,
-        request: &NormalSigningRequestV1,
-        now_unix_ms: u64,
-        trusted_source_digest: PublicDigest32,
-    ) -> RouterAbProtocolResult<CloudflareRouterVerifiedNormalSigningJwtClaimsV1> {
-        verifier.validate()?;
-        authorization.validate()?;
-        request.validate_at(now_unix_ms)?;
-        self.calls += 1;
-        let mut claims = self.claims.clone();
-        claims.trusted_source_digest = trusted_source_digest;
-        claims.validate_for_normal_signing_request(request, now_unix_ms)?;
-        CloudflareRouterVerifiedNormalSigningJwtClaimsV1::new(claims, request.intent_digest)
     }
 }
 
@@ -1184,8 +1458,8 @@ fn signer_input_plaintext_bytes_for_request(
         assignment.signer.signer_id.clone(),
         assignment.signer.key_epoch.clone(),
         root_epoch(),
-        "relayer-a",
-        "relayer-epoch",
+        "server-a",
+        "server-epoch",
         payload.transcript_digest(),
         request_context_digest(request),
         assignment.envelope.aad_digest,
@@ -1197,11 +1471,11 @@ fn signer_input_plaintext_bytes_for_request(
             )
             .expect("client output"),
             MpcPrfOutputRequestV1::new(
-                OpenedShareKind::XRelayerBase,
-                Role::Relayer,
-                payload.signer_set().selected_relayer.relayer_id.clone(),
+                OpenedShareKind::XServerBase,
+                Role::Server,
+                payload.signer_set().selected_server.server_id.clone(),
             )
-            .expect("relayer output"),
+            .expect("server output"),
         ],
     )
     .expect("signer input plaintext")
@@ -1259,30 +1533,6 @@ impl CloudflareSignerRecipientProofBundleWireHandlerV1 for TestRecipientProofBun
     ) -> router_ab_core::RouterAbProtocolResult<CloudflareSignerRecipientProofBundleResponseV1>
     {
         Ok(self.response.clone())
-    }
-}
-
-struct TestNormalSigningHandler;
-
-impl CloudflareSigningWorkerNormalSigningHandlerV1 for TestNormalSigningHandler {
-    fn handle_normal_signing_request(
-        &self,
-        request: CloudflareSigningWorkerMaterializedNormalSigningRequestV1,
-    ) -> router_ab_core::RouterAbProtocolResult<NormalSigningResponseV1> {
-        request.validate()?;
-        let forwarded = &request.forwarded;
-        assert_eq!(
-            request.trusted_admission.metadata.intent_digest,
-            forwarded.request.intent_digest
-        );
-        NormalSigningResponseV1::new(
-            forwarded.request.scope.clone(),
-            forwarded.request.signing_payload_digest(),
-            forwarded.active_signing_worker.signing_worker.clone(),
-            NormalSigningSignatureSchemeV1::Ed25519V1,
-            CanonicalWireBytesV1::new(vec![0x9a; 64]).expect("normal signing signature"),
-            forwarded.active_signing_worker.activated_at_ms + 1,
-        )
     }
 }
 
@@ -1386,8 +1636,8 @@ fn public_router_request(expires_at_ms: u64) -> PublicRouterRequestV1 {
 fn signing_worker_activation() -> CloudflareSigningWorkerRecipientProofBundleActivationRequestV1 {
     let router_payload = router_payload_for_signing_worker_activation();
     let activation = CloudflareSigningWorkerRecipientProofBundleActivationV1::new(
-        relayer_proof_bundle_wire(&router_payload, Role::SignerA, 0x46),
-        relayer_proof_bundle_wire(&router_payload, Role::SignerB, 0x47),
+        server_proof_bundle_wire(&router_payload, Role::SignerA, 0x46),
+        server_proof_bundle_wire(&router_payload, Role::SignerB, 0x47),
     )
     .expect("strict SigningWorker proof-bundle activation");
     CloudflareSigningWorkerRecipientProofBundleActivationRequestV1::new(router_payload, activation)
@@ -1401,12 +1651,12 @@ fn signing_worker_refresh_activation(
 ) -> CloudflareSigningWorkerRecipientProofBundleActivationRequestV1 {
     let lifecycle = LifecycleScopeV1::new(
         lifecycle_id,
-        ExpensiveWorkKindV1::RelayerShareRefresh,
+        ExpensiveWorkKindV1::ServerShareRefresh,
         root_epoch(),
         "account.near",
         "session-1",
         "signer-set-v1",
-        "relayer-a",
+        "server-a",
     )
     .expect("refresh lifecycle scope");
     let signer_set = signer_set();
@@ -1433,26 +1683,26 @@ fn signing_worker_refresh_activation(
     let router_payload =
         decode_router_to_signer_payload_v1(deriver_a.payload.as_bytes()).expect("router payload");
     let activation = CloudflareSigningWorkerRecipientProofBundleActivationV1::new(
-        relayer_proof_bundle_wire(&router_payload, Role::SignerA, deriver_a_nonce_seed),
-        relayer_proof_bundle_wire(&router_payload, Role::SignerB, deriver_b_nonce_seed),
+        server_proof_bundle_wire(&router_payload, Role::SignerA, deriver_a_nonce_seed),
+        server_proof_bundle_wire(&router_payload, Role::SignerB, deriver_b_nonce_seed),
     )
     .expect("refresh SigningWorker proof-bundle activation");
     CloudflareSigningWorkerRecipientProofBundleActivationRequestV1::new(router_payload, activation)
         .expect("refresh SigningWorker activation request")
 }
 
-fn relayer_output_material_record(
+fn server_output_material_record(
     activation: &CloudflareSigningWorkerRecipientProofBundleActivationRequestV1,
-) -> CloudflareRelayerOutputMaterialRecordV1 {
-    let selected_relayer = &activation.activation_context.signer_set().selected_relayer;
-    CloudflareRelayerOutputMaterialRecordV1::new(
+) -> CloudflareServerOutputMaterialRecordV1 {
+    let selected_server = &activation.activation_context.signer_set().selected_server;
+    CloudflareServerOutputMaterialRecordV1::new(
         activation.activation_context.transcript_digest(),
-        OpenedShareKind::XRelayerBase,
-        Role::Relayer,
-        selected_relayer.relayer_id.clone(),
+        OpenedShareKind::XServerBase,
+        Role::Server,
+        selected_server.server_id.clone(),
         CloudflareSecretMaterial32V1::new([0x5a; 32]),
     )
-    .expect("relayer output material record")
+    .expect("server output material record")
 }
 
 fn router_payload_for_signing_worker_activation() -> RouterToSignerPayloadV1 {
@@ -1462,19 +1712,19 @@ fn router_payload_for_signing_worker_activation() -> RouterToSignerPayloadV1 {
     decode_router_to_signer_payload_v1(deriver_a.payload.as_bytes()).expect("router payload")
 }
 
-fn relayer_proof_bundle_wire(
+fn server_proof_bundle_wire(
     router_payload: &RouterToSignerPayloadV1,
     signer_role: Role,
     nonce_seed: u8,
 ) -> WireMessageV1 {
-    let relayer = &router_payload.signer_set().selected_relayer;
+    let server = &router_payload.signer_set().selected_server;
     let envelope = RecipientProofBundleCiphertextV1::new(
         RecipientOutputEncryptionAlgorithmV1::LocalDeterministicSha256V1,
         signer_identity(signer_role),
-        Role::Relayer,
-        OpenedShareKind::XRelayerBase,
-        relayer.relayer_id.clone(),
-        relayer.recipient_encryption_key.clone(),
+        Role::Server,
+        OpenedShareKind::XServerBase,
+        server.server_id.clone(),
+        server.recipient_encryption_key.clone(),
         router_payload.transcript_digest(),
         digest(nonce_seed.wrapping_add(0x10)),
         [nonce_seed; 12],
@@ -1523,6 +1773,76 @@ fn router_env() -> CloudflareEnvMapV1 {
         (SIGNER_A_PEER_BINDING_ENV, "SIGNER_A"),
         (SIGNER_B_PEER_BINDING_ENV, "SIGNER_B"),
         (SIGNING_WORKER_PEER_BINDING_ENV, "SIGNING_WORKER"),
+    ])
+}
+
+fn router_env_with_public_keyset() -> CloudflareEnvMapV1 {
+    CloudflareEnvMapV1::new(vec![
+        (ROUTER_REPLAY_DO_BINDING_ENV, "ROUTER_REPLAY_DO"),
+        (ROUTER_REPLAY_DO_OBJECT_ENV, "router-replay"),
+        (ROUTER_REPLAY_DO_KEY_PREFIX_ENV, "router-replay:"),
+        (ROUTER_LIFECYCLE_DO_BINDING_ENV, "ROUTER_LIFECYCLE_DO"),
+        (ROUTER_LIFECYCLE_DO_OBJECT_ENV, "router-lifecycle"),
+        (ROUTER_LIFECYCLE_DO_KEY_PREFIX_ENV, "router-lifecycle:"),
+        (ROUTER_JWT_ISSUER_ENV, "https://issuer.example"),
+        (ROUTER_JWT_AUDIENCE_ENV, "router-ab"),
+        (
+            ROUTER_JWT_JWKS_URL_ENV,
+            "https://issuer.example/.well-known/jwks.json",
+        ),
+        (
+            ROUTER_PROJECT_POLICY_DO_BINDING_ENV,
+            "ROUTER_PROJECT_POLICY_DO",
+        ),
+        (ROUTER_PROJECT_POLICY_DO_OBJECT_ENV, "router-project-policy"),
+        (
+            ROUTER_PROJECT_POLICY_DO_KEY_PREFIX_ENV,
+            "router-project-policy:",
+        ),
+        (ROUTER_QUOTA_DO_BINDING_ENV, "ROUTER_QUOTA_DO"),
+        (ROUTER_QUOTA_DO_OBJECT_ENV, "router-quota"),
+        (ROUTER_QUOTA_DO_KEY_PREFIX_ENV, "router-quota:"),
+        (ROUTER_ABUSE_DO_BINDING_ENV, "ROUTER_ABUSE_DO"),
+        (ROUTER_ABUSE_DO_OBJECT_ENV, "router-abuse"),
+        (ROUTER_ABUSE_DO_KEY_PREFIX_ENV, "router-abuse:"),
+        (SIGNER_A_PEER_BINDING_ENV, "SIGNER_A"),
+        (SIGNER_B_PEER_BINDING_ENV, "SIGNER_B"),
+        (SIGNING_WORKER_PEER_BINDING_ENV, "SIGNING_WORKER"),
+        (
+            SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH_ENV,
+            "envelope-hpke-key-epoch-a",
+        ),
+        (
+            SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
+            x25519_public_key(0x11).as_str(),
+        ),
+        (
+            SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH_ENV,
+            "envelope-hpke-key-epoch-b",
+        ),
+        (
+            SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY_ENV,
+            x25519_public_key(0x22).as_str(),
+        ),
+        (
+            SIGNER_A_PEER_VERIFYING_KEY_HEX_ENV,
+            signer_peer_verifying_key_hex(Role::SignerA).as_str(),
+        ),
+        (
+            SIGNER_B_PEER_VERIFYING_KEY_HEX_ENV,
+            signer_peer_verifying_key_hex(Role::SignerB).as_str(),
+        ),
+        (
+            SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH_ENV,
+            signer_set().selected_server.key_epoch.as_str(),
+        ),
+        (
+            SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY_ENV,
+            signer_set()
+                .selected_server
+                .recipient_encryption_key
+                .as_str(),
+        ),
     ])
 }
 
@@ -1660,28 +1980,28 @@ fn deriver_b_env() -> CloudflareEnvMapV1 {
 fn signing_worker_env() -> CloudflareEnvMapV1 {
     CloudflareEnvMapV1::new(vec![
         (
-            SIGNING_WORKER_RELAYER_OUTPUT_DO_BINDING_ENV,
-            "SIGNING_WORKER_RELAYER_OUTPUT_DO".to_string(),
+            SIGNING_WORKER_SERVER_OUTPUT_DO_BINDING_ENV,
+            "SIGNING_WORKER_SERVER_OUTPUT_DO".to_string(),
         ),
         (
-            SIGNING_WORKER_RELAYER_OUTPUT_DO_OBJECT_ENV,
-            "signing-worker-relayer-output".to_string(),
+            SIGNING_WORKER_SERVER_OUTPUT_DO_OBJECT_ENV,
+            "signing-worker-server-output".to_string(),
         ),
         (
-            SIGNING_WORKER_RELAYER_OUTPUT_DO_KEY_PREFIX_ENV,
-            "signing-worker-relayer-output:".to_string(),
+            SIGNING_WORKER_SERVER_OUTPUT_DO_KEY_PREFIX_ENV,
+            "signing-worker-server-output:".to_string(),
         ),
         (
-            SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY_BINDING_ENV,
-            "SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY".to_string(),
+            SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY_BINDING_ENV,
+            "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY".to_string(),
         ),
         (
-            SIGNING_WORKER_RELAYER_OUTPUT_HPKE_KEY_EPOCH_ENV,
-            "relayer-epoch".to_string(),
+            SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH_ENV,
+            "server-epoch".to_string(),
         ),
         (
-            SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY_ENV,
-            signer_set().selected_relayer.recipient_encryption_key,
+            SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY_ENV,
+            signer_set().selected_server.recipient_encryption_key,
         ),
     ])
 }
@@ -1793,6 +2113,9 @@ fn router_worker_runtime_builds_only_router_scoped_durable_object_calls() {
     let lifecycle_call = runtime
         .lifecycle_put_public_state_call(lifecycle_state())
         .expect("lifecycle call");
+    let ceremony_call = runtime
+        .derivation_ceremony_put_state_call(created_derivation_ceremony())
+        .expect("ceremony call");
 
     assert_eq!(replay_call.worker_role, CloudflareWorkerRoleV1::Router);
     assert_eq!(
@@ -1801,6 +2124,14 @@ fn router_worker_runtime_builds_only_router_scoped_durable_object_calls() {
     );
     assert_eq!(
         lifecycle_call.binding.scope,
+        CloudflareDurableObjectScopeV1::RouterLifecycle
+    );
+    assert_eq!(
+        ceremony_call.operation_kind(),
+        CloudflareDurableObjectOperationKindV1::DerivationCeremonyPutState
+    );
+    assert_eq!(
+        ceremony_call.binding.scope,
         CloudflareDurableObjectScopeV1::RouterLifecycle
     );
     assert_eq!(
@@ -2035,7 +2366,7 @@ fn trusted_admission_rejects_preauth_for_non_registration_work() {
         "account.near",
         "session-1",
         "signer-set-v1",
-        "relayer-a",
+        "server-a",
     )
     .expect("lifecycle scope");
     let signer_set = signer_set();
@@ -2405,66 +2736,22 @@ fn router_ed25519_jwks_jwt_verifier_rejects_request_scope_mismatch() {
 }
 
 #[test]
-fn router_verified_jwt_claims_bind_normal_signing_scope() {
-    let claims = verified_jwt_claims("session-1", "account.near");
-    let request = normal_signing_request(2_000);
-
-    claims
-        .validate_for_normal_signing_request(&request, 1_000)
-        .expect("claims bind normal signing request");
-}
-
-#[test]
-fn router_verified_normal_signing_jwt_claims_bind_intent_digest() {
-    let claims = CloudflareRouterVerifiedNormalSigningJwtClaimsV1::new(
-        verified_jwt_claims("session-1", "account.near"),
-        digest(0x91),
+fn router_wallet_session_credential_accepts_bearer_authorization_header() {
+    let credential = CloudflareRouterWalletSessionCredentialV1::from_bearer_authorization_header(
+        "Bearer wallet-session-token",
     )
-    .expect("normal signing claims");
-    let request = normal_signing_request(2_000);
+    .expect("wallet session credential");
 
-    claims
-        .validate_for_normal_signing_request(&request, 1_000)
-        .expect("normal signing claims bind request intent");
-
-    let mismatched = CloudflareRouterVerifiedNormalSigningJwtClaimsV1::new(
-        verified_jwt_claims("session-1", "account.near"),
-        digest(0x92),
-    )
-    .expect("mismatched normal signing claims");
-    let err = mismatched
-        .validate_for_normal_signing_request(&request, 1_000)
-        .expect_err("intent digest mismatch must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+    credential.validate().expect("credential validates");
+    match credential {
+        CloudflareRouterWalletSessionCredentialV1::Bearer { authorization } => {
+            assert_eq!(authorization.token, "wallet-session-token");
+        }
+    }
 }
 
 #[test]
-fn router_verified_jwt_claims_reject_normal_signing_account_mismatch() {
-    let claims = verified_jwt_claims("session-1", "different.near");
-    let request = normal_signing_request(2_000);
-
-    let err = claims
-        .validate_for_normal_signing_request(&request, 1_000)
-        .expect_err("account mismatch must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
-}
-
-#[test]
-fn router_verified_jwt_claims_reject_normal_signing_session_mismatch() {
-    let claims = verified_jwt_claims("different-session", "account.near");
-    let request = normal_signing_request(2_000);
-
-    let err = claims
-        .validate_for_normal_signing_request(&request, 1_000)
-        .expect_err("session mismatch must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
-}
-
-#[test]
-fn router_ed25519_jwks_jwt_verifier_accepts_normal_signing_bound_claims() {
+fn router_ed25519_jwks_wallet_session_verifier_accepts_normal_signing_claims() {
     let signing_key = SigningKey::from_bytes(&[0x42; 32]);
     let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
     let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
@@ -2472,132 +2759,475 @@ fn router_ed25519_jwks_jwt_verifier_accepts_normal_signing_bound_claims() {
     let token = ed25519_jwt(
         &signing_key,
         "router-key-1",
-        valid_normal_signing_jwt_claims(),
+        valid_wallet_session_jwt_claims(),
     );
-    let authorization = CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
-        "Bearer {token}"
-    ))
-    .expect("authorization");
+    let credential = CloudflareRouterWalletSessionCredentialV1::bearer(
+        CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
+            "Bearer {token}"
+        ))
+        .expect("authorization"),
+    )
+    .expect("wallet session credential");
 
-    let claims = verifier
-        .verify_normal_signing_jwt(
+    let session = verifier
+        .verify_wallet_session(
             &router_admission_bindings().jwt,
-            &authorization,
-            &normal_signing_request(2_000),
+            &credential,
+            digest(0x90),
             1_000,
-            digest(0x91),
         )
-        .expect("verified normal signing claims");
+        .expect("wallet session verifies");
 
-    assert_eq!(claims.claims.subject_id, "user-1");
-    assert_eq!(claims.claims.session_id, "session-1");
-    assert_eq!(claims.claims.account_id, "account.near");
-    assert_eq!(claims.claims.trusted_source_digest, digest(0x91));
-    assert_eq!(claims.intent_digest, digest(0x91));
+    assert_eq!(session.subject_id, "user-1");
+    assert_eq!(session.account_id, "account.near");
+    assert_eq!(session.session_id, "session-1");
+    assert_eq!(session.authorization_level, "normal-signing");
+    assert_eq!(session.signing_worker_id, "server-a");
+    assert_eq!(session.expires_at_ms, 3_000);
 }
 
 #[test]
-fn router_ed25519_jwks_jwt_verifier_rejects_normal_signing_scope_mismatch() {
-    let signing_key = SigningKey::from_bytes(&[0x42; 32]);
-    let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
-    let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
-        .expect("ed25519 jwks verifier");
-    let mut claims = valid_normal_signing_jwt_claims();
-    claims["sid"] = serde_json::json!("different-session");
-    let token = ed25519_jwt(&signing_key, "router-key-1", claims);
-    let authorization = CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
-        "Bearer {token}"
-    ))
-    .expect("authorization");
-
-    let err = verifier
-        .verify_normal_signing_jwt(
-            &router_admission_bindings().jwt,
-            &authorization,
-            &normal_signing_request(2_000),
-            1_000,
-            digest(0x91),
-        )
-        .expect_err("normal signing scope mismatch must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
-}
-
-#[test]
-fn router_ed25519_jwks_jwt_verifier_rejects_normal_signing_missing_intent_digest() {
+fn router_ed25519_jwks_wallet_session_verifier_rejects_missing_normal_signing_claims() {
     let signing_key = SigningKey::from_bytes(&[0x42; 32]);
     let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
     let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
         .expect("ed25519 jwks verifier");
     let token = ed25519_jwt(&signing_key, "router-key-1", valid_router_jwt_claims());
-    let authorization = CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
-        "Bearer {token}"
-    ))
-    .expect("authorization");
+    let credential = CloudflareRouterWalletSessionCredentialV1::bearer(
+        CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
+            "Bearer {token}"
+        ))
+        .expect("authorization"),
+    )
+    .expect("wallet session credential");
 
     let err = verifier
-        .verify_normal_signing_jwt(
+        .verify_wallet_session(
             &router_admission_bindings().jwt,
-            &authorization,
-            &normal_signing_request(2_000),
+            &credential,
+            digest(0x90),
             1_000,
-            digest(0x91),
         )
-        .expect_err("normal signing JWT without intentDigest must fail");
+        .expect_err("missing normal-signing claim must fail");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
 }
 
 #[test]
-fn router_ed25519_jwks_jwt_verifier_rejects_normal_signing_malformed_intent_digest() {
-    let signing_key = SigningKey::from_bytes(&[0x42; 32]);
-    let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
-    let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
-        .expect("ed25519 jwks verifier");
-    let mut claims = valid_normal_signing_jwt_claims();
-    claims["intentDigest"] = serde_json::json!("not-a-32-byte-digest");
-    let token = ed25519_jwt(&signing_key, "router-key-1", claims);
-    let authorization = CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
-        "Bearer {token}"
-    ))
-    .expect("authorization");
+fn router_verified_wallet_session_authorizes_normal_signing_v2_prepare_scope() {
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let request = normal_signing_v2_prepare_request(2_000);
 
-    let err = verifier
-        .verify_normal_signing_jwt(
-            &router_admission_bindings().jwt,
-            &authorization,
-            &normal_signing_request(2_000),
-            1_000,
-            digest(0x91),
-        )
-        .expect_err("normal signing JWT with malformed intentDigest must fail");
+    wallet_session
+        .validate_for_normal_signing_prepare_request_v2(&request, 1_000)
+        .expect("wallet session authorizes v2 prepare request");
+    let admission = wallet_session
+        .to_normal_signing_prepare_admission_candidate_v2(&request, 1_000)
+        .expect("normal signing v2 admission");
+    let expected_material = request.admission_material().expect("admission material");
 
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::MalformedWirePayload);
+    assert_eq!(
+        admission
+            .admission_material()
+            .expect("carried admission material"),
+        expected_material
+    );
+    assert_eq!(admission.request_id, request.scope.request_id);
+    assert_eq!(admission.signing_worker_id, request.scope.signing_worker_id);
+    assert_eq!(
+        admission.round1_binding_digest,
+        Some(request.round1_binding_digest().expect("round1 binding"))
+    );
 }
 
 #[test]
-fn router_ed25519_jwks_jwt_verifier_rejects_normal_signing_intent_mismatch() {
-    let signing_key = SigningKey::from_bytes(&[0x42; 32]);
-    let jwks_json = ed25519_jwks_json(&signing_key, "router-key-1");
-    let mut verifier = CloudflareRouterEd25519JwksJwtVerifierV1::from_jwks_json(&jwks_json)
-        .expect("ed25519 jwks verifier");
-    let mut claims = valid_normal_signing_jwt_claims();
-    claims["intentDigest"] = digest_json(0x92);
-    let token = ed25519_jwt(&signing_key, "router-key-1", claims);
-    let authorization = CloudflareRouterBearerAuthorizationV1::from_authorization_header(&format!(
-        "Bearer {token}"
-    ))
-    .expect("authorization");
+fn router_verified_wallet_session_rejects_normal_signing_v2_prepare_beyond_session_expiry() {
+    let wallet_session = normal_signing_v2_wallet_session(1_500);
+    let request = normal_signing_v2_prepare_request(2_000);
 
-    let err = verifier
-        .verify_normal_signing_jwt(
-            &router_admission_bindings().jwt,
-            &authorization,
-            &normal_signing_request(2_000),
+    let err = wallet_session
+        .validate_for_normal_signing_prepare_request_v2(&request, 1_000)
+        .expect_err("request expiry must be bounded by Wallet Session expiry");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidTimeRange);
+}
+
+#[test]
+fn router_verified_wallet_session_rejects_normal_signing_v2_prepare_at_exact_expiry() {
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let request = normal_signing_v2_prepare_request(2_000);
+
+    let err = wallet_session
+        .validate_for_normal_signing_prepare_request_v2(&request, 2_000)
+        .expect_err("request is expired at expires_at_ms");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::ExpiredLocalRequest);
+}
+
+#[test]
+fn router_verified_wallet_session_rejects_normal_signing_v2_signing_worker_mismatch() {
+    let mut wallet_session = normal_signing_v2_wallet_session(3_000);
+    wallet_session.signing_worker_id = "server-b".to_owned();
+    let request = normal_signing_v2_prepare_request(2_000);
+
+    let err = wallet_session
+        .validate_for_normal_signing_prepare_request_v2(&request, 1_000)
+        .expect_err("signing worker mismatch must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+}
+
+#[test]
+fn router_verified_wallet_session_rejects_normal_signing_v2_prepare_account_and_session_mismatch() {
+    let request = normal_signing_v2_prepare_request(2_000);
+
+    let mut wrong_account = normal_signing_v2_wallet_session(3_000);
+    wrong_account.account_id = "other.near".to_owned();
+    let err = wrong_account
+        .validate_for_normal_signing_prepare_request_v2(&request, 1_000)
+        .expect_err("prepare account mismatch must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+
+    let mut wrong_session = normal_signing_v2_wallet_session(3_000);
+    wrong_session.session_id = "other-session".to_owned();
+    let err = wrong_session
+        .validate_for_normal_signing_prepare_request_v2(&request, 1_000)
+        .expect_err("prepare session mismatch must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+}
+
+#[test]
+fn router_verified_wallet_session_authorizes_normal_signing_v2_finalize_scope() {
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let request = normal_signing_v2_finalize_request(2_000);
+
+    wallet_session
+        .validate_for_normal_signing_finalize_request_v2(&request, 1_000)
+        .expect("wallet session authorizes v2 finalize request");
+    let admission =
+        CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2::from_finalize_request(
+            &wallet_session,
+            &request,
             1_000,
-            digest(0x91),
         )
-        .expect_err("normal signing JWT intent mismatch must fail");
+        .expect("normal signing v2 finalize admission");
+
+    assert_eq!(admission.request_id, request.scope.request_id);
+    assert_eq!(admission.signing_worker_id, request.scope.signing_worker_id);
+    assert_eq!(admission.intent_digest, request.intent_digest());
+    assert_eq!(
+        admission.signing_payload_digest,
+        request.signing_payload_digest()
+    );
+    assert_eq!(
+        admission.round1_binding_digest,
+        request.round1_binding_digest()
+    );
+}
+
+#[test]
+fn router_verified_wallet_session_rejects_normal_signing_v2_finalize_beyond_session_expiry() {
+    let wallet_session = normal_signing_v2_wallet_session(1_500);
+    let request = normal_signing_v2_finalize_request(2_000);
+
+    let err = wallet_session
+        .validate_for_normal_signing_finalize_request_v2(&request, 1_000)
+        .expect_err("finalize expiry must be bounded by Wallet Session expiry");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidTimeRange);
+}
+
+#[test]
+fn router_verified_wallet_session_rejects_normal_signing_v2_finalize_at_exact_expiry() {
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let request = normal_signing_v2_finalize_request(2_000);
+
+    let err = wallet_session
+        .validate_for_normal_signing_finalize_request_v2(&request, 2_000)
+        .expect_err("finalize is expired at expires_at_ms");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::ExpiredLocalRequest);
+}
+
+#[test]
+fn router_verified_wallet_session_rejects_normal_signing_v2_finalize_signing_worker_mismatch() {
+    let mut wallet_session = normal_signing_v2_wallet_session(3_000);
+    wallet_session.signing_worker_id = "server-b".to_owned();
+    let request = normal_signing_v2_finalize_request(2_000);
+
+    let err = wallet_session
+        .validate_for_normal_signing_finalize_request_v2(&request, 1_000)
+        .expect_err("finalize signing worker mismatch must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+}
+
+#[test]
+fn router_verified_wallet_session_rejects_normal_signing_v2_finalize_account_and_session_mismatch()
+{
+    let request = normal_signing_v2_finalize_request(2_000);
+
+    let mut wrong_account = normal_signing_v2_wallet_session(3_000);
+    wrong_account.account_id = "other.near".to_owned();
+    let err = wrong_account
+        .validate_for_normal_signing_finalize_request_v2(&request, 1_000)
+        .expect_err("finalize account mismatch must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+
+    let mut wrong_session = normal_signing_v2_wallet_session(3_000);
+    wrong_session.session_id = "other-session".to_owned();
+    let err = wrong_session
+        .validate_for_normal_signing_finalize_request_v2(&request, 1_000)
+        .expect_err("finalize session mismatch must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+}
+
+#[test]
+fn router_normal_signing_prepare_admission_v2_rejects_scope_and_digest_drift() {
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let request = normal_signing_v2_prepare_request(2_000);
+    let admission = CloudflareRouterNormalSigningPrepareAdmissionCandidateV2::from_prepare_request(
+        &wallet_session,
+        &request,
+        1_000,
+    )
+    .expect("normal signing v2 admission");
+
+    let mut wrong_account = admission.clone();
+    wrong_account.account_id = "other.near".to_owned();
+    let err = wrong_account
+        .validate_for_prepare_request(&request)
+        .expect_err("prepare admission account drift must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+
+    let mut wrong_session = admission.clone();
+    wrong_session.session_id = "other-session".to_owned();
+    let err = wrong_session
+        .validate_for_prepare_request(&request)
+        .expect_err("prepare admission session drift must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+
+    let mut wrong_request_id = admission.clone();
+    wrong_request_id.request_id = "other-request".to_owned();
+    let err = wrong_request_id
+        .validate_for_prepare_request(&request)
+        .expect_err("prepare admission request id drift must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+
+    let mut intent_drift = admission.clone();
+    intent_drift.intent_digest = digest(0x54);
+    let err = intent_drift
+        .validate_for_prepare_request(&request)
+        .expect_err("prepare admission intent digest drift must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+
+    let mut signing_payload_drift = admission.clone();
+    signing_payload_drift.signing_payload_digest = digest(0x55);
+    let err = signing_payload_drift
+        .validate_for_prepare_request(&request)
+        .expect_err("prepare admission signing payload digest drift must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+
+    let mut admitted_signing_drift = admission.clone();
+    admitted_signing_drift.admitted_signing_digest = digest(0x58);
+    let err = admitted_signing_drift
+        .validate_for_prepare_request(&request)
+        .expect_err("prepare admission admitted signing digest drift must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+}
+
+#[test]
+fn router_normal_signing_finalize_admission_v2_rejects_scope_and_digest_drift() {
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let request = normal_signing_v2_finalize_request(2_000);
+    let admission =
+        CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2::from_finalize_request(
+            &wallet_session,
+            &request,
+            1_000,
+        )
+        .expect("normal signing v2 finalize admission");
+
+    let mut wrong_account = admission.clone();
+    wrong_account.account_id = "other.near".to_owned();
+    let err = wrong_account
+        .validate_for_finalize_request(&request)
+        .expect_err("finalize admission account drift must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+
+    let mut wrong_session = admission.clone();
+    wrong_session.session_id = "other-session".to_owned();
+    let err = wrong_session
+        .validate_for_finalize_request(&request)
+        .expect_err("finalize admission session drift must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+
+    let mut wrong_request_id = admission.clone();
+    wrong_request_id.request_id = "other-request".to_owned();
+    let err = wrong_request_id
+        .validate_for_finalize_request(&request)
+        .expect_err("finalize admission request id drift must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+
+    let mut intent_drift = admission.clone();
+    intent_drift.intent_digest = digest(0x54);
+    let err = intent_drift
+        .validate_for_finalize_request(&request)
+        .expect_err("finalize admission intent digest drift must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+
+    let mut signing_payload_drift = admission.clone();
+    signing_payload_drift.signing_payload_digest = digest(0x55);
+    let err = signing_payload_drift
+        .validate_for_finalize_request(&request)
+        .expect_err("finalize admission signing payload digest drift must fail");
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+}
+
+#[test]
+fn durable_object_handler_rejects_normal_signing_v2_replayed_request_id() {
+    let runtime = router_runtime();
+    let request = normal_signing_v2_prepare_request(2_000);
+    let call = runtime
+        .normal_signing_v2_prepare_replay_reserve_call(&request)
+        .expect("normal signing v2 replay call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    let first = handle_cloudflare_durable_object_call_v1(&call, &mut storage)
+        .expect("first normal-signing v2 replay reservation");
+    assert_eq!(
+        first,
+        CloudflareDurableObjectResponseV1::router_replay_reserve(
+            CloudflareReplayReserveResponseV1::new(request.scope.request_id.clone(), true)
+                .expect("first normal-signing v2 replay response")
+        )
+        .expect("first normal-signing v2 replay response")
+    );
+
+    let second = handle_cloudflare_durable_object_call_v1(&call, &mut storage)
+        .expect("second normal-signing v2 replay reservation");
+    assert_eq!(
+        second,
+        CloudflareDurableObjectResponseV1::router_replay_reserve(
+            CloudflareReplayReserveResponseV1::new(request.scope.request_id.clone(), false)
+                .expect("second normal-signing v2 replay response")
+        )
+        .expect("second normal-signing v2 replay response")
+    );
+
+    let mut conflicting_request = normal_signing_v2_prepare_request_for_id(
+        request.scope.request_id.as_str(),
+        request.expires_at_ms,
+    );
+    conflicting_request.scope.signing_worker_id = "server-b".to_owned();
+    let conflicting_call = runtime
+        .normal_signing_v2_prepare_replay_reserve_call(&conflicting_request)
+        .expect("conflicting normal signing v2 replay call");
+    let err = handle_cloudflare_durable_object_call_v1(&conflicting_call, &mut storage)
+        .expect_err("same request id with different replay material must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::ReplayedLocalRequest);
+}
+
+#[test]
+fn router_normal_signing_admission_v2_rejects_signing_payload_digest_drift() {
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let request = normal_signing_v2_prepare_request(2_000);
+    let mut admission =
+        CloudflareRouterNormalSigningPrepareAdmissionCandidateV2::from_prepare_request(
+            &wallet_session,
+            &request,
+            1_000,
+        )
+        .expect("normal signing v2 admission");
+    admission.signing_payload_digest = digest(0x55);
+
+    let err = admission
+        .validate_for_prepare_request(&request)
+        .expect_err("signing payload digest drift must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
+}
+
+#[test]
+fn router_normal_signing_admission_v2_converts_to_v1_store_metadata() {
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let request = normal_signing_v2_prepare_request(2_000);
+    let admission = CloudflareRouterNormalSigningPrepareAdmissionCandidateV2::from_prepare_request(
+        &wallet_session,
+        &request,
+        1_000,
+    )
+    .expect("normal signing v2 admission");
+
+    let metadata = admission
+        .to_v1_trusted_metadata()
+        .expect("v1 trusted metadata");
+
+    assert_eq!(metadata.org_id, admission.org_id);
+    assert_eq!(metadata.project_id, admission.project_id);
+    assert_eq!(metadata.environment, admission.environment);
+    assert_eq!(metadata.account_id, admission.account_id);
+    assert_eq!(
+        metadata.trusted_source_digest,
+        admission.trusted_source_digest
+    );
+    assert_eq!(metadata.intent_digest, admission.intent_digest);
+    assert_eq!(
+        metadata.auth,
+        CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
+            .expect("authenticated session")
+    );
+}
+
+#[test]
+fn router_normal_signing_finalize_admission_v2_converts_to_v1_store_metadata() {
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let request = normal_signing_v2_finalize_request(2_000);
+    let admission =
+        CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2::from_finalize_request(
+            &wallet_session,
+            &request,
+            1_000,
+        )
+        .expect("normal signing v2 finalize admission");
+
+    let metadata = admission
+        .to_v1_trusted_metadata()
+        .expect("v1 trusted metadata");
+
+    assert_eq!(metadata.org_id, admission.org_id);
+    assert_eq!(metadata.project_id, admission.project_id);
+    assert_eq!(metadata.environment, admission.environment);
+    assert_eq!(metadata.account_id, admission.account_id);
+    assert_eq!(
+        metadata.trusted_source_digest,
+        admission.trusted_source_digest
+    );
+    assert_eq!(metadata.intent_digest, admission.intent_digest);
+    assert_eq!(
+        metadata.auth,
+        CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
+            .expect("authenticated session")
+    );
+}
+
+#[test]
+fn router_normal_signing_finalize_admission_v2_rejects_round1_binding_drift() {
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let request = normal_signing_v2_finalize_request(2_000);
+    let mut admission =
+        CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2::from_finalize_request(
+            &wallet_session,
+            &request,
+            1_000,
+        )
+        .expect("normal signing v2 finalize admission");
+    admission.round1_binding_digest = digest(0x57);
+
+    let err = admission
+        .validate_for_finalize_request(&request)
+        .expect_err("round1 binding drift must fail");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 }
@@ -2768,13 +3398,13 @@ fn router_runtime_builds_admission_store_calls_from_trusted_metadata() {
 }
 
 #[test]
-fn router_runtime_builds_normal_signing_replay_reservation() {
+fn router_runtime_builds_normal_signing_v2_prepare_replay_reservation() {
     let runtime = router_runtime();
-    let request = normal_signing_request(2_000);
+    let request = normal_signing_v2_prepare_request(2_000);
 
     let call = runtime
-        .normal_signing_replay_reserve_call(&request)
-        .expect("normal signing replay call");
+        .normal_signing_v2_prepare_replay_reserve_call(&request)
+        .expect("normal signing v2 prepare replay call");
 
     assert_eq!(call.worker_role, CloudflareWorkerRoleV1::Router);
     assert_eq!(
@@ -2787,50 +3417,42 @@ fn router_runtime_builds_normal_signing_replay_reservation() {
     else {
         panic!("expected replay reservation request");
     };
-    assert_eq!(replay_request.request_id, "sign-request-1");
-    assert_eq!(replay_request.replay_material_digest, request.digest());
-    assert_eq!(replay_request.expires_at_ms, request.expires_at_ms);
+    assert_eq!(replay_request.request_id, request.scope.request_id);
     assert_eq!(
-        call.replay_request_index_storage_key()
-            .expect("replay request index"),
-        "ROUTER_REPLAY_DO:replay-request/sign-request-1"
+        replay_request.replay_material_digest,
+        request.round1_binding_digest().expect("round1 binding")
     );
-    assert!(call.storage_key().contains(&digest_hex(request.digest())));
+    assert_eq!(replay_request.expires_at_ms, request.expires_at_ms);
 }
 
 #[test]
-fn router_runtime_builds_normal_signing_admission_store_calls() {
+fn router_runtime_builds_normal_signing_v2_prepare_admission_store_calls() {
     let runtime = router_runtime();
-    let request = normal_signing_request(2_000);
+    let request = normal_signing_v2_prepare_request(2_000);
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let admission = CloudflareRouterNormalSigningPrepareAdmissionCandidateV2::from_prepare_request(
+        &wallet_session,
+        &request,
+        1_000,
+    )
+    .expect("normal signing v2 admission");
 
     let calls = runtime
-        .normal_signing_admission_store_calls_at(1_000, &request, normal_signing_trusted_metadata())
-        .expect("normal signing admission store calls");
+        .normal_signing_v2_prepare_admission_store_calls_at(1_000, &request, &admission)
+        .expect("normal signing v2 admission store calls");
 
-    calls.validate().expect("normal signing calls validate");
+    calls.validate().expect("normal signing v2 calls validate");
     assert_eq!(
         calls.project_policy.operation_kind(),
         CloudflareDurableObjectOperationKindV1::RouterNormalSigningProjectPolicyEvaluate
-    );
-    assert_eq!(
-        calls.project_policy.storage_key(),
-        "router-project-policy:project-policy/org-1/project-1/dev"
     );
     assert_eq!(
         calls.quota.operation_kind(),
         CloudflareDurableObjectOperationKindV1::RouterNormalSigningQuotaEvaluate
     );
     assert_eq!(
-        calls.quota.storage_key(),
-        "router-quota:quota/org-1/project-1/dev/account.near/normal-signing"
-    );
-    assert_eq!(
         calls.abuse.operation_kind(),
         CloudflareDurableObjectOperationKindV1::RouterNormalSigningAbuseEvaluate
-    );
-    assert_eq!(
-        calls.abuse.storage_key(),
-        "router-abuse:abuse/9090909090909090909090909090909090909090909090909090909090909090/account.near"
     );
     let CloudflareDurableObjectRequestV1::RouterNormalSigningProjectPolicyEvaluate {
         request: policy_request,
@@ -2838,29 +3460,97 @@ fn router_runtime_builds_normal_signing_admission_store_calls() {
     else {
         panic!("expected normal signing project policy request");
     };
-    assert_eq!(policy_request.intent_digest, request.intent_digest);
-    assert_eq!(policy_request.request_digest, request.digest());
+    assert_eq!(policy_request.request_id, request.scope.request_id);
+    assert_eq!(policy_request.expires_at_ms, request.expires_at_ms);
+    assert_eq!(
+        policy_request.intent_digest,
+        request
+            .admission_material()
+            .expect("admission material")
+            .intent_digest
+    );
+    assert_eq!(
+        policy_request.request_digest,
+        request.round1_binding_digest().expect("round1 binding")
+    );
+    assert_eq!(policy_request.metadata.account_id, "account.near");
+    assert_eq!(
+        policy_request.metadata.auth,
+        CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
+            .expect("authenticated session")
+    );
 }
 
 #[test]
-fn router_runtime_normal_signing_admission_store_calls_reject_intent_mismatch() {
+fn router_runtime_builds_normal_signing_v2_finalize_admission_store_calls() {
     let runtime = router_runtime();
-    let request = normal_signing_request(2_000);
-    let mismatched = CloudflareRouterNormalSigningTrustedMetadataV1::new(
-        "org-1",
-        "project-1",
-        "dev",
-        "account.near",
+    let request = normal_signing_v2_finalize_request(2_000);
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let admission =
+        CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2::from_finalize_request(
+            &wallet_session,
+            &request,
+            1_000,
+        )
+        .expect("normal signing v2 finalize admission");
+
+    let calls = runtime
+        .normal_signing_v2_finalize_admission_store_calls_at(1_000, &request, &admission)
+        .expect("normal signing v2 finalize admission store calls");
+
+    calls
+        .validate()
+        .expect("normal signing v2 finalize calls validate");
+    assert_eq!(
+        calls.project_policy.operation_kind(),
+        CloudflareDurableObjectOperationKindV1::RouterNormalSigningProjectPolicyEvaluate
+    );
+    assert_eq!(
+        calls.quota.operation_kind(),
+        CloudflareDurableObjectOperationKindV1::RouterNormalSigningQuotaEvaluate
+    );
+    assert_eq!(
+        calls.abuse.operation_kind(),
+        CloudflareDurableObjectOperationKindV1::RouterNormalSigningAbuseEvaluate
+    );
+    let CloudflareDurableObjectRequestV1::RouterNormalSigningProjectPolicyEvaluate {
+        request: policy_request,
+    } = &calls.project_policy.request
+    else {
+        panic!("expected normal signing project policy request");
+    };
+    assert_eq!(policy_request.request_id, request.scope.request_id);
+    assert_eq!(policy_request.expires_at_ms, request.expires_at_ms);
+    assert_eq!(policy_request.intent_digest, request.intent_digest());
+    assert_eq!(
+        policy_request.request_digest,
+        request.round1_binding_digest()
+    );
+    assert_eq!(policy_request.metadata.account_id, "account.near");
+    assert_eq!(
+        policy_request.metadata.auth,
         CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
-            .expect("auth context"),
-        digest(0x90),
-        digest(0x92),
-    )
-    .expect("mismatched normal signing metadata");
+            .expect("authenticated session")
+    );
+}
+
+#[test]
+fn router_runtime_rejects_normal_signing_v2_prepare_admission_store_round1_drift() {
+    let runtime = router_runtime();
+    let request = normal_signing_v2_prepare_request(2_000);
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let mut admission =
+        CloudflareRouterNormalSigningPrepareAdmissionCandidateV2::from_prepare_request(
+            &wallet_session,
+            &request,
+            1_000,
+        )
+        .expect("normal signing v2 admission");
+    admission.round1_binding_digest = Some(digest(0x56));
 
     let err = runtime
-        .normal_signing_admission_store_calls_at(1_000, &request, mismatched)
-        .expect_err("mismatched normal signing intent must fail");
+        .normal_signing_v2_prepare_admission_store_calls_at(1_000, &request, &admission)
+        .expect_err("round1 drift must fail");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
 }
@@ -3269,6 +3959,84 @@ fn cloudflare_signer_envelope_hpke_public_key_set_parses_from_env() {
 }
 
 #[test]
+fn cloudflare_signer_peer_verifying_key_set_parses_from_env() {
+    let env = CloudflareEnvMapV1::new(vec![
+        (
+            SIGNER_A_PEER_VERIFYING_KEY_HEX_ENV,
+            signer_peer_verifying_key_hex(Role::SignerA),
+        ),
+        (
+            SIGNER_B_PEER_VERIFYING_KEY_HEX_ENV,
+            signer_peer_verifying_key_hex(Role::SignerB),
+        ),
+    ]);
+
+    let key_set =
+        parse_cloudflare_signer_peer_verifying_key_set_v1(&env).expect("peer verifying key set");
+
+    assert_eq!(key_set.deriver_a.role, Role::SignerA);
+    assert_eq!(key_set.deriver_b.role, Role::SignerB);
+    assert_eq!(
+        key_set
+            .to_hex_descriptor_set()
+            .expect("hex descriptors")
+            .deriver_a
+            .verifying_key_hex,
+        signer_peer_verifying_key_hex(Role::SignerA)
+    );
+}
+
+#[test]
+fn router_public_keyset_builds_from_public_env_only() {
+    let keyset = build_cloudflare_router_public_keyset_v1(&router_env_with_public_keyset())
+        .expect("router public keyset");
+    assert_eq!(keyset.keyset_version, "router_ab_keyset_v1");
+    assert_eq!(keyset.route_profile, "strict_proof_bundle");
+    assert_eq!(keyset.signer_envelope_hpke.deriver_a.role, Role::SignerA);
+    assert_eq!(
+        keyset
+            .signer_peer_verifying_keys
+            .deriver_b
+            .verifying_key_hex,
+        signer_peer_verifying_key_hex(Role::SignerB)
+    );
+    assert_eq!(
+        keyset.signing_worker_server_output_hpke.public_key,
+        signer_set().selected_server.recipient_encryption_key
+    );
+
+    let json = serde_json::to_string(&keyset).expect("keyset JSON");
+    for forbidden in [
+        "PRIVATE_KEY",
+        "SIGNER_A_PEER_SIGNING_KEY",
+        "SIGNER_B_PEER_SIGNING_KEY",
+        "ROOT_SHARE_WIRE_SECRET",
+        "hpke-x25519-private-v1",
+        "hpke-x25519-server-output-private-v1",
+        "mpc-prf-root-share-wire-v1",
+    ] {
+        assert!(
+            !json.contains(forbidden),
+            "router public keyset leaked private descriptor marker `{forbidden}`"
+        );
+    }
+}
+
+#[test]
+fn router_bindings_accept_public_keyset_env_without_private_bindings() {
+    let bindings = parse_cloudflare_worker_bindings_v1(
+        CloudflareWorkerRoleV1::Router,
+        &router_env_with_public_keyset(),
+    )
+    .expect("router bindings with public keyset env");
+
+    assert!(matches!(
+        bindings,
+        CloudflareWorkerBindingsV1::Router { bindings: _ }
+    ));
+}
+
+#[test]
 fn cloudflare_signer_envelope_hpke_public_key_set_rejects_role_swap() {
     let err = CloudflareSignerEnvelopeHpkePublicKeySetV1::new(
         CloudflareSignerEnvelopeHpkePublicKeyV1::new(
@@ -3461,15 +4229,15 @@ fn cloudflare_signer_envelope_hpke_private_key_secret_round_trips() {
 }
 
 #[test]
-fn cloudflare_relayer_output_hpke_private_key_secret_round_trips() {
+fn cloudflare_server_output_hpke_private_key_secret_round_trips() {
     let (private_key, _) = hpke_keypair(0x43);
 
-    let encoded = encode_cloudflare_relayer_output_hpke_private_key_secret_v1(&private_key)
-        .expect("relayer-output private key secret encodes");
-    let decoded = decode_cloudflare_relayer_output_hpke_private_key_secret_v1(&encoded)
-        .expect("relayer-output private key secret decodes");
+    let encoded = encode_cloudflare_server_output_hpke_private_key_secret_v1(&private_key)
+        .expect("server-output private key secret encodes");
+    let decoded = decode_cloudflare_server_output_hpke_private_key_secret_v1(&encoded)
+        .expect("server-output private key secret decodes");
 
-    assert!(encoded.starts_with(CLOUDFLARE_RELAYER_OUTPUT_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1));
+    assert!(encoded.starts_with(CLOUDFLARE_SERVER_OUTPUT_HPKE_PRIVATE_KEY_SECRET_PREFIX_V1));
     assert_eq!(decoded, private_key);
 }
 
@@ -3791,12 +4559,12 @@ fn cloudflare_proof_batch_helpers_build_recipient_proof_bundle_response() {
         .validate_for_router_payload(validated_a.router_payload())
         .expect("strict router response matches router payload");
 
-    let relayer_activation = CloudflareSigningWorkerRecipientProofBundleActivationV1::new(
-        deriver_a_strict.relayer_bundle.clone(),
-        deriver_b_strict.relayer_bundle.clone(),
+    let server_activation = CloudflareSigningWorkerRecipientProofBundleActivationV1::new(
+        deriver_a_strict.server_bundle.clone(),
+        deriver_b_strict.server_bundle.clone(),
     )
     .expect("strict SigningWorker proof-bundle activation");
-    relayer_activation
+    server_activation
         .validate_for_router_payload(validated_a.router_payload())
         .expect("strict SigningWorker activation matches router payload");
 
@@ -4038,22 +4806,22 @@ fn cloudflare_validated_mpc_prf_handler_returns_signer_responses_for_a_and_b() {
     let activation_request = CloudflareSigningWorkerRecipientProofBundleActivationRequestV1::new(
         validated_a.router_payload().clone(),
         CloudflareSigningWorkerRecipientProofBundleActivationV1::new(
-            strict_response_a.relayer_bundle.clone(),
-            strict_response_b.relayer_bundle.clone(),
+            strict_response_a.server_bundle.clone(),
+            strict_response_b.server_bundle.clone(),
         )
         .expect("strict SigningWorker activation"),
     )
     .expect("strict SigningWorker activation request");
     let expected_active_signing_worker_state =
-        active_signing_worker_state_for_activation(&activation_request, "test-relayer-material");
+        active_signing_worker_state_for_activation(&activation_request, "test-server-material");
     let activation_receipt =
         handle_cloudflare_deriver_a_recipient_proof_bundle_activation_request_v1(
             activation_request,
-            "test-relayer-material",
+            "test-server-material",
             TEST_ACTIVATED_AT_MS,
         )
         .expect("strict SigningWorker activation receipt");
-    assert_eq!(activation_receipt.signing_worker_id, "relayer-a");
+    assert_eq!(activation_receipt.signing_worker_id, "server-a");
     assert_eq!(
         activation_receipt.transcript_digest,
         validated_a.router_payload().transcript_digest()
@@ -4302,10 +5070,10 @@ fn deriver_a_bindings_accept_a_root_share() {
 }
 
 #[test]
-fn signing_worker_bindings_accept_relayer_output_scope() {
+fn signing_worker_bindings_accept_server_output_scope() {
     let bindings = CloudflareSigningWorkerBindingsV1::new(
-        relayer_output_binding(),
-        relayer_output_hpke_decrypt_key(),
+        server_output_binding(),
+        server_output_hpke_decrypt_key(),
     )
     .expect("signing worker bindings");
     let startup =
@@ -4318,7 +5086,7 @@ fn signing_worker_bindings_accept_relayer_output_scope() {
 fn signing_worker_bindings_reject_deriver_a_root_scope() {
     let err = CloudflareSigningWorkerBindingsV1::new(
         deriver_a_root_binding(),
-        relayer_output_hpke_decrypt_key(),
+        server_output_hpke_decrypt_key(),
     )
     .expect_err("signing worker must reject signer a root-share binding");
 
@@ -4402,16 +5170,16 @@ fn deriver_b_bindings_accept_b_root_share_scope() {
 }
 
 #[test]
-fn deriver_b_bindings_reject_relayer_output_scope() {
+fn deriver_b_bindings_reject_server_output_scope() {
     let err = CloudflareSignerBBindingsV1::new(
-        relayer_output_binding(),
+        server_output_binding(),
         deriver_b_root_share_wire_secret_binding(),
         deriver_b_envelope_hpke_decrypt_key(),
         deriver_b_peer_signing_key(),
         cloudflare_peer_verifying_key_set(),
         peer(CloudflareWorkerRoleV1::SignerA, "SIGNER_A"),
     )
-    .expect_err("signer b must reject relayer-output binding");
+    .expect_err("signer b must reject server-output binding");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
 }
@@ -4560,17 +5328,17 @@ fn deriver_a_runtime_builds_only_a_scoped_storage_calls() {
 }
 
 #[test]
-fn signing_worker_runtime_builds_only_relayer_output_calls() {
+fn signing_worker_runtime_builds_only_server_output_calls() {
     let runtime = CloudflareSigningWorkerRuntimeV1::new(
         CloudflareSigningWorkerBindingsV1::new(
-            relayer_output_binding(),
-            relayer_output_hpke_decrypt_key(),
+            server_output_binding(),
+            server_output_hpke_decrypt_key(),
         )
         .expect("signing worker bindings"),
     )
     .expect("signing worker runtime");
     let activation = signing_worker_activation();
-    let material = relayer_output_material_record(&activation);
+    let material = server_output_material_record(&activation);
     let activation_call = runtime
         .signing_worker_output_activate_call(activation, material, TEST_ACTIVATED_AT_MS)
         .expect("SigningWorker activation call");
@@ -4579,7 +5347,7 @@ fn signing_worker_runtime_builds_only_relayer_output_calls() {
             CloudflareActiveSigningWorkerStateLookupV1::new(
                 "account.near",
                 "session-1",
-                "relayer-a",
+                "server-a",
             )
             .expect("active SigningWorker lookup"),
         )
@@ -4592,6 +5360,12 @@ fn signing_worker_runtime_builds_only_relayer_output_calls() {
             .expect("SigningWorker material lookup"),
         )
         .expect("SigningWorker material lookup call");
+    let round1_put_call = runtime
+        .signing_worker_round1_put_call(normal_signing_round1_record())
+        .expect("SigningWorker round1 put call");
+    let round1_take_call = runtime
+        .signing_worker_round1_take_call(normal_signing_round1_lookup(1_500))
+        .expect("SigningWorker round1 take call");
 
     assert_eq!(
         activation_call.worker_role,
@@ -4599,7 +5373,7 @@ fn signing_worker_runtime_builds_only_relayer_output_calls() {
     );
     assert_eq!(
         activation_call.binding.scope,
-        CloudflareDurableObjectScopeV1::signing_worker_relayer_output()
+        CloudflareDurableObjectScopeV1::signing_worker_server_output()
     );
     assert_eq!(
         active_state_call.operation_kind(),
@@ -4610,16 +5384,32 @@ fn signing_worker_runtime_builds_only_relayer_output_calls() {
         CloudflareDurableObjectOperationKindV1::SigningWorkerOutputMaterialGet
     );
     assert_eq!(
+        round1_put_call.operation_kind(),
+        CloudflareDurableObjectOperationKindV1::SigningWorkerRound1Put
+    );
+    assert_eq!(
+        round1_take_call.operation_kind(),
+        CloudflareDurableObjectOperationKindV1::SigningWorkerRound1Take
+    );
+    assert_eq!(
         material_call.storage_key(),
-        "relayer-output/lifecycle-1/material"
+        "server-output/lifecycle-1/material"
+    );
+    assert_eq!(
+        round1_put_call.storage_key(),
+        "SIGNING_WORKER_SERVER_OUTPUT_DO:signing-worker-round1/account.near/session-1/server-a/server-round1/sign-request-1"
+    );
+    assert_eq!(
+        round1_take_call.storage_key(),
+        round1_put_call.storage_key()
     );
     assert_eq!(
         active_state_call.binding.scope,
-        CloudflareDurableObjectScopeV1::signing_worker_relayer_output()
+        CloudflareDurableObjectScopeV1::signing_worker_server_output()
     );
     assert_eq!(
-        runtime.relayer_output_decrypt_key().binding_name,
-        "SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY"
+        runtime.server_output_decrypt_key().binding_name,
+        "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY"
     );
 }
 
@@ -4671,157 +5461,210 @@ fn deriver_b_runtime_builds_only_b_scoped_storage_calls() {
 }
 
 #[test]
-fn deriver_a_normal_signing_private_request_binds_active_signing_worker_state() {
-    let request = normal_signing_request(2_000);
-    let active_signing_worker = active_signing_worker_state_for_normal_signing();
-    let forwarded = build_cloudflare_router_to_signing_worker_normal_signing_request_v1(
+fn signing_worker_production_v2_prepare_returns_router_admitted_public_material() {
+    let fixture = deterministic_fixture_corpus().expect("fixtures").remove(0);
+    let request = normal_signing_v2_prepare_request(2_000);
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let admission = CloudflareRouterNormalSigningPrepareAdmissionCandidateV2::from_prepare_request(
+        &wallet_session,
+        &request,
         1_000,
-        request.clone(),
-        active_signing_worker.clone(),
     )
-    .expect("forwarded normal signing request");
-
-    assert_eq!(forwarded.request, request);
-    assert_eq!(forwarded.active_signing_worker, active_signing_worker);
-
-    let response = handle_cloudflare_signing_worker_normal_signing_private_request_v1(
-        &TestNormalSigningHandler,
-        1_000,
-        normal_signing_admitted_request(request.clone()),
-        active_signing_worker,
-        normal_signing_material_record(),
-    )
-    .expect("normal signing response");
-    response
-        .validate_for_request(&request)
-        .expect("response binds to request");
-}
-
-#[test]
-fn signing_worker_normal_signing_private_request_rejects_intent_mismatched_admission() {
-    let request = normal_signing_request(2_000);
-    let active_signing_worker = active_signing_worker_state_for_normal_signing();
-    let mismatched_metadata = CloudflareRouterNormalSigningTrustedMetadataV1::new(
-        "org-1",
-        "project-1",
-        "dev",
-        "account.near",
-        CloudflareRouterAuthContextV1::authenticated_session("user-1", "session-1")
-            .expect("auth context"),
-        digest(0x90),
-        digest(0x92),
-    )
-    .expect("mismatched metadata");
-    let mismatched_admission = CloudflareRouterNormalSigningTrustedAdmissionV1::new(
-        mismatched_metadata,
+    .expect("normal signing v2 admission");
+    let trusted_admission = CloudflareRouterNormalSigningTrustedAdmissionV1::new(
+        admission
+            .to_v1_trusted_metadata()
+            .expect("v1 trusted metadata"),
         ExpensiveWorkGateDecisionV1::accepted("gate-request-1").expect("accepted"),
     )
-    .expect("mismatched admission");
-    let admitted = CloudflareSigningWorkerAdmittedNormalSigningRequestV1 {
-        request,
-        trusted_admission: mismatched_admission,
-    };
+    .expect("trusted admission");
+    let admitted = CloudflareSigningWorkerAdmittedNormalSigningPrepareRequestV2::new(
+        request.scope.clone(),
+        request.expires_at_ms,
+        admission.clone(),
+        trusted_admission,
+    )
+    .expect("admitted v2 prepare");
+    let active_signing_worker = active_signing_worker_state_for_normal_signing();
+    let material = CloudflareServerOutputMaterialRecordV1::new(
+        active_signing_worker.activation_transcript_digest,
+        OpenedShareKind::XServerBase,
+        Role::Server,
+        "server-a",
+        CloudflareSecretMaterial32V1::new(fixture.output.x_server_base),
+    )
+    .expect("server output material");
 
-    let err = handle_cloudflare_signing_worker_normal_signing_private_request_v1(
-        &TestNormalSigningHandler,
-        1_000,
+    let prepared = handle_cloudflare_signing_worker_normal_signing_prepare_private_request_v2(
+        &CloudflareRoleSeparatedEd25519NormalSigningHandlerV1,
+        1_500,
         admitted,
         active_signing_worker,
-        normal_signing_material_record(),
+        material,
     )
-    .expect_err("SigningWorker must reject mismatched admission");
+    .expect("production v2 prepare");
 
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
-}
-
-#[test]
-fn signing_worker_normal_signing_private_request_rejects_non_accepted_admission() {
-    let request = normal_signing_request(2_000);
-    let active_signing_worker = active_signing_worker_state_for_normal_signing();
-    let rejected_admission = CloudflareRouterNormalSigningTrustedAdmissionV1::new(
-        normal_signing_trusted_metadata(),
-        ExpensiveWorkGateDecisionV1::rejected(GateRejectReasonV1::AbusePolicy, 1_000)
-            .expect("rejected"),
-    )
-    .expect("rejected admission");
-    let admitted = CloudflareSigningWorkerAdmittedNormalSigningRequestV1 {
-        request,
-        trusted_admission: rejected_admission,
-    };
-
-    let err = handle_cloudflare_signing_worker_normal_signing_private_request_v1(
-        &TestNormalSigningHandler,
-        1_000,
-        admitted,
-        active_signing_worker,
-        normal_signing_material_record(),
-    )
-    .expect_err("SigningWorker must reject non-accepted admission");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidGateDecision);
-}
-
-#[test]
-fn deriver_a_normal_signing_private_request_rejects_invalid_active_signing_worker() {
-    let request = normal_signing_request(2_000);
-    let mut active_signing_worker = active_signing_worker_state_for_normal_signing();
-    active_signing_worker.signing_worker.relayer_id = "relayer-b".to_string();
-
-    let err = handle_cloudflare_signing_worker_normal_signing_private_request_v1(
-        &TestNormalSigningHandler,
-        1_000,
-        normal_signing_admitted_request(request),
-        active_signing_worker,
-        normal_signing_material_record(),
-    )
-    .expect_err("wrong active SigningWorker must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
-}
-
-#[test]
-fn deriver_a_normal_signing_private_request_rejects_expired_request() {
-    let request = normal_signing_request(1_000);
-    let active_signing_worker = active_signing_worker_state_for_normal_signing();
-
-    let err = handle_cloudflare_signing_worker_normal_signing_private_request_v1(
-        &TestNormalSigningHandler,
-        1_000,
-        normal_signing_admitted_request(request),
-        active_signing_worker,
-        normal_signing_material_record(),
-    )
-    .expect_err("expired normal signing request must fail");
-
-    assert_eq!(err.code(), RouterAbProtocolErrorCode::ExpiredLocalRequest);
-}
-
-#[test]
-fn signing_worker_normal_signing_private_request_rejects_wrong_material() {
-    let request = normal_signing_request(2_000);
-    let active_signing_worker = active_signing_worker_state_for_normal_signing();
-    let wrong_material = CloudflareRelayerOutputMaterialRecordV1::new(
-        digest(0x83),
-        OpenedShareKind::XRelayerBase,
-        Role::Relayer,
-        "relayer-a",
-        CloudflareSecretMaterial32V1::new([0x5a; 32]),
-    )
-    .expect("wrong normal signing material");
-
-    let err = handle_cloudflare_signing_worker_normal_signing_private_request_v1(
-        &TestNormalSigningHandler,
-        1_000,
-        normal_signing_admitted_request(request),
-        active_signing_worker,
-        wrong_material,
-    )
-    .expect_err("wrong material must fail");
-
+    assert_eq!(prepared.response.scope, request.scope);
     assert_eq!(
-        err.code(),
-        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
+        prepared.response.signing_payload_digest,
+        admission.signing_payload_digest
     );
+    assert_eq!(
+        prepared.response.round1_binding_digest,
+        request.round1_binding_digest().expect("round1 binding")
+    );
+    assert_eq!(
+        prepared.record.admitted_signing_digest,
+        admission.admitted_signing_digest
+    );
+    assert_eq!(
+        prepared.record.round1_binding_digest,
+        request.round1_binding_digest().expect("round1 binding")
+    );
+}
+
+#[test]
+fn signing_worker_production_v2_finalize_signs_router_admitted_digest_from_round1_record() {
+    let fixture = deterministic_fixture_corpus().expect("fixtures").remove(0);
+    let client_round1 = RoleSeparatedEd25519Round1StateV1::new(
+        RoleSeparatedEd25519Round1SecretV1::new(scalar_bytes(31), scalar_bytes(32))
+            .expect("client round1 secret"),
+    )
+    .expect("client round1");
+    let server_round1 = RoleSeparatedEd25519Round1StateV1::new(
+        RoleSeparatedEd25519Round1SecretV1::new(scalar_bytes(41), scalar_bytes(42))
+            .expect("server round1 secret"),
+    )
+    .expect("server round1");
+    let client_verifying_share =
+        role_separated_ed25519_client_verifying_share_v1(fixture.output.x_client_base)
+            .expect("client verifying share");
+    let server_verifying_share =
+        role_separated_ed25519_server_verifying_share_v1(fixture.output.x_server_base)
+            .expect("server verifying share");
+    let prepare_request = normal_signing_v2_prepare_request(2_000);
+    let material = prepare_request
+        .admission_material()
+        .expect("admission material");
+    let client_signature_share = create_role_separated_ed25519_client_signature_share_v1(
+        RoleSeparatedEd25519ClientShareRequestV1 {
+            x_client_base: fixture.output.x_client_base,
+            client_round1: &client_round1,
+            group_public_key: fixture.output.public_key,
+            client_verifying_share,
+            server_verifying_share,
+            server_commitments: server_round1.commitments,
+            signing_payload: material.admitted_signing_digest.as_bytes(),
+        },
+    )
+    .expect("client signature share");
+    let prepare_binding = RouterAbEd25519NormalSigningPrepareBindingV2::new(
+        "server-round1/sign-request-1",
+        prepare_request
+            .round1_binding_digest()
+            .expect("round1 binding"),
+        material.intent_digest,
+        material.signing_payload_digest,
+    )
+    .expect("prepare binding");
+    let protocol = RouterAbEd25519NormalSigningFinalizeProtocolV2::Ed25519TwoPartyFrostFinalizeV1(
+        RouterAbEd25519TwoPartyFrostFinalizeProtocolV2::new(
+            format!(
+                "ed25519:{}",
+                bs58::encode(fixture.output.public_key).into_string()
+            ),
+            NormalSigningEd25519TwoPartyFrostCommitmentsV1::new(
+                b64u(&client_round1.commitments.hiding),
+                b64u(&client_round1.commitments.binding),
+            )
+            .expect("client commitments"),
+            NormalSigningEd25519TwoPartyFrostCommitmentsV1::new(
+                b64u(&server_round1.commitments.hiding),
+                b64u(&server_round1.commitments.binding),
+            )
+            .expect("server commitments"),
+            b64u(&client_verifying_share),
+            b64u(&server_verifying_share),
+            b64u(&client_signature_share),
+        )
+        .expect("v2 finalize protocol"),
+    );
+    let request = RouterAbEd25519NormalSigningFinalizeRequestV2::new(
+        normal_signing_scope(),
+        2_000,
+        prepare_binding,
+        protocol,
+    )
+    .expect("v2 finalize request");
+    let wallet_session = normal_signing_v2_wallet_session(3_000);
+    let finalize_admission =
+        CloudflareRouterNormalSigningFinalizeAdmissionCandidateV2::from_finalize_request(
+            &wallet_session,
+            &request,
+            1_000,
+        )
+        .expect("v2 finalize admission");
+    let trusted_admission = CloudflareRouterNormalSigningTrustedAdmissionV1::new(
+        finalize_admission
+            .to_v1_trusted_metadata()
+            .expect("v1 trusted metadata"),
+        ExpensiveWorkGateDecisionV1::accepted("gate-request-1").expect("accepted"),
+    )
+    .expect("trusted admission");
+    let active_signing_worker = active_signing_worker_state_for_normal_signing();
+    let material_record = CloudflareServerOutputMaterialRecordV1::new(
+        active_signing_worker.activation_transcript_digest,
+        OpenedShareKind::XServerBase,
+        Role::Server,
+        "server-a",
+        CloudflareSecretMaterial32V1::new(fixture.output.x_server_base),
+    )
+    .expect("server output material");
+    let server_round1_record = CloudflareSigningWorkerRound1RecordV1::new(
+        active_signing_worker.clone(),
+        "server-round1/sign-request-1",
+        request.round1_binding_digest(),
+        material.admitted_signing_digest,
+        server_round1,
+        1_000,
+        2_000,
+    )
+    .expect("server round1 record");
+    let admitted = CloudflareSigningWorkerAdmittedNormalSigningFinalizeRequestV2::new(
+        request.clone(),
+        trusted_admission,
+    )
+    .expect("admitted v2 finalize");
+
+    let response = handle_cloudflare_signing_worker_normal_signing_finalize_private_request_v2(
+        &CloudflareRoleSeparatedEd25519NormalSigningHandlerV1,
+        1_500,
+        admitted,
+        active_signing_worker,
+        material_record,
+        server_round1_record,
+    )
+    .expect("production v2 finalize response");
+
+    response.validate().expect("v2 finalize response validates");
+    assert_eq!(response.scope, request.scope);
+    assert_eq!(
+        response.signing_payload_digest,
+        material.signing_payload_digest
+    );
+    let verifying_key =
+        VerifyingKey::from_bytes(&fixture.output.public_key).expect("fixture verifying key");
+    let signature: [u8; 64] = response
+        .signature
+        .as_bytes()
+        .try_into()
+        .expect("64-byte signature");
+    verifying_key
+        .verify(
+            material.admitted_signing_digest.as_bytes(),
+            &Ed25519Signature::from_bytes(&signature),
+        )
+        .expect("production v2 handler signature verifies over admitted digest");
 }
 
 #[test]
@@ -5196,16 +6039,16 @@ fn durable_object_scope_rejects_non_signer_root_share_role() {
 }
 
 #[test]
-fn durable_object_binding_rejects_non_signing_worker_relayer_output_owner() {
+fn durable_object_binding_rejects_non_signing_worker_server_output_owner() {
     let err = CloudflareDurableObjectBindingV1::new(
-        CloudflareDurableObjectScopeV1::RelayerOutput {
+        CloudflareDurableObjectScopeV1::ServerOutput {
             owner_role: CloudflareWorkerRoleV1::SignerB,
         },
-        "BAD_RELAYER_OUTPUT_DO",
-        "bad-relayer-output",
-        "bad-relayer-output:",
+        "BAD_SERVER_OUTPUT_DO",
+        "bad-server-output",
+        "bad-server-output:",
     )
-    .expect_err("v1 relayer output must be owned by signing worker");
+    .expect_err("v1 server output must be owned by signing worker");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidRole);
 }
@@ -5279,20 +6122,17 @@ fn env_parser_builds_signing_worker_bindings_from_required_keys() {
         .expect("signing worker env");
 
     assert_eq!(
-        bindings.relayer_output.scope,
-        CloudflareDurableObjectScopeV1::signing_worker_relayer_output()
+        bindings.server_output.scope,
+        CloudflareDurableObjectScopeV1::signing_worker_server_output()
     );
     assert_eq!(
-        bindings.relayer_output_decrypt_key.binding_name,
-        "SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY"
+        bindings.server_output_decrypt_key.binding_name,
+        "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY"
     );
+    assert_eq!(bindings.server_output_decrypt_key.key_epoch, "server-epoch");
     assert_eq!(
-        bindings.relayer_output_decrypt_key.key_epoch,
-        "relayer-epoch"
-    );
-    assert_eq!(
-        bindings.relayer_output_decrypt_key.public_key,
-        signer_set().selected_relayer.recipient_encryption_key
+        bindings.server_output_decrypt_key.public_key,
+        signer_set().selected_server.recipient_encryption_key
     );
 }
 
@@ -5535,16 +6375,16 @@ fn env_parser_rejects_deriver_a_env_with_deriver_b_root_share_key() {
             "signer-a-root-share:",
         ),
         (
-            SIGNING_WORKER_RELAYER_OUTPUT_DO_BINDING_ENV,
-            "SIGNING_WORKER_RELAYER_OUTPUT_DO",
+            SIGNING_WORKER_SERVER_OUTPUT_DO_BINDING_ENV,
+            "SIGNING_WORKER_SERVER_OUTPUT_DO",
         ),
         (
-            SIGNING_WORKER_RELAYER_OUTPUT_DO_OBJECT_ENV,
-            "signer-a-relayer-output",
+            SIGNING_WORKER_SERVER_OUTPUT_DO_OBJECT_ENV,
+            "signer-a-server-output",
         ),
         (
-            SIGNING_WORKER_RELAYER_OUTPUT_DO_KEY_PREFIX_ENV,
-            "signer-a-relayer-output:",
+            SIGNING_WORKER_SERVER_OUTPUT_DO_KEY_PREFIX_ENV,
+            "signer-a-server-output:",
         ),
         (SIGNER_B_PEER_BINDING_ENV, "SIGNER_B"),
         (SIGNER_B_ROOT_SHARE_DO_BINDING_ENV, "SIGNER_B_ROOT_SHARE_DO"),
@@ -5557,7 +6397,7 @@ fn env_parser_rejects_deriver_a_env_with_deriver_b_root_share_key() {
 }
 
 #[test]
-fn env_parser_rejects_deriver_b_env_with_relayer_output_key() {
+fn env_parser_rejects_deriver_b_env_with_server_output_key() {
     let env = CloudflareEnvMapV1::new(vec![
         (SIGNER_B_ROOT_SHARE_DO_BINDING_ENV, "SIGNER_B_ROOT_SHARE_DO"),
         (SIGNER_B_ROOT_SHARE_DO_OBJECT_ENV, "signer-b-root-share"),
@@ -5567,13 +6407,13 @@ fn env_parser_rejects_deriver_b_env_with_relayer_output_key() {
         ),
         (SIGNER_A_PEER_BINDING_ENV, "SIGNER_A"),
         (
-            SIGNING_WORKER_RELAYER_OUTPUT_DO_BINDING_ENV,
-            "SIGNING_WORKER_RELAYER_OUTPUT_DO",
+            SIGNING_WORKER_SERVER_OUTPUT_DO_BINDING_ENV,
+            "SIGNING_WORKER_SERVER_OUTPUT_DO",
         ),
     ]);
 
     let err = parse_cloudflare_worker_bindings_v1(CloudflareWorkerRoleV1::SignerB, &env)
-        .expect_err("signer b env must reject relayer-output key");
+        .expect_err("signer b env must reject server-output key");
 
     assert_eq!(err.code(), RouterAbProtocolErrorCode::ForbiddenLocalBinding);
 }
@@ -5678,14 +6518,36 @@ fn durable_object_call_routes_router_replay_and_lifecycle_state() {
         lifecycle_call.storage_key(),
         "ROUTER_LIFECYCLE_DO:lifecycle/lifecycle-1"
     );
+
+    let ceremony_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        do_binding(
+            CloudflareDurableObjectScopeV1::RouterLifecycle,
+            "ROUTER_LIFECYCLE_DO",
+        ),
+        CloudflareDurableObjectRequestV1::derivation_ceremony_put_state(
+            created_derivation_ceremony(),
+        )
+        .expect("ceremony op"),
+    )
+    .expect("ceremony call");
+
+    assert_eq!(
+        ceremony_call.operation_kind(),
+        CloudflareDurableObjectOperationKindV1::DerivationCeremonyPutState
+    );
+    assert_eq!(
+        ceremony_call.storage_key(),
+        "ROUTER_LIFECYCLE_DO:derivation-ceremony/lifecycle-1"
+    );
 }
 
 #[test]
-fn durable_object_call_routes_relayer_activation_to_signing_worker_scope() {
+fn durable_object_call_routes_server_activation_to_signing_worker_scope() {
     let activation = signing_worker_activation();
-    let material = relayer_output_material_record(&activation);
+    let material = server_output_material_record(&activation);
     let expected_storage_key = format!(
-        "SIGNING_WORKER_RELAYER_OUTPUT_DO:signing-worker-output/lifecycle-1/{}",
+        "SIGNING_WORKER_SERVER_OUTPUT_DO:signing-worker-output/lifecycle-1/{}",
         digest_hex(activation.activation_context.transcript_digest())
     );
     let request = CloudflareDurableObjectRequestV1::signing_worker_output_activate(
@@ -5696,7 +6558,7 @@ fn durable_object_call_routes_relayer_activation_to_signing_worker_scope() {
     .expect("activation request");
     let call = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::SigningWorker,
-        relayer_output_binding(),
+        server_output_binding(),
         request,
     )
     .expect("activation call");
@@ -5709,15 +6571,15 @@ fn durable_object_call_routes_relayer_activation_to_signing_worker_scope() {
     assert_eq!(
         call.active_signing_worker_state_index_storage_key()
             .expect("active SigningWorker index key"),
-        "SIGNING_WORKER_RELAYER_OUTPUT_DO:active-signing-worker/account.near/session-1/relayer-a"
+        "SIGNING_WORKER_SERVER_OUTPUT_DO:active-signing-worker/account.near/session-1/server-a"
     );
 
     let lookup =
-        CloudflareActiveSigningWorkerStateLookupV1::new("account.near", "session-1", "relayer-a")
+        CloudflareActiveSigningWorkerStateLookupV1::new("account.near", "session-1", "server-a")
             .expect("active SigningWorker lookup");
     let lookup_call = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::SigningWorker,
-        relayer_output_binding(),
+        server_output_binding(),
         CloudflareDurableObjectRequestV1::signing_worker_output_active_state_get(lookup)
             .expect("lookup request"),
     )
@@ -5728,7 +6590,7 @@ fn durable_object_call_routes_relayer_activation_to_signing_worker_scope() {
     );
     assert_eq!(
         lookup_call.storage_key(),
-        "SIGNING_WORKER_RELAYER_OUTPUT_DO:active-signing-worker/account.near/session-1/relayer-a"
+        "SIGNING_WORKER_SERVER_OUTPUT_DO:active-signing-worker/account.near/session-1/server-a"
     );
 
     let material_lookup = router_ab_cloudflare::CloudflareSigningWorkerOutputMaterialLookupV1::new(
@@ -5737,7 +6599,7 @@ fn durable_object_call_routes_relayer_activation_to_signing_worker_scope() {
     .expect("material lookup");
     let material_lookup_call = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::SigningWorker,
-        relayer_output_binding(),
+        server_output_binding(),
         CloudflareDurableObjectRequestV1::signing_worker_output_material_get(material_lookup)
             .expect("material lookup request"),
     )
@@ -5747,6 +6609,42 @@ fn durable_object_call_routes_relayer_activation_to_signing_worker_scope() {
         CloudflareDurableObjectOperationKindV1::SigningWorkerOutputMaterialGet
     );
     assert_eq!(material_lookup_call.storage_key(), expected_storage_key);
+}
+
+#[test]
+fn durable_object_call_routes_signing_worker_round1_to_server_output_scope() {
+    let record = normal_signing_round1_record();
+    let put_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_round1_put(record)
+            .expect("round1 put request"),
+    )
+    .expect("round1 put call");
+
+    assert_eq!(
+        put_call.operation_kind(),
+        CloudflareDurableObjectOperationKindV1::SigningWorkerRound1Put
+    );
+    assert_eq!(
+        put_call.storage_key(),
+        "SIGNING_WORKER_SERVER_OUTPUT_DO:signing-worker-round1/account.near/session-1/server-a/server-round1/sign-request-1"
+    );
+
+    let take_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_round1_take(normal_signing_round1_lookup(
+            1_500,
+        ))
+        .expect("round1 take request"),
+    )
+    .expect("round1 take call");
+    assert_eq!(
+        take_call.operation_kind(),
+        CloudflareDurableObjectOperationKindV1::SigningWorkerRound1Take
+    );
+    assert_eq!(take_call.storage_key(), put_call.storage_key());
 }
 
 #[test]
@@ -5832,9 +6730,9 @@ fn durable_object_response_rejects_mismatched_response_branch() {
 }
 
 #[test]
-fn durable_object_response_validates_relayer_activation_receipt() {
+fn durable_object_response_validates_server_activation_receipt() {
     let activation = signing_worker_activation();
-    let material = relayer_output_material_record(&activation);
+    let material = server_output_material_record(&activation);
     let receipt_digest = activation.activation_context.transcript_digest();
     let request = CloudflareDurableObjectRequestV1::signing_worker_output_activate(
         activation.clone(),
@@ -5843,11 +6741,11 @@ fn durable_object_response_validates_relayer_activation_receipt() {
     )
     .expect("request");
     let active_signing_worker_state =
-        active_signing_worker_state_for_activation(&activation, "test-relayer-material");
+        active_signing_worker_state_for_activation(&activation, "test-server-material");
     let response = CloudflareDurableObjectResponseV1::signing_worker_output_activate(
         CloudflareSigningWorkerOutputActivationReceiptV1::new(
             "lifecycle-1",
-            "relayer-a",
+            "server-a",
             receipt_digest,
             active_signing_worker_state,
             true,
@@ -5874,6 +6772,44 @@ fn durable_object_response_validates_lifecycle_receipt() {
     response
         .validate_for_request(&request)
         .expect("matching lifecycle response");
+}
+
+#[test]
+fn durable_object_response_validates_derivation_ceremony_receipt() {
+    let ceremony = created_derivation_ceremony();
+    let request = CloudflareDurableObjectRequestV1::derivation_ceremony_put_state(ceremony.clone())
+        .expect("request");
+    let response = CloudflareDurableObjectResponseV1::derivation_ceremony_put_state(
+        CloudflareDerivationCeremonyPutReceiptV1::new(
+            "lifecycle-1",
+            CloudflareDerivationCeremonyStateLabelV1::Created,
+            true,
+        )
+        .expect("receipt"),
+    )
+    .expect("response");
+
+    response
+        .validate_for_request(&request)
+        .expect("matching ceremony response");
+
+    let mismatched = CloudflareDurableObjectResponseV1::derivation_ceremony_put_state(
+        CloudflareDerivationCeremonyPutReceiptV1::new(
+            "lifecycle-1",
+            CloudflareDerivationCeremonyStateLabelV1::Activated,
+            true,
+        )
+        .expect("mismatched receipt"),
+    )
+    .expect("mismatched response");
+    let err = mismatched
+        .validate_for_request(&request)
+        .expect_err("mismatched ceremony state must fail");
+
+    assert_eq!(
+        err.code(),
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
+    );
 }
 
 #[test]
@@ -6132,6 +7068,215 @@ fn durable_object_handler_rejects_terminal_lifecycle_rewrite() {
 }
 
 #[test]
+fn durable_object_handler_stores_full_derivation_ceremony_lifecycle() {
+    let binding = do_binding(
+        CloudflareDurableObjectScopeV1::RouterLifecycle,
+        "ROUTER_LIFECYCLE_DO",
+    );
+    let created = created_derivation_ceremony();
+    let accepted = accepted_derivation_ceremony();
+    let a_forwarded = a_envelope_forwarded_derivation_ceremony();
+    let b_forwarded = b_envelope_forwarded_derivation_ceremony();
+    let ab_running = ab_running_derivation_ceremony();
+    let client_output_ready = client_output_ready_derivation_ceremony();
+    let signing_worker_output_ready = signing_worker_output_ready_derivation_ceremony();
+    let activated = activated_derivation_ceremony();
+    let created_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        binding.clone(),
+        CloudflareDurableObjectRequestV1::derivation_ceremony_put_state(created.clone())
+            .expect("created ceremony op"),
+    )
+    .expect("created ceremony call");
+    let accepted_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        binding.clone(),
+        CloudflareDurableObjectRequestV1::derivation_ceremony_put_state(accepted.clone())
+            .expect("accepted ceremony op"),
+    )
+    .expect("accepted ceremony call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    let created_response = handle_cloudflare_durable_object_call_v1(&created_call, &mut storage)
+        .expect("created ceremony put");
+    assert_eq!(
+        created_response,
+        CloudflareDurableObjectResponseV1::derivation_ceremony_put_state(
+            CloudflareDerivationCeremonyPutReceiptV1::new(
+                "lifecycle-1",
+                CloudflareDerivationCeremonyStateLabelV1::Created,
+                true,
+            )
+            .expect("created receipt")
+        )
+        .expect("created response")
+    );
+    assert_eq!(
+        storage.derivation_ceremony(&created_call.storage_key()),
+        Some(&created)
+    );
+
+    handle_cloudflare_durable_object_call_v1(&accepted_call, &mut storage)
+        .expect("accepted ceremony put");
+    let accepted_retry = handle_cloudflare_durable_object_call_v1(&accepted_call, &mut storage)
+        .expect("accepted ceremony retry");
+    assert_eq!(
+        accepted_retry,
+        CloudflareDurableObjectResponseV1::derivation_ceremony_put_state(
+            CloudflareDerivationCeremonyPutReceiptV1::new(
+                "lifecycle-1",
+                CloudflareDerivationCeremonyStateLabelV1::Admitted,
+                false,
+            )
+            .expect("accepted retry receipt")
+        )
+        .expect("accepted retry response")
+    );
+
+    for ceremony in [
+        a_forwarded,
+        b_forwarded,
+        ab_running,
+        client_output_ready,
+        signing_worker_output_ready,
+        activated.clone(),
+    ] {
+        let call = CloudflareDurableObjectCallV1::new(
+            CloudflareWorkerRoleV1::Router,
+            binding.clone(),
+            CloudflareDurableObjectRequestV1::derivation_ceremony_put_state(ceremony)
+                .expect("ceremony op"),
+        )
+        .expect("ceremony call");
+        handle_cloudflare_durable_object_call_v1(&call, &mut storage).expect("ceremony transition");
+    }
+    assert_eq!(
+        storage.derivation_ceremony(&created_call.storage_key()),
+        Some(&activated)
+    );
+}
+
+#[test]
+fn durable_object_handler_rejects_skipped_derivation_ceremony_activation() {
+    let activated = activated_derivation_ceremony();
+    let call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        do_binding(
+            CloudflareDurableObjectScopeV1::RouterLifecycle,
+            "ROUTER_LIFECYCLE_DO",
+        ),
+        CloudflareDurableObjectRequestV1::derivation_ceremony_put_state(activated)
+            .expect("activated ceremony op"),
+    )
+    .expect("activated ceremony call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    let err = handle_cloudflare_durable_object_call_v1(&call, &mut storage)
+        .expect_err("activation cannot create ceremony storage");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
+    assert_eq!(storage.derivation_ceremony(&call.storage_key()), None);
+}
+
+#[test]
+fn durable_object_handler_rejects_derivation_ceremony_scope_change() {
+    let created = created_derivation_ceremony();
+    let mut changed_scope = lifecycle_scope();
+    changed_scope.session_id = "session-2".to_owned();
+    let accepted = CloudflareDerivationCeremonyV1::admitted(
+        changed_scope,
+        "gate-request-1",
+        TEST_ACTIVATED_AT_MS - 1,
+    )
+    .expect("accepted ceremony with changed scope");
+    let binding = do_binding(
+        CloudflareDurableObjectScopeV1::RouterLifecycle,
+        "ROUTER_LIFECYCLE_DO",
+    );
+    let created_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        binding.clone(),
+        CloudflareDurableObjectRequestV1::derivation_ceremony_put_state(created)
+            .expect("created ceremony op"),
+    )
+    .expect("created ceremony call");
+    let accepted_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        binding,
+        CloudflareDurableObjectRequestV1::derivation_ceremony_put_state(accepted)
+            .expect("accepted ceremony op"),
+    )
+    .expect("accepted ceremony call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    handle_cloudflare_durable_object_call_v1(&created_call, &mut storage)
+        .expect("created ceremony put");
+    let err = handle_cloudflare_durable_object_call_v1(&accepted_call, &mut storage)
+        .expect_err("scope-changing ceremony transition must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
+}
+
+#[test]
+fn durable_object_handler_rejects_terminal_derivation_ceremony_rewrite() {
+    let binding = do_binding(
+        CloudflareDurableObjectScopeV1::RouterLifecycle,
+        "ROUTER_LIFECYCLE_DO",
+    );
+    let created = created_derivation_ceremony();
+    let abandoned = CloudflareDerivationCeremonyV1::abandoned(
+        lifecycle_scope(),
+        CloudflareDerivationCeremonyStateLabelV1::Created,
+        "user cancelled",
+        TEST_ACTIVATED_AT_MS - 1,
+    )
+    .expect("abandoned ceremony");
+    let failed = CloudflareDerivationCeremonyV1::failed(
+        lifecycle_scope(),
+        CloudflareDerivationCeremonyStateLabelV1::Created,
+        "activation_failed",
+        "activation failed",
+        TEST_ACTIVATED_AT_MS,
+    )
+    .expect("failed ceremony");
+    let created_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        binding.clone(),
+        CloudflareDurableObjectRequestV1::derivation_ceremony_put_state(created)
+            .expect("created ceremony op"),
+    )
+    .expect("created ceremony call");
+    let abandoned_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        binding.clone(),
+        CloudflareDurableObjectRequestV1::derivation_ceremony_put_state(abandoned.clone())
+            .expect("abandoned ceremony op"),
+    )
+    .expect("abandoned ceremony call");
+    let failed_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        binding,
+        CloudflareDurableObjectRequestV1::derivation_ceremony_put_state(failed)
+            .expect("failed ceremony op"),
+    )
+    .expect("failed ceremony call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    handle_cloudflare_durable_object_call_v1(&created_call, &mut storage)
+        .expect("created ceremony put");
+    handle_cloudflare_durable_object_call_v1(&abandoned_call, &mut storage)
+        .expect("abandoned ceremony put");
+    let err = handle_cloudflare_durable_object_call_v1(&failed_call, &mut storage)
+        .expect_err("terminal ceremony rewrite must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::InvalidLifecycleState);
+    assert_eq!(
+        storage.derivation_ceremony(&created_call.storage_key()),
+        Some(&abandoned)
+    );
+}
+
+#[test]
 fn durable_object_handler_evaluates_router_project_policy() {
     let request = admission_store_request(1_000);
     let call = CloudflareDurableObjectCallV1::new(
@@ -6275,20 +7420,8 @@ fn durable_object_handler_evaluates_normal_signing_quota() {
         .expect("duplicate accepted response")
     );
 
-    let second_request = NormalSigningRequestV1::new(
-        NormalSigningScopeV1::new("sign-request-2", "account.near", "session-1", "relayer-a")
-            .expect("second normal signing scope"),
-        2_000,
-        digest(0x91),
-        CanonicalWireBytesV1::new(vec![0x7d, 0x7e]).expect("second signing payload"),
-    )
-    .expect("second normal signing request");
-    let second_store_request = CloudflareRouterNormalSigningAdmissionStoreRequestV1::new(
-        normal_signing_trusted_metadata(),
-        &second_request,
-        1_000,
-    )
-    .expect("second normal signing store request");
+    let second_store_request =
+        normal_signing_admission_store_request_for_id("sign-request-2", 1_000);
     let second_call = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::Router,
         do_binding(
@@ -6311,6 +7444,148 @@ fn durable_object_handler_evaluates_normal_signing_quota() {
         )
         .expect("saturated response")
     );
+}
+
+#[test]
+fn durable_object_cleanup_removes_expired_replay_reservations() {
+    let expired_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        do_binding(
+            CloudflareDurableObjectScopeV1::RouterReplay,
+            "ROUTER_REPLAY_DO",
+        ),
+        CloudflareDurableObjectRequestV1::router_replay_reserve(
+            CloudflareReplayReserveRequestV1::new("expired-request", digest(0x71), 2_000)
+                .expect("expired replay request"),
+        )
+        .expect("expired replay op"),
+    )
+    .expect("expired replay call");
+    let active_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        do_binding(
+            CloudflareDurableObjectScopeV1::RouterReplay,
+            "ROUTER_REPLAY_DO",
+        ),
+        CloudflareDurableObjectRequestV1::router_replay_reserve(
+            CloudflareReplayReserveRequestV1::new("active-request", digest(0x72), 3_000)
+                .expect("active replay request"),
+        )
+        .expect("active replay op"),
+    )
+    .expect("active replay call");
+    let cleanup_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        do_binding(
+            CloudflareDurableObjectScopeV1::RouterReplay,
+            "ROUTER_REPLAY_DO",
+        ),
+        CloudflareDurableObjectRequestV1::router_replay_cleanup_expired(
+            CloudflareExpiredStateCleanupRequestV1::new(2_000).expect("cleanup request"),
+        )
+        .expect("cleanup op"),
+    )
+    .expect("cleanup call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    handle_cloudflare_durable_object_call_v1(&expired_call, &mut storage)
+        .expect("expired replay reserve");
+    handle_cloudflare_durable_object_call_v1(&active_call, &mut storage)
+        .expect("active replay reserve");
+    let response =
+        handle_cloudflare_durable_object_call_v1(&cleanup_call, &mut storage).expect("cleanup");
+
+    assert_eq!(
+        response,
+        CloudflareDurableObjectResponseV1::router_replay_cleanup_expired(
+            CloudflareExpiredStateCleanupReportV1::new(2_000, 1, 1).expect("cleanup report")
+        )
+        .expect("cleanup response")
+    );
+    assert!(storage
+        .replay_reservation(&expired_call.storage_key())
+        .is_none());
+    assert!(storage
+        .replay_reservation_by_request_id(
+            &expired_call
+                .replay_request_index_storage_key()
+                .expect("expired replay index")
+        )
+        .expect("expired replay index lookup")
+        .is_none());
+    assert!(storage
+        .replay_reservation(&active_call.storage_key())
+        .is_some());
+    assert!(storage
+        .replay_reservation_by_request_id(
+            &active_call
+                .replay_request_index_storage_key()
+                .expect("active replay index")
+        )
+        .expect("active replay index lookup")
+        .is_some());
+}
+
+#[test]
+fn durable_object_cleanup_removes_expired_quota_reservations() {
+    let expired_request = normal_signing_admission_store_request_for_id("expired-request", 1_000);
+    let mut active_request = normal_signing_admission_store_request_for_id("active-request", 1_000);
+    active_request.metadata.account_id = "other.near".to_owned();
+    active_request.expires_at_ms = 3_000;
+    let expired_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        do_binding(
+            CloudflareDurableObjectScopeV1::RouterQuota,
+            "ROUTER_QUOTA_DO",
+        ),
+        CloudflareDurableObjectRequestV1::router_normal_signing_quota_evaluate(expired_request)
+            .expect("expired quota op"),
+    )
+    .expect("expired quota call");
+    let active_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        do_binding(
+            CloudflareDurableObjectScopeV1::RouterQuota,
+            "ROUTER_QUOTA_DO",
+        ),
+        CloudflareDurableObjectRequestV1::router_normal_signing_quota_evaluate(active_request)
+            .expect("active quota op"),
+    )
+    .expect("active quota call");
+    let cleanup_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::Router,
+        do_binding(
+            CloudflareDurableObjectScopeV1::RouterQuota,
+            "ROUTER_QUOTA_DO",
+        ),
+        CloudflareDurableObjectRequestV1::router_quota_cleanup_expired(
+            CloudflareExpiredStateCleanupRequestV1::new(2_000).expect("cleanup request"),
+        )
+        .expect("cleanup op"),
+    )
+    .expect("cleanup call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    handle_cloudflare_durable_object_call_v1(&expired_call, &mut storage)
+        .expect("expired quota reserve");
+    handle_cloudflare_durable_object_call_v1(&active_call, &mut storage)
+        .expect("active quota reserve");
+    let response =
+        handle_cloudflare_durable_object_call_v1(&cleanup_call, &mut storage).expect("cleanup");
+
+    assert_eq!(
+        response,
+        CloudflareDurableObjectResponseV1::router_quota_cleanup_expired(
+            CloudflareExpiredStateCleanupReportV1::new(2_000, 1, 0).expect("cleanup report")
+        )
+        .expect("cleanup response")
+    );
+    assert!(storage
+        .quota_reservation(&expired_call.storage_key())
+        .is_none());
+    assert!(storage
+        .quota_reservation(&active_call.storage_key())
+        .is_some());
 }
 
 #[test]
@@ -6509,11 +7784,11 @@ fn durable_object_router_storage_surface_is_public_state_and_hashes() {
 #[test]
 fn durable_object_handler_activates_signing_worker_output_idempotently() {
     let activation = signing_worker_activation();
-    let material = relayer_output_material_record(&activation);
+    let material = server_output_material_record(&activation);
     let receipt_digest = activation.activation_context.transcript_digest();
     let call = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::SigningWorker,
-        relayer_output_binding(),
+        server_output_binding(),
         CloudflareDurableObjectRequestV1::signing_worker_output_activate(
             activation.clone(),
             material.clone(),
@@ -6536,7 +7811,7 @@ fn durable_object_handler_activates_signing_worker_output_idempotently() {
         CloudflareDurableObjectResponseV1::signing_worker_output_activate(
             CloudflareSigningWorkerOutputActivationReceiptV1::new(
                 "lifecycle-1",
-                "relayer-a",
+                "server-a",
                 receipt_digest,
                 expected_active_signing_worker_state.clone(),
                 true,
@@ -6566,7 +7841,7 @@ fn durable_object_handler_activates_signing_worker_output_idempotently() {
         CloudflareDurableObjectResponseV1::signing_worker_output_activate(
             CloudflareSigningWorkerOutputActivationReceiptV1::new(
                 "lifecycle-1",
-                "relayer-a",
+                "server-a",
                 receipt_digest,
                 expected_active_signing_worker_state,
                 false,
@@ -6578,12 +7853,12 @@ fn durable_object_handler_activates_signing_worker_output_idempotently() {
 
     let lookup_call = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::SigningWorker,
-        relayer_output_binding(),
+        server_output_binding(),
         CloudflareDurableObjectRequestV1::signing_worker_output_active_state_get(
             CloudflareActiveSigningWorkerStateLookupV1::new(
                 "account.near",
                 "session-1",
-                "relayer-a",
+                "server-a",
             )
             .expect("active SigningWorker lookup"),
         )
@@ -6601,7 +7876,7 @@ fn durable_object_handler_activates_signing_worker_output_idempotently() {
     );
     let material_lookup_call = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::SigningWorker,
-        relayer_output_binding(),
+        server_output_binding(),
         CloudflareDurableObjectRequestV1::signing_worker_output_material_get(
             router_ab_cloudflare::CloudflareSigningWorkerOutputMaterialLookupV1::new(
                 active_signing_worker_state_for_activation(&activation, call.storage_key()),
@@ -6625,18 +7900,18 @@ fn durable_object_handler_activates_signing_worker_output_idempotently() {
         CloudflareSigningWorkerRecipientProofBundleActivationRequestV1::new(
             conflicting_router_payload.clone(),
             CloudflareSigningWorkerRecipientProofBundleActivationV1::new(
-                relayer_proof_bundle_wire(&conflicting_router_payload, Role::SignerA, 0x55),
-                relayer_proof_bundle_wire(&conflicting_router_payload, Role::SignerB, 0x56),
+                server_proof_bundle_wire(&conflicting_router_payload, Role::SignerA, 0x55),
+                server_proof_bundle_wire(&conflicting_router_payload, Role::SignerB, 0x56),
             )
-            .expect("conflicting relayer"),
+            .expect("conflicting server"),
         )
         .expect("conflicting activation request");
     let conflicting_call = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::SigningWorker,
-        relayer_output_binding(),
+        server_output_binding(),
         CloudflareDurableObjectRequestV1::signing_worker_output_activate(
             conflicting_activation.clone(),
-            relayer_output_material_record(&conflicting_activation),
+            server_output_material_record(&conflicting_activation),
             TEST_ACTIVATED_AT_MS,
         )
         .expect("conflicting activation request"),
@@ -6652,12 +7927,232 @@ fn durable_object_handler_activates_signing_worker_output_idempotently() {
 }
 
 #[test]
+fn durable_object_handler_puts_and_takes_signing_worker_round1_once() {
+    let record = normal_signing_round1_record();
+    let put_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_round1_put(record.clone())
+            .expect("round1 put request"),
+    )
+    .expect("round1 put call");
+    let take_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_round1_take(normal_signing_round1_lookup(
+            1_500,
+        ))
+        .expect("round1 take request"),
+    )
+    .expect("round1 take call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    let first_put =
+        handle_cloudflare_durable_object_call_v1(&put_call, &mut storage).expect("first put");
+    assert_eq!(
+        first_put,
+        CloudflareDurableObjectResponseV1::signing_worker_round1_put(
+            CloudflareSigningWorkerRound1PutReceiptV1::from_record(&record, true)
+                .expect("first put receipt")
+        )
+        .expect("first put response")
+    );
+
+    let second_put =
+        handle_cloudflare_durable_object_call_v1(&put_call, &mut storage).expect("second put");
+    assert_eq!(
+        second_put,
+        CloudflareDurableObjectResponseV1::signing_worker_round1_put(
+            CloudflareSigningWorkerRound1PutReceiptV1::from_record(&record, false)
+                .expect("second put receipt")
+        )
+        .expect("second put response")
+    );
+
+    let taken =
+        handle_cloudflare_durable_object_call_v1(&take_call, &mut storage).expect("round1 take");
+    assert_eq!(
+        taken,
+        CloudflareDurableObjectResponseV1::signing_worker_round1_take(record)
+            .expect("round1 take response")
+    );
+
+    let missing = handle_cloudflare_durable_object_call_v1(&take_call, &mut storage)
+        .expect_err("round1 take must be single-use");
+    assert_eq!(
+        missing.code(),
+        RouterAbProtocolErrorCode::MissingLocalBinding
+    );
+}
+
+#[test]
+fn durable_object_cleanup_removes_expired_signing_worker_round1_records() {
+    let expired_record = normal_signing_round1_record();
+    let mut active_record = expired_record.clone();
+    active_record.server_round1_handle = "server-round1/active-request".to_owned();
+    active_record.expires_at_ms = 3_000;
+    let expired_put_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_round1_put(expired_record)
+            .expect("expired round1 put request"),
+    )
+    .expect("expired round1 put call");
+    let active_put_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_round1_put(active_record)
+            .expect("active round1 put request"),
+    )
+    .expect("active round1 put call");
+    let cleanup_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_round1_cleanup_expired(
+            CloudflareExpiredStateCleanupRequestV1::new(2_000).expect("cleanup request"),
+        )
+        .expect("cleanup op"),
+    )
+    .expect("cleanup call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    handle_cloudflare_durable_object_call_v1(&expired_put_call, &mut storage)
+        .expect("expired round1 put");
+    handle_cloudflare_durable_object_call_v1(&active_put_call, &mut storage)
+        .expect("active round1 put");
+    let response =
+        handle_cloudflare_durable_object_call_v1(&cleanup_call, &mut storage).expect("cleanup");
+
+    assert_eq!(
+        response,
+        CloudflareDurableObjectResponseV1::signing_worker_round1_cleanup_expired(
+            CloudflareExpiredStateCleanupReportV1::new(2_000, 1, 0).expect("cleanup report")
+        )
+        .expect("cleanup response")
+    );
+    assert!(storage
+        .signing_worker_round1(&expired_put_call.storage_key())
+        .expect("expired round1 lookup")
+        .is_none());
+    assert!(storage
+        .signing_worker_round1(&active_put_call.storage_key())
+        .expect("active round1 lookup")
+        .is_some());
+}
+
+#[test]
+fn durable_object_handler_rejects_conflicting_signing_worker_round1_handle() {
+    let record = normal_signing_round1_record();
+    let mut conflicting = record.clone();
+    conflicting.expires_at_ms = 2_500;
+    let put_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_round1_put(record)
+            .expect("round1 put request"),
+    )
+    .expect("round1 put call");
+    let conflicting_put_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_round1_put(conflicting)
+            .expect("conflicting round1 put request"),
+    )
+    .expect("conflicting round1 put call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    handle_cloudflare_durable_object_call_v1(&put_call, &mut storage).expect("first put");
+    let err = handle_cloudflare_durable_object_call_v1(&conflicting_put_call, &mut storage)
+        .expect_err("conflicting round1 material must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::ReplayedLocalRequest);
+}
+
+#[test]
+fn durable_object_handler_rejects_expired_signing_worker_round1_take() {
+    let record = normal_signing_round1_record();
+    let put_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_round1_put(record.clone())
+            .expect("round1 put request"),
+    )
+    .expect("round1 put call");
+    let expired_take_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_round1_take(normal_signing_round1_lookup(
+            record.expires_at_ms,
+        ))
+        .expect("expired round1 take request"),
+    )
+    .expect("expired round1 take call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    handle_cloudflare_durable_object_call_v1(&put_call, &mut storage).expect("first put");
+    let err = handle_cloudflare_durable_object_call_v1(&expired_take_call, &mut storage)
+        .expect_err("expired round1 material must fail");
+
+    assert_eq!(err.code(), RouterAbProtocolErrorCode::ExpiredLocalRequest);
+    assert!(
+        storage
+            .signing_worker_round1(&put_call.storage_key())
+            .expect("round1 storage lookup")
+            .is_some(),
+        "failed exact lookup must not consume nonce material"
+    );
+}
+
+#[test]
+fn durable_object_handler_rejects_round1_binding_mismatch_without_consuming_record() {
+    let record = normal_signing_round1_record();
+    let put_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_round1_put(record)
+            .expect("round1 put request"),
+    )
+    .expect("round1 put call");
+    let mismatched_lookup = CloudflareSigningWorkerRound1LookupV1::new(
+        active_signing_worker_state_for_normal_signing(),
+        "server-round1/sign-request-1",
+        digest(0x77),
+        1_500,
+    )
+    .expect("mismatched lookup");
+    let mismatched_take_call = CloudflareDurableObjectCallV1::new(
+        CloudflareWorkerRoleV1::SigningWorker,
+        server_output_binding(),
+        CloudflareDurableObjectRequestV1::signing_worker_round1_take(mismatched_lookup)
+            .expect("mismatched round1 take request"),
+    )
+    .expect("mismatched round1 take call");
+    let mut storage = CloudflareDurableObjectMemoryStorageV1::new();
+
+    handle_cloudflare_durable_object_call_v1(&put_call, &mut storage).expect("first put");
+    let err = handle_cloudflare_durable_object_call_v1(&mismatched_take_call, &mut storage)
+        .expect_err("mismatched round1 binding must fail");
+
+    assert_eq!(
+        err.code(),
+        RouterAbProtocolErrorCode::InvalidLocalServiceConfig
+    );
+    assert!(
+        storage
+            .signing_worker_round1(&put_call.storage_key())
+            .expect("round1 storage lookup")
+            .is_some(),
+        "failed exact lookup must not consume nonce material"
+    );
+}
+
+#[test]
 fn durable_object_handler_allows_newer_signing_worker_output_refresh_activation() {
     let initial_activation = signing_worker_activation();
-    let initial_material = relayer_output_material_record(&initial_activation);
+    let initial_material = server_output_material_record(&initial_activation);
     let initial_call = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::SigningWorker,
-        relayer_output_binding(),
+        server_output_binding(),
         CloudflareDurableObjectRequestV1::signing_worker_output_activate(
             initial_activation,
             initial_material,
@@ -6671,10 +8166,10 @@ fn durable_object_handler_allows_newer_signing_worker_output_refresh_activation(
         .expect("initial activation");
 
     let refresh_activation = signing_worker_refresh_activation("lifecycle-refresh-1", 0x66, 0x67);
-    let refresh_material = relayer_output_material_record(&refresh_activation);
+    let refresh_material = server_output_material_record(&refresh_activation);
     let refresh_call = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::SigningWorker,
-        relayer_output_binding(),
+        server_output_binding(),
         CloudflareDurableObjectRequestV1::signing_worker_output_activate(
             refresh_activation.clone(),
             refresh_material,
@@ -6700,7 +8195,7 @@ fn durable_object_handler_allows_newer_signing_worker_output_refresh_activation(
         CloudflareDurableObjectResponseV1::signing_worker_output_activate(
             CloudflareSigningWorkerOutputActivationReceiptV1::new(
                 "lifecycle-refresh-1",
-                "relayer-a",
+                "server-a",
                 refresh_activation.activation_context.transcript_digest(),
                 expected_active_state.clone(),
                 true,
@@ -6718,10 +8213,10 @@ fn durable_object_handler_allows_newer_signing_worker_output_refresh_activation(
 #[test]
 fn durable_object_handler_rejects_stale_signing_worker_output_refresh_activation() {
     let initial_activation = signing_worker_activation();
-    let initial_material = relayer_output_material_record(&initial_activation);
+    let initial_material = server_output_material_record(&initial_activation);
     let initial_call = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::SigningWorker,
-        relayer_output_binding(),
+        server_output_binding(),
         CloudflareDurableObjectRequestV1::signing_worker_output_activate(
             initial_activation.clone(),
             initial_material,
@@ -6735,10 +8230,10 @@ fn durable_object_handler_rejects_stale_signing_worker_output_refresh_activation
         .expect("initial activation");
 
     let stale_activation = signing_worker_refresh_activation("lifecycle-refresh-stale", 0x76, 0x77);
-    let stale_material = relayer_output_material_record(&stale_activation);
+    let stale_material = server_output_material_record(&stale_activation);
     let stale_call = CloudflareDurableObjectCallV1::new(
         CloudflareWorkerRoleV1::SigningWorker,
-        relayer_output_binding(),
+        server_output_binding(),
         CloudflareDurableObjectRequestV1::signing_worker_output_activate(
             stale_activation,
             stale_material,

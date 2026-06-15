@@ -127,9 +127,9 @@ The verified return type is distinct from parsed evidence, so activation APIs
 can require verified evidence.
 
 `AuthenticatedSignerReceiptV1` requires exactly two signer output commitments:
-client output and SigningWorker/relayer output. `MinimumLevelCEvidenceV1`
+client output and SigningWorker/server output. `MinimumLevelCEvidenceV1`
 requires exactly two client package commitments and exactly two
-SigningWorker/relayer package commitments, one from each deriver. State-machine
+SigningWorker/server package commitments, one from each deriver. State-machine
 output binding enforces the same exact shape.
 
 ## State Machine API
