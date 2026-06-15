@@ -15,6 +15,10 @@ Related docs:
 ECDSA-HSS maps cleanly to the Router-A-B-SigningWorker architecture as a
 post-MVP protocol version.
 
+This document owns the post-MVP ECDSA-HSS Router-A-B plan. The Ed25519-HSS
+Router-A-B signer spec keeps only a cross-reference so current MVP release gates
+stay scoped to Ed25519-HSS.
+
 The Router-A-B topology is useful for ECDSA-HSS registration, session
 bootstrap, recovery, explicit key export, and SigningWorker activation. It
 keeps server-side provisioning material split across Deriver A and Deriver B so
@@ -82,6 +86,10 @@ This version must have ECDSA-specific:
 - source guards
 
 Do not reuse the Ed25519-HSS Router-A-B protocol version for ECDSA-HSS.
+
+The version must bind secp256k1 compressed public keys, Ethereum address,
+context binding, Deriver A identity, Deriver B identity, SigningWorker identity,
+export authorization digest, and replay nonce into ECDSA-specific transcripts.
 
 Terminology: existing ECDSA-HSS specs use `server` for the server-side ECDSA
 share role and variables such as `y_server` and `x_server`. This plan uses
@@ -225,7 +233,8 @@ not complete `router_ab_ecdsa_hss_secp256k1_v1`.
       wallet id, RP id, key scope, ECDSA threshold key id, signing root id,
       signing root version, key purpose, key version, Deriver A identity,
       Deriver B identity, SigningWorker identity, client identity, replay nonce,
-      and request kind.
+      export authorization digest, secp256k1 compressed public keys, Ethereum
+      address, context binding, and request kind.
 - [ ] Define how `X_client`, `X_server`, `X`, and Ethereum address are produced,
       verified, and persisted.
 - [ ] Define activation receipt contents and failure cases.
@@ -314,6 +323,8 @@ not complete `router_ab_ecdsa_hss_secp256k1_v1`.
 - [ ] Add Wasm adapter tests for Cloudflare boundary parsing.
 - [ ] Benchmark registration/bootstrap latency.
 - [ ] Benchmark explicit export latency.
+- [ ] Benchmark ECDSA-HSS setup/export/activation separately from normal
+      signing.
 - [ ] Benchmark normal ECDSA signing latency and verify A/B adds no normal
       signing round trip.
 
