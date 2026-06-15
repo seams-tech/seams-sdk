@@ -7,6 +7,7 @@ import type {
 } from './types';
 import { THRESHOLD_PREFIX_DEFAULT } from './defaultConfigsServer';
 import { isObject as isObjectLoose, toOptionalTrimmedString } from '@shared/utils/validation';
+import { parseRouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import {
   RedisTcpClient,
   UpstashRedisRestClient,
@@ -95,12 +96,18 @@ function parseThresholdEd25519Session(raw: unknown): ThresholdEd25519BootstrapSe
   const sessionId = toOptionalTrimmedString(raw.sessionId);
   const walletSigningSessionId = toOptionalTrimmedString(raw.walletSigningSessionId);
   const expiresAtMs = parsePositiveInteger(raw.expiresAtMs);
-  if ((sessionKind !== 'jwt' && sessionKind !== 'cookie') || !sessionId || !walletSigningSessionId || !expiresAtMs) {
+  if (
+    (sessionKind !== 'jwt' && sessionKind !== 'cookie') ||
+    !sessionId ||
+    !walletSigningSessionId ||
+    !expiresAtMs
+  ) {
     return undefined;
   }
   const expiresAt = toOptionalTrimmedString(raw.expiresAt);
   const participantIds = parseParticipantIds(raw.participantIds);
   const remainingUses = parseNonNegativeInteger(raw.remainingUses);
+  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(raw.routerAbNormalSigning);
   const jwt = toOptionalTrimmedString(raw.jwt);
   return {
     sessionKind,
@@ -113,6 +120,7 @@ function parseThresholdEd25519Session(raw: unknown): ThresholdEd25519BootstrapSe
     ...(isObject(raw.runtimePolicyScope)
       ? { runtimePolicyScope: raw.runtimePolicyScope as ThresholdRuntimePolicyScope }
       : {}),
+    ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
     ...(jwt ? { jwt } : {}),
   };
 }
@@ -201,7 +209,10 @@ function parseEcdsaPreparePayload(raw: unknown): WalletRegistrationEcdsaPrepareP
       remainingUses,
       participantIds,
       ...(isObject(prepare.runtimePolicyScope)
-        ? { runtimePolicyScope: prepare.runtimePolicyScope as WalletRegistrationEcdsaPreparePayload['prepare']['runtimePolicyScope'] }
+        ? {
+            runtimePolicyScope:
+              prepare.runtimePolicyScope as WalletRegistrationEcdsaPreparePayload['prepare']['runtimePolicyScope'],
+          }
         : {}),
     },
   };
@@ -251,7 +262,9 @@ function parseEmailRecoveryPreparationRecord(raw: unknown): EmailRecoveryPrepara
     thresholdEd25519,
     ecdsa,
     ...(isObject(raw.existingRuntimePolicyScope)
-      ? { existingRuntimePolicyScope: raw.existingRuntimePolicyScope as ThresholdRuntimePolicyScope }
+      ? {
+          existingRuntimePolicyScope: raw.existingRuntimePolicyScope as ThresholdRuntimePolicyScope,
+        }
       : {}),
   };
 }
@@ -473,16 +486,22 @@ export function createEmailRecoveryPreparationStore(input: {
     const redisUrl =
       toOptionalTrimmedString(config.redisUrl) || toOptionalTrimmedString(config.REDIS_URL);
     if (!redisUrl)
-      throw new Error('[email-recovery] redis-tcp preparation store enabled but REDIS_URL is not set');
+      throw new Error(
+        '[email-recovery] redis-tcp preparation store enabled but REDIS_URL is not set',
+      );
     input.logger.info('[email-recovery] Using redis-tcp preparation store');
     return new RedisTcpEmailRecoveryPreparationStore({ redisUrl, prefix: namespace });
   }
   if (kind === 'postgres') {
     if (!input.isNode)
-      throw new Error('[email-recovery] postgres preparation store is not supported in this runtime');
+      throw new Error(
+        '[email-recovery] postgres preparation store is not supported in this runtime',
+      );
     const postgresUrl = getPostgresUrlFromConfig(config);
     if (!postgresUrl)
-      throw new Error('[email-recovery] postgres preparation store enabled but POSTGRES_URL is not set');
+      throw new Error(
+        '[email-recovery] postgres preparation store enabled but POSTGRES_URL is not set',
+      );
     input.logger.info('[email-recovery] Using Postgres preparation store');
     return new PostgresEmailRecoveryPreparationStore({ postgresUrl, namespace });
   }

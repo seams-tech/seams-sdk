@@ -9,7 +9,11 @@ import {
   type ThresholdEd25519ClientPresignSignResult,
   type ThresholdEd25519ComputeNep413SigningDigestRequest,
   type ThresholdEd25519ComputeSigningDigestResult,
+  type ThresholdEd25519BuildDelegateSigningPayloadRequest,
+  type ThresholdEd25519BuildDelegateSigningPayloadResult,
   type ThresholdEd25519FinalizeDelegateFromSignatureRequest,
+  type ThresholdEd25519FinalizeNearTxFromSignatureRequest,
+  type ThresholdEd25519FinalizeNearTxFromSignatureResult,
   type ThresholdEd25519BuildNearTxUnsignedBorshRequest,
   type ThresholdEd25519NearTxUnsignedBorsh,
   type ThresholdEd25519DecodeSignedNearTxBorshRequest,
@@ -760,9 +764,17 @@ export type NearSignerWorkerCustomOperationMap = {
     payload: { delegate: DelegatePayload };
     result: ThresholdEd25519ComputeSigningDigestResult;
   };
+  [NearSignerWorkerCustomRequestType.ThresholdEd25519BuildDelegateSigningPayload]: {
+    payload: ThresholdEd25519BuildDelegateSigningPayloadRequest;
+    result: ThresholdEd25519BuildDelegateSigningPayloadResult;
+  };
   [NearSignerWorkerCustomRequestType.ThresholdEd25519FinalizeDelegateFromSignature]: {
     payload: ThresholdEd25519FinalizeDelegateFromSignatureRequest;
     result: WasmSignedDelegate;
+  };
+  [NearSignerWorkerCustomRequestType.ThresholdEd25519FinalizeNearTxFromSignature]: {
+    payload: ThresholdEd25519FinalizeNearTxFromSignatureRequest;
+    result: ThresholdEd25519FinalizeNearTxFromSignatureResult;
   };
   [NearSignerWorkerCustomRequestType.ThresholdEd25519BuildNearTxUnsignedBorsh]: {
     payload: ThresholdEd25519BuildNearTxUnsignedBorshRequest;
@@ -774,8 +786,8 @@ export type NearSignerWorkerCustomOperationMap = {
   };
 };
 
-export type NearSignerWorkerOperationMap =
-  NearSignerWorkerWasmOperationMap & NearSignerWorkerCustomOperationMap;
+export type NearSignerWorkerOperationMap = NearSignerWorkerWasmOperationMap &
+  NearSignerWorkerCustomOperationMap;
 
 export type NearSignerWorkerPresignPoolOperationMap = {
   prepareThresholdEd25519PresignPool: PrepareThresholdEd25519PresignPoolWorkerContract;
@@ -808,6 +820,7 @@ export type HssWorkerOperationType =
   | typeof WorkerRequestType.OpenThresholdEd25519HssClientOutput
   | typeof WorkerRequestType.OpenThresholdEd25519HssSeedOutput
   | typeof WorkerRequestType.BuildThresholdEd25519SeedExportArtifact
+  | typeof WorkerRequestType.CreateThresholdEd25519RoleSeparatedNormalSigningClientShare
   | typeof WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare
   | typeof WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap
   | typeof WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap

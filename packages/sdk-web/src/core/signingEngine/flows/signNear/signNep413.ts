@@ -55,7 +55,10 @@ import { runSigningConfirmationCommand } from '../shared/signingConfirmation';
 import { requireNearStepUpAuth } from './requireNearStepUpAuth';
 import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
 import type { NearAccountRef } from '../../interfaces/ecdsaChainTarget';
-import { tryFinalizeThresholdEd25519SignatureOnlyPresign } from './shared/ed25519PresignFinalize';
+import {
+  tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning,
+  tryFinalizeThresholdEd25519SignatureOnlyPresign,
+} from './shared/ed25519PresignFinalize';
 import { base64Encode, base64UrlDecode } from '@shared/utils/base64';
 
 /**
@@ -296,6 +299,39 @@ export async function signNep413Message({
         workerCtx: ctx,
       });
       const presignXClientBaseB64u = payloadForWorker.threshold.xClientBaseB64u || xClientBaseB64u;
+      const signatureOnlyIntent = {
+        kind: 'nep413_message_v1' as const,
+        message: payload.message,
+        recipient: payload.recipient,
+        nonce: payload.nonce,
+        ...(payload.state ? { state: payload.state } : {}),
+      };
+      const routerAbNormalSigningResult = presignXClientBaseB64u
+        ? await tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning({
+            ctx,
+            thresholdSessionId: canonicalThresholdSessionId,
+            thresholdSessionState,
+            thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+            nearAccountId,
+            xClientBaseB64u: presignXClientBaseB64u,
+            operationId: signingOperation.operationId,
+            operationFingerprint: signingOperation.operationFingerprint!,
+            purpose: 'nep413_message',
+            signingDigestB64u: signingDigest.signingDigestB64u,
+            intent: signatureOnlyIntent,
+          })
+        : null;
+      if (routerAbNormalSigningResult) {
+        return {
+          type: WorkerResponseType.SignNep413MessageSuccess,
+          payload: {
+            accountId: nearAccountId,
+            publicKey: routerAbNormalSigningResult.signerPublicKey,
+            signature: base64Encode(base64UrlDecode(routerAbNormalSigningResult.signatureB64u)),
+            state: payload.state || undefined,
+          },
+        } as WorkerSuccessResponse<typeof WorkerRequestType.SignNep413Message>;
+      }
       const presignResult = presignXClientBaseB64u
         ? await tryFinalizeThresholdEd25519SignatureOnlyPresign({
             ctx,
@@ -308,13 +344,7 @@ export async function signNep413Message({
             operationFingerprint: signingOperation.operationFingerprint!,
             purpose: 'nep413_message',
             signingDigestB64u: signingDigest.signingDigestB64u,
-            intent: {
-              kind: 'nep413_message_v1',
-              message: payload.message,
-              recipient: payload.recipient,
-              nonce: payload.nonce,
-              ...(payload.state ? { state: payload.state } : {}),
-            },
+            intent: signatureOnlyIntent,
           })
         : null;
       if (presignResult) {

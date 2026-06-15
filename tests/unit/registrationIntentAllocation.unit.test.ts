@@ -364,9 +364,7 @@ function createNearAccountOwnershipProof(input: {
   expiresAtMs?: number;
 }): NearAccountOwnershipProofV1 {
   const { publicKey, privateKey } = generateKeyPairSync('ed25519');
-  const publicKeyDer = new Uint8Array(
-    publicKey.export({ format: 'der', type: 'spki' }) as ArrayBuffer,
-  );
+  const publicKeyDer = new Uint8Array(publicKey.export({ format: 'der', type: 'spki' }));
   const publicKeyBytes = publicKeyDer.slice(-32);
   const message = {
     version: 'near_account_ownership_proof_message_v1' as const,

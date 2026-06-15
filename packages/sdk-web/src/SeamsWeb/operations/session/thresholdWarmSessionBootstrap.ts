@@ -35,6 +35,11 @@ import {
   type ThresholdRuntimePolicyScope,
   type ThresholdSessionKind,
 } from '@/core/signingEngine/threshold/sessionPolicy';
+import {
+  ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
+  parseRouterAbEd25519NormalSigningState,
+  type RouterAbEd25519NormalSigningState,
+} from '@shared/utils/signingSessionSeal';
 import type {
   SigningSessionSurface,
   ThresholdEd25519HssClientSurface,
@@ -72,6 +77,7 @@ export type ThresholdWarmSessionPolicyDraft = {
   ttlMs: number;
   remainingUses: number;
   participantIds?: number[];
+  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
 };
 
 export type ThresholdWarmSessionRequestEnvelope = {
@@ -84,6 +90,7 @@ export type ThresholdWarmSessionRequestEnvelope = {
     walletSigningSessionId?: string;
     participantIds?: number[];
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
+    routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
     ttlMs: number;
     remainingUses: number;
   };
@@ -130,6 +137,7 @@ type ThresholdWarmSessionRelayResult = {
   remainingUses?: number;
   jwt?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
 };
 
 export type ThresholdWarmSessionContext = {
@@ -158,6 +166,27 @@ function parsePositiveInt(value: unknown): number {
   return Math.floor(n);
 }
 
+function assertNeverRouterAbNormalSigningConfig(value: never): never {
+  throw new Error(`Unexpected Router A/B normal-signing config branch: ${String(value)}`);
+}
+
+function createRouterAbNormalSigningPolicy(
+  configs: SeamsConfigsReadonly,
+): RouterAbEd25519NormalSigningState | undefined {
+  const normalSigning = configs.signing.routerAb.normalSigning;
+  switch (normalSigning.mode) {
+    case 'disabled':
+      return undefined;
+    case 'enabled':
+      return {
+        kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
+        signingWorkerId: normalSigning.signingWorkerId,
+      };
+    default:
+      return assertNeverRouterAbNormalSigningConfig(normalSigning);
+  }
+}
+
 export function createThresholdWarmSessionPolicyDraft(
   context: ThresholdWarmSessionContext,
   input?: { sessionId?: string; participantIds?: number[] },
@@ -167,12 +196,14 @@ export function createThresholdWarmSessionPolicyDraft(
   const sessionId = String(input?.sessionId || '').trim() || generateThresholdSessionId();
   const walletSigningSessionId = generateWalletSigningSessionId();
   const participantIds = normalizeThresholdEd25519ParticipantIds(input?.participantIds);
+  const routerAbNormalSigning = createRouterAbNormalSigningPolicy(context.configs);
   return {
     sessionId,
     walletSigningSessionId,
     ttlMs: defaults.ttlMs,
     remainingUses: defaults.remainingUses,
     ...(participantIds ? { participantIds } : {}),
+    ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
   };
 }
 
@@ -199,6 +230,9 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
         : {}),
       ...(Array.isArray(args.requestedPolicy.participantIds)
         ? { participantIds: args.requestedPolicy.participantIds }
+        : {}),
+      ...(args.requestedPolicy.routerAbNormalSigning
+        ? { routerAbNormalSigning: args.requestedPolicy.routerAbNormalSigning }
         : {}),
       ttlMs: args.requestedPolicy.ttlMs,
       remainingUses: args.requestedPolicy.remainingUses,
@@ -565,6 +599,9 @@ export async function persistRegisteredThresholdEd25519Session(
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(
     session.runtimePolicyScope || args.registrationSessionPolicy.runtimePolicyScope,
   );
+  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
+    session.routerAbNormalSigning,
+  );
 
   if (args.auth.kind === 'email_otp') {
     const registrationHssClientMaterial = args.registrationHssClientMaterial;
@@ -597,6 +634,9 @@ export async function persistRegisteredThresholdEd25519Session(
       source: 'email_otp',
     };
     warmSessionArgs.runtimePolicyScope = runtimePolicyScope;
+    if (routerAbNormalSigning) {
+      warmSessionArgs.routerAbNormalSigning = routerAbNormalSigning;
+    }
     persistWarmSessionEd25519Capability(warmSessionArgs);
   } else {
     const warmSessionArgs: PersistWarmSessionEd25519JwtPasskeyCapabilityArgs = {
@@ -616,6 +656,9 @@ export async function persistRegisteredThresholdEd25519Session(
     };
     if (runtimePolicyScope) {
       warmSessionArgs.runtimePolicyScope = runtimePolicyScope;
+    }
+    if (routerAbNormalSigning) {
+      warmSessionArgs.routerAbNormalSigning = routerAbNormalSigning;
     }
     persistWarmSessionEd25519Capability(warmSessionArgs);
   }

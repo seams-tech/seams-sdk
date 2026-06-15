@@ -7,9 +7,11 @@ import {
   WorkerResponseType,
   type ThresholdEd25519ClientPresignBurnResult,
   type DelegatePayload,
+  type ThresholdEd25519BuildDelegateSigningPayloadResult,
   type ThresholdEd25519ClientPresignCreateResult,
   type ThresholdEd25519ClientPresignSignResult,
   type ThresholdEd25519ComputeSigningDigestResult,
+  type ThresholdEd25519FinalizeNearTxFromSignatureResult,
   type ThresholdEd25519NearTxUnsignedBorsh,
   type ThresholdEd25519DecodeSignedNearTxBorshResult,
   type WasmTransactionSignResult,
@@ -152,6 +154,26 @@ export async function computeThresholdEd25519DelegateSigningDigestWasm(args: {
   return requireThresholdEd25519SigningDigestResult(response);
 }
 
+export async function buildThresholdEd25519DelegateSigningPayloadWasm(args: {
+  sessionId: string;
+  delegate: DelegatePayload;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519BuildDelegateSigningPayloadResult> {
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      sessionId: args.sessionId,
+      type: NearSignerWorkerCustomRequestType.ThresholdEd25519BuildDelegateSigningPayload,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        delegate: args.delegate,
+      },
+    },
+  });
+  return requireThresholdEd25519DelegateSigningPayloadResult(response);
+}
+
 export async function finalizeThresholdEd25519DelegateFromSignatureWasm(args: {
   sessionId: string;
   delegate: DelegatePayload;
@@ -198,6 +220,34 @@ export async function buildThresholdEd25519NearTxUnsignedBorshWasm(args: {
   return requireThresholdEd25519NearTxUnsignedBorshResult(response);
 }
 
+export async function finalizeThresholdEd25519NearTxFromSignatureWasm(args: {
+  sessionId: string;
+  unsignedTransactionBorshB64u: string;
+  signingDigestB64u: string;
+  signatureB64u: string;
+  expectedNearAccountId: string;
+  expectedSignerPublicKey: string;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519FinalizeNearTxFromSignatureResult> {
+  const response = await executeWorkerOperation({
+    ctx: args.workerCtx,
+    kind: 'nearSigner',
+    request: {
+      sessionId: args.sessionId,
+      type: NearSignerWorkerCustomRequestType.ThresholdEd25519FinalizeNearTxFromSignature,
+      timeoutMs: NEAR_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        unsignedTransactionBorshB64u: args.unsignedTransactionBorshB64u,
+        signingDigestB64u: args.signingDigestB64u,
+        signatureB64u: args.signatureB64u,
+        expectedNearAccountId: args.expectedNearAccountId,
+        expectedSignerPublicKey: args.expectedSignerPublicKey,
+      },
+    },
+  });
+  return requireThresholdEd25519FinalizeNearTxFromSignatureResult(response);
+}
+
 export async function decodeThresholdEd25519SignedNearTxBorshWasm(args: {
   sessionId: string;
   signedTransactionBorshB64u: string;
@@ -229,7 +279,9 @@ export function parseCosePublicKeyBytesFromWorker(value: unknown): Uint8Array {
   }
   if (ArrayBuffer.isView(value)) {
     if (value.byteLength === 0) throw new Error('COSE public key extraction returned empty bytes');
-    return new Uint8Array(value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength));
+    return new Uint8Array(
+      value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength),
+    );
   }
   if (Array.isArray(value)) {
     if (value.length === 0) throw new Error('COSE public key extraction returned empty bytes');
@@ -287,6 +339,16 @@ function requireThresholdEd25519SigningDigestResult(
   return parsed;
 }
 
+function requireThresholdEd25519DelegateSigningPayloadResult(
+  value: unknown,
+): ThresholdEd25519BuildDelegateSigningPayloadResult {
+  const parsed = value as ThresholdEd25519BuildDelegateSigningPayloadResult;
+  if (!parsed?.canonicalDelegateBorshB64u || !parsed.signingDigestB64u) {
+    throw new Error('near signer worker returned invalid Ed25519 delegate signing payload');
+  }
+  return parsed;
+}
+
 function requireThresholdEd25519SignedDelegateResult(value: unknown): WasmSignedDelegate {
   const parsed = value as WasmSignedDelegate & {
     delegateAction?: unknown;
@@ -312,6 +374,16 @@ function requireThresholdEd25519NearTxUnsignedBorshResult(
     }
     return parsed;
   });
+}
+
+function requireThresholdEd25519FinalizeNearTxFromSignatureResult(
+  value: unknown,
+): ThresholdEd25519FinalizeNearTxFromSignatureResult {
+  const parsed = value as ThresholdEd25519FinalizeNearTxFromSignatureResult;
+  if (!parsed?.signedTransactionBorshB64u || !parsed.transactionHash) {
+    throw new Error('near signer worker returned invalid Ed25519 finalized tx result');
+  }
+  return parsed;
 }
 
 function requireThresholdEd25519DecodeSignedNearTxBorshResult(

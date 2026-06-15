@@ -16,6 +16,10 @@ import {
   toOptionalTrimmedString,
 } from '@shared/utils/validation';
 import {
+  parseRouterAbEd25519NormalSigningState,
+  type RouterAbEd25519NormalSigningState,
+} from '@shared/utils/signingSessionSeal';
+import {
   EMAIL_OTP_CHANNEL,
   WALLET_EMAIL_OTP_ACTIONS,
   WALLET_EMAIL_OTP_EXPORT_OPERATION,
@@ -857,6 +861,7 @@ type ThresholdEd25519BootstrapSession = {
   participantIds?: number[];
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   jwt?: string;
 };
 
@@ -1471,12 +1476,16 @@ function toThresholdEd25519BootstrapSession(session: {
   participantIds?: unknown;
   remainingUses?: unknown;
   runtimePolicyScope?: unknown;
+  routerAbNormalSigning?: unknown;
   jwt?: unknown;
 }): ThresholdEd25519BootstrapSession | null {
   const sessionId = String(session.sessionId || '').trim();
   const walletSigningSessionId = String(session.walletSigningSessionId || '').trim();
   const expiresAtMs = Number(session.expiresAtMs);
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(session.runtimePolicyScope);
+  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
+    session.routerAbNormalSigning,
+  );
   if (!sessionId || !walletSigningSessionId || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0)
     return null;
   return {
@@ -1492,6 +1501,7 @@ function toThresholdEd25519BootstrapSession(session: {
       ? { remainingUses: Number(session.remainingUses) }
       : {}),
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
     ...(typeof session.jwt === 'string' && session.jwt.trim() ? { jwt: session.jwt.trim() } : {}),
   };
 }
@@ -1602,9 +1612,7 @@ function summarizeThresholdStoreConfig(cfg: AuthServiceConfig['thresholdStore'])
   const hasSigningRootSecretShares = Boolean(
     cfg.signingRootShareResolver ||
     cfg.signingRootShareResolverAdapters ||
-    (cfg.signingRootSharePolicy &&
-      cfg.signingRootShareStore &&
-      cfg.signingRootShareDecryptAdapter),
+    (cfg.signingRootSharePolicy && cfg.signingRootShareStore && cfg.signingRootShareDecryptAdapter),
   );
   const parts = [
     `thresholdStore: configured`,

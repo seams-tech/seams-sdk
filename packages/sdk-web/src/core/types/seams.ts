@@ -29,6 +29,34 @@ export type {
 export type SigningSessionPersistenceMode = 'none' | 'sealed_refresh_v1';
 export type EmailOtpAuthPolicy = SigningSessionPolicy;
 
+export type RouterAbNormalSigningConfigInput =
+  | {
+      mode?: 'disabled';
+      signingWorkerId?: never;
+    }
+  | {
+      mode: 'enabled';
+      signingWorkerId: string;
+    };
+
+export type RouterAbNormalSigningConfig =
+  | {
+      mode: 'disabled';
+      signingWorkerId?: never;
+    }
+  | {
+      mode: 'enabled';
+      signingWorkerId: string;
+    };
+
+export interface RouterAbConfigInput {
+  normalSigning?: RouterAbNormalSigningConfigInput;
+}
+
+export interface SeamsRouterAbConfig {
+  normalSigning: RouterAbNormalSigningConfig;
+}
+
 export type WalletAuthIntent =
   | 'wallet_unlock'
   | 'transaction_sign'
@@ -89,6 +117,12 @@ export interface SigningSessionSealConfig {
  *   signingSessionSeal?: {
  *     keyVersion?: string;
  *     shamirPrimeB64u?: string;
+ *   };
+ *   routerAb?: {
+ *     normalSigning?: {
+ *       mode: 'disabled' | 'enabled';
+ *       signingWorkerId?: string; // required when mode === 'enabled'
+ *     };
  *   };
  *   thresholdEcdsaPresignPool?: {
  *     enabled?: boolean;
@@ -197,6 +231,13 @@ export interface SeamsConfigsInput {
    */
   signingSessionSeal?: SigningSessionSealConfigInput;
   /**
+   * Router A/B signing-session policy.
+   *
+   * When `normalSigning.mode === 'enabled'`, passkey registration/unlock
+   * sessions bind Ed25519 normal signing to the configured SigningWorker id.
+   */
+  routerAb?: RouterAbConfigInput;
+  /**
    * Client-side presign pool policy for threshold ECDSA.
    *
    * Controls best-effort background refill behavior only; signing correctness does not depend on refill success.
@@ -271,6 +312,11 @@ export interface SeamsConfigsInput {
  *     sessionDefaults: { ttlMs: number; remainingUses: number };
  *     sessionPersistenceMode: SigningSessionPersistenceMode;
  *     sessionSeal: SigningSessionSealConfig;
+ *     routerAb: {
+ *       normalSigning:
+ *         | { mode: 'disabled' }
+ *         | { mode: 'enabled'; signingWorkerId: string };
+ *     };
  *     thresholdEcdsa: {
  *       presignPool: ThresholdEcdsaPresignPoolPolicy;
  *       provisioningDefaults: EcdsaSignerProvisioningDefaults;
@@ -675,6 +721,7 @@ export interface SeamsSigningConfig {
   emailOtp: SeamsEmailOtpConfig;
   sessionPersistenceMode: SigningSessionPersistenceMode;
   sessionSeal: SigningSessionSealConfig;
+  routerAb: SeamsRouterAbConfig;
   thresholdEcdsa: SeamsThresholdEcdsaConfig;
 }
 

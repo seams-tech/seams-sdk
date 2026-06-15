@@ -1,15 +1,14 @@
-import * as thresholdPrfImports from '../../../../../wasm/threshold_prf/pkg/threshold_prf_bg.js';
-import {
-  __wbg_set_wasm as setThresholdPrfWasm,
+import initThresholdPrfWasm, {
   init_threshold_prf,
   threshold_prf_derive_ecdsa_hss_y_relayer,
   threshold_prf_derive_ed25519_hss_server_inputs,
-} from '../../../../../wasm/threshold_prf/pkg/threshold_prf_bg.js';
+} from '../../../../../wasm/threshold_prf/pkg/threshold_prf.js';
+import type { InitInput } from '../../../../../wasm/threshold_prf/pkg/threshold_prf.js';
 import { createWasmLoader } from '../wasm-loader';
-import type {
-  ThresholdEd25519HssCanonicalContext,
-} from '../types';
+import type { ThresholdEd25519HssCanonicalContext } from '../types';
 import type { ThresholdPrfPolicy } from './signingRootShareResolver';
+
+export type { ThresholdPrfPolicy } from './signingRootShareResolver';
 
 const THRESHOLD_PRF_WASM_PATH_CANDIDATES = [
   '../../../wasm/threshold_prf/pkg/threshold_prf_bg.wasm',
@@ -56,36 +55,8 @@ function getThresholdPrfWasmUrls(): URL[] {
   return resolved;
 }
 
-async function compileThresholdPrfWasm(input: unknown): Promise<WebAssembly.Module> {
-  if (input instanceof WebAssembly.Module) return input;
-  if (input instanceof Response) {
-    return WebAssembly.compile(await input.arrayBuffer());
-  }
-  if (input instanceof URL || typeof input === 'string') {
-    const response = await fetch(input);
-    if (!response.ok) {
-      throw new Error(`failed to fetch threshold-prf WASM: ${response.status}`);
-    }
-    return WebAssembly.compile(await response.arrayBuffer());
-  }
-  if (input instanceof ArrayBuffer) {
-    return WebAssembly.compile(input);
-  }
-  if (ArrayBuffer.isView(input)) {
-    const view = input as ArrayBufferView;
-    return WebAssembly.compile(view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength));
-  }
-  throw new Error('unsupported threshold-prf WASM module input');
-}
-
 async function initThresholdPrfSignerWasm(input: { module_or_path: unknown }): Promise<void> {
-  const module = await compileThresholdPrfWasm(input.module_or_path);
-  const instance = await WebAssembly.instantiate(module, {
-    './threshold_prf_bg.js': thresholdPrfImports,
-  });
-  setThresholdPrfWasm(instance.exports);
-  const start = instance.exports.__wbindgen_start;
-  if (typeof start === 'function') start();
+  await initThresholdPrfWasm({ module_or_path: input.module_or_path as InitInput });
   init_threshold_prf();
   thresholdPrfWasmReady = true;
 }

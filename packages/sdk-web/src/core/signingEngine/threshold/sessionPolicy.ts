@@ -12,6 +12,7 @@ import {
   toWalletId,
   type WalletId,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import {
   toEcdsaHssThresholdKeyId,
   toEcdsaHssThresholdSessionId,
@@ -83,6 +84,7 @@ export type Ed25519SessionPolicy = {
   sessionId: string;
   walletSigningSessionId: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   /**
    * Optional signer set binding (participant ids).
    *

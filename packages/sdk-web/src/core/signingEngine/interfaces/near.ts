@@ -30,6 +30,7 @@ import type {
   PreparedTransactionOperation,
 } from '../session/operationState/transactionState';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
+import type { RouterAbEd25519NormalSigningState } from '../threshold/ed25519/routerAbNormalSigningState';
 type NearResolvedEd25519SessionAuth =
   | {
       sessionKind: 'jwt';
@@ -72,6 +73,7 @@ export type NearResolvedEd25519SigningSessionState = NearResolvedEd25519SessionA
   signingLane: NearTransactionSigningLane;
   remainingUses: number;
   xClientBaseB64u?: string;
+  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   signingRootId: string;
   relayerUrl: string;

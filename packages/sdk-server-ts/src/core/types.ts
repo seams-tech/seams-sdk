@@ -16,6 +16,7 @@ import type {
   EcdsaHssClientSharePublicKey33B64u,
   EcdsaRelayerHssPublicKey33B64u,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
 import type {
   AddAuthMethodInput,
   AddAuthMethodIntentGrant,
@@ -938,6 +939,7 @@ export type ThresholdEd25519BootstrapSession = {
   participantIds?: number[];
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   jwt?: string;
 };
 
@@ -1245,6 +1247,12 @@ export type ThresholdStoreEnvInput = {
   THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK?: string;
   THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT?: string;
   THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS?: string;
+  /**
+   * Optional Router A/B Ed25519 normal-signing SigningWorker id accepted by
+   * threshold session policy. When unset, Router A/B normal-signing session
+   * policy is rejected.
+   */
+  ROUTER_AB_NORMAL_SIGNING_WORKER_ID?: string;
   /** Optional signing session-seal key metadata and Shamir 3-pass parameters. */
   SIGNING_SESSION_SEAL_KEY_VERSION?: string;
   SIGNING_SESSION_SHAMIR_P_B64U?: string;
@@ -1579,6 +1587,7 @@ export type Ed25519SessionPolicy = {
   sessionId: string;
   walletSigningSessionId?: string;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   /** Optional participant ids that scope the session to a signer set. */
   participantIds?: number[];
   ttlMs: number;
@@ -1610,6 +1619,7 @@ export interface ThresholdEd25519SessionResponse {
   participantIds?: number[];
   remainingUses?: number;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   jwt?: string;
 }
 

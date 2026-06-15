@@ -136,6 +136,11 @@ export const PASSKEY_MANAGER_DEFAULT_CONFIGS: SeamsConfigsReadonly = {
     },
     sessionPersistenceMode: 'none',
     sessionSeal: {},
+    routerAb: {
+      normalSigning: {
+        mode: 'disabled',
+      },
+    },
     thresholdEcdsa: {
       // Presign pool controls Cait Sith background presignature pool refill behavior.
       // It is separate from threshold-ECDSA `provisioningDefaults`.

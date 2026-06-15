@@ -27,6 +27,13 @@ export type {
   RelayRuntimeSnapshotEnvelope,
   RelayRuntimeSnapshotConsumer,
 } from './relay';
+export {
+  parseRouterAbPublicKeysetV1,
+  ROUTER_AB_PUBLIC_KEYSET_PATH_V1,
+  ROUTER_AB_PUBLIC_KEYSET_VERSION_V1,
+  ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V1,
+} from '@shared/utils/routerAbPublicKeyset';
+export type { RouterAbPublicKeysetV1 } from '@shared/utils/routerAbPublicKeyset';
 export type {
   RelayCloudflareRouteExtensionInput,
   RelayCloudflareRouteExtension,
@@ -35,11 +42,7 @@ export type {
   RelayRouteExtension,
   RelayRouteExtensionTransport,
 } from './routeExtensions';
-export type {
-  RelayRouterModule,
-  RelayRouterModuleKind,
-  RelayRouterModuleOptions,
-} from './modules';
+export type { RelayRouterModule, RelayRouterModuleKind, RelayRouterModuleOptions } from './modules';
 export { createRelayRouterModule } from './modules';
 export type { RouteDefinition } from './routeDefinitions';
 export { defineRoute } from './routeDefinitions';

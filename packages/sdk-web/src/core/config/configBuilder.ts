@@ -160,6 +160,45 @@ function resolveSigningSessionSeal(args: {
   };
 }
 
+function resolveRouterAbNormalSigningConfig(args: {
+  overrides: SeamsConfigsInput;
+  defaults: SeamsConfigsReadonly;
+}): SeamsConfigsReadonly['signing']['routerAb']['normalSigning'] {
+  const override = args.overrides.routerAb?.normalSigning;
+  const fallback = args.defaults.signing.routerAb.normalSigning;
+  const rawMode = override?.mode ?? fallback.mode;
+  const rawSigningWorkerId =
+    override && 'signingWorkerId' in override ? override.signingWorkerId : undefined;
+
+  if (rawSigningWorkerId !== undefined && rawMode !== 'enabled') {
+    throw new Error(
+      '[configPresets] Invalid config: routerAb.normalSigning.signingWorkerId requires routerAb.normalSigning.mode="enabled"',
+    );
+  }
+
+  if (rawMode === 'disabled') {
+    return { mode: 'disabled' };
+  }
+  if (rawMode !== 'enabled') {
+    throw new Error(
+      '[configPresets] Invalid config: routerAb.normalSigning.mode must be "disabled" or "enabled"',
+    );
+  }
+
+  const signingWorkerId =
+    toTrimmedString(rawSigningWorkerId) ||
+    (fallback.mode === 'enabled' ? toTrimmedString(fallback.signingWorkerId) : '');
+  if (!signingWorkerId) {
+    throw new Error(
+      '[configPresets] Missing required config: routerAb.normalSigning.signingWorkerId when routerAb.normalSigning.mode="enabled"',
+    );
+  }
+  return {
+    mode: 'enabled',
+    signingWorkerId,
+  };
+}
+
 export function buildConfigsFromDefaults(args: {
   defaults: SeamsConfigsReadonly;
   overrides?: SeamsConfigsInput;
@@ -186,6 +225,10 @@ export function buildConfigsFromDefaults(args: {
   });
   const signingSessionSeal = resolveSigningSessionSeal({
     mode: signingSessionPersistenceMode,
+    overrides,
+    defaults,
+  });
+  const routerAbNormalSigning = resolveRouterAbNormalSigningConfig({
     overrides,
     defaults,
   });
@@ -309,6 +352,9 @@ export function buildConfigsFromDefaults(args: {
       },
       sessionPersistenceMode: signingSessionPersistenceMode,
       sessionSeal: signingSessionSeal,
+      routerAb: {
+        normalSigning: routerAbNormalSigning,
+      },
       thresholdEcdsa: {
         presignPool: {
           enabled: resolveBoolean({

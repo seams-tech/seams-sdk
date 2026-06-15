@@ -1,5 +1,7 @@
 use crate::actions::ActionParams;
-use crate::encoders::{base64_url_decode, base64_url_encode, hash_delegate_action};
+use crate::encoders::{
+    base64_url_decode, base64_url_encode, encode_delegate_action, hash_delegate_action,
+};
 use crate::transaction::{build_actions_from_params, build_transaction_with_actions};
 use crate::transaction::{calculate_transaction_hash, sign_transaction};
 use crate::types::wasm_to_json::{WasmSignedDelegate, WasmSignedTransaction};
@@ -370,6 +372,13 @@ struct DelegateSigningPayload {
     delegate: DelegatePayload,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DelegateSigningPayloadOutput {
+    canonical_delegate_borsh_b64u: String,
+    signing_digest_b64u: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct DelegatePayload {
@@ -432,6 +441,28 @@ pub fn threshold_ed25519_compute_delegate_signing_digest(
     let hash = hash_delegate_action(&delegate_action)
         .map_err(|e| JsValue::from_str(&format!("Failed to hash delegate action: {e}")))?;
     Ok(hash.to_vec())
+}
+
+/// Build the NEP-461 delegate signing preimage and digest.
+#[wasm_bindgen]
+pub fn threshold_ed25519_build_delegate_signing_payload(
+    payload: JsValue,
+) -> Result<JsValue, JsValue> {
+    let payload: DelegateSigningPayload = serde_wasm_bindgen::from_value(payload)
+        .map_err(|e| JsValue::from_str(&format!("Invalid nep461_delegate signingPayload: {e}")))?;
+    let delegate_action = delegate_action_from_payload(payload.delegate)?;
+    let canonical_delegate_borsh = encode_delegate_action(&delegate_action)
+        .map_err(|e| JsValue::from_str(&format!("Failed to encode delegate action: {e}")))?;
+    let signing_digest = Sha256::digest(canonical_delegate_borsh.as_slice());
+    let output = DelegateSigningPayloadOutput {
+        canonical_delegate_borsh_b64u: base64_url_encode(canonical_delegate_borsh.as_slice()),
+        signing_digest_b64u: base64_url_encode(signing_digest.as_slice()),
+    };
+    serde_wasm_bindgen::to_value(&output).map_err(|e| {
+        JsValue::from_str(&format!(
+            "Failed to serialize delegate signing payload output: {e}"
+        ))
+    })
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -24,6 +24,10 @@ import type {
 } from '../../interfaces/signing';
 import type { ThresholdEcdsaSessionBootstrapResult } from '../../threshold/ecdsa/activation';
 import {
+  parseRouterAbEd25519NormalSigningState,
+  type RouterAbEd25519NormalSigningState,
+} from '../../threshold/ed25519/routerAbNormalSigningState';
+import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   thresholdEcdsaChainTargetFromRequest,
@@ -230,6 +234,7 @@ export type ThresholdEd25519SessionRecord = {
   participantIds: number[];
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   xClientBaseB64u?: string;
+  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   thresholdSessionKind: 'jwt' | 'cookie';
   thresholdSessionId: string;
   walletSigningSessionId?: string;
@@ -1155,6 +1160,9 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
   const participantIds = normalizeThresholdEd25519ParticipantIds(obj.participantIds);
   const runtimePolicyScope = normalizeStoredRuntimePolicyScope(obj);
   const xClientBaseB64u = normalizeOptionalNonEmptyString(obj.xClientBaseB64u);
+  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
+    obj.routerAbNormalSigning,
+  );
   const thresholdSessionKindRaw = String(obj.thresholdSessionKind || 'jwt')
     .trim()
     .toLowerCase();
@@ -1203,6 +1211,7 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
     participantIds,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(xClientBaseB64u ? { xClientBaseB64u } : {}),
+    ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
     thresholdSessionKind,
     thresholdSessionId,
     ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
@@ -2354,6 +2363,7 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
   participantIds: number[];
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
   xClientBaseB64u?: string;
+  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   thresholdSessionKind?: 'jwt' | 'cookie';
   thresholdSessionId: string;
   walletSigningSessionId?: string;
@@ -2374,6 +2384,7 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
     ...(String(args.xClientBaseB64u || '').trim()
       ? { xClientBaseB64u: String(args.xClientBaseB64u || '').trim() }
       : {}),
+    ...(args.routerAbNormalSigning ? { routerAbNormalSigning: args.routerAbNormalSigning } : {}),
     thresholdSessionKind: String(args.thresholdSessionKind || 'jwt')
       .trim()
       .toLowerCase(),
@@ -2412,6 +2423,9 @@ export function persistStoredThresholdEd25519SessionClientBase(args: {
     participantIds: existing.participantIds,
     ...(existing.runtimePolicyScope ? { runtimePolicyScope: existing.runtimePolicyScope } : {}),
     xClientBaseB64u,
+    ...(existing.routerAbNormalSigning
+      ? { routerAbNormalSigning: existing.routerAbNormalSigning }
+      : {}),
     thresholdSessionKind: existing.thresholdSessionKind,
     thresholdSessionId: existing.thresholdSessionId,
     ...(existing.walletSigningSessionId
@@ -2620,6 +2634,9 @@ export function markThresholdEd25519EmailOtpSessionConsumedForAccount(args: {
     ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
     ...(record.xClientBaseB64u && !clearClientBase
       ? { xClientBaseB64u: record.xClientBaseB64u }
+      : {}),
+    ...(record.routerAbNormalSigning
+      ? { routerAbNormalSigning: record.routerAbNormalSigning }
       : {}),
     thresholdSessionKind: record.thresholdSessionKind,
     thresholdSessionId: record.thresholdSessionId,

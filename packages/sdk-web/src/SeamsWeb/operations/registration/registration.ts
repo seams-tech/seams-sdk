@@ -71,6 +71,7 @@ import {
   type WalletRegistrationRouteDiagnostics,
   type WalletRegistrationRouteTimingName,
 } from '@/core/rpcClients/relayer/walletRegistration';
+import { fetchRouterAbPublicKeysetV1 } from '@/core/rpcClients/relayer/routerAbPublicKeyset';
 import { buildNearWalletRegistrationSignerSelection } from '@/SeamsWeb/operations/registration/registrationSignerSelection';
 import {
   collectPasskeyRegistrationAuthority,
@@ -122,6 +123,7 @@ type RegistrationTimingBucketValues = {
   registrationWarmupKeyMaterialReadMs: number;
   registrationWarmupUiConfirmPrewarmMs: number;
   registrationWarmupSignerWorkerPrewarmMs: number;
+  routerAbPublicKeysetMs: number;
   managedRegistrationGrantMs: number;
   registrationIntentMs: number;
   registrationIntentDigestMs: number;
@@ -480,6 +482,7 @@ function createZeroRegistrationTimingBucketValues(): RegistrationTimingBucketVal
     registrationWarmupKeyMaterialReadMs: 0,
     registrationWarmupUiConfirmPrewarmMs: 0,
     registrationWarmupSignerWorkerPrewarmMs: 0,
+    routerAbPublicKeysetMs: 0,
     managedRegistrationGrantMs: 0,
     registrationIntentMs: 0,
     registrationIntentDigestMs: 0,
@@ -536,6 +539,7 @@ function copyRegistrationTimingBucketValues(
     registrationWarmupKeyMaterialReadMs: buckets.registrationWarmupKeyMaterialReadMs,
     registrationWarmupUiConfirmPrewarmMs: buckets.registrationWarmupUiConfirmPrewarmMs,
     registrationWarmupSignerWorkerPrewarmMs: buckets.registrationWarmupSignerWorkerPrewarmMs,
+    routerAbPublicKeysetMs: buckets.routerAbPublicKeysetMs,
     managedRegistrationGrantMs: buckets.managedRegistrationGrantMs,
     registrationIntentMs: buckets.registrationIntentMs,
     registrationIntentDigestMs: buckets.registrationIntentDigestMs,
@@ -709,6 +713,7 @@ function buildRegistrationTimingBuckets(input: {
     registrationWarmupKeyMaterialReadMs: buckets.registrationWarmupKeyMaterialReadMs,
     registrationWarmupUiConfirmPrewarmMs: buckets.registrationWarmupUiConfirmPrewarmMs,
     registrationWarmupSignerWorkerPrewarmMs: buckets.registrationWarmupSignerWorkerPrewarmMs,
+    routerAbPublicKeysetMs: buckets.routerAbPublicKeysetMs,
     managedRegistrationGrantMs: buckets.managedRegistrationGrantMs,
     registrationIntentMs: buckets.registrationIntentMs,
     registrationIntentDigestMs: buckets.registrationIntentDigestMs,
@@ -890,6 +895,20 @@ type RegistrationWarmupOutcome =
       error: unknown;
     };
 
+type RouterAbPublicKeysetPrefetchOutcome =
+  | {
+      kind: 'disabled';
+      error?: never;
+    }
+  | {
+      kind: 'completed';
+      error?: never;
+    }
+  | {
+      kind: 'failed';
+      error: unknown;
+    };
+
 function startRegistrationWarmup(input: {
   recorder: RegistrationTimingRecorder;
   context: RegistrationWebContext;
@@ -903,6 +922,44 @@ function startRegistrationWarmup(input: {
       (diagnostics) => ({ kind: 'completed' as const, diagnostics }),
       (error: unknown) => ({ kind: 'failed' as const, error }),
     );
+}
+
+function startRouterAbPublicKeysetPrefetch(input: {
+  recorder: RegistrationTimingRecorder;
+  context: RegistrationWebContext;
+  relayerUrl: string;
+}): Promise<RouterAbPublicKeysetPrefetchOutcome> {
+  const normalSigning = input.context.configs.signing.routerAb.normalSigning;
+  switch (normalSigning.mode) {
+    case 'disabled':
+      return Promise.resolve({ kind: 'disabled' });
+    case 'enabled':
+      return input.recorder
+        .measure('routerAbPublicKeysetMs', () =>
+          fetchRouterAbPublicKeysetV1({ relayerUrl: input.relayerUrl }),
+        )
+        .then(
+          () => ({ kind: 'completed' as const }),
+          (error: unknown) => ({ kind: 'failed' as const, error }),
+        );
+    default:
+      return assertNever(normalSigning);
+  }
+}
+
+async function requireRouterAbPublicKeysetPrefetch(
+  prefetch: Promise<RouterAbPublicKeysetPrefetchOutcome>,
+): Promise<void> {
+  const outcome = await prefetch;
+  switch (outcome.kind) {
+    case 'disabled':
+    case 'completed':
+      return;
+    case 'failed':
+      throw outcome.error;
+    default:
+      return assertNever(outcome);
+  }
 }
 
 async function waitForRegistrationWarmup(input: {
@@ -1002,6 +1059,11 @@ async function startWalletRegistrationPrecomputeReady(input: {
   if (!relayerUrl) {
     throw new Error('registerWallet requires relayer.url');
   }
+  const routerAbPublicKeysetPrefetch = startRouterAbPublicKeysetPrefetch({
+    recorder: input.recorder,
+    context: input.context,
+    relayerUrl,
+  });
   const scope = walletRegistrationPrecomputeScopeFromArgs({
     authMethod: input.authMethod,
     wallet: input.wallet,
@@ -1040,6 +1102,7 @@ async function startWalletRegistrationPrecomputeReady(input: {
   if (localDigestB64u !== intentResponse.registrationIntentDigestB64u) {
     throw new Error('Registration intent digest mismatch');
   }
+  await requireRouterAbPublicKeysetPrefetch(routerAbPublicKeysetPrefetch);
   const ecdsaSelection =
     input.signerSelection.mode === 'ed25519_and_ecdsa' ? input.signerSelection.ecdsa : null;
   const preparedRegistrationPromise = input.recorder
@@ -2637,7 +2700,9 @@ async function registerWalletInternal(
   }
 }
 
-export async function registerWallet(args: RegisterWalletOperationInput): Promise<RegistrationResult> {
+export async function registerWallet(
+  args: RegisterWalletOperationInput,
+): Promise<RegistrationResult> {
   return await registerWalletInternal({
     ...args,
     precomputeMode: { kind: 'start_inside_register_wallet' },

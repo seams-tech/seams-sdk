@@ -178,6 +178,7 @@ export class SeamsWebIframe {
         ? this.configs.signing.sessionSeal
         : undefined;
     const signingSessionDefaults = this.configs.signing.sessionDefaults;
+    const routerAb = this.configs.signing.routerAb;
     const thresholdEcdsaPresignPool = this.configs.signing.thresholdEcdsa.presignPool;
     const provisioningDefaults = this.configs.signing.thresholdEcdsa.provisioningDefaults;
 
@@ -194,6 +195,7 @@ export class SeamsWebIframe {
       signingSessionDefaults,
       signingSessionPersistenceMode,
       ...(signingSessionSeal ? { signingSessionSeal } : {}),
+      routerAb,
       thresholdEcdsaPresignPool,
       provisioningDefaults,
       // relayer: configs.network.relayer,
@@ -318,9 +320,7 @@ export class SeamsWebIframe {
     this.evm = {
       registerEvmWallet: async (args) => {
         if (!args.chainTargets.length) {
-          throw new Error(
-            '[SeamsWeb][evm] registerEvmWallet requires at least one chain target',
-          );
+          throw new Error('[SeamsWeb][evm] registerEvmWallet requires at least one chain target');
         }
         if (!args.participantIds.length) {
           throw new Error('[SeamsWeb][evm] registerEvmWallet requires participant ids');
@@ -466,9 +466,7 @@ export class SeamsWebIframe {
     return this.router;
   }
 
-  async showEmailOtpRecoveryCodesForAccountMenu(args: {
-    walletId: string;
-  }): Promise<{
+  async showEmailOtpRecoveryCodesForAccountMenu(args: { walletId: string }): Promise<{
     status: Awaited<ReturnType<RecoveryCapability['getEmailOtpRecoveryCodeStatus']>>;
     displayedStoredCodes: boolean;
   }> {

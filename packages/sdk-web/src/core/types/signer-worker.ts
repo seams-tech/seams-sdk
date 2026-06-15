@@ -44,12 +44,11 @@ export const NearSignerWorkerCustomRequestType = {
   ThresholdEd25519ClientPresignBurn: 'thresholdEd25519ClientPresignBurn',
   ThresholdEd25519ComputeNep413SigningDigest: 'thresholdEd25519ComputeNep413SigningDigest',
   ThresholdEd25519ComputeDelegateSigningDigest: 'thresholdEd25519ComputeDelegateSigningDigest',
-  ThresholdEd25519FinalizeDelegateFromSignature:
-    'thresholdEd25519FinalizeDelegateFromSignature',
-  ThresholdEd25519BuildNearTxUnsignedBorsh:
-    'thresholdEd25519BuildNearTxUnsignedBorsh',
-  ThresholdEd25519DecodeSignedNearTxBorsh:
-    'thresholdEd25519DecodeSignedNearTxBorsh',
+  ThresholdEd25519BuildDelegateSigningPayload: 'thresholdEd25519BuildDelegateSigningPayload',
+  ThresholdEd25519FinalizeDelegateFromSignature: 'thresholdEd25519FinalizeDelegateFromSignature',
+  ThresholdEd25519FinalizeNearTxFromSignature: 'thresholdEd25519FinalizeNearTxFromSignature',
+  ThresholdEd25519BuildNearTxUnsignedBorsh: 'thresholdEd25519BuildNearTxUnsignedBorsh',
+  ThresholdEd25519DecodeSignedNearTxBorsh: 'thresholdEd25519DecodeSignedNearTxBorsh',
 } as const;
 
 export type NearSignerWorkerCustomRequestType =
@@ -175,10 +174,32 @@ export type ThresholdEd25519ComputeSigningDigestResult = {
   signingDigestB64u: string;
 };
 
+export type ThresholdEd25519BuildDelegateSigningPayloadRequest = {
+  delegate: DelegatePayload;
+};
+
+export type ThresholdEd25519BuildDelegateSigningPayloadResult = {
+  canonicalDelegateBorshB64u: string;
+  signingDigestB64u: string;
+};
+
 export type ThresholdEd25519FinalizeDelegateFromSignatureRequest = {
   delegate: DelegatePayload;
   signingDigestB64u: string;
   signatureB64u: string;
+};
+
+export type ThresholdEd25519FinalizeNearTxFromSignatureRequest = {
+  unsignedTransactionBorshB64u: string;
+  signingDigestB64u: string;
+  signatureB64u: string;
+  expectedNearAccountId: string;
+  expectedSignerPublicKey: string;
+};
+
+export type ThresholdEd25519FinalizeNearTxFromSignatureResult = {
+  signedTransactionBorshB64u: string;
+  transactionHash: string;
 };
 
 export type ThresholdEd25519BuildNearTxUnsignedBorshRequest = {
@@ -210,26 +231,25 @@ export type ThresholdEd25519ClientPresignWorkerOffer = {
   bindingNonceB64u?: never;
 };
 
-export type PrepareThresholdEd25519PresignPoolPayload =
-  ThresholdEd25519PresignPoolRouteAuth & {
-    kind: 'prepare_threshold_ed25519_presign_pool_v1';
-    relayUrl: string;
-    thresholdSessionId: string;
-    walletSigningSessionId: string;
-    relayerKeyId: string;
-    nearAccountId: string;
-    nearNetworkId: string;
-    signerPublicKey: string;
-    participantIds: readonly number[];
-    runtimePolicyScope: RuntimePolicyScope;
-    policy: ThresholdEd25519PresignPoolPolicy;
-    requestTag: 'background_presign_pool_refill' | 'foreground_presign_pool_refill';
-    generation: number;
-    clientPresigns: readonly ThresholdEd25519ClientPresignWorkerOffer[];
-    xClientBaseB64u?: never;
-    clientSigningShareB64u?: never;
-    prfFirstB64u?: never;
-  };
+export type PrepareThresholdEd25519PresignPoolPayload = ThresholdEd25519PresignPoolRouteAuth & {
+  kind: 'prepare_threshold_ed25519_presign_pool_v1';
+  relayUrl: string;
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
+  relayerKeyId: string;
+  nearAccountId: string;
+  nearNetworkId: string;
+  signerPublicKey: string;
+  participantIds: readonly number[];
+  runtimePolicyScope: RuntimePolicyScope;
+  policy: ThresholdEd25519PresignPoolPolicy;
+  requestTag: 'background_presign_pool_refill' | 'foreground_presign_pool_refill';
+  generation: number;
+  clientPresigns: readonly ThresholdEd25519ClientPresignWorkerOffer[];
+  xClientBaseB64u?: never;
+  clientSigningShareB64u?: never;
+  prfFirstB64u?: never;
+};
 
 export type PrepareThresholdEd25519PresignPoolResult =
   | {
@@ -384,10 +404,10 @@ export type WasmThresholdEd25519HssSerializedSessionSource = Extract<
 
 export type WasmPrepareThresholdEd25519HssClientRequestRequest =
   WasmThresholdEd25519HssSerializedSessionSource & {
-  clientOtOfferMessageB64u: string;
-  yClientB64u: string;
-  tauClientB64u: string;
-};
+    clientOtOfferMessageB64u: string;
+    yClientB64u: string;
+    tauClientB64u: string;
+  };
 export interface WasmPrepareThresholdEd25519HssClientRequestResult {
   clientRequestMessageB64u: string;
   evaluatorOtStateB64u: string;
@@ -410,11 +430,11 @@ export interface WasmDeriveThresholdEd25519HssClientOutputMaskResult {
 }
 export type WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactRequest =
   WasmThresholdEd25519HssWorkerSessionSource & {
-  clientRequestMessageB64u: string;
-  evaluatorOtStateB64u: string;
-  serverInputDeliveryB64u: string;
-  clientOutputMaskB64u: string;
-};
+    clientRequestMessageB64u: string;
+    evaluatorOtStateB64u: string;
+    serverInputDeliveryB64u: string;
+    clientOutputMaskB64u: string;
+  };
 export interface WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactResult {
   contextBindingB64u: string;
   stagedEvaluatorArtifactB64u: string;
@@ -422,17 +442,17 @@ export interface WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactR
 }
 export type WasmOpenThresholdEd25519HssClientOutputRequest =
   WasmThresholdEd25519HssSerializedSessionSource & {
-  clientOutputMessageB64u: string;
-  clientOutputMaskB64u: string;
-};
+    clientOutputMessageB64u: string;
+    clientOutputMaskB64u: string;
+  };
 export interface WasmOpenThresholdEd25519HssClientOutputResult {
   contextBindingB64u: string;
   xClientBaseB64u: string;
 }
 export type WasmOpenThresholdEd25519HssSeedOutputRequest =
   WasmThresholdEd25519HssSerializedSessionSource & {
-  seedOutputMessageB64u: string;
-};
+    seedOutputMessageB64u: string;
+  };
 export interface WasmOpenThresholdEd25519HssSeedOutputResult {
   contextBindingB64u: string;
   canonicalSeedB64u: string;
@@ -446,6 +466,22 @@ export interface WasmBuildThresholdEd25519SeedExportArtifactResult {
   seedB64u: string;
   publicKey: string;
   privateKey: string;
+}
+export type WasmThresholdEd25519RoleSeparatedNormalSigningCommitments = {
+  hidingB64u: string;
+  bindingB64u: string;
+};
+export interface WasmCreateThresholdEd25519RoleSeparatedNormalSigningClientShareRequest {
+  xClientBaseB64u: string;
+  groupPublicKeyB64u: string;
+  serverVerifyingShareB64u: string;
+  serverCommitments: WasmThresholdEd25519RoleSeparatedNormalSigningCommitments;
+  signingPayloadB64u: string;
+}
+export interface WasmCreateThresholdEd25519RoleSeparatedNormalSigningClientShareResult {
+  clientCommitments: WasmThresholdEd25519RoleSeparatedNormalSigningCommitments;
+  clientVerifyingShareB64u: string;
+  clientSignatureShareB64u: string;
 }
 export interface WasmOpenThresholdEcdsaHssRoleLocalSigningShareRequest {
   stateBlobB64u: string;
@@ -532,6 +568,7 @@ export type WasmRequestPayload =
   | WasmOpenThresholdEd25519HssClientOutputRequest
   | WasmOpenThresholdEd25519HssSeedOutputRequest
   | WasmBuildThresholdEd25519SeedExportArtifactRequest
+  | WasmCreateThresholdEd25519RoleSeparatedNormalSigningClientShareRequest
   | WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapRequest
   | WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapRequest
   | WasmBuildThresholdEcdsaHssRoleLocalExportArtifactRequest
@@ -600,6 +637,11 @@ export interface WorkerRequestTypeMap {
     type: WorkerRequestType.BuildThresholdEd25519SeedExportArtifact;
     request: WasmBuildThresholdEd25519SeedExportArtifactRequest;
     result: WasmBuildThresholdEd25519SeedExportArtifactResult;
+  };
+  [WorkerRequestType.CreateThresholdEd25519RoleSeparatedNormalSigningClientShare]: {
+    type: WorkerRequestType.CreateThresholdEd25519RoleSeparatedNormalSigningClientShare;
+    request: WasmCreateThresholdEd25519RoleSeparatedNormalSigningClientShareRequest;
+    result: WasmCreateThresholdEd25519RoleSeparatedNormalSigningClientShareResult;
   };
   [WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare]: {
     type: WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare;
@@ -837,6 +879,7 @@ export interface RequestResponseMap {
   [WorkerRequestType.OpenThresholdEd25519HssClientOutput]: WasmOpenThresholdEd25519HssClientOutputResult;
   [WorkerRequestType.OpenThresholdEd25519HssSeedOutput]: WasmOpenThresholdEd25519HssSeedOutputResult;
   [WorkerRequestType.BuildThresholdEd25519SeedExportArtifact]: WasmBuildThresholdEd25519SeedExportArtifactResult;
+  [WorkerRequestType.CreateThresholdEd25519RoleSeparatedNormalSigningClientShare]: WasmCreateThresholdEd25519RoleSeparatedNormalSigningClientShareResult;
   [WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare]: WasmOpenThresholdEcdsaHssRoleLocalSigningShareResult;
   [WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap]: WasmPrepareThresholdEcdsaHssRoleLocalClientBootstrapResult;
   [WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap]: WasmFinalizeThresholdEcdsaHssRoleLocalClientBootstrapResult;
@@ -951,10 +994,13 @@ export function isWorkerSuccess<T extends RequestTypeKey>(
     response.type === WorkerResponseType.OpenThresholdEd25519HssClientOutputSuccess ||
     response.type === WorkerResponseType.OpenThresholdEd25519HssSeedOutputSuccess ||
     response.type === WorkerResponseType.BuildThresholdEd25519SeedExportArtifactSuccess ||
+    response.type ===
+      WorkerResponseType.CreateThresholdEd25519RoleSeparatedNormalSigningClientShareSuccess ||
     response.type === WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapSuccess ||
     response.type === WorkerResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess ||
     response.type === WorkerResponseType.BuildThresholdEcdsaHssRoleLocalExportArtifactSuccess ||
-    response.type === WorkerResponseType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess
+    response.type ===
+      WorkerResponseType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess
   );
 }
 
@@ -976,10 +1022,13 @@ export function isWorkerError<T extends RequestTypeKey>(
     response.type === WorkerResponseType.OpenThresholdEd25519HssClientOutputFailure ||
     response.type === WorkerResponseType.OpenThresholdEd25519HssSeedOutputFailure ||
     response.type === WorkerResponseType.BuildThresholdEd25519SeedExportArtifactFailure ||
+    response.type ===
+      WorkerResponseType.CreateThresholdEd25519RoleSeparatedNormalSigningClientShareFailure ||
     response.type === WorkerResponseType.PrepareThresholdEcdsaHssRoleLocalClientBootstrapFailure ||
     response.type === WorkerResponseType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure ||
     response.type === WorkerResponseType.BuildThresholdEcdsaHssRoleLocalExportArtifactFailure ||
-    response.type === WorkerResponseType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFailure
+    response.type ===
+      WorkerResponseType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactFailure
   );
 }
 

@@ -47,6 +47,9 @@ export function buildEmailOtpEd25519RecordFromSealedRestoreMetadata(args: {
     relayerKeyId: args.record.relayerKeyId,
     ...(args.record.runtimePolicyScope ? { runtimePolicyScope: args.record.runtimePolicyScope } : {}),
     ...(args.record.xClientBaseB64u ? { xClientBaseB64u: args.record.xClientBaseB64u } : {}),
+    ...(args.record.routerAbNormalSigning
+      ? { routerAbNormalSigning: args.record.routerAbNormalSigning }
+      : {}),
     participantIds: [...args.record.participantIds],
     thresholdSessionKind: args.record.sessionKind,
     thresholdSessionId: args.purpose.thresholdSessionId,

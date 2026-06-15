@@ -390,6 +390,11 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
                 "FinalizeThresholdEcdsaHssRoleLocalClientBootstrap is handled by the HSS client runtime",
             ));
         }
+        WorkerRequestType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShare => {
+            return Err(JsValue::from_str(
+                "CreateThresholdEd25519RoleSeparatedNormalSigningClientShare is handled by the HSS client runtime",
+            ));
+        }
         WorkerRequestType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact => {
             #[cfg(feature = "hss-client-exports")]
             {
@@ -466,6 +471,9 @@ pub async fn handle_signer_message(message_val: JsValue) -> Result<JsValue, JsVa
         }
         WorkerRequestType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact => {
             WorkerResponseType::BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactSuccess
+        }
+        WorkerRequestType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShare => {
+            WorkerResponseType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShareSuccess
         }
     };
 

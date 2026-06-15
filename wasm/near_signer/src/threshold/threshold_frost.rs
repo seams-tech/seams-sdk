@@ -173,8 +173,8 @@ pub fn threshold_ed25519_hss_server_inputs(args: JsValue) -> Result<JsValue, JsV
         participant_ids: out.context.participant_ids,
         derivation_version: out.context.derivation_version,
         context_binding_b64u: base64_url_encode(&out.context_binding),
-        y_relayer_b64u: base64_url_encode(&out.y_relayer),
-        tau_relayer_b64u: base64_url_encode(&out.tau_relayer),
+        y_relayer_b64u: base64_url_encode(&out.y_server),
+        tau_relayer_b64u: base64_url_encode(&out.tau_server),
     })
     .map_err(|e| JsValue::from_str(&format!("Failed to serialize HSS server inputs: {e}")))
 }

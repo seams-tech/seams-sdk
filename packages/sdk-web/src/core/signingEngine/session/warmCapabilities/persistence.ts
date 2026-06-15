@@ -5,6 +5,7 @@ import {
   type ThresholdEd25519SessionRecord,
   upsertStoredThresholdEd25519SessionRecord,
 } from '../persistence/records';
+import type { RouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
 import type {
   ThresholdEcdsaEmailOtpAuthContext,
   ThresholdEd25519SessionStoreSource,
@@ -28,6 +29,7 @@ type PersistWarmSessionEd25519CapabilityCommon = {
   expiresAtMs: number;
   remainingUses: number;
   xClientBaseB64u?: string;
+  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   updatedAtMs?: number;
 };
 
@@ -105,6 +107,7 @@ export function persistWarmSessionEd25519Capability(
     participantIds,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     ...(xClientBaseB64u ? { xClientBaseB64u } : {}),
+    ...(args.routerAbNormalSigning ? { routerAbNormalSigning: args.routerAbNormalSigning } : {}),
     thresholdSessionKind,
     thresholdSessionId: sessionId,
     walletSigningSessionId,

@@ -34,6 +34,7 @@ pub enum WorkerRequestType {
     DeriveThresholdEd25519HssClientOutputMask,
     PrepareThresholdEcdsaHssRoleLocalClientBootstrap,
     FinalizeThresholdEcdsaHssRoleLocalClientBootstrap,
+    CreateThresholdEd25519RoleSeparatedNormalSigningClientShare,
 }
 
 impl From<u32> for WorkerRequestType {
@@ -58,6 +59,7 @@ impl From<u32> for WorkerRequestType {
             16 => WorkerRequestType::DeriveThresholdEd25519HssClientOutputMask,
             17 => WorkerRequestType::PrepareThresholdEcdsaHssRoleLocalClientBootstrap,
             18 => WorkerRequestType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrap,
+            19 => WorkerRequestType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShare,
             _ => panic!("Invalid WorkerRequestType value: {}", value),
         }
     }
@@ -109,6 +111,9 @@ impl WorkerRequestType {
             }
             WorkerRequestType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrap => {
                 "FINALIZE_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP"
+            }
+            WorkerRequestType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShare => {
+                "CREATE_THRESHOLD_ED25519_ROLE_SEPARATED_NORMAL_SIGNING_CLIENT_SHARE"
             }
         }
     }
@@ -162,6 +167,9 @@ pub fn worker_request_type_name(request_type: WorkerRequestType) -> &'static str
         }
         WorkerRequestType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrap => {
             "FINALIZE_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP"
+        }
+        WorkerRequestType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShare => {
+            "CREATE_THRESHOLD_ED25519_ROLE_SEPARATED_NORMAL_SIGNING_CLIENT_SHARE"
         }
     }
 }
@@ -231,6 +239,8 @@ pub enum WorkerResponseType {
     PrepareThresholdEcdsaHssRoleLocalClientBootstrapFailure = 39,
     FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess = 40,
     FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure = 41,
+    CreateThresholdEd25519RoleSeparatedNormalSigningClientShareSuccess = 42,
+    CreateThresholdEd25519RoleSeparatedNormalSigningClientShareFailure = 43,
 }
 impl From<WorkerResponseType> for u32 {
     fn from(value: WorkerResponseType) -> Self {
@@ -287,6 +297,8 @@ impl From<u32> for WorkerResponseType {
             39 => WorkerResponseType::PrepareThresholdEcdsaHssRoleLocalClientBootstrapFailure,
             40 => WorkerResponseType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrapSuccess,
             41 => WorkerResponseType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure,
+            42 => WorkerResponseType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShareSuccess,
+            43 => WorkerResponseType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShareFailure,
             _ => panic!("Invalid WorkerResponseType value: {}", value),
         }
     }
@@ -406,6 +418,12 @@ pub fn worker_response_type_name(response_type: WorkerResponseType) -> &'static 
         }
         WorkerResponseType::FinalizeThresholdEcdsaHssRoleLocalClientBootstrapFailure => {
             "FINALIZE_THRESHOLD_ECDSA_HSS_ROLE_LOCAL_CLIENT_BOOTSTRAP_FAILURE"
+        }
+        WorkerResponseType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShareSuccess => {
+            "CREATE_THRESHOLD_ED25519_ROLE_SEPARATED_NORMAL_SIGNING_CLIENT_SHARE_SUCCESS"
+        }
+        WorkerResponseType::CreateThresholdEd25519RoleSeparatedNormalSigningClientShareFailure => {
+            "CREATE_THRESHOLD_ED25519_ROLE_SEPARATED_NORMAL_SIGNING_CLIENT_SHARE_FAILURE"
         }
     }
 }

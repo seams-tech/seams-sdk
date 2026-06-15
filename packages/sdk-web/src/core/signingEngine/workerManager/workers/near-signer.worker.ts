@@ -41,6 +41,7 @@ import {
 // Import WASM binary directly
 import init, {
   handle_signer_message,
+  threshold_ed25519_build_delegate_signing_payload,
   threshold_ed25519_client_presign_create,
   threshold_ed25519_client_presign_sign,
   threshold_ed25519_build_near_tx_unsigned_borsh,
@@ -48,6 +49,7 @@ import init, {
   threshold_ed25519_compute_nep413_signing_digest,
   threshold_ed25519_decode_signed_near_tx_borsh,
   threshold_ed25519_finalize_delegate_from_signature,
+  threshold_ed25519_finalize_near_tx_from_signature,
 } from '../../../../../../../wasm/near_signer/pkg/wasm_signer_worker.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlEncode } from '@shared/utils/encoders';
@@ -261,9 +263,17 @@ function handleCustomNearSignerRequest(type: string, payload: unknown): unknown 
           threshold_ed25519_compute_delegate_signing_digest(payload),
         ),
       };
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519BuildDelegateSigningPayload:
+      return requireDelegateSigningPayloadOutput(
+        threshold_ed25519_build_delegate_signing_payload(payload),
+      );
     case NearSignerWorkerCustomRequestType.ThresholdEd25519FinalizeDelegateFromSignature:
       return requireSignedDelegateOutput(
         threshold_ed25519_finalize_delegate_from_signature(payload),
+      );
+    case NearSignerWorkerCustomRequestType.ThresholdEd25519FinalizeNearTxFromSignature:
+      return requireFinalizeNearTxFromSignatureOutput(
+        threshold_ed25519_finalize_near_tx_from_signature(payload),
       );
     case NearSignerWorkerCustomRequestType.ThresholdEd25519BuildNearTxUnsignedBorsh:
       return requireNearTxUnsignedBorshOutput(
@@ -370,6 +380,38 @@ function requireSignedDelegateOutput(output: unknown): unknown {
   return output;
 }
 
+function requireDelegateSigningPayloadOutput(output: unknown): {
+  canonicalDelegateBorshB64u: string;
+  signingDigestB64u: string;
+} {
+  const parsed = output as {
+    canonicalDelegateBorshB64u?: unknown;
+    signingDigestB64u?: unknown;
+  };
+  const canonicalDelegateBorshB64u = String(parsed?.canonicalDelegateBorshB64u || '').trim();
+  const signingDigestB64u = String(parsed?.signingDigestB64u || '').trim();
+  if (!canonicalDelegateBorshB64u || !signingDigestB64u) {
+    throw new Error('threshold_ed25519_build_delegate_signing_payload returned invalid output');
+  }
+  return { canonicalDelegateBorshB64u, signingDigestB64u };
+}
+
+function requireFinalizeNearTxFromSignatureOutput(output: unknown): {
+  signedTransactionBorshB64u: string;
+  transactionHash: string;
+} {
+  const parsed = output as {
+    signedTransactionBorshB64u?: unknown;
+    transactionHash?: unknown;
+  };
+  const signedTransactionBorshB64u = String(parsed?.signedTransactionBorshB64u || '').trim();
+  const transactionHash = String(parsed?.transactionHash || '').trim();
+  if (!signedTransactionBorshB64u || !transactionHash) {
+    throw new Error('threshold_ed25519_finalize_near_tx_from_signature returned invalid output');
+  }
+  return { signedTransactionBorshB64u, transactionHash };
+}
+
 function requireNearTxUnsignedBorshOutput(output: unknown): {
   unsignedTransactionBorshB64u: string;
   signingDigestB64u: string;
@@ -382,9 +424,7 @@ function requireNearTxUnsignedBorshOutput(output: unknown): {
       unsignedTransactionBorshB64u?: unknown;
       signingDigestB64u?: unknown;
     };
-    const unsignedTransactionBorshB64u = String(
-      parsed?.unsignedTransactionBorshB64u || '',
-    ).trim();
+    const unsignedTransactionBorshB64u = String(parsed?.unsignedTransactionBorshB64u || '').trim();
     const signingDigestB64u = String(parsed?.signingDigestB64u || '').trim();
     if (!unsignedTransactionBorshB64u || !signingDigestB64u) {
       throw new Error('threshold_ed25519_build_near_tx_unsigned_borsh returned invalid item');

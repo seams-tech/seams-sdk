@@ -210,6 +210,7 @@ export interface WalletIframeRouterOptions {
   signingSessionDefaults?: SeamsConfigsInput['signingSessionDefaults'];
   signingSessionPersistenceMode?: SeamsConfigsInput['signingSessionPersistenceMode'];
   signingSessionSeal?: SeamsConfigsInput['signingSessionSeal'];
+  routerAb?: SeamsConfigsInput['routerAb'];
   thresholdEcdsaPresignPool?: SeamsConfigsInput['thresholdEcdsaPresignPool'];
   provisioningDefaults?: SeamsConfigsInput['provisioningDefaults'];
   rpIdOverride?: string;
@@ -663,6 +664,7 @@ export class WalletIframeRouter {
           signingSessionDefaults: this.opts.signingSessionDefaults,
           signingSessionPersistenceMode,
           ...(signingSessionSeal ? { signingSessionSeal } : {}),
+          routerAb: this.opts.routerAb,
           thresholdEcdsaPresignPool: this.opts.thresholdEcdsaPresignPool,
           provisioningDefaults: this.opts.provisioningDefaults,
           iframeWallet: this.opts.rpIdOverride
@@ -993,7 +995,10 @@ export class WalletIframeRouter {
             );
             setState({ kind: 'completed', activationId, result: res.result });
             const { login: st } = await this.getWalletSession(payload.nearAccountId);
-            this.emitLoginStatusChanged({ isLoggedIn: !!st.isLoggedIn, walletId: st.nearAccountId });
+            this.emitLoginStatusChanged({
+              isLoggedIn: !!st.isLoggedIn,
+              walletId: st.nearAccountId,
+            });
           } catch (error) {
             if (disposed) return;
             const err = toError(error);
@@ -1001,7 +1006,11 @@ export class WalletIframeRouter {
             if (code === 'cancelled') {
               setState({ kind: 'cancelled', activationId, reason: 'user_cancelled' });
             } else {
-              setState({ kind: 'failed', activationId, error: err.message || 'Registration failed' });
+              setState({
+                kind: 'failed',
+                activationId,
+                error: err.message || 'Registration failed',
+              });
             }
           } finally {
             this.registrationActivationListeners.delete(activationId);
@@ -1023,7 +1032,9 @@ export class WalletIframeRouter {
         releaseActivationOverlay();
       },
       state: (): RegistrationActivationSurfaceState => currentState,
-      onStateChange: (listener: (state: RegistrationActivationSurfaceState) => void): (() => void) => {
+      onStateChange: (
+        listener: (state: RegistrationActivationSurfaceState) => void,
+      ): (() => void) => {
         listeners.add(listener);
         return () => {
           listeners.delete(listener);
@@ -1334,7 +1345,9 @@ export class WalletIframeRouter {
       delivery: wire.delivery,
       expiresAtMs: wire.expiresAtMs,
       resend: async (): Promise<GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthFlow>> => {
-        const res = await this.post<PMGoogleEmailOtpWalletAuthWireResult<PMGoogleEmailOtpWalletAuthWireFlow>>({
+        const res = await this.post<
+          PMGoogleEmailOtpWalletAuthWireResult<PMGoogleEmailOtpWalletAuthWireFlow>
+        >({
           type: 'PM_GOOGLE_EMAIL_OTP_WALLET_AUTH_RESEND',
           payload: {
             flowHandleId: wire.flowHandleId,
@@ -1380,7 +1393,9 @@ export class WalletIframeRouter {
     payload: GoogleEmailOtpWalletAuthStartInput,
   ): Promise<GoogleEmailOtpWalletAuthResult<GoogleEmailOtpWalletAuthFlow>> {
     const { onEvent, ...wirePayload } = payload;
-    const res = await this.post<PMGoogleEmailOtpWalletAuthWireResult<PMGoogleEmailOtpWalletAuthWireFlow>>(
+    const res = await this.post<
+      PMGoogleEmailOtpWalletAuthWireResult<PMGoogleEmailOtpWalletAuthWireFlow>
+    >(
       {
         type: 'PM_BEGIN_GOOGLE_EMAIL_OTP_WALLET_AUTH',
         payload: wirePayload,

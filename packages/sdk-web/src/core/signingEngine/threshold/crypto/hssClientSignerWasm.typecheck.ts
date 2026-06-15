@@ -1,5 +1,6 @@
 import {
   buildEcdsaRoleLocalExportArtifactCommandWasm,
+  createThresholdEd25519RoleSeparatedNormalSigningClientShareWasm,
   finalizeEcdsaClientBootstrapCommandWasm,
   parseServerPlannedEcdsaHssContext,
   prepareEcdsaClientBootstrapCommandWasm,
@@ -145,6 +146,33 @@ async function assertRoleLocalBootstrapShape(): Promise<void> {
   });
   void (prepared.pendingStateBlob.kind satisfies 'ecdsa_role_local_pending_state_blob_v1');
   void (prepared.clientBootstrap.hssClientSharePublicKey33B64u satisfies string);
+}
+
+async function assertEd25519RoleSeparatedNormalSigningClientShareShape(): Promise<void> {
+  const share = await createThresholdEd25519RoleSeparatedNormalSigningClientShareWasm({
+    xClientBaseB64u: 'x-client-base',
+    groupPublicKeyB64u: 'group-public-key',
+    serverVerifyingShareB64u: 'server-verifying-share',
+    serverCommitments: {
+      hidingB64u: 'server-hiding',
+      bindingB64u: 'server-binding',
+    },
+    signingPayloadB64u: 'signing-payload',
+    workerCtx,
+  });
+  void (share.clientCommitments.hidingB64u satisfies string);
+  void (share.clientCommitments.bindingB64u satisfies string);
+  void (share.clientVerifyingShareB64u satisfies string);
+  void (share.clientSignatureShareB64u satisfies string);
+
+  // @ts-expect-error role-separated normal signing requires explicit server commitments.
+  void createThresholdEd25519RoleSeparatedNormalSigningClientShareWasm({
+    xClientBaseB64u: 'x-client-base',
+    groupPublicKeyB64u: 'group-public-key',
+    serverVerifyingShareB64u: 'server-verifying-share',
+    signingPayloadB64u: 'signing-payload',
+    workerCtx,
+  });
 }
 
 async function assertRoleLocalFinalizeShape(): Promise<void> {

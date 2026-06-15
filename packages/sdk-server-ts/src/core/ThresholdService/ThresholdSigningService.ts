@@ -2,6 +2,16 @@ import type { NormalizedLogger } from '../logger';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import type { EcdsaRelayerHssPublicKey33B64u } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
 import { toOptionalTrimmedString } from '@shared/utils/validation';
+import {
+  parseRouterAbEd25519NormalSigningState,
+  type RouterAbEd25519NormalSigningState,
+} from '@shared/utils/signingSessionSeal';
+import {
+  parseRouterAbNormalSigningServerPolicy,
+  validateRouterAbNormalSigningServerPolicy,
+  type ParseResult,
+  type RouterAbNormalSigningServerPolicy,
+} from './routerAbNormalSigningPolicy';
 import type { SessionClaims } from '../../router/relay';
 import type { AccessKeyList } from '@/core/rpcClients/near/NearClient';
 import type { ThresholdEcdsaIntegratedKeyStore, ThresholdEd25519KeyStore } from './stores/KeyStore';
@@ -184,9 +194,6 @@ import {
   thresholdEd25519Nep413OperationFingerprint,
 } from '@shared/threshold/ed25519OperationFingerprint';
 
-type ParseOk<T> = { ok: true; value: T };
-type ParseErr = { ok: false; code: string; message: string };
-type ParseResult<T> = ParseOk<T> | ParseErr;
 type ThresholdEd25519HssSessionError = { ok: false; code?: string; message?: string };
 type ThresholdEd25519PresignRefillMetric = {
   metric:
@@ -1026,6 +1033,7 @@ function parseThresholdEd25519SessionRequest(
   sessionId: string;
   walletSigningSessionId: string;
   runtimePolicyScope?: RuntimePolicyScope;
+  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   ttlMsRaw: number;
   remainingUsesRaw: number;
   policyParticipantIds: number[] | null;
@@ -1071,6 +1079,31 @@ function parseThresholdEd25519SessionRequest(
         ok: false,
         code: 'invalid_body',
         message: 'sessionPolicy.runtimePolicyScope must be a valid runtime policy scope',
+      };
+    }
+  }
+  let routerAbNormalSigning: RouterAbEd25519NormalSigningState | undefined;
+  if (Object.prototype.hasOwnProperty.call(policyRaw, 'routerAbNormalSigning')) {
+    try {
+      const parsedRouterAbNormalSigning = parseRouterAbEd25519NormalSigningState(
+        (policyRaw as Record<string, unknown>).routerAbNormalSigning,
+      );
+      if (!parsedRouterAbNormalSigning) {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'sessionPolicy.routerAbNormalSigning must be a Router A/B normal-signing state',
+        };
+      }
+      routerAbNormalSigning = parsedRouterAbNormalSigning;
+    } catch (error) {
+      return {
+        ok: false,
+        code: 'invalid_body',
+        message:
+          error && typeof error === 'object' && 'message' in error
+            ? String((error as { message?: unknown }).message)
+            : 'sessionPolicy.routerAbNormalSigning is invalid',
       };
     }
   }
@@ -1147,6 +1180,7 @@ function parseThresholdEd25519SessionRequest(
       sessionId,
       walletSigningSessionId,
       ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+      ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
       ttlMsRaw,
       remainingUsesRaw,
       policyParticipantIds: policyParticipantIds || null,
@@ -1473,6 +1507,7 @@ export class ThresholdSigningService {
   private readonly ecdsaPresignaturePool: ThresholdEcdsaPresignaturePool;
   private readonly signingRootShareResolver: SigningRootShareResolver | null;
   private readonly ecdsaPresignPoolPolicyHint: ThresholdEcdsaPresignPoolPolicyHint | undefined;
+  private readonly routerAbNormalSigningPolicy: RouterAbNormalSigningServerPolicy;
   private readonly ecdsaSigningHandlers: ThresholdEcdsaSigningHandlers;
   private readonly ensureReady: () => Promise<void>;
   private readonly ensureSignerWasm: () => Promise<void>;
@@ -1595,6 +1630,7 @@ export class ThresholdSigningService {
     this.signingRootShareResolver = input.signingRootShareResolver || null;
     const cfg = (isObject(input.config) ? input.config : {}) as Record<string, unknown>;
     this.ecdsaPresignPoolPolicyHint = parseThresholdEcdsaPresignPoolPolicyHint(cfg);
+    this.routerAbNormalSigningPolicy = parseRouterAbNormalSigningServerPolicy(cfg);
 
     const nodeRole = coerceThresholdNodeRole(cfg.THRESHOLD_NODE_ROLE);
     const coordinatorSharedSecretBytes = parseThresholdCoordinatorSharedSecretBytes(
@@ -1678,6 +1714,15 @@ export class ThresholdSigningService {
 
   hasSigningRootShareResolver(): boolean {
     return this.signingRootShareResolver !== null;
+  }
+
+  private validateRouterAbNormalSigningSessionPolicy(
+    requested: RouterAbEd25519NormalSigningState | undefined,
+  ): ParseResult<null> {
+    return validateRouterAbNormalSigningServerPolicy({
+      requested,
+      policy: this.routerAbNormalSigningPolicy,
+    });
   }
 
   private createThresholdEd25519HssCeremonyHandle(): string {
@@ -3437,6 +3482,34 @@ export class ThresholdSigningService {
           return undefined;
         }
       })();
+      let routerAbNormalSigning: RouterAbEd25519NormalSigningState | undefined;
+      if (Object.prototype.hasOwnProperty.call(policy, 'routerAbNormalSigning')) {
+        try {
+          const parsedRouterAbNormalSigning = parseRouterAbEd25519NormalSigningState(
+            policy.routerAbNormalSigning,
+          );
+          if (!parsedRouterAbNormalSigning) {
+            return {
+              ok: false,
+              code: 'invalid_body',
+              message:
+                'threshold_ed25519.session_policy.routerAbNormalSigning must be a Router A/B normal-signing state',
+            };
+          }
+          routerAbNormalSigning = parsedRouterAbNormalSigning;
+        } catch (error) {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message:
+              error && typeof error === 'object' && 'message' in error
+                ? String((error as { message?: unknown }).message)
+                : 'threshold_ed25519.session_policy.routerAbNormalSigning is invalid',
+          };
+        }
+      }
+      const routerAbPolicy = this.validateRouterAbNormalSigningSessionPolicy(routerAbNormalSigning);
+      if (!routerAbPolicy.ok) return routerAbPolicy;
       if (String(policy.version || '').trim() !== 'threshold_session_v1') {
         return {
           ok: false,
@@ -3568,6 +3641,7 @@ export class ThresholdSigningService {
           expiresAt: new Date(walletBudget.expiresAtMs).toISOString(),
           participantIds: walletBudget.participantIds,
           ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+          ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
         };
       }
 
@@ -3617,6 +3691,7 @@ export class ThresholdSigningService {
         participantIds: walletBudget.participantIds,
         remainingUses,
         ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+        ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
       };
     } catch (e: unknown) {
       const msg = String(
@@ -4722,10 +4797,13 @@ export class ThresholdSigningService {
         sessionId,
         walletSigningSessionId,
         runtimePolicyScope,
+        routerAbNormalSigning,
         ttlMsRaw,
         remainingUsesRaw,
         policyParticipantIds,
       } = parsedRequest.value;
+      const routerAbPolicy = this.validateRouterAbNormalSigningSessionPolicy(routerAbNormalSigning);
+      if (!routerAbPolicy.ok) return routerAbPolicy;
       context = { nearAccountId, rpId, relayerKeyId, sessionId, walletSigningSessionId };
 
       await this.ensureReady();
@@ -4785,6 +4863,7 @@ export class ThresholdSigningService {
         sessionId,
         walletSigningSessionId,
         ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+        ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
         ...(policyParticipantIds ? { participantIds: policyParticipantIds } : {}),
         ttlMs,
         remainingUses,
@@ -4903,6 +4982,7 @@ export class ThresholdSigningService {
           expiresAtMs: walletBudget.expiresAtMs,
           expiresAt: new Date(walletBudget.expiresAtMs).toISOString(),
           participantIds: walletBudget.participantIds,
+          ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
         };
       }
 
@@ -4940,6 +5020,7 @@ export class ThresholdSigningService {
         expiresAt: new Date(walletBudget.expiresAtMs).toISOString(),
         participantIds: walletBudget.participantIds,
         remainingUses,
+        ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
       };
     } catch (e: unknown) {
       const msg = String(

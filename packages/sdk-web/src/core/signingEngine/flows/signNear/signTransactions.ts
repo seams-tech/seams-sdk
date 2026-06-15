@@ -105,7 +105,10 @@ import { runSigningConfirmationCommand } from '../shared/signingConfirmation';
 import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
 import type { NearAccountRef } from '../../interfaces/ecdsaChainTarget';
 import { requiredNearTransactionSignatureUses } from './signatureUses';
-import { tryFinalizeThresholdEd25519NearTransactionPresign } from './shared/ed25519PresignFinalize';
+import {
+  tryFinalizeRouterAbEd25519NearTransactionNormalSigning,
+  tryFinalizeThresholdEd25519NearTransactionPresign,
+} from './shared/ed25519PresignFinalize';
 import { emitThresholdEd25519PresignMetric } from './shared/ed25519PresignMetrics';
 
 function emitNearSigningEvent(
@@ -872,6 +875,23 @@ export async function runNearTransactionsWithActionsSigning({
       interaction: { kind: 'none', overlay: 'none' },
     });
     const presignXClientBaseB64u = payload.threshold.xClientBaseB64u || xClientBaseB64u;
+    const routerAbNormalSigningResult = presignXClientBaseB64u
+      ? await tryFinalizeRouterAbEd25519NearTransactionNormalSigning({
+          ctx,
+          thresholdSessionId: canonicalThresholdSessionId,
+          thresholdSessionState,
+          thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+          nearAccountId,
+          xClientBaseB64u: presignXClientBaseB64u,
+          operationId: signingOperation.operationId,
+          operationFingerprint,
+          txSigningRequests,
+          transactionContext,
+        })
+      : null;
+    if (routerAbNormalSigningResult) {
+      return routerAbNormalSigningResult.okResponse;
+    }
     const presignResult = presignXClientBaseB64u
       ? await tryFinalizeThresholdEd25519NearTransactionPresign({
           ctx,

@@ -4,6 +4,7 @@ import {
   type WorkerResponseDiagnostics,
   type WasmBuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactResult,
   type WasmBuildThresholdEd25519SeedExportArtifactResult,
+  type WasmCreateThresholdEd25519RoleSeparatedNormalSigningClientShareResult,
   type WasmOpenThresholdEcdsaHssRoleLocalSigningShareResult,
   type WasmDeriveThresholdEd25519HssClientOutputMaskResult,
   type WasmDeriveThresholdEd25519HssClientInputsResult,
@@ -44,6 +45,7 @@ import { toRpId, type RpId } from '../../session/identity/evmFamilyEcdsaIdentity
 
 const HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS = 20_000;
 const ED25519_HSS_CLIENT_OUTPUT_MASK_BYTES = 32;
+const ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES = 32;
 
 function emitHssClientWorkerDiagnostics(
   operation: string,
@@ -135,6 +137,36 @@ function requireClientOutputMask32B64u(value: string): string {
   const decoded = base64UrlDecode(normalized);
   if (decoded.length !== ED25519_HSS_CLIENT_OUTPUT_MASK_BYTES) {
     throw new Error('clientOutputMaskB64u must decode to 32 bytes');
+  }
+  decoded.fill(0);
+  return normalized;
+}
+
+function requireBase64UrlBytes(input: {
+  fieldName: string;
+  value: string;
+  byteLength: number;
+}): string {
+  const normalized = String(input.value || '').trim();
+  if (!normalized) {
+    throw new Error(`${input.fieldName} is required`);
+  }
+  const decoded = base64UrlDecode(normalized);
+  if (decoded.length !== input.byteLength) {
+    throw new Error(`${input.fieldName} must decode to ${input.byteLength} bytes`);
+  }
+  decoded.fill(0);
+  return normalized;
+}
+
+function requireNonEmptyBase64UrlBytes(input: { fieldName: string; value: string }): string {
+  const normalized = String(input.value || '').trim();
+  if (!normalized) {
+    throw new Error(`${input.fieldName} is required`);
+  }
+  const decoded = base64UrlDecode(normalized);
+  if (decoded.length === 0) {
+    throw new Error(`${input.fieldName} must decode to non-empty bytes`);
   }
   decoded.fill(0);
   return normalized;
@@ -281,6 +313,17 @@ export type ThresholdEd25519SeedExportArtifact = {
   seedB64u: string;
   publicKey: string;
   privateKey: string;
+};
+
+export type ThresholdEd25519RoleSeparatedNormalSigningCommitments = {
+  hidingB64u: string;
+  bindingB64u: string;
+};
+
+export type ThresholdEd25519RoleSeparatedNormalSigningClientShare = {
+  clientCommitments: ThresholdEd25519RoleSeparatedNormalSigningCommitments;
+  clientVerifyingShareB64u: string;
+  clientSignatureShareB64u: string;
 };
 
 export type ThresholdEcdsaHssStableKeyContext = {
@@ -716,6 +759,97 @@ export async function buildThresholdEd25519SeedExportArtifactWasm(input: {
     seedB64u: String(result.seedB64u || '').trim(),
     publicKey: String(result.publicKey || '').trim(),
     privateKey: String(result.privateKey || '').trim(),
+  };
+}
+
+export async function createThresholdEd25519RoleSeparatedNormalSigningClientShareWasm(input: {
+  xClientBaseB64u: string;
+  groupPublicKeyB64u: string;
+  serverVerifyingShareB64u: string;
+  serverCommitments: ThresholdEd25519RoleSeparatedNormalSigningCommitments;
+  signingPayloadB64u: string;
+  workerCtx: WorkerOperationContext;
+}): Promise<ThresholdEd25519RoleSeparatedNormalSigningClientShare> {
+  const xClientBaseB64u = requireBase64UrlBytes({
+    fieldName: 'xClientBaseB64u',
+    value: input.xClientBaseB64u,
+    byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
+  });
+  const groupPublicKeyB64u = requireBase64UrlBytes({
+    fieldName: 'groupPublicKeyB64u',
+    value: input.groupPublicKeyB64u,
+    byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
+  });
+  const serverVerifyingShareB64u = requireBase64UrlBytes({
+    fieldName: 'serverVerifyingShareB64u',
+    value: input.serverVerifyingShareB64u,
+    byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
+  });
+  const serverCommitments = {
+    hidingB64u: requireBase64UrlBytes({
+      fieldName: 'serverCommitments.hidingB64u',
+      value: input.serverCommitments.hidingB64u,
+      byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
+    }),
+    bindingB64u: requireBase64UrlBytes({
+      fieldName: 'serverCommitments.bindingB64u',
+      value: input.serverCommitments.bindingB64u,
+      byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
+    }),
+  };
+  const signingPayloadB64u = requireNonEmptyBase64UrlBytes({
+    fieldName: 'signingPayloadB64u',
+    value: input.signingPayloadB64u,
+  });
+
+  const response = await executeWorkerOperation({
+    ctx: input.workerCtx,
+    kind: 'hssClient',
+    request: {
+      type: WorkerRequestType.CreateThresholdEd25519RoleSeparatedNormalSigningClientShare,
+      timeoutMs: HSS_CLIENT_SIGNER_WORKER_TIMEOUT_MS,
+      payload: {
+        xClientBaseB64u,
+        groupPublicKeyB64u,
+        serverVerifyingShareB64u,
+        serverCommitments,
+        signingPayloadB64u,
+      },
+    },
+  });
+
+  if (
+    response.type !==
+    WorkerResponseType.CreateThresholdEd25519RoleSeparatedNormalSigningClientShareSuccess
+  ) {
+    throw new Error('CreateThresholdEd25519RoleSeparatedNormalSigningClientShare failed');
+  }
+
+  const result =
+    response.payload as WasmCreateThresholdEd25519RoleSeparatedNormalSigningClientShareResult;
+  return {
+    clientCommitments: {
+      hidingB64u: requireBase64UrlBytes({
+        fieldName: 'clientCommitments.hidingB64u',
+        value: result.clientCommitments.hidingB64u,
+        byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
+      }),
+      bindingB64u: requireBase64UrlBytes({
+        fieldName: 'clientCommitments.bindingB64u',
+        value: result.clientCommitments.bindingB64u,
+        byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
+      }),
+    },
+    clientVerifyingShareB64u: requireBase64UrlBytes({
+      fieldName: 'clientVerifyingShareB64u',
+      value: result.clientVerifyingShareB64u,
+      byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
+    }),
+    clientSignatureShareB64u: requireBase64UrlBytes({
+      fieldName: 'clientSignatureShareB64u',
+      value: result.clientSignatureShareB64u,
+      byteLength: ED25519_ROLE_SEPARATED_NORMAL_SIGNING_SHARE_BYTES,
+    }),
   };
 }
 

@@ -159,6 +159,7 @@ function normalizeThresholdStoreConfig(
     toOptionalTrimmedString(c.THRESHOLD_ECDSA_AUTH_PREFIX) ||
     toOptionalTrimmedString(c.THRESHOLD_ECDSA_SESSION_PREFIX) ||
     toOptionalTrimmedString(c.THRESHOLD_ECDSA_KEYSTORE_PREFIX) ||
+    toOptionalTrimmedString(c.ROUTER_AB_NORMAL_SIGNING_WORKER_ID) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_KEY_VERSION) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SHAMIR_P_B64U) ||
     toOptionalTrimmedString(c.SIGNING_SESSION_SEAL_E_S_B64U) ||

@@ -31,6 +31,7 @@ import type {
   ThresholdEd25519HssStagedEvaluatorArtifactEnvelope,
 } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
+import type { RouterAbEd25519NormalSigningState } from '@/core/signingEngine/threshold/ed25519/routerAbNormalSigningState';
 import type {
   EcdsaHssRoleLocalPublicIdentity,
   ThresholdEcdsaHssRoleLocalBootstrapValue,
@@ -403,6 +404,7 @@ export type WalletRegistrationFinalizeResponse = {
       participantIds?: number[];
       remainingUses?: number;
       runtimePolicyScope?: ThresholdRuntimePolicyScope;
+      routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
       jwt?: string;
     };
   };

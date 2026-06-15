@@ -67,6 +67,7 @@ type EmailOtpCompanionEd25519Session = {
   participantIds: number[];
   runtimePolicyScope?: ThresholdEd25519SessionRecord['runtimePolicyScope'];
   xClientBaseB64u?: string;
+  routerAbNormalSigning?: ThresholdEd25519SessionRecord['routerAbNormalSigning'];
   thresholdSessionKind: 'jwt' | 'cookie';
   thresholdSessionId: string;
   walletSigningSessionId: string;
@@ -339,6 +340,9 @@ export async function restoreEmailOtpEcdsaSigningSessionMaterialFromSealedRecord
         : {}),
       ...(ed25519Session.xClientBaseB64u
         ? { xClientBaseB64u: ed25519Session.xClientBaseB64u }
+        : {}),
+      ...(ed25519Session.routerAbNormalSigning
+        ? { routerAbNormalSigning: ed25519Session.routerAbNormalSigning }
         : {}),
       thresholdSessionKind: ed25519Session.thresholdSessionKind,
       thresholdSessionId: ed25519Session.thresholdSessionId,

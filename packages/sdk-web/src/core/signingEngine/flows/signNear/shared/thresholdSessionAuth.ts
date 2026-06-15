@@ -59,6 +59,9 @@ export function resolveThresholdEd25519SessionStateFromRecord(
     signingLane,
     remainingUses: Math.max(0, Math.floor(Number(record.remainingUses) || 0)),
     ...(xClientBaseB64u ? { xClientBaseB64u } : {}),
+    ...(record.routerAbNormalSigning
+      ? { routerAbNormalSigning: record.routerAbNormalSigning }
+      : {}),
     ...(record.runtimePolicyScope ? { runtimePolicyScope: record.runtimePolicyScope } : {}),
     signingRootId: record.runtimePolicyScope
       ? signingRootScopeFromRuntimePolicyScope(record.runtimePolicyScope).signingRootId

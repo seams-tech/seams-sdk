@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { Request, Response } from 'express';
+import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import { createInMemoryConsoleApiKeyService } from '../../packages/sdk-server-ts/src/console/apiKeys';
 import { createInMemoryConsoleRuntimeSnapshotService } from '../../packages/sdk-server-ts/src/console/runtimeSnapshots';
 import { createInMemoryConsoleSponsoredCallService } from '../../packages/sdk-server-ts/src/console/sponsoredCalls';
@@ -12,6 +12,10 @@ import {
 import type { RelayRouteExtension } from '../../packages/sdk-server-ts/src/router/routeExtensions';
 import { defineRoute } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
 import { getRelayRouteSurface } from '../../packages/sdk-server-ts/src/router/relayRouteSurface';
+import {
+  parseRouterAbPublicKeysetV1,
+  ROUTER_AB_PUBLIC_KEYSET_VERSION_V1,
+} from '@shared/utils/routerAbPublicKeyset';
 import {
   createDefaultVoiceIdService,
   createVoiceIdRelayRouterModule,
@@ -27,6 +31,37 @@ type ExpressRouteEntry = {
 
 type CloudflareRelayHandler = ReturnType<typeof createCloudflareRouter>;
 
+const ROUTER_AB_PUBLIC_KEYSET = parseRouterAbPublicKeysetV1({
+  keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V1,
+  route_profile: 'strict_proof_bundle',
+  signer_envelope_hpke: {
+    deriver_a: {
+      role: 'signer_a',
+      key_epoch: 'epoch-a',
+      public_key: 'x25519:1111111111111111111111111111111111111111111111111111111111111111',
+    },
+    deriver_b: {
+      role: 'signer_b',
+      key_epoch: 'epoch-b',
+      public_key: 'x25519:2222222222222222222222222222222222222222222222222222222222222222',
+    },
+  },
+  signer_peer_verifying_keys: {
+    deriver_a: {
+      role: 'signer_a',
+      verifying_key_hex: '5afa80b305e72e02615ed1f580144a40a42a71dfcac175809ceb5d79e740d015',
+    },
+    deriver_b: {
+      role: 'signer_b',
+      verifying_key_hex: '0c700dd63695221e508f3164b528f190bed63a4437d38e882308f9a57acc1bc3',
+    },
+  },
+  signing_worker_server_output_hpke: {
+    key_epoch: 'epoch-server',
+    public_key: 'x25519:3333333333333333333333333333333333333333333333333333333333333333',
+  },
+});
+
 function listExpressRoutes(router: unknown): ExpressRouteEntry[] {
   const entries: ExpressRouteEntry[] = [];
 
@@ -34,7 +69,8 @@ function listExpressRoutes(router: unknown): ExpressRouteEntry[] {
     if (!Array.isArray(stack)) return;
     for (const layer of stack) {
       if (!layer || typeof layer !== 'object') continue;
-      const route = (layer as { route?: { path?: unknown; methods?: Record<string, boolean> } }).route;
+      const route = (layer as { route?: { path?: unknown; methods?: Record<string, boolean> } })
+        .route;
       if (route && typeof route.path === 'string' && route.methods) {
         for (const [method, enabled] of Object.entries(route.methods)) {
           if (!enabled) continue;
@@ -50,7 +86,9 @@ function listExpressRoutes(router: unknown): ExpressRouteEntry[] {
   return entries;
 }
 
-function canonicalRouteKeys(input: { method: string; path: string; aliases?: readonly string[] }[]): string[] {
+function canonicalRouteKeys(
+  input: { method: string; path: string; aliases?: readonly string[] }[],
+): string[] {
   return input.flatMap((route) => {
     const keys = [`${route.method} ${route.path}`];
     for (const alias of route.aliases || []) {
@@ -105,7 +143,7 @@ async function callCfFormData(
   return await readResponse(response);
 }
 
-async function readResponse(response: Response): Promise<{
+async function readResponse(response: globalThis.Response): Promise<{
   status: number;
   headers: Headers;
   json: Record<string, unknown> | null;
@@ -227,11 +265,13 @@ test.describe('relay route surface wiring', () => {
         .map((entry) => `${entry.method} ${entry.path}`),
     );
     const expectedKeys = new Set(
-      canonicalRouteKeys((surface?.routeDefinitions || []).map((route) => ({
-        method: route.method,
-        path: route.path,
-        aliases: route.aliases,
-      }))),
+      canonicalRouteKeys(
+        (surface?.routeDefinitions || []).map((route) => ({
+          method: route.method,
+          path: route.path,
+          aliases: route.aliases,
+        })),
+      ),
     );
 
     expect([...expectedKeys].filter((key) => !actualKeys.has(key))).toEqual([]);
@@ -289,6 +329,7 @@ test.describe('relay route surface wiring', () => {
       corsOrigins: ['https://example.localhost'],
       healthz: true,
       readyz: true,
+      routerAbPublicKeyset: ROUTER_AB_PUBLIC_KEYSET,
       signingSessionSeal: {
         enabled: true,
         basePath: '/threshold/custom-signing-session',
@@ -364,11 +405,7 @@ test.describe('relay route surface wiring', () => {
       'GET',
       '/voiceid/express-owner-presence',
     );
-    const universalRoute = voiceIdTestRoute(
-      'voiceid_capabilities',
-      'GET',
-      '/voiceid/capabilities',
-    );
+    const universalRoute = voiceIdTestRoute('voiceid_capabilities', 'GET', '/voiceid/capabilities');
     const extensions: RelayRouteExtension[] = [
       {
         kind: 'cloudflare_route_extension',
@@ -385,7 +422,7 @@ test.describe('relay route surface wiring', () => {
         routes: [expressRoute],
         registerExpressRoutes: ({ router, routes }) => {
           for (const route of routes) {
-            router.get(route.path, (_req: Request, res: Response) => {
+            router.get(route.path, (_req: ExpressRequest, res: ExpressResponse) => {
               res.json({ routeId: route.id, runtime: 'express' });
             });
           }
@@ -401,7 +438,7 @@ test.describe('relay route surface wiring', () => {
           }),
         registerExpressRoutes: ({ router, routes }) => {
           for (const route of routes) {
-            router.get(route.path, (_req: Request, res: Response) => {
+            router.get(route.path, (_req: ExpressRequest, res: ExpressResponse) => {
               res.json({ routeId: route.id, runtime: 'express' });
             });
           }

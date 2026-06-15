@@ -10,9 +10,11 @@ import {
   assertWalletHostConfigsNoNestedIframeWallet,
   sanitizeWalletHostConfigs,
 } from './config-guards';
-import { createCspStylesheetManager, getDefaultCspNonce } from '@/core/browser/walletIframe/csp-stylesheet';
+import {
+  createCspStylesheetManager,
+  getDefaultCspNonce,
+} from '@/core/browser/walletIframe/csp-stylesheet';
 
-const W3A_LIT_THEME_OVERRIDE_STYLE_ID = 'w3a-lit-theme-token-overrides';
 const W3A_LIT_THEME_OVERRIDE_RULE_ID = 'w3a-lit-theme-overrides';
 const W3A_LIT_HOST_SELECTORS = [
   'w3a-tx-tree',
@@ -87,6 +89,7 @@ function buildWalletRuntimeResetFingerprint(config: SeamsConfigsInput | null | u
     signingSessionDefaults: config?.signingSessionDefaults,
     signingSessionPersistenceMode: config?.signingSessionPersistenceMode,
     signingSessionSeal: config?.signingSessionSeal,
+    routerAb: config?.routerAb,
     thresholdEcdsaPresignPool: config?.thresholdEcdsaPresignPool,
     provisioningDefaults: config?.provisioningDefaults,
     authenticatorOptions: config?.authenticatorOptions,
@@ -141,13 +144,9 @@ function upsertLitThemeOverrideStyle(args: {
   const cssText = cssBlocks.join('\n\n').trim();
   if (!cssText) {
     getLitThemeOverrideStyleManager().deleteDynamicRule(W3A_LIT_THEME_OVERRIDE_RULE_ID);
-    // Cleanup stale inline style node, if present.
-    document.getElementById(W3A_LIT_THEME_OVERRIDE_STYLE_ID)?.remove();
     return;
   }
   getLitThemeOverrideStyleManager().setDynamicRule(W3A_LIT_THEME_OVERRIDE_RULE_ID, cssText);
-  // Cleanup stale inline style node, if present.
-  document.getElementById(W3A_LIT_THEME_OVERRIDE_STYLE_ID)?.remove();
 }
 
 export interface HostContext {
@@ -212,7 +211,7 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
     payload?.signingSessionPersistenceMode ?? prev.signingSessionPersistenceMode;
   const nextSigningSessionSeal =
     nextSigningSessionPersistenceMode === 'sealed_refresh_v1'
-      ? payload?.signingSessionSeal ?? prev.signingSessionSeal
+      ? (payload?.signingSessionSeal ?? prev.signingSessionSeal)
       : undefined;
   const nextChains = Array.isArray(payload?.chains)
     ? payload.chains.map(cloneChainConfig)
@@ -252,6 +251,7 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
     signingSessionDefaults: payload?.signingSessionDefaults ?? prev.signingSessionDefaults,
     signingSessionPersistenceMode: nextSigningSessionPersistenceMode,
     ...(nextSigningSessionSeal ? { signingSessionSeal: nextSigningSessionSeal } : {}),
+    routerAb: payload?.routerAb ?? prev.routerAb,
     thresholdEcdsaPresignPool: payload?.thresholdEcdsaPresignPool ?? prev.thresholdEcdsaPresignPool,
     provisioningDefaults: payload?.provisioningDefaults ?? prev.provisioningDefaults,
     relayer:
@@ -265,8 +265,7 @@ export function applyWalletConfig(ctx: HostContext, payload: PMSetConfigPayload)
             },
           }
         : undefined,
-    registration:
-      payload?.registration === undefined ? prev.registration : payload.registration,
+    registration: payload?.registration === undefined ? prev.registration : payload.registration,
     authenticatorOptions: payload?.authenticatorOptions ?? prev.authenticatorOptions,
     iframeWallet: {
       ...(prev.iframeWallet || {}),

@@ -80,7 +80,9 @@ function parseWireKindV1(value: string): WireKindV1 {
 }
 
 function readRecord(value: unknown, field: string): Record<string, unknown> {
-  if (typeof value === 'object' && value !== null && !Array.isArray(value)) return value;
+  if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
   throw new Error(`${field} must be an object`);
 }
 

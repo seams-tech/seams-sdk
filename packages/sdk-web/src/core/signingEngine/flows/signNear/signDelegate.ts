@@ -76,7 +76,9 @@ import { requireNearStepUpAuth } from './requireNearStepUpAuth';
 import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
 import type { NearAccountRef } from '../../interfaces/ecdsaChainTarget';
 import {
+  finalizeThresholdEd25519DelegateSignatureResult,
   finalizeThresholdEd25519DelegatePresignResult,
+  tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning,
   tryFinalizeThresholdEd25519SignatureOnlyPresign,
 } from './shared/ed25519PresignFinalize';
 
@@ -437,6 +439,44 @@ export async function runNearDelegateActionSigning({
       workerCtx: ctx,
     });
     const presignXClientBaseB64u = payload.threshold.xClientBaseB64u || xClientBaseB64u;
+    const signatureOnlyIntent = {
+      kind: 'near_delegate_action_v1' as const,
+      delegate: presignDelegateIntent,
+    };
+    const routerAbNormalSigningResult = presignXClientBaseB64u
+      ? await tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning({
+          ctx,
+          thresholdSessionId: canonicalThresholdSessionId,
+          thresholdSessionState,
+          thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+          nearAccountId,
+          xClientBaseB64u: presignXClientBaseB64u,
+          operationId: signingOperation.operationId,
+          operationFingerprint: signingOperation.operationFingerprint!,
+          purpose: 'delegate_action',
+          signingDigestB64u: signingDigest.signingDigestB64u,
+          intent: signatureOnlyIntent,
+        })
+      : null;
+    if (routerAbNormalSigningResult) {
+      const delegateResult = await finalizeThresholdEd25519DelegateSignatureResult({
+        ctx,
+        thresholdSessionId: canonicalThresholdSessionId,
+        delegate: delegatePayload,
+        signingDigestB64u: signingDigest.signingDigestB64u,
+        signatureB64u: routerAbNormalSigningResult.signatureB64u,
+      });
+      return {
+        type: WorkerResponseType.SignDelegateActionSuccess,
+        payload: {
+          success: true,
+          hash: delegateResult.hash,
+          signedDelegate: delegateResult.signedDelegate,
+          logs: ['Delegate action signed through Router A/B normal signing'],
+          error: undefined,
+        },
+      } as WorkerSuccessResponse<typeof WorkerRequestType.SignDelegateAction>;
+    }
     const presignResult = presignXClientBaseB64u
       ? await tryFinalizeThresholdEd25519SignatureOnlyPresign({
           ctx,
@@ -449,10 +489,7 @@ export async function runNearDelegateActionSigning({
           operationFingerprint: signingOperation.operationFingerprint!,
           purpose: 'delegate_action',
           signingDigestB64u: signingDigest.signingDigestB64u,
-          intent: {
-            kind: 'near_delegate_action_v1',
-            delegate: presignDelegateIntent,
-          },
+          intent: signatureOnlyIntent,
         })
       : null;
     if (presignResult) {

@@ -17,6 +17,7 @@ import initHssClientSigner, {
   threshold_ed25519_hss_open_seed_output,
   threshold_ed25519_hss_prepare_client_request,
   threshold_ed25519_hss_prepare_session,
+  threshold_ed25519_role_separated_normal_signing_create_client_share,
   threshold_ed25519_seed_export_artifact_from_seed,
 } from '../../../../../../../wasm/hss_client_signer/pkg/hss_client_signer.js';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
@@ -261,6 +262,11 @@ async function handleHssClientMessage(data: unknown): Promise<HssWorkerCommandRe
         return {
           type: WorkerResponseType.BuildThresholdEd25519SeedExportArtifactSuccess,
           payload: threshold_ed25519_seed_export_artifact_from_seed(payload),
+        };
+      case WorkerRequestType.CreateThresholdEd25519RoleSeparatedNormalSigningClientShare:
+        return {
+          type: WorkerResponseType.CreateThresholdEd25519RoleSeparatedNormalSigningClientShareSuccess,
+          payload: threshold_ed25519_role_separated_normal_signing_create_client_share(payload),
         };
       case WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare:
         return {

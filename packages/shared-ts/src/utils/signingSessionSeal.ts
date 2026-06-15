@@ -2,6 +2,8 @@ export const SIGNING_SESSION_SEALED_RECORD_VERSION = 1 as const;
 export const SIGNING_SESSION_SEAL_ALG = 'shamir3pass-v1' as const;
 export const SIGNING_SESSION_SEAL_STORAGE_SCOPE = 'iframe_origin_indexeddb' as const;
 export const SIGNING_SESSION_SECRET_KIND = 'signing_session_secret32' as const;
+export const ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND =
+  'router_ab_ed25519_normal_signing_v1' as const;
 
 export const PASSKEY_PRF_FIRST_SALT_V1 = new Uint8Array([
   0x40, 0x0c, 0x31, 0x8b, 0x66, 0x95, 0x97, 0x36, 0x59, 0xa1, 0x69, 0x8a, 0xe5, 0x80, 0xdf, 0xd8,
@@ -23,6 +25,42 @@ export const EMAIL_OTP_HKDF_SALTS = {
 
 export type SigningSessionSealAuthMethod = 'passkey' | 'email_otp';
 export type SigningSessionSealCurve = 'ed25519' | 'ecdsa';
+
+export type RouterAbEd25519NormalSigningState = {
+  kind: typeof ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND;
+  signingWorkerId: string;
+};
+
+function normalizeRouterAbNonEmptyString(value: unknown): string | null {
+  const parsed = String(value || '').trim();
+  return parsed || null;
+}
+
+export function parseRouterAbEd25519NormalSigningState(
+  value: unknown,
+): RouterAbEd25519NormalSigningState | null {
+  const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  if (!record) return null;
+  if (record.kind !== ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND) return null;
+  const signingWorkerId = normalizeRouterAbNonEmptyString(record.signingWorkerId);
+  if (!signingWorkerId) {
+    throw new Error('Invalid Router A/B Ed25519 normal-signing state: missing signingWorkerId');
+  }
+  return {
+    kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
+    signingWorkerId,
+  };
+}
+
+export function requireRouterAbEd25519NormalSigningState(
+  value: unknown,
+): RouterAbEd25519NormalSigningState {
+  const parsed = parseRouterAbEd25519NormalSigningState(value);
+  if (!parsed) {
+    throw new Error('Router A/B Ed25519 normal-signing state is required');
+  }
+  return parsed;
+}
 
 export type SealedSigningSessionEcdsaChainTarget =
   | {
@@ -60,6 +98,7 @@ export type SealedSigningSessionEd25519RestoreMetadata = {
   sessionKind: 'jwt' | 'cookie';
   runtimePolicyScope?: unknown;
   xClientBaseB64u?: string;
+  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
 };
 
 export type SealedSigningSessionRecord = {

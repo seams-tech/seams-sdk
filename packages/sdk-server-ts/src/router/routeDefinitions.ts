@@ -5,6 +5,10 @@ import {
   resolveSigningSessionSealBasePath,
 } from '../threshold/session/signingSessionSeal';
 import {
+  ROUTER_AB_PUBLIC_KEYSET_PATH_V1,
+  ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V1,
+} from '@shared/utils/routerAbPublicKeyset';
+import {
   API_CREDENTIAL_ROUTE_SCOPES,
   API_CREDENTIAL_TYPES,
   PUBLIC_PROOF_TYPES,
@@ -1345,6 +1349,20 @@ export function createRelayRouteDefinitions(
       ['authService'],
       { kind: 'none' },
       ['/.well-known/webauthn/'],
+    ),
+    publicRoute(
+      'relay_router_ab_public_keyset',
+      'GET',
+      ROUTER_AB_PUBLIC_KEYSET_PATH_V1,
+      'Router A/B public deployment keyset',
+      { plane: 'public', rationale: 'Public key discovery endpoints are intentionally public.' },
+      [],
+      { kind: 'none' },
+      [
+        ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V1,
+        `${ROUTER_AB_PUBLIC_KEYSET_PATH_V1}/`,
+        `${ROUTER_AB_PUBLIC_KEYSET_WELL_KNOWN_PATH_V1}/`,
+      ],
     ),
     apiCredentialRoute(
       'wallet_registration_intent',
