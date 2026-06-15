@@ -72,6 +72,8 @@ The immediate integration target is the normal SDK: mount VoiceID through
 Router A/B out of the first SDK test path. The later Router A/B policy issuer
 contract is documented in `docs/voiceID/voiceId-router-policy-issuer.md` for
 the signing phase after normal SDK testing works.
+The phased normal-SDK transaction-signing TODO list lives in
+`docs/voiceID/voiceId-normal-sdk-transaction-signing.md`.
 The VoiceID API now exposes `POST /voice-id/owner-presence/authorize`, which
 combines a completed verification record, `intentDigest`, use case, and typed
 liveness or owner-presence signals into one authorization decision. Camera,
@@ -254,6 +256,8 @@ Remaining:
   verification, and owner-presence authorization.
 - [ ] Add normal SDK coverage for typed wallet policy consumption after
   owner-presence authorization.
+- [ ] Implement the phased normal-SDK transaction-signing plan in
+  `docs/voiceID/voiceId-normal-sdk-transaction-signing.md`.
 - [ ] Add independent human different-speaker clips before tightening thresholds
   or making stronger security claims.
 - [ ] Compare fallback pretrained speaker-verification models only if ECAPA has

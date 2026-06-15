@@ -174,13 +174,14 @@ Current local smoke behavior:
 
 - Setup request goes through Router public HTTP.
 - A/B peer coordination is exercised over local HTTP.
-- SigningWorker accepts only encrypted `x_relayer_base` proof bundles.
+- SigningWorker accepts only encrypted `x_server_base` proof bundles.
 - Router returns only client-output bundles.
 - Normal signing routes Router -> SigningWorker and returns a dev-only
   deterministic SigningWorker signature over the required smoke payload.
 - Deriver A/B receive zero normal-signing hot-path requests.
-- The Cloudflare strict SigningWorker entrypoint still fails closed for normal
-  signing until the production role-separated Ed25519-HSS signer API exists.
+- The Cloudflare strict SigningWorker entrypoint now uses the production
+  role-separated Ed25519-HSS finalizer once exact server round-1 state has been
+  persisted.
 
 Single-terminal log mode:
 
@@ -325,10 +326,10 @@ Last focused validation run:
 
 ```text
 cargo test --manifest-path crates/router-ab-dev/Cargo.toml
-49 passed
+50 passed
 
 pnpm router:smoke
-passed with normal_signing_status="signed" and Deriver A/B normal-signing counts 0
+passed with normal_signing_status="ed25519_v1" and Deriver A/B normal-signing counts 0
 
 pnpm router:measure -- --out /tmp/router-ab-local-smoke.json
 passed and wrote timing evidence
@@ -389,7 +390,7 @@ Completed since the first handoff draft:
 - [x] Updated deployment runbooks with Router A/B secrets, vars, workflow
       commands, and deploy order.
 - [x] Confirmed local browser passkey wallet unlock with `pnpm build:sdk &&
-      pnpm router`.
+pnpm router`.
 - [x] Confirmed local browser passkey account registration, Ed25519 transaction
       signing, and ECDSA transaction signing with the same local stack.
 - [x] Fixed `pnpm router` startup so it waits for
@@ -404,38 +405,97 @@ Completed since the first handoff draft:
 - [x] Re-ran `pnpm router:smoke` and `pnpm router:smoke:bundled`; both passed
       setup, A/B peer coordination, SigningWorker activation, and normal
       signing with Deriver A/B normal-signing request counts at `0`.
+- [x] Replaced `local_dev_ed25519_v1` normal-signing smoke signatures with the
+      production Ed25519-HSS two-step shape. The local Router and
+      SigningWorker now expose prepare/finalize routes and both
+      `pnpm router:smoke` and `pnpm router:smoke:bundled` report
+      `normal_signing_status: "ed25519_v1"`.
 - [x] Captured current local four-worker timing evidence with
       `pnpm router:measure -- --out /tmp/router-ab-local-smoke-2026-06-14.json`:
       total `36 ms`, setup `18 ms`, SigningWorker activation `1 ms`, normal
       signing `0 ms`.
-- [x] Re-ran `pnpm router:deploy:check`; it fails only on the current P1
-      release blocker: strict SigningWorker normal-signing finalizer lacks
-      persisted server round-1 nonce material.
+- [x] Re-ran `pnpm router:deploy:check`; at that snapshot it failed only on the
+      then-open P1 blocker for persisted server round-1 nonce material. This
+      was superseded by the later
+      `pnpm -C crates/router-ab-cloudflare assert:release-ready` pass below.
 - [x] Re-ran `pnpm router:deploy:dry-run`; all four strict Worker roles bundled
       and wrote
       `crates/router-ab-cloudflare/reports/startup-latencies/startup-latencies-2026-06-14T14-11-55-253Z.json`.
       Dry-run gzip upload sizes: Router `573.83 KiB`, Deriver A `598.97 KiB`,
       Deriver B `599.92 KiB`, SigningWorker `567.14 KiB`.
+- [x] Added `ed25519_hss::role_signing`, the role-separated Ed25519-HSS
+      normal-signing primitive. It derives client/server verifying shares from
+      `x_client_base`/`x_server_base`, creates the client signature share,
+      verifies the client share, and finalizes a standard Ed25519 signature from
+      server-owned `x_server_base` without reconstructing joined `a`.
+- [x] Added focused parity/source-guard tests:
+      `cargo test --manifest-path crates/ed25519-hss/Cargo.toml role_separated_ed25519 -- --nocapture`
+      passed 4 tests.
+- [x] Added SigningWorker round-1 Durable Object storage:
+      `CloudflareSigningWorkerRound1RecordV1`, exact idempotent put, exact
+      non-expired take, conflicting-handle rejection, and tests for all three
+      paths.
+- [x] Added production round-1 prepare wiring:
+      `NormalSigningRound1PrepareRequestV1` /
+      `NormalSigningRound1PrepareResponseV1`, public
+      `/v1/hss/sign/prepare`, private
+      `/router-ab/v1/signing-worker/sign/prepare`, normal-signing JWT and
+      policy/quota/abuse admission, persisted server commitments, and exact
+      `round1_binding_digest` enforcement on nonce take.
+- [x] Wired the strict Cloudflare SigningWorker normal-signing finalizer to
+      `CloudflareRoleSeparatedEd25519NormalSigningHandlerV1`. The handler
+      consumes active `x_server_base`, persisted server round-1 state,
+      client/server commitments, verifying shares, and the client signature
+      share, then returns a standard Ed25519 signature.
+- [x] Re-ran focused validation:
+      `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings -- --nocapture`
+      passed 198 tests;
+      `cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test source_guards -- --nocapture`
+      passed 12 tests;
+      `cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-signing-worker-entrypoint`
+      passed.
+- [x] Re-ran `pnpm -C crates/router-ab-cloudflare assert:release-ready`; the
+      P1/P2 release blockers covered by that gate are clear.
+- [x] Exposed the browser-side role-separated Ed25519 normal-signing client
+      share primitive through `wasm/hss_client_signer` and the SDK HSS worker.
+      The bridge accepts required raw 32-byte base64url shares/commitments plus
+      non-empty signing payload bytes, creates fresh client round-1 nonce
+      material inside one worker call, and returns only client commitments,
+      client verifying share, and client signature share.
+- [x] Wired the SDK NEAR transaction normal-signing path through Router A/B
+      prepare, the HSS-client bridge, and Router A/B finalize. The SDK now
+      opts into the path only when the Ed25519 session carries explicit
+      `routerAbNormalSigning.signingWorkerId`, verifies the returned scope and
+      signing-payload digest, and locally attaches the returned Ed25519
+      signature to the NEAR transaction.
+- [x] Added shared `routerAbNormalSigning` session metadata parsing and threaded
+      it through SDK persistence, sealed-session restore metadata, server
+      Ed25519 session policy/response types, registration session
+      normalization, and email-recovery preparation parsing.
+- [x] Added a typed SDK/server configuration source for Router A/B normal
+      signing:
+      `routerAb.normalSigning.mode="enabled"` with a required
+      `signingWorkerId` on the SDK side, `VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID`
+      in the demo frontend, and `ROUTER_AB_NORMAL_SIGNING_WORKER_ID` on the
+      relay/server side. Passkey registration/unlock now populate
+      `sessionPolicy.routerAbNormalSigning.signingWorkerId` for Router
+      A/B-enabled sessions, and the server rejects mismatched SigningWorker ids.
 
 ## Remaining Open Tasks
 
-### 1. Finish Production Ed25519-HSS Normal Signing
-
-Current local normal-signing smoke proves Router -> SigningWorker routing and
-successful payload signing with a deterministic dev-only Ed25519 key. It must be
-replaced with the production role-separated Ed25519-HSS normal signer before
-release.
+### 1. Finish Remaining SDK Normal-Signing Surfaces
 
 Required:
 
-- Implement the real SigningWorker normal-signing handler.
-- Persist server round-1 nonce material for the strict SigningWorker
-  normal-signing finalizer.
-- Materialize active SigningWorker state plus opened `x_server_base` material
-  inside SigningWorker only.
-- Keep Deriver A/B off the signing hot path.
-- Replace `local_dev_ed25519_v1` smoke signatures with the production
-  Ed25519-HSS signature scheme.
+- Extend the Router A/B normal-signing helper from NEAR transactions to
+  signature-only Ed25519 flows such as NEP-413 and delegate actions.
+- Add focused unit coverage for the typed route client and session metadata
+  parser around missing `signingWorkerId`, mismatched scopes, mismatched
+  payload digests, and missing FROST finalize material.
+- Keep residual `group_public_key` finalize-material review on the
+  production-hardening list. P1 is closed for the audited release gate, but
+  hardening should remove the client-supplied public-key field from finalize
+  material or add transcript-bound public-key/address parity vectors.
 
 ### 2. Deployed Cloudflare Runtime Evidence
 
@@ -473,10 +533,14 @@ Router A/B work, keep commits scoped to:
 - `crates/router-ab-dev`
 - `docs/router-A-B-signer*.md`
 - `docs/router-a-b-local-dev.md`
+- `packages/shared-ts`
+- `packages/sdk-server-ts`
+- `packages/sdk-web`
 - root `package.json` command wrappers
 
 Avoid mixing VoiceID, threshold-prf t-of-N refactor, or SDK-server changes into
-Router A/B commits unless explicitly requested.
+Router A/B commits unless the SDK-server changes are part of the Router A/B
+session or normal-signing boundary.
 
 Current scoped inventory to inspect before staging the remaining Router A/B
 work:
@@ -525,7 +589,7 @@ rtk pnpm router:deploy:dry-run
 
 Then choose one of:
 
-1. Finish the P1 strict SigningWorker server round-1 nonce persistence.
+1. Finish the remaining SDK normal-signing surfaces.
 2. Re-run deployed Cloudflare startup/runtime evidence after
    GitHub Environment secrets and vars are available.
 3. Prepare scoped Router A/B commits from the remaining dirty core,
