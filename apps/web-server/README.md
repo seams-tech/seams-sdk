@@ -200,6 +200,13 @@ The command prints:
 
 Keep the printed client values aligned with relay `SIGNING_SESSION_*` values. Sealed-refresh clients fail closed on mismatch.
 
+## Router A/B Normal Signing
+
+Set `ROUTER_AB_NORMAL_SIGNING_WORKER_ID` on the relay/server when clients mint
+Router A/B Ed25519 normal-signing sessions. The value must match the frontend
+`VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID`; local Router A/B workers use
+`local-signing-worker`.
+
 Optional limiter config:
 
 - `SIGNING_SESSION_SEAL_RATE_LIMIT_KIND` (`in-memory` | `upstash-redis-rest` | `redis-tcp`)
@@ -460,13 +467,29 @@ POSTGRES_URL=postgresql://seams:seams@127.0.0.1:5432/seams_signer
 CONSOLE_POSTGRES_URL=postgresql://seams:seams@127.0.0.1:5432/seams_console
 ```
 
-Bootstrap/verify scripts support optional env overrides for non-default local role/db names:
+Bootstrap/verify scripts require explicit split-domain role and database envvars. The bootstrap script also requires passwords so generated URLs match the roles it creates:
 
 - `POSTGRES_BOOTSTRAP_ADMIN_USER` (default: `seams`)
 - `POSTGRES_BOOTSTRAP_HOST` (default: `127.0.0.1`)
 - `POSTGRES_BOOTSTRAP_PORT` (default: `5432`)
 - `SIGNER_DB_NAME`, `SIGNER_RUNTIME_USER`, `SIGNER_RUNTIME_PASSWORD`, `SIGNER_MIGRATOR_USER`, `SIGNER_MIGRATOR_PASSWORD`
 - `CONSOLE_DB_NAME`, `CONSOLE_RUNTIME_USER`, `CONSOLE_RUNTIME_PASSWORD`, `CONSOLE_MIGRATOR_USER`, `CONSOLE_MIGRATOR_PASSWORD`
+
+For local development, set the conventional split-domain names explicitly:
+
+```bash
+SIGNER_DB_NAME=seams_signer
+SIGNER_RUNTIME_USER=seams_signer
+SIGNER_RUNTIME_PASSWORD=seams_signer
+SIGNER_MIGRATOR_USER=seams_signer_migrator
+SIGNER_MIGRATOR_PASSWORD=seams_signer_migrator
+
+CONSOLE_DB_NAME=seams_console
+CONSOLE_RUNTIME_USER=seams_console
+CONSOLE_RUNTIME_PASSWORD=seams_console
+CONSOLE_MIGRATOR_USER=seams_console_migrator
+CONSOLE_MIGRATOR_PASSWORD=seams_console_migrator
+```
 
 In stricter environments, disable startup schema creation and require migrations:
 

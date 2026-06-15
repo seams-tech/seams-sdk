@@ -1,57 +1,71 @@
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { spawnSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const crateRoot = join(scriptDir, '..');
 
 const roles = [
   {
-    label: "router",
-    config: "wrangler.router.toml",
-    outDir: "bundled/startup/router",
+    label: 'router',
+    config: 'wrangler.router.toml',
+    outDir: 'bundled/startup/router',
   },
   {
-    label: "deriver-a",
-    config: "wrangler.signer-a.toml",
-    outDir: "bundled/startup/deriver-a",
+    label: 'deriver-a',
+    config: 'wrangler.signer-a.toml',
+    outDir: 'bundled/startup/deriver-a',
   },
   {
-    label: "deriver-b",
-    config: "wrangler.signer-b.toml",
-    outDir: "bundled/startup/deriver-b",
+    label: 'deriver-b',
+    config: 'wrangler.signer-b.toml',
+    outDir: 'bundled/startup/deriver-b',
   },
   {
-    label: "signing-worker",
-    config: "wrangler.signing-worker.toml",
-    outDir: "bundled/startup/signing-worker",
+    label: 'signing-worker',
+    config: 'wrangler.signing-worker.toml',
+    outDir: 'bundled/startup/signing-worker',
   },
 ];
 
 const roleVarKeys = {
-  router: ["ROUTER_JWT_ISSUER", "ROUTER_JWT_AUDIENCE", "ROUTER_JWT_JWKS_URL"],
-  "deriver-a": [
-    "SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY",
-    "SIGNER_A_PEER_VERIFYING_KEY_HEX",
-    "SIGNER_B_PEER_VERIFYING_KEY_HEX",
+  router: [
+    'ROUTER_JWT_ISSUER',
+    'ROUTER_JWT_AUDIENCE',
+    'ROUTER_JWT_JWKS_URL',
+    'SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY',
+    'SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY',
+    'SIGNER_A_PEER_VERIFYING_KEY_HEX',
+    'SIGNER_B_PEER_VERIFYING_KEY_HEX',
+    'SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
   ],
-  "deriver-b": [
-    "SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY",
-    "SIGNER_A_PEER_VERIFYING_KEY_HEX",
-    "SIGNER_B_PEER_VERIFYING_KEY_HEX",
+  'deriver-a': [
+    'SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY',
+    'SIGNER_A_PEER_VERIFYING_KEY_HEX',
+    'SIGNER_B_PEER_VERIFYING_KEY_HEX',
   ],
-  "signing-worker": ["SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY"],
+  'deriver-b': [
+    'SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY',
+    'SIGNER_A_PEER_VERIFYING_KEY_HEX',
+    'SIGNER_B_PEER_VERIFYING_KEY_HEX',
+  ],
+  'signing-worker': ['SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY'],
 };
 
-const argv = process.argv.slice(2);
-const upload = argv.includes("--upload");
-const dryRun = argv.includes("--dry-run");
-const selectedRole = readOption("--role");
-const envName = readOption("--env");
-const reportPath =
-  readOption("--out") ??
-  join(
-    "reports",
-    "startup-latencies",
-    `startup-latencies-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
-  );
+const argv = process.argv.slice(2).filter((arg) => arg !== '--');
+const upload = argv.includes('--upload');
+const dryRun = argv.includes('--dry-run');
+const selectedRole = readOption('--role');
+const envName = readOption('--env');
+const reportPath = resolveReportPath(
+  readOption('--out') ??
+    join(
+      'reports',
+      'startup-latencies',
+      `startup-latencies-${new Date().toISOString().replace(/[:.]/g, '-')}.json`,
+    ),
+);
 
 if (!upload && !dryRun) {
   console.log(`Usage:
@@ -69,9 +83,7 @@ Dry-run output does not emit startup_time_ms. Use --upload for release evidence.
   process.exit(0);
 }
 
-const selectedRoles = selectedRole
-  ? roles.filter((role) => role.label === selectedRole)
-  : roles;
+const selectedRoles = selectedRole ? roles.filter((role) => role.label === selectedRole) : roles;
 
 if (selectedRoles.length === 0) {
   throw new Error(`unknown role '${selectedRole}'`);
@@ -79,7 +91,7 @@ if (selectedRoles.length === 0) {
 
 const report = {
   generatedAt: new Date().toISOString(),
-  mode: upload ? "versions_upload" : "dry_run",
+  mode: upload ? 'versions_upload' : 'dry_run',
   env: envName ?? null,
   measurements: [],
 };
@@ -87,34 +99,35 @@ const report = {
 let failed = false;
 for (const role of selectedRoles) {
   const args = [
-    "versions",
-    "upload",
-    "--config",
+    'versions',
+    'upload',
+    '--config',
     role.config,
-    "--outdir",
+    '--outdir',
     role.outDir,
-    "--message",
+    '--message',
     `Router A/B startup latency capture for ${role.label}`,
   ];
   if (envName) {
-    args.push("--env", envName);
+    args.push('--env', envName);
   }
   for (const [key, value] of roleVars(role.label)) {
-    args.push("--var", `${key}:${value}`);
+    args.push('--var', `${key}:${value}`);
   }
   if (dryRun) {
-    args.push("--dry-run");
+    args.push('--dry-run');
   }
 
-  console.log(`\n== ${role.label}: wrangler ${args.join(" ")} ==`);
-  const child = spawnSync("wrangler", args, {
-    encoding: "utf8",
+  console.log(`\n== ${role.label}: wrangler ${args.join(' ')} ==`);
+  const child = spawnSync('wrangler', args, {
+    cwd: crateRoot,
+    encoding: 'utf8',
     env: process.env,
   });
-  process.stdout.write(child.stdout ?? "");
-  process.stderr.write(child.stderr ?? "");
+  process.stdout.write(child.stdout ?? '');
+  process.stderr.write(child.stderr ?? '');
 
-  const output = `${child.stdout ?? ""}\n${child.stderr ?? ""}`;
+  const output = `${child.stdout ?? ''}\n${child.stderr ?? ''}`;
   const measurement = {
     role: role.label,
     config: role.config,
@@ -142,7 +155,7 @@ function readOption(name) {
     return undefined;
   }
   const value = argv[index + 1];
-  if (!value || value.startsWith("--")) {
+  if (!value || value.startsWith('--')) {
     throw new Error(`${name} requires a value`);
   }
   return value;
@@ -152,7 +165,7 @@ function roleVars(label) {
   const keys = roleVarKeys[label] ?? [];
   return keys
     .map((key) => [key, process.env[key]])
-    .filter((entry) => entry[1] !== undefined && entry[1] !== "");
+    .filter((entry) => entry[1] !== undefined && entry[1] !== '');
 }
 
 function parseStartupTimeMs(output) {
@@ -184,10 +197,9 @@ function parseUploadSize(output) {
 }
 
 function stripAnsi(value) {
-  return value.replace(/\x1b\[[0-9;]*m/g, "");
+  return value.replace(/\x1b\[[0-9;]*m/g, '');
 }
 
-function dirname(path) {
-  const index = path.lastIndexOf("/");
-  return index === -1 ? "." : path.slice(0, index);
+function resolveReportPath(path) {
+  return isAbsolute(path) ? path : join(crateRoot, path);
 }

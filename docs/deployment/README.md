@@ -34,18 +34,22 @@ old `testnet` environment into `staging`.
 1. Create GitHub Environments `staging` and `production`.
 2. Add Cloudflare, R2, Pages, relay, Router A/B, and Vite environment values from
    [infra.md](infra.md).
-3. Provision Postgres signer and console databases, users, grants, and
+3. Generate Router A/B deployment identity keys with
+   `pnpm router:deploy:keygen -- --env staging --apply`. Repeat for production.
+4. Store `SIGNER_A_ROOT_SHARE_WIRE_SECRET` and
+   `SIGNER_B_ROOT_SHARE_WIRE_SECRET` from the derivation/provisioning ceremony
+   in the matching GitHub Environment.
+5. Provision Postgres signer and console databases, users, grants, and
    migrations from [infra.md](infra.md#postgres).
-4. Provision Cloudflare Worker secrets for the relay and Router A/B.
-5. Run `ci` on the target commit.
-6. Run `router-ab` on the target commit when Router A/B files changed.
-7. Publish SDK runtime assets with `publish-sdk-r2` or let it run after `ci`.
-8. Deploy Pages with `deploy-pages`.
-9. Deploy the relay Worker with `deploy-relay`.
-10. Upload Router A/B Worker versions for startup evidence with
-    `deploy-router-ab`. The deploy operation is guarded by
-    `router-ab:release:assert-ready` and remains blocked until the Router A/B
-    release blockers clear.
+6. Provision Cloudflare Worker secrets for the relay.
+7. Run `ci` on the target commit.
+8. Run `router-ab` on the target commit when Router A/B files changed.
+9. Publish SDK runtime assets with `publish-sdk-r2` or let it run after `ci`.
+10. Deploy Pages with `deploy-pages`.
+11. Deploy the relay Worker with `deploy-relay`.
+12. Upload Router A/B Worker versions for startup evidence with
+    `deploy-router-ab`, then deploy after `router:deploy:check` passes on the
+    target commit.
 
 ## Normal Promotion
 
@@ -66,12 +70,15 @@ Manual deploys:
 ```bash
 gh workflow run deploy-pages.yml --ref dev -f target=all -f deploy_environment=staging
 gh workflow run deploy-relay.yml --ref dev -f target=staging
+pnpm router:deploy:keygen -- --env staging --apply
 gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=upload-version -f role=all
+gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=deploy -f role=all
 gh workflow run publish-sdk-r2.yml --ref dev -f prefix=auto
 ```
 
-Run `operation=deploy` only after `pnpm router-ab:release:assert-ready` passes
-on the target commit.
+Run `operation=deploy` only after `pnpm router:deploy:check` passes on the
+target commit. Router A/B role config lives in
+[router-ab-cloudflare-env.example.yml](router-ab-cloudflare-env.example.yml).
 
 For production manual runs, use `--ref main` and `production`.
 
@@ -85,7 +92,7 @@ For a fresh environment, deploy in this order:
 4. Pages deploy.
 5. Relay deploy.
 6. Router A/B version upload for startup evidence.
-7. Router A/B deploy after `router-ab:release:assert-ready` passes.
+7. Router A/B deploy after `router:deploy:check` passes.
 
 For routine app changes, `ci` plus the Pages and relay workflows are enough.
 For SDK runtime changes, confirm the R2 publish and the Pages `/sdk` copy both

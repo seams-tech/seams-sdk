@@ -2,13 +2,37 @@
 
 Date created: June 12, 2026
 
-Status: architecture plan.
+Status: completed decision memo; superseded for active implementation.
 
 Related docs:
 
-- [docs/router-A-B-signer.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/router-A-B-signer.md)
-- [docs/router-A-B-signer-SPEC.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/router-A-B-signer-SPEC.md)
-- [docs/cloudflare-signing-worker-self-host.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/cloudflare-signing-worker-self-host.md)
+- [Router A/B signer plan](router-A-B-signer.md)
+- [Router A/B signer spec](router-A-B-signer-SPEC.md)
+- [Router A/B local development](router-a-b-local-dev.md)
+- [Deployment runbook](deployment/README.md)
+- [Deployment infrastructure](deployment/infra.md)
+
+## Completion Note
+
+This document made the deployment-profile decision: same-account Cloudflare is
+the first production self-host target, separate Cloudflare accounts are a
+hardening profile, and provider-diverse signers remain future enterprise scope.
+
+The active same-account implementation now lives in the checked-in Wrangler
+configs, GitHub Actions workflows, local parity harness, and deployment runbook:
+
+- `.github/workflows/router-ab.yml`
+- `.github/workflows/deploy-router-ab.yml`
+- `crates/router-ab-cloudflare/wrangler.router.toml`
+- `crates/router-ab-cloudflare/wrangler.signer-a.toml`
+- `crates/router-ab-cloudflare/wrangler.signer-b.toml`
+- `crates/router-ab-cloudflare/wrangler.signing-worker.toml`
+- `docs/deployment/README.md`
+- `docs/deployment/infra.md`
+- `docs/router-a-b-local-dev.md`
+
+Use this file as a historical architecture memo and product framing reference.
+Do not use the implementation checklist below as the active deployment plan.
 
 ## Goal
 
@@ -89,11 +113,11 @@ Common invariants:
 
 ## Deployment Profile Matrix
 
-| Profile | Transport | Credential boundary | Operational security | Intended use |
-| --- | --- | --- | --- | --- |
-| `router_ab_cloudflare_same_account_v1` | Cloudflare Service Bindings | separate Worker secrets and bindings in one Cloudflare account | protects against single Worker compromise and accidental role mixing; weaker against account-admin compromise | default self-host production |
-| `router_ab_cloudflare_separate_accounts_v1` | authenticated HTTPS between Cloudflare accounts | separate account credentials, deploy tokens, secrets, logs, and storage | stronger against insider, CI token, and single-account compromise | hardened self-host production |
-| `router_ab_provider_diverse_v1` | authenticated HTTPS or mutually authenticated provider links | separate provider credentials, optional attestation-bound signer identity | strongest operational separation, highest complexity | enterprise / regulated / high-value custody |
+| Profile                                     | Transport                                                    | Credential boundary                                                       | Operational security                                                                                          | Intended use                                |
+| ------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| `router_ab_cloudflare_same_account_v1`      | Cloudflare Service Bindings                                  | separate Worker secrets and bindings in one Cloudflare account            | protects against single Worker compromise and accidental role mixing; weaker against account-admin compromise | default self-host production                |
+| `router_ab_cloudflare_separate_accounts_v1` | authenticated HTTPS between Cloudflare accounts              | separate account credentials, deploy tokens, secrets, logs, and storage   | stronger against insider, CI token, and single-account compromise                                             | hardened self-host production               |
+| `router_ab_provider_diverse_v1`             | authenticated HTTPS or mutually authenticated provider links | separate provider credentials, optional attestation-bound signer identity | strongest operational separation, highest complexity                                                          | enterprise / regulated / high-value custody |
 
 ## Signer Engine Modes
 
@@ -544,17 +568,11 @@ the app's configured requirement.
 Server-side SDK exports should be profile-specific:
 
 ```ts
-import {
-  createRouterAbCloudflareSameAccountDeployment,
-} from '@seams/sdk/server/self-host/router-ab/cloudflare-same-account';
+import { createRouterAbCloudflareSameAccountDeployment } from '@seams/sdk/server/self-host/router-ab/cloudflare-same-account';
 
-import {
-  createRouterAbCloudflareSeparateAccountsDeployment,
-} from '@seams/sdk/server/self-host/router-ab/cloudflare-separate-accounts';
+import { createRouterAbCloudflareSeparateAccountsDeployment } from '@seams/sdk/server/self-host/router-ab/cloudflare-separate-accounts';
 
-import {
-  createRouterAbProviderDiverseDeployment,
-} from '@seams/sdk/server/self-host/router-ab/provider-diverse';
+import { createRouterAbProviderDiverseDeployment } from '@seams/sdk/server/self-host/router-ab/provider-diverse';
 ```
 
 These factories should produce profile-specific Wrangler files, GitHub Actions
@@ -663,7 +681,11 @@ Separate-account and provider-diverse profiles add:
 - stale signer key epoch rejection
 - endpoint allowlist checks
 
-## Implementation Plan
+## Historical Implementation Plan
+
+The checklist below is preserved as the original June 12 planning artifact. It
+has been superseded by the active deployment runbook and Router A/B local-dev
+checklists linked above.
 
 ### Phase 1: Profile Types
 
@@ -706,13 +728,13 @@ Separate-account and provider-diverse profiles add:
 ### Phase 5: Documentation And Product Packaging
 
 - [ ] Make `router_ab_cloudflare_same_account_v1` the documented production
-  self-host default.
+      self-host default.
 - [ ] Document `router_ab_cloudflare_separate_accounts_v1` as the insider-risk
-  hardening path.
+      hardening path.
 - [ ] Document `router_ab_provider_diverse_v1` as the enterprise
-  highest-assurance path.
+      highest-assurance path.
 - [ ] Keep one-Worker self-host docs under local/dev/evaluation/escape-hatch
-  language.
+      language.
 
 ## Decision Summary
 

@@ -1,0 +1,164 @@
+# Router A/B Cloudflare deployment environment contract.
+# Copy the values into GitHub Environments named staging and production.
+# Keep real private values in GitHub secrets or a secret manager.
+
+version: 1
+
+github_actions:
+  workflow: .github/workflows/deploy-router-ab.yml
+  dispatch_roles:
+    - all
+    - router
+    - deriver-a
+    - deriver-b
+    - signing-worker
+  deploy_order:
+    - signing-worker
+    - deriver-a
+    - deriver-b
+    - router
+
+github_environments:
+  staging:
+    vars:
+      ROUTER_AB_JWT_ISSUER: 'https://issuer-staging.example'
+      ROUTER_AB_JWT_AUDIENCE: 'router-ab'
+      ROUTER_AB_JWT_JWKS_URL: 'https://issuer-staging.example/.well-known/jwks.json'
+      ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY: 'x25519:<64-lowercase-hex>'
+      ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY: 'x25519:<64-lowercase-hex>'
+      ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: 'x25519:<64-lowercase-hex>'
+      ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX: '<64-lowercase-hex>'
+      ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX: '<64-lowercase-hex>'
+    secrets:
+      CLOUDFLARE_API_TOKEN: '<worker-deploy-token>'
+      CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      SIGNER_A_ROOT_SHARE_WIRE_SECRET: 'mpc-prf-root-share-wire-v1:<hex-wire-secret>'
+      SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY: 'hpke-x25519-private-v1:<64-lowercase-hex>'
+      SIGNER_A_PEER_SIGNING_KEY: '<32-byte-unpadded-base64url>'
+      SIGNER_B_ROOT_SHARE_WIRE_SECRET: 'mpc-prf-root-share-wire-v1:<hex-wire-secret>'
+      SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY: 'hpke-x25519-private-v1:<64-lowercase-hex>'
+      SIGNER_B_PEER_SIGNING_KEY: '<32-byte-unpadded-base64url>'
+      SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY: 'hpke-x25519-server-output-private-v1:<64-lowercase-hex>'
+
+  production:
+    vars:
+      ROUTER_AB_JWT_ISSUER: 'https://issuer.example'
+      ROUTER_AB_JWT_AUDIENCE: 'router-ab'
+      ROUTER_AB_JWT_JWKS_URL: 'https://issuer.example/.well-known/jwks.json'
+      ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY: 'x25519:<64-lowercase-hex>'
+      ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY: 'x25519:<64-lowercase-hex>'
+      ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: 'x25519:<64-lowercase-hex>'
+      ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX: '<64-lowercase-hex>'
+      ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX: '<64-lowercase-hex>'
+    secrets:
+      CLOUDFLARE_API_TOKEN: '<worker-deploy-token>'
+      CLOUDFLARE_ACCOUNT_ID: '<account-id>'
+      SIGNER_A_ROOT_SHARE_WIRE_SECRET: 'mpc-prf-root-share-wire-v1:<hex-wire-secret>'
+      SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY: 'hpke-x25519-private-v1:<64-lowercase-hex>'
+      SIGNER_A_PEER_SIGNING_KEY: '<32-byte-unpadded-base64url>'
+      SIGNER_B_ROOT_SHARE_WIRE_SECRET: 'mpc-prf-root-share-wire-v1:<hex-wire-secret>'
+      SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY: 'hpke-x25519-private-v1:<64-lowercase-hex>'
+      SIGNER_B_PEER_SIGNING_KEY: '<32-byte-unpadded-base64url>'
+      SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY: 'hpke-x25519-server-output-private-v1:<64-lowercase-hex>'
+
+cloudflare_workers:
+  router:
+    dispatch_role: router
+    wrangler_config: crates/router-ab-cloudflare/wrangler.router.toml
+    worker_names:
+      staging: router-ab-strict-router-staging
+      production: router-ab-strict-router-prod
+    durable_objects:
+      ROUTER_REPLAY_DO: RouterAbRouterReplayDurableObject
+      ROUTER_LIFECYCLE_DO: RouterAbRouterLifecycleDurableObject
+      ROUTER_PROJECT_POLICY_DO: RouterAbRouterProjectPolicyDurableObject
+      ROUTER_QUOTA_DO: RouterAbRouterQuotaDurableObject
+      ROUTER_ABUSE_DO: RouterAbRouterAbuseDurableObject
+    service_bindings:
+      SIGNER_A: deriver-a
+      SIGNER_B: deriver-b
+      SIGNING_WORKER: signing-worker
+    runtime_vars_from_github:
+      ROUTER_AB_JWT_ISSUER: ROUTER_JWT_ISSUER
+      ROUTER_AB_JWT_AUDIENCE: ROUTER_JWT_AUDIENCE
+      ROUTER_AB_JWT_JWKS_URL: ROUTER_JWT_JWKS_URL
+      ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY: SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY
+      ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY: SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY
+      ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX: SIGNER_A_PEER_VERIFYING_KEY_HEX
+      ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX: SIGNER_B_PEER_VERIFYING_KEY_HEX
+      ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY
+    worker_secrets: []
+    public_keyset_paths:
+      - /.well-known/router-ab/keyset
+      - /v1/router-ab/keyset
+
+  deriver-a:
+    dispatch_role: deriver-a
+    wrangler_config: crates/router-ab-cloudflare/wrangler.signer-a.toml
+    worker_names:
+      staging: router-ab-strict-signer-a-staging
+      production: router-ab-strict-signer-a-prod
+    durable_objects:
+      SIGNER_A_ROOT_SHARE_DO: RouterAbSignerARootShareDurableObject
+    service_bindings:
+      SIGNER_B: deriver-b
+    runtime_vars_from_github:
+      ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY: SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY
+      ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX: SIGNER_A_PEER_VERIFYING_KEY_HEX
+      ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX: SIGNER_B_PEER_VERIFYING_KEY_HEX
+    worker_secrets:
+      SIGNER_A_ROOT_SHARE_WIRE_SECRET:
+        format: 'mpc-prf-root-share-wire-v1:<hex-wire-secret>'
+      SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY:
+        format: 'hpke-x25519-private-v1:<64-lowercase-hex>'
+      SIGNER_A_PEER_SIGNING_KEY:
+        format: '<32-byte-unpadded-base64url>'
+
+  deriver-b:
+    dispatch_role: deriver-b
+    wrangler_config: crates/router-ab-cloudflare/wrangler.signer-b.toml
+    worker_names:
+      staging: router-ab-strict-signer-b-staging
+      production: router-ab-strict-signer-b-prod
+    durable_objects:
+      SIGNER_B_ROOT_SHARE_DO: RouterAbSignerBRootShareDurableObject
+    service_bindings:
+      SIGNER_A: deriver-a
+    runtime_vars_from_github:
+      ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY: SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY
+      ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX: SIGNER_A_PEER_VERIFYING_KEY_HEX
+      ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX: SIGNER_B_PEER_VERIFYING_KEY_HEX
+    worker_secrets:
+      SIGNER_B_ROOT_SHARE_WIRE_SECRET:
+        format: 'mpc-prf-root-share-wire-v1:<hex-wire-secret>'
+      SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY:
+        format: 'hpke-x25519-private-v1:<64-lowercase-hex>'
+      SIGNER_B_PEER_SIGNING_KEY:
+        format: '<32-byte-unpadded-base64url>'
+
+  signing-worker:
+    dispatch_role: signing-worker
+    wrangler_config: crates/router-ab-cloudflare/wrangler.signing-worker.toml
+    worker_names:
+      staging: router-ab-strict-signing-worker-staging
+      production: router-ab-strict-signing-worker-prod
+    durable_objects:
+      SIGNING_WORKER_SERVER_OUTPUT_DO: RouterAbSigningWorkerServerOutputDurableObject
+    service_bindings: {}
+    runtime_vars_from_github:
+      ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY
+    worker_secrets:
+      SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY:
+        format: 'hpke-x25519-server-output-private-v1:<64-lowercase-hex>'
+
+workflow_commands:
+  keygen_staging: 'pnpm router:deploy:keygen -- --env staging'
+  keygen_apply_staging: 'pnpm router:deploy:keygen -- --env staging --apply'
+  validate_staging: 'gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=validate -f role=all'
+  upload_staging: 'gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=upload-version -f role=all'
+  deploy_staging: 'gh workflow run deploy-router-ab.yml --ref dev -f target=staging -f operation=deploy -f role=all'
+  keygen_production: 'pnpm router:deploy:keygen -- --env production'
+  keygen_apply_production: 'pnpm router:deploy:keygen -- --env production --apply'
+  validate_production: 'gh workflow run deploy-router-ab.yml --ref main -f target=production -f operation=validate -f role=all'
+  upload_production: 'gh workflow run deploy-router-ab.yml --ref main -f target=production -f operation=upload-version -f role=all'
+  deploy_production: 'gh workflow run deploy-router-ab.yml --ref main -f target=production -f operation=deploy -f role=all'

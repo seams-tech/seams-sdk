@@ -81,12 +81,11 @@ jobs:
           done
 
       - name: Run local four-worker smoke
-        run: pnpm router-ab:local:smoke:ci
+        run: pnpm router:smoke
 
       - name: Run Cloudflare startup dry-run
         run: |
-          pnpm -C crates/router-ab-cloudflare measure:startup-latencies -- \
-            --dry-run \
+          pnpm router:deploy:dry-run -- \
             --out reports/startup-latencies/router-ab-github-dry-run-${{ github.run_id }}.json
 
       - name: Upload Router A/B startup dry-run report

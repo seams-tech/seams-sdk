@@ -18,7 +18,7 @@ Router A/B security boundary.
 
 Terminology: target architecture prose uses `Deriver A`, `Deriver B`, and
 `SigningWorker`. Current implementation labels such as `SignerA`, `SignerB`,
-`SIGNER_A_*`, `SIGNER_B_*`, and relayer-labelled activation types are
+`SIGNER_A_*`, `SIGNER_B_*`, and server-labelled activation types are
 transitional and should be renamed during the slimming refactor.
 
 ## Protocol Decision Gates
@@ -54,8 +54,8 @@ Release gates after selection:
 - one-party leakage analysis for A-side derived material
 - one-party leakage analysis for B-side derived material
 - review of what a leaked derived wallet share reveals about `k_org`
-- proof or clear argument that no party opens joined `y_relayer` or
-  `tau_relayer`
+- proof or clear argument that no party opens joined `y_server` or
+  `tau_server`
 - address/public-key parity tests before and after root-share refresh
 - decision on whether Candidate A DLEQ verification ships in the first
   production path or remains stronger hardening after Minimum Level C
@@ -105,7 +105,7 @@ analysis:
 
 Pass criteria:
 
-- no participant opens joined `y_relayer` or `tau_relayer`
+- no participant opens joined `y_server` or `tau_server`
 - one-party leakage is documented and accepted
 - vectors are deterministic across native Rust and Wasm
 - output shares feed the role-separated HSS API without joined-state adapters
@@ -130,8 +130,8 @@ Forbidden A/B API inputs and outputs:
 
 - joined `d`
 - joined `a`
-- joined `y_relayer`
-- joined `tau_relayer`
+- joined `y_server`
+- joined `tau_server`
 - joined `x_client_base`
 - `DdhHssSharedWord`-style joined hidden words in production routes
 - evaluator driver state that lets one server reconstruct protected values
@@ -193,7 +193,7 @@ Registration/export/recovery/refresh:
   Client -> Router -> Deriver A and Deriver B
   Deriver A <-> Deriver B
   Deriver A/B -> SigningWorker
-  SigningWorker activates x_relayer_base
+  SigningWorker activates x_server_base
   SigningWorker -> Router activation receipt
 
 Normal signing:
@@ -202,17 +202,17 @@ Normal signing:
 
 Deriver A and Deriver B are derivation workers. They hold role-local derivation
 material and produce recipient-scoped proof bundles for the client and
-SigningWorker. The SigningWorker is allowed to open `x_relayer_base`.
+SigningWorker. The SigningWorker is allowed to open `x_server_base`.
 Deriver A, Deriver B, Router, and diagnostics sinks must never open
-`x_client_base`, joined `d`, joined `a`, joined `y_relayer`, or joined
-`tau_relayer`.
+`x_client_base`, joined `d`, joined `a`, joined `y_server`, or joined
+`tau_server`.
 
 Rationale:
 
 - normal signing stays on a Router plus one worker path
 - Deriver A and Deriver B leave the hot signing path after derivation-time
   ceremonies
-- the role name describes signing responsibility and avoids transaction-relayer
+- the role name describes signing responsibility and avoids transaction-server
   ambiguity
 - Router remains secret-light
 - direct Deriver A/B -> SigningWorker delivery avoids an extra Router relay
@@ -293,23 +293,23 @@ fixed point.
 
 ## Threat Claim Matrix
 
-| Compromise            | Expected exposure                                   | Required containment                                                          |
-| --------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------- |
-| Router                | public metadata, ciphertext, hashes, timings        | no deriver plaintext, no root shares, no output shares                        |
-| Deriver A             | A custody material, A local derived material        | no B plaintext, no `x_client_base`, no `x_relayer_base`, no joined `d` or `a` |
-| Deriver B             | B custody material, B local derived material        | no A plaintext, no `x_client_base`, no `x_relayer_base`, no joined `d` or `a` |
-| A and B               | server-side custody may be compromised              | incident response may require root replacement or wallet migration            |
-| SigningWorker         | `x_relayer_base` and normal-signing state           | no `k_org`, no joined `y_relayer`, no joined `d`, no `x_client_base`          |
-| Client                | that user's client output path and local material   | no server root material, no `y_relayer`, no `tau_relayer`                     |
-| A storage or KEK only | A sealed/plain share according to the key boundary  | no B share, no joined root                                                    |
-| B storage or KEK only | B sealed/plain share according to the key boundary  | no A share, no joined root                                                    |
-| Logs/observability    | public metadata, hashes, state transitions, timings | no protocol payload plaintext                                                 |
+| Compromise            | Expected exposure                                   | Required containment                                                         |
+| --------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Router                | public metadata, ciphertext, hashes, timings        | no deriver plaintext, no root shares, no output shares                       |
+| Deriver A             | A custody material, A local derived material        | no B plaintext, no `x_client_base`, no `x_server_base`, no joined `d` or `a` |
+| Deriver B             | B custody material, B local derived material        | no A plaintext, no `x_client_base`, no `x_server_base`, no joined `d` or `a` |
+| A and B               | server-side custody may be compromised              | incident response may require root replacement or wallet migration           |
+| SigningWorker         | `x_server_base` and normal-signing state            | no `k_org`, no joined `y_server`, no joined `d`, no `x_client_base`          |
+| Client                | that user's client output path and local material   | no server root material, no `y_server`, no `tau_server`                      |
+| A storage or KEK only | A sealed/plain share according to the key boundary  | no B share, no joined root                                                   |
+| B storage or KEK only | B sealed/plain share according to the key boundary  | no A share, no joined root                                                   |
+| Logs/observability    | public metadata, hashes, state transitions, timings | no protocol payload plaintext                                                |
 
 Claim language for initial release:
 
 ```text
 Router A/B Level C prevents a single production server process from holding
-joined d, a, x_client_base, y_relayer, or tau_relayer during derivation-time
+joined d, a, x_client_base, y_server, or tau_server during derivation-time
 ceremonies, assuming the role-separated protocol boundary is followed.
 ```
 
@@ -326,7 +326,7 @@ Request kinds:
 - `registration`
 - `key_export`
 - `recovery`
-- `relayer_share_refresh`
+- `server_share_refresh`
 
 Suggested state model:
 
@@ -374,7 +374,7 @@ State rules:
 - `ClientOutputReady` can expose only encrypted client-output packages.
 - `SigningWorkerOutputReady` can expose only SigningWorker-output packages.
 - `Activated` is valid only after the SigningWorker opens and records
-  `x_relayer_base`.
+  `x_server_base`.
 - terminal states are `Activated`, `Failed`, `Expired`, and `Abandoned`.
 - stale, expired, or wrong-epoch messages must fail closed.
 
@@ -411,11 +411,11 @@ Implementation status as of 2026-06-14:
   a stored lifecycle starts as `Requested`, advances once to a gate or fallback
   outcome, accepts exact idempotent retries, and rejects skipped or rewritten
   transitions.
-- The full `DerivationCeremony` persistence record for `Created -> ... ->
-Activated/Failed/Expired/Abandoned` is still a production release blocker.
-  The deploy workflow runs `pnpm -C crates/router-ab-cloudflare
-assert:release-ready`, which fails until that dedicated Cloudflare ceremony
-  lifecycle record exists.
+- `router-ab-cloudflare` now has a dedicated
+  `CloudflareDerivationCeremonyV1` Durable Object record for
+  the full `Created -> ... -> Activated/Failed/Expired/Abandoned` transition
+  table. The store rejects skipped activation, stale transitions, scope
+  changes, and terminal rewrites.
 
 ## Transcript Binding Spec
 
@@ -501,7 +501,7 @@ pub enum RequestKind {
     Registration,
     KeyExport,
     Recovery,
-    RelayerShareRefresh,
+    ServerShareRefresh,
 }
 
 pub struct RoleIdentity {
@@ -654,7 +654,7 @@ returning accepted startup descriptors.
 
 Strict server-blind production uses recipient-side combine. A and B return only
 recipient-scoped proof-batch material: the client receives only `x_client_base`
-proof bundles, and the standalone SigningWorker receives only `x_relayer_base`
+proof bundles, and the standalone SigningWorker receives only `x_server_base`
 proof bundles. Each recipient combines its own output locally.
 
 The decrypted strict delivery payload is `RecipientProofBundlePayloadV1`. The
@@ -950,11 +950,11 @@ Router response:
 ```
 
 SigningWorker-share refresh uses the same outer shape with the current
-`relayer_share_refresh` request-kind label:
+`server_share_refresh` request-kind label:
 
 ```json
 {
-  "request_kind": "relayer_share_refresh",
+  "request_kind": "server_share_refresh",
   "a_envelope_b64u": "b64u_canonical_encrypted_a_refresh",
   "b_envelope_b64u": "b64u_canonical_encrypted_b_refresh"
 }
@@ -1001,9 +1001,9 @@ Required:
 - output-kind checks
 - downgrade rejection for clients requiring split derivation
 - no single server process materializes joined `d`, `a`, `x_client_base`,
-  `y_relayer`, or `tau_relayer`
+  `y_server`, or `tau_server`
 - client opens only `x_client_base`
-- SigningWorker opens only `x_relayer_base`
+- SigningWorker opens only `x_server_base`
 
 Known limitation:
 
@@ -1051,11 +1051,11 @@ Forbidden logs and metrics:
 - A/B protocol payload plaintext
 - root shares
 - `y_A`, `y_B`, `tau_A`, `tau_B`
-- joined `y_relayer` or `tau_relayer`
+- joined `y_server` or `tau_server`
 - joined `d` or `a`
 - output shares
 - `x_client_base`
-- `x_relayer_base`
+- `x_server_base`
 - OT labels, evaluator driver state, joined hidden words
 
 Typed diagnostics:
@@ -1317,7 +1317,7 @@ sequenceDiagram
   B->>R: encrypted client package B
   A->>SW: encrypted SigningWorker package A
   B->>SW: encrypted SigningWorker package B
-  SW->>SW: open and activate x_relayer_base
+  SW->>SW: open and activate x_server_base
   SW->>R: activation receipt/status
   R->>C: encrypted client packages
   C->>C: open x_client_base
@@ -1334,7 +1334,7 @@ sequenceDiagram
   C->>R: signing request
   R->>R: auth, policy, rate limit
   R->>SW: normal signing request
-  SW->>SW: use active x_relayer_base
+  SW->>SW: use active x_server_base
   SW->>R: threshold signing response
   R->>C: signature response
 ```
@@ -1477,7 +1477,10 @@ Required before production recipient-output encryption:
 - [ ] Record native and Wasm CPU time.
 - [ ] Record message count and total bytes.
 - [x] Record estimated A/B round trips.
-- [ ] Verify candidate outputs can feed the role-separated HSS API.
+- [x] Verify candidate outputs can feed the role-separated HSS API.
+  - [x] Added Ed25519-HSS role-separated normal-signing parity tests that feed
+        fixture `x_client_base`/`x_server_base` outputs into the client/server
+        verifying-share relation and produce a standard Ed25519 signature.
 - [x] Select the candidate or explicitly continue both as experiments.
   - [x] Add the selected `mpc_threshold_prf_v1` deriver batch-evaluation
         backend for all requested deriver outputs.
@@ -1495,30 +1498,97 @@ Required before production recipient-output encryption:
 
 ### Phase 5: Role-Separated HSS Integration
 
-- [ ] Add the new role-separated HSS API.
+- [x] Add the new role-separated HSS API.
+      `ed25519_hss::role_signing` now exposes round-1 nonce/commitment state,
+      client/server verifying-share derivation, client signature-share creation,
+      and server finalization from `x_server_base` without reconstructing joined
+      `a` or importing an Ed25519 private key.
 - [ ] Wire selected split derivation output into A/B HSS.
 - [x] Produce encrypted client-output packages.
       Cloudflare and local deriver paths now deliver encrypted recipient proof
       bundles for the client recipient path instead of joined server-side output.
 - [x] Produce SigningWorker-output packages for the active SigningWorker.
-      SigningWorker activation now receives encrypted `x_relayer_base ->
+      SigningWorker activation now receives encrypted `x_server_base ->
 SigningWorker` proof bundles and opens them only at the SigningWorker
       boundary.
 - [x] Materialize active SigningWorker state plus SigningWorker-local material
       before the normal-signing handler boundary.
       Cloudflare now has a typed `SigningWorkerOutputMaterialGet` Durable Object
-      operation and a materialized normal-signing request shape. The production
-      signing handler remains blocked on the role-separated Ed25519-HSS signing API.
-- [ ] Verify no joined `d`, `a`, `y_relayer`, `tau_relayer`, or
+      operation and a materialized normal-signing request shape.
+- [x] Persist server round-1 nonce material before the normal-signing handler
+      boundary.
+      `CloudflareSigningWorkerRound1RecordV1` stores server nonce state in the
+      SigningWorker server-output Durable Object, rejects conflicting puts, and
+      removes a record only after an exact non-expired take whose
+      `round1_binding_digest` matches the prepared signing context.
+- [x] Add the normal-signing round-1 prepare route.
+      `NormalSigningRound1PrepareRequestV1` and
+      `NormalSigningRound1PrepareResponseV1` define the Router-facing prepare
+      boundary. Cloudflare public `/v1/hss/sign/prepare` and private
+      `/router-ab/v1/signing-worker/sign/prepare` routes authorize prepare
+      through the normal-signing JWT/policy/quota/abuse path, generate
+      SigningWorker server commitments, persist nonce state, and return the
+      server round-1 handle plus public server verification material.
+- [x] Require two-party Ed25519/FROST finalization material in
+      `NormalSigningRequestV1`.
+      A normal-signing request now carries the server round-1 handle,
+      client/server commitments, client/server verifying shares, and the client
+      signature share. A metadata-only request cannot reach the handler.
+- [x] Wire the production role-separated Ed25519/FROST finalizer behind
+      `CloudflareSigningWorkerNormalSigningHandlerV1`.
+      The strict SigningWorker uses
+      `CloudflareRoleSeparatedEd25519NormalSigningHandlerV1`, which finalizes
+      through `ed25519_hss::role_signing` from `x_server_base`, persisted server
+      round-1 state, and client-supplied finalize material.
+- [x] Replace local normal-signing smoke signatures with the production
+      Ed25519-HSS two-step shape.
+      The local Router and SigningWorker now expose prepare/finalize routes,
+      store SigningWorker server round-1 nonce records in-process, and return
+      `ed25519_v1` signatures through the same role-separated signing primitive.
+- [x] Expose the browser-side client-share primitive for role-separated
+      Ed25519 normal signing.
+      `wasm/hss_client_signer` and the SDK HSS worker now accept required
+      32-byte base64url client/server share material, server commitments, and
+      non-empty signing payload bytes, then return only client commitments,
+      client verifying share, and the client signature share.
+- [x] Wire the SDK NEAR transaction normal-signing client through Router A/B
+      prepare, browser HSS-client share generation, Router A/B finalize, and
+      local NEAR transaction signature attachment. The path requires explicit
+      `routerAbNormalSigning.signingWorkerId` session metadata and verifies the
+      returned scope plus signing-payload digest.
+- [x] Add shared `routerAbNormalSigning` session metadata parsing and preserve
+      it through SDK sealed-session storage plus server Ed25519 session
+      policy/response normalization.
+- [x] Add deployment/runtime configuration for selecting the production
+      SigningWorker id and populating
+      `sessionPolicy.routerAbNormalSigning.signingWorkerId`.
+      `routerAb.normalSigning.mode="enabled"` requires a typed
+      `signingWorkerId` in SDK config, `VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID`
+      drives demo frontend sessions, and
+      `ROUTER_AB_NORMAL_SIGNING_WORKER_ID` constrains relay/server session
+      policy acceptance.
+- [ ] Extend Router A/B SDK normal signing to signature-only Ed25519 flows
+      such as NEP-413 and delegate actions.
+- [x] Verify no joined `d`, `a`, `y_server`, `tau_server`, or
       `x_client_base` appears in production role paths.
-      Existing source guards cover the current Router/A/B boundary. Final
-      production-path evidence remains open until the role-separated Ed25519-HSS
-      normal signer is wired.
+      Source guards cover the Cloudflare normal-signing production paths and
+      reject joined-state recovery, direct Ed25519 private-key import, and the
+      old unconfigured-handler stub.
 - [ ] Add address/public-key parity vectors.
-- [ ] Persist and enforce the full Cloudflare `DerivationCeremony` lifecycle
+      The role-separated normal-signing parity test now covers public-key and
+      signature verification against committed HSS fixtures. Address-format
+      vectors still need to be recorded for chain-specific consumers.
+- [ ] Review `group_public_key` in normal-signing finalize material.
+      This does not keep P1 open because the strict path finalizes through the
+      role-separated SigningWorker handler, but production hardening should
+      either remove the client-supplied field from finalize material or add
+      explicit transcript-bound parity vectors proving it cannot alter the
+      committed public-key/address identity.
+- [x] Persist and enforce the full Cloudflare `DerivationCeremony` lifecycle
       state machine at the Durable Object boundary.
-      Current Cloudflare storage enforces only the Router admission lifecycle
-      transition table.
+      `CloudflareDerivationCeremonyV1` is a dedicated Durable Object record and
+      enforces the Cloudflare release lifecycle separately from Router
+      admission state.
 
 ### Phase 6: Cloudflare Prototype
 
@@ -1533,8 +1603,9 @@ SigningWorker` proof bundles and opens them only at the SigningWorker
       admission lifecycle, root-share startup metadata, and SigningWorker-output
       activation.
       Router admission lifecycle storage rejects skipped and rewritten
-      transitions. Full derivation ceremony lifecycle storage remains tracked in
-      Phase 5 as a production release blocker.
+      transitions. Full derivation ceremony lifecycle storage now uses
+      `CloudflareDerivationCeremonyV1` and enforces the release transition
+      table separately from Router admission state.
 - [x] Add feature-gated `workers-rs` Durable Object fetch/storage wrapper.
 - [x] Add initial thin `workers-rs` Router startup/runtime wrapper.
 - [x] Add transport-neutral public Router request boundary.
@@ -1654,7 +1725,7 @@ SigningWorker` proof bundles and opens them only at the SigningWorker
             test or weaker deployment profile.
       - [x] Add core recipient-scoped proof-batch views so client delivery can
             carry only `x_client_base` proof bundles and SigningWorker delivery
-            can carry only `x_relayer_base` proof bundles.
+            can carry only `x_server_base` proof bundles.
       - [x] Add a core one-recipient combine helper that opens exactly one
             requested output binding and rejects missing or mismatched recipient
             proof bundles.
@@ -1691,7 +1762,7 @@ SigningWorker` proof bundles and opens them only at the SigningWorker
           Cloudflare adapters use the same package commitment logic with
           adapter-specific recipient encryption.
     - [x] Specify and bind the selected SigningWorker recipient encryption key
-          in the current relayer-labelled identity type, deriver-set canonical
+          in the current server-labelled identity type, deriver-set canonical
           bytes, and transcript digests for HPKE SigningWorker delivery.
 - [x] Add required authenticated A/B peer-message envelopes with canonical
       bytes-to-sign, sender/recipient direction binding, transcript binding,
@@ -1746,19 +1817,29 @@ SigningWorker` proof bundles and opens them only at the SigningWorker
         1 round trip 62.882 us; 2 round trips 82.568 us;
         3 round trips 102.72 us; 4 round trips 123.85 us.
 
-### Phase 7: Recovery, Rotation, And Migration
+### Phase 7: Router A/B Server-Custody Rotation And Migration
 
-- [ ] Implement role-local share rewrap.
+Wallet and lane-level share rotation moved to
+[refactor-72-share-rotation.md](./refactor-72-share-rotation.md). This Router
+A/B phase owns server-custody rotation, root-share refresh, self-host migration
+evidence, and Router A/B stale-epoch rejection.
+
+- [ ] Implement role-local share rewrap as server internal custody rotation.
 - [ ] Implement distributed or approved-provisioning root-share refresh.
-- [ ] Verify address/public-key parity before and after root-share refresh.
-- [ ] Run signing-worker share refresh after root-share epoch changes when
-      policy requires it.
-- [ ] Implement self-host export/import vectors.
+- [ ] Produce Router A/B address/public-key parity evidence before and after
+      root-share refresh.
+- [ ] Run SigningWorker server-share or custody refresh after root-share epoch
+      changes when policy requires it.
+- [ ] Implement self-host export/import vectors for Router A/B custody.
 - [ ] Verify hosted disablement and share retirement evidence.
-- [ ] Test rollback behavior.
+- [ ] Test Router A/B root-epoch rollback behavior and stale-epoch rejection.
 
 ### Phase 8: Production Hardening
 
+- [x] Add deployment identity key generation for Deriver A, Deriver B, and
+      SigningWorker.
+- [x] Add Router public keyset discovery and SDK registration-time keyset
+      prefetch for the active single-epoch deployment keys.
 - [ ] Split Router, A, and B across separate Cloudflare accounts if required.
 - [ ] Add deriver identity pinning and key-epoch rotation runbooks.
 - [ ] Revisit deriver-envelope HPKE rotation semantics after MVP: current and
@@ -1772,43 +1853,20 @@ SigningWorker` proof bundles and opens them only at the SigningWorker
 
 ### Post-MVP Phase: ECDSA-HSS Router-A-B Version
 
-Decision: keep ECDSA-HSS as a separate post-MVP protocol version. Router-A-B
-for ECDSA-HSS is a provisioning/export hardening layer, while normal ECDSA
-signing remains:
+The detailed post-MVP ECDSA-HSS Router-A-B plan is owned by
+[router-a-b-ecdsa.md](router-a-b-ecdsa.md). Keep this spec focused on the
+current Ed25519-HSS Router-A-B MVP and its production hardening gates.
 
-```text
-Client -> Router -> SigningWorker -> Router -> Client
-```
+The ECDSA plan keeps these cross-reference decisions:
 
-Rationale:
-
-- The active ECDSA-HSS design is role-local additive derivation:
-  `x = x_client + x_relayer mod n`.
-- The ECDSA-HSS server-blindness invariant requires production server paths to
-  avoid reconstructing canonical `x` and to avoid combining client-owned secret
-  input with server-owned secret input.
-- A single provisioning worker that handles client bootstrap state plus relayer
-  derivation/export material can reconstruct or log export-capable material.
-  Router-A-B segregation keeps ECDSA registration, export, recovery, and
-  activation material split across Deriver A and Deriver B before the
-  SigningWorker receives activation material.
-- The ECDSA-HSS version needs its own domain labels, transcript fields,
-  secp256k1 validation rules, address/public-key parity vectors, export policy,
-  activation records, and leakage review.
-
-Todo:
-
-- [ ] Define `router_ab_ecdsa_hss_secp256k1_v1` or equivalent.
-- [ ] Specify ECDSA-HSS Deriver A/B outputs and SigningWorker activation
-      records.
-- [ ] Bind secp256k1 compressed public keys, Ethereum address, context binding,
-      deriver identities, SigningWorker identity, export authorization digest,
-      and replay nonce into ECDSA-specific transcripts.
-- [ ] Preserve explicit export semantics: only the authorized client export
-      runtime reconstructs `privateKeyHex`.
-- [ ] Add source guards and fixtures proving production Router, Deriver, and
-      SigningWorker paths cannot materialize canonical `x`.
-- [ ] Benchmark ECDSA-HSS setup/export/activation separately from normal signing.
+- ECDSA-HSS uses a separate `router_ab_ecdsa_hss_secp256k1_v1` protocol
+  version.
+- Router-A-B applies to ECDSA registration, session bootstrap, recovery,
+  explicit key export, and SigningWorker activation.
+- Normal ECDSA signing remains:
+  `Client -> Router -> SigningWorker -> Router -> Client`.
+- The authorized client export runtime is the only place allowed to reconstruct
+  canonical `x` or `privateKeyHex`.
 
 ## Spec Status Summary
 

@@ -51,7 +51,7 @@ jobs:
       ROUTER_JWT_JWKS_URL: ${{ vars.ROUTER_AB_JWT_JWKS_URL }}
       SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY }}
       SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY }}
-      SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY }}
+      SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY }}
       SIGNER_A_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX }}
       SIGNER_B_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX }}
     steps:
@@ -103,12 +103,11 @@ jobs:
           done
 
       - name: Run local four-worker smoke
-        run: pnpm router-ab:local:smoke:ci
+        run: pnpm router:smoke
 
       - name: Run target Cloudflare startup dry-run
         run: |
-          pnpm -C crates/router-ab-cloudflare measure:startup-latencies -- \
-            --dry-run \
+          pnpm router:deploy:dry-run -- \
             --env ${{ inputs.target }} \
             --out reports/startup-latencies/router-ab-${{ inputs.target }}-dry-run-${{ github.run_id }}.json
 
@@ -140,7 +139,7 @@ jobs:
       ROUTER_JWT_JWKS_URL: ${{ vars.ROUTER_AB_JWT_JWKS_URL }}
       SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY }}
       SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY }}
-      SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY }}
+      SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY: ${{ vars.ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY }}
       SIGNER_A_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX }}
       SIGNER_B_PEER_VERIFYING_KEY_HEX: ${{ vars.ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX }}
       SIGNER_A_ROOT_SHARE_WIRE_SECRET: ${{ secrets.SIGNER_A_ROOT_SHARE_WIRE_SECRET }}
@@ -149,7 +148,7 @@ jobs:
       SIGNER_B_ROOT_SHARE_WIRE_SECRET: ${{ secrets.SIGNER_B_ROOT_SHARE_WIRE_SECRET }}
       SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY: ${{ secrets.SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY }}
       SIGNER_B_PEER_SIGNING_KEY: ${{ secrets.SIGNER_B_PEER_SIGNING_KEY }}
-      SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY: ${{ secrets.SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY }}
+      SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY: ${{ secrets.SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -182,42 +181,68 @@ jobs:
       - name: Check Cloudflare credentials
         run: |
           set -euo pipefail
-          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "CLOUDFLARE_API_TOKEN is required"; exit 1; }
-          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "CLOUDFLARE_ACCOUNT_ID is required"; exit 1; }
+          test -n "${CLOUDFLARE_API_TOKEN:-}" || { echo "::error title=Missing GitHub secret::CLOUDFLARE_API_TOKEN is required"; exit 1; }
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}" || { echo "::error title=Missing GitHub secret::CLOUDFLARE_ACCOUNT_ID is required"; exit 1; }
 
       - name: Check Router A/B public deployment vars
         run: |
           set -euo pipefail
           require_var() {
             local name="$1"
-            test -n "${!name:-}" || { echo "$name is required"; exit 1; }
+            local role_label="${2:-selected Router A/B role}"
+            test -n "${!name:-}" || { echo "::error title=Missing GitHub Environment variable::$name is required for $role_label"; exit 1; }
           }
 
           if [ "$ROLE" = "all" ] || [ "$ROLE" = "router" ]; then
-            require_var ROUTER_AB_JWT_ISSUER
-            require_var ROUTER_AB_JWT_JWKS_URL
+            require_var ROUTER_AB_JWT_ISSUER router
+            require_var ROUTER_AB_JWT_JWKS_URL router
           fi
 
-          if [ "$ROLE" = "all" ] || [ "$ROLE" = "deriver-a" ] || [ "$ROLE" = "deriver-b" ]; then
-            require_var SIGNER_A_PEER_VERIFYING_KEY_HEX
-            require_var SIGNER_B_PEER_VERIFYING_KEY_HEX
+          if [ "$ROLE" = "all" ] || [ "$ROLE" = "router" ] || [ "$ROLE" = "deriver-a" ] || [ "$ROLE" = "deriver-b" ]; then
+            require_var SIGNER_A_PEER_VERIFYING_KEY_HEX "Deriver A/B"
+            require_var SIGNER_B_PEER_VERIFYING_KEY_HEX "Deriver A/B"
           fi
+
+          if [ "$ROLE" = "all" ] || [ "$ROLE" = "router" ] || [ "$ROLE" = "deriver-a" ]; then
+            require_var SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY "Deriver A"
+          fi
+
+          if [ "$ROLE" = "all" ] || [ "$ROLE" = "router" ] || [ "$ROLE" = "deriver-b" ]; then
+            require_var SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY "Deriver B"
+          fi
+
+          if [ "$ROLE" = "all" ] || [ "$ROLE" = "router" ] || [ "$ROLE" = "signing-worker" ]; then
+            require_var SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY SigningWorker
+          fi
+
+      - name: Check Router A/B Worker secrets
+        run: |
+          set -euo pipefail
+          require_secret() {
+            local name="$1"
+            local role_label="$2"
+            test -n "${!name:-}" || { echo "::error title=Missing GitHub secret::$name is required for $role_label"; exit 1; }
+          }
 
           if [ "$ROLE" = "all" ] || [ "$ROLE" = "deriver-a" ]; then
-            require_var SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY
+            require_secret SIGNER_A_ROOT_SHARE_WIRE_SECRET "Deriver A"
+            require_secret SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY "Deriver A"
+            require_secret SIGNER_A_PEER_SIGNING_KEY "Deriver A"
           fi
 
           if [ "$ROLE" = "all" ] || [ "$ROLE" = "deriver-b" ]; then
-            require_var SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY
+            require_secret SIGNER_B_ROOT_SHARE_WIRE_SECRET "Deriver B"
+            require_secret SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY "Deriver B"
+            require_secret SIGNER_B_PEER_SIGNING_KEY "Deriver B"
           fi
 
           if [ "$ROLE" = "all" ] || [ "$ROLE" = "signing-worker" ]; then
-            require_var SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY
+            require_secret SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY SigningWorker
           fi
 
       - name: Check Router A/B release blockers
         if: inputs.operation == 'deploy'
-        run: pnpm -C crates/router-ab-cloudflare assert:release-ready
+        run: pnpm router:deploy:check
 
       - name: Put Router A/B Worker secrets
         run: |
@@ -226,7 +251,6 @@ jobs:
             local config="$1"
             local name="$2"
             local value="$3"
-            test -n "${value:-}" || { echo "$name is required for $config"; exit 1; }
             printf '%s' "$value" \
               | pnpm -C crates/router-ab-cloudflare exec wrangler secret put "$name" --config "$config" --env "$WORKER_ENV"
           }
@@ -244,18 +268,18 @@ jobs:
           fi
 
           if [ "$ROLE" = "all" ] || [ "$ROLE" = "signing-worker" ]; then
-            put_secret wrangler.signing-worker.toml SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY "$SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PRIVATE_KEY"
+            put_secret wrangler.signing-worker.toml SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY "$SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY"
           fi
 
       - name: Upload Router A/B Worker versions
         if: inputs.operation == 'upload-version'
         run: |
           set -euo pipefail
-          args=(--upload --env "$WORKER_ENV" --out "reports/startup-latencies/router-ab-${WORKER_ENV}-upload-${GITHUB_RUN_ID}.json")
+          args=(--env "$WORKER_ENV" --out "reports/startup-latencies/router-ab-${WORKER_ENV}-upload-${GITHUB_RUN_ID}.json")
           if [ "$ROLE" != "all" ]; then
             args+=(--role "$ROLE")
           fi
-          pnpm -C crates/router-ab-cloudflare measure:startup-latencies -- "${args[@]}"
+          pnpm router:deploy:upload -- "${args[@]}"
 
       - name: Deploy Router A/B Workers
         if: inputs.operation == 'deploy'
@@ -289,7 +313,7 @@ jobs:
 
           deploy_signing_worker() {
             local args=(
-              --var "SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY:${SIGNING_WORKER_RELAYER_OUTPUT_HPKE_PUBLIC_KEY}"
+              --var "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:${SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY}"
             )
             deploy_role signing-worker wrangler.signing-worker.toml "${args[@]}"
           }
@@ -302,6 +326,11 @@ jobs:
               --var "ROUTER_JWT_ISSUER:${ROUTER_AB_JWT_ISSUER}"
               --var "ROUTER_JWT_AUDIENCE:${audience}"
               --var "ROUTER_JWT_JWKS_URL:${ROUTER_AB_JWT_JWKS_URL}"
+              --var "SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY:${SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY}"
+              --var "SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY:${SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY}"
+              --var "SIGNER_A_PEER_VERIFYING_KEY_HEX:${SIGNER_A_PEER_VERIFYING_KEY_HEX}"
+              --var "SIGNER_B_PEER_VERIFYING_KEY_HEX:${SIGNER_B_PEER_VERIFYING_KEY_HEX}"
+              --var "SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY:${SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY}"
             )
             deploy_role router wrangler.router.toml "${args[@]}"
           }

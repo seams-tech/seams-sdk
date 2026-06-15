@@ -283,13 +283,13 @@ Expected behavior:
 - `router:init` generates dev-only env files, keys, and SQLite seed data.
 - `router:up` starts four detached processes and writes pids under
   `.router-ab-local/pids`.
-- `router:check` runs setup/activation and normal-signing smoke tests through
-  an already running Router public URL.
+- `router:check` runs setup/activation and normal-signing prepare/finalize
+  smoke tests through an already running Router public URL.
 - `router:smoke` starts four ephemeral workers, runs the same smoke checks, and
   tears the workers down.
 - `router:smoke:bundled` starts one ephemeral bundled server, runs the same
-  setup/activation and normal-signing checks through one listener, and tears it
-  down.
+  setup/activation and normal-signing prepare/finalize checks through one
+  listener, and tears it down.
 - `router:down` stops only pids created by `router:up`.
 - `router` starts Router, Deriver A, Deriver B, and SigningWorker in one
   terminal with interleaved color-labeled logs and stops all four workers on
@@ -498,6 +498,10 @@ Release gates before Cloudflare deployment:
       2026-06-14 local run: setup `18 ms`, SigningWorker activation `1 ms`,
       normal signing `0 ms`, total `36 ms`; Deriver A/B normal-signing request
       counts stayed `0`.
+- [x] Move local normal-signing smoke from `local_dev_ed25519_v1` to the
+      production Ed25519-HSS prepare/finalize shape. Current
+      `pnpm router:smoke` and `pnpm router:smoke:bundled` runs report
+      `normal_signing_status: "ed25519_v1"`.
 - [ ] Record deployed Cloudflare startup and hot-path benchmarks next to the
       local timing evidence.
 

@@ -20,6 +20,10 @@ interface ImportMetaEnv {
   readonly VITE_ARC_EXPLORER?: string;
   readonly VITE_SIGNING_SESSION_TTL_MS?: string;
   readonly VITE_SIGNING_SESSION_REMAINING_USES?: string;
+  readonly VITE_SIGNING_SESSION_PERSISTENCE_MODE?: string;
+  readonly VITE_SIGNING_SESSION_SEAL_KEY_VERSION?: string;
+  readonly VITE_SIGNING_SESSION_SHAMIR_P_B64U?: string;
+  readonly VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID?: string;
   readonly VITE_ROR_ALLOWED_ORIGINS?: string;
   readonly VITE_DEMO_CONTRACT_ID?: string;
 

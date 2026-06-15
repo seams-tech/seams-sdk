@@ -111,6 +111,15 @@ const signingSessionPersistenceMode = parseSigningSessionPersistenceMode(
 );
 const signingSessionSealKeyVersion = toOptionalString(env.VITE_SIGNING_SESSION_SEAL_KEY_VERSION);
 const signingSessionSealShamirPrimeB64u = toOptionalString(env.VITE_SIGNING_SESSION_SHAMIR_P_B64U);
+const routerAbNormalSigningWorkerId = toOptionalString(env.VITE_ROUTER_AB_NORMAL_SIGNING_WORKER_ID);
+const routerAb: SeamsConfigsInput['routerAb'] | undefined = routerAbNormalSigningWorkerId
+  ? {
+      normalSigning: {
+        mode: 'enabled',
+        signingWorkerId: routerAbNormalSigningWorkerId,
+      },
+    }
+  : undefined;
 const chains: NonNullable<SeamsConfigsInput['chains']> = [
   {
     network: nearChainNetwork,
@@ -162,6 +171,7 @@ export const FRONTEND_CONFIG = Object.freeze({
   signingSessionPersistenceMode,
   signingSessionSealKeyVersion,
   signingSessionSealShamirPrimeB64u,
+  routerAb,
   dashboardFlags: {
     walletsRoutesEnabled: parseBooleanFlag(env.VITE_DASHBOARD_WALLETS_ROUTES_ENABLED, true),
   },
