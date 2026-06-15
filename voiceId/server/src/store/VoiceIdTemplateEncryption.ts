@@ -66,6 +66,10 @@ const envelopePrefix = `${envelopeSchemaVersion}.`;
 const aesGcmNonceByteLength = 12;
 const aesGcm256KeyByteLength = 32;
 
+function ownedBytes(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  return new Uint8Array(bytes);
+}
+
 export function parseVoiceIdTemplateEncryptionSecret(
   value: unknown,
 ): VoiceIdTemplateEncryptionSecret {
@@ -116,9 +120,9 @@ export class VoiceIdAesGcmTemplateCipher implements VoiceIdTemplateCipher {
     const aad = encodeJson(buildAad(this.config.keyConfig, input.record));
     const ciphertext = new Uint8Array(
       await this.cryptoApi.subtle.encrypt(
-        { name: 'AES-GCM', iv: nonce, additionalData: aad },
+        { name: 'AES-GCM', iv: ownedBytes(nonce), additionalData: ownedBytes(aad) },
         key,
-        encodeUtf8(input.encryptedTemplate),
+        ownedBytes(encodeUtf8(input.encryptedTemplate)),
       ),
     );
     const envelope: VoiceIdTemplateEnvelope = {
@@ -143,11 +147,11 @@ export class VoiceIdAesGcmTemplateCipher implements VoiceIdTemplateCipher {
       await this.cryptoApi.subtle.decrypt(
         {
           name: 'AES-GCM',
-          iv: decodeBase64Url(envelope.nonceBase64Url),
-          additionalData: aad,
+          iv: ownedBytes(decodeBase64Url(envelope.nonceBase64Url)),
+          additionalData: ownedBytes(aad),
         },
         key,
-        decodeBase64Url(envelope.ciphertextBase64Url),
+        ownedBytes(decodeBase64Url(envelope.ciphertextBase64Url)),
       ),
     );
 
@@ -157,7 +161,7 @@ export class VoiceIdAesGcmTemplateCipher implements VoiceIdTemplateCipher {
   private async importAesGcmKey(): Promise<CryptoKey> {
     return await this.cryptoApi.subtle.importKey(
       'raw',
-      this.config.secret.bytes,
+      ownedBytes(this.config.secret.bytes),
       { name: 'AES-GCM' },
       false,
       ['encrypt', 'decrypt'],

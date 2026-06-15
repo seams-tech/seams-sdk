@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { base64UrlEncode } from '@shared/utils/encoders';
 import {
   createHostedSigningRootShareResolver,
   createSelfHostedSigningRootShareResolver,
@@ -37,6 +38,7 @@ const FIXTURE_PATH = resolve(
 );
 const PROJECT_ID = 'project-alpha:dev';
 const SIGNING_ROOT_VERSION = 'root-v1';
+const ECDSA_HSS_FIXTURE_PURPOSE = 'ecdsa-hss/y_server';
 const ECDSA_HSS_CONTEXT = {
   signingRootId: PROJECT_ID,
   signingRootVersion: SIGNING_ROOT_VERSION,
@@ -96,8 +98,8 @@ function shareWires(vector: ThresholdPrfFixtureVector, ids: readonly number[]) {
   });
 }
 
-test('self-host signing-root resolver derives ECDSA HSS y_relayer through policy-shaped shares', async () => {
-  const vector = vectorForPurpose('ecdsa-hss/y_relayer');
+test('self-host signing-root resolver derives ECDSA HSS y_server through policy-shaped shares', async () => {
+  const vector = vectorForPurpose(ECDSA_HSS_FIXTURE_PURPOSE);
   const policy = policyForVector(vector);
   const preferredShareIds = [1, 2] as const;
   const resolver = createSelfHostedSigningRootShareResolver({
@@ -142,7 +144,7 @@ test('self-host signing-root resolver derives ECDSA HSS y_relayer through policy
 });
 
 test('hosted signing-root resolver composes storage and decrypt adapters', async () => {
-  const vector = vectorForPurpose('ecdsa-hss/y_relayer');
+  const vector = vectorForPurpose(ECDSA_HSS_FIXTURE_PURPOSE);
   const policy = policyForVector(vector);
   const preferredShareIds = [1, 2] as const;
   const decryptedById = new Map<number, Uint8Array>(
@@ -200,7 +202,7 @@ test('hosted signing-root resolver composes storage and decrypt adapters', async
 });
 
 test('self-host signing-root resolver derives Ed25519 HSS inputs through policy-shaped shares', async () => {
-  const vector = vectorForPurpose('ecdsa-hss/y_relayer');
+  const vector = vectorForPurpose(ECDSA_HSS_FIXTURE_PURPOSE);
   const policy = policyForVector(vector);
   const preferredShareIds = [1, 2] as const;
   const context = {
@@ -236,14 +238,14 @@ test('self-host signing-root resolver derives Ed25519 HSS inputs through policy-
 
   expect(result.ok).toBe(true);
   if (!result.ok) throw new Error(result.message);
-  expect(result.value.contextBindingB64u).toBe(expected.contextBindingB64u);
-  expect(result.value.yRelayerB64u).toBe(expected.yRelayerB64u);
-  expect(result.value.tauRelayerB64u).toBe(expected.tauRelayerB64u);
+  expect(result.value.contextBindingB64u).toBe(base64UrlEncode(expected.contextBinding));
+  expect(result.value.yRelayerB64u).toBe(base64UrlEncode(expected.yRelayer));
+  expect(result.value.tauRelayerB64u).toBe(base64UrlEncode(expected.tauRelayer));
   expect(result.value.participantIds).toEqual([1, 2]);
 });
 
 test('self-host signing-root resolver rejects wrong scope and duplicate shares', async () => {
-  const vector = vectorForPurpose('ecdsa-hss/y_relayer');
+  const vector = vectorForPurpose(ECDSA_HSS_FIXTURE_PURPOSE);
   const policy = policyForVector(vector);
   const resolver = createSelfHostedSigningRootShareResolver({
     signingRootId: PROJECT_ID,

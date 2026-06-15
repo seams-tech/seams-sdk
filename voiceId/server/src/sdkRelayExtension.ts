@@ -1,55 +1,30 @@
 import { Readable } from 'node:stream';
-import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
+import type { Request as ExpressRequest, Response as ExpressResponse } from 'express-serve-static-core';
+import type { RelayRouterModule } from '../../../packages/sdk-server-ts/src/router/modules';
+import type {
+  RelayCloudflareRouteExtensionInput,
+  RelayExpressRouteExtensionInput,
+  RelayRouteExtension,
+} from '../../../packages/sdk-server-ts/src/router/routeExtensions';
+import type { RouteDefinition } from '../../../packages/sdk-server-ts/src/router/routeDefinitions';
 import type {
   VoiceIdCapabilityRoute,
   VoiceIdServerCapability,
 } from './capability.ts';
 
-export type VoiceIdRelayRouteDefinition = {
-  id: string;
+export type VoiceIdRelayRouteDefinition = RouteDefinition & {
   surface: 'relay';
   method: VoiceIdCapabilityRoute['method'];
-  path: string;
-  auth:
-    | {
-        plane: 'public';
-        rationale: string;
-      }
-    | {
-        plane: 'public';
-        proof: 'challenge_exchange';
-        rationale: string;
-      };
-  metering: { kind: 'none' };
-  summary: string;
 };
 
-export type VoiceIdRelayRouteExtension = {
-  kind: 'universal_route_extension';
+export type VoiceIdRelayRouteExtension = Extract<
+  RelayRouteExtension,
+  { kind: 'universal_route_extension' }
+> & {
   id: 'voice_id';
-  routes: readonly VoiceIdRelayRouteDefinition[];
-  handleCloudflareRoute(input: {
-    request: Request;
-    route: VoiceIdRelayRouteDefinition;
-    pathname: string;
-    method: string;
-    env?: unknown;
-    cfCtx?: unknown;
-  }): Promise<Response>;
-  registerExpressRoutes(input: {
-    router: {
-      get(path: string, handler: (req: ExpressRequest, res: ExpressResponse) => Promise<void>): unknown;
-      post(path: string, handler: (req: ExpressRequest, res: ExpressResponse) => Promise<void>): unknown;
-    };
-    routes: readonly VoiceIdRelayRouteDefinition[];
-  }): void;
 };
 
-export type VoiceIdRelayRouterModule = {
-  kind: 'relay_router_module';
-  id: 'voice_id';
-  routeExtensions: readonly VoiceIdRelayRouteExtension[];
-};
+export type VoiceIdRelayRouterModule = RelayRouterModule & { id: 'voice_id' };
 
 export function createVoiceIdRelayRouterModule(
   capability: VoiceIdServerCapability,
@@ -72,8 +47,9 @@ export function createVoiceIdRelayRouteExtension(
     kind: 'universal_route_extension',
     id: 'voice_id',
     routes,
-    handleCloudflareRoute: async ({ request }) => await capability.fetch(request),
-    registerExpressRoutes({ router }) {
+    handleCloudflareRoute: async ({ request }: RelayCloudflareRouteExtensionInput) =>
+      await capability.fetch(request),
+    registerExpressRoutes({ router }: RelayExpressRouteExtensionInput) {
       for (const route of capability.routes) {
         const handler = async (req: ExpressRequest, res: ExpressResponse): Promise<void> => {
           await pipeWebResponseToExpress(
@@ -149,10 +125,14 @@ function expressRequestToWebRequest(req: ExpressRequest): Request {
   const streamInit: RequestInit & { duplex: 'half' } = {
     method,
     headers,
-    body: Readable.toWeb(req),
+    body: readableBodyFromExpressRequest(req),
     duplex: 'half',
   };
   return new Request(url, streamInit);
+}
+
+function readableBodyFromExpressRequest(req: ExpressRequest): BodyInit {
+  return Readable.toWeb(req as unknown as Readable) as unknown as BodyInit;
 }
 
 function bodyInitFromParsedExpressBody(body: unknown): BodyInit {
@@ -161,16 +141,18 @@ function bodyInitFromParsedExpressBody(body: unknown): BodyInit {
     || body instanceof Blob
     || body instanceof FormData
     || body instanceof URLSearchParams
-    || body instanceof Uint8Array
   ) {
     return body;
+  }
+  if (body instanceof Uint8Array) {
+    return new Uint8Array(body);
   }
   return JSON.stringify(body);
 }
 
 function headersFromExpressRequest(req: ExpressRequest): Headers {
   const headers = new Headers();
-  for (const [name, value] of Object.entries(req.headers)) {
+  for (const [name, value] of Object.entries(req.headers ?? {})) {
     if (value === undefined) continue;
     if (Array.isArray(value)) {
       for (const item of value) {
@@ -191,7 +173,7 @@ function expressRequestUrl(req: ExpressRequest): string {
 }
 
 function firstHeaderValue(req: ExpressRequest, name: string): string | null {
-  const value = req.headers[name.toLowerCase()];
+  const value = (req.headers ?? {})[name.toLowerCase()];
   if (Array.isArray(value)) {
     return value[0] ?? null;
   }

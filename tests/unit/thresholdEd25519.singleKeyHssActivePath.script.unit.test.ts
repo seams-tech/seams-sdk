@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import bs58 from 'bs58';
-import { base64UrlDecode } from '@shared/utils/encoders';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
   ensureThresholdEd25519HssClientBase,
   THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
@@ -213,7 +213,8 @@ const CONTEXT = {
   derivationVersion: 1,
 } as const;
 const PRF_FIRST_B64U = Buffer.alloc(32, 11).toString('base64url');
-const EXPECTED_CLIENT_OUTPUT_MASK_B64U = 'sE_I9hyDmS1AdAYfb4CRx_rehIb4IaF9KOoAQTX2QyQ';
+const EXPECTED_CLIENT_OUTPUT_MASK_B64U = 'J2jMFGn-Vj-mnCmSLP_vnGhiW4Q1KF8_cLKehQ3Gz-E';
+const THRESHOLD_PRF_FIXTURE_PURPOSE = 'ecdsa-hss/y_server';
 const NEAR_SIGNER_WASM_URL = new URL(
   '../../wasm/near_signer/pkg/wasm_signer_worker_bg.wasm',
   import.meta.url,
@@ -233,7 +234,9 @@ function fixtureThresholdPrfVector(): ThresholdPrfFixtureVector {
   const corpus = JSON.parse(readFileSync(THRESHOLD_PRF_FIXTURE_URL, 'utf8')) as {
     readonly vectors?: readonly ThresholdPrfFixtureVector[];
   };
-  const vector = corpus.vectors?.find((candidate) => candidate.purpose === 'ecdsa-hss/y_relayer');
+  const vector = corpus.vectors?.find(
+    (candidate) => candidate.purpose === THRESHOLD_PRF_FIXTURE_PURPOSE,
+  );
   if (!vector) throw new Error('missing threshold-prf fixture vector');
   return vector;
 }
@@ -391,8 +394,8 @@ function createStubbedThresholdEd25519HssCeremonyServer(): {
           garblerDriverStateBytes: base64UrlDecode(preparedServerSession.garblerDriverStateB64u),
         },
         serverInputs: {
-          yRelayerBytes: base64UrlDecode(serverInputs.yRelayerB64u),
-          tauRelayerBytes: base64UrlDecode(serverInputs.tauRelayerB64u),
+          yRelayerBytes: serverInputs.yRelayer,
+          tauRelayerBytes: serverInputs.tauRelayer,
         },
       });
       return {
@@ -760,7 +763,7 @@ async function maybeServeLocalNearSignerWasm(url: string): Promise<Response | nu
     return null;
   }
   const bytes = await readFile(NEAR_SIGNER_WASM_URL);
-  return new Response(bytes, {
+  return new Response(new Uint8Array(bytes), {
     status: 200,
     headers: { 'Content-Type': 'application/wasm' },
   });
@@ -1043,8 +1046,8 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
       JSON.stringify(clientInputs),
       JSON.stringify(clientRequest),
     ]) {
-      expect(payload.includes(serverInputs.yRelayerB64u)).toBeFalsy();
-      expect(payload.includes(serverInputs.tauRelayerB64u)).toBeFalsy();
+      expect(payload.includes(base64UrlEncode(serverInputs.yRelayer))).toBeFalsy();
+      expect(payload.includes(base64UrlEncode(serverInputs.tauRelayer))).toBeFalsy();
     }
   });
 
@@ -1891,8 +1894,8 @@ test.describe('threshold Ed25519 single-key HSS active path', () => {
         derivationVersion: THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
       });
       const storedServerInputs = {
-        yRelayerBytes: base64UrlDecode(serverInputs.yRelayerB64u),
-        tauRelayerBytes: base64UrlDecode(serverInputs.tauRelayerB64u),
+        yRelayerBytes: serverInputs.yRelayer,
+        tauRelayerBytes: serverInputs.tauRelayer,
       };
       const prepared = await prepareThresholdEd25519HssRoleSeparatedServerInputDelivery({
         operation: 'explicit_key_export',

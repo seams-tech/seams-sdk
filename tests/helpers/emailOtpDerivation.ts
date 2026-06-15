@@ -26,6 +26,10 @@ function utf8Bytes(value: string): Uint8Array {
   return textEncoder.encode(String(value));
 }
 
+function ownedBytes(bytes: Uint8Array): Uint8Array<ArrayBuffer> {
+  return new Uint8Array(bytes);
+}
+
 function concatBytes(parts: Uint8Array[]): Uint8Array {
   const total = parts.reduce((sum, part) => sum + part.length, 0);
   const out = new Uint8Array(total);
@@ -59,16 +63,19 @@ export function encodeEmailOtpTuple(fields: Array<string | Uint8Array>): Uint8Ar
   );
 }
 
-async function hmacSha256(keyBytes: Uint8Array, dataBytes: Uint8Array): Promise<Uint8Array> {
+async function hmacSha256(
+  keyBytes: Uint8Array,
+  dataBytes: Uint8Array,
+): Promise<Uint8Array<ArrayBuffer>> {
   const subtle = requireSubtleCrypto();
   const key = await subtle.importKey(
     'raw',
-    keyBytes,
+    ownedBytes(keyBytes),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],
   );
-  const mac = await subtle.sign('HMAC', key, dataBytes);
+  const mac = await subtle.sign('HMAC', key, ownedBytes(dataBytes));
   return new Uint8Array(mac);
 }
 

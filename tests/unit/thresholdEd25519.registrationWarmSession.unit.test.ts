@@ -261,7 +261,6 @@ test.describe('threshold Ed25519 registration warm-session', () => {
 
           await bootstrapMod.persistRegisteredThresholdEd25519Session({
             signingEngine: context.signingEngine,
-            signingRuntime: context.signingRuntime,
             nearAccountId,
             signerSlot: 1,
             auth: { kind: 'passkey' },
