@@ -1,15 +1,18 @@
 # Step-Up Adaptor Refactor Plan
 
 Date created: 2026-05-07
-Status: partially implemented; transaction signing slices are wired, recovery/export is still open
+Status: closed as a historical cleanup tracker. Transaction signing slices are
+wired. The old recovery/export `requireExportStepUpAuth` slice is superseded by
+[refactor-70-passkey-account-refactor.md](./refactor-70-passkey-account-refactor.md)
+and [refactor-71-delegate-wallets.md](./refactor-71-delegate-wallets.md).
 
 Current path note: earlier `sessionEmailOtp/` references now map to
 `session/emailOtp/`.
 
 ## Current Status
 
-As of 2026-05-27, this plan is partly implemented and should be read as a
-cleanup/status tracker:
+As of 2026-06-15, this plan should be read as historical context plus narrow
+guardrails:
 
 - `walletAuth/` has been deleted. Low-level WebAuthn primitives live under
   `webauthnAuth/`, and guard coverage blocks the deleted folder from returning.
@@ -23,16 +26,18 @@ cleanup/status tracker:
 - NEAR transaction, delegate, and NEP-413 signing call
   `flows/signNear/requireNearStepUpAuth.ts`, which delegates to
   `prepareStepUpAuth`.
-- Recovery/export has not been moved to a `requireExportStepUpAuth` wrapper.
-  Export flows still use recovery-local authorization helpers and direct
-  `otpPrompt/*` imports.
+- Recovery/export still uses recovery-local authorization helpers and direct
+  `otpPrompt/*` imports. Do not build the old `requireExportStepUpAuth` wrapper
+  as a standalone refactor; export/recovery will be reshaped by wrapped
+  holder-share envelopes in refactor-70 and explicit lane identity in
+  refactor-71.
 - Future auth methods are placeholder-only in the shared types and runner
   interfaces. There are no runtime folders for authenticator OTP, magic link, or
   password.
 
-The remaining work is primarily cleanup: remove direct operation-flow imports of
-`otpPrompt/*`, remove flow-level `SigningAuthPlanKind` switching, and add the
-recovery/export adaptor slice.
+No broad implementation work remains in this plan. Keep only bug-driven cleanup
+and import-direction guardrails that are still true for current transaction
+signing paths.
 
 ## Purpose
 
@@ -486,35 +491,27 @@ Exit criteria:
 
 ### Phase 5: Recovery And Export Flows
 
-Current status: open. No production `requireExportStepUpAuth` symbol exists.
-Recovery/export confirmation still uses recovery-local helpers and direct
-`otpPrompt/*` import paths.
+Current status: closed as superseded. No production `requireExportStepUpAuth`
+symbol exists, and this plan should not add one. Recovery/export confirmation
+still uses recovery-local helpers and direct `otpPrompt/*` import paths; that is
+acceptable until refactor-70 and refactor-71 replace the underlying export and
+recovery model.
 
-- [ ] Use a narrower `requireExportStepUpAuth` wrapper over the shared
-      `requireStepUpAuth` engine.
-- [ ] Define export-specific request and result types for
-      `requireExportStepUpAuth`:
-      export intent only,
-      export-valid auth policy only,
-      export-specific authorization result only.
-- [ ] Keep `requireExportStepUpAuth` as a thin operation wrapper:
-      export policy shaping,
-      export prompt/display assembly,
-      export-capable runner wiring,
-      then delegate shared method selection/execution to
-      `stepUpConfirmation/requireStepUpAuth.ts`.
-- [ ] Move key-export Email OTP and passkey confirmation routing to the adaptor.
-- [ ] Keep export-specific display and policy data in the recovery/export flow
-      folders.
+- [x] Do not implement the stale `requireExportStepUpAuth` wrapper under this
+      refactor.
+- [x] Document supersession in refactor-70 and refactor-71.
+- [x] Preserve the guardrail that export flows need export-specific auth policy,
+      export-specific prompts, and export-specific authorization results.
+- [ ] Fix only concrete export/recovery bugs or type-check blockers before
+      refactor-70/71 lands.
 
 Exit criteria:
 
-- [ ] Recovery/export flows share lower-level method routing with transaction
-      signing.
-- [ ] Export-specific auth policy remains explicit in the export wrapper
-      request.
-- [ ] Export flows do not accept the broad transaction-signing step-up request
-      shape.
+- [x] Recovery/export wrapper work is explicitly superseded by refactor-70/71.
+- [x] Export flows do not accept the broad transaction-signing step-up request
+      shape as a target design.
+- [ ] Any current export/recovery bug found before refactor-70/71 is fixed
+      narrowly without reopening this refactor.
 
 ### Phase 6: Future Auth Method Slots
 
@@ -535,10 +532,9 @@ Exit criteria:
 ### Phase 7: Delete Old Routing Paths And Guards
 
 - [x] Delete `flows/emailOtp/` after its files move.
-- [ ] Delete direct operation imports of:
-      `stepUpConfirmation/otpPrompt/*`,
-      `stepUpConfirmation/passkeyPrompt/*`,
-      and `SigningAuthPlanKind`.
+- [ ] Keep transaction-signing import-direction guards current. Do not use this
+      old refactor to force recovery/export off `otpPrompt/*` before
+      refactor-70/71 changes the model.
 - [x] Delete direct imports of `walletAuth/*` from signing-engine production
       code. `webauthnAuth/*` is the only remaining low-level WebAuthn owner.
 - [ ] Add guard tests for the deleted paths and blocked imports.
@@ -584,9 +580,7 @@ Add or extend `tests/unit/signingEngine.refactor33.guard.unit.test.ts`:
 
 ## Remaining Decisions
 
-1. Keep `requireStepUpAuth` as the operation-facing API, or rename it to
-   `resolveSigningAuth` if warm-session reuse remains in the same function.
-2. Return method-specific authorization directly, or return a normalized
-   signing authorization consumed by threshold admission.
-3. Keep flat folders like `otpPrompt/` and `passkeyPrompt/`, or move to
+1. Any future export/recovery adaptor should be designed after refactor-70
+   wrapped holder-share envelopes and refactor-71 lane identity land.
+2. Keep flat folders like `otpPrompt/` and `passkeyPrompt/`, or move to
    `stepUpConfirmation/authMethods/<method>/` once the number of methods grows.
