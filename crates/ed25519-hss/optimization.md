@@ -331,7 +331,7 @@ Updated interpretation:
     evaluator artifact
   - the follow-up win was keeping that staged evaluator artifact as raw bytes
     inside the same-process server/wasm path instead of base64-wrapping it
-  - a later retained-state cut also keeps prepared server state and relayer
+  - a later retained-state cut also keeps prepared server state and server
     inputs as raw bytes in memory across the same-process server/wasm bridge
     instead of re-decoding server-owned base64 at ceremony time
   - the latest kept wasm-only win is same-isolate prepared-session reuse:
@@ -391,7 +391,7 @@ Updated interpretation:
     - `dominantBucket`
     - `dominantBucketMs`
     on both registration and sign-path keep-gates
-  - the relayer keep-gates now also assert that cache-hit wasm `/respond`
+  - the server keep-gates now also assert that cache-hit wasm `/respond`
     materialization is effectively gone:
     - `materializationMs <= 1`
     - dominant bucket is not `materializeRuntimeMs` or
@@ -457,7 +457,7 @@ exception after add-stage:
 
 That retained state is accepted because:
 
-- raw relayer roots are dropped after add-stage
+- raw server roots are dropped after add-stage
 - `output_projection` still needs server-owned projector prerequisites later
 - recomputing those prerequisites from scratch would violate the intended
   boundary model

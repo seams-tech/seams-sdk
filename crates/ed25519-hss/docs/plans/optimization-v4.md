@@ -344,7 +344,7 @@ Observed benefit:
 Audit watchpoints:
 
 - keep the retained-state story explicit:
-  - no raw relayer roots after add-stage
+  - no raw server roots after add-stage
   - `projector_inputs` remains the accepted retained-state exception
 
 ### 12. OT Bundle/State Compaction
@@ -457,7 +457,7 @@ What changed:
   - `materializationMs`
   - `dominantBucket`
   - `dominantBucketMs`
-- both the registration-path and sign-path relayer keep-gates now assert that
+- both the registration-path and sign-path server keep-gates now assert that
   summary exists
 
 Why it stayed:

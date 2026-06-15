@@ -144,9 +144,9 @@ fn hidden_eval_operation_shape_records_current_materialization_baseline() {
             session.ddh_backend(),
             session.hidden_eval_constants(),
             &input_bundles.y_client_bits,
-            &input_bundles.server_inputs.y_relayer_bits,
+            &input_bundles.server_inputs.y_server_bits,
             &input_bundles.tau_client_bits,
-            &input_bundles.server_inputs.tau_relayer_bits,
+            &input_bundles.server_inputs.tau_server_bits,
             DdhHiddenEvalClientOutputProjection::client_masked_projection(TEST_CLIENT_OUTPUT_MASK),
         )
         .expect("profile hidden eval");
@@ -245,9 +245,9 @@ fn hidden_eval_operation_counts_for_projection(
             session.ddh_backend(),
             session.hidden_eval_constants(),
             &input_bundles.y_client_bits,
-            &input_bundles.server_inputs.y_relayer_bits,
+            &input_bundles.server_inputs.y_server_bits,
             &input_bundles.tau_client_bits,
-            &input_bundles.server_inputs.tau_relayer_bits,
+            &input_bundles.server_inputs.tau_server_bits,
             projection,
         )?;
     Ok(profile.operation_counts)
@@ -269,9 +269,9 @@ fn assert_hidden_eval_production_matches_checkpoint_trace(
             backend,
             constant_pool,
             &input_bundles.y_client_bits,
-            &input_bundles.server_inputs.y_relayer_bits,
+            &input_bundles.server_inputs.y_server_bits,
             &input_bundles.tau_client_bits,
-            &input_bundles.server_inputs.tau_relayer_bits,
+            &input_bundles.server_inputs.tau_server_bits,
             projection,
         )?;
     let (checkpoint_trace, checkpoint_profile) =
@@ -280,9 +280,9 @@ fn assert_hidden_eval_production_matches_checkpoint_trace(
             backend,
             constant_pool,
             &input_bundles.y_client_bits,
-            &input_bundles.server_inputs.y_relayer_bits,
+            &input_bundles.server_inputs.y_server_bits,
             &input_bundles.tau_client_bits,
-            &input_bundles.server_inputs.tau_relayer_bits,
+            &input_bundles.server_inputs.tau_server_bits,
             projection,
         )?;
 
@@ -345,8 +345,8 @@ struct HiddenEvalByteEquivalenceSignature {
     client_output_value_kind: ClientOutputValueKind,
     canonical_seed_commitment: [u8; 32],
     client_output_commitment: [u8; 32],
-    x_relayer_base_left_commitment: [u8; 32],
-    x_relayer_base_right_commitment: [u8; 32],
+    x_server_base_left_commitment: [u8; 32],
+    x_server_base_right_commitment: [u8; 32],
     output_projection_digest: [u8; 32],
     logical_operation_shape: (u64, u64, u64, u64, u64, u64, u64, u64, u64),
 }
@@ -361,8 +361,8 @@ fn hidden_eval_byte_equivalence_signature(
         client_output_value_kind: run.output.client_output.value_kind,
         canonical_seed_commitment: run.output.canonical_seed.commitment,
         client_output_commitment: run.output.client_output.bundle.commitment,
-        x_relayer_base_left_commitment: run.output.x_relayer_base_left.commitment,
-        x_relayer_base_right_commitment: run.output.x_relayer_base_right.commitment,
+        x_server_base_left_commitment: run.output.x_server_base_left.commitment,
+        x_server_base_right_commitment: run.output.x_server_base_right.commitment,
         output_projection_digest: compute_output_projection_output_digest(&run.output),
         logical_operation_shape: logical_operation_shape(counts),
     }
@@ -390,12 +390,12 @@ fn assert_run_equivalent(left: &DdhHiddenEvalRun, right: &DdhHiddenEvalRun) {
         "client output commitment changed",
     );
     assert_eq!(
-        left.output.x_relayer_base_left.commitment, right.output.x_relayer_base_left.commitment,
-        "left relayer output commitment changed",
+        left.output.x_server_base_left.commitment, right.output.x_server_base_left.commitment,
+        "left server output commitment changed",
     );
     assert_eq!(
-        left.output.x_relayer_base_right.commitment, right.output.x_relayer_base_right.commitment,
-        "right relayer output commitment changed",
+        left.output.x_server_base_right.commitment, right.output.x_server_base_right.commitment,
+        "right server output commitment changed",
     );
     assert_eq!(
         compute_output_projection_output_digest(&left.output),

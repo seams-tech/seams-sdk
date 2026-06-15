@@ -23,23 +23,23 @@ fn policy_3_of_5() -> ThresholdPolicy {
 fn context(label: &[u8]) -> PrfContext {
     PrfContext::new(
         SuiteId::Ristretto255Sha512,
-        PrfPurpose::EcdsaHssYRelayer,
+        PrfPurpose::EcdsaHssYServer,
         label.to_vec(),
     )
 }
 
 fn production_purpose_cases() -> [(PrfPurpose, &'static str); 5] {
     [
-        (PrfPurpose::EcdsaHssYRelayer, "ecdsa-hss/y_relayer"),
-        (PrfPurpose::Ed25519HssYRelayer, "ed25519-hss/y_relayer"),
-        (PrfPurpose::Ed25519HssTauRelayer, "ed25519-hss/tau_relayer"),
+        (PrfPurpose::EcdsaHssYServer, "ecdsa-hss/y_server"),
+        (PrfPurpose::Ed25519HssYServer, "ed25519-hss/y_server"),
+        (PrfPurpose::Ed25519HssTauServer, "ed25519-hss/tau_server"),
         (
             PrfPurpose::RouterAbXClientBaseV1,
             "router-ab/x_client_base/v1",
         ),
         (
-            PrfPurpose::RouterAbXRelayerBaseV1,
-            "router-ab/x_relayer_base/v1",
+            PrfPurpose::RouterAbXServerBaseV1,
+            "router-ab/x_server_base/v1",
         ),
     ]
 }
@@ -296,9 +296,9 @@ fn router_ab_and_tau_outputs_are_canonical_scalar_bytes() {
     let shares = split_signing_root(&root, policy, &mut rng).expect("split succeeds");
 
     for purpose in [
-        PrfPurpose::Ed25519HssTauRelayer,
+        PrfPurpose::Ed25519HssTauServer,
         PrfPurpose::RouterAbXClientBaseV1,
-        PrfPurpose::RouterAbXRelayerBaseV1,
+        PrfPurpose::RouterAbXServerBaseV1,
     ] {
         assert_eq!(
             purpose.output_encoding(),

@@ -61,8 +61,8 @@ fn evaluate_via_client_owned_flow(
     let (delivery, _server_eval_state) = garbler_session
         .prepare_role_separated_server_input_delivery_message(
             &client_request_message,
-            input.y_relayer,
-            input.tau_relayer,
+            input.y_server,
+            input.tau_server,
             ed25519_hss::server::ServerEvalOperation::Registration,
         )?;
     let artifact = evaluator_session

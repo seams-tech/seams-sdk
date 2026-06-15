@@ -162,11 +162,11 @@ fn vector_context(vector: &ProtocolVector) -> PrfContext {
 
 fn purpose_from_str(purpose: &str) -> PrfPurpose {
     match purpose {
-        "ecdsa-hss/y_relayer" => PrfPurpose::EcdsaHssYRelayer,
-        "ed25519-hss/y_relayer" => PrfPurpose::Ed25519HssYRelayer,
-        "ed25519-hss/tau_relayer" => PrfPurpose::Ed25519HssTauRelayer,
+        "ecdsa-hss/y_server" => PrfPurpose::EcdsaHssYServer,
+        "ed25519-hss/y_server" => PrfPurpose::Ed25519HssYServer,
+        "ed25519-hss/tau_server" => PrfPurpose::Ed25519HssTauServer,
         "router-ab/x_client_base/v1" => PrfPurpose::RouterAbXClientBaseV1,
-        "router-ab/x_relayer_base/v1" => PrfPurpose::RouterAbXRelayerBaseV1,
+        "router-ab/x_server_base/v1" => PrfPurpose::RouterAbXServerBaseV1,
         purpose => panic!("unexpected vector purpose: {purpose}"),
     }
 }

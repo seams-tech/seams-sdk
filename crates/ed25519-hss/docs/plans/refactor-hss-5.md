@@ -143,7 +143,7 @@ Focus areas:
 This must preserve the accepted staged model:
 
 - server owns continuation state
-- raw relayer roots are still not retained past the accepted boundary
+- raw server roots are still not retained past the accepted boundary
 - `projector_inputs` remains the explicit retained-state exception unless a
   better design lands
 
@@ -518,7 +518,7 @@ What changed relative to the earlier Refactor 5 baseline:
 - the follow-up raw-bytes bridge cut removed another same-process artifact
   encode/decode pass
 - the later retained-state raw-bytes cut now also keeps prepared server state
-  and relayer inputs as raw bytes inside the same-process server/wasm bridge
+  and server inputs as raw bytes inside the same-process server/wasm bridge
   instead of decoding server-owned base64 again at ceremony time
 - the latest kept wasm-only win is same-isolate prepared-session reuse:
   - `/prepare` caches the fully prepared `PreparedSession` inside the server
@@ -529,7 +529,7 @@ What changed relative to the earlier Refactor 5 baseline:
     session when it is still present
   - cache misses fall back to the retained byte-state path instead of failing
     the ceremony
-  - the relayer keep-gates now assert that cache-hit wasm `/respond`
+  - the server keep-gates now assert that cache-hit wasm `/respond`
     materialization is effectively gone:
     - `materializationMs <= 1`
     - dominant bucket is not `materializeRuntimeMs` or
@@ -843,7 +843,7 @@ Latest round-core kernel slice:
 - the `round_core` sigma helpers and the `ch` precompute path now construct
   left/right XOR outputs as one pair instead of duplicating the work for each
   side separately
-- observed forced-wasm relayer breakdown improvement:
+- observed forced-wasm server breakdown improvement:
   - registration:
     - `ceremonyCoreMs`: about `850ms -> 841ms`
     - `ceremonyRoundCoreMs`: about `433.15ms -> 416.22ms`

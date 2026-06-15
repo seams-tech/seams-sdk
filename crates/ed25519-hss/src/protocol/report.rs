@@ -172,8 +172,8 @@ pub(crate) fn finalize_report_from_staged_evaluator_artifact(
         "server output payload should carry a server-owned hidden shared-value representation"
     );
     debug_assert_eq!(
-        server_left.label, "x_relayer_base",
-        "server output payload should carry x_relayer_base"
+        server_left.label, "x_server_base",
+        "server output payload should carry x_server_base"
     );
     debug_assert_eq!(server_left.share_side, DdhHssShareSide::Left);
     debug_assert_eq!(server_right.share_side, DdhHssShareSide::Right);

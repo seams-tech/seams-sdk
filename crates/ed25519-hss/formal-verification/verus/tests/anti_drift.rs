@@ -53,7 +53,7 @@ fn sample_f_expand_input() -> production::shared::FExpandInput {
             0xf4, 0x06, 0x11, 0x23, 0x35, 0x47, 0x59, 0x6b, 0x7d, 0x8f, 0x91, 0xa3, 0xb5, 0xc7,
             0xd9, 0xeb, 0xfd, 0x0f,
         ],
-        y_relayer: [
+        y_server: [
             0x01, 0x13, 0x25, 0x37, 0x49, 0x5b, 0x6d, 0x7f, 0x81, 0x93, 0xa5, 0xb7, 0xc9, 0xdb,
             0xed, 0xff, 0x02, 0x14, 0x26, 0x38, 0x4a, 0x5c, 0x6e, 0x70, 0x82, 0x94, 0xa6, 0xb8,
             0xca, 0xdc, 0xee, 0x01,
@@ -63,7 +63,7 @@ fn sample_f_expand_input() -> production::shared::FExpandInput {
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00,
         ],
-        tau_relayer: [
+        tau_server: [
             0x05, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0x00, 0x00, 0x00, 0x00,
@@ -83,7 +83,7 @@ fn mirror_f_expand_output_from_production(
         a: output.a,
         tau: output.tau,
         x_client_base: output.x_client_base,
-        x_relayer_base: output.x_relayer_base,
+        x_server_base: output.x_server_base,
         public_key: output.public_key,
     }
 }
@@ -336,10 +336,10 @@ fn anti_drift_executor_visible_boundary_shape_matches_verified_mirror() {
     );
     assert_eq!(bundle_shape.canonical_seed_bundle_count, 1);
     assert_eq!(bundle_shape.x_client_base_bundle_count, 1);
-    assert_eq!(bundle_shape.x_relayer_base_transport_bundle_count, 2);
+    assert_eq!(bundle_shape.x_server_base_transport_bundle_count, 2);
     assert_eq!(production_output.d.len(), 32);
     assert_eq!(production_output.x_client_base.len(), 32);
-    assert_eq!(production_output.x_relayer_base.len(), 32);
+    assert_eq!(production_output.x_server_base.len(), 32);
 }
 
 #[test]
@@ -361,8 +361,8 @@ fn anti_drift_output_level_visible_boundary_projection_matches_between_reference
         production_output.x_client_base
     );
     assert_eq!(
-        reference_boundary.x_relayer_base,
-        production_output.x_relayer_base
+        reference_boundary.x_server_base,
+        production_output.x_server_base
     );
     assert_eq!(
         reference_boundary.canonical_seed,
@@ -373,8 +373,8 @@ fn anti_drift_output_level_visible_boundary_projection_matches_between_reference
         executor_boundary.x_client_base
     );
     assert_eq!(
-        reference_boundary.x_relayer_base,
-        executor_boundary.x_relayer_base
+        reference_boundary.x_server_base,
+        executor_boundary.x_server_base
     );
     assert_eq!(executor_boundary.canonical_seed, production_output.d);
     assert_eq!(
@@ -382,8 +382,8 @@ fn anti_drift_output_level_visible_boundary_projection_matches_between_reference
         production_output.x_client_base
     );
     assert_eq!(
-        executor_boundary.x_relayer_base,
-        production_output.x_relayer_base
+        executor_boundary.x_server_base,
+        production_output.x_server_base
     );
 }
 
@@ -631,27 +631,27 @@ fn anti_drift_client_owned_wasm_boundary_requires_fixed_client_output_mask() {
 fn anti_drift_server_finalize_retained_state_excludes_client_output_metadata() {
     let left = production::ddh::DdhHssTransportBundle {
         owner: production::ddh::HiddenEvalInputOwner::Server,
-        label: "x_relayer_base".to_string(),
+        label: "x_server_base".to_string(),
         share_side: production::ddh::DdhHssShareSide::Left,
         words: Vec::new(),
         commitment: [0x31; 32],
     };
     let right = production::ddh::DdhHssTransportBundle {
         owner: production::ddh::HiddenEvalInputOwner::Server,
-        label: "x_relayer_base".to_string(),
+        label: "x_server_base".to_string(),
         share_side: production::ddh::DdhHssShareSide::Right,
         words: Vec::new(),
         commitment: [0x32; 32],
     };
     let retained = production::server::ServerEvalFinalizeOutput {
         canonical_seed_commitment: [0x30; 32],
-        x_relayer_base_left: left,
-        x_relayer_base_right: right,
+        x_server_base_left: left,
+        x_server_base_right: right,
     };
     let retained_debug = format!("{retained:?}");
     assert!(retained_debug.contains("canonical_seed_commitment"));
-    assert!(retained_debug.contains("x_relayer_base_left"));
-    assert!(retained_debug.contains("x_relayer_base_right"));
+    assert!(retained_debug.contains("x_server_base_left"));
+    assert!(retained_debug.contains("x_server_base_right"));
     assert!(!retained_debug.contains("DdhHiddenEvalClientOutputBundle"));
     assert!(!retained_debug.contains("x_client_base"));
     assert!(!retained_debug.contains("client_output_value_kind"));

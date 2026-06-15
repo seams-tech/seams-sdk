@@ -40,14 +40,14 @@ structure FullExecutionState where
   shareThree : RootShare
   partialOne : PrfPartial
   partialTwo : PrfPartial
-  yRelayer : PublicBytes
+  yServer : PublicBytes
   deriving DecidableEq, Repr
 
 structure OneServerState where
   publicContext : PublicContext
   leftShare : RootShare
   rightShare : RootShare
-  yRelayer : PublicBytes
+  yServer : PublicBytes
   deriving DecidableEq, Repr
 
 structure TwoServerParticipantState where
@@ -60,12 +60,12 @@ structure CombinerState where
   publicContext : PublicContext
   leftPartial : PrfPartial
   rightPartial : PrfPartial
-  yRelayer : PublicBytes
+  yServer : PublicBytes
   deriving DecidableEq, Repr
 
 structure PublicOutputState where
   publicContext : PublicContext
-  yRelayer : PublicBytes
+  yServer : PublicBytes
   deriving DecidableEq, Repr
 
 def CanReconstructKOrgFromShareCount (count : PlaintextShareCount) : Prop :=

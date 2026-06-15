@@ -25,17 +25,17 @@ spec-to-code compliance.
 ## Canonical Spec Items
 
 - Fixed-function formula:
-  - `m = y_client + y_relayer mod 2^256`
+  - `m = y_client + y_server mod 2^256`
   - `d = LE32(m)`
   - `h = SHA-512(d)`
   - `a_bytes = clamp(h[0..31])`
   - `a = LE256(a_bytes) mod l`
-  - `tau = tau_client + tau_relayer mod l`
+  - `tau = tau_client + tau_server mod l`
   - `x_client_base = a + tau mod l`
-  - `x_relayer_base = a + 2 * tau mod l`
+  - `x_server_base = a + 2 * tau mod l`
   - `A = [a]B`
 - Reconstruction invariant:
-  - `a = 2 * x_client_base - x_relayer_base mod l`
+  - `a = 2 * x_client_base - x_server_base mod l`
 - Runtime role split:
   - client = evaluator
   - server = garbler
@@ -53,7 +53,7 @@ The older spec corpus used to say:
 - “no interparty wire type may carry both halves of a hidden server-owned
   value”
 
-But the current packet flow seals both relayer halves into one
+But the current packet flow seals both server halves into one
 `ServerInputsPacket` ciphertext before the evaluator opens them into left/right
 transport bundles.
 

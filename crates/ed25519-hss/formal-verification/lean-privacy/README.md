@@ -3,7 +3,7 @@
 This directory is the Lean 4 track for privacy-specific proofs that are out of
 scope for the implementation-oriented Verus pass:
 - non-export hidden-seed expansion is hidden from the client and the server
-- the client cannot derive `y_relayer` or `tau_relayer` from allowed outputs
+- the client cannot derive `y_server` or `tau_server` from allowed outputs
 - the server cannot derive client-secret material from allowed outputs
 - explicit key export is the only allowed exception to stronger disclosure
 

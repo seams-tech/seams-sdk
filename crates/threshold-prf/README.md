@@ -14,7 +14,7 @@ The crate is intentionally narrow:
   reconstructing `k_org`
 - serialize partials for worker-to-worker transport
 - optionally prove partial correctness with DLEQ against root-share commitments
-- combine any valid threshold subset into the same `y_relayer`
+- combine any valid threshold subset into the same `y_server`
 - benchmark the cost before integration
 
 ## Canonical API
@@ -39,7 +39,7 @@ let root = generate_signing_root(&mut rng);
 let shares = split_signing_root(&root, policy, &mut rng)?;
 let context = PrfContext::new(
     SuiteId::Ristretto255Sha512,
-    PrfPurpose::EcdsaHssYRelayer,
+    PrfPurpose::EcdsaHssYServer,
     b"canonical-hss-context".to_vec(),
 );
 
@@ -49,7 +49,7 @@ let partials = vec![
     evaluate_partial(&shares[4], &context)?,
 ];
 let set = ValidatedThresholdSet::from_partials(policy, partials)?;
-let y_relayer = combine_partials(&set, &context)?;
+let y_server = combine_partials(&set, &context)?;
 ```
 
 Production signing should use verified combine for peer partials. Local one-runtime

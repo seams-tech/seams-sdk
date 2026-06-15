@@ -179,7 +179,7 @@ pub fn generate_phase1_benchmark_report(
         .collect();
     let add_inputs: Vec<([u8; 32], [u8; 32])> = fixtures
         .iter()
-        .map(|fixture| (fixture.input.y_client, fixture.input.y_relayer))
+        .map(|fixture| (fixture.input.y_client, fixture.input.y_server))
         .collect();
     let d_inputs: Vec<[u8; 32]> = fixtures.iter().map(|fixture| fixture.output.d).collect();
     let a_bytes_inputs: Vec<[u8; 32]> = fixtures
@@ -193,7 +193,7 @@ pub fn generate_phase1_benchmark_report(
             (
                 fixture.output.a,
                 fixture.input.tau_client,
-                fixture.input.tau_relayer,
+                fixture.input.tau_server,
             )
         })
         .collect();
@@ -218,12 +218,12 @@ pub fn generate_phase1_benchmark_report(
             "output_share_derivation",
             config,
             &output_share_inputs,
-            |(a, tau_client, tau_relayer)| {
+            |(a, tau_client, tau_server)| {
                 black_box(
                     derive_output_shares(
                         black_box(*a),
                         black_box(*tau_client),
-                        black_box(*tau_relayer),
+                        black_box(*tau_server),
                     )
                     .expect("fixture output shares should be valid"),
                 );
@@ -390,7 +390,7 @@ impl OutputWidthReport {
     fn from_reference_trace(output: &crate::shared::FExpandOutput) -> Self {
         let nonlinear_core_output_bytes = output.a.len() as u64;
         let client_private_output_bytes = output.x_client_base.len() as u64;
-        let server_private_output_bytes = output.x_relayer_base.len() as u64;
+        let server_private_output_bytes = output.x_server_base.len() as u64;
         let public_output_bytes = output.public_key.len() as u64;
         let minimal_protocol_output_bytes =
             client_private_output_bytes + server_private_output_bytes + public_output_bytes;
@@ -402,7 +402,7 @@ impl OutputWidthReport {
             + output.a.len() as u64
             + output.tau.len() as u64
             + output.x_client_base.len() as u64
-            + output.x_relayer_base.len() as u64
+            + output.x_server_base.len() as u64
             + output.public_key.len() as u64;
 
         Self {

@@ -876,7 +876,7 @@ Tasks:
 Status:
 
 - Output transport remains protocol-bound: `canonical_seed`, `client_output`,
-  and `x_relayer_base` bundles need emitted commitments and transport material.
+  and `x_server_base` bundles need emitted commitments and transport material.
 - `reduced_a_bits`, `tau_bits`, and base output additions still materialize
   under the current proof shape. Reducing their logical materializations needs a
   staged output projector or backend-versioned scalar-reduction rewrite.
@@ -933,7 +933,7 @@ Current shape:
 - `compute_output_projector_core_bits` materializes `reduced_a_bits` and
   `tau_bits`.
 - `execute_output_projector_stage` materializes `client_base_bits`,
-  `client_output_bits`, and `x_relayer_base_bits` as full `SplitLocalBitWord`
+  `client_output_bits`, and `x_server_base_bits` as full `SplitLocalBitWord`
   values before output bundle construction.
 - `build_hidden_bit_output_bundle` canonicalizes output bits into
   `DdhHssSharedWord` values and derives a bundle commitment.
@@ -956,11 +956,11 @@ Architecture:
 - Keep arithmetic helpers unchanged for the first implementation. The slice
   should only replace output-boundary `SplitLocalBitWord -> shared words ->
   bundle` plumbing with a typed staged output boundary.
-- Preserve the current `canonical_seed`, `client_output`, and `x_relayer_base`
+- Preserve the current `canonical_seed`, `client_output`, and `x_server_base`
   bundle labels and commitments. Any scalar-reduction or modular-add proof
   rewrite belongs in a later backend-versioned plan.
 - Make ownership explicit: `canonical_seed` and `client_output` are
-  client-owned output bundles; `x_relayer_base` is server-owned transport
+  client-owned output bundles; `x_server_base` is server-owned transport
   material with left/right share-side views over one canonical staged word.
 
 Implementation todo:
@@ -1648,7 +1648,7 @@ Trigger:
 - byte-equivalent representation slices produce only small or noisy gains
 - embedded or iOS profiles show HSS remains too slow or memory-heavy
 - product smoke keeps `ed25519EvaluationArtifactMs` near `500ms` after Phase
-  7I, with output-projector client-base and relayer-output around `60ms` to
+  7I, with output-projector client-base and server-output around `60ms` to
   `65ms` each in the worker substep split
 
 Tasks:
@@ -1662,7 +1662,7 @@ Tasks:
 - [x] Write a canonical-add / output-projector v2 mini-spec before changing
       code:
   - backend identifier
-  - transcript roots for `x_client_base` and `x_relayer_base`
+  - transcript roots for `x_client_base` and `x_server_base`
   - retained output commitments and emitted transport bundles
   - removed intermediate commitments, if any
   - downgrade behavior for mixed v1/v2 projector material
@@ -1694,20 +1694,20 @@ Canonical-add / output-projector v2 mini-spec:
 
 - Candidate backend identifier:
   `prime_order_ddh_hidden_eval_output_projector_v2`.
-- Current v1 computes `tau = (tau_client + tau_relayer) mod L`,
+- Current v1 computes `tau = (tau_client + tau_server) mod L`,
   `x_client_base = (a + tau) mod L`, optional masked client output, and
-  `x_relayer_base = (x_client_base + tau) mod L`, then emits the same
-  `canonical_seed`, `client_output`, and `x_relayer_base` bundles.
+  `x_server_base = (x_client_base + tau) mod L`, then emits the same
+  `canonical_seed`, `client_output`, and `x_server_base` bundles.
 - The v2 root is `{projector_label}/output_projector_v2/root`; it binds the
   backend identifier, projection mode, scalar width, Ed25519 `L`, input
   commitments/provenance for `a`, `tau`, optional mask material, and output
   labels.
 - The only candidate worth implementing is a paired projection kernel that
   removes at least one full canonical-add equivalent from the current
-  client-base / relayer-base path. A naive `a + 2*tau` rewrite is insufficient
+  client-base / server-base path. A naive `a + 2*tau` rewrite is insufficient
   unless it proves it removes real add/sub/select or emitted transport work.
 - Retained commitments: output commitments for `canonical_seed`,
-  `client_output`, and `x_relayer_base`; input commitments/provenance for
+  `client_output`, and `x_server_base`; input commitments/provenance for
   `a`, `tau`, and optional mask; backend-version-bound projector root.
 - Possible removed commitments, subject to protocol review: intermediate
   selected `x_client_base` material in client-masked mode and intermediate
@@ -1718,14 +1718,14 @@ Canonical-add / output-projector v2 mini-spec:
 - Expected win before implementation: removing one full canonical-add
   equivalent could save roughly `50ms` to `65ms` p50 in product artifact
   construction, because smoke run `20260610-130323Z` measured
-  output-projector client-base at `60ms` p50 and relayer-output at `65ms` p50
+  output-projector client-base at `60ms` p50 and server-output at `65ms` p50
   in the wallet-iframe Ed25519-only worker split.
-- Feasibility review: the simple `x_relayer_base = (a + 2*tau) mod L` rewrite
+- Feasibility review: the simple `x_server_base = (a + 2*tau) mod L` rewrite
   is not useful under the current backend. `2*tau mod L` plus `a` still performs
   two canonical additions, and raw `a + 2*tau` is below `3L`, so it needs more
   reduction logic than the current second canonical add over two canonical
   inputs.
-- The current `x_relayer_base` proof consumes committed `x_client_base`
+- The current `x_server_base` proof consumes committed `x_client_base`
   material. Skipping that materialization changes proof shape and must be
   backend-versioned.
 - Trusted-server projection still emits `x_client_base`, and client-masked

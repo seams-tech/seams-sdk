@@ -615,18 +615,18 @@ pub(crate) struct EncodedTransportPairPayloadRef<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct EncodedServerInputsPayload {
-    pub(crate) y_relayer_left: DdhHssTransportBundle,
-    pub(crate) y_relayer_right: DdhHssTransportBundle,
-    pub(crate) tau_relayer_left: DdhHssTransportBundle,
-    pub(crate) tau_relayer_right: DdhHssTransportBundle,
+    pub(crate) y_server_left: DdhHssTransportBundle,
+    pub(crate) y_server_right: DdhHssTransportBundle,
+    pub(crate) tau_server_left: DdhHssTransportBundle,
+    pub(crate) tau_server_right: DdhHssTransportBundle,
 }
 
 #[derive(Debug, Serialize)]
 pub(crate) struct EncodedServerInputsPayloadRef<'a> {
-    pub(crate) y_relayer_left: &'a DdhHssTransportBundle,
-    pub(crate) y_relayer_right: &'a DdhHssTransportBundle,
-    pub(crate) tau_relayer_left: &'a DdhHssTransportBundle,
-    pub(crate) tau_relayer_right: &'a DdhHssTransportBundle,
+    pub(crate) y_server_left: &'a DdhHssTransportBundle,
+    pub(crate) y_server_right: &'a DdhHssTransportBundle,
+    pub(crate) tau_server_left: &'a DdhHssTransportBundle,
+    pub(crate) tau_server_right: &'a DdhHssTransportBundle,
 }
 
 pub(crate) fn encode_transport_message<T: Serialize>(
@@ -841,14 +841,14 @@ mod tests {
 }
 
 pub(crate) fn serialize_server_inputs_payload(
-    y_relayer: &(DdhHssTransportBundle, DdhHssTransportBundle),
-    tau_relayer: &(DdhHssTransportBundle, DdhHssTransportBundle),
+    y_server: &(DdhHssTransportBundle, DdhHssTransportBundle),
+    tau_server: &(DdhHssTransportBundle, DdhHssTransportBundle),
 ) -> ProtoResult<Vec<u8>> {
     let payload = EncodedServerInputsPayloadRef {
-        y_relayer_left: &y_relayer.0,
-        y_relayer_right: &y_relayer.1,
-        tau_relayer_left: &tau_relayer.0,
-        tau_relayer_right: &tau_relayer.1,
+        y_server_left: &y_server.0,
+        y_server_right: &y_server.1,
+        tau_server_left: &tau_server.0,
+        tau_server_right: &tau_server.1,
     };
     serialize_transport_payload_with_label("server_inputs", &payload)
 }

@@ -41,8 +41,8 @@ fn prime_order_succinct_hss_prepares_delivery_packets() {
     let (server_assist_init_message, server_eval_state) = garbler_session
         .prepare_server_assist_init_message(
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init message");
@@ -195,27 +195,27 @@ fn prime_order_succinct_hss_prepares_delivery_packets() {
             .ot_transcript
             .tau_client_remote_release_binding
     );
-    let expected_y_relayer_bundle = session
+    let expected_y_server_bundle = session
         .ddh_backend()
         .share_input_bit_bundle(
             HiddenEvalInputOwner::Server,
-            "y_relayer_bits",
-            &fixture.input.y_relayer,
+            "y_server_bits",
+            &fixture.input.y_server,
         )
-        .expect("share relayer y bits");
-    let expected_tau_relayer_bundle = session
+        .expect("share server y bits");
+    let expected_tau_server_bundle = session
         .ddh_backend()
         .share_input_bit_bundle(
             HiddenEvalInputOwner::Server,
-            "tau_relayer_bits",
-            &fixture.input.tau_relayer,
+            "tau_server_bits",
+            &fixture.input.tau_server,
         )
-        .expect("share relayer tau bits");
+        .expect("share server tau bits");
     assert_eq!(
         server_assist_init.server_input_commitment,
         session.ddh_backend().combined_input_commitment(
             HiddenEvalInputOwner::Server,
-            &[&expected_y_relayer_bundle, &expected_tau_relayer_bundle],
+            &[&expected_y_server_bundle, &expected_tau_server_bundle],
         )
     );
     assert!(String::from_utf8(server_assist_init_message.bytes.clone()).is_err());
@@ -247,14 +247,14 @@ fn prime_order_succinct_hss_splits_output_delivery_packets() {
         .client
         .open(&delivery.client)
         .expect("open client output packet");
-    let x_relayer_base = output_openers
+    let x_server_base = output_openers
         .server
         .open(&delivery.server)
         .expect("open server output packet");
     assert_eq!(x_client_base, fixture.output.x_client_base);
-    assert_eq!(x_relayer_base, fixture.output.x_relayer_base);
+    assert_eq!(x_server_base, fixture.output.x_server_base);
     assert_eq!(
-        public_key_from_base_shares(x_client_base, x_relayer_base)
+        public_key_from_base_shares(x_client_base, x_server_base)
             .expect("derive public key from opened shares"),
         fixture.output.public_key
     );
@@ -279,8 +279,8 @@ fn prime_order_succinct_hss_delivery_packets_round_trip_encoded_inputs() {
     let (server_assist_init_message, _server_eval_state) = garbler_session
         .prepare_server_assist_init_message(
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init message");
@@ -339,8 +339,8 @@ fn prime_order_succinct_hss_prepared_session_exposes_new_server_assist_rounds() 
         .prepare_server_assist_init_message(
             &garbler_ot_state,
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init message");
@@ -438,8 +438,8 @@ fn prime_order_succinct_hss_prepared_session_exposes_new_server_assist_rounds() 
         message_schedule_request_payload.prior_server_stage_digest
     );
     assert!(
-        !server_eval_state.retains_raw_relayer_roots(),
-        "post-add-stage server state must drop raw relayer roots"
+        !server_eval_state.retains_raw_server_roots(),
+        "post-add-stage server state must drop raw server roots"
     );
     match server_eval_state
         .execution_state
@@ -488,8 +488,8 @@ fn prime_order_succinct_hss_prepared_session_exposes_first_round_core_round() {
         .prepare_server_assist_init_message(
             &garbler_ot_state,
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init message");
@@ -574,8 +574,8 @@ fn prime_order_succinct_hss_prepared_session_exposes_repeatable_round_core_round
         .prepare_server_assist_init_message(
             &garbler_ot_state,
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init message");
@@ -669,8 +669,8 @@ fn prime_order_succinct_hss_prepared_session_exposes_output_projection_round() {
         .prepare_server_assist_init_message(
             &garbler_ot_state,
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init message");
@@ -775,8 +775,8 @@ fn prime_order_succinct_hss_prepared_session_can_drive_staged_flow_to_output_pro
             &garbler_ot_state,
             &client_request_message,
             &evaluator_ot_state,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare staged flow to output projection");
@@ -872,8 +872,8 @@ fn prime_order_succinct_hss_validates_staged_flow_to_output_projection() {
             &garbler_ot_state,
             &client_request_message,
             &evaluator_ot_state,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare staged flow to output projection");
@@ -919,8 +919,8 @@ fn prime_order_succinct_hss_rejects_server_owned_staged_artifact_rebuild_from_fi
             &garbler_ot_state,
             &client_request_message,
             &evaluator_ot_state,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare staged flow to output projection");
@@ -992,7 +992,7 @@ fn prime_order_succinct_hss_delivery_packets_round_trip_end_to_end() {
             .server
             .open(&evaluated.output_delivery.server)
             .expect("open server output"),
-        fixture.output.x_relayer_base
+        fixture.output.x_server_base
     );
 }
 
@@ -1014,15 +1014,15 @@ fn prime_order_succinct_hss_matches_reference_fixture_smoke() {
         .seed
         .open(&report.output_delivery.seed)
         .expect("open seed output");
-    let x_relayer_base = output_openers
+    let x_server_base = output_openers
         .server
         .open(&report.output_delivery.server)
         .expect("open server output");
     assert_eq!(canonical_seed, fixture.output.d);
     assert_eq!(x_client_base, fixture.output.x_client_base);
-    assert_eq!(x_relayer_base, fixture.output.x_relayer_base);
+    assert_eq!(x_server_base, fixture.output.x_server_base);
     assert_eq!(
-        public_key_from_base_shares(x_client_base, x_relayer_base).expect("derive public key"),
+        public_key_from_base_shares(x_client_base, x_server_base).expect("derive public key"),
         fixture.output.public_key
     );
     assert_eq!(
@@ -1054,14 +1054,14 @@ fn prime_order_succinct_hss_matches_reference_fixtures() {
             .client
             .open(&report.output_delivery.client)
             .expect("open client output");
-        let x_relayer_base = output_openers
+        let x_server_base = output_openers
             .server
             .open(&report.output_delivery.server)
             .expect("open server output");
         assert_eq!(x_client_base, fixture.output.x_client_base);
-        assert_eq!(x_relayer_base, fixture.output.x_relayer_base);
+        assert_eq!(x_server_base, fixture.output.x_server_base);
         assert_eq!(
-            public_key_from_base_shares(x_client_base, x_relayer_base).expect("derive public key"),
+            public_key_from_base_shares(x_client_base, x_server_base).expect("derive public key"),
             fixture.output.public_key
         );
     }

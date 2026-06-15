@@ -42,7 +42,7 @@ fn fv_hss_fexp_001_committed_vectors_match_clear_spec() {
 fn fv_hss_fexp_002_base_share_projection_recovers_signing_scalar() {
     for fixture in committed_fixture_corpus().expect("fixture corpus") {
         let recovered_a =
-            recover_a_from_base_shares(fixture.output.x_client_base, fixture.output.x_relayer_base)
+            recover_a_from_base_shares(fixture.output.x_client_base, fixture.output.x_server_base)
                 .expect("recover a from base shares");
         assert_eq!(recovered_a, fixture.output.a, "fixture {}", fixture.name);
     }
@@ -59,11 +59,9 @@ fn fv_hss_fexp_003_public_key_projection_matches_scalar_projection() {
             fixture.name
         );
 
-        let public_key_from_outputs = public_key_from_base_shares(
-            fixture.output.x_client_base,
-            fixture.output.x_relayer_base,
-        )
-        .expect("public key from base shares");
+        let public_key_from_outputs =
+            public_key_from_base_shares(fixture.output.x_client_base, fixture.output.x_server_base)
+                .expect("public key from base shares");
         assert_eq!(
             public_key_from_outputs, fixture.output.public_key,
             "fixture {}",

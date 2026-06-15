@@ -6,10 +6,10 @@ abbrev ClientDeriver := ClientAdversaryView → Bytes32
 
 abbrev ServerDeriver := ServerAdversaryView → ClientSecretState
 
-def ClientCannotDeriveYRelayer : Prop :=
+def ClientCannotDeriveYServer : Prop :=
   ClientBoundaryIndistinguishableUnderServerSecretVariation
 
-def ClientCannotDeriveTauRelayer : Prop :=
+def ClientCannotDeriveTauServer : Prop :=
   ClientBoundaryIndistinguishableUnderServerSecretVariation
 
 def ServerCannotDeriveClientSecrets : Prop :=
@@ -35,10 +35,10 @@ theorem explicitExportIsOnlyDisclosureException_proved :
   cases boundary <;> cases operation <;> simp [VisibleBoundary.allowedOutputKind,
     VisibleBoundary.seedOutput?, allowedOutputKindForOperation] at hAllowed ⊢
 
-theorem clientCannotDeriveYRelayer_proved : ClientCannotDeriveYRelayer := by
+theorem clientCannotDeriveYServer_proved : ClientCannotDeriveYServer := by
   exact clientBoundaryIndistinguishableUnderServerSecretVariation_proved
 
-theorem clientCannotDeriveTauRelayer_proved : ClientCannotDeriveTauRelayer := by
+theorem clientCannotDeriveTauServer_proved : ClientCannotDeriveTauServer := by
   exact clientBoundaryIndistinguishableUnderServerSecretVariation_proved
 
 theorem serverCannotDeriveClientSecrets_proved : ServerCannotDeriveClientSecrets := by

@@ -3,7 +3,7 @@
   "vectors": [
     {
       "suite_id": "threshold-prf/ristretto255-sha512",
-      "purpose": "ecdsa-hss/y_relayer",
+      "purpose": "ecdsa-hss/y_server",
       "context_hex": "7468726573686f6c642d7072662f766563746f723a322d6f662d33",
       "policy": {
         "threshold": 2,
@@ -32,51 +32,51 @@
       "partials": [
         {
           "id": 1,
-          "context_tag_hex": "8b43b0006d300ea0db27767c320b39a457388c2c5287d03d8ba22467aa1d09a1",
-          "compressed_point_hex": "94aff178bef289c47ef3c52c09cee76fce0acec749f52aecf7a5f3416808d938",
-          "wire_hex": "00018b43b0006d300ea0db27767c320b39a457388c2c5287d03d8ba22467aa1d09a194aff178bef289c47ef3c52c09cee76fce0acec749f52aecf7a5f3416808d938"
+          "context_tag_hex": "28c0c67e1e60a3d43f0094fc069dc1a953598acdc00b32bd15872fdf22578b98",
+          "compressed_point_hex": "e62e207452fd4c8e618dba793640253ba4a2777a1393c6bdf872a02e48f8725f",
+          "wire_hex": "000128c0c67e1e60a3d43f0094fc069dc1a953598acdc00b32bd15872fdf22578b98e62e207452fd4c8e618dba793640253ba4a2777a1393c6bdf872a02e48f8725f"
         },
         {
           "id": 2,
-          "context_tag_hex": "8b43b0006d300ea0db27767c320b39a457388c2c5287d03d8ba22467aa1d09a1",
-          "compressed_point_hex": "22bd74f86b1dd74762e3340b6ec2d20b3d9426b9a9cb09f072899200588dcb5d",
-          "wire_hex": "00028b43b0006d300ea0db27767c320b39a457388c2c5287d03d8ba22467aa1d09a122bd74f86b1dd74762e3340b6ec2d20b3d9426b9a9cb09f072899200588dcb5d"
+          "context_tag_hex": "28c0c67e1e60a3d43f0094fc069dc1a953598acdc00b32bd15872fdf22578b98",
+          "compressed_point_hex": "6202e7ca33ff8f7fe434c5389945d60faa80f0a2588a10ad32861bc27ac3a170",
+          "wire_hex": "000228c0c67e1e60a3d43f0094fc069dc1a953598acdc00b32bd15872fdf22578b986202e7ca33ff8f7fe434c5389945d60faa80f0a2588a10ad32861bc27ac3a170"
         },
         {
           "id": 3,
-          "context_tag_hex": "8b43b0006d300ea0db27767c320b39a457388c2c5287d03d8ba22467aa1d09a1",
-          "compressed_point_hex": "d6d05643079710ad4ac83efbbd98317b36ad3c6a1da47ba662914741e8fb1a5b",
-          "wire_hex": "00038b43b0006d300ea0db27767c320b39a457388c2c5287d03d8ba22467aa1d09a1d6d05643079710ad4ac83efbbd98317b36ad3c6a1da47ba662914741e8fb1a5b"
+          "context_tag_hex": "28c0c67e1e60a3d43f0094fc069dc1a953598acdc00b32bd15872fdf22578b98",
+          "compressed_point_hex": "ae833c3b384021095740c300b19e9304348a95801a04127d3e656e806ddddf5f",
+          "wire_hex": "000328c0c67e1e60a3d43f0094fc069dc1a953598acdc00b32bd15872fdf22578b98ae833c3b384021095740c300b19e9304348a95801a04127d3e656e806ddddf5f"
         }
       ],
-      "direct_output_hex": "0ceeb295399545996c2812298424cd4face57498d28e5d2e39018c3ed9d7a419",
+      "direct_output_hex": "bb70dcf4d20fbe68b0b7d58a45171b2e74f3c3a486925825e10713d8b5cc9208",
       "threshold_outputs": [
         {
           "ids": [
             1,
             2
           ],
-          "output_hex": "0ceeb295399545996c2812298424cd4face57498d28e5d2e39018c3ed9d7a419"
+          "output_hex": "bb70dcf4d20fbe68b0b7d58a45171b2e74f3c3a486925825e10713d8b5cc9208"
         },
         {
           "ids": [
             1,
             3
           ],
-          "output_hex": "0ceeb295399545996c2812298424cd4face57498d28e5d2e39018c3ed9d7a419"
+          "output_hex": "bb70dcf4d20fbe68b0b7d58a45171b2e74f3c3a486925825e10713d8b5cc9208"
         },
         {
           "ids": [
             2,
             3
           ],
-          "output_hex": "0ceeb295399545996c2812298424cd4face57498d28e5d2e39018c3ed9d7a419"
+          "output_hex": "bb70dcf4d20fbe68b0b7d58a45171b2e74f3c3a486925825e10713d8b5cc9208"
         }
       ]
     },
     {
       "suite_id": "threshold-prf/ristretto255-sha512",
-      "purpose": "router-ab/x_relayer_base/v1",
+      "purpose": "router-ab/x_server_base/v1",
       "context_hex": "7468726573686f6c642d7072662f766563746f723a332d6f662d35",
       "policy": {
         "threshold": 3,
@@ -115,36 +115,36 @@
       "partials": [
         {
           "id": 1,
-          "context_tag_hex": "375f880cb431c61bb24ffee69609fd9ed11eb43fbb58cc183ea09473111d72b2",
-          "compressed_point_hex": "baecef111970a14b8c0f5234c96850f40ad562d8f53da3e0ab2b3cdc626c744a",
-          "wire_hex": "0001375f880cb431c61bb24ffee69609fd9ed11eb43fbb58cc183ea09473111d72b2baecef111970a14b8c0f5234c96850f40ad562d8f53da3e0ab2b3cdc626c744a"
+          "context_tag_hex": "96cfd7c34bab2873b9586a2cdf8c3128f1865536ee02afe5dd083a0e838722cc",
+          "compressed_point_hex": "e83be0a3ce617b68c8d7eedff42dc5f2af641e0bc25270724f0b393fe1ac0c42",
+          "wire_hex": "000196cfd7c34bab2873b9586a2cdf8c3128f1865536ee02afe5dd083a0e838722cce83be0a3ce617b68c8d7eedff42dc5f2af641e0bc25270724f0b393fe1ac0c42"
         },
         {
           "id": 2,
-          "context_tag_hex": "375f880cb431c61bb24ffee69609fd9ed11eb43fbb58cc183ea09473111d72b2",
-          "compressed_point_hex": "c8e02502e7fd254087e3f11e0781ac661d567a17a5703debe1ba083614f0ad30",
-          "wire_hex": "0002375f880cb431c61bb24ffee69609fd9ed11eb43fbb58cc183ea09473111d72b2c8e02502e7fd254087e3f11e0781ac661d567a17a5703debe1ba083614f0ad30"
+          "context_tag_hex": "96cfd7c34bab2873b9586a2cdf8c3128f1865536ee02afe5dd083a0e838722cc",
+          "compressed_point_hex": "602ed0532731fbd514222720a08a154c22edaf090910f90c09720f44b2e77f17",
+          "wire_hex": "000296cfd7c34bab2873b9586a2cdf8c3128f1865536ee02afe5dd083a0e838722cc602ed0532731fbd514222720a08a154c22edaf090910f90c09720f44b2e77f17"
         },
         {
           "id": 3,
-          "context_tag_hex": "375f880cb431c61bb24ffee69609fd9ed11eb43fbb58cc183ea09473111d72b2",
-          "compressed_point_hex": "32274acb60a4a8981a11e3dcde585b6c792df3601a2c7a643bfb819abdb09144",
-          "wire_hex": "0003375f880cb431c61bb24ffee69609fd9ed11eb43fbb58cc183ea09473111d72b232274acb60a4a8981a11e3dcde585b6c792df3601a2c7a643bfb819abdb09144"
+          "context_tag_hex": "96cfd7c34bab2873b9586a2cdf8c3128f1865536ee02afe5dd083a0e838722cc",
+          "compressed_point_hex": "3c49af2461d410b8d30bd85ffd19ea8d5d6e81b86d51306c7459d941adad6974",
+          "wire_hex": "000396cfd7c34bab2873b9586a2cdf8c3128f1865536ee02afe5dd083a0e838722cc3c49af2461d410b8d30bd85ffd19ea8d5d6e81b86d51306c7459d941adad6974"
         },
         {
           "id": 4,
-          "context_tag_hex": "375f880cb431c61bb24ffee69609fd9ed11eb43fbb58cc183ea09473111d72b2",
-          "compressed_point_hex": "801ae8b8f1cf6423117cb10fabe611f7abd92209c4287546f3a0583087f6c551",
-          "wire_hex": "0004375f880cb431c61bb24ffee69609fd9ed11eb43fbb58cc183ea09473111d72b2801ae8b8f1cf6423117cb10fabe611f7abd92209c4287546f3a0583087f6c551"
+          "context_tag_hex": "96cfd7c34bab2873b9586a2cdf8c3128f1865536ee02afe5dd083a0e838722cc",
+          "compressed_point_hex": "1efd4a20d696460ba254508615a0b178df861ca437799484fc4087260ea7c42e",
+          "wire_hex": "000496cfd7c34bab2873b9586a2cdf8c3128f1865536ee02afe5dd083a0e838722cc1efd4a20d696460ba254508615a0b178df861ca437799484fc4087260ea7c42e"
         },
         {
           "id": 5,
-          "context_tag_hex": "375f880cb431c61bb24ffee69609fd9ed11eb43fbb58cc183ea09473111d72b2",
-          "compressed_point_hex": "2a38607282fd4b4409072e93202fbb5a0f8dc4e560a6613e7e8fb9791fb3a31a",
-          "wire_hex": "0005375f880cb431c61bb24ffee69609fd9ed11eb43fbb58cc183ea09473111d72b22a38607282fd4b4409072e93202fbb5a0f8dc4e560a6613e7e8fb9791fb3a31a"
+          "context_tag_hex": "96cfd7c34bab2873b9586a2cdf8c3128f1865536ee02afe5dd083a0e838722cc",
+          "compressed_point_hex": "94d39699b06df63cd179aecbb88c38dd422b7a688fc4ad5b683906a5d8be450f",
+          "wire_hex": "000596cfd7c34bab2873b9586a2cdf8c3128f1865536ee02afe5dd083a0e838722cc94d39699b06df63cd179aecbb88c38dd422b7a688fc4ad5b683906a5d8be450f"
         }
       ],
-      "direct_output_hex": "487983374e57a5c5c3f80af5e523750d123f278a50601abe8f6bf15b4afe4407",
+      "direct_output_hex": "ee0f350cb0905c3a637b06536b7e4ba77cbfcfa498fa661c36e089113d454c0b",
       "threshold_outputs": [
         {
           "ids": [
@@ -152,7 +152,7 @@
             2,
             3
           ],
-          "output_hex": "487983374e57a5c5c3f80af5e523750d123f278a50601abe8f6bf15b4afe4407"
+          "output_hex": "ee0f350cb0905c3a637b06536b7e4ba77cbfcfa498fa661c36e089113d454c0b"
         },
         {
           "ids": [
@@ -160,7 +160,7 @@
             2,
             4
           ],
-          "output_hex": "487983374e57a5c5c3f80af5e523750d123f278a50601abe8f6bf15b4afe4407"
+          "output_hex": "ee0f350cb0905c3a637b06536b7e4ba77cbfcfa498fa661c36e089113d454c0b"
         },
         {
           "ids": [
@@ -168,7 +168,7 @@
             2,
             5
           ],
-          "output_hex": "487983374e57a5c5c3f80af5e523750d123f278a50601abe8f6bf15b4afe4407"
+          "output_hex": "ee0f350cb0905c3a637b06536b7e4ba77cbfcfa498fa661c36e089113d454c0b"
         },
         {
           "ids": [
@@ -176,7 +176,7 @@
             3,
             4
           ],
-          "output_hex": "487983374e57a5c5c3f80af5e523750d123f278a50601abe8f6bf15b4afe4407"
+          "output_hex": "ee0f350cb0905c3a637b06536b7e4ba77cbfcfa498fa661c36e089113d454c0b"
         },
         {
           "ids": [
@@ -184,7 +184,7 @@
             3,
             5
           ],
-          "output_hex": "487983374e57a5c5c3f80af5e523750d123f278a50601abe8f6bf15b4afe4407"
+          "output_hex": "ee0f350cb0905c3a637b06536b7e4ba77cbfcfa498fa661c36e089113d454c0b"
         },
         {
           "ids": [
@@ -192,7 +192,7 @@
             4,
             5
           ],
-          "output_hex": "487983374e57a5c5c3f80af5e523750d123f278a50601abe8f6bf15b4afe4407"
+          "output_hex": "ee0f350cb0905c3a637b06536b7e4ba77cbfcfa498fa661c36e089113d454c0b"
         },
         {
           "ids": [
@@ -200,7 +200,7 @@
             3,
             4
           ],
-          "output_hex": "487983374e57a5c5c3f80af5e523750d123f278a50601abe8f6bf15b4afe4407"
+          "output_hex": "ee0f350cb0905c3a637b06536b7e4ba77cbfcfa498fa661c36e089113d454c0b"
         },
         {
           "ids": [
@@ -208,7 +208,7 @@
             3,
             5
           ],
-          "output_hex": "487983374e57a5c5c3f80af5e523750d123f278a50601abe8f6bf15b4afe4407"
+          "output_hex": "ee0f350cb0905c3a637b06536b7e4ba77cbfcfa498fa661c36e089113d454c0b"
         },
         {
           "ids": [
@@ -216,7 +216,7 @@
             4,
             5
           ],
-          "output_hex": "487983374e57a5c5c3f80af5e523750d123f278a50601abe8f6bf15b4afe4407"
+          "output_hex": "ee0f350cb0905c3a637b06536b7e4ba77cbfcfa498fa661c36e089113d454c0b"
         },
         {
           "ids": [
@@ -224,13 +224,13 @@
             4,
             5
           ],
-          "output_hex": "487983374e57a5c5c3f80af5e523750d123f278a50601abe8f6bf15b4afe4407"
+          "output_hex": "ee0f350cb0905c3a637b06536b7e4ba77cbfcfa498fa661c36e089113d454c0b"
         }
       ]
     },
     {
       "suite_id": "threshold-prf/ristretto255-sha512",
-      "purpose": "router-ab/x_relayer_base/v1",
+      "purpose": "router-ab/x_server_base/v1",
       "context_hex": "0000002d726f757465722d61622d64657269766174696f6e2f6d70632d7072662f636f6e746578742d62797465732f7631000000217468726573686f6c645f7072665f72697374726574746f3235355f736861353132000000217468726573686f6c642d7072662f72697374726574746f3235352d7368613531320000001b726f757465722d61622f785f72656c617965725f626173652f76310000001b63616e6f6e6963616c5f656432353531395f7363616c61725f333200000020b87b29b1a50ce49c58ea33f6341715f68890c77f41d73582f166744085bf70580000000e785f72656c617965725f626173650000000772656c617965720000001b726f6c653a72656c617965723a6c6f63616c3a7368613235362d72",
       "policy": {
         "threshold": 2,
@@ -259,45 +259,45 @@
       "partials": [
         {
           "id": 1,
-          "context_tag_hex": "6cabd6bce227d4bbc8d99e529b702cfaf6912f6a86c0b3dc651e3d382c2c595c",
-          "compressed_point_hex": "ccc74a0a8db8975c4ba81fbbedcb6b0001d23b7447e415379933a7b330673310",
-          "wire_hex": "00016cabd6bce227d4bbc8d99e529b702cfaf6912f6a86c0b3dc651e3d382c2c595cccc74a0a8db8975c4ba81fbbedcb6b0001d23b7447e415379933a7b330673310"
+          "context_tag_hex": "b127b9ea9f8b0695b3b176d05634370a3f210bb2b34bac2a36d04f224a11a4c2",
+          "compressed_point_hex": "5a9e1eb627de7a78e420dbd4e926fc15c27dd1f621e1e4d0b78599b5bd0b8f38",
+          "wire_hex": "0001b127b9ea9f8b0695b3b176d05634370a3f210bb2b34bac2a36d04f224a11a4c25a9e1eb627de7a78e420dbd4e926fc15c27dd1f621e1e4d0b78599b5bd0b8f38"
         },
         {
           "id": 2,
-          "context_tag_hex": "6cabd6bce227d4bbc8d99e529b702cfaf6912f6a86c0b3dc651e3d382c2c595c",
-          "compressed_point_hex": "46c57df6ef7a5e854b38ef1aed671c89bcbee6185b3ea76d2bf2f4e88f656421",
-          "wire_hex": "00026cabd6bce227d4bbc8d99e529b702cfaf6912f6a86c0b3dc651e3d382c2c595c46c57df6ef7a5e854b38ef1aed671c89bcbee6185b3ea76d2bf2f4e88f656421"
+          "context_tag_hex": "b127b9ea9f8b0695b3b176d05634370a3f210bb2b34bac2a36d04f224a11a4c2",
+          "compressed_point_hex": "72910765481f499aa505ad8764cadef303bf64ba9a08390b7083674876bbc110",
+          "wire_hex": "0002b127b9ea9f8b0695b3b176d05634370a3f210bb2b34bac2a36d04f224a11a4c272910765481f499aa505ad8764cadef303bf64ba9a08390b7083674876bbc110"
         },
         {
           "id": 3,
-          "context_tag_hex": "6cabd6bce227d4bbc8d99e529b702cfaf6912f6a86c0b3dc651e3d382c2c595c",
-          "compressed_point_hex": "4a56b22797f760dee3a1b258f980d3e1e8d55e161a5ed1ad1dabc37226e2805f",
-          "wire_hex": "00036cabd6bce227d4bbc8d99e529b702cfaf6912f6a86c0b3dc651e3d382c2c595c4a56b22797f760dee3a1b258f980d3e1e8d55e161a5ed1ad1dabc37226e2805f"
+          "context_tag_hex": "b127b9ea9f8b0695b3b176d05634370a3f210bb2b34bac2a36d04f224a11a4c2",
+          "compressed_point_hex": "1cd1c83c5045485ad856c97acfe5fd7e9a9127ad9fa075024d97978a0559052f",
+          "wire_hex": "0003b127b9ea9f8b0695b3b176d05634370a3f210bb2b34bac2a36d04f224a11a4c21cd1c83c5045485ad856c97acfe5fd7e9a9127ad9fa075024d97978a0559052f"
         }
       ],
-      "direct_output_hex": "57fc423564c0ba22f46ffcf7b90ad2a793be97d4c9026b852db18e5e8acf5d0d",
+      "direct_output_hex": "7ef3695207a0421467181e8c6dc436e08451e5657149359c3b105cebcf0f070a",
       "threshold_outputs": [
         {
           "ids": [
             1,
             2
           ],
-          "output_hex": "57fc423564c0ba22f46ffcf7b90ad2a793be97d4c9026b852db18e5e8acf5d0d"
+          "output_hex": "7ef3695207a0421467181e8c6dc436e08451e5657149359c3b105cebcf0f070a"
         },
         {
           "ids": [
             1,
             3
           ],
-          "output_hex": "57fc423564c0ba22f46ffcf7b90ad2a793be97d4c9026b852db18e5e8acf5d0d"
+          "output_hex": "7ef3695207a0421467181e8c6dc436e08451e5657149359c3b105cebcf0f070a"
         },
         {
           "ids": [
             2,
             3
           ],
-          "output_hex": "57fc423564c0ba22f46ffcf7b90ad2a793be97d4c9026b852db18e5e8acf5d0d"
+          "output_hex": "7ef3695207a0421467181e8c6dc436e08451e5657149359c3b105cebcf0f070a"
         }
       ]
     }

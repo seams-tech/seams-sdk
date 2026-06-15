@@ -38,16 +38,16 @@ Code evidence:
 - [`server/api.rs:387`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/server/api.rs#L387)
   seals a `ServerInputsPacket`.
 - [`server/api.rs:397`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/server/api.rs#L397)
-  serializes relayer inputs via `serialize_server_inputs_payload`.
+  serializes server inputs via `serialize_server_inputs_payload`.
 - [`wire/mod.rs:446`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/wire/mod.rs#L446)
-  encodes `y_relayer_left`, `y_relayer_right`, `tau_relayer_left`, and
-  `tau_relayer_right` into one payload.
+  encodes `y_server_left`, `y_server_right`, `tau_server_left`, and
+  `tau_server_right` into one payload.
 - [`client/api.rs:103`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/client/api.rs#L103)
-  opens that packet and returns both left/right relayer bundles.
+  opens that packet and returns both left/right server bundles.
 
 Reasoning:
 
-- The shipped packet format carries both relayer halves together inside one
+- The shipped packet format carries both server halves together inside one
   sealed server-input message.
 - [`security.md:64`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/security.md#L64)
   also describes this active behavior, so this is not just a code bug. It is a

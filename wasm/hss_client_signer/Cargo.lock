@@ -767,6 +767,7 @@ dependencies = [
  "ecdsa-hss",
  "ed25519-hss",
  "js-sys",
+ "rand_core",
  "serde",
  "serde-wasm-bindgen",
  "serde_json",

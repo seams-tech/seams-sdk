@@ -38,11 +38,11 @@ fn validate_ascii_field<'a>(label: &str, value: &'a str) -> Result<&'a str, JsVa
 
 fn parse_prf_purpose(purpose: &str) -> Result<PrfPurpose, JsValue> {
     match purpose {
-        "ecdsa-hss/y_relayer" => Ok(PrfPurpose::EcdsaHssYRelayer),
-        "ed25519-hss/y_relayer" => Ok(PrfPurpose::Ed25519HssYRelayer),
-        "ed25519-hss/tau_relayer" => Ok(PrfPurpose::Ed25519HssTauRelayer),
+        "ecdsa-hss/y_server" => Ok(PrfPurpose::EcdsaHssYServer),
+        "ed25519-hss/y_server" => Ok(PrfPurpose::Ed25519HssYServer),
+        "ed25519-hss/tau_server" => Ok(PrfPurpose::Ed25519HssTauServer),
         "router-ab/x_client_base/v1" => Ok(PrfPurpose::RouterAbXClientBaseV1),
-        "router-ab/x_relayer_base/v1" => Ok(PrfPurpose::RouterAbXRelayerBaseV1),
+        "router-ab/x_server_base/v1" => Ok(PrfPurpose::RouterAbXServerBaseV1),
         _ => Err(js_error("unknown threshold-prf purpose")),
     }
 }
@@ -336,7 +336,7 @@ pub fn threshold_prf_derive_ecdsa_hss_y_relayer(
         &key_version,
         &participant_ids,
     )?;
-    derive_hss_output_from_shares(&shares, PrfPurpose::EcdsaHssYRelayer, context_bytes)
+    derive_hss_output_from_shares(&shares, PrfPurpose::EcdsaHssYServer, context_bytes)
 }
 
 #[wasm_bindgen]
@@ -379,9 +379,9 @@ pub fn threshold_prf_derive_ed25519_hss_server_inputs(
         usize::from(shares.policy().threshold().get()),
     )?;
     let y_relayer =
-        derive_hss_output_from_shares(&shares, PrfPurpose::Ed25519HssYRelayer, binding.to_vec())?;
+        derive_hss_output_from_shares(&shares, PrfPurpose::Ed25519HssYServer, binding.to_vec())?;
     let tau_relayer =
-        derive_hss_output_from_shares(&shares, PrfPurpose::Ed25519HssTauRelayer, binding.to_vec())?;
+        derive_hss_output_from_shares(&shares, PrfPurpose::Ed25519HssTauServer, binding.to_vec())?;
 
     ed25519_hss_server_inputs_output(&binding, &y_relayer, &tau_relayer)
 }

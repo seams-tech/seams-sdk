@@ -42,8 +42,8 @@ impl PreparedSession {
             self.hidden_eval_constants(),
             &evaluator_ot_state,
             &client_packet,
-            input.y_relayer,
-            input.tau_relayer,
+            input.y_server,
+            input.tau_server,
         )?;
         let (report, result_assembly_duration_ns, output_sealing_finalization_duration_ns) =
             evaluator_session.build_final_report_from_hidden_run(
@@ -65,14 +65,14 @@ impl PreparedSession {
         let x_client_base = evaluator_session
             .ddh_evaluator
             .decode_client_bit_bundle_array(output.client_output.as_bundle())?;
-        let x_relayer_bundle = garbler_session
+        let x_server_bundle = garbler_session
             .ddh_garbler
-            .join_share_bundle(&output.x_relayer_base_left, &output.x_relayer_base_right)?;
-        let x_relayer_base = garbler_session
+            .join_share_bundle(&output.x_server_base_left, &output.x_server_base_right)?;
+        let x_server_base = garbler_session
             .ddh_garbler
-            .decode_server_bit_bundle_array(&x_relayer_bundle)?;
-        let public_key = public_key_from_base_shares(x_client_base, x_relayer_base)?;
-        Ok((x_client_base, x_relayer_base, public_key))
+            .decode_server_bit_bundle_array(&x_server_bundle)?;
+        let public_key = public_key_from_base_shares(x_client_base, x_server_base)?;
+        Ok((x_client_base, x_server_base, public_key))
     }
 
     pub(crate) fn profile_hidden_eval_for_clear_input(

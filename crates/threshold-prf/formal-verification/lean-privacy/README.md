@@ -8,7 +8,7 @@ The model distinguishes:
 - one-server mode, where one signer observes two plaintext root shares and can
   reconstruct `k_org`
 - two-server mode, where each server observes only one plaintext root share
-- combiner state, which should observe partials and `y_relayer`, not plaintext
+- combiner state, which should observe partials and `y_server`, not plaintext
   root or share scalars
 
 Implemented proof surface:

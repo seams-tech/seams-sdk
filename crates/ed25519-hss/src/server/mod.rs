@@ -8,6 +8,6 @@ pub mod state;
 pub use outputs::ServerOutputOpener;
 pub use state::{
     ServerDriverState, ServerEvalExecutionState, ServerEvalFinalizeOutput, ServerEvalFinalizeState,
-    ServerEvalOperation, ServerEvalRelayerRoots, ServerEvalState, ServerEvalStatus, ServerOtState,
+    ServerEvalOperation, ServerEvalServerRoots, ServerEvalState, ServerEvalStatus, ServerOtState,
     ServerSession, ServerSessionState,
 };

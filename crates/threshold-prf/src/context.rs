@@ -4,15 +4,15 @@ use crate::suite::SuiteId;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PrfPurpose {
     /// Server input for `ecdsa-hss`.
-    EcdsaHssYRelayer,
+    EcdsaHssYServer,
     /// Server root input for `ed25519-hss`.
-    Ed25519HssYRelayer,
+    Ed25519HssYServer,
     /// Server rerandomization input for `ed25519-hss`.
-    Ed25519HssTauRelayer,
+    Ed25519HssTauServer,
     /// Router/A/B client-base output.
     RouterAbXClientBaseV1,
-    /// Router/A/B relayer-base output.
-    RouterAbXRelayerBaseV1,
+    /// Router/A/B server-base output.
+    RouterAbXServerBaseV1,
 }
 
 /// Purpose-specific threshold PRF output encoding.
@@ -28,21 +28,21 @@ impl PrfPurpose {
     /// Returns the canonical purpose bytes.
     pub fn as_bytes(&self) -> &[u8] {
         match self {
-            Self::EcdsaHssYRelayer => b"ecdsa-hss/y_relayer",
-            Self::Ed25519HssYRelayer => b"ed25519-hss/y_relayer",
-            Self::Ed25519HssTauRelayer => b"ed25519-hss/tau_relayer",
+            Self::EcdsaHssYServer => b"ecdsa-hss/y_server",
+            Self::Ed25519HssYServer => b"ed25519-hss/y_server",
+            Self::Ed25519HssTauServer => b"ed25519-hss/tau_server",
             Self::RouterAbXClientBaseV1 => b"router-ab/x_client_base/v1",
-            Self::RouterAbXRelayerBaseV1 => b"router-ab/x_relayer_base/v1",
+            Self::RouterAbXServerBaseV1 => b"router-ab/x_server_base/v1",
         }
     }
 
     /// Returns the output encoding for this purpose.
     pub fn output_encoding(&self) -> PrfOutputEncoding {
         match self {
-            Self::EcdsaHssYRelayer | Self::Ed25519HssYRelayer => PrfOutputEncoding::Raw32,
-            Self::Ed25519HssTauRelayer
+            Self::EcdsaHssYServer | Self::Ed25519HssYServer => PrfOutputEncoding::Raw32,
+            Self::Ed25519HssTauServer
             | Self::RouterAbXClientBaseV1
-            | Self::RouterAbXRelayerBaseV1 => PrfOutputEncoding::CanonicalEd25519Scalar32,
+            | Self::RouterAbXServerBaseV1 => PrfOutputEncoding::CanonicalEd25519Scalar32,
         }
     }
 }

@@ -33,9 +33,9 @@ pub struct CanonicalContext {
 pub struct FExpandInput {
     pub context: CanonicalContext,
     pub y_client: Bytes32,
-    pub y_relayer: Bytes32,
+    pub y_server: Bytes32,
     pub tau_client: Bytes32,
-    pub tau_relayer: Bytes32,
+    pub tau_server: Bytes32,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -48,7 +48,7 @@ pub struct FExpandOutput {
     pub a: Bytes32,
     pub tau: Bytes32,
     pub x_client_base: Bytes32,
-    pub x_relayer_base: Bytes32,
+    pub x_server_base: Bytes32,
     pub public_key: Bytes32,
 }
 
@@ -63,14 +63,14 @@ pub struct NonlinearExpansionOutput {
 pub struct OutputShareDerivationOutput {
     pub tau: Bytes32,
     pub x_client_base: Bytes32,
-    pub x_relayer_base: Bytes32,
+    pub x_server_base: Bytes32,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct FExpandVisibleBoundary {
     pub canonical_seed: Bytes32,
     pub x_client_base: Bytes32,
-    pub x_relayer_base: Bytes32,
+    pub x_server_base: Bytes32,
 }
 
 pub uninterp spec fn context_binding_spec(context: CanonicalContext) -> Bytes32;
@@ -166,15 +166,15 @@ pub proof fn lemma_add_le_bytes_mod_2_256_byte_bound(left: Seq<u8>, right: Seq<u
 pub open spec fn eval_f_expand_canonical_seed_byte_spec(input: FExpandInput, idx: nat) -> int
     recommends idx < 32,
 {
-    add_le_bytes_mod_2_256_byte_spec(input.y_client@, input.y_relayer@, idx)
+    add_le_bytes_mod_2_256_byte_spec(input.y_client@, input.y_server@, idx)
 }
 
 pub open spec fn eval_f_expand_canonical_seed_spec(input: FExpandInput) -> Bytes32 {
-    add_le_bytes_mod_2_256_spec(input.y_client, input.y_relayer)
+    add_le_bytes_mod_2_256_spec(input.y_client, input.y_server)
 }
 
 pub open spec fn eval_f_expand_tau_spec(input: FExpandInput) -> Bytes32 {
-    scalar_add_spec(input.tau_client, input.tau_relayer)
+    scalar_add_spec(input.tau_client, input.tau_server)
 }
 
 pub open spec fn eval_f_expand_a_bytes_spec(input: FExpandInput) -> Bytes32 {
@@ -191,7 +191,7 @@ pub open spec fn eval_f_expand_x_client_base_spec(input: FExpandInput) -> Bytes3
     scalar_add_spec(eval_f_expand_a_spec(input), eval_f_expand_tau_spec(input))
 }
 
-pub open spec fn eval_f_expand_x_relayer_base_spec(input: FExpandInput) -> Bytes32 {
+pub open spec fn eval_f_expand_x_server_base_spec(input: FExpandInput) -> Bytes32 {
     scalar_add_spec(eval_f_expand_x_client_base_spec(input), eval_f_expand_tau_spec(input))
 }
 
@@ -404,29 +404,29 @@ pub fn eval_nonlinear_expansion(d: Bytes32) -> (out: NonlinearExpansionOutput)
 pub fn derive_output_shares(
     a: Bytes32,
     tau_client: Bytes32,
-    tau_relayer: Bytes32,
+    tau_server: Bytes32,
 ) -> (out: OutputShareDerivationOutput)
     ensures
-        out.tau == scalar_add_spec(tau_client, tau_relayer),
+        out.tau == scalar_add_spec(tau_client, tau_server),
         out.x_client_base == scalar_add_spec(a, out.tau),
-        out.x_relayer_base == scalar_add_spec(out.x_client_base, out.tau),
+        out.x_server_base == scalar_add_spec(out.x_client_base, out.tau),
 {
-    let tau = scalar_add(tau_client, tau_relayer);
+    let tau = scalar_add(tau_client, tau_server);
     let x_client_base = scalar_add(a, tau);
-    let x_relayer_base = scalar_add(x_client_base, tau);
+    let x_server_base = scalar_add(x_client_base, tau);
 
-    OutputShareDerivationOutput { tau, x_client_base, x_relayer_base }
+    OutputShareDerivationOutput { tau, x_client_base, x_server_base }
 }
 
 pub fn recover_a_from_base_shares(
     x_client_base: Bytes32,
-    x_relayer_base: Bytes32,
+    x_server_base: Bytes32,
 ) -> (out: Bytes32)
     ensures
-        out == scalar_sub_spec(scalar_add_spec(x_client_base, x_client_base), x_relayer_base),
+        out == scalar_sub_spec(scalar_add_spec(x_client_base, x_client_base), x_server_base),
 {
     let double_client = scalar_add(x_client_base, x_client_base);
-    scalar_sub(double_client, x_relayer_base)
+    scalar_sub(double_client, x_server_base)
 }
 
 pub fn public_key_from_scalar_bytes(a: Bytes32) -> (out: Bytes32)
@@ -438,22 +438,22 @@ pub fn public_key_from_scalar_bytes(a: Bytes32) -> (out: Bytes32)
 
 pub fn public_key_from_base_shares(
     x_client_base: Bytes32,
-    x_relayer_base: Bytes32,
+    x_server_base: Bytes32,
 ) -> (out: Bytes32)
     ensures
         out == basepoint_mul_compress_spec(
-            scalar_sub_spec(scalar_add_spec(x_client_base, x_client_base), x_relayer_base)
+            scalar_sub_spec(scalar_add_spec(x_client_base, x_client_base), x_server_base)
         ),
 {
-    let a = recover_a_from_base_shares(x_client_base, x_relayer_base);
+    let a = recover_a_from_base_shares(x_client_base, x_server_base);
     public_key_from_scalar_bytes(a)
 }
 
 pub fn eval_f_expand(input: FExpandInput) -> (out: FExpandOutput)
     ensures
         out.context_binding == context_binding_spec(input.context),
-        out.m == add_le_bytes_mod_2_256_spec(input.y_client, input.y_relayer),
-        forall|i: int| 0 <= i < 32 ==> out.m[i] as int == add_le_bytes_mod_2_256_byte_spec(input.y_client@, input.y_relayer@, i as nat),
+        out.m == add_le_bytes_mod_2_256_spec(input.y_client, input.y_server),
+        forall|i: int| 0 <= i < 32 ==> out.m[i] as int == add_le_bytes_mod_2_256_byte_spec(input.y_client@, input.y_server@, i as nat),
         out.d == out.m,
         out.h == sha512_one_block_spec(out.d),
         out.a_bytes == extract_a_bytes_from_hash_spec(out.h),
@@ -461,22 +461,22 @@ pub fn eval_f_expand(input: FExpandInput) -> (out: FExpandOutput)
         out.a_bytes[31] == ((sha512_one_block_spec(out.d)[31] & 63u8) | 64u8),
         forall|i: int| #![auto] 0 <= i < 32 && i != 0 && i != 31 ==> out.a_bytes[i] == sha512_one_block_spec(out.d)[i],
         out.a == reduce_scalar_mod_l_spec(out.a_bytes),
-        out.tau == scalar_add_spec(input.tau_client, input.tau_relayer),
+        out.tau == scalar_add_spec(input.tau_client, input.tau_server),
         out.x_client_base == scalar_add_spec(out.a, out.tau),
-        out.x_relayer_base == scalar_add_spec(out.x_client_base, out.tau),
+        out.x_server_base == scalar_add_spec(out.x_client_base, out.tau),
         out.public_key == basepoint_mul_compress_spec(out.a),
 {
     let context = input.context;
     let y_client = input.y_client;
-    let y_relayer = input.y_relayer;
+    let y_server = input.y_server;
     let tau_client = input.tau_client;
-    let tau_relayer = input.tau_relayer;
+    let tau_server = input.tau_server;
 
     let context_binding = context_binding(context);
-    let m = add_le_bytes_mod_2_256(y_client, y_relayer);
+    let m = add_le_bytes_mod_2_256(y_client, y_server);
     let d = m;
     let nonlinear = eval_nonlinear_expansion(d);
-    let output_shares = derive_output_shares(nonlinear.a, tau_client, tau_relayer);
+    let output_shares = derive_output_shares(nonlinear.a, tau_client, tau_server);
     let public_key = public_key_from_scalar_bytes(nonlinear.a);
 
     FExpandOutput {
@@ -488,7 +488,7 @@ pub fn eval_f_expand(input: FExpandInput) -> (out: FExpandOutput)
         a: nonlinear.a,
         tau: output_shares.tau,
         x_client_base: output_shares.x_client_base,
-        x_relayer_base: output_shares.x_relayer_base,
+        x_server_base: output_shares.x_server_base,
         public_key,
     }
 }
@@ -508,12 +508,12 @@ pub fn f_expand_visible_boundary_from_output(expanded: FExpandOutput) -> (out: F
     ensures
         out.canonical_seed == expanded.d,
         out.x_client_base == expanded.x_client_base,
-        out.x_relayer_base == expanded.x_relayer_base,
+        out.x_server_base == expanded.x_server_base,
 {
     FExpandVisibleBoundary {
         canonical_seed: expanded.d,
         x_client_base: expanded.x_client_base,
-        x_relayer_base: expanded.x_relayer_base,
+        x_server_base: expanded.x_server_base,
     }
 }
 
@@ -523,7 +523,7 @@ pub fn eval_f_expand_visible_boundary_from_input(input: FExpandInput) -> (out: F
     ensures
         out.canonical_seed == eval_f_expand_canonical_seed_spec(input),
         out.x_client_base == eval_f_expand_x_client_base_spec(input),
-        out.x_relayer_base == eval_f_expand_x_relayer_base_spec(input),
+        out.x_server_base == eval_f_expand_x_server_base_spec(input),
         forall|i: int| 0 <= i < 32 ==> out.canonical_seed[i] as int == eval_f_expand_canonical_seed_byte_spec(input, i as nat),
 {
     let expanded = eval_f_expand(input);
@@ -539,7 +539,7 @@ pub proof fn f_expand_visible_boundary_depends_only_on_visible_fields(
     requires
         left.d == right.d,
         left.x_client_base == right.x_client_base,
-        left.x_relayer_base == right.x_relayer_base,
+        left.x_server_base == right.x_server_base,
     ensures
         f_expand_visible_boundary_from_output(left)
             == f_expand_visible_boundary_from_output(right),

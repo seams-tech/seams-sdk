@@ -287,7 +287,7 @@ pub fn build_fixed_hidden_core_candidate_for_backend(
                 "Client rerandomization share for the output-share projection.".to_string(),
         },
         CandidateArtifactLineItem {
-            name: "y_relayer".to_string(),
+            name: "y_server".to_string(),
             scope: ArtifactScope::ServerPrivateInput,
             visibility: ArtifactVisibility::ServerPrivate,
             logical_width_bytes: 32,
@@ -295,7 +295,7 @@ pub fn build_fixed_hidden_core_candidate_for_backend(
             description: "Server private root share entering the hidden evaluator.".to_string(),
         },
         CandidateArtifactLineItem {
-            name: "tau_relayer".to_string(),
+            name: "tau_server".to_string(),
             scope: ArtifactScope::ServerPrivateInput,
             visibility: ArtifactVisibility::ServerPrivate,
             logical_width_bytes: 32,
@@ -322,7 +322,7 @@ pub fn build_fixed_hidden_core_candidate_for_backend(
             description: "Durable base share returned to the client.".to_string(),
         },
         CandidateArtifactLineItem {
-            name: "x_relayer_base".to_string(),
+            name: "x_server_base".to_string(),
             scope: ArtifactScope::ServerOutput,
             visibility: ArtifactVisibility::ServerPrivate,
             logical_width_bytes: 32,
@@ -395,7 +395,7 @@ pub fn build_fixed_hidden_core_candidate_for_backend(
                 direction: "commit".to_string(),
                 artifact_names: vec!["server_input_commitment".to_string(), "run_binding".to_string()],
                 description:
-                    "Server binds y_relayer and tau_relayer; evaluator transcript digest names this run."
+                    "Server binds y_server and tau_server; evaluator transcript digest names this run."
                         .to_string(),
                 reuse_scope: "per_run".to_string(),
             },
@@ -415,7 +415,7 @@ pub fn build_fixed_hidden_core_candidate_for_backend(
                 direction: "emit outputs".to_string(),
                 artifact_names: vec![
                     "x_client_base".to_string(),
-                    "x_relayer_base".to_string(),
+                    "x_server_base".to_string(),
                     "public_key".to_string(),
                 ],
                 description:
@@ -426,7 +426,7 @@ pub fn build_fixed_hidden_core_candidate_for_backend(
         ],
         evaluator_plan: CandidateEvaluatorPlan {
             hidden_core_stages: vec![
-                "add y_client + y_relayer mod 2^256".to_string(),
+                "add y_client + y_server mod 2^256".to_string(),
                 "evaluate fixed one-block SHA-512".to_string(),
                 "clamp h[0..31] and reduce into scalar a".to_string(),
                 "hand off hidden a to output-share projector".to_string(),
@@ -500,8 +500,8 @@ pub fn simulate_fixed_hidden_core_candidate_for_backend(
     ]);
     let server_input_commitment = sha256_concat(&[
         b"succinct-garbling-proto/server-input-commitment/v0",
-        &input.y_relayer,
-        &input.tau_relayer,
+        &input.y_server,
+        &input.tau_server,
     ]);
     let run_binding = sha256_concat(&[
         b"succinct-garbling-proto/run-binding/v0",
@@ -636,9 +636,9 @@ impl CandidateSimulationReport {
                 hex::encode(self.run_binding),
             ),
             format!(
-                "outputs: x_client={} x_relayer={} A={}",
+                "outputs: x_client={} x_server={} A={}",
                 hex::encode(self.output.x_client_base),
-                hex::encode(self.output.x_relayer_base),
+                hex::encode(self.output.x_server_base),
                 hex::encode(self.output.public_key),
             ),
         ]

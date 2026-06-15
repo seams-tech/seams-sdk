@@ -43,9 +43,9 @@ pub struct ContextRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FixtureInputsRecord {
     pub y_client_hex: String,
-    pub y_relayer_hex: String,
+    pub y_server_hex: String,
     pub tau_client_hex: String,
-    pub tau_relayer_hex: String,
+    pub tau_server_hex: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -58,7 +58,7 @@ pub struct FixtureOutputsRecord {
     pub a_hex: String,
     pub tau_hex: String,
     pub x_client_base_hex: String,
-    pub x_relayer_base_hex: String,
+    pub x_server_base_hex: String,
     pub public_key_hex: String,
 }
 
@@ -77,7 +77,7 @@ pub fn deterministic_fixture_corpus() -> ProtoResult<Vec<FExpandFixture>> {
             [0xff; 32],
             one_le_u256(),
             derive_scalar_bytes("wraparound-seed/tau-client"),
-            derive_scalar_bytes("wraparound-seed/tau-relayer"),
+            derive_scalar_bytes("wraparound-seed/tau-server"),
         ),
         (
             "patterned-le-seed",
@@ -92,7 +92,7 @@ pub fn deterministic_fixture_corpus() -> ProtoResult<Vec<FExpandFixture>> {
             ascending_bytes(),
             descending_bytes(),
             derive_scalar_bytes("patterned-le-seed/tau-client"),
-            derive_scalar_bytes("patterned-le-seed/tau-relayer"),
+            derive_scalar_bytes("patterned-le-seed/tau-server"),
         ),
         (
             "derived-alpha",
@@ -105,9 +105,9 @@ pub fn deterministic_fixture_corpus() -> ProtoResult<Vec<FExpandFixture>> {
                 derivation_version: 2,
             },
             derive_bytes32("derived-alpha/y-client"),
-            derive_bytes32("derived-alpha/y-relayer"),
+            derive_bytes32("derived-alpha/y-server"),
             derive_scalar_bytes("derived-alpha/tau-client"),
-            derive_scalar_bytes("derived-alpha/tau-relayer"),
+            derive_scalar_bytes("derived-alpha/tau-server"),
         ),
         (
             "derived-beta",
@@ -120,9 +120,9 @@ pub fn deterministic_fixture_corpus() -> ProtoResult<Vec<FExpandFixture>> {
                 derivation_version: 3,
             },
             derive_bytes32("derived-beta/y-client"),
-            derive_bytes32("derived-beta/y-relayer"),
+            derive_bytes32("derived-beta/y-server"),
             derive_scalar_bytes("derived-beta/tau-client"),
-            derive_scalar_bytes("derived-beta/tau-relayer"),
+            derive_scalar_bytes("derived-beta/tau-server"),
         ),
         (
             "derived-gamma",
@@ -135,22 +135,22 @@ pub fn deterministic_fixture_corpus() -> ProtoResult<Vec<FExpandFixture>> {
                 derivation_version: 5,
             },
             derive_bytes32("derived-gamma/y-client"),
-            derive_bytes32("derived-gamma/y-relayer"),
+            derive_bytes32("derived-gamma/y-server"),
             derive_scalar_bytes("derived-gamma/tau-client"),
-            derive_scalar_bytes("derived-gamma/tau-relayer"),
+            derive_scalar_bytes("derived-gamma/tau-server"),
         ),
     ];
 
     cases
         .into_iter()
         .map(
-            |(name, context, y_client, y_relayer, tau_client, tau_relayer)| {
+            |(name, context, y_client, y_server, tau_client, tau_server)| {
                 let input = FExpandInput {
                     context,
                     y_client,
-                    y_relayer,
+                    y_server,
                     tau_client,
-                    tau_relayer,
+                    tau_server,
                 };
                 let output = eval_f_expand(&input)?;
                 Ok(FExpandFixture {
@@ -212,9 +212,9 @@ impl FixtureRecord {
             },
             inputs: FixtureInputsRecord {
                 y_client_hex: hex::encode(fixture.input.y_client),
-                y_relayer_hex: hex::encode(fixture.input.y_relayer),
+                y_server_hex: hex::encode(fixture.input.y_server),
                 tau_client_hex: hex::encode(fixture.input.tau_client),
-                tau_relayer_hex: hex::encode(fixture.input.tau_relayer),
+                tau_server_hex: hex::encode(fixture.input.tau_server),
             },
             outputs: FixtureOutputsRecord {
                 context_binding_sha256_hex: hex::encode(fixture.output.context_binding),
@@ -225,7 +225,7 @@ impl FixtureRecord {
                 a_hex: hex::encode(fixture.output.a),
                 tau_hex: hex::encode(fixture.output.tau),
                 x_client_base_hex: hex::encode(fixture.output.x_client_base),
-                x_relayer_base_hex: hex::encode(fixture.output.x_relayer_base),
+                x_server_base_hex: hex::encode(fixture.output.x_server_base),
                 public_key_hex: hex::encode(fixture.output.public_key),
             },
         }
@@ -244,9 +244,9 @@ impl FixtureRecord {
                     derivation_version: self.context.derivation_version,
                 },
                 y_client: decode_hex_32("y_client_hex", &self.inputs.y_client_hex)?,
-                y_relayer: decode_hex_32("y_relayer_hex", &self.inputs.y_relayer_hex)?,
+                y_server: decode_hex_32("y_server_hex", &self.inputs.y_server_hex)?,
                 tau_client: decode_hex_32("tau_client_hex", &self.inputs.tau_client_hex)?,
-                tau_relayer: decode_hex_32("tau_relayer_hex", &self.inputs.tau_relayer_hex)?,
+                tau_server: decode_hex_32("tau_server_hex", &self.inputs.tau_server_hex)?,
             },
             output: FExpandOutput {
                 context_binding: decode_hex_32(
@@ -260,10 +260,7 @@ impl FixtureRecord {
                 a: decode_hex_32("a_hex", &self.outputs.a_hex)?,
                 tau: decode_hex_32("tau_hex", &self.outputs.tau_hex)?,
                 x_client_base: decode_hex_32("x_client_base_hex", &self.outputs.x_client_base_hex)?,
-                x_relayer_base: decode_hex_32(
-                    "x_relayer_base_hex",
-                    &self.outputs.x_relayer_base_hex,
-                )?,
+                x_server_base: decode_hex_32("x_server_base_hex", &self.outputs.x_server_base_hex)?,
                 public_key: decode_hex_32("public_key_hex", &self.outputs.public_key_hex)?,
             },
         })

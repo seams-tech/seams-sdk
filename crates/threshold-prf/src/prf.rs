@@ -715,7 +715,7 @@ mod tests {
     fn fixture_context() -> PrfContext {
         PrfContext::new(
             SuiteId::Ristretto255Sha512,
-            PrfPurpose::EcdsaHssYRelayer,
+            PrfPurpose::EcdsaHssYServer,
             b"ctx",
         )
     }
@@ -732,7 +732,7 @@ mod tests {
             encode_transcript(INPUT_DOMAIN, &context, &[]).unwrap(),
             b"\x00\x13threshold-prf/input\
               \x00\x21threshold-prf/ristretto255-sha512\
-              \x00\x13ecdsa-hss/y_relayer\
+              \x00\x12ecdsa-hss/y_server\
               \x00\x00\x00\x03ctx\
               \x00\x00\x00\x00"
                 .to_vec()
@@ -741,7 +741,7 @@ mod tests {
             encode_transcript(PARTIAL_CONTEXT_DOMAIN, &context, &[]).unwrap(),
             b"\x00\x1dthreshold-prf/partial-context\
               \x00\x21threshold-prf/ristretto255-sha512\
-              \x00\x13ecdsa-hss/y_relayer\
+              \x00\x12ecdsa-hss/y_server\
               \x00\x00\x00\x03ctx\
               \x00\x00\x00\x00"
                 .to_vec()
@@ -750,7 +750,7 @@ mod tests {
             encode_transcript(OUTPUT_DOMAIN, &context, b"payload").unwrap(),
             b"\x00\x14threshold-prf/output\
               \x00\x21threshold-prf/ristretto255-sha512\
-              \x00\x13ecdsa-hss/y_relayer\
+              \x00\x12ecdsa-hss/y_server\
               \x00\x00\x00\x03ctx\
               \x00\x00\x00\x07payload"
                 .to_vec()
@@ -783,7 +783,7 @@ mod tests {
         let mut expected = Vec::new();
         expected.extend_from_slice(b"\x00\x12threshold-prf/dleq");
         expected.extend_from_slice(b"\x00\x21threshold-prf/ristretto255-sha512");
-        expected.extend_from_slice(b"\x00\x13ecdsa-hss/y_relayer");
+        expected.extend_from_slice(b"\x00\x12ecdsa-hss/y_server");
         expected.extend_from_slice(&context_tag);
         expected.extend_from_slice(&2u16.to_be_bytes());
         append_point(&mut expected, &RISTRETTO_BASEPOINT_POINT);
@@ -829,7 +829,7 @@ mod tests {
         let policy_3_of_5 = ThresholdPolicy::from_u16s(3, 5).unwrap();
         let context = PrfContext::new(
             SuiteId::Ristretto255Sha512,
-            PrfPurpose::RouterAbXRelayerBaseV1,
+            PrfPurpose::RouterAbXServerBaseV1,
             b"benchmark/private-prf-eval-combine-prep/canonical",
         );
         let shares_2_of_3 = split_signing_root(&root, policy_2_of_3, &mut root_rng).unwrap();

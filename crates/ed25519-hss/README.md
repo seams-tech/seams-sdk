@@ -13,9 +13,9 @@ It implements one narrow protocol:
 
 - client and server each hold root-share material
 - the parties jointly derive the canonical Ed25519 seed path
-  `y_client + y_relayer -> d -> SHA-512(d) -> clamp -> a`
+  `y_client + y_server -> d -> SHA-512(d) -> clamp -> a`
 - the protocol projects that hidden scalar into durable signing shares
-  `x_client_base` and `x_relayer_base`
+  `x_client_base` and `x_server_base`
 
 This crate is not a generic garbling framework and not a generic threshold
 signing crate. It is an implementation-focused fixed-function protocol for the
@@ -129,8 +129,8 @@ current production transport batches that work server-side.
 
 The production boundary hardening goal for non-export flows is:
 
-- the client must not be able to reconstruct `y_relayer`
-- the client must not be able to reconstruct `tau_relayer`
+- the client must not be able to reconstruct `y_server`
+- the client must not be able to reconstruct `tau_server`
 
 That production seam is now staged and server-owned from add-stage onward.
 

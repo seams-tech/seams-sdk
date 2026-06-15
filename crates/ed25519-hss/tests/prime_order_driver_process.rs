@@ -100,10 +100,10 @@ fn process_driver_round_trips_ot_messages_without_local_coordinator() {
         garbler_state_path.to_str().expect("garbler state path"),
         "--request-in",
         request_path.to_str().expect("request path"),
-        "--y-relayer-hex",
-        &hex::encode(fixture.input.y_relayer),
-        "--tau-relayer-hex",
-        &hex::encode(fixture.input.tau_relayer),
+        "--y-server-hex",
+        &hex::encode(fixture.input.y_server),
+        "--tau-server-hex",
+        &hex::encode(fixture.input.tau_server),
         "--server-assist-init-out",
         server_assist_init_path
             .to_str()

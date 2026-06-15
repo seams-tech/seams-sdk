@@ -26,8 +26,8 @@ Current status:
 - widening straight through `sha512_one_block` is still blocked on Charon
   failures once `sha2`/`digest` enters the graph
 - the current generated-theorem cutoff is intentionally frozen at:
-  - `GeneratedClientCannotDeriveYRelayer`
-  - `GeneratedClientCannotDeriveTauRelayer`
+  - `GeneratedClientCannotDeriveYServer`
+  - `GeneratedClientCannotDeriveTauServer`
   - `GeneratedServerCannotDeriveClientSecrets`
   - `GeneratedNonExportHiddenSeedIsHidden`
 
@@ -47,7 +47,7 @@ The initial extraction scope is intentionally narrow:
   - `eval_f_expand`
   - `canonical_seed`
   - `x_client_base`
-  - `x_relayer_base`
+  - `x_server_base`
 
 ## Commands
 

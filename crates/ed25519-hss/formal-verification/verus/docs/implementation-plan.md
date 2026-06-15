@@ -136,17 +136,17 @@ Definition of done:
 - [x] Make the lower-level three-output executor/reference boundary match explicit as a whole-record equality at the output projection layer.
 - [x] Add a single reference-side input-to-visible-boundary helper and route the executor helper through it.
 - [x] Check the `auto_spec` feasibility of the input-level visible-boundary helper and record the current blocker.
-- [x] Add the first non-export boundary-discipline proof excluding direct `y_relayer`, `tau_relayer`, and commitment outputs from the visible executor surface.
-- [x] Add the non-export boundary-discipline proof that relayer-base is exposed only as transport bundles, not as a direct visible share bundle.
+- [x] Add the first non-export boundary-discipline proof excluding direct `y_server`, `tau_server`, and commitment outputs from the visible executor surface.
+- [x] Add the non-export boundary-discipline proof that server-base is exposed only as transport bundles, not as a direct visible share bundle.
 - [x] Add the non-export boundary-discipline proof excluding the remaining clear `F_expand` fields from the visible executor surface.
 - [x] Add the positive non-export boundary-discipline proof for the allowed visible output classes.
 - [x] Add the exact non-export boundary partition theorem combining allowed and excluded output classes.
 - [x] Prove the shared and executor visible-boundary projections depend only on the three allowed visible fields.
-- [x] Extend the spec-facing `eval_f_expand` boundary to `x_client_base` and `x_relayer_base`.
+- [x] Extend the spec-facing `eval_f_expand` boundary to `x_client_base` and `x_server_base`.
 - [x] Prove the executor boundary matches `eval_f_expand` at:
   - `canonical_seed`
   - `x_client_base`
-  - `x_relayer_base`
+  - `x_server_base`
 - [x] Keep full runtime/transport proof out of scope.
 
 ### Phase 4: Decide Next Expansion
@@ -209,15 +209,15 @@ Completed now:
   output-boundary shape counts, and the fixed `prime_order_ddh` primitive kind,
 - `ddh/hidden_eval_executor.rs` now covers the first visible executor-boundary
   slice: a Rust-shaped visible record for `canonical_seed`, `x_client_base`,
-  and `x_relayer_base`, plus fixed visible-output count/order invariants and
-  the production-shaped four-bundle split with two relayer transport bundles,
+  and `x_server_base`, plus fixed visible-output count/order invariants and
+  the production-shaped four-bundle split with two server transport bundles,
 - `shared/reference.rs` now exposes the first spec-facing `eval_f_expand`
   boundary slice for `canonical_seed`, and
   `ddh/hidden_eval_executor.rs` proves the executor-visible `canonical_seed`
   matches that byte-level boundary spec,
 - `shared/reference.rs` now also lifts the input-level visible boundary onto
   whole-array spec values for `canonical_seed`, `x_client_base`, and
-  `x_relayer_base`,
+  `x_server_base`,
 - `shared/reference.rs` now also owns the shared projection from
   `FExpandOutput` into the stable three-field visible boundary shape, and
   `ddh/hidden_eval_executor.rs` delegates to that helper instead of projecting
@@ -238,15 +238,15 @@ Completed now:
   already spec-usable,
 - `ddh/hidden_eval_executor.rs` now also carries the first non-export
   boundary-discipline proof: the visible executor surface excludes direct
-  `y_relayer`, `tau_relayer`, and commitment outputs,
-- `ddh/hidden_eval_executor.rs` now also proves the non-export relayer-base
+  `y_server`, `tau_server`, and commitment outputs,
+- `ddh/hidden_eval_executor.rs` now also proves the non-export server-base
   output is transport-only rather than a direct visible share bundle,
 - `ddh/hidden_eval_executor.rs` now also excludes the remaining clear
   `F_expand` fields from the non-export visible executor surface:
   `tau`, `a`, `a_bytes`, `public_key`, and `context_binding`,
 - `ddh/hidden_eval_executor.rs` now also states the positive non-export
   boundary rule explicitly: one canonical-seed visible bundle, one
-  `x_client_base` visible bundle, and two relayer-base transport bundles,
+  `x_client_base` visible bundle, and two server-base transport bundles,
 - `ddh/hidden_eval_executor.rs` now also combines the allowed and excluded
   classes into one exact non-export boundary partition theorem,
 - `shared/reference.rs` and `ddh/hidden_eval_executor.rs` now also prove that
@@ -254,7 +254,7 @@ Completed now:
   fields and ignore the excluded clear `F_expand` fields,
 - the output-level and input-level executor/reference visible-boundary matches
   are both now proved for `canonical_seed`, `x_client_base`, and
-  `x_relayer_base`,
+  `x_server_base`,
 - the current proof boundary is now intentionally frozen at:
   reference helpers, deterministic shape, executor visible-boundary
   equivalence, runtime export-boundary invariants, and anti-drift checks,
@@ -304,7 +304,7 @@ Completed now:
   reference-side and executor-side output-level visible-boundary projections on
   a real production `FExpandOutput`, and checks both projections against the
   production `eval_f_expand` output path directly at `canonical_seed`,
-  `x_client_base`, and `x_relayer_base`,
+  `x_client_base`, and `x_server_base`,
 - `cargo hss-fv verus-check` and `just ed25519-hss-fv-verus` are green against the current
   Verus crate.
 
@@ -329,7 +329,7 @@ Immediate next work:
   proof,
 - if we reopen deeper executor equivalence, extend the spec-facing
   `eval_f_expand` boundary in `shared/reference.rs` from `canonical_seed` to
-  `x_client_base` and `x_relayer_base` without adding opaque array specs that
+  `x_client_base` and `x_server_base` without adding opaque array specs that
   the verifier cannot connect back to the exec helpers,
 - then strengthen `ddh/hidden_eval_executor.rs` so the executor-visible
   boundary matches the reference boundary at all three visible outputs from the

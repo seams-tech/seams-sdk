@@ -4,7 +4,7 @@
 //! - visible executor-boundary shape
 //! - boundary projection from `eval_f_expand`
 //! - fixed visible output bundle count
-//! - fixed split relayer transport bundle shape
+//! - fixed split server transport bundle shape
 
 use vstd::contrib::auto_spec;
 use vstd::prelude::*;
@@ -20,14 +20,14 @@ verus! {
 pub struct HiddenEvalExecutorVisibleBoundary {
     pub canonical_seed: Bytes32,
     pub x_client_base: Bytes32,
-    pub x_relayer_base: Bytes32,
+    pub x_server_base: Bytes32,
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct HiddenEvalExecutorOutputBundleShape {
     pub canonical_seed_bundle_count: usize,
     pub x_client_base_bundle_count: usize,
-    pub x_relayer_base_transport_bundle_count: usize,
+    pub x_server_base_transport_bundle_count: usize,
 }
 
 pub open spec fn hidden_eval_executor_visible_output_count_spec() -> nat {
@@ -38,7 +38,7 @@ pub open spec fn hidden_eval_executor_output_bundle_count_spec() -> nat {
     4nat
 }
 
-pub open spec fn hidden_eval_executor_relayer_transport_bundle_count_spec() -> nat {
+pub open spec fn hidden_eval_executor_server_transport_bundle_count_spec() -> nat {
     2nat
 }
 
@@ -50,15 +50,15 @@ pub open spec fn hidden_eval_executor_output_order_x_client_base_spec() -> nat {
     1nat
 }
 
-pub open spec fn hidden_eval_executor_output_order_x_relayer_base_spec() -> nat {
+pub open spec fn hidden_eval_executor_output_order_x_server_base_spec() -> nat {
     2nat
 }
 
-pub open spec fn hidden_eval_executor_visible_y_relayer_output_count_spec() -> nat {
+pub open spec fn hidden_eval_executor_visible_y_server_output_count_spec() -> nat {
     0nat
 }
 
-pub open spec fn hidden_eval_executor_visible_tau_relayer_output_count_spec() -> nat {
+pub open spec fn hidden_eval_executor_visible_tau_server_output_count_spec() -> nat {
     0nat
 }
 
@@ -66,7 +66,7 @@ pub open spec fn hidden_eval_executor_visible_commitment_output_count_spec() -> 
     0nat
 }
 
-pub open spec fn hidden_eval_executor_direct_x_relayer_base_bundle_count_spec() -> nat {
+pub open spec fn hidden_eval_executor_direct_x_server_base_bundle_count_spec() -> nat {
     0nat
 }
 
@@ -101,12 +101,12 @@ pub fn hidden_eval_executor_output_bundle_shape() -> (out: HiddenEvalExecutorOut
     ensures
         out.canonical_seed_bundle_count == 1,
         out.x_client_base_bundle_count == 1,
-        out.x_relayer_base_transport_bundle_count == 2,
+        out.x_server_base_transport_bundle_count == 2,
 {
     HiddenEvalExecutorOutputBundleShape {
         canonical_seed_bundle_count: 1usize,
         x_client_base_bundle_count: 1usize,
-        x_relayer_base_transport_bundle_count: 2usize,
+        x_server_base_transport_bundle_count: 2usize,
     }
 }
 
@@ -115,12 +115,12 @@ pub fn hidden_eval_executor_boundary_from_output(expanded: FExpandOutput) -> (ou
     ensures
         out.canonical_seed == expanded.d,
         out.x_client_base == expanded.x_client_base,
-        out.x_relayer_base == expanded.x_relayer_base,
+        out.x_server_base == expanded.x_server_base,
 {
     HiddenEvalExecutorVisibleBoundary {
         canonical_seed: expanded.d,
         x_client_base: expanded.x_client_base,
-        x_relayer_base: expanded.x_relayer_base,
+        x_server_base: expanded.x_server_base,
     }
 }
 
@@ -128,14 +128,14 @@ pub fn hidden_eval_executor_boundary_from_f_expand(input: FExpandInput) -> (out:
     ensures
         out.canonical_seed == crate::shared::reference::eval_f_expand_canonical_seed_spec(input),
         out.x_client_base == crate::shared::reference::eval_f_expand_x_client_base_spec(input),
-        out.x_relayer_base == crate::shared::reference::eval_f_expand_x_relayer_base_spec(input),
+        out.x_server_base == crate::shared::reference::eval_f_expand_x_server_base_spec(input),
         forall|i: int| 0 <= i < 32 ==> out.canonical_seed[i] as int == crate::shared::reference::eval_f_expand_canonical_seed_byte_spec(input, i as nat),
 {
     let visible = eval_f_expand_visible_boundary_from_input(input);
     HiddenEvalExecutorVisibleBoundary {
         canonical_seed: visible.canonical_seed,
         x_client_base: visible.x_client_base,
-        x_relayer_base: visible.x_relayer_base,
+        x_server_base: visible.x_server_base,
     }
 }
 
@@ -149,49 +149,49 @@ pub fn hidden_eval_executor_boundary_as_reference_boundary(
     ensures
         out.canonical_seed == boundary.canonical_seed,
         out.x_client_base == boundary.x_client_base,
-        out.x_relayer_base == boundary.x_relayer_base,
+        out.x_server_base == boundary.x_server_base,
 {
     FExpandVisibleBoundary {
         canonical_seed: boundary.canonical_seed,
         x_client_base: boundary.x_client_base,
-        x_relayer_base: boundary.x_relayer_base,
+        x_server_base: boundary.x_server_base,
     }
 }
 
 // Proves the executor-visible boundary still exposes exactly three visible
 // outputs in the fixed production order: canonical seed, client base share,
-// and relayer base share.
+// and server base share.
 pub proof fn hidden_eval_executor_boundary_shape()
     ensures
         hidden_eval_executor_visible_output_count_spec() == 3nat,
         hidden_eval_executor_output_bundle_count_spec() == 4nat,
-        hidden_eval_executor_relayer_transport_bundle_count_spec() == 2nat,
+        hidden_eval_executor_server_transport_bundle_count_spec() == 2nat,
         hidden_eval_executor_output_bundle_count_spec()
             == hidden_eval_executor_visible_output_count_spec() + 1nat,
         hidden_eval_executor_output_order_canonical_seed_spec() == 0nat,
         hidden_eval_executor_output_order_x_client_base_spec() == 1nat,
-        hidden_eval_executor_output_order_x_relayer_base_spec() == 2nat,
+        hidden_eval_executor_output_order_x_server_base_spec() == 2nat,
 {
 }
 
 // Proves the non-export visible executor surface does not directly expose raw
-// relayer roots or standalone commitment records; the visible surface is
-// limited to canonical seed, client base share, and relayer-base transport.
+// server roots or standalone commitment records; the visible surface is
+// limited to canonical seed, client base share, and server-base transport.
 pub proof fn hidden_eval_executor_non_export_boundary_excludes_server_roots()
     ensures
-        hidden_eval_executor_visible_y_relayer_output_count_spec() == 0nat,
-        hidden_eval_executor_visible_tau_relayer_output_count_spec() == 0nat,
+        hidden_eval_executor_visible_y_server_output_count_spec() == 0nat,
+        hidden_eval_executor_visible_tau_server_output_count_spec() == 0nat,
         hidden_eval_executor_visible_commitment_output_count_spec() == 0nat,
         hidden_eval_executor_visible_output_count_spec() == 3nat,
 {
 }
 
-// Proves the non-export executor output surface exposes relayer-base only via
+// Proves the non-export executor output surface exposes server-base only via
 // the split transport bundles and never as a direct visible share bundle.
-pub proof fn hidden_eval_executor_non_export_relayer_base_is_transport_only()
+pub proof fn hidden_eval_executor_non_export_server_base_is_transport_only()
     ensures
-        hidden_eval_executor_direct_x_relayer_base_bundle_count_spec() == 0nat,
-        hidden_eval_executor_relayer_transport_bundle_count_spec() == 2nat,
+        hidden_eval_executor_direct_x_server_base_bundle_count_spec() == 0nat,
+        hidden_eval_executor_server_transport_bundle_count_spec() == 2nat,
         hidden_eval_executor_output_bundle_count_spec() == 4nat,
 {
 }
@@ -211,22 +211,22 @@ pub proof fn hidden_eval_executor_non_export_boundary_excludes_clear_reference_f
 
 // Proves the non-export executor surface has exactly the allowed output
 // classes: one canonical-seed visible bundle, one client-base visible bundle,
-// and two relayer-base transport bundles.
+// and two server-base transport bundles.
 pub proof fn hidden_eval_executor_non_export_boundary_allowed_output_classes()
     ensures
         hidden_eval_executor_visible_output_count_spec() == 3nat,
         hidden_eval_executor_output_bundle_count_spec() == 4nat,
         hidden_eval_executor_output_order_canonical_seed_spec() == 0nat,
         hidden_eval_executor_output_order_x_client_base_spec() == 1nat,
-        hidden_eval_executor_output_order_x_relayer_base_spec() == 2nat,
-        hidden_eval_executor_relayer_transport_bundle_count_spec() == 2nat,
-        hidden_eval_executor_direct_x_relayer_base_bundle_count_spec() == 0nat,
+        hidden_eval_executor_output_order_x_server_base_spec() == 2nat,
+        hidden_eval_executor_server_transport_bundle_count_spec() == 2nat,
+        hidden_eval_executor_direct_x_server_base_bundle_count_spec() == 0nat,
 {
 }
 
 // Proves the non-export executor boundary is exactly the allowed partition:
 // the three visible outputs are canonical seed, client base share, and
-// relayer-base transport; all other clear `F_expand` fields and server-root
+// server-base transport; all other clear `F_expand` fields and server-root
 // classes remain excluded.
 pub proof fn hidden_eval_executor_non_export_boundary_is_exact_allowed_partition()
     ensures
@@ -234,11 +234,11 @@ pub proof fn hidden_eval_executor_non_export_boundary_is_exact_allowed_partition
         hidden_eval_executor_output_bundle_count_spec() == 4nat,
         hidden_eval_executor_output_order_canonical_seed_spec() == 0nat,
         hidden_eval_executor_output_order_x_client_base_spec() == 1nat,
-        hidden_eval_executor_output_order_x_relayer_base_spec() == 2nat,
-        hidden_eval_executor_relayer_transport_bundle_count_spec() == 2nat,
-        hidden_eval_executor_direct_x_relayer_base_bundle_count_spec() == 0nat,
-        hidden_eval_executor_visible_y_relayer_output_count_spec() == 0nat,
-        hidden_eval_executor_visible_tau_relayer_output_count_spec() == 0nat,
+        hidden_eval_executor_output_order_x_server_base_spec() == 2nat,
+        hidden_eval_executor_server_transport_bundle_count_spec() == 2nat,
+        hidden_eval_executor_direct_x_server_base_bundle_count_spec() == 0nat,
+        hidden_eval_executor_visible_y_server_output_count_spec() == 0nat,
+        hidden_eval_executor_visible_tau_server_output_count_spec() == 0nat,
         hidden_eval_executor_visible_commitment_output_count_spec() == 0nat,
         hidden_eval_executor_visible_tau_output_count_spec() == 0nat,
         hidden_eval_executor_visible_a_output_count_spec() == 0nat,
@@ -257,8 +257,8 @@ pub proof fn hidden_eval_executor_projection_matches_reference(expanded: FExpand
             == crate::shared::reference::f_expand_visible_boundary_from_output(expanded).canonical_seed,
         hidden_eval_executor_boundary_from_output(expanded).x_client_base
             == crate::shared::reference::f_expand_visible_boundary_from_output(expanded).x_client_base,
-        hidden_eval_executor_boundary_from_output(expanded).x_relayer_base
-            == crate::shared::reference::f_expand_visible_boundary_from_output(expanded).x_relayer_base,
+        hidden_eval_executor_boundary_from_output(expanded).x_server_base
+            == crate::shared::reference::f_expand_visible_boundary_from_output(expanded).x_server_base,
 {
 }
 
@@ -283,7 +283,7 @@ pub proof fn hidden_eval_executor_boundary_depends_only_on_visible_fields(
     requires
         left.d == right.d,
         left.x_client_base == right.x_client_base,
-        left.x_relayer_base == right.x_relayer_base,
+        left.x_server_base == right.x_server_base,
     ensures
         hidden_eval_executor_boundary_from_output(left)
             == hidden_eval_executor_boundary_from_output(right),

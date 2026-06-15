@@ -21,7 +21,7 @@ use crate::runtime::{
 };
 use crate::server::{
     ot::prepare_garbler_ot_state_for_session, ServerDriverState, ServerEvalOperation,
-    ServerEvalRelayerRoots, ServerEvalState, ServerOutputOpener, ServerSession, ServerSessionState,
+    ServerEvalServerRoots, ServerEvalState, ServerOutputOpener, ServerSession, ServerSessionState,
 };
 use crate::shared::ProtoResult;
 #[cfg(test)]
@@ -48,8 +48,8 @@ struct SameProcessTrustedEvalMaterial {
 struct ServerAssistInitMaterial {
     packet: ServerAssistInitPacket,
     state: ServerEvalState,
-    y_relayer_bundle: DdhHssInputShareBundle,
-    tau_relayer_bundle: DdhHssInputShareBundle,
+    y_server_bundle: DdhHssInputShareBundle,
+    tau_server_bundle: DdhHssInputShareBundle,
     timing: EvaluateTiming,
 }
 
@@ -117,7 +117,7 @@ impl ServerSession {
         match operation {
             ServerEvalOperation::ExplicitKeyExport => {
                 // Explicit key export intentionally falls outside the non-export
-                // relayer-root secrecy invariant. This flow is allowed to hand
+                // server-root secrecy invariant. This flow is allowed to hand
                 // canonical-seed/private-key-equivalent material to the
                 // authorized client runtime because export is the operation
                 // where the user explicitly asks to receive the key. A
@@ -174,15 +174,15 @@ impl ServerSession {
     fn prepare_server_message(
         &self,
         client_request_message: &WireMessage,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
     ) -> ProtoResult<WireMessage> {
         let client_packet: ClientPacket = crate::wire::decode_transport_message(
             self.context_binding,
             TransportKind::ClientOtRequest,
             client_request_message,
         )?;
-        let server_packet = self.prepare_server_packet(&client_packet, y_relayer, tau_relayer)?;
+        let server_packet = self.prepare_server_packet(&client_packet, y_server, tau_server)?;
         crate::wire::encode_transport_message(
             self.context_binding,
             TransportKind::ServerPacket,
@@ -193,8 +193,8 @@ impl ServerSession {
     pub fn prepare_server_assist_init_message(
         &self,
         client_request_message: &WireMessage,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<(WireMessage, ServerEvalState)> {
         let client_packet: ClientPacket = crate::wire::decode_transport_message(
@@ -203,7 +203,7 @@ impl ServerSession {
             client_request_message,
         )?;
         let (packet, state) =
-            self.prepare_server_assist_init(&client_packet, y_relayer, tau_relayer, operation)?;
+            self.prepare_server_assist_init(&client_packet, y_server, tau_server, operation)?;
         let message = crate::wire::encode_transport_message(
             self.context_binding,
             TransportKind::ServerAssistInit,
@@ -248,20 +248,20 @@ impl ServerSession {
                     .to_string(),
             ));
         }
-        let relayer_roots = state.relayer_roots().ok_or_else(|| {
+        let server_roots = state.server_roots().ok_or_else(|| {
             crate::shared::ProtoError::InvalidInput(
-                "server eval state no longer retains raw relayer roots for execution materialization"
+                "server eval state no longer retains raw server roots for execution materialization"
                     .to_string(),
             )
         })?;
-        let y_relayer_bundle = self
+        let y_server_bundle = self
             .ddh_garbler
-            .share_server_input_bit_bundle("y_relayer_bits", &relayer_roots.y_relayer)?;
-        let tau_relayer_bundle = self
+            .share_server_input_bit_bundle("y_server_bits", &server_roots.y_server)?;
+        let tau_server_bundle = self
             .ddh_garbler
-            .share_server_input_bit_bundle("tau_relayer_bits", &relayer_roots.tau_relayer)?;
+            .share_server_input_bit_bundle("tau_server_bits", &server_roots.tau_server)?;
         let server_inputs =
-            DdhHiddenEvalServerInputs::from_joint_bundles(&y_relayer_bundle, &tau_relayer_bundle);
+            DdhHiddenEvalServerInputs::from_joint_bundles(&y_server_bundle, &tau_server_bundle);
         let hidden_eval_constants = evaluator_session.hidden_eval_constant_pool()?;
         let staged_materialization =
             materialize_staged_server_execution_with_split_server_inputs_with_pool(
@@ -269,9 +269,9 @@ impl ServerSession {
                 &evaluator_session.ddh_evaluator,
                 &hidden_eval_constants,
                 &y_client_bundle,
-                &server_inputs.y_relayer_bits,
+                &server_inputs.y_server_bits,
                 &tau_client_bundle,
-                &server_inputs.tau_relayer_bits,
+                &server_inputs.tau_server_bits,
             )?;
         Ok(state.with_add_stage_materialization(
             runtime.hidden_eval_program.clone(),
@@ -288,8 +288,8 @@ impl ServerSession {
         evaluator_session: &crate::client::ClientSession,
         evaluator_ot_state: &crate::client::ClientOtState,
         client_request_message: &WireMessage,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<StagedEvaluatorArtifact> {
         let constant_pool = prepare_ddh_hidden_eval_constant_pool(self.ddh_garbler.backend())?;
@@ -298,8 +298,8 @@ impl ServerSession {
             evaluator_session,
             evaluator_ot_state,
             client_request_message,
-            y_relayer,
-            tau_relayer,
+            y_server,
+            tau_server,
             operation,
             &constant_pool,
         )
@@ -311,8 +311,8 @@ impl ServerSession {
         evaluator_session: &crate::client::ClientSession,
         evaluator_ot_state: &crate::client::ClientOtState,
         client_request_message: &WireMessage,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<(
         StagedEvaluatorArtifact,
@@ -325,8 +325,8 @@ impl ServerSession {
             evaluator_session,
             evaluator_ot_state,
             client_request_message,
-            y_relayer,
-            tau_relayer,
+            y_server,
+            tau_server,
             operation,
             &constant_pool,
         )
@@ -338,8 +338,8 @@ impl ServerSession {
         evaluator_session: &crate::client::ClientSession,
         evaluator_ot_state: &crate::client::ClientOtState,
         client_request_message: &WireMessage,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
         _operation: ServerEvalOperation,
         constant_pool: &DdhHiddenEvalConstantPool,
     ) -> ProtoResult<StagedEvaluatorArtifact> {
@@ -349,8 +349,8 @@ impl ServerSession {
                 evaluator_session,
                 evaluator_ot_state,
                 client_request_message,
-                y_relayer,
-                tau_relayer,
+                y_server,
+                tau_server,
                 _operation,
                 constant_pool,
             )?
@@ -363,8 +363,8 @@ impl ServerSession {
         evaluator_session: &crate::client::ClientSession,
         evaluator_ot_state: &crate::client::ClientOtState,
         client_request_message: &WireMessage,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
         _operation: ServerEvalOperation,
         constant_pool: &DdhHiddenEvalConstantPool,
     ) -> ProtoResult<(
@@ -383,8 +383,8 @@ impl ServerSession {
                 evaluator_ot_state,
                 &client_packet,
                 &runtime.hidden_eval_program,
-                y_relayer,
-                tau_relayer,
+                y_server,
+                tau_server,
                 constant_pool,
             )?;
         let (artifact, result_assembly_duration_ns, output_sealing_finalization_duration_ns) =
@@ -406,12 +406,12 @@ impl ServerSession {
         evaluator_ot_state: &crate::client::ClientOtState,
         client_packet: &ClientPacket,
         hidden_eval_program: &HiddenEvalProgram,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
         constant_pool: &DdhHiddenEvalConstantPool,
     ) -> ProtoResult<(DdhHiddenEvalRun, DdhHiddenEvalStageProfile, EvaluateTiming)> {
         let (trusted_server_eval, mut timing) =
-            self.prepare_trusted_server_eval_timed(client_packet, y_relayer, tau_relayer)?;
+            self.prepare_trusted_server_eval_timed(client_packet, y_server, tau_server)?;
         let ot_reconstruct_started = monotonic_now_ns();
         let (y_client_bundle, y_timing) = evaluator_session
             .ddh_evaluator
@@ -470,8 +470,8 @@ impl ServerSession {
         evaluator_session: &crate::client::ClientSession,
         evaluator_ot_state: &crate::client::ClientOtState,
         client_request_message: &WireMessage,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<(WireMessage, StagedEvaluatorArtifact)> {
         let client_packet: ClientPacket = crate::wire::decode_transport_message(
@@ -480,14 +480,14 @@ impl ServerSession {
             client_request_message,
         )?;
         let (server_assist_init, _server_eval_state) =
-            self.prepare_server_assist_init(&client_packet, y_relayer, tau_relayer, operation)?;
+            self.prepare_server_assist_init(&client_packet, y_server, tau_server, operation)?;
         let artifact = self.build_staged_evaluator_artifact_from_transport_messages_with_pool(
             runtime,
             evaluator_session,
             evaluator_ot_state,
             client_request_message,
-            y_relayer,
-            tau_relayer,
+            y_server,
+            tau_server,
             operation,
             &prepare_ddh_hidden_eval_constant_pool(self.ddh_garbler.backend())?,
         )?;
@@ -921,11 +921,11 @@ impl ServerSession {
     fn prepare_server_packet(
         &self,
         client_packet: &ClientPacket,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
     ) -> ProtoResult<ServerPacket> {
         Ok(self
-            .prepare_server_packet_with_trusted_inputs(client_packet, y_relayer, tau_relayer)?
+            .prepare_server_packet_with_trusted_inputs(client_packet, y_server, tau_server)?
             .0)
     }
 
@@ -964,8 +964,8 @@ impl ServerSession {
     fn prepare_trusted_server_eval_timed(
         &self,
         client_packet: &ClientPacket,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
     ) -> ProtoResult<(SameProcessTrustedEvalMaterial, EvaluateTiming)> {
         crate::protocol::invariants::validate_client_packet_context(
             self.context_binding,
@@ -995,24 +995,24 @@ impl ServerSession {
         timing.ot_open_join_duration_ns = elapsed_ns_u64(ot_open_join_started);
         let server_input_phase_started = monotonic_now_ns();
         let server_input_share_started = monotonic_now_ns();
-        let y_relayer_bundle = self
+        let y_server_bundle = self
             .ddh_garbler
-            .share_server_input_bit_bundle("y_relayer_bits", &y_relayer)?;
-        let tau_relayer_bundle = self
+            .share_server_input_bit_bundle("y_server_bits", &y_server)?;
+        let tau_server_bundle = self
             .ddh_garbler
-            .share_server_input_bit_bundle("tau_relayer_bits", &tau_relayer)?;
+            .share_server_input_bit_bundle("tau_server_bits", &tau_server)?;
         timing.server_input_share_duration_ns = elapsed_ns_u64(server_input_share_started);
         let server_input_commitment_started = monotonic_now_ns();
         let server_input_commitment = self.ddh_garbler.combined_input_commitment(
             crate::ddh::HiddenEvalInputOwner::Server,
-            &[&y_relayer_bundle, &tau_relayer_bundle],
+            &[&y_server_bundle, &tau_server_bundle],
         );
         timing.server_input_commitment_duration_ns =
             elapsed_ns_u64(server_input_commitment_started);
         let trusted_server_inputs =
             crate::ddh::hidden_eval_executor::DdhHiddenEvalServerInputs::from_joint_bundles(
-                &y_relayer_bundle,
-                &tau_relayer_bundle,
+                &y_server_bundle,
+                &tau_server_bundle,
             );
         let ot_transcript_started = monotonic_now_ns();
         let _ = crate::protocol::transcript::build_ot_transcript(
@@ -1047,8 +1047,8 @@ impl ServerSession {
         hidden_eval_constants: &DdhHiddenEvalConstantPool,
         evaluator_ot_state: &crate::client::ClientOtState,
         client_packet: &ClientPacket,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
     ) -> ProtoResult<(DdhHiddenEvalRun, EvaluateTiming)> {
         let (run, _execution_checkpoints, timing) = self
             .evaluate_hidden_run_same_process_with_execution_checkpoints_timed(
@@ -1057,8 +1057,8 @@ impl ServerSession {
                 hidden_eval_constants,
                 evaluator_ot_state,
                 client_packet,
-                y_relayer,
-                tau_relayer,
+                y_server,
+                tau_server,
             )?;
         Ok((run, timing))
     }
@@ -1071,15 +1071,15 @@ impl ServerSession {
         hidden_eval_constants: &DdhHiddenEvalConstantPool,
         evaluator_ot_state: &crate::client::ClientOtState,
         client_packet: &ClientPacket,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
     ) -> ProtoResult<(
         DdhHiddenEvalRun,
         SameProcessExecutionCheckpoints,
         EvaluateTiming,
     )> {
         let (trusted_server_eval, mut timing) =
-            self.prepare_trusted_server_eval_timed(client_packet, y_relayer, tau_relayer)?;
+            self.prepare_trusted_server_eval_timed(client_packet, y_server, tau_server)?;
         let ot_open_join_started = monotonic_now_ns();
         let (y_client_bundle, y_timing) = evaluator_session
             .ddh_evaluator
@@ -1112,9 +1112,9 @@ impl ServerSession {
             &evaluator_session.ddh_evaluator,
             hidden_eval_constants,
             &y_client_bundle,
-            &trusted_server_eval.trusted_server_inputs.y_relayer_bits,
+            &trusted_server_eval.trusted_server_inputs.y_server_bits,
             &tau_client_bundle,
-            &trusted_server_eval.trusted_server_inputs.tau_relayer_bits,
+            &trusted_server_eval.trusted_server_inputs.tau_server_bits,
         )?;
         if trace.run.client_input_commitment != expected_client_input_commitment {
             return Err(crate::shared::ProtoError::InvalidInput(
@@ -1141,30 +1141,26 @@ impl ServerSession {
     pub fn prepare_server_assist_init(
         &self,
         client_packet: &ClientPacket,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<(ServerAssistInitPacket, ServerEvalState)> {
-        let (packet, state, _timing) = self.prepare_server_assist_init_timed(
-            client_packet,
-            y_relayer,
-            tau_relayer,
-            operation,
-        )?;
+        let (packet, state, _timing) =
+            self.prepare_server_assist_init_timed(client_packet, y_server, tau_server, operation)?;
         Ok((packet, state))
     }
 
     pub fn prepare_role_separated_server_input_delivery(
         &self,
         client_packet: &ClientPacket,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<(RoleSeparatedServerInputDeliveryPacket, ServerEvalState)> {
         let (delivery, state, _timing) = self.prepare_role_separated_server_input_delivery_timed(
             client_packet,
-            y_relayer,
-            tau_relayer,
+            y_server,
+            tau_server,
             operation,
         )?;
         Ok((delivery, state))
@@ -1173,8 +1169,8 @@ impl ServerSession {
     pub fn prepare_role_separated_server_input_delivery_timed(
         &self,
         client_packet: &ClientPacket,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<(
         RoleSeparatedServerInputDeliveryPacket,
@@ -1183,21 +1179,21 @@ impl ServerSession {
     )> {
         let mut material = self.prepare_server_assist_init_material_timed(
             client_packet,
-            y_relayer,
-            tau_relayer,
+            y_server,
+            tau_server,
             operation,
         )?;
-        let y_relayer_split = self
+        let y_server_split = self
             .ddh_garbler
-            .split_share_bundle(&material.y_relayer_bundle);
-        let tau_relayer_split = self
+            .split_share_bundle(&material.y_server_bundle);
+        let tau_server_split = self
             .ddh_garbler
-            .split_share_bundle(&material.tau_relayer_bundle);
+            .split_share_bundle(&material.tau_server_bundle);
         let server_input_seal_started = monotonic_now_ns();
         let server_inputs = self.seal_role_separated_server_inputs_packet(
             material.packet.server_input_commitment,
-            &y_relayer_split,
-            &tau_relayer_split,
+            &y_server_split,
+            &tau_server_split,
         )?;
         material.timing.server_input_seal_duration_ns = elapsed_ns_u64(server_input_seal_started);
         Ok((
@@ -1220,15 +1216,15 @@ impl ServerSession {
     pub fn prepare_role_separated_server_input_delivery_message(
         &self,
         client_request_message: &WireMessage,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<(RoleSeparatedServerInputDeliveryPacket, ServerEvalState)> {
         let (delivery, state, _timing) = self
             .prepare_role_separated_server_input_delivery_message_timed(
                 client_request_message,
-                y_relayer,
-                tau_relayer,
+                y_server,
+                tau_server,
                 operation,
             )?;
         Ok((delivery, state))
@@ -1237,8 +1233,8 @@ impl ServerSession {
     pub fn prepare_role_separated_server_input_delivery_message_timed(
         &self,
         client_request_message: &WireMessage,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<(
         RoleSeparatedServerInputDeliveryPacket,
@@ -1252,8 +1248,8 @@ impl ServerSession {
         )?;
         self.prepare_role_separated_server_input_delivery_timed(
             &client_packet,
-            y_relayer,
-            tau_relayer,
+            y_server,
+            tau_server,
             operation,
         )
     }
@@ -1261,14 +1257,14 @@ impl ServerSession {
     pub fn prepare_server_assist_init_timed(
         &self,
         client_packet: &ClientPacket,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<(ServerAssistInitPacket, ServerEvalState, EvaluateTiming)> {
         let material = self.prepare_server_assist_init_material_timed(
             client_packet,
-            y_relayer,
-            tau_relayer,
+            y_server,
+            tau_server,
             operation,
         )?;
         Ok((material.packet, material.state, material.timing))
@@ -1277,8 +1273,8 @@ impl ServerSession {
     fn prepare_server_assist_init_material_timed(
         &self,
         client_packet: &ClientPacket,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<ServerAssistInitMaterial> {
         crate::protocol::invariants::validate_client_packet_context(
@@ -1310,18 +1306,18 @@ impl ServerSession {
 
         let server_input_phase_started = monotonic_now_ns();
         let server_input_share_started = monotonic_now_ns();
-        let y_relayer_bundle = self
+        let y_server_bundle = self
             .ddh_garbler
-            .share_server_input_bit_bundle("y_relayer_bits", &y_relayer)?;
-        let tau_relayer_bundle = self
+            .share_server_input_bit_bundle("y_server_bits", &y_server)?;
+        let tau_server_bundle = self
             .ddh_garbler
-            .share_server_input_bit_bundle("tau_relayer_bits", &tau_relayer)?;
+            .share_server_input_bit_bundle("tau_server_bits", &tau_server)?;
         timing.server_input_share_duration_ns = elapsed_ns_u64(server_input_share_started);
 
         let server_input_commitment_started = monotonic_now_ns();
         let server_input_commitment = self.ddh_garbler.combined_input_commitment(
             crate::ddh::HiddenEvalInputOwner::Server,
-            &[&y_relayer_bundle, &tau_relayer_bundle],
+            &[&y_server_bundle, &tau_server_bundle],
         );
         timing.server_input_commitment_duration_ns =
             elapsed_ns_u64(server_input_commitment_started);
@@ -1372,17 +1368,17 @@ impl ServerSession {
             operation,
             server_input_commitment,
             ot_transcript,
-            ServerEvalRelayerRoots {
-                y_relayer,
-                tau_relayer,
+            ServerEvalServerRoots {
+                y_server,
+                tau_server,
             },
         );
 
         Ok(ServerAssistInitMaterial {
             packet,
             state,
-            y_relayer_bundle,
-            tau_relayer_bundle,
+            y_server_bundle,
+            tau_server_bundle,
             timing,
         })
     }
@@ -1391,8 +1387,8 @@ impl ServerSession {
     fn prepare_server_packet_with_trusted_inputs_timed(
         &self,
         client_packet: &ClientPacket,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
     ) -> ProtoResult<(
         ServerPacket,
         crate::ddh::hidden_eval_executor::DdhHiddenEvalServerInputs,
@@ -1426,24 +1422,24 @@ impl ServerSession {
         timing.ot_open_join_duration_ns = elapsed_ns_u64(ot_open_join_started);
         let server_input_open_started = monotonic_now_ns();
         let server_input_share_started = monotonic_now_ns();
-        let y_relayer_bundle = self
+        let y_server_bundle = self
             .ddh_garbler
-            .share_server_input_bit_bundle("y_relayer_bits", &y_relayer)?;
-        let tau_relayer_bundle = self
+            .share_server_input_bit_bundle("y_server_bits", &y_server)?;
+        let tau_server_bundle = self
             .ddh_garbler
-            .share_server_input_bit_bundle("tau_relayer_bits", &tau_relayer)?;
+            .share_server_input_bit_bundle("tau_server_bits", &tau_server)?;
         timing.server_input_share_duration_ns = elapsed_ns_u64(server_input_share_started);
         let server_input_commitment_started = monotonic_now_ns();
         let server_input_commitment = self.ddh_garbler.combined_input_commitment(
             crate::ddh::HiddenEvalInputOwner::Server,
-            &[&y_relayer_bundle, &tau_relayer_bundle],
+            &[&y_server_bundle, &tau_server_bundle],
         );
         timing.server_input_commitment_duration_ns =
             elapsed_ns_u64(server_input_commitment_started);
         let trusted_server_inputs =
             crate::ddh::hidden_eval_executor::DdhHiddenEvalServerInputs::from_joint_bundles(
-                &y_relayer_bundle,
-                &tau_relayer_bundle,
+                &y_server_bundle,
+                &tau_server_bundle,
             );
         let ot_transcript_started = monotonic_now_ns();
         let ot_transcript = crate::protocol::transcript::build_ot_transcript(
@@ -1456,13 +1452,13 @@ impl ServerSession {
             &tau_client_remote_release,
         );
         timing.server_input_transcript_duration_ns = elapsed_ns_u64(ot_transcript_started);
-        let y_relayer_split = self.ddh_garbler.split_share_bundle(&y_relayer_bundle);
-        let tau_relayer_split = self.ddh_garbler.split_share_bundle(&tau_relayer_bundle);
+        let y_server_split = self.ddh_garbler.split_share_bundle(&y_server_bundle);
+        let tau_server_split = self.ddh_garbler.split_share_bundle(&tau_server_bundle);
         let server_input_seal_started = monotonic_now_ns();
         let sealed_server_inputs = self.seal_server_inputs_packet(
             server_input_commitment,
-            &y_relayer_split,
-            &tau_relayer_split,
+            &y_server_split,
+            &tau_server_split,
         )?;
         timing.server_input_seal_duration_ns = elapsed_ns_u64(server_input_seal_started);
         timing.server_input_open_duration_ns = elapsed_ns_u64(server_input_open_started);
@@ -1485,18 +1481,14 @@ impl ServerSession {
     fn prepare_server_packet_with_trusted_inputs(
         &self,
         client_packet: &ClientPacket,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
     ) -> ProtoResult<(
         ServerPacket,
         crate::ddh::hidden_eval_executor::DdhHiddenEvalServerInputs,
     )> {
         let (server_packet, trusted_server_inputs, _timing) = self
-            .prepare_server_packet_with_trusted_inputs_timed(
-                client_packet,
-                y_relayer,
-                tau_relayer,
-            )?;
+            .prepare_server_packet_with_trusted_inputs_timed(client_packet, y_server, tau_server)?;
         Ok((server_packet, trusted_server_inputs))
     }
 
@@ -1554,7 +1546,7 @@ impl ServerSession {
                 finalize_state.output.canonical_seed_commitment,
                 artifact.client_output_value_kind,
                 artifact.client_output_commitment,
-                finalize_state.output.x_relayer_base_left.commitment,
+                finalize_state.output.x_server_base_left.commitment,
                 artifact.output_projector_binding,
             );
         if artifact.bindings.evaluation_digest != expected_evaluation_digest {
@@ -1565,8 +1557,8 @@ impl ServerSession {
         }
         let expected_server_output_payload = crate::wire::serialize_transport_pair_payload(
             "server_output_bundle",
-            &finalize_state.output.x_relayer_base_left,
-            &finalize_state.output.x_relayer_base_right,
+            &finalize_state.output.x_server_base_left,
+            &finalize_state.output.x_server_base_right,
         )?;
         if artifact.server_output_payload != expected_server_output_payload {
             return Err(crate::shared::ProtoError::InvalidInput(
@@ -1653,14 +1645,14 @@ impl ServerSession {
     pub(crate) fn seal_role_separated_server_inputs_packet(
         &self,
         server_input_commitment: [u8; 32],
-        y_relayer: &(DdhHssTransportBundle, DdhHssTransportBundle),
-        tau_relayer: &(DdhHssTransportBundle, DdhHssTransportBundle),
+        y_server: &(DdhHssTransportBundle, DdhHssTransportBundle),
+        tau_server: &(DdhHssTransportBundle, DdhHssTransportBundle),
     ) -> ProtoResult<RoleSeparatedServerInputsPacket> {
         let aad = crate::protocol::transcript::server_input_packet_aad(
             self.context_binding,
             server_input_commitment,
         );
-        let plaintext = crate::wire::serialize_server_inputs_payload(y_relayer, tau_relayer)?;
+        let plaintext = crate::wire::serialize_server_inputs_payload(y_server, tau_server)?;
         let (nonce, ciphertext) =
             self.ddh_garbler
                 .seal_message(DdhHssTransportPurpose::ServerInput, &aad, &plaintext)?;
@@ -1676,14 +1668,14 @@ impl ServerSession {
     pub(crate) fn seal_server_inputs_packet(
         &self,
         server_input_commitment: [u8; 32],
-        y_relayer: &(DdhHssTransportBundle, DdhHssTransportBundle),
-        tau_relayer: &(DdhHssTransportBundle, DdhHssTransportBundle),
+        y_server: &(DdhHssTransportBundle, DdhHssTransportBundle),
+        tau_server: &(DdhHssTransportBundle, DdhHssTransportBundle),
     ) -> ProtoResult<crate::wire::ServerInputsPacket> {
         let aad = crate::protocol::transcript::server_input_packet_aad(
             self.context_binding,
             server_input_commitment,
         );
-        let plaintext = crate::wire::serialize_server_inputs_payload(y_relayer, tau_relayer)?;
+        let plaintext = crate::wire::serialize_server_inputs_payload(y_server, tau_server)?;
         let (nonce, ciphertext) =
             self.ddh_garbler
                 .seal_message(DdhHssTransportPurpose::ServerInput, &aad, &plaintext)?;
@@ -1716,8 +1708,8 @@ mod tests {
                 };
                 has_entropy(&fixture.input.y_client)
                     && has_entropy(&fixture.input.tau_client)
-                    && has_entropy(&fixture.input.y_relayer)
-                    && has_entropy(&fixture.input.tau_relayer)
+                    && has_entropy(&fixture.input.y_server)
+                    && has_entropy(&fixture.input.tau_server)
             })
             .expect("non-degenerate boundary fixture")
     }
@@ -1755,7 +1747,7 @@ mod tests {
     }
 
     #[test]
-    fn current_trusted_server_eval_contains_reconstructable_relayer_roots() {
+    fn current_trusted_server_eval_contains_reconstructable_server_roots() {
         let fixture = boundary_fixture();
         let session = crate::protocol::prepare_prime_order_succinct_hss(&fixture.input.context)
             .expect("prepare session");
@@ -1781,34 +1773,34 @@ mod tests {
         let (trusted_server_eval, _timing) = garbler_session
             .prepare_trusted_server_eval_timed(
                 &client_packet,
-                fixture.input.y_relayer,
-                fixture.input.tau_relayer,
+                fixture.input.y_server,
+                fixture.input.tau_server,
             )
             .expect("prepare trusted server eval");
 
-        let decoded_y_relayer = decode_trusted_server_input_bundle(
+        let decoded_y_server = decode_trusted_server_input_bundle(
             &garbler_session,
-            &trusted_server_eval.trusted_server_inputs.y_relayer_bits,
+            &trusted_server_eval.trusted_server_inputs.y_server_bits,
         )
-        .expect("decode reconstructable y_relayer from trusted server eval");
-        let decoded_tau_relayer = decode_trusted_server_input_bundle(
+        .expect("decode reconstructable y_server from trusted server eval");
+        let decoded_tau_server = decode_trusted_server_input_bundle(
             &garbler_session,
-            &trusted_server_eval.trusted_server_inputs.tau_relayer_bits,
+            &trusted_server_eval.trusted_server_inputs.tau_server_bits,
         )
-        .expect("decode reconstructable tau_relayer from trusted server eval");
+        .expect("decode reconstructable tau_server from trusted server eval");
 
         assert_eq!(
-            decoded_y_relayer, fixture.input.y_relayer,
-            "current production TrustedServerEval leaks reconstructable y_relayer",
+            decoded_y_server, fixture.input.y_server,
+            "current production TrustedServerEval leaks reconstructable y_server",
         );
         assert_eq!(
-            decoded_tau_relayer, fixture.input.tau_relayer,
-            "current production TrustedServerEval leaks reconstructable tau_relayer",
+            decoded_tau_server, fixture.input.tau_server,
+            "current production TrustedServerEval leaks reconstructable tau_server",
         );
     }
 
     #[test]
-    fn current_server_packet_contains_reconstructable_relayer_roots() {
+    fn current_server_packet_contains_reconstructable_server_roots() {
         let fixture = boundary_fixture();
         let session = crate::protocol::prepare_prime_order_succinct_hss(&fixture.input.context)
             .expect("prepare session");
@@ -1827,8 +1819,8 @@ mod tests {
         let server_message = garbler_session
             .prepare_server_message(
                 &client_request_message,
-                fixture.input.y_relayer,
-                fixture.input.tau_relayer,
+                fixture.input.y_server,
+                fixture.input.tau_server,
             )
             .expect("prepare server message");
         let server_packet: crate::wire::ServerPacket = crate::wire::decode_transport_message(
@@ -1855,43 +1847,43 @@ mod tests {
                 .expect("decode server input payload")
         };
 
-        let decoded_y_relayer = garbler_session
+        let decoded_y_server = garbler_session
             .ddh_garbler
             .decode_server_bit_bundle_array(
                 &garbler_session
                     .ddh_garbler
                     .join_share_bundle(
-                        &decoded_payload.y_relayer_left,
-                        &decoded_payload.y_relayer_right,
+                        &decoded_payload.y_server_left,
+                        &decoded_payload.y_server_right,
                     )
-                    .expect("join y_relayer bundle"),
+                    .expect("join y_server bundle"),
             )
-            .expect("decode reconstructable y_relayer");
-        let decoded_tau_relayer = garbler_session
+            .expect("decode reconstructable y_server");
+        let decoded_tau_server = garbler_session
             .ddh_garbler
             .decode_server_bit_bundle_array(
                 &garbler_session
                     .ddh_garbler
                     .join_share_bundle(
-                        &decoded_payload.tau_relayer_left,
-                        &decoded_payload.tau_relayer_right,
+                        &decoded_payload.tau_server_left,
+                        &decoded_payload.tau_server_right,
                     )
-                    .expect("join tau_relayer bundle"),
+                    .expect("join tau_server bundle"),
             )
-            .expect("decode reconstructable tau_relayer");
+            .expect("decode reconstructable tau_server");
 
         assert_eq!(
-            decoded_y_relayer, fixture.input.y_relayer,
-            "current production server packet leaks reconstructable y_relayer",
+            decoded_y_server, fixture.input.y_server,
+            "current production server packet leaks reconstructable y_server",
         );
         assert_eq!(
-            decoded_tau_relayer, fixture.input.tau_relayer,
-            "current production server packet leaks reconstructable tau_relayer",
+            decoded_tau_server, fixture.input.tau_server,
+            "current production server packet leaks reconstructable tau_server",
         );
     }
 
     #[test]
-    fn prepare_server_assist_init_keeps_relayer_roots_in_server_state() {
+    fn prepare_server_assist_init_keeps_server_roots_in_server_state() {
         let fixture = boundary_fixture();
         let session = crate::protocol::prepare_prime_order_succinct_hss(&fixture.input.context)
             .expect("prepare session");
@@ -1917,8 +1909,8 @@ mod tests {
         let (packet, state, _timing) = garbler_session
             .prepare_server_assist_init_timed(
                 &client_packet,
-                fixture.input.y_relayer,
-                fixture.input.tau_relayer,
+                fixture.input.y_server,
+                fixture.input.tau_server,
                 ServerEvalOperation::Registration,
             )
             .expect("prepare server assist init");
@@ -1935,11 +1927,11 @@ mod tests {
             crate::wire::ServerEvalStageId::add_stage()
         );
         assert_eq!(state.operation, ServerEvalOperation::Registration);
-        let relayer_roots = state
-            .relayer_roots()
-            .expect("raw relayer roots on init state");
-        assert_eq!(relayer_roots.y_relayer, fixture.input.y_relayer);
-        assert_eq!(relayer_roots.tau_relayer, fixture.input.tau_relayer);
+        let server_roots = state
+            .server_roots()
+            .expect("raw server roots on init state");
+        assert_eq!(server_roots.y_server, fixture.input.y_server);
+        assert_eq!(server_roots.tau_server, fixture.input.tau_server);
         assert_eq!(
             state.ot_transcript.y_client_request_commitment,
             client_packet.y_client_request.commitment,
@@ -1951,12 +1943,12 @@ mod tests {
 
         let packet_bytes = bincode::serialize(&packet).expect("serialize server assist init");
         assert!(
-            !contains_subslice(&packet_bytes, &fixture.input.y_relayer),
-            "server assist init packet must not embed clear y_relayer bytes",
+            !contains_subslice(&packet_bytes, &fixture.input.y_server),
+            "server assist init packet must not embed clear y_server bytes",
         );
         assert!(
-            !contains_subslice(&packet_bytes, &fixture.input.tau_relayer),
-            "server assist init packet must not embed clear tau_relayer bytes",
+            !contains_subslice(&packet_bytes, &fixture.input.tau_server),
+            "server assist init packet must not embed clear tau_server bytes",
         );
     }
 
@@ -1994,8 +1986,8 @@ mod tests {
                 &hidden_eval_constants,
                 &evaluator_ot_state,
                 &client_packet,
-                fixture.input.y_relayer,
-                fixture.input.tau_relayer,
+                fixture.input.y_server,
+                fixture.input.tau_server,
             )
             .expect("same-process hidden eval with checkpoints");
         let (_run_b, checkpoints_b, _timing_b) = garbler_session
@@ -2005,8 +1997,8 @@ mod tests {
                 &hidden_eval_constants,
                 &evaluator_ot_state,
                 &client_packet,
-                fixture.input.y_relayer,
-                fixture.input.tau_relayer,
+                fixture.input.y_server,
+                fixture.input.tau_server,
             )
             .expect("same-process hidden eval with repeated checkpoints");
 
@@ -2019,8 +2011,8 @@ mod tests {
         assert_ne!(checkpoints_a.round_core_digest, [0u8; 32]);
         assert_ne!(checkpoints_a.output_projection_digest, [0u8; 32]);
 
-        let mut changed_y_relayer = fixture.input.y_relayer;
-        changed_y_relayer[0] ^= 1;
+        let mut changed_y_server = fixture.input.y_server;
+        changed_y_server[0] ^= 1;
         let (_run_c, checkpoints_c, _timing_c) = garbler_session
             .evaluate_hidden_run_same_process_with_execution_checkpoints_timed(
                 &evaluator_session,
@@ -2028,18 +2020,18 @@ mod tests {
                 &hidden_eval_constants,
                 &evaluator_ot_state,
                 &client_packet,
-                changed_y_relayer,
-                fixture.input.tau_relayer,
+                changed_y_server,
+                fixture.input.tau_server,
             )
-            .expect("same-process hidden eval with changed relayer root");
+            .expect("same-process hidden eval with changed server root");
 
         assert_ne!(
             checkpoints_a.add_stage_digest, checkpoints_c.add_stage_digest,
-            "add-stage checkpoint must change when y_relayer changes",
+            "add-stage checkpoint must change when y_server changes",
         );
         assert_ne!(
             checkpoints_a.output_projection_digest, checkpoints_c.output_projection_digest,
-            "output-projection checkpoint must change when relayer-owned execution input changes",
+            "output-projection checkpoint must change when server-owned execution input changes",
         );
     }
 
@@ -2066,8 +2058,8 @@ mod tests {
                 &garbler_ot_state,
                 &client_request_message,
                 &evaluator_ot_state,
-                fixture.input.y_relayer,
-                fixture.input.tau_relayer,
+                fixture.input.y_server,
+                fixture.input.tau_server,
                 crate::server::ServerEvalOperation::Registration,
             )
             .expect("prepare staged flow");
@@ -2078,8 +2070,8 @@ mod tests {
             "staged flow should materialize a stage-local continuation",
         );
         assert!(
-            !flow.final_server_eval_state.retains_raw_relayer_roots(),
-            "staged flow must not retain raw relayer roots after add-stage materialization",
+            !flow.final_server_eval_state.retains_raw_server_roots(),
+            "staged flow must not retain raw server roots after add-stage materialization",
         );
     }
 

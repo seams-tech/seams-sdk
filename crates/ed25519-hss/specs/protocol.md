@@ -13,8 +13,8 @@ Ed25519 seed-expansion step used by the stateless shared-root model.
 The target stays intentionally narrow:
 
 - one fixed hidden conversion:
-  - shared `y_client`, `y_relayer`
-  - `d = LE32(y_client + y_relayer mod 2^256)`
+  - shared `y_client`, `y_server`
+  - `d = LE32(y_client + y_server mod 2^256)`
   - `h = SHA-512(d)`
   - `a = clamp(h[0..31]) mod l`
 - one output projection:
@@ -52,9 +52,9 @@ That means the hard part is the hidden nonlinear conversion:
 
 - root-share domain:
   - client holds `y_client`
-  - server holds `y_relayer`
+  - server holds `y_server`
 - canonical seed:
-  - `d = LE32(y_client + y_relayer mod 2^256)`
+  - `d = LE32(y_client + y_server mod 2^256)`
 - signing scalar:
   - `a = clamp(SHA-512(d)[0..31])`
 - reconstructed signing shares:
@@ -108,30 +108,30 @@ Private inputs:
   - `y_client in Z_(2^256)`
   - `tau_client in F_l`
 - server:
-  - `y_relayer in Z_(2^256)`
-  - `tau_relayer in F_l`
+  - `y_server in Z_(2^256)`
+  - `tau_server in F_l`
 
 Internal computation:
 
-- `m = y_client + y_relayer mod 2^256`
+- `m = y_client + y_server mod 2^256`
 - `d = LE32(m)`
 - `h = SHA-512(d)`
 - `a_bytes = clamp(h[0..31])`
 - `a = LE256(a_bytes) mod l`
-- `tau = tau_client + tau_relayer mod l`
+- `tau = tau_client + tau_server mod l`
 - `x_client_base = a + tau mod l`
-- `x_relayer_base = a + 2 * tau mod l`
+- `x_server_base = a + 2 * tau mod l`
 - `A = [a]B`
 
 Outputs:
 
 - client learns `x_client_base`
-- server learns `x_relayer_base`
+- server learns `x_server_base`
 - both learn `A`
 
 Invariant:
 
-- `a = 2 * x_client_base - x_relayer_base mod l`
+- `a = 2 * x_client_base - x_server_base mod l`
 
 Security goal:
 
@@ -146,23 +146,23 @@ This protocol has two hidden paths that meet at the output-share projector.
 
 Seed path:
 
-- `y_client + y_relayer -> d -> SHA-512(d) -> clamp -> a`
+- `y_client + y_server -> d -> SHA-512(d) -> clamp -> a`
 
 Share path:
 
-- `tau_client + tau_relayer -> tau`
+- `tau_client + tau_server -> tau`
 
 Output-share projection:
 
 - `x_client_base = a + tau`
-- `x_relayer_base = a + 2 * tau`
+- `x_server_base = a + 2 * tau`
 
 Important distinction:
 
 - `d` is the canonical hidden seed
 - `a` is the canonical hidden signing scalar derived from `d`
 - `tau` is a hidden rerandomization value
-- `x_client_base` and `x_relayer_base` are the reconstructed signing shares
+- `x_client_base` and `x_server_base` are the reconstructed signing shares
 
 ## HSS and OT Split
 
@@ -186,7 +186,7 @@ Role split:
 
 Responsibilities:
 
-- accept hidden `y_client` and `y_relayer`
+- accept hidden `y_client` and `y_server`
 - bind them to canonical context
 - define private input delivery and context binding
 
@@ -195,7 +195,7 @@ Responsibilities:
 Responsibilities:
 
 - evaluate the fixed hidden function
-  `shared y_client, y_relayer -> d -> SHA-512(d) -> clamp -> a`
+  `shared y_client, y_server -> d -> SHA-512(d) -> clamp -> a`
 - provide the fixed-function hidden evaluator
 - define CPU fallback and accelerator-aware execution shape
 
@@ -206,7 +206,7 @@ Responsibilities:
 - combine hidden `a` with hidden `tau`
 - emit:
   - `x_client_base`
-  - `x_relayer_base`
+  - `x_server_base`
   - `A`
 
 ## Runtime Boundary Requirement
@@ -287,7 +287,7 @@ Per-run public control:
 Private inputs:
 
 - client: `y_client`, `tau_client`
-- server: `y_relayer`, `tau_relayer`
+- server: `y_server`, `tau_server`
 
 Hidden internal state:
 
@@ -296,7 +296,7 @@ Hidden internal state:
 Outputs:
 
 - client: `x_client_base`
-- server: `x_relayer_base`
+- server: `x_server_base`
 - public: `A`
 
 ## High-Level Flow
@@ -312,13 +312,13 @@ Per run:
 
 1. client derives `y_client` and `tau_client`
 2. client prepares blinded OT requests for its selected branches
-3. server derives `y_relayer` and `tau_relayer`
+3. server derives `y_server` and `tau_server`
 4. server resolves OT requests and contributes hidden server input material
 5. evaluator reconstructs client-owned hidden bundles from its local OT state
    plus garbler-returned material
 6. evaluator executes the fixed hidden-eval program
 7. output-share projection emits hidden `x_client_base` and
-   `x_relayer_base`
+   `x_server_base`
 8. each side opens only its own output share plus public verification data
 
 ## Security Boundary
@@ -340,7 +340,7 @@ That means:
   not production-safe
 - `ExplicitKeyExport` is the explicit exception: it intentionally delivers the
   canonical seed to the authorized client and therefore is outside the
-  non-export secrecy invariant for `y_relayer` and `tau_relayer`
+  non-export secrecy invariant for `y_server` and `tau_server`
 - that exception is deliberate because export is the operation where the user
   is explicitly asking to receive private-key-equivalent material in the
   client runtime; a compromised client runtime can therefore abuse export by
@@ -365,7 +365,7 @@ continuation state:
 - `output_projection` materializes final output only when that stage executes
 - the only accepted retained-state exception before `output_projection` is the
   minimal server-owned `projector_inputs` needed to reach that stage without
-  recomputing from dropped relayer roots
+  recomputing from dropped server roots
 
 ## Current Implementation Status
 
@@ -441,7 +441,7 @@ The main rejected class of work was:
 
 What is fixed:
 
-- direct joint-share relayer bundles no longer serialize across the interparty
+- direct joint-share server bundles no longer serialize across the interparty
   packet boundary
 - evaluator runtime no longer materializes the full secret-seeded backend
 - sealed transport/output packets are role-gated

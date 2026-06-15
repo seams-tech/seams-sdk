@@ -38,8 +38,8 @@ struct ClientRequestJson {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ServerInputsJson {
-    y_relayer_b64u: String,
-    tau_relayer_b64u: String,
+    y_server_b64u: String,
+    tau_server_b64u: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -117,19 +117,19 @@ fn cmd_evaluator_request(args: &[String]) -> ProtoResult<()> {
 fn cmd_server_assist_init(args: &[String]) -> ProtoResult<()> {
     let garbler_state_in = required_arg(args, "--garbler-state-in")?;
     let request_in = required_arg(args, "--request-in")?;
-    let y_relayer_hex = required_arg(args, "--y-relayer-hex")?;
-    let tau_relayer_hex = required_arg(args, "--tau-relayer-hex")?;
+    let y_server_hex = required_arg(args, "--y-server-hex")?;
+    let tau_server_hex = required_arg(args, "--tau-server-hex")?;
     let server_assist_init_out = required_arg(args, "--server-assist-init-out")?;
     let garbler_state: ServerDriverState = read_json_file(garbler_state_in)?;
     let (_runtime, garbler_session) = garbler_state.materialize()?;
     let request_message: WireMessage = read_json_file(request_in)?;
-    let y_relayer = parse_hex_array32(y_relayer_hex)?;
-    let tau_relayer = parse_hex_array32(tau_relayer_hex)?;
+    let y_server = parse_hex_array32(y_server_hex)?;
+    let tau_server = parse_hex_array32(tau_server_hex)?;
     let (server_assist_init_message, _server_eval_state) = garbler_session
         .prepare_server_assist_init_message(
             &request_message,
-            y_relayer,
-            tau_relayer,
+            y_server,
+            tau_server,
             ServerEvalOperation::Registration,
         )?;
     write_json_file(server_assist_init_out, &server_assist_init_message)?;
@@ -154,13 +154,13 @@ fn cmd_server_ceremony_json() -> ProtoResult<()> {
         "clientRequest.evaluatorOtStateB64u",
         &input.client_request.evaluator_ot_state_b64u,
     )?;
-    let y_relayer = decode_b64u_array32_named(
-        "serverInputs.yRelayerB64u",
-        &input.server_inputs.y_relayer_b64u,
+    let y_server = decode_b64u_array32_named(
+        "serverInputs.yServerB64u",
+        &input.server_inputs.y_server_b64u,
     )?;
-    let tau_relayer = decode_b64u_array32_named(
-        "serverInputs.tauRelayerB64u",
-        &input.server_inputs.tau_relayer_b64u,
+    let tau_server = decode_b64u_array32_named(
+        "serverInputs.tauServerB64u",
+        &input.server_inputs.tau_server_b64u,
     )?;
     let operation = parse_operation(&input.operation)?;
 
@@ -179,8 +179,8 @@ fn cmd_server_ceremony_json() -> ProtoResult<()> {
             &evaluator_session,
             &evaluator_ot_state,
             &client_request_message,
-            y_relayer,
-            tau_relayer,
+            y_server,
+            tau_server,
             operation,
         )?;
 

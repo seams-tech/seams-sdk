@@ -31,8 +31,8 @@ fn boundary_fixture() -> ed25519_hss::fixtures::FExpandFixture {
             };
             has_entropy(&fixture.input.y_client)
                 && has_entropy(&fixture.input.tau_client)
-                && has_entropy(&fixture.input.y_relayer)
-                && has_entropy(&fixture.input.tau_relayer)
+                && has_entropy(&fixture.input.y_server)
+                && has_entropy(&fixture.input.tau_server)
         })
         .expect("non-degenerate boundary fixture")
 }
@@ -53,8 +53,8 @@ fn second_boundary_fixture() -> ed25519_hss::fixtures::FExpandFixture {
             fixture.input.context != primary.input.context
                 && has_entropy(&fixture.input.y_client)
                 && has_entropy(&fixture.input.tau_client)
-                && has_entropy(&fixture.input.y_relayer)
-                && has_entropy(&fixture.input.tau_relayer)
+                && has_entropy(&fixture.input.y_server)
+                && has_entropy(&fixture.input.tau_server)
         })
         .expect("fixture with distinct context")
 }
@@ -172,8 +172,8 @@ fn server_finalize_state_omits_client_output_bundle_and_commitment_metadata() {
             &garbler_ot_state,
             &client_request_message,
             &evaluator_ot_state,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare staged flow");
@@ -260,7 +260,7 @@ fn assert_staged_flow_messages_do_not_drive_legacy_decoder(
     ] {
         assert!(
             decode_server_input_delivery(session, message).is_err(),
-            "{label} must not reconstruct relayer roots through the legacy server-input decoder",
+            "{label} must not reconstruct server roots through the legacy server-input decoder",
         );
     }
 }
@@ -293,7 +293,7 @@ fn evaluator_driver_state_serialization_excludes_garbler_sender_state() {
 }
 
 #[test]
-fn evaluator_runtime_state_serialization_does_not_embed_relayer_roots_or_joined_input_artifacts() {
+fn evaluator_runtime_state_serialization_does_not_embed_server_roots_or_joined_input_artifacts() {
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
@@ -311,12 +311,12 @@ fn evaluator_runtime_state_serialization_does_not_embed_relayer_roots_or_joined_
 
     for bytes in serialized_surfaces {
         assert!(
-            !contains_subslice(&bytes, &fixture.input.y_relayer),
-            "serialized evaluator-visible runtime state must not embed clear y_relayer bytes",
+            !contains_subslice(&bytes, &fixture.input.y_server),
+            "serialized evaluator-visible runtime state must not embed clear y_server bytes",
         );
         assert!(
-            !contains_subslice(&bytes, &fixture.input.tau_relayer),
-            "serialized evaluator-visible runtime state must not embed clear tau_relayer bytes",
+            !contains_subslice(&bytes, &fixture.input.tau_server),
+            "serialized evaluator-visible runtime state must not embed clear tau_server bytes",
         );
     }
 
@@ -368,8 +368,8 @@ fn wire_messages_do_not_embed_clear_client_or_server_inputs() {
             &garbler_ot_state,
             &client_request_message,
             &evaluator_ot_state,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare staged assist flow");
@@ -420,18 +420,18 @@ fn wire_messages_do_not_embed_clear_client_or_server_inputs() {
             "{label} must not embed clear tau_client bytes",
         );
         assert!(
-            !contains_subslice(message_bytes, &fixture.input.y_relayer),
-            "{label} must not embed clear y_relayer bytes",
+            !contains_subslice(message_bytes, &fixture.input.y_server),
+            "{label} must not embed clear y_server bytes",
         );
         assert!(
-            !contains_subslice(message_bytes, &fixture.input.tau_relayer),
-            "{label} must not embed clear tau_relayer bytes",
+            !contains_subslice(message_bytes, &fixture.input.tau_server),
+            "{label} must not embed clear tau_server bytes",
         );
     }
 }
 
 #[test]
-fn server_assist_init_message_validates_without_exposing_clear_relayer_roots() {
+fn server_assist_init_message_validates_without_exposing_clear_server_roots() {
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
@@ -451,8 +451,8 @@ fn server_assist_init_message_validates_without_exposing_clear_relayer_roots() {
     let (server_assist_init_message, server_eval_state) = garbler_session
         .prepare_server_assist_init_message(
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init message");
@@ -472,20 +472,17 @@ fn server_assist_init_message_validates_without_exposing_clear_relayer_roots() {
         server_eval_state.server_input_commitment,
     );
     assert!(
-        !contains_subslice(&server_assist_init_message.bytes, &fixture.input.y_relayer),
-        "server assist init message must not embed clear y_relayer bytes",
+        !contains_subslice(&server_assist_init_message.bytes, &fixture.input.y_server),
+        "server assist init message must not embed clear y_server bytes",
     );
     assert!(
-        !contains_subslice(
-            &server_assist_init_message.bytes,
-            &fixture.input.tau_relayer
-        ),
-        "server assist init message must not embed clear tau_relayer bytes",
+        !contains_subslice(&server_assist_init_message.bytes, &fixture.input.tau_server),
+        "server assist init message must not embed clear tau_server bytes",
     );
 }
 
 #[test]
-fn add_stage_round_advances_handle_without_exposing_clear_relayer_roots() {
+fn add_stage_round_advances_handle_without_exposing_clear_server_roots() {
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
@@ -505,8 +502,8 @@ fn add_stage_round_advances_handle_without_exposing_clear_relayer_roots() {
     let (server_assist_init_message, server_eval_state) = garbler_session
         .prepare_server_assist_init_message(
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init message");
@@ -542,32 +539,29 @@ fn add_stage_round_advances_handle_without_exposing_clear_relayer_roots() {
         response.next_transcript_digest,
     );
     assert!(
-        !contains_subslice(
-            &client_stage_request_message.bytes,
-            &fixture.input.y_relayer
-        ),
-        "client add-stage request must not embed clear y_relayer bytes",
+        !contains_subslice(&client_stage_request_message.bytes, &fixture.input.y_server),
+        "client add-stage request must not embed clear y_server bytes",
     );
     assert!(
         !contains_subslice(
             &client_stage_request_message.bytes,
-            &fixture.input.tau_relayer
+            &fixture.input.tau_server
         ),
-        "client add-stage request must not embed clear tau_relayer bytes",
+        "client add-stage request must not embed clear tau_server bytes",
     );
     assert!(
         !contains_subslice(
             &server_stage_response_message.bytes,
-            &fixture.input.y_relayer
+            &fixture.input.y_server
         ),
-        "server add-stage response must not embed clear y_relayer bytes",
+        "server add-stage response must not embed clear y_server bytes",
     );
     assert!(
         !contains_subslice(
             &server_stage_response_message.bytes,
-            &fixture.input.tau_relayer
+            &fixture.input.tau_server
         ),
-        "server add-stage response must not embed clear tau_relayer bytes",
+        "server add-stage response must not embed clear tau_server bytes",
     );
 }
 
@@ -595,8 +589,8 @@ fn role_separated_add_stage_request_omits_joined_client_bundles() {
     let (server_assist_init_message, _server_eval_state) = garbler_session
         .prepare_server_assist_init_message(
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init message");
@@ -645,8 +639,8 @@ fn role_separated_add_stage_request_omits_joined_client_bundles() {
     for (label, secret) in [
         ("y_client", &fixture.input.y_client),
         ("tau_client", &fixture.input.tau_client),
-        ("y_relayer", &fixture.input.y_relayer),
-        ("tau_relayer", &fixture.input.tau_relayer),
+        ("y_server", &fixture.input.y_server),
+        ("tau_server", &fixture.input.tau_server),
     ] {
         assert!(
             !contains_subslice(&request_wire, secret),
@@ -679,8 +673,8 @@ fn role_separated_client_materialization_keeps_client_bundles_off_server_packet(
     let (delivery, _server_eval_state) = garbler_session
         .prepare_role_separated_server_input_delivery(
             &client_packet,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare role-separated server input delivery");
@@ -700,8 +694,8 @@ fn role_separated_client_materialization_keeps_client_bundles_off_server_packet(
     for (label, secret) in [
         ("y_client", &fixture.input.y_client),
         ("tau_client", &fixture.input.tau_client),
-        ("y_relayer", &fixture.input.y_relayer),
-        ("tau_relayer", &fixture.input.tau_relayer),
+        ("y_server", &fixture.input.y_server),
+        ("tau_server", &fixture.input.tau_server),
     ] {
         assert!(
             !contains_subslice(&delivery_wire, secret),
@@ -779,12 +773,12 @@ fn role_separated_client_materialization_keeps_client_bundles_off_server_packet(
             .is_err(),
         "masked final report client output must reject the wrong mask",
     );
-    let report_x_relayer_base = garbler_session
+    let report_x_server_base = garbler_session
         .server_output_opener()
         .open(&report.output_delivery.server)
         .expect("open final report server output");
     assert_eq!(report_x_client_base, fixture.output.x_client_base);
-    assert_eq!(report_x_relayer_base, fixture.output.x_relayer_base);
+    assert_eq!(report_x_server_base, fixture.output.x_server_base);
 }
 
 #[test]
@@ -812,8 +806,8 @@ fn role_separated_output_delivery_omits_server_private_output_material() {
             &garbler_ot_state,
             &client_request_message,
             &evaluator_ot_state,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare staged flow");
@@ -856,8 +850,8 @@ fn role_separated_output_delivery_omits_server_private_output_material() {
     for (label, secret) in [
         ("y_client", &fixture.input.y_client),
         ("tau_client", &fixture.input.tau_client),
-        ("y_relayer", &fixture.input.y_relayer),
-        ("tau_relayer", &fixture.input.tau_relayer),
+        ("y_server", &fixture.input.y_server),
+        ("tau_server", &fixture.input.tau_server),
     ] {
         assert!(
             !contains_subslice(&delivery_wire, secret),
@@ -867,7 +861,7 @@ fn role_separated_output_delivery_omits_server_private_output_material() {
 }
 
 #[test]
-fn message_schedule_round_advances_handle_without_exposing_clear_relayer_roots() {
+fn message_schedule_round_advances_handle_without_exposing_clear_server_roots() {
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
@@ -891,8 +885,8 @@ fn message_schedule_round_advances_handle_without_exposing_clear_relayer_roots()
         .prepare_server_assist_init_message(
             &garbler_ot_state,
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init message");
@@ -939,35 +933,35 @@ fn message_schedule_round_advances_handle_without_exposing_clear_relayer_roots()
     assert!(
         !contains_subslice(
             &client_message_schedule_request_message.bytes,
-            &fixture.input.y_relayer
+            &fixture.input.y_server
         ),
-        "client message-schedule request must not embed clear y_relayer bytes",
+        "client message-schedule request must not embed clear y_server bytes",
     );
     assert!(
         !contains_subslice(
             &client_message_schedule_request_message.bytes,
-            &fixture.input.tau_relayer
+            &fixture.input.tau_server
         ),
-        "client message-schedule request must not embed clear tau_relayer bytes",
+        "client message-schedule request must not embed clear tau_server bytes",
     );
     assert!(
         !contains_subslice(
             &server_message_schedule_response_message.bytes,
-            &fixture.input.y_relayer
+            &fixture.input.y_server
         ),
-        "server message-schedule response must not embed clear y_relayer bytes",
+        "server message-schedule response must not embed clear y_server bytes",
     );
     assert!(
         !contains_subslice(
             &server_message_schedule_response_message.bytes,
-            &fixture.input.tau_relayer
+            &fixture.input.tau_server
         ),
-        "server message-schedule response must not embed clear tau_relayer bytes",
+        "server message-schedule response must not embed clear tau_server bytes",
     );
 }
 
 #[test]
-fn message_schedule_round_can_repeat_without_exposing_clear_relayer_roots() {
+fn message_schedule_round_can_repeat_without_exposing_clear_server_roots() {
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
@@ -991,8 +985,8 @@ fn message_schedule_round_can_repeat_without_exposing_clear_relayer_roots() {
         .prepare_server_assist_init_message(
             &garbler_ot_state,
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init message");
@@ -1068,18 +1062,18 @@ fn message_schedule_round_can_repeat_without_exposing_clear_relayer_roots() {
         &server_message_schedule_response_1.bytes,
     ] {
         assert!(
-            !contains_subslice(bytes, &fixture.input.y_relayer),
-            "repeated message-schedule artifacts must not embed clear y_relayer bytes",
+            !contains_subslice(bytes, &fixture.input.y_server),
+            "repeated message-schedule artifacts must not embed clear y_server bytes",
         );
         assert!(
-            !contains_subslice(bytes, &fixture.input.tau_relayer),
-            "repeated message-schedule artifacts must not embed clear tau_relayer bytes",
+            !contains_subslice(bytes, &fixture.input.tau_server),
+            "repeated message-schedule artifacts must not embed clear tau_server bytes",
         );
     }
 }
 
 #[test]
-fn accumulated_new_flow_artifacts_do_not_reconstruct_relayer_roots_via_legacy_decoder() {
+fn accumulated_new_flow_artifacts_do_not_reconstruct_server_roots_via_legacy_decoder() {
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
@@ -1101,8 +1095,8 @@ fn accumulated_new_flow_artifacts_do_not_reconstruct_relayer_roots_via_legacy_de
         .prepare_server_assist_init_message(
             &garbler_ot_state,
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init message");
@@ -1153,7 +1147,7 @@ fn accumulated_new_flow_artifacts_do_not_reconstruct_relayer_roots_via_legacy_de
     ] {
         assert!(
             decode_server_input_delivery(&session, message).is_err(),
-            "{label} must not reconstruct relayer roots through the legacy server-input decoder",
+            "{label} must not reconstruct server roots through the legacy server-input decoder",
         );
     }
 
@@ -1172,17 +1166,17 @@ fn accumulated_new_flow_artifacts_do_not_reconstruct_relayer_roots_via_legacy_de
     }
 
     assert!(
-        !contains_subslice(&accumulated_bytes, &fixture.input.y_relayer),
-        "accumulated new-flow artifacts must not embed clear y_relayer bytes",
+        !contains_subslice(&accumulated_bytes, &fixture.input.y_server),
+        "accumulated new-flow artifacts must not embed clear y_server bytes",
     );
     assert!(
-        !contains_subslice(&accumulated_bytes, &fixture.input.tau_relayer),
-        "accumulated new-flow artifacts must not embed clear tau_relayer bytes",
+        !contains_subslice(&accumulated_bytes, &fixture.input.tau_server),
+        "accumulated new-flow artifacts must not embed clear tau_server bytes",
     );
 }
 
 #[test]
-fn round_core_round_begins_after_final_message_schedule_without_exposing_clear_relayer_roots() {
+fn round_core_round_begins_after_final_message_schedule_without_exposing_clear_server_roots() {
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
@@ -1205,8 +1199,8 @@ fn round_core_round_begins_after_final_message_schedule_without_exposing_clear_r
         .prepare_server_assist_init_message(
             &garbler_ot_state,
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init message");
@@ -1268,35 +1262,35 @@ fn round_core_round_begins_after_final_message_schedule_without_exposing_clear_r
     assert!(
         !contains_subslice(
             &client_round_core_request_message.bytes,
-            &fixture.input.y_relayer
+            &fixture.input.y_server
         ),
-        "client round-core request must not embed clear y_relayer bytes",
+        "client round-core request must not embed clear y_server bytes",
     );
     assert!(
         !contains_subslice(
             &client_round_core_request_message.bytes,
-            &fixture.input.tau_relayer
+            &fixture.input.tau_server
         ),
-        "client round-core request must not embed clear tau_relayer bytes",
+        "client round-core request must not embed clear tau_server bytes",
     );
     assert!(
         !contains_subslice(
             &server_round_core_response_message.bytes,
-            &fixture.input.y_relayer
+            &fixture.input.y_server
         ),
-        "server round-core response must not embed clear y_relayer bytes",
+        "server round-core response must not embed clear y_server bytes",
     );
     assert!(
         !contains_subslice(
             &server_round_core_response_message.bytes,
-            &fixture.input.tau_relayer
+            &fixture.input.tau_server
         ),
-        "server round-core response must not embed clear tau_relayer bytes",
+        "server round-core response must not embed clear tau_server bytes",
     );
 }
 
 #[test]
-fn round_core_round_can_repeat_without_exposing_clear_relayer_roots() {
+fn round_core_round_can_repeat_without_exposing_clear_server_roots() {
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
@@ -1319,8 +1313,8 @@ fn round_core_round_can_repeat_without_exposing_clear_relayer_roots() {
         .prepare_server_assist_init_message(
             &garbler_ot_state,
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init message");
@@ -1393,18 +1387,18 @@ fn round_core_round_can_repeat_without_exposing_clear_relayer_roots() {
         &server_round_core_response_1.bytes,
     ] {
         assert!(
-            !contains_subslice(bytes, &fixture.input.y_relayer),
-            "repeated round-core artifacts must not embed clear y_relayer bytes",
+            !contains_subslice(bytes, &fixture.input.y_server),
+            "repeated round-core artifacts must not embed clear y_server bytes",
         );
         assert!(
-            !contains_subslice(bytes, &fixture.input.tau_relayer),
-            "repeated round-core artifacts must not embed clear tau_relayer bytes",
+            !contains_subslice(bytes, &fixture.input.tau_server),
+            "repeated round-core artifacts must not embed clear tau_server bytes",
         );
     }
 }
 
 #[test]
-fn output_projection_round_begins_after_final_round_core_without_exposing_clear_relayer_roots() {
+fn output_projection_round_begins_after_final_round_core_without_exposing_clear_server_roots() {
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
@@ -1427,8 +1421,8 @@ fn output_projection_round_begins_after_final_round_core_without_exposing_clear_
         .prepare_server_assist_init_message(
             &garbler_ot_state,
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init message");
@@ -1511,35 +1505,35 @@ fn output_projection_round_begins_after_final_round_core_without_exposing_clear_
     assert!(
         !contains_subslice(
             &client_output_projection_request_message.bytes,
-            &fixture.input.y_relayer
+            &fixture.input.y_server
         ),
-        "client output-projection request must not embed clear y_relayer bytes",
+        "client output-projection request must not embed clear y_server bytes",
     );
     assert!(
         !contains_subslice(
             &client_output_projection_request_message.bytes,
-            &fixture.input.tau_relayer
+            &fixture.input.tau_server
         ),
-        "client output-projection request must not embed clear tau_relayer bytes",
+        "client output-projection request must not embed clear tau_server bytes",
     );
     assert!(
         !contains_subslice(
             &server_output_projection_response_message.bytes,
-            &fixture.input.y_relayer
+            &fixture.input.y_server
         ),
-        "server output-projection response must not embed clear y_relayer bytes",
+        "server output-projection response must not embed clear y_server bytes",
     );
     assert!(
         !contains_subslice(
             &server_output_projection_response_message.bytes,
-            &fixture.input.tau_relayer
+            &fixture.input.tau_server
         ),
-        "server output-projection response must not embed clear tau_relayer bytes",
+        "server output-projection response must not embed clear tau_server bytes",
     );
 }
 
 #[test]
-fn accumulated_full_new_flow_artifacts_do_not_reconstruct_relayer_roots_via_legacy_decoder() {
+fn accumulated_full_new_flow_artifacts_do_not_reconstruct_server_roots_via_legacy_decoder() {
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
@@ -1561,8 +1555,8 @@ fn accumulated_full_new_flow_artifacts_do_not_reconstruct_relayer_roots_via_lega
         .prepare_server_assist_init_message(
             &garbler_ot_state,
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init message");
@@ -1645,22 +1639,22 @@ fn accumulated_full_new_flow_artifacts_do_not_reconstruct_relayer_roots_via_lega
     ] {
         assert!(
             decode_server_input_delivery(&session, message).is_err(),
-            "{label} must not reconstruct relayer roots through the legacy server-input decoder",
+            "{label} must not reconstruct server roots through the legacy server-input decoder",
         );
     }
 
     assert!(
-        !contains_subslice(&accumulated_bytes, &fixture.input.y_relayer),
-        "accumulated full new-flow artifacts must not embed clear y_relayer bytes",
+        !contains_subslice(&accumulated_bytes, &fixture.input.y_server),
+        "accumulated full new-flow artifacts must not embed clear y_server bytes",
     );
     assert!(
-        !contains_subslice(&accumulated_bytes, &fixture.input.tau_relayer),
-        "accumulated full new-flow artifacts must not embed clear tau_relayer bytes",
+        !contains_subslice(&accumulated_bytes, &fixture.input.tau_server),
+        "accumulated full new-flow artifacts must not embed clear tau_server bytes",
     );
 }
 
 #[test]
-fn prepared_server_assist_flow_wrapper_does_not_expose_reconstructable_relayer_roots() {
+fn prepared_server_assist_flow_wrapper_does_not_expose_reconstructable_server_roots() {
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
@@ -1683,8 +1677,8 @@ fn prepared_server_assist_flow_wrapper_does_not_expose_reconstructable_relayer_r
             &garbler_ot_state,
             &client_request_message,
             &evaluator_ot_state,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare staged assist flow");
@@ -1700,17 +1694,17 @@ fn prepared_server_assist_flow_wrapper_does_not_expose_reconstructable_relayer_r
     extend_staged_flow_bytes(&mut accumulated_bytes, &client_request_message, &flow);
 
     assert!(
-        !contains_subslice(&accumulated_bytes, &fixture.input.y_relayer),
-        "wrapper-driven staged artifacts must not embed clear y_relayer bytes",
+        !contains_subslice(&accumulated_bytes, &fixture.input.y_server),
+        "wrapper-driven staged artifacts must not embed clear y_server bytes",
     );
     assert!(
-        !contains_subslice(&accumulated_bytes, &fixture.input.tau_relayer),
-        "wrapper-driven staged artifacts must not embed clear tau_relayer bytes",
+        !contains_subslice(&accumulated_bytes, &fixture.input.tau_server),
+        "wrapper-driven staged artifacts must not embed clear tau_server bytes",
     );
 }
 
 #[test]
-fn repeated_run_same_account_staged_artifacts_do_not_reconstruct_relayer_roots() {
+fn repeated_run_same_account_staged_artifacts_do_not_reconstruct_server_roots() {
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
@@ -1733,8 +1727,8 @@ fn repeated_run_same_account_staged_artifacts_do_not_reconstruct_relayer_roots()
             &garbler_ot_state,
             &client_request_message_a,
             &evaluator_ot_state_a,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare staged assist flow A");
@@ -1751,8 +1745,8 @@ fn repeated_run_same_account_staged_artifacts_do_not_reconstruct_relayer_roots()
             &garbler_ot_state,
             &client_request_message_b,
             &evaluator_ot_state_b,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare staged assist flow B");
@@ -1765,17 +1759,17 @@ fn repeated_run_same_account_staged_artifacts_do_not_reconstruct_relayer_roots()
     extend_staged_flow_bytes(&mut accumulated_bytes, &client_request_message_b, &flow_b);
 
     assert!(
-        !contains_subslice(&accumulated_bytes, &fixture.input.y_relayer),
-        "same-account repeated staged runs must not embed clear y_relayer bytes",
+        !contains_subslice(&accumulated_bytes, &fixture.input.y_server),
+        "same-account repeated staged runs must not embed clear y_server bytes",
     );
     assert!(
-        !contains_subslice(&accumulated_bytes, &fixture.input.tau_relayer),
-        "same-account repeated staged runs must not embed clear tau_relayer bytes",
+        !contains_subslice(&accumulated_bytes, &fixture.input.tau_server),
+        "same-account repeated staged runs must not embed clear tau_server bytes",
     );
 }
 
 #[test]
-fn repeated_run_cross_account_staged_artifacts_do_not_reconstruct_relayer_roots() {
+fn repeated_run_cross_account_staged_artifacts_do_not_reconstruct_server_roots() {
     let fixture_a = boundary_fixture();
     let fixture_b = second_boundary_fixture();
     let session_a =
@@ -1801,8 +1795,8 @@ fn repeated_run_cross_account_staged_artifacts_do_not_reconstruct_relayer_roots(
             &garbler_ot_state_a,
             &client_request_message_a,
             &evaluator_ot_state_a,
-            fixture_a.input.y_relayer,
-            fixture_a.input.tau_relayer,
+            fixture_a.input.y_server,
+            fixture_a.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare staged assist flow A");
@@ -1825,8 +1819,8 @@ fn repeated_run_cross_account_staged_artifacts_do_not_reconstruct_relayer_roots(
             &garbler_ot_state_b,
             &client_request_message_b,
             &evaluator_ot_state_b,
-            fixture_b.input.y_relayer,
-            fixture_b.input.tau_relayer,
+            fixture_b.input.y_server,
+            fixture_b.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare staged assist flow B");
@@ -1837,28 +1831,28 @@ fn repeated_run_cross_account_staged_artifacts_do_not_reconstruct_relayer_roots(
     let mut accumulated_bytes_a = Vec::new();
     extend_staged_flow_bytes(&mut accumulated_bytes_a, &client_request_message_a, &flow_a);
     assert!(
-        !contains_subslice(&accumulated_bytes_a, &fixture_a.input.y_relayer),
-        "cross-account staged flow A must not embed clear y_relayer bytes",
+        !contains_subslice(&accumulated_bytes_a, &fixture_a.input.y_server),
+        "cross-account staged flow A must not embed clear y_server bytes",
     );
     assert!(
-        !contains_subslice(&accumulated_bytes_a, &fixture_a.input.tau_relayer),
-        "cross-account staged flow A must not embed clear tau_relayer bytes",
+        !contains_subslice(&accumulated_bytes_a, &fixture_a.input.tau_server),
+        "cross-account staged flow A must not embed clear tau_server bytes",
     );
 
     let mut accumulated_bytes_b = Vec::new();
     extend_staged_flow_bytes(&mut accumulated_bytes_b, &client_request_message_b, &flow_b);
     assert!(
-        !contains_subslice(&accumulated_bytes_b, &fixture_b.input.y_relayer),
-        "cross-account staged flow B must not embed clear y_relayer bytes",
+        !contains_subslice(&accumulated_bytes_b, &fixture_b.input.y_server),
+        "cross-account staged flow B must not embed clear y_server bytes",
     );
     assert!(
-        !contains_subslice(&accumulated_bytes_b, &fixture_b.input.tau_relayer),
-        "cross-account staged flow B must not embed clear tau_relayer bytes",
+        !contains_subslice(&accumulated_bytes_b, &fixture_b.input.tau_server),
+        "cross-account staged flow B must not embed clear tau_server bytes",
     );
 }
 
 #[test]
-fn retry_and_idempotent_stage_replays_do_not_reconstruct_relayer_roots() {
+fn retry_and_idempotent_stage_replays_do_not_reconstruct_server_roots() {
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
@@ -1880,8 +1874,8 @@ fn retry_and_idempotent_stage_replays_do_not_reconstruct_relayer_roots() {
         .prepare_server_assist_init_message(
             &garbler_ot_state,
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init message");
@@ -1948,7 +1942,7 @@ fn retry_and_idempotent_stage_replays_do_not_reconstruct_relayer_roots() {
     ] {
         assert!(
             decode_server_input_delivery(&session, message).is_err(),
-            "{label} must not reconstruct relayer roots through the legacy server-input decoder",
+            "{label} must not reconstruct server roots through the legacy server-input decoder",
         );
     }
 
@@ -1967,17 +1961,17 @@ fn retry_and_idempotent_stage_replays_do_not_reconstruct_relayer_roots() {
     }
 
     assert!(
-        !contains_subslice(&accumulated_bytes, &fixture.input.y_relayer),
-        "retry/idempotent staged artifacts must not embed clear y_relayer bytes",
+        !contains_subslice(&accumulated_bytes, &fixture.input.y_server),
+        "retry/idempotent staged artifacts must not embed clear y_server bytes",
     );
     assert!(
-        !contains_subslice(&accumulated_bytes, &fixture.input.tau_relayer),
-        "retry/idempotent staged artifacts must not embed clear tau_relayer bytes",
+        !contains_subslice(&accumulated_bytes, &fixture.input.tau_server),
+        "retry/idempotent staged artifacts must not embed clear tau_server bytes",
     );
 }
 
 #[test]
-fn client_visible_staged_packets_do_not_reconstruct_relayer_roots() {
+fn client_visible_staged_packets_do_not_reconstruct_server_roots() {
     let fixture = boundary_fixture();
     let session =
         prepare_prime_order_succinct_hss(&fixture.input.context).expect("prepare session");
@@ -2000,8 +1994,8 @@ fn client_visible_staged_packets_do_not_reconstruct_relayer_roots() {
             &garbler_ot_state,
             &client_request_message,
             &evaluator_ot_state,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare staged assist flow");
@@ -2040,18 +2034,18 @@ fn client_visible_staged_packets_do_not_reconstruct_relayer_roots() {
     for (label, message) in client_visible_messages {
         assert!(
             decode_server_input_delivery(&session, message).is_err(),
-            "{label} must not reconstruct relayer roots through the legacy server-input decoder",
+            "{label} must not reconstruct server roots through the legacy server-input decoder",
         );
         accumulated_bytes.extend_from_slice(&message.bytes);
     }
 
     assert!(
-        !contains_subslice(&accumulated_bytes, &fixture.input.y_relayer),
-        "client-visible staged packets must not embed clear y_relayer bytes",
+        !contains_subslice(&accumulated_bytes, &fixture.input.y_server),
+        "client-visible staged packets must not embed clear y_server bytes",
     );
     assert!(
-        !contains_subslice(&accumulated_bytes, &fixture.input.tau_relayer),
-        "client-visible staged packets must not embed clear tau_relayer bytes",
+        !contains_subslice(&accumulated_bytes, &fixture.input.tau_server),
+        "client-visible staged packets must not embed clear tau_server bytes",
     );
 }
 
@@ -2078,8 +2072,8 @@ fn decoded_new_flow_wire_packets_do_not_expose_server_owned_transport_bundles() 
             &garbler_ot_state,
             &client_request_message,
             &evaluator_ot_state,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )
         .expect("prepare staged assist flow");
@@ -2187,12 +2181,12 @@ fn decoded_new_flow_wire_packets_do_not_expose_server_owned_transport_bundles() 
 
     for bytes in decoded_bytes {
         assert!(
-            !contains_subslice(&bytes, &fixture.input.y_relayer),
-            "decoded staged wire packet must not embed clear y_relayer bytes",
+            !contains_subslice(&bytes, &fixture.input.y_server),
+            "decoded staged wire packet must not embed clear y_server bytes",
         );
         assert!(
-            !contains_subslice(&bytes, &fixture.input.tau_relayer),
-            "decoded staged wire packet must not embed clear tau_relayer bytes",
+            !contains_subslice(&bytes, &fixture.input.tau_server),
+            "decoded staged wire packet must not embed clear tau_server bytes",
         );
     }
 }

@@ -84,7 +84,7 @@ def NonExportBoundaryEquivalent
     (left right : NonExportVisibleBoundary) : Prop :=
   left.canonicalSeed = right.canonicalSeed ∧
   left.xClientBase = right.xClientBase ∧
-  left.xRelayerBase = right.xRelayerBase
+  left.xServerBase = right.xServerBase
 
 structure ClientObservableProfile where
   publicParameters : PublicParameters

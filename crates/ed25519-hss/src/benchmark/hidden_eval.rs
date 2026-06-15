@@ -165,13 +165,13 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
     let baseline_x_client_base = output_openers
         .client
         .open(&baseline_report.output_delivery.client)?;
-    let baseline_x_relayer_base = output_openers
+    let baseline_x_server_base = output_openers
         .server
         .open(&baseline_report.output_delivery.server)?;
     let baseline_public_key =
-        public_key_from_base_shares(baseline_x_client_base, baseline_x_relayer_base)?;
+        public_key_from_base_shares(baseline_x_client_base, baseline_x_server_base)?;
     if baseline_x_client_base != fixture.output.x_client_base
-        || baseline_x_relayer_base != fixture.output.x_relayer_base
+        || baseline_x_server_base != fixture.output.x_server_base
         || baseline_public_key != fixture.output.public_key
     {
         return Err(ProtoError::Decode(
@@ -187,12 +187,12 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
         let x_client_base = output_openers
             .client
             .open(&delivery_report.output_delivery.client)?;
-        let x_relayer_base = output_openers
+        let x_server_base = output_openers
             .server
             .open(&delivery_report.output_delivery.server)?;
-        let public_key = public_key_from_base_shares(x_client_base, x_relayer_base)?;
+        let public_key = public_key_from_base_shares(x_client_base, x_server_base)?;
         if x_client_base != fixture.output.x_client_base
-            || x_relayer_base != fixture.output.x_relayer_base
+            || x_server_base != fixture.output.x_server_base
             || public_key != fixture.output.public_key
         {
             return Err(ProtoError::Decode(
@@ -272,10 +272,10 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
 
         for _ in 0..config.stage_sample_iterations {
             let profile = session.profile_hidden_eval_for_clear_input(&fixture.input)?;
-            let (x_client_base, x_relayer_base, public_key) =
+            let (x_client_base, x_server_base, public_key) =
                 session.materialize_hidden_outputs_for_debug(&profile.run.output)?;
             if x_client_base != fixture.output.x_client_base
-                || x_relayer_base != fixture.output.x_relayer_base
+                || x_server_base != fixture.output.x_server_base
                 || public_key != fixture.output.public_key
             {
                 return Err(ProtoError::Decode(
@@ -314,13 +314,13 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
             let delivery_x_client_base = output_openers
                 .client
                 .open(&delivery_report.output_delivery.client)?;
-            let delivery_x_relayer_base = output_openers
+            let delivery_x_server_base = output_openers
                 .server
                 .open(&delivery_report.output_delivery.server)?;
             let delivery_public_key =
-                public_key_from_base_shares(delivery_x_client_base, delivery_x_relayer_base)?;
+                public_key_from_base_shares(delivery_x_client_base, delivery_x_server_base)?;
             if delivery_x_client_base != fixture.output.x_client_base
-                || delivery_x_relayer_base != fixture.output.x_relayer_base
+                || delivery_x_server_base != fixture.output.x_server_base
                 || delivery_public_key != fixture.output.public_key
             {
                 return Err(ProtoError::Decode(
@@ -356,10 +356,10 @@ pub fn generate_ddh_hidden_eval_benchmark_report(
 
             black_box((
                 x_client_base,
-                x_relayer_base,
+                x_server_base,
                 public_key,
                 delivery_x_client_base,
-                delivery_x_relayer_base,
+                delivery_x_server_base,
                 delivery_public_key,
             ));
         }
@@ -668,16 +668,16 @@ where
         })?;
         let materialize_measurement =
             recorder.measure("materialize_hidden_outputs_for_debug", || {
-                let (x_client_base, x_relayer_base, public_key) =
+                let (x_client_base, x_server_base, public_key) =
                     session.materialize_hidden_outputs_for_debug(&profile.run.output)?;
                 validate_fixture_outputs(
                     &fixture,
                     x_client_base,
-                    x_relayer_base,
+                    x_server_base,
                     public_key,
                     "allocation probe materialized hidden output",
                 )?;
-                black_box((x_client_base, x_relayer_base, public_key));
+                black_box((x_client_base, x_server_base, public_key));
                 Ok(())
             })?;
         samples.push(DdhHiddenEvalAllocationProbeSample {
@@ -693,15 +693,15 @@ where
                 let delivery_x_client_base = output_openers
                     .client
                     .open(&delivery_report.output_delivery.client)?;
-                let delivery_x_relayer_base = output_openers
+                let delivery_x_server_base = output_openers
                     .server
                     .open(&delivery_report.output_delivery.server)?;
                 let delivery_public_key =
-                    public_key_from_base_shares(delivery_x_client_base, delivery_x_relayer_base)?;
+                    public_key_from_base_shares(delivery_x_client_base, delivery_x_server_base)?;
                 validate_fixture_outputs(
                     &fixture,
                     delivery_x_client_base,
-                    delivery_x_relayer_base,
+                    delivery_x_server_base,
                     delivery_public_key,
                     "allocation probe delivery output",
                 )?;
@@ -709,7 +709,7 @@ where
                     delivery_report,
                     delivery_timing,
                     delivery_x_client_base,
-                    delivery_x_relayer_base,
+                    delivery_x_server_base,
                     delivery_public_key,
                 ));
                 Ok(())
@@ -993,12 +993,12 @@ fn direct_executor_unbucketed_ns(stage_profile: &DdhHiddenEvalStageProfile) -> f
 fn validate_fixture_outputs(
     fixture: &FExpandFixture,
     x_client_base: [u8; 32],
-    x_relayer_base: [u8; 32],
+    x_server_base: [u8; 32],
     public_key: [u8; 32],
     context: &str,
 ) -> ProtoResult<()> {
     if x_client_base != fixture.output.x_client_base
-        || x_relayer_base != fixture.output.x_relayer_base
+        || x_server_base != fixture.output.x_server_base
         || public_key != fixture.output.public_key
     {
         return Err(ProtoError::Decode(format!(

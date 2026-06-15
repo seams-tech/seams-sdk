@@ -266,15 +266,15 @@ impl ClientSession {
         )?;
         let payload = crate::wire::deserialize_server_inputs_payload(&plaintext)?;
         Ok(DdhHiddenEvalServerInputs {
-            y_relayer_bits: Self::server_input_bundle_from_transport_pair(
-                "y_relayer_bits",
-                payload.y_relayer_left,
-                payload.y_relayer_right,
+            y_server_bits: Self::server_input_bundle_from_transport_pair(
+                "y_server_bits",
+                payload.y_server_left,
+                payload.y_server_right,
             )?,
-            tau_relayer_bits: Self::server_input_bundle_from_transport_pair(
-                "tau_relayer_bits",
-                payload.tau_relayer_left,
-                payload.tau_relayer_right,
+            tau_server_bits: Self::server_input_bundle_from_transport_pair(
+                "tau_server_bits",
+                payload.tau_server_left,
+                payload.tau_server_right,
             )?,
         })
     }
@@ -354,9 +354,9 @@ impl ClientSession {
             &self.ddh_evaluator,
             &hidden_eval_constants,
             &y_client_bundle,
-            &server_inputs.y_relayer_bits,
+            &server_inputs.y_server_bits,
             &tau_client_bundle,
-            &server_inputs.tau_relayer_bits,
+            &server_inputs.tau_server_bits,
             client_output_projection,
         )?;
         let expected_client_input_commitment = self.ddh_evaluator.combined_input_commitment(
@@ -606,9 +606,9 @@ impl ClientSession {
                         .transcript_binding,
                     transcript_digest: [0u8; 32],
                 },
-                crate::server::ServerEvalRelayerRoots {
-                    y_relayer: [0u8; 32],
-                    tau_relayer: [0u8; 32],
+                crate::server::ServerEvalServerRoots {
+                    y_server: [0u8; 32],
+                    tau_server: [0u8; 32],
                 },
             ),
             request,
@@ -1727,8 +1727,8 @@ impl ClientSession {
         );
         let server_output_payload = crate::wire::serialize_transport_pair_payload(
             "server_output_bundle",
-            &output.x_relayer_base_left,
-            &output.x_relayer_base_right,
+            &output.x_server_base_left,
+            &output.x_server_base_right,
         )?;
         let server_output_payload_binding =
             crate::protocol::transcript::server_output_payload_binding(
@@ -1805,8 +1805,8 @@ impl ClientSession {
         let server_output = garbler_session.seal_server_output_packet_message(
             run_binding,
             evaluation_digest,
-            &ddh_run.output.x_relayer_base_left,
-            &ddh_run.output.x_relayer_base_right,
+            &ddh_run.output.x_server_base_left,
+            &ddh_run.output.x_server_base_right,
         )?;
         let output_sealing_finalization_duration_ns = elapsed_ns_u64(output_sealing_started);
         Ok((

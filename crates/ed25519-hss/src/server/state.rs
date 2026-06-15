@@ -72,32 +72,32 @@ pub enum ServerEvalStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ServerEvalRelayerRoots {
-    pub y_relayer: [u8; 32],
-    pub tau_relayer: [u8; 32],
+pub struct ServerEvalServerRoots {
+    pub y_server: [u8; 32],
+    pub tau_server: [u8; 32],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerEvalFinalizeOutput {
     pub canonical_seed_commitment: [u8; 32],
-    pub x_relayer_base_left: DdhHssTransportBundle,
-    pub x_relayer_base_right: DdhHssTransportBundle,
+    pub x_server_base_left: DdhHssTransportBundle,
+    pub x_server_base_right: DdhHssTransportBundle,
 }
 
 impl ServerEvalFinalizeOutput {
     pub fn from_hidden_eval_outputs(output: &DdhHiddenEvalOutputBundles) -> Self {
         Self {
             canonical_seed_commitment: output.canonical_seed.commitment,
-            x_relayer_base_left: output.x_relayer_base_left.clone(),
-            x_relayer_base_right: output.x_relayer_base_right.clone(),
+            x_server_base_left: output.x_server_base_left.clone(),
+            x_server_base_right: output.x_server_base_right.clone(),
         }
     }
 
     pub fn from_server_output_bundles(output: &DdhHiddenEvalServerOutputBundles) -> Self {
         Self {
             canonical_seed_commitment: output.canonical_seed_commitment,
-            x_relayer_base_left: output.x_relayer_base_left.clone(),
-            x_relayer_base_right: output.x_relayer_base_right.clone(),
+            x_server_base_left: output.x_server_base_left.clone(),
+            x_server_base_right: output.x_server_base_right.clone(),
         }
     }
 
@@ -105,8 +105,8 @@ impl ServerEvalFinalizeOutput {
         let mut hasher = Sha256::new();
         hasher.update(b"prime_order_ddh_hidden_eval_server_output_projection_digest_v0");
         hasher.update(self.canonical_seed_commitment);
-        hasher.update(self.x_relayer_base_left.commitment);
-        hasher.update(self.x_relayer_base_right.commitment);
+        hasher.update(self.x_server_base_left.commitment);
+        hasher.update(self.x_server_base_right.commitment);
         hasher.finalize().into()
     }
 }
@@ -164,7 +164,7 @@ pub struct ServerEvalState {
     pub server_input_commitment: [u8; 32],
     pub ot_transcript: OtTranscript,
     pub last_request_digest: Option<[u8; 32]>,
-    pub relayer_roots: Option<ServerEvalRelayerRoots>,
+    pub server_roots: Option<ServerEvalServerRoots>,
     pub hidden_eval_program: Option<HiddenEvalProgram>,
     pub execution_state: Option<ServerEvalExecutionState>,
 }
@@ -178,7 +178,7 @@ impl ServerEvalState {
         operation: ServerEvalOperation,
         server_input_commitment: [u8; 32],
         ot_transcript: OtTranscript,
-        relayer_roots: ServerEvalRelayerRoots,
+        server_roots: ServerEvalServerRoots,
     ) -> Self {
         Self {
             handle,
@@ -191,7 +191,7 @@ impl ServerEvalState {
             server_input_commitment,
             ot_transcript,
             last_request_digest: None,
-            relayer_roots: Some(relayer_roots),
+            server_roots: Some(server_roots),
             hidden_eval_program: None,
             execution_state: None,
         }
@@ -206,7 +206,7 @@ impl ServerEvalState {
         server_input_commitment: [u8; 32],
     ) -> Self {
         let mut next = self.clone();
-        next.relayer_roots = None;
+        next.server_roots = None;
         next.hidden_eval_program = Some(hidden_eval_program);
         next.execution_state = Some(ServerEvalExecutionState::MessageSchedule(
             ServerEvalMessageScheduleState {
@@ -274,12 +274,12 @@ impl ServerEvalState {
         self.execution_state.is_some()
     }
 
-    pub fn relayer_roots(&self) -> Option<&ServerEvalRelayerRoots> {
-        self.relayer_roots.as_ref()
+    pub fn server_roots(&self) -> Option<&ServerEvalServerRoots> {
+        self.server_roots.as_ref()
     }
 
-    pub fn retains_raw_relayer_roots(&self) -> bool {
-        self.relayer_roots.is_some()
+    pub fn retains_raw_server_roots(&self) -> bool {
+        self.server_roots.is_some()
     }
 
     pub fn advance_after_add_stage(

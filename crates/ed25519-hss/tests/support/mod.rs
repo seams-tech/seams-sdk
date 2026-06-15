@@ -67,10 +67,10 @@ struct RuntimeTransportFrame {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct EncodedServerInputsPayload {
-    y_relayer_left: DdhHssTransportBundle,
-    y_relayer_right: DdhHssTransportBundle,
-    tau_relayer_left: DdhHssTransportBundle,
-    tau_relayer_right: DdhHssTransportBundle,
+    y_server_left: DdhHssTransportBundle,
+    y_server_right: DdhHssTransportBundle,
+    tau_server_left: DdhHssTransportBundle,
+    tau_server_right: DdhHssTransportBundle,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -133,8 +133,8 @@ pub fn build_client_owned_staged_evaluator_artifact(
     let (delivery, _server_eval_state) = garbler_session
         .prepare_role_separated_server_input_delivery(
             &client_packet,
-            input.y_relayer,
-            input.tau_relayer,
+            input.y_server,
+            input.tau_server,
             ServerEvalOperation::Registration,
         )?;
     evaluator_session.build_client_owned_staged_evaluator_artifact_from_role_separated_delivery(
@@ -343,17 +343,17 @@ pub fn decode_server_input_delivery(
     Ok((
         decode_transport_bundle_bits(
             session.ddh_backend(),
-            &payload.y_relayer_left,
-            &payload.y_relayer_right,
+            &payload.y_server_left,
+            &payload.y_server_right,
             HiddenEvalInputOwner::Server,
-            "y_relayer_bits",
+            "y_server_bits",
         )?,
         decode_transport_bundle_bits(
             session.ddh_backend(),
-            &payload.tau_relayer_left,
-            &payload.tau_relayer_right,
+            &payload.tau_server_left,
+            &payload.tau_server_right,
             HiddenEvalInputOwner::Server,
-            "tau_relayer_bits",
+            "tau_server_bits",
         )?,
     ))
 }

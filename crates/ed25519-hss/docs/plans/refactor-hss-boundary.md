@@ -8,7 +8,7 @@ This note consolidates the two major boundary-oriented refactors that reshaped
 the `ed25519-hss` production path:
 
 - Refactor 3:
-  removed the old production seam that let a client reconstruct relayer-side
+  removed the old production seam that let a client reconstruct server-side
   hidden inputs in non-export flows
 - Refactor 4:
   replaced the trace-backed staged executor with a real server-owned staged
@@ -16,7 +16,7 @@ the `ed25519-hss` production path:
 
 Together, these refactors changed the production model from:
 
-- “client evaluates on fully delivered relayer transport material”
+- “client evaluates on fully delivered server transport material”
 
 to:
 
@@ -28,13 +28,13 @@ to:
 The key boundary invariant was:
 
 - in non-export production flows, the client must not be able to reconstruct
-  per-account `y_relayer`
+  per-account `y_server`
 - in non-export production flows, the client must not be able to reconstruct
-  per-account `tau_relayer`
+  per-account `tau_server`
 
 Before Refactor 3, the old production path violated that rule:
 
-- the sealed `ServerInputsPacket` path let the evaluator open both relayer
+- the sealed `ServerInputsPacket` path let the evaluator open both server
   transport halves
 - same-process public helpers such as `PreparedSession::evaluate*` and
   `TrustedServerEval` also kept joined-input execution reachable
@@ -101,7 +101,7 @@ The staged server-owned executor now has one explicit retained-state exception:
 
 Why it is kept:
 
-- raw relayer roots are dropped after add-stage
+- raw server roots are dropped after add-stage
 - `output_projection` still needs projector prerequisites later
 - delaying them further would require forbidden recomputation from dropped
   roots
@@ -123,7 +123,7 @@ The kept non-export production flow is now:
 The important rule is:
 
 - the client may validate and compute against staged server-authored messages
-- the client must not receive reconstructable relayer secret material in
+- the client must not receive reconstructable server secret material in
   non-export flows
 
 ## Browser And Runtime Impact
@@ -145,7 +145,7 @@ just local Rust APIs.
 
 That flow is allowed to deliver private-key-equivalent material to the
 authorized client runtime, so the stronger non-export secrecy rule for
-`y_relayer` and `tau_relayer` does not apply there.
+`y_server` and `tau_server` does not apply there.
 
 That exception is documented in:
 

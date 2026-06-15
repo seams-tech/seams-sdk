@@ -24,7 +24,7 @@ const SECURITY_AUDIT_CHECKLIST: &[(&str, &str)] = &[
     ),
     (
         "client_never_gets_server_recovery_material",
-        "Evaluator-side state and request/evaluation artifacts must never contain enough raw material to recover relayer/server shares directly.",
+        "Evaluator-side state and request/evaluation artifacts must never contain enough raw material to recover server/server shares directly.",
     ),
     (
         "server_never_gets_client_recovery_material",
@@ -86,8 +86,8 @@ fn run() -> ProtoResult<()> {
         "evaluator_state",
         &evaluator_state,
         &[
-            ("y_relayer", &fixture.input.y_relayer),
-            ("tau_relayer", &fixture.input.tau_relayer),
+            ("y_server", &fixture.input.y_server),
+            ("tau_server", &fixture.input.tau_server),
         ],
     )?;
 
@@ -103,8 +103,8 @@ fn run() -> ProtoResult<()> {
         &[
             ("y_client", &fixture.input.y_client),
             ("tau_client", &fixture.input.tau_client),
-            ("y_relayer", &fixture.input.y_relayer),
-            ("tau_relayer", &fixture.input.tau_relayer),
+            ("y_server", &fixture.input.y_server),
+            ("tau_server", &fixture.input.tau_server),
         ],
     )?;
 
@@ -125,16 +125,16 @@ fn run() -> ProtoResult<()> {
         "request_message",
         &request_message,
         &[
-            ("y_relayer", &fixture.input.y_relayer),
-            ("tau_relayer", &fixture.input.tau_relayer),
+            ("y_server", &fixture.input.y_server),
+            ("tau_server", &fixture.input.tau_server),
         ],
     )?;
     assert_segregated(
         "evaluator_ot_state",
         &ot_state,
         &[
-            ("y_relayer", &fixture.input.y_relayer),
-            ("tau_relayer", &fixture.input.tau_relayer),
+            ("y_server", &fixture.input.y_server),
+            ("tau_server", &fixture.input.tau_server),
         ],
     )?;
 
@@ -145,8 +145,8 @@ fn run() -> ProtoResult<()> {
     let (server_assist_init_message, _server_eval_state) = garbler_session_for_respond
         .prepare_server_assist_init_message(
             &request_message_for_respond,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )?;
     timings.push(("garbler_assist_init", garbler_assist_init_started.elapsed()));
@@ -157,8 +157,8 @@ fn run() -> ProtoResult<()> {
         &[
             ("y_client", &fixture.input.y_client),
             ("tau_client", &fixture.input.tau_client),
-            ("y_relayer", &fixture.input.y_relayer),
-            ("tau_relayer", &fixture.input.tau_relayer),
+            ("y_server", &fixture.input.y_server),
+            ("tau_server", &fixture.input.tau_server),
         ],
     )?;
 
@@ -181,8 +181,8 @@ fn run() -> ProtoResult<()> {
             &evaluator_session_for_evaluate,
             &ot_state_for_evaluate,
             &request_message_for_respond,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ServerEvalOperation::Registration,
         )?;
     timings.push(("staged_flow", staged_flow_started.elapsed()));
@@ -202,8 +202,8 @@ fn run() -> ProtoResult<()> {
         &[
             ("y_client", &fixture.input.y_client),
             ("tau_client", &fixture.input.tau_client),
-            ("y_relayer", &fixture.input.y_relayer),
-            ("tau_relayer", &fixture.input.tau_relayer),
+            ("y_server", &fixture.input.y_server),
+            ("tau_server", &fixture.input.tau_server),
         ],
     )?;
 
@@ -265,17 +265,17 @@ fn verify_report(
     let x_client_base = evaluator_session
         .client_output_opener()
         .open(&report.output_delivery.client)?;
-    let x_relayer_base = garbler_session
+    let x_server_base = garbler_session
         .server_output_opener()
         .open(&report.output_delivery.server)?;
-    let public_key = public_key_from_base_shares(x_client_base, x_relayer_base)?;
+    let public_key = public_key_from_base_shares(x_client_base, x_server_base)?;
 
     if x_client_base != fixture.output.x_client_base {
         return Err(ProtoError::InvalidInput(
             "client output share does not match fixture".to_string(),
         ));
     }
-    if x_relayer_base != fixture.output.x_relayer_base {
+    if x_server_base != fixture.output.x_server_base {
         return Err(ProtoError::InvalidInput(
             "server output share does not match fixture".to_string(),
         ));

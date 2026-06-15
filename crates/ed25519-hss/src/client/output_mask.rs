@@ -57,7 +57,7 @@ pub struct ClientOutputMaskContext {
     pub canonical_context: CanonicalContext,
     pub context_binding: [u8; 32],
     pub operation: ClientOutputMaskOperation,
-    pub relayer_key_id: String,
+    pub server_key_id: String,
 }
 
 #[derive(Serialize)]
@@ -80,8 +80,8 @@ struct ClientOutputMaskInfo<'a> {
     #[serde(rename = "contextBindingB64u")]
     context_binding_b64u: String,
     operation: &'static str,
-    #[serde(rename = "relayerKeyId")]
-    relayer_key_id: &'a str,
+    #[serde(rename = "serverKeyId")]
+    server_key_id: &'a str,
 }
 
 pub fn encode_client_output_mask_info(context: &ClientOutputMaskContext) -> ProtoResult<Vec<u8>> {
@@ -99,7 +99,7 @@ pub fn encode_client_output_mask_info(context: &ClientOutputMaskContext) -> Prot
         derivation_version: context.canonical_context.derivation_version,
         context_binding_b64u,
         operation: context.operation.as_str(),
-        relayer_key_id: &context.relayer_key_id,
+        server_key_id: &context.server_key_id,
     };
     serde_json::to_vec(&info).map_err(|err| {
         ProtoError::InvalidInput(format!(
@@ -126,7 +126,7 @@ fn validate_context(context: &ClientOutputMaskContext) -> ProtoResult<()> {
     validate_non_empty("nearAccountId", &context.canonical_context.account_id)?;
     validate_non_empty("keyPurpose", &context.canonical_context.key_purpose)?;
     validate_non_empty("keyVersion", &context.canonical_context.key_version)?;
-    validate_non_empty("relayerKeyId", &context.relayer_key_id)?;
+    validate_non_empty("serverKeyId", &context.server_key_id)?;
     if context.canonical_context.participant_ids.is_empty() {
         return Err(ProtoError::InvalidInput(
             "participantIds must contain at least one identifier".to_string(),
@@ -165,7 +165,7 @@ mod tests {
             },
             context_binding: [7u8; 32],
             operation: ClientOutputMaskOperation::WarmSessionReconstruction,
-            relayer_key_id: "ed25519:relayer-key".to_string(),
+            server_key_id: "ed25519:server-key".to_string(),
         }
     }
 
@@ -174,7 +174,7 @@ mod tests {
         let info = encode_client_output_mask_info(&test_context()).expect("encode info");
         assert_eq!(
             std::str::from_utf8(&info).expect("utf8"),
-            "{\"label\":\"ed25519-hss/client-output-mask/context/v1\",\"projectionMode\":\"ClientMaskedProjection\",\"signingRootId\":\"org_threshold_scope_test\",\"nearAccountId\":\"alice.testnet\",\"keyPurpose\":\"near-ed25519-signing\",\"keyVersion\":\"threshold-ed25519-hss-v1\",\"participantIds\":[1,2],\"derivationVersion\":1,\"contextBindingB64u\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc\",\"operation\":\"warm_session_reconstruction\",\"relayerKeyId\":\"ed25519:relayer-key\"}"
+            "{\"label\":\"ed25519-hss/client-output-mask/context/v1\",\"projectionMode\":\"ClientMaskedProjection\",\"signingRootId\":\"org_threshold_scope_test\",\"nearAccountId\":\"alice.testnet\",\"keyPurpose\":\"near-ed25519-signing\",\"keyVersion\":\"threshold-ed25519-hss-v1\",\"participantIds\":[1,2],\"derivationVersion\":1,\"contextBindingB64u\":\"BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwc\",\"operation\":\"warm_session_reconstruction\",\"serverKeyId\":\"ed25519:server-key\"}"
         );
     }
 

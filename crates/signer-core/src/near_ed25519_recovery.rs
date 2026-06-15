@@ -7,8 +7,8 @@ use crate::error::{CoreResult, SignerCoreError};
 
 pub const ED25519_HSS_CLIENT_ROOT_SHARE_SALT_V1: &[u8] = b"ed25519/root-share/client:v1";
 pub const ED25519_HSS_CLIENT_TAU_SHARE_SALT_V1: &[u8] = b"ed25519/tau/client:v1";
-pub const ED25519_HSS_SERVER_ROOT_SHARE_SALT_V1: &[u8] = b"ed25519/root-share/relayer:v1";
-pub const ED25519_HSS_SERVER_TAU_SHARE_SALT_V1: &[u8] = b"ed25519/tau/relayer:v1";
+pub const ED25519_HSS_SERVER_ROOT_SHARE_SALT_V1: &[u8] = b"ed25519/root-share/server:v1";
+pub const ED25519_HSS_SERVER_TAU_SHARE_SALT_V1: &[u8] = b"ed25519/tau/server:v1";
 pub const ED25519_HSS_CONTEXT_BINDING_DOMAIN_V1: &[u8] =
     b"succinct-garbling-proto/context-binding/v1";
 pub const NEAR_ED25519_SEED_EXPORT_ARTIFACT_KIND_V1: &str = "near-ed25519-seed-v1";
@@ -100,8 +100,8 @@ pub struct Ed25519HssClientInputsV1 {
 pub struct Ed25519HssServerInputsV1 {
     pub context: Ed25519HssCanonicalContextV1,
     pub context_binding: [u8; 32],
-    pub y_relayer: [u8; 32],
-    pub tau_relayer: [u8; 32],
+    pub y_server: [u8; 32],
+    pub tau_server: [u8; 32],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -224,12 +224,12 @@ pub fn derive_ed25519_hss_server_inputs_v1(
     let context = context.normalized()?;
     let context_binding = context.binding_digest()?;
 
-    let mut y_relayer = [0u8; 32];
+    let mut y_server = [0u8; 32];
     derive_hkdf_bytes(
         ED25519_HSS_SERVER_ROOT_SHARE_SALT_V1,
         master_secret,
         &context_binding,
-        &mut y_relayer,
+        &mut y_server,
     )?;
 
     let mut tau_wide = [0u8; 64];
@@ -239,14 +239,14 @@ pub fn derive_ed25519_hss_server_inputs_v1(
         &context_binding,
         &mut tau_wide,
     )?;
-    let tau_relayer =
+    let tau_server =
         curve25519_dalek::scalar::Scalar::from_bytes_mod_order_wide(&tau_wide).to_bytes();
 
     Ok(Ed25519HssServerInputsV1 {
         context,
         context_binding,
-        y_relayer,
-        tau_relayer,
+        y_server,
+        tau_server,
     })
 }
 
@@ -401,8 +401,8 @@ mod tests {
         .expect("different version");
 
         assert_ne!(same.context_binding, different_version.context_binding);
-        assert_ne!(same.y_relayer, different_version.y_relayer);
-        assert_ne!(same.tau_relayer, different_version.tau_relayer);
+        assert_ne!(same.y_server, different_version.y_server);
+        assert_ne!(same.tau_server, different_version.tau_server);
     }
 
     #[test]

@@ -95,11 +95,11 @@ is reserved for local authenticated partials, such as one-runtime derivation.
 
 Current fixed production purposes:
 
-- `ecdsa-hss/y_relayer`
-- `ed25519-hss/y_relayer`
-- `ed25519-hss/tau_relayer`
+- `ecdsa-hss/y_server`
+- `ed25519-hss/y_server`
+- `ed25519-hss/tau_server`
 - `router-ab/x_client_base/v1`
-- `router-ab/x_relayer_base/v1`
+- `router-ab/x_server_base/v1`
 
 The Router/A/B purpose suffixes are Router/A/B transcript-version names. They do
 not version the threshold-prf protocol.
@@ -326,7 +326,7 @@ policy and wire types before calling core Rust logic.
 
 Current exported boundary groups:
 
-- ECDSA HSS `y_relayer`
+- ECDSA HSS `y_server`
 - Ed25519 HSS server inputs
 - verified partial combine
 

@@ -289,11 +289,11 @@ pub open spec fn ed25519_scalar_modulus_l_spec() -> int {
     723700557733226221397318656304299424085711635937990760600195093828545425057int
 }
 
-pub open spec fn server_only_projector_relayer_expr_spec(a: int, tau: int) -> int {
+pub open spec fn server_only_projector_server_expr_spec(a: int, tau: int) -> int {
     (a + 2int * tau) % ed25519_scalar_modulus_l_spec()
 }
 
-pub open spec fn legacy_projector_relayer_expr_spec(a: int, tau: int) -> int {
+pub open spec fn legacy_projector_server_expr_spec(a: int, tau: int) -> int {
     ((a + tau) + tau) % ed25519_scalar_modulus_l_spec()
 }
 
@@ -524,8 +524,8 @@ pub proof fn trusted_server_projection_finalize_accepts_only_unmasked_output()
 pub proof fn server_only_projector_expression_matches_legacy(a: int, tau: int)
     ensures
         ed25519_scalar_modulus_l_spec() > 0,
-        server_only_projector_relayer_expr_spec(a, tau)
-            == legacy_projector_relayer_expr_spec(a, tau),
+        server_only_projector_server_expr_spec(a, tau)
+            == legacy_projector_server_expr_spec(a, tau),
 {
     assert(ed25519_scalar_modulus_l_spec() > 0);
     assert(a + 2int * tau == (a + tau) + tau) by(nonlinear_arith);

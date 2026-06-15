@@ -12,11 +12,17 @@ use ed25519_hss::{
         ClientDriverState, ClientOtState, ClientSession,
     },
     protocol::prepare_prime_order_succinct_hss_client,
+    role_signing::{
+        create_role_separated_ed25519_client_signature_share_v1,
+        prepare_role_separated_ed25519_round1_v1, role_separated_ed25519_client_verifying_share_v1,
+        RoleSeparatedEd25519ClientShareRequestV1, RoleSeparatedEd25519CommitmentsV1,
+    },
     runtime::SharedRuntime,
     shared::CanonicalContext,
     wire::{RoleSeparatedServerInputDeliveryPacket, WireMessage},
 };
 use js_sys::{Date, Reflect};
+use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
 use signer_core::commands::{
     Base64UrlEncodingV1, EcdsaClientBootstrapAlgorithmV1, EcdsaClientBootstrapContextV1,
@@ -267,7 +273,7 @@ pub fn threshold_ed25519_hss_derive_client_output_mask(args: JsValue) -> Result<
         operation: get_required_string(&args, "operation")?
             .parse::<ClientOutputMaskOperation>()
             .map_err(|e| JsValue::from_str(&e.to_string()))?,
-        relayer_key_id: get_required_string(&args, "relayerKeyId")?,
+        server_key_id: get_required_string(&args, "relayerKeyId")?,
     };
     let client_output_mask = derive_client_output_mask(client_recoverable_secret, &context)
         .map_err(|e| JsValue::from_str(&e.to_string()))?;
@@ -592,8 +598,8 @@ pub fn threshold_ed25519_hss_build_client_owned_staged_evaluator_artifact(
     )?;
     set_f64(
         &timings,
-        "hiddenEvalOutputProjectorRelayerOutputMs",
-        ns_to_ms(stage_profile.output_projector_relayer_output_duration_ns),
+        "hiddenEvalOutputProjectorServerOutputMs",
+        ns_to_ms(stage_profile.output_projector_server_output_duration_ns),
     )?;
     set_f64(
         &timings,
@@ -911,6 +917,61 @@ pub fn threshold_ed25519_hss_open_seed_output(args: JsValue) -> Result<JsValue, 
 }
 
 #[wasm_bindgen]
+pub fn threshold_ed25519_role_separated_normal_signing_create_client_share(
+    args: JsValue,
+) -> Result<JsValue, JsValue> {
+    let x_client_base = decode_fixed_32(
+        &get_required_string(&args, "xClientBaseB64u")?,
+        "xClientBaseB64u",
+    )?;
+    let group_public_key = decode_fixed_32(
+        &get_required_string(&args, "groupPublicKeyB64u")?,
+        "groupPublicKeyB64u",
+    )?;
+    let server_verifying_share = decode_fixed_32(
+        &get_required_string(&args, "serverVerifyingShareB64u")?,
+        "serverVerifyingShareB64u",
+    )?;
+    let server_commitments = decode_role_separated_commitments_from_js(&args, "serverCommitments")?;
+    let signing_payload = decode_non_empty_bytes(
+        &get_required_string(&args, "signingPayloadB64u")?,
+        "signingPayloadB64u",
+    )?;
+
+    let mut rng = OsRng;
+    let client_round1 = prepare_role_separated_ed25519_round1_v1(&mut rng)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let client_verifying_share = role_separated_ed25519_client_verifying_share_v1(x_client_base)
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+    let client_signature_share = create_role_separated_ed25519_client_signature_share_v1(
+        RoleSeparatedEd25519ClientShareRequestV1 {
+            x_client_base,
+            client_round1: &client_round1,
+            group_public_key,
+            client_verifying_share,
+            server_verifying_share,
+            server_commitments,
+            signing_payload: &signing_payload,
+        },
+    )
+    .map_err(|e| JsValue::from_str(&e.to_string()))?;
+
+    let out = object();
+    set_role_separated_commitments(&out, "clientCommitments", client_round1.commitments)?;
+    set_string(
+        &out,
+        "clientVerifyingShareB64u",
+        &base64_url_encode(&client_verifying_share),
+    )?;
+    set_string(
+        &out,
+        "clientSignatureShareB64u",
+        &base64_url_encode(&client_signature_share),
+    )?;
+    Ok(out.into())
+}
+
+#[wasm_bindgen]
 pub fn prepare_ecdsa_client_bootstrap_v1(input_json: &str) -> Result<String, JsValue> {
     let command: signer_core::commands::PrepareEcdsaClientBootstrapCommandV1 =
         serde_json::from_str(input_json).map_err(js_command_invalid_input_err)?;
@@ -1077,6 +1138,61 @@ fn decode_fixed_32(value: &str, field_name: &str) -> Result<[u8; 32], JsValue> {
         .as_slice()
         .try_into()
         .map_err(|_| JsValue::from_str(&format!("{field_name} must decode to 32 bytes")))
+}
+
+fn decode_non_empty_bytes(value: &str, field_name: &str) -> Result<Vec<u8>, JsValue> {
+    let decoded = base64_url_decode(value)
+        .map_err(|e| JsValue::from_str(&format!("Invalid {field_name}: {e}")))?;
+    if decoded.is_empty() {
+        return Err(JsValue::from_str(&format!(
+            "{field_name} must decode to non-empty bytes"
+        )));
+    }
+    Ok(decoded)
+}
+
+fn decode_role_separated_commitments_from_js(
+    args: &JsValue,
+    field_name: &str,
+) -> Result<RoleSeparatedEd25519CommitmentsV1, JsValue> {
+    let value = Reflect::get(args, &JsValue::from_str(field_name))
+        .map_err(|_| JsValue::from_str(&format!("Invalid args: missing {field_name}")))?;
+    if !value.is_object() || js_sys::Array::is_array(&value) {
+        return Err(JsValue::from_str(&format!(
+            "Invalid args: {field_name} must be an object"
+        )));
+    }
+    let hiding = decode_fixed_32(
+        &get_required_string(&value, "hidingB64u")?,
+        &format!("{field_name}.hidingB64u"),
+    )?;
+    let binding = decode_fixed_32(
+        &get_required_string(&value, "bindingB64u")?,
+        &format!("{field_name}.bindingB64u"),
+    )?;
+    RoleSeparatedEd25519CommitmentsV1::new(hiding, binding)
+        .map_err(|e| JsValue::from_str(&e.to_string()))
+}
+
+fn set_role_separated_commitments(
+    target: &js_sys::Object,
+    field_name: &str,
+    commitments: RoleSeparatedEd25519CommitmentsV1,
+) -> Result<(), JsValue> {
+    let value = object();
+    set_string(
+        &value,
+        "hidingB64u",
+        &base64_url_encode(&commitments.hiding),
+    )?;
+    set_string(
+        &value,
+        "bindingB64u",
+        &base64_url_encode(&commitments.binding),
+    )?;
+    Reflect::set(target, &JsValue::from_str(field_name), &value)
+        .map_err(|_| JsValue::from_str(&format!("Failed to serialize field {field_name}")))?;
+    Ok(())
 }
 
 fn decode_fixed_33(value: &str, field_name: &str) -> Result<[u8; 33], JsValue> {

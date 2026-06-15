@@ -10,4 +10,4 @@ rev = "419f53b6eed3fe487a8427fd290a734c49634366"
 toolchain = "leanprover/lean4:v4.28.0-rc1"
 
 [notes]
-scope = "Initial Rust-to-Lean extraction is limited to crates/ed25519-hss/src/shared/reference.rs and the boundary fields canonical_seed, x_client_base, and x_relayer_base."
+scope = "Initial Rust-to-Lean extraction is limited to crates/ed25519-hss/src/shared/reference.rs and the boundary fields canonical_seed, x_client_base, and x_server_base."

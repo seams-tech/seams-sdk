@@ -174,7 +174,7 @@ primary record.
 | --- | --- | --- |
 | Stronger B2A committed-root replacement | Blocked | Approve exact Boolean roots, aggregate provenance/commitment digests, output arithmetic commitments, labels, width policy, and downgrade behavior. |
 | New multiplication-material root beyond retained `Ch` | Blocked | Approve exact operation-kind enum, operand-root shape, per-bit derivation, label policy, width policy, and downgrade behavior. |
-| Output-projector root v2 | Blocked | Must remove a full logical canonical-add/sub/select equivalent while preserving `canonical_seed`, `client_output`, and `x_relayer_base` output commitments. |
+| Output-projector root v2 | Blocked | Must remove a full logical canonical-add/sub/select equivalent while preserving `canonical_seed`, `client_output`, and `x_server_base` output commitments. |
 | Deeper arena-backed executor representation | Guardrails ready | Need a byte-equivalence harness for the target boundary and a candidate that removes logical work or improves browser/product p50. Small accessor/scratch edits have repeatedly regressed. |
 | Physical ARM64 Linux and iOS measurements | Pending hardware | Run target-device profiles before deciding whether HSS is default, optional, or policy-gated outside browser contexts. |
 

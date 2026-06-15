@@ -16,7 +16,7 @@ def nonExportBoundaryOfGeneratedVisibleBoundary
   {
     canonicalSeed := bytes32OfGeneratedArray (generatedVisibleBoundaryCanonicalSeed boundary)
     xClientBase := bytes32OfGeneratedArray (generatedVisibleBoundaryClientBase boundary)
-    xRelayerBase := bytes32OfGeneratedArray (generatedVisibleBoundaryRelayerBase boundary)
+    xServerBase := bytes32OfGeneratedArray (generatedVisibleBoundaryServerBase boundary)
   }
 
 def visibleBoundaryOfGeneratedVisibleBoundary
@@ -35,10 +35,10 @@ theorem nonExportBoundaryOfGeneratedVisibleBoundary_xClientBase
       bytes32OfGeneratedArray (generatedVisibleBoundaryClientBase boundary) := by
   rfl
 
-theorem nonExportBoundaryOfGeneratedVisibleBoundary_xRelayerBase
+theorem nonExportBoundaryOfGeneratedVisibleBoundary_xServerBase
     (boundary : GeneratedVisibleBoundary) :
-    (nonExportBoundaryOfGeneratedVisibleBoundary boundary).xRelayerBase =
-      bytes32OfGeneratedArray (generatedVisibleBoundaryRelayerBase boundary) := by
+    (nonExportBoundaryOfGeneratedVisibleBoundary boundary).xServerBase =
+      bytes32OfGeneratedArray (generatedVisibleBoundaryServerBase boundary) := by
   rfl
 
 theorem generatedVisibleBoundary_matchesPrivacyNonExportBoundary
@@ -48,7 +48,7 @@ theorem generatedVisibleBoundary_matchesPrivacyNonExportBoundary
       {
         canonicalSeed := bytes32OfGeneratedArray (generatedVisibleBoundaryCanonicalSeed boundary)
         xClientBase := bytes32OfGeneratedArray (generatedVisibleBoundaryClientBase boundary)
-        xRelayerBase := bytes32OfGeneratedArray (generatedVisibleBoundaryRelayerBase boundary)
+        xServerBase := bytes32OfGeneratedArray (generatedVisibleBoundaryServerBase boundary)
       } := by
   simp [NonExportBoundaryEquivalent, nonExportBoundaryOfGeneratedVisibleBoundary]
 

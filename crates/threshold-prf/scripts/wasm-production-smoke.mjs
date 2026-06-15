@@ -30,7 +30,7 @@ if ("threshold_prf_combine_partials" in wasm) {
 }
 
 const hssVector = protocolCorpus.vectors.find(
-  (vector) => vector.purpose === "ecdsa-hss/y_relayer" && vector.policy.threshold === 2,
+  (vector) => vector.purpose === "ecdsa-hss/y_server" && vector.policy.threshold === 2,
 );
 if (!hssVector) {
   throw new Error("missing ecdsa-hss threshold-prf smoke vector");
@@ -40,7 +40,7 @@ const hssIds = hssVector.threshold_outputs[0].ids;
 const hssShareWires = shareWiresForIds(hssShareWiresById, hssIds);
 const reversedHssShareWires = shareWiresForIds(hssShareWiresById, hssIds.toReversed());
 
-const ecdsaOutput = wasm.threshold_prf_derive_ecdsa_hss_y_relayer(
+const ecdsaOutput = wasm.threshold_prf_derive_ecdsa_hss_y_server(
   hssVector.policy.threshold,
   hssVector.policy.share_count,
   hssShareWires,
@@ -52,10 +52,10 @@ const ecdsaOutput = wasm.threshold_prf_derive_ecdsa_hss_y_relayer(
   "wallet",
   "v1",
 );
-assertByteLength(ecdsaOutput, 32, "ecdsa-hss y_relayer");
+assertByteLength(ecdsaOutput, 32, "ecdsa-hss y_server");
 assertSameBytes(
   ecdsaOutput,
-  wasm.threshold_prf_derive_ecdsa_hss_y_relayer(
+  wasm.threshold_prf_derive_ecdsa_hss_y_server(
     hssVector.policy.threshold,
     hssVector.policy.share_count,
     reversedHssShareWires,
@@ -67,7 +67,7 @@ assertSameBytes(
     "wallet",
     "v1",
   ),
-  "ecdsa-hss y_relayer is stable under share order",
+  "ecdsa-hss y_server is stable under share order",
 );
 checkedOutputs += 2;
 
@@ -82,8 +82,8 @@ const ed25519Output = wasm.threshold_prf_derive_ed25519_hss_server_inputs(
   1,
 );
 assertByteLength(ed25519Output.contextBinding, 32, "ed25519 context binding");
-assertByteLength(ed25519Output.yRelayer, 32, "ed25519 y_relayer");
-assertByteLength(ed25519Output.tauRelayer, 32, "ed25519 tau_relayer");
+assertByteLength(ed25519Output.yServer, 32, "ed25519 y_server");
+assertByteLength(ed25519Output.tauServer, 32, "ed25519 tau_server");
 checkedOutputs += 3;
 
 for (const vector of wireCorpus.vectors) {
@@ -98,7 +98,7 @@ for (const vector of wireCorpus.vectors) {
         vector.policy.threshold,
         vector.policy.share_count,
         proofBundle.slice(0, proofBundle.length - 1),
-        "ecdsa-hss/y_relayer",
+        "ecdsa-hss/y_server",
         new Uint8Array([1, 2, 3]),
       ),
     "malformed proof bundle rejects at production WASM boundary",

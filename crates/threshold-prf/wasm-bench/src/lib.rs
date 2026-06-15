@@ -141,7 +141,7 @@ fn fixture(
     let shares = split_signing_root(&root, policy, &mut rng).expect("benchmark split succeeds");
     let context = PrfContext::new(
         SuiteId::Ristretto255Sha512,
-        PrfPurpose::EcdsaHssYRelayer,
+        PrfPurpose::EcdsaHssYServer,
         b"project:alpha/wallet:0",
     );
     (policy, shares, context)

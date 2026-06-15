@@ -14,12 +14,12 @@ described in:
 
 The current production boundary is stronger than the old joined-input seam:
 
-- non-export production flows no longer expose reconstructable `y_relayer` or
-  `tau_relayer` to the client
+- non-export production flows no longer expose reconstructable `y_server` or
+  `tau_server` to the client
 - the staged server-assisted flow advances through server-owned continuation
   state from add-stage onward
 - normal server outputs are role-gated so the intended server output is
-  `x_relayer_base`
+  `x_server_base`
 - the intended client output is delivered to the client as `x_client_base`
 
 That boundary assumes the server process follows the protocol.
@@ -33,7 +33,7 @@ particular:
   `tau_client_bits`
 - server-side ceremony records still retain `evaluatorDriverStateBytes`
 - the server output-projection path can rehydrate the projector continuation
-  and materialize `reduced_a_bits`, `tau_bits`, and relayer output material
+  and materialize `reduced_a_bits`, `tau_bits`, and server output material
 
 Those shapes are acceptable for trusted-code execution and regression
 scaffolding. They are incompatible with a malicious-server-memory claim. A
@@ -48,7 +48,7 @@ projector currently materializes split-local internal values including:
 - `reduced_a_bits`
 - `tau_bits`
 - `x_client_base_bits`
-- `x_relayer_base_bits`
+- `x_server_base_bits`
 
 A process that can inspect executor memory can read both local sides of those
 split-local values and reconstruct intermediate or final scalars.
@@ -64,7 +64,7 @@ The main options for raising the server-side trust boundary are:
 - **Client-side output finalization.** The server returns a continuation or
   non-openable output material, and the client completes the final projection.
   Expected cost is moderate to high on the browser/wasm path.
-- **Joined-state-free role separation.** The server remains the online relayer
+- **Joined-state-free role separation.** The server remains the online server
   and garbler-side participant, while the client owns evaluator-side
   continuation material. Production server code never accepts, stores, imports,
   or reconstructs joined hidden words for `d`, `a`, or `x_client_base`. Expected
@@ -93,7 +93,7 @@ This is an incremental hardening step. Its target is:
 - deliver `x_client_base_blinded = x_client_base + r_client mod l`
 - have the client open the blinded output and compute
   `x_client_base = x_client_base_blinded - r_client mod l`
-- preserve the server's intended output, `x_relayer_base`
+- preserve the server's intended output, `x_server_base`
 
 This slice does not establish a full arbitrary-server-memory compromise claim
 by itself. Full protection against a server process reading every internal
@@ -159,9 +159,9 @@ Required before claiming that one compromised production server process cannot
 decode the hidden Ed25519 key material from ceremony state:
 
 - server never has joined `d`, `a`, or `x_client_base`
-- client never has joined `d`, `a`, `y_relayer`, or `tau_relayer`
+- client never has joined `d`, `a`, `y_server`, or `tau_server`
 - client opens only `x_client_base`
-- server opens only `x_relayer_base`
+- server opens only `x_server_base`
 
 This is the next architecture target. It is stronger than Level A packet
 delivery and stronger than retained-state cleanup, because it rules out joined
@@ -181,11 +181,11 @@ Rust and TypeScript:
 - server route/domain types cannot accept `evaluatorDriverStateBytes`,
   `evaluatorOtStateB64u`, joined client bundles, client PRF output, client mask
   material, or staged evaluator continuation bytes that contain both shares
-- client-visible delivery cannot expose joined `y_relayer`, joined
-  `tau_relayer`, or enough relayer transport material to reconstruct those
+- client-visible delivery cannot expose joined `y_server`, joined
+  `tau_server`, or enough server transport material to reconstruct those
   roots
 - output-open APIs are role-specific: client opens only client output, and
-  server opens only relayer output
+  server opens only server output
 
 Target flow:
 
@@ -194,8 +194,8 @@ Target flow:
 2. Client derives `y_client` and `tau_client`, retains evaluator OT state
    locally, and requests server-input delivery.
 3. Server responds with authenticated delivery material that lets the client
-   evaluate the fixed hidden computation without decoding `y_relayer` or
-   `tau_relayer`.
+   evaluate the fixed hidden computation without decoding `y_server` or
+   `tau_server`.
 4. Client evaluates the hidden path with evaluator-owned local state. The
    browser/runtime may hold one-sided evaluator words and opaque labels, but it
    must not receive a joined representation of `d` or `a`.
@@ -206,12 +206,12 @@ Target flow:
    delivery material.
 7. Server validates context binding, run binding, projection mode, client-output
    value kind, final transcript digest, and server-output payload binding.
-8. Server opens only `x_relayer_base`.
+8. Server opens only `x_server_base`.
 
 The design prevents the current issue because the server process no longer has
 the data structure that makes decoding possible. A modified server can log its
-own relayer roots, garbler state, transport messages, commitments, and
-`x_relayer_base`; it cannot decode `d`, `a`, or `x_client_base` without the
+own server roots, garbler state, transport messages, commitments, and
+`x_server_base`; it cannot decode `d`, `a`, or `x_client_base` without the
 client-owned evaluator state. A modified client can compromise that user's
 client output path, but it must not learn joined `d`, joined `a`, or server root
 material.
@@ -274,7 +274,7 @@ The remaining production gap is the active ceremony materialization boundary:
 
 5. **Redesign server output delivery.**
    - Define the exact server-output artifact the client returns for
-     `x_relayer_base` finalization.
+     `x_server_base` finalization.
    - Server finalization must validate artifact bindings without reconstructing
      `a`, `tau`, or `x_client_base`.
    - If correctness against malicious clients is required in this slice, add a
@@ -311,13 +311,13 @@ The remaining production gap is the active ceremony materialization boundary:
 ### Open Design Decisions
 
 - **Server-output correctness.** Decide whether Level C must protect the server
-  from a malicious client returning malformed `x_relayer_base` delivery
+  from a malicious client returning malformed `x_server_base` delivery
   material. If yes, the finalization artifact needs an active consistency
-  mechanism before the server accepts and stores the relayer share. If no, this
+  mechanism before the server accepts and stores the server share. If no, this
   slice remains a server-blindness hardening step with an explicitly deferred
   malicious-client correctness gap.
-- **One-sided relayer delivery shape.** Specify the exact server-input delivery
-  packet that lets the client evaluate against `y_relayer` and `tau_relayer`
+- **One-sided server delivery shape.** Specify the exact server-input delivery
+  packet that lets the client evaluate against `y_server` and `tau_server`
   without learning either value. The packet must contain only transport words,
   commitments, release tokens, and transcript-bound metadata that are safe for
   the client role.
@@ -436,16 +436,16 @@ Recovery codes authenticate or unlock the backup path. They are not the IKM for
   PRF output, and recovered client secret material.
 - Added a Rust role-separated add-stage request packet and boundary test proving
   the target server-visible request omits joined client bundle payload fields
-  and clear client/relayer root bytes.
+  and clear client/server root bytes.
 - Refactored the role-separated add-stage builder so it computes the shared
   commitments without first constructing the legacy server-visible add-stage
   payload.
 - Added a Rust role-separated client output-delivery packet and boundary test
   proving the target client-facing delivery omits server-output payload fields,
-  seed output for registration, and clear client/relayer root bytes.
+  seed output for registration, and clear client/server root bytes.
 - Added a Rust role-separated server-input delivery packet and client-owned
   materialization prototype. The boundary test proves the server packet omits
-  joined client bundle fields and clear client/relayer roots, while the client
+  joined client bundle fields and clear client/server roots, while the client
   can materialize a staged evaluator artifact and open the expected client
   output.
 - Added Rust message-level helpers and WASM exports for the role-separated
@@ -490,15 +490,15 @@ role-separated packet family.
 Proceed with a role-separated output-delivery design unless a new
 mask-injection primitive is developed first. A direct "send the projector
 continuation to the browser" design is insufficient, because the current
-continuation contains both transport sides of server-owned `tau_relayer`
+continuation contains both transport sides of server-owned `tau_server`
 material. The role-separated design must specify:
 
 - which continuation material the server returns
 - which pieces remain opaque or one-sided from the server's and client's
   perspectives
 - how the client combines its retained evaluator state with `r_client`
-- how `x_relayer_base` remains available to the server
-- how server-owned `y_relayer` and `tau_relayer` remain unavailable to the
+- how `x_server_base` remains available to the server
+- how server-owned `y_server` and `tau_server` remain unavailable to the
   client
 - how client-owned evaluator state stays off server routes
 - which transcript digests bind the projection mode, mask commitment, and
@@ -546,7 +546,7 @@ The server execution path migration now has a Rust target:
 2. Client opens the sealed server-input transport, reconstructs its retained
    client input bundles locally, and materializes the staged evaluator artifact.
 3. Client submits the staged evaluator artifact, or an equivalent server-safe
-   finalization artifact, back to the server for relayer output finalization.
+   finalization artifact, back to the server for server output finalization.
 4. Server finalizes only from the artifact and its server eval state; it never
    receives joined client input bundles or evaluator OT state.
 
@@ -557,7 +557,7 @@ Route migration sequence:
 1. [x] Add server SDK wrappers around
    `threshold_ed25519_hss_prepare_role_separated_server_input_delivery`.
    The wrapper input must accept only `clientRequestMessageB64u` from the
-   client-visible request, plus server-retained relayer inputs.
+   client-visible request, plus server-retained server inputs.
 2. [x] Add client WASM/runtime support in `wasm/hss_client_signer` for
    client-owned staged-artifact materialization. The browser-facing HSS client
    worker currently uses this package, so the near-signer export is a compiled
@@ -570,7 +570,7 @@ Route migration sequence:
    and sends that artifact or a server-safe finalization artifact during
    finalize.
 5. [x] Change server finalize to accept the client-owned staged artifact, validate
-   context binding and ceremony scope, and continue opening only the relayer
+   context binding and ceremony scope, and continue opening only the server
    output on the server.
 6. [x] Remove legacy server route acceptance of `evaluatorOtStateB64u` after the
    role-separated request/response path is wired through both session and
@@ -581,11 +581,11 @@ Route migration sequence:
 
 Test checkpoint:
 
-- Added an Express relayer route test proving `/threshold-ed25519/hss/respond`
+- Added an Express server route test proving `/threshold-ed25519/hss/respond`
   rejects legacy `evaluatorOtStateB64u` before server-side ceremony execution.
 - Added a signing-engine public facade guard for the new client-owned staged
   artifact worker entrypoint.
-- Updated relayer and active-path SDK tests so session repair, session
+- Updated server and active-path SDK tests so session repair, session
   completion, export, and managed registration use the role-separated server
   input delivery plus client-owned staged artifact exchange.
 
@@ -623,7 +623,7 @@ Validation checkpoint for the first masked-output slice:
   opener, opens with `r_client`, and still preserves server output finalization.
 - `pnpm check:formal-verification` passes across vectors, parity, Aeneas, Lean,
   Verus, and anti-drift checks.
-- The focused SDK TypeScript build, active-path Playwright suite, and relayer
+- The focused SDK TypeScript build, active-path Playwright suite, and server
   HSS route suite pass after regenerating the WASM surfaces.
 - A focused SDK unit guard proves present `clientOutputMaskB64u` values are
   forwarded to the client worker for staged-artifact build and client-output
@@ -644,7 +644,7 @@ Validation checkpoint for the first masked-output slice:
   with HKDF-SHA-256 from recoverable 32-byte client material and stable HSS
   transcript context. The derivation context includes the context binding,
   signing root, NEAR account, key purpose/version, participant set, derivation
-  version, operation, relayer key id, and projection mode.
+  version, operation, server key id, and projection mode.
 - Wired passkey warm-session reconstruction and Email OTP Ed25519
   reconstruction/provisioning to use the derived mask from the same
   recoverable client material used to re-derive client inputs.
@@ -694,7 +694,7 @@ Validation checkpoint for the first masked-output slice:
   commitment, so server finalization can bind the client-owned output packet
   without retaining or recomputing an unmasked client output.
 - Added a server-only output projector path for output-projection response
-  preparation. The server path computes `x_relayer_base` as `a + 2*tau mod l`
+  preparation. The server path computes `x_server_base` as `a + 2*tau mod l`
   and does not construct or package an `x_client_base` output bundle.
 - Migrated the native test helper and driver process to client-owned staged
   artifact materialization; server-owned staged artifact rebuild from finalize
@@ -717,13 +717,13 @@ Validation checkpoint for the first masked-output slice:
   three samples.
 - Regenerated the checked-in `hss_client_signer` and `near_signer`
   browser/server WASM packages after the direct masked projection change.
-- Re-ran the WASM Rust consumer checks, SDK type check, focused HSS relayer
+- Re-ran the WASM Rust consumer checks, SDK type check, focused HSS server
   route tests, and focused single-key/separated-role HSS script-unit suites.
   The HSS-focused route and script tests pass with client-masked output
   projection enabled.
 - Re-ran the broader `test:threshold-ed25519:active-path` suite after tightening
   exact threshold-session replay budget handling and updating the
-  threshold-ECDSA session auth fixture to the current claim shape. The relayer
+  threshold-ECDSA session auth fixture to the current claim shape. The server
   route suite and HSS script suite pass.
 - Made client-owned HSS finalization masked-only at the Rust/WASM/SDK boundary:
   client-owned staged artifact construction and client-output opening now
@@ -792,10 +792,10 @@ Formal-first implementation plan:
      `UnmaskedClientBase`.
 
 5. Model the server-only projector algebra.
-   - Add a spec lemma for `x_relayer_base = a + 2*tau mod l`.
+   - Add a spec lemma for `x_server_base = a + 2*tau mod l`.
    - Prove it is equivalent to the legacy expression
-     `x_relayer_base = (a + tau) + tau mod l`.
-   - Document that the server-only output path needs only the relayer output and
+     `x_server_base = (a + tau) + tau mod l`.
+   - Document that the server-only output path needs only the server output and
      seed commitment metadata for finalization binding.
 
 6. Add anti-drift coverage.
@@ -829,7 +829,7 @@ Next implementation sequence:
 
 - [x] Split retained server-finalization output state from full hidden-eval
   output:
-  - server output state keeps `x_relayer_base` transport material and
+  - server output state keeps `x_server_base` transport material and
     commitment/checkpoint data needed for finalization
   - staged artifacts carry the public client-output value kind and commitment
     used for finalization binding
@@ -845,7 +845,7 @@ Next implementation sequence:
 - [x] Change server output-projection response preparation so the server no longer
    calls the full output materializer to store client output in
    `ServerEvalFinalizeState`.
-- [x] Add a server-only output projector path that computes the relayer output
+- [x] Add a server-only output projector path that computes the server output
    without constructing an `x_client_base` output bundle. Algebraically, this
    should compute the server share as `a + 2*tau mod l` or an equivalent
    expression, so `x_client_base = a + tau mod l` is not named or packaged as a
@@ -870,7 +870,7 @@ Next implementation sequence:
   - [x] masked projection finalize rejects `UnmaskedClientBase`
   - [x] client opening still returns the reference `x_client_base` after
     unmasking
-  - [x] server opening still returns the reference `x_relayer_base`
+  - [x] server opening still returns the reference `x_server_base`
 
 1. **Define the new output model.**
    - [x] Add an `OutputProjectionMode` domain enum with
@@ -913,7 +913,7 @@ Next implementation sequence:
 3. **Change output projection.**
    - Compute the client-facing output as
      `x_client_base_blinded = x_client_base + r_client mod l`.
-   - Preserve `x_relayer_base = x_client_base + tau mod l` or its algebraic
+   - Preserve `x_server_base = x_client_base + tau mod l` or its algebraic
      equivalent for the server-facing output.
    - Keep labels domain-separated, for example:
      `output_projector/x_client_base_blinded`.
@@ -1077,7 +1077,7 @@ and commitment, then persist them with ceremony state.
 - [server/src/core/ThresholdService/ed25519HssWasm.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/core/ThresholdService/ed25519HssWasm.ts)
   - add projection mode and mask commitment to server prepare, ceremony, and
     report-finalization wrappers
-  - keep server output opening centered on `xRelayerBaseB64u`
+  - keep server output opening centered on `xServerBaseB64u`
 - [server/src/core/ThresholdService/ThresholdSigningService.ts](/Users/pta/Dev/rust/simple-threshold-signer/server/src/core/ThresholdService/ThresholdSigningService.ts)
   - persist projection mode and mask commitment in HSS ceremony records for
     registration and warm-session flows

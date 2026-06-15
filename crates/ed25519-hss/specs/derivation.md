@@ -42,14 +42,14 @@ the same canonical context.
 Define:
 
 - `y_client = HKDF_u256(prf.output, "ed25519/root-share/client:v1", ctx)`
-- `y_relayer = HKDF_u256(K_org, "ed25519/root-share/relayer:v1", ctx)`
+- `y_server = HKDF_u256(K_org, "ed25519/root-share/server:v1", ctx)`
 
 Interpret both values in `Z_(2^256)`.
 
 Meaning:
 
 - `y_client` is the client root-share input
-- `y_relayer` is the server root-share input
+- `y_server` is the server root-share input
 
 These are not signing shares yet.
 
@@ -57,7 +57,7 @@ These are not signing shares yet.
 
 Combine the root shares in the 256-bit seed domain:
 
-- `m = y_client + y_relayer mod 2^256`
+- `m = y_client + y_server mod 2^256`
 - `d = LE32(m)`
 
 Meaning:
@@ -90,7 +90,7 @@ Important distinction:
 
 The hidden nonlinear conversion this crate exists to implement is:
 
-- `y_client + y_relayer -> d -> SHA-512(d) -> clamp -> a`
+- `y_client + y_server -> d -> SHA-512(d) -> clamp -> a`
 
 ## Step 4: Rerandomization Shares
 
@@ -98,13 +98,13 @@ Independently of the seed path, derive rerandomization inputs in the scalar
 field:
 
 - `tau_client = HKDF_mod_l(prf.output, "ed25519/tau/client:v1", ctx)`
-- `tau_relayer = HKDF_mod_l(K_org, "ed25519/tau/relayer:v1", ctx)`
-- `tau = tau_client + tau_relayer mod l`
+- `tau_server = HKDF_mod_l(K_org, "ed25519/tau/server:v1", ctx)`
+- `tau = tau_client + tau_server mod l`
 
 Meaning:
 
 - `tau_client` is the client rerandomization share
-- `tau_relayer` is the server rerandomization share
+- `tau_server` is the server rerandomization share
 - `tau` is the combined rerandomization value
 
 `tau` is not the seed share and not the Lagrange coefficient.
@@ -117,12 +117,12 @@ Its job is to turn the canonical scalar `a` into one concrete valid pair of
 Project `a` and `tau` into the final 2-of-2 base shares:
 
 - `x_client_base = a + tau mod l`
-- `x_relayer_base = a + 2 * tau mod l`
+- `x_server_base = a + 2 * tau mod l`
 
 Meaning:
 
 - `x_client_base` is the client's base signing share
-- `x_relayer_base` is the server's base signing share
+- `x_server_base` is the server's base signing share
 
 These are the actual signing shares used to start a signing session.
 
@@ -131,11 +131,11 @@ These are the actual signing shares used to start a signing session.
 For participant ids `(1, 2)`, the Lagrange coefficients at zero are:
 
 - `lambda_client = 2`
-- `lambda_relayer = -1 mod l`
+- `lambda_server = -1 mod l`
 
 Therefore the base shares satisfy:
 
-- `a = 2 * x_client_base - x_relayer_base mod l`
+- `a = 2 * x_client_base - x_server_base mod l`
 
 This is why the output projection is chosen that way.
 
@@ -155,16 +155,16 @@ The protocol has two hidden paths that meet at the output-share projector.
 
 Seed path:
 
-- `y_client + y_relayer -> d -> SHA-512(d) -> clamp -> a`
+- `y_client + y_server -> d -> SHA-512(d) -> clamp -> a`
 
 Share path:
 
-- `tau_client + tau_relayer -> tau`
+- `tau_client + tau_server -> tau`
 
 Output projection:
 
 - `x_client_base = a + tau`
-- `x_relayer_base = a + 2 * tau`
+- `x_server_base = a + 2 * tau`
 
 So:
 
@@ -175,7 +175,7 @@ So:
 
 The derivation roles are:
 
-- `y_client`, `y_relayer`
+- `y_client`, `y_server`
   - root-share inputs
   - define the canonical seed `d`
 - `d`
@@ -183,13 +183,13 @@ The derivation roles are:
   - standard export-compatible private-key seed
 - `a`
   - canonical Ed25519 signing scalar derived from `d`
-- `tau_client`, `tau_relayer`
+- `tau_client`, `tau_server`
   - rerandomization shares
   - define `tau`
-- `x_client_base`, `x_relayer_base`
+- `x_client_base`, `x_server_base`
   - final base signing shares used by threshold signing
 
 The two critical invariants are:
 
-- `d = LE32(y_client + y_relayer mod 2^256)`
-- `a = 2 * x_client_base - x_relayer_base mod l`
+- `d = LE32(y_client + y_server mod 2^256)`
+- `a = 2 * x_client_base - x_server_base mod l`

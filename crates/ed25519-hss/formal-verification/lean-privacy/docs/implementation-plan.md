@@ -8,7 +8,7 @@ Use Lean 4 for the privacy properties that are stronger than the current Verus
 boundary proofs:
 
 1. non-export hidden-seed expansion is hidden from the client and the server
-2. the client cannot derive `y_relayer` or `tau_relayer` from allowed outputs
+2. the client cannot derive `y_server` or `tau_server` from allowed outputs
 3. the server cannot derive client-secret material from allowed outputs
 4. explicit key export is the only allowed exception
 
@@ -33,8 +33,8 @@ The intended bridge is:
 - [x] Define the adversary and simulator layer for non-export client/server
       views.
 - [x] State and prove the core privacy theorems:
-      non-export hidden-seed hiding, client non-derivability of `y_relayer`
-      and `tau_relayer`, server non-derivability of client-secret material,
+      non-export hidden-seed hiding, client non-derivability of `y_server`
+      and `tau_server`, server non-derivability of client-secret material,
       and explicit-export exception isolation.
 - [x] Replace placeholder assumptions with simulator-based compatibility and
       observational-secrecy assumptions.
@@ -60,8 +60,8 @@ Completed now:
   - `nonExportHiddenSeedIsHidden_proved`
   - `explicitExportIsOnlyDisclosureException_proved`
 - the assumption-relative non-derivability theorems are now also proved:
-  - `clientCannotDeriveYRelayer_proved`
-  - `clientCannotDeriveTauRelayer_proved`
+  - `clientCannotDeriveYServer_proved`
+  - `clientCannotDeriveTauServer_proved`
   - `serverCannotDeriveClientSecrets_proved`
 - the placeholder `True` assumptions have been replaced with simulator-based
   compatibility assumptions in:
@@ -72,8 +72,8 @@ Completed now:
   - `ServerObservationallyHidesClientSecret`
 - the current privacy goals are now phrased directly in terms of the stronger
   observational-secrecy layer:
-  - `ClientCannotDeriveYRelayer`
-  - `ClientCannotDeriveTauRelayer`
+  - `ClientCannotDeriveYServer`
+  - `ClientCannotDeriveTauServer`
   - `ServerCannotDeriveClientSecrets`
   - `NonExportHiddenSeedIsHidden`
 - an explicit indistinguishability layer is now in place in:
@@ -120,7 +120,7 @@ model from Rust and prove that it matches the handwritten privacy boundary.
 - [x] Start with `crates/ed25519-hss/src/shared/reference.rs`.
 - [x] Identify the smallest subset needed for:
       `eval_f_expand`, `canonical_seed`, `x_client_base`, and
-      `x_relayer_base`.
+      `x_server_base`.
 
 #### Phase A2: Generate Lean Boundary Model
 

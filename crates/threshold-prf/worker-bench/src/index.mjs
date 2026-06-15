@@ -1,6 +1,6 @@
 import initThresholdPrfWasm, {
   init_threshold_prf,
-  threshold_prf_derive_ecdsa_hss_y_relayer,
+  threshold_prf_derive_ecdsa_hss_y_server,
   threshold_prf_derive_ed25519_hss_server_inputs,
 } from "../vendor/threshold_prf/threshold_prf.js";
 import thresholdPrfWasmModule from "../vendor/threshold_prf/threshold_prf_bg.wasm";
@@ -78,10 +78,10 @@ export default {
       const results = [
         measureSync("dispatch_loop_noop", iterations, warmup, benchmarkNoop),
         measureSync(
-          "threshold_prf_derive_ecdsa_hss_y_relayer",
+          "threshold_prf_derive_ecdsa_hss_y_server",
           iterations,
           warmup,
-          benchmarkEcdsaYRelayer,
+          benchmarkEcdsaYServer,
         ),
         measureSync(
           "threshold_prf_derive_ed25519_hss_server_inputs",
@@ -157,8 +157,8 @@ function benchmarkNoop(index) {
   return index & 0xff;
 }
 
-function benchmarkEcdsaYRelayer() {
-  const output = threshold_prf_derive_ecdsa_hss_y_relayer(
+function benchmarkEcdsaYServer() {
+  const output = threshold_prf_derive_ecdsa_hss_y_server(
     THRESHOLD_PRF_THRESHOLD,
     THRESHOLD_PRF_SHARE_COUNT,
     shareWires(),
@@ -184,7 +184,7 @@ function benchmarkEd25519ServerInputs() {
     ED25519_CONTEXT.keyVersion,
     ED25519_CONTEXT.derivationVersion,
   );
-  return output.yRelayer[0] ^ output.tauRelayer[0];
+  return output.yServer[0] ^ output.tauServer[0];
 }
 
 function shareWires() {

@@ -15,8 +15,8 @@ The threshold-policy corpus includes:
 - direct reference evaluation
 - each valid threshold subset for the committed policies
 - `PrfPartialWire` encoding with share ID, context tag, and compressed point
-- purpose vectors for `ecdsa-hss/y_relayer`
-- purpose vectors for `router-ab/x_relayer_base/v1`
+- purpose vectors for `ecdsa-hss/y_server`
+- purpose vectors for `router-ab/x_server_base/v1`
 
 If formal-verification tests need a local copy, it must be byte-identical to the
 canonical corpus. Do not add generated benchmark output here. Keep fixtures

@@ -99,7 +99,7 @@ hidden-eval runtime.
 
 ## Live Registration Log
 
-A single manual registration log for `gorp55.w3a-relayer.testnet` showed:
+A single manual registration log for `gorp55.w3a-server.testnet` showed:
 
 | Step | Time |
 | --- | ---: |

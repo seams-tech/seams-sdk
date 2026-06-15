@@ -28,7 +28,7 @@ impl ServerOutputOpener {
             packet.evaluation_digest,
             packet.nonce,
             &packet.ciphertext,
-            "x_relayer_base",
+            "x_server_base",
         )
     }
 }

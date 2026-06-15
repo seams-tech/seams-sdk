@@ -12,7 +12,7 @@ Two parties jointly derive Ed25519 signing-share material:
 - client:
   derives `y_client` and `tau_client`
 - server:
-  derives `y_relayer` and `tau_relayer`
+  derives `y_server` and `tau_server`
 
 The goal is to preserve the hidden seed path and durable-share projection
 without either side learning the other side's root material.
@@ -30,32 +30,32 @@ This crate does not yet claim full malicious security.
 
 The fixed hidden computation is:
 
-- `m = y_client + y_relayer mod 2^256`
+- `m = y_client + y_server mod 2^256`
 - `d = LE32(m)`
 - `h = SHA-512(d)`
 - `a_bytes = clamp(h[0..31])`
 - `a = LE256(a_bytes) mod l`
-- `tau = tau_client + tau_relayer mod l`
+- `tau = tau_client + tau_server mod l`
 - `x_client_base = a + tau mod l`
-- `x_relayer_base = a + 2 * tau mod l`
+- `x_server_base = a + 2 * tau mod l`
 
 The intended security properties are:
 
 - neither party learns plaintext `d`
 - neither party learns plaintext `a`
 - the client learns only `x_client_base` plus public verification data
-- the server learns only `x_relayer_base` plus public verification data
+- the server learns only `x_server_base` plus public verification data
 
 Reconstruction identity:
 
-- `a = 2 * x_client_base - x_relayer_base mod l`
+- `a = 2 * x_client_base - x_server_base mod l`
 
 ## Current Boundary Status
 
 For non-export production flows, the hardened boundary requirement is:
 
-- the client must not be able to reconstruct per-account `y_relayer`
-- the client must not be able to reconstruct per-account `tau_relayer`
+- the client must not be able to reconstruct per-account `y_server`
+- the client must not be able to reconstruct per-account `tau_server`
 
 The old joined-input sealed packet seam did not satisfy that stronger product
 goal and now survives only as regression-test support.
@@ -64,7 +64,7 @@ The current kept production design is the staged server-assisted flow:
 
 - `ServerAssistInit` authenticates the init/handle handoff
 - add-stage is the first real online execution step
-- after add-stage, raw relayer roots are dropped
+- after add-stage, raw server roots are dropped
 - later stages advance from server-owned continuation state
 
 That staged continuation model now works like this:
@@ -87,7 +87,7 @@ Those projector prerequisites are:
 - not client-visible
 - not final output bundles
 - kept only because delaying them further would require recomputation from
-  relayer roots that have already been dropped
+  server roots that have already been dropped
 
 ## Level A Client-Masked Projection
 
@@ -132,7 +132,7 @@ Why:
 So the stronger secrecy guarantee is scoped as:
 
 - non-export flows:
-  client must not be able to reconstruct `y_relayer` or `tau_relayer`
+  client must not be able to reconstruct `y_server` or `tau_server`
 - `ExplicitKeyExport`:
   client intentionally receives key-equivalent material, so that stronger
   claim does not apply
@@ -151,7 +151,7 @@ Safer future directions if export ever needs a stronger client boundary:
 Reconstructing the signing key still requires all of:
 
 - `y_client`
-- `y_relayer`
+- `y_server`
 - the correlated hidden computation that produces the final projected shares
 
 Blast radius is also contained by context binding:
@@ -171,7 +171,7 @@ Current security posture:
 
 - passive/semi-honest cryptographic model
 - production boundary hardened so non-export flows do not expose reconstructable
-  relayer roots to the client
+  server roots to the client
 
 Not yet claimed:
 

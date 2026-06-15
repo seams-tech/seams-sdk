@@ -65,22 +65,22 @@ fn main() {
                 ThresholdPolicy::from_u16s(2, 3).expect("valid canonical policy"),
                 [0x91; 32],
                 [0x92; 32],
-                PrfPurpose::EcdsaHssYRelayer,
+                PrfPurpose::EcdsaHssYServer,
                 b"threshold-prf/vector:2-of-3".to_vec(),
             ),
             vector_for(
                 ThresholdPolicy::from_u16s(3, 5).expect("valid canonical policy"),
                 [0xa1; 32],
                 [0xa2; 32],
-                PrfPurpose::RouterAbXRelayerBaseV1,
+                PrfPurpose::RouterAbXServerBaseV1,
                 b"threshold-prf/vector:3-of-5".to_vec(),
             ),
             vector_for(
                 ThresholdPolicy::from_u16s(2, 3).expect("valid canonical policy"),
                 [0xb1; 32],
                 [0xb2; 32],
-                PrfPurpose::RouterAbXRelayerBaseV1,
-                router_ab_relayer_context_v1(),
+                PrfPurpose::RouterAbXServerBaseV1,
+                router_ab_server_context_v1(),
             ),
         ],
     };
@@ -199,7 +199,7 @@ fn push_threshold_subsets(
     }
 }
 
-fn router_ab_relayer_context_v1() -> Vec<u8> {
+fn router_ab_server_context_v1() -> Vec<u8> {
     hex_to_bytes(
         "0000002d726f757465722d61622d64657269766174696f6e2f6d70632d7072662f636f6e746578742d62797465732f7631000000217468726573686f6c645f7072665f72697374726574746f3235355f736861353132000000217468726573686f6c642d7072662f72697374726574746f3235352d7368613531320000001b726f757465722d61622f785f72656c617965725f626173652f76310000001b63616e6f6e6963616c5f656432353531395f7363616c61725f333200000020b87b29b1a50ce49c58ea33f6341715f68890c77f41d73582f166744085bf70580000000e785f72656c617965725f626173650000000772656c617965720000001b726f6c653a72656c617965723a6c6f63616c3a7368613235362d72",
     )

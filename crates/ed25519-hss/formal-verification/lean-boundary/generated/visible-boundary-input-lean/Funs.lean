@@ -27,7 +27,7 @@ def shared.reference_boundary.visible_boundary_from_output
     {
       canonical_seed := output.d,
       x_client_base := output.x_client_base,
-      x_relayer_base := output.x_relayer_base
+      x_server_base := output.x_server_base
     }
 
 /-- [ed25519_hss::shared::reference_boundary::eval_f_expand_visible_boundary]:

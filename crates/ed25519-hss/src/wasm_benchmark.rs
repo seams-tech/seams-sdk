@@ -167,14 +167,14 @@ fn detailed_run_report(
         .ddh_evaluator
         .decode_client_bit_bundle_array(profile.run.output.client_output.as_bundle())?;
     let garbler_session = state.session.garbler_session();
-    let x_relayer_bundle = garbler_session.ddh_garbler.join_share_bundle(
-        &profile.run.output.x_relayer_base_left,
-        &profile.run.output.x_relayer_base_right,
+    let x_server_bundle = garbler_session.ddh_garbler.join_share_bundle(
+        &profile.run.output.x_server_base_left,
+        &profile.run.output.x_server_base_right,
     )?;
-    let x_relayer_base = garbler_session
+    let x_server_base = garbler_session
         .ddh_garbler
-        .decode_server_bit_bundle_array(&x_relayer_bundle)?;
-    let public_key = public_key_from_base_shares(x_client_base, x_relayer_base)?;
+        .decode_server_bit_bundle_array(&x_server_bundle)?;
+    let public_key = public_key_from_base_shares(x_client_base, x_server_base)?;
     let reference = eval_f_expand(&state.input)?;
     let reference_match =
         public_key == reference.public_key && x_client_base == reference.x_client_base;
@@ -230,9 +230,9 @@ fn browser_benchmark_input() -> FExpandInput {
             derivation_version: 1,
         },
         y_client: [0xff; 32],
-        y_relayer: one_le_u256(),
+        y_server: one_le_u256(),
         tau_client: derive_scalar_bytes("wraparound-seed/tau-client"),
-        tau_relayer: derive_scalar_bytes("wraparound-seed/tau-relayer"),
+        tau_server: derive_scalar_bytes("wraparound-seed/tau-server"),
     }
 }
 

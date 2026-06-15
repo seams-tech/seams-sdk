@@ -49,14 +49,14 @@ structure ClientSecretState where
   deriving Repr
 
 structure ServerSecretState where
-  yRelayer : Bytes32
-  tauRelayer : Bytes32
+  yServer : Bytes32
+  tauServer : Bytes32
   deriving Repr
 
 structure NonExportVisibleBoundary where
   canonicalSeed : Bytes32
   xClientBase : Bytes32
-  xRelayerBase : Bytes32
+  xServerBase : Bytes32
   deriving Repr
 
 structure ExplicitExportBoundary where

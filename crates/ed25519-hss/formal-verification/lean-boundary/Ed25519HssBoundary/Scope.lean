@@ -9,7 +9,7 @@ inductive ExtractionTarget where
 structure VisibleBoundaryFocus where
   canonicalSeed : String
   xClientBase : String
-  xRelayerBase : String
+  xServerBase : String
   deriving DecidableEq, Repr
 
 theorem initial_extraction_target_is_shared_reference_boundary :

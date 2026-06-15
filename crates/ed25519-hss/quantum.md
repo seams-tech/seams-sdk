@@ -74,11 +74,11 @@ is not.
 
 Today the fixed function is:
 
-- `y_client + y_relayer -> d -> SHA-512(d) -> clamp -> a`
+- `y_client + y_server -> d -> SHA-512(d) -> clamp -> a`
 
 A post-quantum version would instead need a function more like:
 
-- `y_client + y_relayer -> xi`
+- `y_client + y_server -> xi`
 - `xi -> ML-DSA keygen internal state`
 - `ML-DSA internal state -> public key + threshold signing state`
 

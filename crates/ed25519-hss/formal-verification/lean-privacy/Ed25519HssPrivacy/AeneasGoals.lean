@@ -47,10 +47,10 @@ def GeneratedServerBoundaryIndistinguishableUnderClientSecretVariation : Prop :=
           publicParameters
           (nonExportBoundaryOfGeneratedVisibleBoundary boundary))
 
-def GeneratedClientCannotDeriveYRelayer : Prop :=
+def GeneratedClientCannotDeriveYServer : Prop :=
   GeneratedClientBoundaryIndistinguishableUnderServerSecretVariation
 
-def GeneratedClientCannotDeriveTauRelayer : Prop :=
+def GeneratedClientCannotDeriveTauServer : Prop :=
   GeneratedClientBoundaryIndistinguishableUnderServerSecretVariation
 
 def GeneratedServerCannotDeriveClientSecrets : Prop :=
@@ -82,12 +82,12 @@ theorem generatedServerBoundaryIndistinguishableUnderClientSecretVariation_prove
     hCompat₁
     hCompat₂
 
-theorem generatedClientCannotDeriveYRelayer_proved :
-    GeneratedClientCannotDeriveYRelayer := by
+theorem generatedClientCannotDeriveYServer_proved :
+    GeneratedClientCannotDeriveYServer := by
   exact generatedClientBoundaryIndistinguishableUnderServerSecretVariation_proved
 
-theorem generatedClientCannotDeriveTauRelayer_proved :
-    GeneratedClientCannotDeriveTauRelayer := by
+theorem generatedClientCannotDeriveTauServer_proved :
+    GeneratedClientCannotDeriveTauServer := by
   exact generatedClientBoundaryIndistinguishableUnderServerSecretVariation_proved
 
 theorem generatedServerCannotDeriveClientSecrets_proved :

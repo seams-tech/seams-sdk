@@ -38,8 +38,8 @@ fn prime_order_succinct_hss_rejects_server_assist_init_from_different_request_sa
     let (server_assist_init_message_b, _server_eval_state_b) = garbler_session
         .prepare_server_assist_init_message(
             &request_b,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ed25519_hss::server::ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init for request b");
@@ -80,8 +80,8 @@ fn prime_order_succinct_hss_rejects_swapped_server_assist_init_releases_same_con
     let (server_assist_init_message, _server_eval_state) = garbler_session
         .prepare_server_assist_init_message(
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ed25519_hss::server::ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init");
@@ -137,8 +137,8 @@ fn prime_order_succinct_hss_rejects_server_assist_init_release_with_tampered_con
     let (server_assist_init_message, _server_eval_state) = garbler_session
         .prepare_server_assist_init_message(
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ed25519_hss::server::ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init");
@@ -189,8 +189,8 @@ fn prime_order_succinct_hss_rejects_add_stage_response_with_tampered_context_bin
     let (server_assist_init_message, server_eval_state) = garbler_session
         .prepare_server_assist_init_message(
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ed25519_hss::server::ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init");
@@ -261,8 +261,8 @@ fn prime_order_succinct_hss_rejects_cross_account_message_schedule_response() {
         .prepare_server_assist_init_message(
             &garbler_ot_state_a,
             &client_request_message_a,
-            fixtures[0].input.y_relayer,
-            fixtures[0].input.tau_relayer,
+            fixtures[0].input.y_server,
+            fixtures[0].input.tau_server,
             ed25519_hss::server::ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init a");
@@ -297,8 +297,8 @@ fn prime_order_succinct_hss_rejects_cross_account_message_schedule_response() {
         .prepare_server_assist_init_message(
             &garbler_ot_state_b,
             &client_request_message_b,
-            fixtures[1].input.y_relayer,
-            fixtures[1].input.tau_relayer,
+            fixtures[1].input.y_server,
+            fixtures[1].input.tau_server,
             ed25519_hss::server::ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init b");
@@ -360,8 +360,8 @@ fn prime_order_succinct_hss_rejects_output_projection_replay_after_finalization(
             &garbler_ot_state,
             &client_request_message,
             &evaluator_ot_state,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ed25519_hss::server::ServerEvalOperation::Registration,
         )
         .expect("prepare staged flow to output projection");
@@ -400,8 +400,8 @@ fn prime_order_succinct_hss_rejects_output_projection_request_with_tampered_proj
         .prepare_server_assist_init_message(
             &garbler_ot_state,
             &client_request_message,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ed25519_hss::server::ServerEvalOperation::Registration,
         )
         .expect("prepare server assist init");
@@ -499,8 +499,8 @@ fn prime_order_succinct_hss_rejects_server_finalize_artifact_that_does_not_match
             &garbler_ot_state,
             &client_request_message,
             &evaluator_ot_state,
-            fixture.input.y_relayer,
-            fixture.input.tau_relayer,
+            fixture.input.y_server,
+            fixture.input.tau_server,
             ed25519_hss::server::ServerEvalOperation::Registration,
         )
         .expect("prepare staged flow to output projection");

@@ -622,7 +622,7 @@ pub(crate) fn compute_evaluation_digest(
         output.canonical_seed.commitment,
         output.client_output.value_kind,
         output.client_output.as_bundle().commitment,
-        output.x_relayer_base_left.commitment,
+        output.x_server_base_left.commitment,
         output.output_projector_binding,
     )
 }
@@ -634,7 +634,7 @@ pub(crate) fn compute_evaluation_digest_from_output_commitments(
     canonical_seed_commitment: [u8; 32],
     client_output_value_kind: ClientOutputValueKind,
     client_output_commitment: [u8; 32],
-    x_relayer_base_left_commitment: [u8; 32],
+    x_server_base_left_commitment: [u8; 32],
     output_projector_binding: OutputProjectorBinding,
 ) -> [u8; 32] {
     let mut hasher = Sha256::new();
@@ -646,7 +646,7 @@ pub(crate) fn compute_evaluation_digest_from_output_commitments(
     hasher.update(canonical_seed_commitment);
     hasher.update(client_output_value_kind.domain_tag());
     hasher.update(client_output_commitment);
-    hasher.update(x_relayer_base_left_commitment);
+    hasher.update(x_server_base_left_commitment);
     bind_output_projector_binding(&mut hasher, output_projector_binding);
     let digest = hasher.finalize();
     let mut out = [0u8; 32];

@@ -16,9 +16,9 @@ def generatedVisibleBoundaryClientBase
     (boundary : GeneratedVisibleBoundary) : Array UInt8 32#usize :=
   boundary.x_client_base
 
-def generatedVisibleBoundaryRelayerBase
+def generatedVisibleBoundaryServerBase
     (boundary : GeneratedVisibleBoundary) : Array UInt8 32#usize :=
-  boundary.x_relayer_base
+  boundary.x_server_base
 
 theorem visibleBoundaryFromOutput_projectsCanonicalSeed
     (output : GeneratedFExpandOutput) :
@@ -38,13 +38,13 @@ theorem visibleBoundaryFromOutput_projectsClientBase
       = output.x_client_base := by
   rfl
 
-theorem visibleBoundaryFromOutput_projectsRelayerBase
+theorem visibleBoundaryFromOutput_projectsServerBase
     (output : GeneratedFExpandOutput) :
-    generatedVisibleBoundaryRelayerBase
+    generatedVisibleBoundaryServerBase
         (by
           simpa using
             (shared.reference_boundary.visible_boundary_from_output output))
-      = output.x_relayer_base := by
+      = output.x_server_base := by
   rfl
 
 end Ed25519HssBoundary

@@ -42,16 +42,16 @@ impl PreparedSession {
         &self,
         garbler_ot_state: &ServerOtState,
         client_request_message: &WireMessage,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<(WireMessage, ServerEvalState)> {
         let garbler_session = self.garbler_session();
         self.validate_garbler_ot_state(garbler_ot_state, &garbler_session.client_ot_offer)?;
         garbler_session.prepare_server_assist_init_message(
             client_request_message,
-            y_relayer,
-            tau_relayer,
+            y_server,
+            tau_server,
             operation,
         )
     }
@@ -159,16 +159,16 @@ impl PreparedSession {
         garbler_ot_state: &ServerOtState,
         client_request_message: &WireMessage,
         evaluator_ot_state: &crate::client::ClientOtState,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<PreparedServerAssistFlow> {
         let (server_assist_init_message, mut server_eval_state) = self
             .prepare_server_assist_init_message(
                 garbler_ot_state,
                 client_request_message,
-                y_relayer,
-                tau_relayer,
+                y_server,
+                tau_server,
                 operation,
             )?;
         let add_stage_request_message = self.prepare_add_stage_request_message(
@@ -238,16 +238,16 @@ impl PreparedSession {
         garbler_ot_state: &ServerOtState,
         client_request_message: &WireMessage,
         evaluator_ot_state: &crate::client::ClientOtState,
-        y_relayer: [u8; 32],
-        tau_relayer: [u8; 32],
+        y_server: [u8; 32],
+        tau_server: [u8; 32],
         operation: ServerEvalOperation,
     ) -> ProtoResult<StagedEvaluatorArtifact> {
         let flow = self.prepare_server_assist_flow_to_output_projection(
             garbler_ot_state,
             client_request_message,
             evaluator_ot_state,
-            y_relayer,
-            tau_relayer,
+            y_server,
+            tau_server,
             operation,
         )?;
         self.build_server_owned_staged_evaluator_artifact_from_server_eval_state(

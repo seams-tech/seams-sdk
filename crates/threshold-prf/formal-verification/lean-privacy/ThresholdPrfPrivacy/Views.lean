@@ -8,7 +8,7 @@ def oneServerView
     publicContext := state.publicContext
     leftShare := state.shareOne
     rightShare := state.shareTwo
-    yRelayer := state.yRelayer
+    yServer := state.yServer
   }
 
 def participantOneView
@@ -33,14 +33,14 @@ def combinerView
     publicContext := state.publicContext
     leftPartial := state.partialOne
     rightPartial := state.partialTwo
-    yRelayer := state.yRelayer
+    yServer := state.yServer
   }
 
 def publicOutputView
     (state : FullExecutionState) : PublicOutputState :=
   {
     publicContext := state.publicContext
-    yRelayer := state.yRelayer
+    yServer := state.yServer
   }
 
 theorem oneServerView_has_two_or_more_plaintext_shares

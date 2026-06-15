@@ -36,9 +36,9 @@ inductive shared.error.ProtoError where
 structure shared.reference.FExpandInput where
   context : shared.context.CanonicalContext
   y_client : Array Std.U8 32#usize
-  y_relayer : Array Std.U8 32#usize
+  y_server : Array Std.U8 32#usize
   tau_client : Array Std.U8 32#usize
-  tau_relayer : Array Std.U8 32#usize
+  tau_server : Array Std.U8 32#usize
 
 /-- [ed25519_hss::shared::reference::FExpandOutput]
     Source: 'src/shared/reference.rs', lines 17:0-28:1
@@ -52,7 +52,7 @@ structure shared.reference.FExpandOutput where
   a : Array Std.U8 32#usize
   tau : Array Std.U8 32#usize
   x_client_base : Array Std.U8 32#usize
-  x_relayer_base : Array Std.U8 32#usize
+  x_server_base : Array Std.U8 32#usize
   public_key : Array Std.U8 32#usize
 
 /-- [ed25519_hss::shared::reference_boundary::FExpandVisibleBoundary]
@@ -61,6 +61,6 @@ structure shared.reference.FExpandOutput where
 structure shared.reference_boundary.FExpandVisibleBoundary where
   canonical_seed : Array Std.U8 32#usize
   x_client_base : Array Std.U8 32#usize
-  x_relayer_base : Array Std.U8 32#usize
+  x_server_base : Array Std.U8 32#usize
 
 end ed25519_hss

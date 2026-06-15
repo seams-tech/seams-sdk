@@ -87,7 +87,7 @@ Retained Phase 7I product smoke `20260610-112012Z`:
 - browser hidden-eval p50: `175.75ms`
 - browser output-projector p50: `30.25ms`
 - product worker output-projector split before Phase 7I showed client-base
-  around `60ms` and relayer-output around `65ms`
+  around `60ms` and server-output around `65ms`
 
 Latest full registration smoke `20260610-135445Z` shows wallet-iframe full SDK
 latency is now mostly passkey prompt decision wait, but HSS artifact
@@ -278,8 +278,8 @@ Retained output commitments:
 - `canonical_seed` output commitments stay emitted and transport-bound.
 - `client_output` commitments stay emitted because local backup/export flows
   consume that output shape.
-- `x_relayer_base` commitments and transport bundles stay emitted for the
-  relayer-side threshold material.
+- `x_server_base` commitments and transport bundles stay emitted for the
+  server-side threshold material.
 - Input commitments/provenance for reduced scalar `a`, `tau`, and optional mask
   stay bound into the projector root.
 
@@ -292,7 +292,7 @@ Removed intermediate commitments:
   commitments remain protocol-bound unless the v2 proof explicitly replaces
   them.
 - A shortcut such as proving only `a + 2*tau` is insufficient because it does
-  not by itself preserve the required `client_output` and `x_relayer_base`
+  not by itself preserve the required `client_output` and `x_server_base`
   commitments under both projection modes.
 
 Root inputs and labels:
@@ -316,12 +316,12 @@ Negative tests:
 
 - wrong backend version, projection mode, owner, label, scalar width, modulus
   id, missing mask binding, altered `client_output` commitment, altered
-  `x_relayer_base` commitment, and mixed v1/v2 material.
+  `x_server_base` commitment, and mixed v1/v2 material.
 
 Expected p50 win:
 
 - Product worker substeps previously showed output-projector client-base around
-  `60ms` and relayer-output around `65ms`.
+  `60ms` and server-output around `65ms`.
 - A retained paired-root rewrite must move native output-projector p50, direct
   browser/WASM worker-handle p50, and product `ed25519EvaluationArtifactMs` p50
   above smoke noise. A benchmark-only allocation win is not enough.
@@ -463,16 +463,16 @@ Direct browser/WASM smoke:
 
 Goal:
 
-- prove `x_client_base` and `x_relayer_base` under one projector root while
+- prove `x_client_base` and `x_server_base` under one projector root while
   removing at least one full canonical-add/sub/select equivalent.
 
 Current v1 shape:
 
-1. `tau = tau_client + tau_relayer mod L`
+1. `tau = tau_client + tau_server mod L`
 2. `x_client_base = a + tau mod L`
 3. `client_output = x_client_base` or `x_client_base + mask`
-4. `x_relayer_base = x_client_base + tau mod L`
-5. emit `canonical_seed`, `client_output`, and `x_relayer_base` bundles
+4. `x_server_base = x_client_base + tau mod L`
+5. emit `canonical_seed`, `client_output`, and `x_server_base` bundles
 
 Required paired-root inputs:
 
@@ -484,13 +484,13 @@ Required paired-root inputs:
 - `reduced_a_bits` commitments/provenance
 - `tau_bits` commitments/provenance
 - optional mask commitments/provenance
-- output labels for `canonical_seed`, `client_output`, and `x_relayer_base`
+- output labels for `canonical_seed`, `client_output`, and `x_server_base`
 
 Retained commitments:
 
 - final output commitments for `canonical_seed`
 - final output commitments for `client_output`
-- final output commitments and transport bundles for `x_relayer_base`
+- final output commitments and transport bundles for `x_server_base`
 - input commitments/provenance for `a`, `tau`, and optional mask
 
 Candidate removed commitments:
@@ -509,18 +509,18 @@ Protocol review package:
 Current v1 code path:
 
 - `compute_output_projector_core_bits` clamps and reduces `a` into
-  `reduced_a_bits`, then computes `tau_bits = tau_client + tau_relayer mod L`
-  from the relayer transport bundles.
+  `reduced_a_bits`, then computes `tau_bits = tau_client + tau_server mod L`
+  from the server transport bundles.
 - Trusted-server projection computes `x_client_base = a + tau mod L`, emits it
   as `ClientOutputValueKind::UnmaskedClientBase` with bundle label
-  `x_client_base`, then computes `x_relayer_base = x_client_base + tau mod L`.
+  `x_client_base`, then computes `x_server_base = x_client_base + tau mod L`.
 - Client-masked projection computes the same internal `x_client_base`, shares
   a `client_output_mask`, emits `client_output = x_client_base + mask mod L` as
   `ClientOutputValueKind::ClientBlindedBase` with bundle label
   `x_client_base_blinded`, then computes
-  `x_relayer_base = x_client_base + tau mod L`.
+  `x_server_base = x_client_base + tau mod L`.
 - Both modes still build and emit final bundles for `canonical_seed`,
-  `client_output`, and `x_relayer_base`.
+  `client_output`, and `x_server_base`.
 
 Proposed v2 root:
 
@@ -529,11 +529,11 @@ Proposed v2 root:
   - typed backend version, projection mode, scalar width `256`, modulus id
     `ed25519_l`, and fixed projector label
   - output owner labels for `canonical_seed`, `client_output`, and
-    `x_relayer_base`
+    `x_server_base`
   - output value kind domain tag: `unmasked_client_base` or
     `client_blinded_base`
   - output bundle labels: `canonical_seed`, `x_client_base` or
-    `x_client_base_blinded`, and `x_relayer_base`
+    `x_client_base_blinded`, and `x_server_base`
 - Committed/private root inputs:
   - reduced `a` commitments/provenance
   - `tau` commitments/provenance
@@ -542,18 +542,18 @@ Proposed v2 root:
 - Output bindings retained outside the paired root:
   - final `canonical_seed` output commitment
   - final `client_output` commitment and packet binding
-  - final `x_relayer_base` transport bundle commitments
+  - final `x_server_base` transport bundle commitments
   - existing evaluation digest/output delivery bindings
 
 Approval criteria:
 
 - The paired root may replace only projector-internal canonical-add proof
-  material for `x_client_base` and the paired relayer derivation.
+  material for `x_client_base` and the paired server derivation.
 - Final output commitments and output packet/transport bindings remain emitted
   unless the boundary format is explicitly versioned.
 - The v2 proof must bind both equations:
   `client_output = a + tau` or `a + tau + mask`, and
-  `x_relayer_base = a + 2*tau`.
+  `x_server_base = a + 2*tau`.
 - Public branches may depend only on backend version, projection mode, scalar
   width, modulus id, and loop indexes.
 - The rewrite must not make the evaluator observe a full Ed25519 seed, full
@@ -561,7 +561,7 @@ Approval criteria:
 
 Rejected shortcut:
 
-- A direct `x_relayer_base = a + 2*tau` proof alone is not sufficient. It does
+- A direct `x_server_base = a + 2*tau` proof alone is not sufficient. It does
   not bind the `client_output` relationship, and masked mode needs the
   `x_client_base`/mask relationship preserved without revealing
   `x_client_base`.
@@ -582,7 +582,7 @@ Required negative tests:
 - altered `tau` commitment/provenance
 - altered mask commitment/provenance
 - altered `client_output` commitment
-- altered `x_relayer_base` commitment
+- altered `x_server_base` commitment
 - v1 output material accepted under v2, or v2 material accepted under v1
 
 Implementation slice after approval:
@@ -593,7 +593,7 @@ Implementation slice after approval:
 4. Add the v2 output-projector kernel behind the typed backend version.
 5. Keep final output wire bundles identical for the first implementation pass.
 6. Add v1/v2 semantic fixtures that compare decoded `client_output`,
-   `x_relayer_base`, and public key outputs.
+   `x_server_base`, and public key outputs.
 7. Run native hidden-eval, direct browser/WASM artifact, product smoke, and
    formal verification gates before retaining the rewrite.
 
@@ -626,7 +626,7 @@ Tasks:
       - [ ] altered reduced-`a` commitment/provenance
       - [ ] altered `tau` commitment/provenance
       - [x] altered mask commitment/provenance
-      - [ ] altered `x_relayer_base` commitment
+      - [ ] altered `x_server_base` commitment
       - [ ] v1 output material accepted under v2
       - [ ] v2 output material accepted under v1
 - [x] Add semantic tests comparing decoded v2 outputs with v1 fixture outputs.
@@ -643,7 +643,7 @@ Implementation note:
   context, scalar width, modulus id, and reduced-`a`/`tau` commitment metadata.
 - The final output-projector binding additionally binds projection mode, mask
   metadata, output value kind, `canonical_seed`, `client_output`, and
-  `x_relayer_base` commitments.
+  `x_server_base` commitments.
 - The retained projector arithmetic is still the current mixed shared-mask
   arithmetic. The semantic root-bound arithmetic candidate was removed after
   product smoke failed the keep gate.
@@ -690,7 +690,7 @@ Retention read:
   future-version plumbing while it remains product-neutral.
 - This does not deliver the hoped-for `50ms` class win because earlier Phase 7I
   work had already reduced the output-projector p50 and because the product
-  worker path is dominated by the existing canonical client-base and relayer
+  worker path is dominated by the existing canonical client-base and server
   output additions.
 
 Direct browser/WASM benchmark:
@@ -1128,7 +1128,7 @@ Candidate work:
 - Output-projector paired-root v2:
   - Revisit only with an approved proof that removes a product-visible
     canonical-add equivalent while retaining `canonical_seed`,
-    `client_output`, and `x_relayer_base` commitments or a reviewed replacement
+    `client_output`, and `x_server_base` commitments or a reviewed replacement
     boundary.
   - The earlier semantic rewrite failed product smoke; a new attempt needs a
     clearer replacement claim than the rejected paired-root arithmetic patch.

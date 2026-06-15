@@ -310,7 +310,7 @@ Benchmark:
 
 Selected p50 buckets:
 
-| Path | Wall p50 | Hidden eval p50 | Output projector p50 | Core p50 | Mask add p50 | Client output p50 | Tau double p50 | Relayer output p50 |
+| Path | Wall p50 | Hidden eval p50 | Output projector p50 | Core p50 | Mask add p50 | Client output p50 | Tau double p50 | Server output p50 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | `node_client_artifact_serialized_state_wasm` | 763.722ms | 630.937ms | 272.041ms | 37.723ms | 57.778ms | 57.696ms | 57.800ms | 57.855ms |
 | `node_client_artifact_worker_handle_wasm` | 695.211ms | 658.556ms | 292.192ms | 39.794ms | 61.105ms | 60.915ms | 61.439ms | 60.861ms |
@@ -332,7 +332,7 @@ Candidate:
 
 - Compute `client_base = a + tau` once in the output projector.
 - In client-masked mode, compute `client_output = client_base + mask` and
-  `x_relayer_base = client_base + tau`.
+  `x_server_base = client_base + tau`.
 - Remove the separate `mask + tau` and `tau + tau` intermediates.
 - Keep projection-mode branching public, fixed-width loop bounds, output
   labels, commitments, and bundle labels.
@@ -1294,7 +1294,7 @@ Outcome:
 
 Candidate:
 
-- Build the left and right `x_relayer_base` transport bundles from one
+- Build the left and right `x_server_base` transport bundles from one
   canonical output word list and one bundle commitment.
 - Preserve emitted transport bundle bytes, labels, owner, side tags,
   commitments, protocol structs, wire structs, fixed public loop bounds, and

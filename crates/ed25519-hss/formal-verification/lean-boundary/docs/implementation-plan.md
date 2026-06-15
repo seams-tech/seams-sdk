@@ -26,7 +26,7 @@ track is intentionally frozen at that boundary.
       [`../../src/shared/reference.rs`](/Users/pta/Dev/rust/simple-threshold-signer/crates/ed25519-hss/src/shared/reference.rs).
 - [x] Limit the first boundary link to the subset needed for:
       `eval_f_expand`, `canonical_seed`, `x_client_base`, and
-      `x_relayer_base`.
+      `x_server_base`.
 - [x] Add repo-local wrapper commands for bootstrap validation:
       `cargo hss-fv aeneas-check` and `just ed25519-hss-fv-aeneas`.
 - [x] Add a pinned toolchain manifest for Aeneas, Charon, and the Lean backend.
@@ -84,8 +84,8 @@ Current observed boundary:
 
 This means the current Aeneas result is intentionally narrow:
 
-- `GeneratedClientCannotDeriveYRelayer`
-- `GeneratedClientCannotDeriveTauRelayer`
+- `GeneratedClientCannotDeriveYServer`
+- `GeneratedClientCannotDeriveTauServer`
 - `GeneratedServerCannotDeriveClientSecrets`
 - `GeneratedNonExportHiddenSeedIsHidden`
 

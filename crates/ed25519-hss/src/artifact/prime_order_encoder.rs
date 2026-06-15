@@ -541,9 +541,9 @@ fn encode_output_projector_section(out: &mut Vec<u8>) {
     push_u8(out, 1);
     push_u8(out, 2);
     out.extend_from_slice(&ED25519_BASEPOINT_POINT.compress().to_bytes());
-    push_len_prefixed_str_infallible(out, "tau = tau_client + tau_relayer");
+    push_len_prefixed_str_infallible(out, "tau = tau_client + tau_server");
     push_len_prefixed_str_infallible(out, "x_client_base = a + tau");
-    push_len_prefixed_str_infallible(out, "x_relayer_base = a + 2*tau");
+    push_len_prefixed_str_infallible(out, "x_server_base = a + 2*tau");
     push_len_prefixed_str_infallible(out, "public_key = [a]B");
 }
 
