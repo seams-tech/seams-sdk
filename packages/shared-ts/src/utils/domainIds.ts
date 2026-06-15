@@ -58,6 +58,39 @@ export type ThresholdEcdsaSessionId = DomainId<'ThresholdEcdsaSessionId'>;
 // genuinely curve-generic; prefer the curve-specific id in curve-specific code.
 export type ThresholdSessionId = ThresholdEd25519SessionId | ThresholdEcdsaSessionId;
 
+// Stable wallet key identity. A wallet can have multiple signing lanes that
+// all sign for this same wallet key.
+export type WalletKeyId = DomainId<'WalletKeyId'>;
+
+// Lane-scoped signer identity under one wallet key.
+export type SigningLaneId = DomainId<'SigningLaneId'>;
+
+// Share epoch for one signing lane. This is distinct from session ids and root
+// custody epochs.
+export type LaneShareEpoch = DomainId<'LaneShareEpoch'>;
+
+// Delegated agent principal that can hold a lane-scoped MPC share.
+export type AgentPrincipalId = DomainId<'AgentPrincipalId'>;
+
+// Linked physical or browser device principal that can hold a lane-scoped MPC
+// share.
+export type LinkedDeviceId = DomainId<'LinkedDeviceId'>;
+
+// Delegated mandate policy identity.
+export type MandatePolicyId = DomainId<'MandatePolicyId'>;
+
+// Rotation or lane-creation operation identity.
+export type RotationOperationId = DomainId<'RotationOperationId'>;
+
+// Canonical delegated intent digest.
+export type DelegatedIntentDigest = DomainId<'DelegatedIntentDigest'>;
+
+// Idempotency key scoped to a delegated signer request.
+export type DelegatedIdempotencyKey = DomainId<'DelegatedIdempotencyKey'>;
+
+// QR/device-link relay session identity.
+export type LinkDeviceSessionId = DomainId<'LinkDeviceSessionId'>;
+
 function parseDomainId<T>(raw: unknown, fieldName: string): DomainIdParseResult<T> {
   if (raw == null) {
     return {
@@ -173,4 +206,52 @@ export function parseThresholdEcdsaSessionId(
 
 export function parseThresholdSessionId(raw: unknown): DomainIdParseResult<ThresholdSessionId> {
   return parseDomainId(raw, 'thresholdSessionId');
+}
+
+export function parseWalletKeyId(raw: unknown): DomainIdParseResult<WalletKeyId> {
+  return parseDomainId(raw, 'walletKeyId');
+}
+
+export function parseSigningLaneId(raw: unknown): DomainIdParseResult<SigningLaneId> {
+  return parseDomainId(raw, 'signingLaneId');
+}
+
+export function parseLaneShareEpoch(raw: unknown): DomainIdParseResult<LaneShareEpoch> {
+  return parseDomainId(raw, 'laneShareEpoch');
+}
+
+export function parseAgentPrincipalId(raw: unknown): DomainIdParseResult<AgentPrincipalId> {
+  return parseDomainId(raw, 'agentPrincipalId');
+}
+
+export function parseLinkedDeviceId(raw: unknown): DomainIdParseResult<LinkedDeviceId> {
+  return parseDomainId(raw, 'linkedDeviceId');
+}
+
+export function parseMandatePolicyId(raw: unknown): DomainIdParseResult<MandatePolicyId> {
+  return parseDomainId(raw, 'mandatePolicyId');
+}
+
+export function parseRotationOperationId(
+  raw: unknown,
+): DomainIdParseResult<RotationOperationId> {
+  return parseDomainId(raw, 'rotationOperationId');
+}
+
+export function parseDelegatedIntentDigest(
+  raw: unknown,
+): DomainIdParseResult<DelegatedIntentDigest> {
+  return parseDomainId(raw, 'delegatedIntentDigest');
+}
+
+export function parseDelegatedIdempotencyKey(
+  raw: unknown,
+): DomainIdParseResult<DelegatedIdempotencyKey> {
+  return parseDomainId(raw, 'delegatedIdempotencyKey');
+}
+
+export function parseLinkDeviceSessionId(
+  raw: unknown,
+): DomainIdParseResult<LinkDeviceSessionId> {
+  return parseDomainId(raw, 'linkDeviceSessionId');
 }

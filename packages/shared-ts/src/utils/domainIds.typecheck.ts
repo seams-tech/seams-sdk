@@ -1,15 +1,25 @@
 import type {
   ChallengeSubjectId,
   AppSessionVersion,
+  AgentPrincipalId,
+  DelegatedIdempotencyKey,
+  DelegatedIntentDigest,
   EmailOtpChallengeId,
   EmailOtpRegistrationAttemptId,
   GoogleProviderSubject,
+  LaneShareEpoch,
+  LinkedDeviceId,
+  LinkDeviceSessionId,
+  MandatePolicyId,
   OrgId,
   ProviderSubject,
+  RotationOperationId,
+  SigningLaneId,
   ThresholdEcdsaSessionId,
   ThresholdEd25519SessionId,
   VerifiedGoogleEmail,
   WalletId,
+  WalletKeyId,
   WalletSigningSessionId,
 } from './domainIds';
 
@@ -25,6 +35,16 @@ declare const registrationAttemptId: EmailOtpRegistrationAttemptId;
 declare const walletSigningSessionId: WalletSigningSessionId;
 declare const thresholdEd25519SessionId: ThresholdEd25519SessionId;
 declare const thresholdEcdsaSessionId: ThresholdEcdsaSessionId;
+declare const walletKeyId: WalletKeyId;
+declare const signingLaneId: SigningLaneId;
+declare const laneShareEpoch: LaneShareEpoch;
+declare const agentPrincipalId: AgentPrincipalId;
+declare const linkedDeviceId: LinkedDeviceId;
+declare const mandatePolicyId: MandatePolicyId;
+declare const rotationOperationId: RotationOperationId;
+declare const delegatedIntentDigest: DelegatedIntentDigest;
+declare const delegatedIdempotencyKey: DelegatedIdempotencyKey;
+declare const linkDeviceSessionId: LinkDeviceSessionId;
 
 function acceptsWalletId(value: WalletId): void {
   void value;
@@ -74,6 +94,46 @@ function acceptsThresholdEcdsaSessionId(value: ThresholdEcdsaSessionId): void {
   void value;
 }
 
+function acceptsWalletKeyId(value: WalletKeyId): void {
+  void value;
+}
+
+function acceptsSigningLaneId(value: SigningLaneId): void {
+  void value;
+}
+
+function acceptsLaneShareEpoch(value: LaneShareEpoch): void {
+  void value;
+}
+
+function acceptsAgentPrincipalId(value: AgentPrincipalId): void {
+  void value;
+}
+
+function acceptsLinkedDeviceId(value: LinkedDeviceId): void {
+  void value;
+}
+
+function acceptsMandatePolicyId(value: MandatePolicyId): void {
+  void value;
+}
+
+function acceptsRotationOperationId(value: RotationOperationId): void {
+  void value;
+}
+
+function acceptsDelegatedIntentDigest(value: DelegatedIntentDigest): void {
+  void value;
+}
+
+function acceptsDelegatedIdempotencyKey(value: DelegatedIdempotencyKey): void {
+  void value;
+}
+
+function acceptsLinkDeviceSessionId(value: LinkDeviceSessionId): void {
+  void value;
+}
+
 acceptsWalletId(walletId);
 acceptsProviderSubject(providerSubject);
 acceptsProviderSubject(googleProviderSubject);
@@ -87,6 +147,16 @@ acceptsEmailOtpRegistrationAttemptId(registrationAttemptId);
 acceptsWalletSigningSessionId(walletSigningSessionId);
 acceptsThresholdEd25519SessionId(thresholdEd25519SessionId);
 acceptsThresholdEcdsaSessionId(thresholdEcdsaSessionId);
+acceptsWalletKeyId(walletKeyId);
+acceptsSigningLaneId(signingLaneId);
+acceptsLaneShareEpoch(laneShareEpoch);
+acceptsAgentPrincipalId(agentPrincipalId);
+acceptsLinkedDeviceId(linkedDeviceId);
+acceptsMandatePolicyId(mandatePolicyId);
+acceptsRotationOperationId(rotationOperationId);
+acceptsDelegatedIntentDigest(delegatedIntentDigest);
+acceptsDelegatedIdempotencyKey(delegatedIdempotencyKey);
+acceptsLinkDeviceSessionId(linkDeviceSessionId);
 
 // @ts-expect-error Provider subjects are not wallet ids.
 acceptsWalletId(providerSubject);
@@ -129,3 +199,33 @@ acceptsThresholdEcdsaSessionId(thresholdEd25519SessionId);
 
 // @ts-expect-error Threshold ECDSA session ids are not wallet signing-session ids.
 acceptsWalletSigningSessionId(thresholdEcdsaSessionId);
+
+// @ts-expect-error Wallet keys are not wallet ids.
+acceptsWalletId(walletKeyId);
+
+// @ts-expect-error Wallet ids are not wallet keys.
+acceptsWalletKeyId(walletId);
+
+// @ts-expect-error Signing lanes are not wallet signing sessions.
+acceptsWalletSigningSessionId(signingLaneId);
+
+// @ts-expect-error Wallet signing sessions are not signing lanes.
+acceptsSigningLaneId(walletSigningSessionId);
+
+// @ts-expect-error Lane share epochs are not signing lanes.
+acceptsSigningLaneId(laneShareEpoch);
+
+// @ts-expect-error Agent principals are not linked devices.
+acceptsLinkedDeviceId(agentPrincipalId);
+
+// @ts-expect-error Linked devices are not agent principals.
+acceptsAgentPrincipalId(linkedDeviceId);
+
+// @ts-expect-error Mandate policies are not rotation operations.
+acceptsRotationOperationId(mandatePolicyId);
+
+// @ts-expect-error Delegated intent digests are not idempotency keys.
+acceptsDelegatedIdempotencyKey(delegatedIntentDigest);
+
+// @ts-expect-error Link-device sessions are not signing lanes.
+acceptsSigningLaneId(linkDeviceSessionId);

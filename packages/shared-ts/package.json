@@ -8,10 +8,14 @@
     ".": "./src/index.ts",
     "./console": "./src/console/index.ts",
     "./console/*": "./src/console/*.ts",
+    "./signing-lanes": "./src/signing-lanes/index.ts",
+    "./signing-lanes/*": "./src/signing-lanes/*.ts",
     "./threshold": "./src/threshold/index.ts",
     "./threshold/*": "./src/threshold/*.ts",
     "./utils": "./src/utils/index.ts",
-    "./utils/*": "./src/utils/*.ts"
+    "./utils/*": "./src/utils/*.ts",
+    "./wallet-recovery": "./src/wallet-recovery/index.ts",
+    "./wallet-recovery/*": "./src/wallet-recovery/*.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit"
