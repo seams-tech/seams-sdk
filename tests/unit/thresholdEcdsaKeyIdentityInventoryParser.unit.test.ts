@@ -131,7 +131,7 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
     expect(parsed).toEqual([]);
   });
 
-  test('rejects incomplete or target-only legacy inventory records', () => {
+  test('rejects incomplete or target-only inventory records', () => {
     const parsed = parseThresholdEcdsaKeyIdentityTargets({
       nearAccountId: WALLET_ID,
       rpId: RP_ID,
@@ -154,13 +154,13 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
     expect(parsed).toEqual([]);
   });
 
-  test('rejects synthetic legacy ids at the inventory boundary', () => {
+  test('rejects invalid key handles at the inventory boundary', () => {
     const parsed = parseThresholdEcdsaKeyIdentityTargets({
       nearAccountId: WALLET_ID,
       rpId: RP_ID,
       records: [
-        inventoryRecord({ keyHandle: 'legacy-key-handle:ehss-key-inventory' }),
-        inventoryRecord({ ecdsaThresholdKeyId: 'legacy-key-handle:ehss-key-inventory' }),
+        inventoryRecord({ keyHandle: 'invalid:key-handle' }),
+        inventoryRecord({ keyHandle: 'plain-key-handle' }),
       ],
     });
 
@@ -223,10 +223,10 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
         },
       }),
     });
-    const legacyKey = parseProfileContinuityEcdsaWarmKey({
+    const invalidKeyHandle = parseProfileContinuityEcdsaWarmKey({
       nearAccountId: WALLET_ID,
       configuredTargets,
-      signer: profileSigner({ keyHandle: 'legacy-key-handle:ehss-key-inventory' }),
+      signer: profileSigner({ keyHandle: 'invalid:key-handle' }),
     });
 
     expect(missingChainTarget).toEqual({
@@ -239,10 +239,10 @@ test.describe('threshold ECDSA key identity inventory parser', () => {
       targetKey: 'evm:eip155:5042002',
       reason: 'ambiguous_key_handle',
     });
-    expect(legacyKey).toEqual({
+    expect(invalidKeyHandle).toEqual({
       kind: 'blocked',
       targetKey: 'evm:eip155:5042002',
-      reason: 'synthetic_legacy_key_id',
+      reason: 'invalid_key_handle',
     });
   });
 });

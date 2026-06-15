@@ -138,6 +138,7 @@ export const App: React.FC = () => {
               },
             }
           : {}),
+        ...(FRONTEND_CONFIG.routerAb ? { routerAb: FRONTEND_CONFIG.routerAb } : {}),
         chains: FRONTEND_CONFIG.chains,
         relayer: {
           url: FRONTEND_CONFIG.relayerUrl!,

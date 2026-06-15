@@ -12,7 +12,7 @@ export function IPhoneQRScanner(props: {
   const bodyFill = 'var(--w3a-colors-surface2)';
   const border = 'none';
   const screenFill = 'var(--w3a-colors-surface, rgba(0,0,0,0.04))';
-  const details = 'var(--fe-text-secondary)';
+  const details = 'var(--site-text-secondary)';
 
   return (
     <svg

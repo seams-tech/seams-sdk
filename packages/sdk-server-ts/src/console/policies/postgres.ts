@@ -272,13 +272,13 @@ async function planPolicyIdMigrations(q: Queryable): Promise<PolicyIdMigrationPl
   for (const orgRows of rowsByOrg.values()) {
     const namespace = orgRows[0]?.namespace || '';
     const orgId = orgRows[0]?.orgId || '';
-    const legacyDefaultPolicyId = `${orgId}:policy:default`;
+    const orgScopedDefaultPolicyId = `${orgId}:policy:default`;
     const reservedIds = reservedIdsByNamespace.get(namespace);
     if (!namespace || !orgId || !reservedIds) continue;
 
-    const legacyDefaultRow = orgRows.find((row) => row.id === legacyDefaultPolicyId) || null;
+    const orgScopedDefaultRow = orgRows.find((row) => row.id === orgScopedDefaultPolicyId) || null;
     const systemDefaultRow = orgRows.find((row) => row.isSystemDefault) || null;
-    const defaultSource = systemDefaultRow || legacyDefaultRow;
+    const defaultSource = systemDefaultRow || orgScopedDefaultRow;
     const handledSourceIds = new Set<string>();
 
     if (defaultSource) {
@@ -302,15 +302,15 @@ async function planPolicyIdMigrations(q: Queryable): Promise<PolicyIdMigrationPl
       }
       handledSourceIds.add(defaultSource.id);
 
-      if (legacyDefaultRow && legacyDefaultRow.id !== defaultSource.id) {
+      if (orgScopedDefaultRow && orgScopedDefaultRow.id !== defaultSource.id) {
         plans.push({
           forceSystemDefault: false,
           namespace,
           orgId,
-          sourcePolicyId: legacyDefaultRow.id,
+          sourcePolicyId: orgScopedDefaultRow.id,
           targetPolicyId: finalDefaultId,
         });
-        handledSourceIds.add(legacyDefaultRow.id);
+        handledSourceIds.add(orgScopedDefaultRow.id);
       }
     }
 

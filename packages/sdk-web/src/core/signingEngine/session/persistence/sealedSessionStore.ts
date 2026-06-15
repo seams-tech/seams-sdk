@@ -23,6 +23,7 @@ import {
   thresholdEcdsaChainTargetsEqual,
   type ThresholdEcdsaChainTarget,
 } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
+import { parseRouterAbEd25519NormalSigningState } from '../../threshold/ed25519/routerAbNormalSigningState';
 import {
   exactSealedSessionFilterForIdentity,
   type DeleteDurableSealedSessionCommand,
@@ -70,7 +71,7 @@ export type CurrentEcdsaSealedSessionRecord = SigningSessionSealedStoreRecord & 
 export type CurrentSealedSessionRecord =
   | CurrentEd25519SealedSessionRecord
   | CurrentEcdsaSealedSessionRecord;
-export type RawSealedSessionRecordV1 = Record<string, unknown>;
+export type RawSealedSessionRecord = Record<string, unknown>;
 
 export type SealedSessionRecordClassificationReason =
   | 'invalid_payload'
@@ -462,6 +463,9 @@ function normalizeEd25519RestoreMetadata(
         .filter((participantId) => Number.isFinite(participantId) && participantId > 0)
     : [];
   const xClientBaseB64u = normalizeOptionalNonEmptyString(obj.xClientBaseB64u);
+  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
+    obj.routerAbNormalSigning,
+  );
   if (!rpId || !relayerKeyId || !sessionKind || !participantIds.length) {
     return undefined;
   }
@@ -476,6 +480,7 @@ function normalizeEd25519RestoreMetadata(
       ? { runtimePolicyScope: obj.runtimePolicyScope }
       : {}),
     ...(xClientBaseB64u ? { xClientBaseB64u } : {}),
+    ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
   };
 }
 
@@ -873,9 +878,9 @@ function normalizeParticipantIds(value: unknown): number[] {
     .filter((participantId) => Number.isFinite(participantId) && participantId > 0);
 }
 
-function asRawSealedSessionRecordV1(value: unknown): RawSealedSessionRecordV1 | null {
+function asRawSealedSessionRecord(value: unknown): RawSealedSessionRecord | null {
   return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as RawSealedSessionRecordV1)
+    ? (value as RawSealedSessionRecord)
     : null;
 }
 
@@ -892,7 +897,7 @@ function isCurrentThresholdEcdsaSessionJwt(args: {
 }
 
 function buildSealedSessionSafeSummary(
-  obj: RawSealedSessionRecordV1 | null,
+  obj: RawSealedSessionRecord | null,
 ): Record<string, unknown> {
   return {
     authMethod: normalizeOptionalNonEmptyString(obj?.authMethod) || null,
@@ -904,8 +909,8 @@ function buildSealedSessionSafeSummary(
       null,
     walletSigningSessionId: normalizeOptionalNonEmptyString(obj?.walletSigningSessionId) || null,
     thresholdSessionIds: normalizeThresholdSessionIds(obj?.thresholdSessionIds),
-    hasEcdsaRestore: Boolean(asRawSealedSessionRecordV1(obj?.ecdsaRestore)),
-    hasEd25519Restore: Boolean(asRawSealedSessionRecordV1(obj?.ed25519Restore)),
+    hasEcdsaRestore: Boolean(asRawSealedSessionRecord(obj?.ecdsaRestore)),
+    hasEd25519Restore: Boolean(asRawSealedSessionRecord(obj?.ed25519Restore)),
     issuedAtMs: normalizeInteger(obj?.issuedAtMs),
     expiresAtMs: normalizeInteger(obj?.expiresAtMs),
     remainingUses: normalizeInteger(obj?.remainingUses),
@@ -915,7 +920,7 @@ function buildSealedSessionSafeSummary(
 
 function classifyNonCurrentRecord(
   kind: Exclude<SealedSessionRecordClassification['kind'], 'current'>,
-  obj: RawSealedSessionRecordV1 | null,
+  obj: RawSealedSessionRecord | null,
   reason: SealedSessionRecordClassificationReason,
 ): Exclude<SealedSessionRecordClassification, CurrentSealedSessionRecordClassification> {
   return {
@@ -932,7 +937,7 @@ function classifyNonCurrentRecord(
 
 export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecordClassification {
   raw = storagePayloadFromSealedStoreRow(raw);
-  const obj = asRawSealedSessionRecordV1(raw);
+  const obj = asRawSealedSessionRecord(raw);
   if (!obj) return classifyNonCurrentRecord('malformed', null, 'invalid_payload');
   if (Number(obj.v) !== SIGNING_SESSION_SEALED_RECORD_VERSION) {
     return classifyNonCurrentRecord('malformed', obj, 'invalid_header');
@@ -992,8 +997,8 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
     return classifyNonCurrentRecord('malformed', obj, 'invalid_identity');
   }
 
-  const ecdsaRestoreObj = asRawSealedSessionRecordV1(obj.ecdsaRestore);
-  const ed25519RestoreObj = asRawSealedSessionRecordV1(obj.ed25519Restore);
+  const ecdsaRestoreObj = asRawSealedSessionRecord(obj.ecdsaRestore);
+  const ed25519RestoreObj = asRawSealedSessionRecord(obj.ed25519Restore);
   const ecdsaRestore = normalizeEcdsaRestoreMetadata(obj.ecdsaRestore);
   const ed25519Restore = normalizeEd25519RestoreMetadata(obj.ed25519Restore);
 

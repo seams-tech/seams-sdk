@@ -72,7 +72,7 @@ async function mountVisibleEmailOtpUnlockPrompt(
       const sdkMod = await import('/sdk/esm/index.js');
       const providerMod: any = await import('/sdk/esm/react/context/SeamsWebProvider.js');
       const menuMod: any =
-        await import('/sdk/esm/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js');
+        await import('/sdk/esm/react/components/PasskeyAuthMenu/public.js');
 
       const { SeamsWeb } = sdkMod as any;
       const Provider = providerMod.SeamsWebProvider || providerMod.default;

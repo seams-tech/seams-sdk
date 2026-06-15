@@ -706,7 +706,6 @@ async function main() {
 
     const consoleSelected = sourceTables
       .filter((name) => name.startsWith('console_'))
-      .filter((name) => name !== 'console_observability_events_legacy')
       .filter((name) => consoleTableSet.has(name));
 
     await prepareObservabilityPartitionRange(sourcePool, consolePool, logger);

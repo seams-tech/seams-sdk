@@ -1641,7 +1641,7 @@ test.describe('unlock threshold warm-session requirements', () => {
     }
   });
 
-  test('wallet unlock ignores synthetic legacy profile key ids before clearing volatile material', async () => {
+  test('wallet unlock requires current profile key handles before clearing volatile material', async () => {
     const originalFetch = globalThis.fetch;
     const bootstrapArgs: Array<Record<string, unknown>> = [];
     let clearVolatileCalls = 0;
@@ -1712,7 +1712,7 @@ test.describe('unlock threshold warm-session requirements', () => {
               signerAuthMethod: 'passkey',
               status: 'active',
               metadata: {
-                ecdsaThresholdKeyId: `legacy-key-handle:${ECDSA_KEY_HANDLE}`,
+                ecdsaThresholdKeyId: ECDSA_THRESHOLD_KEY_ID,
                 chainTarget,
                 subjectId: ACCOUNT_ID,
                 rpId: 'example.localhost',

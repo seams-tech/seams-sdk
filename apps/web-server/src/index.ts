@@ -19,13 +19,13 @@ import {
   resolveSponsoredEvmCallConfigFromEnv,
   resolveStaticSponsoredExecutionPricingFromEnv,
   requireEnvVar,
-  type SealedSigningRootSecretShare,
+  type SealedSigningRootShare,
   type ConsoleBillingPrepaidReservationService,
   type ConsoleSponsoredCallService,
   type ConsoleSponsorshipSpendCapService,
-  type SigningRootSecretDecryptAdapter,
+  type SigningRootShareDecryptAdapter,
   type SigningRootSecretShareId,
-  type SigningRootSecretShareSource,
+  type SigningRootShareSource,
   type SigningRootShareResolver,
 } from '@seams/sdk/server';
 import {
@@ -67,9 +67,12 @@ import {
   createRelayBootstrapGrantBroker,
   createRelayPublishableKeyAuthAdapter,
   createAppSessionConsoleAuthAdapter,
+  parseRouterAbPublicKeysetV1,
+  ROUTER_AB_PUBLIC_KEYSET_VERSION_V1,
   normalizeConsoleOrgScopedRoleList,
   mergeConsoleOrgScopedRoleLists,
   createRelayRouter,
+  type RouterAbPublicKeysetV1,
   type ConsoleAccountService,
   type ConsoleApiKeyService,
   type ConsoleBillingService,
@@ -186,6 +189,149 @@ function isLocalDevelopmentOrigin(origin: string): boolean {
   return isLocalDevelopmentHost(hostnameFromOrigin(origin));
 }
 
+const LOCAL_DEV_ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY =
+  'x25519:1111111111111111111111111111111111111111111111111111111111111111';
+const LOCAL_DEV_ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY =
+  'x25519:2222222222222222222222222222222222222222222222222222222222222222';
+const LOCAL_DEV_ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY =
+  'x25519:3333333333333333333333333333333333333333333333333333333333333333';
+const LOCAL_DEV_ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX =
+  '5afa80b305e72e02615ed1f580144a40a42a71dfcac175809ceb5d79e740d015';
+const LOCAL_DEV_ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX =
+  '0c700dd63695221e508f3164b528f190bed63a4437d38e882308f9a57acc1bc3';
+
+function optionalEnv(env: NodeJS.ProcessEnv, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = String(env[key] || '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
+function hasCanonicalRouterAbPublicKeysetEnv(env: NodeJS.ProcessEnv): boolean {
+  return [
+    'ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY',
+    'ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY',
+    'ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY',
+    'ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX',
+    'ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX',
+  ].some((key) => String(env[key] || '').trim());
+}
+
+function requireEnv(env: NodeJS.ProcessEnv, key: string): string {
+  const value = String(env[key] || '').trim();
+  if (!value) throw new Error(`[router-ab] ${key} is required`);
+  return value;
+}
+
+function resolveCanonicalRouterAbPublicKeysetFromEnv(
+  env: NodeJS.ProcessEnv,
+): RouterAbPublicKeysetV1 | null {
+  if (!hasCanonicalRouterAbPublicKeysetEnv(env)) return null;
+  return parseRouterAbPublicKeysetV1({
+    keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V1,
+    route_profile: optionalEnv(env, 'ROUTER_AB_KEYSET_ROUTE_PROFILE') || 'self_hosted_relay',
+    signer_envelope_hpke: {
+      deriver_a: {
+        role: 'signer_a',
+        key_epoch: requireEnv(env, 'ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH'),
+        public_key: requireEnv(env, 'ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY'),
+      },
+      deriver_b: {
+        role: 'signer_b',
+        key_epoch: requireEnv(env, 'ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH'),
+        public_key: requireEnv(env, 'ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY'),
+      },
+    },
+    signer_peer_verifying_keys: {
+      deriver_a: {
+        role: 'signer_a',
+        verifying_key_hex: requireEnv(env, 'ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX'),
+      },
+      deriver_b: {
+        role: 'signer_b',
+        verifying_key_hex: requireEnv(env, 'ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX'),
+      },
+    },
+    signing_worker_server_output_hpke: {
+      key_epoch: requireEnv(env, 'ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_KEY_EPOCH'),
+      public_key: requireEnv(env, 'ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY'),
+    },
+  });
+}
+
+function shouldUseLocalDevRouterAbPublicKeyset(input: {
+  readonly env: NodeJS.ProcessEnv;
+  readonly expectedOrigin: string;
+  readonly expectedWalletOrigin: string;
+}): boolean {
+  if (
+    String(input.env.NODE_ENV || '')
+      .trim()
+      .toLowerCase() === 'production'
+  )
+    return false;
+  if (!optionalEnv(input.env, 'ROUTER_AB_NORMAL_SIGNING_WORKER_ID')) return false;
+  return (
+    isLocalDevelopmentOrigin(input.expectedOrigin) ||
+    isLocalDevelopmentOrigin(input.expectedWalletOrigin)
+  );
+}
+
+function buildLocalDevRouterAbPublicKeyset(): RouterAbPublicKeysetV1 {
+  return parseRouterAbPublicKeysetV1({
+    keyset_version: ROUTER_AB_PUBLIC_KEYSET_VERSION_V1,
+    route_profile: 'local_dev',
+    signer_envelope_hpke: {
+      deriver_a: {
+        role: 'signer_a',
+        key_epoch: 'epoch-1',
+        public_key: LOCAL_DEV_ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY,
+      },
+      deriver_b: {
+        role: 'signer_b',
+        key_epoch: 'epoch-1',
+        public_key: LOCAL_DEV_ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY,
+      },
+    },
+    signer_peer_verifying_keys: {
+      deriver_a: {
+        role: 'signer_a',
+        verifying_key_hex: LOCAL_DEV_ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX,
+      },
+      deriver_b: {
+        role: 'signer_b',
+        verifying_key_hex: LOCAL_DEV_ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX,
+      },
+    },
+    signing_worker_server_output_hpke: {
+      key_epoch: 'epoch-1',
+      public_key: LOCAL_DEV_ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY,
+    },
+  });
+}
+
+function resolveRouterAbPublicKeysetFromEnv(input: {
+  env: NodeJS.ProcessEnv;
+  expectedOrigin: string;
+  expectedWalletOrigin: string;
+}): RouterAbPublicKeysetV1 | null {
+  const canonical = resolveCanonicalRouterAbPublicKeysetFromEnv(input.env);
+  if (canonical) return canonical;
+  if (shouldUseLocalDevRouterAbPublicKeyset(input)) return buildLocalDevRouterAbPublicKeyset();
+  if (
+    optionalEnv(input.env, 'ROUTER_AB_NORMAL_SIGNING_WORKER_ID') &&
+    String(input.env.NODE_ENV || '')
+      .trim()
+      .toLowerCase() === 'production'
+  ) {
+    throw new Error(
+      '[router-ab] canonical ROUTER_AB_* public keyset env is required when normal signing is enabled in production',
+    );
+  }
+  return null;
+}
+
 function parseBooleanFlagWithDefault(value: unknown, fallback: boolean): boolean {
   const normalized = String(value || '').trim();
   if (!normalized) return fallback;
@@ -233,21 +379,41 @@ const LOCAL_DEV_SIGNING_ROOT_SECRET_SHARE_WIRES: ReadonlyArray<{
 }> = [
   {
     shareId: 1,
-    wireHex: '011ba5f9c2f4003d409a9358a20b40b37eb32a28daacc5676a468b64a203c1e303',
+    wireHex: '0001d73847ea1a0888265782eb6998f3d905b8275fa4e5fda6556ddacc3b28741702',
   },
   {
     shareId: 2,
-    wireHex: '021bb9834016ae79b9a815f68d1f456b35acb1b5631dd04e1cab9f640852aaed0d',
+    wireHex: '0002b3ee4da8422ffeebb66bd0b55afb5d072f55aa324698a89c0a8b234042fd6c0f',
   },
   {
     shareId: 3,
-    wireHex: '032ef917611df8a3dae0fa9bd6545044d7a43843ed8dda35ce0fb4646ea093f707',
+    wireHex: '0003a2d05e0950f3615940b8bd5e3e0903f4a582f5c0a632aae3a73b7a445c86c20c',
   },
 ];
 const LOCAL_DEV_SIGNING_ROOT_VERSION = 'default';
+const LOCAL_DEV_THRESHOLD_PRF_POLICY = {
+  protocol: 'threshold-prf',
+  threshold: 2,
+  shareCount: 3,
+} as const;
 
 function hexToBytes(hex: string): Uint8Array {
   return new Uint8Array(Buffer.from(hex, 'hex'));
+}
+
+function localDevSigningRootShareWireFromHex(input: {
+  readonly shareId: SigningRootSecretShareId;
+  readonly wireHex: string;
+}): Uint8Array {
+  const bytes = hexToBytes(input.wireHex);
+  if (bytes.length !== 34) {
+    throw new Error(`local-dev signing-root share ${input.shareId} must be 34 bytes`);
+  }
+  const encodedShareId = (bytes[0] << 8) | bytes[1];
+  if (encodedShareId !== input.shareId) {
+    throw new Error(`local-dev signing-root share ${input.shareId} has mismatched wire share id`);
+  }
+  return bytes;
 }
 
 function shouldEnableLocalDevSigningRootResolver(input: {
@@ -269,9 +435,8 @@ function shouldEnableLocalDevSigningRootResolver(input: {
 }
 
 function createLocalDevSigningRootShareResolver(): SigningRootShareResolver {
-  const storageAdapter: SigningRootSecretShareSource = {
-    adapterKind: 'local-dev-fixture',
-    listSealedSigningRootSecretShares: async (request) => {
+  const storageAdapter: SigningRootShareSource = {
+    listSealedSigningRootShares: async (request) => {
       const signingRootId = String(request.signingRootId || '').trim();
       const signingRootVersion = String(request.signingRootVersion || '').trim();
       if (!signingRootId) throw new Error('signingRootId is required');
@@ -281,20 +446,19 @@ function createLocalDevSigningRootShareResolver(): SigningRootShareResolver {
         );
       }
       return LOCAL_DEV_SIGNING_ROOT_SECRET_SHARE_WIRES.map(
-        (share): SealedSigningRootSecretShare => ({
+        (share): SealedSigningRootShare => ({
           signingRootId,
           signingRootVersion,
           shareId: share.shareId,
-          sealedShare: hexToBytes(share.wireHex),
+          sealedShare: localDevSigningRootShareWireFromHex(share),
           storageId: 'local-dev-fixture',
           kekId: 'local-dev-plaintext',
         }),
       );
     },
   };
-  const decryptAdapter: SigningRootSecretDecryptAdapter = {
-    adapterKind: 'custom',
-    decryptSigningRootSecretShare: async (record) => {
+  const decryptAdapter: SigningRootShareDecryptAdapter = {
+    decryptSigningRootShare: async (record) => {
       if (record.signingRootVersion !== LOCAL_DEV_SIGNING_ROOT_VERSION) {
         throw new Error(
           `local-dev signing-root fixture only supports signingRootVersion=${LOCAL_DEV_SIGNING_ROOT_VERSION}`,
@@ -303,7 +467,11 @@ function createLocalDevSigningRootShareResolver(): SigningRootShareResolver {
       return new Uint8Array(record.sealedShare);
     },
   };
-  return createHostedSigningRootShareResolver({ storageAdapter, decryptAdapter });
+  return createHostedSigningRootShareResolver({
+    policy: LOCAL_DEV_THRESHOLD_PRF_POLICY,
+    storageAdapter,
+    decryptAdapter,
+  });
 }
 
 async function resolveConsoleDemoOrgId(input: {
@@ -424,37 +592,6 @@ async function seedDemoConsoleOrgAndMembers(input: {
     } catch (error: unknown) {
       if (!hasConsoleErrorCode(error, 'member_already_exists')) throw error;
     }
-  }
-
-  const deprecatedSeedEmails = new Set<string>([
-    'security@demo.seams.local',
-    'billing@demo.seams.local',
-    'devops@demo.seams.local',
-  ]);
-  try {
-    const existingMembers = await input.teamRbac.listMembers(seedCtx, {});
-    for (const member of existingMembers) {
-      const email = String(member.email || '')
-        .trim()
-        .toLowerCase();
-      if (!deprecatedSeedEmails.has(email)) continue;
-      if (member.status === 'REMOVED') continue;
-      try {
-        await input.teamRbac.removeMember(seedCtx, member.id);
-      } catch (error: unknown) {
-        input.logger.warn(
-          `[console-demo-seed] failed to remove deprecated seed member ${member.userId}: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-    }
-  } catch (error: unknown) {
-    input.logger.warn(
-      `[console-demo-seed] failed to sweep deprecated members: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
   }
 
   input.logger.log(
@@ -946,16 +1083,28 @@ async function main() {
   })
     ? createLocalDevSigningRootShareResolver()
     : undefined;
+  const routerAbPublicKeyset = resolveRouterAbPublicKeysetFromEnv({
+    env,
+    expectedOrigin: config.expectedOrigin,
+    expectedWalletOrigin: config.expectedWalletOrigin,
+  });
   if (localDevSigningRootResolver) {
     console.warn(
       '[threshold] using dynamic local-dev fixture signing-root shares; do not use this signer for real funds.',
     );
   }
+  if (routerAbPublicKeyset) {
+    console.log(`[router-ab] public keyset route: enabled (${routerAbPublicKeyset.route_profile})`);
+  } else if (String(env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID || '').trim()) {
+    console.warn('[router-ab] public keyset route is not configured');
+  }
 
   const thresholdStore = {
     // Share mode and threshold-prf signing-root share derivation.
     THRESHOLD_ED25519_SHARE_MODE: env.THRESHOLD_ED25519_SHARE_MODE,
-    ...(localDevSigningRootResolver ? { signingRootShareResolver: localDevSigningRootResolver } : {}),
+    ...(localDevSigningRootResolver
+      ? { signingRootShareResolver: localDevSigningRootResolver }
+      : {}),
     // Node role + coordinator/cosigner wiring (optional)
     THRESHOLD_NODE_ROLE: env.THRESHOLD_NODE_ROLE,
     THRESHOLD_COORDINATOR_SHARED_SECRET_B64U: env.THRESHOLD_COORDINATOR_SHARED_SECRET_B64U,
@@ -970,6 +1119,7 @@ async function main() {
     THRESHOLD_ED25519_KEYSTORE_PREFIX: env.THRESHOLD_ED25519_KEYSTORE_PREFIX,
     THRESHOLD_ED25519_SESSION_PREFIX: env.THRESHOLD_ED25519_SESSION_PREFIX,
     THRESHOLD_ED25519_AUTH_PREFIX: env.THRESHOLD_ED25519_AUTH_PREFIX,
+    ROUTER_AB_NORMAL_SIGNING_WORKER_ID: env.ROUTER_AB_NORMAL_SIGNING_WORKER_ID,
   } as const;
 
   const googleClientIds = Array.from(
@@ -1049,7 +1199,9 @@ async function main() {
       isNode: true,
     });
 
-    const limiterKind = parseSigningSessionSealLimiterKind(env.SIGNING_SESSION_SEAL_RATE_LIMIT_KIND);
+    const limiterKind = parseSigningSessionSealLimiterKind(
+      env.SIGNING_SESSION_SEAL_RATE_LIMIT_KIND,
+    );
     const rateLimit = resolveSigningSessionSealRateLimitFromEnv({
       limiterKind,
       upstashUrl: env.UPSTASH_REDIS_REST_URL,
@@ -1083,8 +1235,7 @@ async function main() {
             undefined,
           postgresUrl:
             env.SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_URL || thresholdPostgresUrl || undefined,
-          postgresNamespace:
-            env.SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE || undefined,
+          postgresNamespace: env.SIGNING_SESSION_SEAL_IDEMPOTENCY_POSTGRES_NAMESPACE || undefined,
           keyPrefix:
             String(
               env.SIGNING_SESSION_SEAL_IDEMPOTENCY_KEY_PREFIX ||
@@ -1589,6 +1740,7 @@ async function main() {
       config: sponsoredEvmCallConfig,
     },
     orgProjectEnv: consoleOrgProjectEnv,
+    routerAbPublicKeyset,
     signingSessionSeal,
     logger: console,
   }) as unknown as RequestHandler;
@@ -1668,7 +1820,9 @@ async function main() {
     console.log(`Console core backend: ${consolePostgresUrl ? 'postgres' : 'memory'}`);
     if (consolePostgresUrl) {
       console.log(`Console core namespace: ${consoleCoreNamespace}`);
-      console.log(`Console runtime snapshot retention TTL (ms): ${consoleRuntimeSnapshotRetentionTtlMs}`);
+      console.log(
+        `Console runtime snapshot retention TTL (ms): ${consoleRuntimeSnapshotRetentionTtlMs}`,
+      );
       console.log(
         `Console runtime snapshot retention prune interval (ms): ${consoleRuntimeSnapshotRetentionPruneIntervalMs}`,
       );

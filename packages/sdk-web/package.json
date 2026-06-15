@@ -79,9 +79,9 @@
       "types": "./dist/types/sdk-web/src/react/components/AccountMenuButton/index.d.ts"
     },
     "./react/passkey-auth-menu": {
-      "import": "./dist/esm/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js",
-      "default": "./dist/esm/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js",
-      "types": "./dist/types/sdk-web/src/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.d.ts"
+      "import": "./dist/esm/react/components/PasskeyAuthMenu/public.js",
+      "default": "./dist/esm/react/components/PasskeyAuthMenu/public.js",
+      "types": "./dist/types/sdk-web/src/react/components/PasskeyAuthMenu/public.d.ts"
     },
     "./react/passkey-auth-menu/client": {
       "import": "./dist/esm/react/components/PasskeyAuthMenu/client.js",

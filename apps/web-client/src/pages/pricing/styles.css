@@ -1,16 +1,16 @@
 .pricing-page {
-  --pricing-brand: var(--fe-primary, #4f46e5);
-  --pricing-brand-hover: var(--fe-primary-hover, #4338ca);
-  --pricing-ink: var(--fe-text-primary, #0f172a);
-  --pricing-ink-soft: var(--fe-text-secondary, #475569);
-  --pricing-card: var(--fe-surface, #ffffff);
-  --pricing-card-soft: var(--fe-bg-secondary, #f8fafc);
-  --pricing-border: var(--fe-border, #d9e0ec);
+  --pricing-brand: var(--site-brand, #4f46e5);
+  --pricing-brand-hover: var(--site-brand-hover, #4338ca);
+  --pricing-ink: var(--site-text-primary, #0f172a);
+  --pricing-ink-soft: var(--site-text-secondary, #475569);
+  --pricing-card: var(--site-surface, #ffffff);
+  --pricing-card-soft: var(--site-surface-muted, #f8fafc);
+  --pricing-border: var(--site-border, #d9e0ec);
   --pricing-shadow: 0 16px 34px
-    color-mix(in srgb, var(--fe-shadow-strong, rgba(15, 23, 42, 0.3)) 35%, transparent);
+    color-mix(in srgb, var(--site-shadow-md, rgba(15, 23, 42, 0.3)) 35%, transparent);
   color: var(--pricing-ink);
   font-family: var(
-    --fe-font-sans,
+    --site-font-sans,
     'Hanken Grotesk',
     ui-sans-serif,
     system-ui,
@@ -64,8 +64,8 @@
   letter-spacing: -0.025em;
   color: var(--pricing-ink);
   font-family: var(
-    --fe-font-display,
-    var(--fe-font-sans, 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif)
+    --site-font-display,
+    var(--site-font-sans, 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif)
   );
 }
 
@@ -130,7 +130,7 @@
 }
 
 .pricing-button--ghost:hover {
-  border-color: var(--fe-border-strong, var(--pricing-border));
+  border-color: var(--site-border-strong, var(--pricing-border));
   background: var(--pricing-card);
   color: var(--pricing-ink);
 }

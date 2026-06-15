@@ -75,7 +75,6 @@ function mergeThemeOverrideLayers(
   return hasLayer ? merged : undefined;
 }
 
-const APP_LIT_THEME_OVERRIDE_STYLE_ID = 'w3a-lit-theme-token-overrides-app';
 const APP_LIT_THEME_OVERRIDE_RULE_ID = 'w3a-lit-theme-overrides-app';
 const APP_LIT_HOST_SELECTORS = [
   'w3a-tx-tree',
@@ -166,13 +165,9 @@ function upsertAppLitThemeOverrides(args: {
   const cssText = cssBlocks.join('\n\n').trim();
   if (!cssText) {
     getAppLitThemeOverrideStyleManager().deleteDynamicRule(APP_LIT_THEME_OVERRIDE_RULE_ID);
-    // Cleanup legacy inline style node from older SDK versions, if present.
-    document.getElementById(APP_LIT_THEME_OVERRIDE_STYLE_ID)?.remove();
     return;
   }
   getAppLitThemeOverrideStyleManager().setDynamicRule(APP_LIT_THEME_OVERRIDE_RULE_ID, cssText);
-  // Cleanup legacy inline style node from older SDK versions, if present.
-  document.getElementById(APP_LIT_THEME_OVERRIDE_STYLE_ID)?.remove();
 }
 
 /**

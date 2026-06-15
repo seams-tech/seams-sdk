@@ -12,8 +12,6 @@ interface Queryable {
 const CONSOLE_OBSERVABILITY_MIGRATION_LOCK_ID = 9452360124981;
 const PRECREATE_PARTITION_MONTHS_BEHIND = 1;
 const PRECREATE_PARTITION_MONTHS_AHEAD = 2;
-const LEGACY_ROUTER_REQUEST_COMPLETED_EVENT_TYPE = 'router.request.completed';
-const LEGACY_ROUTER_SOURCE = 'ROUTER';
 
 export interface PostgresConsoleObservabilitySchemaOptions {
   postgresUrl: string;
@@ -64,96 +62,6 @@ async function ensureConsoleObservabilityEventsPartitionsForRange(
   }
 }
 
-async function prepareLegacyEventsTableForMigration(q: Queryable): Promise<void> {
-  await q.query(`
-    DO $$
-    BEGIN
-      IF to_regclass('console_observability_events') IS NULL THEN
-        RETURN;
-      END IF;
-
-      IF EXISTS (
-        SELECT 1
-          FROM pg_class
-         WHERE oid = to_regclass('console_observability_events')
-           AND relkind = 'r'
-      ) THEN
-        IF to_regclass('console_observability_events_legacy') IS NULL THEN
-          ALTER TABLE console_observability_events RENAME TO console_observability_events_legacy;
-        ELSE
-          INSERT INTO console_observability_events_legacy
-          SELECT *
-            FROM console_observability_events
-          ON CONFLICT (namespace, org_id, event_id) DO NOTHING;
-          DROP TABLE console_observability_events;
-        END IF;
-      END IF;
-    END $$;
-  `);
-}
-
-async function migrateLegacyRowsIntoPartitionedEvents(
-  q: Queryable,
-  logger: NormalizedLogger,
-): Promise<void> {
-  const legacyExistsResult = await q.query(
-    `SELECT to_regclass('console_observability_events_legacy') IS NOT NULL AS exists`,
-  );
-  const legacyExists = Boolean(legacyExistsResult.rows?.[0]?.exists);
-  if (!legacyExists) return;
-
-  const minMax = await q.query(`
-    SELECT MIN(created_at_ms) AS min_created_at_ms, MAX(created_at_ms) AS max_created_at_ms
-      FROM console_observability_events_legacy
-  `);
-  const minCreatedAtMs = Number(minMax.rows?.[0]?.min_created_at_ms || 0);
-  const maxCreatedAtMs = Number(minMax.rows?.[0]?.max_created_at_ms || 0);
-  if (Number.isFinite(minCreatedAtMs) && Number.isFinite(maxCreatedAtMs) && maxCreatedAtMs > 0) {
-    await ensureConsoleObservabilityEventsPartitionsForRange(q, minCreatedAtMs, maxCreatedAtMs);
-  }
-
-  const dedupeCopy = await q.query(
-    `INSERT INTO console_observability_event_dedup (namespace, org_id, event_id, created_at_ms)
-     SELECT namespace, org_id, event_id, created_at_ms
-       FROM console_observability_events_legacy
-      WHERE COALESCE(event_type, '') <> $1
-        AND COALESCE(source, '') <> $2
-     ON CONFLICT (namespace, org_id, event_id) DO NOTHING`,
-    [LEGACY_ROUTER_REQUEST_COMPLETED_EVENT_TYPE, LEGACY_ROUTER_SOURCE],
-  );
-  const eventsCopy = await q.query(
-    `INSERT INTO console_observability_events
-      (namespace, org_id, event_id, schema_version, source, ingested_at_ms, timestamp_ms,
-       project_id, environment_id, service, component, level, event_type, message,
-       request_id, trace_id, metadata, redaction_version, redaction_applied, created_at_ms)
-     SELECT namespace, org_id, event_id, schema_version, source, ingested_at_ms, timestamp_ms,
-            project_id, environment_id, service, component, level, event_type, message,
-            request_id, trace_id, metadata, redaction_version, redaction_applied, created_at_ms
-       FROM console_observability_events_legacy
-      WHERE COALESCE(event_type, '') <> $1
-        AND COALESCE(source, '') <> $2
-     ON CONFLICT (namespace, org_id, created_at_ms, event_id) DO NOTHING`,
-    [LEGACY_ROUTER_REQUEST_COMPLETED_EVENT_TYPE, LEGACY_ROUTER_SOURCE],
-  );
-
-  await q.query('DROP TABLE IF EXISTS console_observability_events_legacy');
-  logger.info(
-    `[console-observability][postgres] migrated legacy events table rows: dedupe=${Number(
-      dedupeCopy.rowCount || 0,
-    )} events=${Number(eventsCopy.rowCount || 0)}`,
-  );
-}
-
-async function deleteLegacyRouterObservabilityEvents(q: Queryable): Promise<number> {
-  const out = await q.query(
-    `DELETE FROM console_observability_events
-      WHERE event_type = $1
-         OR source = $2`,
-    [LEGACY_ROUTER_REQUEST_COMPLETED_EVENT_TYPE, LEGACY_ROUTER_SOURCE],
-  );
-  return Number(out.rowCount || 0);
-}
-
 async function ensureObservabilityEventsSourceConstraint(q: Queryable): Promise<void> {
   await q.query(`
     DO $$
@@ -180,8 +88,6 @@ export async function ensureConsoleObservabilityPostgresSchema(
   const pool = await getPostgresPool(options.postgresUrl);
   await pool.query('SELECT pg_advisory_lock($1)', [CONSOLE_OBSERVABILITY_MIGRATION_LOCK_ID]);
   try {
-    await prepareLegacyEventsTableForMigration(pool);
-
     await pool.query(`
       CREATE TABLE IF NOT EXISTS console_observability_events (
         namespace TEXT NOT NULL,
@@ -341,14 +247,7 @@ export async function ensureConsoleObservabilityPostgresSchema(
       addUtcMonths(monthStartUtcMs(nowValue), -PRECREATE_PARTITION_MONTHS_BEHIND),
       addUtcMonths(monthStartUtcMs(nowValue), PRECREATE_PARTITION_MONTHS_AHEAD),
     );
-    await migrateLegacyRowsIntoPartitionedEvents(pool, options.logger);
-    const deletedLegacyRouterRows = await deleteLegacyRouterObservabilityEvents(pool);
     await ensureObservabilityEventsSourceConstraint(pool);
-    if (deletedLegacyRouterRows > 0) {
-      options.logger.info(
-        `[console-observability][postgres] removed ${deletedLegacyRouterRows} legacy router.request.completed rows`,
-      );
-    }
   } finally {
     try {
       await pool.query('SELECT pg_advisory_unlock($1)', [CONSOLE_OBSERVABILITY_MIGRATION_LOCK_ID]);

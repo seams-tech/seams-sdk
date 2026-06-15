@@ -11,11 +11,27 @@ function run(cmd, args, opts = {}) {
   return p;
 }
 
+function runOnce(cmd, args, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const p = spawn(cmd, args, { stdio: 'inherit', ...opts });
+    p.on('error', reject);
+    p.on('exit', (code) => {
+      if (code === 0) resolve();
+      else reject(new Error(`${cmd} ${args.join(' ')} exited with code ${code ?? 'unknown'}`));
+    });
+  });
+}
+
+console.log('[relay dev] running initial TypeScript build');
+await runOnce('pnpm', ['run', 'build']);
+
 // Default behavior: keep startup deterministic by avoiding concurrent SDK rebuilds while
 // relay `node --watch` is running. This prevents transient ESM export mismatches mid-restart.
 const watchSdk =
   String(process.env.RELAY_WATCH_SDK || '').trim() === '1' ||
-  String(process.env.RELAY_WATCH_SDK || '').trim().toLowerCase() === 'true';
+  String(process.env.RELAY_WATCH_SDK || '')
+    .trim()
+    .toLowerCase() === 'true';
 const sdk = watchSdk ? run('pnpm', ['-C', '../../packages/sdk-web', 'dev']) : null;
 if (!watchSdk) {
   console.log('[relay dev] SDK watch disabled (set RELAY_WATCH_SDK=1 to enable)');
@@ -48,7 +64,9 @@ if (existsSync(sdkServerDistDir)) {
     console.warn('[relay dev] unable to watch SDK server dist for relay restarts:', error);
   }
 } else {
-  console.log(`[relay dev] SDK server dist not found, skipping relay restart watcher: ${sdkServerDistDir}`);
+  console.log(
+    `[relay dev] SDK server dist not found, skipping relay restart watcher: ${sdkServerDistDir}`,
+  );
 }
 
 // Start TypeScript compiler in watch mode

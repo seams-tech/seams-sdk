@@ -293,7 +293,7 @@ export class SigningSessionCoordinator implements SigningSessionStatusPort, Sign
           const trustedStatus = await this.readWalletBudgetStatus(statusArgs).catch(() => null);
           if (trustedStatus && trustedStatus.status !== 'budget_unknown') return trustedStatus;
         }
-        return await this.getStatus(buildLegacyStatusQueryFromBudgetStatusCheck(statusArgs));
+        return await this.getStatus(buildStatusQueryFromBudgetStatusCheck(statusArgs));
       },
       input: args,
     });
@@ -568,7 +568,7 @@ function buildBudgetStatusCheckForLane(args: {
   });
 }
 
-function buildLegacyStatusQueryFromBudgetStatusCheck(args: SigningSessionBudgetStatusCheck): {
+function buildStatusQueryFromBudgetStatusCheck(args: SigningSessionBudgetStatusCheck): {
   walletId: AccountId | string;
   walletSigningSessionId: string;
   targetBackingMaterialSessionIds?: string[];

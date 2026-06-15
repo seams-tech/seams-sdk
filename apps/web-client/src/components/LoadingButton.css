@@ -7,12 +7,12 @@
   border: none;
   border-radius: 2rem;
   font-size: 1rem;
-  font-weight: var(--fe-font-medium);
-  font-family: var(--fe-font-sans);
+  font-weight: var(--site-font-weight-medium);
+  font-family: var(--site-font-sans);
   cursor: pointer;
   transition: all 0.2s ease;
   line-height: 1.4;
-  box-shadow: 0 2px 4px var(--fe-shadow);
+  box-shadow: 0 2px 4px var(--site-shadow-sm);
   padding: 0rem 1rem 0rem 0.5rem;
 }
 
@@ -25,12 +25,12 @@
   background: var(--w3a-colors-primaryHover);
   /* Add a subtle primary-colored ring on hover */
   box-shadow:
-    0 6px 12px var(--fe-shadow),
+    0 6px 12px var(--site-shadow-sm),
     0 0 0 2px var(--w3a-colors-primary);
 }
 
 .button--primary:active:not(:disabled) {
-  box-shadow: 0 2px 4px var(--fe-shadow);
+  box-shadow: 0 2px 4px var(--site-shadow-sm);
 }
 
 .button--secondary {
@@ -42,7 +42,7 @@
   background: var(--w3a-colors-secondaryHover);
   /* Add a subtle primary-colored ring on hover */
   box-shadow:
-    0 6px 12px var(--fe-shadow),
+    0 6px 12px var(--site-shadow-sm),
     0 0 0 2px var(--w3a-colors-primary);
 }
 
@@ -57,7 +57,7 @@
 
 .button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px var(--fe-shadow);
+  box-shadow: 0 0 0 3px var(--site-shadow-sm);
 }
 
 .button__spinner {
@@ -70,7 +70,7 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  margin-left: var(--fe-gap-2);
+  margin-left: var(--site-space-2);
 }
 
 @keyframes spin {

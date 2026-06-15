@@ -4,11 +4,11 @@
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(2px);
   border: 1px solid var(--w3a-colors-borderPrimary);
-  border-radius: var(--fe-radius-xl);
-  padding: var(--fe-gap-2);
+  border-radius: var(--site-radius-xl);
+  padding: var(--site-space-2);
   max-width: 860px;
   width: 100%;
-  box-shadow: 2px 6px 10px var(--fe-shadow-strong);
+  box-shadow: 2px 6px 10px var(--site-shadow-md);
 }
 
 .glass-border-inner {

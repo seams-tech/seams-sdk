@@ -18,23 +18,23 @@
     );
   --frontpage-footer-copy-color: color-mix(
     in srgb,
-    var(--fe-text) 90%,
-    var(--fe-text-secondary) 10%
+    var(--site-text-primary) 90%,
+    var(--site-text-secondary) 10%
   );
   --frontpage-footer-heading-color: color-mix(
     in srgb,
-    var(--fe-text-secondary) 90%,
-    var(--fe-text) 10%
+    var(--site-text-secondary) 90%,
+    var(--site-text-primary) 10%
   );
   --frontpage-footer-subtle-color: color-mix(
     in srgb,
-    var(--fe-text-secondary) 88%,
-    var(--fe-text) 12%
+    var(--site-text-secondary) 88%,
+    var(--site-text-primary) 12%
   );
   --frontpage-footer-near-color: color-mix(
     in srgb,
-    var(--fe-text-secondary) 86%,
-    var(--fe-text) 14%
+    var(--site-text-secondary) 86%,
+    var(--site-text-primary) 14%
   );
   --frontpage-footer-bottom-border-color: color-mix(in srgb, var(--site-border) 70%, transparent);
   position: relative;
@@ -115,23 +115,23 @@ html[data-w3a-theme='dark'] .app-footer {
     linear-gradient(154deg, #1f1d2e 0%, #26233a 56%, #191724 100%);
   --frontpage-footer-copy-color: color-mix(
     in srgb,
-    var(--fe-text) 94%,
-    var(--fe-text-secondary) 6%
+    var(--site-text-primary) 94%,
+    var(--site-text-secondary) 6%
   );
   --frontpage-footer-heading-color: color-mix(
     in srgb,
-    var(--fe-text-secondary) 88%,
-    var(--fe-text) 12%
+    var(--site-text-secondary) 88%,
+    var(--site-text-primary) 12%
   );
   --frontpage-footer-subtle-color: color-mix(
     in srgb,
-    var(--fe-text-secondary) 86%,
-    var(--fe-text) 14%
+    var(--site-text-secondary) 86%,
+    var(--site-text-primary) 14%
   );
   --frontpage-footer-near-color: color-mix(
     in srgb,
-    var(--fe-text-secondary) 88%,
-    var(--fe-text) 12%
+    var(--site-text-secondary) 88%,
+    var(--site-text-primary) 12%
   );
   --frontpage-footer-bottom-border-color: color-mix(in srgb, var(--site-border) 62%, transparent);
 }
@@ -192,7 +192,7 @@ html[data-w3a-theme='dark'] .app-footer__bg-glow {
   align-items: center;
   gap: 0.58rem;
   width: fit-content;
-  color: var(--fe-text-primary);
+  color: var(--site-text-primary);
   font-size: 1.65rem;
   font-weight: 700;
   text-decoration: none;
@@ -257,10 +257,10 @@ html[data-w3a-theme='dark'] .app-footer__bg-glow {
   border: 1px solid color-mix(in srgb, var(--w3a-colors-borderPrimary) 86%, transparent);
   background: color-mix(in srgb, var(--w3a-colors-surface2) 58%, var(--w3a-colors-surface) 42%);
   transition:
-    transform var(--fe-fast) var(--fe-ease),
-    color var(--fe-fast) var(--fe-ease),
-    border-color var(--fe-fast) var(--fe-ease),
-    box-shadow var(--fe-fast) var(--fe-ease);
+    transform var(--site-duration-fast) var(--site-ease),
+    color var(--site-duration-fast) var(--site-ease),
+    border-color var(--site-duration-fast) var(--site-ease),
+    box-shadow var(--site-duration-fast) var(--site-ease);
 }
 
 .app-footer__socials a:hover {

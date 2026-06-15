@@ -35,7 +35,7 @@ export function SigningSessionSection(props: SigningSessionSectionProps) {
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 180, flex: 1 }}>
-          <label style={{ fontSize: '0.9rem', color: 'var(--fe-text-secondary)' }}>
+          <label style={{ fontSize: '0.9rem', color: 'var(--site-text-secondary)' }}>
             Remaining uses
           </label>
           <input
@@ -50,16 +50,16 @@ export function SigningSessionSection(props: SigningSessionSectionProps) {
               height: 44,
               padding: '0 12px',
               backgroundColor: 'var(--w3a-colors-surface2)',
-              border: '1px solid var(--fe-border)',
-              borderRadius: 'var(--fe-radius-lg)',
-              color: 'var(--fe-input-text)',
+              border: '1px solid var(--site-border)',
+              borderRadius: 'var(--site-radius-lg)',
+              color: 'var(--site-text-primary)',
               fontSize: '0.9rem',
             }}
           />
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 180, flex: 1 }}>
-          <label style={{ fontSize: '0.9rem', color: 'var(--fe-text-secondary)' }}>
+          <label style={{ fontSize: '0.9rem', color: 'var(--site-text-secondary)' }}>
             TTL (seconds)
           </label>
           <input
@@ -74,9 +74,9 @@ export function SigningSessionSection(props: SigningSessionSectionProps) {
               height: 44,
               padding: '0 12px',
               backgroundColor: 'var(--w3a-colors-surface2)',
-              border: '1px solid var(--fe-border)',
-              borderRadius: 'var(--fe-radius-lg)',
-              color: 'var(--fe-input-text)',
+              border: '1px solid var(--site-border)',
+              borderRadius: 'var(--site-radius-lg)',
+              color: 'var(--site-text-primary)',
               fontSize: '0.9rem',
             }}
           />
@@ -99,12 +99,12 @@ export function SigningSessionSection(props: SigningSessionSectionProps) {
       <div
         style={{
           marginTop: 12,
-          background: 'var(--fe-bg-secondary)',
-          border: '1px solid var(--fe-border)',
-          borderRadius: 'var(--fe-radius-lg)',
-          padding: 'var(--fe-gap-3)',
+          background: 'var(--site-surface-muted)',
+          border: '1px solid var(--site-border)',
+          borderRadius: 'var(--site-radius-lg)',
+          padding: 'var(--site-space-3)',
           fontSize: '0.9rem',
-          color: 'var(--fe-text)',
+          color: 'var(--site-text-primary)',
         }}
       >
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>

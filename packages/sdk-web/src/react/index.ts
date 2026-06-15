@@ -117,8 +117,8 @@ export type { ShowQRCodeProps } from './components/ShowQRCode';
 export {
   PasskeyAuthMenu,
   PasskeyAuthMenuSkeleton,
-} from './components/PasskeyAuthMenu/passkeyAuthMenuCompat';
-export type { PasskeyAuthMenuProps } from './components/PasskeyAuthMenu/passkeyAuthMenuCompat';
+} from './components/PasskeyAuthMenu/public';
+export type { PasskeyAuthMenuProps } from './components/PasskeyAuthMenu/public';
 export { AuthMenuMode, AuthMenuModeMap } from './components/PasskeyAuthMenu/authMenuTypes';
 export type {
   AuthMenuModeLabel,

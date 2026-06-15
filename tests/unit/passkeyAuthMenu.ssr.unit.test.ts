@@ -1,34 +1,31 @@
 import { test, expect } from '@playwright/test';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import url from 'node:url';
-import React from 'react';
-import { renderToString } from 'react-dom/server';
 
 test.describe('SSR sanity: PasskeyAuthMenuSkeleton', () => {
   test('imports public subpath and renders without window', async () => {
     const here = path.dirname(url.fileURLToPath(import.meta.url));
-    const distMarkerCandidates = [
-      path.resolve(
-        here,
-        '../../../dist/esm/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js',
-      ),
-      path.resolve(
-        here,
-        '../../../dist/cjs/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js',
-      ),
-    ];
+    const packageJsonPath = path.resolve(here, '../../packages/sdk-web/package.json');
+    const packageRequire = createRequire(packageJsonPath);
+    const React = packageRequire('react');
+    const { renderToString } = packageRequire('react-dom/server');
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+    const exportTarget =
+      packageJson.exports?.['./react/passkey-auth-menu']?.import ||
+      packageJson.exports?.['./react/passkey-auth-menu']?.default;
+    expect(exportTarget).toBe('./dist/esm/react/components/PasskeyAuthMenu/public.js');
+
+    const distMarkerCandidates = [path.resolve(path.dirname(packageJsonPath), exportTarget)];
     test.skip(
       distMarkerCandidates.every((p) => !fs.existsSync(p)),
-      `SDK dist not found at ${distMarkerCandidates[0]}; run pnpm -C sdk build`,
+      `SDK dist not found at ${distMarkerCandidates[0]}; run pnpm -C packages/sdk-web build:rolldown`,
     );
 
     expect(typeof (globalThis as any).window).toBe('undefined');
 
-    // Use a non-literal dynamic import to avoid TypeScript self-reference resolution
-    // (which requires rootDir disambiguation for this package).
-    const subpath: string = '@seams/sdk/react/passkey-auth-menu';
-    const mod: any = await import(subpath);
+    const mod: any = await import(url.pathToFileURL(distMarkerCandidates[0]).href);
     expect(mod).toHaveProperty('PasskeyAuthMenuSkeleton');
     expect(typeof mod.PasskeyAuthMenuSkeleton).toBe('function');
 

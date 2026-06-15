@@ -6,8 +6,12 @@ import {
   type ThresholdRuntimePolicyScope,
   type ThresholdSessionKind,
 } from '@/core/signingEngine/threshold/sessionPolicy';
+import {
+  parseRouterAbEd25519NormalSigningState,
+  type RouterAbEd25519NormalSigningState,
+} from '@/core/signingEngine/threshold/ed25519/routerAbNormalSigningState';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import type { RawSealedSessionRecordV1 } from '../persistence/sealedSessionStore';
+import type { RawSealedSessionRecord } from '../persistence/sealedSessionStore';
 
 type RawThresholdSessionIds = {
   ed25519?: unknown;
@@ -37,9 +41,10 @@ type RawEd25519RestoreMetadata = {
   sessionKind?: unknown;
   runtimePolicyScope?: unknown;
   xClientBaseB64u?: unknown;
+  routerAbNormalSigning?: unknown;
 };
 
-export type RawSigningSessionSealedStoreRecord = RawSealedSessionRecordV1 & {
+export type RawSigningSessionSealedStoreRecord = RawSealedSessionRecord & {
   storeKey?: unknown;
   walletId?: unknown;
   userId?: unknown;
@@ -70,7 +75,7 @@ export type SealedRecoveryRejectionReason =
   | 'wrong_chain_target'
   | 'expired'
   | 'exhausted'
-  | 'unsupported_legacy_record';
+  | 'unsupported_record';
 
 export type RejectedSealedRecoveryRecord = {
   kind: 'rejected_sealed_recovery_record';
@@ -151,6 +156,7 @@ export type EmailOtpEcdsaCompanionEd25519Recovery = Ed25519SealedRecoveryRecordB
     authMethod: 'email_otp';
     rpId: string;
     xClientBaseB64u: string;
+    routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   };
 
 export type PasskeyEd25519SealedRecoveryRecord = Ed25519SealedRecoveryRecordBase &
@@ -158,6 +164,7 @@ export type PasskeyEd25519SealedRecoveryRecord = Ed25519SealedRecoveryRecordBase
     authMethod: 'passkey';
     rpId: string;
     xClientBaseB64u?: string;
+    routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   };
 
 export type EmailOtpEd25519SealedRecoveryRecord = Ed25519SealedRecoveryRecordBase &
@@ -165,6 +172,7 @@ export type EmailOtpEd25519SealedRecoveryRecord = Ed25519SealedRecoveryRecordBas
     authMethod: 'email_otp';
     rpId: string;
     xClientBaseB64u: string;
+    routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
     companionEcdsaRecovery?: EmailOtpEcdsaSealedRecoveryRecord;
   };
 
@@ -323,7 +331,7 @@ export function normalizeSealedRecoveryRecord(
     (raw.authMethod !== 'passkey' && raw.authMethod !== 'email_otp') ||
     (raw.curve !== 'ed25519' && raw.curve !== 'ecdsa')
   ) {
-    return reject(raw, 'unsupported_legacy_record');
+    return reject(raw, 'unsupported_record');
   }
   if (!storeKey || !walletId || !walletSigningSessionId || !sealedSecretB64u) {
     return reject(raw, 'missing_identity');
@@ -410,6 +418,9 @@ export function normalizeSealedRecoveryRecord(
       const companionRelayerKeyId = normalizeNonEmptyString(ed25519Restore.relayerKeyId);
       const companionParticipantIds = normalizeParticipantIds(ed25519Restore.participantIds);
       const companionXClientBaseB64u = normalizeNonEmptyString(ed25519Restore.xClientBaseB64u);
+      const companionRouterAbNormalSigning = parseRouterAbEd25519NormalSigningState(
+        ed25519Restore.routerAbNormalSigning,
+      );
       const companionSessionKind = normalizeSessionKind(ed25519Restore.sessionKind);
       const companionThresholdSessionAuthToken = normalizeNonEmptyString(
         ed25519Restore.thresholdSessionAuthToken,
@@ -461,6 +472,9 @@ export function normalizeSealedRecoveryRecord(
             ? { runtimePolicyScope: companionRuntimePolicyScope }
             : {}),
           xClientBaseB64u: companionXClientBaseB64u,
+          ...(companionRouterAbNormalSigning
+            ? { routerAbNormalSigning: companionRouterAbNormalSigning }
+            : {}),
         };
       }
     }
@@ -550,6 +564,9 @@ export function normalizeSealedRecoveryRecord(
   const rpId = normalizeNonEmptyString(restore?.rpId);
   const participantIds = normalizeParticipantIds(restore?.participantIds);
   const xClientBaseB64u = normalizeNonEmptyString(restore?.xClientBaseB64u);
+  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
+    restore?.routerAbNormalSigning,
+  );
   const sessionKind = normalizeSessionKind(restore?.sessionKind);
   if (!thresholdSessionId) return reject(raw, 'missing_identity');
   if (
@@ -685,6 +702,7 @@ export function normalizeSealedRecoveryRecord(
           ...thresholdSessionAuth,
           ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           ...(xClientBaseB64u ? { xClientBaseB64u } : {}),
+          ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
         }
       : {
           storeKey,
@@ -711,6 +729,7 @@ export function normalizeSealedRecoveryRecord(
           ...thresholdSessionAuth,
           ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           xClientBaseB64u: xClientBaseB64u!,
+          ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
           ...(companionEcdsaRecovery
             ? {
                 companionEcdsaRecovery,

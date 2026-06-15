@@ -325,25 +325,6 @@ export async function signThresholdSessionAuthToken(args: {
   };
 }
 
-export function stripLegacyThresholdEcdsaIdentityFields<
-  TThresholdEcdsa extends Record<string, unknown>,
->(thresholdEcdsa: TThresholdEcdsa): Omit<
-  TThresholdEcdsa,
-  'ecdsaThresholdKeyId' | 'signingRootId' | 'signingRootVersion'
-> {
-  const {
-    ecdsaThresholdKeyId: _ecdsaThresholdKeyId,
-    signingRootId: _signingRootId,
-    signingRootVersion: _signingRootVersion,
-    ...sanitized
-  } = thresholdEcdsa as TThresholdEcdsa & {
-    ecdsaThresholdKeyId?: unknown;
-    signingRootId?: unknown;
-    signingRootVersion?: unknown;
-  };
-  return sanitized;
-}
-
 export type ThresholdRuntimePolicyScopeResolution =
   | { ok: true; scope?: ThresholdRuntimePolicyScope }
   | {

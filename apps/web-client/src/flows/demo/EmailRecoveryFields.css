@@ -19,24 +19,24 @@
   width: auto;
   padding: 0.4rem 0.75rem;
   border-radius: 2rem;
-  border: 1px solid var(--fe-border);
-  background: var(--fe-input-bg);
-  color: var(--fe-input-text);
+  border: 1px solid var(--site-border);
+  background: var(--site-form-surface);
+  color: var(--site-text-primary);
   outline: none;
-  font-size: var(--fe-text-sm);
-  font-family: var(--fe-font-sans);
-  transition: all var(--fe-fast) var(--fe-ease);
+  font-size: var(--site-font-size-sm);
+  font-family: var(--site-font-sans);
+  transition: all var(--site-duration-fast) var(--site-ease);
   box-sizing: border-box;
 }
 
 .email-recovery-fields .email-recovery-fields__input:focus {
   outline: none;
-  border-color: var(--fe-border-strong);
+  border-color: var(--site-border-strong);
   box-shadow: 0 0 0 3px var(--w3a-shadows-sm);
 }
 
 .email-recovery-fields .email-recovery-fields__input::placeholder {
-  color: var(--fe-input-placeholder);
+  color: var(--site-text-secondary);
   opacity: 0.8;
 }
 
@@ -50,19 +50,19 @@
   width: 32px;
   height: 32px;
   border-radius: 9999px;
-  border: 1px solid var(--fe-border);
+  border: 1px solid var(--site-border);
   background: transparent;
   color: inherit;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all var(--fe-fast) var(--fe-ease);
+  transition: all var(--site-duration-fast) var(--site-ease);
 }
 
 .email-recovery-fields .email-recovery-fields__icon-btn:hover:not(:disabled) {
-  border-color: var(--fe-border-strong);
-  box-shadow: 0 2px 8px var(--fe-shadow);
+  border-color: var(--site-border-strong);
+  box-shadow: 0 2px 8px var(--site-shadow-sm);
 }
 
 .email-recovery-fields .email-recovery-fields__icon-btn:disabled {
@@ -80,7 +80,7 @@
   height: 32px;
   padding: 0 12px;
   border-radius: 9999px;
-  border: 1px solid var(--fe-border);
+  border: 1px solid var(--site-border);
   background: transparent;
   color: inherit;
   display: inline-flex;
@@ -88,14 +88,14 @@
   justify-content: center;
   gap: 6px;
   cursor: pointer;
-  font-size: var(--fe-text-sm);
-  font-family: var(--fe-font-sans);
-  transition: all var(--fe-fast) var(--fe-ease);
+  font-size: var(--site-font-size-sm);
+  font-family: var(--site-font-sans);
+  transition: all var(--site-duration-fast) var(--site-ease);
 }
 
 .email-recovery-fields__add-btn:hover:not(:disabled) {
-  border-color: var(--fe-border-strong);
-  box-shadow: 0 2px 8px var(--fe-shadow);
+  border-color: var(--site-border-strong);
+  box-shadow: 0 2px 8px var(--site-shadow-sm);
 }
 
 .email-recovery-fields__add-btn:disabled {

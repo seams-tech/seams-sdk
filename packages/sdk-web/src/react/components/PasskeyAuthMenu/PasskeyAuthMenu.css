@@ -1188,29 +1188,7 @@
   animation-delay: 0.3s;
 }
 
-/* Pop/bounce-in animation (kept for legacy classes) */
-@keyframes w3a-input-msg-pop {
-  0% {
-    opacity: 0;
-    transform: translateY(8px) scale(0.98);
-  }
-
-  60% {
-    opacity: 1;
-    transform: translateY(-2px) scale(1.02);
-  }
-
-  100% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .w3a-input-msg.is-error {
-    animation: none;
-  }
-
   .w3a-ellipsis-dot {
     animation: none;
     opacity: 1;

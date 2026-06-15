@@ -38,7 +38,7 @@ const DEFAULT_RETENTION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const DEFAULT_RETENTION_PRUNE_INTERVAL_MS = 1000 * 60 * 5;
 const DEFAULT_RETENTION_BATCH_SIZE = 1_000;
 const INGEST_WINDOW_MS = 60_000;
-const LEGACY_ROUTER_REQUEST_COMPLETED_EVENT_TYPE = 'router.request.completed';
+const RETIRED_ROUTER_REQUEST_COMPLETED_EVENT_TYPE = 'router.request.completed';
 
 interface NormalizedInsertEvent {
   eventId: string;
@@ -250,12 +250,12 @@ async function reserveIngestBudget(input: {
   );
 }
 
-function ensureNotLegacyRouterTimingEvent(event: ConsoleObservabilityEventEnvelope): void {
-  if (normalizeString(event.eventType) !== LEGACY_ROUTER_REQUEST_COMPLETED_EVENT_TYPE) return;
+function ensureNotRetiredRouterTimingEvent(event: ConsoleObservabilityEventEnvelope): void {
+  if (normalizeString(event.eventType) !== RETIRED_ROUTER_REQUEST_COMPLETED_EVENT_TYPE) return;
   throw new ConsoleObservabilityError(
     'invalid_body',
     400,
-    `Event type ${LEGACY_ROUTER_REQUEST_COMPLETED_EVENT_TYPE} is no longer accepted`,
+    `Event type ${RETIRED_ROUTER_REQUEST_COMPLETED_EVENT_TYPE} is no longer accepted`,
   );
 }
 
@@ -410,7 +410,7 @@ export async function createPostgresConsoleObservabilityIngestionService(
           'Event orgId must match ingestion context orgId',
         );
       }
-      ensureNotLegacyRouterTimingEvent(event);
+      ensureNotRetiredRouterTimingEvent(event);
       normalizedEvents.push(normalizeEnvelopeForInsert(event, redactionPolicy));
     }
 

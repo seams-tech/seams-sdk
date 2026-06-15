@@ -4,7 +4,7 @@ import { setupBasicPasskeyTest } from '../setup';
 const IMPORT_PATHS = {
   provider: '/sdk/esm/react/context/SeamsWebProvider.js',
   reactIndex: '/sdk/esm/react/index.js',
-  passkeyAuthMenu: '/sdk/esm/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js',
+  passkeyAuthMenu: '/sdk/esm/react/components/PasskeyAuthMenu/public.js',
   passkeyAuthMenuController:
     '/sdk/esm/react/components/PasskeyAuthMenu/controller/usePasskeyAuthMenuController.js',
   passkeyInput: '/sdk/esm/react/components/PasskeyAuthMenu/ui/PasskeyInput.js',

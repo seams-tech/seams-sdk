@@ -195,9 +195,9 @@ html[data-w3a-theme='light'] .security-diagrams {
   font-weight: 600;
   padding: 0.62rem 1rem;
   transition:
-    border-color var(--fe-fast) var(--fe-ease),
-    background-color var(--fe-fast) var(--fe-ease),
-    box-shadow var(--fe-fast) var(--fe-ease);
+    border-color var(--site-duration-fast) var(--site-ease),
+    background-color var(--site-duration-fast) var(--site-ease),
+    box-shadow var(--site-duration-fast) var(--site-ease);
 }
 
 .security-diagrams__learn-more:hover {

@@ -37,9 +37,9 @@ export type WalletUnlockSelection =
 
 export type EcdsaUnlockBlockedReason =
   | 'missing_key_handle'
+  | 'invalid_key_handle'
   | 'ambiguous_key_handle'
   | 'missing_chain_target'
-  | 'synthetic_legacy_key_id'
   | 'missing_key_facts'
   | 'invalid_signer_record';
 
@@ -194,8 +194,8 @@ function mapProfileBlockedReason(
   switch (result.reason) {
     case 'missing_chain_target':
     case 'missing_key_handle':
+    case 'invalid_key_handle':
     case 'ambiguous_key_handle':
-    case 'synthetic_legacy_key_id':
       return result.reason;
     case 'invalid_chain_target':
       return 'invalid_signer_record';

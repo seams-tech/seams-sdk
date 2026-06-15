@@ -99,7 +99,7 @@ export function SyncAccount() {
           style={{
             marginTop: '2rem',
             paddingTop: '2rem',
-            borderTop: '1px solid var(--fe-border)',
+            borderTop: '1px solid var(--site-border)',
           }}
         >
           <h2 className="demo-title">Recover Passkey Account</h2>
@@ -125,7 +125,7 @@ export function SyncAccount() {
           style={{
             marginTop: '2rem',
             paddingTop: '2rem',
-            borderTop: '1px solid var(--fe-border)',
+            borderTop: '1px solid var(--site-border)',
           }}
         >
           <h2 className="demo-title">Device Linking</h2>

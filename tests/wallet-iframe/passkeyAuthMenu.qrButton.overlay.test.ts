@@ -4,7 +4,7 @@ import { buildWalletServiceHtml, registerWalletServiceRoute, captureOverlay } fr
 
 const IMPORT_PATHS = {
   provider: '/sdk/esm/react/context/SeamsWebProvider.js',
-  passkeyAuthMenu: '/sdk/esm/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.js',
+  passkeyAuthMenu: '/sdk/esm/react/components/PasskeyAuthMenu/public.js',
 } as const;
 
 const WALLET_ORIGIN = 'https://wallet.example.localhost';

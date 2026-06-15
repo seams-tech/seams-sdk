@@ -1,22 +1,22 @@
 .dashboard-shell {
-  --dashboard-bg: color-mix(in srgb, var(--fe-bg, #f4f6fb) 96%, var(--fe-surface, #ffffff) 4%);
-  --dashboard-surface: color-mix(in srgb, var(--fe-surface, #ffffff) 96%, var(--fe-bg, #f4f6fb) 4%);
+  --dashboard-bg: color-mix(in srgb, var(--site-canvas, #f4f6fb) 96%, var(--site-surface, #ffffff) 4%);
+  --dashboard-surface: color-mix(in srgb, var(--site-surface, #ffffff) 96%, var(--site-canvas, #f4f6fb) 4%);
   --dashboard-border: color-mix(
     in srgb,
-    var(--fe-border, #dbe3f0) 86%,
+    var(--site-border, #dbe3f0) 86%,
     var(--dashboard-surface) 14%
   );
-  --dashboard-ink: var(--fe-text-primary, #2f3240);
-  --dashboard-ink-soft: color-mix(in srgb, var(--fe-text-secondary, #6d7290) 92%, #7c83a0 8%);
+  --dashboard-ink: var(--site-text-primary, #2f3240);
+  --dashboard-ink-soft: color-mix(in srgb, var(--site-text-secondary, #6d7290) 92%, #7c83a0 8%);
   --dashboard-muted: color-mix(in srgb, var(--dashboard-surface) 84%, var(--dashboard-bg) 16%);
   --dashboard-active: color-mix(
     in srgb,
-    var(--fe-primary, #4d73ff) 24%,
+    var(--site-brand, #4d73ff) 24%,
     var(--dashboard-surface) 76%
   );
   --dashboard-active-border: color-mix(
     in srgb,
-    var(--fe-primary, #4d73ff) 40%,
+    var(--site-brand, #4d73ff) 40%,
     var(--dashboard-border) 60%
   );
   --dashboard-active-ink: var(--dashboard-ink);
@@ -299,7 +299,7 @@
   gap: 4px;
   background: var(--dashboard-surface);
   box-shadow: 0 24px 34px -28px
-    color-mix(in srgb, var(--fe-shadow-strong, rgba(15, 23, 42, 0.34)) 70%, transparent);
+    color-mix(in srgb, var(--site-shadow-md, rgba(15, 23, 42, 0.34)) 70%, transparent);
   z-index: 16;
 }
 
@@ -717,7 +717,7 @@
 }
 
 .dashboard-info-banner a {
-  color: var(--fe-primary, #4d73ff);
+  color: var(--site-brand, #4d73ff);
   font-weight: 600;
   text-decoration: none;
 }
@@ -1522,7 +1522,7 @@
 }
 
 .dashboard-audit-events__copy-value:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--fe-primary, #4d73ff) 65%, white 35%);
+  outline: 2px solid color-mix(in srgb, var(--site-brand, #4d73ff) 65%, white 35%);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -2583,7 +2583,7 @@
   background: transparent;
   padding: 0;
   margin: 0;
-  color: var(--fe-primary, #4d73ff);
+  color: var(--site-brand, #4d73ff);
   font: inherit;
   font-weight: 600;
   text-align: left;
@@ -2664,7 +2664,7 @@
 }
 
 .dashboard-table-limit a {
-  color: var(--fe-primary, #4d73ff);
+  color: var(--site-brand, #4d73ff);
   font-weight: 600;
   text-decoration: none;
 }

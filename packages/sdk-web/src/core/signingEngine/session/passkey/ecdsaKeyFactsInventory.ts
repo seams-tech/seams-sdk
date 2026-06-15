@@ -49,8 +49,8 @@ export type ProfileContinuityEcdsaWarmKeyParseResult =
         | 'missing_chain_target'
         | 'invalid_chain_target'
         | 'missing_key_handle'
-        | 'ambiguous_key_handle'
-        | 'synthetic_legacy_key_id';
+        | 'invalid_key_handle'
+        | 'ambiguous_key_handle';
       chainTarget?: never;
       walletKey?: never;
       keyHandle?: never;
@@ -71,38 +71,41 @@ function normalizeEvmOwnerAddress(value: unknown): string {
   return /^0x[0-9a-f]{40}$/.test(candidate) ? candidate : '';
 }
 
-function isSyntheticLegacyIdentifier(value: unknown): boolean {
-  return String(value || '')
-    .trim()
-    .startsWith('legacy-key-handle:');
+const EVM_FAMILY_ECDSA_KEY_HANDLE_PATTERN = /^ehss-key-[A-Za-z0-9_-]+$/;
+
+function parseCurrentEcdsaKeyHandle(value: unknown):
+  | { kind: 'resolved'; keyHandle: string }
+  | { kind: 'missing' }
+  | { kind: 'invalid' } {
+  const normalized = String(value || '').trim();
+  if (!normalized) return { kind: 'missing' };
+  if (!EVM_FAMILY_ECDSA_KEY_HANDLE_PATTERN.test(normalized)) return { kind: 'invalid' };
+  return { kind: 'resolved', keyHandle: normalized };
 }
 
 function resolveProfileContinuityEcdsaKeyHandle(metadata: Record<string, unknown>):
   | { kind: 'resolved'; keyHandle: string }
   | {
       kind: 'blocked';
-      reason: 'missing_key_handle' | 'ambiguous_key_handle' | 'synthetic_legacy_key_id';
+      reason: 'missing_key_handle' | 'invalid_key_handle' | 'ambiguous_key_handle';
     } {
-  if (
-    isSyntheticLegacyIdentifier(metadata.keyHandle) ||
-    isSyntheticLegacyIdentifier(metadata.ecdsaThresholdKeyId) ||
-    (isObject(metadata.sharedEvmFamilyKey) &&
-      (isSyntheticLegacyIdentifier(metadata.sharedEvmFamilyKey.keyHandle) ||
-        isSyntheticLegacyIdentifier(metadata.sharedEvmFamilyKey.ecdsaThresholdKeyId)))
-  ) {
-    return { kind: 'blocked', reason: 'synthetic_legacy_key_id' };
-  }
-  const directKeyHandle = String(metadata.keyHandle || '').trim();
+  const directKeyHandle = parseCurrentEcdsaKeyHandle(metadata.keyHandle);
   const sharedKeyHandle = isObject(metadata.sharedEvmFamilyKey)
-    ? String(metadata.sharedEvmFamilyKey.keyHandle || '').trim()
-    : '';
-  if (!directKeyHandle) {
+    ? parseCurrentEcdsaKeyHandle(metadata.sharedEvmFamilyKey.keyHandle)
+    : { kind: 'missing' as const };
+  if (directKeyHandle.kind === 'missing') {
     return { kind: 'blocked', reason: 'missing_key_handle' };
   }
-  if (directKeyHandle && sharedKeyHandle && directKeyHandle !== sharedKeyHandle) {
+  if (directKeyHandle.kind === 'invalid' || sharedKeyHandle.kind === 'invalid') {
+    return { kind: 'blocked', reason: 'invalid_key_handle' };
+  }
+  if (
+    sharedKeyHandle.kind === 'resolved' &&
+    directKeyHandle.keyHandle !== sharedKeyHandle.keyHandle
+  ) {
     return { kind: 'blocked', reason: 'ambiguous_key_handle' };
   }
-  return { kind: 'resolved', keyHandle: directKeyHandle };
+  return { kind: 'resolved', keyHandle: directKeyHandle.keyHandle };
 }
 
 function parseProfileContinuityEvmFamilyEcdsaWalletKey(args: {
@@ -227,7 +230,7 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
   } catch {
     return null;
   }
-  const keyHandle = String(raw.keyHandle || '').trim();
+  const keyHandle = parseCurrentEcdsaKeyHandle(raw.keyHandle);
   const accountAddress = normalizeEvmOwnerAddress(raw.accountAddress);
   const ownerAddress = normalizeEvmOwnerAddress(raw.ownerAddress);
   const keyWalletId = String(rawKey.walletId || rawKey.walletSessionUserId || '').trim();
@@ -243,9 +246,7 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
     rawKey.thresholdOwnerAddress || raw.ownerAddress || raw.accountAddress || raw.ethereumAddress,
   );
   if (
-    !keyHandle ||
-    isSyntheticLegacyIdentifier(keyHandle) ||
-    isSyntheticLegacyIdentifier(raw.ecdsaThresholdKeyId) ||
+    keyHandle.kind !== 'resolved' ||
     !thresholdEcdsaPublicKeyB64u ||
     !ownerAddress ||
     !accountAddress ||
@@ -258,7 +259,7 @@ function parseThresholdEcdsaKeyIdentityRecord(args: {
     return null;
   }
   try {
-    const canonicalKeyHandle = toEvmFamilyEcdsaKeyHandle(keyHandle);
+    const canonicalKeyHandle = toEvmFamilyEcdsaKeyHandle(keyHandle.keyHandle);
     const ecdsaThresholdKeyId = resolveThresholdEcdsaKeyIdFromRecord({
       record: {
         ecdsaThresholdKeyId: raw.ecdsaThresholdKeyId,

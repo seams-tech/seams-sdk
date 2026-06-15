@@ -946,6 +946,9 @@ class UiConfirmWorkerManagerImpl implements UiConfirmManager {
             ? { runtimePolicyScope: ed25519Record.runtimePolicyScope }
             : {}),
           ...(ed25519XClientBaseB64u ? { xClientBaseB64u: ed25519XClientBaseB64u } : {}),
+          ...(ed25519Record.routerAbNormalSigning
+            ? { routerAbNormalSigning: ed25519Record.routerAbNormalSigning }
+            : {}),
         }
       : undefined;
     return {

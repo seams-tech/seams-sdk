@@ -10,6 +10,22 @@ function readEnv(name, fallback = '') {
   return trimmed || fallback;
 }
 
+function readRequiredEnv(name) {
+  const value = readEnv(name);
+  if (!value) {
+    throw new Error(`Missing required environment variable ${name}`);
+  }
+  return value;
+}
+
+function readDomainIdentityConfig(prefix) {
+  return {
+    dbName: readRequiredEnv(`${prefix}_DB_NAME`),
+    runtimeUser: readRequiredEnv(`${prefix}_RUNTIME_USER`),
+    migratorUser: readRequiredEnv(`${prefix}_MIGRATOR_USER`),
+  };
+}
+
 function sqlIdent(value) {
   const normalized = String(value || '').trim();
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(normalized)) {
@@ -168,17 +184,8 @@ async function main() {
 
   const adminUser = readEnv('POSTGRES_BOOTSTRAP_ADMIN_USER', 'seams');
 
-  const signer = {
-    dbName: readEnv('SIGNER_DB_NAME', 'seams_signer'),
-    runtimeUser: readEnv('SIGNER_RUNTIME_USER', 'seams_signer'),
-    migratorUser: readEnv('SIGNER_MIGRATOR_USER', 'seams_signer_migrator'),
-  };
-
-  const consoleDomain = {
-    dbName: readEnv('CONSOLE_DB_NAME', 'seams_console'),
-    runtimeUser: readEnv('CONSOLE_RUNTIME_USER', 'seams_console'),
-    migratorUser: readEnv('CONSOLE_MIGRATOR_USER', 'seams_console_migrator'),
-  };
+  const signer = readDomainIdentityConfig('SIGNER');
+  const consoleDomain = readDomainIdentityConfig('CONSOLE');
 
   // Validate all role identifiers before issuing any external commands so
   // misconfiguration fails fast and deterministically.

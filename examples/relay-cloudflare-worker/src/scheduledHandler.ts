@@ -11,7 +11,6 @@ import { resolveWorkerCronFeatureFlags } from './cronFlags';
 import { collectWorkerCronConfigIssues } from './cronValidation';
 
 export interface WorkerScheduledEnv extends RelayCloudflareWorkerEnv, WorkerCronConfigEnv {
-  ENABLE_ROTATION?: string;
   BILLING_FINALIZATION_ENABLED?: string;
   RUNTIME_SNAPSHOT_OUTBOX_ENABLED?: string;
   WEBHOOK_RETRY_ENABLED?: string;

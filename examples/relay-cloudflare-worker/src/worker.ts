@@ -43,7 +43,6 @@ type Env = RelayCloudflareWorkerEnv & {
   SIGNING_SESSION_SEAL_KEY_VERSION?: string;
   EXPECTED_ORIGIN?: string;
   EXPECTED_WALLET_ORIGIN?: string;
-  ENABLE_ROTATION?: string;
   BILLING_FINALIZATION_ENABLED?: string;
   BILLING_POSTGRES_URL?: string;
   BILLING_NAMESPACE?: string;

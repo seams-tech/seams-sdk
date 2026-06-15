@@ -105,7 +105,7 @@ export function ThresholdSignerSection(props: ThresholdSignerSectionProps) {
 
       <div style={{ display: 'grid', gap: 10, marginTop: 12 }}>
         <div className="evm-greeting-stack" style={{ display: 'grid', gap: 8 }}>
-          <div style={{ fontSize: '0.9rem', color: 'var(--fe-text-secondary)' }}>Tempo Greeting</div>
+          <div style={{ fontSize: '0.9rem', color: 'var(--site-text-secondary)' }}>Tempo Greeting</div>
           <div className="on-chain-greeting-box">
             <button
               onClick={props.onRefreshTempoGreeting}
@@ -146,7 +146,7 @@ export function ThresholdSignerSection(props: ThresholdSignerSectionProps) {
         </LoadingButton>
 
         <div className="evm-greeting-stack" style={{ display: 'grid', gap: 8 }}>
-          <div style={{ fontSize: '0.9rem', color: 'var(--fe-text-secondary)' }}>Arc Greeting</div>
+          <div style={{ fontSize: '0.9rem', color: 'var(--site-text-secondary)' }}>Arc Greeting</div>
           <div className="on-chain-greeting-box">
             <button
               onClick={props.onRefreshArcGreeting}
@@ -174,7 +174,7 @@ export function ThresholdSignerSection(props: ThresholdSignerSectionProps) {
         {props.arcGreetingError ? (
           <div className="error-message">Arc greeting error: {props.arcGreetingError}</div>
         ) : null}
-        <div style={{ fontSize: '0.9rem', color: 'var(--fe-text-secondary)' }}>
+        <div style={{ fontSize: '0.9rem', color: 'var(--site-text-secondary)' }}>
           Need test funds?{' '}
           <a href="https://faucet.circle.com/" target="_blank" rel="noreferrer">
             Circle Faucet

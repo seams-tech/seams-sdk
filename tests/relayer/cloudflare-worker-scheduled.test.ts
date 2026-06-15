@@ -45,7 +45,6 @@ test.describe('relay cloudflare worker scheduled handler', () => {
 
     const event = { scheduledTime: Date.now(), cron: '*/5 * * * *' } as any;
     const env = {
-      ENABLE_ROTATION: '0',
       BILLING_FINALIZATION_ENABLED: '1',
       BILLING_POSTGRES_URL: 'postgres://billing/db',
       BILLING_NAMESPACE: 'billing-ns',
@@ -68,7 +67,6 @@ test.describe('relay cloudflare worker scheduled handler', () => {
     expect(seen.env).toBe(env);
     expect(seen.ctx).toBe(ctx);
     expect(seen.cronOptions?.enabled).toBe(true);
-    expect(seen.cronOptions?.rotate).toBe(false);
     expect(seen.cronOptions?.billingMonthlyFinalization?.orgIds).toEqual(['org-a', 'org-b']);
     expect(seen.cronOptions?.billingMonthlyFinalization?.cronExpressions).toEqual(['0 2 1 * *']);
     expect(seen.cronOptions?.runtimeSnapshotOutbox?.orgIds).toEqual(['org-a']);
@@ -99,7 +97,6 @@ test.describe('relay cloudflare worker scheduled handler', () => {
     await scheduled(
       { scheduledTime: Date.now(), cron: '*/5 * * * *' } as any,
       {
-        ENABLE_ROTATION: '0',
         BILLING_FINALIZATION_ENABLED: '0',
         RUNTIME_SNAPSHOT_OUTBOX_ENABLED: '0',
         WEBHOOK_RETRY_ENABLED: '0',
@@ -109,7 +106,6 @@ test.describe('relay cloudflare worker scheduled handler', () => {
 
     expect(cronOptions).toBeTruthy();
     expect(cronOptions.enabled).toBe(false);
-    expect(cronOptions.rotate).toBe(false);
     expect(cronOptions.billingMonthlyFinalization).toBeUndefined();
     expect(cronOptions.runtimeSnapshotOutbox).toBeUndefined();
     expect(cronOptions.webhookRetryDispatch).toBeUndefined();
@@ -133,7 +129,6 @@ test.describe('relay cloudflare worker scheduled handler', () => {
     await scheduled(
       { scheduledTime: Date.now(), cron: '*/5 * * * *' } as any,
       {
-        ENABLE_ROTATION: '0',
         BILLING_FINALIZATION_ENABLED: '1',
         RUNTIME_SNAPSHOT_OUTBOX_ENABLED: '1',
         WEBHOOK_RETRY_ENABLED: '1',

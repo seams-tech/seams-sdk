@@ -3,7 +3,6 @@ import type { ConsoleObservabilityIngestionService } from '@seams/sdk/server/rou
 import type { WorkerCronFeatureFlags } from './cronFlags';
 
 export interface WorkerCronConfigEnv {
-  ENABLE_ROTATION?: string;
   BILLING_POSTGRES_URL?: string;
   BILLING_NAMESPACE?: string;
   BILLING_FINALIZATION_PERIOD_MONTH_UTC?: string;
@@ -53,7 +52,6 @@ export function createWorkerCronOptions(
 ): CloudflareCronOptions {
   return {
     enabled: cronFlags.cronEnabled,
-    rotate: cronFlags.rotateEnabled,
     billingMonthlyFinalization: cronFlags.billingFinalizationEnabled
       ? {
           enabled: true,

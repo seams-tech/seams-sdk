@@ -58,8 +58,6 @@ extra requirements and limitations compared to the Express example.
 - When a cron job is enabled but required job config is missing, the worker
   logs a structured `[cron][worker-config]` warning before the cron runner
   evaluates job-specific skips.
-- Optional Shamir rotation:
-  - `ENABLE_ROTATION="1"`
 - Generate matching Shamir values for server + client config:
   - `pnpm signing-session-seal:keygen`
 - Optional billing monthly finalization (SaaS console):

@@ -10,6 +10,24 @@ function readEnv(name, fallback = '') {
   return trimmed || fallback;
 }
 
+function readRequiredEnv(name) {
+  const value = readEnv(name);
+  if (!value) {
+    throw new Error(`Missing required environment variable ${name}`);
+  }
+  return value;
+}
+
+function readDomainConfig(prefix) {
+  return {
+    dbName: readRequiredEnv(`${prefix}_DB_NAME`),
+    runtimeUser: readRequiredEnv(`${prefix}_RUNTIME_USER`),
+    runtimePassword: readRequiredEnv(`${prefix}_RUNTIME_PASSWORD`),
+    migratorUser: readRequiredEnv(`${prefix}_MIGRATOR_USER`),
+    migratorPassword: readRequiredEnv(`${prefix}_MIGRATOR_PASSWORD`),
+  };
+}
+
 function sqlLiteral(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
@@ -211,20 +229,8 @@ async function main() {
   const host = readEnv('POSTGRES_BOOTSTRAP_HOST', '127.0.0.1');
   const port = Number(readEnv('POSTGRES_BOOTSTRAP_PORT', '5432')) || 5432;
 
-  const signer = {
-    dbName: readEnv('SIGNER_DB_NAME', 'seams_signer'),
-    runtimeUser: readEnv('SIGNER_RUNTIME_USER', 'seams_signer'),
-    runtimePassword: readEnv('SIGNER_RUNTIME_PASSWORD', 'seams_signer'),
-    migratorUser: readEnv('SIGNER_MIGRATOR_USER', 'seams_signer_migrator'),
-    migratorPassword: readEnv('SIGNER_MIGRATOR_PASSWORD', 'seams_signer_migrator'),
-  };
-  const consoleDomain = {
-    dbName: readEnv('CONSOLE_DB_NAME', 'seams_console'),
-    runtimeUser: readEnv('CONSOLE_RUNTIME_USER', 'seams_console'),
-    runtimePassword: readEnv('CONSOLE_RUNTIME_PASSWORD', 'seams_console'),
-    migratorUser: readEnv('CONSOLE_MIGRATOR_USER', 'seams_console_migrator'),
-    migratorPassword: readEnv('CONSOLE_MIGRATOR_PASSWORD', 'seams_console_migrator'),
-  };
+  const signer = readDomainConfig('SIGNER');
+  const consoleDomain = readDomainConfig('CONSOLE');
 
   await dockerCompose(relayCwd, ['up', '-d', 'postgres']);
   await waitForPsql(relayCwd, adminUser, 'postgres');

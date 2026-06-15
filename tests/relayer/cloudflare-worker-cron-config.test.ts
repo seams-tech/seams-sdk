@@ -5,7 +5,6 @@ import { resolveWorkerCronFeatureFlags } from '../../examples/relay-cloudflare-w
 test.describe('relay cloudflare worker cron config', () => {
   test('maps enabled env flags into cron job options', async () => {
     const flags = resolveWorkerCronFeatureFlags({
-      ENABLE_ROTATION: '0',
       BILLING_FINALIZATION_ENABLED: '1',
       RUNTIME_SNAPSHOT_OUTBOX_ENABLED: '1',
       WEBHOOK_RETRY_ENABLED: '1',
@@ -39,7 +38,6 @@ test.describe('relay cloudflare worker cron config', () => {
     );
 
     expect(options.enabled).toBe(true);
-    expect(options.rotate).toBe(false);
     expect(options.billingMonthlyFinalization?.orgIds).toEqual(['org-a', 'org-b']);
     expect(options.billingMonthlyFinalization?.cronExpressions).toEqual([
       '0 2 1 * *',
@@ -65,7 +63,6 @@ test.describe('relay cloudflare worker cron config', () => {
 
   test('uses per-job url/namespace overrides when provided', async () => {
     const flags = resolveWorkerCronFeatureFlags({
-      ENABLE_ROTATION: '0',
       BILLING_FINALIZATION_ENABLED: '0',
       RUNTIME_SNAPSHOT_OUTBOX_ENABLED: '1',
       WEBHOOK_RETRY_ENABLED: '1',
@@ -97,7 +94,6 @@ test.describe('relay cloudflare worker cron config', () => {
 
   test('disables cron when no feature flags are enabled', async () => {
     const flags = resolveWorkerCronFeatureFlags({
-      ENABLE_ROTATION: '0',
       BILLING_FINALIZATION_ENABLED: '0',
       RUNTIME_SNAPSHOT_OUTBOX_ENABLED: '0',
       WEBHOOK_RETRY_ENABLED: '0',
@@ -114,7 +110,6 @@ test.describe('relay cloudflare worker cron config', () => {
     );
 
     expect(options.enabled).toBe(false);
-    expect(options.rotate).toBe(false);
     expect(options.billingMonthlyFinalization).toBeUndefined();
     expect(options.runtimeSnapshotOutbox).toBeUndefined();
     expect(options.webhookRetryDispatch).toBeUndefined();
@@ -122,7 +117,6 @@ test.describe('relay cloudflare worker cron config', () => {
 
   test('forwards webhook retry observability ingestion when provided', async () => {
     const flags = resolveWorkerCronFeatureFlags({
-      ENABLE_ROTATION: '0',
       BILLING_FINALIZATION_ENABLED: '0',
       RUNTIME_SNAPSHOT_OUTBOX_ENABLED: '0',
       WEBHOOK_RETRY_ENABLED: '1',

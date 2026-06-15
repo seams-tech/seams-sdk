@@ -19,13 +19,13 @@
   text-transform: uppercase;
   letter-spacing: 0.1em;
   font-weight: 700;
-  color: var(--fe-primary);
+  color: var(--site-brand);
   font-size: 0.78rem;
 }
 
 .site-page__subtitle {
   margin: 0;
-  color: var(--fe-text-secondary);
+  color: var(--site-text-secondary);
   max-width: 720px;
 }
 
@@ -44,11 +44,11 @@
 }
 
 .site-card {
-  border: 1px solid var(--fe-border);
+  border: 1px solid var(--site-border);
   border-radius: 16px;
-  background: var(--fe-surface);
+  background: var(--site-surface);
   padding: 18px;
-  box-shadow: var(--fe-shadow);
+  box-shadow: var(--site-shadow-sm);
 }
 
 .site-card h2 {
@@ -58,7 +58,7 @@
 
 .site-card p {
   margin: 0 0 8px;
-  color: var(--fe-text-secondary);
+  color: var(--site-text-secondary);
 }
 
 .site-card__label {
@@ -67,7 +67,7 @@
   letter-spacing: 0.09em;
   font-size: 0.78rem;
   font-weight: 700;
-  color: var(--fe-text-secondary);
+  color: var(--site-text-secondary);
 }
 
 .site-bullets {
@@ -75,7 +75,7 @@
   padding-left: 18px;
   display: grid;
   gap: 6px;
-  color: var(--fe-text-secondary);
+  color: var(--site-text-secondary);
 }
 
 .site-links-list {
@@ -88,7 +88,7 @@
 .site-action {
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--fe-border);
+  border: 1px solid var(--site-border);
   border-radius: 10px;
   padding: 10px 12px;
   text-decoration: none;

@@ -13,13 +13,9 @@
     "postgres:down": "node ./scripts/postgres-down.mjs",
     "postgres:bootstrap:split": "node ./scripts/postgres-bootstrap-split-domains.mjs",
     "postgres:migrate:signer": "node ./scripts/postgres-migrate-signer.mjs",
-    "postgres:migrate:wallet-id": "node ./scripts/postgres-migrate-wallet-id.mjs",
     "postgres:migrate:console": "node ./scripts/postgres-migrate-console.mjs",
     "postgres:migrate:split-from-monolith": "node ./scripts/postgres-migrate-monolith-to-split.mjs",
     "postgres:verify:split": "node ./scripts/postgres-verify-split-domains.mjs",
-    "postgres:verify:observability-cleanup": "node ./scripts/postgres-verify-observability-cleanup.mjs",
-    "postgres:wipe:legacy-accounts": "node ./scripts/postgres-wipe-legacy-accounts.mjs",
-    "postgres:prune:legacy-email-otp": "node ./scripts/postgres-prune-legacy-email-otp-wallets.mjs",
     "postgres:migrate:all": "pnpm run postgres:migrate:signer && pnpm run postgres:migrate:console",
     "postgres:setup:split": "pnpm run postgres:up && pnpm run postgres:bootstrap:split && pnpm run postgres:migrate:all && pnpm run postgres:verify:split"
   },

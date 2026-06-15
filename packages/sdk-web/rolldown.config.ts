@@ -564,7 +564,7 @@ const configs = [
     input: [
       'src/react/index.ts',
       // Ensure public subpath entrypoints exist in dist even when re-exports are flattened.
-      'src/react/components/PasskeyAuthMenu/passkeyAuthMenuCompat.ts',
+      'src/react/components/PasskeyAuthMenu/public.ts',
       // Public subpath entrypoints (avoid treeshaking away default exports).
       'src/react/components/PasskeyAuthMenu/preload.ts',
       'src/react/components/PasskeyAuthMenu/shell.tsx',

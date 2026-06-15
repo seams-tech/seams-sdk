@@ -5,39 +5,41 @@
 :root,
 :host {
   /* Text Sizes */
-  --fe-text-xs: 0.8rem;
-  --fe-text-sm: 0.9rem;
-  --fe-text-md: 1rem;
-  --fe-text-lg: 1.125rem;
-  --fe-text-xl: 1.25rem;
-  --fe-text-2xl: 1.5rem;
+  --site-font-size-xs: 0.8rem;
+  --site-font-size-sm: 0.9rem;
+  --site-font-size-md: 1rem;
+  --site-font-size-lg: 1.125rem;
+  --site-font-size-xl: 1.25rem;
+  --site-font-size-2xl: 1.5rem;
 
   /* Sizing & Spacing */
-  --fe-radius-sm: 12px;
-  --fe-radius: 24px;
-  --fe-radius-lg: 32px;
-  --fe-radius-xl: 40px;
-  --fe-gap-1: 4px;
-  --fe-gap-2: 8px;
-  --fe-gap-3: 12px;
-  --fe-gap-4: 16px;
-  --fe-gap-6: 24px;
+  --site-radius-sm: 12px;
+  --site-radius: 24px;
+  --site-radius-lg: 32px;
+  --site-radius-xl: 40px;
+  --site-space-1: 4px;
+  --site-space-2: 8px;
+  --site-space-3: 12px;
+  --site-space-4: 16px;
+  --site-space-6: 24px;
 
   /* Motion */
-  --fe-ease: cubic-bezier(0.2, 0.6, 0.2, 1);
-  --fe-fast: 200ms;
-  --fe-med: 400ms;
+  --site-ease: cubic-bezier(0.2, 0.6, 0.2, 1);
+  --site-duration-fast: 200ms;
+  --site-duration-medium: 400ms;
 
   /* Fonts: set Hanken Grotesk as primary UI sans */
-  --fe-font-sans:
+  --site-font-sans:
     'Hanken Grotesk', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
     Roboto, Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif;
-  --fe-font-medium: 500;
-  --fe-font-semibold: 600;
+  --site-font-weight-medium: 500;
+  --site-font-weight-semibold: 600;
   /* Display font for headings */
-  --fe-font-display:
+  --site-font-display:
     'Hanken Grotesk', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
     Roboto, Helvetica, Arial, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif;
+  --site-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+    'Courier New', monospace;
 }
 
 /* Ensure app variables derive from SDK tokens at the theme boundary inside ShadowRoot */
@@ -59,7 +61,10 @@
   --site-accent: var(--w3a-colors-secondary);
   --site-accent-hover: var(--w3a-colors-secondaryHover);
   --site-danger: var(--w3a-colors-error);
+  --site-danger-surface: color-mix(in srgb, var(--site-danger) 12%, var(--site-surface) 88%);
   --site-success: var(--w3a-colors-success);
+  --site-shadow-sm: var(--w3a-shadows-sm);
+  --site-shadow-md: var(--w3a-shadows-md);
 
   /* Site semantic aliases (component domains) */
   --site-navbar-surface: var(--site-surface-strong);
@@ -67,28 +72,6 @@
   --site-marketing-surface: var(--site-surface);
   --site-form-surface: var(--site-surface-muted);
   --site-carousel-surface: var(--site-surface);
-
-  /* Legacy aliases kept for compatibility with existing CSS. */
-  --fe-primary: var(--site-brand);
-  --fe-primary-hover: var(--site-brand-hover);
-  --fe-bg: var(--site-canvas);
-  --fe-surface: var(--site-surface);
-  --fe-surface-solid: var(--site-surface-muted);
-  --fe-text: var(--site-text-primary);
-  --fe-text-primary: var(--site-text-primary);
-  --fe-text-secondary: var(--site-text-secondary);
-  --fe-text-dim: var(--site-text-secondary);
-  --fe-border: var(--site-border);
-  --fe-border-strong: var(--site-border-strong);
-  --fe-shadow: var(--w3a-shadows-sm);
-  --fe-shadow-strong: var(--w3a-shadows-md);
-  --fe-bg-secondary: var(--site-surface-muted);
-  --fe-bg-tertiary: var(--site-surface-strong);
-  --fe-input-bg: var(--site-form-surface);
-  --fe-input-text: var(--site-text-primary);
-  --fe-input-placeholder: var(--site-text-secondary);
-  --fe-error: var(--site-danger);
-  --fe-success: var(--site-success);
 }
 
 html[data-w3a-theme='dark'],
@@ -109,7 +92,7 @@ html {
 html,
 body,
 #app-root {
-  font-family: var(--fe-font-sans);
+  font-family: var(--site-font-sans);
 }
 
 .seams-logo-icon {
@@ -171,34 +154,34 @@ html[data-w3a-theme] {
 
 a {
   font-weight: 500;
-  color: var(--fe-primary);
+  color: var(--site-brand);
 }
 a:hover {
-  color: var(--fe-primary-hover);
+  color: var(--site-brand-hover);
 }
 
 h1 {
   font-size: 2.5rem;
   font-weight: 600;
-  color: var(--fe-text-primary);
+  color: var(--site-text-primary);
   line-height: 1.2;
-  font-family: var(--fe-font-display);
+  font-family: var(--site-font-display);
 }
 
 h2 {
   font-size: 2rem;
   font-weight: 600;
-  color: var(--fe-text);
+  color: var(--site-text-primary);
   line-height: 1.2;
-  font-family: var(--fe-font-display);
+  font-family: var(--site-font-display);
 }
 
 h3 {
   font-size: 1.5rem;
   font-weight: 600;
-  color: var(--fe-text);
+  color: var(--site-text-primary);
   line-height: 1.1;
-  font-family: var(--fe-font-display);
+  font-family: var(--site-font-display);
 }
 
 /* Explicit classes used around the homepage for titles/subtitles */
@@ -207,5 +190,5 @@ h3 {
 .bento-title,
 .demo-title,
 .demo-subtitle {
-  font-family: var(--fe-font-display);
+  font-family: var(--site-font-display);
 }

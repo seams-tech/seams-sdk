@@ -277,19 +277,19 @@ test.describe('unlock ECDSA warm-up planner', () => {
     });
   });
 
-  test('returns blocked for invalid active signer metadata before planning warm sessions', () => {
+  test('returns blocked for invalid active signer key handles before planning warm sessions', () => {
     const parsed = parseActiveEcdsaSignerRecordForUnlock({
       walletId: WALLET_ID,
       configuredTargets: [EVM_TARGET],
       signer: profileSigner({
         chainTarget: EVM_TARGET,
-        keyHandle: 'legacy-key-handle:ehss-key-shared',
+        keyHandle: 'invalid:key-handle',
       }),
     });
     expect(parsed).toEqual({
       kind: 'blocked',
       targetKey: 'evm:eip155:5042002',
-      reason: 'synthetic_legacy_key_id',
+      reason: 'invalid_key_handle',
       signerId: 'signer-evm:eip155:5042002',
     });
     const result = planUnlockEcdsaWarmup({
