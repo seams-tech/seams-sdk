@@ -3,10 +3,14 @@ import { errorMessage } from '@shared/utils/errors';
 import { normalizeJwtCookieSessionKind, stripTrailingSlashes } from '@shared/utils/normalize';
 import {
   requireAppSessionJwt,
-  requireThresholdSessionAuthToken,
-  type AppOrThresholdSessionAuth,
+  requireWalletSessionJwt,
+  type AppOrWalletSessionAuth,
   type CookieSessionAuth,
 } from '@shared/utils/sessionTokens';
+import {
+  ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1,
+} from '@shared/utils/routerAbEcdsaHss';
 import type { ThresholdRuntimePolicyScope } from '../../signingEngine/threshold/sessionPolicy';
 import {
   toWalletId,
@@ -165,6 +169,8 @@ export type ThresholdEcdsaHssRoleLocalBootstrapValue = {
   relayerKeyId: string;
   contextBinding32B64u: string;
   publicIdentity: EcdsaHssRoleLocalPublicIdentity;
+  clientShareRetryCounter: number;
+  relayerShareRetryCounter: number;
   publicTranscriptDigest32B64u: string;
   keyHandle: string;
   signingRootId: string;
@@ -241,7 +247,7 @@ type RawThresholdEcdsaHssRoleLocalRouteResponse<T> = {
 };
 
 export type ThresholdEcdsaHssRouteAuth =
-  | AppOrThresholdSessionAuth
+  | AppOrWalletSessionAuth
   | CookieSessionAuth
   | { kind: 'bootstrap_grant'; token: string }
   | { kind: 'publishable_key'; token: string };
@@ -293,6 +299,8 @@ const NON_EXPORT_BOOTSTRAP_RESPONSE_FIELDS = new Set([
   'relayerKeyId',
   'contextBinding32B64u',
   'publicIdentity',
+  'clientShareRetryCounter',
+  'relayerShareRetryCounter',
   'publicTranscriptDigest32B64u',
   'keyHandle',
   'signingRootId',
@@ -360,6 +368,14 @@ function parseThresholdEcdsaHssRoleLocalBootstrapValue(
       'contextBinding32B64u',
     ),
     publicIdentity: parseEcdsaHssRoleLocalPublicIdentity(record.publicIdentity),
+    clientShareRetryCounter: requireNonNegativeInteger(
+      record.clientShareRetryCounter,
+      'clientShareRetryCounter',
+    ),
+    relayerShareRetryCounter: requireNonNegativeInteger(
+      record.relayerShareRetryCounter,
+      'relayerShareRetryCounter',
+    ),
     publicTranscriptDigest32B64u: requireNonEmptyString(
       record.publicTranscriptDigest32B64u,
       'publicTranscriptDigest32B64u',
@@ -418,7 +434,7 @@ function parseThresholdEcdsaHssRoleLocalExportShareValue(
 function resolveBearerToken(auth?: ThresholdEcdsaHssRouteAuth): string {
   if (!auth || auth.kind === 'cookie') return '';
   if (auth.kind === 'app_session') return requireAppSessionJwt(auth.jwt);
-  if (auth.kind === 'threshold_session') return requireThresholdSessionAuthToken(auth.jwt);
+  if (auth.kind === 'threshold_session') return requireWalletSessionJwt(auth.jwt);
   return String(auth.token || '').trim();
 }
 
@@ -536,7 +552,7 @@ export async function thresholdEcdsaHssRoleLocalBootstrap(
           }
         : bodyBase;
     const response = await fetch(
-      `${base}/threshold-ecdsa/hss/bootstrap`,
+      `${base}${ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1}`,
       buildRelayRequestInit({
         auth: args.auth,
         sessionKind: args.sessionKind,
@@ -621,7 +637,7 @@ export async function thresholdEcdsaHssRoleLocalExportShare(
       clientSessionId: requireNonEmptyString(args.clientSessionId, 'clientSessionId'),
     };
     const response = await fetch(
-      `${base}/threshold-ecdsa/hss/export/share`,
+      `${base}${ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1}`,
       buildRelayRequestInit({
         auth: args.auth,
         sessionKind: args.sessionKind,

@@ -7,6 +7,11 @@ import { getPrfResultsFromCredential } from '../../webauthnAuth/credentials/cred
 import type { NearSigningKeyOps } from '../../interfaces/nearKeyOps';
 import type { WorkerOperationContext } from '../../workerManager/executeWorkerOperation';
 import {
+  ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2,
+  ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2,
+  ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2,
+} from '@shared/utils/signingSessionSeal';
+import {
   buildThresholdEd25519HssClientOwnedStagedEvaluatorArtifactWasm,
   buildThresholdEd25519SeedExportArtifactWasm,
   openThresholdEd25519HssClientOutputWasm,
@@ -601,7 +606,7 @@ export async function completeThresholdEd25519HssClientCeremony(args: {
 
 export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: {
   relayerUrl: string;
-  thresholdSessionAuthToken: string;
+  walletSessionJwt: string;
   relayerKeyId: string;
   operation: ThresholdEd25519HssSessionOperation;
   context: ThresholdEd25519HssCanonicalContext;
@@ -610,12 +615,12 @@ export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: 
   try {
     const startedAt = Date.now();
     const relayerUrl = stripTrailingSlashes(String(args.relayerUrl || '').trim());
-    const thresholdSessionAuthToken = String(args.thresholdSessionAuthToken || '').trim();
+    const walletSessionJwt = String(args.walletSessionJwt || '').trim();
     const relayerKeyId = String(args.relayerKeyId || '').trim();
     const operation = String(args.operation || '').trim();
     if (!relayerUrl) throw new Error('Missing relayerUrl for Ed25519 HSS server prepare');
-    if (!thresholdSessionAuthToken) {
-      throw new Error('Missing threshold session auth token for Ed25519 HSS server prepare');
+    if (!walletSessionJwt) {
+      throw new Error('Missing Wallet Session JWT for Ed25519 HSS server prepare');
     }
     if (!relayerKeyId) throw new Error('Missing relayerKeyId for Ed25519 HSS server prepare');
     if (!operation) throw new Error('Missing operation for Ed25519 HSS server prepare');
@@ -642,11 +647,11 @@ export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: 
     });
 
     const fetchStartedAt = Date.now();
-    const response = await fetch(`${relayerUrl}/threshold-ed25519/hss/prepare`, {
+    const response = await fetch(`${relayerUrl}${ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${thresholdSessionAuthToken}`,
+        Authorization: `Bearer ${walletSessionJwt}`,
       },
       credentials: 'omit',
       body: requestBody,
@@ -716,7 +721,7 @@ export async function prepareThresholdEd25519HssServerCeremonyWithSession(args: 
 
 export async function respondThresholdEd25519HssServerCeremonyWithSession(args: {
   relayerUrl: string;
-  thresholdSessionAuthToken: string;
+  walletSessionJwt: string;
   ceremonyHandle: string;
   contextBindingB64u: string;
   clientRequest: Pick<ThresholdEd25519HssClientRequestEnvelope, 'clientRequestMessageB64u'>;
@@ -725,11 +730,11 @@ export async function respondThresholdEd25519HssServerCeremonyWithSession(args: 
   try {
     const startedAt = Date.now();
     const relayerUrl = stripTrailingSlashes(String(args.relayerUrl || '').trim());
-    const thresholdSessionAuthToken = String(args.thresholdSessionAuthToken || '').trim();
+    const walletSessionJwt = String(args.walletSessionJwt || '').trim();
     const ceremonyHandle = String(args.ceremonyHandle || '').trim();
     if (!relayerUrl) throw new Error('Missing relayerUrl for Ed25519 HSS server respond');
-    if (!thresholdSessionAuthToken) {
-      throw new Error('Missing threshold session auth token for Ed25519 HSS server respond');
+    if (!walletSessionJwt) {
+      throw new Error('Missing Wallet Session JWT for Ed25519 HSS server respond');
     }
     if (!ceremonyHandle) throw new Error('Missing ceremonyHandle for Ed25519 HSS server respond');
     if (typeof fetch !== 'function') {
@@ -752,11 +757,11 @@ export async function respondThresholdEd25519HssServerCeremonyWithSession(args: 
     });
 
     const fetchStartedAt = Date.now();
-    const response = await fetch(`${relayerUrl}/threshold-ed25519/hss/respond`, {
+    const response = await fetch(`${relayerUrl}${ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${thresholdSessionAuthToken}`,
+        Authorization: `Bearer ${walletSessionJwt}`,
       },
       credentials: 'omit',
       body: requestBody,
@@ -818,7 +823,7 @@ export async function respondThresholdEd25519HssServerCeremonyWithSession(args: 
 
 export async function finalizeThresholdEd25519HssServerCeremonyWithSession(args: {
   relayerUrl: string;
-  thresholdSessionAuthToken: string;
+  walletSessionJwt: string;
   ceremonyHandle: string;
   contextBindingB64u: string;
   evaluationResult: ThresholdEd25519HssStagedEvaluatorArtifactEnvelope;
@@ -827,11 +832,11 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithSession(args:
   try {
     const startedAt = Date.now();
     const relayerUrl = stripTrailingSlashes(String(args.relayerUrl || '').trim());
-    const thresholdSessionAuthToken = String(args.thresholdSessionAuthToken || '').trim();
+    const walletSessionJwt = String(args.walletSessionJwt || '').trim();
     const ceremonyHandle = String(args.ceremonyHandle || '').trim();
     if (!relayerUrl) throw new Error('Missing relayerUrl for Ed25519 HSS server finalize');
-    if (!thresholdSessionAuthToken) {
-      throw new Error('Missing threshold session auth token for Ed25519 HSS server finalize');
+    if (!walletSessionJwt) {
+      throw new Error('Missing Wallet Session JWT for Ed25519 HSS server finalize');
     }
     if (!ceremonyHandle) throw new Error('Missing ceremonyHandle for Ed25519 HSS server finalize');
     if (typeof fetch !== 'function') {
@@ -851,11 +856,11 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithSession(args:
     };
 
     const fetchStartedAt = Date.now();
-    const response = await fetch(`${relayerUrl}/threshold-ed25519/hss/finalize`, {
+    const response = await fetch(`${relayerUrl}${ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${thresholdSessionAuthToken}`,
+        Authorization: `Bearer ${walletSessionJwt}`,
       },
       credentials: 'omit',
       body: requestBody,
@@ -914,7 +919,7 @@ export async function finalizeThresholdEd25519HssServerCeremonyWithSession(args:
 
 export async function runThresholdEd25519HssCeremonyWithSession(args: {
   relayerUrl: string;
-  thresholdSessionAuthToken: string;
+  walletSessionJwt: string;
   relayerKeyId: string;
   operation: ThresholdEd25519HssSessionOperation;
   context: ThresholdEd25519HssCanonicalContext;
@@ -926,7 +931,7 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
   const startedAt = Date.now();
   const prepared = await prepareThresholdEd25519HssServerCeremonyWithSession({
     relayerUrl: args.relayerUrl,
-    thresholdSessionAuthToken: args.thresholdSessionAuthToken,
+    walletSessionJwt: args.walletSessionJwt,
     relayerKeyId: args.relayerKeyId,
     operation: args.operation,
     context: args.context,
@@ -960,7 +965,7 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
 
   const responded = await respondThresholdEd25519HssServerCeremonyWithSession({
     relayerUrl: args.relayerUrl,
-    thresholdSessionAuthToken: args.thresholdSessionAuthToken,
+    walletSessionJwt: args.walletSessionJwt,
     ceremonyHandle: prepared.ceremonyHandle,
     contextBindingB64u: prepared.preparedSession.contextBindingB64u,
     clientRequest,
@@ -995,7 +1000,7 @@ export async function runThresholdEd25519HssCeremonyWithSession(args: {
 
   const finalized = await finalizeThresholdEd25519HssServerCeremonyWithSession({
     relayerUrl: args.relayerUrl,
-    thresholdSessionAuthToken: args.thresholdSessionAuthToken,
+    walletSessionJwt: args.walletSessionJwt,
     ceremonyHandle: prepared.ceremonyHandle,
     contextBindingB64u: prepared.preparedSession.contextBindingB64u,
     evaluationResult,

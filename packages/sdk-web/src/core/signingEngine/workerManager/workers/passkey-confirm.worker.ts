@@ -19,6 +19,7 @@ import { bytesToHex } from '../../chains/evm/bytes';
 import { resolveWasmUrl } from '@/core/walletRuntimePaths/wasm-loader';
 import { base64UrlDecode } from '@shared/utils/base64';
 import { secureRandomBase64Url } from '@shared/utils/secureRandomId';
+import { WALLET_SESSION_SEAL_BASE_PATH_V2 } from '@shared/utils/signingSessionSeal';
 import {
   joinNormalizedUrl,
   normalizeNonNegativeInteger,
@@ -63,7 +64,7 @@ type ErrResult = { ok: false; code: string; message: string };
 
 type SigningSessionSealTransport = {
   relayerUrl: string;
-  thresholdSessionAuthToken?: string;
+  walletSessionJwt?: string;
   keyVersion?: string;
   shamirPrimeB64u?: string;
 };
@@ -83,7 +84,7 @@ const signingSessionSealApplyInFlight = new Map<string, Promise<OkSealResult | E
 const signingSessionSealRemoveInFlight = new Map<string, Promise<OkResult | ErrResult>>();
 const ethSignerWasmUrl = resolveWasmUrl('eth_signer.wasm', 'Eth Signer');
 const hssClientSignerWasmUrl = resolveWasmUrl('hss_client_signer_bg.wasm', 'HSS Client Signer');
-const SIGNING_SESSION_SEAL_BASE_PATH = '/threshold/signing-session-seal';
+const SIGNING_SESSION_SEAL_BASE_PATH = WALLET_SESSION_SEAL_BASE_PATH_V2;
 type NearSeedExportWorkerPayload = Extract<
   ExportPrivateKeysWithUiWorkerPayload,
   { chain: 'near'; artifactKind: 'near-ed25519-seed-v1' }
@@ -269,15 +270,13 @@ function parseSigningSessionSealTransport(value: unknown): SigningSessionSealTra
   const transport = asRecord(value);
   if (!transport) return null;
   const relayerUrl = normalizeOptionalNonEmptyString(transport.relayerUrl);
-  const thresholdSessionAuthToken = normalizeOptionalNonEmptyString(
-    transport.thresholdSessionAuthToken,
-  );
+  const walletSessionJwt = normalizeOptionalNonEmptyString(transport.walletSessionJwt);
   const keyVersion = normalizeOptionalNonEmptyString(transport.keyVersion);
   const shamirPrimeB64u = normalizeOptionalNonEmptyString(transport.shamirPrimeB64u);
   if (!relayerUrl) return null;
   return {
     relayerUrl,
-    ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
+    ...(walletSessionJwt ? { walletSessionJwt } : {}),
     ...(keyVersion ? { keyVersion } : {}),
     ...(shamirPrimeB64u ? { shamirPrimeB64u } : {}),
   };
@@ -356,16 +355,14 @@ async function callSigningSessionSealRoute(args: {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
-    const thresholdSessionAuthToken = normalizeOptionalNonEmptyString(
-      args.transport.thresholdSessionAuthToken,
-    );
+    const walletSessionJwt = normalizeOptionalNonEmptyString(args.transport.walletSessionJwt);
     const keyVersion = normalizeOptionalNonEmptyString(args.keyVersion);
-    if (thresholdSessionAuthToken) {
-      headers.Authorization = `Bearer ${thresholdSessionAuthToken}`;
+    if (walletSessionJwt) {
+      headers.Authorization = `Bearer ${walletSessionJwt}`;
     }
     const response = await fetch(url, {
       method: 'POST',
-      credentials: thresholdSessionAuthToken ? 'omit' : 'include',
+      credentials: walletSessionJwt ? 'omit' : 'include',
       headers,
       body: JSON.stringify({
         thresholdSessionId: args.thresholdSessionId,

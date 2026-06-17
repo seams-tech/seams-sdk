@@ -121,7 +121,7 @@ test.describe('threshold-ecdsa authorization bootstrap request shape', () => {
     globalThis.fetch = async (input, init) => {
       const url = String(input);
       requests.push(url);
-      if (url.includes('/threshold-ecdsa/hss/bootstrap')) {
+      if (url.includes('/v1/hss/ecdsa/bootstrap')) {
         bootstrapBodies.push(JSON.parse(String(init?.body || '{}')) as Record<string, unknown>);
       }
       return new Response(

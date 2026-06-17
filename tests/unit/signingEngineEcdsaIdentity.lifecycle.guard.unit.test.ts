@@ -33,7 +33,7 @@ test.describe('signing engine ECDSA lifecycle identity guards', () => {
     ]);
     const offenders: string[] = [];
     const pattern =
-      /sessionId\?: string|walletSigningSessionId\?: string|thresholdSessionId\?: string|thresholdSessionAuth\?:(?!\s*never\b)|webauthnAuthentication\?:(?!\s*never\b)|clientRootShare32B64u\?:(?!\s*never\b)|warmRecord\?:|warmKeyRef\?:|reauthRecord\?:|emailOtpAuthContext\?:(?!\s*never\b)/;
+      /sessionId\?: string|walletSigningSessionId\?: string|thresholdSessionId\?: string|walletSessionRouteAuth\?:(?!\s*never\b)|webauthnAuthentication\?:(?!\s*never\b)|clientRootShare32B64u\?:(?!\s*never\b)|warmRecord\?:|warmKeyRef\?:|reauthRecord\?:|emailOtpAuthContext\?:(?!\s*never\b)/;
     for (const root of searchRoots) {
       for (const relativePath of listTsFiles(root)) {
         const source = readRepoFile(relativePath);
@@ -62,13 +62,12 @@ test.describe('signing engine ECDSA lifecycle identity guards', () => {
   test('ECDSA provision plans only come from builder modules', () => {
     const provisionPlanConstructionPatterns = [
       /return\s*{\s*kind:\s*'passkey_ecdsa_session_provision'/,
-      /return\s*{\s*kind:\s*'threshold_session_auth_ecdsa_reconnect'/,
-      /return\s*{\s*kind:\s*'cookie_ecdsa_reconnect'/,
+      /return\s*{\s*kind:\s*'wallet_session_ecdsa_reconnect'/,
       /return\s*{\s*kind:\s*'email_otp_ecdsa_session_provision'/,
     ];
     const builderCalls = [
       'buildPasskeyEcdsaSessionProvision',
-      'buildThresholdSessionAuthEcdsaReconnect',
+      'buildWalletSessionEcdsaReconnect',
       'buildEmailOtpEcdsaSessionProvision',
       'buildEcdsaSessionProvisionPlan',
     ];
@@ -188,10 +187,46 @@ test.describe('signing engine ECDSA lifecycle identity guards', () => {
       'metadata.thresholdOwnerAddress',
       'metadata.ownerAddress',
       'const records = inventory.records',
-      '/threshold-ecdsa/key-identities',
+      '/v1/hss/ecdsa/key-identities',
     ]) {
       if (loginSource.includes(forbidden)) {
         offenders.push(`login unlock path contains raw boundary token ${forbidden}`);
+      }
+    }
+
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  test('link-device and email-recovery ECDSA prepare parsers derive signing root from runtime policy scope', () => {
+    const parserTargets = [
+      {
+        relativePath: 'packages/sdk-web/src/SeamsWeb/operations/devices/linkDevice.ts',
+        functionName: 'parseLinkDeviceEcdsaPrepare',
+      },
+      {
+        relativePath: 'packages/sdk-web/src/SeamsWeb/operations/recovery/emailRecovery.ts',
+        functionName: 'parseEmailRecoveryEcdsaPrepare',
+      },
+    ];
+    const offenders: string[] = [];
+
+    for (const { relativePath, functionName } of parserTargets) {
+      const source = readRepoFile(relativePath);
+      const functionStart = source.indexOf(`function ${functionName}(`);
+      const openBraceIndex = source.indexOf('{', functionStart);
+      const block = findBalancedBlock(source, openBraceIndex);
+      if (!block) {
+        offenders.push(`${relativePath} missing ${functionName}`);
+        continue;
+      }
+      if (!block.includes('signingRootScopeFromRuntimePolicyScope(runtimePolicyScope)')) {
+        offenders.push(`${relativePath} ${functionName} does not derive signing root from scope`);
+      }
+      if (/\bvalue\.signingRoot(?:Id|Version)\b/.test(block)) {
+        offenders.push(`${relativePath} ${functionName} reads signing root from payload`);
+      }
+      if (!/\bruntimePolicyScope\s*,/.test(block)) {
+        offenders.push(`${relativePath} ${functionName} does not return runtimePolicyScope`);
       }
     }
 
@@ -291,7 +326,7 @@ test.describe('signing engine ECDSA lifecycle identity guards', () => {
     ]);
     const offenders: string[] = [];
     const pattern =
-      /kind:\s*'(passkey_ecdsa_activation|email_otp_ecdsa_activation|threshold_session_auth_reconnect|cookie_reconnect)'/;
+      /kind:\s*'(passkey_ecdsa_activation|email_otp_ecdsa_activation|wallet_session_reconnect)'/;
     for (const relativePath of listTsFiles('packages/sdk-web/src/core/signingEngine')) {
       if (relativePath.endsWith('.typecheck.ts')) continue;
       const source = readRepoFile(relativePath);
@@ -307,7 +342,7 @@ test.describe('signing engine ECDSA lifecycle identity guards', () => {
   test('strict activation/session state avoids cast escape hatches', () => {
     const offenders: string[] = [];
     const pattern =
-      /\bas (?:ThresholdEcdsaActivationRequest|ThresholdEcdsaPasskeyActivationRequest|ThresholdEcdsaEmailOtpActivationRequest|ThresholdEcdsaThresholdSessionAuthReconnectRequest|ThresholdEcdsaCookieReconnectRequest|PasskeyEcdsaActivation|EmailOtpEcdsaActivation|ThresholdSessionAuthEcdsaActivation|CookieEcdsaActivation|PreparedEvmFamilyEcdsaSigningSession|EcdsaSessionProvisionPlan)\b/;
+      /\bas (?:ThresholdEcdsaActivationRequest|ThresholdEcdsaPasskeyActivationRequest|ThresholdEcdsaEmailOtpActivationRequest|ThresholdEcdsaWalletSessionReconnectRequest|PasskeyEcdsaActivation|EmailOtpEcdsaActivation|WalletSessionEcdsaActivation|PreparedEvmFamilyEcdsaSigningSession|EcdsaSessionProvisionPlan)\b/;
     for (const relativePath of [
       ...listTsFiles('packages/sdk-web/src/core/signingEngine/session/passkey'),
       ...listTsFiles('packages/sdk-web/src/core/signingEngine/flows/signEvmFamily'),

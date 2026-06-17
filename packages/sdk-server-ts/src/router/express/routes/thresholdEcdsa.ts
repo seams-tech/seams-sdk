@@ -1,13 +1,8 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
 import type { ExpressRelayContext } from '../createRelayRouter';
 import type {
-  ThresholdEcdsaAuthorizeWithSessionRequest,
-  ThresholdEcdsaCosignFinalizeRequest,
-  ThresholdEcdsaCosignInitRequest,
-  ThresholdEcdsaPresignInitRequest,
-  ThresholdEcdsaPresignStepRequest,
-  ThresholdEcdsaSignFinalizeRequest,
-  ThresholdEcdsaSignInitRequest,
+  RouterAbEcdsaHssPoolFillInitRequest,
+  RouterAbEcdsaHssPoolFillStepRequest,
 } from '../../../core/types';
 import {
   parseAppSessionClaims,
@@ -23,12 +18,10 @@ import { thresholdEcdsaStatusCode } from '../../../threshold/statusCodes';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
 import {
   resolveThresholdRuntimePolicyScope,
-  signThresholdSessionAuthToken,
-  validateThresholdEcdsaAuthorizeInputs,
+  signWalletSessionJwt,
   validateThresholdEcdsaSessionInputs,
   validateThresholdEd25519SessionTokenInputs,
 } from '../../commonRouterUtils';
-import { validateRuntimeSnapshotExpectation } from '../../runtimeSnapshotConsumer';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
   computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32B64u,
@@ -36,6 +29,14 @@ import {
   computeEcdsaHssRoleLocalRelayerKeyId,
   computeEcdsaHssRoleLocalThresholdKeyId,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import {
+  ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1,
+} from '@shared/utils/routerAbEcdsaHss';
 import {
   signingRootScopeFromRuntimePolicyScope,
   type RuntimePolicyScope,
@@ -85,8 +86,10 @@ type PresignPriorityTicket = {
   release: () => void;
 };
 
-const PRESIGN_FORWARD_HOP_HEADER = 'x-threshold-ecdsa-presign-forward-hop';
-const PRESIGN_FORWARDED_BY_HEADER = 'x-threshold-ecdsa-presign-forwarded-by';
+const ROUTER_AB_ECDSA_HSS_POOL_FILL_FORWARD_HOP_HEADER =
+  'x-router-ab-ecdsa-hss-pool-fill-forward-hop';
+const ROUTER_AB_ECDSA_HSS_POOL_FILL_FORWARDED_BY_HEADER =
+  'x-router-ab-ecdsa-hss-pool-fill-forwarded-by';
 
 class PresignPriorityGate {
   private foregroundInFlight = 0;
@@ -303,22 +306,21 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
     ) {
       return { ok: false, code: 'identity_mismatch', message: 'signing root mismatch' };
     }
-    const expectedChallenge =
-      await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
-        walletId: request.walletId,
-        rpId: request.rpId,
-        ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
-        signingRootId: request.signingRootId,
-        signingRootVersion: request.signingRootVersion,
-        keyScope: request.keyScope,
-        relayerKeyId: request.relayerKeyId,
-        requestId: request.requestId,
-        sessionId: request.sessionId,
-        walletSigningSessionId: request.walletSigningSessionId,
-        ttlMs: request.ttlMs,
-        remainingUses: request.remainingUses,
-        participantIds: request.participantIds,
-      });
+    const expectedChallenge = await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
+      walletId: request.walletId,
+      rpId: request.rpId,
+      ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
+      signingRootId: request.signingRootId,
+      signingRootVersion: request.signingRootVersion,
+      keyScope: request.keyScope,
+      relayerKeyId: request.relayerKeyId,
+      requestId: request.requestId,
+      sessionId: request.sessionId,
+      walletSigningSessionId: request.walletSigningSessionId,
+      ttlMs: request.ttlMs,
+      remainingUses: request.remainingUses,
+      participantIds: request.participantIds,
+    });
     const verified = await ctx.service.verifyWebAuthnAuthenticationLite({
       nearAccountId: request.walletId,
       rpId: request.rpId,
@@ -501,8 +503,8 @@ export function registerThresholdEcdsaRoutes(
 ): void {
   ctx.logger.info('[threshold-ecdsa] routes', { enabled: Boolean(ctx.opts.threshold) });
 
-  router.get('/threshold-ecdsa/healthz', async (req: Request, res: Response) => {
-    await handle(ctx, req, res, '/threshold-ecdsa/healthz', {}, async () => {
+  router.get(ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1, async (req: Request, res: Response) => {
+    await handle(ctx, req, res, ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1, {}, async () => {
       const resolved = resolveThresholdScheme(
         ctx.opts.threshold,
         THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
@@ -519,8 +521,8 @@ export function registerThresholdEcdsaRoutes(
     });
   });
 
-  router.post('/threshold-ecdsa/key-identities', async (req: Request, res: Response) => {
-    await handle(ctx, req, res, '/threshold-ecdsa/key-identities', {}, async () => {
+  router.post(ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1, async (req: Request, res: Response) => {
+    await handle(ctx, req, res, ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1, {}, async () => {
       const validated = await validateThresholdEd25519SessionTokenInputs({
         body: req.body || {},
         headers: req.headers || {},
@@ -555,13 +557,13 @@ export function registerThresholdEcdsaRoutes(
     });
   });
 
-  router.post('/threshold-ecdsa/hss/bootstrap', async (req: Request, res: Response) => {
+  router.post(ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1, async (req: Request, res: Response) => {
     const body = req.body || {};
     await handle(
       ctx,
       req,
       res,
-      '/threshold-ecdsa/hss/bootstrap',
+      ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1,
       {
         walletId:
           typeof (body as { walletId?: unknown }).walletId === 'string'
@@ -615,7 +617,7 @@ export function registerThresholdEcdsaRoutes(
         }
         const bootstrap = await ctx.service.ecdsaHssRoleLocalBootstrap(parsed);
         if (!bootstrap.ok || parsed.sessionKind === 'cookie') return bootstrap;
-        const signed = await signThresholdSessionAuthToken({
+        const signed = await signWalletSessionJwt({
           session: ctx.opts.session,
           kind: 'threshold_ecdsa_session_v2',
           userId: parsed.walletId,
@@ -632,7 +634,8 @@ export function registerThresholdEcdsaRoutes(
           },
           fallbackParticipantIds: bootstrap.value.participantIds,
           requireJwtErrorMessage: 'threshold_ecdsa.session_kind must be jwt',
-          invalidPayloadErrorMessage: 'invalid thresholdEcdsa HSS bootstrap session payload for jwt signing',
+          invalidPayloadErrorMessage:
+            'invalid thresholdEcdsa HSS bootstrap session payload for jwt signing',
         });
         if (!signed.ok) {
           return { ok: false, code: signed.code, message: signed.message };
@@ -648,13 +651,13 @@ export function registerThresholdEcdsaRoutes(
     );
   });
 
-  router.post('/threshold-ecdsa/hss/export/share', async (req: Request, res: Response) => {
+  router.post(ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1, async (req: Request, res: Response) => {
     const body = req.body || {};
     await handle(
       ctx,
       req,
       res,
-      '/threshold-ecdsa/hss/export/share',
+      ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1,
       {
         walletId:
           typeof (body as { walletId?: unknown }).walletId === 'string'
@@ -708,53 +711,12 @@ export function registerThresholdEcdsaRoutes(
     );
   });
 
-  router.post('/threshold-ecdsa/authorize', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEcdsaAuthorizeWithSessionRequest;
-    await handle(
-      ctx,
-      req,
-      res,
-      '/threshold-ecdsa/authorize',
-      {
-        keyHandle: typeof body.keyHandle === 'string' ? body.keyHandle : undefined,
-        ecdsaThresholdKeyId:
-          typeof body.ecdsaThresholdKeyId === 'string' ? body.ecdsaThresholdKeyId : undefined,
-        purpose: typeof body.purpose === 'string' ? body.purpose : undefined,
-        signing_digest_32_len: Array.isArray(body.signing_digest_32)
-          ? body.signing_digest_32.length
-          : undefined,
-      },
-      async () => {
-        const resolved = resolveThresholdScheme(
-          ctx.opts.threshold,
-          THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-          {
-            notFoundMessage: 'threshold-ecdsa scheme is not enabled on this server',
-          },
-        );
-        if (!resolved.ok) return resolved;
-        const scheme = resolved.scheme;
-
-        const validated = await validateThresholdEcdsaAuthorizeInputs({
-          body: req.body,
-          headers: req.headers || {},
-          session: ctx.opts.session,
-        });
-        if (!validated.ok) return validated;
-        const runtimeSnapshotValidation = await validateRuntimeSnapshotExpectation({
-          runtimeSnapshots: ctx.opts.runtimeSnapshots,
-          scope: validated.claims.runtimePolicyScope,
-          expectationRaw: (validated.request as unknown as Record<string, unknown>).runtimeSnapshot,
-        });
-        if (!runtimeSnapshotValidation.ok) return runtimeSnapshotValidation;
-
-        return scheme.authorize({ claims: validated.claims, request: validated.request });
-      },
-    );
-  });
-
-  router.post('/threshold-ecdsa/presign/init', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEcdsaPresignInitRequest;
+  async function handleRouterAbEcdsaHssPoolFillInitRoute(
+    routePath: string,
+    req: Request,
+    res: Response,
+  ): Promise<void> {
+    const body = (req.body || {}) as RouterAbEcdsaHssPoolFillInitRequest;
     const requestTag = parsePresignRequestTag(body);
     const label = resolvePresignLogLabel(requestTag);
     const trafficClass = resolvePresignTrafficClass(requestTag);
@@ -764,7 +726,7 @@ export function registerThresholdEcdsaRoutes(
         ctx,
         req,
         res,
-        '/threshold-ecdsa/presign/init',
+        routePath,
         {
           keyHandle: typeof body.keyHandle === 'string' ? body.keyHandle : undefined,
           ecdsaThresholdKeyId:
@@ -794,16 +756,20 @@ export function registerThresholdEcdsaRoutes(
           });
           if (!validated.ok) return validated;
 
-          return scheme.presign.init({ claims: validated.claims, request: body });
+          return scheme.poolFill.init({ claims: validated.claims, request: body });
         },
       );
     } finally {
       gateTicket.release();
     }
-  });
+  }
 
-  router.post('/threshold-ecdsa/presign/step', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEcdsaPresignStepRequest;
+  async function handleRouterAbEcdsaHssPoolFillStepRoute(
+    routePath: string,
+    req: Request,
+    res: Response,
+  ): Promise<void> {
+    const body = (req.body || {}) as RouterAbEcdsaHssPoolFillStepRequest;
     const requestTag = parsePresignRequestTag(body);
     const label = resolvePresignLogLabel(requestTag);
     const trafficClass = resolvePresignTrafficClass(requestTag);
@@ -813,7 +779,7 @@ export function registerThresholdEcdsaRoutes(
         ctx,
         req,
         res,
-        '/threshold-ecdsa/presign/step',
+        routePath,
         {
           presignSessionId:
             typeof body.presignSessionId === 'string' ? body.presignSessionId : undefined,
@@ -849,12 +815,12 @@ export function registerThresholdEcdsaRoutes(
           const authorizationHeader = toOptionalHeaderString(headers.authorization);
           const cookieHeader = toOptionalHeaderString(headers.cookie);
           const forwardedHop = parseForwardHop(
-            toOptionalHeaderString(headers[PRESIGN_FORWARD_HOP_HEADER]),
+            toOptionalHeaderString(headers[ROUTER_AB_ECDSA_HSS_POOL_FILL_FORWARD_HOP_HEADER]),
           );
           const forwardedByInstanceId = toOptionalHeaderString(
-            headers[PRESIGN_FORWARDED_BY_HEADER],
+            headers[ROUTER_AB_ECDSA_HSS_POOL_FILL_FORWARDED_BY_HEADER],
           );
-          return scheme.presign.step({
+          return scheme.poolFill.step({
             claims: validated.claims,
             request: body,
             transport: {
@@ -869,132 +835,27 @@ export function registerThresholdEcdsaRoutes(
     } finally {
       gateTicket.release();
     }
-  });
+  }
 
-  router.post('/threshold-ecdsa/sign/init', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEcdsaSignInitRequest;
-    await handle(
-      ctx,
-      req,
-      res,
-      '/threshold-ecdsa/sign/init',
-      {
-        mpcSessionId: typeof body.mpcSessionId === 'string' ? body.mpcSessionId : undefined,
-        relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
-        signingDigestB64u_len:
-          typeof body.signingDigestB64u === 'string' ? body.signingDigestB64u.length : undefined,
-      },
-      async () => {
-        const resolved = resolveThresholdScheme(
-          ctx.opts.threshold,
-          THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-          {
-            notFoundMessage: 'threshold-ecdsa scheme is not enabled on this server',
-          },
-        );
-        if (!resolved.ok) return resolved;
-        return resolved.scheme.protocol.signInit(body);
-      },
-    );
-  });
+  router.post(
+    ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,
+    async (req: Request, res: Response) => {
+      await handleRouterAbEcdsaHssPoolFillInitRoute(
+        ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,
+        req,
+        res,
+      );
+    },
+  );
 
-  router.post('/threshold-ecdsa/sign/finalize', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEcdsaSignFinalizeRequest;
-    await handle(
-      ctx,
-      req,
-      res,
-      '/threshold-ecdsa/sign/finalize',
-      {
-        signingSessionId:
-          typeof body.signingSessionId === 'string' ? body.signingSessionId : undefined,
-      },
-      async () => {
-        const resolved = resolveThresholdScheme(
-          ctx.opts.threshold,
-          THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-          {
-            notFoundMessage: 'threshold-ecdsa scheme is not enabled on this server',
-          },
-        );
-        if (!resolved.ok) return resolved;
-        return resolved.scheme.protocol.signFinalize(body);
-      },
-    );
-  });
-
-  router.post('/threshold-ecdsa/internal/cosign/init', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEcdsaCosignInitRequest;
-    await handle(
-      ctx,
-      req,
-      res,
-      '/threshold-ecdsa/internal/cosign/init',
-      {
-        coordinatorGrant_len:
-          typeof body.coordinatorGrant === 'string' ? body.coordinatorGrant.length : undefined,
-        signingSessionId:
-          typeof body.signingSessionId === 'string' ? body.signingSessionId : undefined,
-        cosignerShareB64u_len:
-          typeof body.cosignerShareB64u === 'string' ? body.cosignerShareB64u.length : undefined,
-      },
-      async () => {
-        const resolved = resolveThresholdScheme(
-          ctx.opts.threshold,
-          THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-          {
-            notFoundMessage: 'threshold-ecdsa scheme is not enabled on this server',
-          },
-        );
-        if (!resolved.ok) return resolved;
-        const cosignInit = resolved.scheme.protocol.internalCosignInit;
-        if (!cosignInit) {
-          return {
-            ok: false,
-            code: 'not_found',
-            message: 'threshold-ecdsa cosigner endpoints are not enabled on this server',
-          };
-        }
-        return cosignInit(body);
-      },
-    );
-  });
-
-  router.post('/threshold-ecdsa/internal/cosign/finalize', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEcdsaCosignFinalizeRequest;
-    await handle(
-      ctx,
-      req,
-      res,
-      '/threshold-ecdsa/internal/cosign/finalize',
-      {
-        coordinatorGrant_len:
-          typeof body.coordinatorGrant === 'string' ? body.coordinatorGrant.length : undefined,
-        signingSessionId:
-          typeof body.signingSessionId === 'string' ? body.signingSessionId : undefined,
-        groupPublicKey_len:
-          typeof body.groupPublicKey === 'string' ? body.groupPublicKey.length : undefined,
-        cosignerIds_len: Array.isArray(body.cosignerIds) ? body.cosignerIds.length : undefined,
-      },
-      async () => {
-        const resolved = resolveThresholdScheme(
-          ctx.opts.threshold,
-          THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
-          {
-            notFoundMessage: 'threshold-ecdsa scheme is not enabled on this server',
-          },
-        );
-        if (!resolved.ok) return resolved;
-        const cosignFinalize = resolved.scheme.protocol.internalCosignFinalize;
-        if (!cosignFinalize) {
-          return {
-            ok: false,
-            code: 'not_found',
-            message: 'threshold-ecdsa cosigner endpoints are not enabled on this server',
-          };
-        }
-        return cosignFinalize(body);
-      },
-    );
-  });
+  router.post(
+    ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1,
+    async (req: Request, res: Response) => {
+      await handleRouterAbEcdsaHssPoolFillStepRoute(
+        ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1,
+        req,
+        res,
+      );
+    },
+  );
 }

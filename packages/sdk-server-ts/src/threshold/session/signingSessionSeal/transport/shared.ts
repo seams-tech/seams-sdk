@@ -1,4 +1,5 @@
 import { ensureLeadingSlash } from '@shared/utils/validation';
+import { WALLET_SESSION_SEAL_BASE_PATH_V2 } from '@shared/utils/signingSessionSeal';
 import type {
   SigningSessionSealApplyServerSealRequest,
   SigningSessionSealAuthorizeResult,
@@ -10,7 +11,7 @@ import type {
   SigningSessionSealSessionClaims,
 } from '../types';
 
-const DEFAULT_BASE_PATH = '/threshold/signing-session-seal';
+const DEFAULT_BASE_PATH = WALLET_SESSION_SEAL_BASE_PATH_V2;
 const THRESHOLD_SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false; code: 'invalid_body'; message: string };

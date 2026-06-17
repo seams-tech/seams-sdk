@@ -29,11 +29,13 @@ function makeThresholdSessionClaims(input?: { userId?: string; walletSigningSess
   const userId = input?.userId || USER_ID;
   const walletSigningSessionId = input?.walletSigningSessionId || 'wallet-signing-session-1';
   return {
-    kind: 'threshold_ecdsa_session_v1' as const,
+    kind: 'threshold_ecdsa_session_v2' as const,
     sub: userId,
     walletId: userId,
     sessionId: THRESHOLD_SESSION_ID,
     walletSigningSessionId,
+    keyScope: 'evm-family' as const,
+    keyHandle: 'ehss-key-seal-test',
     subjectId: userId,
     chainTarget: {
       kind: 'evm' as const,
@@ -164,7 +166,7 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/threshold/signing-session-seal/apply-server-seal`, {
+      const res = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(makeBody()),
@@ -211,12 +213,12 @@ test.describe('signing-session seal routes', () => {
     const srv = await startExpressRouter(router);
     try {
       const [applyA, applyB] = await Promise.all([
-        fetchJson(`${srv.baseUrl}/threshold/signing-session-seal/apply-server-seal`, {
+        fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(makeBody()),
         }),
-        fetchJson(`${srv.baseUrl}/threshold/signing-session-seal/apply-server-seal`, {
+        fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(makeBody()),
@@ -231,12 +233,12 @@ test.describe('signing-session seal routes', () => {
       expect(applyCalls).toBe(1);
 
       const [removeA, removeB] = await Promise.all([
-        fetchJson(`${srv.baseUrl}/threshold/signing-session-seal/remove-server-seal`, {
+        fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/remove-server-seal`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(makeBody()),
         }),
-        fetchJson(`${srv.baseUrl}/threshold/signing-session-seal/remove-server-seal`, {
+        fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/remove-server-seal`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(makeBody()),
@@ -254,7 +256,7 @@ test.describe('signing-session seal routes', () => {
     }
   });
 
-  test('service idempotency replays sequential duplicate apply requests', async () => {
+  test('service idempotency does not replay wallet-budget-backed sequential apply requests', async () => {
     let applyCalls = 0;
     const service = createSigningSessionSealService({
       sessionPolicy: makePolicy(),
@@ -263,7 +265,7 @@ test.describe('signing-session seal routes', () => {
           applyCalls += 1;
           return {
             ok: true,
-            ciphertext: `sealed:${input.ciphertext}`,
+            ciphertext: `sealed:${input.ciphertext}:${applyCalls}`,
           };
         },
         removeServerSeal: async (input) => ({
@@ -285,8 +287,9 @@ test.describe('signing-session seal routes', () => {
 
     expect(first.ok).toBe(true);
     expect(second.ok).toBe(true);
-    expect(second).toEqual(first);
-    expect(applyCalls).toBe(1);
+    expect(first).toMatchObject({ ciphertext: 'sealed:ciphertext-b64u:1' });
+    expect(second).toMatchObject({ ciphertext: 'sealed:ciphertext-b64u:2' });
+    expect(applyCalls).toBe(2);
   });
 
   test('service reports the shared wallet signing-session budget instead of curve-session uses', async () => {
@@ -465,7 +468,7 @@ test.describe('signing-session seal routes', () => {
     expect(removeCalls).toBe(2);
   });
 
-  test('service idempotency replays across service instances sharing the same store', async () => {
+  test('service idempotency does not replay wallet-budget-backed requests across service instances', async () => {
     let applyCalls = 0;
     const sharedStore = createInMemorySigningSessionSealIdempotencyStore();
     const makeService = () =>
@@ -476,7 +479,7 @@ test.describe('signing-session seal routes', () => {
             applyCalls += 1;
             return {
               ok: true,
-              ciphertext: `sealed:${input.ciphertext}`,
+              ciphertext: `sealed:${input.ciphertext}:${applyCalls}`,
             };
           },
           removeServerSeal: async (input) => ({
@@ -500,8 +503,9 @@ test.describe('signing-session seal routes', () => {
 
     expect(first.ok).toBe(true);
     expect(second.ok).toBe(true);
-    expect(second).toEqual(first);
-    expect(applyCalls).toBe(1);
+    expect(first).toMatchObject({ ciphertext: 'sealed:ciphertext-b64u:1' });
+    expect(second).toMatchObject({ ciphertext: 'sealed:ciphertext-b64u:2' });
+    expect(applyCalls).toBe(2);
   });
 
   test('service idempotency TTL expiry re-executes operation', async () => {
@@ -597,7 +601,7 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/threshold/signing-session-seal/apply-server-seal`, {
+      const res = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(makeBody()),
@@ -636,7 +640,7 @@ test.describe('signing-session seal routes', () => {
     const srv = await startExpressRouter(router);
     try {
       const res = await fetchJson(
-        `${srv.baseUrl}/threshold/signing-session-seal/remove-server-seal`,
+        `${srv.baseUrl}/v2/wallet-session/seal/remove-server-seal`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -670,14 +674,14 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const first = await fetchJson(`${srv.baseUrl}/threshold/signing-session-seal/apply-server-seal`, {
+      const first = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(makeBody()),
       });
       expect(first.status).toBe(200);
 
-      const second = await fetchJson(`${srv.baseUrl}/threshold/signing-session-seal/apply-server-seal`, {
+      const second = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(makeBody()),
@@ -704,7 +708,7 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/threshold/signing-session-seal/remove-server-seal`, {
+      const res = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/remove-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(makeBody()),
@@ -733,7 +737,7 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/threshold/signing-session-seal/apply-server-seal`, {
+      const res = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(makeBody()),
@@ -771,7 +775,7 @@ test.describe('signing-session seal routes', () => {
 
     const res = await callCf(handler, {
       method: 'POST',
-      path: '/threshold/signing-session-seal/remove-server-seal',
+      path: '/v2/wallet-session/seal/remove-server-seal',
       origin: FRONTEND_ORIGIN,
       body: makeBody(),
     });
@@ -808,7 +812,7 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const applied = await fetchJson(`${srv.baseUrl}/threshold/signing-session-seal/apply-server-seal`, {
+      const applied = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
@@ -824,7 +828,7 @@ test.describe('signing-session seal routes', () => {
       expect(applied.json?.ciphertext).not.toBe(plaintextCiphertextB64u);
 
       const removed = await fetchJson(
-        `${srv.baseUrl}/threshold/signing-session-seal/remove-server-seal`,
+        `${srv.baseUrl}/v2/wallet-session/seal/remove-server-seal`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -868,7 +872,7 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/threshold/signing-session-seal/remove-server-seal`, {
+      const res = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/remove-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
@@ -909,7 +913,7 @@ test.describe('signing-session seal routes', () => {
 
     const srv = await startExpressRouter(router);
     try {
-      const res = await fetchJson(`${srv.baseUrl}/threshold/signing-session-seal/apply-server-seal`, {
+      const res = await fetchJson(`${srv.baseUrl}/v2/wallet-session/seal/apply-server-seal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(

@@ -19,7 +19,8 @@ import {
   THRESHOLD_ED25519_HSS_DERIVATION_VERSION,
   THRESHOLD_ED25519_HSS_SIGNING_KEY_PURPOSE,
 } from '@/core/signingEngine/threshold/ed25519/hssClientBase';
-import type { AppOrThresholdSessionAuth } from '@shared/utils/sessionTokens';
+import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
+import { ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2 } from '@shared/utils/signingSessionSeal';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import { signingRootScopeFromRuntimePolicyScope } from '@shared/threshold/signingRootScope';
 import type {
@@ -91,7 +92,7 @@ export type ReconstructEmailOtpEd25519SessionArgs = Omit<
 > & {
   kind: 'session_ed25519_reconstruction';
   prfFirstB64u: string;
-  routeAuth: AppOrThresholdSessionAuth;
+  routeAuth: AppOrWalletSessionAuth;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   walletSigningSessionId: string;
   ecdsaThresholdSessionId: string;
@@ -203,7 +204,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
     remainingUses: input.remainingUses,
   });
   const minted = await postJsonExpectOk({
-    url: joinUrlPath(relayerUrl, '/threshold-ed25519/session'),
+    url: joinUrlPath(relayerUrl, ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2),
     headers: { Authorization: `Bearer ${routeAuthJwt}` },
     credentials: 'include',
     operation: 'Email OTP threshold-ed25519 session reconstruction mint',
@@ -232,7 +233,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
   }
   const completed = await runThresholdEd25519HssCeremonyWithSessionValue({
     relayerUrl,
-    thresholdSessionAuthToken: jwt,
+    walletSessionJwt: jwt,
     relayerKeyId,
     operation: 'warm_session_reconstruction',
     context: {
@@ -279,7 +280,7 @@ export async function reconstructEmailOtpEd25519Session(args: {
       walletId: String(nearAccountId),
       relayerUrl,
       walletSigningSessionId,
-      thresholdSessionAuthToken: jwt,
+      walletSessionJwt: jwt,
     },
   });
   await attachEd25519SessionToEmailOtpSigningSessionSealBestEffort({

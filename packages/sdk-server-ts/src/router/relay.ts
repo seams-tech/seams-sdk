@@ -30,7 +30,7 @@ import { normalizeJwtCookieSessionKind } from '@shared/utils/normalize';
 import { WALLET_EMAIL_OTP_EXPORT_OPERATION } from '@shared/utils/emailOtpDomain';
 import type { ApiCredentialScope } from '@shared/console/apiKeyScopes';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
-import type { RouterAbPublicKeysetV1 } from '@shared/utils/routerAbPublicKeyset';
+import type { RouterAbPublicKeysetV2 } from '@shared/utils/routerAbPublicKeyset';
 
 // Minimal session adapter interface expected by the routers.
 export type SessionClaims = Record<string, unknown>;
@@ -488,7 +488,7 @@ export interface RelayRouterOptions {
    * - POST `<basePath>/apply-server-seal`
    * - POST `<basePath>/remove-server-seal`
    *
-   * Default `basePath` is `/threshold/signing-session-seal`.
+   * Default `basePath` is `/v2/wallet-session/seal`.
    */
   signingSessionSeal?: SigningSessionSealRoutesOptions | null;
   /**
@@ -500,7 +500,7 @@ export interface RelayRouterOptions {
    * Optional Router A/B public deployment keyset served from public discovery
    * routes for self-hosted and local relay surfaces.
    */
-  routerAbPublicKeyset?: RouterAbPublicKeysetV1 | null;
+  routerAbPublicKeyset?: RouterAbPublicKeysetV2 | null;
   sponsoredEvmCall?: {
     route?: string;
     apiKeys: ConsoleApiKeyService;

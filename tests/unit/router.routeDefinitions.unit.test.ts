@@ -13,6 +13,12 @@ import {
   findRouteDefinitionForRequest,
   type RouteDefinition,
 } from '../../packages/sdk-server-ts/src/router/routeDefinitions';
+import {
+  ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1,
+} from '@shared/utils/routerAbEcdsaHss';
+import { WALLET_SESSION_SEAL_BASE_PATH_V2 } from '@shared/utils/signingSessionSeal';
 
 const THRESHOLD_CONTINUATION_ROUTE_IDS = [
   'threshold_ed25519_sign_init',
@@ -40,17 +46,9 @@ const ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS = [
   'link_device_ecdsa_respond',
   'email_recovery_prepare',
   'email_recovery_ecdsa_respond',
-  'threshold_ed25519_healthz',
-  'threshold_ed25519_session',
-  'threshold_ed25519_sign_init',
-  'threshold_ed25519_sign_finalize',
-  'threshold_ed25519_internal_cosign_init',
-  'threshold_ed25519_internal_cosign_finalize',
-  'threshold_ecdsa_healthz',
-  'threshold_ecdsa_sign_init',
-  'threshold_ecdsa_sign_finalize',
-  'threshold_ecdsa_internal_cosign_init',
-  'threshold_ecdsa_internal_cosign_finalize',
+  'router_ab_ed25519_healthz',
+  'router_ab_ed25519_wallet_session',
+  'router_ab_ecdsa_hss_healthz',
   'session_exchange',
   'wallet_unlock_challenge',
   'wallet_unlock_verify',
@@ -78,8 +76,8 @@ const ALLOWLISTED_PROOFLESS_PUBLIC_RELAY_ROUTE_IDS = [
   'link_device_session_claim',
   'link_device_prepare',
   'link_device_ecdsa_respond',
-  'threshold_ed25519_healthz',
-  'threshold_ecdsa_healthz',
+  'router_ab_ed25519_healthz',
+  'router_ab_ecdsa_hss_healthz',
   'recover_email',
 ] as const;
 
@@ -90,7 +88,7 @@ test.describe('route definition scaffolding', () => {
       enableSigningSessionSeal: true,
       enableReadyz: true,
       enableSponsoredEvmCall: true,
-      signingSessionSealBasePath: '/threshold/signing-session-seal',
+      signingSessionSealBasePath: WALLET_SESSION_SEAL_BASE_PATH_V2,
       sessionStatePath: '/session/state',
       signedDelegatePath: '/signed-delegate',
       sponsoredEvmCallPath: '/sponsorships/evm/call',
@@ -160,13 +158,7 @@ test.describe('route definition scaffolding', () => {
     });
     expect(signedDelegate?.metering).toEqual({ kind: 'gas', ledger: 'near_delegate' });
 
-    const thresholdSignInit = routes.find((route) => route.id === 'threshold_ecdsa_sign_init');
-    expect(thresholdSignInit).toBeTruthy();
-    expect(thresholdSignInit?.auth).toMatchObject({
-      plane: 'public',
-      proof: 'threshold_protocol_state',
-    });
-    expect(thresholdSignInit?.metering).toEqual({ kind: 'none' });
+    expect(routes.find((route) => route.id === 'threshold_ecdsa_sign_init')).toBeUndefined();
 
     const sessionState = routes.find((route) => route.id === 'session_state');
     expect(sessionState).toBeTruthy();
@@ -174,8 +166,16 @@ test.describe('route definition scaffolding', () => {
     expect(sessionState?.aliases).toBeUndefined();
 
     const routePaths = routes.map((route) => route.path);
-    expect(routePaths).toContain('/threshold-ecdsa/hss/bootstrap');
-    expect(routePaths).toContain('/threshold-ecdsa/hss/export/share');
+    expect(routePaths).toContain(ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1);
+    expect(routePaths).toContain(ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1);
+    expect(routePaths).toContain(ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1);
+    expect(routePaths).not.toContain('/threshold-ed25519/session');
+    expect(routePaths).not.toContain('/threshold-ed25519/internal/cosign/init');
+    expect(routePaths).not.toContain('/threshold-ed25519/internal/cosign/finalize');
+    expect(routePaths).not.toContain('/threshold-ecdsa/hss/bootstrap');
+    expect(routePaths).not.toContain('/threshold-ecdsa/hss/export/share');
+    expect(routePaths).not.toContain('/threshold-ecdsa/internal/cosign/init');
+    expect(routePaths).not.toContain('/threshold-ecdsa/internal/cosign/finalize');
     expect(routePaths).not.toContain('/threshold-ecdsa/hss/prepare');
     expect(routePaths).not.toContain('/threshold-ecdsa/hss/respond');
     expect(routePaths).not.toContain('/threshold-ecdsa/hss/finalize');
@@ -184,7 +184,7 @@ test.describe('route definition scaffolding', () => {
     expect(wellKnown?.aliases).toEqual(['/.well-known/webauthn/']);
 
     const prfApply = routes.find((route) => route.id === 'signing_session_seal_apply_server_seal');
-    expect(prfApply?.path).toBe('/threshold/signing-session-seal/apply-server-seal');
+    expect(prfApply?.path).toBe(`${WALLET_SESSION_SEAL_BASE_PATH_V2}/apply-server-seal`);
 
     const apiCredentialRoutes = routes.filter((route) => route.auth.plane === 'api_credentials');
     expect(apiCredentialRoutes.length).toBeGreaterThan(0);
@@ -220,17 +220,7 @@ test.describe('route definition scaffolding', () => {
         route.id as (typeof THRESHOLD_CONTINUATION_ROUTE_IDS)[number],
       ),
     );
-    expect(continuationRoutes.map((route) => route.id).sort()).toEqual(
-      [...THRESHOLD_CONTINUATION_ROUTE_IDS].sort(),
-    );
-    for (const route of continuationRoutes) {
-      expect(route.auth.plane).toBe('public');
-      if (route.auth.plane === 'public') {
-        expect(route.auth.proof).toBe('threshold_protocol_state');
-      }
-      expect(route.metering).toEqual({ kind: 'none' });
-      expect('scopes' in route.auth).toBe(false);
-    }
+    expect(continuationRoutes).toEqual([]);
 
     const publicRouteIds = publicRoutes.map((route) => route.id).sort();
     expect(publicRouteIds).toEqual([...ALLOWLISTED_PUBLIC_RELAY_ROUTE_IDS].sort());

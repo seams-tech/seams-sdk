@@ -1,30 +1,28 @@
 import type { Request, Response, Router as ExpressRouter } from 'express';
 import type { ExpressRelayContext } from '../createRelayRouter';
 import type {
-  ThresholdEd25519CosignFinalizeRequest,
-  ThresholdEd25519CosignInitRequest,
   ThresholdEd25519HssFinalizeWithSessionRequest,
   ThresholdEd25519HssPrepareWithSessionRequest,
   ThresholdEd25519HssRespondWithSessionRequest,
-  ThresholdEd25519SignFinalizeRequest,
-  ThresholdEd25519SignInitRequest,
   ThresholdEd25519SessionRequest,
 } from '../../../core/types';
+import {
+  ROUTER_AB_ED25519_HEALTH_PATH_V2,
+  ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2,
+  ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2,
+  ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2,
+  ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2,
+} from '@shared/utils/signingSessionSeal';
 import { thresholdEd25519StatusCode } from '../../../threshold/statusCodes';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
 import {
   resolveThresholdRuntimePolicyScope,
-  validateThresholdEd25519AuthorizeInputs,
   validateThresholdEd25519SessionTokenInputs,
 } from '../../commonRouterUtils';
 import {
   parseAppSessionClaims,
   parseThresholdEcdsaSessionClaims,
-  parseThresholdEd25519FinalizeAndDispatchRequest,
-  parseThresholdEd25519PresignRefillRequest,
 } from '../../../core/ThresholdService/validation';
-import { resolveRequestOriginRateLimitKeyFromExpressRequest } from '../../relayApiKeyAuth';
-import { validateRuntimeSnapshotExpectation } from '../../runtimeSnapshotConsumer';
 import { THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID } from '../../../core/ThresholdService/schemes/schemeIds';
 import { normalizeCorsOrigin } from '../../../core/SessionService';
 
@@ -184,8 +182,8 @@ export function registerThresholdEd25519Routes(
 
   // Threshold Ed25519 (2-party) routes (scaffolding).
   // These routes establish the relayer as a co-signer and will eventually run a 2-round FROST flow.
-  router.get('/threshold-ed25519/healthz', async (req: Request, res: Response) => {
-    await handle(ctx, req, res, '/threshold-ed25519/healthz', {}, async () => {
+  router.get(ROUTER_AB_ED25519_HEALTH_PATH_V2, async (req: Request, res: Response) => {
+    await handle(ctx, req, res, ROUTER_AB_ED25519_HEALTH_PATH_V2, {}, async () => {
       const resolved = resolveThresholdScheme(
         ctx.opts.threshold,
         THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
@@ -200,13 +198,13 @@ export function registerThresholdEd25519Routes(
     });
   });
 
-  router.post('/threshold-ed25519/session', async (req: Request, res: Response) => {
+  router.post(ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2, async (req: Request, res: Response) => {
     const body = (req.body || {}) as ThresholdEd25519SessionRequest;
     await handle(
       ctx,
       req,
       res,
-      '/threshold-ed25519/session',
+      ROUTER_AB_ED25519_WALLET_SESSION_PATH_V2,
       {
         relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
         sessionPolicy: body.sessionPolicy ? { version: body.sessionPolicy.version } : undefined,
@@ -354,66 +352,14 @@ export function registerThresholdEd25519Routes(
     );
   });
 
-  router.post('/threshold-ed25519/authorize', async (req: Request, res: Response) => {
+  router.post(ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2, async (req: Request, res: Response) => {
     const bodyUnknown = (req.body || {}) as unknown;
     const body = (bodyUnknown || {}) as Record<string, unknown>;
     await handle(
       ctx,
       req,
       res,
-      '/threshold-ed25519/authorize',
-      {
-        relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
-        purpose: typeof body.purpose === 'string' ? body.purpose : undefined,
-        signing_digest_32_len: Array.isArray(body.signing_digest_32)
-          ? body.signing_digest_32.length
-          : undefined,
-      },
-      async () => {
-        const threshold = ctx.opts.threshold;
-        if (!threshold) {
-          return {
-            ok: false,
-            code: 'threshold_disabled',
-            message: 'Threshold signing is not configured on this server',
-          };
-        }
-
-        const validated = await validateThresholdEd25519AuthorizeInputs({
-          body: bodyUnknown,
-          headers: req.headers || {},
-          session: ctx.opts.session,
-        });
-        if (!validated.ok) return validated;
-        const runtimeSnapshotValidation = await validateRuntimeSnapshotExpectation({
-          runtimeSnapshots: ctx.opts.runtimeSnapshots,
-          scope: validated.claims.runtimePolicyScope,
-          expectationRaw: (validated.request as unknown as Record<string, unknown>).runtimeSnapshot,
-        });
-        if (!runtimeSnapshotValidation.ok) return runtimeSnapshotValidation;
-
-        const resolved = resolveThresholdScheme(
-          ctx.opts.threshold,
-          THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
-          {
-            notFoundMessage: 'threshold-ed25519 scheme is not enabled on this server',
-          },
-        );
-        if (!resolved.ok) return resolved;
-
-        return resolved.scheme.authorize({ claims: validated.claims, request: validated.request });
-      },
-    );
-  });
-
-  router.post('/threshold-ed25519/hss/prepare', async (req: Request, res: Response) => {
-    const bodyUnknown = (req.body || {}) as unknown;
-    const body = (bodyUnknown || {}) as Record<string, unknown>;
-    await handle(
-      ctx,
-      req,
-      res,
-      '/threshold-ed25519/hss/prepare',
+      ROUTER_AB_ED25519_HSS_PREPARE_PATH_V2,
       {
         relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
         keyPurpose:
@@ -465,14 +411,14 @@ export function registerThresholdEd25519Routes(
     );
   });
 
-  router.post('/threshold-ed25519/hss/finalize', async (req: Request, res: Response) => {
+  router.post(ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2, async (req: Request, res: Response) => {
     const bodyUnknown = (req.body || {}) as unknown;
     const body = (bodyUnknown || {}) as Record<string, unknown>;
     await handle(
       ctx,
       req,
       res,
-      '/threshold-ed25519/hss/finalize',
+      ROUTER_AB_ED25519_HSS_FINALIZE_PATH_V2,
       {
         relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
         keyPurpose:
@@ -593,14 +539,14 @@ export function registerThresholdEd25519Routes(
     );
   });
 
-  router.post('/threshold-ed25519/hss/respond', async (req: Request, res: Response) => {
+  router.post(ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2, async (req: Request, res: Response) => {
     const bodyUnknown = (req.body || {}) as unknown;
     const body = (bodyUnknown || {}) as Record<string, unknown>;
     await handle(
       ctx,
       req,
       res,
-      '/threshold-ed25519/hss/respond',
+      ROUTER_AB_ED25519_HSS_RESPOND_PATH_V2,
       {
         ceremonyHandle: typeof body.ceremonyHandle === 'string' ? body.ceremonyHandle : undefined,
       },
@@ -638,248 +584,4 @@ export function registerThresholdEd25519Routes(
       },
     );
   });
-
-  router.post('/threshold-ed25519/sign/init', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEd25519SignInitRequest;
-    await handle(
-      ctx,
-      req,
-      res,
-      '/threshold-ed25519/sign/init',
-      {
-        mpcSessionId: typeof body.mpcSessionId === 'string' ? body.mpcSessionId : undefined,
-        relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
-        nearAccountId: typeof body.nearAccountId === 'string' ? body.nearAccountId : undefined,
-        signingDigestB64u_len:
-          typeof body.signingDigestB64u === 'string' ? body.signingDigestB64u.length : undefined,
-      },
-      async () => {
-        const resolved = resolveThresholdScheme(
-          ctx.opts.threshold,
-          THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
-          {
-            notFoundMessage: 'threshold-ed25519 scheme is not enabled on this server',
-          },
-        );
-        if (!resolved.ok) return resolved;
-        return resolved.scheme.protocol.signInit(body);
-      },
-    );
-  });
-
-  router.post('/threshold-ed25519/presign/refill', async (req: Request, res: Response) => {
-    const bodyUnknown = (req.body || {}) as unknown;
-    const body = (bodyUnknown || {}) as Record<string, unknown>;
-    await handle(
-      ctx,
-      req,
-      res,
-      '/threshold-ed25519/presign/refill',
-      {
-        relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
-        nearAccountId: typeof body.nearAccountId === 'string' ? body.nearAccountId : undefined,
-        nearNetworkId: typeof body.nearNetworkId === 'string' ? body.nearNetworkId : undefined,
-        clientPresignCount: Array.isArray(body.clientPresigns)
-          ? body.clientPresigns.length
-          : undefined,
-        requestTag: typeof body.requestTag === 'string' ? body.requestTag : undefined,
-      },
-      async () => {
-        const resolved = resolveThresholdScheme(
-          ctx.opts.threshold,
-          THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
-          {
-            notFoundMessage: 'threshold-ed25519 scheme is not enabled on this server',
-          },
-        );
-        if (!resolved.ok) return resolved;
-        const validated = await validateThresholdEd25519SessionTokenInputs({
-          body: bodyUnknown,
-          headers: req.headers || {},
-          session: ctx.opts.session,
-        });
-        if (!validated.ok) return validated;
-        const parsed = parseThresholdEd25519PresignRefillRequest(validated.body);
-        if (!parsed.ok) return parsed;
-        return resolved.scheme.presign.refill({
-          claims: validated.claims,
-          request: parsed.value,
-          requestOriginRateLimitKey: resolveRequestOriginRateLimitKeyFromExpressRequest({
-            headers: (req.headers || {}) as Record<string, unknown>,
-            ip: (req as { ip?: string | null }).ip,
-          }),
-        });
-      },
-    );
-  });
-
-  router.post('/threshold-ed25519/sign/finalize', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEd25519SignFinalizeRequest;
-    await handle(
-      ctx,
-      req,
-      res,
-      '/threshold-ed25519/sign/finalize',
-      {
-        signingSessionId:
-          typeof body.signingSessionId === 'string' ? body.signingSessionId : undefined,
-        clientSignatureShareB64u_len:
-          typeof body.clientSignatureShareB64u === 'string'
-            ? body.clientSignatureShareB64u.length
-            : undefined,
-      },
-      async () => {
-        const resolved = resolveThresholdScheme(
-          ctx.opts.threshold,
-          THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
-          {
-            notFoundMessage: 'threshold-ed25519 scheme is not enabled on this server',
-          },
-        );
-        if (!resolved.ok) return resolved;
-        return resolved.scheme.protocol.signFinalize(body);
-      },
-    );
-  });
-
-  router.post(
-    '/threshold-ed25519/sign/finalize-and-dispatch',
-    async (req: Request, res: Response) => {
-      const bodyUnknown = (req.body || {}) as unknown;
-      const body = (bodyUnknown || {}) as Record<string, unknown>;
-      const operation =
-        body.operation && typeof body.operation === 'object' && !Array.isArray(body.operation)
-          ? (body.operation as Record<string, unknown>)
-          : {};
-      const intent =
-        body.intent && typeof body.intent === 'object' && !Array.isArray(body.intent)
-          ? (body.intent as Record<string, unknown>)
-          : {};
-      await handle(
-        ctx,
-        req,
-        res,
-        '/threshold-ed25519/sign/finalize-and-dispatch',
-        {
-          kind: typeof body.kind === 'string' ? body.kind : undefined,
-          operationId:
-            typeof operation.operationId === 'string' ? operation.operationId : undefined,
-          presignId: typeof body.presignId === 'string' ? body.presignId : undefined,
-          relayerKeyId: typeof body.relayerKeyId === 'string' ? body.relayerKeyId : undefined,
-          nearAccountId: typeof body.nearAccountId === 'string' ? body.nearAccountId : undefined,
-          nearNetworkId: typeof body.nearNetworkId === 'string' ? body.nearNetworkId : undefined,
-          intentKind: typeof intent.kind === 'string' ? intent.kind : undefined,
-          transactionCount: Array.isArray(body.transactions) ? body.transactions.length : undefined,
-          signingDigestB64u_len:
-            typeof body.signingDigestB64u === 'string' ? body.signingDigestB64u.length : undefined,
-          clientSignatureShareB64u_len:
-            typeof body.clientSignatureShareB64u === 'string'
-              ? body.clientSignatureShareB64u.length
-              : undefined,
-        },
-        async () => {
-          const resolved = resolveThresholdScheme(
-            ctx.opts.threshold,
-            THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
-            {
-              notFoundMessage: 'threshold-ed25519 scheme is not enabled on this server',
-            },
-          );
-          if (!resolved.ok) return resolved;
-          const validated = await validateThresholdEd25519SessionTokenInputs({
-            body: bodyUnknown,
-            headers: req.headers || {},
-            session: ctx.opts.session,
-          });
-          if (!validated.ok) return validated;
-          const parsed = parseThresholdEd25519FinalizeAndDispatchRequest(validated.body);
-          if (!parsed.ok) return parsed;
-          return resolved.scheme.presign.finalizeAndDispatch({
-            claims: validated.claims,
-            request: parsed.value,
-          });
-        },
-      );
-    },
-  );
-
-  // Low-level cosign continuation route. It is intentionally auth-free and
-  // relies on threshold protocol state plus the coordinator grant payload.
-  router.post('/threshold-ed25519/internal/cosign/init', async (req: Request, res: Response) => {
-    const body = (req.body || {}) as ThresholdEd25519CosignInitRequest;
-    await handle(
-      ctx,
-      req,
-      res,
-      '/threshold-ed25519/internal/cosign/init',
-      {
-        coordinatorGrant_len:
-          typeof body.coordinatorGrant === 'string' ? body.coordinatorGrant.length : undefined,
-        signingSessionId:
-          typeof body.signingSessionId === 'string' ? body.signingSessionId : undefined,
-        cosignerShareB64u_len:
-          typeof body.cosignerShareB64u === 'string' ? body.cosignerShareB64u.length : undefined,
-      },
-      async () => {
-        const resolved = resolveThresholdScheme(
-          ctx.opts.threshold,
-          THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
-          {
-            notFoundMessage: 'threshold-ed25519 scheme is not enabled on this server',
-          },
-        );
-        if (!resolved.ok) return resolved;
-
-        const cosignInit = resolved.scheme.protocol.internalCosignInit;
-        if (!cosignInit) {
-          return {
-            ok: false,
-            code: 'not_found',
-            message: 'threshold-ed25519 cosigner endpoints are not enabled on this server',
-          };
-        }
-        return cosignInit(body);
-      },
-    );
-  });
-
-  router.post(
-    '/threshold-ed25519/internal/cosign/finalize',
-    async (req: Request, res: Response) => {
-      const body = (req.body || {}) as ThresholdEd25519CosignFinalizeRequest;
-      await handle(
-        ctx,
-        req,
-        res,
-        '/threshold-ed25519/internal/cosign/finalize',
-        {
-          coordinatorGrant_len:
-            typeof body.coordinatorGrant === 'string' ? body.coordinatorGrant.length : undefined,
-          signingSessionId:
-            typeof body.signingSessionId === 'string' ? body.signingSessionId : undefined,
-          cosignerIds_len: Array.isArray(body.cosignerIds) ? body.cosignerIds.length : undefined,
-        },
-        async () => {
-          const resolved = resolveThresholdScheme(
-            ctx.opts.threshold,
-            THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
-            {
-              notFoundMessage: 'threshold-ed25519 scheme is not enabled on this server',
-            },
-          );
-          if (!resolved.ok) return resolved;
-
-          const cosignFinalize = resolved.scheme.protocol.internalCosignFinalize;
-          if (!cosignFinalize) {
-            return {
-              ok: false,
-              code: 'not_found',
-              message: 'threshold-ed25519 cosigner endpoints are not enabled on this server',
-            };
-          }
-          return cosignFinalize(body);
-        },
-      );
-    },
-  );
 }

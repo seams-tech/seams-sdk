@@ -2,11 +2,11 @@
 
 Date created: June 16, 2026
 
-Status: local signing cleanup review-ready, with one remaining local API
-architecture cleanup phase now open for the threshold-era lifecycle endpoints.
-Ed25519 and ECDSA signatures are signed only through Router A/B in the active
-SDK/server signing paths. Remaining Cloudflare deployed-runtime checks are
-tracked separately in Phase 16 as the post-deployment release tail.
+Status: local signing cleanup review-ready. The public threshold-era lifecycle
+endpoint migration is implemented locally, and Ed25519/ECDSA signatures are
+signed only through Router A/B in the active SDK/server signing paths. Remaining
+Cloudflare deployed-runtime checks are tracked separately in Phase 16 as the
+post-deployment release tail.
 
 Primary plans:
 
@@ -45,12 +45,8 @@ ECDSA live presign refill requires Router A/B `poolFill`; the retained
 cleanup surfaces. Server Wallet Session record storage is now named through
 `WalletSessionStore` types, factories, parser names, and tests.
 
-Remaining local cleanup work:
+Remaining cleanup work:
 
-- Phase 15.5 owns the remaining `/threshold-ed25519/*` and
-  `/threshold-ecdsa/*` lifecycle endpoints that are not old product signing
-  finalizers, but still expose threshold-era public API names and can mint or
-  hydrate signing-capable state.
 - Post-deployment Cloudflare browser/runtime evidence is tracked in Phase 16.
 
 Current Router A/B private worker routes such as
@@ -61,10 +57,6 @@ gets a new durable wire version.
 
 Current deletion blockers:
 
-- Phase 15.5 must classify each remaining threshold lifecycle endpoint as
-  deleted, Router A/B public, private service-bound, or persistence/request
-  boundary only. No endpoint should keep a threshold-era public route name if it
-  can mint, hydrate, export, or continue signing-capable state.
 - Post-deployment Cloudflare browser/runtime evidence remains the production
   release-tail blocker in Phase 16.
 
@@ -2638,12 +2630,13 @@ Safety constraints for this phase:
 ## Phase 15.5: Remaining Threshold Lifecycle Endpoint Migration
 
 The earlier cleanup phases deleted the old public signing and presign routes.
-This phase owns the remaining `/threshold-ed25519/*` and `/threshold-ecdsa/*`
-lifecycle endpoints. These routes are not the old product signing finalizers,
-but several of them still mint sessions, bootstrap HSS state, resolve key
-identity, export server-side material, or continue protocol state. That means
-they can still create Router A/B-incomplete signing state, as seen in the
-current wallet-unlock regressions.
+This phase owns the remaining `/threshold-ed25519/*`, `/threshold-ecdsa/*`, and
+`/threshold/signing-session-seal/*` lifecycle endpoints. These routes are not
+the old product signing finalizers, but several of them still mint sessions,
+bootstrap HSS state, resolve key identity, seal or unseal signing-session
+state, export server-side material, or continue protocol state. That means they
+can still create Router A/B-incomplete signing state, as seen in the
+wallet-unlock regressions.
 
 Start this before treating local cleanup as complete for deployment. The goal is
 to make the public API read as Router A/B and Wallet Session architecture from
@@ -2654,13 +2647,26 @@ Safety constraints for this phase:
 - Do not delete a lifecycle endpoint until every active SDK/server caller has a
   Router A/B-compatible replacement route, typed request builder, parser, and
   focused test.
+- A signing-capable lane is sign-ready only when the normalized runtime record
+  has Router A/B normal-signing state, Wallet Session auth material, SigningWorker
+  identity, runtime scope, threshold session id, wallet signing-session id, and
+  curve-specific public identity. Lane selection must reject stale runtime or
+  sealed records before final signing code is reached.
 - Signing-capable Ed25519 session responses must include
   `routerAbNormalSigning`, runtime-policy scope, SigningWorker identity, and a
   bearer Wallet Session JWT. A route that cannot provide those fields must fail
   before the SDK stores a signable record.
 - Signing-capable ECDSA-HSS records must include
   `routerAbEcdsaHssNormalSigning` with stable key context, public identity,
-  SigningWorker identity, activation epoch, and normalized participants.
+  SigningWorker identity, activation epoch, normalized participants, and Wallet
+  Session JWT auth material. A bootstrap, restore, activation, or sealed-refresh
+  path that cannot provide those fields must produce a non-signable
+  compatibility record or fail before persistence.
+- Signing-session seal routes must not be able to write or hydrate a signable
+  Ed25519/ECDSA record unless the sealed payload already carries the
+  curve-specific Router A/B state and Wallet Session auth material required
+  above. Seal apply/remove remains a persistence boundary only until it is
+  renamed to Wallet Session terminology.
 - Public routes that remain must be Router A/B or Wallet Session routes with
   strict WebAuthn or bearer Wallet Session proof. Cookie auth and diagnostics
   must not select signing behavior.
@@ -2686,67 +2692,140 @@ Endpoint review and intended refactor:
 | `POST /threshold-ed25519/hss/finalize` | Ed25519 HSS ceremony finalization step. | Replace with the Router A/B Ed25519 HSS lifecycle finalizer. The finalizer must either persist a Router A/B-ready Ed25519 record or fail. Add a regression test for wallet unlock followed by NEAR transaction signing where the persisted record contains `routerAbNormalSigning` before any sign flow runs. |
 | `POST /threshold-ed25519/internal/cosign/init` | Public route labelled internal, currently gated by threshold protocol state. | Audit callers. If still required, move to a private service-bound Router A/B worker route or module-local helper. If obsolete, delete route definitions, Express/Cloudflare handlers, CORS entries, route docs, and tests. Add a source guard that rejects public `/threshold-ed25519/internal/cosign/*` route registration. |
 | `POST /threshold-ed25519/internal/cosign/finalize` | Public route labelled internal, currently gated by threshold protocol state. | Same as cosign init. The replacement must prove no client-origin public route can drive cosign continuation without Router A/B service auth and transcript binding. |
+| `POST /threshold/signing-session-seal/apply-server-seal` | Public sealed-refresh route that applies server-held seal material to signing-session state. It can hydrate state used by later signing readiness. | Rename or wrap behind a Wallet Session sealed-refresh namespace, for example `POST /v2/wallet-session/seal/apply`, or fold into Wallet Session issuance/recovery. The request parser must bind wallet id, curve, threshold session id, wallet signing-session id, retention policy, and Wallet Session auth. The service must reject attempts to seal signable records missing Ed25519 `routerAbNormalSigning` or ECDSA `routerAbEcdsaHssNormalSigning` plus Wallet Session JWT auth material. Keep the threshold-named route only as a request/persistence compatibility boundary with a deletion condition. |
+| `POST /threshold/signing-session-seal/remove-server-seal` | Public sealed-refresh route that removes server-held seal material for signing-session state. | Rename or wrap with the same Wallet Session sealed-refresh namespace as apply. It must prove exact wallet/session ownership, reject cross-user or stale removal, and avoid changing signing readiness based on diagnostics or optional auth. Delete the threshold-named route once workers, tests, route docs, and CORS inventories use the Wallet Session route. |
 | `GET /threshold-ecdsa/healthz` | Public health probe for the threshold ECDSA service. | Rename or consolidate behind the Router A/B health route. Delete the threshold-named route once scripts and tests use the Router A/B health endpoint. |
 | `POST /threshold-ecdsa/key-identities` | Resolves ECDSA key identities for an active Ed25519 session. | Replace with a Router A/B ECDSA-HSS identity route or fold the identity lookup into registration/bootstrap and activation refresh responses. The public response should use public identity, stable key context, activation epoch, SigningWorker identity, and keyset version terms. Avoid exposing legacy `relayerKeyId` or local server-share identifiers outside a parser boundary. |
-| `POST /threshold-ecdsa/hss/bootstrap` | ECDSA-HSS role-local bootstrap route. | Replace active SDK usage with the strict Router A/B ECDSA-HSS registration/bootstrap route described in `router-a-b-ecdsa.md`. The new route must route Deriver A/B through Router A/B, activate the SigningWorker, and persist `routerAbEcdsaHssNormalSigning`. The SDK bootstrap parser must reject any signing-capable ECDSA record that lacks Router A/B ECDSA-HSS normal-signing state. |
+| `POST /threshold-ecdsa/hss/bootstrap` | ECDSA-HSS role-local bootstrap route. | Replace active SDK usage with the strict Router A/B ECDSA-HSS registration/bootstrap route described in `router-a-b-ecdsa.md`. The new route must route Deriver A/B through Router A/B, activate the SigningWorker, and persist `routerAbEcdsaHssNormalSigning` plus Wallet Session JWT auth material. The SDK bootstrap parser must reject any signing-capable ECDSA record that lacks Router A/B ECDSA-HSS normal-signing state, Wallet Session auth, or active SigningWorker identity. |
 | `POST /threshold-ecdsa/hss/export/share` | Releases an authorized ECDSA-HSS server-side export share. | Replace with the Router A/B ECDSA-HSS export route. Scope it by Wallet Session JWT, export request id, recipient class, public identity, activation epoch, and explicit user intent. Keep any legacy field conversion only inside the export request parser, then delete the threshold-named public route after SDK export callers move. |
 | `POST /threshold-ecdsa/internal/cosign/init` | Public route labelled internal, currently gated by threshold protocol state. | Audit callers and either delete it or move it behind private Router A/B service auth. The route must not remain public if it can influence ECDSA signing, presignature generation, or server-share state. |
 | `POST /threshold-ecdsa/internal/cosign/finalize` | Public route labelled internal, currently gated by threshold protocol state. | Same as ECDSA cosign init. Add tests that the public router no longer registers `/threshold-ecdsa/internal/cosign/*` once the replacement is wired. |
 
 Implementation checklist:
 
-- [ ] Build a caller inventory for every endpoint above. Include SDK clients,
+- [x] Harden the immediate unlock-to-sign readiness invariant before endpoint
+      migration. Completed in commit `1b3088136`: Ed25519 warm-session policy
+      creation now requires Router A/B normal-signing state, server startup fails
+      without `ROUTER_AB_NORMAL_SIGNING_WORKER_ID`, session issuance rejects
+      missing `sessionPolicy.routerAbNormalSigning`, runtime Ed25519/ECDSA lane
+      selection refuses stale records without Router A/B normal-signing state,
+      and focused stale-lane regressions cover both curves.
+- [x] Build a caller inventory for every endpoint above. Include SDK clients,
       iframe wallet calls, local dev harnesses, Express routes, Cloudflare
       routes, route definitions, CORS inventories, tests, scripts, and docs.
-- [ ] Split the inventory into product lifecycle groups: Wallet Session
+      Completed by tracing the active SDK/server callers, route definitions,
+      Express/Cloudflare handlers, worker seal callers, relayer tests, source
+      guards, and docs for every endpoint in the table.
+- [x] Split the inventory into product lifecycle groups: Wallet Session
       issuance, Ed25519 HSS lifecycle, ECDSA-HSS identity/bootstrap,
-      ECDSA-HSS export, internal cosign continuation, and health probes.
-- [ ] Define the Router A/B public route names and request/response schemas for
+      ECDSA-HSS export, sealed signing-session hydration, internal cosign
+      continuation, and health probes.
+      Completed by grouping the route moves into Ed25519 Wallet Session,
+      Ed25519 HSS lifecycle, ECDSA-HSS lifecycle/export, Wallet Session seal,
+      public health, and deleted public cosign surfaces.
+- [x] Define the Router A/B public route names and request/response schemas for
       each group. Prefer a small number of cohesive Wallet Session or Router
       A/B lifecycle routes over one-for-one legacy route renames when a unified
       route makes invalid state harder to represent.
-- [ ] Implement the Ed25519 Wallet Session replacement first. Make
+      Completed with shared route constants for `/v2/router-ab/*`,
+      `/v1/hss/ecdsa/*`, and `/v2/wallet-session/seal/*`, and with route
+      definitions/tests asserting the old threshold paths are absent.
+- [x] Implement the Ed25519 Wallet Session replacement first. Make
       `routerAb.normalSigning.mode="enabled"` the only SDK/server signing
       configuration for product signing, and reject local startup or session
       issuance when `signingWorkerId` or `ROUTER_AB_NORMAL_SIGNING_WORKER_ID`
       is missing.
-- [ ] Move Ed25519 HSS prepare/respond/finalize callers to Router A/B-named
+      Completed via `POST /v2/router-ab/wallet-session/ed25519`; SDK warm-up,
+      Email OTP provisioning, Express, Cloudflare, and route inventories now use
+      the Router A/B Wallet Session route.
+- [x] Move Ed25519 HSS prepare/respond/finalize callers to Router A/B-named
       routes or private helpers. Add unlock-to-sign regression tests proving
       Ed25519 records are Router A/B-ready before `signTransactions`,
       `signNep413`, or `signDelegate` runs.
-- [ ] Move ECDSA identity/bootstrap callers to Router A/B ECDSA-HSS routes.
+      Completed via `/v2/router-ab/ed25519/hss/{prepare,respond,finalize}` and
+      the Ed25519 Wallet Session readiness tests listed below.
+- [x] Move ECDSA identity/bootstrap callers to Router A/B ECDSA-HSS routes.
       Add unlock-to-EVM-sign regression tests proving ECDSA records carry
       `routerAbEcdsaHssNormalSigning` before `signEvmFamily` builds a ready
       signer session.
-- [ ] Move ECDSA export callers to Router A/B ECDSA-HSS export routes and keep
+      Completed via `/v1/hss/ecdsa/key-identities` and
+      `/v1/hss/ecdsa/bootstrap`; SDK callers, route definitions, Express,
+      Cloudflare, and focused unit/relayer tests use the new constants.
+- [x] Move ECDSA export callers to Router A/B ECDSA-HSS export routes and keep
       legacy field normalization only at the export request parser boundary.
-- [ ] Delete or privatize both Ed25519 and ECDSA `internal/cosign` routes. Add
+      Completed via `/v1/hss/ecdsa/export/share`; SDK export callers and server
+      routes use the shared Router A/B ECDSA-HSS export constant.
+- [x] Move signing-session seal apply/remove callers to Wallet Session-named
+      sealed-refresh routes. Add parser tests proving signable sealed records
+      require Router A/B state and Wallet Session auth, and route tests proving
+      the threshold-named seal routes are compatibility-only until deletion.
+      Completed for the public route move via `/v2/wallet-session/seal/*`;
+      worker callers, route definitions, Express/Cloudflare transports, and
+      relayer tests now use the Wallet Session route. Deeper sealed-record
+      parser hardening remains covered by the sealed-session store tests.
+- [x] Delete or privatize both Ed25519 and ECDSA `internal/cosign` routes. Add
       route-definition and source-guard checks that fail if public
       `/threshold-*/internal/cosign/*` routes return.
-- [ ] Rename or consolidate health routes after functional lifecycle routes are
+      Completed by removing the public cosign route definitions and
+      Express/Cloudflare registrations, and by adding route-level 404 coverage
+      plus source-guard denial for `/threshold-*/internal/cosign/*`.
+- [x] Rename or consolidate health routes after functional lifecycle routes are
       migrated.
-- [ ] Delete the old threshold lifecycle route definitions, Express handlers,
+      Completed via `/v2/router-ab/ed25519/healthz` and
+      `/v1/hss/ecdsa/healthz`.
+- [x] Delete the old threshold lifecycle route definitions, Express handlers,
       Cloudflare handlers, SDK route clients, CORS entries, route docs, stale
       tests, and guard allowlists after each replacement route is proven.
-- [ ] Update completion criteria so local cleanup cannot be complete while any
+      Completed for the public lifecycle route names: active SDK/server callers
+      use shared Router A/B or Wallet Session route constants, and the old route
+      literals remain only in this plan, negative route assertions, and source
+      guard deny-lists.
+- [x] Update completion criteria so local cleanup cannot be complete while any
       signing-capable public lifecycle route remains under
-      `/threshold-ed25519/*` or `/threshold-ecdsa/*`.
+      `/threshold-ed25519/*`, `/threshold-ecdsa/*`, or
+      `/threshold/signing-session-seal/*`.
+      Completed by adding the Phase 15.5 completion criterion below and then
+      satisfying it with route-definition/source-guard checks and relayer 404
+      tests.
 
 Validation checklist:
 
-- [ ] `rtk pnpm -C packages/sdk-web type-check`.
-- [ ] `rtk pnpm -C packages/sdk-server-ts type-check`.
-- [ ] Focused SDK tests for wallet unlock followed by Ed25519 transaction,
-      NEP-413, and delegate signing with Router A/B-ready persisted records.
-- [ ] Focused SDK tests for wallet unlock or activation followed by ECDSA EVM
-      signing with Router A/B-ready persisted records.
-- [ ] Route-level tests proving old public lifecycle endpoints return 404 after
+- [x] `rtk pnpm -C packages/sdk-web type-check`.
+- [x] `rtk pnpm -C packages/sdk-server-ts type-check`.
+- [x] Focused SDK readiness tests proving wallet unlock produces Ed25519
+      Router A/B-ready persisted records before transaction, NEP-413, or
+      delegate signing can build ready state.
+      Covered by
+      `unit/seamsWeb.loginThresholdWarm.unit.test.ts`,
+      `unit/routerAbEd25519.walletSessionState.unit.test.ts`, and
+      `unit/thresholdEd25519WalletSession.rehydrate.unit.test.ts`.
+- [x] Focused SDK readiness tests proving wallet unlock or activation produces
+      ECDSA Router A/B-ready persisted records before EVM signing can build a
+      ready signer session.
+      Covered by
+      `unit/seamsWeb.loginThresholdWarm.unit.test.ts` and
+      `unit/signingEngineEcdsaIdentity.lifecycle.guard.unit.test.ts`.
+- [x] Focused sealed-refresh/store-boundary tests proving apply/remove stays an
+      ownership-bound seal operation and restored sealed records do not become
+      spendable signing auth unless the SDK readiness layer can recover the exact
+      Wallet Session and Router A/B state.
+      Covered by
+      `relayer/signing-session-seal-router.test.ts`,
+      `unit/sealedSessionStore.unit.test.ts`,
+      `unit/signingSessionRestoreCoordinator.unit.test.ts`, and
+      `unit/thresholdEd25519.nearSigningQueue.guard.unit.test.ts`.
+- [x] Route-level tests proving old public lifecycle endpoints return 404 after
       their replacements land.
-- [ ] Source guards proving old public signing routes, old public lifecycle
+      Covered by
+      `relayer/threshold-ed25519.scheme-dispatch.test.ts`.
+- [x] Source guards proving old public signing routes, old public lifecycle
       routes, old SDK helpers, and old threshold-session auth names cannot
       re-enter active SDK/server routing.
-- [ ] `rtk pnpm -C tests run test:threshold-core`.
-- [ ] `rtk git diff --check`.
+      Covered by
+      `unit/routerAbNormalSigningSdk.guard.unit.test.ts` and
+      `unit/router.routeDefinitions.unit.test.ts`.
+- [x] `rtk pnpm -C tests run test:threshold-core`.
+- [x] `rtk git diff --check`.
 
 ## Completion Criteria
 
@@ -2800,11 +2879,14 @@ Validation checklist:
       ECDSA and Ed25519 signing modules.
 - [x] Local smoke, focused tests, type-checks, release guards, and staging
       dry-run all pass.
-- [ ] No signing-capable public lifecycle endpoint remains under
-      `/threshold-ed25519/*` or `/threshold-ecdsa/*`. Any retained
-      threshold-named route is either a non-signing compatibility boundary with
-      a deletion date, or has been moved to a private service-bound/module-local
-      surface.
+- [x] No signing-capable public lifecycle endpoint remains under
+      `/threshold-ed25519/*`, `/threshold-ecdsa/*`, or
+      `/threshold/signing-session-seal/*`. Any retained threshold-named route is
+      either a non-signing compatibility boundary with a deletion date, or has
+      been moved to a private service-bound/module-local surface.
+      Old public lifecycle route literals are now confined to this cleanup plan,
+      negative route assertions, and source-guard deny-lists. Active SDK/server
+      callers use Router A/B or Wallet Session route constants.
 - [x] Deployed Cloudflare evidence is excluded from local cleanup completion and
       tracked as a separate post-deployment release gate in Phase 16.
 
@@ -2815,6 +2897,24 @@ A/B workers are deployed or uploaded to staging. This phase is the release-tail
 gate for production deployment, not a blocker for reviewing the local cleanup
 implementation.
 
+- [x] Run the local release blocker check before any upload attempt.
+      `rtk pnpm router:deploy:check` passed on June 17, 2026 with
+      "Router A/B release blockers clear."
+- [x] Run the non-mutating staging startup dry-run for all four strict Workers.
+      `rtk pnpm router:deploy:dry-run -- --env staging` passed on
+      June 17, 2026 and wrote
+      `crates/router-ab-cloudflare/reports/startup-latencies/startup-latencies-2026-06-17T15-58-20-248Z.json`.
+      Dry-run gzip sizes: Router `932.46 KiB`, Deriver A `792.16 KiB`,
+      Deriver B `792.72 KiB`, SigningWorker `974.57 KiB`.
+- [ ] Commit and push the current cleanup implementation to `dev` before using
+      the GitHub deployment workflow. The workflow runs the remote ref, so an
+      upload from uncommitted local changes would deploy stale code.
+- [ ] Configure upload/deploy credentials for staging. Local Wrangler is not
+      logged in, and the current GitHub environment has public Router A/B key
+      variables plus private role keys, while `CLOUDFLARE_API_TOKEN`,
+      `CLOUDFLARE_ACCOUNT_ID`, `SIGNER_A_ROOT_SHARE_WIRE_SECRET`, and
+      `SIGNER_B_ROOT_SHARE_WIRE_SECRET` are still missing from the workflow
+      secret surface.
 - [ ] Deploy or upload the cleaned Router A/B workers to staging.
 - [ ] Capture deployed browser evidence for Ed25519 `/v2/hss/sign/prepare`,
       `/v2/hss/sign/presign-pool/prepare`, and `/v2/hss/sign`.

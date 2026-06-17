@@ -3,6 +3,12 @@ import { base64UrlDecode, base64UrlEncode } from './encoders';
 export const ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1 = 'evm-family' as const;
 export const ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1 =
   'router_ab_ecdsa_hss_normal_signing_v1' as const;
+export const ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1 = '/v1/hss/ecdsa/healthz' as const;
+export const ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1 =
+  '/v1/hss/ecdsa/key-identities' as const;
+export const ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1 = '/v1/hss/ecdsa/bootstrap' as const;
+export const ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1 =
+  '/v1/hss/ecdsa/export/share' as const;
 export const ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1 =
   '/v1/hss/ecdsa/presignature-pool/fill/init' as const;
 export const ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1 =

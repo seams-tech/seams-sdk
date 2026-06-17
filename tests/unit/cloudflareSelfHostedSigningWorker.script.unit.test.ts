@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { base64UrlEncode } from '../../packages/shared-ts/src/utils/encoders';
+import { ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1 } from '../../packages/shared-ts/src/utils/routerAbEcdsaHss';
+import { ROUTER_AB_ED25519_HEALTH_PATH_V2 } from '../../packages/shared-ts/src/utils/signingSessionSeal';
 import type { AuthService } from '../../packages/sdk-server-ts/src/core/AuthService';
 import { SIGNING_ROOT_RECORD_VERSION_V1 } from '../../packages/sdk-server-ts/src/core/ThresholdService/signingRootRecords';
 import {
@@ -47,18 +49,7 @@ function fixtureThresholdAdapter(): ThresholdSigningAdapter {
   const ed25519Scheme = {
     schemeId: THRESHOLD_ED25519_FROST_2P_V1_SCHEME_ID,
     healthz: async () => ({ ok: true }),
-    protocol: {
-      signInit: async (request: unknown) => ({
-        ok: false,
-        code: 'ed25519_fixture',
-        message: JSON.stringify(request),
-      }),
-      signFinalize: async (request: unknown) => ({
-        ok: false,
-        code: 'ed25519_finalize_fixture',
-        message: JSON.stringify(request),
-      }),
-    },
+    protocol: {},
     session: async (request: unknown) => ({
       ok: false,
       code: 'ed25519_session_fixture',
@@ -97,7 +88,7 @@ function fixtureThresholdAdapter(): ThresholdSigningAdapter {
       code: 'ecdsa_authorize_fixture',
       message: JSON.stringify(input),
     }),
-    presign: {
+    poolFill: {
       init: async (input: unknown) => ({
         ok: false,
         code: 'ecdsa_presign_init_fixture',
@@ -239,50 +230,6 @@ test('self-host Cloudflare signing worker creates per-request service and option
   expect(calls).toEqual(['/healthz']);
 });
 
-test('hosted and self-host Cloudflare routers preserve threshold signing route parity', async () => {
-  const threshold = fixtureThresholdAdapter();
-  const hosted = createCloudflareRouter(fakeAuthService(), { threshold, logger: console });
-  const selfHosted = createSelfHostedCloudflareSigningRouter(fakeAuthService(), {
-    threshold,
-    logger: console,
-  });
-  const requests = [
-    {
-      path: '/threshold-ed25519/sign/init',
-      body: {
-        mpcSessionId: 'mpc-alpha',
-        relayerKeyId: 'relayer-alpha',
-        nearAccountId: 'alice.near',
-        signingDigestB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-      },
-    },
-    {
-      path: '/threshold-ecdsa/sign/init',
-      body: {
-        mpcSessionId: 'mpc-alpha',
-        ecdsaThresholdKeyId: 'ecdsa-alpha',
-        signingDigestB64u: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
-      },
-    },
-  ];
-
-  for (const { path, body } of requests) {
-    const init: RequestInit = {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-    };
-    const hostedResult = await responseSnapshot(
-      await hosted(new Request(`https://hosted.example.test${path}`, init), {}, fakeCtx),
-    );
-    const selfHostedResult = await responseSnapshot(
-      await selfHosted(new Request(`https://self-host.example.test${path}`, init), {}, fakeCtx),
-    );
-
-    expect(selfHostedResult).toEqual(hostedResult);
-  }
-});
-
 test('hosted and self-host Cloudflare routers preserve threshold health route parity', async () => {
   const threshold = fixtureThresholdAdapter();
   const hosted = createCloudflareRouter(fakeAuthService(), { threshold, logger: console });
@@ -291,7 +238,7 @@ test('hosted and self-host Cloudflare routers preserve threshold health route pa
     logger: console,
   });
 
-  for (const path of ['/threshold-ed25519/healthz', '/threshold-ecdsa/healthz']) {
+  for (const path of [ROUTER_AB_ED25519_HEALTH_PATH_V2, ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1]) {
     const hostedResult = await responseSnapshot(
       await hosted(new Request(`https://hosted.example.test${path}`), {}, fakeCtx),
     );

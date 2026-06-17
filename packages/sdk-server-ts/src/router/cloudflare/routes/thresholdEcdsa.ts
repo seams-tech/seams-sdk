@@ -1,13 +1,8 @@
 import type { CloudflareRelayContext } from '../createCloudflareRouter';
 import { json, readJson } from '../http';
 import type {
-  ThresholdEcdsaAuthorizeWithSessionRequest,
-  ThresholdEcdsaCosignFinalizeRequest,
-  ThresholdEcdsaCosignInitRequest,
-  ThresholdEcdsaPresignInitRequest,
-  ThresholdEcdsaPresignStepRequest,
-  ThresholdEcdsaSignFinalizeRequest,
-  ThresholdEcdsaSignInitRequest,
+  RouterAbEcdsaHssPoolFillInitRequest,
+  RouterAbEcdsaHssPoolFillStepRequest,
 } from '../../../core/types';
 import {
   parseAppSessionClaims,
@@ -23,12 +18,10 @@ import { thresholdEcdsaStatusCode } from '../../../threshold/statusCodes';
 import { parseSessionKind, resolveThresholdScheme } from '../../relay';
 import {
   resolveThresholdRuntimePolicyScope,
-  signThresholdSessionAuthToken,
-  validateThresholdEcdsaAuthorizeInputs,
+  signWalletSessionJwt,
   validateThresholdEcdsaSessionInputs,
   validateThresholdEd25519SessionTokenInputs,
 } from '../../commonRouterUtils';
-import { validateRuntimeSnapshotExpectation } from '../../runtimeSnapshotConsumer';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import {
   computeEcdsaHssRoleLocalFirstBootstrapRootProofDigest32B64u,
@@ -36,6 +29,14 @@ import {
   computeEcdsaHssRoleLocalRelayerKeyId,
   computeEcdsaHssRoleLocalThresholdKeyId,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import {
+  ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1,
+  ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1,
+} from '@shared/utils/routerAbEcdsaHss';
 import {
   signingRootScopeFromRuntimePolicyScope,
   type RuntimePolicyScope,
@@ -259,22 +260,21 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
     ) {
       return { ok: false, code: 'identity_mismatch', message: 'signing root mismatch' };
     }
-    const expectedChallenge =
-      await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
-        walletId: request.walletId,
-        rpId: request.rpId,
-        ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
-        signingRootId: request.signingRootId,
-        signingRootVersion: request.signingRootVersion,
-        keyScope: request.keyScope,
-        relayerKeyId: request.relayerKeyId,
-        requestId: request.requestId,
-        sessionId: request.sessionId,
-        walletSigningSessionId: request.walletSigningSessionId,
-        ttlMs: request.ttlMs,
-        remainingUses: request.remainingUses,
-        participantIds: request.participantIds,
-      });
+    const expectedChallenge = await computeEcdsaHssRoleLocalPasskeyBootstrapAuthDigest32B64u({
+      walletId: request.walletId,
+      rpId: request.rpId,
+      ecdsaThresholdKeyId: request.ecdsaThresholdKeyId,
+      signingRootId: request.signingRootId,
+      signingRootVersion: request.signingRootVersion,
+      keyScope: request.keyScope,
+      relayerKeyId: request.relayerKeyId,
+      requestId: request.requestId,
+      sessionId: request.sessionId,
+      walletSigningSessionId: request.walletSigningSessionId,
+      ttlMs: request.ttlMs,
+      remainingUses: request.remainingUses,
+      participantIds: request.participantIds,
+    });
     const verified = await ctx.service.verifyWebAuthnAuthenticationLite({
       nearAccountId: request.walletId,
       rpId: request.rpId,
@@ -410,7 +410,7 @@ async function authorizeEcdsaHssRoleLocalBootstrap(input: {
 const presignPriorityGate = new PresignPriorityGate();
 
 export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise<Response | null> {
-  if (ctx.method === 'GET' && ctx.pathname === '/threshold-ecdsa/healthz') {
+  if (ctx.method === 'GET' && ctx.pathname === ROUTER_AB_ECDSA_HSS_HEALTH_PATH_V1) {
     const resolved = resolveThresholdScheme(
       ctx.opts.threshold,
       THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
@@ -434,16 +434,11 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
 
   const pathname = ctx.pathname;
   if (
-    pathname !== '/threshold-ecdsa/key-identities' &&
-    pathname !== '/threshold-ecdsa/hss/bootstrap' &&
-    pathname !== '/threshold-ecdsa/hss/export/share' &&
-    pathname !== '/threshold-ecdsa/authorize' &&
-    pathname !== '/threshold-ecdsa/presign/init' &&
-    pathname !== '/threshold-ecdsa/presign/step' &&
-    pathname !== '/threshold-ecdsa/sign/init' &&
-    pathname !== '/threshold-ecdsa/sign/finalize' &&
-    pathname !== '/threshold-ecdsa/internal/cosign/init' &&
-    pathname !== '/threshold-ecdsa/internal/cosign/finalize'
+    pathname !== ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1 &&
+    pathname !== ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1 &&
+    pathname !== ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1 &&
+    pathname !== ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1 &&
+    pathname !== ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1
   ) {
     return null;
   }
@@ -461,7 +456,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
   }
   const scheme = resolved.scheme;
 
-  if (pathname === '/threshold-ecdsa/key-identities') {
+  if (pathname === ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1) {
     const validated = await validateThresholdEd25519SessionTokenInputs({
       body,
       headers: Object.fromEntries(ctx.request.headers.entries()),
@@ -501,7 +496,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     );
   }
 
-  if (pathname === '/threshold-ecdsa/hss/bootstrap') {
+  if (pathname === ROUTER_AB_ECDSA_HSS_BOOTSTRAP_PATH_V1) {
     const parsed = parseEcdsaHssClientBootstrapRequest(body);
     if (!parsed) {
       const result = {
@@ -542,7 +537,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     if (!result.ok || parsed.sessionKind === 'cookie') {
       return json(result, { status: thresholdEcdsaStatusCode(result) });
     }
-    const signed = await signThresholdSessionAuthToken({
+    const signed = await signWalletSessionJwt({
       session: ctx.opts.session,
       kind: 'threshold_ecdsa_session_v2',
       userId: parsed.walletId,
@@ -559,7 +554,8 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
       },
       fallbackParticipantIds: result.value.participantIds,
       requireJwtErrorMessage: 'threshold_ecdsa.session_kind must be jwt',
-      invalidPayloadErrorMessage: 'invalid thresholdEcdsa HSS bootstrap session payload for jwt signing',
+      invalidPayloadErrorMessage:
+        'invalid thresholdEcdsa HSS bootstrap session payload for jwt signing',
     });
     if (!signed.ok) {
       const failure = { ok: false, code: signed.code, message: signed.message };
@@ -575,7 +571,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     return json(signedResult, { status: thresholdEcdsaStatusCode(signedResult) });
   }
 
-  if (pathname === '/threshold-ecdsa/hss/export/share') {
+  if (pathname === ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1) {
     const parsed = parseEcdsaHssExportShareRequest(body);
     if (!parsed) {
       const result = {
@@ -610,28 +606,8 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     return json(result, { status: thresholdEcdsaStatusCode(result) });
   }
 
-  if (pathname === '/threshold-ecdsa/authorize') {
-    const validated = await validateThresholdEcdsaAuthorizeInputs({
-      body,
-      headers: Object.fromEntries(ctx.request.headers.entries()),
-      session: ctx.opts.session,
-    });
-    if (!validated.ok) return json(validated, { status: thresholdEcdsaStatusCode(validated) });
-    const runtimeSnapshotValidation = await validateRuntimeSnapshotExpectation({
-      runtimeSnapshots: ctx.opts.runtimeSnapshots,
-      scope: validated.claims.runtimePolicyScope,
-      expectationRaw: (validated.request as unknown as Record<string, unknown>).runtimeSnapshot,
-    });
-    if (!runtimeSnapshotValidation.ok) {
-      return json(runtimeSnapshotValidation, {
-        status: thresholdEcdsaStatusCode(runtimeSnapshotValidation),
-      });
-    }
-    const result = await scheme.authorize({ claims: validated.claims, request: validated.request });
-    return json(result, { status: thresholdEcdsaStatusCode(result) });
-  }
-  if (pathname === '/threshold-ecdsa/presign/init') {
-    const reqBody = (body || {}) as ThresholdEcdsaPresignInitRequest;
+  if (pathname === ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_INIT_PATH_V1) {
+    const reqBody = (body || {}) as RouterAbEcdsaHssPoolFillInitRequest;
     const requestTag = parsePresignRequestTag(reqBody);
     const gateTicket = await presignPriorityGate.acquire(resolvePresignTrafficClass(requestTag));
     const validated = await validateThresholdEcdsaSessionInputs({
@@ -641,14 +617,14 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     });
     try {
       if (!validated.ok) return json(validated, { status: thresholdEcdsaStatusCode(validated) });
-      const result = await scheme.presign.init({ claims: validated.claims, request: reqBody });
+      const result = await scheme.poolFill.init({ claims: validated.claims, request: reqBody });
       return json(result, { status: thresholdEcdsaStatusCode(result) });
     } finally {
       gateTicket.release();
     }
   }
-  if (pathname === '/threshold-ecdsa/presign/step') {
-    const reqBody = (body || {}) as ThresholdEcdsaPresignStepRequest;
+  if (pathname === ROUTER_AB_ECDSA_HSS_PRESIGNATURE_POOL_FILL_STEP_PATH_V1) {
+    const reqBody = (body || {}) as RouterAbEcdsaHssPoolFillStepRequest;
     const requestTag = parsePresignRequestTag(reqBody);
     const gateTicket = await presignPriorityGate.acquire(resolvePresignTrafficClass(requestTag));
     const validated = await validateThresholdEcdsaSessionInputs({
@@ -658,50 +634,11 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     });
     try {
       if (!validated.ok) return json(validated, { status: thresholdEcdsaStatusCode(validated) });
-      const result = await scheme.presign.step({ claims: validated.claims, request: reqBody });
+      const result = await scheme.poolFill.step({ claims: validated.claims, request: reqBody });
       return json(result, { status: thresholdEcdsaStatusCode(result) });
     } finally {
       gateTicket.release();
     }
   }
-  if (pathname === '/threshold-ecdsa/sign/init') {
-    const reqBody = (body || {}) as ThresholdEcdsaSignInitRequest;
-    const result = await scheme.protocol.signInit(reqBody);
-    return json(result, { status: thresholdEcdsaStatusCode(result) });
-  }
-  if (pathname === '/threshold-ecdsa/sign/finalize') {
-    const reqBody = (body || {}) as ThresholdEcdsaSignFinalizeRequest;
-    const result = await scheme.protocol.signFinalize(reqBody);
-    return json(result, { status: thresholdEcdsaStatusCode(result) });
-  }
-  if (pathname === '/threshold-ecdsa/internal/cosign/init') {
-    const cosignInit = scheme.protocol.internalCosignInit;
-    if (!cosignInit) {
-      const resBody = {
-        ok: false,
-        code: 'not_found',
-        message: 'threshold-ecdsa cosigner endpoints are not enabled on this server',
-      };
-      return json(resBody, { status: thresholdEcdsaStatusCode(resBody) });
-    }
-    const reqBody = (body || {}) as ThresholdEcdsaCosignInitRequest;
-    const result = await cosignInit(reqBody);
-    return json(result, { status: thresholdEcdsaStatusCode(result) });
-  }
-  if (pathname === '/threshold-ecdsa/internal/cosign/finalize') {
-    const cosignFinalize = scheme.protocol.internalCosignFinalize;
-    if (!cosignFinalize) {
-      const resBody = {
-        ok: false,
-        code: 'not_found',
-        message: 'threshold-ecdsa cosigner endpoints are not enabled on this server',
-      };
-      return json(resBody, { status: thresholdEcdsaStatusCode(resBody) });
-    }
-    const reqBody = (body || {}) as ThresholdEcdsaCosignFinalizeRequest;
-    const result = await cosignFinalize(reqBody);
-    return json(result, { status: thresholdEcdsaStatusCode(result) });
-  }
-
   return null;
 }

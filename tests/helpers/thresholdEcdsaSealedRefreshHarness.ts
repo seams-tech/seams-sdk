@@ -10,7 +10,7 @@ import {
 } from '@server/router/express-adaptor';
 import { deriveThresholdEd25519RegistrationMaterialFromHssFinalize } from '@server/core/ThresholdService/ed25519HssWasm';
 import {
-  createSigningSessionSealPolicyFromThresholdAuthSessionStores,
+  createSigningSessionSealPolicyFromWalletSessionStores,
   createSigningSessionSealRoutesOptions,
   createSigningSessionSealShamir3PassCipherAdapter,
 } from '@server/threshold/session/signingSessionSeal';
@@ -128,7 +128,7 @@ async function installThresholdRegistrationBootstrapMock(
       message?: string;
       value?: Record<string, unknown>;
     }>;
-    authSessionStore?: {
+    walletSessionStore?: {
       putSession: (
         id: string,
         record: {
@@ -198,7 +198,7 @@ async function installThresholdRegistrationBootstrapMock(
         return { orgId, projectId, envId, signingRootVersion };
       };
 
-      const signThresholdSessionAuthToken = async (args: {
+      const signWalletSessionJwt = async (args: {
         kind: 'threshold_ed25519_session_v1' | 'threshold_ecdsa_session_v2';
         sessionId: string;
         walletSigningSessionId: string;
@@ -247,7 +247,7 @@ async function installThresholdRegistrationBootstrapMock(
         const expiresAtMs = nowMs + ttlMs;
         const participantIds = asParticipantIds(policy?.participantIds, [1, 2]);
         const runtimePolicyScope = resolveRuntimePolicyScope(policy);
-        const jwt = await signThresholdSessionAuthToken({
+        const jwt = await signWalletSessionJwt({
           kind: 'threshold_ed25519_session_v1',
           sessionId,
           walletSigningSessionId,
@@ -256,7 +256,7 @@ async function installThresholdRegistrationBootstrapMock(
           expiresAtMs,
           runtimePolicyScope,
         });
-        if (threshold.authSessionStore) {
+        if (threshold.walletSessionStore) {
           const sessionRecord = {
             expiresAtMs,
             relayerKeyId: thresholdEdRelayerKeyId,
@@ -264,11 +264,11 @@ async function installThresholdRegistrationBootstrapMock(
             rpId,
             participantIds,
           };
-          await threshold.authSessionStore.putSession(sessionId, sessionRecord, {
+          await threshold.walletSessionStore.putSession(sessionId, sessionRecord, {
             ttlMs,
             remainingUses,
           });
-          await threshold.authSessionStore.putSession(
+          await threshold.walletSessionStore.putSession(
             signerBoundWalletSigningBudgetSessionId({
               walletSigningSessionId,
               curve: 'ed25519',
@@ -385,7 +385,7 @@ async function installThresholdRegistrationBootstrapMock(
           : participantIds;
         const bootstrapSessionId = String(bootstrap.sessionId || sessionId);
         const bootstrapRelayerKeyId = String(bootstrap.relayerKeyId || relayerKeyId);
-        const jwt = await signThresholdSessionAuthToken({
+        const jwt = await signWalletSessionJwt({
           kind: 'threshold_ecdsa_session_v2',
           sessionId: bootstrapSessionId,
           walletSigningSessionId,
@@ -591,12 +591,15 @@ export async function setupThresholdEcdsaSealedRefreshHarness(
 
   const session = createThresholdAwareSealedRefreshSessionAdapter();
   const relayerUrl = DEFAULT_TEST_CONFIG.relayer?.url ?? 'https://relay-server.localhost';
-  const thresholdAuthStores = threshold as unknown as {
-    authSessionStore?: unknown;
-    ecdsaAuthSessionStore?: unknown;
+  const thresholdWalletSessionStores = threshold as unknown as {
+    walletSessionStore?: unknown;
+    ecdsaWalletSessionStore?: unknown;
   };
-  if (!thresholdAuthStores.authSessionStore || !thresholdAuthStores.ecdsaAuthSessionStore) {
-    throw new Error('Missing threshold auth session stores for signing-session seal policy');
+  if (
+    !thresholdWalletSessionStores.walletSessionStore ||
+    !thresholdWalletSessionStores.ecdsaWalletSessionStore
+  ) {
+    throw new Error('Missing Wallet Session stores for signing-session seal policy');
   }
 
   const router = createRelayRouter(service, {
@@ -618,10 +621,10 @@ export async function setupThresholdEcdsaSealedRefreshHarness(
     }),
     bootstrapTokenStore,
     signingSessionSeal: createSigningSessionSealRoutesOptions({
-      sessionPolicy: createSigningSessionSealPolicyFromThresholdAuthSessionStores({
-        ed25519Stores: [thresholdAuthStores.authSessionStore as any],
-        ecdsaStores: [thresholdAuthStores.ecdsaAuthSessionStore as any],
-        walletBudgetStores: [thresholdAuthStores.authSessionStore as any],
+      sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
+        ed25519Stores: [thresholdWalletSessionStores.walletSessionStore as any],
+        ecdsaStores: [thresholdWalletSessionStores.ecdsaWalletSessionStore as any],
+        walletBudgetStores: [thresholdWalletSessionStores.walletSessionStore as any],
       }),
       cipher: createSigningSessionSealShamir3PassCipherAdapter({
         currentKeyVersion: TEST_KEY_VERSION,
@@ -661,7 +664,7 @@ export async function setupThresholdEcdsaSealedRefreshHarness(
       relayUpstreamBaseUrl: server.baseUrl,
       threshold,
     });
-    await targetPage.route(`${relayerUrl}/threshold/signing-session-seal/**`, async (route) => {
+    await targetPage.route(`${relayerUrl}/v2/wallet-session/seal/**`, async (route) => {
       const url = route.request().url();
       if (url.endsWith('/apply-server-seal')) {
         signingSessionSealRouteCounts.applyServerSealCalls += 1;

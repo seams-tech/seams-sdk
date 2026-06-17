@@ -57,7 +57,11 @@ async function digestB64u(value: unknown): Promise<string> {
 
 async function createRoleLocalExportFixture(input?: { bootstrapTtlMs?: number }) {
   ensureHssClientSignerWasm();
-  const { svc } = createThresholdSigningServiceForUnitTests({});
+  const { svc } = createThresholdSigningServiceForUnitTests({
+    config: {
+      ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'unit-signing-worker',
+    },
+  });
   const clientRootShare32 = Buffer.alloc(32, 0);
   clientRootShare32[31] = 7;
 
@@ -514,7 +518,7 @@ test.describe('threshold ECDSA HSS role-local export policy', () => {
 
   test('keeps Express export-share request log metadata on an explicit allowlist', () => {
     const source = readFileSync(EXPRESS_THRESHOLD_ECDSA_ROUTE_URL, 'utf8');
-    const routeStart = source.indexOf("'/threshold-ecdsa/hss/export/share'");
+    const routeStart = source.indexOf('ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1');
     expect(routeStart).toBeGreaterThan(-1);
     const routeLogMeta = source.slice(routeStart, source.indexOf('async () =>', routeStart));
     expect(routeLogMeta).toContain('walletId');

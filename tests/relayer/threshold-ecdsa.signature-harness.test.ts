@@ -7,17 +7,13 @@ import {
   computeEcdsaHssRoleLocalRelayerKeyId,
   computeEcdsaHssRoleLocalThresholdKeyId,
 } from '@shared/threshold/ecdsaHssRoleLocalBootstrap';
+import type { RouterAbEcdsaHssNormalSigningScopeV1 } from '@shared/utils/routerAbEcdsaHss';
 import { createRelayRouter } from '@server/router/express-adaptor';
 import { AuthService } from '@server/core/AuthService';
 import { createThresholdSigningService } from '@server/core/ThresholdService';
 import type { ThresholdStoreConfigInput } from '@server/core/types';
 import { makeSessionAdapter, fetchJson, startExpressRouter } from './helpers';
 import { createFixtureSigningRootShareResolverForUnitTests } from '../helpers/thresholdEd25519TestUtils';
-import {
-  map_additive_share_to_threshold_signatures_share_2p,
-  ThresholdEcdsaPresignSession,
-  threshold_ecdsa_compute_signature_share,
-} from '../../wasm/eth_signer/pkg/eth_signer.js';
 import {
   build_ecdsa_role_local_export_artifact_v1,
   initSync as initHssClientSignerWasmSync,
@@ -86,6 +82,7 @@ function makeAuthServiceForThreshold(thresholdStore?: ThresholdStoreConfigInput 
   const thresholdConfigDefaults: ThresholdStoreConfigInput = {
     kind: 'in-memory',
     THRESHOLD_NODE_ROLE: 'coordinator',
+    ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'unit-signing-worker',
     ...(needsFixtureSigningRootResolver
       ? { signingRootShareResolver: createFixtureSigningRootShareResolverForUnitTests() }
       : {}),
@@ -142,6 +139,74 @@ function fakeWebAuthnAuthentication(): Record<string, unknown> {
   };
 }
 
+function hssJsonHeaders(rpId: string, jwt?: string): Record<string, string> {
+  return {
+    'Content-Type': 'application/json',
+    Origin: `https://${rpId}`,
+    ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}),
+  };
+}
+
+function hexAddress20ToB64u(address: string): string {
+  const normalized = address.trim().replace(/^0x/i, '');
+  if (!/^[0-9a-fA-F]{40}$/.test(normalized)) {
+    throw new Error('Expected a 20-byte ECDSA-HSS Ethereum address in bootstrap response');
+  }
+  return Buffer.from(normalized, 'hex').toString('base64url');
+}
+
+function buildRouterAbEcdsaHssPoolFillFromBootstrap(bootstrapJson: Record<string, unknown>) {
+  const publicIdentity = (bootstrapJson.publicIdentity || {}) as Record<string, unknown>;
+  const clientBootstrap = (bootstrapJson.clientBootstrap || {}) as Record<string, unknown>;
+  const sessionExpiresAtMs = Number(bootstrapJson.expiresAtMs || Date.now() + 60_000);
+  const expiresAtMs = Math.max(1, Math.min(sessionExpiresAtMs - 1, Date.now() + 30_000));
+  const scope: RouterAbEcdsaHssNormalSigningScopeV1 = {
+    context: {
+      wallet_id: String(bootstrapJson.walletId || ''),
+      rp_id: String(bootstrapJson.rpId || ''),
+      key_scope: 'evm-family',
+      ecdsa_threshold_key_id: String(bootstrapJson.ecdsaThresholdKeyId || ''),
+      signing_root_id: String(bootstrapJson.signingRootId || TEST_SIGNING_ROOT_ID),
+      signing_root_version: String(
+        bootstrapJson.signingRootVersion || TEST_RUNTIME_SCOPE.signingRootVersion || 'default',
+      ),
+      key_purpose: 'normal-signing',
+      key_version: 'v1',
+    },
+    public_identity: {
+      context_binding_b64u: String(
+        bootstrapJson.contextBinding32B64u || clientBootstrap.contextBinding32B64u || '',
+      ),
+      client_public_key33_b64u: String(
+        bootstrapJson.clientVerifyingShareB64u ||
+          publicIdentity.hssClientSharePublicKey33B64u ||
+          clientBootstrap.hssClientSharePublicKey33B64u ||
+          '',
+      ),
+      server_public_key33_b64u: String(publicIdentity.relayerPublicKey33B64u || ''),
+      threshold_public_key33_b64u: String(
+        bootstrapJson.thresholdEcdsaPublicKeyB64u || publicIdentity.groupPublicKey33B64u || '',
+      ),
+      ethereum_address20_b64u: hexAddress20ToB64u(
+        String(bootstrapJson.ethereumAddress || publicIdentity.ethereumAddress || ''),
+      ),
+      client_share_retry_counter: Number(clientBootstrap.clientShareRetryCounter || 0),
+      server_share_retry_counter: Number(publicIdentity.serverShareRetryCounter || 0),
+    },
+    signing_worker: {
+      server_id: 'signing-worker-a',
+      key_epoch: 'epoch-1',
+      recipient_encryption_key: 'recipient-key',
+    },
+    activation_epoch: 'activation-1',
+  };
+  return {
+    kind: 'router_ab_ecdsa_hss_signing_worker_pool' as const,
+    scope,
+    expiresAtMs,
+  };
+}
+
 async function stagedBootstrapThresholdEcdsa(args: {
   baseUrl: string;
   session: ReturnType<typeof makeJwtSessionAdapter>;
@@ -182,9 +247,9 @@ async function stagedBootstrapThresholdEcdsa(args: {
     clientRootShare32B64u: args.clientRootShare32B64u,
   });
 
-  const bootstrap = await fetchJson(`${args.baseUrl}/threshold-ecdsa/hss/bootstrap`, {
+  const bootstrap = await fetchJson(`${args.baseUrl}/v1/hss/ecdsa/bootstrap`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: hssJsonHeaders(args.rpId),
     body: JSON.stringify({
       formatVersion: 'ecdsa-hss-role-local',
       walletId: args.userId,
@@ -279,12 +344,9 @@ async function stagedExplicitExportThresholdEcdsa(args: {
     hssClientSharePublicKey33B64u: string;
     clientShareRetryCounter: number;
   };
-  const exportedShare = await fetchJson(`${args.baseUrl}/threshold-ecdsa/hss/export/share`, {
+  const exportedShare = await fetchJson(`${args.baseUrl}/v1/hss/ecdsa/export/share`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${args.jwt}`,
-    },
+    headers: hssJsonHeaders(args.rpId, args.jwt),
     body: JSON.stringify(exportRequest),
   });
 
@@ -456,27 +518,6 @@ function randomSecpSecretKey32(): Uint8Array {
   throw new Error('secp256k1 random secret key generator is unavailable');
 }
 
-function recoverSecpPublicKeyCompressed(args: {
-  signature64: Uint8Array;
-  recoveryId: number;
-  digest32: Uint8Array;
-}): Uint8Array {
-  const signatureCtor = (secp256k1 as any)?.Signature;
-  if (!signatureCtor) throw new Error('secp256k1.Signature is unavailable');
-
-  const signature =
-    typeof signatureCtor.fromCompact === 'function'
-      ? signatureCtor.fromCompact(args.signature64)
-      : signatureCtor.fromBytes(args.signature64);
-
-  const recoveredPoint = signature
-    .addRecoveryBit(args.recoveryId & 1)
-    .recoverPublicKey(args.digest32);
-
-  if (typeof recoveredPoint.toRawBytes === 'function') return recoveredPoint.toRawBytes(true);
-  return recoveredPoint.toBytes(true);
-}
-
 function expectNoCanonicalExportMaterial(json: Record<string, unknown> | null): void {
   expect(json).not.toBeNull();
   expect('canonicalSecp256k1KeyB64u' in (json || {})).toBe(false);
@@ -485,450 +526,8 @@ function expectNoCanonicalExportMaterial(json: Record<string, unknown> | null): 
   expect('exportPrivateKeyHex' in (json || {})).toBe(false);
 }
 
-function pollSession(session: ThresholdEcdsaPresignSession): {
-  stage: 'triples' | 'triples_done' | 'presign' | 'done';
-  event: 'none' | 'triples_done' | 'presign_done';
-  outgoingMessages: Uint8Array[];
-} {
-  const raw = session.poll() as { stage?: unknown; event?: unknown; outgoing?: unknown };
-  const stage =
-    raw?.stage === 'triples_done'
-      ? 'triples_done'
-      : raw?.stage === 'presign'
-        ? 'presign'
-        : raw?.stage === 'done'
-          ? 'done'
-          : 'triples';
-  const event =
-    raw?.event === 'triples_done'
-      ? 'triples_done'
-      : raw?.event === 'presign_done'
-        ? 'presign_done'
-        : 'none';
-  const outgoingMessages = Array.isArray(raw?.outgoing)
-    ? raw.outgoing.map((entry) => {
-        if (entry instanceof Uint8Array) return entry;
-        if (entry instanceof ArrayBuffer) return new Uint8Array(entry);
-        if (ArrayBuffer.isView(entry as any)) {
-          const view = entry as ArrayBufferView;
-          return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
-        }
-        throw new Error('Unexpected presign outgoing message type');
-      })
-    : [];
-  return { stage, event, outgoingMessages };
-}
-
 test.describe('threshold-ecdsa harness signature verification', () => {
   test.describe.configure({ timeout: 120_000 });
-
-  test('signs a known digest and verifies the signature against the group key', async () => {
-    const { service, threshold } = makeAuthServiceForThreshold();
-    const session = makeJwtSessionAdapter();
-    const router = createRelayRouter(service, { threshold, session });
-    const srv = await startExpressRouter(router);
-
-    try {
-      const userId = 'bob.testnet';
-      const rpId = 'example.localhost';
-      const participantIds = [1, 2];
-      const clientParticipantId = 1;
-      const relayerParticipantId = 2;
-      const digest32 = Uint8Array.from(Array.from({ length: 32 }, (_, i) => i + 1));
-      const clientRootShare32 = randomSecpSecretKey32();
-      const clientRootShare32B64u = base64UrlEncode(clientRootShare32);
-      const sessionId = `sess-${Date.now()}`;
-      const bootstrap = await stagedBootstrapThresholdEcdsa({
-        baseUrl: srv.baseUrl,
-        session,
-        userId,
-        rpId,
-        clientRootShare32B64u,
-        sessionId,
-        participantIds,
-      });
-      expect(bootstrap.status, bootstrap.text).toBe(200);
-      expect(bootstrap.json?.ok, bootstrap.text).toBe(true);
-      expectNoCanonicalExportMaterial(bootstrap.json);
-
-      const ecdsaThresholdKeyId = String(bootstrap.json?.ecdsaThresholdKeyId || '');
-      const keyHandle = String(bootstrap.json?.keyHandle || '');
-      const relayerKeyId = String(bootstrap.json?.relayerKeyId || '');
-      const thresholdEcdsaPublicKeyB64u = String(bootstrap.json?.thresholdEcdsaPublicKeyB64u || '');
-      const clientVerifyingShareB64u = String(bootstrap.json?.clientVerifyingShareB64u || '');
-      expect(ecdsaThresholdKeyId).toBeTruthy();
-      expect(keyHandle).toBeTruthy();
-      expect(relayerKeyId).toBeTruthy();
-      expect(thresholdEcdsaPublicKeyB64u).toBeTruthy();
-      // Backend bridge consistency check only. Product identity is ecdsaThresholdKeyId/group key/address.
-      expect(clientVerifyingShareB64u).toBeTruthy();
-
-      const jwt = String(bootstrap.json?.jwt || '');
-      expect(jwt).toBeTruthy();
-
-      const clientBootstrap = bootstrap.json?.clientBootstrap as {
-        clientAdditiveShare32B64u: string;
-        clientVerifyingShareB64u: string;
-      };
-      expect(clientBootstrap.clientVerifyingShareB64u).toBe(clientVerifyingShareB64u);
-
-      const authorized = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/authorize`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`,
-        },
-        body: JSON.stringify({
-          keyHandle,
-          purpose: 'test:known_digest',
-          signing_digest_32: Array.from(digest32),
-        }),
-      });
-      expect(authorized.status, authorized.text).toBe(200);
-      expect(authorized.json?.ok, authorized.text).toBe(true);
-      expectNoCanonicalExportMaterial(authorized.json);
-      const mpcSessionId = String(authorized.json?.mpcSessionId || '');
-      expect(mpcSessionId).toBeTruthy();
-
-      const presignInit = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/presign/init`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`,
-        },
-        body: JSON.stringify({
-          keyHandle,
-          count: 1,
-        }),
-      });
-      expect(presignInit.status, presignInit.text).toBe(200);
-      expect(presignInit.json?.ok, presignInit.text).toBe(true);
-      expectNoCanonicalExportMaterial(presignInit.json);
-
-      const presignSessionId = String(presignInit.json?.presignSessionId || '');
-      expect(presignSessionId).toBeTruthy();
-
-      const groupPublicKey33 = base64UrlDecode(thresholdEcdsaPublicKeyB64u);
-      const clientAdditiveShare32 = base64UrlDecode(clientBootstrap.clientAdditiveShare32B64u);
-      const clientThresholdSigningShare32 = map_additive_share_to_threshold_signatures_share_2p(
-        clientAdditiveShare32,
-        clientParticipantId,
-      );
-      const localPresignSession = new ThresholdEcdsaPresignSession(
-        new Uint32Array(participantIds),
-        clientParticipantId,
-        2,
-        clientThresholdSigningShare32,
-        groupPublicKey33,
-      );
-
-      let stageForServer: 'triples' | 'presign' = 'triples';
-      let pendingClientOutgoing = pollSession(localPresignSession).outgoingMessages;
-      let pendingServerOutgoing = (
-        Array.isArray(presignInit.json?.outgoingMessagesB64u)
-          ? presignInit.json!.outgoingMessagesB64u
-          : []
-      ).map((entry) => base64UrlDecode(String(entry || '')));
-      let localPresignature97: Uint8Array | null = null;
-      let serverPresignatureId = '';
-      let serverBigRB64u = '';
-      let serverDone = false;
-
-      const MAX_HANDSHAKE_STEPS = 64;
-      for (let i = 0; i < MAX_HANDSHAKE_STEPS; i += 1) {
-        if (pendingServerOutgoing.length > 0 && !localPresignature97) {
-          if (stageForServer === 'presign' && localPresignSession.stage() === 'triples_done') {
-            localPresignSession.start_presign();
-          }
-          for (const msg of pendingServerOutgoing) {
-            localPresignSession.message(relayerParticipantId, msg);
-          }
-          pendingServerOutgoing = [];
-          const polled = pollSession(localPresignSession);
-          pendingClientOutgoing.push(...polled.outgoingMessages);
-          if (
-            polled.stage === 'triples_done' ||
-            polled.stage === 'presign' ||
-            polled.stage === 'done'
-          ) {
-            stageForServer = 'presign';
-          }
-          if (polled.event === 'presign_done') {
-            localPresignature97 = localPresignSession.take_presignature_97();
-          }
-        }
-
-        if (!serverDone) {
-          const presignStep = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/presign/step`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${jwt}`,
-            },
-            body: JSON.stringify({
-              presignSessionId,
-              stage: stageForServer,
-              outgoingMessagesB64u: pendingClientOutgoing.map((entry) => base64UrlEncode(entry)),
-            }),
-          });
-          expect(presignStep.status, presignStep.text).toBe(200);
-          expect(presignStep.json?.ok, presignStep.text).toBe(true);
-          expectNoCanonicalExportMaterial(presignStep.json);
-          pendingClientOutgoing = [];
-
-          pendingServerOutgoing = (
-            Array.isArray(presignStep.json?.outgoingMessagesB64u)
-              ? presignStep.json!.outgoingMessagesB64u
-              : []
-          ).map((entry) => base64UrlDecode(String(entry || '')));
-          const stepStage = String(presignStep.json?.stage || '');
-          if (stepStage === 'presign' || stepStage === 'done') {
-            stageForServer = 'presign';
-          }
-          if (String(presignStep.json?.event || '') === 'presign_done') {
-            serverPresignatureId = String(presignStep.json?.presignatureId || '');
-            serverBigRB64u = String(presignStep.json?.bigRB64u || '');
-            serverDone = true;
-          }
-        }
-
-        if (localPresignature97 && serverPresignatureId && serverBigRB64u) {
-          break;
-        }
-
-        if (
-          !pendingServerOutgoing.length &&
-          !pendingClientOutgoing.length &&
-          !localPresignature97
-        ) {
-          if (stageForServer === 'presign' && localPresignSession.stage() === 'triples_done') {
-            localPresignSession.start_presign();
-          }
-          const polled = pollSession(localPresignSession);
-          pendingClientOutgoing.push(...polled.outgoingMessages);
-          if (
-            polled.stage === 'triples_done' ||
-            polled.stage === 'presign' ||
-            polled.stage === 'done'
-          ) {
-            stageForServer = 'presign';
-          }
-          if (polled.event === 'presign_done') {
-            localPresignature97 = localPresignSession.take_presignature_97();
-          }
-        }
-      }
-
-      expect(localPresignature97).toBeTruthy();
-      expect(serverPresignatureId).toBeTruthy();
-      expect(serverBigRB64u).toBeTruthy();
-
-      const bigR33 = localPresignature97!.slice(0, 33);
-      const kShare32 = localPresignature97!.slice(33, 65);
-      const sigmaShare32 = localPresignature97!.slice(65, 97);
-      expect(base64UrlEncode(bigR33)).toBe(serverBigRB64u);
-
-      const signInit = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/sign/init`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          mpcSessionId,
-          relayerKeyId,
-          signingDigestB64u: base64UrlEncode(digest32),
-          clientRound1: { presignatureId: serverPresignatureId },
-        }),
-      });
-      expect(signInit.status, signInit.text).toBe(200);
-      expect(signInit.json?.ok, signInit.text).toBe(true);
-      expectNoCanonicalExportMaterial(signInit.json);
-
-      const signingSessionId = String(signInit.json?.signingSessionId || '');
-      const entropyB64u = String(
-        (signInit.json?.relayerRound1 as Record<string, unknown> | undefined)?.entropyB64u || '',
-      );
-      const bigREchoB64u = String(
-        (signInit.json?.relayerRound1 as Record<string, unknown> | undefined)?.bigRB64u || '',
-      );
-      expect(signingSessionId).toBeTruthy();
-      expect(entropyB64u).toBeTruthy();
-      if (bigREchoB64u) expect(bigREchoB64u).toBe(serverBigRB64u);
-
-      const clientSignatureShare32 = threshold_ecdsa_compute_signature_share(
-        new Uint32Array(participantIds),
-        clientParticipantId,
-        groupPublicKey33,
-        bigR33,
-        kShare32,
-        sigmaShare32,
-        digest32,
-        base64UrlDecode(entropyB64u),
-      );
-      expect(clientSignatureShare32.length).toBe(32);
-
-      const finalized = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/sign/finalize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          signingSessionId,
-          clientRound2: { clientSignatureShareB64u: base64UrlEncode(clientSignatureShare32) },
-        }),
-      });
-      expect(finalized.status, finalized.text).toBe(200);
-      expect(finalized.json?.ok, finalized.text).toBe(true);
-      expectNoCanonicalExportMaterial(finalized.json);
-
-      const signature65B64u = String(
-        (finalized.json?.relayerRound2 as Record<string, unknown> | undefined)?.signature65B64u ||
-          '',
-      );
-      expect(signature65B64u).toBeTruthy();
-
-      const signature65 = base64UrlDecode(signature65B64u);
-      expect(signature65.length).toBe(65);
-      const signature64 = signature65.slice(0, 64);
-      const recId = signature65[64]!;
-
-      const verified = secp256k1.verify(signature64, digest32, groupPublicKey33, {
-        lowS: true,
-        prehash: false,
-      });
-
-      const recovered = recoverSecpPublicKeyCompressed({
-        signature64,
-        recoveryId: recId,
-        digest32,
-      });
-      expect(verified).toBe(true);
-      expect(base64UrlEncode(recovered)).toBe(thresholdEcdsaPublicKeyB64u);
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('bootstrap endpoint keygens and mints session in a single relay call', async () => {
-    const { service, threshold } = makeAuthServiceForThreshold();
-    const session = makeJwtSessionAdapter();
-    const router = createRelayRouter(service, { threshold, session });
-    const srv = await startExpressRouter(router);
-
-    try {
-      const userId = 'bootstrap-bob.testnet';
-      const rpId = 'example.localhost';
-      const participantIds = [1, 2];
-      const digest32 = Uint8Array.from(Array.from({ length: 32 }, (_, i) => i + 11));
-      const clientRootShare32B64u = base64UrlEncode(randomSecpSecretKey32());
-      const sessionId = `sess-${Date.now()}`;
-
-      const bootstrap = await stagedBootstrapThresholdEcdsa({
-        baseUrl: srv.baseUrl,
-        session,
-        userId,
-        rpId,
-        clientRootShare32B64u,
-        sessionId,
-        participantIds,
-      });
-      expect(bootstrap.status, bootstrap.text).toBe(200);
-      expect(bootstrap.json?.ok, bootstrap.text).toBe(true);
-
-      const ecdsaThresholdKeyId = String(bootstrap.json?.ecdsaThresholdKeyId || '');
-      const keyHandle = String(bootstrap.json?.keyHandle || '');
-      const relayerKeyId = String(bootstrap.json?.relayerKeyId || '');
-      const thresholdEcdsaPublicKeyB64u = String(bootstrap.json?.thresholdEcdsaPublicKeyB64u || '');
-      const jwt = String(bootstrap.json?.jwt || '');
-      const returnedSessionId = String(bootstrap.json?.sessionId || '');
-      expect(ecdsaThresholdKeyId).toBeTruthy();
-      expect(keyHandle).toBeTruthy();
-      expect(relayerKeyId).toBeTruthy();
-      expect(thresholdEcdsaPublicKeyB64u).toBeTruthy();
-      expect(jwt).toBeTruthy();
-      expect(returnedSessionId).toBe(sessionId);
-
-      const authorized = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/authorize`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`,
-        },
-        body: JSON.stringify({
-          keyHandle,
-          purpose: 'test:bootstrap_authorize',
-          signing_digest_32: Array.from(digest32),
-        }),
-      });
-      expect(authorized.status, authorized.text).toBe(200);
-      expect(authorized.json?.ok, authorized.text).toBe(true);
-      expect(String(authorized.json?.mpcSessionId || '')).toBeTruthy();
-    } finally {
-      await srv.close();
-    }
-  });
-
-  test('authorize returns configured presign pool policy hint', async () => {
-    const { service, threshold } = makeAuthServiceForThreshold({
-      THRESHOLD_ECDSA_PRESIGN_POOL_HINT_ENABLED: 'true',
-      THRESHOLD_ECDSA_PRESIGN_POOL_HINT_TARGET_DEPTH: '3',
-      THRESHOLD_ECDSA_PRESIGN_POOL_HINT_LOW_WATERMARK: '1',
-      THRESHOLD_ECDSA_PRESIGN_POOL_HINT_MAX_REFILL_IN_FLIGHT: '4',
-      THRESHOLD_ECDSA_PRESIGN_POOL_HINT_REFILL_ATTEMPT_TIMEOUT_MS: '45000',
-    });
-    const session = makeJwtSessionAdapter();
-    const router = createRelayRouter(service, { threshold, session });
-    const srv = await startExpressRouter(router);
-
-    try {
-      const userId = 'hint-bob.testnet';
-      const rpId = 'example.localhost';
-      const participantIds = [1, 2];
-      const digest32 = Uint8Array.from(Array.from({ length: 32 }, (_, i) => i + 19));
-      const clientRootShare32B64u = base64UrlEncode(randomSecpSecretKey32());
-      const sessionId = `sess-${Date.now()}`;
-
-      const bootstrap = await stagedBootstrapThresholdEcdsa({
-        baseUrl: srv.baseUrl,
-        session,
-        userId,
-        rpId,
-        clientRootShare32B64u,
-        sessionId,
-        participantIds,
-      });
-      expect(bootstrap.status, bootstrap.text).toBe(200);
-      expect(bootstrap.json?.ok, bootstrap.text).toBe(true);
-      const ecdsaThresholdKeyId = String(bootstrap.json?.ecdsaThresholdKeyId || '');
-      const keyHandle = String(bootstrap.json?.keyHandle || '');
-      const relayerKeyId = String(bootstrap.json?.relayerKeyId || '');
-      const jwt = String(bootstrap.json?.jwt || '');
-      expect(ecdsaThresholdKeyId).toBeTruthy();
-      expect(keyHandle).toBeTruthy();
-      expect(relayerKeyId).toBeTruthy();
-      expect(jwt).toBeTruthy();
-
-      const authorized = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/authorize`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`,
-        },
-        body: JSON.stringify({
-          keyHandle,
-          purpose: 'test:presign_policy_hint',
-          signing_digest_32: Array.from(digest32),
-        }),
-      });
-      expect(authorized.status, authorized.text).toBe(200);
-      expect(authorized.json?.ok, authorized.text).toBe(true);
-      expect(authorized.json?.presignPoolPolicy).toEqual({
-        enabled: true,
-        targetDepth: 3,
-        lowWatermark: 1,
-        maxRefillInFlight: 4,
-        refillAttemptTimeoutMs: 45_000,
-      });
-    } finally {
-      await srv.close();
-    }
-  });
 
   test('forwards presign step over HTTP to owner coordinator with session auth', async () => {
     const sharedSession = makeJwtSessionAdapter();
@@ -957,19 +556,19 @@ test.describe('threshold-ecdsa harness signature verification', () => {
     const srvB = await startExpressRouter(routerB);
 
     try {
-      const handlerA = (a.threshold as any).ecdsaSigningHandlers as {
-        presignSessionStore: {
+      const handlerA = (a.threshold as any).routerAbEcdsaHssPoolFillHandlers as {
+        poolFillSessionStore: {
           getSession: (id: string) => Promise<{ version?: number } | null>;
         };
         livePresignSessionById: Map<string, unknown>;
       };
-      const handlerB = (b.threshold as any).ecdsaSigningHandlers as {
-        presignSessionStore: unknown;
+      const handlerB = (b.threshold as any).routerAbEcdsaHssPoolFillHandlers as {
+        poolFillSessionStore: unknown;
         livePresignSessionById: Map<string, unknown>;
       };
 
       // Simulate a shared durable presign-session store across coordinator instances.
-      handlerB.presignSessionStore = handlerA.presignSessionStore;
+      handlerB.poolFillSessionStore = handlerA.poolFillSessionStore;
 
       const userId = 'forwarding-bob.testnet';
       const rpId = 'example.localhost';
@@ -998,15 +597,13 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(relayerKeyId).toBeTruthy();
       expect(jwt).toBeTruthy();
 
-      const presignInit = await fetchJson(`${srvA.baseUrl}/threshold-ecdsa/presign/init`, {
+      const presignInit = await fetchJson(`${srvA.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/init`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`,
-        },
+        headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
           keyHandle,
           count: 1,
+          poolFill: buildRouterAbEcdsaHssPoolFillFromBootstrap(bootstrap.json || {}),
         }),
       });
       expect(presignInit.status, presignInit.text).toBe(200);
@@ -1015,12 +612,9 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(presignSessionId).toBeTruthy();
 
       // Call non-owner coordinator. It must forward over real HTTP to coordinator-a.
-      const forwardedStep = await fetchJson(`${srvB.baseUrl}/threshold-ecdsa/presign/step`, {
+      const forwardedStep = await fetchJson(`${srvB.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/step`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`,
-        },
+        headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
           presignSessionId,
           stage: 'triples',
@@ -1030,7 +624,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(forwardedStep.status, forwardedStep.text).toBe(200);
       expect(forwardedStep.json?.ok, forwardedStep.text).toBe(true);
 
-      const persisted = await handlerA.presignSessionStore.getSession(presignSessionId);
+      const persisted = await handlerA.poolFillSessionStore.getSession(presignSessionId);
       expect(persisted).not.toBeNull();
       expect(Number(persisted?.version || 0)).toBeGreaterThan(1);
 
@@ -1098,7 +692,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
     }
   });
 
-  test('export/share rejects app-session JWTs at the threshold-session boundary', async () => {
+  test('export/share rejects app-session JWTs at the Wallet Session boundary', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const session = makeJwtSessionAdapter();
     const router = createRelayRouter(service, { threshold, session });
@@ -1135,23 +729,20 @@ test.describe('threshold-ecdsa harness signature verification', () => {
         bootstrapJson: bootstrap.json || {},
       });
 
-      const exportedShare = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/hss/export/share`, {
+      const exportedShare = await fetchJson(`${srv.baseUrl}/v1/hss/ecdsa/export/share`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${appSessionJwt}`,
-        },
+        headers: hssJsonHeaders(rpId, appSessionJwt),
         body: JSON.stringify(request),
       });
       expect(exportedShare.status, exportedShare.text).toBe(401);
       expect(exportedShare.json?.code).toBe('unauthorized');
-      expect(exportedShare.json?.message).toBe('Invalid threshold session token claims');
+      expect(exportedShare.json?.message).toBe('Invalid Wallet Session token claims');
     } finally {
       await srv.close();
     }
   });
 
-  test('export/share rejects request userId outside threshold-session wallet scope', async () => {
+  test('export/share rejects request userId outside Wallet Session wallet scope', async () => {
     const { service, threshold } = makeAuthServiceForThreshold();
     const session = makeJwtSessionAdapter();
     const router = createRelayRouter(service, { threshold, session });
@@ -1184,12 +775,9 @@ test.describe('threshold-ecdsa harness signature verification', () => {
         bootstrapJson: bootstrap.json || {},
       });
 
-      const exportedShare = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/hss/export/share`, {
+      const exportedShare = await fetchJson(`${srv.baseUrl}/v1/hss/ecdsa/export/share`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`,
-        },
+        headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
           ...request,
           walletId: 'google:117142622123955425762',
@@ -1243,15 +831,13 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(ethereumAddress).toBeTruthy();
       expect(ecdsaJwt).toBeTruthy();
 
-      const firstPresignInit = await fetchJson(`${srv.baseUrl}/threshold-ecdsa/presign/init`, {
+      const firstPresignInit = await fetchJson(`${srv.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/init`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${ecdsaJwt}`,
-        },
+        headers: hssJsonHeaders(rpId, ecdsaJwt),
         body: JSON.stringify({
           keyHandle,
           count: 1,
+          poolFill: buildRouterAbEcdsaHssPoolFillFromBootstrap(firstBootstrap.json || {}),
         }),
       });
       expect(firstPresignInit.status, firstPresignInit.text).toBe(200);
@@ -1329,18 +915,18 @@ test.describe('threshold-ecdsa harness signature verification', () => {
     const srvB = await startExpressRouter(routerB);
 
     try {
-      const handlerA = (a.threshold as any).ecdsaSigningHandlers as {
-        presignSessionStore: {
+      const handlerA = (a.threshold as any).routerAbEcdsaHssPoolFillHandlers as {
+        poolFillSessionStore: {
           getSession: (id: string) => Promise<{ version?: number } | null>;
         };
         livePresignSessionById: Map<string, unknown>;
       };
       const thresholdA = a.threshold as any;
       const thresholdB = b.threshold as any;
-      const handlerB = thresholdB.ecdsaSigningHandlers as {
-        presignSessionStore: unknown;
+      const handlerB = thresholdB.routerAbEcdsaHssPoolFillHandlers as {
+        poolFillSessionStore: unknown;
       };
-      handlerB.presignSessionStore = handlerA.presignSessionStore;
+      handlerB.poolFillSessionStore = handlerA.poolFillSessionStore;
       thresholdB.ecdsaKeyStore = thresholdA.ecdsaKeyStore;
 
       const userId = 'forwarding-owner-restart.testnet';
@@ -1371,15 +957,13 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(relayerKeyId).toBeTruthy();
       expect(jwt).toBeTruthy();
 
-      const presignInitA = await fetchJson(`${srvA.baseUrl}/threshold-ecdsa/presign/init`, {
+      const presignInitA = await fetchJson(`${srvA.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/init`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`,
-        },
+        headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
           keyHandle,
           count: 1,
+          poolFill: buildRouterAbEcdsaHssPoolFillFromBootstrap(bootstrap.json || {}),
         }),
       });
       expect(presignInitA.status, presignInitA.text).toBe(200);
@@ -1390,12 +974,9 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       // Simulate owner restart by dropping live presign sessions while keeping durable records.
       handlerA.livePresignSessionById.clear();
 
-      const staleStep = await fetchJson(`${srvB.baseUrl}/threshold-ecdsa/presign/step`, {
+      const staleStep = await fetchJson(`${srvB.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/step`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`,
-        },
+        headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
           presignSessionId: staleSessionId,
           stage: 'triples',
@@ -1405,21 +986,19 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(staleStep.status, staleStep.text).toBe(409);
       expect(staleStep.json?.ok).toBe(false);
       expect(String(staleStep.json?.code || '')).toBe('stale_session_state');
-      expect(String(staleStep.json?.message || '')).toContain('/threshold-ecdsa/presign/init');
+      expect(String(staleStep.json?.message || '')).toContain('/v1/hss/ecdsa/presignature-pool/fill/init');
 
-      const stalePersisted = await handlerA.presignSessionStore.getSession(staleSessionId);
+      const stalePersisted = await handlerA.poolFillSessionStore.getSession(staleSessionId);
       expect(stalePersisted).toBeNull();
 
       // Client recovers by creating a fresh presign session.
-      const recoveredInit = await fetchJson(`${srvB.baseUrl}/threshold-ecdsa/presign/init`, {
+      const recoveredInit = await fetchJson(`${srvB.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/init`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`,
-        },
+        headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
           keyHandle,
           count: 1,
+          poolFill: buildRouterAbEcdsaHssPoolFillFromBootstrap(bootstrap.json || {}),
         }),
       });
       expect(recoveredInit.status, recoveredInit.text).toBe(200);
@@ -1428,12 +1007,9 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(recoveredSessionId).toBeTruthy();
       expect(recoveredSessionId).not.toBe(staleSessionId);
 
-      const recoveredStep = await fetchJson(`${srvB.baseUrl}/threshold-ecdsa/presign/step`, {
+      const recoveredStep = await fetchJson(`${srvB.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/step`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`,
-        },
+        headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
           presignSessionId: recoveredSessionId,
           stage: 'triples',
@@ -1473,15 +1049,15 @@ test.describe('threshold-ecdsa harness signature verification', () => {
     const srvB = await startExpressRouter(routerB);
 
     try {
-      const handlerA = (a.threshold as any).ecdsaSigningHandlers as {
-        presignSessionStore: {
+      const handlerA = (a.threshold as any).routerAbEcdsaHssPoolFillHandlers as {
+        poolFillSessionStore: {
           getSession: (id: string) => Promise<{ version?: number } | null>;
         };
       };
-      const handlerB = (b.threshold as any).ecdsaSigningHandlers as {
-        presignSessionStore: unknown;
+      const handlerB = (b.threshold as any).routerAbEcdsaHssPoolFillHandlers as {
+        poolFillSessionStore: unknown;
       };
-      handlerB.presignSessionStore = handlerA.presignSessionStore;
+      handlerB.poolFillSessionStore = handlerA.poolFillSessionStore;
 
       const userId = 'forwarding-peer-missing.testnet';
       const rpId = 'example.localhost';
@@ -1510,15 +1086,13 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(relayerKeyId).toBeTruthy();
       expect(jwt).toBeTruthy();
 
-      const presignInit = await fetchJson(`${srvA.baseUrl}/threshold-ecdsa/presign/init`, {
+      const presignInit = await fetchJson(`${srvA.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/init`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`,
-        },
+        headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
           keyHandle,
           count: 1,
+          poolFill: buildRouterAbEcdsaHssPoolFillFromBootstrap(bootstrap.json || {}),
         }),
       });
       expect(presignInit.status, presignInit.text).toBe(200);
@@ -1526,12 +1100,9 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       const presignSessionId = String(presignInit.json?.presignSessionId || '');
       expect(presignSessionId).toBeTruthy();
 
-      const step = await fetchJson(`${srvB.baseUrl}/threshold-ecdsa/presign/step`, {
+      const step = await fetchJson(`${srvB.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/step`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`,
-        },
+        headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
           presignSessionId,
           stage: 'triples',
@@ -1544,7 +1115,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(String(step.json?.message || '')).toContain('owner unavailable');
 
       // Owner coordinator's durable presign session remains available for retry.
-      const persisted = await handlerA.presignSessionStore.getSession(presignSessionId);
+      const persisted = await handlerA.poolFillSessionStore.getSession(presignSessionId);
       expect(persisted).not.toBeNull();
       expect(Number(persisted?.version || 0)).toBe(1);
     } finally {
@@ -1580,15 +1151,15 @@ test.describe('threshold-ecdsa harness signature verification', () => {
     const srvB = await startExpressRouter(routerB);
 
     try {
-      const handlerA = (a.threshold as any).ecdsaSigningHandlers as {
-        presignSessionStore: {
+      const handlerA = (a.threshold as any).routerAbEcdsaHssPoolFillHandlers as {
+        poolFillSessionStore: {
           getSession: (id: string) => Promise<{ version?: number } | null>;
         };
       };
-      const handlerB = (b.threshold as any).ecdsaSigningHandlers as {
-        presignSessionStore: unknown;
+      const handlerB = (b.threshold as any).routerAbEcdsaHssPoolFillHandlers as {
+        poolFillSessionStore: unknown;
       };
-      handlerB.presignSessionStore = handlerA.presignSessionStore;
+      handlerB.poolFillSessionStore = handlerA.poolFillSessionStore;
 
       const userId = 'forwarding-untrusted-hop.testnet';
       const rpId = 'example.localhost';
@@ -1617,15 +1188,13 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(relayerKeyId).toBeTruthy();
       expect(jwt).toBeTruthy();
 
-      const presignInit = await fetchJson(`${srvA.baseUrl}/threshold-ecdsa/presign/init`, {
+      const presignInit = await fetchJson(`${srvA.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/init`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`,
-        },
+        headers: hssJsonHeaders(rpId, jwt),
         body: JSON.stringify({
           keyHandle,
           count: 1,
+          poolFill: buildRouterAbEcdsaHssPoolFillFromBootstrap(bootstrap.json || {}),
         }),
       });
       expect(presignInit.status, presignInit.text).toBe(200);
@@ -1633,11 +1202,10 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       const presignSessionId = String(presignInit.json?.presignSessionId || '');
       expect(presignSessionId).toBeTruthy();
 
-      const step = await fetchJson(`${srvB.baseUrl}/threshold-ecdsa/presign/step`, {
+      const step = await fetchJson(`${srvB.baseUrl}/v1/hss/ecdsa/presignature-pool/fill/step`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${jwt}`,
+          ...hssJsonHeaders(rpId, jwt),
           'x-threshold-ecdsa-presign-forward-hop': '99',
         },
         body: JSON.stringify({
@@ -1649,7 +1217,7 @@ test.describe('threshold-ecdsa harness signature verification', () => {
       expect(step.status, step.text).toBe(200);
       expect(step.json?.ok, step.text).toBe(true);
 
-      const persisted = await handlerA.presignSessionStore.getSession(presignSessionId);
+      const persisted = await handlerA.poolFillSessionStore.getSession(presignSessionId);
       expect(persisted).not.toBeNull();
       expect(Number(persisted?.version || 0)).toBeGreaterThan(1);
     } finally {

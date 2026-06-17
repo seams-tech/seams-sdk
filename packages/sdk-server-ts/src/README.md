@@ -144,8 +144,8 @@ export default {
 - GET `/session/state` — returns `{ authenticated, claims? }` based on Authorization: Bearer or cookie
 - POST `/session/revoke` — rotates app-session version and clears session cookie
 - GET `/.well-known/webauthn` — Related Origin Requests manifest (wallet-scoped credentials) + sealed-refresh capabilities payload
-- POST `/threshold/signing-session-seal/apply-server-seal` — optional signing-session sealed-refresh route
-- POST `/threshold/signing-session-seal/remove-server-seal` — optional signing-session sealed-refresh route
+- POST `/v2/wallet-session/seal/apply-server-seal` — optional signing-session sealed-refresh route
+- POST `/v2/wallet-session/seal/remove-server-seal` — optional signing-session sealed-refresh route
 
 ## Sessions
 
@@ -227,14 +227,17 @@ Cloudflare CORS note
 import { createRelayRouter } from '@seams/sdk/server/router/express';
 import {
   createSigningSessionSealRoutesOptions,
-  createSigningSessionSealPolicyFromEcdsaAuthSessionStore,
+  createSigningSessionSealPolicyFromWalletSessionStores,
   createSigningSessionSealShamir3PassCipherAdapter,
   resolveSigningSessionSealRateLimitFromEnv,
 } from '@seams/sdk/server';
 
-const ecdsaAuthSessionStore = /* your threshold-ecdsa auth session store */;
+const ecdsaWalletSessionStore = /* your ECDSA Wallet Session store */;
 const signingSessionSeal = createSigningSessionSealRoutesOptions({
-  sessionPolicy: createSigningSessionSealPolicyFromEcdsaAuthSessionStore(ecdsaAuthSessionStore),
+  sessionPolicy: createSigningSessionSealPolicyFromWalletSessionStores({
+    ecdsaStores: [ecdsaWalletSessionStore],
+    walletBudgetStores: [ecdsaWalletSessionStore],
+  }),
   cipher: createSigningSessionSealShamir3PassCipherAdapter({
     currentKeyVersion: 'kek-s-2026-02',
     keys: [{

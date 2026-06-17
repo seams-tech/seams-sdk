@@ -10,22 +10,23 @@ import {
   type ThresholdRuntimePolicyScope,
   type ThresholdSessionKind,
 } from '../sessionPolicy';
+import type { RouterAbEd25519NormalSigningState } from './routerAbNormalSigningState';
 import {
   buildThresholdEd25519WebAuthnPrfSecretSource,
-  localPrfFirstForThresholdEd25519SessionMintAuthorization,
-  mintEd25519AuthSession,
-  type ThresholdEd25519SessionMintAuthorization,
-} from '../ed25519/authSession';
+  localPrfFirstForEd25519WalletSessionMintAuthorization,
+  mintEd25519WalletSession,
+  type Ed25519WalletSessionMintAuthorization,
+} from '../ed25519/walletSession';
 
 /**
  * Wallet-origin helper:
  * - build a threshold session policy (and digest)
  * - collect a WebAuthn assertion with challenge = `sessionPolicyDigest32`
- * - mint a relay threshold session token via `POST /threshold-ed25519/session` (lite)
+ * - mint a Wallet Session JWT via `POST /v2/router-ab/wallet-session/ed25519`
  *
  * Notes:
  * - This function is intentionally standard-WebAuthn (no contract verifier).
- * - The WebAuthn credential sent to the relay is PRF-redacted in `mintEd25519AuthSession`.
+ * - The WebAuthn credential sent to the relay is PRF-redacted in `mintEd25519WalletSession`.
  */
 export async function connectEd25519Session(args: {
   credentialStore: ThresholdCredentialStorePort;
@@ -35,6 +36,7 @@ export async function connectEd25519Session(args: {
   nearAccountId: string;
   participantIds?: number[];
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   runtimeScopeBootstrap?: {
     environmentId: string;
     publishableKey: string;
@@ -44,7 +46,7 @@ export async function connectEd25519Session(args: {
   walletSigningSessionId?: string;
   ttlMs?: number;
   remainingUses?: number;
-  auth?: ThresholdEd25519SessionMintAuthorization;
+  auth?: Ed25519WalletSessionMintAuthorization;
   workerCtx?: WorkerOperationContext;
 }): Promise<{
   ok: boolean;
@@ -73,6 +75,7 @@ export async function connectEd25519Session(args: {
     rpId,
     relayerKeyId: args.relayerKeyId,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    ...(args.routerAbNormalSigning ? { routerAbNormalSigning: args.routerAbNormalSigning } : {}),
     participantIds: args.participantIds,
     sessionId: args.sessionId,
     walletSigningSessionId: args.walletSigningSessionId,
@@ -80,7 +83,7 @@ export async function connectEd25519Session(args: {
     remainingUses: args.remainingUses,
   });
 
-  let auth: ThresholdEd25519SessionMintAuthorization | undefined = args.auth;
+  let auth: Ed25519WalletSessionMintAuthorization | undefined = args.auth;
   if (!auth) {
     // Collect WebAuthn only when the caller did not already confirm the same session policy.
     // A regression here ignored the provided PRF source, so post-exhaustion transaction signing
@@ -100,7 +103,7 @@ export async function connectEd25519Session(args: {
     };
   }
 
-  const prfFirstB64u = localPrfFirstForThresholdEd25519SessionMintAuthorization(auth);
+  const prfFirstB64u = localPrfFirstForEd25519WalletSessionMintAuthorization(auth);
   if (!prfFirstB64u) {
     return {
       ok: false,
@@ -109,8 +112,8 @@ export async function connectEd25519Session(args: {
     };
   }
 
-  // 3) Mint threshold auth session token/cookie with app-session or WebAuthn authorization.
-  const minted = await mintEd25519AuthSession({
+  // 3) Mint a Wallet Session JWT with app-session or WebAuthn authorization.
+  const minted = await mintEd25519WalletSession({
     relayerUrl: args.relayerUrl,
     sessionKind,
     relayerKeyId: args.relayerKeyId,

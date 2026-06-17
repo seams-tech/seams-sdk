@@ -22,6 +22,10 @@ const SUBJECT_ID = WALLET_SESSION_USER_ID;
 const SIGNING_ROOT_ID = `${RUNTIME_POLICY_SCOPE.projectId}:${RUNTIME_POLICY_SCOPE.envId}`;
 const SIGNING_ROOT_VERSION = RUNTIME_POLICY_SCOPE.signingRootVersion;
 const PARTICIPANT_IDS = [1, 2];
+const PASSKEY_BOOTSTRAP_HEADERS = {
+  'Content-Type': 'application/json',
+  Origin: `https://${RP_ID}`,
+} as const;
 
 function b64u(bytes: Uint8Array): string {
   return base64UrlEncode(bytes);
@@ -172,9 +176,9 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       verifyResult: { success: true, verified: true },
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/threshold-ecdsa/hss/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/v1/hss/ecdsa/bootstrap`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: PASSKEY_BOOTSTRAP_HEADERS,
         body: JSON.stringify(body),
       });
 
@@ -216,9 +220,9 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       },
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/threshold-ecdsa/hss/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/v1/hss/ecdsa/bootstrap`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: PASSKEY_BOOTSTRAP_HEADERS,
         body: JSON.stringify(body),
       });
 
@@ -251,9 +255,9 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       },
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/threshold-ecdsa/hss/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/v1/hss/ecdsa/bootstrap`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: PASSKEY_BOOTSTRAP_HEADERS,
         body: JSON.stringify(body),
       });
 
@@ -324,7 +328,7 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       }),
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/threshold-ecdsa/hss/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/v1/hss/ecdsa/bootstrap`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -359,9 +363,9 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       verifyResult: { success: true, verified: true },
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/threshold-ecdsa/hss/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/v1/hss/ecdsa/bootstrap`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: PASSKEY_BOOTSTRAP_HEADERS,
         body: JSON.stringify(body),
       });
 
@@ -407,9 +411,9 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
       verifyResult: { success: true, verified: true },
     });
     try {
-      const response = await fetchJson(`${harness.server.baseUrl}/threshold-ecdsa/hss/bootstrap`, {
+      const response = await fetchJson(`${harness.server.baseUrl}/v1/hss/ecdsa/bootstrap`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: PASSKEY_BOOTSTRAP_HEADERS,
         body: JSON.stringify(body),
       });
 
@@ -442,9 +446,9 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
     });
     try {
       for (const field of forbiddenFields) {
-        const response = await fetchJson(`${harness.server.baseUrl}/threshold-ecdsa/hss/bootstrap`, {
+        const response = await fetchJson(`${harness.server.baseUrl}/v1/hss/ecdsa/bootstrap`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: PASSKEY_BOOTSTRAP_HEADERS,
           body: JSON.stringify(await makeBootstrapBody({ [field]: 'secret-material' })),
         });
 
@@ -470,9 +474,9 @@ test.describe('threshold ECDSA role-local passkey bootstrap route', () => {
     });
     try {
       for (const hssClientSharePublicKey33B64u of malformedPublicKeys) {
-        const response = await fetchJson(`${harness.server.baseUrl}/threshold-ecdsa/hss/bootstrap`, {
+        const response = await fetchJson(`${harness.server.baseUrl}/v1/hss/ecdsa/bootstrap`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: PASSKEY_BOOTSTRAP_HEADERS,
           body: JSON.stringify(await makeBootstrapBody({ hssClientSharePublicKey33B64u })),
         });
 
