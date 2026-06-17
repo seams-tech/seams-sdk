@@ -44,18 +44,26 @@ test.describe('Router A/B normal-signing server policy', () => {
     });
   });
 
-  test('rejects Router A/B normal-signing policy on servers without a configured SigningWorker id', () => {
-    const policy = parseRouterAbNormalSigningServerPolicy({});
+  test('rejects sessions missing Router A/B normal-signing policy', () => {
+    const policy = parseRouterAbNormalSigningServerPolicy({
+      ROUTER_AB_NORMAL_SIGNING_WORKER_ID: 'local-signing-worker',
+    });
 
     expect(
       validateRouterAbNormalSigningServerPolicy({
         policy,
-        requested: routerAbState('local-signing-worker'),
+        requested: undefined,
       }),
     ).toEqual({
       ok: false,
       code: 'unauthorized',
-      message: 'sessionPolicy.routerAbNormalSigning is not configured for this threshold server',
+      message: 'sessionPolicy.routerAbNormalSigning is required for Router A/B normal signing',
     });
+  });
+
+  test('fails startup without a configured SigningWorker id', () => {
+    expect(() => parseRouterAbNormalSigningServerPolicy({})).toThrow(
+      'Missing required server config: ROUTER_AB_NORMAL_SIGNING_WORKER_ID',
+    );
   });
 });

@@ -21,6 +21,7 @@ import {
   type PersistWarmSessionEd25519JwtEmailOtpCapabilityArgs,
   type PersistWarmSessionEd25519JwtPasskeyCapabilityArgs,
 } from '@/core/signingEngine/session/warmCapabilities/persistence';
+import { createWarmSessionCapabilityReader } from '@/core/signingEngine/session/warmCapabilities/capabilityReader';
 import type { ThresholdEcdsaEmailOtpAuthContext } from '@/core/signingEngine/session/identity/laneIdentity';
 import { getPrfFirstB64uFromCredential } from '@/core/signingEngine/threshold/crypto/webauthn';
 import {
@@ -61,6 +62,19 @@ import { resolveThresholdWarmSessionDefaults } from '@/SeamsWeb/operations/sessi
 
 export const THRESHOLD_ED25519_SINGLE_KEY_HSS_KEY_VERSION_V1 = 'threshold-ed25519-hss-v1';
 
+function signingRootIdFromRuntimePolicyScope(
+  scope: ThresholdRuntimePolicyScope,
+  errorContext: string,
+): string {
+  const signingRootId = String(
+    signingRootScopeFromRuntimePolicyScope(scope).signingRootId || '',
+  ).trim();
+  if (!signingRootId) {
+    throw new Error(`${errorContext} is missing signing root scope`);
+  }
+  return signingRootId;
+}
+
 export type RegisteredThresholdEd25519SessionAuth =
   | {
       kind: 'passkey';
@@ -77,7 +91,7 @@ export type ThresholdWarmSessionPolicyDraft = {
   ttlMs: number;
   remainingUses: number;
   participantIds?: number[];
-  routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
 };
 
 export type ThresholdWarmSessionRequestEnvelope = {
@@ -90,7 +104,7 @@ export type ThresholdWarmSessionRequestEnvelope = {
     walletSigningSessionId?: string;
     participantIds?: number[];
     runtimePolicyScope?: ThresholdRuntimePolicyScope;
-    routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
+    routerAbNormalSigning: RouterAbEd25519NormalSigningState;
     ttlMs: number;
     remainingUses: number;
   };
@@ -170,13 +184,15 @@ function assertNeverRouterAbNormalSigningConfig(value: never): never {
   throw new Error(`Unexpected Router A/B normal-signing config branch: ${String(value)}`);
 }
 
-function createRouterAbNormalSigningPolicy(
+export function createRouterAbNormalSigningPolicy(
   configs: SeamsConfigsReadonly,
-): RouterAbEd25519NormalSigningState | undefined {
+): RouterAbEd25519NormalSigningState {
   const normalSigning = configs.signing.routerAb.normalSigning;
   switch (normalSigning.mode) {
     case 'disabled':
-      return undefined;
+      throw new Error(
+        '[threshold-warm-session] Router A/B normal signing must be enabled for threshold-signer warm sessions',
+      );
     case 'enabled':
       return {
         kind: ROUTER_AB_ED25519_NORMAL_SIGNING_STATE_KIND,
@@ -203,7 +219,7 @@ export function createThresholdWarmSessionPolicyDraft(
     ttlMs: defaults.ttlMs,
     remainingUses: defaults.remainingUses,
     ...(participantIds ? { participantIds } : {}),
-    ...(routerAbNormalSigning ? { routerAbNormalSigning } : {}),
+    routerAbNormalSigning,
   };
 }
 
@@ -231,9 +247,7 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
       ...(Array.isArray(args.requestedPolicy.participantIds)
         ? { participantIds: args.requestedPolicy.participantIds }
         : {}),
-      ...(args.requestedPolicy.routerAbNormalSigning
-        ? { routerAbNormalSigning: args.requestedPolicy.routerAbNormalSigning }
-        : {}),
+      routerAbNormalSigning: args.requestedPolicy.routerAbNormalSigning,
       ttlMs: args.requestedPolicy.ttlMs,
       remainingUses: args.requestedPolicy.remainingUses,
     },
@@ -244,7 +258,7 @@ export function buildThresholdWarmSessionRequestEnvelope(args: {
 export async function prepareThresholdEd25519RegistrationHssClientMaterial(args: {
   context: ThresholdWarmSessionContext;
   credential: WebAuthnRegistrationCredential | WebAuthnAuthenticationCredential;
-  signingRootId: string;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
   nearAccountId: AccountId;
   keyPurpose: string;
   keyVersion: string;
@@ -252,10 +266,14 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterial(args:
   derivationVersion: number;
   onProgress?: (message: string) => void;
 }): Promise<ThresholdEd25519RegistrationHssClientMaterial> {
+  const signingRootId = signingRootIdFromRuntimePolicyScope(
+    args.runtimePolicyScope,
+    'Threshold Ed25519 registration HSS material',
+  );
   const prepared =
     await args.context.signingEngine.prepareThresholdEd25519HssClientCeremonyFromCredential({
       credential: args.credential,
-      signingRootId: args.signingRootId,
+      signingRootId,
       nearAccountId: String(args.nearAccountId),
       keyPurpose: args.keyPurpose,
       keyVersion: args.keyVersion,
@@ -273,7 +291,7 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterial(args:
 
   return {
     hssContext: {
-      signingRootId: args.signingRootId,
+      signingRootId,
       nearAccountId: args.nearAccountId,
       keyPurpose: args.keyPurpose,
       keyVersion: args.keyVersion,
@@ -292,7 +310,7 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterial(args:
 export async function prepareThresholdEd25519RegistrationHssClientMaterialFromPrfFirst(args: {
   context: ThresholdWarmSessionContext;
   prfFirstB64u: string;
-  signingRootId: string;
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
   nearAccountId: AccountId;
   keyPurpose: string;
   keyVersion: string;
@@ -304,10 +322,14 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterialFromPr
   if (!prfFirstB64u) {
     throw new Error('Missing PRF.first material for threshold Ed25519 HSS registration');
   }
+  const signingRootId = signingRootIdFromRuntimePolicyScope(
+    args.runtimePolicyScope,
+    'Threshold Ed25519 registration HSS material',
+  );
   const prepared =
     await args.context.signingEngine.prepareThresholdEd25519HssClientCeremonyFromPrfFirst({
       prfFirstB64u,
-      signingRootId: args.signingRootId,
+      signingRootId,
       nearAccountId: String(args.nearAccountId),
       keyPurpose: args.keyPurpose,
       keyVersion: args.keyVersion,
@@ -321,7 +343,7 @@ export async function prepareThresholdEd25519RegistrationHssClientMaterialFromPr
 
   return {
     hssContext: {
-      signingRootId: args.signingRootId,
+      signingRootId,
       nearAccountId: args.nearAccountId,
       keyPurpose: args.keyPurpose,
       keyVersion: args.keyVersion,
@@ -436,12 +458,12 @@ export function completeRegisteredThresholdEd25519Registration(args: {
     .trim()
     .toLowerCase();
   const sessionId = String(session?.sessionId || '').trim();
-  const sessionAuthToken = String(session?.jwt || '').trim();
+  const walletSessionJwt = String(session?.jwt || '').trim();
   const expiresAtMs = Number(session?.expiresAtMs);
   if (
     sessionKind !== 'jwt' ||
     !sessionId ||
-    !sessionAuthToken ||
+    !walletSessionJwt ||
     !Number.isFinite(expiresAtMs) ||
     expiresAtMs <= 0
   ) {
@@ -673,7 +695,7 @@ export async function persistRegisteredThresholdEd25519Session(
       walletId: String(args.nearAccountId),
       relayerUrl: args.relayerUrl,
       ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
-      ...(jwt ? { thresholdSessionAuthToken: jwt } : {}),
+      ...(jwt ? { walletSessionJwt: jwt } : {}),
     },
   });
 }
@@ -689,8 +711,8 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
   participantIdsHint?: number[];
 }): Promise<string> {
   const thresholdSessionId = String(args.session.sessionId || '').trim();
-  const thresholdSessionAuthToken = String(args.session.jwt || '').trim();
-  if (!thresholdSessionId || !thresholdSessionAuthToken) {
+  const walletSessionJwt = String(args.session.jwt || '').trim();
+  if (!thresholdSessionId || !walletSessionJwt) {
     throw new Error('Threshold Ed25519 warm session is missing JWT session state');
   }
   const runtimePolicyScope = normalizeThresholdRuntimePolicyScope(args.session.runtimePolicyScope);
@@ -733,7 +755,7 @@ export async function reconstructThresholdEd25519ClientBaseFromWarmSession(args:
   }
   const completed = await args.context.signingEngine.runThresholdEd25519HssCeremonyWithSession({
     relayerUrl,
-    thresholdSessionAuthToken,
+    walletSessionJwt,
     relayerKeyId,
     operation: 'warm_session_reconstruction',
     context: {
@@ -805,8 +827,17 @@ export async function prewarmThresholdEd25519ClientBaseFromCredential(args: {
     ).catch(() => null);
     if (!thresholdKeyMaterial) return;
 
-    if (sessionRecord.thresholdSessionKind !== 'jwt') return;
-    if (!String(sessionRecord.thresholdSessionAuthToken || '').trim()) return;
+    const walletSessionAuth = createWarmSessionCapabilityReader().resolveEd25519AuthByThresholdSessionId(
+      thresholdSessionId,
+    );
+    const walletSessionRecord = walletSessionAuth?.record || null;
+    const walletSessionJwt =
+      walletSessionRecord &&
+      String(walletSessionRecord.nearAccountId || '') === nearAccountId &&
+      String(walletSessionRecord.thresholdSessionId || '') === thresholdSessionId
+        ? String(walletSessionAuth?.walletSessionJwt || '').trim()
+        : '';
+    if (!walletSessionJwt) return;
     if (!sessionRecord.runtimePolicyScope) return;
 
     const startedAt = performance.now();
@@ -818,12 +849,12 @@ export async function prewarmThresholdEd25519ClientBaseFromCredential(args: {
         relayerUrl: sessionRecord.relayerUrl,
         relayerKeyId: sessionRecord.relayerKeyId || thresholdKeyMaterial.relayerKeyId,
         session: {
-          sessionKind: sessionRecord.thresholdSessionKind,
+          sessionKind: 'jwt',
           sessionId: sessionRecord.thresholdSessionId,
           expiresAtMs: sessionRecord.expiresAtMs,
           participantIds: sessionRecord.participantIds,
           remainingUses: sessionRecord.remainingUses,
-          jwt: sessionRecord.thresholdSessionAuthToken,
+          jwt: walletSessionJwt,
           runtimePolicyScope: sessionRecord.runtimePolicyScope,
         },
         keyVersion: thresholdKeyMaterial.keyVersion,
@@ -880,9 +911,9 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     String(args.session?.walletSigningSessionId || '').trim() ||
     String(args.requestedPolicy.walletSigningSessionId || '').trim() ||
     String(args.requestedPolicy.sessionId || '').trim();
-  const sessionAuthToken = String(args.session?.jwt || '').trim();
+  const walletSessionJwt = String(args.session?.jwt || '').trim();
   const expiresAtMs = Number(args.session?.expiresAtMs);
-  if (!sessionId || !sessionAuthToken || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
+  if (!sessionId || !walletSessionJwt || !Number.isFinite(expiresAtMs) || expiresAtMs <= 0) {
     throw new Error('threshold-ed25519 bootstrap response missing session fields');
   }
 
@@ -916,7 +947,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
     walletSigningSessionId,
     expiresAtMs: Math.floor(expiresAtMs),
     remainingUses,
-    jwt: sessionAuthToken,
+    jwt: walletSessionJwt,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
     source: 'bootstrap',
   });
@@ -930,7 +961,7 @@ export async function hydrateThresholdWarmSessionFromRelay(args: {
       walletId: String(args.nearAccountId),
       relayerUrl: String(args.relayerUrl || '').trim(),
       ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
-      ...(sessionAuthToken ? { thresholdSessionAuthToken: sessionAuthToken } : {}),
+      ...(walletSessionJwt ? { walletSessionJwt } : {}),
     },
   });
 

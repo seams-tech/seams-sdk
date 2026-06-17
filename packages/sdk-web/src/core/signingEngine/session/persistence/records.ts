@@ -4,6 +4,7 @@ import {
   normalizeOptionalNonEmptyString,
   normalizePositiveInteger,
 } from '@shared/utils/normalize';
+import { base64UrlDecode } from '@shared/utils/base64';
 import { toAccountId, type AccountId } from '@/core/types/accountIds';
 import type {
   EcdsaLaneCandidate,
@@ -28,6 +29,10 @@ import {
   type RouterAbEd25519NormalSigningState,
 } from '../../threshold/ed25519/routerAbNormalSigningState';
 import {
+  parseRouterAbEcdsaHssNormalSigningStateV1,
+  type RouterAbEcdsaHssNormalSigningStateV1,
+} from '@shared/utils/routerAbEcdsaHss';
+import {
   thresholdEcdsaChainTargetKey,
   thresholdEcdsaChainTargetsEqual,
   thresholdEcdsaChainTargetFromRequest,
@@ -46,6 +51,7 @@ import {
   resolveThresholdEcdsaKeyIdFromRecord,
   resolveThresholdSigningRootBindingFromRecord,
   toEvmFamilyEcdsaKeyHandle,
+  walletSessionAuthInputFromPersistedThresholdSession,
   type EvmFamilyEcdsaKeyHandle,
   type EvmFamilyEcdsaKeyIdentity,
   type EvmFamilyEcdsaSessionLane,
@@ -91,10 +97,11 @@ type ThresholdEcdsaSessionRecordCore = {
   ecdsaRoleLocalReadyRecord: EcdsaRoleLocalReadyRecord;
   participantIds: number[];
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
+  routerAbEcdsaHssNormalSigning?: RouterAbEcdsaHssNormalSigningStateV1;
   thresholdSessionKind: 'jwt' | 'cookie';
   thresholdSessionId: string;
   walletSigningSessionId: string;
-  thresholdSessionAuthToken?: string;
+  walletSessionJwt?: string;
   signingSessionSealKeyVersion?: string;
   signingSessionSealShamirPrimeB64u?: string;
   expiresAtMs: number;
@@ -238,7 +245,7 @@ export type ThresholdEd25519SessionRecord = {
   thresholdSessionKind: 'jwt' | 'cookie';
   thresholdSessionId: string;
   walletSigningSessionId?: string;
-  thresholdSessionAuthToken?: string;
+  walletSessionJwt?: string;
   expiresAtMs: number;
   remainingUses: number;
   emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
@@ -251,7 +258,7 @@ export type ThresholdSessionRecordByCurve = {
   ecdsa: ThresholdEcdsaSessionRecord;
 };
 
-export type ThresholdEcdsaSessionAuthTokenSource = 'ecdsa' | 'ed25519' | 'none';
+export type WalletSessionJwtAuthSource = 'ecdsa' | 'ed25519' | 'none';
 
 export type ThresholdSessionSealTransportAuthMaterial =
   | {
@@ -259,8 +266,8 @@ export type ThresholdSessionSealTransportAuthMaterial =
       walletId?: string;
       relayerUrl: string;
       walletSigningSessionId?: string;
-      thresholdSessionAuthToken?: string;
-      thresholdSessionAuthTokenSource: ThresholdEcdsaSessionAuthTokenSource;
+      walletSessionJwt?: string;
+      walletSessionJwtSource: WalletSessionJwtAuthSource;
       keyVersion?: string;
       shamirPrimeB64u?: string;
     }
@@ -270,8 +277,8 @@ export type ThresholdSessionSealTransportAuthMaterial =
       chainTarget: ThresholdEcdsaChainTarget;
       relayerUrl: string;
       walletSigningSessionId?: string;
-      thresholdSessionAuthToken?: string;
-      thresholdSessionAuthTokenSource: ThresholdEcdsaSessionAuthTokenSource;
+      walletSessionJwt?: string;
+      walletSessionJwtSource: WalletSessionJwtAuthSource;
       keyVersion?: string;
       shamirPrimeB64u?: string;
     };
@@ -298,6 +305,7 @@ export type ThresholdEcdsaRuntimeRecordCandidate = {
   source: 'runtime_session_record';
   walletId: AccountId;
   key: EvmFamilyEcdsaKeyIdentity;
+  routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
   resolvedKey?: ResolvedEvmFamilyEcdsaKey;
   keyHandle: EvmFamilyEcdsaKeyHandle;
   verifiedPublicFacts?: VerifiedEcdsaPublicFacts;
@@ -380,8 +388,10 @@ export function thresholdEcdsaSessionRecordReadModel(
     source: record.source,
     thresholdSessionId: record.thresholdSessionId,
     walletSigningSessionId: record.walletSigningSessionId,
-    thresholdSessionKind: record.thresholdSessionKind,
-    thresholdSessionAuthToken: record.thresholdSessionAuthToken,
+    walletSessionAuth: walletSessionAuthInputFromPersistedThresholdSession({
+      thresholdSessionKind: record.thresholdSessionKind,
+      walletSessionJwt: record.walletSessionJwt,
+    }),
     remainingUses: record.remainingUses,
     expiresAtMs: record.expiresAtMs,
   });
@@ -886,6 +896,76 @@ function normalizeStoredSigningRootBinding(
   };
 }
 
+function normalizeEthereumAddress20B64u(value: string): string {
+  const bytes = base64UrlDecode(value);
+  if (bytes.length !== 20) {
+    throw new Error(
+      'Invalid threshold ECDSA canonical session record: Router A/B ethereum address must decode to 20 bytes',
+    );
+  }
+  return `0x${Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('')}`;
+}
+
+function normalizeStoredRouterAbEcdsaHssNormalSigningState(args: {
+  raw: unknown;
+  walletId: string;
+  rpId: string;
+  ecdsaThresholdKeyId: string;
+  signingRootId: string;
+  signingRootVersion: string | undefined;
+  clientVerifyingShareB64u: string;
+  thresholdEcdsaPublicKeyB64u: string | null | undefined;
+  ethereumAddress: string;
+  relayerVerifyingShareB64u: string | null | undefined;
+}): RouterAbEcdsaHssNormalSigningStateV1 | undefined {
+  const parsed = parseRouterAbEcdsaHssNormalSigningStateV1(args.raw);
+  if (!parsed) return undefined;
+  const context = parsed.scope.context;
+  const publicIdentity = parsed.scope.public_identity;
+  const expectedSigningRootVersion = args.signingRootVersion || 'default';
+  const checks: Array<[string, string, string]> = [
+    ['wallet_id', context.wallet_id, args.walletId],
+    ['rp_id', context.rp_id, args.rpId],
+    ['ecdsa_threshold_key_id', context.ecdsa_threshold_key_id, args.ecdsaThresholdKeyId],
+    ['signing_root_id', context.signing_root_id, args.signingRootId],
+    ['signing_root_version', context.signing_root_version, expectedSigningRootVersion],
+    [
+      'client_public_key33_b64u',
+      publicIdentity.client_public_key33_b64u,
+      args.clientVerifyingShareB64u,
+    ],
+    [
+      'ethereum_address20_b64u',
+      normalizeEthereumAddress20B64u(publicIdentity.ethereum_address20_b64u),
+      args.ethereumAddress.toLowerCase(),
+    ],
+  ];
+  if (args.thresholdEcdsaPublicKeyB64u) {
+    checks.push([
+      'threshold_public_key33_b64u',
+      publicIdentity.threshold_public_key33_b64u,
+      args.thresholdEcdsaPublicKeyB64u,
+    ]);
+  }
+  if (args.relayerVerifyingShareB64u) {
+    checks.push([
+      'server_public_key33_b64u',
+      publicIdentity.server_public_key33_b64u,
+      args.relayerVerifyingShareB64u,
+    ]);
+  }
+  for (const [field, actual, expected] of checks) {
+    if (actual !== expected) {
+      throw new Error(
+        `Invalid threshold ECDSA canonical session record: Router A/B ECDSA-HSS ${field} mismatch`,
+      );
+    }
+  }
+  return parsed;
+}
+
 function normalizeStoredVerifiedPublicFacts(args: {
   rawVerifiedPublicFacts: unknown;
   keyHandle: string;
@@ -937,14 +1017,14 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   const thresholdSessionKind = normalizeThresholdSessionKind(obj.thresholdSessionKind);
   const thresholdSessionId = String(obj.thresholdSessionId || '').trim();
   const walletSigningSessionId = normalizeOptionalNonEmptyString(obj.walletSigningSessionId);
-  const thresholdSessionAuthToken = normalizeOptionalNonEmptyString(obj.thresholdSessionAuthToken);
+  const walletSessionJwt = normalizeOptionalNonEmptyString(obj.walletSessionJwt);
   const signingSessionSealKeyVersion = normalizeOptionalNonEmptyString(
     obj.signingSessionSealKeyVersion,
   );
   const signingSessionSealShamirPrimeB64u = normalizeOptionalNonEmptyString(
     obj.signingSessionSealShamirPrimeB64u,
   );
-  const runtimePolicyScope = normalizeStoredRuntimePolicyScope(obj, thresholdSessionAuthToken);
+  const runtimePolicyScope = normalizeStoredRuntimePolicyScope(obj, walletSessionJwt);
   const ecdsaThresholdKeyId = String(obj.ecdsaThresholdKeyId || '').trim();
   if (!ecdsaThresholdKeyId) {
     throw new Error(
@@ -1004,9 +1084,9 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
       'Invalid threshold ECDSA canonical session record: missing role-local ready record (ecdsaRoleLocalReadyRecord)',
     );
   }
-  if (thresholdSessionKind === 'jwt' && !thresholdSessionAuthToken) {
+  if (thresholdSessionKind === 'jwt' && !walletSessionJwt) {
     throw new Error(
-      'Invalid threshold ECDSA canonical session record: missing threshold session auth token',
+      'Invalid threshold ECDSA canonical session record: missing walletSessionJwt',
     );
   }
   if (expiresAtMs == null || expiresAtMs <= 0) {
@@ -1015,6 +1095,18 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
   if (remainingUses == null || remainingUses < 0) {
     throw new Error('Invalid threshold ECDSA canonical session record: missing remainingUses');
   }
+  const routerAbEcdsaHssNormalSigning = normalizeStoredRouterAbEcdsaHssNormalSigningState({
+    raw: obj.routerAbEcdsaHssNormalSigning,
+    walletId,
+    rpId,
+    ecdsaThresholdKeyId,
+    signingRootId: signingRootBinding.signingRootId,
+    signingRootVersion: signingRootBinding.signingRootVersion,
+    clientVerifyingShareB64u,
+    thresholdEcdsaPublicKeyB64u,
+    ethereumAddress,
+    relayerVerifyingShareB64u,
+  });
   const verifiedPublicFacts = normalizeStoredVerifiedPublicFacts({
     rawVerifiedPublicFacts: obj.verifiedPublicFacts,
     keyHandle,
@@ -1044,10 +1136,11 @@ function normalizeThresholdEcdsaSessionRecord(value: unknown): ThresholdEcdsaSes
     ecdsaRoleLocalReadyRecord,
     participantIds,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    ...(routerAbEcdsaHssNormalSigning ? { routerAbEcdsaHssNormalSigning } : {}),
     thresholdSessionKind,
     thresholdSessionId,
     walletSigningSessionId,
-    ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
+    ...(walletSessionJwt ? { walletSessionJwt } : {}),
     ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
     ...(signingSessionSealShamirPrimeB64u ? { signingSessionSealShamirPrimeB64u } : {}),
     expiresAtMs,
@@ -1160,9 +1253,7 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
   const participantIds = normalizeThresholdEd25519ParticipantIds(obj.participantIds);
   const runtimePolicyScope = normalizeStoredRuntimePolicyScope(obj);
   const xClientBaseB64u = normalizeOptionalNonEmptyString(obj.xClientBaseB64u);
-  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(
-    obj.routerAbNormalSigning,
-  );
+  const routerAbNormalSigning = parseRouterAbEd25519NormalSigningState(obj.routerAbNormalSigning);
   const thresholdSessionKindRaw = String(obj.thresholdSessionKind || 'jwt')
     .trim()
     .toLowerCase();
@@ -1170,7 +1261,7 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
     thresholdSessionKindRaw === 'cookie' ? 'cookie' : 'jwt';
   const thresholdSessionId = String(obj.thresholdSessionId || '').trim();
   const walletSigningSessionId = normalizeOptionalNonEmptyString(obj.walletSigningSessionId);
-  const thresholdSessionAuthToken = normalizeOptionalNonEmptyString(obj.thresholdSessionAuthToken);
+  const walletSessionJwt = normalizeOptionalNonEmptyString(obj.walletSessionJwt);
   const expiresAtMs = normalizeInteger(obj.expiresAtMs);
   const remainingUses = normalizeInteger(obj.remainingUses);
   const updatedAtMs = normalizeInteger(obj.updatedAtMs) || Date.now();
@@ -1191,9 +1282,9 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
   if (!rpId || !relayerUrl || !relayerKeyId || !participantIds || !thresholdSessionId) {
     throw new Error('Invalid threshold Ed25519 canonical session record');
   }
-  if (thresholdSessionKind === 'jwt' && !thresholdSessionAuthToken) {
+  if (thresholdSessionKind === 'jwt' && !walletSessionJwt) {
     throw new Error(
-      'Invalid threshold Ed25519 canonical session record: missing threshold session auth token',
+      'Invalid threshold Ed25519 canonical session record: missing walletSessionJwt',
     );
   }
   if (expiresAtMs == null || expiresAtMs <= 0) {
@@ -1215,7 +1306,7 @@ function normalizeThresholdEd25519SessionRecord(value: unknown): ThresholdEd2551
     thresholdSessionKind,
     thresholdSessionId,
     ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
-    ...(thresholdSessionAuthToken ? { thresholdSessionAuthToken } : {}),
+    ...(walletSessionJwt ? { walletSessionJwt } : {}),
     expiresAtMs,
     remainingUses,
     ...(emailOtpAuthContext ? { emailOtpAuthContext } : {}),
@@ -1655,15 +1746,15 @@ function buildEcdsaRecordFromBootstrap(
     keyRef.walletSigningSessionId ||
       (args.bootstrap.session as { walletSigningSessionId?: unknown }).walletSigningSessionId,
   );
-  const thresholdSessionAuthToken = normalizeOptionalNonEmptyString(
-    keyRef.thresholdSessionAuthToken || args.bootstrap.session.jwt,
+  const walletSessionJwt = normalizeOptionalNonEmptyString(
+    keyRef.walletSessionJwt || args.bootstrap.session.jwt,
   );
   const runtimePolicyScope =
     normalizeThresholdRuntimePolicyScope(
       (args.bootstrap.session as { runtimePolicyScope?: unknown }).runtimePolicyScope,
     ) ||
     normalizeThresholdRuntimePolicyScope(
-      parseThresholdRuntimePolicyScopeFromJwt(thresholdSessionAuthToken),
+      parseThresholdRuntimePolicyScopeFromJwt(walletSessionJwt),
     );
   const ecdsaThresholdKeyId = resolveThresholdEcdsaKeyIdFromRecord({
     record: {
@@ -1676,14 +1767,6 @@ function buildEcdsaRecordFromBootstrap(
   const ethereumAddress =
     normalizeOptionalNonEmptyString(keyRef.ethereumAddress) ||
     normalizeOptionalNonEmptyString(args.bootstrap.keygen.ethereumAddress);
-  const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
-    record: {
-      keyHandle: canonicalKeyHandle,
-      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
-      signingRootId: keyRef.signingRootId,
-      signingRootVersion: keyRef.signingRootVersion,
-    },
-  });
   const clientAdditiveShareHandle = normalizeThresholdEcdsaClientAdditiveShareHandle(
     keyRef.backendBinding?.clientAdditiveShareHandle,
   );
@@ -1696,16 +1779,22 @@ function buildEcdsaRecordFromBootstrap(
   const signingSessionSealShamirPrimeB64u = normalizeOptionalNonEmptyString(
     args.signingSessionSeal?.shamirPrimeB64u,
   );
-  if (thresholdSessionKind === 'jwt' && !thresholdSessionAuthToken) {
-    throw new Error(
-      '[SigningEngine] threshold ECDSA bootstrap did not provide thresholdSessionAuthToken',
-    );
+  if (thresholdSessionKind === 'jwt' && !walletSessionJwt) {
+    throw new Error('[SigningEngine] threshold ECDSA bootstrap did not provide walletSessionJwt');
   }
   if (!ecdsaRoleLocalReadyRecord) {
     throw new Error(
       '[SigningEngine] threshold ECDSA bootstrap did not provide role-local ready record',
     );
   }
+  const signingRootBinding = resolveThresholdSigningRootBindingFromRecord({
+    record: {
+      keyHandle: canonicalKeyHandle,
+      ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+      signingRootId: ecdsaRoleLocalReadyRecord.publicFacts.signingRootId,
+      signingRootVersion: ecdsaRoleLocalReadyRecord.publicFacts.signingRootVersion,
+    },
+  });
 
   return normalizeThresholdEcdsaSessionRecord({
     walletId: accountId,
@@ -1726,8 +1815,11 @@ function buildEcdsaRecordFromBootstrap(
     thresholdSessionKind,
     thresholdSessionId,
     ...(walletSigningSessionId ? { walletSigningSessionId } : {}),
-    thresholdSessionAuthToken,
+    walletSessionJwt: walletSessionJwt,
     ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+    ...(keyRef.routerAbEcdsaHssNormalSigning
+      ? { routerAbEcdsaHssNormalSigning: keyRef.routerAbEcdsaHssNormalSigning }
+      : {}),
     ...(signingSessionSealKeyVersion ? { signingSessionSealKeyVersion } : {}),
     ...(signingSessionSealShamirPrimeB64u ? { signingSessionSealShamirPrimeB64u } : {}),
     expiresAtMs: args.bootstrap.session.expiresAtMs,
@@ -2367,7 +2459,7 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
   thresholdSessionKind?: 'jwt' | 'cookie';
   thresholdSessionId: string;
   walletSigningSessionId?: string;
-  thresholdSessionAuthToken?: string;
+  walletSessionJwt?: string;
   expiresAtMs: number;
   remainingUses: number;
   emailOtpAuthContext?: ThresholdEcdsaEmailOtpAuthContext;
@@ -2392,8 +2484,8 @@ export function upsertStoredThresholdEd25519SessionRecord(args: {
     ...(String(args.walletSigningSessionId || '').trim()
       ? { walletSigningSessionId: String(args.walletSigningSessionId || '').trim() }
       : {}),
-    ...(String(args.thresholdSessionAuthToken || '').trim()
-      ? { thresholdSessionAuthToken: String(args.thresholdSessionAuthToken || '').trim() }
+    ...(String(args.walletSessionJwt || '').trim()
+      ? { walletSessionJwt: String(args.walletSessionJwt || '').trim() }
       : {}),
     expiresAtMs: Math.floor(Number(args.expiresAtMs) || 0),
     remainingUses: Math.floor(Number(args.remainingUses) || 0),
@@ -2431,7 +2523,7 @@ export function persistStoredThresholdEd25519SessionClientBase(args: {
     ...(existing.walletSigningSessionId
       ? { walletSigningSessionId: existing.walletSigningSessionId }
       : {}),
-    thresholdSessionAuthToken: existing.thresholdSessionAuthToken,
+    walletSessionJwt: existing.walletSessionJwt,
     expiresAtMs: existing.expiresAtMs,
     remainingUses: existing.remainingUses,
     ...(existing.emailOtpAuthContext ? { emailOtpAuthContext: existing.emailOtpAuthContext } : {}),
@@ -2509,12 +2601,15 @@ function ecdsaRuntimeLaneFromRecord(args: {
     record: args.record,
   });
   const verifiedPublicFacts = args.record.verifiedPublicFacts;
+  const routerAbEcdsaHssNormalSigning = args.record.routerAbEcdsaHssNormalSigning;
+  if (!routerAbEcdsaHssNormalSigning) return null;
   if (!verifiedPublicFacts) return null;
   const thresholdEcdsaPublicKeyB64u = String(verifiedPublicFacts.publicKeyB64u || '').trim();
   if (!thresholdEcdsaPublicKeyB64u) return null;
   if (String(candidate.keyHandle) !== String(verifiedPublicFacts.keyHandle)) return null;
   return {
     key: readModel.key,
+    routerAbEcdsaHssNormalSigning,
     ...(readModel.resolvedKey ? { resolvedKey: readModel.resolvedKey } : {}),
     keyHandle: verifiedPublicFacts.keyHandle,
     verifiedPublicFacts,
@@ -2643,8 +2738,8 @@ export function markThresholdEd25519EmailOtpSessionConsumedForAccount(args: {
     ...(record.walletSigningSessionId
       ? { walletSigningSessionId: record.walletSigningSessionId }
       : {}),
-    ...(record.thresholdSessionAuthToken
-      ? { thresholdSessionAuthToken: record.thresholdSessionAuthToken }
+    ...(record.walletSessionJwt
+      ? { walletSessionJwt: record.walletSessionJwt }
       : {}),
     expiresAtMs: record.expiresAtMs,
     remainingUses,

@@ -4,8 +4,13 @@ import {
   decodeJwtPayloadRecord,
   THRESHOLD_ECDSA_SESSION_AUTH_TOKEN_KIND,
 } from '@shared/utils/sessionTokens';
+import type { RouterAbEd25519NormalSigningState } from '@shared/utils/signingSessionSeal';
+import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerAbEcdsaHss';
 import type { SigningSessionSealedStoreRecord } from '../persistence/sealedSessionStore';
-import { normalizeSealedRecoveryRecord } from '../sealedRecovery/recoveryRecord';
+import {
+  normalizeSealedRecoveryRecord,
+  sealedRecoveryWalletSessionJwt,
+} from '../sealedRecovery/recoveryRecord';
 import type {
   EmailOtpEcdsaCompanionEd25519Recovery,
   EmailOtpEcdsaSealedRecoveryRecord,
@@ -271,6 +276,7 @@ type AvailableSigningLanesRuntimeEcdsaPublicFactsRecord =
 
 export type AvailableSigningLanesRuntimeEcdsaRecord = {
   key: EvmFamilyEcdsaKeyIdentity;
+  routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
   thresholdEcdsaPublicKeyB64u: string;
   curve: 'ecdsa';
   chainTarget: ThresholdEcdsaChainTarget;
@@ -286,6 +292,7 @@ export type AvailableSigningLanesRuntimeEd25519Record = {
   authMethod: 'email_otp' | 'passkey';
   curve: 'ed25519';
   chain: 'near';
+  routerAbNormalSigning: RouterAbEd25519NormalSigningState;
   thresholdSessionId: string;
   walletSigningSessionId: string;
   remainingUses?: number;
@@ -786,13 +793,15 @@ function parseDurableEcdsaThresholdSessionJwtClaims(
 }
 
 function durableEcdsaJwtMatchesRecord(args: {
-  record: SigningSessionSealedStoreRecord;
-  chainTarget: ThresholdEcdsaChainTarget;
+  recoveryRecord: EmailOtpEcdsaSealedRecoveryRecord | PasskeyEcdsaSealedRecoveryRecord;
   thresholdSessionId: string;
+  walletSigningSessionId: string;
   expectedWalletId: string;
   expectedKeyHandle: string;
 }): boolean {
-  const jwt = String(args.record.ecdsaRestore?.thresholdSessionAuthToken || '').trim();
+  const jwt = String(
+    sealedRecoveryWalletSessionJwt(args.recoveryRecord.walletSessionAuth) || '',
+  ).trim();
   if (!jwt) return true;
   const claims = parseDurableEcdsaThresholdSessionJwtClaims(jwt);
   if (!claims) return false;
@@ -801,7 +810,7 @@ function durableEcdsaJwtMatchesRecord(args: {
 
   return (
     claims.sessionId === args.thresholdSessionId &&
-    claims.walletSigningSessionId === args.record.walletSigningSessionId
+    claims.walletSigningSessionId === args.walletSigningSessionId
   );
 }
 
@@ -938,9 +947,9 @@ async function recordToEcdsaLane(args: {
   }
   if (
     !durableEcdsaJwtMatchesRecord({
-      record: args.record,
-      chainTarget: args.chainTarget,
+      recoveryRecord,
       thresholdSessionId,
+      walletSigningSessionId,
       expectedWalletId: walletId,
       expectedKeyHandle: String(recoveryRecord.keyHandle || '').trim(),
     })
@@ -1308,8 +1317,6 @@ function summarizeEcdsaLaneForDiagnostics(
     thresholdSessionId: lane.thresholdSessionId,
     evmFamilyKeyFingerprint: deriveAvailableEcdsaLaneFingerprint(lane),
     ecdsaThresholdKeyId: lane.key.ecdsaThresholdKeyId,
-    signingRootId: lane.key.signingRootId,
-    signingRootVersion: lane.key.signingRootVersion,
     participantIds: lane.publicFacts.participantIds,
     thresholdOwnerAddress: lane.publicFacts.thresholdOwnerAddress,
     remainingUses: lane.remainingUses,
@@ -1481,8 +1488,6 @@ function summarizeSealedEcdsaRecordForDiagnostics(
       : null,
     keyHandle: String(restore?.keyHandle || '').trim() || null,
     ecdsaThresholdKeyId: String(recoveryRecord?.ecdsaThresholdKeyId || '').trim() || null,
-    signingRootId: String(recoveryRecord?.signingRootId || '').trim() || null,
-    signingRootVersion: String(recoveryRecord?.signingRootVersion || '').trim() || null,
     normalizedRecoveryKind: normalized.kind,
     updatedAtMs: Math.floor(Number(record.updatedAtMs) || 0),
   };
@@ -1724,12 +1729,16 @@ export async function readAvailableSigningLanes(
 
   const runtimeEcdsaRecords = ports.listRuntimeEcdsaLanesForWallet
     ? (await ports.listRuntimeEcdsaLanesForWallet({ walletId })).filter(
-        (record) => !input.authMethod || record.authMethod === input.authMethod,
+        (record) =>
+          Boolean(record.routerAbEcdsaHssNormalSigning) &&
+          (!input.authMethod || record.authMethod === input.authMethod),
       )
     : [];
   const runtimeEd25519Records = ports.listRuntimeEd25519RecordsForAccount
     ? (await ports.listRuntimeEd25519RecordsForAccount({ accountId: walletId })).filter(
-        (record) => !input.authMethod || record.authMethod === input.authMethod,
+        (record) =>
+          Boolean(record.routerAbNormalSigning) &&
+          (!input.authMethod || record.authMethod === input.authMethod),
       )
     : [];
   const claimsByEcdsaRecordKey =

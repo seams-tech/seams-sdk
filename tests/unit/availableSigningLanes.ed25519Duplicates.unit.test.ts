@@ -12,6 +12,7 @@ import {
   AVAILABLE_LANES_WALLET_ID as WALLET_ID,
   readAvailableLanesFixture as readAvailableLanes,
   runtimeEcdsaAvailableLaneRecord as runtimeEcdsaRecord,
+  runtimeEd25519RouterAbNormalSigningState,
   sealedEcdsaAvailableLaneRecord as sealedEcdsaRecord,
 } from './helpers/availableSigningLanes.fixtures';
 
@@ -41,7 +42,7 @@ function sealedEd25519Record(args: {
         relayerKeyId: 'relayer-key',
         participantIds: [1, 2],
         sessionKind: 'jwt',
-        thresholdSessionAuthToken: 'jwt-ed25519',
+        walletSessionJwt: 'jwt-ed25519',
       },
       issuedAtMs,
       expiresAtMs: issuedAtMs + 60_000,
@@ -65,7 +66,7 @@ function sealedEd25519Record(args: {
       relayerKeyId: 'relayer-key',
       participantIds: [1, 2],
       sessionKind: args.authMethod === 'email_otp' ? 'jwt' : 'cookie',
-      ...(args.authMethod === 'email_otp' ? { thresholdSessionAuthToken: 'jwt-ed25519' } : {}),
+      ...(args.authMethod === 'email_otp' ? { walletSessionJwt: 'jwt-ed25519' } : {}),
       ...(args.restoreMetadata === 'missing_x_client_base'
         ? {}
         : { xClientBaseB64u: 'x-client-base' }),
@@ -147,6 +148,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           authMethod: 'email_otp',
           curve: 'ed25519',
           chain: 'near',
+          routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
           walletSigningSessionId: 'wsess-1',
           thresholdSessionId: 'tsess-1',
         },
@@ -175,6 +177,34 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
     });
   });
 
+  test('does not advertise a warm Ed25519 runtime lane without Router A/B normal-signing state', async () => {
+    const availableLanes = await readAvailableLanes({
+      runtimeEd25519Records: [
+        {
+          authMethod: 'passkey',
+          curve: 'ed25519',
+          chain: 'near',
+          walletSigningSessionId: 'wsess-stale-router-ab',
+          thresholdSessionId: 'tsess-stale-router-ab',
+        } as never,
+      ],
+      runtimeClaims: new Map([
+        [
+          'tsess-stale-router-ab',
+          {
+            state: 'warm',
+            sessionId: 'tsess-stale-router-ab',
+            remainingUses: 2,
+            expiresAtMs: EXPIRES_AT_MS,
+          },
+        ],
+      ]),
+    });
+
+    expect(availableLanes.lanes.ed25519.near.state).toBe('missing');
+    expect(availableLanes.candidates.ed25519.near).toEqual([]);
+  });
+
   test('keeps same session ids with different auth methods as distinct lanes', async () => {
     const availableLanes = await readAvailableLanes({
       sealedRecords: [
@@ -190,6 +220,7 @@ test.describe('Ed25519 available signing lanes duplicate normalization', () => {
           authMethod: 'email_otp',
           curve: 'ed25519',
           chain: 'near',
+          routerAbNormalSigning: runtimeEd25519RouterAbNormalSigningState(),
           walletSigningSessionId: 'wsess-1',
           thresholdSessionId: 'tsess-1',
         },

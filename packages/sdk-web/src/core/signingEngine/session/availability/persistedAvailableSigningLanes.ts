@@ -220,8 +220,10 @@ export async function readPersistedAvailableSigningLanesForTargets(
           recordWalletId,
         )) {
           if (args.authMethod && args.authMethod !== runtimeLane.authMethod) continue;
+          if (!runtimeLane.routerAbEcdsaHssNormalSigning) continue;
           const baseRecord = {
             key: runtimeLane.key,
+            routerAbEcdsaHssNormalSigning: runtimeLane.routerAbEcdsaHssNormalSigning,
             keyHandle: runtimeLane.keyHandle,
             ...(runtimeLane.verifiedPublicFacts
               ? { verifiedPublicFacts: runtimeLane.verifiedPublicFacts }
@@ -269,10 +271,12 @@ export async function readPersistedAvailableSigningLanesForTargets(
           const authMethod =
             runtimeRecord.source === SIGNER_AUTH_METHODS.emailOtp ? 'email_otp' : 'passkey';
           if (args.authMethod && args.authMethod !== authMethod) continue;
+          if (!runtimeRecord.routerAbNormalSigning) continue;
           pushRecord({
             authMethod,
             curve: 'ed25519',
             chain: 'near',
+            routerAbNormalSigning: runtimeRecord.routerAbNormalSigning,
             thresholdSessionId: runtimeRecord.thresholdSessionId,
             walletSigningSessionId: String(runtimeRecord.walletSigningSessionId || '').trim(),
             remainingUses: runtimeRecord.remainingUses,

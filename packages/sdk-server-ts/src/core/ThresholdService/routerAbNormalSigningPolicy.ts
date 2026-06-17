@@ -6,25 +6,19 @@ export type ParseErr = { ok: false; code: string; message: string };
 export type ParseResult<T> = ParseOk<T> | ParseErr;
 
 export type RouterAbNormalSigningServerPolicy =
-  | {
-      mode: 'disabled';
-      signingWorkerId?: never;
-    }
-  | {
-      mode: 'enabled';
-      signingWorkerId: string;
-    };
-
-function assertNever(value: never): never {
-  throw new Error(`Unexpected Router A/B normal-signing server policy: ${String(value)}`);
-}
+  {
+    mode: 'enabled';
+    signingWorkerId: string;
+  };
 
 export function parseRouterAbNormalSigningServerPolicy(
   config: Record<string, unknown>,
 ): RouterAbNormalSigningServerPolicy {
   const signingWorkerId = toOptionalTrimmedString(config.ROUTER_AB_NORMAL_SIGNING_WORKER_ID);
   if (!signingWorkerId) {
-    return { mode: 'disabled' };
+    throw new Error(
+      'Missing required server config: ROUTER_AB_NORMAL_SIGNING_WORKER_ID',
+    );
   }
   return {
     mode: 'enabled',
@@ -37,27 +31,20 @@ export function validateRouterAbNormalSigningServerPolicy(args: {
   policy: RouterAbNormalSigningServerPolicy;
 }): ParseResult<null> {
   if (!args.requested) {
-    return { ok: true, value: null };
+    return {
+      ok: false,
+      code: 'unauthorized',
+      message: 'sessionPolicy.routerAbNormalSigning is required for Router A/B normal signing',
+    };
   }
 
-  switch (args.policy.mode) {
-    case 'disabled':
-      return {
-        ok: false,
-        code: 'unauthorized',
-        message: 'sessionPolicy.routerAbNormalSigning is not configured for this threshold server',
-      };
-    case 'enabled':
-      if (args.requested.signingWorkerId !== args.policy.signingWorkerId) {
-        return {
-          ok: false,
-          code: 'unauthorized',
-          message:
-            'sessionPolicy.routerAbNormalSigning.signingWorkerId is not allowed for this threshold server',
-        };
-      }
-      return { ok: true, value: null };
-    default:
-      return assertNever(args.policy);
+  if (args.requested.signingWorkerId !== args.policy.signingWorkerId) {
+    return {
+      ok: false,
+      code: 'unauthorized',
+      message:
+        'sessionPolicy.routerAbNormalSigning.signingWorkerId is not allowed for this threshold server',
+    };
   }
+  return { ok: true, value: null };
 }

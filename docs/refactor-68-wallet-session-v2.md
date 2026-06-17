@@ -713,6 +713,11 @@ Representative validation from June 15, 2026:
   passed with 300 tests after adding direct-delivery source guards for
   server-only bundle validation and client/export surface exclusion.
 - `rtk pnpm -C apps/web-server build` passed after the broader cleanup.
+- `rtk pnpm -C packages/sdk-web run type-check` and
+  `rtk pnpm -C packages/sdk-server-ts run type-check` passed after hardening the
+  Router A/B-only unlock-to-sign readiness boundary.
+- `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/routerAbNormalSigningPolicy.unit.test.ts ./unit/availableSigningLanes.ed25519Duplicates.unit.test.ts ./unit/availableSigningLanes.ecdsaDuplicates.unit.test.ts ./unit/seamsWeb.loginThresholdWarm.unit.test.ts ./unit/thresholdEd25519.registrationWarmSession.unit.test.ts --reporter=line`
+  passed with 76 tests for the same hardening.
 
 Focused stale-name scans found no active source matches for the deleted
 normal-signing v1/grant symbols outside docs and guard deny-lists.
@@ -831,6 +836,12 @@ active pre-deploy requirement rather than a post-MVP feature.
       [router-a-b-cleanup.md](./router-a-b-cleanup.md); local Router A/B-only
       cleanup is review-ready there, while deployed Cloudflare release evidence
       remains below.
+- [x] Harden the unlock-to-sign readiness boundary for Router A/B-only signing.
+      Wallet unlock now requests and persists Ed25519 Router A/B
+      normal-signing state, ECDSA runtime availability requires persisted
+      ECDSA-HSS Router A/B normal-signing state, stale runtime lanes without
+      that state are not advertised as sign-ready, and the server fails startup
+      without `ROUTER_AB_NORMAL_SIGNING_WORKER_ID`.
 - [ ] Capture deployed strict Cloudflare browser evidence with
       `rtk pnpm router:deploy:browser-evidence` for:
       configured-origin success, rejected-origin behavior, preflight behavior,

@@ -86,6 +86,12 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             configs: {
               signing: {
                 mode: { mode: 'threshold-signer' },
+                routerAb: {
+                  normalSigning: {
+                    mode: 'enabled',
+                    signingWorkerId: 'signing-worker-local',
+                  },
+                },
               },
               network: {
                 chains: [],
@@ -251,6 +257,12 @@ test.describe('threshold Ed25519 registration warm-session', () => {
             configs: {
               signing: {
                 mode: { mode: 'threshold-signer' },
+                routerAb: {
+                  normalSigning: {
+                    mode: 'enabled',
+                    signingWorkerId: 'signing-worker-local',
+                  },
+                },
               },
               network: {
                 chains: [],

@@ -187,6 +187,37 @@ test.describe('ECDSA available signing lane duplicate normalization', () => {
     });
   });
 
+  test('does not advertise a warm ECDSA runtime lane without Router A/B normal-signing state', async () => {
+    const staleRecord = runtimeEcdsaRecord({
+      chainTarget: ECDSA_TARGET,
+      thresholdSessionId: 'tsess-ecdsa-stale-router-ab',
+      walletSigningSessionId: 'wsess-ecdsa-stale-router-ab',
+      thresholdOwnerAddress: `0x${'EF'.repeat(20)}`,
+      remainingUses: 2,
+      updatedAtMs: 800,
+    }) as Record<string, unknown>;
+    delete staleRecord.routerAbEcdsaHssNormalSigning;
+
+    const availableLanes = await readAvailableLanes({
+      runtimeEcdsaRecords: [staleRecord as never],
+      runtimeClaims: new Map([
+        [
+          'tsess-ecdsa-stale-router-ab',
+          {
+            state: 'warm',
+            sessionId: 'tsess-ecdsa-stale-router-ab',
+            remainingUses: 2,
+            expiresAtMs: EXPIRES_AT_MS,
+          },
+        ],
+      ]),
+    });
+
+    const evmTargetKey = thresholdEcdsaChainTargetKey(ECDSA_TARGET);
+    expect(availableLanes.ecdsa.lanesByTarget[evmTargetKey]?.state).toBe('missing');
+    expect(availableLanes.ecdsa.candidatesByTarget[evmTargetKey]).toEqual([]);
+  });
+
   test('prefers a ready shared EVM-family runtime lane over a restorable exact target lane', async () => {
     const tempoThresholdSessionId = 'tsess-email-otp-tempo-ready';
     const availableLanes = await readAvailableLanes({

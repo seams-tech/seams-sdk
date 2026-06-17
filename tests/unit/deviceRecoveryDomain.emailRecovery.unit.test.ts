@@ -99,6 +99,12 @@ function createLocalDomain(options?: {
       signing: {
         mode: { mode: 'threshold-signer' },
         sessionDefaults: { ttlMs: 300_000, remainingUses: 5 },
+        routerAb: {
+          normalSigning: {
+            mode: 'enabled',
+            signingWorkerId: 'signing-worker-local',
+          },
+        },
         thresholdEcdsa: {
           provisioningDefaults: {
             evm: {
@@ -165,6 +171,22 @@ function createLocalDomain(options?: {
     },
     signingEngine: {
       getRpId: () => 'example.test',
+      preparePasskeyEcdsaBootstrap: async (input: any) => ({
+        clientBootstrap: {
+          ...input.prepare,
+          clientPublicKey33B64u: 'client-public-key',
+          clientShareRetryCounter: 0,
+          contextBinding32B64u: 'context-binding',
+        },
+      }),
+      hydrateSigningSession: async (input: any) => {
+        warmSigningSession = {
+          sessionId: String(input?.sessionId || ''),
+          expiresAtMs: Number(input?.expiresAtMs || Date.now() + 60_000),
+          remainingUses: Number(input?.remainingUses || 1),
+        };
+      },
+      storeWalletEcdsaSignerRecords: async () => undefined,
       requestRegistrationCredentialConfirmation: async () => ({
         credential: {
           id: 'cred-1',
@@ -316,8 +338,12 @@ test.describe('EmailRecoveryDomain', () => {
                   walletId: 'alice.testnet',
                   rpId: 'example.test',
                   ecdsaThresholdKeyId: 'ecdsa-threshold-key',
-                  signingRootId: 'signing-root-id',
-                  signingRootVersion: 'root-email-recovery-v1',
+                  runtimePolicyScope: {
+                    orgId: 'org-email-recovery',
+                    projectId: 'proj-email-recovery',
+                    envId: 'env-email-recovery',
+                    signingRootVersion: 'root-email-recovery-v1',
+                  },
                   keyScope: 'evm-family',
                   relayerKeyId: 'ecdsa-relayer-key',
                   requestId: 'ABC123:ecdsa',
