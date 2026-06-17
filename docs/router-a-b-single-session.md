@@ -2,7 +2,9 @@
 
 Date created: June 15, 2026
 
-Status: implementation plan.
+Status: local/core review-ready. Wallet Session V2 normal signing is
+implemented locally for Router A/B Ed25519 and ECDSA-HSS; deployed Cloudflare
+browser/runtime evidence remains open.
 
 Related docs:
 
@@ -28,6 +30,11 @@ Client -> Router/Relay -> SigningWorker -> Router/Relay -> Client
 The SDK should send only the Wallet Session credential to public Router A/B
 normal-signing endpoints. The SDK should not request, store, pass, or expose a
 second Router normal-signing grant.
+
+Cloudflare Router A/B deployment is blocked until Ed25519 and ECDSA signing use
+Router A/B as the only SDK/server signing architecture. The old public
+`/threshold-ed25519/*` and `/threshold-ecdsa/*` signing surfaces are tracked for
+deletion in [router-a-b-cleanup.md](./router-a-b-cleanup.md).
 
 ## Target Model
 
@@ -706,6 +713,80 @@ where the name describes a retired branch.
       headers, captures browser timing with preflight included, and writes a
       JSON evidence artifact.
 
+### Phase 9: Restore Ed25519 Presign-Pool Latency
+
+Router A/B Ed25519 normal signing must preserve the previous user-facing
+latency model: background presign refill creates one-use nonce pairs before the
+user signs, a pool hit finalizes in one public Router request, and a pool miss
+falls back to the current just-in-time prepare/finalize path.
+
+- [x] Add Router A/B Ed25519 presign-pool wire types:
+      `RouterAbEd25519PresignPoolPrepareRequestV2`,
+      `RouterAbEd25519PresignPoolPrepareResponseV2`,
+      `RouterAbEd25519PresignPoolHitBindingV2`, and
+      `RouterAbEd25519PresignPoolHitFinalizeRequestV2`. The refill request is
+      message-agnostic, the response validates accepted entries against the
+      originating offers, and the pool-hit request carries the selected pool
+      handle plus the full typed intent/signing-payload data needed for Router
+      admission.
+- [x] Add a public Wallet Session authenticated pool-refill route at
+      `/v2/hss/sign/presign-pool/prepare` that accepts client-generated
+      commitment offers, verifies account/session/SigningWorker scope, enforces
+      refill size/TTL bounds, and forwards only Router-authenticated pool
+      material to SigningWorker.
+- [x] Add SigningWorker unbound Ed25519 round-1 pool records and the refill-time
+      Durable Object put path. Records are scoped by account id, session id,
+      SigningWorker id, pool generation, client presign id, server round-1
+      handle, and expiry, and store the offered client commitments/client
+      verifying share plus generated server nonce state/server commitments/server
+      verifying share.
+- [x] Add the claim-time lookup/burn path for unbound Ed25519 round-1 pool
+      records. The lookup must validate account id, session id, signing
+      root/key id once exposed in the active state model, SigningWorker id,
+      client presign id, server round-1 handle, generation, pool binding digest,
+      and expiry before binding a claimed record to an admitted signing digest.
+- [x] Keep unbound pool records message-agnostic until finalization. Pool refill
+      must not carry an intent digest, signing-payload digest, or admitted
+      signing digest.
+- [x] Add pool-hit finalization admission: Router verifies Wallet Session,
+      typed intent, signing payload, expiry, policy/quota/abuse, and replay,
+      recomputes the admitted 32-byte signing digest, and forwards a
+      trusted-admission-bearing pool-hit finalize request to SigningWorker.
+- [x] Add SigningWorker pool-hit materialization that atomically claims the exact
+      unbound pool record, validates scope, client commitments, client verifying
+      share, server handle, server commitments, expiry, and SigningWorker id,
+      then binds the claimed nonce record to the admitted signing digest for
+      one finalization attempt.
+- [x] Define burn semantics precisely:
+      scope/handle/commitment drift rejects before claim and does not consume
+      the pool record; once a record is claimed for an admitted signing digest,
+      cryptographic failure, invalid client signature share, or response-send
+      uncertainty burns the record so nonce material cannot be reused.
+- [x] Reuse the existing SDK Ed25519 client presign-pool state where possible,
+      but replace the old threshold-session transport with Router A/B Wallet
+      Session auth, Router A/B SigningWorker scope, and the new pool-refill
+      route. Keep invalid states unrepresentable: a ready Router A/B presign
+      entry must include the server round-1 handle, server commitments, server
+      verifying share, client nonce handle, client commitments, scope, expiry,
+      and generation.
+- [x] Update Router A/B SDK signing selection:
+      pool hit -> one public finalize request;
+      pool miss -> current `/v2/hss/sign/prepare` plus `/v2/hss/sign` fallback;
+      background refill -> keep target depth above the low-water mark after a
+      miss or successful use.
+- [x] Add local and Cloudflare Durable Object cleanup for expired unbound pool
+      records. Cleanup must be idempotent, must preserve live records, and must
+      not create signing side effects.
+- [x] Add tests and source guards for one-use pool consumption, duplicate
+      handle rejection, cross-session rejection, SigningWorker mismatch,
+      commitment drift, expired pool records, invalid client signature-share
+      burn, pool-hit Deriver A/B non-invocation, and fallback-to-prepare on
+      pool miss.
+- [ ] Add deployed browser evidence that a Router A/B Ed25519 pool hit performs
+      one public signing request from user confirmation to signature, while a
+      pool miss performs the two-request prepare/finalize fallback. Record
+      timing for both cases with CORS preflight behavior included.
+
 ## Expiry, Quota, Replay, And Cleanup Semantics
 
 These are the current Wallet Session v2 normal-signing test targets for strict
@@ -1166,19 +1247,253 @@ Validation run on June 15, 2026:
   `seams-tech/seams-sdk`, then
   `rtk pnpm router:deploy:keygen -- --env production --apply --repo seams-tech/seams-sdk`
   applied real production Router A/B deployment identity variables and secrets.
-- `rtk pnpm router:deploy:dry-run` passed and wrote
-  `crates/router-ab-cloudflare/reports/startup-latencies/startup-latencies-2026-06-15T12-29-54-144Z.json`.
-  Dry-run upload totals were Router 2179.63 KiB / gzip 696.34 KiB,
-  Deriver A 1920.23 KiB / gzip 639.25 KiB, Deriver B 1920.24 KiB / gzip
-  639.13 KiB, and SigningWorker 1974.54 KiB / gzip 650.39 KiB. The report has
-  `startupTimeMs: null` for each role because Wrangler dry-run does not emit
-  deployed startup timings.
+- `rtk pnpm router:deploy:dry-run -- --env staging` passed and wrote
+  `crates/router-ab-cloudflare/reports/startup-latencies/startup-latencies-2026-06-16T05-38-33-964Z.json`.
+  Dry-run upload totals were Router 2887.88 KiB / gzip 879.45 KiB,
+  Deriver A 2336.55 KiB / gzip 737.40 KiB, Deriver B 2336.49 KiB / gzip
+  738.38 KiB, and SigningWorker 2784.06 KiB / gzip 896.44 KiB after
+  ECDSA-HSS strict-route integration. The report has `startupTimeMs: null` for
+  each role because Wrangler dry-run does not emit deployed startup timings.
+- `rtk cargo test --manifest-path crates/router-ab-core/Cargo.toml --test normal_signing_v2`
+  passed 20 tests after adding Router A/B Ed25519 presign-pool core wire
+  types, strict pool-refill/pool-hit parsers, response/request binding
+  validation, duplicate-handle rejection, cross-session response rejection, and
+  pool-hit finalization lowering.
+- `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings -- normal_signing`
+  passed 33 focused tests after adding the Wallet Session authenticated
+  `/v2/hss/sign/presign-pool/prepare` route model, SigningWorker private
+  presign-pool refill materialization, unbound Ed25519 Durable Object put
+  storage, and duplicate client-presign conflict coverage.
+- `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings -- normal_signing`
+  passed 35 focused tests after adding Router pool-hit finalization admission,
+  the private SigningWorker pool-hit claim route, Durable Object
+  Ed25519-presign-pool take semantics, expiry enforcement, one-use missing
+  handling, and pool-record drift rejection before final signing.
+- `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test source_guards`
+  passed 36 source-guard tests after adding the Ed25519 presign-pool route and
+  storage surface.
+- `rtk cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-router-entrypoint`
+  passed after wiring the strict public presign-pool refill route.
+- `rtk cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-signing-worker-entrypoint`
+  passed after wiring the strict private SigningWorker presign-pool refill
+  route.
+- `rtk cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-router-entrypoint`
+  passed after wiring `/v2/hss/sign` to accept both the just-in-time finalize
+  request shape and the presign-pool-hit finalize request shape.
+- `rtk cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-signing-worker-entrypoint`
+  passed after wiring the private
+  `/router-ab/v1/signing-worker/sign/presign-pool` claim-and-finalize route.
+- `rtk pnpm -C packages/sdk-web type-check` passed after adding the Router A/B
+  Ed25519 presign-pool SDK ready-entry branch, Wallet Session pool-refill
+  request builders, pool-hit selection, pool-miss fallback, and background
+  refill wiring.
+- `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts ./unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`
+  passed 1 SDK source-guard test after the Router A/B pool-hit/refill SDK
+  helper wiring.
+- `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/routerAbNormalSigningVectors.unit.test.ts ./unit/routerAbNormalSigningValidation.unit.test.ts --reporter=line`
+  passed 3 focused SDK normal-signing vector/validation tests.
+- The old `thresholdEd25519.presignFinalizeClient.unit.test.ts` suite was
+  deleted during Router A/B-only cleanup because it protected the removed
+  `/threshold-ed25519/*` client fallback. Current SDK coverage is the Router A/B
+  normal-signing guard plus focused Router A/B vector/validation tests.
+- `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings -- ed25519_presign_pool`
+  passed 4 focused Durable Object Ed25519 presign-pool storage tests after
+  adding expired-record cleanup and cross-session keyed-isolation coverage.
+- `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings -- signing_worker_production_presign_pool_hit_signs_router_admitted_digest`
+  passed 1 production-handler test proving a valid pool hit signs the
+  Router-admitted digest and an invalid client signature share burns the
+  claimed pool record.
+- `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings -- normal_signing`
+  passed 35 focused normal-signing tests after the Ed25519 presign-pool cleanup
+  and production pool-hit coverage.
+- `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test source_guards`
+  passed 36 source-guard tests after extending normal-signing Deriver A/B
+  non-invocation guards to the pool-refill and pool-hit handlers.
+- `rtk cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-router-entrypoint`
+  and
+  `rtk cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-signing-worker-entrypoint`
+  passed after adding the Ed25519 presign-pool expired-record cleanup operation
+  to the local and workers-rs Durable Object handlers.
+- `rtk pnpm router:deploy:check` passed with
+  `Router A/B release blockers clear.` after the Phase 9 local implementation
+  and cleanup updates.
 
 Next implementation order:
 
-1. Close Router A/B release evidence.
+1. Finish release-blocking Router A/B ECDSA-HSS support.
 
-   Finish the current release tail before opening larger model changes.
+   Product requirement: Cloudflare Router A/B must support ECDSA-HSS before any
+   staging or production deploy. Treat `docs/router-a-b-ecdsa.md` as an active
+   release plan, not a post-MVP feature.
+
+   - [x] Complete initial `router_ab_ecdsa_hss_secp256k1_v1` protocol ids, request
+         kinds, transcript domains, wire shapes, and boundary parsers.
+   - [x] Implement Router public ECDSA-HSS registration/bootstrap and export
+         boundaries.
+   - [x] Implement Router-mediated ECDSA-HSS SigningWorker activation and
+         public identity receipt derivation.
+   - [x] Implement Deriver A/B private ECDSA-HSS registration/bootstrap handlers
+         and strict private registration routes.
+   - [x] Implement Deriver A/B private ECDSA-HSS recovery and refresh handlers.
+   - [x] Implement client-only Deriver A/B export bundles so export does not
+         produce unused SigningWorker-targeted bundles.
+   - [x] Add active ECDSA-HSS normal-signing scope/material binding so
+         SigningWorker material is re-derived and compared to the expected
+         public identity before ECDSA signing.
+   - [x] Add the ECDSA-HSS EVM digest signing request boundary and materialize
+         it against active SigningWorker state before signature handling.
+   - [x] Add the ECDSA-HSS recoverable-signature response boundary and
+         SigningWorker handler interface.
+   - [x] Add Cloudflare-compatible one-use ECDSA-HSS presignature state with
+         typed Durable Object put/take/cleanup, active SigningWorker binding,
+         request-digest binding, signing-digest binding, and scalar-share
+         receipt redaction.
+   - [x] Add the ECDSA-HSS finalize request boundary carrying server
+         presignature id, 32-byte client signature share, and prepare
+         request-digest binding.
+   - [x] Add the ECDSA-HSS prepare response boundary and SigningWorker private
+         prepare fetch helper that persists a one-use presignature record before
+         returning the redacted public prepare response.
+   - [x] Add Router public ECDSA-HSS prepare admission and service-call helper
+         with Wallet Session verification, Router-owned store admission, replay
+         reservation, and trusted-admission-bearing SigningWorker forwarding.
+   - [x] Add Router public ECDSA-HSS finalize admission, SigningWorker private
+         finalize fetch, one-use presignature take, and service-call helper.
+   - [x] Add rerandomization entropy to the ECDSA-HSS prepare response,
+         one-use presignature record, and Durable Object put receipt, with
+         response/record/receipt binding and scalar-share redaction.
+   - [x] Wire strict public Router ECDSA-HSS prepare/finalize routes to the
+         materialized Wallet Session boundary and SigningWorker service calls.
+   - [x] Wire strict private SigningWorker ECDSA-HSS finalize dispatch to
+         one-use presignature take and production finalize handling.
+   - [x] Implement the production ECDSA-HSS finalize handler using
+         `signer-core` over Cloudflare-compatible presign state.
+   - [x] Require ECDSA-HSS prepare requests to carry the client-held
+         presignature id, bind it into the canonical prepare digest, carry it
+         through Router prepare admission, and require the prepare response to
+         echo it as the server presignature id.
+   - [x] Add pool-backed production SigningWorker ECDSA-HSS prepare dispatch:
+         strict private prepare reserves the selected unbound pool entry, binds
+         it to the exact request, persists the request-bound one-use
+         presignature record, and returns the redacted public response.
+   - [x] Add strict private SigningWorker ECDSA-HSS pool-fill dispatch:
+         trusted presign producers can write validated unbound pool records
+         after active-state derivation from the ECDSA-HSS scope.
+   - [x] Add SDK/server bridge for public/client-facing ECDSA-HSS
+         presignature production: completed TypeScript threshold-ECDSA presign
+         output plus validated Router A/B ECDSA-HSS scope now builds the exact
+         strict private SigningWorker pool-fill request.
+   - [x] Add SDK/server sender for the strict private SigningWorker pool-fill
+         route with exact-path POST, receipt validation, duplicate
+         classification, and request/receipt drift rejection.
+   - [x] Wire the client-facing SDK/server ECDSA-HSS presignature producer path
+         to carry validated Router A/B scope through presign-session state and
+         invoke the sender when presign completes.
+   - [x] Define strict ECDSA-HSS recovery and activation-refresh request
+         boundaries: recovery maps to client-recipient export material, refresh
+         maps to SigningWorker activation material, refresh carries previous and
+         next activation epochs, and non-advancing epochs reject at the
+         boundary.
+   - [x] Implement Cloudflare Deriver A/B private recovery and activation
+         refresh handlers.
+   - [x] Wire public Router ECDSA-HSS recovery endpoint to the private Deriver
+         recovery handlers and client-recipient response aggregation.
+   - [x] Wire public Router ECDSA-HSS activation-refresh endpoint to a typed
+         SigningWorker refresh activation path.
+         Refresh now uses a distinct request/receipt model and a separate
+         private SigningWorker refresh route.
+   - [x] Keep Deriver A/B unreachable from the ECDSA-HSS materialized
+         normal-signing boundary and prove this with source guards.
+   - [x] Add native core and Cloudflare adapter validation for ECDSA-HSS
+         boundary parsing, activation, export non-activation, and identity
+         derivation.
+   - [x] Add TypeScript bridge validation for mapping existing public
+         threshold-ECDSA presign output into the strict private ECDSA-HSS
+         pool-fill wire shape.
+         The Router A/B bridge uses `serverKeyId` for new boundary input and
+         isolates existing store `relayerKeyId` conversion at the adapter.
+   - [x] Add TypeScript sender validation for the strict private ECDSA-HSS
+         pool-fill route call and receipt handling.
+         The sender uses the strict internal service-auth header expected by
+         private Deriver/SigningWorker dispatchers.
+   - [x] Add TypeScript lifecycle validation that a Router A/B ECDSA-HSS
+         presign session persists the validated pool-fill branch, completes the
+         real WASM presign exchange, calls the strict private pool-fill route,
+         and leaves the local presign pool empty.
+   - [x] Add native core validation for ECDSA-HSS recovery and activation
+         refresh request parsing, lifecycle-kind rejection, envelope-role
+         rejection, strict unknown-field rejection, recovery/export digest
+         separation, non-advancing activation epoch rejection, and conversion
+         into the generic Router proof-bundle transport.
+   - [x] Add Cloudflare adapter validation for ECDSA-HSS recovery and
+         activation-refresh private request wrappers, payload drift rejection,
+         strict private route dispatch, and recipient-class separation.
+   - [x] Add ECDSA-HSS source guards proving public Router, Deriver,
+         SigningWorker, log, audit, and receipt paths do not materialize
+         canonical `x`, `privateKeyHex`, or raw root material; private
+         presignature scalar shares stay confined to SigningWorker request and
+         storage records.
+   - [x] Key active ECDSA-HSS SigningWorker state by wallet id, ECDSA
+         threshold key id, signing root id/version, SigningWorker identity, and
+         activation epoch through the canonical active-state session id used by
+         Wallet Session and Router admission validation.
+   - [x] Add branch-specific ECDSA-HSS Deriver A/B encrypted envelope plaintext
+         types for registration, export, recovery, and refresh with canonical
+         plaintext digests, envelope role/AAD binding, exact
+         output-kind/work-kind validation, and source guards against private
+         scalar/root material.
+   - [x] Add deterministic ECDSA-HSS derivation vector coverage for scalar
+         validity, public-key sum, Ethereum address parity, retry counters,
+         export reconstruction, zero-sum identity rejection, transcript
+         operation drift, wrong Deriver recipient, and wrong SigningWorker
+         identity.
+   - [x] Add explicit Signer A/B SigningWorker service bindings plus config
+         guards for the direct ECDSA-HSS activation delivery prerequisite.
+   - [x] Disable public `workers_dev` exposure for non-Router strict workers,
+         require internal service-auth before private runtime construction or
+         body parsing, and add release guards for those config and source
+         invariants.
+   - [x] Add the direct ECDSA-HSS activation delivery request type carrying only
+         activation context, Deriver role, and one SigningWorker-recipient
+         bundle.
+   - [x] Add pure direct ECDSA-HSS activation delivery reconciliation so one
+         Signer A delivery and one Signer B delivery for the same activation
+         context produce the existing aggregate SigningWorker activation
+         request.
+   - [x] Add direct ECDSA-HSS activation delivery source guards proving the
+         boundary cannot carry client/export bundles.
+   - [x] Add remaining local Wasm adapter, SDK/server, local browser/WASM
+         benchmark, recovery, refresh, and Cloudflare boundary-parser
+         validation for ECDSA-HSS.
+   - [x] Add expanded vector-matrix coverage for ECDSA-HSS.
+   - [x] Add local normal-signing latency evidence for ECDSA-HSS.
+   - [ ] Add remaining deployed Cloudflare evidence for ECDSA-HSS.
+
+2. Restore Router A/B Ed25519 presign-pool UX.
+
+   Product requirement: Ed25519 Router A/B normal signing must remain
+   UX/latency optimized like the previous threshold Ed25519 presign path.
+   Background refill should create one-use client/server round-1 pairs before
+   confirmation, pool-hit signing should require one public Router finalize
+   request, and pool misses should fall back to the current prepare/finalize
+   path.
+
+   - [x] Implement the Phase 9 Router A/B Ed25519 presign-pool core wire
+         types, strict request/response parsers, pool-hit finalization request,
+         and protocol tests.
+   - [x] Implement the public Wallet Session pool-refill route, SigningWorker
+         unbound round-1 pool storage, pool-hit finalize branch, and
+         route/source tests.
+   - [x] Implement SDK pool-hit selection, miss fallback, background refill,
+         expired unbound-pool cleanup, and local source/test coverage.
+   - [x] Prove pool-hit normal signing does not invoke Deriver A or Deriver B.
+   - [ ] Record pool-hit and pool-miss latency separately, including CORS
+         preflight behavior.
+
+3. Close Router A/B release evidence.
+
+   Finish deploy/runtime evidence only after the ECDSA-HSS release blocker
+   above is complete and the Ed25519 presign-pool UX path is restored.
 
    - [ ] Capture deployed strict Cloudflare browser evidence with
          `rtk pnpm router:deploy:browser-evidence` for
@@ -1203,7 +1518,7 @@ Next implementation order:
    - [x] Apply real production Router A/B deployment identity keys:
          `rtk pnpm router:deploy:keygen -- --env production --apply`.
 
-2. Finish non-Router-A/B cleanup.
+4. Finish non-Router-A/B cleanup.
 
    Do this cleanup audit next because it reduces background drag and stale
    naming before deeper domain work.
@@ -1226,6 +1541,51 @@ Next implementation order:
          development.
    - [x] Re-run focused source scans after each cleanup phase and keep public
          wire-schema suffixes out of deletion lists.
+
+5. Final Router A/B legacy and naming cleanup.
+
+   This is the end-of-plan cleanup phase. Start it after the Wallet Session V2
+   and ECDSA-HSS Router A/B functional work is complete and the release evidence
+   tail above is closed. Delete retired compatibility surfaces first, then
+   normalize internal names after one active model remains.
+
+   The comprehensive cleanup plan for making Router A/B the only Ed25519 and
+   ECDSA signing architecture lives in
+   [router-a-b-cleanup.md](./router-a-b-cleanup.md). That plan owns the deletion
+   of old non-Router `/threshold-ed25519/*` and `/threshold-ecdsa/*` public
+   signing routes, SDK callers, handlers, fixtures, and threshold-session auth
+   fields.
+
+   - [ ] Audit all Router A/B Rust, TypeScript, test, fixture, doc, route, and
+         script symbols containing `_v1`, `_v2`, `V1`, `V2`, `legacy`,
+         `compat`, `deprecated`, old grant naming, old threshold-session naming,
+         and obsolete one-shot normal-signing naming.
+   - [ ] Delete all retired legacy V1 structs, enums, type aliases, traits,
+         builders, functions, route handlers, route constants, endpoints,
+         fixture builders, mocks, source guards, docs snippets, and tests that
+         exist only for retired Router A/B flows.
+   - [ ] Keep compatibility code only at persistence or request parsing
+         boundaries where a current persisted/deployed shape still requires it;
+         each remaining boundary must have deletion criteria and targeted
+         coverage.
+   - [ ] Re-run source scans proving no retired Router A/B legacy V1 flow names,
+         structs, endpoints, helpers, tests, or fixtures remain outside explicitly
+         documented current wire/persistence boundaries.
+   - [ ] Keep `RouterAb` prefixes where they identify the active protocol
+         boundary, wire schema, public API, cross-role contract, or
+         multi-protocol call site. Rename only redundant internal `RouterAb`
+         prefixes after the legacy surface is gone and local module context
+         already makes the protocol obvious.
+   - [ ] Remove excessive `V1`/`V2` suffixes from internal non-wire structs,
+         helpers, tests, and functions after the legacy surface is gone.
+   - [ ] Keep explicit version suffixes only for current serialized wire schemas,
+         public API contracts, persistence records, metrics, and cross-language
+         worker/signer contracts where the version is part of the durable
+         protocol.
+   - [ ] Update source guards to reject reintroduction of deleted legacy V1
+         symbols and to enforce the new internal naming rules.
+   - [ ] Run focused Rust and TypeScript validation after each deletion/rename
+         slice, then run the release-ready gate after the final cleanup.
 
 ## Broader Non-Router-A/B V1/V2 Suffix Audit
 
@@ -1338,8 +1698,10 @@ Remaining cleanup tasks:
 - [x] Re-run focused source scans after each cleanup phase and keep public
       wire-schema suffixes out of deletion lists.
 
-No local cleanup task remains open. The remaining release-readiness work is the
-deployed Router A/B evidence tracked in the ordered queue above.
+No local non-Router-A/B cleanup task remains open. The final Router A/B
+legacy/naming cleanup is tracked in the ordered queue above and starts after the
+functional Wallet Session V2/ECDSA-HSS plan and release evidence tail are
+closed.
 
 ## Migration Policy
 
@@ -1381,7 +1743,10 @@ Expected latency impact:
 
 - Removes the extra client-visible grant exchange.
 - Adds Router-side intent and signing-payload digest recomputation.
-- Keeps one public prepare request and one public finalize request.
+- Preserves the previous Ed25519 presign-pool UX: pool hits require one public
+  finalize request after user confirmation, while pool misses use the current
+  prepare/finalize fallback.
+- Moves pool refill to background Wallet Session authenticated Router calls.
 - Keeps Deriver A and Deriver B off the normal-signing hot path.
 
 Expected CPU impact:
@@ -1407,6 +1772,7 @@ authorized session window and policy. Mitigations:
 - short Wallet Session TTL
 - request replay reservation
 - one-use round-1 nonce consumption
+- one-use presign-pool record claim/burn semantics
 - per-account normal-signing quota
 - policy and abuse gates
 - typed intent validation
@@ -1426,8 +1792,13 @@ Do not expose a second Router grant to SDK users.
   request, digest, preimage, and binding checks; SigningWorker forwarding uses
   only admitted private request bodies after policy/quota/abuse and replay gates.
 - Prepare and finalize use distinct v2 request types.
+- Router A/B Ed25519 preserves presign-pool latency: pool hits finalize through
+  one public Router request, pool misses fall back to prepare/finalize, and
+  background refill restores the target pool depth.
 - Finalize consumes the server round-1 handle exactly once.
 - Finalize rejects binding drift without consuming nonce material.
+- Pool-hit finalize burns a claimed nonce record after any admitted
+  cryptographic finalization attempt.
 - SigningWorker receives only admitted prepare/finalize material.
 - NEAR transaction signing passes through the new path.
 - NEP-413 signing passes through the new path.
