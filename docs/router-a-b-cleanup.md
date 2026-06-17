@@ -2906,9 +2906,12 @@ implementation.
       `crates/router-ab-cloudflare/reports/startup-latencies/startup-latencies-2026-06-17T15-58-20-248Z.json`.
       Dry-run gzip sizes: Router `932.46 KiB`, Deriver A `792.16 KiB`,
       Deriver B `792.72 KiB`, SigningWorker `974.57 KiB`.
-- [ ] Commit and push the current cleanup implementation to `dev` before using
-      the GitHub deployment workflow. The workflow runs the remote ref, so an
-      upload from uncommitted local changes would deploy stale code.
+- [x] Create a local commit for the current cleanup implementation before using
+      the GitHub deployment workflow. Completed in local commit `615fcf24b`
+      (`Complete Router A/B lifecycle route migration`).
+- [ ] Push the local cleanup implementation commits to `dev` before using the
+      GitHub deployment workflow. The workflow runs the remote ref, so an upload
+      from unpushed local commits would deploy stale code.
 - [ ] Configure upload/deploy credentials for staging. Local Wrangler is not
       logged in, and the current GitHub environment has public Router A/B key
       variables plus private role keys, while `CLOUDFLARE_API_TOKEN`,
