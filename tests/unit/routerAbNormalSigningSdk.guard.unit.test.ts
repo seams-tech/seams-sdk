@@ -467,8 +467,14 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     for (const relativePath of routerAbExecutorPaths) {
       const source = readRepoSource(relativePath);
       expect(source).toContain('requireRouterAbEd25519NormalSigningReadyState');
-      expect(source).toContain('walletSessionJwt');
     }
+    const walletSessionCredentialSource = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.ts',
+    );
+    expect(walletSessionCredentialSource).toContain(
+      "requireNonEmpty(signingWalletSession.auth.walletSessionJwt, 'Wallet Session bearer JWT')",
+    );
+    expect(walletSessionCredentialSource).toContain('walletSessionJwt');
   });
 
   test('Ed25519 passkey reconnect prepare binds Router A/B normal-signing state', () => {
@@ -788,53 +794,38 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     ).toContain("record.thresholdSessionKind !== 'jwt'");
   });
 
-  test('Ed25519 missing-key repair refreshes worker-owned material handles before retry', () => {
-    const repairPaths = [
+  test('Ed25519 missing worker material fails closed without HSS repair', () => {
+    const normalSigningPaths = [
       {
         relativePath: 'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
-        retryMarkers: ['signPreparedTransactionOperation', 'sign: executeSignRequest'],
       },
       {
         relativePath: 'packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts',
-        retryMarkers: ['return await executeDelegateRequest(requestPayload);'],
       },
       {
         relativePath: 'packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts',
-        retryMarkers: ['return await executeNep413Request(requestPayload);'],
       },
     ];
     const offenders: string[] = [];
-    for (const { relativePath, retryMarkers } of repairPaths) {
+    for (const { relativePath } of normalSigningPaths) {
       const source = readRepoSource(relativePath);
-      if (source.includes('repairThresholdEd25519MissingRelayerKey')) {
-        offenders.push(`${relativePath} still calls the raw HSS client-base repair helper`);
+      if (!source.includes('ed25519MaterialRestoreRequiredError')) {
+        offenders.push(`${relativePath} does not surface material_restore_required`);
       }
-      if (!source.includes('forceRefresh: true')) {
-        offenders.push(`${relativePath} does not force-refresh worker signing material on repair`);
-      }
-      if (!source.includes('requestPayload = buildRequestPayload(repairedSigningMaterial);')) {
-        offenders.push(
-          `${relativePath} does not rebuild the Router A/B request payload from repaired material`,
-        );
-      }
-      if (!source.includes('walletSessionJwt: routerAbReadyState.credential.walletSessionJwt')) {
-        offenders.push(
-          `${relativePath} does not pass Wallet Session JWT from ready state to material refresh`,
-        );
-      }
-      if (!source.includes('persistSigningMaterial: walletSessionState.persistSigningMaterial')) {
-        offenders.push(`${relativePath} does not persist the refreshed worker material handle`);
-      }
-      for (const marker of retryMarkers) {
-        if (!source.includes(marker)) {
-          offenders.push(`${relativePath} missing Router A/B repair retry marker ${marker}`);
+      for (const marker of [
+        'ensureThresholdEd25519HssSigningMaterial',
+        'claimPrfFirstByThresholdSessionId',
+        'forceRefresh: true',
+        'repairedSigningMaterial',
+        'requestPayload = buildRequestPayload(repairedSigningMaterial);',
+        'walletSessionJwt: routerAbReadyState.credential.walletSessionJwt',
+        'persistSigningMaterial: walletSessionState.persistSigningMaterial',
+        '/threshold-ed25519/',
+        'thresholdSessionAuthToken',
+      ]) {
+        if (source.includes(marker)) {
+          offenders.push(`${relativePath} still contains HSS repair marker ${marker}`);
         }
-      }
-      if (source.includes('/threshold-ed25519/')) {
-        offenders.push(`${relativePath} repair path can reference old threshold Ed25519 routes`);
-      }
-      if (source.includes('thresholdSessionAuthToken')) {
-        offenders.push(`${relativePath} repair path can read legacy threshold session auth`);
       }
     }
 
@@ -863,7 +854,10 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
       offenders.push('Passkey reconnect does not classify the refreshed Ed25519 record');
     }
     if (!signTransactions.includes("refreshedRecordState.kind === 'pending_material'")) {
-      offenders.push('Passkey reconnect does not repair pending Ed25519 worker material');
+      offenders.push('Passkey reconnect does not classify pending Ed25519 worker material');
+    }
+    if (!signTransactions.includes('throwEd25519MaterialRestoreRequired({')) {
+      offenders.push('Passkey reconnect does not fail closed when worker material is pending');
     }
     if (!signTransactions.includes('passkey Ed25519 reconnect did not produce signable Router A/B state')) {
       offenders.push('Passkey reconnect does not fail closed with explicit Router A/B diagnostics');

@@ -16,7 +16,6 @@ import {
   type WorkerSuccessResponse,
   WasmSignedDelegate,
 } from '@/core/types/signer-worker';
-import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/types';
 import {
   isSigningSessionAuthUnavailableError,
@@ -32,11 +31,9 @@ import { resolvePrimaryNearRpcUrl } from '@/core/config/chains';
 import { computeThresholdEd25519DelegateSigningDigestWasm } from '../../chains/near/nearSignerWasm';
 import {
   generateNearSigningSessionId,
-  requirePrfFirstFromCredential,
   resolveNearSigningMaterials,
 } from './shared/signingMaterials';
 import {
-  refreshPasskeyEd25519SealedRecordAfterSigningMaterial,
   requireResolvedRouterAbEd25519WalletSessionState,
   type ResolvedRouterAbEd25519WalletSessionState,
 } from './shared/routerAbEd25519WalletSessionState';
@@ -49,7 +46,6 @@ import {
 } from './shared/signingSessionAuthMode';
 import { isWarmSessionSigningAuthPlan } from '@/core/signingEngine/stepUpConfirmation/types';
 import {
-  ensureThresholdEd25519HssSigningMaterial,
   requireThresholdEd25519HssSigningMaterialHandle,
   type RouterAbEd25519SigningMaterialReady,
 } from '../../threshold/ed25519/hssClientBase';
@@ -80,6 +76,7 @@ import {
   tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning,
 } from './shared/ed25519PresignFinalize';
 import { requireRouterAbEd25519NormalSigningReadyState } from './shared/routerAbWalletSessionCredential';
+import { ed25519MaterialRestoreRequiredError } from './shared/ed25519MaterialRestore';
 
 type RouterAbNearDelegateSigningPayload = {
   kind: 'router_ab_ed25519_near_delegate_signing_payload_v1';
@@ -298,9 +295,6 @@ export async function runNearDelegateActionSigning({
     confirmation,
   });
 
-  const credentialWithPrf: WebAuthnAuthenticationCredential | undefined =
-    stepUpAuthorization.kind === 'passkey' ? stepUpAuthorization.credential : undefined;
-
   const preparedPayload = await runSharedNearDelegateCommand({
     commandKind: SigningOperationCommandKind.PreparePayload,
     execute: async () => {
@@ -331,10 +325,6 @@ export async function runNearDelegateActionSigning({
         nearAccountId,
         thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
       });
-      const prfFirstB64u =
-        stepUpAuthorization.kind === 'warm_session'
-          ? ''
-          : requirePrfFirstFromCredential(credentialWithPrf);
       const signingMaterial = await requireThresholdEd25519HssSigningMaterialHandle({
         ctx,
         thresholdSessionId: canonicalThresholdSessionId,
@@ -361,7 +351,7 @@ export async function runNearDelegateActionSigning({
         data: {
           signer: 'threshold-ed25519',
           sessionId: canonicalThresholdSessionId,
-          clientBaseSource: 'reconstructed',
+          clientBaseSource: 'worker_handle',
         },
       });
       console.debug('[SigningEngine][near][delegate] threshold client base ready', {
@@ -373,8 +363,6 @@ export async function runNearDelegateActionSigning({
         canonicalThresholdSessionId,
         delegatePayload,
         walletSessionState,
-        routerAbReadyState,
-        prfFirstB64u,
         signingMaterial,
       };
     },
@@ -383,8 +371,6 @@ export async function runNearDelegateActionSigning({
     canonicalThresholdSessionId,
     delegatePayload,
     walletSessionState,
-    routerAbReadyState,
-    prfFirstB64u,
     signingMaterial,
   } = preparedPayload;
 
@@ -459,66 +445,11 @@ export async function runNearDelegateActionSigning({
         const err = e instanceof Error ? e : new Error(String(e));
 
         if (isThresholdSignerRepairableMaterialError(err)) {
-          try {
-            const repairedSigningMaterial = await ensureThresholdEd25519HssSigningMaterial({
-              ...(onEvent
-                ? {
-                    onProgress: (message: string) => {
-                      emitNearSigningEvent(onEvent, nearAccountId, {
-                        phase: SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED,
-                        status: 'running',
-                        message,
-                        interaction: { kind: 'none', overlay: 'none' },
-                      });
-                    },
-                  }
-                : {}),
-              ctx,
-              thresholdSessionId: canonicalThresholdSessionId,
-              walletSigningSessionId: walletSessionState.walletSigningSessionId,
-              existingMaterialHandle:
-                walletSessionState.signingWalletSession.signingMaterial.materialHandle,
-              existingMaterialBindingDigest:
-                walletSessionState.signingWalletSession.signingMaterial.bindingDigest,
-              existingMaterialClientVerifierB64u:
-                walletSessionState.signingWalletSession.signingMaterial.clientVerifierB64u,
-              walletSessionJwt: routerAbReadyState.credential.walletSessionJwt,
-              signingRootId: requireRouterAbEd25519SigningRootId(walletSessionState),
-              signingRootVersion: routerAbReadyState.signingRootVersion,
-              expiresAtMs: routerAbReadyState.expiresAtMs,
-              relayerUrl: walletSessionState.relayerUrl,
-              relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
-              nearAccountId,
-              keyVersion: signingContext.threshold.thresholdKeyMaterial.keyVersion,
-              participantIds: signingContext.threshold.thresholdKeyMaterial.participants.map(
-                (p) => p.id,
-              ),
-              signingWorkerId: routerAbReadyState.signingWorkerId,
-              prfFirstB64u,
-              forceRefresh: true,
-              persistSigningMaterial: walletSessionState.persistSigningMaterial,
-            });
-            await refreshPasskeyEd25519SealedRecordAfterSigningMaterial({
-              touchConfirm,
-              nearAccountId,
-              walletSessionState,
-              thresholdSessionId: canonicalThresholdSessionId,
-              materialHandle: repairedSigningMaterial.materialHandle,
-            });
-            requestPayload = buildRequestPayload(repairedSigningMaterial);
-            return await executeDelegateRequest(requestPayload);
-          } catch (repairError: unknown) {
-            const repairErr =
-              repairError instanceof Error ? repairError : new Error(String(repairError));
-            if (isThresholdSignerRepairableMaterialError(repairErr)) {
-              const msg =
-                '[SigningEngine] threshold-signer requested but the relayer signing share could not be repaired from the active HSS session';
-              console.warn(msg);
-              warnings.push(msg);
-              throw new Error(msg);
-            }
-            throw repairErr;
-          }
+          throw ed25519MaterialRestoreRequiredError({
+            operation: 'delegate_action',
+            thresholdSessionId: canonicalThresholdSessionId,
+            reason: 'worker_material_unavailable',
+          });
         }
 
         if (isSigningSessionAuthUnavailableError(err)) {

@@ -36,29 +36,22 @@ import {
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import {
-  requirePrfFirstFromCredential,
   resolveNearSigningMaterials,
 } from './shared/signingMaterials';
 import {
-  refreshPasskeyEd25519SealedRecordAfterSigningMaterial,
   requireResolvedRouterAbEd25519WalletSessionState,
   resolveRouterAbEd25519WalletSessionStateFromRecord,
   type ResolvedRouterAbEd25519WalletSessionState,
 } from './shared/routerAbEd25519WalletSessionState';
 import {
   classifyRouterAbEd25519PersistedSigningRecord,
-  resolveRouterAbEd25519SigningRootFromRecord,
 } from '../../session/routerAbSigningWalletSession';
-import {
-  persistStoredThresholdEd25519SessionMaterialHandle,
-} from '../../session/persistence/records';
 import { buildNearTransactionSigningPayloads } from '../../chains/near/payloads';
 import {
   createNearSigningSessionCoordinator,
   SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR,
 } from './shared/signingSessionAuthMode';
 import {
-  ensureThresholdEd25519HssSigningMaterial,
   requireThresholdEd25519HssSigningMaterialHandle,
   type RouterAbEd25519SigningMaterialReady,
 } from '../../threshold/ed25519/hssClientBase';
@@ -118,6 +111,10 @@ import {
   requireRouterAbEd25519NormalSigningReadyState,
   type RouterAbEd25519NormalSigningReadyState,
 } from './shared/routerAbWalletSessionCredential';
+import {
+  ed25519MaterialRestoreRequiredError,
+  throwEd25519MaterialRestoreRequired,
+} from './shared/ed25519MaterialRestore';
 
 function emitNearSigningEvent(
   onEvent: ((event: SigningFlowEvent) => void) | undefined,
@@ -546,9 +543,6 @@ export async function runNearTransactionsWithActionsSigning({
         canonicalThresholdSessionId = refreshedSessionId;
         refreshedWalletSessionState = refreshed.sessionState || null;
         if (!refreshedWalletSessionState) {
-          const refreshedWalletSigningSessionId = String(
-            stepUpAuthorization.plannedPasskeyReconnect.walletSigningSessionId || '',
-          ).trim();
           const refreshedRecord =
             signingSessionCoordinator.resolveEd25519RecordByThresholdSessionId(
               refreshedSessionId,
@@ -556,70 +550,10 @@ export async function runNearTransactionsWithActionsSigning({
           const refreshedRecordState =
             classifyRouterAbEd25519PersistedSigningRecord(refreshedRecord);
           if (refreshedRecordState.kind === 'pending_material') {
-            const record = refreshedRecordState.record;
-            const signingRoot = resolveRouterAbEd25519SigningRootFromRecord(record);
-            if (!signingRoot.ok) {
-              throw new Error(
-                `[SigningEngine][near] passkey Ed25519 reconnect did not produce signable Router A/B state: ${signingRoot.reason}`,
-              );
-            }
-            const signingWorkerId = String(
-              record.routerAbNormalSigning?.signingWorkerId || '',
-            ).trim();
-            const walletSessionJwt = String(record.walletSessionJwt || '').trim();
-            const repairedSigningMaterial = await ensureThresholdEd25519HssSigningMaterial({
-              ctx,
+            throwEd25519MaterialRestoreRequired({
+              operation: 'passkey_reconnect',
               thresholdSessionId: refreshedSessionId,
-              walletSigningSessionId: refreshedWalletSigningSessionId,
-              existingMaterialHandle: record.ed25519HssMaterialHandle,
-              existingMaterialBindingDigest: record.ed25519HssMaterialBindingDigest,
-              existingMaterialClientVerifierB64u: record.clientVerifyingShareB64u,
-              walletSessionJwt,
-              signingRootId: signingRoot.value.signingRootId,
-              signingRootVersion: signingRoot.value.signingRootVersion,
-              expiresAtMs: record.expiresAtMs,
-              relayerUrl: record.relayerUrl,
-              relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
-              nearAccountId,
-              keyVersion: signingContext.threshold.thresholdKeyMaterial.keyVersion,
-              participantIds: signingContext.threshold.thresholdKeyMaterial.participants.map(
-                (p) => p.id,
-              ),
-              signingWorkerId,
-              prfFirstB64u: requirePrfFirstFromCredential(credentialWithPrf),
-              forceRefresh: true,
-              persistSigningMaterial: (material) =>
-                Boolean(
-                  persistStoredThresholdEd25519SessionMaterialHandle({
-                    thresholdSessionId: refreshedSessionId,
-                    ed25519HssMaterialHandle: material.materialHandle,
-                    ed25519HssMaterialBindingDigest: material.bindingDigest,
-                    clientVerifyingShareB64u: material.clientVerifyingShareB64u,
-                  }),
-                ),
-            });
-            const repairedRecord =
-              signingSessionCoordinator.resolveEd25519RecordByThresholdSessionId(
-                refreshedSessionId,
-              );
-            refreshedWalletSessionState =
-              resolveRouterAbEd25519WalletSessionStateFromRecord(repairedRecord || undefined);
-            if (!refreshedWalletSessionState) {
-              const repairedState = classifyRouterAbEd25519PersistedSigningRecord(repairedRecord);
-              const repairedReason =
-                repairedState.kind === 'signable'
-                  ? 'unresolved_signable_record'
-                  : repairedState.reason;
-              throw new Error(
-                `[SigningEngine][near] passkey Ed25519 reconnect did not produce signable Router A/B state: ${repairedReason}`,
-              );
-            }
-            await refreshPasskeyEd25519SealedRecordAfterSigningMaterial({
-              touchConfirm,
-              nearAccountId,
-              walletSessionState: refreshedWalletSessionState,
-              thresholdSessionId: refreshedSessionId,
-              materialHandle: repairedSigningMaterial.materialHandle,
+              reason: 'pending_material',
             });
           } else if (refreshedRecordState.kind !== 'signable') {
             throw new Error(
@@ -653,86 +587,10 @@ export async function runNearTransactionsWithActionsSigning({
         const pendingRecordState =
           classifyRouterAbEd25519PersistedSigningRecord(pendingRecord);
         if (pendingRecordState.kind === 'pending_material') {
-          const record = pendingRecordState.record;
-          const signingRoot = resolveRouterAbEd25519SigningRootFromRecord(record);
-          if (!signingRoot.ok) {
-            throw new Error(
-              `[SigningEngine][near] warm-session Ed25519 material repair requires signable Router A/B state: ${signingRoot.reason}`,
-            );
-          }
-          const walletSigningSessionId = String(record.walletSigningSessionId || '').trim();
-          if (!walletSigningSessionId) {
-            throw new Error(
-              '[SigningEngine][near] warm-session Ed25519 material repair requires walletSigningSessionId',
-            );
-          }
-          const signingWorkerId = String(record.routerAbNormalSigning?.signingWorkerId || '').trim();
-          const walletSessionJwt = String(record.walletSessionJwt || '').trim();
-          const repairPrfFirstB64u =
-            await signingSessionCoordinator.claimPrfFirstByThresholdSessionId({
-              kind: 'wallet_scoped_ed25519_claim',
-              thresholdSessionId: canonicalThresholdSessionId,
-              uses: requiredSignatureUses,
-              errorContext: 'threshold-ed25519 warm-session material repair',
-              walletId: nearAccountId,
-              authMethod: signingSessionAuthPlan.lane.authMethod,
-              curve: 'ed25519',
-              chain: 'near',
-              walletSigningSessionId: signingSessionAuthPlan.lane.walletSigningSessionId,
-            });
-          const repairedSigningMaterial = await ensureThresholdEd25519HssSigningMaterial({
-            ctx,
+          throwEd25519MaterialRestoreRequired({
+            operation: 'near_transaction',
             thresholdSessionId: canonicalThresholdSessionId,
-            walletSigningSessionId,
-            existingMaterialHandle: record.ed25519HssMaterialHandle,
-            existingMaterialBindingDigest: record.ed25519HssMaterialBindingDigest,
-            existingMaterialClientVerifierB64u: record.clientVerifyingShareB64u,
-            walletSessionJwt,
-            signingRootId: signingRoot.value.signingRootId,
-            signingRootVersion: signingRoot.value.signingRootVersion,
-            expiresAtMs: record.expiresAtMs,
-            relayerUrl: record.relayerUrl,
-            relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
-            nearAccountId,
-            keyVersion: signingContext.threshold.thresholdKeyMaterial.keyVersion,
-            participantIds: signingContext.threshold.thresholdKeyMaterial.participants.map(
-              (p) => p.id,
-            ),
-            signingWorkerId,
-            prfFirstB64u: repairPrfFirstB64u,
-            forceRefresh: true,
-            persistSigningMaterial: (material) =>
-              Boolean(
-                persistStoredThresholdEd25519SessionMaterialHandle({
-                  thresholdSessionId: canonicalThresholdSessionId,
-                  ed25519HssMaterialHandle: material.materialHandle,
-                  ed25519HssMaterialBindingDigest: material.bindingDigest,
-                  clientVerifyingShareB64u: material.clientVerifyingShareB64u,
-                }),
-              ),
-          });
-          const repairedRecord =
-            signingSessionCoordinator.resolveEd25519RecordByThresholdSessionId(
-              canonicalThresholdSessionId,
-            );
-          refreshedWalletSessionState =
-            resolveRouterAbEd25519WalletSessionStateFromRecord(repairedRecord || undefined);
-          if (!refreshedWalletSessionState) {
-            const repairedState = classifyRouterAbEd25519PersistedSigningRecord(repairedRecord);
-            const repairedReason =
-              repairedState.kind === 'signable'
-                ? 'unresolved_signable_record'
-                : repairedState.reason;
-            throw new Error(
-              `[SigningEngine][near] warm-session Ed25519 material repair did not produce signable Router A/B state: ${repairedReason}`,
-            );
-          }
-          await refreshPasskeyEd25519SealedRecordAfterSigningMaterial({
-            touchConfirm,
-            nearAccountId,
-            walletSessionState: refreshedWalletSessionState,
-            thresholdSessionId: canonicalThresholdSessionId,
-            materialHandle: repairedSigningMaterial.materialHandle,
+            reason: 'pending_material',
           });
         }
       }
@@ -758,11 +616,6 @@ export async function runNearTransactionsWithActionsSigning({
           `[SigningEngine] Email OTP NEAR signing session has ${provisionedRemainingUses} remaining signature use(s), but this operation requires ${requiredSignatureUses}. Retry the Email OTP prompt to provision a fresh signing session.`,
         );
       }
-      const prfFirstB64u =
-        stepUpAuthorization.kind === 'warm_session'
-          ? ''
-          : requirePrfFirstFromCredential(credentialWithPrf);
-
       emitNearSigningEvent(onEvent, nearAccountId, {
         phase: SigningEventPhase.STEP_07_AUTHENTICATION_COMPLETE,
         status: 'succeeded',
@@ -802,7 +655,7 @@ export async function runNearTransactionsWithActionsSigning({
         data: {
           signer: 'threshold-ed25519',
           sessionId: canonicalThresholdSessionId,
-          clientBaseSource: prfFirstB64u ? 'validated_or_reconstructed' : 'cached',
+          clientBaseSource: 'worker_handle',
         },
       });
       console.debug('[SigningEngine][near][transactions] threshold client base ready', {
@@ -816,7 +669,6 @@ export async function runNearTransactionsWithActionsSigning({
         routerAbReadyState,
         trustedBudgetStatusAuth,
         refreshedBudgetIdentityRequired,
-        prfFirstB64u,
         signingMaterial,
       };
     },
@@ -826,7 +678,6 @@ export async function runNearTransactionsWithActionsSigning({
     walletSessionState,
     routerAbReadyState,
     trustedBudgetStatusAuth,
-    prfFirstB64u,
     signingMaterial,
   } = preparedPayload;
   let { refreshedBudgetIdentityRequired } = preparedPayload;
@@ -1094,120 +945,13 @@ export async function runNearTransactionsWithActionsSigning({
         const err = e instanceof Error ? e : new Error(String(e));
 
         if (isThresholdSignerRepairableMaterialError(err)) {
-          try {
-            const repairPrfFirstB64u =
-              prfFirstB64u ||
-              (signingSessionAuthPlan.warmSessionReady
-                ? await (async () => {
-                    const prfFirst =
-                      await signingSessionCoordinator.claimPrfFirstByThresholdSessionId({
-                        kind: 'wallet_scoped_ed25519_claim',
-                        thresholdSessionId: signingSessionAuthPlan.sessionId,
-                        uses: requiredSignatureUses,
-                        errorContext: 'threshold-ed25519 transaction signing repair',
-                        walletId: nearAccountId,
-                        authMethod: signingSessionAuthPlan.lane.authMethod,
-                        curve: 'ed25519',
-                        chain: 'near',
-                        walletSigningSessionId: signingSessionAuthPlan.lane.walletSigningSessionId,
-                      });
-                    return prfFirst;
-                  })()
-                : requirePrfFirstFromCredential(credentialWithPrf));
-            const repairedSigningMaterial = await ensureThresholdEd25519HssSigningMaterial({
-              ...(onEvent
-                ? {
-                    onProgress: (message: string) => {
-                      emitConfirmedAuthSideEffectStarted('threshold_reconnect');
-                      emitNearSigningEvent(onEvent, nearAccountId, {
-                        phase: SigningEventPhase.STEP_09_THRESHOLD_SESSION_RECONNECT_STARTED,
-                        status: 'running',
-                        message,
-                        interaction: { kind: 'none', overlay: 'none' },
-                      });
-                    },
-                  }
-                : {}),
-              ctx,
-              thresholdSessionId: canonicalThresholdSessionId,
-              walletSigningSessionId: walletSessionState.walletSigningSessionId,
-              existingMaterialHandle:
-                walletSessionState.signingWalletSession.signingMaterial.materialHandle,
-              existingMaterialBindingDigest:
-                walletSessionState.signingWalletSession.signingMaterial.bindingDigest,
-              existingMaterialClientVerifierB64u:
-                walletSessionState.signingWalletSession.signingMaterial.clientVerifierB64u,
-              walletSessionJwt: routerAbReadyState.credential.walletSessionJwt,
-              signingRootId: requireRouterAbEd25519SigningRootId(walletSessionState),
-              signingRootVersion: routerAbReadyState.signingRootVersion,
-              expiresAtMs: routerAbReadyState.expiresAtMs,
-              relayerUrl: walletSessionState.relayerUrl,
-              relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
-              nearAccountId,
-              keyVersion: signingContext.threshold.thresholdKeyMaterial.keyVersion,
-              participantIds: signingContext.threshold.thresholdKeyMaterial.participants.map(
-                (p) => p.id,
-              ),
-              signingWorkerId: routerAbReadyState.signingWorkerId,
-              prfFirstB64u: repairPrfFirstB64u,
-              forceRefresh: true,
-              persistSigningMaterial: walletSessionState.persistSigningMaterial,
-            });
-            await refreshPasskeyEd25519SealedRecordAfterSigningMaterial({
-              touchConfirm,
-              nearAccountId,
-              walletSessionState,
-              thresholdSessionId: canonicalThresholdSessionId,
-              materialHandle: repairedSigningMaterial.materialHandle,
-            });
-            requestPayload = buildRequestPayload(repairedSigningMaterial);
-            const signedOperation = await signPreparedTransactionOperation(
-              budgetAdmittedOperationForWorker,
-              requestPayload,
-              { sign: executeSignRequest },
-            );
-            signedTransactionOperation = signedOperation;
-            const okResponse = signedOperation.result;
-            thresholdSignatureCreated = true;
-            await markNearNonceLeasesSigned(ctx, nonceLeaseRefs);
-            const signedResults = toSignedTransactionResults({
-              okResponse,
-              expectedTransactionCount: txSigningRequests.length,
-              nearAccountId,
-              warnings,
-              nonceLeases: nonceLeaseRefs,
-            });
-            await finalizeSignedTransactionOperation(signedOperation, {
-              recordSuccess: async (operation) =>
-                await recordSuccessfulWalletSigningSessionSpend(operation),
-            });
-            emitNearSigningEvent(onEvent, nearAccountId, {
-              phase: SigningEventPhase.STEP_11_TRANSACTION_SIGNED,
-              status: 'succeeded',
-              interaction: { kind: 'none', overlay: 'hide' },
-            });
-            emitNearSigningEvent(onEvent, nearAccountId, {
-              phase: SigningEventPhase.STEP_15_COMPLETED,
-              status: 'succeeded',
-              interaction: { kind: 'none', overlay: 'none' },
-              data: { operation: 'sign' },
-            });
-            return signedResults;
-          } catch (repairError: unknown) {
-            const repairErr =
-              repairError instanceof Error ? repairError : new Error(String(repairError));
-            if (isThresholdSignerRepairableMaterialError(repairErr)) {
-              const msg =
-                '[SigningEngine] threshold-signer requested but the relayer signing share could not be repaired from the active HSS session';
-              console.warn(msg);
-              warnings.push(msg);
-              const finalError = new Error(msg);
-              await finalizeFailedSigningAttempt(finalError);
-              throw finalError;
-            }
-            await finalizeFailedSigningAttempt(repairErr);
-            throw repairErr;
-          }
+          const finalError = ed25519MaterialRestoreRequiredError({
+            operation: 'near_transaction',
+            thresholdSessionId: canonicalThresholdSessionId,
+            reason: 'worker_material_unavailable',
+          });
+          await finalizeFailedSigningAttempt(finalError);
+          throw finalError;
         }
 
         if (isSigningSessionAuthUnavailableError(err)) {

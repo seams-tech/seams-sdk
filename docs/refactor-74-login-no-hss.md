@@ -570,12 +570,12 @@ normal signing:
       sign-plannable when the warm session has enough remaining uses.
 - [ ] Replace the transaction `pending_material` HSS repair branch with a
       signer-core material restore branch.
-- [ ] Remove daily-signing calls to `claimPrfFirstByThresholdSessionId()` that
+- [x] Remove daily-signing calls to `claimPrfFirstByThresholdSessionId()` that
       exist only to feed Ed25519 HSS reconstruction.
-- [ ] Remove daily-signing calls to `ensureThresholdEd25519HssSigningMaterial()`.
+- [x] Remove daily-signing calls to `ensureThresholdEd25519HssSigningMaterial()`.
 - [x] Reuse an already loaded worker handle when
       `validateThresholdEd25519HssMaterialHandleWasm()` succeeds.
-- [ ] Delete the TypeScript raw-client-base cache path from the target signing
+- [x] Delete the TypeScript raw-client-base cache path from the target signing
       flow instead of wiring it into transaction repair.
 - [ ] Add a signer-core-owned sealed material restore command and route only
       opaque restore artifacts through TypeScript.
@@ -589,6 +589,11 @@ normal signing:
 - [ ] Add tests proving NEAR transaction, NEP-413, and delegate signing all use
       the same worker-owned material restore path and never invoke HSS during
       normal signing.
+
+Interim note: daily signing now fails closed with `material_restore_required`
+when worker material is missing. The signer-core-owned restore command and
+sealed worker material artifact remain open before first-sign-after-restart can
+recover without HSS.
 
 ## Phase 5: Optional Background Worker Restore
 
@@ -616,7 +621,7 @@ type UnlockSigningMaterialRestorePolicy =
 
 - [x] Add a source guard proving `unlock()` does not call
       `prewarmThresholdEd25519ClientBaseFromCredential()`.
-- [ ] Add a source guard proving `unlock()` and daily signing cannot call:
+- [x] Add a source guard proving `unlock()` and daily signing cannot call:
       - `prewarmThresholdEd25519ClientBaseFromCredential`
       - `ensureThresholdEd25519HssSigningMaterial`
       - `runThresholdEd25519HssCeremonyWithMaterialHandle`
@@ -636,7 +641,7 @@ type UnlockSigningMaterialRestorePolicy =
 - [ ] Add a transaction-flow test proving `material_pending` reaches
       `persistStoredThresholdEd25519SessionMaterialHandle()` before Router A/B
       normal signing.
-- [ ] Add a source guard proving daily signing code cannot call Ed25519 HSS
+- [x] Add a source guard proving daily signing code cannot call Ed25519 HSS
       reconstruction or HSS routes.
 - [ ] Add a source guard rejecting new TypeScript code that reads or writes raw
       `xClientBaseB64u` outside a persistence-boundary deletion path.

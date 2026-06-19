@@ -171,6 +171,9 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     const normalSigningExecutor = readRepoSource(
       'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts',
     );
+    const walletSessionCredential = readRepoSource(
+      'packages/sdk-web/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.ts',
+    );
     const flows = [
       ['transaction', transactionFlow],
       ['nep413', nep413Flow],
@@ -183,9 +186,6 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     for (const [label, source] of flows) {
       expect(source, `${label} flow must build Router A/B-ready state`).toContain(
         'requireRouterAbEd25519NormalSigningReadyState',
-      );
-      expect(source, `${label} flow must pass Wallet Session bearer auth`).toContain(
-        'walletSessionJwt: routerAbReadyState.credential.walletSessionJwt',
       );
       expect(source, `${label} flow must not call old public Ed25519 routes`).not.toContain(
         '/threshold-ed25519/',
@@ -202,6 +202,9 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     expect(normalSigningExecutor).toContain('requireRouterAbNormalSigningPrepareMatchesRequest');
     expect(normalSigningExecutor).toContain('requireRouterAbNormalSigningResponseMatchesRequest');
     expect(normalSigningExecutor).toContain('credential: routerAbReadyState.credential');
+    expect(walletSessionCredential).toContain(
+      "requireNonEmpty(signingWalletSession.auth.walletSessionJwt, 'Wallet Session bearer JWT')",
+    );
     expect(normalSigningExecutor).not.toContain('/threshold-ed25519/');
     expect(normalSigningExecutor).not.toMatch(/deriver|Deriver/);
   });
