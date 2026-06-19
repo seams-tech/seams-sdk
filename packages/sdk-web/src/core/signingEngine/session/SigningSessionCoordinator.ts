@@ -21,6 +21,7 @@ import {
   thresholdSessionIdsForBudgetStatusCheck,
   walletBudgetOwnerForLane,
   walletBudgetOwnerId,
+  isSigningSessionBudgetAdmissionBlockedError,
   isSigningSessionBudgetExhaustedError,
   isSigningSessionBudgetUnknownError,
   normalizeRequired,
@@ -48,6 +49,7 @@ import {
 export {
   SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
   SIGNING_SESSION_BUDGET_UNKNOWN_ERROR,
+  isSigningSessionBudgetAdmissionBlockedError,
   isSigningSessionBudgetExhaustedError,
   isSigningSessionBudgetUnknownError,
   type SigningSessionBudgetReservation,

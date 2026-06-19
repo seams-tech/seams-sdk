@@ -12,7 +12,7 @@ import type {
   SigningSessionReadiness,
 } from '../../session/SigningSessionCoordinator';
 import {
-  isSigningSessionBudgetExhaustedError,
+  isSigningSessionBudgetAdmissionBlockedError,
   type SigningSessionBudgetStatusAuth,
 } from '../../session/budget/budget';
 import type { SigningSessionPlan } from '../../session/operationState/types';
@@ -239,7 +239,7 @@ async function resolvePasskeyEcdsaTrustedBudgetReadiness(args: {
       remainingUses: Math.floor(Number(budgetIdentity.status.remainingUses) || 0),
     };
   } catch (error: unknown) {
-    if (!isSigningSessionBudgetExhaustedError(error)) return null;
+    if (!isSigningSessionBudgetAdmissionBlockedError(error)) return null;
     return {
       readiness: {
         status: 'exhausted',

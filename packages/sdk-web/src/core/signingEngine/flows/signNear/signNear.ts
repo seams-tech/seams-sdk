@@ -59,7 +59,7 @@ import {
 } from '../../session/operationState/lanes';
 import { type NearAccountRef } from '@/core/signingEngine/interfaces/ecdsaChainTarget';
 import {
-  isSigningSessionBudgetExhaustedError,
+  isSigningSessionBudgetAdmissionBlockedError,
   SigningSessionCoordinator,
   type SigningSessionReadiness,
 } from '../../session/SigningSessionCoordinator';
@@ -1631,7 +1631,8 @@ export async function signTransactionsWithActions(
       !attempt.retryingFreshAuth &&
       !alreadyAttemptedFreshAuth &&
       thresholdSessionRecord &&
-      (isSigningSessionAuthUnavailableError(error) || isSigningSessionBudgetExhaustedError(error))
+      (isSigningSessionAuthUnavailableError(error) ||
+        isSigningSessionBudgetAdmissionBlockedError(error))
     ) {
       const isEmailOtpSession = thresholdSessionRecord.source === 'email_otp';
       emitNearSigningEvent(publicOptions.onEvent, nearAccountId, {
@@ -1645,7 +1646,7 @@ export async function signTransactionsWithActions(
         interaction: { kind: 'none', overlay: 'none' },
         data: {
           chain: 'near',
-          reason: isSigningSessionBudgetExhaustedError(error)
+          reason: isSigningSessionBudgetAdmissionBlockedError(error)
             ? 'wallet_signing_budget_reserved'
             : 'threshold_session_expired',
         },

@@ -12,6 +12,11 @@ import {
   prepareRouterAbNormalSigningPresignPoolV2,
 } from '@/core/rpcClients/relayer/routerAbNormalSigning';
 import {
+  isSigningSessionBudgetAdmissionBlockedError,
+  SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
+  SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR,
+} from '@/core/signingEngine/session/budget/budget';
+import {
   requireRouterAbNormalSigningPrepareMatchesRequest,
   requireRouterAbNormalSigningResponseMatchesRequest,
 } from '@/core/rpcClients/relayer/routerAbNormalSigningValidation';
@@ -186,6 +191,30 @@ async function preparePresignPoolWithResponse(
   }
 }
 
+async function preparePresignPoolWithHttpError(args: {
+  status: number;
+  body: unknown;
+}): Promise<unknown> {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify(args.body), {
+      status: args.status,
+      headers: { 'content-type': 'application/json' },
+    })) as typeof fetch;
+  try {
+    await prepareRouterAbNormalSigningPresignPoolV2({
+      relayServerUrl: 'https://router.example/base/',
+      credential: { kind: 'jwt', walletSessionJwt: 'wallet-session-jwt' },
+      request: presignPoolRequest,
+    });
+    return null;
+  } catch (error) {
+    return error;
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
 test.describe('Router A/B normal-signing response validation', () => {
   test('accepts prepare and finalize responses from the scoped SigningWorker', () => {
     expect(() =>
@@ -236,6 +265,32 @@ test.describe('Router A/B normal-signing response validation', () => {
       Authorization: 'Bearer wallet-session-jwt',
     });
     expect(JSON.parse(String(calls[0].init.body))).toEqual(presignPoolRequest);
+  });
+
+  test('maps server budget failures to signing-session budget domain errors', async () => {
+    const exhausted = await preparePresignPoolWithHttpError({
+      status: 409,
+      body: {
+        ok: false,
+        code: 'wallet_budget_exhausted',
+        message: 'Wallet Session signature budget is exhausted',
+      },
+    });
+    const inFlight = await preparePresignPoolWithHttpError({
+      status: 409,
+      body: {
+        ok: false,
+        code: 'wallet_budget_in_flight',
+        message: 'Wallet Session signature budget is reserved by another request',
+      },
+    });
+
+    expect(exhausted).toBeInstanceOf(Error);
+    expect(inFlight).toBeInstanceOf(Error);
+    expect(String((exhausted as Error).message)).toContain(SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR);
+    expect(String((inFlight as Error).message)).toContain(SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR);
+    expect(isSigningSessionBudgetAdmissionBlockedError(exhausted)).toBe(true);
+    expect(isSigningSessionBudgetAdmissionBlockedError(inFlight)).toBe(true);
   });
 
   test('rejects presign-pool responses for another scope or generation', async () => {

@@ -516,7 +516,7 @@ Acceptance:
       Wallet Session JWT is available.
 - [x] Ensure local completed-spend projection does not double-subtract after the
       server projection version changes.
-- [ ] Map server `wallet_budget_exhausted` and `wallet_budget_in_flight` into
+- [x] Map server `wallet_budget_exhausted` and `wallet_budget_in_flight` into
       the existing step-up auth planner.
 - [ ] Add SDK tests showing:
   - fourth sign after three committed server spends triggers step-up
@@ -537,6 +537,10 @@ Implemented scope:
 - Existing multi-use coordinator coverage proves one admitted operation can
   reserve and record multiple signature uses. Browser step-up evidence remains
   open in Phase 6.
+- Router A/B RPC clients now map server `wallet_budget_exhausted`,
+  `wallet_budget_in_flight`, and `wallet_budget_reserved` responses into the
+  SDK signing-session budget domain errors used by NEAR and ECDSA fresh-auth
+  retry planning.
 
 Validation added:
 
@@ -544,6 +548,10 @@ Validation added:
   in-flight availability and projection-version advancement.
 - `tests/unit/evmFamilyBudgetSpending.unit.test.ts` covers
   `prepareBudgetIdentity` rejecting server in-flight budget.
+- `tests/unit/routerAbNormalSigningValidation.unit.test.ts` covers Router A/B
+  server budget error mapping at the RPC boundary.
+- `tests/unit/evmFamilyFreshAuthRetryPolicy.unit.test.ts` covers ECDSA
+  fresh-auth retry admission for in-flight server budget errors.
 
 Acceptance:
 

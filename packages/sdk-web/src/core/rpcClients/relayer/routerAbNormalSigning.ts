@@ -15,10 +15,19 @@ import {
   buildRelayerJsonPostRequestInit,
   normalizeRelayerBaseUrl,
 } from './relayerHttp';
+import {
+  SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR,
+  SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR,
+} from '@/core/signingEngine/session/budget/budget';
 
 const INTENT_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/intent/v2';
 const PAYLOAD_VERSION_V2 = 'router-ab-protocol/ed25519-normal-signing/payload/v2';
 const NEP413_PREFIX = 2_147_484_061;
+
+type RouterAbSigningErrorPayload = {
+  code: string;
+  message: string;
+};
 
 export type RouterAbWalletSessionCredential = {
   kind: 'jwt';
@@ -944,6 +953,53 @@ function buildRouterAbRequestInit(args: {
   });
 }
 
+function parseRouterAbSigningErrorPayload(bodyText: string): RouterAbSigningErrorPayload | null {
+  if (!bodyText.trim()) return null;
+  try {
+    const parsed = JSON.parse(bodyText) as unknown;
+    const record = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+    if (!record) return null;
+    const code = String(record.code || '').trim();
+    const message = String(record.message || '').trim();
+    if (!code) return null;
+    return { code, message };
+  } catch {
+    return null;
+  }
+}
+
+function routerAbSigningBudgetErrorPrefix(code: string): string | null {
+  switch (code) {
+    case 'wallet_budget_exhausted':
+      return SIGNING_SESSION_BUDGET_EXHAUSTED_ERROR;
+    case 'wallet_budget_in_flight':
+    case 'wallet_budget_reserved':
+      return SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR;
+    default:
+      return null;
+  }
+}
+
+function routerAbSigningHttpError(args: {
+  path: string;
+  status: number;
+  bodyText: string;
+}): Error {
+  const payload = parseRouterAbSigningErrorPayload(args.bodyText);
+  const budgetPrefix = payload ? routerAbSigningBudgetErrorPrefix(payload.code) : null;
+  if (payload && budgetPrefix) {
+    const detail = payload.message || payload.code;
+    return new Error(
+      `${budgetPrefix}: Router A/B signing ${args.path} returned HTTP ${args.status}: ${detail}`,
+    );
+  }
+  return new Error(
+    `Router A/B signing ${args.path} returned HTTP ${args.status}${
+      args.bodyText ? `: ${args.bodyText}` : ''
+    }`,
+  );
+}
+
 async function postRouterAbNormalSigningJson<T>(args: {
   relayServerUrl: string;
   path:
@@ -966,11 +1022,11 @@ async function postRouterAbNormalSigningJson<T>(args: {
   );
   if (!response.ok) {
     const errorText = await response.text().catch(() => '');
-    throw new Error(
-      `Router A/B signing ${args.path} returned HTTP ${response.status}${
-        errorText ? `: ${errorText}` : ''
-      }`,
-    );
+    throw routerAbSigningHttpError({
+      path: args.path,
+      status: response.status,
+      bodyText: errorText,
+    });
   }
   return args.parse(await response.json());
 }

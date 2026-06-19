@@ -1,6 +1,6 @@
 import type { AccountAuthMetadata } from '@/core/signingEngine/interfaces/accountAuthMetadata';
 import { SIGNER_AUTH_METHODS } from '@shared/utils/signerDomain';
-import { isSigningSessionBudgetExhaustedError } from '../../session/budget/budget';
+import { isSigningSessionBudgetAdmissionBlockedError } from '../../session/budget/budget';
 import { isSigningSessionAuthUnavailableError } from '../../threshold/sessionPolicy';
 import { isFreshEmailOtpReauthRequiredError } from './errors';
 import type { EvmFamilySenderSignatureAlgorithm } from './types';
@@ -101,7 +101,9 @@ export function classifyEvmFamilyFreshAuthRetry(args: {
     }
   } else {
     if (args.hasStepUpAuthPlan) return blocked('step_up_auth_plan_already_selected');
-    if (!isSigningSessionBudgetExhaustedError(args.error)) return blocked('error_not_retryable');
+    if (!isSigningSessionBudgetAdmissionBlockedError(args.error)) {
+      return blocked('error_not_retryable');
+    }
   }
 
   return {

@@ -540,6 +540,10 @@ export function isSigningSessionBudgetInFlightError(error: unknown): boolean {
   return message.includes(SIGNING_SESSION_BUDGET_IN_FLIGHT_ERROR);
 }
 
+export function isSigningSessionBudgetAdmissionBlockedError(error: unknown): boolean {
+  return isSigningSessionBudgetExhaustedError(error) || isSigningSessionBudgetInFlightError(error);
+}
+
 export function applySigningSessionBudgetReservationsToStatus(args: {
   status: SigningSessionStatus;
   walletSigningSessionId: string;
