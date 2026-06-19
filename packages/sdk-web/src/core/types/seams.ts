@@ -448,6 +448,7 @@ export interface SigningSessionStatus {
   retention?: SigningSessionRetention | null;
   availableUses?: number;
   inFlightReservedUses?: number;
+  committedRemainingUses?: number;
   remainingUses?: number;
   expiresAtMs?: number;
   createdAtMs?: number;

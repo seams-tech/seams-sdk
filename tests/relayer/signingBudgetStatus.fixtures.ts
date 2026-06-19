@@ -2,13 +2,19 @@ import type {
   SigningSessionSealThresholdSessionStatus,
   SigningSessionSealWalletBudgetStatus,
 } from '@server/threshold/session/signingSessionSeal/types';
+import { base64UrlEncode } from '@shared/utils/encoders';
+import { ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND } from '@shared/utils/sessionTokens';
+
+function b64u(bytes: number[]): string {
+  return base64UrlEncode(Uint8Array.from(bytes));
+}
 
 export function buildEcdsaCurveCollisionBudgetStatusFixture(label: string) {
   const nowMs = Date.now();
   const claims = {
     sub: `budget-curve-collision-${label}.testnet`,
     walletId: `budget-curve-collision-${label}.testnet`,
-    kind: 'threshold_ecdsa_session_v2',
+    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
     sessionId: `threshold-login-curve-collision-${label}`,
     walletSigningSessionId: `wsess-curve-collision-${label}`,
     keyScope: 'evm-family',
@@ -25,6 +31,36 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(label: string) {
     rpId: 'example.localhost',
     thresholdExpiresAtMs: nowMs + 60_000,
     participantIds: [1, 2],
+    routerAbEcdsaHssNormalSigning: {
+      kind: 'router_ab_ecdsa_hss_normal_signing_v1',
+      scope: {
+        context: {
+          wallet_id: `budget-curve-collision-${label}.testnet`,
+          rp_id: 'example.localhost',
+          key_scope: 'evm-family',
+          ecdsa_threshold_key_id: `ecdsa-key-curve-collision-${label}`,
+          signing_root_id: `signing-root-curve-collision-${label}`,
+          signing_root_version: 'v1',
+          key_purpose: 'evm-signing',
+          key_version: 'v1',
+        },
+        public_identity: {
+          context_binding_b64u: b64u(Array.from({ length: 32 }, (_, index) => index + 1)),
+          client_public_key33_b64u: b64u([0x02, ...Array.from({ length: 32 }, () => 1)]),
+          server_public_key33_b64u: b64u([0x03, ...Array.from({ length: 32 }, () => 2)]),
+          threshold_public_key33_b64u: b64u([0x02, ...Array.from({ length: 32 }, () => 3)]),
+          ethereum_address20_b64u: b64u(Array.from({ length: 20 }, () => 0x11)),
+          client_share_retry_counter: 0,
+          server_share_retry_counter: 0,
+        },
+        signing_worker: {
+          server_id: `signing-worker-curve-collision-${label}`,
+          key_epoch: `signing-worker-epoch-curve-collision-${label}`,
+          recipient_encryption_key: `x25519:${'33'.repeat(32)}`,
+        },
+        activation_epoch: `threshold-login-curve-collision-${label}`,
+      },
+    },
   } as const;
 
   const baseStatus = (input: {
@@ -65,6 +101,9 @@ export function buildEcdsaCurveCollisionBudgetStatusFixture(label: string) {
       relayerKeyId: input.relayerKeyId,
       remainingUses: input.remainingUses,
     }),
+    committedRemainingUses: input.remainingUses + 3,
+    reservedUses: 3,
+    availableUses: input.remainingUses,
   });
 
   return {

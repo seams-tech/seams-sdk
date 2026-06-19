@@ -94,6 +94,9 @@ function normalizeWalletBudgetStatus(
     },
     raw.record,
   );
+  const committedRemainingUses = toNonNegativeInt(raw.committedRemainingUses);
+  const reservedUses = toNonNegativeInt(raw.reservedUses);
+  const availableUses = toNonNegativeInt(raw.availableUses);
   const remainingUses = toNonNegativeInt(raw.remainingUses);
   if (!normalized || remainingUses === undefined) return null;
   return {
@@ -101,6 +104,9 @@ function normalizeWalletBudgetStatus(
     kind: 'wallet_budget',
     walletSigningSessionId: input.walletSigningSessionId,
     expiresAtMs: Math.floor(Number(raw.expiresAtMs) || normalized.expiresAtMs),
+    committedRemainingUses: committedRemainingUses ?? remainingUses,
+    reservedUses: reservedUses ?? 0,
+    availableUses: availableUses ?? remainingUses,
     remainingUses,
   };
 }

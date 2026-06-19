@@ -2,7 +2,7 @@
 
 Date created: June 19, 2026
 
-Status: proposed
+Status: in progress
 
 Primary source of truth:
 
@@ -427,16 +427,26 @@ Acceptance:
 
 ## Phase 4: Make Budget Status Reflect Reservations And Commits
 
-- [ ] Update `/session/signing-budget/status` to include:
+- [x] Update `/session/signing-budget/status` to include:
   - committed remaining signature uses
   - in-flight reserved signature uses
   - available signature uses
   - projection version that changes after reserve, commit, and release
-- [ ] Preserve signer-bound validation from the step-up budget plan.
-- [ ] Keep response shape compatible only at the request boundary; normalize to
+- [x] Preserve signer-bound validation from the step-up budget plan.
+- [x] Keep response shape compatible only at the request boundary; normalize to
       strict internal status immediately.
 - [ ] Add server route tests for active, exhausted, in-flight reserved, expired,
       and unauthorized status.
+
+Implemented scope:
+
+- `/session/signing-budget/status` now returns `committedRemainingUses`,
+  `reservedUses`, `availableUses`, compatibility `remainingUses`, and a
+  projection version derived from the server budget projection.
+- Express and Cloudflare adapters share the strict parser projection shape.
+- Focused route coverage proves the active in-flight projection and
+  unauthorized/not-found response for both adapters. Exhausted and expired route
+  assertions remain open.
 
 Acceptance:
 

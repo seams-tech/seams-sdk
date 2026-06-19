@@ -40,8 +40,12 @@ import { EMAIL_OTP_CHANNEL } from '@shared/utils/emailOtpDomain';
 import {
   parseWalletSigningBudgetStatusExpectations,
   parseWalletSigningBudgetStatusRequest,
+  type ParseWalletSigningBudgetStatusResult,
 } from '../../signingBudgetStatus';
 import { parseGoogleProviderSubject, parseVerifiedGoogleEmail } from '@shared/utils/domainIds';
+
+type VerifiedSigningBudgetStatus =
+  Extract<ParseWalletSigningBudgetStatusResult, { ok: true }>['walletBudgetStatus'];
 
 async function emitSessionExchangeFailed(
   ctx: CloudflareRelayContext,
@@ -235,10 +239,7 @@ async function readAndValidateEmailOtpSigningSession(ctx: CloudflareRelayContext
       sessionHash: string;
       thresholdSessionId: string;
       walletSigningSessionId: string;
-      walletBudgetStatus: {
-        expiresAtMs: number;
-        remainingUses: number;
-      };
+      walletBudgetStatus: VerifiedSigningBudgetStatus;
     }
   | { ok: false; response: Response }
 > {
@@ -1231,23 +1232,36 @@ export async function handleSigningBudgetStatus(
         { status: 403 },
       );
     }
-    const remainingUses = Math.max(
+    const committedRemainingUses = Math.max(
       0,
-      Math.floor(Number(validated.walletBudgetStatus.remainingUses) || 0),
+      Math.floor(Number(validated.walletBudgetStatus.committedRemainingUses) || 0),
+    );
+    const reservedUses = Math.max(
+      0,
+      Math.floor(Number(validated.walletBudgetStatus.reservedUses) || 0),
+    );
+    const availableUses = Math.max(
+      0,
+      Math.floor(Number(validated.walletBudgetStatus.availableUses) || 0),
     );
     return json(
       {
         ok: true,
         walletSigningSessionId: validated.walletSigningSessionId,
         thresholdSessionId: validated.thresholdSessionId,
-        status: remainingUses > 0 ? 'active' : 'exhausted',
-        remainingUses,
+        status: availableUses > 0 ? 'active' : 'exhausted',
+        committedRemainingUses,
+        reservedUses,
+        availableUses,
+        remainingUses: availableUses,
         expiresAtMs: validated.walletBudgetStatus.expiresAtMs,
         projectionVersion: [
           'wallet-budget',
           validated.walletSigningSessionId,
           validated.walletBudgetStatus.expiresAtMs,
-          remainingUses,
+          committedRemainingUses,
+          reservedUses,
+          availableUses,
         ].join(':'),
       },
       { status: 200 },

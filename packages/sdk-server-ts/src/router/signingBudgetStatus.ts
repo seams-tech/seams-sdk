@@ -78,6 +78,9 @@ export type ParseWalletSigningBudgetStatusResult =
       request: WalletSigningBudgetStatusRequest;
       walletBudgetStatus: {
         expiresAtMs: number;
+        committedRemainingUses: number;
+        reservedUses: number;
+        availableUses: number;
         remainingUses: number;
       };
     }
@@ -347,6 +350,12 @@ async function parseCurveBoundWalletSigningBudgetStatus(args: {
     request: args.request,
     walletBudgetStatus: {
       expiresAtMs: walletBudgetStatus.expiresAtMs,
+      committedRemainingUses: Math.max(
+        0,
+        Math.floor(Number(walletBudgetStatus.committedRemainingUses) || 0),
+      ),
+      reservedUses: Math.max(0, Math.floor(Number(walletBudgetStatus.reservedUses) || 0)),
+      availableUses: Math.max(0, Math.floor(Number(walletBudgetStatus.availableUses) || 0)),
       remainingUses: Math.max(0, Math.floor(Number(walletBudgetStatus.remainingUses) || 0)),
     },
   };

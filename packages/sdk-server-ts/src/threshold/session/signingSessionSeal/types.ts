@@ -129,6 +129,9 @@ export interface SigningSessionSealThresholdSessionStatus
 export interface SigningSessionSealWalletBudgetStatus extends SigningSessionSealThresholdSessionRecord {
   kind: 'wallet_budget';
   walletSigningSessionId: string;
+  committedRemainingUses: number;
+  reservedUses: number;
+  availableUses: number;
   remainingUses: number;
 }
 

@@ -240,6 +240,18 @@ function parseTrustedBudgetStatusPayload(args: {
 
   const remainingUses = Math.floor(Number(record.remainingUses));
   if (!Number.isFinite(remainingUses) || remainingUses < 0) return null;
+  const committedRemainingUses = Math.max(
+    0,
+    Math.floor(Number(record.committedRemainingUses ?? record.remainingUses) || 0),
+  );
+  const inFlightReservedUses = Math.max(
+    0,
+    Math.floor(Number(record.reservedUses ?? record.inFlightReservedUses) || 0),
+  );
+  const availableUses = Math.max(
+    0,
+    Math.floor(Number(record.availableUses ?? record.remainingUses) || 0),
+  );
   const projectionVersion = String(record.projectionVersion || '').trim();
   if (!projectionVersion) return null;
   return {
@@ -248,6 +260,9 @@ function parseTrustedBudgetStatusPayload(args: {
       sessionId: walletSigningSessionId,
       status,
       remainingUses,
+      committedRemainingUses,
+      inFlightReservedUses,
+      availableUses,
       expiresAtMs,
       projectionVersion,
     },

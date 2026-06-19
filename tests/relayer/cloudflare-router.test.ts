@@ -3417,6 +3417,9 @@ test.describe('relayer router (cloudflare) – P0', () => {
       walletSigningSessionId: claims.walletSigningSessionId,
       thresholdSessionId: claims.sessionId,
       status: 'active',
+      committedRemainingUses: 5,
+      reservedUses: 3,
+      availableUses: 2,
       remainingUses: 2,
     });
   });
