@@ -405,6 +405,58 @@ test.describe('selected signing capability strict persisted records', () => {
     });
   });
 
+  test('rejects selected ECDSA records missing persisted verifier material', () => {
+    const lane = makeEcdsaLane();
+    const record = makeEcdsaRecord({
+      clientVerifyingShareB64u: '',
+    });
+    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+      kind: 'invalid',
+      reason: 'missing_client_verifying_share',
+      record,
+    });
+
+    const result = readSigningCapabilityRecord(
+      {
+        readEmailOtpEcdsaSessionRecord: () => record,
+      },
+      lane,
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'record_mismatch',
+      message:
+        'Selected ECDSA session record is not Router A/B signable: missing_client_verifying_share',
+    });
+  });
+
+  test('rejects selected ECDSA records when persisted verifier drifts from Router A/B state', () => {
+    const lane = makeEcdsaLane();
+    const record = makeEcdsaRecord({
+      clientVerifyingShareB64u: ecdsaRelayerPublicKeyB64u,
+    });
+    expect(classifyRouterAbEcdsaHssPersistedSigningRecord(record)).toMatchObject({
+      kind: 'invalid',
+      reason: 'material_identity_mismatch',
+      record,
+    });
+
+    const result = readSigningCapabilityRecord(
+      {
+        readEmailOtpEcdsaSessionRecord: () => record,
+      },
+      lane,
+    );
+
+    expect(result).toMatchObject({
+      ok: false,
+      code: 'record_mismatch',
+      message:
+        'Selected ECDSA session record is not Router A/B signable: material_identity_mismatch',
+    });
+  });
+
   test('accepts selected ECDSA records only when Router A/B signing state is complete', () => {
     const lane = makeEcdsaLane();
     const record = makeEcdsaRecord();
@@ -415,6 +467,12 @@ test.describe('selected signing capability strict persisted records', () => {
         curve: 'ecdsa',
         thresholdSessionId: ecdsaThresholdSessionId,
         walletSigningSessionId: ecdsaWalletSigningSessionId,
+        signingMaterial: {
+          kind: 'router_ab_ecdsa_hss_signing_material_ref_v1',
+          clientVerifier33B64u: ecdsaClientPublicKeyB64u,
+          serverVerifier33B64u: ecdsaRelayerPublicKeyB64u,
+          thresholdVerifier33B64u: ecdsaClientPublicKeyB64u,
+        },
       },
     });
 

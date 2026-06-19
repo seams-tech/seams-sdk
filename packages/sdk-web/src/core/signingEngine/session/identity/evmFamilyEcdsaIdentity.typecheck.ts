@@ -521,6 +521,13 @@ const invalidReadyTransportWithCookieAuth: ReadyThresholdEcdsaSignerTransport = 
 };
 void invalidReadyTransportWithCookieAuth;
 
+const invalidReadyTransportWithRawClientVerifier: ReadyThresholdEcdsaSignerTransport = {
+  ...signerSession.transport,
+  // @ts-expect-error ready transport carries ECDSA verifier material through signingMaterial.
+  clientVerifyingShareB64u: 'raw-client-verifier',
+};
+void invalidReadyTransportWithRawClientVerifier;
+
 const invalidRouterAbReadyWithCookieCredential: ReadyRouterAbEcdsaHssNormalSigning = {
   kind: 'router_ab_ecdsa_hss_normal_signing_ready_v1',
   state: routerAbEcdsaHssNormalSigningState,

@@ -2,6 +2,7 @@ import type { RouterAbEcdsaHssNormalSigningStateV1 } from '@shared/utils/routerA
 import type { RouterAbEd25519NormalSigningState } from '../threshold/ed25519/routerAbNormalSigningState';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import { buildRouterAbEd25519SigningMaterialRef } from '../threshold/ed25519/hssMaterialBinding';
+import { buildRouterAbEcdsaHssSigningMaterialRef } from '../routerAb/ecdsaHss/signingMaterialRef';
 import type {
   RouterAbEcdsaHssSigningWalletSession,
   RouterAbEd25519SigningWalletSession,
@@ -71,6 +72,11 @@ const ecdsaRouterAbNormalSigning = {
 } satisfies RouterAbEcdsaHssNormalSigningStateV1;
 void ecdsaRouterAbNormalSigning;
 
+const ecdsaSigningMaterial = buildRouterAbEcdsaHssSigningMaterialRef({
+  routerAbState: ecdsaRouterAbNormalSigning,
+});
+void ecdsaSigningMaterial;
+
 const validEd25519SigningWalletSession = {
   curve: 'ed25519',
   auth: walletSessionAuth,
@@ -93,6 +99,7 @@ const validEcdsaSigningWalletSession = {
   walletSigningSessionId: 'wallet-signing-session-1',
   remainingUses: 1,
   expiresAtMs: 1_900_000_000_000,
+  signingMaterial: ecdsaSigningMaterial,
   runtimePolicyScope,
   routerAbEcdsaHssNormalSigning: ecdsaRouterAbNormalSigning,
 } satisfies RouterAbEcdsaHssSigningWalletSession;
@@ -182,3 +189,27 @@ const ecdsaRawClientShare = {
   clientSigningShare32: new Uint8Array(32),
 } satisfies RouterAbEcdsaHssSigningWalletSession;
 void ecdsaRawClientShare;
+
+const ecdsaRawClientVerifier = {
+  ...validEcdsaSigningWalletSession,
+  // @ts-expect-error Signable ECDSA-HSS Wallet Session state carries verifier material through signingMaterial.
+  clientVerifyingShareB64u: 'raw-client-verifier',
+} satisfies RouterAbEcdsaHssSigningWalletSession;
+void ecdsaRawClientVerifier;
+
+const ecdsaMissingSigningMaterial = {
+  ...validEcdsaSigningWalletSession,
+  // @ts-expect-error Signable ECDSA-HSS Wallet Session state requires parsed signing material.
+  signingMaterial: undefined,
+} satisfies RouterAbEcdsaHssSigningWalletSession;
+void ecdsaMissingSigningMaterial;
+
+const ecdsaSigningMaterialWithRawVerifier = {
+  ...validEcdsaSigningWalletSession,
+  signingMaterial: {
+    ...ecdsaSigningMaterial,
+    // @ts-expect-error Parsed ECDSA-HSS signing material rejects persisted verifier field names.
+    clientVerifyingShareB64u: 'raw-client-verifier',
+  },
+} satisfies RouterAbEcdsaHssSigningWalletSession;
+void ecdsaSigningMaterialWithRawVerifier;

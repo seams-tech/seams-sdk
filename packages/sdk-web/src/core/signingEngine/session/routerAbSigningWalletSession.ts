@@ -14,6 +14,10 @@ import {
   buildRouterAbEd25519SigningMaterialRef,
   type RouterAbEd25519SigningMaterialRef,
 } from '../threshold/ed25519/hssMaterialBinding';
+import {
+  buildRouterAbEcdsaHssSigningMaterialRef,
+  type RouterAbEcdsaHssSigningMaterialRef,
+} from '../routerAb/ecdsaHss/signingMaterialRef';
 
 export type RouterAbSigningWalletSessionAuth = {
   kind: 'wallet_session_jwt';
@@ -42,8 +46,11 @@ export type RouterAbEcdsaHssSigningWalletSession = {
   walletSigningSessionId: string;
   remainingUses: number;
   expiresAtMs: number;
+  signingMaterial: RouterAbEcdsaHssSigningMaterialRef;
   runtimePolicyScope: ThresholdRuntimePolicyScope;
   routerAbEcdsaHssNormalSigning: RouterAbEcdsaHssNormalSigningStateV1;
+  clientVerifyingShareB64u?: never;
+  clientSigningShare32?: never;
 };
 
 export type RouterAbSigningWalletSessionParseFailureReason =
@@ -57,9 +64,11 @@ export type RouterAbSigningWalletSessionParseFailureReason =
   | 'missing_material_handle'
   | 'missing_material_binding_digest'
   | 'missing_client_verifying_share'
+  | 'material_identity_mismatch'
   | 'raw_material_without_handle'
   | 'missing_runtime_policy_scope'
   | 'missing_router_ab_state'
+  | 'invalid_router_ab_state'
   | 'invalid_budget';
 
 export type RouterAbSigningWalletSessionResult<T> =
@@ -253,6 +262,21 @@ export function parseRouterAbEcdsaHssSigningWalletSessionFromRecord(
   if (!record.routerAbEcdsaHssNormalSigning) {
     return { ok: false, reason: 'missing_router_ab_state' };
   }
+  let signingMaterial: RouterAbEcdsaHssSigningMaterialRef;
+  try {
+    signingMaterial = buildRouterAbEcdsaHssSigningMaterialRef({
+      routerAbState: record.routerAbEcdsaHssNormalSigning,
+    });
+  } catch {
+    return { ok: false, reason: 'invalid_router_ab_state' };
+  }
+  const clientVerifyingShareB64u = nonEmptyString(record.clientVerifyingShareB64u);
+  if (!clientVerifyingShareB64u) {
+    return { ok: false, reason: 'missing_client_verifying_share' };
+  }
+  if (clientVerifyingShareB64u !== signingMaterial.clientVerifier33B64u) {
+    return { ok: false, reason: 'material_identity_mismatch' };
+  }
   const remainingUses = positiveInteger(record.remainingUses);
   const expiresAtMs = positiveInteger(record.expiresAtMs);
   if (!remainingUses || !expiresAtMs) return { ok: false, reason: 'invalid_budget' };
@@ -265,6 +289,7 @@ export function parseRouterAbEcdsaHssSigningWalletSessionFromRecord(
       walletSigningSessionId,
       remainingUses,
       expiresAtMs,
+      signingMaterial,
       runtimePolicyScope: record.runtimePolicyScope,
       routerAbEcdsaHssNormalSigning: record.routerAbEcdsaHssNormalSigning,
     },

@@ -1152,8 +1152,19 @@ Initial findings:
       - [x] Type fixtures reject obsolete top-level raw verifier fields and
             missing material refs at the strict Wallet Session and ready-state
             boundaries.
-- [ ] Keep raw ECDSA client share/verifying-share fields behind worker,
+- [x] Keep raw ECDSA client share/verifying-share fields behind worker,
   registration, or persistence boundary parsers.
+      Current progress:
+      - [x] Added a strict Router A/B ECDSA-HSS Wallet Session signing material
+            ref so selected signable Wallet Session records expose the public
+            verifier through parsed `signingMaterial`, not top-level persisted
+            verifier field names.
+      - [x] The ECDSA signable Wallet Session parser now rejects missing
+            persisted client verifier material and verifier drift between the
+            persisted record and Router A/B normal-signing scope.
+      - [x] Finish the ready signer transport cleanup so active EVM signing code
+            consumes the same parsed material ref instead of direct
+            `clientVerifyingShareB64u` transport fields.
 - [ ] Review domain lifecycle unions.
 - [ ] Review session, budget, signing, restore, auth, and protocol state types.
 - [ ] Add missing `never` exclusions.

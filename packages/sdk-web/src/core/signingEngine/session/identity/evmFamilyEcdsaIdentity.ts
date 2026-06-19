@@ -29,6 +29,10 @@ import type {
 } from '@/core/platform/types';
 import { buildEcdsaRoleLocalSigningMaterialHandle } from './ecdsaHssSigningMaterialHandle';
 import {
+  buildRouterAbEcdsaHssSigningMaterialRef,
+  type RouterAbEcdsaHssSigningMaterialRef,
+} from '../../routerAb/ecdsaHss/signingMaterialRef';
+import {
   parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord,
   thresholdEcdsaRecordHasRoleLocalSigningMaterial,
 } from '../persistence/ecdsaRoleLocalRecords';
@@ -203,9 +207,11 @@ export type ThresholdEcdsaSignerTransport = {
   relayerUrl: string;
   ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
-  clientVerifyingShareB64u: string;
+  signingMaterial: RouterAbEcdsaHssSigningMaterialRef;
   relayerVerifyingShareB64u?: string;
   auth: EcdsaWalletSessionTransportAuth;
+  clientVerifyingShareB64u?: never;
+  clientSigningShare32?: never;
 };
 
 export type ReadyThresholdEcdsaSignerTransport = Omit<ThresholdEcdsaSignerTransport, 'auth'> & {
@@ -1144,6 +1150,16 @@ export function buildReadyEcdsaSignerSession(
     state: input.keyRef.routerAbEcdsaHssNormalSigning,
     auth: transportAuth,
   });
+  const signingMaterial = buildRouterAbEcdsaHssSigningMaterialRef({
+    routerAbState: routerAbEcdsaHssNormalSigning.state,
+  });
+  const clientVerifierFromBinding = requiredString(
+    backendBinding.clientVerifyingShareB64u,
+    'clientVerifyingShareB64u',
+  );
+  if (clientVerifierFromBinding !== signingMaterial.clientVerifier33B64u) {
+    throw new Error('[evm-family-ecdsa] ECDSA signer material identity mismatch');
+  }
   return {
     kind: 'ready_ecdsa_signer_session',
     publicFacts: input.publicFacts,
@@ -1154,10 +1170,7 @@ export function buildReadyEcdsaSignerSession(
       relayerUrl: requiredString(input.keyRef.relayerUrl, 'relayerUrl'),
       ecdsaThresholdKeyId: normalizeEcdsaThresholdKeyId(input.keyRef.ecdsaThresholdKeyId),
       relayerKeyId: requiredString(backendBinding.relayerKeyId, 'relayerKeyId'),
-      clientVerifyingShareB64u: requiredString(
-        backendBinding.clientVerifyingShareB64u,
-        'clientVerifyingShareB64u',
-      ),
+      signingMaterial,
       ...(String(input.keyRef.relayerVerifyingShareB64u || '').trim()
         ? { relayerVerifyingShareB64u: String(input.keyRef.relayerVerifyingShareB64u).trim() }
         : {}),
