@@ -81,7 +81,7 @@ export type ThresholdEcdsaSessionBootstrapResult = {
   thresholdEcdsaKeyRef: ThresholdEcdsaSecp256k1KeyRef;
   keygen: EcdsaKeygenSuccess;
   session: EcdsaSessionSuccess & {
-    sessionId: string;
+    thresholdSessionId: string;
     signingGrantId: string;
     expiresAtMs: number;
     remainingUses: number;
@@ -796,7 +796,7 @@ export async function activateEcdsaSession(
 
   const session: ThresholdEcdsaSessionBootstrapResult['session'] = {
     ok: true,
-    sessionId,
+    thresholdSessionId: sessionId,
     signingGrantId,
     expiresAtMs,
     remainingUses,

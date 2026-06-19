@@ -464,7 +464,7 @@ export function createThresholdEcdsaBootstrapFixture(args: {
     },
     session: {
       ok: true,
-      sessionId,
+      thresholdSessionId: sessionId,
       signingGrantId,
       expiresAtMs: Date.now() + 120_000,
       remainingUses: 5,

@@ -175,7 +175,7 @@ function relayerOutput(input: ProvisionEcdsaInput): BootstrapEcdsaSessionRouteOu
     clientShareRetryCounter: 0,
     relayerShareRetryCounter: 0,
     participantIds: [1, 2],
-    sessionId: input.route.sessionId,
+    thresholdSessionId: input.route.sessionId,
     signingGrantId: input.route.signingGrantId,
     expiresAtMs: 1_900_000_000_000,
     remainingUses: input.route.remainingUses,

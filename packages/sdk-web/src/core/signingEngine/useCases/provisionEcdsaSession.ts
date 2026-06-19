@@ -1335,7 +1335,7 @@ export function buildReusableEcdsaBootstrapResult(args: {
     },
     session: {
       ok: true,
-      sessionId: identity.thresholdSessionId,
+      thresholdSessionId: identity.thresholdSessionId,
       signingGrantId: identity.signingGrantId,
       ...(String(auth.walletSessionJwt || '').trim()
         ? { jwt: String(auth.walletSessionJwt || '').trim() }

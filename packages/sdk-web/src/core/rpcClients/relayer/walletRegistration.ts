@@ -998,7 +998,7 @@ export function buildWalletRegistrationEcdsaSessionBootstrap(args: {
     },
     session: {
       ok: true,
-      sessionId: thresholdSessionId,
+      thresholdSessionId,
       signingGrantId,
       expiresAtMs,
       remainingUses,

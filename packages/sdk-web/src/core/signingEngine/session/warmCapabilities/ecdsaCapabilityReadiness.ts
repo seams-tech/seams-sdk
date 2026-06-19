@@ -38,7 +38,7 @@ function requireExactBootstrapCapability(args: {
   const keyRef = bootstrap.thresholdEcdsaKeyRef;
   const recordIdentity = buildEcdsaSessionIdentity(record);
   const bootstrapIdentity = buildEcdsaSessionIdentity({
-    thresholdSessionId: keyRef.thresholdSessionId || bootstrap.session.sessionId,
+    thresholdSessionId: keyRef.thresholdSessionId || bootstrap.session.thresholdSessionId,
     signingGrantId:
       keyRef.signingGrantId || bootstrap.session.signingGrantId,
   });

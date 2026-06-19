@@ -346,7 +346,7 @@ export type BootstrapEcdsaSessionRouteOutput = {
   clientShareRetryCounter: number;
   relayerShareRetryCounter: number;
   participantIds: readonly [1, 2];
-  sessionId: string;
+  thresholdSessionId: string;
   signingGrantId: string;
   expiresAtMs: number;
   remainingUses: number;

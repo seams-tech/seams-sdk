@@ -167,7 +167,7 @@ async function hydratePasskeyRegistrationSession(args: {
   if (args.preparedClientBootstrap.materialSource !== 'passkey_prf_first') {
     throw new Error('Passkey ECDSA registration persistence requires passkey PRF material');
   }
-  const thresholdSessionId = String(args.bootstrap.session.sessionId || '').trim();
+  const thresholdSessionId = String(args.bootstrap.session.thresholdSessionId || '').trim();
   const signingGrantId = String(
     args.bootstrap.session.signingGrantId ||
       args.bootstrap.thresholdEcdsaKeyRef.signingGrantId ||

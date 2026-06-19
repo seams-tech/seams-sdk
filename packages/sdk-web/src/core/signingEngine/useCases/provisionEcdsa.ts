@@ -332,6 +332,8 @@ function validateRelayerOutput(args: {
     !sameString(output.rpId, input.rpId) ||
     !sameString(output.ecdsaThresholdKeyId, input.ecdsaThresholdKeyId) ||
     !sameString(output.keyHandle, input.keyHandle) ||
+    !sameString(output.thresholdSessionId, input.route.sessionId) ||
+    !sameString(output.signingGrantId, input.route.signingGrantId) ||
     !sameString(output.relayerPublicIdentity.relayerKeyId, input.route.relayerKeyId) ||
     output.participantIds[0] !== 1 ||
     output.participantIds[1] !== 2

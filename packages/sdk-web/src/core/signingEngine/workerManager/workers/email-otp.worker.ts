@@ -3326,7 +3326,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       },
       session: {
         ok: true,
-        sessionId: value.sessionId,
+        thresholdSessionId: value.sessionId,
         signingGrantId: value.signingGrantId,
         expiresAtMs: value.expiresAtMs,
         remainingUses: value.remainingUses,
@@ -3721,7 +3721,10 @@ async function attachOptionalEcdsaExportArtifactToPrimaryBootstrap(args: {
         args.primaryBootstrap.thresholdEcdsaKeyRef.ecdsaThresholdKeyId,
         'ecdsaThresholdKeyId',
       ),
-      thresholdSessionId: readString(args.primaryBootstrap.session.sessionId, 'thresholdSessionId'),
+      thresholdSessionId: readString(
+        args.primaryBootstrap.session.thresholdSessionId,
+        'thresholdSessionId',
+      ),
       signingGrantId: readString(
         args.primaryBootstrap.session.signingGrantId,
         'signingGrantId',

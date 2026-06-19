@@ -654,7 +654,9 @@ export async function bootstrapEcdsaSessionValue(
       hasEmailOtpAuthContext: false,
     });
   }
-  const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession(activation.session.sessionId);
+  const thresholdSessionId = SigningSessionIds.thresholdEcdsaSession(
+    activation.session.thresholdSessionId,
+  );
   const passkeyPersistenceSource = resolvePasskeyEcdsaBootstrapPersistenceSource({
     request: normalizedRequest,
     thresholdSessionId,

@@ -1851,7 +1851,7 @@ function buildEcdsaRecordFromBootstrap(
     throw new Error('[SigningEngine] threshold ECDSA bootstrap did not provide participantIds');
   }
   const thresholdSessionId = String(
-    keyRef.thresholdSessionId || args.bootstrap.session.sessionId || '',
+    keyRef.thresholdSessionId || args.bootstrap.session.thresholdSessionId || '',
   ).trim();
   if (!thresholdSessionId) {
     throw new Error('[SigningEngine] threshold ECDSA bootstrap did not provide thresholdSessionId');

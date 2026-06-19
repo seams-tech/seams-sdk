@@ -273,7 +273,7 @@ Phase 3 evidence:
 
 ## Phase 4: Rename SDK And Browser Surfaces
 
-- [ ] Rename SDK public result fields:
+- [x] Rename SDK public result fields:
       `sessionId -> thresholdSessionId` and
       `walletSigningSessionId -> signingGrantId` where they refer to Wallet
       Session signing authority.
@@ -284,6 +284,17 @@ Phase 3 evidence:
 - [ ] Update Router A/B normal-signing request builders and status readers.
 - [x] Add source guards preventing `walletSigningSessionId` from returning in SDK
       public types after the refactor.
+
+Phase 4 evidence:
+
+- ECDSA bootstrap/provisioning public result types now expose
+  `thresholdSessionId` and `signingGrantId` for Wallet Session signing
+  authority. Route request bodies that still use protocol-local `sessionId`
+  remain at route boundaries.
+- ECDSA relayer output validation rejects threshold-session or signing-grant
+  drift before finalizing client state.
+- Validation: `pnpm -C packages/sdk-web type-check`, focused ECDSA provisioning
+  and bootstrap persistence unit tests, and the Refactor 71 source guard.
 
 ## Phase 5: Router A/B Cloudflare And Rust Contracts
 

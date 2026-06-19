@@ -115,7 +115,7 @@ function bootstrap(args: {
     } as ThresholdEcdsaSessionBootstrapResult['keygen'],
     session: {
       ok: true,
-      sessionId: 'tehss_1',
+      thresholdSessionId: 'tehss_1',
       signingGrantId: 'wss_1',
       expiresAtMs: Date.now() + 60_000,
       remainingUses: 3,
