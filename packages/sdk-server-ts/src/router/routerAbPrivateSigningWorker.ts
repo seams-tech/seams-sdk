@@ -667,6 +667,19 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
 
   if (input.phase === 'finalize') {
     if (isPlainObject(input.body.pool_binding)) {
+      const budget = await threshold.consumeRouterAbNormalSigningBudget({
+        curve: 'ed25519',
+        phase: 'finalize',
+        sessionId: admission.sessionId,
+        walletSigningSessionId: validated.claims.walletSigningSessionId,
+        requestId: admission.requestId,
+      });
+      if (!budget.ok) {
+        return {
+          status: budget.status,
+          body: { ok: false, code: budget.code, message: budget.message },
+        };
+      }
       const forwarded = await postRouterAbSigningWorkerJson({
         config: signingWorker,
         path: resolveRouterAbEd25519PrivateSigningPath({
@@ -680,19 +693,6 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
       });
       if (!forwarded.ok) {
         return { status: forwarded.status, body: forwarded.body };
-      }
-      const budget = await threshold.consumeRouterAbNormalSigningBudget({
-        curve: 'ed25519',
-        phase: 'finalize',
-        sessionId: admission.sessionId,
-        walletSigningSessionId: validated.claims.walletSigningSessionId,
-        requestId: admission.requestId,
-      });
-      if (!budget.ok) {
-        return {
-          status: budget.status,
-          body: { ok: false, code: budget.code, message: budget.message },
-        };
       }
       return { status: 200, body: forwarded.body };
     }
@@ -756,7 +756,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
     if (budgetReservation) {
       await threshold.releaseRouterAbNormalSigningBudget({
         curve: 'ed25519',
-        phase: 'finalize',
+        phase: 'prepare',
         sessionId: admission.sessionId,
         walletSigningSessionId: validated.claims.walletSigningSessionId,
         reservationId: budgetReservation.reservationId,
@@ -1153,7 +1153,7 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
     if (prepareBudgetReservation) {
       await threshold.releaseRouterAbNormalSigningBudget({
         curve: 'ecdsa-hss',
-        phase: 'finalize',
+        phase: input.phase,
         sessionId: admission.sessionId,
         walletSigningSessionId: validated.claims.walletSigningSessionId,
         reservationId: prepareBudgetReservation.reservationId,

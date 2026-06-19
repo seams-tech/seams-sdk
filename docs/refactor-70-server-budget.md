@@ -453,13 +453,24 @@ Implemented scope:
 
 - Operation-bound Ed25519 and ECDSA-HSS normal finalize require reservation
   metadata and commit before private SigningWorker forwarding.
-- Ed25519 presign-pool finalization remains on the interim direct consume path.
+- Ed25519 presign-pool finalization remains on the interim direct consume path,
+  but consumes budget before private SigningWorker forwarding so exhausted
+  Wallet Sessions cannot receive a presign-pool-hit signature.
+- Normal Ed25519 and ECDSA-HSS prepare failures release active reservations
+  after private SigningWorker prepare failure.
 - Finalize private-worker failure after a successful commit is still governed by
   the existing commit-before-forward policy; release-after-private-failure needs
   a separate store state if it remains a required behavior.
 - The current reservation store releases active reservations. It does not undo
   committed reservations, so the private-worker failure compensation item
   remains open.
+
+Validation added:
+
+- `tests/unit/routerAbEd25519BudgetRouteCore.unit.test.ts` proves
+  presign-pool finalization rejects exhausted budget before private SigningWorker
+  forwarding and normal prepare private-worker failure releases the active
+  reservation with `phase: "prepare"`.
 
 Acceptance:
 

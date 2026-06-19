@@ -1202,14 +1202,14 @@ export type RouterAbNormalSigningBudgetCommitResult =
 export type RouterAbNormalSigningBudgetReleaseInput =
   | {
       curve: 'ed25519';
-      phase: 'finalize';
+      phase: 'prepare' | 'finalize';
       sessionId: string;
       walletSigningSessionId: string;
       reservationId: string;
     }
   | {
       curve: 'ecdsa-hss';
-      phase: 'finalize';
+      phase: 'prepare' | 'finalize';
       sessionId: string;
       walletSigningSessionId: string;
       reservationId: string;
