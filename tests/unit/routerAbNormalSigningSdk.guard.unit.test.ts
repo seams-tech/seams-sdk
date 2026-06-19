@@ -74,6 +74,14 @@ function constArraySource(source: string, constName: string): string {
   return match?.[1] || '';
 }
 
+function sourceRangeBetween(source: string, startNeedle: string, endNeedle: string): string {
+  const start = source.indexOf(startNeedle);
+  expect(start, `missing source range start: ${startNeedle}`).toBeGreaterThanOrEqual(0);
+  const end = source.indexOf(endNeedle, start + startNeedle.length);
+  expect(end, `missing source range end: ${endNeedle}`).toBeGreaterThan(start);
+  return source.slice(start, end);
+}
+
 function singleQuotedFieldValues(source: string, field: string): string[] {
   return [...source.matchAll(new RegExp(`\\b${field}:\\s*'([^']+)'`, 'g'))].map(
     (match) => match[1] || '',
@@ -966,5 +974,33 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     });
 
     expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  test('public normal-signing route cores keep server budget reservation hooks', () => {
+    const source = readRepoSource('packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts');
+    const ed25519Core = sourceRangeBetween(
+      source,
+      'export async function handleRouterAbEd25519NormalSigningRouteCore',
+      'export function validateRouterAbEd25519NormalSigningRequestScope',
+    );
+    const ecdsaHssCore = sourceRangeBetween(
+      source,
+      'export async function handleRouterAbEcdsaHssNormalSigningRouteCore',
+      'export async function postRouterAbSigningWorkerJson',
+    );
+
+    expect(ed25519Core).toContain("if (input.phase === 'prepare')");
+    expect(ed25519Core).toContain('threshold.reserveRouterAbNormalSigningBudget({');
+    expect(ed25519Core).toContain("phase: 'prepare'");
+    expect(ed25519Core).toContain('budgetReservationId(input.body)');
+    expect(ed25519Core).toContain('threshold.commitRouterAbNormalSigningBudget({');
+    expect(ed25519Core).toContain('withBudgetReservationMetadata(');
+
+    expect(ecdsaHssCore).toContain("if (input.phase === 'prepare')");
+    expect(ecdsaHssCore).toContain('threshold.reserveRouterAbNormalSigningBudget({');
+    expect(ecdsaHssCore).toContain("curve: 'ecdsa-hss'");
+    expect(ecdsaHssCore).toContain('budgetReservationId(input.body)');
+    expect(ecdsaHssCore).toContain('threshold.commitRouterAbNormalSigningBudget({');
+    expect(ecdsaHssCore).toContain('withBudgetReservationMetadata(');
   });
 });

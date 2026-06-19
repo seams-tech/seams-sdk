@@ -589,10 +589,18 @@ Acceptance:
   - in-flight operation dedupe
   - avoiding duplicate prompts while a server request is pending
 - [ ] Add source guards rejecting:
-  - direct Router A/B sign-ready decisions from raw persisted `remainingUses`
-  - signing success paths that do not call server budget commit
-  - new public signing routes without budget reservation and commit
+  - [ ] direct Router A/B sign-ready decisions from raw persisted
+        `remainingUses`
+  - [x] signing success paths that do not call server budget commit
+  - [x] new public signing routes without budget reservation and commit
 - [ ] Update docs that describe SDK-local budget as the authority.
+
+Implemented scope:
+
+- `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` now guards the TS
+  Ed25519 and ECDSA-HSS public Router route cores so current reservation-backed
+  prepare/finalize paths keep server budget reservation and commit hooks. The
+  Ed25519 presign-pool direct consume path remains tracked in Phase 2.
 
 Acceptance:
 
