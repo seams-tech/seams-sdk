@@ -483,7 +483,7 @@ export const WALLET_FLOW_EVENT_MESSAGES: Record<WalletFlowEventPhase, string> = 
   [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SUCCEEDED]: 'App session ready',
   [UnlockEventPhase.STEP_04_APP_SESSION_EXCHANGE_SKIPPED]: 'App session skipped',
   [UnlockEventPhase.STEP_05_SIGNING_SESSION_WARMUP_STARTED]: 'Preparing transaction signing',
-  [UnlockEventPhase.STEP_05_ED25519_SIGNING_SESSION_READY]: 'NEAR signing session ready',
+  [UnlockEventPhase.STEP_05_ED25519_SIGNING_SESSION_READY]: 'NEAR signing authorization ready',
   [UnlockEventPhase.STEP_05_ECDSA_SIGNING_SESSION_READY]: 'EVM signing session ready',
   [UnlockEventPhase.STEP_06_SESSION_READY]: 'Wallet session ready',
   [UnlockEventPhase.STEP_07_COMPLETED]: 'Wallet unlocked',

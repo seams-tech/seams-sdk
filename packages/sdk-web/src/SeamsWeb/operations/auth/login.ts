@@ -55,6 +55,7 @@ import {
   thresholdEcdsaSessionRecordReadModel,
   type ThresholdEcdsaSessionRecord,
 } from '@/core/signingEngine/session/persistence/records';
+import { parseWarmEd25519SigningSessionAuthorizationFromRecord } from '@/core/signingEngine/session/warmCapabilities/ed25519Authorization';
 import { parseThresholdEcdsaSessionRecordAsRoleLocalReadyRecord } from '@/core/signingEngine/session/persistence/ecdsaRoleLocalRecords';
 import type { ThresholdEcdsaSessionStoreSource } from '@/core/signingEngine/session/identity/laneIdentity';
 import {
@@ -72,10 +73,7 @@ import {
   type Ed25519WalletSessionMintAuthorization,
 } from '@/core/signingEngine/threshold/ed25519/walletSession';
 import { shouldRequireThresholdWarmSession } from '@/SeamsWeb/operations/session/thresholdWarmSessionDefaults';
-import {
-  createRouterAbNormalSigningPolicy,
-  prewarmThresholdEd25519ClientBaseFromCredential,
-} from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
+import { createRouterAbNormalSigningPolicy } from '@/SeamsWeb/operations/session/thresholdWarmSessionBootstrap';
 import { listConfiguredThresholdEcdsaPublicationTargets } from '@/SeamsWeb/operations/session/thresholdEcdsaProvisioning';
 import type {
   AvailableSigningLanes,
@@ -467,8 +465,25 @@ async function assertPasskeyUnlockRuntimePostconditions(args: {
   nearAccountId: AccountId;
   signersWarmed: readonly ('ed25519' | 'ecdsa')[];
 }): Promise<void> {
+  if (args.signersWarmed.includes('ed25519')) {
+    const record = getStoredThresholdEd25519SessionRecordForAccount(args.nearAccountId);
+    const signingSessionStatus = await args.context.signingEngine
+      .getWarmThresholdEd25519SessionStatus(args.nearAccountId)
+      .catch(() => null);
+    const authorization = parseWarmEd25519SigningSessionAuthorizationFromRecord({
+      record,
+      nearAccountId: args.nearAccountId,
+      authMethod: 'passkey',
+      signingSessionStatus,
+    });
+    if (!authorization.ok) {
+      throw new Error(
+        `[login] Ed25519 warm-session authorization postcondition failed: ${authorization.reason}`,
+      );
+    }
+  }
+
   const requiredTargets = [
-    ...(args.signersWarmed.includes('ed25519') ? [{ curve: 'ed25519' as const }] : []),
     ...(args.signersWarmed.includes('ecdsa')
       ? listConfiguredThresholdEcdsaPublicationTargets(args.context.configs.network.chains).map(
           (target) => ({ curve: 'ecdsa' as const, chainTarget: target.chainTarget }),
@@ -739,7 +754,6 @@ export async function unlock(
     const shouldWarmThresholdSigningSession =
       signingSessionPolicy.ttlMs > 0 && signingSessionPolicy.unlockBudgetPolicy != null;
     const requireThresholdWarmup = shouldWarmThresholdSigningSession;
-    const shouldPrewarmThresholdEd25519ClientBase = walletUnlockSelection.mode !== 'ecdsa_only';
     const session = options?.session;
     const wantsServerSession = session !== undefined;
 
@@ -995,25 +1009,6 @@ export async function unlock(
       };
     };
 
-    // Prewarm local Ed25519 material only when this unlock actually collected a passkey.
-    const prewarmEd25519MaterialForWarmup = async (
-      warmupPhase: ThresholdLoginWarmupPhaseResult,
-    ): Promise<void> => {
-      if (
-        !loginCredential ||
-        !shouldPrewarmThresholdEd25519ClientBase ||
-        !warmupPhase.signersWarmed.includes('ed25519')
-      ) {
-        return;
-      }
-      await prewarmThresholdEd25519ClientBaseFromCredential({
-        context,
-        credential: loginCredential,
-        nearAccountId,
-        signerSlot: baseSignerSlot,
-      });
-    };
-
     // Public results for required warmup must contain an active signing session.
     const requireThresholdWarmLoginBundle = (
       source: string,
@@ -1206,7 +1201,6 @@ export async function unlock(
             }),
           );
           signingSession = warmupPhase.signingSession;
-          await prewarmEd25519MaterialForWarmup(warmupPhase);
           await assertPasskeyUnlockRuntimePostconditions({
             context,
             nearAccountId,
@@ -1307,7 +1301,6 @@ export async function unlock(
         }),
       );
       signingSession = warmupPhase.signingSession;
-      await prewarmEd25519MaterialForWarmup(warmupPhase);
       await assertPasskeyUnlockRuntimePostconditions({
         context,
         nearAccountId,

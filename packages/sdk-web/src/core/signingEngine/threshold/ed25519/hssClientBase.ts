@@ -41,6 +41,7 @@ export type RouterAbEd25519SigningMaterialReady = {
   participantIds: number[];
   signingWorkerId: string;
   clientVerifyingShareB64u: string;
+  xClientBaseB64u?: never;
 };
 
 export function ed25519HssMaterialCacheFromRaw(args: {

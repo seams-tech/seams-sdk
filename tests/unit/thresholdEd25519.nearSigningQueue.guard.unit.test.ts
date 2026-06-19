@@ -66,7 +66,7 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     expect(nearSigning).not.toContain('readExactSealedSession');
   });
 
-  test('Email OTP NEAR cached client-base signing records wallet-session budget spend', () => {
+  test('Email OTP NEAR signing records wallet-session budget spend without raw client-base cache', () => {
     const nearSigning = readNearSigningSource();
     const transactionsFlow = readRepoSource(
       'packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts',
@@ -88,12 +88,22 @@ test.describe('threshold Ed25519 near signing queue guard', () => {
     expect(nearSigning).not.toContain('consumeWalletSigningSessionUse');
     expect(transactionsFlow).toContain('recordSuccessfulWalletSigningSessionSpend');
     expect(transactionsFlow).toContain('signingSessionCoordinator');
-    expect(transactionsFlow).toContain('cachedXClientBaseB64u');
+    expect(transactionsFlow).not.toContain('cachedXClientBaseB64u');
     expect(signingSessionCoordinator).toContain('consumeWalletSigningSessionUse');
     expect(signingSessionCoordinator).toContain('consumeEmailOtpWarmSessionUses');
     expect(emailOtpCoordinator).toContain('consumeWarmSessionUses');
     expect(emailOtpWarmSessionRuntime).toContain('consumeEmailOtpWarmSessionUses');
     expect(worker).toContain('consumeEmailOtpWarmSessionUses');
+  });
+
+  test('passkey unlock does not prewarm Ed25519 HSS material', () => {
+    const loginFlow = readRepoSource('packages/sdk-web/src/SeamsWeb/operations/auth/login.ts');
+
+    expect(loginFlow).not.toContain('prewarmThresholdEd25519ClientBaseFromCredential');
+    expect(loginFlow).not.toContain('prewarmEd25519MaterialForWarmup');
+    expect(loginFlow).toContain('parseWarmEd25519SigningSessionAuthorizationFromRecord');
+    expect(loginFlow).not.toContain('ed25519HssMaterialHandle');
+    expect(loginFlow).not.toContain('clientVerifyingShareB64u');
   });
 
   test('Email OTP NEAR cached client-base signing consumes shared session budgets without PRF claim', () => {

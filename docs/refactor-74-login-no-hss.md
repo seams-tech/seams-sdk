@@ -2,7 +2,7 @@
 
 Date created: June 19, 2026
 
-Status: proposed
+Status: in progress
 
 Primary source of truth:
 
@@ -511,14 +511,14 @@ normal signing:
 
 ## Phase 1: Rename The Unlock Contract
 
-- [ ] Introduce an internal `WarmEd25519SigningSessionAuthorization` domain
+- [x] Introduce an internal `WarmEd25519SigningSessionAuthorization` domain
       type.
-- [ ] Make the type carry required identity, budget, auth, lane, and scope
+- [x] Make the type carry required identity, budget, auth, lane, and scope
       fields.
-- [ ] Keep Ed25519 material handle fields out of the authorization type.
-- [ ] Add type fixtures rejecting authorization objects that include material
+- [x] Keep Ed25519 material handle fields out of the authorization type.
+- [x] Add type fixtures rejecting authorization objects that include material
       fields.
-- [ ] Add type fixtures rejecting signing-material-ready objects without a
+- [x] Add type fixtures rejecting signing-material-ready objects without a
       material handle, binding digest, and client verifying share.
 
 ## Phase 1B: Persist Worker-Owned Client MPC Share At Setup
@@ -536,31 +536,31 @@ normal signing:
 
 ## Phase 2: Remove Ed25519 HSS From Unlock
 
-- [ ] Delete the `prewarmEd25519MaterialForWarmup()` call from both unlock
+- [x] Delete the `prewarmEd25519MaterialForWarmup()` call from both unlock
       branches in `login.ts`.
-- [ ] Delete the helper and remove the
+- [x] Delete the helper and remove the
       `prewarmThresholdEd25519ClientBaseFromCredential` import from `login.ts`
       if there is no remaining caller.
-- [ ] Keep `primeThresholdLoginWarmSigners()` responsible for minting or
+- [x] Keep `primeThresholdLoginWarmSigners()` responsible for minting or
       restoring Wallet Session authorization.
-- [ ] Preserve ECDSA warm-session bootstrap behavior only where it is required
+- [x] Preserve ECDSA warm-session bootstrap behavior only where it is required
       to mint the selected ECDSA session.
-- [ ] Update unlock events so `STEP_05_ED25519_SIGNING_SESSION_READY` means
+- [x] Update unlock events so `STEP_05_ED25519_SIGNING_SESSION_READY` means
       authorization ready. Rename the event if callers need visible distinction
       between authorization and material readiness.
 
 ## Phase 3: Replace Unlock Postconditions
 
-- [ ] Split `assertPasskeyUnlockRuntimePostconditions()` into an unlock
+- [x] Split `assertPasskeyUnlockRuntimePostconditions()` into an unlock
       authorization postcondition and a signing-material postcondition.
-- [ ] Make unlock validate active session id, wallet signing session id,
+- [x] Make unlock validate active session id, wallet signing session id,
       Wallet Session auth, expiry, budget, auth method, and lane scope.
-- [ ] Allow Ed25519 `material_pending` during unlock.
+- [x] Allow Ed25519 `material_pending` during unlock.
 - [ ] Keep registration and explicit signing checks strict about material
       readiness.
-- [ ] Stop using `readPersistedAvailableSigningLanes()` as the Ed25519 unlock
+- [x] Stop using `readPersistedAvailableSigningLanes()` as the Ed25519 unlock
       postcondition because it currently models sign-ready lanes.
-- [ ] Add unit coverage for Ed25519 unlock success with `material_pending`.
+- [x] Add unit coverage for Ed25519 unlock success with `material_pending`.
 - [ ] Add unit coverage proving Ed25519 signing still materializes or rejects
       before any signature is produced.
 
@@ -614,14 +614,14 @@ type UnlockSigningMaterialRestorePolicy =
 
 ## Phase 6: Tests And Guards
 
-- [ ] Add a source guard proving `unlock()` does not call
+- [x] Add a source guard proving `unlock()` does not call
       `prewarmThresholdEd25519ClientBaseFromCredential()`.
 - [ ] Add a source guard proving `unlock()` and daily signing cannot call:
       - `prewarmThresholdEd25519ClientBaseFromCredential`
       - `ensureThresholdEd25519HssSigningMaterial`
       - `runThresholdEd25519HssCeremonyWithMaterialHandle`
       - Ed25519 HSS route clients
-- [ ] Add a source guard proving unlock postconditions do not require
+- [x] Add a source guard proving unlock postconditions do not require
       `ed25519HssMaterialHandle`.
 - [ ] Add unit tests for:
       - Ed25519 unlock with active budget and missing material handle.
