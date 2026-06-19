@@ -2,7 +2,7 @@
 
 Date created: June 18, 2026
 
-Status: inventory for `refactor-69-rename-id.md`.
+Status: inventory for `refactor-71-rename-id.md`.
 
 ## Scope
 
@@ -423,7 +423,7 @@ Expected edits:
 
 Update active docs that describe current behavior:
 
-- `docs/refactor-69-rename-id.md`
+- `docs/refactor-71-rename-id.md`
 - `docs/router-a-b-cleanup.md`
 - `docs/router-A-B-signer-SPEC.md`
 - `docs/router-A-B-signer.md`
@@ -775,7 +775,7 @@ These files contain at least one of:
 - `docs/refactor-49-stepup-budget.md`
 - `docs/refactor-50-cross-platform-1.md`
 - `docs/refactor-51-cross-platform-2.md`
-- `docs/refactor-69-rename-id.md`
+- `docs/refactor-71-rename-id.md`
 - `docs/router-a-b-cleanup.md`
 - `docs/signing-session-architecture/README.md`
 - `docs/signing-session-architecture/sealed-refresh.md`

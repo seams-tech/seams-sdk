@@ -1,6 +1,10 @@
 # Refactor 68B: Router Worker Cleanup
 
-Status: closed unless drift appears; local topology switch and spec audit complete
+Status: complete and closed on 2026-06-19; local topology switch and spec audit complete
+
+Closure note: 68B has no remaining tasks. Future Router A/B topology drift
+should be handled in a new plan or the active Router cleanup plan, not by
+reopening this document.
 
 ## Goal
 

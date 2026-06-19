@@ -138,6 +138,101 @@ finalize/sign
 The reservation protects concurrency. The commit makes successful signing
 authoritative. A short reservation TTL releases abandoned prepares.
 
+## Reservation Identity And Error Contract
+
+Use one canonical reservation identity everywhere:
+
+```ts
+type RouterAbBudgetOperationIdentity = {
+  walletSigningSessionId: string;
+  curve: 'ed25519' | 'ecdsa';
+  thresholdSessionId: string;
+  signingWorkerId: string;
+  operationId: string;
+  requestDigest: string;
+};
+```
+
+Definitions:
+
+- `operationId` is the user-approved signing operation identity. It is stable
+  across prepare/finalize retry for the same operation.
+- `requestDigest` is the canonical digest of the final Router A/B signing
+  request scope and payload. It must change if the message, signing digest,
+  account, key scope, chain target, SigningWorker, or expiration changes.
+- `requestId` is a transport/request replay identifier. It may be accepted as a
+  compatibility input only at route boundaries, then normalized into
+  `operationId` and `requestDigest`. Core budget code should not treat raw
+  `requestId` as sufficient identity.
+- `reservationId` is server-generated and bound to the operation identity above.
+  It is returned by prepare and required by finalize.
+
+HTTP status and error codes:
+
+- `401 unauthorized`: missing or invalid Wallet Session JWT.
+- `403 wallet_budget_forbidden`: valid auth, but the grant does not match the
+  curve, threshold session, signer set, RP, relayer key, SigningWorker, or
+  runtime scope.
+- `409 wallet_budget_exhausted`: insufficient remaining signature uses.
+- `409 wallet_budget_in_flight`: another unexpired reservation holds the needed
+  signature uses.
+- `409 wallet_budget_reservation_mismatch`: finalize presents a reservation
+  that does not match the operation identity.
+- `410 wallet_budget_reservation_expired`: finalize presents an expired
+  reservation.
+- `422 invalid_budget_request`: malformed request, missing reservation id,
+  missing operation id, bad request digest, or invalid `signatureUses`.
+- `500 wallet_budget_internal`: store or invariant failure.
+
+Refactor 69C added an interim direct-consume guard before private SigningWorker
+forwarding. Refactor 70 replaces that with prepare-time reservation plus
+finalize-time commit. The direct-consume helper should be removed or reduced to
+an internal compatibility shim after all public Router A/B signing routes use
+reservation/commit.
+
+Multi-signature operations:
+
+- `signatureUses` is captured during operation planning and carried through
+  prepare and finalize. It must not be recomputed from the request body after
+  signing starts.
+- NEAR multi-transaction signing may reserve and commit more than one signature
+  use.
+- ECDSA EVM and Tempo single-digest signing reserve one signature use.
+- Ed25519 presign-pool hit and miss both commit the same captured signature-use
+  count when a signature is returned.
+- Presignature refill routes do not consume Wallet Session signing budget unless
+  they return a transaction signature.
+
+Failure and release semantics:
+
+- Validation failure before prepare forwarding releases no reservation because
+  none should exist yet.
+- Prepare failure after reservation but before returning a prepare response must
+  release the reservation.
+- Prepare response returned to the client leaves a short-lived reservation open.
+- Finalize validation failure releases the reservation only when the request
+  proves ownership of the same reservation id and operation identity.
+- Private SigningWorker failure before a signature is returned releases the
+  reservation.
+- Duplicate finalize after a successful commit is idempotent and returns the
+  same budget-commit result. It must not double-consume.
+- Network timeout after the server commits and returns a signature is treated as
+  committed. Client retry must use the same reservation id and operation
+  identity.
+
+Backend atomicity requirements:
+
+- InMemory: hold reservation and consume updates in one synchronous critical
+  section over the map entry.
+- Redis/Upstash: use Lua or an equivalent compare-and-set transaction for
+  reserve, commit, release, expiry cleanup, and duplicate commit.
+- Postgres: use a transaction with row locking or unique constraints for active
+  reservations and idempotent commits.
+- Cloudflare Durable Object: perform reservation/commit/release inside the DO
+  storage turn that owns the Wallet Session budget record.
+- All backends must expose the same observable behavior for duplicate prepare,
+  duplicate finalize, expired reservation, in-flight reservation, and release.
+
 ## Phase 0: Complete Budget Boundary Inventory
 
 - [ ] Inventory every Wallet Session budget status read:

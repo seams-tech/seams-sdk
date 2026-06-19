@@ -60,6 +60,57 @@ Do not rename files that contain runtime behavior just because they export
 some helper types. Split those only when the type surface is shared enough to
 justify a separate file.
 
+This refactor is mechanical. Do not combine these renames with semantic changes
+to signing, auth, restore, budget, protocol, or lifecycle state. If a file needs
+semantic cleanup, do that in the owning refactor first, then return here for the
+filename cleanup.
+
+## Guard Rules
+
+`*.types.ts` files may contain:
+
+- `import type ...`
+- `export type ...`
+- `export interface ...`
+- comments
+- JSDoc on exported types/interfaces
+
+`*.types.ts` files must not contain runtime exports:
+
+- `export const`
+- `export let`
+- `export var`
+- `export function`
+- `export class`
+- `export enum`
+- side-effect imports
+- executable statements
+
+If an existing type-only module needs a runtime validator, split it into:
+
+- `domain.types.ts` for types
+- `domain.ts` or `domainParser.ts` for runtime parsing/validation
+- `domain.typecheck.ts` for compile-time invalid-state fixtures
+
+Companion fixture convention:
+
+- `foo.types.ts` pairs with `foo.types.typecheck.ts` when the fixture only
+  exercises that type module.
+- `foo.typecheck.ts` remains valid for broader compile-time fixtures that cover
+  an implementation module or directory-level domain.
+
+Approved `types.ts` allowlist:
+
+- public API barrels that are intentionally imported as `.../types`
+- directory-level `types.ts` files that still mix too much public API surface to
+  rename safely in one mechanical pass
+- generated or external-contract files if changing the filename would break an
+  external import path
+
+Every allowed `types.ts` file should be listed in the Phase 2 inventory with one
+of: `public-barrel`, `mixed-runtime`, `external-contract`, or
+`rename-later:<target>`.
+
 ## Current Baseline
 
 Observed naming families:
@@ -85,7 +136,11 @@ Observed naming families:
 - Rename `packages/sdk-web/src/core/types/login.typings.typecheck.ts` to
   `packages/sdk-web/src/core/types/login.types.typecheck.ts`.
 - Update imports and exports.
-- Run SDK web type-check and the focused wallet iframe unlock unit test.
+- Run SDK web type-check and focused tests:
+  - `pnpm -C packages/sdk-web type-check`
+  - `pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/walletIframeUnlock.unit.test.ts --reporter=line` if the file exists
+  - otherwise run the nearest wallet iframe/login public type fixture or guard
+    that imports the renamed login types
 
 ### Phase 2: Type-Only `types.ts` Inventory
 
@@ -122,6 +177,8 @@ Add a small guard test that fails on:
 - new `*.typings.ts` files.
 - new type-only `types.ts` files outside approved barrels.
 - runtime exports from `*.types.ts`, except `export type` and interfaces.
+- side-effect imports from `*.types.ts`.
+- broad runtime barrels re-exporting `*.types.ts` as values.
 
 Use existing guard-test patterns. Avoid new lint dependencies.
 

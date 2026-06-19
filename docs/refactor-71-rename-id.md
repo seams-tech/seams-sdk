@@ -1,4 +1,4 @@
-# Refactor 69: Wallet Session ID Naming Cleanup
+# Refactor 71: Wallet Session ID Naming Cleanup
 
 Date created: June 17, 2026
 
@@ -125,6 +125,64 @@ Compatibility code is allowed only at persistence and request boundaries:
 Any old-field parser added during this refactor must have an explicit deletion
 point in the same plan phase. Do not add helper paths that let old names leak
 back into core logic.
+
+## Route Version And Compatibility Decisions
+
+Default policy: new active code emits only `thresholdSessionId` and
+`signingGrantId`.
+
+Route/version decisions before implementation:
+
+- Router A/B signing-capable routes should be breaking and bearer-only. They
+  should reject old threshold-session JWT claim shapes after the route boundary
+  parser normalizes any intentionally supported transition input.
+- Public request bodies that already carry a route version may accept old field
+  names only in that route-version parser. The parser must immediately return a
+  verified object with new names.
+- New responses, SDK public types, new persisted records, and new docs must use
+  new names only.
+- IndexedDB and Durable Object readers may normalize old persisted field names
+  during a bounded migration window. Writers must use new names only.
+- Private SigningWorker routes should receive trusted normalized identity from
+  the Router, not public Wallet Session claim parsing.
+
+Temporary parser support must be documented with:
+
+- exact route or storage record version
+- old field names accepted
+- normalized internal output type
+- deletion phase
+- tests proving old names do not leak past the boundary
+
+## SessionId Allowlist
+
+Plain `sessionId` remains valid only for identities that are not threshold/MPC
+sessions.
+
+Allowed `sessionId` meanings:
+
+- app/browser auth session ids
+- Email OTP worker session handles
+- recovery execution sessions
+- device-linking sessions
+- request-correlation ids
+- generic local map/store helper parameters when the helper is not
+  threshold-session-specific
+- third-party protocol fields that are explicitly named `sessionId`
+
+Rename to `thresholdSessionId` when the value identifies:
+
+- threshold-session JWT claims
+- threshold/MPC route request or response fields
+- Router A/B Wallet Session credentials
+- threshold session policies
+- threshold session store records
+- signing budget status records
+- Ed25519/ECDSA signing-session records
+- threshold-specific test fixtures
+
+Remove the field when it is an unused passthrough whose only purpose was to
+carry an old threshold-session id through a derivation or worker boundary.
 
 ## Phase 1: Inventory And Ownership
 
@@ -253,6 +311,25 @@ rtk cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --feature
 
 Run broader suites only when the rename crosses public route schemas,
 persistence records, Cloudflare Durable Object schemas, or SDK public types.
+
+## Phase Guard Expectations
+
+After each implementation phase, add or update guards for the layer just
+changed:
+
+- Shared/domain phase: old branded type names and parsers cannot be imported by
+  current code outside documented compatibility parsers.
+- Server claim phase: new Wallet Session JWT issuers emit
+  `thresholdSessionId` and `signingGrantId`; active signing routes do not read
+  loose `sessionId` / `walletSigningSessionId` strings.
+- Persistence phase: writers use new field names; readers normalize old names
+  at the boundary; tests prove normalized records expose new internal fields.
+- SDK public phase: exported public types and examples do not expose
+  `walletSigningSessionId` for the signing grant.
+- Worker/RPC phase: worker messages and route clients use new names unless the
+  route version parser explicitly accepts old input.
+- Cleanup phase: old names appear only in the allowlist, historical docs, or
+  explicit compatibility-boundary tests.
 
 ## Acceptance Criteria
 

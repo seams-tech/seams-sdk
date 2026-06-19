@@ -208,6 +208,120 @@ already uses. If no valid worker-owned restore artifact exists, normal signing
 must fail with a recoverable material-restore error. It should not run HSS as a
 hidden daily-operation fallback.
 
+### Worker Restore API Spec
+
+Add signer-core/WASM worker commands with this shape:
+
+```ts
+type Ed25519StoreWorkerMaterialRequest = {
+  kind: 'ed25519_store_worker_material_v1';
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
+  nearAccountId: string;
+  relayerKeyId: string;
+  participantIds: readonly number[];
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  signingWorkerId: string;
+  clientVerifyingShareB64u: string;
+  hssClientOutputHandle: string;
+};
+
+type Ed25519StoreWorkerMaterialSuccess = {
+  kind: 'ed25519_worker_material_stored_v1';
+  materialHandle: string;
+  bindingDigest: string;
+  clientVerifyingShareB64u: string;
+  sealedWorkerMaterialRef: string;
+};
+
+type Ed25519RestoreWorkerMaterialRequest = {
+  kind: 'ed25519_restore_worker_material_v1';
+  materialHandle: string;
+  bindingDigest: string;
+  clientVerifyingShareB64u: string;
+  sealedWorkerMaterialRef: string;
+  thresholdSessionId: string;
+  walletSigningSessionId: string;
+  nearAccountId: string;
+  relayerKeyId: string;
+  participantIds: readonly number[];
+  runtimePolicyScope: ThresholdRuntimePolicyScope;
+  signingWorkerId: string;
+};
+
+type Ed25519RestoreWorkerMaterialResult =
+  | {
+      ok: true;
+      materialHandle: string;
+      bindingDigest: string;
+      clientVerifyingShareB64u: string;
+    }
+  | {
+      ok: false;
+      code:
+        | 'material_restore_required'
+        | 'material_restore_expired'
+        | 'material_binding_mismatch'
+        | 'material_scope_mismatch'
+        | 'material_corrupt'
+        | 'worker_unavailable';
+      message: string;
+    };
+```
+
+Rules:
+
+- TypeScript passes opaque handles, sealed artifact references, binding digests,
+  public verifier facts, and identity metadata only.
+- TypeScript never receives raw `xClientBaseB64u`, HSS evaluator material, PRF
+  output bytes, or Ed25519 signing shares.
+- The worker validates account, signing root, relayer key, participant set,
+  threshold session, signing grant, SigningWorker id, and binding digest before
+  loading material.
+- The worker returns `material_restore_required` for missing restore artifacts.
+  It must not silently run HSS.
+- `material_binding_mismatch` and `material_scope_mismatch` are fail-closed and
+  must not attempt fallback reconstruction.
+
+### Worker Material Storage And Binding
+
+Persist the sealed worker-owned material reference with these bindings:
+
+- `nearAccountId`
+- `thresholdSessionId`
+- `walletSigningSessionId`
+- `runtimePolicyScope` and derived signing root
+- `relayerKeyId`
+- `participantIds`
+- `signingWorkerId`
+- `clientVerifyingShareB64u`
+- `bindingDigest`
+- material format/version
+- creation time and expiration if the artifact is time-bound
+
+Storage locations may be IndexedDB, secure-confirm worker storage, or another
+SDK persistence boundary, but the persisted value must remain an opaque sealed
+artifact/reference. New writes must not include raw client base material.
+
+### Existing Account Behavior
+
+Existing accounts may have Wallet Session records without sealed worker-owned
+Ed25519 material.
+
+Required behavior:
+
+- Unlock still succeeds when Wallet Session auth and budget are valid.
+- Signing with a missing sealed worker material artifact returns
+  `material_restore_required` before Router A/B final signing.
+- The SDK may offer an explicit repair/setup flow that runs HSS or another
+  key-material setup ceremony after user approval.
+- Daily signing must not trigger that repair implicitly.
+- A one-time repair flow must write the same worker-owned sealed artifact used
+  by registration, add-signer, and device-sync setup.
+
+This keeps the normal path no-HSS while preserving an explicit recovery route
+for old accounts.
+
 ## Target Model
 
 Split the lifecycle into two explicit states:
@@ -469,8 +583,12 @@ normal signing:
       client-base persistence fields after worker-owned restore lands.
 - [ ] Persist the restored material handle after worker restore.
 - [ ] Refresh the sealed record after worker restore in the transaction path.
-- [ ] Add pending-material pre-repair parity for NEP-413 and delegate-action
-      signing before broadening this refactor beyond transactions.
+- [ ] Add pending-material pre-repair parity for NEP-413 message signing.
+- [ ] Add pending-material pre-repair parity for NEP-461 delegate-action
+      signing.
+- [ ] Add tests proving NEAR transaction, NEP-413, and delegate signing all use
+      the same worker-owned material restore path and never invoke HSS during
+      normal signing.
 
 ## Phase 5: Optional Background Worker Restore
 
@@ -498,6 +616,11 @@ type UnlockSigningMaterialRestorePolicy =
 
 - [ ] Add a source guard proving `unlock()` does not call
       `prewarmThresholdEd25519ClientBaseFromCredential()`.
+- [ ] Add a source guard proving `unlock()` and daily signing cannot call:
+      - `prewarmThresholdEd25519ClientBaseFromCredential`
+      - `ensureThresholdEd25519HssSigningMaterial`
+      - `runThresholdEd25519HssCeremonyWithMaterialHandle`
+      - Ed25519 HSS route clients
 - [ ] Add a source guard proving unlock postconditions do not require
       `ed25519HssMaterialHandle`.
 - [ ] Add unit tests for:
