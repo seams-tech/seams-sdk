@@ -508,6 +508,14 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
   }
 
   if (pathname === ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1) {
+    if (parseSessionKind(body) === 'cookie') {
+      const result = {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Router A/B ECDSA-HSS key identities requires sessionKind=jwt',
+      };
+      return json(result, { status: thresholdEcdsaStatusCode(result) });
+    }
     const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
       body,
       headers: Object.fromEntries(ctx.request.headers.entries()),
@@ -662,6 +670,14 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
   }
 
   if (pathname === ROUTER_AB_ECDSA_HSS_EXPORT_SHARE_PATH_V1) {
+    if (parseSessionKind(body) === 'cookie') {
+      const result = {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Router A/B ECDSA-HSS export-share requires sessionKind=jwt',
+      };
+      return json(result, { status: thresholdEcdsaStatusCode(result) });
+    }
     const parsed = parseEcdsaHssExportShareRequest(body);
     if (!parsed) {
       const result = {
@@ -700,6 +716,15 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     const reqBody = (body || {}) as RouterAbEcdsaHssPoolFillInitRequest;
     const requestTag = parsePresignRequestTag(reqBody);
     const gateTicket = await presignPriorityGate.acquire(resolvePresignTrafficClass(requestTag));
+    if (parseSessionKind(body) === 'cookie') {
+      gateTicket.release();
+      const result = {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Router A/B ECDSA-HSS presignature pool fill requires sessionKind=jwt',
+      };
+      return json(result, { status: thresholdEcdsaStatusCode(result) });
+    }
     const validated = await validateRouterAbEcdsaHssWalletSessionInputs({
       body,
       headers: Object.fromEntries(ctx.request.headers.entries()),
@@ -717,6 +742,15 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     const reqBody = (body || {}) as RouterAbEcdsaHssPoolFillStepRequest;
     const requestTag = parsePresignRequestTag(reqBody);
     const gateTicket = await presignPriorityGate.acquire(resolvePresignTrafficClass(requestTag));
+    if (parseSessionKind(body) === 'cookie') {
+      gateTicket.release();
+      const result = {
+        ok: false,
+        code: 'invalid_body',
+        message: 'Router A/B ECDSA-HSS presignature pool fill requires sessionKind=jwt',
+      };
+      return json(result, { status: thresholdEcdsaStatusCode(result) });
+    }
     const validated = await validateRouterAbEcdsaHssWalletSessionInputs({
       body,
       headers: Object.fromEntries(ctx.request.headers.entries()),

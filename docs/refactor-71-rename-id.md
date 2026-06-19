@@ -246,7 +246,7 @@ Phase 2 evidence:
 - [ ] Update ECDSA and Ed25519 threshold session stores and record parsers.
 - [x] Update route handlers to consume a verified wallet-session object instead
       of independent loose strings.
-- [ ] Reject `sessionKind: "cookie"` on Router A/B signing-capable issuance,
+- [x] Reject `sessionKind: "cookie"` on Router A/B signing-capable issuance,
       bootstrap, HSS, key-identity, export, and normal-signing routes.
 
 Phase 3 evidence:
@@ -263,6 +263,10 @@ Phase 3 evidence:
   identity checks now consume `walletSessionAuth` from the Wallet Session JWT
   validator for wallet, RP, threshold session, signing grant, expiry, relayer
   key, and key-handle identity.
+- Express and Cloudflare Router A/B signing-capable routes now reject
+  `sessionKind: "cookie"` at the request boundary for Ed25519 issuance, HSS, and
+  normal-signing paths plus ECDSA-HSS bootstrap, key-identity, export,
+  presignature pool-fill, and normal-signing paths.
 - Focused validation covered threshold claim parsing, signing budget status,
   relay registration JWT issuance, ECDSA-HSS export policy, and available-lane
   hydration fixtures.

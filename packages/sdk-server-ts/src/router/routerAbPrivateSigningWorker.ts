@@ -24,7 +24,7 @@ import {
   validateRouterAbEcdsaHssWalletSessionInputs,
   validateRouterAbEd25519WalletSessionTokenInputs,
 } from './commonRouterUtils';
-import type { SessionAdapter } from './relay';
+import { parseSessionKind, type SessionAdapter } from './relay';
 import {
   ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
   parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1,
@@ -436,6 +436,21 @@ function routerAbSigningError(
   return { ok: false, status, body: { ok: false, code, message } };
 }
 
+function rejectRouterAbCookieSessionKind(
+  rawBody: unknown,
+  message: string,
+): RouterAbJsonRouteResult | null {
+  if (parseSessionKind(rawBody) !== 'cookie') return null;
+  return {
+    status: 400,
+    body: {
+      ok: false,
+      code: 'invalid_body',
+      message,
+    },
+  };
+}
+
 function privateSigningWorkerUrl(
   config: RouterAbSigningWorkerPrivateHttpConfig,
   path: RouterAbEd25519PrivateSigningPath | RouterAbEcdsaHssPrivateSigningPath,
@@ -536,6 +551,12 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
   privatePath: RouterAbEd25519PrivateSigningPath;
   phase: RouterAbEd25519NormalSigningRoutePhase;
 }): Promise<RouterAbJsonRouteResult> {
+  const invalidSessionKind = rejectRouterAbCookieSessionKind(
+    input.rawBody,
+    'Router A/B Ed25519 normal-signing requires sessionKind=jwt',
+  );
+  if (invalidSessionKind) return invalidSessionKind;
+
   const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
     body: input.rawBody,
     headers: input.headers,
@@ -1007,6 +1028,12 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
   privatePath: RouterAbEcdsaHssPrivateSigningPath;
   phase: 'prepare' | 'finalize';
 }): Promise<RouterAbJsonRouteResult> {
+  const invalidSessionKind = rejectRouterAbCookieSessionKind(
+    input.rawBody,
+    'Router A/B ECDSA-HSS normal-signing requires sessionKind=jwt',
+  );
+  if (invalidSessionKind) return invalidSessionKind;
+
   const validated = await validateRouterAbEcdsaHssWalletSessionInputs({
     body: input.rawBody,
     headers: input.headers,

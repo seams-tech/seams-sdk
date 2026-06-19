@@ -521,6 +521,13 @@ export function registerThresholdEd25519Routes(
             request: body as any,
           });
         }
+        if (parseSessionKind(body) === 'cookie') {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'Router A/B Ed25519 HSS requires sessionKind=jwt',
+          };
+        }
         const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
           body: bodyUnknown,
           headers: req.headers || {},
@@ -649,6 +656,13 @@ export function registerThresholdEd25519Routes(
             ...(sessionResult ? { session: sessionResult } : {}),
           };
         }
+        if (parseSessionKind(body) === 'cookie') {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'Router A/B Ed25519 HSS requires sessionKind=jwt',
+          };
+        }
         const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
           body: bodyUnknown,
           headers: req.headers || {},
@@ -694,6 +708,13 @@ export function registerThresholdEd25519Routes(
             orgId: auth.runtimePolicyScope.orgId,
             request: body as any,
           });
+        }
+        if (parseSessionKind(body) === 'cookie') {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'Router A/B Ed25519 HSS requires sessionKind=jwt',
+          };
         }
         const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
           body: bodyUnknown,

@@ -595,6 +595,13 @@ export function registerThresholdEcdsaRoutes(
 
   router.post(ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1, async (req: Request, res: Response) => {
     await handle(ctx, req, res, ROUTER_AB_ECDSA_HSS_KEY_IDENTITIES_PATH_V1, {}, async () => {
+      if (parseSessionKind(req.body || {}) === 'cookie') {
+        return {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Router A/B ECDSA-HSS key identities requires sessionKind=jwt',
+        };
+      }
       const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
         body: req.body || {},
         headers: req.headers || {},
@@ -787,6 +794,13 @@ export function registerThresholdEcdsaRoutes(
             : undefined,
       },
       async () => {
+        if (parseSessionKind(body) === 'cookie') {
+          return {
+            ok: false,
+            code: 'invalid_body',
+            message: 'Router A/B ECDSA-HSS export-share requires sessionKind=jwt',
+          };
+        }
         const parsed = parseEcdsaHssExportShareRequest(body);
         if (!parsed) {
           return {
@@ -845,6 +859,13 @@ export function registerThresholdEcdsaRoutes(
           gateQueuedDepth: gateTicket.queuedDepth,
         },
         async () => {
+          if (parseSessionKind(body) === 'cookie') {
+            return {
+              ok: false,
+              code: 'invalid_body',
+              message: 'Router A/B ECDSA-HSS presignature pool fill requires sessionKind=jwt',
+            };
+          }
           const resolved = resolveThresholdScheme(
             ctx.opts.threshold,
             THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,
@@ -900,6 +921,13 @@ export function registerThresholdEcdsaRoutes(
           gateQueuedDepth: gateTicket.queuedDepth,
         },
         async () => {
+          if (parseSessionKind(body) === 'cookie') {
+            return {
+              ok: false,
+              code: 'invalid_body',
+              message: 'Router A/B ECDSA-HSS presignature pool fill requires sessionKind=jwt',
+            };
+          }
           const resolved = resolveThresholdScheme(
             ctx.opts.threshold,
             THRESHOLD_SECP256K1_ECDSA_2P_V1_SCHEME_ID,

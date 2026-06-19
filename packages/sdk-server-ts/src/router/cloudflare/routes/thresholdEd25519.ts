@@ -461,6 +461,14 @@ export async function handleThresholdEd25519(
         });
         return json(result, { status: thresholdEd25519StatusCode(result) });
       }
+      if (parseSessionKind(b) === 'cookie') {
+        const result = {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Router A/B Ed25519 HSS requires sessionKind=jwt',
+        };
+        return json(result, { status: thresholdEd25519StatusCode(result) });
+      }
       const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
         body,
         headers: Object.fromEntries(ctx.request.headers.entries()),
@@ -590,6 +598,14 @@ export async function handleThresholdEd25519(
         };
         return json(result, { status: 200 });
       }
+      if (parseSessionKind(b) === 'cookie') {
+        const result = {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Router A/B Ed25519 HSS requires sessionKind=jwt',
+        };
+        return json(result, { status: thresholdEd25519StatusCode(result) });
+      }
       const validated = await validateRouterAbEd25519WalletSessionTokenInputs({
         body,
         headers: Object.fromEntries(ctx.request.headers.entries()),
@@ -633,6 +649,14 @@ export async function handleThresholdEd25519(
           orgId: auth.runtimePolicyScope.orgId,
           request: b as any,
         });
+        return json(result, { status: thresholdEd25519StatusCode(result) });
+      }
+      if (parseSessionKind(b) === 'cookie') {
+        const result = {
+          ok: false,
+          code: 'invalid_body',
+          message: 'Router A/B Ed25519 HSS requires sessionKind=jwt',
+        };
         return json(result, { status: thresholdEd25519StatusCode(result) });
       }
       const validated = await validateRouterAbEd25519WalletSessionTokenInputs({

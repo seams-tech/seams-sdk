@@ -717,6 +717,36 @@ test.describe('Router A/B normal signing auth boundary', () => {
     });
   });
 
+  test('rejects cookie sessionKind before Wallet Session parsing', async () => {
+    for (const route of NORMAL_SIGNING_ROUTES) {
+      await withAuthBoundaryRouter(
+        async () => {
+          throw new Error('cookie-mode Router A/B normal signing must not parse auth');
+        },
+        async (srv) => {
+          const res = await fetchJson(`${srv.baseUrl}${route.path}`, {
+            method: 'POST',
+            headers: {
+              Authorization: 'Bearer router-ab-wallet-session',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ sessionKind: 'cookie' }),
+          });
+
+          expect(res.status, route.label).toBe(400);
+          expect(res.json, route.label).toMatchObject({
+            ok: false,
+            code: 'invalid_body',
+            message: route.label.startsWith('Ed25519')
+              ? 'Router A/B Ed25519 normal-signing requires sessionKind=jwt'
+              : 'Router A/B ECDSA-HSS normal-signing requires sessionKind=jwt',
+          });
+          expect(srv.getThresholdServiceReadCount(), route.label).toBe(0);
+        },
+      );
+    }
+  });
+
   test('rejects legacy threshold-session bearer claims before private SigningWorker forwarding', async () => {
     for (const route of NORMAL_SIGNING_ROUTES) {
       await withAuthBoundaryRouter(
