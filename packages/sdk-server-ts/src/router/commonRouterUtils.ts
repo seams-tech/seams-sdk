@@ -499,6 +499,68 @@ type RouterAbWalletSessionClaimsToSign =
   | RouterAbEd25519WalletSessionClaims
   | RouterAbEcdsaHssWalletSessionClaims;
 
+type RouterAbEd25519WalletSessionClaimsBuildInput = {
+  base: NormalizedRouterAbWalletSessionSigningBase;
+  binding: {
+    runtimePolicyScope: RuntimePolicyScope;
+    routerAbNormalSigning: RouterAbEd25519NormalSigningState;
+  };
+};
+
+type RouterAbEcdsaHssWalletSessionClaimsBuildInput = {
+  base: NormalizedRouterAbWalletSessionSigningBase;
+  keyHandle: string;
+  runtimePolicyScope?: RuntimePolicyScope;
+  binding: {
+    normalSigning: RouterAbEcdsaHssNormalSigningStateV1;
+  };
+};
+
+function buildRouterAbEd25519WalletSessionClaims(
+  input: RouterAbEd25519WalletSessionClaimsBuildInput,
+): RouterAbEd25519WalletSessionClaims {
+  return {
+    sub: input.base.userId,
+    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
+    walletId: input.base.userId,
+    thresholdSessionId: input.base.thresholdSessionId,
+    signingGrantId: input.base.signingGrantId,
+    relayerKeyId: input.base.relayerKeyId,
+    rpId: input.base.rpId,
+    runtimePolicyScope: input.binding.runtimePolicyScope,
+    routerAbNormalSigning: input.binding.routerAbNormalSigning,
+    participantIds: input.base.participantIds,
+    thresholdExpiresAtMs: input.base.thresholdExpiresAtMs,
+    iat: input.base.iat,
+    exp: input.base.exp,
+  };
+}
+
+function buildRouterAbEcdsaHssWalletSessionClaims(
+  input: RouterAbEcdsaHssWalletSessionClaimsBuildInput,
+): RouterAbEcdsaHssWalletSessionClaims {
+  const claims: RouterAbEcdsaHssWalletSessionClaims = {
+    sub: input.base.userId,
+    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
+    walletId: input.base.userId,
+    thresholdSessionId: input.base.thresholdSessionId,
+    signingGrantId: input.base.signingGrantId,
+    keyScope: 'evm-family',
+    keyHandle: input.keyHandle,
+    relayerKeyId: input.base.relayerKeyId,
+    rpId: input.base.rpId,
+    routerAbEcdsaHssNormalSigning: input.binding.normalSigning,
+    participantIds: input.base.participantIds,
+    thresholdExpiresAtMs: input.base.thresholdExpiresAtMs,
+    iat: input.base.iat,
+    exp: input.base.exp,
+  };
+  if (input.runtimePolicyScope) {
+    claims.runtimePolicyScope = input.runtimePolicyScope;
+  }
+  return claims;
+}
+
 async function signRouterAbWalletSessionClaims(args: {
   session: SessionAdapter | null | undefined;
   claims: RouterAbWalletSessionClaimsToSign;
@@ -544,21 +606,10 @@ export async function signRouterAbEd25519WalletSessionJwt(
   if (!base.ok) return base;
   const binding = rejectInvalidRouterAbEd25519Binding(args);
   if (!binding.ok) return binding;
-  const claims: RouterAbEd25519WalletSessionClaims = {
-    sub: base.value.userId,
-    kind: ROUTER_AB_ED25519_WALLET_SESSION_JWT_KIND,
-    walletId: base.value.userId,
-    thresholdSessionId: base.value.thresholdSessionId,
-    signingGrantId: base.value.signingGrantId,
-    relayerKeyId: base.value.relayerKeyId,
-    rpId: base.value.rpId,
-    runtimePolicyScope: binding.runtimePolicyScope,
-    routerAbNormalSigning: binding.routerAbNormalSigning,
-    participantIds: base.value.participantIds,
-    thresholdExpiresAtMs: base.value.thresholdExpiresAtMs,
-    iat: base.value.iat,
-    exp: base.value.exp,
-  };
+  const claims = buildRouterAbEd25519WalletSessionClaims({
+    base: base.value,
+    binding,
+  });
   return await signRouterAbWalletSessionClaims({
     session: args.session,
     claims,
@@ -588,23 +639,12 @@ export async function signRouterAbEcdsaHssWalletSessionJwt(
       message: args.invalidPayloadErrorMessage,
     };
   }
-  const claims: RouterAbEcdsaHssWalletSessionClaims = {
-    sub: base.value.userId,
-    kind: ROUTER_AB_ECDSA_HSS_WALLET_SESSION_JWT_KIND,
-    walletId: base.value.userId,
-    thresholdSessionId: base.value.thresholdSessionId,
-    signingGrantId: base.value.signingGrantId,
-    keyScope: 'evm-family',
+  const claims = buildRouterAbEcdsaHssWalletSessionClaims({
+    base: base.value,
     keyHandle,
-    relayerKeyId: base.value.relayerKeyId,
-    rpId: base.value.rpId,
-    ...(runtimePolicyScope.value ? { runtimePolicyScope: runtimePolicyScope.value } : {}),
-    routerAbEcdsaHssNormalSigning: binding.normalSigning,
-    participantIds: base.value.participantIds,
-    thresholdExpiresAtMs: base.value.thresholdExpiresAtMs,
-    iat: base.value.iat,
-    exp: base.value.exp,
-  };
+    runtimePolicyScope: runtimePolicyScope.value,
+    binding,
+  });
   return await signRouterAbWalletSessionClaims({
     session: args.session,
     claims,

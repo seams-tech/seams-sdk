@@ -1,9 +1,11 @@
 import type {
   EcdsaWalletSigningBudgetStatusRequest,
   Ed25519WalletSigningBudgetStatusRequest,
+} from './signingBudgetStatus';
+import type {
   VerifiedEcdsaWalletSessionAuth,
   VerifiedEd25519WalletSessionAuth,
-} from './signingBudgetStatus';
+} from './verifiedWalletSessionAuth';
 
 const ecdsaAuth = {
   kind: 'wallet_session',

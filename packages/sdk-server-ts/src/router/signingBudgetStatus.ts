@@ -5,6 +5,13 @@ import {
   type RouterAbEd25519WalletSessionClaims,
 } from '../core/ThresholdService/validation';
 import { hashEmailOtpSigningSessionClaims } from './emailOtpSessionRouteHelpers';
+import {
+  buildVerifiedEcdsaWalletSessionAuth,
+  buildVerifiedEd25519WalletSessionAuth,
+  type VerifiedEcdsaWalletSessionAuth,
+  type VerifiedEd25519WalletSessionAuth,
+  type VerifiedWalletSessionAuth,
+} from './verifiedWalletSessionAuth';
 import type {
   SigningSessionSealRouteHeaders,
   SigningSessionSealSessionAdapter,
@@ -12,35 +19,6 @@ import type {
   SigningSessionSealThresholdSessionStatus,
   SigningSessionSealWalletBudgetStatus,
 } from '../threshold/session/signingSessionSeal/types';
-
-type BaseVerifiedWalletSessionAuth = {
-  kind: 'wallet_session';
-  curve: 'ecdsa' | 'ed25519';
-  thresholdSessionId: string;
-  signingGrantId: string;
-  userId: string;
-  rpId: string;
-  relayerKeyId: string;
-  participantIds: readonly number[];
-  expiresAtMs: number;
-};
-
-export type VerifiedEcdsaWalletSessionAuth = BaseVerifiedWalletSessionAuth & {
-  curve: 'ecdsa';
-  keyHandle: string;
-  ed25519RelayerKeyId?: never;
-};
-
-export type VerifiedEd25519WalletSessionAuth = BaseVerifiedWalletSessionAuth & {
-  curve: 'ed25519';
-  ed25519RelayerKeyId: string;
-  keyHandle?: never;
-  ecdsaThresholdKeyId?: never;
-};
-
-export type VerifiedWalletSessionAuth =
-  | VerifiedEcdsaWalletSessionAuth
-  | VerifiedEd25519WalletSessionAuth;
 
 export type EcdsaWalletSigningBudgetStatusRequest = {
   kind: 'ecdsa_wallet_budget_status';
@@ -118,7 +96,7 @@ function sameParticipants(expected: readonly number[], actual: unknown): boolean
 
 function selectMatchingCurveStatus(
   statuses: SigningSessionSealThresholdSessionStatus[],
-  auth: BaseVerifiedWalletSessionAuth,
+  auth: VerifiedWalletSessionAuth,
 ): SigningSessionSealThresholdSessionStatus | null {
   return (
     statuses.find((status) => {
@@ -136,7 +114,7 @@ function selectMatchingCurveStatus(
 }
 
 function walletBudgetMatches(
-  auth: BaseVerifiedWalletSessionAuth,
+  auth: VerifiedWalletSessionAuth,
   status: SigningSessionSealWalletBudgetStatus | null,
 ): boolean {
   return Boolean(
@@ -149,40 +127,6 @@ function walletBudgetMatches(
       status.rpId === auth.rpId &&
       sameParticipants(auth.participantIds, status.participantIds),
   );
-}
-
-function buildVerifiedEcdsaWalletSessionAuth(
-  claims: RouterAbEcdsaHssWalletSessionClaims,
-): VerifiedEcdsaWalletSessionAuth {
-  return {
-    kind: 'wallet_session',
-    curve: 'ecdsa',
-    thresholdSessionId: claims.thresholdSessionId,
-    signingGrantId: claims.signingGrantId,
-    userId: claims.walletId,
-    rpId: claims.rpId,
-    relayerKeyId: claims.relayerKeyId,
-    participantIds: claims.participantIds,
-    expiresAtMs: Math.floor(Number(claims.thresholdExpiresAtMs) || 0),
-    keyHandle: claims.keyHandle,
-  };
-}
-
-function buildVerifiedEd25519WalletSessionAuth(
-  claims: RouterAbEd25519WalletSessionClaims,
-): VerifiedEd25519WalletSessionAuth {
-  return {
-    kind: 'wallet_session',
-    curve: 'ed25519',
-    thresholdSessionId: claims.thresholdSessionId,
-    signingGrantId: claims.signingGrantId,
-    userId: claims.walletId,
-    rpId: claims.rpId,
-    relayerKeyId: claims.relayerKeyId,
-    participantIds: claims.participantIds,
-    expiresAtMs: Math.floor(Number(claims.thresholdExpiresAtMs) || 0),
-    ed25519RelayerKeyId: claims.relayerKeyId,
-  };
 }
 
 function unauthorized(message: string): ParseWalletSigningBudgetStatusResult {

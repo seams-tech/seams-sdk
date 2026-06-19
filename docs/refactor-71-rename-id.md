@@ -206,11 +206,24 @@ carry an old threshold-session id through a derivation or worker boundary.
       shared/server domain layer that already owns session-token parsing.
 - [x] Add boundary parsers:
       `parseThresholdSessionId(...)` and `parseSigningGrantId(...)`.
-- [ ] Add builders for wallet-session claims and verified wallet-session objects.
-- [ ] Replace broad object spreads in wallet-session claim construction with
+- [x] Add builders for wallet-session claims and verified wallet-session objects.
+- [x] Replace broad object spreads in wallet-session claim construction with
       branch-specific builders.
-- [ ] Add type fixtures rejecting raw strings where a verified wallet-session
+- [x] Add type fixtures rejecting raw strings where a verified wallet-session
       object is required.
+
+Phase 2 evidence:
+
+- Server Router A/B Wallet Session JWT signing now builds Ed25519 and ECDSA-HSS
+  claims through branch-specific claim builders in `commonRouterUtils.ts`.
+- Server budget-status parsing now uses shared verified Wallet Session auth
+  builders from `verifiedWalletSessionAuth.ts` instead of rebuilding loose
+  claim bags locally.
+- `verifiedWalletSessionAuth.typecheck.ts` rejects raw strings, missing
+  `signingGrantId`, and cross-curve branch mixing for verified Wallet Session
+  auth consumers.
+- Validation: `pnpm -C packages/sdk-server-ts type-check` and focused
+  `thresholdSessionClaims` / `signingBudgetStatus.parser` unit tests.
 
 ## Phase 3: Rename Server Claims And Records
 
