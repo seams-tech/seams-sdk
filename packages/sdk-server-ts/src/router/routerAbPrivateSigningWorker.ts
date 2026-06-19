@@ -401,13 +401,24 @@ function stripRouterAbBudgetMetadata(body: Record<string, unknown>): Record<stri
 
 function withBudgetReservationMetadata(
   body: unknown,
-  input: { reservationId: string; operationId?: string },
+  input: {
+    reservationId: string;
+    operationId?: string;
+    remainingUses: number;
+    reservedUses: number;
+    availableUses: number;
+  },
 ): unknown {
   if (!isPlainObject(body)) return body;
   return {
     ...body,
     budget_reservation_id: input.reservationId,
     ...(input.operationId ? { budget_operation_id: input.operationId } : {}),
+    budget_status: {
+      committed_remaining_uses: input.remainingUses,
+      reserved_uses: input.reservedUses,
+      available_uses: input.availableUses,
+    },
   };
 }
 
@@ -611,6 +622,9 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
     | {
         reservationId: string;
         operationId: string;
+        remainingUses: number;
+        reservedUses: number;
+        availableUses: number;
       }
     | null = null;
   if (input.phase === 'prepare') {
@@ -642,7 +656,13 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
         body: { ok: false, code: reservation.code, message: reservation.message },
       };
     }
-    budgetReservation = { reservationId: reservation.reservationId, operationId };
+    budgetReservation = {
+      reservationId: reservation.reservationId,
+      operationId,
+      remainingUses: reservation.remainingUses,
+      reservedUses: reservation.reservedUses,
+      availableUses: reservation.availableUses,
+    };
   }
 
   if (input.phase === 'finalize') {
@@ -1042,7 +1062,14 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
     phase: input.phase,
     body: input.body,
   });
-  let prepareBudgetReservationId: string | null = null;
+  let prepareBudgetReservation:
+    | {
+        reservationId: string;
+        remainingUses: number;
+        reservedUses: number;
+        availableUses: number;
+      }
+    | null = null;
   if (input.phase === 'prepare') {
     const replay = await threshold.reserveRouterAbNormalSigningPrepareReplay({
       curve: 'ecdsa-hss',
@@ -1073,7 +1100,12 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
         body: { ok: false, code: reservation.code, message: reservation.message },
       };
     }
-    prepareBudgetReservationId = reservation.reservationId;
+    prepareBudgetReservation = {
+      reservationId: reservation.reservationId,
+      remainingUses: reservation.remainingUses,
+      reservedUses: reservation.reservedUses,
+      availableUses: reservation.availableUses,
+    };
   } else {
     const reservationId = budgetReservationId(input.body);
     if (!reservationId) {
@@ -1118,21 +1150,21 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
     body: privateBody,
   });
   if (!forwarded.ok) {
-    if (prepareBudgetReservationId) {
+    if (prepareBudgetReservation) {
       await threshold.releaseRouterAbNormalSigningBudget({
         curve: 'ecdsa-hss',
         phase: 'finalize',
         sessionId: admission.sessionId,
         walletSigningSessionId: validated.claims.walletSigningSessionId,
-        reservationId: prepareBudgetReservationId,
+        reservationId: prepareBudgetReservation.reservationId,
       });
     }
     return { status: forwarded.status, body: forwarded.body };
   }
   return {
     status: 200,
-    body: prepareBudgetReservationId
-      ? withBudgetReservationMetadata(forwarded.body, { reservationId: prepareBudgetReservationId })
+    body: prepareBudgetReservation
+      ? withBudgetReservationMetadata(forwarded.body, prepareBudgetReservation)
       : forwarded.body,
   };
 }

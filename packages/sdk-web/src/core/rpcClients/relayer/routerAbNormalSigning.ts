@@ -198,10 +198,17 @@ export type RouterAbEd25519PresignPoolHitFinalizeRequestV2Wire = {
   protocol: RouterAbEd25519NormalSigningFinalizeProtocolV2Wire;
 };
 
+export type RouterAbNormalSigningBudgetStatusV1Wire = {
+  committed_remaining_uses: number;
+  reserved_uses: number;
+  available_uses: number;
+};
+
 export type RouterAbNormalSigningPrepareResponseV1Wire = {
   scope: RouterAbNormalSigningScopeV1Wire;
   budget_reservation_id: string;
   budget_operation_id: string;
+  budget_status: RouterAbNormalSigningBudgetStatusV1Wire;
   signing_payload_digest: RouterAbPublicDigest32Wire;
   round1_binding_digest: RouterAbPublicDigest32Wire;
   signing_worker: RouterAbServerIdentityV1Wire;
@@ -243,6 +250,14 @@ function requirePositiveInteger(value: unknown, label: string): number {
   const parsed = Math.floor(Number(value));
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     throw new Error(`${label} must be a positive integer`);
+  }
+  return parsed;
+}
+
+function requireNonNegativeInteger(value: unknown, label: string): number {
+  const parsed = Math.floor(Number(value));
+  if (!Number.isSafeInteger(parsed) || parsed < 0) {
+    throw new Error(`${label} must be a non-negative integer`);
   }
   return parsed;
 }
@@ -717,6 +732,19 @@ function parseServerIdentity(value: unknown, label: string): RouterAbServerIdent
   };
 }
 
+function parseBudgetStatus(value: unknown, label: string): RouterAbNormalSigningBudgetStatusV1Wire {
+  const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  if (!record) throw new Error(`${label} must be an object`);
+  return {
+    committed_remaining_uses: requireNonNegativeInteger(
+      record.committed_remaining_uses,
+      `${label}.committed_remaining_uses`,
+    ),
+    reserved_uses: requireNonNegativeInteger(record.reserved_uses, `${label}.reserved_uses`),
+    available_uses: requireNonNegativeInteger(record.available_uses, `${label}.available_uses`),
+  };
+}
+
 function parsePrepareResponse(value: unknown): RouterAbNormalSigningPrepareResponseV1Wire {
   const record = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
   if (!record) throw new Error('Router A/B normal-signing prepare response must be an object');
@@ -734,6 +762,7 @@ function parsePrepareResponse(value: unknown): RouterAbNormalSigningPrepareRespo
       record.budget_operation_id,
       'budget_operation_id',
     ),
+    budget_status: parseBudgetStatus(record.budget_status, 'budget_status'),
     signing_payload_digest: parseDigest32(record.signing_payload_digest, 'signing_payload_digest'),
     round1_binding_digest: parseDigest32(record.round1_binding_digest, 'round1_binding_digest'),
     signing_worker: parseServerIdentity(record.signing_worker, 'signing_worker'),

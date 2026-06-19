@@ -96,6 +96,11 @@ async function prepareResponse(
     scope,
     request_id: request.request_id,
     budget_reservation_id: 'ecdsa-sign-budget-reservation-1',
+    budget_status: {
+      committed_remaining_uses: 3,
+      reserved_uses: 1,
+      available_uses: 2,
+    },
     request_digest: await routerAbEcdsaHssEvmDigestSigningRequestDigestV1(request),
     signing_digest: digest(11),
     server_presignature_id: request.client_presignature_id,

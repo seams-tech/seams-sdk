@@ -235,34 +235,59 @@ Backend atomicity requirements:
 
 ## Phase 0: Complete Budget Boundary Inventory
 
-- [ ] Inventory every Wallet Session budget status read:
+- [x] Inventory every Wallet Session budget status read:
   - `/session/signing-budget/status`
   - SDK `SigningSessionCoordinator.prepareBudgetIdentity`
   - SDK ECDSA pre-confirm readiness
   - SDK NEAR readiness
   - key export and recovery budget checks
-- [ ] Inventory every existing server budget consume call:
+- [x] Inventory every existing server budget consume call:
   - signing-session seal `consumeUseCount`
   - Email OTP session policy consume paths
   - Cloudflare Durable Object wallet-session consume paths
   - Postgres/Redis/InMemory wallet-session stores
-- [ ] Inventory every Router A/B public signing route that must enforce budget:
+- [x] Inventory every Router A/B public signing route that must enforce budget:
   - `POST /v2/router-ab/ed25519/sign/prepare`
   - `POST /v2/router-ab/ed25519/sign/presign-pool/prepare`
   - `POST /v2/router-ab/ed25519/sign`
   - `POST /v1/hss/ecdsa/sign/prepare`
   - `POST /v1/hss/ecdsa/sign`
-- [ ] Mark presign-pool refill routes as non-consuming unless they return a
+- [x] Mark presign-pool refill routes as non-consuming unless they return a
       transaction signature.
-- [ ] Reconcile the open refactor-41 Phase 1B naming tasks that affect this
+- [x] Reconcile the open refactor-41 Phase 1B naming tasks that affect this
       implementation:
   - server/security counters are `remainingSignatureUses`
   - current `remainingUses` wire/store fields are normalized once at the
     request/persistence boundary
   - UI copy and SDK display state use `remainingApprovals`
-- [ ] Confirm Router A/B admission uses `requiredSignatureUses` captured during
+- [x] Confirm Router A/B admission uses `requiredSignatureUses` captured during
       operation planning and never recomputes it after signing starts.
-- [ ] Add the inventory results to this file before implementation starts.
+- [x] Add the inventory results to this file.
+
+Inventory results:
+
+- Server status authority lives in `Ed25519WalletSessionStore.getSessionStatus`
+  plus `/session/signing-budget/status`. Express and Cloudflare adapters call
+  `parseWalletSigningBudgetStatusRequest`, then normalize to the public status
+  response at the route boundary.
+- SDK budget reads flow through
+  `core/signingEngine/session/budget/budgetStatusReader.ts`,
+  `BudgetCoordinator`, and `SigningSessionCoordinator.prepareBudgetIdentity`.
+  ECDSA pre-confirm and NEAR readiness still carry local `remainingUses`
+  signals as UX hints; Refactor 70 Phase 5 owns reducing them to mirrors.
+- Existing server budget consumes are signing-session seal
+  `consumeUseCount`, Email OTP session policy helpers, store-level
+  `consumeUseCount`/`consumeUseCountOnce`, and the interim Router A/B
+  presign-pool final-sign direct consume.
+- Router A/B normal Ed25519 prepare and ECDSA-HSS prepare reserve budget in
+  `routerAbPrivateSigningWorker.ts`. Normal Ed25519 and ECDSA-HSS finalize
+  commit the reservation. Ed25519 presign-pool finalize remains on direct
+  consume because presign-pool prepare does not yet carry the final operation
+  identity.
+- Presignature refill/admission routes are non-consuming unless they return a
+  transaction signature. The final-sign routes own signature-use budget.
+- `remainingUses` stays as the wire/store compatibility field. Internal status
+  projections now expose committed, reserved, and available use counts.
 
 Acceptance:
 
@@ -356,7 +381,8 @@ reserveRouterAbWalletSigningBudget(input: {
   - request digest
   - operation id
   - expiry
-- [ ] Include `budgetReservationId` and budget status in prepare responses.
+- [x] Include `budgetReservationId` and budget status in reservation-backed
+      prepare responses.
 - [x] Reject prepare with a typed `wallet_budget_exhausted` error when
       insufficient signature uses remain.
 - [x] Reject prepare with a typed `wallet_budget_reserved` or
@@ -366,14 +392,16 @@ reserveRouterAbWalletSigningBudget(input: {
 Implemented scope:
 
 - Ed25519 normal-signing prepare returns `budget_reservation_id` plus
-  `budget_operation_id`; finalize sends both back.
+  `budget_operation_id` and `budget_status`; finalize sends both identifiers
+  back.
 - ECDSA-HSS normal-signing prepare returns `budget_reservation_id`; finalize
-  sends it back.
+  sends it back. The prepare response also returns `budget_status`.
 - Ed25519 presign-pool signing remains on the interim direct final-sign consume
   path. The presign-pool prepare protocol does not yet carry the eventual
   transaction operation identity, so operation-bound reservation evidence must
   be added before this checkbox can be closed.
-- Prepare responses do not yet include the full budget status projection.
+- Reservation-backed prepare responses include committed, reserved, and
+  available server budget counts.
 
 Acceptance:
 

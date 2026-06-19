@@ -54,6 +54,11 @@ function prepareResponse(signingWorkerId: string): RouterAbNormalSigningPrepareR
     scope: request.scope,
     budget_reservation_id: 'ed25519-sign-budget-reservation-1',
     budget_operation_id: 'operation-1',
+    budget_status: {
+      committed_remaining_uses: 3,
+      reserved_uses: 1,
+      available_uses: 2,
+    },
     signing_payload_digest: digest32,
     round1_binding_digest: digest32,
     signing_worker: {

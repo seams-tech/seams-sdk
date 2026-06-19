@@ -943,6 +943,11 @@ test.describe('Router A/B normal signing auth boundary', () => {
         path: ROUTER_AB_ED25519_NORMAL_SIGNING_PREPARE_PATH_V2,
         body: ed25519NormalSigningBody('router-ab-ed25519-private-prepare'),
         privatePath: '/router-ab/v1/signing-worker/sign/prepare',
+        budgetStatus: {
+          committed_remaining_uses: 3,
+          reserved_uses: 1,
+          available_uses: 2,
+        },
       },
       {
         path: ROUTER_AB_ED25519_NORMAL_SIGNING_PRESIGN_POOL_PREPARE_PATH_V2,
@@ -979,6 +984,14 @@ test.describe('Router A/B normal signing auth boundary', () => {
             body: JSON.stringify(route.body),
           });
           expect(res.status, route.privatePath).toBe(200);
+          if ('budgetStatus' in route) {
+            expect(res.json, route.privatePath).toMatchObject({
+              budget_reservation_id:
+                'router-ab-ed25519-private-prepare-operation-budget-reservation',
+              budget_operation_id: 'router-ab-ed25519-private-prepare-operation',
+              budget_status: route.budgetStatus,
+            });
+          }
         }
 
         expect(srv.forwardedUrls()).toEqual(
@@ -1156,6 +1169,15 @@ test.describe('Router A/B normal signing auth boundary', () => {
         );
 
         expect(first.status).toBe(200);
+        expect(first.json).toMatchObject({
+          budget_reservation_id: 'router-ab-ed25519-replay-shared-id-operation-budget-reservation',
+          budget_operation_id: 'router-ab-ed25519-replay-shared-id-operation',
+          budget_status: {
+            committed_remaining_uses: 3,
+            reserved_uses: 1,
+            available_uses: 2,
+          },
+        });
         expect(replay.status).toBe(400);
         expect(replay.json).toMatchObject({
           ok: false,
@@ -1245,6 +1267,14 @@ test.describe('Router A/B normal signing auth boundary', () => {
         );
 
         expect(first.status).toBe(200);
+        expect(first.json).toMatchObject({
+          budget_reservation_id: 'router-ab-ecdsa-hss-replay-prepare-budget-reservation',
+          budget_status: {
+            committed_remaining_uses: 3,
+            reserved_uses: 1,
+            available_uses: 2,
+          },
+        });
         expect(replay.status).toBe(400);
         expect(replay.json).toMatchObject({
           ok: false,

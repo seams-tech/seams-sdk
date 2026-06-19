@@ -153,10 +153,17 @@ export type RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire = {
   client_signature_share32_b64u: string;
 };
 
+export type RouterAbEcdsaHssBudgetStatusV1Wire = {
+  committed_remaining_uses: number;
+  reserved_uses: number;
+  available_uses: number;
+};
+
 export type RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1Wire = {
   scope: RouterAbEcdsaHssNormalSigningScopeV1;
   request_id: string;
   budget_reservation_id: string;
+  budget_status: RouterAbEcdsaHssBudgetStatusV1Wire;
   request_digest: RouterAbPublicDigest32V1Wire;
   signing_digest: RouterAbPublicDigest32V1Wire;
   server_presignature_id: string;
@@ -208,6 +215,15 @@ function requirePositiveUnixMs(value: unknown, label: string): number {
   }
   const parsed = Math.floor(value);
   if (parsed !== value || parsed <= 0) throw new Error(`${label} must be a positive integer`);
+  return parsed;
+}
+
+function requireNonNegativeInteger(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    throw new Error(`${label} must be a finite number`);
+  }
+  const parsed = Math.floor(value);
+  if (parsed !== value || parsed < 0) throw new Error(`${label} must be a non-negative integer`);
   return parsed;
 }
 
@@ -1077,6 +1093,7 @@ export function parseRouterAbEcdsaHssEvmDigestSigningPrepareResponseV1(
     'scope',
     'request_id',
     'budget_reservation_id',
+    'budget_status',
     'request_digest',
     'signing_digest',
     'server_presignature_id',
@@ -1092,6 +1109,10 @@ export function parseRouterAbEcdsaHssEvmDigestSigningPrepareResponseV1(
     budget_reservation_id: requireAsciiNonEmptyString(
       record.budget_reservation_id,
       'ecdsaPrepareResponse.budget_reservation_id',
+    ),
+    budget_status: parseRouterAbEcdsaHssBudgetStatusV1(
+      record.budget_status,
+      'ecdsaPrepareResponse.budget_status',
     ),
     request_digest: parsePublicDigest32(
       record.request_digest,
@@ -1127,6 +1148,26 @@ export function parseRouterAbEcdsaHssEvmDigestSigningPrepareResponseV1(
       record.expires_at_ms,
       'ecdsaPrepareResponse.expires_at_ms',
     ),
+  };
+}
+
+function parseRouterAbEcdsaHssBudgetStatusV1(
+  value: unknown,
+  label: string,
+): RouterAbEcdsaHssBudgetStatusV1Wire {
+  const record = requireRecord(value, label);
+  requireExactKeys(record, label, [
+    'committed_remaining_uses',
+    'reserved_uses',
+    'available_uses',
+  ]);
+  return {
+    committed_remaining_uses: requireNonNegativeInteger(
+      record.committed_remaining_uses,
+      `${label}.committed_remaining_uses`,
+    ),
+    reserved_uses: requireNonNegativeInteger(record.reserved_uses, `${label}.reserved_uses`),
+    available_uses: requireNonNegativeInteger(record.available_uses, `${label}.available_uses`),
   };
 }
 
