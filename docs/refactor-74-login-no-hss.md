@@ -556,12 +556,12 @@ normal signing:
 - [x] Make unlock validate active session id, wallet signing session id,
       Wallet Session auth, expiry, budget, auth method, and lane scope.
 - [x] Allow Ed25519 `material_pending` during unlock.
-- [ ] Keep registration and explicit signing checks strict about material
+- [x] Keep registration and explicit signing checks strict about material
       readiness.
 - [x] Stop using `readPersistedAvailableSigningLanes()` as the Ed25519 unlock
       postcondition because it currently models sign-ready lanes.
 - [x] Add unit coverage for Ed25519 unlock success with `material_pending`.
-- [ ] Add unit coverage proving Ed25519 signing still materializes or rejects
+- [x] Add unit coverage proving Ed25519 signing still materializes or rejects
       before any signature is produced.
 
 ## Phase 4: Keep Lazy Materialization In The Sign Path
@@ -645,8 +645,20 @@ type UnlockSigningMaterialRestorePolicy =
       reconstruction or HSS routes.
 - [ ] Add a source guard rejecting new TypeScript code that reads or writes raw
       `xClientBaseB64u` outside a persistence-boundary deletion path.
-- [ ] Run the focused SDK web type check.
+- [x] Run the focused SDK web type check.
 - [ ] Run focused warm-session, runtime-postcondition, and NEAR signing tests.
+
+Validated evidence:
+
+- `tests/unit/warmEd25519SigningSessionAuthorization.unit.test.ts` covers
+  material-pending unlock authorization and auth/budget rejection.
+- `tests/unit/signingCapabilityStrictRecords.unit.test.ts` covers signable
+  Ed25519 record rejection for missing worker material and stale raw material.
+- `tests/unit/routerAbEd25519.walletSessionState.unit.test.ts` covers strict
+  Router A/B-ready state parsing and material-handle persistence cleanup.
+- `tests/unit/routerAbNormalSigningSdk.guard.unit.test.ts` guards daily signing
+  against hidden Ed25519 HSS repair and raw client-base use in active final
+  signing.
 
 ## Validation Commands
 
