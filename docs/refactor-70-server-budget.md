@@ -336,7 +336,7 @@ releaseReservedUseCount(input: {
 - [x] Expired reservations must be ignored and cleaned up.
 - [x] Add in-memory store-level tests for reserve, commit, release, duplicate
       commit, exhausted budget, expired reservation, and identity mismatch.
-- [ ] Add cross-backend reservation behavior tests for Redis, Upstash, Postgres,
+- [x] Add cross-backend reservation behavior tests for Redis, Upstash, Postgres,
       and Cloudflare Durable Object stores.
 
 Validation added:
@@ -345,8 +345,16 @@ Validation added:
   in-memory store reserve, duplicate reserve, in-flight rejection, commit
   idempotency, release, exhausted reserve, expired reservation, reservation
   identity mismatch, and visible available budget projection.
-- Cross-backend behavioral tests for Redis, Upstash, Postgres, and Cloudflare
-  remain open.
+- Cross-backend behavioral contract coverage now runs against in-memory and
+  Cloudflare Durable Object stores locally. Redis, Upstash, and Postgres variants
+  run when `REDIS_URL`, `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`,
+  or `POSTGRES_URL` are configured.
+
+Validation added:
+
+- `tests/unit/walletSessionBudgetReservation.store.unit.test.ts` covers
+  reserve, concurrent in-flight blocking, duplicate reserve, commit idempotency,
+  and release for each configured backend.
 
 Acceptance:
 
