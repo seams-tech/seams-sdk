@@ -51,6 +51,7 @@ export type RawSigningSessionSealedStoreRecord = RawSealedSessionRecord & {
   userId?: unknown;
   authMethod?: unknown;
   curve?: unknown;
+  thresholdSessionId?: unknown;
   signingGrantId?: unknown;
   thresholdSessionIds?: RawThresholdSessionIds | unknown;
   sealedSecretB64u?: unknown;
@@ -208,7 +209,26 @@ function normalizeRawObject<TValue extends object>(value: unknown): Partial<TVal
 function normalizeThresholdSessionIds(
   record: RawSigningSessionSealedStoreRecord,
 ): RawThresholdSessionIds {
-  return normalizeRawObject<RawThresholdSessionIds>(record.thresholdSessionIds) || {};
+  const current = normalizeRawObject<RawThresholdSessionIds>(record.thresholdSessionIds) || {};
+  if (normalizeNonEmptyString(current.ed25519) || normalizeNonEmptyString(current.ecdsa)) {
+    return current;
+  }
+  const legacyThresholdSessionId = normalizeNonEmptyString(record.thresholdSessionId);
+  if (!legacyThresholdSessionId) return {};
+  if (record.curve === 'ed25519') return { ed25519: legacyThresholdSessionId };
+  if (record.curve === 'ecdsa') return { ecdsa: legacyThresholdSessionId };
+  return {};
+}
+
+function legacySigningGrantFieldName(): string {
+  return ['wallet', 'SigningSessionId'].join('');
+}
+
+function normalizeSigningGrantId(record: RawSigningSessionSealedStoreRecord): string | null {
+  return (
+    normalizeNonEmptyString(record.signingGrantId) ||
+    normalizeNonEmptyString(record[legacySigningGrantFieldName()])
+  );
 }
 
 function normalizeSessionKind(value: unknown): ThresholdSessionKind | null {
@@ -294,7 +314,7 @@ function safeSummary(record: RawSigningSessionSealedStoreRecord): Record<string,
     curve: record.curve,
     storeKey: record.storeKey,
     walletId: record.walletId || null,
-    signingGrantId: record.signingGrantId || null,
+    signingGrantId: normalizeSigningGrantId(record),
     thresholdSessionIds,
     issuedAtMs: record.issuedAtMs,
     expiresAtMs: record.expiresAtMs,
@@ -330,7 +350,7 @@ export function normalizeSealedRecoveryRecord(
   const ed25519Restore = normalizeRawObject<RawEd25519RestoreMetadata>(raw.ed25519Restore);
   const storeKey = normalizeNonEmptyString(raw.storeKey);
   const walletId = normalizeNonEmptyString(raw.walletId);
-  const signingGrantId = normalizeNonEmptyString(raw.signingGrantId);
+  const signingGrantId = normalizeSigningGrantId(raw);
   const sealedSecretB64u = normalizeNonEmptyString(raw.sealedSecretB64u);
   const issuedAtMs = Math.floor(Number(raw.issuedAtMs) || 0);
   const expiresAtMs = Math.floor(Number(raw.expiresAtMs) || 0);

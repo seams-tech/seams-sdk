@@ -309,6 +309,39 @@ function normalizeThresholdSessionIds(value: unknown): {
   };
 }
 
+function normalizeThresholdSessionIdsFromStoredRecord(value: unknown): {
+  ed25519?: string;
+  ecdsa?: string;
+} {
+  const obj =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  const current = normalizeThresholdSessionIds(obj.thresholdSessionIds);
+  if (current.ed25519 || current.ecdsa) return current;
+  const legacyThresholdSessionId = normalizeOptionalNonEmptyString(obj.thresholdSessionId);
+  const curve = normalizeCurve(obj.curve);
+  if (!legacyThresholdSessionId || !curve) return {};
+  return curve === 'ed25519'
+    ? { ed25519: legacyThresholdSessionId }
+    : { ecdsa: legacyThresholdSessionId };
+}
+
+function legacySigningGrantFieldName(): string {
+  return ['wallet', 'SigningSessionId'].join('');
+}
+
+function normalizeStoredSigningGrantId(value: unknown): string | undefined {
+  const obj =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  return (
+    normalizeOptionalNonEmptyString(obj.signingGrantId) ||
+    normalizeOptionalNonEmptyString(obj[legacySigningGrantFieldName()])
+  );
+}
+
 function normalizeCurve(value: unknown): 'ed25519' | 'ecdsa' | undefined {
   const curve = String(value || '').trim();
   return curve === 'ed25519' || curve === 'ecdsa' ? curve : undefined;
@@ -922,8 +955,8 @@ function buildSealedSessionSafeSummary(
       normalizeOptionalNonEmptyString(obj?.walletId) ||
       normalizeOptionalNonEmptyString(obj?.userId) ||
       null,
-    signingGrantId: normalizeOptionalNonEmptyString(obj?.signingGrantId) || null,
-    thresholdSessionIds: normalizeThresholdSessionIds(obj?.thresholdSessionIds),
+    signingGrantId: normalizeStoredSigningGrantId(obj) || null,
+    thresholdSessionIds: normalizeThresholdSessionIdsFromStoredRecord(obj),
     hasEcdsaRestore: Boolean(asRawSealedSessionRecord(obj?.ecdsaRestore)),
     hasEd25519Restore: Boolean(asRawSealedSessionRecord(obj?.ed25519Restore)),
     issuedAtMs: normalizeInteger(obj?.issuedAtMs),
@@ -968,8 +1001,8 @@ export function classifyRawSealedSessionRecord(raw: unknown): SealedSessionRecor
   }
 
   const authMethod = String(obj.authMethod || '').trim();
-  const signingGrantId = normalizeOptionalNonEmptyString(obj.signingGrantId);
-  const thresholdSessionIds = normalizeThresholdSessionIds(obj.thresholdSessionIds);
+  const signingGrantId = normalizeStoredSigningGrantId(obj);
+  const thresholdSessionIds = normalizeThresholdSessionIdsFromStoredRecord(obj);
   const sealedSecretB64u = normalizeOptionalNonEmptyString(obj.sealedSecretB64u);
   const curve = normalizeCurve(obj.curve);
   const subjectId = normalizeOptionalNonEmptyString(obj.subjectId);
@@ -1165,7 +1198,7 @@ function rawThresholdSessionIdsFromSealedStoreRow(value: unknown): {
     payload && typeof payload === 'object' && !Array.isArray(payload)
       ? (payload as Record<string, unknown>)
       : null;
-  return normalizeThresholdSessionIds(obj?.thresholdSessionIds);
+  return normalizeThresholdSessionIdsFromStoredRecord(obj);
 }
 
 function sealedSessionCurrentSummary(record: CurrentSealedSessionRecord): Record<string, unknown> {

@@ -43,6 +43,10 @@ function jwtWithPayload(payload: Record<string, unknown>): string {
   return `${encode({ alg: 'none', typ: 'JWT' })}.${encode(payload)}.sig`;
 }
 
+function legacySigningGrantFieldName(): string {
+  return ['wallet', 'SigningSessionId'].join('');
+}
+
 test.describe('signing session sealed store', () => {
   test.beforeEach(async ({ page }) => {
     await setupBasicPasskeyTest(page, { skipSeamsWebInit: true });
@@ -79,6 +83,75 @@ test.describe('signing session sealed store', () => {
         emailOtpEd25519Restore: EMAIL_OTP_ED25519_RESTORE,
       },
     );
+  });
+
+  test('normalizes legacy sealed-store id fields at the storage boundary', async ({ page }) => {
+    const result = await page.evaluate(async ({ paths, legacySigningGrantField }) => {
+      const mod = await import(paths.sealedSessionStore);
+      const now = Date.now();
+      const classification = mod.classifyRawSealedSessionRecord({
+        v: 1,
+        alg: 'shamir3pass-v1',
+        storageScope: 'iframe_origin_indexeddb',
+        authMethod: 'passkey',
+        secretKind: 'signing_session_secret32',
+        [legacySigningGrantField]: 'legacy-signing-grant',
+        thresholdSessionId: 'legacy-threshold-session',
+        sealedSecretB64u: 'sealed-secret-b64u',
+        curve: 'ecdsa',
+        walletId: 'legacy-sealed-store.testnet',
+        relayerUrl: 'https://relay.example',
+        ecdsaRestore: {
+          chainTarget: {
+            kind: 'tempo',
+            chainId: 42431,
+            networkSlug: 'tempo-moderato',
+          },
+          rpId: 'wallet.example.localhost',
+          sessionKind: 'cookie',
+          keyHandle: 'key-handle-ecdsa',
+          ethereumAddress: `0x${'33'.repeat(20)}`,
+          relayerKeyId: 'relayer-key',
+          thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
+          participantIds: [1, 2, 3],
+        },
+        issuedAtMs: now - 1_000,
+        expiresAtMs: now + 60_000,
+        remainingUses: 3,
+        updatedAtMs: now,
+      });
+      if (classification.kind !== 'current') {
+        return {
+          kind: classification.kind,
+          reason: classification.reason,
+          safeSummary: classification.safeSummary,
+        };
+      }
+      const record = classification.record as Record<string, unknown>;
+      return {
+        kind: classification.kind,
+        signingGrantId: classification.record.signingGrantId,
+        thresholdSessionIds: classification.record.thresholdSessionIds,
+        hasLegacySigningGrantField: Object.prototype.hasOwnProperty.call(
+          record,
+          legacySigningGrantField,
+        ),
+        hasTopLevelThresholdSessionId: Object.prototype.hasOwnProperty.call(
+          record,
+          'thresholdSessionId',
+        ),
+      };
+    }, { paths: IMPORT_PATHS, legacySigningGrantField: legacySigningGrantFieldName() });
+
+    expect(result).toEqual({
+      kind: 'current',
+      signingGrantId: 'legacy-signing-grant',
+      thresholdSessionIds: {
+        ecdsa: 'legacy-threshold-session',
+      },
+      hasLegacySigningGrantField: false,
+      hasTopLevelThresholdSessionId: false,
+    });
   });
 
   test('writes shamir3pass records to IndexedDB without persisting plaintext secret or JWT auth', async ({

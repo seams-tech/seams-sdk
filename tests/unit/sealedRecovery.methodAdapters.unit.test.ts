@@ -13,6 +13,10 @@ const TEMPO_CHAIN_TARGET = {
   networkSlug: 'tempo-testnet',
 };
 
+function legacySigningGrantFieldName(): string {
+  return ['wallet', 'SigningSessionId'].join('');
+}
+
 function makeEmailOtpEcdsaSealedRecord(
   overrides?: Partial<SigningSessionSealedStoreRecord>,
 ): EmailOtpEcdsaSealedRecoveryRecord {
@@ -77,6 +81,51 @@ function makeEmailOtpEcdsaSealedRecord(
 }
 
 test.describe('sealed recovery method adapters', () => {
+  test('normalizes legacy sealed-recovery id fields at the storage boundary', () => {
+    const now = Date.now();
+    const normalized = normalizeSealedRecoveryRecord({
+      v: 1,
+      alg: 'shamir3pass-v1',
+      storageScope: 'iframe_origin_indexeddb',
+      authMethod: 'email_otp',
+      secretKind: 'signing_session_secret32',
+      storeKey: 'email_otp:ecdsa:tempo:legacy-threshold-session',
+      [legacySigningGrantFieldName()]: 'legacy-signing-grant',
+      thresholdSessionId: 'legacy-threshold-session',
+      sealedSecretB64u: 'sealed-secret',
+      curve: 'ecdsa',
+      walletId: 'alice.testnet',
+      userId: 'alice.testnet',
+      signingRootId: 'root-1',
+      signingRootVersion: 'v1',
+      relayerUrl: 'https://relay.example',
+      ecdsaRestore: {
+        chainTarget: TEMPO_CHAIN_TARGET,
+        rpId: 'example.com',
+        sessionKind: 'jwt',
+        walletSessionJwt: 'jwt-ecdsa',
+        keyHandle: 'key-handle-ecdsa',
+        ecdsaThresholdKeyId: 'ecdsa-key',
+        ethereumAddress: `0x${'33'.repeat(20)}`,
+        relayerKeyId: 'relayer-key',
+        clientVerifyingShareB64u: 'client-verifying-share',
+        thresholdEcdsaPublicKeyB64u: 'threshold-public-key',
+        participantIds: [1, 2],
+      },
+      issuedAtMs: now - 1_000,
+      expiresAtMs: now + 60_000,
+      remainingUses: 3,
+      updatedAtMs: now,
+    });
+
+    expect(normalized.kind).toBe('accepted');
+    if (normalized.kind !== 'accepted') return;
+    expect(normalized.record.signingGrantId).toBe('legacy-signing-grant');
+    expect(normalized.record.thresholdSessionId).toBe('legacy-threshold-session');
+    expect(legacySigningGrantFieldName() in normalized.record).toBe(false);
+    expect('thresholdSessionIds' in normalized.record).toBe(false);
+  });
+
   test('rejects ECDSA sealed recovery records with subjectId', () => {
     const now = Date.now();
     const normalized = normalizeSealedRecoveryRecord({

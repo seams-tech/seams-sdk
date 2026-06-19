@@ -243,7 +243,7 @@ Phase 2 evidence:
       `thresholdSessionId` and `signingGrantId`.
 - [x] Update server-side wallet budget binding to derive from
       `signingGrantId + curve + thresholdSessionId`.
-- [ ] Update ECDSA and Ed25519 threshold session stores and record parsers.
+- [x] Update ECDSA and Ed25519 threshold session stores and record parsers.
 - [x] Update route handlers to consume a verified wallet-session object instead
       of independent loose strings.
 - [x] Reject `sessionKind: "cookie"` on Router A/B signing-capable issuance,
@@ -270,6 +270,10 @@ Phase 3 evidence:
 - Focused validation covered threshold claim parsing, signing budget status,
   relay registration JWT issuance, ECDSA-HSS export policy, and available-lane
   hydration fixtures.
+- ECDSA and Ed25519 threshold-session store records now expose
+  `thresholdSessionId` / `signingGrantId` in normalized records; sealed-session
+  persistence readers normalize legacy top-level id fields only at the storage
+  boundary.
 
 ## Phase 4: Rename SDK And Browser Surfaces
 
@@ -277,11 +281,11 @@ Phase 3 evidence:
       `sessionId -> thresholdSessionId` and
       `walletSigningSessionId -> signingGrantId` where they refer to Wallet
       Session signing authority.
-- [ ] Update sealed-refresh and warm-session persistence readers to normalize old
+- [x] Update sealed-refresh and warm-session persistence readers to normalize old
       records at the storage boundary.
-- [ ] Update IndexedDB writers to persist new field names only.
-- [ ] Update `walletSessionJwt` claim readers to expose the new names.
-- [ ] Update Router A/B normal-signing request builders and status readers.
+- [x] Update IndexedDB writers to persist new field names only.
+- [x] Update `walletSessionJwt` claim readers to expose the new names.
+- [x] Update Router A/B normal-signing request builders and status readers.
 - [x] Add source guards preventing `walletSigningSessionId` from returning in SDK
       public types after the refactor.
 
@@ -299,8 +303,17 @@ Phase 4 evidence:
   its existing internal `sessionId` return shape for current callers.
 - ECDSA relayer output validation rejects threshold-session or signing-grant
   drift before finalizing client state.
+- Sealed-session store and sealed-recovery readers accept legacy persisted
+  `thresholdSessionId` / old signing-grant fields only at the storage boundary,
+  then return current `thresholdSessionIds` / `thresholdSessionId` plus
+  `signingGrantId` records. Current IndexedDB sealed-session writers emit
+  `signingGrantId` and `thresholdSessionIds`.
+- SDK Wallet Session JWT readers build ECDSA session identity from
+  `thresholdSessionId` and `signingGrantId`; trusted budget-status requests send
+  `{ signingGrantId, thresholdSessionId }` with bearer Wallet Session auth.
 - Validation: `pnpm -C packages/sdk-web type-check`, focused ECDSA provisioning
-  and bootstrap persistence unit tests, and the Refactor 71 source guard.
+  and bootstrap persistence unit tests, sealed-session persistence unit tests,
+  `pnpm -C packages/sdk-web build:prepare`, and the Refactor 71 source guard.
 
 ## Phase 5: Router A/B Cloudflare And Rust Contracts
 
