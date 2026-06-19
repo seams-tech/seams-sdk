@@ -243,6 +243,7 @@ Added `tests/unit/refactor73TypeFilename.guard.unit.test.ts`, which fails on:
 - new `*.typings.ts` files.
 - new `types.ts` files outside the approved inventory.
 - runtime exports from `*.types.ts`, except `export type` and interfaces.
+- private top-level runtime declarations in `*.types.ts`.
 - side-effect imports from `*.types.ts`.
 - broad runtime barrels re-exporting `*.types.ts` as values.
 

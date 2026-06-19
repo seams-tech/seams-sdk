@@ -117,6 +117,13 @@ function runtimeExportMessage(relativePath: string, source: string): string | nu
   const runtimeExport = /^\s*export\s+(const|let|var|function|class|enum)\b/m.exec(source);
   if (runtimeExport) return `${relativePath} exports runtime ${runtimeExport[1]}`;
 
+  const runtimeDeclaration = /^\s*(?:declare\s+)?(const|let|var|function|class|enum)\b/m.exec(
+    source,
+  );
+  if (runtimeDeclaration) {
+    return `${relativePath} declares runtime ${runtimeDeclaration[1]}`;
+  }
+
   const sideEffectImport = /^\s*import\s+['"][^'"]+['"];?\s*$/m.exec(source);
   if (sideEffectImport) return `${relativePath} contains a side-effect import`;
 
@@ -153,6 +160,15 @@ function exportStatements(source: string): string[] {
 }
 
 test.describe('Refactor 73 type filename source guards', () => {
+  test('the type-only module guard rejects private runtime declarations', () => {
+    expect(runtimeExportMessage('fixture.types.ts', 'const x = 1;\nexport type X = string;')).toBe(
+      'fixture.types.ts declares runtime const',
+    );
+    expect(
+      runtimeExportMessage('fixture.types.ts', 'export interface X {\n  value: string;\n}\n'),
+    ).toBeNull();
+  });
+
   test('source files do not use the deprecated .typings.ts suffix', () => {
     const offenders: string[] = [];
     for (const file of activeSourceFiles()) {
