@@ -144,6 +144,16 @@ async function signEmailOtpRegistrationEd25519SessionJwt(args: {
   return signed.jwt;
 }
 
+function publicEd25519WalletSessionResult<T extends { sessionId?: string }>(
+  result: T,
+): Omit<T, 'sessionId'> & { thresholdSessionId?: string } {
+  const { sessionId, ...rest } = result;
+  return {
+    ...rest,
+    ...(sessionId ? { thresholdSessionId: sessionId } : {}),
+  };
+}
+
 async function handleRouterAbEd25519NormalSigningRoute(input: {
   ctx: CloudflareRelayContext;
   body: Record<string, unknown>;
@@ -417,7 +427,11 @@ export async function handleThresholdEd25519(
         );
       }
       const res = json(
-        { ...result, ...(runtimePolicyScope ? { runtimePolicyScope } : {}), jwt: signed.jwt },
+        {
+          ...publicEd25519WalletSessionResult(result),
+          ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
+          jwt: signed.jwt,
+        },
         { status: 200 },
       );
       return res;

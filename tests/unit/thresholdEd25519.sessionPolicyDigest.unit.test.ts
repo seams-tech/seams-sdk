@@ -163,7 +163,7 @@ test('threshold-ed25519 passkey reauth refreshes the shared wallet budget for th
   });
   expect(await walletSessionStore.consumeUseCount(walletBudgetSessionId)).toMatchObject({
     ok: false,
-    code: 'unauthorized',
+    code: 'wallet_budget_exhausted',
   });
 
   await mintSession(secondSessionId, 3);

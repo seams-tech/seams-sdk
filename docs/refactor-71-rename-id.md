@@ -294,6 +294,9 @@ Phase 4 evidence:
 - ECDSA-HSS public bootstrap route responses now emit `thresholdSessionId`
   instead of `sessionId`; Express and Cloudflare adapters translate private
   service `sessionId` values at the HTTP boundary.
+- Ed25519 Router A/B Wallet Session issuance responses now emit
+  `thresholdSessionId`; the SDK mint helper maps the public response back into
+  its existing internal `sessionId` return shape for current callers.
 - ECDSA relayer output validation rejects threshold-session or signing-grant
   drift before finalizing client state.
 - Validation: `pnpm -C packages/sdk-web type-check`, focused ECDSA provisioning

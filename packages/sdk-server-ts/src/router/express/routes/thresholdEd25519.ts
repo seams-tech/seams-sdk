@@ -148,6 +148,16 @@ async function signEmailOtpRegistrationEd25519SessionJwt(args: {
   return signed.jwt;
 }
 
+function publicEd25519WalletSessionResult<T extends { sessionId?: string }>(
+  result: T,
+): Omit<T, 'sessionId'> & { thresholdSessionId?: string } {
+  const { sessionId, ...rest } = result;
+  return {
+    ...rest,
+    ...(sessionId ? { thresholdSessionId: sessionId } : {}),
+  };
+}
+
 async function handle<T extends { ok: boolean; code?: string; message?: string }>(
   ctx: ExpressRelayContext,
   req: Request,
@@ -429,7 +439,7 @@ export function registerThresholdEd25519Routes(
         }
 
         return {
-          ...result,
+          ...publicEd25519WalletSessionResult(result),
           ...(runtimePolicyScope ? { runtimePolicyScope } : {}),
           jwt: signed.jwt,
         };

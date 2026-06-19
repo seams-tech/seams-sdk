@@ -225,7 +225,7 @@ export async function mintEd25519WalletSession(args: {
 
   type Ed25519WalletSessionMintResponseBody = Partial<{
     ok: boolean;
-    sessionId: string;
+    thresholdSessionId: string;
     signingGrantId: string;
     expiresAt: string;
     remainingUses: number;
@@ -283,7 +283,7 @@ export async function mintEd25519WalletSession(args: {
 
     return {
       ok: data.ok === true,
-      sessionId: data.sessionId,
+      sessionId: data.thresholdSessionId,
       signingGrantId: data.signingGrantId,
       expiresAtMs,
       remainingUses: data.remainingUses,
