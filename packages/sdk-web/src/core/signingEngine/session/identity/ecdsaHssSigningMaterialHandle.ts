@@ -56,7 +56,7 @@ export function ecdsaRoleLocalSigningMaterialHandleFromReadySignerSession(
     ),
     chainTarget: signerSession.chainTarget,
     clientVerifyingShareB64u: signerSession.transport.signingMaterial.clientVerifier33B64u,
-    ecdsaThresholdKeyId: String(signerSession.transport.ecdsaThresholdKeyId),
+    ecdsaThresholdKeyId: signerSession.transport.signingMaterial.ecdsaThresholdKeyId,
     participantIds: signerSession.publicFacts.participantIds.map((participantId) =>
       Number(participantId),
     ),

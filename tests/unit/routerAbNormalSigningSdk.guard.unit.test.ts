@@ -80,6 +80,41 @@ function singleQuotedFieldValues(source: string, field: string): string[] {
   );
 }
 
+function importSpecifiers(source: string): string[] {
+  const specifiers: string[] = [];
+  const importPattern = /\bimport(?:\s+type)?[\s\S]*?\sfrom\s+['"]([^'"]+)['"]/g;
+  let match: RegExpExecArray | null;
+  while ((match = importPattern.exec(source))) {
+    const specifier = match[1];
+    if (specifier) specifiers.push(specifier);
+  }
+  return specifiers;
+}
+
+type SourceOwnershipExpectation = {
+  relativePath: string;
+  requiredMarkers: readonly string[];
+  forbiddenMarkers: readonly string[];
+};
+
+function assertSourceOwnership(expectations: readonly SourceOwnershipExpectation[]): void {
+  const offenders: string[] = [];
+  for (const expectation of expectations) {
+    const source = readRepoSource(expectation.relativePath);
+    for (const marker of expectation.requiredMarkers) {
+      if (!source.includes(marker)) {
+        offenders.push(`${expectation.relativePath} is missing ${marker}`);
+      }
+    }
+    for (const marker of expectation.forbiddenMarkers) {
+      if (source.includes(marker)) {
+        offenders.push(`${expectation.relativePath} contains ${marker}`);
+      }
+    }
+  }
+  expect(offenders, offenders.join('\n')).toEqual([]);
+}
+
 test.describe('Router A/B normal-signing SDK source guards', () => {
   test('local Caddy keeps the Router origin on one upstream', () => {
     const source = readRepoSource('apps/web-client/Caddyfile');
@@ -247,6 +282,108 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     expect(sources[2].source).toContain('RouterAbWalletSessionCredential');
     expect(sources[2].source).toContain('requireRouterAbEd25519NormalSigningReadyState');
     expect(sources[2].source).toContain('walletSessionJwt');
+  });
+
+  test('signing folder import directions stay explicit', () => {
+    const routerAbPureModules = [
+      'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/signingMaterialRef.ts',
+      'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/poolFillRoutes.ts',
+    ];
+    const identityModules = [
+      'packages/sdk-web/src/core/signingEngine/session/identity/ecdsaHssSigningMaterialHandle.ts',
+      'packages/sdk-web/src/core/signingEngine/session/identity/emailOtpHssIdentity.ts',
+      'packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts',
+      'packages/sdk-web/src/core/signingEngine/session/identity/exactSigningLaneIdentity.ts',
+      'packages/sdk-web/src/core/signingEngine/session/identity/laneIdentity.ts',
+      'packages/sdk-web/src/core/signingEngine/session/identity/selectLane.ts',
+      'packages/sdk-web/src/core/signingEngine/session/identity/thresholdEcdsaSignerAdapter.ts',
+    ];
+    const workerBoundaryModules = [
+      'packages/sdk-web/src/core/signingEngine/workerManager/workerTypes.ts',
+      'packages/sdk-web/src/core/signingEngine/workerManager/executeWorkerOperation.ts',
+      'packages/sdk-web/src/core/signingEngine/workerManager/workerTransport.ts',
+    ];
+    const forbiddenByFile = new Map<string, readonly string[]>();
+    for (const relativePath of routerAbPureModules) {
+      forbiddenByFile.set(relativePath, [
+        '/flows/',
+        '/session/persistence/',
+        '/session/warmCapabilities/',
+        '/workerManager/',
+        '/SeamsWeb/',
+      ]);
+    }
+    for (const relativePath of identityModules) {
+      forbiddenByFile.set(relativePath, ['/flows/', '/workerManager/', '/session/warmCapabilities/']);
+    }
+    for (const relativePath of workerBoundaryModules) {
+      forbiddenByFile.set(relativePath, ['/flows/signEvmFamily/', '/flows/signNear/', '/SeamsWeb/']);
+    }
+
+    const offenders: string[] = [];
+    for (const [relativePath, forbiddenSpecifiers] of forbiddenByFile.entries()) {
+      const imports = importSpecifiers(readRepoSource(relativePath));
+      for (const specifier of imports) {
+        for (const forbidden of forbiddenSpecifiers) {
+          if (specifier.includes(forbidden)) {
+            offenders.push(`${relativePath} imports ${specifier}`);
+          }
+        }
+      }
+    }
+
+    expect(offenders, offenders.join('\n')).toEqual([]);
+  });
+
+  test('Router A/B normal-signing route core stays outside threshold-named adapters', () => {
+    const adapterForbiddenMarkers = [
+      'evaluateRouterAbNormalSigningAdmission(',
+      'buildRouterAbEd25519PrivateSigningWorkerBody(',
+      'buildRouterAbEcdsaHssPrivateSigningWorkerBody(',
+      'postRouterAbSigningWorkerJson(',
+      'consumeRouterAbNormalSigningBudget(',
+      'validateRouterAbEd25519NormalSigningRequestScope(',
+      'validateRouterAbEcdsaHssNormalSigningPrepareRequest(',
+      'validateRouterAbEcdsaHssNormalSigningFinalizeRequest(',
+    ] as const;
+    assertSourceOwnership([
+      {
+        relativePath: 'packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts',
+        requiredMarkers: [
+          'export async function evaluateRouterAbNormalSigningAdmission',
+          'export function buildRouterAbEd25519PrivateSigningWorkerBody',
+          'export async function buildRouterAbEcdsaHssPrivateSigningWorkerBody',
+          'export async function postRouterAbSigningWorkerJson',
+          'consumeRouterAbNormalSigningBudget(',
+          'export async function handleRouterAbEd25519NormalSigningRouteCore',
+          'export async function handleRouterAbEcdsaHssNormalSigningRouteCore',
+          'export function validateRouterAbEd25519NormalSigningRequestScope',
+          'export function validateRouterAbEcdsaHssNormalSigningPrepareRequest',
+          'export function validateRouterAbEcdsaHssNormalSigningFinalizeRequest',
+        ],
+        forbiddenMarkers: [],
+      },
+      {
+        relativePath: 'packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts',
+        requiredMarkers: ['handleRouterAbEd25519NormalSigningRouteCore'],
+        forbiddenMarkers: adapterForbiddenMarkers,
+      },
+      {
+        relativePath: 'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts',
+        requiredMarkers: ['handleRouterAbEd25519NormalSigningRouteCore'],
+        forbiddenMarkers: adapterForbiddenMarkers,
+      },
+      {
+        relativePath: 'packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts',
+        requiredMarkers: ['handleRouterAbEcdsaHssNormalSigningRouteCore'],
+        forbiddenMarkers: adapterForbiddenMarkers,
+      },
+      {
+        relativePath: 'packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts',
+        requiredMarkers: ['handleRouterAbEcdsaHssNormalSigningRouteCore'],
+        forbiddenMarkers: adapterForbiddenMarkers,
+      },
+    ]);
   });
 
   test('ECDSA active signing reads Wallet Session auth from Router A/B ready state only', () => {
@@ -504,8 +641,11 @@ test.describe('Router A/B normal-signing SDK source guards', () => {
     const allowedRawSharePaths = new Set([
       'packages/sdk-web/src/core/signingEngine/chains/evm/ethSignerWasm.ts',
       'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/clientSigningMaterialBoundary.ts',
+      'packages/sdk-web/src/core/signingEngine/routerAb/ecdsaHss/signingMaterialRef.ts',
       'packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/signers/ecdsaHssClientSigningMaterialSource.ts',
       'packages/sdk-web/src/core/signingEngine/session/emailOtp/workerRequests.ts',
+      'packages/sdk-web/src/core/signingEngine/session/identity/evmFamilyEcdsaIdentity.ts',
+      'packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts',
       'packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.typecheck.ts',
       'packages/sdk-web/src/core/signingEngine/session/warmCapabilities/ecdsaLoginPrefillSigningMaterialSource.ts',
       'packages/sdk-web/src/core/signingEngine/threshold/crypto/hssClientSignerWasm.ts',

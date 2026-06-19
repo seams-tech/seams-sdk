@@ -205,11 +205,13 @@ export type EcdsaWalletSessionTransportAuth = WalletSessionJwtTransportAuth;
 export type ThresholdEcdsaSignerTransport = {
   kind: 'threshold_ecdsa_signer_transport';
   relayerUrl: string;
-  ecdsaThresholdKeyId: EcdsaThresholdKeyId;
   relayerKeyId: string;
   signingMaterial: RouterAbEcdsaHssSigningMaterialRef;
   relayerVerifyingShareB64u?: string;
   auth: EcdsaWalletSessionTransportAuth;
+  ecdsaThresholdKeyId?: never;
+  signingRootId?: never;
+  signingRootVersion?: never;
   clientVerifyingShareB64u?: never;
   clientSigningShare32?: never;
 };
@@ -1168,7 +1170,6 @@ export function buildReadyEcdsaSignerSession(
     transport: {
       kind: 'threshold_ecdsa_signer_transport',
       relayerUrl: requiredString(input.keyRef.relayerUrl, 'relayerUrl'),
-      ecdsaThresholdKeyId: normalizeEcdsaThresholdKeyId(input.keyRef.ecdsaThresholdKeyId),
       relayerKeyId: requiredString(backendBinding.relayerKeyId, 'relayerKeyId'),
       signingMaterial,
       ...(String(input.keyRef.relayerVerifyingShareB64u || '').trim()

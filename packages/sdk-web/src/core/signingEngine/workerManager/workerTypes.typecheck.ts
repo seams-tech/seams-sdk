@@ -4,12 +4,24 @@ import type { AppOrWalletSessionAuth } from '@shared/utils/sessionTokens';
 import type {
   EmailOtpEcdsaBootstrapStrictPayload,
   EmailOtpEcdsaSessionBootstrapHandlePayload,
+  EmailOtpExportOperationRequest,
   EmailOtpWalletRegistrationEcdsaPrepareHandlePayload,
   EmailOtpWorkerIssuedSessionHandlePayload,
   EmailOtpWorkerOperationRequestEnvelope,
   EmailOtpWorkerOperationMap,
+  EmailOtpWarmSessionOperationRequest,
+  EthSignerThresholdEcdsaPresignOperationRequest,
+  EthSignerTransactionOperationRequest,
+  HssEcdsaRoleLocalMaterialOperationRequest,
+  HssEd25519ProtocolOperationRequest,
+  NearEd25519DigestOperationRequest,
+  NearEd25519MaterialOperationRequest,
   EthSignerWorkerOperationMap,
 } from './workerTypes';
+import {
+  HssClientCustomRequestType,
+} from './workerTypes';
+import { NearSignerWorkerCustomRequestType } from '@/core/types/signer-worker';
 
 declare const chainTarget: ThresholdEcdsaChainTarget;
 declare const publicationChainTargets: ThresholdEcdsaChainTarget[];
@@ -148,6 +160,55 @@ const presignStep: PresignStepPayload = {
 };
 void presignStep;
 
+const ethEcdsaPresignInitRequest: EthSignerThresholdEcdsaPresignOperationRequest<'thresholdEcdsaPresignSessionInit'> =
+  {
+    type: 'thresholdEcdsaPresignSessionInit',
+    payload: {
+      sessionId: 'presign-session',
+      participantIds: [1, 2],
+      clientParticipantId: 1,
+      threshold: 2,
+      clientThresholdSigningShare32: incomingMessage,
+      groupPublicKey33: incomingMessage,
+    },
+  };
+void ethEcdsaPresignInitRequest;
+
+const ethEcdsaPresignInitRequestWithTx = {
+  ...ethEcdsaPresignInitRequest,
+  payload: {
+    ...ethEcdsaPresignInitRequest.payload,
+    // @ts-expect-error ECDSA presign worker operations reject transaction payload fields.
+    tx: {},
+  },
+} satisfies EthSignerThresholdEcdsaPresignOperationRequest<'thresholdEcdsaPresignSessionInit'>;
+void ethEcdsaPresignInitRequestWithTx;
+
+// @ts-expect-error ECDSA presign operations are not ETH transaction encoding operations.
+type InvalidEcdsaPresignAsEthTransaction = EthSignerTransactionOperationRequest<'thresholdEcdsaPresignSessionInit'>;
+declare const invalidEcdsaPresignAsEthTransaction: InvalidEcdsaPresignAsEthTransaction;
+void invalidEcdsaPresignAsEthTransaction;
+
+// @ts-expect-error NEAR digest operations cannot be sent through the material domain.
+type InvalidNearDigestAsMaterial = NearEd25519MaterialOperationRequest<typeof NearSignerWorkerCustomRequestType.ThresholdEd25519ComputeNep413SigningDigest>;
+declare const invalidNearDigestAsMaterial: InvalidNearDigestAsMaterial;
+void invalidNearDigestAsMaterial;
+
+// @ts-expect-error NEAR HSS material storage cannot be sent through the digest domain.
+type InvalidNearMaterialAsDigest = NearEd25519DigestOperationRequest<typeof NearSignerWorkerCustomRequestType.ThresholdEd25519StoreHssMaterial>;
+declare const invalidNearMaterialAsDigest: InvalidNearMaterialAsDigest;
+void invalidNearMaterialAsDigest;
+
+// @ts-expect-error Ed25519 HSS material operations cannot use the ECDSA role-local domain.
+type InvalidHssEd25519AsEcdsaRoleLocal = HssEcdsaRoleLocalMaterialOperationRequest<typeof HssClientCustomRequestType.StoreThresholdEd25519HssMaterial>;
+declare const invalidHssEd25519AsEcdsaRoleLocal: InvalidHssEd25519AsEcdsaRoleLocal;
+void invalidHssEd25519AsEcdsaRoleLocal;
+
+// @ts-expect-error ECDSA role-local operations cannot use the Ed25519 HSS protocol domain.
+type InvalidHssEcdsaRoleLocalAsEd25519 = HssEd25519ProtocolOperationRequest<typeof HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial>;
+declare const invalidHssEcdsaRoleLocalAsEd25519: InvalidHssEcdsaRoleLocalAsEd25519;
+void invalidHssEcdsaRoleLocalAsEd25519;
+
 // @ts-expect-error presign session step requires incomingMessages; pass [] when empty.
 const presignStepWithoutIncomingMessages: PresignStepPayload = {
   sessionId: 'presign-session',
@@ -271,6 +332,19 @@ const emailOtpEcdsaExportPayloadWithSigningRoot = {
   signingRootId: 'signing-root',
 } satisfies EmailOtpEcdsaExportPayload;
 void emailOtpEcdsaExportPayloadWithSigningRoot;
+
+const emailOtpEcdsaExportWorkerRequest: EmailOtpExportOperationRequest<'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization'> =
+  {
+    id: 'export-request-1',
+    type: 'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization',
+    payload: emailOtpEcdsaExportPayload,
+  };
+void emailOtpEcdsaExportWorkerRequest;
+
+// @ts-expect-error Email OTP export operations cannot use the warm-session domain.
+type InvalidEmailOtpExportAsWarmSession = EmailOtpWarmSessionOperationRequest<'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization'>;
+declare const invalidEmailOtpExportAsWarmSession: InvalidEmailOtpExportAsWarmSession;
+void invalidEmailOtpExportAsWarmSession;
 
 declare const emailOtpEd25519ExportRoutePlan: EmailOtpEd25519ExportPayload['routePlan'];
 

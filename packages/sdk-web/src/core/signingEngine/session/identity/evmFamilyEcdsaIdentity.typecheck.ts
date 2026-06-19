@@ -528,6 +528,37 @@ const invalidReadyTransportWithRawClientVerifier: ReadyThresholdEcdsaSignerTrans
 };
 void invalidReadyTransportWithRawClientVerifier;
 
+const invalidReadyTransportWithLooseThresholdKeyId: ReadyThresholdEcdsaSignerTransport = {
+  ...signerSession.transport,
+  // @ts-expect-error ready transport derives threshold key identity from signingMaterial.
+  ecdsaThresholdKeyId: key.ecdsaThresholdKeyId,
+};
+void invalidReadyTransportWithLooseThresholdKeyId;
+
+const invalidReadyTransportWithLooseSigningRoot: ReadyThresholdEcdsaSignerTransport = {
+  ...signerSession.transport,
+  // @ts-expect-error ready transport derives signing-root identity from signingMaterial.
+  signingRootId: key.signingRootId,
+};
+void invalidReadyTransportWithLooseSigningRoot;
+
+const ecdsaSigningMaterialThresholdKeyId: string =
+  signerSession.transport.signingMaterial.ecdsaThresholdKeyId;
+const ecdsaSigningMaterialSigningRootId: string =
+  signerSession.transport.signingMaterial.signingRootId;
+const ecdsaSigningMaterialSigningRootVersion: string =
+  signerSession.transport.signingMaterial.signingRootVersion;
+void ecdsaSigningMaterialThresholdKeyId;
+void ecdsaSigningMaterialSigningRootId;
+void ecdsaSigningMaterialSigningRootVersion;
+
+const invalidSigningMaterialWithKeyHandle = {
+  ...signerSession.transport.signingMaterial,
+  // @ts-expect-error parsed Router A/B signing-material refs reject loose key handles.
+  keyHandle,
+} satisfies ReadyThresholdEcdsaSignerTransport['signingMaterial'];
+void invalidSigningMaterialWithKeyHandle;
+
 const invalidRouterAbReadyWithCookieCredential: ReadyRouterAbEcdsaHssNormalSigning = {
   kind: 'router_ab_ecdsa_hss_normal_signing_ready_v1',
   state: routerAbEcdsaHssNormalSigningState,

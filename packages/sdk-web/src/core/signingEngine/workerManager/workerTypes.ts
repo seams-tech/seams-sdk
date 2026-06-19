@@ -673,7 +673,7 @@ export interface EmailOtpWorkerOperationMap {
   };
 }
 
-type EmailOtpWorkerOperationRequestEnvelopeFor<T extends keyof EmailOtpWorkerOperationMap> = {
+export type EmailOtpWorkerOperationRequestEnvelopeFor<T extends keyof EmailOtpWorkerOperationMap> = {
   id: string;
   type: T;
   payload: EmailOtpWorkerOperationMap[T]['payload'];
@@ -716,6 +716,87 @@ export type MultichainWorkerOperationResult<
   K extends MultichainWorkerKind,
   T extends MultichainOperationType<K>,
 > = MultichainWorkerOperationEntry<K, T>['result'];
+
+export type EthSignerTransactionOperationType =
+  | 'computeEip1559TxHash'
+  | 'encodeEip1559SignedTxFromSignature65';
+export type EthSignerLocalSecp256k1OperationType =
+  | 'signSecp256k1Recoverable'
+  | 'secp256k1PrivateKey32ToPublicKey33'
+  | 'deriveSecp256k1KeypairFromPrfSecond'
+  | 'validateSecp256k1PublicKey33'
+  | 'addSecp256k1PublicKeys33'
+  | 'buildWebauthnP256Signature'
+  | 'decodeCoseP256PublicKey';
+export type EthSignerThresholdEcdsaPresignOperationType =
+  | 'mapAdditiveShareToThresholdSignaturesShare2p'
+  | 'thresholdEcdsaPresignSessionInit'
+  | 'thresholdEcdsaPresignSessionStep'
+  | 'thresholdEcdsaPresignSessionAbort'
+  | 'thresholdEcdsaComputeSignatureShareFromPresignatureHandle';
+export type EthSignerDomainOperationType =
+  | EthSignerTransactionOperationType
+  | EthSignerLocalSecp256k1OperationType
+  | EthSignerThresholdEcdsaPresignOperationType;
+
+export type EthSignerTransactionOperationRequest<T extends EthSignerTransactionOperationType> =
+  MultichainWorkerOperationRequest<'ethSigner', T>;
+export type EthSignerLocalSecp256k1OperationRequest<
+  T extends EthSignerLocalSecp256k1OperationType,
+> = MultichainWorkerOperationRequest<'ethSigner', T>;
+export type EthSignerThresholdEcdsaPresignOperationRequest<
+  T extends EthSignerThresholdEcdsaPresignOperationType,
+> = MultichainWorkerOperationRequest<'ethSigner', T>;
+
+export type TempoSignerTransactionOperationType =
+  | 'computeTempoSenderHash'
+  | 'encodeTempoSignedTx';
+export type TempoSignerTransactionOperationRequest<T extends TempoSignerTransactionOperationType> =
+  MultichainWorkerOperationRequest<'tempoSigner', T>;
+
+export type EmailOtpChallengeOperationType =
+  | 'requestEmailOtpChallenge'
+  | 'requestEmailOtpEnrollmentChallenge'
+  | 'verifyEmailOtpCode';
+export type EmailOtpEnrollmentOperationType =
+  | 'enrollEmailOtpWallet'
+  | 'prepareEmailOtpRegistrationEnrollmentMaterial'
+  | 'prepareWalletRegistrationEcdsaPreparedClientBootstrapFromEmailOtpHandle'
+  | 'prepareEcdsaClientBootstrapFromEmailOtpHandle';
+export type EmailOtpRestoreOperationType =
+  | 'restoreEmailOtpDeviceEnrollmentEscrow'
+  | 'rotateEmailOtpRecoveryCodes'
+  | 'removeEmailOtpDeviceEnrollmentEscrowFromDevice';
+export type EmailOtpWarmSessionOperationType =
+  | 'loginWithEmailOtpWallet'
+  | 'bootstrapEmailOtpEcdsaSessionsFromWorkerHandle'
+  | 'getEmailOtpWarmSessionStatus'
+  | 'claimEmailOtpWarmSessionMaterial'
+  | 'consumeEmailOtpWarmSessionUses'
+  | 'sealEmailOtpWarmSessionMaterial'
+  | 'rehydrateEmailOtpEcdsaWarmSessionMaterial'
+  | 'claimEmailOtpEcdsaSigningShare'
+  | 'clearEmailOtpWarmSessionMaterial';
+export type EmailOtpExportOperationType =
+  | 'exportEmailOtpEd25519SeedWithAuthorization'
+  | 'exportThresholdEcdsaHssKeyWithEmailOtpAuthorization';
+export type EmailOtpDomainOperationType =
+  | EmailOtpChallengeOperationType
+  | EmailOtpEnrollmentOperationType
+  | EmailOtpRestoreOperationType
+  | EmailOtpWarmSessionOperationType
+  | EmailOtpExportOperationType;
+
+export type EmailOtpChallengeOperationRequest<T extends EmailOtpChallengeOperationType> =
+  EmailOtpWorkerOperationRequestEnvelopeFor<T>;
+export type EmailOtpEnrollmentOperationRequest<T extends EmailOtpEnrollmentOperationType> =
+  EmailOtpWorkerOperationRequestEnvelopeFor<T>;
+export type EmailOtpRestoreOperationRequest<T extends EmailOtpRestoreOperationType> =
+  EmailOtpWorkerOperationRequestEnvelopeFor<T>;
+export type EmailOtpWarmSessionOperationRequest<T extends EmailOtpWarmSessionOperationType> =
+  EmailOtpWorkerOperationRequestEnvelopeFor<T>;
+export type EmailOtpExportOperationRequest<T extends EmailOtpExportOperationType> =
+  EmailOtpWorkerOperationRequestEnvelopeFor<T>;
 
 export type WithOptionalSessionId<T> = T extends { sessionId: string }
   ? Omit<T, 'sessionId'> & { sessionId?: string }
@@ -805,6 +886,34 @@ export type NearWorkerOperationRequest<T extends NearWorkerOperationType> = {
 
 export type NearWorkerOperationResult<T extends NearWorkerOperationType> =
   NearWorkerOperationEntry<T>['result'];
+
+export type NearEd25519MaterialOperationType =
+  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519StoreHssMaterial
+  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519ValidateHssMaterial;
+export type NearEd25519PresignOperationType =
+  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignCreate
+  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignCreateFromMaterialHandle
+  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignSign
+  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignSignFromMaterialHandle
+  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519ClientPresignBurn;
+export type NearEd25519DigestOperationType =
+  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519ComputeNep413SigningDigest
+  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519ComputeDelegateSigningDigest
+  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519BuildDelegateSigningPayload;
+export type NearEd25519FinalizeOperationType =
+  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519FinalizeDelegateFromSignature
+  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519FinalizeNearTxFromSignature
+  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519BuildNearTxUnsignedBorsh
+  | typeof NearSignerWorkerCustomRequestType.ThresholdEd25519DecodeSignedNearTxBorsh;
+
+export type NearEd25519MaterialOperationRequest<T extends NearEd25519MaterialOperationType> =
+  NearWorkerOperationRequest<T>;
+export type NearEd25519PresignOperationRequest<T extends NearEd25519PresignOperationType> =
+  NearWorkerOperationRequest<T>;
+export type NearEd25519DigestOperationRequest<T extends NearEd25519DigestOperationType> =
+  NearWorkerOperationRequest<T>;
+export type NearEd25519FinalizeOperationRequest<T extends NearEd25519FinalizeOperationType> =
+  NearWorkerOperationRequest<T>;
 
 export const HssClientCustomRequestType = {
   ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShare: 70_001,
@@ -1121,6 +1230,43 @@ export type HssSignerWorkerOperationMap = {
     result: HssWorkerOperationEntry<T>['result'];
   };
 };
+
+export type HssEd25519ProtocolOperationType =
+  | typeof WorkerRequestType.DeriveThresholdEd25519HssClientInputs
+  | typeof WorkerRequestType.PrepareThresholdEd25519HssSession
+  | typeof WorkerRequestType.PrepareThresholdEd25519HssClientRequest
+  | typeof WorkerRequestType.DeriveThresholdEd25519HssClientOutputMask
+  | typeof WorkerRequestType.BuildThresholdEd25519HssClientOwnedStagedEvaluatorArtifact
+  | typeof WorkerRequestType.OpenThresholdEd25519HssClientOutput
+  | typeof WorkerRequestType.OpenThresholdEd25519HssSeedOutput
+  | typeof WorkerRequestType.BuildThresholdEd25519SeedExportArtifact
+  | typeof WorkerRequestType.CreateThresholdEd25519RoleSeparatedNormalSigningClientShare
+  | typeof HssClientCustomRequestType.ThresholdEd25519RoleSeparatedClientVerifyingShareFromBaseShare
+  | typeof HssClientCustomRequestType.StoreThresholdEd25519HssMaterial
+  | typeof HssClientCustomRequestType.StoreRouterAbEd25519HssMaterialFromClientOutput
+  | typeof HssClientCustomRequestType.ValidateThresholdEd25519HssMaterial
+  | typeof HssClientCustomRequestType.ThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandle;
+export type HssEcdsaRoleLocalMaterialOperationType =
+  | typeof WorkerRequestType.OpenThresholdEcdsaHssRoleLocalSigningShare
+  | typeof WorkerRequestType.PrepareThresholdEcdsaHssRoleLocalClientBootstrap
+  | typeof WorkerRequestType.FinalizeThresholdEcdsaHssRoleLocalClientBootstrap
+  | typeof WorkerRequestType.BuildThresholdEcdsaHssRoleLocalExportArtifact
+  | typeof HssClientCustomRequestType.StoreThresholdEcdsaRoleLocalSigningMaterial
+  | typeof HssClientCustomRequestType.OpenThresholdEcdsaRoleLocalSigningShareFromMaterialHandle;
+export type HssEcdsaRoleLocalPresignOperationType =
+  | typeof HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionInitFromMaterialHandle
+  | typeof HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionStep
+  | typeof HssClientCustomRequestType.ThresholdEcdsaRoleLocalPresignSessionAbort
+  | typeof HssClientCustomRequestType.ThresholdEcdsaRoleLocalComputeSignatureShareFromPresignatureHandle;
+
+export type HssEd25519ProtocolOperationRequest<T extends HssEd25519ProtocolOperationType> =
+  HssWorkerOperationRequest<T>;
+export type HssEcdsaRoleLocalMaterialOperationRequest<
+  T extends HssEcdsaRoleLocalMaterialOperationType,
+> = HssWorkerOperationRequest<T>;
+export type HssEcdsaRoleLocalPresignOperationRequest<
+  T extends HssEcdsaRoleLocalPresignOperationType,
+> = HssWorkerOperationRequest<T>;
 
 export interface SignerWorkerOperationMapByKind {
   nearSigner: NearSignerWorkerOperationMap;
