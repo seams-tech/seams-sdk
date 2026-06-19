@@ -5,7 +5,6 @@ import {
   WorkerRequestType,
   WorkerResponseType,
   type DelegatePayload,
-  type PrepareThresholdEd25519PresignPoolPayload,
   type TransactionPayload,
   type ThresholdEd25519ClientPresignWorkerOffer,
   type WasmSignedDelegate,
@@ -15,41 +14,44 @@ import {
   buildThresholdEd25519DelegateSigningPayloadWasm,
   buildThresholdEd25519NearTxUnsignedBorshWasm,
   burnThresholdEd25519ClientPresignWasm,
-  createThresholdEd25519ClientPresignWasm,
+  createThresholdEd25519ClientPresignFromMaterialHandleWasm,
   decodeThresholdEd25519SignedNearTxBorshWasm,
   finalizeThresholdEd25519NearTxFromSignatureWasm,
   finalizeThresholdEd25519DelegateFromSignatureWasm,
-  signThresholdEd25519ClientPresignWasm,
+  signThresholdEd25519ClientPresignFromMaterialHandleWasm,
 } from '@/core/signingEngine/chains/near/nearSignerWasm';
-import { createThresholdEd25519RoleSeparatedNormalSigningClientShareWasm } from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
+import {
+  createThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleWasm,
+} from '@/core/signingEngine/threshold/crypto/hssClientSignerWasm';
+import type { RouterAbEd25519SigningMaterialReady } from '@/core/signingEngine/threshold/ed25519/hssClientBase';
 import type { TransactionContext } from '@/core/types/rpc';
 import { ActionType, fromActionArgsWasm, type ActionArgsWasm } from '@/core/types/actions';
 import type { NearSigningRuntimeDeps } from '@/core/signingEngine/interfaces/runtime';
 import type { ThresholdRuntimePolicyScope } from '@/core/signingEngine/threshold/sessionPolicy';
 import {
-  applyThresholdEd25519PresignRefillResult,
-  createThresholdEd25519PresignScopeKey,
+  applyRouterAbEd25519PresignPoolRefillResult,
+  burnThresholdEd25519ReservedPresign,
+  createRouterAbEd25519PresignScopeKey,
   type Ed25519PresignOperationIdentity,
   type Ed25519PresignPoolRefillScheduleResult,
-  burnThresholdEd25519ReservedPresign,
-  getThresholdEd25519ClientPresignPoolStatus,
-  reserveThresholdEd25519ReadyPresignForScope,
-  resolveThresholdEd25519PresignPoolPolicy,
-  scheduleThresholdEd25519ClientPresignPoolRefill,
+  getRouterAbEd25519ClientPresignPoolStatus,
+  reserveRouterAbEd25519ReadyPresignForScope,
+  resolveRouterAbEd25519PresignPoolPolicy,
+  scheduleRouterAbEd25519ClientPresignPoolRefill,
+  type RouterAbEd25519PresignPoolRefillResult,
+  type RouterAbEd25519PresignPoolRefillPayload,
 } from '@/core/signingEngine/threshold/ed25519/presignPool';
-import {
-  finalizeThresholdEd25519Presign,
-  refillThresholdEd25519PresignPool,
-  type ThresholdEd25519FinalizeAndDispatchResponseWire,
-  type ThresholdEd25519FinalizeSignatureOnlyIntentWire,
-} from '@/core/rpcClients/relayer/thresholdEd25519Presign';
 import {
   buildRouterAbEd25519DelegateActionPrepareRequestV2,
   buildRouterAbEd25519NearTransactionPrepareRequestV2,
   buildRouterAbEd25519Nep413PrepareRequestV2,
   buildRouterAbEd25519NormalSigningFinalizeRequestV2,
+  buildRouterAbEd25519PresignPoolPrepareRequestV2,
+  buildRouterAbEd25519PresignPoolHitFinalizeRequestV2,
   finalizeRouterAbNormalSigningV2,
+  finalizeRouterAbNormalSigningPresignPoolHitV2,
   prepareRouterAbNormalSigningV2,
+  prepareRouterAbNormalSigningPresignPoolV2,
   routerAbCanonicalWireBytesToB64u,
   routerAbNormalSigningActionFingerprint,
   type RouterAbNormalSigningPrepareRequestV2BuildResult,
@@ -64,43 +66,40 @@ import type {
   SigningOperationId,
 } from '@/core/signingEngine/session/operationState/types';
 import { SigningSessionIds } from '@/core/signingEngine/session/operationState/types';
-import { routerAbWalletSessionCredentialFromResolvedThresholdSessionState } from './routerAbWalletSessionCredential';
-import type { ResolvedThresholdEd25519SessionState } from './thresholdSessionAuth';
+import { requireRouterAbEd25519NormalSigningReadyState } from './routerAbWalletSessionCredential';
+import type { ResolvedRouterAbEd25519WalletSessionState } from './routerAbEd25519WalletSessionState';
 import { emitThresholdEd25519PresignMetric } from './ed25519PresignMetrics';
 import { base64UrlDecode, base64UrlEncode } from '@shared/utils/base64';
 import { base58Decode } from '@shared/utils/base58';
 import {
   parseThresholdEd25519NearTransaction,
-  thresholdEd25519FinalizeRequestIntegrityHash,
   thresholdEd25519NearTransactionOperationFingerprint,
   type ThresholdEd25519NearAction,
 } from '@shared/threshold/ed25519OperationFingerprint';
 
 const ROUTER_AB_NORMAL_SIGNING_REQUEST_TTL_MS = 120_000;
 
-export type ThresholdEd25519SignatureOnlyPresignPurpose = 'nep413_message' | 'delegate_action';
+export type RouterAbEd25519SignatureOnlyPurpose = 'nep413_message' | 'delegate_action';
 
-export type ThresholdEd25519SignatureOnlyPresignResult = {
-  kind: 'threshold_ed25519_signature_only_presign_result_v1';
-  operationId: string;
-  signatureB64u: string;
-  signerPublicKey: string;
-  remainingSigningUses: number;
-  budgetState: 'consumed' | 'already_consumed';
-};
-
-export type ThresholdEd25519SignatureOnlyPresignDelegateResult =
-  ThresholdEd25519SignatureOnlyPresignResult & {
-    signedDelegate: WasmSignedDelegate;
-    hash: string;
+export type RouterAbEd25519SignatureOnlyIntentWire =
+  | {
+      kind: 'nep413_message_v1';
+      message: string;
+      recipient: string;
+      nonce: string;
+      state?: string;
+    }
+  | {
+      kind: 'near_delegate_action_v1';
+      delegate: {
+        senderId: string;
+        receiverId: string;
+        actions: readonly ThresholdEd25519NearAction[];
+        nonce: string;
+        maxBlockHeight: string;
+        publicKey: string;
+      };
   };
-
-export type ThresholdEd25519NearTransactionPresignResult = {
-  kind: 'threshold_ed25519_near_transaction_presign_result_v1';
-  okResponse: WorkerSuccessResponse<typeof WorkerRequestType.SignTransactionsWithActions>;
-  transactionHash: string;
-  rpcResult: unknown;
-};
 
 export type RouterAbEd25519NearTransactionNormalSigningResult = {
   kind: 'router_ab_ed25519_near_transaction_normal_signing_result_v1';
@@ -115,17 +114,11 @@ export type RouterAbEd25519SignatureOnlyNormalSigningResult = {
   signerPublicKey: string;
 };
 
-export type ThresholdEd25519PresignRefillRunResult = {
-  kind: 'threshold_ed25519_presign_refill_run_result_v1';
+export type RouterAbEd25519PresignRefillRunResult = {
+  kind: 'router_ab_ed25519_presign_refill_run_result_v1';
   schedule: Ed25519PresignPoolRefillScheduleResult;
-  payload: PrepareThresholdEd25519PresignPoolPayload;
+  payload: RouterAbEd25519PresignPoolRefillPayload;
 };
-
-function resolveRuntimePolicyScope(
-  state: ResolvedThresholdEd25519SessionState,
-): ThresholdRuntimePolicyScope | null {
-  return state.runtimePolicyScope || null;
-}
 
 function requireParticipantId(args: {
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
@@ -138,20 +131,6 @@ function requireParticipantId(args: {
     throw new Error(`threshold-ed25519 presign requires ${args.role} participant id`);
   }
   return participantId;
-}
-
-function authFromThresholdSessionState(
-  state: ResolvedThresholdEd25519SessionState,
-):
-  | { sessionKind: 'jwt'; thresholdSessionAuthToken: string }
-  | { sessionKind: 'cookie'; useThresholdSessionCookie: true } {
-  if (state.sessionKind === 'cookie') {
-    return { sessionKind: 'cookie', useThresholdSessionCookie: true };
-  }
-  return {
-    sessionKind: 'jwt',
-    thresholdSessionAuthToken: state.thresholdSessionAuthToken,
-  };
 }
 
 function digestB64uToHex(signingDigestB64u: string): string {
@@ -183,14 +162,31 @@ function routerAbNormalSigningExpiresAtMs(): number {
 
 function buildRouterAbNormalSigningScope(args: {
   thresholdSessionId: string;
-  thresholdSessionState: ResolvedThresholdEd25519SessionState;
+  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   nearAccountId: string;
   operationId: SigningOperationId;
 }): RouterAbNormalSigningScopeV1Wire | null {
-  const routerAbState = args.thresholdSessionState.routerAbNormalSigning;
+  const routerAbState = args.walletSessionState.routerAbNormalSigning;
   if (!routerAbState) return null;
   return {
     request_id: createRouterAbNormalSigningRequestId(args.operationId),
+    account_id: args.nearAccountId,
+    session_id: args.thresholdSessionId,
+    signing_worker_id: routerAbState.signingWorkerId,
+  };
+}
+
+function buildRouterAbPresignPoolRefillScope(args: {
+  thresholdSessionId: string;
+  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
+  nearAccountId: string;
+}): RouterAbNormalSigningScopeV1Wire | null {
+  const routerAbState = args.walletSessionState.routerAbNormalSigning;
+  if (!routerAbState) return null;
+  return {
+    request_id: createRouterAbNormalSigningRequestId(
+      SigningSessionIds.signingOperation('presign-pool-refill'),
+    ),
     account_id: args.nearAccountId,
     session_id: args.thresholdSessionId,
     signing_worker_id: routerAbState.signingWorkerId,
@@ -285,26 +281,37 @@ function nearEd25519PublicKeyToB64u(publicKey: string): string {
   return base64UrlEncode(bytes);
 }
 
-export async function refillThresholdEd25519ClientPresignPool(args: {
+export async function refillRouterAbEd25519ClientPresignPool(args: {
   ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
-  thresholdSessionState: ResolvedThresholdEd25519SessionState;
+  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   nearAccountId: string;
-  xClientBaseB64u: string;
+  signingMaterial: RouterAbEd25519SigningMaterialReady;
   requestTag: 'background_presign_pool_refill' | 'foreground_presign_pool_refill';
-}): Promise<ThresholdEd25519PresignRefillRunResult | null> {
-  const runtimePolicyScope = resolveRuntimePolicyScope(args.thresholdSessionState);
-  if (!runtimePolicyScope) return null;
+}): Promise<RouterAbEd25519PresignRefillRunResult | null> {
+  const scope = buildRouterAbPresignPoolRefillScope({
+    thresholdSessionId: args.thresholdSessionId,
+    walletSessionState: args.walletSessionState,
+    nearAccountId: args.nearAccountId,
+  });
+  if (!scope) return null;
+  const routerAbReadyState = requireRouterAbEd25519NormalSigningReadyState({
+    state: args.walletSessionState,
+    thresholdSessionId: args.thresholdSessionId,
+    nearAccountId: args.nearAccountId,
+    thresholdKeyMaterial: args.thresholdKeyMaterial,
+  });
+  const runtimePolicyScope = routerAbReadyState.runtimePolicyScope;
   const nearNetworkId = normalizeNearNetworkId(args.ctx);
   const participantIds = args.thresholdKeyMaterial.participants.map(
     (participant) => participant.id,
   );
-  const policy = resolveThresholdEd25519PresignPoolPolicy(undefined);
-  const firstOffer = await createThresholdEd25519PresignOffer(args);
-  const scopeKey = createThresholdEd25519PresignScopeKey({
+  const policy = resolveRouterAbEd25519PresignPoolPolicy(undefined);
+  const firstOffer = await createRouterAbEd25519PresignOffer(args);
+  const scopeKey = createRouterAbEd25519PresignScopeKey({
     thresholdSessionId: args.thresholdSessionId,
-    walletSigningSessionId: args.thresholdSessionState.walletSigningSessionId,
+    walletSigningSessionId: args.walletSessionState.walletSigningSessionId,
     relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
     nearAccountId: args.nearAccountId,
     nearNetworkId,
@@ -313,27 +320,23 @@ export async function refillThresholdEd25519ClientPresignPool(args: {
     runtimePolicyScope,
     clientVerifyingShareB64u: firstOffer.clientVerifyingShareB64u,
   });
-  const status = getThresholdEd25519ClientPresignPoolStatus({
-    kind: 'get_threshold_ed25519_presign_pool_status_v1',
+  const status = getRouterAbEd25519ClientPresignPoolStatus({
+    kind: 'get_router_ab_ed25519_presign_pool_status_v1',
     scopeKey,
   });
-  const needed = Math.max(0, policy.targetDepth - status.readyCount);
-  const offers =
-    needed > 0
-      ? [
-          firstOffer,
-          ...(await createThresholdEd25519PresignOffers({
-            ...args,
-            count: Math.max(0, needed - 1),
-          })),
-        ]
-      : [firstOffer];
-  const payload: PrepareThresholdEd25519PresignPoolPayload = {
-    kind: 'prepare_threshold_ed25519_presign_pool_v1',
-    ...authFromThresholdSessionState(args.thresholdSessionState),
-    relayUrl: args.thresholdSessionState.relayerUrl,
+  const offerCount = Math.min(policy.maxAcceptedRefillCount, policy.targetDepth);
+  const offers = [
+    firstOffer,
+    ...(await createRouterAbEd25519PresignOffers({
+      ...args,
+      count: Math.max(0, offerCount - 1),
+    })),
+  ];
+  const payload: RouterAbEd25519PresignPoolRefillPayload = {
+    kind: 'router_ab_ed25519_presign_pool_refill_v1',
+    relayUrl: args.walletSessionState.relayerUrl,
     thresholdSessionId: args.thresholdSessionId,
-    walletSigningSessionId: args.thresholdSessionState.walletSigningSessionId,
+    walletSigningSessionId: args.walletSessionState.walletSigningSessionId,
     relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
     nearAccountId: args.nearAccountId,
     nearNetworkId,
@@ -345,71 +348,121 @@ export async function refillThresholdEd25519ClientPresignPool(args: {
     generation: status.generation || 1,
     clientPresigns: offers,
   };
-  const schedule = scheduleThresholdEd25519ClientPresignPoolRefill(payload);
-  if (schedule.scheduled) {
-    emitThresholdEd25519PresignMetric({
-      metric: 'ed25519_presign_refill_in_flight',
-      nearAccountId: args.nearAccountId,
-      nearNetworkId,
-      depth: schedule.depth,
-      targetDepth: schedule.targetDepth,
-      generation: schedule.generation,
-    });
-  }
+  const schedule = scheduleRouterAbEd25519ClientPresignPoolRefill(payload);
   if (!schedule.scheduled) {
-    await burnThresholdEd25519PresignOffers(args.ctx, args.thresholdSessionId, offers);
-    return { kind: 'threshold_ed25519_presign_refill_run_result_v1', schedule, payload };
+    await burnRouterAbEd25519PresignOffers(args.ctx, args.thresholdSessionId, offers);
+    return { kind: 'router_ab_ed25519_presign_refill_run_result_v1', schedule, payload };
   }
-  const refillResult = await refillThresholdEd25519PresignPool(payload);
-  applyThresholdEd25519PresignRefillResult({ payload, result: refillResult });
+  emitThresholdEd25519PresignMetric({
+    metric: 'ed25519_presign_refill_in_flight',
+    nearAccountId: args.nearAccountId,
+    nearNetworkId,
+    depth: schedule.depth,
+    targetDepth: schedule.targetDepth,
+    generation: schedule.generation,
+  });
+
+  let refillResult: RouterAbEd25519PresignPoolRefillResult;
+  try {
+    const request = buildRouterAbEd25519PresignPoolPrepareRequestV2({
+      scope,
+      expiresAtMs: Date.now() + policy.ttlMs,
+      generation: payload.generation,
+      clientOffers: offers.map((offer) => ({
+        clientPresignId: offer.clientPresignId,
+        clientNonceHandle: offer.nonceHandle,
+        clientCommitments: {
+          hiding: offer.clientCommitments.hiding,
+          binding: offer.clientCommitments.binding,
+        },
+        clientVerifyingShareB64u: offer.clientVerifyingShareB64u,
+      })),
+    });
+    const response = await prepareRouterAbNormalSigningPresignPoolV2({
+      relayServerUrl: args.walletSessionState.relayerUrl,
+      credential: routerAbReadyState.credential,
+      request,
+    });
+    refillResult = {
+      ok: true,
+      generation: response.generation,
+      scope: response.scope,
+      accepted: response.accepted.map((entry) => ({
+        clientPresignId: entry.client_presign_id,
+        generation: entry.generation,
+        poolEntryBindingDigest: entry.pool_entry_binding_digest,
+        signingWorkerId: entry.signing_worker.server_id,
+        serverRound1Handle: entry.server_round1_handle,
+        serverCommitments: {
+          hiding: entry.server_commitments.hiding,
+          binding: entry.server_commitments.binding,
+        },
+        serverVerifyingShareB64u: entry.server_verifying_share_b64u,
+        expiresAtMs: entry.expires_at_ms,
+      })),
+      rejectedClientPresignIds: response.rejected_client_presign_ids,
+    };
+  } catch (error) {
+    refillResult = {
+      ok: false,
+      generation: payload.generation,
+      code: 'router_ab_presign_pool_refill_failed',
+      message: error instanceof Error ? error.message : String(error || 'unknown error'),
+    };
+    applyRouterAbEd25519PresignPoolRefillResult({ payload, result: refillResult });
+    await burnRouterAbEd25519PresignOffers(args.ctx, args.thresholdSessionId, offers);
+    throw error;
+  }
+
+  applyRouterAbEd25519PresignPoolRefillResult({ payload, result: refillResult });
   const acceptedClientIds = new Set(
     refillResult.ok ? refillResult.accepted.map((accepted) => accepted.clientPresignId) : [],
   );
-  await burnThresholdEd25519PresignOffers(
+  await burnRouterAbEd25519PresignOffers(
     args.ctx,
     args.thresholdSessionId,
     offers.filter((offer) => !acceptedClientIds.has(offer.clientPresignId)),
   );
-  return { kind: 'threshold_ed25519_presign_refill_run_result_v1', schedule, payload };
+  return { kind: 'router_ab_ed25519_presign_refill_run_result_v1', schedule, payload };
 }
 
-function scheduleThresholdEd25519ClientPresignPoolRefillInBackground(args: {
+function scheduleRouterAbEd25519ClientPresignPoolRefillInBackground(args: {
   ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
-  thresholdSessionState: ResolvedThresholdEd25519SessionState;
+  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   nearAccountId: string;
-  xClientBaseB64u: string;
+  signingMaterial: RouterAbEd25519SigningMaterialReady;
   requestTag: 'background_presign_pool_refill' | 'foreground_presign_pool_refill';
 }): void {
-  void refillThresholdEd25519ClientPresignPool(args).catch((error: unknown) => {
-    console.warn('[SigningEngine][near] threshold-ed25519 presign refill failed', {
+  void refillRouterAbEd25519ClientPresignPool(args).catch((error: unknown) => {
+    console.warn('[SigningEngine][near] Router A/B Ed25519 presign refill failed', {
       error: error instanceof Error ? error.message : String(error || 'unknown error'),
     });
   });
 }
 
-async function createThresholdEd25519PresignOffers(args: {
+async function createRouterAbEd25519PresignOffers(args: {
   ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
-  xClientBaseB64u: string;
+  signingMaterial: RouterAbEd25519SigningMaterialReady;
   count: number;
 }): Promise<ThresholdEd25519ClientPresignWorkerOffer[]> {
   const offers: ThresholdEd25519ClientPresignWorkerOffer[] = [];
   for (let index = 0; index < args.count; index += 1) {
-    offers.push(await createThresholdEd25519PresignOffer(args));
+    offers.push(await createRouterAbEd25519PresignOffer(args));
   }
   return offers;
 }
 
-async function createThresholdEd25519PresignOffer(args: {
+async function createRouterAbEd25519PresignOffer(args: {
   ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
-  xClientBaseB64u: string;
+  signingMaterial: RouterAbEd25519SigningMaterialReady;
 }): Promise<ThresholdEd25519ClientPresignWorkerOffer> {
-  const created = await createThresholdEd25519ClientPresignWasm({
+  const created = await createThresholdEd25519ClientPresignFromMaterialHandleWasm({
     sessionId: args.thresholdSessionId,
     clientParticipantId: requireParticipantId({
       thresholdKeyMaterial: args.thresholdKeyMaterial,
@@ -419,7 +472,8 @@ async function createThresholdEd25519PresignOffer(args: {
       thresholdKeyMaterial: args.thresholdKeyMaterial,
       role: 'relayer',
     }),
-    xClientBaseB64u: args.xClientBaseB64u,
+    materialHandle: args.signingMaterial.materialHandle,
+    expectedClientVerifyingShareB64u: args.signingMaterial.clientVerifyingShareB64u,
     groupPublicKey: args.thresholdKeyMaterial.publicKey,
     workerCtx: args.ctx,
   });
@@ -444,7 +498,7 @@ function createClientPresignId(): string {
   return `client-presign-${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 }
 
-async function burnThresholdEd25519PresignOffers(
+async function burnRouterAbEd25519PresignOffers(
   ctx: NearSigningRuntimeDeps,
   thresholdSessionId: string,
   offers: readonly ThresholdEd25519ClientPresignWorkerOffer[],
@@ -458,128 +512,6 @@ async function burnThresholdEd25519PresignOffers(
       }).catch(() => undefined),
     ),
   );
-}
-
-export async function tryFinalizeThresholdEd25519SignatureOnlyPresign(args: {
-  ctx: NearSigningRuntimeDeps;
-  thresholdSessionId: string;
-  thresholdSessionState: ResolvedThresholdEd25519SessionState;
-  thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
-  nearAccountId: string;
-  xClientBaseB64u: string;
-  operationId: SigningOperationId;
-  operationFingerprint: SigningOperationFingerprint;
-  purpose: ThresholdEd25519SignatureOnlyPresignPurpose;
-  signingDigestB64u: string;
-  intent: ThresholdEd25519FinalizeSignatureOnlyIntentWire;
-}): Promise<ThresholdEd25519SignatureOnlyPresignResult | null> {
-  const nearNetworkId = normalizeNearNetworkId(args.ctx);
-  const participantIds = args.thresholdKeyMaterial.participants.map(
-    (participant) => participant.id,
-  );
-  const operation: Ed25519PresignOperationIdentity = {
-    kind: 'threshold_ed25519_presign_operation_identity_v1',
-    operationId: args.operationId,
-    operationFingerprint: args.operationFingerprint,
-    purpose: args.purpose,
-  };
-  const runtimePolicyScope = resolveRuntimePolicyScope(args.thresholdSessionState);
-  if (!runtimePolicyScope) return null;
-  const reservation = reserveThresholdEd25519ReadyPresignForScope({
-    thresholdSessionId: args.thresholdSessionId,
-    walletSigningSessionId: args.thresholdSessionState.walletSigningSessionId,
-    relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
-    nearAccountId: args.nearAccountId,
-    nearNetworkId,
-    signerPublicKey: args.thresholdKeyMaterial.publicKey,
-    participantIds,
-    runtimePolicyScope,
-    operation,
-  });
-  if (!reservation.ok) return null;
-
-  let signedShare = false;
-  try {
-    const clientSignatureShare = await signThresholdEd25519ClientPresignWasm({
-      sessionId: args.thresholdSessionId,
-      clientParticipantId: requireParticipantId({
-        thresholdKeyMaterial: args.thresholdKeyMaterial,
-        role: 'client',
-      }),
-      relayerParticipantId: requireParticipantId({
-        thresholdKeyMaterial: args.thresholdKeyMaterial,
-        role: 'relayer',
-      }),
-      xClientBaseB64u: args.xClientBaseB64u,
-      groupPublicKey: args.thresholdKeyMaterial.publicKey,
-      signingDigestB64u: args.signingDigestB64u,
-      clientNonceHandleB64u: reservation.reservation.entry.nonceHandle,
-      clientCommitments: reservation.reservation.entry.clientCommitments,
-      relayerCommitments: reservation.reservation.entry.relayerCommitments,
-      workerCtx: args.ctx,
-    });
-    signedShare = true;
-    const request = {
-      kind: 'threshold_ed25519_finalize_signature_only_v1' as const,
-      operation: {
-        kind: 'threshold_ed25519_signing_operation_v1' as const,
-        operationId: args.operationId,
-        operationFingerprint: args.operationFingerprint,
-        purpose: args.purpose,
-      },
-      presignId: reservation.reservation.entry.presignId,
-      relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
-      nearAccountId: args.nearAccountId,
-      nearNetworkId,
-      expectedSignerPublicKey: args.thresholdKeyMaterial.publicKey,
-      intent: args.intent,
-      clientSignatureShareB64u: clientSignatureShare.clientSignatureShareB64u,
-    };
-    const response = await finalizeThresholdEd25519Presign({
-      relayServerUrl: args.thresholdSessionState.relayerUrl,
-      auth: authFromThresholdSessionState(args.thresholdSessionState),
-      request: {
-        ...request,
-        requestIntegrityHash: await thresholdEd25519FinalizeRequestIntegrityHash(request),
-      },
-    });
-    if (!response.ok) {
-      throw new Error(response.message || response.code || 'threshold-ed25519 presign failed');
-    }
-    burnThresholdEd25519ReservedPresign({
-      scopeKey: reservation.scopeKey,
-      reservation: reservation.reservation,
-      reason: 'used',
-    });
-    return signatureOnlyResultFromFinalizeResponse(response);
-  } catch (error) {
-    burnThresholdEd25519ReservedPresign({
-      scopeKey: reservation.scopeKey,
-      reservation: reservation.reservation,
-      reason: signedShare ? 'send_attempted' : 'rejected',
-    });
-    throw error;
-  }
-}
-
-export async function finalizeThresholdEd25519DelegatePresignResult(args: {
-  ctx: NearSigningRuntimeDeps;
-  thresholdSessionId: string;
-  delegate: DelegatePayload;
-  signingDigestB64u: string;
-  presignResult: ThresholdEd25519SignatureOnlyPresignResult;
-}): Promise<ThresholdEd25519SignatureOnlyPresignDelegateResult> {
-  const finalized = await finalizeThresholdEd25519DelegateSignatureResult({
-    ctx: args.ctx,
-    thresholdSessionId: args.thresholdSessionId,
-    delegate: args.delegate,
-    signingDigestB64u: args.signingDigestB64u,
-    signatureB64u: args.presignResult.signatureB64u,
-  });
-  return {
-    ...args.presignResult,
-    ...finalized,
-  };
 }
 
 export async function finalizeThresholdEd25519DelegateSignatureResult(args: {
@@ -604,9 +536,13 @@ export async function finalizeThresholdEd25519DelegateSignatureResult(args: {
 
 async function tryFinalizeRouterAbEd25519NormalSigningSignature(args: {
   ctx: NearSigningRuntimeDeps;
-  thresholdSessionState: ResolvedThresholdEd25519SessionState;
+  thresholdSessionId: string;
+  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
-  xClientBaseB64u: string;
+  nearAccountId: string;
+  nearNetworkId: 'testnet' | 'mainnet';
+  signingMaterial: RouterAbEd25519SigningMaterialReady;
+  operation: Ed25519PresignOperationIdentity;
   signingDigestB64u: string;
   signingPayloadLabel: string;
   prepare: RouterAbNormalSigningPrepareRequestV2BuildResult;
@@ -619,11 +555,141 @@ async function tryFinalizeRouterAbEd25519NormalSigningSignature(args: {
     throw new Error(`Router A/B normal-signing ${args.signingPayloadLabel} must be 32 bytes`);
   }
 
+  const routerAbReadyState = requireRouterAbEd25519NormalSigningReadyState({
+    state: args.walletSessionState,
+    thresholdSessionId: args.thresholdSessionId,
+    nearAccountId: args.nearAccountId,
+    thresholdKeyMaterial: args.thresholdKeyMaterial,
+  });
+  const credential = routerAbReadyState.credential;
+  const runtimePolicyScope = routerAbReadyState.runtimePolicyScope;
+  if (
+    args.signingMaterial.clientVerifyingShareB64u !==
+    routerAbReadyState.signingMaterial.clientVerifierB64u
+  ) {
+    throw new Error('Router A/B Ed25519 signing material binding mismatch');
+  }
+  if (runtimePolicyScope) {
+    const participantIds = args.thresholdKeyMaterial.participants.map(
+      (participant) => participant.id,
+    );
+    const reservation = reserveRouterAbEd25519ReadyPresignForScope({
+      thresholdSessionId: args.thresholdSessionId,
+      walletSigningSessionId: args.walletSessionState.walletSigningSessionId,
+      relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
+      nearAccountId: args.nearAccountId,
+      nearNetworkId: args.nearNetworkId,
+      signerPublicKey: args.thresholdKeyMaterial.publicKey,
+      participantIds,
+      runtimePolicyScope,
+      clientVerifyingShareB64u: args.signingMaterial.clientVerifyingShareB64u,
+      operation: args.operation,
+    });
+    if (reservation.ok) {
+      emitThresholdEd25519PresignMetric({
+        metric: 'ed25519_presign_pool_hit',
+        nearAccountId: args.nearAccountId,
+        nearNetworkId: args.nearNetworkId,
+        operationId: args.operation.operationId,
+        operationFingerprint: args.operation.operationFingerprint,
+      });
+      let signedShare = false;
+      try {
+        const entry = reservation.reservation.entry;
+        const clientSignatureShare =
+          await signThresholdEd25519ClientPresignFromMaterialHandleWasm({
+            sessionId: args.thresholdSessionId,
+            clientParticipantId: requireParticipantId({
+              thresholdKeyMaterial: args.thresholdKeyMaterial,
+              role: 'client',
+            }),
+            relayerParticipantId: requireParticipantId({
+              thresholdKeyMaterial: args.thresholdKeyMaterial,
+              role: 'relayer',
+            }),
+            materialHandle: args.signingMaterial.materialHandle,
+            expectedClientVerifyingShareB64u: args.signingMaterial.clientVerifyingShareB64u,
+            groupPublicKey: args.thresholdKeyMaterial.publicKey,
+            signingDigestB64u: args.signingDigestB64u,
+            clientNonceHandleB64u: entry.nonceHandle,
+            clientCommitments: entry.clientCommitments,
+            relayerCommitments: entry.relayerCommitments,
+            workerCtx: args.ctx,
+          });
+        signedShare = true;
+        const signingResponse = await finalizeRouterAbNormalSigningPresignPoolHitV2({
+          relayServerUrl: args.walletSessionState.relayerUrl,
+          credential,
+          request: buildRouterAbEd25519PresignPoolHitFinalizeRequestV2({
+            prepare: args.prepare,
+            clientPresignId: entry.clientPresignId,
+            clientNonceHandle: entry.nonceHandle,
+            generation: entry.routerAbPoolEntry.generation,
+            serverRound1Handle: entry.presignId,
+            poolEntryBindingDigest: entry.routerAbPoolEntry.poolEntryBindingDigest,
+            clientCommitments: entry.clientCommitments,
+            serverCommitments: entry.relayerCommitments,
+            clientVerifyingShareB64u: args.signingMaterial.clientVerifyingShareB64u,
+            serverVerifyingShareB64u: entry.relayerVerifyingShareB64u,
+            clientSignatureShareB64u: clientSignatureShare.clientSignatureShareB64u,
+          }),
+        });
+        requireRouterAbNormalSigningResponseMatchesRequest({
+          request: args.prepare.request,
+          signingPayloadDigest: args.prepare.admissionMaterial.signingPayloadDigest,
+          response: signingResponse,
+        });
+        burnThresholdEd25519ReservedPresign({
+          scopeKey: reservation.scopeKey,
+          reservation: reservation.reservation,
+          reason: 'used',
+        });
+        scheduleRouterAbEd25519ClientPresignPoolRefillInBackground({
+          ctx: args.ctx,
+          thresholdSessionId: args.thresholdSessionId,
+          walletSessionState: args.walletSessionState,
+          thresholdKeyMaterial: args.thresholdKeyMaterial,
+          nearAccountId: args.nearAccountId,
+          signingMaterial: args.signingMaterial,
+          requestTag: 'background_presign_pool_refill',
+        });
+        return {
+          signatureB64u: routerAbCanonicalWireBytesToB64u(
+            signingResponse.signature,
+            'Router A/B normal-signing signature',
+          ),
+          signerPublicKey: args.thresholdKeyMaterial.publicKey,
+        };
+      } catch (error) {
+        burnThresholdEd25519ReservedPresign({
+          scopeKey: reservation.scopeKey,
+          reservation: reservation.reservation,
+          reason: signedShare ? 'send_attempted' : 'rejected',
+        });
+        throw error;
+      }
+    }
+    emitThresholdEd25519PresignMetric({
+      metric: 'ed25519_presign_pool_miss',
+      nearAccountId: args.nearAccountId,
+      nearNetworkId: args.nearNetworkId,
+      operationId: args.operation.operationId,
+      operationFingerprint: args.operation.operationFingerprint,
+    });
+    scheduleRouterAbEd25519ClientPresignPoolRefillInBackground({
+      ctx: args.ctx,
+      thresholdSessionId: args.thresholdSessionId,
+      walletSessionState: args.walletSessionState,
+      thresholdKeyMaterial: args.thresholdKeyMaterial,
+      nearAccountId: args.nearAccountId,
+      signingMaterial: args.signingMaterial,
+      requestTag: 'foreground_presign_pool_refill',
+    });
+  }
+
   const prepareResponse = await prepareRouterAbNormalSigningV2({
-    relayServerUrl: args.thresholdSessionState.relayerUrl,
-    credential: routerAbWalletSessionCredentialFromResolvedThresholdSessionState(
-      args.thresholdSessionState,
-    ),
+    relayServerUrl: args.walletSessionState.relayerUrl,
+    credential,
     request: args.prepare.request,
   });
   requireRouterAbNormalSigningPrepareMatchesRequest({
@@ -632,8 +698,9 @@ async function tryFinalizeRouterAbEd25519NormalSigningSignature(args: {
     response: prepareResponse,
   });
 
-  const clientShare = await createThresholdEd25519RoleSeparatedNormalSigningClientShareWasm({
-    xClientBaseB64u: args.xClientBaseB64u,
+  const clientShare = await createThresholdEd25519RoleSeparatedNormalSigningClientShareFromMaterialHandleWasm({
+    materialHandle: args.signingMaterial.materialHandle,
+    expectedClientVerifyingShareB64u: args.signingMaterial.clientVerifyingShareB64u,
     groupPublicKeyB64u: nearEd25519PublicKeyToB64u(args.thresholdKeyMaterial.publicKey),
     serverVerifyingShareB64u: prepareResponse.server_verifying_share_b64u,
     serverCommitments: {
@@ -645,16 +712,13 @@ async function tryFinalizeRouterAbEd25519NormalSigningSignature(args: {
   });
 
   const signingResponse = await finalizeRouterAbNormalSigningV2({
-    relayServerUrl: args.thresholdSessionState.relayerUrl,
-    credential: routerAbWalletSessionCredentialFromResolvedThresholdSessionState(
-      args.thresholdSessionState,
-    ),
+    relayServerUrl: args.walletSessionState.relayerUrl,
+    credential,
     request: buildRouterAbEd25519NormalSigningFinalizeRequestV2({
       scope: args.prepare.request.scope,
       expiresAtMs: args.prepare.request.expires_at_ms,
       prepareResponse,
       admissionMaterial: args.prepare.admissionMaterial,
-      groupPublicKey: args.thresholdKeyMaterial.publicKey,
       clientCommitments: {
         hiding: clientShare.clientCommitments.hidingB64u,
         binding: clientShare.clientCommitments.bindingB64u,
@@ -668,7 +732,6 @@ async function tryFinalizeRouterAbEd25519NormalSigningSignature(args: {
     signingPayloadDigest: args.prepare.admissionMaterial.signingPayloadDigest,
     response: signingResponse,
   });
-
   return {
     signatureB64u: routerAbCanonicalWireBytesToB64u(
       signingResponse.signature,
@@ -681,19 +744,19 @@ async function tryFinalizeRouterAbEd25519NormalSigningSignature(args: {
 export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(args: {
   ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
-  thresholdSessionState: ResolvedThresholdEd25519SessionState;
+  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   nearAccountId: string;
-  xClientBaseB64u: string;
+  signingMaterial: RouterAbEd25519SigningMaterialReady;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
-  purpose: ThresholdEd25519SignatureOnlyPresignPurpose;
+  purpose: RouterAbEd25519SignatureOnlyPurpose;
   signingDigestB64u: string;
-  intent: ThresholdEd25519FinalizeSignatureOnlyIntentWire;
+  intent: RouterAbEd25519SignatureOnlyIntentWire;
 }): Promise<RouterAbEd25519SignatureOnlyNormalSigningResult | null> {
   const scope = buildRouterAbNormalSigningScope({
     thresholdSessionId: args.thresholdSessionId,
-    thresholdSessionState: args.thresholdSessionState,
+    walletSessionState: args.walletSessionState,
     nearAccountId: args.nearAccountId,
     operationId: args.operationId,
   });
@@ -750,9 +813,18 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(args:
         });
   const finalized = await tryFinalizeRouterAbEd25519NormalSigningSignature({
     ctx: args.ctx,
-    thresholdSessionState: args.thresholdSessionState,
+    thresholdSessionId: args.thresholdSessionId,
+    walletSessionState: args.walletSessionState,
     thresholdKeyMaterial: args.thresholdKeyMaterial,
-    xClientBaseB64u: args.xClientBaseB64u,
+    nearAccountId: args.nearAccountId,
+    nearNetworkId,
+    signingMaterial: args.signingMaterial,
+    operation: {
+      kind: 'router_ab_ed25519_presign_operation_identity_v1',
+      operationId: args.operationId,
+      operationFingerprint: args.operationFingerprint,
+      purpose: args.purpose,
+    },
     signingDigestB64u: args.signingDigestB64u,
     signingPayloadLabel: 'signature-only payload digest',
     prepare,
@@ -768,18 +840,31 @@ export async function tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning(args:
 export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(args: {
   ctx: NearSigningRuntimeDeps;
   thresholdSessionId: string;
-  thresholdSessionState: ResolvedThresholdEd25519SessionState;
+  walletSessionState: ResolvedRouterAbEd25519WalletSessionState;
   thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
   nearAccountId: string;
-  xClientBaseB64u: string;
+  signingMaterial: RouterAbEd25519SigningMaterialReady;
   operationId: SigningOperationId;
   operationFingerprint: SigningOperationFingerprint;
   txSigningRequests: readonly TransactionPayload[];
   transactionContext: TransactionContext | undefined;
 }): Promise<RouterAbEd25519NearTransactionNormalSigningResult | null> {
-  const routerAbState = args.thresholdSessionState.routerAbNormalSigning;
-  if (!routerAbState) return null;
-  if (args.txSigningRequests.length !== 1 || !args.transactionContext) return null;
+  const routerAbState = args.walletSessionState.routerAbNormalSigning;
+  if (!routerAbState) {
+    throw new Error(
+      '[SigningEngine][near] Router A/B Ed25519 normal-signing state is missing',
+    );
+  }
+  if (args.txSigningRequests.length !== 1) {
+    throw new Error(
+      `[SigningEngine][near] Router A/B Ed25519 transaction signing requires exactly one NEAR transaction per request; received ${args.txSigningRequests.length}`,
+    );
+  }
+  if (!args.transactionContext) {
+    throw new Error(
+      '[SigningEngine][near] Router A/B Ed25519 transaction signing is missing transaction context from confirmation',
+    );
+  }
 
   const unsigned = await buildThresholdEd25519NearTxUnsignedBorshWasm({
     sessionId: args.thresholdSessionId,
@@ -787,7 +872,11 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(arg
     transactionContext: args.transactionContext,
     workerCtx: args.ctx,
   });
-  if (unsigned.length !== 1) return null;
+  if (unsigned.length !== 1) {
+    throw new Error(
+      `[SigningEngine][near] Router A/B Ed25519 transaction signing produced ${unsigned.length} unsigned transactions`,
+    );
+  }
   const unsignedTx = unsigned[0];
   const signingPayload = base64UrlDecode(unsignedTx.signingDigestB64u);
   if (signingPayload.length !== 32) {
@@ -811,11 +900,13 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(arg
   );
   const scope = buildRouterAbNormalSigningScope({
     thresholdSessionId: args.thresholdSessionId,
-    thresholdSessionState: args.thresholdSessionState,
+    walletSessionState: args.walletSessionState,
     nearAccountId: args.nearAccountId,
     operationId: args.operationId,
   });
-  if (!scope) return null;
+  if (!scope) {
+    throw new Error('[SigningEngine][near] Router A/B Ed25519 signing scope is missing');
+  }
   const prepare = await buildRouterAbEd25519NearTransactionPrepareRequestV2({
     scope,
     expiresAtMs: routerAbNormalSigningExpiresAtMs(),
@@ -834,9 +925,18 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(arg
   });
   const signatureResult = await tryFinalizeRouterAbEd25519NormalSigningSignature({
     ctx: args.ctx,
-    thresholdSessionState: args.thresholdSessionState,
+    thresholdSessionId: args.thresholdSessionId,
+    walletSessionState: args.walletSessionState,
     thresholdKeyMaterial: args.thresholdKeyMaterial,
-    xClientBaseB64u: args.xClientBaseB64u,
+    nearAccountId: args.nearAccountId,
+    nearNetworkId,
+    signingMaterial: args.signingMaterial,
+    operation: {
+      kind: 'router_ab_ed25519_presign_operation_identity_v1',
+      operationId: args.operationId,
+      operationFingerprint,
+      purpose: 'near_transaction',
+    },
     signingDigestB64u: unsignedTx.signingDigestB64u,
     signingPayloadLabel: 'NEAR payload digest',
     prepare,
@@ -871,222 +971,5 @@ export async function tryFinalizeRouterAbEd25519NearTransactionNormalSigning(arg
         error: undefined,
       },
     },
-  };
-}
-
-export async function tryFinalizeThresholdEd25519NearTransactionPresign(args: {
-  ctx: NearSigningRuntimeDeps;
-  thresholdSessionId: string;
-  thresholdSessionState: ResolvedThresholdEd25519SessionState;
-  thresholdKeyMaterial: ThresholdEd25519KeyMaterial;
-  nearAccountId: string;
-  xClientBaseB64u: string;
-  operationId: SigningOperationId;
-  operationFingerprint: SigningOperationFingerprint;
-  txSigningRequests: readonly TransactionPayload[];
-  transactionContext: TransactionContext | undefined;
-}): Promise<ThresholdEd25519NearTransactionPresignResult | null> {
-  const finalizeStartedAtMs = Date.now();
-  if (args.txSigningRequests.length !== 1 || !args.transactionContext) return null;
-  const presignFinalizeTransactions = args.txSigningRequests.map((transaction, index) =>
-    parseThresholdEd25519NearTransaction(transaction, `txSigningRequests[${index}]`),
-  );
-  const nearNetworkId = normalizeNearNetworkId(args.ctx);
-  const participantIds = args.thresholdKeyMaterial.participants.map(
-    (participant) => participant.id,
-  );
-  const runtimePolicyScope = resolveRuntimePolicyScope(args.thresholdSessionState);
-  if (!runtimePolicyScope) return null;
-
-  const unsigned = await buildThresholdEd25519NearTxUnsignedBorshWasm({
-    sessionId: args.thresholdSessionId,
-    txSigningRequests: args.txSigningRequests,
-    transactionContext: args.transactionContext,
-    workerCtx: args.ctx,
-  });
-  if (unsigned.length !== 1) return null;
-  const unsignedTx = unsigned[0];
-  const finalizeOperationFingerprint = SigningSessionIds.signingOperationFingerprint(
-    await thresholdEd25519NearTransactionOperationFingerprint({
-      nearAccountId: args.nearAccountId,
-      nearNetworkId,
-      relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
-      signerPublicKey: args.thresholdKeyMaterial.publicKey,
-      transactions: presignFinalizeTransactions,
-      unsignedTransactionBorshB64u: unsignedTx.unsignedTransactionBorshB64u,
-      signingDigestB64u: unsignedTx.signingDigestB64u,
-    }),
-  );
-  const operation: Ed25519PresignOperationIdentity = {
-    kind: 'threshold_ed25519_presign_operation_identity_v1',
-    operationId: args.operationId,
-    operationFingerprint: finalizeOperationFingerprint,
-    purpose: 'near_transaction',
-  };
-  const reservation = reserveThresholdEd25519ReadyPresignForScope({
-    thresholdSessionId: args.thresholdSessionId,
-    walletSigningSessionId: args.thresholdSessionState.walletSigningSessionId,
-    relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
-    nearAccountId: args.nearAccountId,
-    nearNetworkId,
-    signerPublicKey: args.thresholdKeyMaterial.publicKey,
-    participantIds,
-    runtimePolicyScope,
-    operation,
-  });
-  if (!reservation.ok) {
-    emitThresholdEd25519PresignMetric({
-      metric: 'ed25519_presign_pool_miss',
-      nearAccountId: args.nearAccountId,
-      nearNetworkId,
-      operationId: args.operationId,
-      operationFingerprint: args.operationFingerprint,
-    });
-    scheduleThresholdEd25519ClientPresignPoolRefillInBackground({
-      ctx: args.ctx,
-      thresholdSessionId: args.thresholdSessionId,
-      thresholdSessionState: args.thresholdSessionState,
-      thresholdKeyMaterial: args.thresholdKeyMaterial,
-      nearAccountId: args.nearAccountId,
-      xClientBaseB64u: args.xClientBaseB64u,
-      requestTag: 'foreground_presign_pool_refill',
-    });
-    return null;
-  }
-  emitThresholdEd25519PresignMetric({
-    metric: 'ed25519_presign_pool_hit',
-    nearAccountId: args.nearAccountId,
-    nearNetworkId,
-    operationId: args.operationId,
-    operationFingerprint: args.operationFingerprint,
-  });
-
-  let signedShare = false;
-  try {
-    const clientSignatureShare = await signThresholdEd25519ClientPresignWasm({
-      sessionId: args.thresholdSessionId,
-      clientParticipantId: requireParticipantId({
-        thresholdKeyMaterial: args.thresholdKeyMaterial,
-        role: 'client',
-      }),
-      relayerParticipantId: requireParticipantId({
-        thresholdKeyMaterial: args.thresholdKeyMaterial,
-        role: 'relayer',
-      }),
-      xClientBaseB64u: args.xClientBaseB64u,
-      groupPublicKey: args.thresholdKeyMaterial.publicKey,
-      signingDigestB64u: unsignedTx.signingDigestB64u,
-      clientNonceHandleB64u: reservation.reservation.entry.nonceHandle,
-      clientCommitments: reservation.reservation.entry.clientCommitments,
-      relayerCommitments: reservation.reservation.entry.relayerCommitments,
-      workerCtx: args.ctx,
-    });
-    signedShare = true;
-    const request = {
-      kind: 'threshold_ed25519_finalize_and_dispatch_near_tx_v1' as const,
-      operation: {
-        kind: 'threshold_ed25519_signing_operation_v1' as const,
-        operationId: args.operationId,
-        operationFingerprint: finalizeOperationFingerprint,
-        purpose: 'near_transaction' as const,
-      },
-      presignId: reservation.reservation.entry.presignId,
-      relayerKeyId: args.thresholdKeyMaterial.relayerKeyId,
-      nearAccountId: args.nearAccountId,
-      nearNetworkId,
-      expectedSignerPublicKey: args.thresholdKeyMaterial.publicKey,
-      transactions: presignFinalizeTransactions,
-      unsignedTransactionBorshB64u: unsignedTx.unsignedTransactionBorshB64u,
-      signingDigestB64u: unsignedTx.signingDigestB64u,
-      clientSignatureShareB64u: clientSignatureShare.clientSignatureShareB64u,
-      dispatch: { kind: 'near_rpc_configured_default_v1' as const },
-    };
-    const response = await finalizeThresholdEd25519Presign({
-      relayServerUrl: args.thresholdSessionState.relayerUrl,
-      auth: authFromThresholdSessionState(args.thresholdSessionState),
-      request: {
-        ...request,
-        requestIntegrityHash: await thresholdEd25519FinalizeRequestIntegrityHash(request),
-      },
-    });
-    if (!response.ok) {
-      throw new Error(response.message || response.code || 'threshold-ed25519 presign failed');
-    }
-    if (response.kind !== 'threshold_ed25519_dispatched_near_tx_result_v1') {
-      throw new Error('threshold-ed25519 transaction presign returned non-dispatch result');
-    }
-    const decoded = await decodeThresholdEd25519SignedNearTxBorshWasm({
-      sessionId: args.thresholdSessionId,
-      signedTransactionBorshB64u: response.signedTransactionBorshB64u,
-      workerCtx: args.ctx,
-    });
-    burnThresholdEd25519ReservedPresign({
-      scopeKey: reservation.scopeKey,
-      reservation: reservation.reservation,
-      reason: 'used',
-    });
-    emitThresholdEd25519PresignMetric({
-      metric: 'ed25519_one_rtt_finalize_ms',
-      nearAccountId: args.nearAccountId,
-      nearNetworkId,
-      operationId: args.operationId,
-      operationFingerprint: args.operationFingerprint,
-      durationMs: Date.now() - finalizeStartedAtMs,
-    });
-    scheduleThresholdEd25519ClientPresignPoolRefillInBackground({
-      ctx: args.ctx,
-      thresholdSessionId: args.thresholdSessionId,
-      thresholdSessionState: args.thresholdSessionState,
-      thresholdKeyMaterial: args.thresholdKeyMaterial,
-      nearAccountId: args.nearAccountId,
-      xClientBaseB64u: args.xClientBaseB64u,
-      requestTag: 'background_presign_pool_refill',
-    });
-    const transactionHash = response.transactionHash || decoded.transactionHash;
-    const signedTransaction = Object.assign(decoded.signedTransaction, {
-      serverDispatch: {
-        transactionHash,
-        rpcResult: response.rpcResult,
-      },
-    });
-    return {
-      kind: 'threshold_ed25519_near_transaction_presign_result_v1',
-      transactionHash,
-      rpcResult: response.rpcResult,
-      okResponse: {
-        type: WorkerResponseType.SignTransactionsWithActionsSuccess,
-        payload: {
-          free: () => undefined,
-          success: true,
-          transactionHashes: [transactionHash],
-          signedTransactions: [signedTransaction],
-          logs: ['NEAR transaction signed and dispatched with threshold Ed25519 presign'],
-          error: undefined,
-        },
-      },
-    };
-  } catch (error) {
-    burnThresholdEd25519ReservedPresign({
-      scopeKey: reservation.scopeKey,
-      reservation: reservation.reservation,
-      reason: signedShare ? 'send_attempted' : 'rejected',
-    });
-    throw error;
-  }
-}
-
-function signatureOnlyResultFromFinalizeResponse(
-  response: Extract<ThresholdEd25519FinalizeAndDispatchResponseWire, { ok: true }>,
-): ThresholdEd25519SignatureOnlyPresignResult {
-  if (response.kind !== 'threshold_ed25519_signature_only_result_v1') {
-    throw new Error('threshold-ed25519 presign returned non-signature result');
-  }
-  return {
-    kind: 'threshold_ed25519_signature_only_presign_result_v1',
-    operationId: response.operationId,
-    signatureB64u: response.signatureB64u,
-    signerPublicKey: response.signerPublicKey,
-    remainingSigningUses: response.remainingSigningUses,
-    budgetState: response.budgetState,
   };
 }

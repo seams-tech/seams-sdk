@@ -1,11 +1,7 @@
 import {
   WorkerRequestType,
   WorkerResponseType,
-  isSignNep413MessageSuccess,
-  isWorkerError,
   type ConfirmationConfig,
-  type Nep413SigningResponse,
-  type WasmSignNep413MessageRequest,
   type WorkerSuccessResponse,
 } from '@/core/types/signer-worker';
 import { PASSKEY_MANAGER_DEFAULT_CONFIGS } from '@/core/config/defaultConfigs';
@@ -13,32 +9,33 @@ import { resolveNearNetwork } from '@/core/config/chains';
 import type { WebAuthnAuthenticationCredential } from '@/core/types';
 import type { ThresholdEd25519KeyMaterial } from '@/core/accountData/near/types';
 import {
-  isThresholdSessionAuthUnavailableError,
-  isThresholdSignerMissingKeyError,
+  isSigningSessionAuthUnavailableError,
+  isThresholdSignerRepairableMaterialError,
 } from '@/core/signingEngine/threshold/sessionPolicy';
 import { normalizeThresholdEd25519ParticipantIds } from '@shared/threshold/participants';
 import type { NearSigningRuntimeDeps } from '../../interfaces/runtime';
-import { executeWorkerOperation } from '@/core/signingEngine/workerManager/executeWorkerOperation';
 import { computeThresholdEd25519Nep413SigningDigestWasm } from '../../chains/near/nearSignerWasm';
 import {
   generateNearSigningSessionId,
   requirePrfFirstFromCredential,
   resolveNearSigningMaterials,
-  toCredentialForRelayJson,
 } from './shared/signingMaterials';
 import {
-  refreshPasskeyEd25519SealedRecordAfterClientBase,
-  requireResolvedThresholdEd25519SessionState,
-} from './shared/thresholdSessionAuth';
-import { buildNearWorkerSigningEnvelope } from '../../chains/near/workerRequest';
+  refreshPasskeyEd25519SealedRecordAfterSigningMaterial,
+  requireResolvedRouterAbEd25519WalletSessionState,
+  type ResolvedRouterAbEd25519WalletSessionState,
+} from './shared/routerAbEd25519WalletSessionState';
 import {
-  buildNearThresholdSigningAuthPlan,
+  buildNearSigningSessionAuthPlan,
   createNearSigningSessionCoordinator,
-  resolveNearThresholdSigningAuthContext,
-  THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR,
-} from './shared/thresholdAuthMode';
-import { ensureThresholdEd25519HssClientBase } from '../../threshold/ed25519/hssClientBase';
-import { repairThresholdEd25519MissingRelayerKey } from '../../threshold/ed25519/repairMissingRelayerKey';
+  resolveNearSigningSessionAuthContext,
+  SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR,
+} from './shared/signingSessionAuthMode';
+import {
+  ensureThresholdEd25519HssSigningMaterial,
+  requireThresholdEd25519HssSigningMaterialHandle,
+  type RouterAbEd25519SigningMaterialReady,
+} from '../../threshold/ed25519/hssClientBase';
 import { planSigningSession } from '../../session/planning/planner';
 import {
   SigningOperationIntent,
@@ -51,15 +48,31 @@ import {
   runSigningOperationCommand,
   type SigningOperationCommand,
 } from '../shared/signingStateMachine';
-import { runSigningConfirmationCommand } from '../shared/signingConfirmation';
+import {
+  confirmationConfigForSigningAuthPlan,
+  runSigningConfirmationCommand,
+} from '../shared/signingConfirmation';
 import { requireNearStepUpAuth } from './requireNearStepUpAuth';
 import { buildNearEd25519StepUpAuthorization } from './stepUpAuthorization';
 import type { NearAccountRef } from '../../interfaces/ecdsaChainTarget';
-import {
-  tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning,
-  tryFinalizeThresholdEd25519SignatureOnlyPresign,
-} from './shared/ed25519PresignFinalize';
+import { tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning } from './shared/ed25519PresignFinalize';
+import { requireRouterAbEd25519NormalSigningReadyState } from './shared/routerAbWalletSessionCredential';
 import { base64Encode, base64UrlDecode } from '@shared/utils/base64';
+
+type RouterAbNearNep413SigningPayload = {
+  kind: 'router_ab_ed25519_nep413_signing_payload_v1';
+  signingMaterial: RouterAbEd25519SigningMaterialReady;
+};
+
+function requireRouterAbEd25519SigningRootId(
+  state: ResolvedRouterAbEd25519WalletSessionState,
+): string {
+  const signingRootId = String(state.signingRootId || '').trim();
+  if (!signingRootId) {
+    throw new Error('[SigningEngine][near] Router A/B Ed25519 signing is missing signingRootId');
+  }
+  return signingRootId;
+}
 
 /**
  * Sign a NEP-413 message using the active threshold-controlled NEAR key.
@@ -106,25 +119,25 @@ export async function signNep413Message({
     const signingSessionCoordinator = createNearSigningSessionCoordinator(touchConfirm);
 
     const requiredSignatureUses = 1;
-    const thresholdAuthContext = await resolveNearThresholdSigningAuthContext({
+    const signingSessionAuthContext = await resolveNearSigningSessionAuthContext({
       warmSessionReader: signingSessionCoordinator,
       requiredSignatureUses,
       nearAccount,
       operationLabel: 'NEP-413 signing',
     });
-    const resolvedThresholdSigningSession = {
+    const resolvedSigningSession = {
       signingSessionPlan: planSigningSession({
-        lane: thresholdAuthContext.coordinatorInput.lane,
-        readiness: thresholdAuthContext.coordinatorInput.readiness,
-        forceFreshAuth: thresholdAuthContext.coordinatorInput.forceFreshAuth,
+        lane: signingSessionAuthContext.coordinatorInput.lane,
+        readiness: signingSessionAuthContext.coordinatorInput.readiness,
+        forceFreshAuth: signingSessionAuthContext.coordinatorInput.forceFreshAuth,
       }),
-      readiness: thresholdAuthContext.coordinatorInput.readiness,
-      expiresAtMs: thresholdAuthContext.coordinatorInput.expiresAtMs || 0,
-      remainingUses: thresholdAuthContext.coordinatorInput.remainingUses || 0,
+      readiness: signingSessionAuthContext.coordinatorInput.readiness,
+      expiresAtMs: signingSessionAuthContext.coordinatorInput.expiresAtMs || 0,
+      remainingUses: signingSessionAuthContext.coordinatorInput.remainingUses || 0,
     };
-    const thresholdAuthPlan = buildNearThresholdSigningAuthPlan({
-      context: thresholdAuthContext,
-      resolvedSigningSession: resolvedThresholdSigningSession,
+    const signingSessionAuthPlan = buildNearSigningSessionAuthPlan({
+      context: signingSessionAuthContext,
+      resolvedSigningSession: resolvedSigningSession,
     });
     const { thresholdKeyMaterial } = await resolveNearSigningMaterials({
       ctx,
@@ -160,18 +173,18 @@ export async function signNep413Message({
       execute: () => Promise<T>;
     }): Promise<T> =>
       await runSigningOperationCommand({
-        signingSessionPlan: resolvedThresholdSigningSession.signingSessionPlan,
+        signingSessionPlan: resolvedSigningSession.signingSessionPlan,
         signingOperation,
         commandKind: args.commandKind,
         execute: args.execute,
       });
     const preparedStepUp = await requireNearStepUpAuth({
-      signingAuthPlan: thresholdAuthPlan.signingAuthPlan,
-      signingLane: thresholdAuthPlan.lane,
+      signingAuthPlan: signingSessionAuthPlan.signingAuthPlan,
+      signingLane: signingSessionAuthPlan.lane,
       requiredSignatureUses,
     });
     const confirmation = await runSigningConfirmationCommand({
-      signingSessionPlan: resolvedThresholdSigningSession.signingSessionPlan,
+      signingSessionPlan: resolvedSigningSession.signingSessionPlan,
       signingOperation,
       runtime: touchConfirm,
       request: {
@@ -186,7 +199,10 @@ export async function signNep413Message({
         recipient: payload.recipient,
         title: payload.title,
         body: payload.body,
-        confirmationConfigOverride: payload.confirmationConfigOverride,
+        confirmationConfigOverride: confirmationConfigForSigningAuthPlan({
+          signingAuthPlan: preparedStepUp.confirmationAuthPayload.signingAuthPlan,
+          override: payload.confirmationConfigOverride,
+        }),
       },
     });
     const stepUpAuthorization = buildNearEd25519StepUpAuthorization({
@@ -196,99 +212,74 @@ export async function signNep413Message({
 
     const credentialWithPrf: WebAuthnAuthenticationCredential | undefined =
       stepUpAuthorization.kind === 'passkey' ? stepUpAuthorization.credential : undefined;
-    const credentialForRelayJson = toCredentialForRelayJson(credentialWithPrf);
 
     const preparedPayload = await runSharedNearNep413Command({
       commandKind: SigningOperationCommandKind.PreparePayload,
       execute: async () => {
-        const prfFirstB64u =
-          stepUpAuthorization.kind === 'warm_session'
-            ? await signingSessionCoordinator.claimPrfFirstByThresholdSessionId({
-                kind: 'wallet_scoped_ed25519_claim',
-                thresholdSessionId: thresholdAuthPlan.sessionId,
-                uses: requiredSignatureUses,
-                errorContext: 'threshold-ed25519 nep413 signing',
-                walletId: nearAccountId,
-                authMethod: thresholdAuthPlan.lane.authMethod,
-                curve: 'ed25519',
-                chain: 'near',
-                walletSigningSessionId: thresholdAuthPlan.lane.walletSigningSessionId,
-              })
-            : requirePrfFirstFromCredential(credentialWithPrf);
-
-        if (!prfFirstB64u) {
-          throw new Error('Missing PRF.first output for signing');
-        }
-
-        const canonicalThresholdSessionId = thresholdAuthPlan.sessionId;
-        const thresholdSessionState = requireResolvedThresholdEd25519SessionState({
+        const canonicalThresholdSessionId = signingSessionAuthPlan.sessionId;
+        const walletSessionState = requireResolvedRouterAbEd25519WalletSessionState({
           signingSessionCoordinator,
           thresholdSessionId: canonicalThresholdSessionId,
         });
-        const xClientBaseB64u = await ensureThresholdEd25519HssClientBase({
+        const routerAbReadyState = requireRouterAbEd25519NormalSigningReadyState({
+          state: walletSessionState,
+          thresholdSessionId: canonicalThresholdSessionId,
+          nearAccountId,
+          thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+        });
+        const prfFirstB64u =
+          stepUpAuthorization.kind === 'warm_session'
+            ? ''
+            : requirePrfFirstFromCredential(credentialWithPrf);
+        const signingMaterial = await requireThresholdEd25519HssSigningMaterialHandle({
           ctx,
           thresholdSessionId: canonicalThresholdSessionId,
-          existingXClientBaseB64u: thresholdSessionState.xClientBaseB64u,
-          thresholdSessionAuthToken: thresholdSessionState.thresholdSessionAuthToken,
-          signingRootId: thresholdSessionState.signingRootId,
-          relayerUrl: thresholdSessionState.relayerUrl,
+          walletSigningSessionId: walletSessionState.walletSigningSessionId,
+          existingMaterialHandle:
+            walletSessionState.signingWalletSession.signingMaterial.materialHandle,
+          existingMaterialBindingDigest:
+            walletSessionState.signingWalletSession.signingMaterial.bindingDigest,
+          existingMaterialClientVerifierB64u:
+            walletSessionState.signingWalletSession.signingMaterial.clientVerifierB64u,
+          signingRootId: requireRouterAbEd25519SigningRootId(walletSessionState),
+          signingRootVersion: routerAbReadyState.signingRootVersion,
+          expiresAtMs: routerAbReadyState.expiresAtMs,
           relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
           nearAccountId,
-          keyVersion: signingContext.threshold.thresholdKeyMaterial.keyVersion,
           participantIds: signingContext.threshold.thresholdKeyMaterial.participants.map(
             (p) => p.id,
           ),
-          prfFirstB64u,
-          persistClientBase: thresholdSessionState.persistClientBase,
-        });
-        await refreshPasskeyEd25519SealedRecordAfterClientBase({
-          touchConfirm,
-          nearAccountId,
-          thresholdSessionState,
-          thresholdSessionId: canonicalThresholdSessionId,
-          xClientBaseB64u,
+          signingWorkerId: routerAbReadyState.signingWorkerId,
         });
         return {
           canonicalThresholdSessionId,
-          thresholdSessionState,
+          walletSessionState,
+          routerAbReadyState,
           prfFirstB64u,
-          xClientBaseB64u,
+          signingMaterial,
         };
       },
     });
-    const { canonicalThresholdSessionId, thresholdSessionState, prfFirstB64u, xClientBaseB64u } =
-      preparedPayload;
+    const {
+      canonicalThresholdSessionId,
+      walletSessionState,
+      routerAbReadyState,
+      prfFirstB64u,
+      signingMaterial,
+    } = preparedPayload;
 
     const buildRequestPayload = (
-      xClientBaseOverride?: string,
-    ): Omit<WasmSignNep413MessageRequest, 'sessionId'> => {
-      const currentThresholdSessionState = requireResolvedThresholdEd25519SessionState({
-        signingSessionCoordinator,
-        thresholdSessionId: canonicalThresholdSessionId,
-      });
+      materialOverride?: RouterAbEd25519SigningMaterialReady,
+    ): RouterAbNearNep413SigningPayload => {
       return {
-        message: payload.message,
-        recipient: payload.recipient,
-        nonce: payload.nonce,
-        state: payload.state || undefined,
-        accountId: nearAccountId,
-        nearPublicKey: signingContext.nearPublicKey,
-        ...buildNearWorkerSigningEnvelope({
-          threshold: {
-            relayerUrl: currentThresholdSessionState.relayerUrl,
-            thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
-            xClientBaseB64u: xClientBaseOverride || currentThresholdSessionState.xClientBaseB64u,
-            thresholdSessionKind: currentThresholdSessionState.sessionKind,
-            thresholdSessionAuthToken: currentThresholdSessionState.thresholdSessionAuthToken,
-          },
-        }),
-        credential: credentialForRelayJson,
+        kind: 'router_ab_ed25519_nep413_signing_payload_v1',
+        signingMaterial: materialOverride || signingMaterial,
       };
     };
-    let requestPayload = buildRequestPayload(xClientBaseB64u);
+    let requestPayload = buildRequestPayload(signingMaterial);
 
     const executeNep413Request = async (
-      payloadForWorker: Omit<WasmSignNep413MessageRequest, 'sessionId'>,
+      payloadForWorker: RouterAbNearNep413SigningPayload,
     ) => {
       const signingDigest = await computeThresholdEd25519Nep413SigningDigestWasm({
         sessionId: canonicalThresholdSessionId,
@@ -298,7 +289,6 @@ export async function signNep413Message({
         ...(payload.state ? { state: payload.state } : {}),
         workerCtx: ctx,
       });
-      const presignXClientBaseB64u = payloadForWorker.threshold.xClientBaseB64u || xClientBaseB64u;
       const signatureOnlyIntent = {
         kind: 'nep413_message_v1' as const,
         message: payload.message,
@@ -306,21 +296,19 @@ export async function signNep413Message({
         nonce: payload.nonce,
         ...(payload.state ? { state: payload.state } : {}),
       };
-      const routerAbNormalSigningResult = presignXClientBaseB64u
-        ? await tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning({
-            ctx,
-            thresholdSessionId: canonicalThresholdSessionId,
-            thresholdSessionState,
-            thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
-            nearAccountId,
-            xClientBaseB64u: presignXClientBaseB64u,
-            operationId: signingOperation.operationId,
-            operationFingerprint: signingOperation.operationFingerprint!,
-            purpose: 'nep413_message',
-            signingDigestB64u: signingDigest.signingDigestB64u,
-            intent: signatureOnlyIntent,
-          })
-        : null;
+      const routerAbNormalSigningResult = await tryFinalizeRouterAbEd25519SignatureOnlyNormalSigning({
+        ctx,
+        thresholdSessionId: canonicalThresholdSessionId,
+        walletSessionState,
+        thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
+        nearAccountId,
+        signingMaterial: payloadForWorker.signingMaterial,
+        operationId: signingOperation.operationId,
+        operationFingerprint: signingOperation.operationFingerprint!,
+        purpose: 'nep413_message',
+        signingDigestB64u: signingDigest.signingDigestB64u,
+        intent: signatureOnlyIntent,
+      });
       if (routerAbNormalSigningResult) {
         return {
           type: WorkerResponseType.SignNep413MessageSuccess,
@@ -332,42 +320,7 @@ export async function signNep413Message({
           },
         } as WorkerSuccessResponse<typeof WorkerRequestType.SignNep413Message>;
       }
-      const presignResult = presignXClientBaseB64u
-        ? await tryFinalizeThresholdEd25519SignatureOnlyPresign({
-            ctx,
-            thresholdSessionId: canonicalThresholdSessionId,
-            thresholdSessionState,
-            thresholdKeyMaterial: signingContext.threshold.thresholdKeyMaterial,
-            nearAccountId,
-            xClientBaseB64u: presignXClientBaseB64u,
-            operationId: signingOperation.operationId,
-            operationFingerprint: signingOperation.operationFingerprint!,
-            purpose: 'nep413_message',
-            signingDigestB64u: signingDigest.signingDigestB64u,
-            intent: signatureOnlyIntent,
-          })
-        : null;
-      if (presignResult) {
-        return {
-          type: WorkerResponseType.SignNep413MessageSuccess,
-          payload: {
-            accountId: nearAccountId,
-            publicKey: presignResult.signerPublicKey,
-            signature: base64Encode(base64UrlDecode(presignResult.signatureB64u)),
-            state: payload.state || undefined,
-          },
-        } as WorkerSuccessResponse<typeof WorkerRequestType.SignNep413Message>;
-      }
-      const response = await executeWorkerOperation({
-        ctx,
-        kind: 'nearSigner',
-        request: {
-          sessionId: canonicalThresholdSessionId,
-          type: WorkerRequestType.SignNep413Message,
-          payload: payloadForWorker,
-        },
-      });
-      return requireOkSignNep413MessageResponse(response);
+      throw new Error('[SigningEngine][near] Router A/B Ed25519 NEP-413 signing is unavailable');
     };
 
     const okResponse = await runSharedNearNep413Command({
@@ -378,37 +331,47 @@ export async function signNep413Message({
         } catch (e: unknown) {
           const err = e instanceof Error ? e : new Error(String(e));
 
-          if (isThresholdSignerMissingKeyError(err)) {
+          if (isThresholdSignerRepairableMaterialError(err)) {
             try {
-              const repairedXClientBaseB64u = await repairThresholdEd25519MissingRelayerKey({
+              const repairedSigningMaterial = await ensureThresholdEd25519HssSigningMaterial({
                 ctx,
-                operationLabel: 'nep413',
                 thresholdSessionId: canonicalThresholdSessionId,
-                thresholdSessionAuthToken: thresholdSessionState.thresholdSessionAuthToken,
-                signingRootId: thresholdSessionState.signingRootId,
-                relayerUrl: thresholdSessionState.relayerUrl,
+                walletSigningSessionId: walletSessionState.walletSigningSessionId,
+                existingMaterialHandle:
+                  walletSessionState.signingWalletSession.signingMaterial.materialHandle,
+                existingMaterialBindingDigest:
+                  walletSessionState.signingWalletSession.signingMaterial.bindingDigest,
+                existingMaterialClientVerifierB64u:
+                  walletSessionState.signingWalletSession.signingMaterial.clientVerifierB64u,
+                walletSessionJwt: routerAbReadyState.credential.walletSessionJwt,
+                signingRootId: requireRouterAbEd25519SigningRootId(walletSessionState),
+                signingRootVersion: routerAbReadyState.signingRootVersion,
+                expiresAtMs: routerAbReadyState.expiresAtMs,
+                relayerUrl: walletSessionState.relayerUrl,
                 relayerKeyId: signingContext.threshold.thresholdKeyMaterial.relayerKeyId,
                 nearAccountId,
                 keyVersion: signingContext.threshold.thresholdKeyMaterial.keyVersion,
                 participantIds: signingContext.threshold.thresholdKeyMaterial.participants.map(
                   (p) => p.id,
                 ),
+                signingWorkerId: routerAbReadyState.signingWorkerId,
                 prfFirstB64u,
-                persistClientBase: thresholdSessionState.persistClientBase,
+                forceRefresh: true,
+                persistSigningMaterial: walletSessionState.persistSigningMaterial,
               });
-              await refreshPasskeyEd25519SealedRecordAfterClientBase({
+              await refreshPasskeyEd25519SealedRecordAfterSigningMaterial({
                 touchConfirm,
                 nearAccountId,
-                thresholdSessionState,
+                walletSessionState,
                 thresholdSessionId: canonicalThresholdSessionId,
-                xClientBaseB64u: repairedXClientBaseB64u,
+                materialHandle: repairedSigningMaterial.materialHandle,
               });
-              requestPayload = buildRequestPayload(repairedXClientBaseB64u);
+              requestPayload = buildRequestPayload(repairedSigningMaterial);
               return await executeNep413Request(requestPayload);
             } catch (repairError: unknown) {
               const repairErr =
                 repairError instanceof Error ? repairError : new Error(String(repairError));
-              if (isThresholdSignerMissingKeyError(repairErr)) {
+              if (isThresholdSignerRepairableMaterialError(repairErr)) {
                 const msg =
                   '[SigningEngine] threshold-signer requested but the relayer signing share could not be repaired from the active HSS session';
                 throw new Error(msg);
@@ -417,8 +380,8 @@ export async function signNep413Message({
             }
           }
 
-          if (isThresholdSessionAuthUnavailableError(err)) {
-            throw new Error(THRESHOLD_SESSION_AUTH_UNAVAILABLE_ERROR);
+          if (isSigningSessionAuthUnavailableError(err)) {
+            throw new Error(SIGNING_SESSION_AUTH_UNAVAILABLE_ERROR);
           }
 
           throw err;
@@ -492,16 +455,4 @@ function validateAndPrepareNep413SigningContext(args: {
       thresholdKeyMaterial,
     },
   };
-}
-
-function requireOkSignNep413MessageResponse(
-  response: Nep413SigningResponse,
-): WorkerSuccessResponse<typeof WorkerRequestType.SignNep413Message> {
-  if (!isSignNep413MessageSuccess(response)) {
-    if (isWorkerError(response)) {
-      throw new Error(response.payload.error || 'NEP-413 signing failed');
-    }
-    throw new Error('NEP-413 signing failed');
-  }
-  return response;
 }

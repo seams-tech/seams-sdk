@@ -1138,8 +1138,20 @@ Initial findings:
             ready signer-session union.
       - [x] Type fixtures reject raw role-local blob client-share branches on
             signable ready sessions.
-- [ ] Keep raw Ed25519 `xClientBaseB64u` / `clientVerifyingShareB64u` fields
+- [x] Keep raw Ed25519 `xClientBaseB64u` / `clientVerifyingShareB64u` fields
   behind reconstruction or persistence boundary parsers.
+      Current progress:
+      - [x] `RouterAbEd25519SigningWalletSession`,
+            `NearResolvedEd25519SigningSessionState`, and
+            `RouterAbEd25519NormalSigningReadyState` now carry a required
+            `signingMaterial` ref instead of top-level Ed25519 material fields.
+      - [x] `xClientBaseB64u` remains confined to persistence/repair and worker
+            material reconstruction paths; final NEAR signing receives only a
+            worker material handle, binding digest, and verifier through the
+            parsed material ref.
+      - [x] Type fixtures reject obsolete top-level raw verifier fields and
+            missing material refs at the strict Wallet Session and ready-state
+            boundaries.
 - [ ] Keep raw ECDSA client share/verifying-share fields behind worker,
   registration, or persistence boundary parsers.
 - [ ] Review domain lifecycle unions.
@@ -1162,6 +1174,15 @@ Validation:
 ```sh
 rtk pnpm -C packages/sdk-web run type-check
 rtk pnpm -C packages/sdk-server-ts run type-check
+```
+
+Latest focused validation for the Ed25519 raw-material boundary slice:
+
+```sh
+pnpm -C packages/sdk-web type-check
+pnpm -C packages/sdk-web build:prepare
+pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEd25519.walletSessionState.unit.test.ts unit/signingCapabilityStrictRecords.unit.test.ts unit/thresholdEd25519.hssMaterialHandle.unit.test.ts --reporter=line
+git diff --check -- packages/sdk-web/src/core/signingEngine/threshold/ed25519/hssMaterialBinding.ts packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.ts packages/sdk-web/src/core/signingEngine/session/routerAbSigningWalletSession.typecheck.ts packages/sdk-web/src/core/signingEngine/interfaces/near.ts packages/sdk-web/src/core/signingEngine/flows/signNear/shared/routerAbEd25519WalletSessionState.ts packages/sdk-web/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.ts packages/sdk-web/src/core/signingEngine/flows/signNear/shared/routerAbWalletSessionCredential.typecheck.ts packages/sdk-web/src/core/signingEngine/flows/signNear/signTransactions.ts packages/sdk-web/src/core/signingEngine/flows/signNear/signDelegate.ts packages/sdk-web/src/core/signingEngine/flows/signNear/signNep413.ts packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts tests/unit/routerAbEd25519.walletSessionState.unit.test.ts
 ```
 
 Phase 3 validation completed so far:

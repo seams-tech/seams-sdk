@@ -31,14 +31,16 @@ import type {
 } from '../session/operationState/transactionState';
 import type { ThresholdRuntimePolicyScope } from '../threshold/sessionPolicy';
 import type { RouterAbEd25519NormalSigningState } from '../threshold/ed25519/routerAbNormalSigningState';
-type NearResolvedEd25519SessionAuth =
+import type { RouterAbEd25519SigningWalletSession } from '../session/routerAbSigningWalletSession';
+import type { RouterAbEd25519SigningMaterialRef } from '../threshold/ed25519/hssMaterialBinding';
+export type NearResolvedEd25519WalletSessionAuth =
   | {
-      sessionKind: 'jwt';
-      thresholdSessionAuthToken: string;
+      kind: 'wallet_session_jwt';
+      walletSessionJwt: string;
     }
   | {
-      sessionKind: 'cookie';
-      thresholdSessionAuthToken?: undefined;
+      kind: 'browser_cookie';
+      walletSessionJwt?: never;
     };
 
 export type NearPasskeyReconnectPlan = {
@@ -67,17 +69,25 @@ export type NearEd25519StepUpAuthorization =
   | NearEd25519EmailOtpStepUpAuthorization
   | NearEd25519PasskeyStepUpAuthorization;
 
-export type NearResolvedEd25519SigningSessionState = NearResolvedEd25519SessionAuth & {
+export type NearResolvedEd25519SigningSessionState = {
+  walletSessionAuth: NearResolvedEd25519WalletSessionAuth;
   thresholdSessionId: string;
   walletSigningSessionId: string;
   signingLane: NearTransactionSigningLane;
   remainingUses: number;
-  xClientBaseB64u?: string;
+  signingMaterial: RouterAbEd25519SigningMaterialRef;
+  signingRootId?: string;
+  signingRootVersion?: string;
   routerAbNormalSigning?: RouterAbEd25519NormalSigningState;
   runtimePolicyScope?: ThresholdRuntimePolicyScope;
-  signingRootId: string;
   relayerUrl: string;
-  persistClientBase: (xClientBaseB64u: string) => boolean;
+  persistSigningMaterial: (material: {
+    materialHandle: string;
+    bindingDigest: string;
+    clientVerifyingShareB64u: string;
+  }) => boolean;
+  signingWalletSession: RouterAbEd25519SigningWalletSession;
+  sessionKind?: never;
 };
 
 export type NearEmailOtpSigningHook = {
