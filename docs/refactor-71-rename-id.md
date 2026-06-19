@@ -244,7 +244,7 @@ Phase 2 evidence:
 - [x] Update server-side wallet budget binding to derive from
       `signingGrantId + curve + thresholdSessionId`.
 - [ ] Update ECDSA and Ed25519 threshold session stores and record parsers.
-- [ ] Update route handlers to consume a verified wallet-session object instead
+- [x] Update route handlers to consume a verified wallet-session object instead
       of independent loose strings.
 - [ ] Reject `sessionKind: "cookie"` on Router A/B signing-capable issuance,
       bootstrap, HSS, key-identity, export, and normal-signing routes.
@@ -258,6 +258,11 @@ Phase 3 evidence:
 - Route admission returns `thresholdSessionId` for trusted threshold-session
   identity; replay and budget adapters still receive the same value through
   their existing local parameter names.
+- Router A/B normal-signing route admission, budget reservation/commit/release,
+  ECDSA-HSS key-identity/export routes, and Express/Cloudflare route-boundary
+  identity checks now consume `walletSessionAuth` from the Wallet Session JWT
+  validator for wallet, RP, threshold session, signing grant, expiry, relayer
+  key, and key-handle identity.
 - Focused validation covered threshold claim parsing, signing budget status,
   relay registration JWT issuance, ECDSA-HSS export policy, and available-lane
   hydration fixtures.

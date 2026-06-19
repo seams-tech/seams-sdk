@@ -16,6 +16,10 @@ import type {
   RouterAbEcdsaHssWalletSessionClaims,
   RouterAbEd25519WalletSessionClaims,
 } from '../core/ThresholdService/validation';
+import type {
+  VerifiedEcdsaWalletSessionAuth,
+  VerifiedEd25519WalletSessionAuth,
+} from './verifiedWalletSessionAuth';
 import {
   validateRouterAbEcdsaHssWalletSessionInputs,
   validateRouterAbEd25519WalletSessionTokenInputs,
@@ -221,6 +225,7 @@ export type RouterAbNormalSigningAdmissionEvaluationInput =
       curve: 'ed25519';
       phase: 'prepare' | 'presign-pool-prepare' | 'finalize';
       claims: RouterAbEd25519WalletSessionClaims;
+      walletSessionAuth: VerifiedEd25519WalletSessionAuth;
       admission: AcceptedRouteAdmission;
     }
   | {
@@ -228,6 +233,7 @@ export type RouterAbNormalSigningAdmissionEvaluationInput =
       curve: 'ecdsa-hss';
       phase: 'prepare' | 'finalize';
       claims: RouterAbEcdsaHssWalletSessionClaims;
+      walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
       admission: AcceptedRouteAdmission;
     };
 
@@ -240,10 +246,10 @@ export async function evaluateRouterAbNormalSigningAdmission(
     return await input.adapter.evaluate({
       curve: 'ed25519',
       phase: input.phase,
-      walletId: input.claims.walletId,
-      rpId: input.claims.rpId,
-      sessionId: input.admission.thresholdSessionId,
-      signingGrantId: input.claims.signingGrantId,
+      walletId: input.walletSessionAuth.userId,
+      rpId: input.walletSessionAuth.rpId,
+      sessionId: input.walletSessionAuth.thresholdSessionId,
+      signingGrantId: input.walletSessionAuth.signingGrantId,
       requestId: input.admission.requestId,
       expiresAtMs: input.admission.expiresAtMs,
       signingWorkerId: input.claims.routerAbNormalSigning.signingWorkerId,
@@ -263,14 +269,14 @@ export async function evaluateRouterAbNormalSigningAdmission(
   return await input.adapter.evaluate({
     curve: 'ecdsa-hss',
     phase: input.phase,
-    walletId: input.claims.walletId,
-    rpId: input.claims.rpId,
-    sessionId: input.admission.thresholdSessionId,
-    signingGrantId: input.claims.signingGrantId,
+    walletId: input.walletSessionAuth.userId,
+    rpId: input.walletSessionAuth.rpId,
+    sessionId: input.walletSessionAuth.thresholdSessionId,
+    signingGrantId: input.walletSessionAuth.signingGrantId,
     requestId: input.admission.requestId,
     expiresAtMs: input.admission.expiresAtMs,
     signingWorkerId: input.claims.routerAbEcdsaHssNormalSigning.scope.signing_worker.server_id,
-    keyHandle: input.claims.keyHandle,
+    keyHandle: input.walletSessionAuth.keyHandle,
     runtimePolicyScope: input.claims.runtimePolicyScope,
   });
 }
@@ -544,6 +550,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
 
   const admission = validateRouterAbEd25519NormalSigningRequestScope({
     claims: validated.claims,
+    walletSessionAuth: validated.walletSessionAuth,
     body: input.body,
   });
   if (!admission.ok) {
@@ -567,6 +574,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
     curve: 'ed25519',
     phase: input.phase,
     claims: validated.claims,
+    walletSessionAuth: validated.walletSessionAuth,
     admission,
   });
   if (!admissionDecision.ok) {
@@ -606,7 +614,7 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
     const replay = await threshold.reserveRouterAbNormalSigningPrepareReplay({
       curve: 'ed25519',
       phase: input.phase,
-      sessionId: admission.thresholdSessionId,
+      sessionId: validated.walletSessionAuth.thresholdSessionId,
       requestId: admission.requestId,
       expiresAtMs: admission.expiresAtMs,
     });
@@ -643,8 +651,8 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
     const reservation = await threshold.reserveRouterAbNormalSigningBudget({
       curve: 'ed25519',
       phase: 'prepare',
-      sessionId: admission.thresholdSessionId,
-      signingGrantId: validated.claims.signingGrantId,
+      sessionId: validated.walletSessionAuth.thresholdSessionId,
+      signingGrantId: validated.walletSessionAuth.signingGrantId,
       operationId,
       requestDigest,
       signatureUses: 1,
@@ -670,8 +678,8 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
       const budget = await threshold.consumeRouterAbNormalSigningBudget({
         curve: 'ed25519',
         phase: 'finalize',
-        sessionId: admission.thresholdSessionId,
-        signingGrantId: validated.claims.signingGrantId,
+        sessionId: validated.walletSessionAuth.thresholdSessionId,
+        signingGrantId: validated.walletSessionAuth.signingGrantId,
         requestId: admission.requestId,
       });
       if (!budget.ok) {
@@ -712,8 +720,8 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
     const budget = await threshold.commitRouterAbNormalSigningBudget({
       curve: 'ed25519',
       phase: 'finalize',
-      sessionId: admission.thresholdSessionId,
-      signingGrantId: validated.claims.signingGrantId,
+      sessionId: validated.walletSessionAuth.thresholdSessionId,
+      signingGrantId: validated.walletSessionAuth.signingGrantId,
       reservationId,
       operationId,
       requestDigest,
@@ -757,8 +765,8 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
       await threshold.releaseRouterAbNormalSigningBudget({
         curve: 'ed25519',
         phase: 'prepare',
-        sessionId: admission.thresholdSessionId,
-        signingGrantId: validated.claims.signingGrantId,
+        sessionId: validated.walletSessionAuth.thresholdSessionId,
+        signingGrantId: validated.walletSessionAuth.signingGrantId,
         reservationId: budgetReservation.reservationId,
       });
     }
@@ -782,6 +790,7 @@ function errorMessage(error: unknown): string {
 
 export function validateRouterAbEd25519NormalSigningRequestScope(input: {
   claims: RouterAbEd25519WalletSessionClaims;
+  walletSessionAuth: VerifiedEd25519WalletSessionAuth;
   body: Record<string, unknown>;
 }): RouterAbNormalSigningRouteAdmission {
   const scope = isPlainObject(input.body.scope) ? input.body.scope : null;
@@ -799,7 +808,10 @@ export function validateRouterAbEd25519NormalSigningRequestScope(input: {
       ),
     };
   }
-  if (accountId !== input.claims.walletId || sessionId !== input.claims.thresholdSessionId) {
+  if (
+    accountId !== input.walletSessionAuth.userId ||
+    sessionId !== input.walletSessionAuth.thresholdSessionId
+  ) {
     return {
       ok: false,
       error: routerAbSigningError(
@@ -841,7 +853,7 @@ export function validateRouterAbEd25519NormalSigningRequestScope(input: {
       ),
     };
   }
-  if (expiresAtMs > input.claims.thresholdExpiresAtMs) {
+  if (expiresAtMs > input.walletSessionAuth.expiresAtMs) {
     return {
       ok: false,
       error: routerAbSigningError(
@@ -861,6 +873,7 @@ export function validateRouterAbEd25519NormalSigningRequestScope(input: {
 
 export function validateRouterAbEcdsaHssNormalSigningPrepareRequest(input: {
   claims: RouterAbEcdsaHssWalletSessionClaims;
+  walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
   body: Record<string, unknown>;
 }): RouterAbNormalSigningRouteAdmission {
   const normalSigning = input.claims.routerAbEcdsaHssNormalSigning;
@@ -903,7 +916,7 @@ export function validateRouterAbEcdsaHssNormalSigningPrepareRequest(input: {
       ),
     };
   }
-  if (request.expires_at_ms > input.claims.thresholdExpiresAtMs) {
+  if (request.expires_at_ms > input.walletSessionAuth.expiresAtMs) {
     return {
       ok: false,
       error: routerAbSigningError(
@@ -915,7 +928,7 @@ export function validateRouterAbEcdsaHssNormalSigningPrepareRequest(input: {
   }
   return {
     ok: true,
-    thresholdSessionId: input.claims.thresholdSessionId,
+    thresholdSessionId: input.walletSessionAuth.thresholdSessionId,
     requestId: request.request_id,
     expiresAtMs: request.expires_at_ms,
   };
@@ -923,6 +936,7 @@ export function validateRouterAbEcdsaHssNormalSigningPrepareRequest(input: {
 
 export function validateRouterAbEcdsaHssNormalSigningFinalizeRequest(input: {
   claims: RouterAbEcdsaHssWalletSessionClaims;
+  walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
   body: Record<string, unknown>;
 }): RouterAbNormalSigningRouteAdmission {
   const normalSigning = input.claims.routerAbEcdsaHssNormalSigning;
@@ -965,7 +979,7 @@ export function validateRouterAbEcdsaHssNormalSigningFinalizeRequest(input: {
       ),
     };
   }
-  if (request.expires_at_ms > input.claims.thresholdExpiresAtMs) {
+  if (request.expires_at_ms > input.walletSessionAuth.expiresAtMs) {
     return {
       ok: false,
       error: routerAbSigningError(
@@ -977,7 +991,7 @@ export function validateRouterAbEcdsaHssNormalSigningFinalizeRequest(input: {
   }
   return {
     ok: true,
-    thresholdSessionId: input.claims.thresholdSessionId,
+    thresholdSessionId: input.walletSessionAuth.thresholdSessionId,
     requestId: request.request_id,
     expiresAtMs: request.expires_at_ms,
   };
@@ -1006,10 +1020,12 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
     input.phase === 'prepare'
       ? validateRouterAbEcdsaHssNormalSigningPrepareRequest({
           claims: validated.claims,
+          walletSessionAuth: validated.walletSessionAuth,
           body: input.body,
         })
       : validateRouterAbEcdsaHssNormalSigningFinalizeRequest({
           claims: validated.claims,
+          walletSessionAuth: validated.walletSessionAuth,
           body: input.body,
         });
   if (!admission.ok) {
@@ -1033,6 +1049,7 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
     curve: 'ecdsa-hss',
     phase: input.phase,
     claims: validated.claims,
+    walletSessionAuth: validated.walletSessionAuth,
     admission,
   });
   if (!admissionDecision.ok) {
@@ -1074,7 +1091,7 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
     const replay = await threshold.reserveRouterAbNormalSigningPrepareReplay({
       curve: 'ecdsa-hss',
       phase: 'prepare',
-      sessionId: admission.thresholdSessionId,
+      sessionId: validated.walletSessionAuth.thresholdSessionId,
       requestId: admission.requestId,
       expiresAtMs: admission.expiresAtMs,
     });
@@ -1087,8 +1104,8 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
     const reservation = await threshold.reserveRouterAbNormalSigningBudget({
       curve: 'ecdsa-hss',
       phase: 'prepare',
-      sessionId: admission.thresholdSessionId,
-      signingGrantId: validated.claims.signingGrantId,
+      sessionId: validated.walletSessionAuth.thresholdSessionId,
+      signingGrantId: validated.walletSessionAuth.signingGrantId,
       operationId: admission.requestId,
       requestDigest: ecdsaRequestDigestB64u(privateBody.trusted_admission.signing_digest),
       signatureUses: 1,
@@ -1121,8 +1138,8 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
     const budget = await threshold.commitRouterAbNormalSigningBudget({
       curve: 'ecdsa-hss',
       phase: 'finalize',
-      sessionId: admission.thresholdSessionId,
-      signingGrantId: validated.claims.signingGrantId,
+      sessionId: validated.walletSessionAuth.thresholdSessionId,
+      signingGrantId: validated.walletSessionAuth.signingGrantId,
       reservationId,
       operationId: admission.requestId,
       requestDigest: ecdsaRequestDigestB64u(privateBody.trusted_admission.signing_digest),
@@ -1154,8 +1171,8 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
       await threshold.releaseRouterAbNormalSigningBudget({
         curve: 'ecdsa-hss',
         phase: input.phase,
-        sessionId: admission.thresholdSessionId,
-        signingGrantId: validated.claims.signingGrantId,
+        sessionId: validated.walletSessionAuth.thresholdSessionId,
+        signingGrantId: validated.walletSessionAuth.signingGrantId,
         reservationId: prepareBudgetReservation.reservationId,
       });
     }

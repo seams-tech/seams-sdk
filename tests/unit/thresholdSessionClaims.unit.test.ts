@@ -18,6 +18,10 @@ import {
   validateRouterAbEcdsaHssNormalSigningFinalizeRequest,
   validateRouterAbEcdsaHssNormalSigningPrepareRequest,
 } from '../../packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker';
+import {
+  buildVerifiedEcdsaWalletSessionAuth,
+  buildVerifiedEd25519WalletSessionAuth,
+} from '../../packages/sdk-server-ts/src/router/verifiedWalletSessionAuth';
 import type { SessionAdapter } from '../../packages/sdk-server-ts/src/router/relay';
 import type { EcdsaHssServerBootstrapResponse } from '@server/core/types';
 import {
@@ -491,6 +495,7 @@ test.describe('threshold session auth token claims', () => {
     if (!signedEcdsaClaims?.routerAbEcdsaHssNormalSigning) {
       throw new Error('expected Router A/B ECDSA-HSS normal-signing claims');
     }
+    const signedEcdsaWalletSessionAuth = buildVerifiedEcdsaWalletSessionAuth(signedEcdsaClaims);
     const prepareRequest = buildRouterAbEcdsaHssEvmDigestSigningRequestV1({
       scope: ecdsaNormalSigning.state.scope,
       requestId: 'router-ab-ecdsa-sign-test',
@@ -501,6 +506,7 @@ test.describe('threshold session auth token claims', () => {
     expect(
       validateRouterAbEcdsaHssNormalSigningPrepareRequest({
         claims: signedEcdsaClaims,
+        walletSessionAuth: signedEcdsaWalletSessionAuth,
         body: prepareRequest,
       }),
     ).toMatchObject({
@@ -568,6 +574,7 @@ test.describe('threshold session auth token claims', () => {
     );
     expect(claims?.routerAbNormalSigning).toBeTruthy();
     if (!claims) throw new Error('expected Router A/B Ed25519 Wallet Session claims');
+    const walletSessionAuth = buildVerifiedEd25519WalletSessionAuth(claims);
 
     const validBody = {
       scope: {
@@ -581,6 +588,7 @@ test.describe('threshold session auth token claims', () => {
     expect(
       validateRouterAbEd25519NormalSigningRequestScope({
         claims,
+        walletSessionAuth,
         body: validBody,
       }),
     ).toMatchObject({
@@ -593,6 +601,7 @@ test.describe('threshold session auth token claims', () => {
     expect(
       validateRouterAbEd25519NormalSigningRequestScope({
         claims,
+        walletSessionAuth,
         body: {
           ...validBody,
           scope: { ...validBody.scope, account_id: 'mallory.testnet' },
@@ -611,6 +620,7 @@ test.describe('threshold session auth token claims', () => {
     expect(
       validateRouterAbEd25519NormalSigningRequestScope({
         claims,
+        walletSessionAuth,
         body: {
           ...validBody,
           scope: { ...validBody.scope, session_id: 'other-threshold-session' },
@@ -629,6 +639,7 @@ test.describe('threshold session auth token claims', () => {
     expect(
       validateRouterAbEd25519NormalSigningRequestScope({
         claims,
+        walletSessionAuth,
         body: {
           ...validBody,
           scope: { ...validBody.scope, signing_worker_id: 'signing-worker-b' },
@@ -647,6 +658,7 @@ test.describe('threshold session auth token claims', () => {
     expect(
       validateRouterAbEd25519NormalSigningRequestScope({
         claims,
+        walletSessionAuth,
         body: {
           ...validBody,
           expires_at_ms: claims.thresholdExpiresAtMs + 1,
@@ -665,6 +677,7 @@ test.describe('threshold session auth token claims', () => {
     expect(
       validateRouterAbEd25519NormalSigningRequestScope({
         claims,
+        walletSessionAuth,
         body: {
           ...validBody,
           expires_at_ms: 1,
@@ -688,6 +701,7 @@ test.describe('threshold session auth token claims', () => {
     if (!claims?.routerAbEcdsaHssNormalSigning) {
       throw new Error('expected Router A/B ECDSA-HSS normal-signing claims');
     }
+    const walletSessionAuth = buildVerifiedEcdsaWalletSessionAuth(claims);
     const scope = claims.routerAbEcdsaHssNormalSigning.scope;
     const prepareRequest = buildRouterAbEcdsaHssEvmDigestSigningRequestV1({
       scope,
@@ -708,6 +722,7 @@ test.describe('threshold session auth token claims', () => {
     expect(
       validateRouterAbEcdsaHssNormalSigningPrepareRequest({
         claims,
+        walletSessionAuth,
         body: prepareRequest,
       }),
     ).toMatchObject({
@@ -719,6 +734,7 @@ test.describe('threshold session auth token claims', () => {
     expect(
       validateRouterAbEcdsaHssNormalSigningFinalizeRequest({
         claims,
+        walletSessionAuth,
         body: finalizeRequest,
       }),
     ).toMatchObject({
@@ -735,6 +751,7 @@ test.describe('threshold session auth token claims', () => {
     expect(
       validateRouterAbEcdsaHssNormalSigningPrepareRequest({
         claims,
+        walletSessionAuth,
         body: { ...prepareRequest, scope: driftedScope },
       }),
     ).toMatchObject({
@@ -750,6 +767,7 @@ test.describe('threshold session auth token claims', () => {
     expect(
       validateRouterAbEcdsaHssNormalSigningFinalizeRequest({
         claims,
+        walletSessionAuth,
         body: { ...finalizeRequest, scope: driftedScope },
       }),
     ).toMatchObject({
@@ -765,6 +783,7 @@ test.describe('threshold session auth token claims', () => {
     expect(
       validateRouterAbEcdsaHssNormalSigningPrepareRequest({
         claims,
+        walletSessionAuth,
         body: { ...prepareRequest, expires_at_ms: claims.thresholdExpiresAtMs + 1 },
       }),
     ).toMatchObject({
@@ -780,6 +799,7 @@ test.describe('threshold session auth token claims', () => {
     expect(
       validateRouterAbEcdsaHssNormalSigningFinalizeRequest({
         claims,
+        walletSessionAuth,
         body: { ...finalizeRequest, expires_at_ms: claims.thresholdExpiresAtMs + 1 },
       }),
     ).toMatchObject({
@@ -795,6 +815,7 @@ test.describe('threshold session auth token claims', () => {
     expect(
       validateRouterAbEcdsaHssNormalSigningPrepareRequest({
         claims,
+        walletSessionAuth,
         body: { ...prepareRequest, expires_at_ms: 1 },
       }),
     ).toMatchObject({
@@ -810,6 +831,7 @@ test.describe('threshold session auth token claims', () => {
     expect(
       validateRouterAbEcdsaHssNormalSigningFinalizeRequest({
         claims,
+        walletSessionAuth,
         body: { ...finalizeRequest, expires_at_ms: 1 },
       }),
     ).toMatchObject({

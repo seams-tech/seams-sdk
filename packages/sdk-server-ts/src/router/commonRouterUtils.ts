@@ -19,6 +19,12 @@ import {
   type RouterAbEd25519NormalSigningState,
 } from '@shared/utils/signingSessionSeal';
 import {
+  buildVerifiedEcdsaWalletSessionAuth,
+  buildVerifiedEd25519WalletSessionAuth,
+  type VerifiedEcdsaWalletSessionAuth,
+  type VerifiedEd25519WalletSessionAuth,
+} from './verifiedWalletSessionAuth';
+import {
   ROUTER_AB_ECDSA_HSS_KEY_SCOPE_V1,
   ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
   parseRouterAbEcdsaHssNormalSigningStateV1,
@@ -43,6 +49,7 @@ export type ThresholdEd25519SessionTokenInputs =
   | {
       ok: true;
       claims: NonNullable<ReturnType<typeof parseRouterAbEd25519WalletSessionClaims>>;
+      walletSessionAuth: VerifiedEd25519WalletSessionAuth;
       body: PlainObject;
     }
   | AuthorizeErr;
@@ -76,13 +83,19 @@ export async function validateRouterAbEd25519WalletSessionTokenInputs(input: {
   }
 
   const body = isPlainObject(input.body) ? input.body : {};
-  return { ok: true, claims, body };
+  return {
+    ok: true,
+    claims,
+    walletSessionAuth: buildVerifiedEd25519WalletSessionAuth(claims),
+    body,
+  };
 }
 
 export type ThresholdEcdsaSessionInputs =
   | {
       ok: true;
       claims: NonNullable<ReturnType<typeof parseRouterAbEcdsaHssWalletSessionClaims>>;
+      walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
       body: PlainObject;
     }
   | AuthorizeErr;
@@ -116,7 +129,12 @@ export async function validateRouterAbEcdsaHssWalletSessionInputs(input: {
   }
 
   const body = isPlainObject(input.body) ? input.body : {};
-  return { ok: true, claims, body };
+  return {
+    ok: true,
+    claims,
+    walletSessionAuth: buildVerifiedEcdsaWalletSessionAuth(claims),
+    body,
+  };
 }
 
 export type WalletSessionJwtSigningResult =

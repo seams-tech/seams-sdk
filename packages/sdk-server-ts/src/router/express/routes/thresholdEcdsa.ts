@@ -51,11 +51,9 @@ import {
   ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS,
   type RouterAbEcdsaHssPrivateSigningPath,
 } from '../../routerAbPrivateSigningWorker';
+import type { VerifiedEcdsaWalletSessionAuth } from '../../verifiedWalletSessionAuth';
 
 type EcdsaRuntimePolicyScope = RuntimePolicyScope;
-type RouterAbEcdsaHssWalletSessionClaims = NonNullable<
-  ReturnType<typeof parseRouterAbEcdsaHssWalletSessionClaims>
->;
 type ThresholdEd25519SessionClaims = NonNullable<
   ReturnType<typeof parseRouterAbEd25519WalletSessionClaims>
 >;
@@ -67,22 +65,22 @@ const NOT_IMPLEMENTED = {
 } as const;
 
 function validateEcdsaHssSessionIdentity(input: {
-  claims: RouterAbEcdsaHssWalletSessionClaims;
+  walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
   walletId: string;
   rpId: string;
   relayerKeyId: string;
 }): { ok: true } | { ok: false; code: string; message: string } {
-  if (input.claims.thresholdExpiresAtMs <= Date.now()) {
+  if (input.walletSessionAuth.expiresAtMs <= Date.now()) {
     return { ok: false, code: 'unauthorized', message: 'Threshold ECDSA session is expired' };
   }
-  if (input.walletId !== input.claims.walletId) {
+  if (input.walletId !== input.walletSessionAuth.userId) {
     return { ok: false, code: 'identity_mismatch', message: 'walletId mismatch' };
   }
-  if (input.rpId !== input.claims.rpId) {
+  if (input.rpId !== input.walletSessionAuth.rpId) {
     return { ok: false, code: 'identity_mismatch', message: 'rpId mismatch' };
   }
 
-  if (input.relayerKeyId !== input.claims.relayerKeyId) {
+  if (input.relayerKeyId !== input.walletSessionAuth.relayerKeyId) {
     return { ok: false, code: 'relayer_key_mismatch', message: 'relayerKeyId mismatch' };
   }
   return { ok: true };
@@ -603,7 +601,7 @@ export function registerThresholdEcdsaRoutes(
         session: ctx.opts.session,
       });
       if (!validated.ok) return validated;
-      if (validated.claims.thresholdExpiresAtMs <= Date.now()) {
+      if (validated.walletSessionAuth.expiresAtMs <= Date.now()) {
         return {
           ok: false,
           code: 'unauthorized' as const,
@@ -615,12 +613,12 @@ export function registerThresholdEcdsaRoutes(
           ? (req.body as Record<string, unknown>)
           : {};
       const keyInventory = await ctx.service.listThresholdEcdsaKeyIdentityTargetsForUser({
-        userId: validated.claims.walletId,
-        rpId: validated.claims.rpId,
+        userId: validated.walletSessionAuth.userId,
+        rpId: validated.walletSessionAuth.rpId,
         keyTargets: Array.isArray(bodyRecord.keyTargets) ? bodyRecord.keyTargets : [],
       });
       ctx.logger.info('[threshold-ecdsa][key-identities][diagnostic]', {
-        walletId: validated.claims.walletId,
+        walletId: validated.walletSessionAuth.userId,
         ...keyInventory.diagnostics,
       });
       return {
@@ -681,7 +679,7 @@ export function registerThresholdEcdsaRoutes(
         if (validated.ok) {
           runtimePolicyScope = validated.claims.runtimePolicyScope;
           const identity = validateEcdsaHssSessionIdentity({
-            claims: validated.claims,
+            walletSessionAuth: validated.walletSessionAuth,
             walletId: parsed.walletId,
             rpId: parsed.rpId,
             relayerKeyId: parsed.relayerKeyId,
@@ -804,7 +802,7 @@ export function registerThresholdEcdsaRoutes(
         });
         if (!validated.ok) return validated;
         const identity = validateEcdsaHssSessionIdentity({
-          claims: validated.claims,
+          walletSessionAuth: validated.walletSessionAuth,
           walletId: parsed.walletId,
           rpId: parsed.rpId,
           relayerKeyId: parsed.relayerKeyId,
@@ -812,7 +810,7 @@ export function registerThresholdEcdsaRoutes(
         if (!identity.ok) return identity;
         return await ctx.service.ecdsaHssRoleLocalExportShare({
           request: parsed,
-          keyHandle: validated.claims.keyHandle,
+          keyHandle: validated.walletSessionAuth.keyHandle,
           claims: validated.claims,
         });
       },
