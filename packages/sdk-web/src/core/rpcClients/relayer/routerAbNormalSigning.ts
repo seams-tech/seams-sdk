@@ -175,6 +175,8 @@ export type RouterAbEd25519NormalSigningFinalizeProtocolV2Wire = {
 export type RouterAbNormalSigningFinalizeRequestV2Wire = {
   scope: RouterAbNormalSigningScopeV1Wire;
   expires_at_ms: number;
+  budget_reservation_id: string;
+  budget_operation_id: string;
   prepare_binding: RouterAbEd25519NormalSigningPrepareBindingV2Wire;
   protocol: RouterAbEd25519NormalSigningFinalizeProtocolV2Wire;
 };
@@ -198,6 +200,8 @@ export type RouterAbEd25519PresignPoolHitFinalizeRequestV2Wire = {
 
 export type RouterAbNormalSigningPrepareResponseV1Wire = {
   scope: RouterAbNormalSigningScopeV1Wire;
+  budget_reservation_id: string;
+  budget_operation_id: string;
   signing_payload_digest: RouterAbPublicDigest32Wire;
   round1_binding_digest: RouterAbPublicDigest32Wire;
   signing_worker: RouterAbServerIdentityV1Wire;
@@ -550,6 +554,14 @@ export function buildRouterAbEd25519NormalSigningFinalizeRequestV2(args: {
   return {
     scope: parseScope(args.scope, 'scope'),
     expires_at_ms: requirePositiveInteger(args.expiresAtMs, 'expiresAtMs'),
+    budget_reservation_id: requireNonEmptyString(
+      args.prepareResponse.budget_reservation_id,
+      'budget_reservation_id',
+    ),
+    budget_operation_id: requireNonEmptyString(
+      args.prepareResponse.budget_operation_id,
+      'budget_operation_id',
+    ),
     prepare_binding: {
       server_round1_handle: requireNonEmptyString(
         args.prepareResponse.server_round1_handle,
@@ -714,6 +726,14 @@ function parsePrepareResponse(value: unknown): RouterAbNormalSigningPrepareRespo
   }
   return {
     scope: parseScope(record.scope, 'scope'),
+    budget_reservation_id: requireNonEmptyString(
+      record.budget_reservation_id,
+      'budget_reservation_id',
+    ),
+    budget_operation_id: requireNonEmptyString(
+      record.budget_operation_id,
+      'budget_operation_id',
+    ),
     signing_payload_digest: parseDigest32(record.signing_payload_digest, 'signing_payload_digest'),
     round1_binding_digest: parseDigest32(record.round1_binding_digest, 'round1_binding_digest'),
     signing_worker: parseServerIdentity(record.signing_worker, 'signing_worker'),

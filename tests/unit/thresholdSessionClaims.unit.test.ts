@@ -699,6 +699,7 @@ test.describe('threshold session auth token claims', () => {
     const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
       scope,
       requestId: prepareRequest.request_id,
+      budgetReservationId: 'router-ab-ecdsa-private-validator-budget-reservation',
       expiresAtMs: prepareRequest.expires_at_ms,
       signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
       serverPresignatureId: prepareRequest.client_presignature_id,

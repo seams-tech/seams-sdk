@@ -30,6 +30,8 @@ import type {
 import type {
   Ed25519WalletSessionStore,
   Ed25519WalletSessionRecord,
+  WalletSessionBudgetReservationResult,
+  WalletSessionBudgetReleaseResult,
   WalletSessionConsumeUsesResult,
 } from './stores/WalletSessionStore';
 import type {
@@ -285,6 +287,31 @@ function routerAbBudgetConsumeFailure(
   if (code === 'invalid_body') return { ok: false, status: 400, code, message };
   if (code === 'unauthorized') return { ok: false, status: 401, code, message };
   return { ok: false, status: 500, code: 'internal', message };
+}
+
+function routerAbBudgetStoreFailure(input: {
+  code: string;
+  message: string;
+}): { ok: false; status: number; code: string; message: string } {
+  const code = toOptionalTrimmedString(input.code) || 'wallet_budget_internal';
+  const message = toOptionalTrimmedString(input.message) || 'Wallet Session budget rejected';
+  switch (code) {
+    case 'unauthorized':
+      return { ok: false, status: 401, code, message };
+    case 'wallet_budget_forbidden':
+      return { ok: false, status: 403, code, message };
+    case 'wallet_budget_exhausted':
+    case 'wallet_budget_in_flight':
+    case 'wallet_budget_reservation_mismatch':
+      return { ok: false, status: 409, code, message };
+    case 'wallet_budget_reservation_expired':
+      return { ok: false, status: 410, code, message };
+    case 'invalid_budget_request':
+    case 'invalid_body':
+      return { ok: false, status: 422, code: 'invalid_budget_request', message };
+    default:
+      return { ok: false, status: 500, code: 'wallet_budget_internal', message };
+  }
 }
 
 function errorMessage(error: unknown): string {
@@ -1116,6 +1143,88 @@ export type RouterAbNormalSigningBudgetConsumeResult =
   | { ok: true; remainingUses: number }
   | { ok: false; status: number; code: string; message: string };
 
+export type RouterAbNormalSigningBudgetReservationInput =
+  | {
+      curve: 'ed25519';
+      phase: 'prepare';
+      sessionId: string;
+      walletSigningSessionId: string;
+      operationId: string;
+      requestDigest: string;
+      signatureUses: number;
+      expiresAtMs: number;
+    }
+  | {
+      curve: 'ecdsa-hss';
+      phase: 'prepare';
+      sessionId: string;
+      walletSigningSessionId: string;
+      operationId: string;
+      requestDigest: string;
+      signatureUses: number;
+      expiresAtMs: number;
+    };
+
+export type RouterAbNormalSigningBudgetReservationResult =
+  | {
+      ok: true;
+      reservationId: string;
+      remainingUses: number;
+      reservedUses: number;
+      availableUses: number;
+    }
+  | { ok: false; status: number; code: string; message: string };
+
+export type RouterAbNormalSigningBudgetCommitInput =
+  | {
+      curve: 'ed25519';
+      phase: 'finalize';
+      sessionId: string;
+      walletSigningSessionId: string;
+      reservationId: string;
+      operationId: string;
+      requestDigest: string;
+    }
+  | {
+      curve: 'ecdsa-hss';
+      phase: 'finalize';
+      sessionId: string;
+      walletSigningSessionId: string;
+      reservationId: string;
+      operationId: string;
+      requestDigest: string;
+    };
+
+export type RouterAbNormalSigningBudgetCommitResult =
+  | { ok: true; remainingUses: number }
+  | { ok: false; status: number; code: string; message: string };
+
+export type RouterAbNormalSigningBudgetReleaseInput =
+  | {
+      curve: 'ed25519';
+      phase: 'finalize';
+      sessionId: string;
+      walletSigningSessionId: string;
+      reservationId: string;
+    }
+  | {
+      curve: 'ecdsa-hss';
+      phase: 'finalize';
+      sessionId: string;
+      walletSigningSessionId: string;
+      reservationId: string;
+    };
+
+export type RouterAbNormalSigningBudgetReleaseResult =
+  | {
+      ok: true;
+      released: boolean;
+      remainingUses: number;
+      reservedUses: number;
+      availableUses: number;
+    }
+  | { ok: false; status: number; code: string; message: string };
+
 function resolveRouterAbSigningWorkerPrivateHttpConfig(
   cfg: Record<string, unknown>,
 ): RouterAbSigningWorkerPrivateHttpConfig | null {
@@ -1446,6 +1555,131 @@ export class ThresholdSigningService {
       ok: true,
       remainingUses: Math.max(0, Math.floor(Number(consumed.remainingUses) || 0)),
     };
+  }
+
+  async reserveRouterAbNormalSigningBudget(
+    input: RouterAbNormalSigningBudgetReservationInput,
+  ): Promise<RouterAbNormalSigningBudgetReservationResult> {
+    const sessionId = toOptionalTrimmedString(input.sessionId);
+    const walletSigningSessionId = toOptionalTrimmedString(input.walletSigningSessionId);
+    const operationId = toOptionalTrimmedString(input.operationId);
+    const requestDigest = toOptionalTrimmedString(input.requestDigest);
+    const signatureUses = Math.floor(Number(input.signatureUses));
+    const expiresAtMs = Number(input.expiresAtMs);
+    if (
+      !sessionId ||
+      !walletSigningSessionId ||
+      !operationId ||
+      !requestDigest ||
+      !Number.isSafeInteger(signatureUses) ||
+      signatureUses <= 0 ||
+      !Number.isFinite(expiresAtMs)
+    ) {
+      return {
+        ok: false,
+        status: 422,
+        code: 'invalid_budget_request',
+        message: 'Router A/B budget reservation requires operation, digest, uses, and expiry',
+      };
+    }
+    const curve = input.curve === 'ed25519' ? 'ed25519' : 'ecdsa';
+    const curveStore =
+      input.curve === 'ed25519' ? this.walletSessionStore : this.ecdsaWalletSessionStore;
+    const resolved = await this.resolveWalletOrCurveBudgetStore({
+      walletSigningSessionId,
+      curve,
+      curveSessionId: sessionId,
+      curveStore,
+    });
+    if (!resolved.ok) return routerAbBudgetStoreFailure(resolved);
+    const reserved = await resolved.store.reserveUseCountOnce({
+      walletSigningSessionId: resolved.budgetSessionId,
+      curve,
+      thresholdSessionId: sessionId,
+      operationId,
+      requestDigest,
+      signatureUses,
+      expiresAtMs,
+    });
+    if (!reserved.ok) return routerAbBudgetStoreFailure(reserved);
+    return {
+      ok: true,
+      reservationId: reserved.reservation.reservationId,
+      remainingUses: reserved.remainingUses,
+      reservedUses: reserved.reservedUses,
+      availableUses: reserved.availableUses,
+    };
+  }
+
+  async commitRouterAbNormalSigningBudget(
+    input: RouterAbNormalSigningBudgetCommitInput,
+  ): Promise<RouterAbNormalSigningBudgetCommitResult> {
+    const sessionId = toOptionalTrimmedString(input.sessionId);
+    const walletSigningSessionId = toOptionalTrimmedString(input.walletSigningSessionId);
+    const reservationId = toOptionalTrimmedString(input.reservationId);
+    const operationId = toOptionalTrimmedString(input.operationId);
+    const requestDigest = toOptionalTrimmedString(input.requestDigest);
+    if (!sessionId || !walletSigningSessionId || !reservationId || !operationId || !requestDigest) {
+      return {
+        ok: false,
+        status: 422,
+        code: 'invalid_budget_request',
+        message: 'Router A/B budget commit requires reservation, operation, and digest',
+      };
+    }
+    const curve = input.curve === 'ed25519' ? 'ed25519' : 'ecdsa';
+    const curveStore =
+      input.curve === 'ed25519' ? this.walletSessionStore : this.ecdsaWalletSessionStore;
+    const resolved = await this.resolveWalletOrCurveBudgetStore({
+      walletSigningSessionId,
+      curve,
+      curveSessionId: sessionId,
+      curveStore,
+    });
+    if (!resolved.ok) return routerAbBudgetStoreFailure(resolved);
+    const committed = await resolved.store.commitReservedUseCountOnce({
+      walletSigningSessionId: resolved.budgetSessionId,
+      reservationId,
+      operationId,
+      requestDigest,
+    });
+    if (!committed.ok) return routerAbBudgetStoreFailure(committed);
+    return {
+      ok: true,
+      remainingUses: Math.max(0, Math.floor(Number(committed.remainingUses) || 0)),
+    };
+  }
+
+  async releaseRouterAbNormalSigningBudget(
+    input: RouterAbNormalSigningBudgetReleaseInput,
+  ): Promise<RouterAbNormalSigningBudgetReleaseResult> {
+    const sessionId = toOptionalTrimmedString(input.sessionId);
+    const walletSigningSessionId = toOptionalTrimmedString(input.walletSigningSessionId);
+    const reservationId = toOptionalTrimmedString(input.reservationId);
+    if (!sessionId || !walletSigningSessionId || !reservationId) {
+      return {
+        ok: false,
+        status: 422,
+        code: 'invalid_budget_request',
+        message: 'Router A/B budget release requires session and reservation',
+      };
+    }
+    const curve = input.curve === 'ed25519' ? 'ed25519' : 'ecdsa';
+    const curveStore =
+      input.curve === 'ed25519' ? this.walletSessionStore : this.ecdsaWalletSessionStore;
+    const resolved = await this.resolveWalletOrCurveBudgetStore({
+      walletSigningSessionId,
+      curve,
+      curveSessionId: sessionId,
+      curveStore,
+    });
+    if (!resolved.ok) return routerAbBudgetStoreFailure(resolved);
+    const released = await resolved.store.releaseReservedUseCount({
+      walletSigningSessionId: resolved.budgetSessionId,
+      reservationId,
+    });
+    if (!released.ok) return routerAbBudgetStoreFailure(released);
+    return released;
   }
 
   async resolveRouterAbEd25519SigningWorkerPrivateMaterial(input: {
@@ -2227,6 +2461,44 @@ export class ThresholdSigningService {
       return await input.curveStore.consumeUseCountOnce(input.curveSessionId, idempotencyKey);
     }
     return await input.curveStore.consumeUseCount(input.curveSessionId);
+  }
+
+  private async resolveWalletOrCurveBudgetStore(input: {
+    walletSigningSessionId?: string;
+    curve: 'ed25519' | 'ecdsa';
+    curveSessionId: string;
+    curveStore: Ed25519WalletSessionStore;
+  }): Promise<
+    | { ok: true; budgetSessionId: string; store: Ed25519WalletSessionStore }
+    | { ok: false; code: string; message: string }
+  > {
+    const walletBudgetSessionId = this.walletSigningBudgetSessionId({
+      walletSigningSessionId: input.walletSigningSessionId || '',
+      binding: {
+        curve: input.curve,
+        thresholdSessionId: input.curveSessionId,
+      },
+    });
+    if (!walletBudgetSessionId) {
+      return { ok: true, budgetSessionId: input.curveSessionId, store: input.curveStore };
+    }
+    const walletBudgetSession = await this.walletSessionStore.getSession(walletBudgetSessionId);
+    const curveSession = await input.curveStore.getSession(input.curveSessionId);
+    if (
+      !walletBudgetSession ||
+      !curveSession ||
+      walletBudgetSession.userId !== curveSession.userId ||
+      walletBudgetSession.rpId !== curveSession.rpId ||
+      walletBudgetSession.participantIds.length !== curveSession.participantIds.length ||
+      !walletBudgetSession.participantIds.every((id, index) => id === curveSession.participantIds[index])
+    ) {
+      return {
+        ok: false,
+        code: 'wallet_budget_forbidden',
+        message: 'wallet signing-session budget does not match this threshold session',
+      };
+    }
+    return { ok: true, budgetSessionId: walletBudgetSessionId, store: this.walletSessionStore };
   }
 
   private async hasConsumedWalletOrCurveSessionUse(input: {

@@ -278,6 +278,24 @@ async function withReplayProtectedNormalSigningRouter<T>(
       ok: true as const,
       remainingUses: 2,
     }),
+    reserveRouterAbNormalSigningBudget: async (input: { operationId: string }) => ({
+      ok: true as const,
+      reservationId: `${input.operationId}-budget-reservation`,
+      remainingUses: 3,
+      reservedUses: 1,
+      availableUses: 2,
+    }),
+    commitRouterAbNormalSigningBudget: async () => ({
+      ok: true as const,
+      remainingUses: 2,
+    }),
+    releaseRouterAbNormalSigningBudget: async () => ({
+      ok: true as const,
+      released: true,
+      remainingUses: 3,
+      reservedUses: 0,
+      availableUses: 3,
+    }),
   };
   const service = makeFakeAuthService({
     getThresholdSigningService: () => thresholdService as any,
@@ -355,6 +373,24 @@ async function withAdmissionGuardedNormalSigningRouter<T>(
       budgetConsumes += 1;
       return { ok: true as const, remainingUses: 2 };
     },
+    reserveRouterAbNormalSigningBudget: async (input: { operationId: string }) => ({
+      ok: true as const,
+      reservationId: `${input.operationId}-budget-reservation`,
+      remainingUses: 3,
+      reservedUses: 1,
+      availableUses: 2,
+    }),
+    commitRouterAbNormalSigningBudget: async () => {
+      budgetConsumes += 1;
+      return { ok: true as const, remainingUses: 2 };
+    },
+    releaseRouterAbNormalSigningBudget: async () => ({
+      ok: true as const,
+      released: true,
+      remainingUses: 3,
+      reservedUses: 0,
+      availableUses: 3,
+    }),
   };
   const service = makeFakeAuthService({
     getThresholdSigningService: () => thresholdService as any,
@@ -428,6 +464,34 @@ async function withBudgetedNormalSigningRouter<T>(
     }),
     reserveRouterAbNormalSigningPrepareReplay: async () => ({ ok: true as const }),
     consumeRouterAbNormalSigningBudget,
+    reserveRouterAbNormalSigningBudget: async (input: { operationId: string }) => ({
+      ok: true as const,
+      reservationId: `${input.operationId}-budget-reservation`,
+      remainingUses: 3,
+      reservedUses: 1,
+      availableUses: 2,
+    }),
+    commitRouterAbNormalSigningBudget: async (input: {
+      curve: 'ed25519' | 'ecdsa-hss';
+      phase: 'finalize';
+      sessionId: string;
+      walletSigningSessionId: string;
+      operationId: string;
+    }) =>
+      consumeRouterAbNormalSigningBudget({
+        curve: input.curve,
+        phase: input.phase,
+        sessionId: input.sessionId,
+        walletSigningSessionId: input.walletSigningSessionId,
+        requestId: input.operationId,
+      }),
+    releaseRouterAbNormalSigningBudget: async () => ({
+      ok: true as const,
+      released: true,
+      remainingUses: 3,
+      reservedUses: 0,
+      availableUses: 3,
+    }),
   };
   const service = makeFakeAuthService({
     getThresholdSigningService: () => thresholdService as any,
@@ -453,6 +517,7 @@ function ed25519NormalSigningBody(
   requestId: string,
   extra: Record<string, unknown> = {},
 ): Record<string, unknown> {
+  const operationId = `${requestId}-operation`;
   return {
     scope: {
       request_id: requestId,
@@ -461,6 +526,33 @@ function ed25519NormalSigningBody(
       signing_worker_id: ROUTER_AB_ED25519_CLAIMS.routerAbNormalSigning.signingWorkerId,
     },
     expires_at_ms: ROUTER_AB_ED25519_CLAIMS.thresholdExpiresAtMs,
+    budget_reservation_id: `${requestId}-budget-reservation`,
+    budget_operation_id: operationId,
+    intent: {
+      kind: 'near_transaction_v1',
+      operation_id: operationId,
+      operation_fingerprint: `${requestId}-fingerprint`,
+      near_account_id: ROUTER_AB_ED25519_CLAIMS.walletId,
+      near_network_id: 'testnet',
+      transactions: [
+        {
+          receiver_id: 'receiver.testnet',
+          action_fingerprint: `${requestId}-action`,
+        },
+      ],
+      unsigned_transaction_borsh_b64u: b64u([1, 2, 3]),
+    },
+    signing_payload: {
+      kind: 'near_unsigned_transaction_borsh_v1',
+      unsigned_transaction_borsh_b64u: b64u([1, 2, 3]),
+      expected_signing_digest_b64u: b64u(Array.from({ length: 32 }, (_, index) => index)),
+    },
+    prepare_binding: {
+      server_round1_handle: `${requestId}-server-round-1`,
+      round1_binding_digest: { bytes: Array.from({ length: 32 }, (_, index) => index + 1) },
+      intent_digest: { bytes: Array.from({ length: 32 }, (_, index) => index + 2) },
+      signing_payload_digest: { bytes: Array.from({ length: 32 }, (_, index) => index + 3) },
+    },
     ...extra,
   };
 }
@@ -516,6 +608,7 @@ async function ecdsaFinalizeBudgetCase(input: {
   const body = buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
     scope,
     requestId: input.requestId,
+    budgetReservationId: `${input.requestId}-budget-reservation`,
     expiresAtMs: ROUTER_AB_ECDSA_HSS_CLAIMS.thresholdExpiresAtMs,
     signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
     serverPresignatureId: `${input.requestId}-server-presignature`,
@@ -576,7 +669,7 @@ async function routerAbBudgetFinalizationCases(): Promise<
       phase: 'finalize' as const,
       sessionId: ROUTER_AB_ED25519_CLAIMS.sessionId,
       walletSigningSessionId: ROUTER_AB_ED25519_CLAIMS.walletSigningSessionId,
-      requestId: ed25519RequestId,
+      requestId: `${ed25519RequestId}-operation`,
     },
   };
   const ecdsaEvmCase = await ecdsaFinalizeBudgetCase({
@@ -736,6 +829,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
           : buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
               scope: driftedScope,
               requestId: 'router-ab-ecdsa-hss-scope-drift-finalize',
+              budgetReservationId: 'router-ab-ecdsa-hss-scope-drift-budget-reservation',
               expiresAtMs: ROUTER_AB_ECDSA_HSS_CLAIMS.thresholdExpiresAtMs,
               signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
               serverPresignatureId: 'server-presignature-scope-drift',
@@ -812,6 +906,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
           : buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
               scope: ECDSA_HSS_SCOPE,
               requestId: 'router-ab-ecdsa-hss-expired-finalize',
+              budgetReservationId: 'router-ab-ecdsa-hss-expired-budget-reservation',
               expiresAtMs: 1,
               signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
               serverPresignatureId: 'server-presignature-expired',
@@ -1264,6 +1359,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
         body: buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
           scope: ecdsaScope,
           requestId: 'router-ab-ecdsa-hss-abuse-finalize',
+          budgetReservationId: 'router-ab-ecdsa-hss-abuse-budget-reservation',
           expiresAtMs: ROUTER_AB_ECDSA_HSS_CLAIMS.thresholdExpiresAtMs,
           signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
           serverPresignatureId: 'server-presignature-abuse',

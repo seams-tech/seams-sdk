@@ -1,6 +1,12 @@
 import type {
+  RouterAbNormalSigningBudgetCommitInput,
+  RouterAbNormalSigningBudgetCommitResult,
   RouterAbNormalSigningBudgetConsumeInput,
   RouterAbNormalSigningBudgetConsumeResult,
+  RouterAbNormalSigningBudgetReleaseInput,
+  RouterAbNormalSigningBudgetReleaseResult,
+  RouterAbNormalSigningBudgetReservationInput,
+  RouterAbNormalSigningBudgetReservationResult,
   RouterAbEd25519SigningWorkerPrivateMaterial,
   RouterAbSigningWorkerPrivateHttpConfig,
 } from '../core/ThresholdService/ThresholdSigningService';
@@ -28,8 +34,11 @@ import {
   type RouterAbEcdsaHssNormalSigningScopeV1,
   type RouterAbPublicDigest32V1Wire,
 } from '@shared/utils/routerAbEcdsaHss';
-import { base64UrlDecode } from '@shared/utils/encoders';
+import { base64UrlDecode, base64UrlEncode } from '@shared/utils/encoders';
 import type { RuntimePolicyScope } from '@shared/threshold/signingRootScope';
+
+const ED25519_SIGNING_PAYLOAD_VERSION_V2 =
+  'router-ab-protocol/ed25519-normal-signing/payload/v2';
 
 const PRIVATE_ED25519_SIGNING_PREPARE_PATH_V1 = '/router-ab/v1/signing-worker/sign/prepare';
 const PRIVATE_ED25519_SIGNING_PRESIGN_POOL_PREPARE_PATH_V1 =
@@ -103,6 +112,15 @@ type RouterAbEd25519NormalSigningThresholdService = {
   consumeRouterAbNormalSigningBudget(
     input: RouterAbNormalSigningBudgetConsumeInput,
   ): Promise<RouterAbNormalSigningBudgetConsumeResult>;
+  reserveRouterAbNormalSigningBudget(
+    input: RouterAbNormalSigningBudgetReservationInput,
+  ): Promise<RouterAbNormalSigningBudgetReservationResult>;
+  commitRouterAbNormalSigningBudget(
+    input: RouterAbNormalSigningBudgetCommitInput,
+  ): Promise<RouterAbNormalSigningBudgetCommitResult>;
+  releaseRouterAbNormalSigningBudget(
+    input: RouterAbNormalSigningBudgetReleaseInput,
+  ): Promise<RouterAbNormalSigningBudgetReleaseResult>;
 };
 
 type RouterAbEcdsaHssNormalSigningThresholdService = {
@@ -120,6 +138,15 @@ type RouterAbEcdsaHssNormalSigningThresholdService = {
   consumeRouterAbNormalSigningBudget(
     input: RouterAbNormalSigningBudgetConsumeInput,
   ): Promise<RouterAbNormalSigningBudgetConsumeResult>;
+  reserveRouterAbNormalSigningBudget(
+    input: RouterAbNormalSigningBudgetReservationInput,
+  ): Promise<RouterAbNormalSigningBudgetReservationResult>;
+  commitRouterAbNormalSigningBudget(
+    input: RouterAbNormalSigningBudgetCommitInput,
+  ): Promise<RouterAbNormalSigningBudgetCommitResult>;
+  releaseRouterAbNormalSigningBudget(
+    input: RouterAbNormalSigningBudgetReleaseInput,
+  ): Promise<RouterAbNormalSigningBudgetReleaseResult>;
 };
 
 export type RouterAbNormalSigningRouteAdmission =
@@ -285,6 +312,105 @@ function nonEmptyString(value: unknown): string {
   return String(value || '').trim();
 }
 
+function pushU32Be(out: number[], value: number): void {
+  out.push((value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff);
+}
+
+function textBytes(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
+}
+
+function pushLen32(out: number[], bytes: Uint8Array): void {
+  pushU32Be(out, bytes.length);
+  for (const byte of bytes) out.push(byte);
+}
+
+async function sha256B64u(bytes: Uint8Array): Promise<string> {
+  const buffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(buffer).set(bytes);
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', buffer);
+  return base64UrlEncode(new Uint8Array(digest));
+}
+
+function signingPayloadDigestFromWire(value: unknown): string {
+  const record = isPlainObject(value) ? value : null;
+  const bytes = Array.isArray(record?.bytes) ? record.bytes.map((entry) => Number(entry)) : [];
+  if (bytes.length !== 32 || !bytes.every((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255)) {
+    return '';
+  }
+  return base64UrlEncode(Uint8Array.from(bytes));
+}
+
+async function ed25519SigningPayloadDigestB64u(value: unknown): Promise<string> {
+  const payload = isPlainObject(value) ? value : null;
+  if (!payload) return '';
+  const out: number[] = [];
+  pushLen32(out, textBytes(ED25519_SIGNING_PAYLOAD_VERSION_V2));
+  const kind = nonEmptyString(payload.kind);
+  switch (kind) {
+    case 'near_unsigned_transaction_borsh_v1':
+      pushLen32(out, textBytes(kind));
+      pushLen32(out, textBytes(nonEmptyString(payload.unsigned_transaction_borsh_b64u)));
+      pushLen32(out, textBytes(nonEmptyString(payload.expected_signing_digest_b64u)));
+      return sha256B64u(Uint8Array.from(out));
+    case 'nep413_message_v1':
+      pushLen32(out, textBytes(kind));
+      pushLen32(out, textBytes(nonEmptyString(payload.canonical_message_b64u)));
+      pushLen32(out, textBytes(nonEmptyString(payload.expected_signing_digest_b64u)));
+      return sha256B64u(Uint8Array.from(out));
+    case 'near_delegate_action_v1':
+      pushLen32(out, textBytes(kind));
+      pushLen32(out, textBytes(nonEmptyString(payload.canonical_delegate_borsh_b64u)));
+      pushLen32(out, textBytes(nonEmptyString(payload.expected_signing_digest_b64u)));
+      return sha256B64u(Uint8Array.from(out));
+    default:
+      return '';
+  }
+}
+
+function ed25519PrepareOperationId(body: Record<string, unknown>): string {
+  const intent = isPlainObject(body.intent) ? body.intent : null;
+  return nonEmptyString(intent?.operation_id);
+}
+
+function ed25519FinalizeOperationId(body: Record<string, unknown>): string {
+  return nonEmptyString(body.budget_operation_id);
+}
+
+function ed25519FinalizeRequestDigest(body: Record<string, unknown>): string {
+  const prepareBinding = isPlainObject(body.prepare_binding) ? body.prepare_binding : null;
+  return signingPayloadDigestFromWire(prepareBinding?.signing_payload_digest);
+}
+
+function ecdsaRequestDigestB64u(value: RouterAbPublicDigest32V1Wire): string {
+  return base64UrlEncode(Uint8Array.from(value.bytes));
+}
+
+function budgetReservationId(body: Record<string, unknown>): string {
+  return nonEmptyString(body.budget_reservation_id);
+}
+
+function stripRouterAbBudgetMetadata(body: Record<string, unknown>): Record<string, unknown> {
+  const {
+    budget_reservation_id: _budgetReservationId,
+    budget_operation_id: _budgetOperationId,
+    ...rest
+  } = body;
+  return rest;
+}
+
+function withBudgetReservationMetadata(
+  body: unknown,
+  input: { reservationId: string; operationId?: string },
+): unknown {
+  if (!isPlainObject(body)) return body;
+  return {
+    ...body,
+    budget_reservation_id: input.reservationId,
+    ...(input.operationId ? { budget_operation_id: input.operationId } : {}),
+  };
+}
+
 function routerAbSigningError(
   status: number,
   code: string,
@@ -308,7 +434,7 @@ export function buildRouterAbEd25519PrivateSigningWorkerBody(input: {
 }): RouterAbEd25519PrivateSigningWorkerBody {
   return {
     kind: 'router_ab_ed25519_signing_worker_private_request_v1',
-    request: input.body,
+    request: stripRouterAbBudgetMetadata(input.body),
     server_material: input.material,
   };
 }
@@ -360,7 +486,7 @@ export async function buildRouterAbEcdsaHssPrivateSigningWorkerBody(input: {
   const request = parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(input.body);
   const requestDigest = await routerAbEcdsaHssEvmDigestSigningFinalizeRequestDigestV1(request);
   return {
-    request,
+    request: stripRouterAbBudgetMetadata(request as unknown as Record<string, unknown>) as RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire,
     trusted_admission: ecdsaHssTrustedAdmission({
       scope: request.scope,
       requestDigest,
@@ -481,13 +607,96 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
     }
   }
 
+  let budgetReservation:
+    | {
+        reservationId: string;
+        operationId: string;
+      }
+    | null = null;
+  if (input.phase === 'prepare') {
+    const operationId = ed25519PrepareOperationId(input.body);
+    const requestDigest = await ed25519SigningPayloadDigestB64u(input.body.signing_payload);
+    if (!operationId || !requestDigest) {
+      return {
+        status: 422,
+        body: {
+          ok: false,
+          code: 'invalid_budget_request',
+          message: 'Router A/B Ed25519 budget reservation requires operation and payload digest',
+        },
+      };
+    }
+    const reservation = await threshold.reserveRouterAbNormalSigningBudget({
+      curve: 'ed25519',
+      phase: 'prepare',
+      sessionId: admission.sessionId,
+      walletSigningSessionId: validated.claims.walletSigningSessionId,
+      operationId,
+      requestDigest,
+      signatureUses: 1,
+      expiresAtMs: admission.expiresAtMs,
+    });
+    if (!reservation.ok) {
+      return {
+        status: reservation.status,
+        body: { ok: false, code: reservation.code, message: reservation.message },
+      };
+    }
+    budgetReservation = { reservationId: reservation.reservationId, operationId };
+  }
+
   if (input.phase === 'finalize') {
-    const budget = await threshold.consumeRouterAbNormalSigningBudget({
+    if (isPlainObject(input.body.pool_binding)) {
+      const forwarded = await postRouterAbSigningWorkerJson({
+        config: signingWorker,
+        path: resolveRouterAbEd25519PrivateSigningPath({
+          defaultPath: input.privatePath,
+          body: input.body,
+        }),
+        body: buildRouterAbEd25519PrivateSigningWorkerBody({
+          body: input.body,
+          material: material.material,
+        }),
+      });
+      if (!forwarded.ok) {
+        return { status: forwarded.status, body: forwarded.body };
+      }
+      const budget = await threshold.consumeRouterAbNormalSigningBudget({
+        curve: 'ed25519',
+        phase: 'finalize',
+        sessionId: admission.sessionId,
+        walletSigningSessionId: validated.claims.walletSigningSessionId,
+        requestId: admission.requestId,
+      });
+      if (!budget.ok) {
+        return {
+          status: budget.status,
+          body: { ok: false, code: budget.code, message: budget.message },
+        };
+      }
+      return { status: 200, body: forwarded.body };
+    }
+    const reservationId = budgetReservationId(input.body);
+    const operationId = ed25519FinalizeOperationId(input.body);
+    const requestDigest = ed25519FinalizeRequestDigest(input.body);
+    if (!reservationId || !operationId || !requestDigest) {
+      return {
+        status: 422,
+        body: {
+          ok: false,
+          code: 'invalid_budget_request',
+          message: 'Router A/B Ed25519 finalize requires budget reservation metadata',
+        },
+      };
+    }
+    const budget = await threshold.commitRouterAbNormalSigningBudget({
       curve: 'ed25519',
       phase: 'finalize',
       sessionId: admission.sessionId,
       walletSigningSessionId: validated.claims.walletSigningSessionId,
-      requestId: admission.requestId,
+      reservationId,
+      operationId,
+      requestDigest,
     });
     if (!budget.ok) {
       return {
@@ -495,6 +704,21 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
         body: { ok: false, code: budget.code, message: budget.message },
       };
     }
+    const forwarded = await postRouterAbSigningWorkerJson({
+      config: signingWorker,
+      path: resolveRouterAbEd25519PrivateSigningPath({
+        defaultPath: input.privatePath,
+        body: input.body,
+      }),
+      body: buildRouterAbEd25519PrivateSigningWorkerBody({
+        body: input.body,
+        material: material.material,
+      }),
+    });
+    if (!forwarded.ok) {
+      return { status: forwarded.status, body: forwarded.body };
+    }
+    return { status: 200, body: forwarded.body };
   }
 
   const forwarded = await postRouterAbSigningWorkerJson({
@@ -509,9 +733,23 @@ export async function handleRouterAbEd25519NormalSigningRouteCore(input: {
     }),
   });
   if (!forwarded.ok) {
+    if (budgetReservation) {
+      await threshold.releaseRouterAbNormalSigningBudget({
+        curve: 'ed25519',
+        phase: 'finalize',
+        sessionId: admission.sessionId,
+        walletSigningSessionId: validated.claims.walletSigningSessionId,
+        reservationId: budgetReservation.reservationId,
+      });
+    }
     return { status: forwarded.status, body: forwarded.body };
   }
-  return { status: 200, body: forwarded.body };
+  return {
+    status: 200,
+    body: budgetReservation
+      ? withBudgetReservationMetadata(forwarded.body, budgetReservation)
+      : forwarded.body,
+  };
 }
 
 function errorMessage(error: unknown): string {
@@ -804,6 +1042,7 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
     phase: input.phase,
     body: input.body,
   });
+  let prepareBudgetReservationId: string | null = null;
   if (input.phase === 'prepare') {
     const replay = await threshold.reserveRouterAbNormalSigningPrepareReplay({
       curve: 'ecdsa-hss',
@@ -818,13 +1057,43 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
         body: { ok: false, code: replay.code, message: replay.message },
       };
     }
+    const reservation = await threshold.reserveRouterAbNormalSigningBudget({
+      curve: 'ecdsa-hss',
+      phase: 'prepare',
+      sessionId: admission.sessionId,
+      walletSigningSessionId: validated.claims.walletSigningSessionId,
+      operationId: admission.requestId,
+      requestDigest: ecdsaRequestDigestB64u(privateBody.trusted_admission.signing_digest),
+      signatureUses: 1,
+      expiresAtMs: admission.expiresAtMs,
+    });
+    if (!reservation.ok) {
+      return {
+        status: reservation.status,
+        body: { ok: false, code: reservation.code, message: reservation.message },
+      };
+    }
+    prepareBudgetReservationId = reservation.reservationId;
   } else {
-    const budget = await threshold.consumeRouterAbNormalSigningBudget({
+    const reservationId = budgetReservationId(input.body);
+    if (!reservationId) {
+      return {
+        status: 422,
+        body: {
+          ok: false,
+          code: 'invalid_budget_request',
+          message: 'Router A/B ECDSA-HSS finalize requires budget reservation metadata',
+        },
+      };
+    }
+    const budget = await threshold.commitRouterAbNormalSigningBudget({
       curve: 'ecdsa-hss',
       phase: 'finalize',
       sessionId: admission.sessionId,
       walletSigningSessionId: validated.claims.walletSigningSessionId,
-      requestId: admission.requestId,
+      reservationId,
+      operationId: admission.requestId,
+      requestDigest: ecdsaRequestDigestB64u(privateBody.trusted_admission.signing_digest),
     });
     if (!budget.ok) {
       return {
@@ -832,6 +1101,15 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
         body: { ok: false, code: budget.code, message: budget.message },
       };
     }
+    const forwarded = await postRouterAbSigningWorkerJson({
+      config: signingWorker,
+      path: input.privatePath,
+      body: privateBody,
+    });
+    if (!forwarded.ok) {
+      return { status: forwarded.status, body: forwarded.body };
+    }
+    return { status: 200, body: forwarded.body };
   }
 
   const forwarded = await postRouterAbSigningWorkerJson({
@@ -840,9 +1118,23 @@ export async function handleRouterAbEcdsaHssNormalSigningRouteCore(input: {
     body: privateBody,
   });
   if (!forwarded.ok) {
+    if (prepareBudgetReservationId) {
+      await threshold.releaseRouterAbNormalSigningBudget({
+        curve: 'ecdsa-hss',
+        phase: 'finalize',
+        sessionId: admission.sessionId,
+        walletSigningSessionId: validated.claims.walletSigningSessionId,
+        reservationId: prepareBudgetReservationId,
+      });
+    }
     return { status: forwarded.status, body: forwarded.body };
   }
-  return { status: 200, body: forwarded.body };
+  return {
+    status: 200,
+    body: prepareBudgetReservationId
+      ? withBudgetReservationMetadata(forwarded.body, { reservationId: prepareBudgetReservationId })
+      : forwarded.body,
+  };
 }
 
 export async function postRouterAbSigningWorkerJson(input: {

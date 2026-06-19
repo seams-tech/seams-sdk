@@ -43,6 +43,8 @@ void prepareRequest;
 const finalizeRequest = {
   scope,
   expires_at_ms: 1_900_000_000_000,
+  budget_reservation_id: 'budget-reservation-1',
+  budget_operation_id: 'operation-1',
   prepare_binding: {
     server_round1_handle: 'round-1-handle',
     round1_binding_digest: digest32,
@@ -69,6 +71,8 @@ void finalizeRequest;
 const finalizeWithClientGroupPublicKey = {
   scope,
   expires_at_ms: 1_900_000_000_000,
+  budget_reservation_id: finalizeRequest.budget_reservation_id,
+  budget_operation_id: finalizeRequest.budget_operation_id,
   prepare_binding: finalizeRequest.prepare_binding,
   protocol: {
     kind: 'ed25519_two_party_frost_finalize_v1' as const,

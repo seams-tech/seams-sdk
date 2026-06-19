@@ -146,6 +146,7 @@ export type RouterAbEcdsaHssEvmDigestSigningRequestV1Wire = {
 export type RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire = {
   scope: RouterAbEcdsaHssNormalSigningScopeV1;
   request_id: string;
+  budget_reservation_id: string;
   expires_at_ms: number;
   signing_digest_b64u: string;
   server_presignature_id: string;
@@ -155,6 +156,7 @@ export type RouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1Wire = {
 export type RouterAbEcdsaHssEvmDigestSigningPrepareResponseV1Wire = {
   scope: RouterAbEcdsaHssNormalSigningScopeV1;
   request_id: string;
+  budget_reservation_id: string;
   request_digest: RouterAbPublicDigest32V1Wire;
   signing_digest: RouterAbPublicDigest32V1Wire;
   server_presignature_id: string;
@@ -982,6 +984,7 @@ export function parseRouterAbEcdsaHssEvmDigestSigningRequestV1(
 export function buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(input: {
   scope: RouterAbEcdsaHssNormalSigningScopeV1;
   requestId: string;
+  budgetReservationId: string;
   expiresAtMs: number;
   signingDigest32: Uint8Array;
   serverPresignatureId: string;
@@ -990,6 +993,7 @@ export function buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(input: {
   return parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
     scope: input.scope,
     request_id: input.requestId,
+    budget_reservation_id: input.budgetReservationId,
     expires_at_ms: input.expiresAtMs,
     signing_digest_b64u: base64UrlEncode(
       requireUint8ArrayFixed(input.signingDigest32, 'signingDigest32', 32),
@@ -1008,6 +1012,7 @@ export function parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(
   requireExactKeys(record, 'ecdsaFinalizeRequest', [
     'scope',
     'request_id',
+    'budget_reservation_id',
     'expires_at_ms',
     'signing_digest_b64u',
     'server_presignature_id',
@@ -1016,6 +1021,10 @@ export function parseRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1(
   return {
     scope: parseRouterAbEcdsaHssNormalSigningScopeV1(record.scope),
     request_id: requireAsciiNonEmptyString(record.request_id, 'ecdsaFinalizeRequest.request_id'),
+    budget_reservation_id: requireAsciiNonEmptyString(
+      record.budget_reservation_id,
+      'ecdsaFinalizeRequest.budget_reservation_id',
+    ),
     expires_at_ms: requirePositiveUnixMs(
       record.expires_at_ms,
       'ecdsaFinalizeRequest.expires_at_ms',
@@ -1067,6 +1076,7 @@ export function parseRouterAbEcdsaHssEvmDigestSigningPrepareResponseV1(
   requireExactKeys(record, 'ecdsaPrepareResponse', [
     'scope',
     'request_id',
+    'budget_reservation_id',
     'request_digest',
     'signing_digest',
     'server_presignature_id',
@@ -1079,6 +1089,10 @@ export function parseRouterAbEcdsaHssEvmDigestSigningPrepareResponseV1(
   return {
     scope: parseRouterAbEcdsaHssNormalSigningScopeV1(record.scope),
     request_id: requireAsciiNonEmptyString(record.request_id, 'ecdsaPrepareResponse.request_id'),
+    budget_reservation_id: requireAsciiNonEmptyString(
+      record.budget_reservation_id,
+      'ecdsaPrepareResponse.budget_reservation_id',
+    ),
     request_digest: parsePublicDigest32(
       record.request_digest,
       'ecdsaPrepareResponse.request_digest',

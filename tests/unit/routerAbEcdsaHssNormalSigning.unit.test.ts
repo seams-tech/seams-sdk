@@ -95,6 +95,7 @@ async function prepareResponse(
   return {
     scope,
     request_id: request.request_id,
+    budget_reservation_id: 'ecdsa-sign-budget-reservation-1',
     request_digest: await routerAbEcdsaHssEvmDigestSigningRequestDigestV1(request),
     signing_digest: digest(11),
     server_presignature_id: request.client_presignature_id,
@@ -137,6 +138,7 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
     const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
       scope,
       requestId: request.request_id,
+      budgetReservationId: 'ecdsa-sign-budget-reservation-1',
       expiresAtMs: request.expires_at_ms,
       signingDigest32: new Uint8Array(32).fill(11),
       serverPresignatureId: request.client_presignature_id,
@@ -146,6 +148,7 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
     expect(finalizeRequest).toEqual({
       scope,
       request_id: request.request_id,
+      budget_reservation_id: 'ecdsa-sign-budget-reservation-1',
       expires_at_ms: request.expires_at_ms,
       signing_digest_b64u: b64u(11, 32),
       server_presignature_id: 'presig-client-selected',
@@ -219,6 +222,7 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
     const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
       scope,
       requestId: request.request_id,
+      budgetReservationId: 'ecdsa-sign-budget-reservation-1',
       expiresAtMs: request.expires_at_ms,
       signingDigest32: new Uint8Array(32).fill(11),
       serverPresignatureId: request.client_presignature_id,
@@ -239,6 +243,7 @@ test.describe('Router A/B ECDSA-HSS normal-signing boundary', () => {
     const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
       scope,
       requestId: request.request_id,
+      budgetReservationId: 'ecdsa-sign-budget-reservation-1',
       expiresAtMs: request.expires_at_ms,
       signingDigest32: new Uint8Array(32).fill(11),
       serverPresignatureId: preparedResponse.server_presignature_id,

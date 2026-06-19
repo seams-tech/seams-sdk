@@ -52,6 +52,8 @@ const request: RouterAbNormalSigningPrepareRequestV2Wire = {
 function prepareResponse(signingWorkerId: string): RouterAbNormalSigningPrepareResponseV1Wire {
   return {
     scope: request.scope,
+    budget_reservation_id: 'ed25519-sign-budget-reservation-1',
+    budget_operation_id: 'operation-1',
     signing_payload_digest: digest32,
     round1_binding_digest: digest32,
     signing_worker: {

@@ -328,7 +328,7 @@ Acceptance:
 
 ## Phase 2: Wire Budget Reservation Into Router A/B Prepare
 
-- [ ] Add a shared server helper:
+- [x] Add a shared server helper:
 
 ```ts
 reserveRouterAbWalletSigningBudget(input: {
@@ -343,10 +343,10 @@ reserveRouterAbWalletSigningBudget(input: {
 }): Promise<RouterAbBudgetReservation>;
 ```
 
-- [ ] Call the helper from Ed25519 normal-signing prepare routes.
+- [x] Call the helper from Ed25519 normal-signing prepare routes.
 - [ ] Call the helper from Ed25519 presign-pool prepare routes.
-- [ ] Call the helper from ECDSA-HSS normal-signing prepare routes.
-- [ ] Bind the reservation to:
+- [x] Call the helper from ECDSA-HSS normal-signing prepare routes.
+- [x] Bind the reservation to:
   - Wallet Session JWT kind
   - wallet id/account id
   - `walletSigningSessionId`
@@ -357,11 +357,23 @@ reserveRouterAbWalletSigningBudget(input: {
   - operation id
   - expiry
 - [ ] Include `budgetReservationId` and budget status in prepare responses.
-- [ ] Reject prepare with a typed `wallet_budget_exhausted` error when
+- [x] Reject prepare with a typed `wallet_budget_exhausted` error when
       insufficient signature uses remain.
-- [ ] Reject prepare with a typed `wallet_budget_reserved` or
+- [x] Reject prepare with a typed `wallet_budget_reserved` or
       `wallet_budget_in_flight` error when the short-window budget is held by an
       active request.
+
+Implemented scope:
+
+- Ed25519 normal-signing prepare returns `budget_reservation_id` plus
+  `budget_operation_id`; finalize sends both back.
+- ECDSA-HSS normal-signing prepare returns `budget_reservation_id`; finalize
+  sends it back.
+- Ed25519 presign-pool signing remains on the interim direct final-sign consume
+  path. The presign-pool prepare protocol does not yet carry the eventual
+  transaction operation identity, so operation-bound reservation evidence must
+  be added before this checkbox can be closed.
+- Prepare responses do not yet include the full budget status projection.
 
 Acceptance:
 
@@ -371,7 +383,7 @@ Acceptance:
 
 ## Phase 3: Commit Budget At Router A/B Finalize
 
-- [ ] Add a shared server helper:
+- [x] Add a shared server helper:
 
 ```ts
 commitRouterAbWalletSigningBudget(input: {
@@ -385,17 +397,26 @@ commitRouterAbWalletSigningBudget(input: {
 ```
 
 - [ ] Require `budgetReservationId` on Router A/B finalize/sign request bodies.
-- [ ] Validate reservation identity before forwarding to the private
+- [x] Validate reservation identity before forwarding to the private
       SigningWorker.
-- [ ] Commit exactly once per successful signing request.
-- [ ] Return `401` or `403` with `wallet_budget_exhausted` when budget commit
+- [x] Commit exactly once per successful signing request.
+- [x] Return `401` or `403` with `wallet_budget_exhausted` when budget commit
       fails.
-- [ ] Do not return a signature when commit fails.
+- [x] Do not return a signature when commit fails.
 - [ ] Release reservation on validation failure before SigningWorker forwarding.
 - [ ] Release reservation on private SigningWorker failure that occurs before a
       signature is returned.
-- [ ] Preserve idempotent retry behavior for repeated finalize with the same
+- [x] Preserve idempotent retry behavior for repeated finalize with the same
       request digest and reservation id.
+
+Implemented scope:
+
+- Operation-bound Ed25519 and ECDSA-HSS normal finalize require reservation
+  metadata and commit before private SigningWorker forwarding.
+- Ed25519 presign-pool finalization remains on the interim direct consume path.
+- Finalize private-worker failure after a successful commit is still governed by
+  the existing commit-before-forward policy; release-after-private-failure needs
+  a separate store state if it remains a required behavior.
 
 Acceptance:
 

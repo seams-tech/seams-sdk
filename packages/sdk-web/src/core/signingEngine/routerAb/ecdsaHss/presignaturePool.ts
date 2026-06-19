@@ -942,6 +942,7 @@ export async function signRouterAbEcdsaHssDigestWithPoolHit(args: {
     const finalizeRequest = buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
       scope: args.scope,
       requestId: prepareRequest.request_id,
+      budgetReservationId: prepareResponse.budget_reservation_id,
       expiresAtMs: prepareRequest.expires_at_ms,
       signingDigest32: args.signingDigest32,
       serverPresignatureId: prepareResponse.server_presignature_id,
