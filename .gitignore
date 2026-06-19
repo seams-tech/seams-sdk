@@ -27,6 +27,7 @@ test-results
 
 # Benchmark artifacts
 benchmarks/ecdsa-hss-wasm/out/
+crates/router-ab-cloudflare/reports/startup-latencies/*.json
 
 # WASM worker outputs
 wasm/eth_signer/pkg

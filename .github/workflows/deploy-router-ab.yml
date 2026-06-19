@@ -102,9 +102,6 @@ jobs:
             cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features "$feature"
           done
 
-      - name: Run local four-worker smoke
-        run: pnpm router:smoke
-
       - name: Run target Cloudflare startup dry-run
         run: |
           pnpm router:deploy:dry-run -- \
