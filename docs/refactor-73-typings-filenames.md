@@ -148,7 +148,9 @@ Status: complete.
 
 ### Phase 2: Type-Only `types.ts` Inventory
 
-Create an inventory of `types.ts` files and classify each as:
+Status: complete.
+
+Created an inventory of `types.ts` files and classified each as:
 
 - type-only public surface: rename to a domain-specific `*.types.ts`.
 - directory barrel: replace with `index.ts` when practical.
@@ -162,7 +164,59 @@ rg --files packages/sdk-web/src packages/sdk-server-ts/src packages/shared-ts/sr
   | rg '(^|/)types\.ts$'
 ```
 
+Inventory captured on June 19, 2026:
+
+| File | Classification |
+| --- | --- |
+| `packages/sdk-server-ts/src/console/account/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/console/apiKeys/types.ts` | `mixed-runtime` |
+| `packages/sdk-server-ts/src/console/approvals/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/console/audit/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/console/auditExports/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/console/billing/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/console/billingPrepaidReservations/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/console/bootstrapTokens/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/console/enterpriseIsolation/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/console/gasSponsorship/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/console/keyExports/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/console/observability/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/console/onboarding/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/console/orgProjectEnv/types.ts` | `mixed-runtime` |
+| `packages/sdk-server-ts/src/console/policies/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/console/runtimeSnapshots/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/console/sponsoredCalls/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/console/sponsorshipSpendCaps/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/console/teamRbac/types.ts` | `mixed-runtime` |
+| `packages/sdk-server-ts/src/console/wallets/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/console/webhooks/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/core/ThresholdService/schemes/types.ts` | `rename-later:thresholdServiceSchemes.types.ts` |
+| `packages/sdk-server-ts/src/core/types.ts` | `mixed-runtime` |
+| `packages/sdk-server-ts/src/email-recovery/types.ts` | `external-contract` |
+| `packages/sdk-server-ts/src/router/cloudflare/types.ts` | `rename-later:cloudflare.types.ts` |
+| `packages/sdk-server-ts/src/threshold/session/signingSessionSeal/types.ts` | `rename-later:signingSessionSeal.types.ts` |
+| `packages/sdk-web/src/SeamsWeb/publicApi/types.ts` | `public-barrel` |
+| `packages/sdk-web/src/SeamsWeb/signingSurface/types.ts` | `public-barrel` |
+| `packages/sdk-web/src/SeamsWeb/walletIframe/host/handlers/types.ts` | `rename-later:walletIframeHandler.types.ts` |
+| `packages/sdk-web/src/core/accountData/near/types.ts` | `rename-later:nearAccountData.types.ts` |
+| `packages/sdk-web/src/core/platform/types.ts` | `rename-later:platform.types.ts` |
+| `packages/sdk-web/src/core/runtime/types.ts` | `rename-later:runtime.types.ts` |
+| `packages/sdk-web/src/core/signingEngine/chains/evm/types.ts` | `rename-later:evmSigning.types.ts` |
+| `packages/sdk-web/src/core/signingEngine/chains/tempo/types.ts` | `rename-later:tempoSigning.types.ts` |
+| `packages/sdk-web/src/core/signingEngine/flows/signEvmFamily/types.ts` | `mixed-runtime` |
+| `packages/sdk-web/src/core/signingEngine/session/operationState/types.ts` | `mixed-runtime` |
+| `packages/sdk-web/src/core/signingEngine/session/sealedRecovery/types.ts` | `rename-later:sealedRecovery.types.ts` |
+| `packages/sdk-web/src/core/signingEngine/session/warmCapabilities/types.ts` | `mixed-runtime` |
+| `packages/sdk-web/src/core/signingEngine/stepUpConfirmation/types.ts` | `mixed-runtime` |
+| `packages/sdk-web/src/core/signingEngine/uiConfirm/types.ts` | `rename-later:uiConfirm.types.ts` |
+| `packages/sdk-web/src/core/signingEngine/uiConfirm/ui/lit-components/TxTree/renderers/types.ts` | `mixed-runtime` |
+| `packages/sdk-web/src/react/components/AccountMenuButton/types.ts` | `mixed-runtime` |
+| `packages/sdk-web/src/react/components/PasskeyAuthMenu/types.ts` | `mixed-runtime` |
+| `packages/sdk-web/src/react/types.ts` | `public-barrel` |
+| `tests/setup/types.ts` | `external-contract` |
+
 ### Phase 3: Rename High-Value Shared Typing Surfaces
+
+Status: scoped to owner-specific follow-up slices.
 
 Start with files agents are most likely to miss:
 
@@ -174,21 +228,35 @@ Start with files agents are most likely to miss:
 
 Keep each PR or commit scoped to one ownership area.
 
+Current result: the active `.typings.ts` module was renamed in Phase 1. The
+remaining `types.ts` files are explicit public barrels, external contracts,
+mixed runtime/type modules, or `rename-later:<target>` rows in the Phase 2
+inventory. Each `rename-later` row should be handled by its owning area with
+imports and focused validation in the same commit.
+
 ### Phase 4: Add Source Guards
 
-Add a small guard test that fails on:
+Status: complete.
+
+Added `tests/unit/refactor73TypeFilename.guard.unit.test.ts`, which fails on:
 
 - new `*.typings.ts` files.
-- new type-only `types.ts` files outside approved barrels.
+- new `types.ts` files outside the approved inventory.
 - runtime exports from `*.types.ts`, except `export type` and interfaces.
 - side-effect imports from `*.types.ts`.
 - broad runtime barrels re-exporting `*.types.ts` as values.
 
-Use existing guard-test patterns. Avoid new lint dependencies.
+Validation:
+
+```sh
+pnpm -C tests exec playwright test -c playwright.source.config.ts ./unit/refactor73TypeFilename.guard.unit.test.ts --reporter=line
+```
 
 ### Phase 5: Update Contributor Docs
 
-Update the repo guidance so future agents know:
+Status: complete.
+
+Updated `README.md` so future agents know:
 
 - search `*.types.ts` before creating new domain types.
 - add `*.typecheck.ts` fixtures for strict domain-state guarantees.

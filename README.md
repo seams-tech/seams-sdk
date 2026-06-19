@@ -53,6 +53,14 @@ pnpm run server
 - Source guards: `pnpm test:source-guards`
 - Full local check: `pnpm check`
 
+### TypeScript type modules
+
+Search existing `*.types.ts`, `types.ts`, and `*.typecheck.ts` surfaces before
+adding domain types. Dedicated type-only source modules use `*.types.ts`;
+compile-time invalid-state fixtures use `*.typecheck.ts`. Keep raw input
+parsers near request, persistence, worker, and UI boundaries, then normalize into
+the existing domain type.
+
 ### Router A/B Local Development
 
 - Interleaved local service logs: `pnpm router`
