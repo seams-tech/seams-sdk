@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
+import * as ts from 'typescript';
 
 type TypesTsClassification =
   | 'public-barrel'
@@ -112,24 +113,55 @@ function isAllowedTypesTsFile(relativePath: string): boolean {
   return Object.prototype.hasOwnProperty.call(allowedTypesTsFiles, relativePath);
 }
 
-function runtimeExportMessage(relativePath: string, source: string): string | null {
-  const runtimeExport = /^\s*export\s+(const|let|var|function|class|enum)\b/m.exec(source);
-  if (runtimeExport) return `${relativePath} exports runtime ${runtimeExport[1]}`;
-
-  const runtimeDeclaration = /^\s*(?:declare\s+)?(const|let|var|function|class|enum)\b/m.exec(
-    source,
-  );
-  if (runtimeDeclaration) {
-    return `${relativePath} declares runtime ${runtimeDeclaration[1]}`;
+function typeOnlyModuleViolationMessage(relativePath: string, source: string): string | null {
+  const sourceFile = ts.createSourceFile(relativePath, source, ts.ScriptTarget.Latest, true);
+  for (const statement of sourceFile.statements) {
+    const message = statementViolationMessage(sourceFile, statement);
+    if (message) return `${relativePath}:${lineNumber(sourceFile, statement)} ${message}`;
   }
-
-  const sideEffectImport = /^\s*import\s+['"][^'"]+['"];?\s*$/m.exec(source);
-  if (sideEffectImport) return `${relativePath} contains a side-effect import`;
-
-  const runtimeImport = /^\s*import\s+(?!type\b)/m.exec(source);
-  if (runtimeImport) return `${relativePath} contains a value import`;
-
   return null;
+}
+
+function statementViolationMessage(
+  sourceFile: ts.SourceFile,
+  statement: ts.Statement,
+): string | null {
+  if (ts.isImportDeclaration(statement)) return importDeclarationViolationMessage(statement);
+  if (ts.isExportDeclaration(statement)) return exportDeclarationViolationMessage(statement);
+  if (ts.isTypeAliasDeclaration(statement) || ts.isInterfaceDeclaration(statement)) return null;
+  if (statement.kind === ts.SyntaxKind.EmptyStatement) return null;
+
+  const text = statement.getText(sourceFile).split('\n')[0]?.trim() ?? '';
+  return `contains executable or runtime statement ${statementKindName(statement)}: ${text}`;
+}
+
+function importDeclarationViolationMessage(statement: ts.ImportDeclaration): string | null {
+  if (!statement.importClause) return 'contains a side-effect import';
+  if (!statement.importClause.isTypeOnly) return 'contains a value import';
+  return null;
+}
+
+function exportDeclarationViolationMessage(statement: ts.ExportDeclaration): string | null {
+  if (statement.isTypeOnly) return null;
+  if (allNamedExportsAreTypeOnly(statement)) return null;
+  return 'contains a value export';
+}
+
+function allNamedExportsAreTypeOnly(statement: ts.ExportDeclaration): boolean {
+  if (!statement.exportClause || !ts.isNamedExports(statement.exportClause)) return false;
+  return statement.exportClause.elements.every((element) => element.isTypeOnly);
+}
+
+function lineNumber(sourceFile: ts.SourceFile, statement: ts.Statement): number {
+  return sourceFile.getLineAndCharacterOfPosition(statement.getStart(sourceFile)).line + 1;
+}
+
+function statementKindName(statement: ts.Statement): string {
+  if (ts.isVariableStatement(statement)) return 'VariableStatement';
+  if (ts.isFunctionDeclaration(statement)) return 'FunctionDeclaration';
+  if (ts.isClassDeclaration(statement)) return 'ClassDeclaration';
+  if (ts.isEnumDeclaration(statement)) return 'EnumDeclaration';
+  return ts.SyntaxKind[statement.kind];
 }
 
 function valueTypesReexportMessage(relativePath: string, source: string): string | null {
@@ -159,12 +191,25 @@ function exportStatements(source: string): string[] {
 }
 
 test.describe('Refactor 73 type filename source guards', () => {
-  test('the type-only module guard rejects private runtime declarations', () => {
-    expect(runtimeExportMessage('fixture.types.ts', 'const x = 1;\nexport type X = string;')).toBe(
-      'fixture.types.ts declares runtime const',
+  test('the type-only module guard rejects runtime statements', () => {
+    expect(
+      typeOnlyModuleViolationMessage('fixture.types.ts', 'const x = 1;\nexport type X = string;'),
+    ).toBe(
+      'fixture.types.ts:1 contains executable or runtime statement VariableStatement: const x = 1;',
     );
     expect(
-      runtimeExportMessage('fixture.types.ts', 'export interface X {\n  value: string;\n}\n'),
+      typeOnlyModuleViolationMessage('fixture.types.ts', 'console.log("x");\nexport type X = string;'),
+    ).toBe(
+      'fixture.types.ts:1 contains executable or runtime statement ExpressionStatement: console.log("x");',
+    );
+    expect(
+      typeOnlyModuleViolationMessage('fixture.types.ts', 'if (true) {}\nexport type X = string;'),
+    ).toBe('fixture.types.ts:1 contains executable or runtime statement IfStatement: if (true) {}');
+    expect(
+      typeOnlyModuleViolationMessage('fixture.types.ts', 'import { Foo } from "./foo";'),
+    ).toBe('fixture.types.ts:1 contains a value import');
+    expect(
+      typeOnlyModuleViolationMessage('fixture.types.ts', 'export interface X {\n  value: string;\n}\n'),
     ).toBeNull();
   });
 
@@ -196,7 +241,7 @@ test.describe('Refactor 73 type filename source guards', () => {
     const offenders: string[] = [];
     for (const file of activeSourceFiles()) {
       if (!file.endsWith('.types.ts')) continue;
-      const message = runtimeExportMessage(file, readSource(file));
+      const message = typeOnlyModuleViolationMessage(file, readSource(file));
       if (message) offenders.push(message);
     }
     expect(offenders, offenders.join('\n')).toEqual([]);

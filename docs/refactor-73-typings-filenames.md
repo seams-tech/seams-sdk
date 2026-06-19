@@ -120,7 +120,7 @@ Observed naming families before Phase 1:
 - Existing compliant `*.types.ts` examples:
   - `packages/sdk-web/src/core/indexedDB/keyMaterial.types.ts`
   - `packages/sdk-web/src/core/indexedDB/passkeyClientDB.types.ts`
-- Current `types.ts` examples:
+- Current type-surface examples:
   - `packages/sdk-web/src/core/types/seams.ts`
   - `packages/sdk-web/src/core/types/sdkSentEvents.ts`
   - `packages/sdk-web/src/SeamsWeb/publicApi/types.ts`
@@ -236,8 +236,8 @@ imports and focused validation in the same commit.
 Agent D progress, June 19, 2026:
 
 - [x] Renamed `packages/sdk-web/src/core/runtime/types.ts` to
-  `packages/sdk-web/src/core/runtime/runtime.types.ts`, updated runtime imports,
-  and kept the change outside active Refactor 70/74 signing and budget files.
+  `packages/sdk-web/src/core/runtime/runtime.types.ts` and updated import
+  specifiers without changing signing, material-restore, or budget semantics.
 
 ### Phase 4: Add Source Guards
 
