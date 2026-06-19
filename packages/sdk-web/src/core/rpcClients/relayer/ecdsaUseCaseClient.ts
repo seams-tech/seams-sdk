@@ -106,7 +106,7 @@ function parseBootstrapOutput(
     clientShareRetryCounter: value.clientShareRetryCounter,
     relayerShareRetryCounter: value.relayerShareRetryCounter,
     participantIds,
-    thresholdSessionId: value.sessionId,
+    thresholdSessionId: value.thresholdSessionId,
     signingGrantId: value.signingGrantId,
     expiresAtMs: value.expiresAtMs,
     remainingUses: value.remainingUses,

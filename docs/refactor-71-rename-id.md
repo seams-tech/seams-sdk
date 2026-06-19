@@ -291,6 +291,9 @@ Phase 4 evidence:
   `thresholdSessionId` and `signingGrantId` for Wallet Session signing
   authority. Route request bodies that still use protocol-local `sessionId`
   remain at route boundaries.
+- ECDSA-HSS public bootstrap route responses now emit `thresholdSessionId`
+  instead of `sessionId`; Express and Cloudflare adapters translate private
+  service `sessionId` values at the HTTP boundary.
 - ECDSA relayer output validation rejects threshold-session or signing-grant
   drift before finalizing client state.
 - Validation: `pnpm -C packages/sdk-web type-check`, focused ECDSA provisioning

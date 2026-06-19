@@ -64,6 +64,13 @@ const NOT_IMPLEMENTED = {
   message: 'threshold-ecdsa is not implemented',
 } as const;
 
+function publicEcdsaHssBootstrapValue<T extends { sessionId: string }>(
+  value: T,
+): Omit<T, 'sessionId'> & { thresholdSessionId: string } {
+  const { sessionId, ...rest } = value;
+  return { ...rest, thresholdSessionId: sessionId };
+}
+
 function validateEcdsaHssSessionIdentity(input: {
   walletSessionAuth: VerifiedEcdsaWalletSessionAuth;
   walletId: string;
@@ -756,7 +763,7 @@ export function registerThresholdEcdsaRoutes(
         return {
           ...bootstrap,
           value: {
-            ...bootstrap.value,
+            ...publicEcdsaHssBootstrapValue(bootstrap.value),
             jwt: signed.jwt,
           },
         };

@@ -742,7 +742,7 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
       ecdsaThresholdKeyId: String(serverBootstrap.ecdsaThresholdKeyId || '').trim(),
       signingRootId: String(serverBootstrap.signingRootId || '').trim(),
       signingRootVersion: String(serverBootstrap.signingRootVersion || '').trim(),
-      thresholdSessionId: String(serverBootstrap.sessionId || '').trim(),
+      thresholdSessionId: String(serverBootstrap.thresholdSessionId || '').trim(),
       signingGrantId: String(serverBootstrap.signingGrantId || '').trim(),
       expiresAtMs: Number(serverBootstrap.expiresAtMs),
       participantIds: serverBootstrap.participantIds.map((participantId) =>
@@ -775,7 +775,7 @@ export function parseWalletRegistrationEcdsaHssRespond(args: {
   const ethereumAddress = String(serverBootstrap.ethereumAddress || '').trim();
   const relayerKeyId = String(serverBootstrap.relayerKeyId || '').trim();
   const relayerVerifyingShareB64u = String(serverBootstrap.relayerVerifyingShareB64u || '').trim();
-  const thresholdSessionId = String(serverBootstrap.sessionId || '').trim();
+  const thresholdSessionId = String(serverBootstrap.thresholdSessionId || '').trim();
   const signingGrantId = String(serverBootstrap.signingGrantId || '').trim();
   const remainingUses = Math.max(0, Math.floor(Number(serverBootstrap.remainingUses)));
   const expiresAtMs = Math.max(0, Math.floor(Number(serverBootstrap.expiresAtMs)));

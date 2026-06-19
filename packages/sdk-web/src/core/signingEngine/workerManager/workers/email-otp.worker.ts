@@ -3284,7 +3284,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
     });
     const clientAdditiveShareHandle = {
       kind: 'email_otp_worker_session' as const,
-      sessionId: value.sessionId,
+      sessionId: value.thresholdSessionId,
     };
     const walletSessionJwt =
       readOptionalString(value.jwt) ||
@@ -3310,7 +3310,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
         relayerVerifyingShareB64u: value.relayerVerifyingShareB64u,
         thresholdSessionKind: sessionKind,
         ...(walletSessionJwt ? { walletSessionJwt } : {}),
-        thresholdSessionId: value.sessionId,
+        thresholdSessionId: value.thresholdSessionId,
         signingGrantId: value.signingGrantId,
         routerAbEcdsaHssNormalSigning: value.routerAbEcdsaHssNormalSigning,
       },
@@ -3329,7 +3329,7 @@ async function runThresholdEcdsaAuthorizationBootstrapFromClientRootShare(
       },
       session: {
         ok: true,
-        thresholdSessionId: value.sessionId,
+        thresholdSessionId: value.thresholdSessionId,
         signingGrantId: value.signingGrantId,
         expiresAtMs: value.expiresAtMs,
         remainingUses: value.remainingUses,

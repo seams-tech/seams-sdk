@@ -183,7 +183,7 @@ export type ThresholdEcdsaHssRoleLocalBootstrapValue = {
   ethereumAddress: string;
   relayerVerifyingShareB64u: string;
   participantIds: number[];
-  sessionId: string;
+  thresholdSessionId: string;
   signingGrantId: string;
   expiresAtMs: number;
   expiresAt: string;
@@ -312,7 +312,7 @@ const NON_EXPORT_BOOTSTRAP_RESPONSE_FIELDS = new Set([
   'ethereumAddress',
   'relayerVerifyingShareB64u',
   'participantIds',
-  'sessionId',
+  'thresholdSessionId',
   'signingGrantId',
   'expiresAtMs',
   'expiresAt',
@@ -384,7 +384,10 @@ function parseThresholdEcdsaHssRoleLocalBootstrapValue(
     'signingRootVersion',
   );
   const participantIds = requireParticipantIds(record.participantIds);
-  const sessionId = requireNonEmptyString(record.sessionId, 'sessionId');
+  const thresholdSessionId = requireNonEmptyString(
+    record.thresholdSessionId,
+    'thresholdSessionId',
+  );
   const signingGrantId = requireNonEmptyString(
     record.signingGrantId,
     'signingGrantId',
@@ -402,7 +405,7 @@ function parseThresholdEcdsaHssRoleLocalBootstrapValue(
         ecdsaThresholdKeyId,
         signingRootId,
         signingRootVersion,
-        thresholdSessionId: sessionId,
+        thresholdSessionId,
         signingGrantId,
         expiresAtMs,
         participantIds,
@@ -442,7 +445,7 @@ function parseThresholdEcdsaHssRoleLocalBootstrapValue(
       'relayerVerifyingShareB64u',
     ),
     participantIds,
-    sessionId,
+    thresholdSessionId,
     signingGrantId,
     expiresAtMs,
     expiresAt: requireNonEmptyString(record.expiresAt, 'expiresAt'),

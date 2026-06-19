@@ -64,6 +64,13 @@ const NOT_IMPLEMENTED = {
   message: 'threshold-ecdsa is not implemented',
 } as const;
 
+function publicEcdsaHssBootstrapValue<T extends { sessionId: string }>(
+  value: T,
+): Omit<T, 'sessionId'> & { thresholdSessionId: string } {
+  const { sessionId, ...rest } = value;
+  return { ...rest, thresholdSessionId: sessionId };
+}
+
 async function handleRouterAbEcdsaHssNormalSigningRoute(input: {
   ctx: CloudflareRelayContext;
   body: Record<string, unknown>;
@@ -662,7 +669,7 @@ export async function handleThresholdEcdsa(ctx: CloudflareRelayContext): Promise
     const signedResult = {
       ...result,
       value: {
-        ...result.value,
+        ...publicEcdsaHssBootstrapValue(result.value),
         jwt: signed.jwt,
       },
     };

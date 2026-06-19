@@ -209,7 +209,7 @@ function serverBootstrap(args: {
     ethereumAddress: OWNER_ADDRESS,
     relayerVerifyingShareB64u: RELAYER_PUBLIC_KEY_33_B64U,
     participantIds: [1, 2],
-    sessionId: THRESHOLD_SESSION_ID,
+    thresholdSessionId: THRESHOLD_SESSION_ID,
     signingGrantId: WALLET_SIGNING_SESSION_ID,
     expiresAtMs: EXPIRES_AT_MS,
     expiresAt: new Date(EXPIRES_AT_MS).toISOString(),
