@@ -274,7 +274,7 @@ export function thresholdSessionIdFromEcdsaBootstrap(
 ): string {
   const keyRef = bootstrap ? bootstrap.thresholdEcdsaKeyRef : undefined;
   return (
-    String(bootstrap?.session?.sessionId || '').trim() ||
+    String(bootstrap?.session?.thresholdSessionId || '').trim() ||
     String(keyRef ? keyRef.thresholdSessionId : '').trim()
   );
 }

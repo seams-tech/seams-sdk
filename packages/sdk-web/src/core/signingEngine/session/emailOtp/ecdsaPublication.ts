@@ -181,7 +181,9 @@ async function persistEmailOtpEcdsaSigningSessionSealForUnlock(
 
   const keyRef = args.bootstrap.thresholdEcdsaKeyRef;
   const session = args.bootstrap.session;
-  const thresholdSessionId = String(session?.sessionId || keyRef.thresholdSessionId || '').trim();
+  const thresholdSessionId = String(
+    session?.thresholdSessionId || keyRef.thresholdSessionId || '',
+  ).trim();
   const signingGrantId = String(
     session?.signingGrantId || keyRef.signingGrantId || '',
   ).trim();

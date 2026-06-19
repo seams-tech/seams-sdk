@@ -1605,7 +1605,10 @@ async function rehydrateEmailOtpEcdsaWarmSessionMaterial(args: {
         Math.max(0, Math.floor(Number(bootstrap.session?.expiresAtMs) || policy.expiresAtMs)),
       );
       putEmailOtpWarmSessionMaterial({
-        sessionId: readString(bootstrap.session?.sessionId || sessionId, 'thresholdSessionId'),
+        sessionId: readString(
+          bootstrap.session?.thresholdSessionId || sessionId,
+          'thresholdSessionId',
+        ),
         clientRootShare32,
         signingSessionSecret32,
         clientAdditiveShare32: emailOtpClientAdditiveShare32,
@@ -3488,7 +3491,7 @@ async function runEmailOtpEcdsaPublicationBootstrapsFromClientRootShare(args: {
     let signingSessionSecret32: Uint8Array | null = Uint8Array.from(args.clientRootShare32);
     try {
       putEmailOtpWarmSessionMaterial({
-        sessionId: readString(bootstrap.session?.sessionId, 'thresholdSessionId'),
+        sessionId: readString(bootstrap.session?.thresholdSessionId, 'thresholdSessionId'),
         clientRootShare32: args.clientRootShare32,
         signingSessionSecret32,
         clientAdditiveShare32: emailOtpClientAdditiveShare32,
