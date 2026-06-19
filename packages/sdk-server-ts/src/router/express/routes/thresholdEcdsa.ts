@@ -47,12 +47,8 @@ import {
 import { verifySecp256k1RecoverableSignatureAgainstPublicKey33 } from '../../../core/ThresholdService/ethSignerWasm';
 import { normalizeCorsOrigin } from '../../../core/SessionService';
 import {
-  buildRouterAbEcdsaHssPrivateSigningWorkerBody,
-  evaluateRouterAbNormalSigningAdmission,
-  postRouterAbSigningWorkerJson,
+  handleRouterAbEcdsaHssNormalSigningRouteCore,
   ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS,
-  validateRouterAbEcdsaHssNormalSigningFinalizeRequest,
-  validateRouterAbEcdsaHssNormalSigningPrepareRequest,
   type RouterAbEcdsaHssPrivateSigningPath,
 } from '../../routerAbPrivateSigningWorker';
 
@@ -531,154 +527,40 @@ async function handleRouterAbEcdsaHssNormalSigningRoute(input: {
       method: input.req.method,
       phase: input.phase,
     });
-    const validated = await validateRouterAbEcdsaHssWalletSessionInputs({
-      body: bodyUnknown,
+    const result = await handleRouterAbEcdsaHssNormalSigningRouteCore({
+      body,
+      rawBody: bodyUnknown,
       headers: input.req.headers || {},
       session: input.ctx.opts.session,
-    });
-    if (!validated.ok) {
-      const status = thresholdEcdsaStatusCode(validated);
-      input.ctx.logger.warn('[router-ab-ecdsa-hss-signing] response', {
-        route: input.routePath,
-        status,
-        ok: false,
-        code: validated.code,
-        durationMs: Math.max(0, Date.now() - startedAtMs),
-      });
-      input.res.status(status).json(validated);
-      return;
-    }
-
-    const admission =
-      input.phase === 'prepare'
-        ? validateRouterAbEcdsaHssNormalSigningPrepareRequest({
-            claims: validated.claims,
-            body,
-          })
-        : validateRouterAbEcdsaHssNormalSigningFinalizeRequest({
-            claims: validated.claims,
-            body,
-          });
-    if (!admission.ok) {
-      const scopeError = admission.error;
-      input.ctx.logger.warn('[router-ab-ecdsa-hss-signing] response', {
-        route: input.routePath,
-        status: scopeError.status,
-        ok: false,
-        code: scopeError.body.code,
-        durationMs: Math.max(0, Date.now() - startedAtMs),
-      });
-      input.res.status(scopeError.status).json(scopeError.body);
-      return;
-    }
-
-    const threshold = input.ctx.service.getThresholdSigningService();
-    if (!threshold) {
-      const failure = {
-        ok: false,
-        code: 'not_configured',
-        message: 'Router A/B SigningWorker private HTTP target is not configured',
-      };
-      input.ctx.logger.error('[router-ab-ecdsa-hss-signing] response', {
-        route: input.routePath,
-        status: 501,
-        ok: false,
-        code: failure.code,
-        durationMs: Math.max(0, Date.now() - startedAtMs),
-      });
-      input.res.status(501).json(failure);
-      return;
-    }
-    const admissionDecision = await evaluateRouterAbNormalSigningAdmission({
-      adapter: input.ctx.opts.routerAbNormalSigningAdmission,
-      curve: 'ecdsa-hss',
+      getThreshold: () => input.ctx.service.getThresholdSigningService(),
+      admissionAdapter: input.ctx.opts.routerAbNormalSigningAdmission,
+      privatePath: input.privatePath,
       phase: input.phase,
-      claims: validated.claims,
-      admission,
     });
-    if (!admissionDecision.ok) {
-      input.ctx.logger.warn('[router-ab-ecdsa-hss-signing] response', {
-        route: input.routePath,
-        status: admissionDecision.status,
-        ok: false,
-        code: admissionDecision.code,
-        durationMs: Math.max(0, Date.now() - startedAtMs),
-      });
-      input.res.status(admissionDecision.status).json({
-        ok: false,
-        code: admissionDecision.code,
-        message: admissionDecision.message,
-      });
-      return;
-    }
-    const signingWorker = threshold.getRouterAbSigningWorkerPrivateHttpConfig();
-    if (!signingWorker) {
-      const failure = {
-        ok: false,
-        code: 'not_configured',
-        message: 'Router A/B SigningWorker private HTTP target is not configured',
-      };
-      input.ctx.logger.error('[router-ab-ecdsa-hss-signing] response', {
-        route: input.routePath,
-        status: 501,
-        ok: false,
-        code: failure.code,
-        durationMs: Math.max(0, Date.now() - startedAtMs),
-      });
-      input.res.status(501).json(failure);
-      return;
-    }
-
-    const privateBody = await buildRouterAbEcdsaHssPrivateSigningWorkerBody({
-      phase: input.phase,
-      body,
-    });
-    if (input.phase === 'prepare') {
-      const replay = await threshold.reserveRouterAbNormalSigningPrepareReplay({
-        curve: 'ecdsa-hss',
-        phase: 'prepare',
-        sessionId: admission.sessionId,
-        requestId: admission.requestId,
-        expiresAtMs: admission.expiresAtMs,
-      });
-      if (!replay.ok) {
-        input.ctx.logger.warn('[router-ab-ecdsa-hss-signing] response', {
-          route: input.routePath,
-          status: replay.status,
-          ok: false,
-          code: replay.code,
-          durationMs: Math.max(0, Date.now() - startedAtMs),
-        });
-        input.res
-          .status(replay.status)
-          .json({ ok: false, code: replay.code, message: replay.message });
-        return;
-      }
-    }
-    const forwarded = await postRouterAbSigningWorkerJson({
-      config: signingWorker,
-      path: input.privatePath,
-      body: privateBody,
-    });
-    if (!forwarded.ok) {
-      input.ctx.logger.warn('[router-ab-ecdsa-hss-signing] response', {
-        route: input.routePath,
-        status: forwarded.status,
-        ok: false,
-        code: forwarded.body.code,
-        durationMs: Math.max(0, Date.now() - startedAtMs),
-      });
-      input.res.status(forwarded.status).json(forwarded.body);
-      return;
-    }
-
-    input.ctx.logger.info('[router-ab-ecdsa-hss-signing] response', {
+    const resultBody =
+      result.body && typeof result.body === 'object' && !Array.isArray(result.body)
+        ? (result.body as Record<string, unknown>)
+        : {};
+    const ok =
+      typeof resultBody.ok === 'boolean'
+        ? resultBody.ok
+        : result.status >= 200 && result.status < 400;
+    const code = typeof resultBody.code === 'string' ? resultBody.code : undefined;
+    const responseLog = {
       route: input.routePath,
-      status: 200,
-      ok: true,
+      status: result.status,
+      ok,
+      ...(code ? { code } : {}),
       durationMs: Math.max(0, Date.now() - startedAtMs),
-    });
-    input.res.status(200).json(forwarded.body);
+    };
+    if (ok) {
+      input.ctx.logger.info('[router-ab-ecdsa-hss-signing] response', responseLog);
+    } else if (result.status >= 500) {
+      input.ctx.logger.error('[router-ab-ecdsa-hss-signing] response', responseLog);
+    } else {
+      input.ctx.logger.warn('[router-ab-ecdsa-hss-signing] response', responseLog);
+    }
+    input.res.status(result.status).json(result.body);
   } catch (error) {
     input.ctx.logger.error('[router-ab-ecdsa-hss-signing] error', {
       route: input.routePath,

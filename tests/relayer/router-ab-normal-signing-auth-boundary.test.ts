@@ -31,6 +31,14 @@ type LegacyThresholdSessionKind =
   | 'threshold_ed25519_session_v1'
   | 'threshold_ecdsa_session_v2';
 
+type RouterAbBudgetConsumeCall = {
+  curve: 'ed25519' | 'ecdsa-hss';
+  phase: 'finalize';
+  sessionId: string;
+  walletSigningSessionId: string;
+  requestId: string;
+};
+
 const ROUTER_AB_TEST_EXPIRES_AT_MS = Date.now() + 60 * 60 * 1000;
 
 const NORMAL_SIGNING_ROUTES = [
@@ -266,6 +274,10 @@ async function withReplayProtectedNormalSigningRouter<T>(
       reserved.add(key);
       return { ok: true as const };
     },
+    consumeRouterAbNormalSigningBudget: async () => ({
+      ok: true as const,
+      remainingUses: 2,
+    }),
   };
   const service = makeFakeAuthService({
     getThresholdSigningService: () => thresholdService as any,
@@ -294,11 +306,13 @@ async function withAdmissionGuardedNormalSigningRouter<T>(
     baseUrl: string;
     forwardedCalls: () => number;
     privateSigningWorkerReads: () => number;
+    budgetConsumes: () => number;
   }) => Promise<T>,
 ): Promise<T> {
   let forwardedCalls = 0;
   let signingWorkerConfigReads = 0;
   let ed25519MaterialReads = 0;
+  let budgetConsumes = 0;
   const originalFetch = globalThis.fetch;
   globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
     const href = String(url);
@@ -337,6 +351,10 @@ async function withAdmissionGuardedNormalSigningRouter<T>(
       };
     },
     reserveRouterAbNormalSigningPrepareReplay: async () => ({ ok: true as const }),
+    consumeRouterAbNormalSigningBudget: async () => {
+      budgetConsumes += 1;
+      return { ok: true as const, remainingUses: 2 };
+    },
   };
   const service = makeFakeAuthService({
     getThresholdSigningService: () => thresholdService as any,
@@ -352,6 +370,78 @@ async function withAdmissionGuardedNormalSigningRouter<T>(
       baseUrl: srv.baseUrl,
       forwardedCalls: () => forwardedCalls,
       privateSigningWorkerReads: () => signingWorkerConfigReads + ed25519MaterialReads,
+      budgetConsumes: () => budgetConsumes,
+    });
+  } finally {
+    await srv.close();
+    globalThis.fetch = originalFetch;
+  }
+}
+
+async function withBudgetedNormalSigningRouter<T>(
+  parseSession: ReturnType<typeof makeSessionAdapter>['parse'],
+  consumeRouterAbNormalSigningBudget: (
+    input: RouterAbBudgetConsumeCall,
+  ) => Promise<
+    | { ok: true; remainingUses: number }
+    | { ok: false; status: number; code: string; message: string }
+  >,
+  run: (input: {
+    baseUrl: string;
+    forwardedCalls: () => number;
+    forwardedUrls: () => readonly string[];
+  }) => Promise<T>,
+): Promise<T> {
+  let forwardedCalls = 0;
+  const forwardedUrls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
+    const href = String(url);
+    if (href.startsWith('http://127.0.0.1:')) {
+      return originalFetch(url, init);
+    }
+    forwardedCalls += 1;
+    forwardedUrls.push(href);
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  const thresholdOption: ThresholdSigningAdapter = {
+    getSchemeModule: () => null,
+  };
+  const thresholdService = {
+    getRouterAbSigningWorkerPrivateHttpConfig: () => ({
+      signingWorkerBaseUrl: 'https://signing-worker.internal',
+      auth: { kind: 'internal_service_auth_token', token: 'internal-service-token' },
+    }),
+    resolveRouterAbEd25519SigningWorkerPrivateMaterial: async () => ({
+      ok: true as const,
+      material: {
+        kind: 'router_ab_ed25519_signing_worker_material_v1',
+        account_public_key: 'ed25519:relayer-key-1',
+        x_server_base_b64u: b64u(Array.from({ length: 32 }, () => 9)),
+        signing_worker_material_handle: 'ed25519-hss/relayer-key-1/threshold-session-1',
+        activated_at_ms: 1_800_000_000_000,
+      },
+    }),
+    reserveRouterAbNormalSigningPrepareReplay: async () => ({ ok: true as const }),
+    consumeRouterAbNormalSigningBudget,
+  };
+  const service = makeFakeAuthService({
+    getThresholdSigningService: () => thresholdService as any,
+  });
+  const router = createRelayRouter(service, {
+    session: makeSessionAdapter({ parse: parseSession }),
+    threshold: thresholdOption,
+  });
+  const srv = await startExpressRouter(router);
+  try {
+    return await run({
+      baseUrl: srv.baseUrl,
+      forwardedCalls: () => forwardedCalls,
+      forwardedUrls: () => [...forwardedUrls],
     });
   } finally {
     await srv.close();
@@ -373,6 +463,143 @@ function ed25519NormalSigningBody(
     expires_at_ms: ROUTER_AB_ED25519_CLAIMS.thresholdExpiresAtMs,
     ...extra,
   };
+}
+
+function bearerToken(headers: Record<string, string | string[] | undefined>): string {
+  const header = headers.authorization || headers.Authorization;
+  const value = Array.isArray(header) ? header[0] : header;
+  const match = String(value || '').match(/^Bearer\s+(.+)$/i);
+  return String(match?.[1] || '').trim();
+}
+
+function parseSessionFromClaimsByToken(
+  claimsByToken: Map<string, Record<string, unknown>>,
+): ReturnType<typeof makeSessionAdapter>['parse'] {
+  return async (headers) => {
+    const claims = claimsByToken.get(bearerToken(headers));
+    return claims ? { ok: true as const, claims } : { ok: false as const };
+  };
+}
+
+async function ecdsaFinalizeBudgetCase(input: {
+  label: string;
+  token: string;
+  sessionId: string;
+  walletSigningSessionId: string;
+  requestId: string;
+  keyHandle: string;
+  signingRootId: string;
+  signingRootVersion: string;
+}): Promise<{
+  label: string;
+  token: string;
+  path: string;
+  body: Record<string, unknown>;
+  claims: Record<string, unknown>;
+  privatePath: string;
+  budget: RouterAbBudgetConsumeCall;
+}> {
+  const context = {
+    ...ECDSA_HSS_SCOPE.context,
+    ecdsa_threshold_key_id: input.keyHandle,
+    signing_root_id: input.signingRootId,
+    signing_root_version: input.signingRootVersion,
+  };
+  const scope = {
+    ...ECDSA_HSS_SCOPE,
+    context,
+    public_identity: {
+      ...ECDSA_HSS_SCOPE.public_identity,
+      context_binding_b64u: await routerAbEcdsaHssContextBindingB64uV1(context),
+    },
+  };
+  const body = buildRouterAbEcdsaHssEvmDigestSigningFinalizeRequestV1({
+    scope,
+    requestId: input.requestId,
+    expiresAtMs: ROUTER_AB_ECDSA_HSS_CLAIMS.thresholdExpiresAtMs,
+    signingDigest32: Uint8Array.from({ length: 32 }, (_, index) => index + 1),
+    serverPresignatureId: `${input.requestId}-server-presignature`,
+    clientSignatureShare32: Uint8Array.from({ length: 32 }, (_, index) => 255 - index),
+  });
+  const claims = {
+    ...ROUTER_AB_ECDSA_HSS_CLAIMS,
+    sessionId: input.sessionId,
+    walletSigningSessionId: input.walletSigningSessionId,
+    keyHandle: input.keyHandle,
+    runtimePolicyScope: {
+      ...ROUTER_AB_ECDSA_HSS_CLAIMS.runtimePolicyScope,
+      signingRootVersion: input.signingRootVersion,
+    },
+    routerAbEcdsaHssNormalSigning: {
+      kind: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_STATE_KIND_V1,
+      scope,
+    },
+  };
+  return {
+    label: input.label,
+    token: input.token,
+    path: ROUTER_AB_ECDSA_HSS_NORMAL_SIGNING_PATH_V1,
+    body,
+    claims,
+    privatePath: '/router-ab/v1/signing-worker/ecdsa-hss/sign',
+    budget: {
+      curve: 'ecdsa-hss',
+      phase: 'finalize',
+      sessionId: input.sessionId,
+      walletSigningSessionId: input.walletSigningSessionId,
+      requestId: input.requestId,
+    },
+  };
+}
+
+async function routerAbBudgetFinalizationCases(): Promise<
+  Array<{
+    label: string;
+    token: string;
+    path: string;
+    body: Record<string, unknown>;
+    claims: Record<string, unknown>;
+    privatePath: string;
+    budget: RouterAbBudgetConsumeCall;
+  }>
+> {
+  const ed25519RequestId = 'router-ab-ed25519-budget-finalize';
+  const ed25519Case = {
+    label: 'Ed25519 final signing',
+    token: 'router-ab-budget-ed25519',
+    path: ROUTER_AB_ED25519_NORMAL_SIGNING_PATH_V2,
+    body: ed25519NormalSigningBody(ed25519RequestId),
+    claims: ROUTER_AB_ED25519_CLAIMS,
+    privatePath: '/router-ab/v1/signing-worker/sign',
+    budget: {
+      curve: 'ed25519' as const,
+      phase: 'finalize' as const,
+      sessionId: ROUTER_AB_ED25519_CLAIMS.sessionId,
+      walletSigningSessionId: ROUTER_AB_ED25519_CLAIMS.walletSigningSessionId,
+      requestId: ed25519RequestId,
+    },
+  };
+  const ecdsaEvmCase = await ecdsaFinalizeBudgetCase({
+    label: 'ECDSA EVM final signing',
+    token: 'router-ab-budget-ecdsa-evm',
+    sessionId: 'threshold-ecdsa-session-evm-budget',
+    walletSigningSessionId: 'wallet-signing-session-ecdsa-evm-budget',
+    requestId: 'router-ab-ecdsa-evm-budget-finalize',
+    keyHandle: 'ehss-key-budget-evm',
+    signingRootId: 'evm-signing-root',
+    signingRootVersion: 'evm-root-v1',
+  });
+  const tempoCase = await ecdsaFinalizeBudgetCase({
+    label: 'ECDSA Tempo final signing',
+    token: 'router-ab-budget-ecdsa-tempo',
+    sessionId: 'threshold-ecdsa-session-tempo-budget',
+    walletSigningSessionId: 'wallet-signing-session-ecdsa-tempo-budget',
+    requestId: 'router-ab-ecdsa-tempo-budget-finalize',
+    keyHandle: 'ehss-key-budget-tempo',
+    signingRootId: 'tempo-signing-root',
+    signingRootVersion: 'tempo-root-v1',
+  });
+  return [ed25519Case, ecdsaEvmCase, tempoCase];
 }
 
 test.describe('Router A/B normal signing auth boundary', () => {
@@ -662,6 +889,138 @@ test.describe('Router A/B normal signing auth boundary', () => {
         expect(srv.forwardedUrls()).toEqual(
           cases.map((route) => `https://signing-worker.internal${route.privatePath}`),
         );
+      },
+    );
+  });
+
+  test('consumes server Wallet Session budget before Router A/B final signing', async () => {
+    const cases = await routerAbBudgetFinalizationCases();
+    const claimsByToken = new Map(cases.map((testCase) => [testCase.token, testCase.claims]));
+    const budgetConsumes: RouterAbBudgetConsumeCall[] = [];
+
+    await withBudgetedNormalSigningRouter(
+      parseSessionFromClaimsByToken(claimsByToken),
+      async (input) => {
+        budgetConsumes.push({ ...input });
+        return { ok: true as const, remainingUses: 2 };
+      },
+      async (srv) => {
+        for (const testCase of cases) {
+          const res = await fetchJson(`${srv.baseUrl}${testCase.path}`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${testCase.token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(testCase.body),
+          });
+
+          expect(res.status, testCase.label).toBe(200);
+        }
+
+        expect(budgetConsumes).toEqual(cases.map((testCase) => testCase.budget));
+        expect(srv.forwardedUrls()).toEqual(
+          cases.map((testCase) => `https://signing-worker.internal${testCase.privatePath}`),
+        );
+      },
+    );
+  });
+
+  test('rejects exhausted server Wallet Session budget before Router A/B final signing', async () => {
+    const cases = await routerAbBudgetFinalizationCases();
+    const claimsByToken = new Map(cases.map((testCase) => [testCase.token, testCase.claims]));
+    const budgetConsumes: RouterAbBudgetConsumeCall[] = [];
+
+    await withBudgetedNormalSigningRouter(
+      parseSessionFromClaimsByToken(claimsByToken),
+      async (input) => {
+        budgetConsumes.push({ ...input });
+        return {
+          ok: false as const,
+          status: 409,
+          code: 'exhausted',
+          message: 'wallet signing session exhausted',
+        };
+      },
+      async (srv) => {
+        for (const testCase of cases) {
+          const res = await fetchJson(`${srv.baseUrl}${testCase.path}`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${testCase.token}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(testCase.body),
+          });
+
+          expect(res.status, testCase.label).toBe(409);
+          expect(res.json, testCase.label).toMatchObject({
+            ok: false,
+            code: 'exhausted',
+            message: 'wallet signing session exhausted',
+          });
+        }
+
+        expect(budgetConsumes).toEqual(cases.map((testCase) => testCase.budget));
+        expect(srv.forwardedCalls()).toBe(0);
+      },
+    );
+  });
+
+  test('dedupes Router A/B final signing budget retries by request identity', async () => {
+    const cases = await routerAbBudgetFinalizationCases();
+    const claimsByToken = new Map(cases.map((testCase) => [testCase.token, testCase.claims]));
+    const remainingBySession = new Map(
+      cases.map((testCase) => [testCase.budget.sessionId, 1]),
+    );
+    const consumedKeys = new Set<string>();
+
+    await withBudgetedNormalSigningRouter(
+      parseSessionFromClaimsByToken(claimsByToken),
+      async (input) => {
+        const key = [
+          input.curve,
+          input.phase,
+          input.sessionId,
+          input.walletSigningSessionId,
+          input.requestId,
+        ].join(':');
+        if (!consumedKeys.has(key)) {
+          const remaining = remainingBySession.get(input.sessionId) ?? 0;
+          if (remaining <= 0) {
+            return {
+              ok: false as const,
+              status: 409,
+              code: 'exhausted',
+              message: 'wallet signing session exhausted',
+            };
+          }
+          remainingBySession.set(input.sessionId, remaining - 1);
+          consumedKeys.add(key);
+        }
+        return {
+          ok: true as const,
+          remainingUses: remainingBySession.get(input.sessionId) ?? 0,
+        };
+      },
+      async (srv) => {
+        for (const testCase of cases) {
+          for (const attempt of [1, 2]) {
+            const res = await fetchJson(`${srv.baseUrl}${testCase.path}`, {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${testCase.token}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(testCase.body),
+            });
+
+            expect(res.status, `${testCase.label} attempt ${attempt}`).toBe(200);
+          }
+        }
+
+        expect(consumedKeys.size).toBe(cases.length);
+        expect(srv.forwardedCalls()).toBe(cases.length * 2);
       },
     );
   });
@@ -956,6 +1315,7 @@ test.describe('Router A/B normal signing auth boundary', () => {
           expect(admissionInputs, testCase.label).toHaveLength(1);
           expect(admissionInputs[0], testCase.label).toMatchObject(testCase.expectedAdmission);
           expect(srv.privateSigningWorkerReads(), testCase.label).toBe(0);
+          expect(srv.budgetConsumes(), testCase.label).toBe(0);
           expect(srv.forwardedCalls(), testCase.label).toBe(0);
         },
       );

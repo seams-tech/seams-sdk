@@ -47,12 +47,8 @@ import {
 import { verifySecp256k1RecoverableSignatureAgainstPublicKey33 } from '../../../core/ThresholdService/ethSignerWasm';
 import { normalizeCorsOrigin } from '../../../core/SessionService';
 import {
-  buildRouterAbEcdsaHssPrivateSigningWorkerBody,
-  evaluateRouterAbNormalSigningAdmission,
-  postRouterAbSigningWorkerJson,
+  handleRouterAbEcdsaHssNormalSigningRouteCore,
   ROUTER_AB_ECDSA_HSS_PRIVATE_SIGNING_PATHS,
-  validateRouterAbEcdsaHssNormalSigningFinalizeRequest,
-  validateRouterAbEcdsaHssNormalSigningPrepareRequest,
   type RouterAbEcdsaHssPrivateSigningPath,
 } from '../../routerAbPrivateSigningWorker';
 
@@ -76,94 +72,17 @@ async function handleRouterAbEcdsaHssNormalSigningRoute(input: {
   privatePath: RouterAbEcdsaHssPrivateSigningPath;
   phase: 'prepare' | 'finalize';
 }): Promise<Response> {
-  const validated = await validateRouterAbEcdsaHssWalletSessionInputs({
+  const result = await handleRouterAbEcdsaHssNormalSigningRouteCore({
     body: input.body,
+    rawBody: input.body,
     headers: Object.fromEntries(input.ctx.request.headers.entries()),
     session: input.ctx.opts.session,
-  });
-  if (!validated.ok) {
-    return json(validated, { status: thresholdEcdsaStatusCode(validated) });
-  }
-
-  const admission =
-    input.phase === 'prepare'
-      ? validateRouterAbEcdsaHssNormalSigningPrepareRequest({
-          claims: validated.claims,
-          body: input.body,
-        })
-      : validateRouterAbEcdsaHssNormalSigningFinalizeRequest({
-          claims: validated.claims,
-          body: input.body,
-        });
-  if (!admission.ok) {
-    const scopeError = admission.error;
-    return json(scopeError.body, { status: scopeError.status });
-  }
-
-  const threshold = input.ctx.service.getThresholdSigningService();
-  if (!threshold) {
-    return json(
-      {
-        ok: false,
-        code: 'not_configured',
-        message: 'Router A/B SigningWorker private HTTP target is not configured',
-      },
-      { status: 501 },
-    );
-  }
-  const admissionDecision = await evaluateRouterAbNormalSigningAdmission({
-    adapter: input.ctx.opts.routerAbNormalSigningAdmission,
-    curve: 'ecdsa-hss',
+    getThreshold: () => input.ctx.service.getThresholdSigningService(),
+    admissionAdapter: input.ctx.opts.routerAbNormalSigningAdmission,
+    privatePath: input.privatePath,
     phase: input.phase,
-    claims: validated.claims,
-    admission,
   });
-  if (!admissionDecision.ok) {
-    return json(
-      { ok: false, code: admissionDecision.code, message: admissionDecision.message },
-      { status: admissionDecision.status },
-    );
-  }
-  const signingWorker = threshold.getRouterAbSigningWorkerPrivateHttpConfig();
-  if (!signingWorker) {
-    return json(
-      {
-        ok: false,
-        code: 'not_configured',
-        message: 'Router A/B SigningWorker private HTTP target is not configured',
-      },
-      { status: 501 },
-    );
-  }
-
-  const privateBody = await buildRouterAbEcdsaHssPrivateSigningWorkerBody({
-    phase: input.phase,
-    body: input.body,
-  });
-  if (input.phase === 'prepare') {
-    const replay = await threshold.reserveRouterAbNormalSigningPrepareReplay({
-      curve: 'ecdsa-hss',
-      phase: 'prepare',
-      sessionId: admission.sessionId,
-      requestId: admission.requestId,
-      expiresAtMs: admission.expiresAtMs,
-    });
-    if (!replay.ok) {
-      return json(
-        { ok: false, code: replay.code, message: replay.message },
-        { status: replay.status },
-      );
-    }
-  }
-  const forwarded = await postRouterAbSigningWorkerJson({
-    config: signingWorker,
-    path: input.privatePath,
-    body: privateBody,
-  });
-  if (forwarded.ok) {
-    return json(forwarded.body, { status: 200 });
-  }
-  return json(forwarded.body, { status: forwarded.status });
+  return json(result.body, { status: result.status });
 }
 
 function validateEcdsaHssSessionIdentity(input: {

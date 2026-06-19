@@ -252,6 +252,41 @@ type ThresholdEcdsaMpcSessionRecord = Omit<ThresholdEd25519MpcSessionRecord, 'us
   walletSessionUserId: string;
 };
 
+function routerAbNormalSigningBudgetIdempotencyKey(
+  input: RouterAbNormalSigningBudgetConsumeInput,
+): string {
+  return [
+    'router-ab-normal-signing',
+    input.curve,
+    input.phase,
+    input.sessionId,
+    input.requestId,
+  ].join(':');
+}
+
+function routerAbBudgetConsumeFailure(
+  result: WalletSessionConsumeUsesResult & { ok: false },
+): RouterAbNormalSigningBudgetConsumeResult {
+  const code = toOptionalTrimmedString(result.code) || 'unauthorized';
+  const message = toOptionalTrimmedString(result.message) || 'Wallet Session budget rejected';
+  const lowered = message.toLowerCase();
+  if (code === 'expired' || lowered.includes('expired')) {
+    return { ok: false, status: 409, code: 'expired', message: 'wallet signing session expired' };
+  }
+  if (code === 'exhausted' || lowered.includes('exhaust')) {
+    return {
+      ok: false,
+      status: 409,
+      code: 'exhausted',
+      message: 'wallet signing session exhausted',
+    };
+  }
+  if (code === 'not_found') return { ok: false, status: 404, code, message };
+  if (code === 'invalid_body') return { ok: false, status: 400, code, message };
+  if (code === 'unauthorized') return { ok: false, status: 401, code, message };
+  return { ok: false, status: 500, code: 'internal', message };
+}
+
 function errorMessage(error: unknown): string {
   return String(
     error && typeof error === 'object' && 'message' in error
@@ -1061,6 +1096,26 @@ export type RouterAbNormalSigningPrepareReplayReservationResult =
   | { ok: true }
   | { ok: false; status: number; code: string; message: string };
 
+export type RouterAbNormalSigningBudgetConsumeInput =
+  | {
+      curve: 'ed25519';
+      phase: 'finalize';
+      sessionId: string;
+      walletSigningSessionId: string;
+      requestId: string;
+    }
+  | {
+      curve: 'ecdsa-hss';
+      phase: 'finalize';
+      sessionId: string;
+      walletSigningSessionId: string;
+      requestId: string;
+    };
+
+export type RouterAbNormalSigningBudgetConsumeResult =
+  | { ok: true; remainingUses: number }
+  | { ok: false; status: number; code: string; message: string };
+
 function resolveRouterAbSigningWorkerPrivateHttpConfig(
   cfg: Record<string, unknown>,
 ): RouterAbSigningWorkerPrivateHttpConfig | null {
@@ -1354,6 +1409,42 @@ export class ThresholdSigningService {
       status: 500,
       code: 'internal',
       message: replayGuard.message,
+    };
+  }
+
+  async consumeRouterAbNormalSigningBudget(
+    input: RouterAbNormalSigningBudgetConsumeInput,
+  ): Promise<RouterAbNormalSigningBudgetConsumeResult> {
+    const sessionId = toOptionalTrimmedString(input.sessionId);
+    const walletSigningSessionId = toOptionalTrimmedString(input.walletSigningSessionId);
+    const requestId = toOptionalTrimmedString(input.requestId);
+    if (!sessionId || !walletSigningSessionId || !requestId) {
+      return {
+        ok: false,
+        status: 400,
+        code: 'invalid_body',
+        message: 'Router A/B normal-signing budget consume requires session and request identity',
+      };
+    }
+    const curve = input.curve === 'ed25519' ? 'ed25519' : 'ecdsa';
+    const curveStore =
+      input.curve === 'ed25519' ? this.walletSessionStore : this.ecdsaWalletSessionStore;
+    const consumed = await this.consumeWalletOrCurveSessionUse({
+      walletSigningSessionId,
+      curve,
+      curveSessionId: sessionId,
+      curveStore,
+      idempotencyKey: routerAbNormalSigningBudgetIdempotencyKey({
+        ...input,
+        sessionId,
+        walletSigningSessionId,
+        requestId,
+      }),
+    });
+    if (!consumed.ok) return routerAbBudgetConsumeFailure(consumed);
+    return {
+      ok: true,
+      remainingUses: Math.max(0, Math.floor(Number(consumed.remainingUses) || 0)),
     };
   }
 
