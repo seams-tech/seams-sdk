@@ -334,14 +334,17 @@ releaseReservedUseCount(input: {
       `walletSigningSessionId + operationId + requestDigest`.
 - [x] Commit must reject mismatched reservation identity.
 - [x] Expired reservations must be ignored and cleaned up.
-- [ ] Add store-level tests for reserve, commit, release, duplicate commit,
-      exhausted budget, expired reservation, and identity mismatch.
+- [x] Add in-memory store-level tests for reserve, commit, release, duplicate
+      commit, exhausted budget, expired reservation, and identity mismatch.
+- [ ] Add cross-backend reservation behavior tests for Redis, Upstash, Postgres,
+      and Cloudflare Durable Object stores.
 
 Validation added:
 
 - `tests/unit/walletSessionBudgetReservation.store.unit.test.ts` covers the
   in-memory store reserve, duplicate reserve, in-flight rejection, commit
-  idempotency, release, and visible available budget projection.
+  idempotency, release, exhausted reserve, expired reservation, reservation
+  identity mismatch, and visible available budget projection.
 - Cross-backend behavioral tests for Redis, Upstash, Postgres, and Cloudflare
   remain open.
 
