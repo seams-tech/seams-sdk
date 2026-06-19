@@ -23,6 +23,7 @@ import {
   createCloudflareDurableObjectThresholdEcdsaStores,
   createCloudflareDurableObjectThresholdEd25519Stores,
 } from './CloudflareDurableObjectStore';
+import { secureRandomIdFragment } from '../secureRandomId';
 
 export type WalletSigningBudgetBinding = {
   curve: 'ed25519' | 'ecdsa';
@@ -42,6 +43,62 @@ export type WalletSessionConsumeUsesResult =
   | { ok: true; remainingUses: number }
   | { ok: false; code: string; message: string };
 
+export type WalletSessionBudgetCurve = 'ed25519' | 'ecdsa';
+
+export type WalletSigningBudgetReservation = {
+  kind: 'wallet_signing_budget_reservation_v1';
+  walletSigningSessionId: string;
+  curve: WalletSessionBudgetCurve;
+  thresholdSessionId: string;
+  operationId: string;
+  requestDigest: string;
+  signatureUses: number;
+  reservationId: string;
+  expiresAtMs: number;
+};
+
+export type WalletSessionBudgetReserveUseCountInput = {
+  walletSigningSessionId: string;
+  curve: WalletSessionBudgetCurve;
+  thresholdSessionId: string;
+  operationId: string;
+  requestDigest: string;
+  signatureUses: number;
+  expiresAtMs: number;
+};
+
+export type WalletSessionBudgetCommitReservedUseCountInput = {
+  walletSigningSessionId: string;
+  reservationId: string;
+  operationId: string;
+  requestDigest: string;
+};
+
+export type WalletSessionBudgetReleaseReservedUseCountInput = {
+  walletSigningSessionId: string;
+  reservationId: string;
+};
+
+export type WalletSessionBudgetReservationResult =
+  | {
+      ok: true;
+      reservation: WalletSigningBudgetReservation;
+      remainingUses: number;
+      reservedUses: number;
+      availableUses: number;
+    }
+  | { ok: false; code: string; message: string };
+
+export type WalletSessionBudgetReleaseResult =
+  | {
+      ok: true;
+      released: boolean;
+      remainingUses: number;
+      reservedUses: number;
+      availableUses: number;
+    }
+  | { ok: false; code: string; message: string };
+
 export type WalletSessionConsumedUseResult =
   | { ok: true; consumed: boolean }
   | { ok: false; code: string; message: string };
@@ -53,6 +110,9 @@ export type WalletSessionReplayGuardResult =
 export type Ed25519WalletSessionStatus = {
   record: Ed25519WalletSessionRecord;
   expiresAtMs: number;
+  committedRemainingUses: number;
+  reservedUses: number;
+  availableUses: number;
   remainingUses: number;
 };
 
@@ -78,6 +138,15 @@ export interface Ed25519WalletSessionStore {
     id: string,
     idempotencyKey: string,
   ): Promise<WalletSessionConsumeUsesResult>;
+  reserveUseCountOnce(
+    input: WalletSessionBudgetReserveUseCountInput,
+  ): Promise<WalletSessionBudgetReservationResult>;
+  commitReservedUseCountOnce(
+    input: WalletSessionBudgetCommitReservedUseCountInput,
+  ): Promise<WalletSessionConsumeUsesResult>;
+  releaseReservedUseCount(
+    input: WalletSessionBudgetReleaseReservedUseCountInput,
+  ): Promise<WalletSessionBudgetReleaseResult>;
   hasConsumedUseCountOnce(
     id: string,
     idempotencyKey: string,
@@ -98,6 +167,18 @@ class InMemoryEd25519WalletSessionStore implements Ed25519WalletSessionStore {
       remainingUses: number;
       expiresAtMs: number;
       consumedIdempotencyKeys: Set<string>;
+      budgetReservations: Map<string, WalletSigningBudgetReservation>;
+      reservationIdsByOperation: Map<string, string>;
+      committedBudgetReservations: Map<
+        string,
+        {
+          operationKey: string;
+          operationId: string;
+          requestDigest: string;
+          remainingUses: number;
+          expiresAtMs: number;
+        }
+      >;
     }
   >();
   private readonly replayGuards = new Map<string, number>();
@@ -127,6 +208,9 @@ class InMemoryEd25519WalletSessionStore implements Ed25519WalletSessionStore {
       remainingUses: Math.max(0, Number(opts.remainingUses) || 0),
       expiresAtMs,
       consumedIdempotencyKeys: new Set(),
+      budgetReservations: new Map(),
+      reservationIdsByOperation: new Map(),
+      committedBudgetReservations: new Map(),
     });
   }
 
@@ -149,10 +233,14 @@ class InMemoryEd25519WalletSessionStore implements Ed25519WalletSessionStore {
       this.map.delete(key);
       return null;
     }
+    const budget = inMemoryBudgetProjection(entry);
     return {
       record: entry.record,
       expiresAtMs: entry.expiresAtMs,
-      remainingUses: entry.remainingUses,
+      committedRemainingUses: budget.committedRemainingUses,
+      reservedUses: budget.reservedUses,
+      availableUses: budget.availableUses,
+      remainingUses: budget.availableUses,
     };
   }
 
@@ -165,8 +253,9 @@ class InMemoryEd25519WalletSessionStore implements Ed25519WalletSessionStore {
       this.map.delete(key);
       return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
     }
-    if (entry.remainingUses <= 0) {
-      return { ok: false, code: 'unauthorized', message: 'threshold session exhausted' };
+    const budget = inMemoryBudgetProjection(entry);
+    if (budget.availableUses <= 0) {
+      return inMemoryBudgetUnavailable(entry.remainingUses, budget.reservedUses);
     }
     entry.remainingUses -= 1;
     return { ok: true, remainingUses: entry.remainingUses };
@@ -188,12 +277,162 @@ class InMemoryEd25519WalletSessionStore implements Ed25519WalletSessionStore {
     if (consumeKey && entry.consumedIdempotencyKeys.has(consumeKey)) {
       return { ok: true, remainingUses: entry.remainingUses };
     }
-    if (entry.remainingUses <= 0) {
-      return { ok: false, code: 'unauthorized', message: 'threshold session exhausted' };
+    const budget = inMemoryBudgetProjection(entry);
+    if (budget.availableUses <= 0) {
+      return inMemoryBudgetUnavailable(entry.remainingUses, budget.reservedUses);
     }
     entry.remainingUses -= 1;
     if (consumeKey) entry.consumedIdempotencyKeys.add(consumeKey);
     return { ok: true, remainingUses: entry.remainingUses };
+  }
+
+  async reserveUseCountOnce(
+    input: WalletSessionBudgetReserveUseCountInput,
+  ): Promise<WalletSessionBudgetReservationResult> {
+    const key = this.key(input.walletSigningSessionId);
+    const entry = this.map.get(key);
+    const nowMs = Date.now();
+    if (!entry)
+      return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
+    if (nowMs > entry.expiresAtMs) {
+      this.map.delete(key);
+      return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
+    }
+    const parsed = parseBudgetReservationInput(input, entry.expiresAtMs, nowMs);
+    if (!parsed.ok) return parsed;
+    const operationKey = budgetOperationKey(parsed.value);
+    const existingReservationId = entry.reservationIdsByOperation.get(operationKey);
+    if (existingReservationId) {
+      const existing = entry.budgetReservations.get(existingReservationId);
+      if (existing && existing.expiresAtMs > nowMs) {
+        const budget = inMemoryBudgetProjection(entry);
+        return {
+          ok: true,
+          reservation: existing,
+          remainingUses: budget.committedRemainingUses,
+          reservedUses: budget.reservedUses,
+          availableUses: budget.availableUses,
+        };
+      }
+      entry.reservationIdsByOperation.delete(operationKey);
+      if (existingReservationId) entry.budgetReservations.delete(existingReservationId);
+    }
+    const budget = inMemoryBudgetProjection(entry);
+    if (budget.availableUses < parsed.value.signatureUses) {
+      return inMemoryBudgetReservationUnavailable({
+        committedRemainingUses: budget.committedRemainingUses,
+        reservedUses: budget.reservedUses,
+        signatureUses: parsed.value.signatureUses,
+      });
+    }
+    const reservation: WalletSigningBudgetReservation = {
+      kind: 'wallet_signing_budget_reservation_v1',
+      walletSigningSessionId: parsed.value.walletSigningSessionId,
+      curve: parsed.value.curve,
+      thresholdSessionId: parsed.value.thresholdSessionId,
+      operationId: parsed.value.operationId,
+      requestDigest: parsed.value.requestDigest,
+      signatureUses: parsed.value.signatureUses,
+      reservationId: createBudgetReservationId(),
+      expiresAtMs: parsed.value.expiresAtMs,
+    };
+    entry.budgetReservations.set(reservation.reservationId, reservation);
+    entry.reservationIdsByOperation.set(operationKey, reservation.reservationId);
+    const nextBudget = inMemoryBudgetProjection(entry);
+    return {
+      ok: true,
+      reservation,
+      remainingUses: nextBudget.committedRemainingUses,
+      reservedUses: nextBudget.reservedUses,
+      availableUses: nextBudget.availableUses,
+    };
+  }
+
+  async commitReservedUseCountOnce(
+    input: WalletSessionBudgetCommitReservedUseCountInput,
+  ): Promise<WalletSessionConsumeUsesResult> {
+    const key = this.key(input.walletSigningSessionId);
+    const entry = this.map.get(key);
+    const nowMs = Date.now();
+    if (!entry)
+      return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
+    if (nowMs > entry.expiresAtMs) {
+      this.map.delete(key);
+      return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
+    }
+    const parsed = parseBudgetCommitInput(input);
+    if (!parsed.ok) return parsed;
+    const committed = entry.committedBudgetReservations.get(parsed.value.reservationId);
+    const operationKey = budgetOperationKey(parsed.value);
+    if (committed) {
+      if (
+        committed.operationKey !== operationKey ||
+        committed.operationId !== parsed.value.operationId ||
+        committed.requestDigest !== parsed.value.requestDigest
+      ) {
+        return budgetReservationMismatch();
+      }
+      return { ok: true, remainingUses: committed.remainingUses };
+    }
+    const reservation = entry.budgetReservations.get(parsed.value.reservationId);
+    if (!reservation) return budgetReservationExpired();
+    if (reservation.expiresAtMs <= nowMs) {
+      entry.budgetReservations.delete(reservation.reservationId);
+      entry.reservationIdsByOperation.delete(budgetOperationKey(reservation));
+      return budgetReservationExpired();
+    }
+    if (
+      reservation.operationId !== parsed.value.operationId ||
+      reservation.requestDigest !== parsed.value.requestDigest
+    ) {
+      return budgetReservationMismatch();
+    }
+    if (entry.remainingUses < reservation.signatureUses) {
+      return budgetExhausted();
+    }
+    entry.remainingUses -= reservation.signatureUses;
+    entry.budgetReservations.delete(reservation.reservationId);
+    entry.reservationIdsByOperation.delete(budgetOperationKey(reservation));
+    entry.committedBudgetReservations.set(reservation.reservationId, {
+      operationKey,
+      operationId: parsed.value.operationId,
+      requestDigest: parsed.value.requestDigest,
+      remainingUses: entry.remainingUses,
+      expiresAtMs: entry.expiresAtMs,
+    });
+    return { ok: true, remainingUses: entry.remainingUses };
+  }
+
+  async releaseReservedUseCount(
+    input: WalletSessionBudgetReleaseReservedUseCountInput,
+  ): Promise<WalletSessionBudgetReleaseResult> {
+    const key = this.key(input.walletSigningSessionId);
+    const entry = this.map.get(key);
+    const nowMs = Date.now();
+    if (!entry)
+      return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
+    if (nowMs > entry.expiresAtMs) {
+      this.map.delete(key);
+      return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
+    }
+    const reservationId = normalizeBudgetField(input.reservationId);
+    if (!reservationId) {
+      return { ok: false, code: 'invalid_budget_request', message: 'budget reservation id is required' };
+    }
+    const existing = entry.budgetReservations.get(reservationId);
+    const released = !!existing;
+    if (existing) {
+      entry.budgetReservations.delete(reservationId);
+      entry.reservationIdsByOperation.delete(budgetOperationKey(existing));
+    }
+    const budget = inMemoryBudgetProjection(entry);
+    return {
+      ok: true,
+      released,
+      remainingUses: budget.committedRemainingUses,
+      reservedUses: budget.reservedUses,
+      availableUses: budget.availableUses,
+    };
   }
 
   async hasConsumedUseCountOnce(
@@ -238,6 +477,197 @@ function normalizeConsumeOnceKey(value: string): string {
     .trim()
     .replace(/[^A-Za-z0-9._:-]/g, '_')
     .slice(0, 512);
+}
+
+function normalizeBudgetField(value: unknown): string {
+  return String(value || '').trim();
+}
+
+function errorMessage(error: unknown): string {
+  return String(
+    error && typeof error === 'object' && 'message' in error
+      ? (error as { message?: unknown }).message
+      : error || '',
+  );
+}
+
+function normalizeBudgetToken(value: unknown): string {
+  return normalizeBudgetField(value).replace(/[^A-Za-z0-9._:-]/g, '_').slice(0, 512);
+}
+
+function createBudgetReservationId(): string {
+  return `wbudget_${secureRandomIdFragment()}`;
+}
+
+function budgetOperationKey(input: { operationId: string; requestDigest: string }): string {
+  return [
+    'wallet-signing-budget',
+    normalizeBudgetToken(input.operationId),
+    normalizeBudgetToken(input.requestDigest),
+  ].join(':');
+}
+
+function parseBudgetSignatureUses(value: unknown): number | null {
+  const parsed = Math.floor(Number(value));
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+function parseBudgetReservationInput(
+  input: WalletSessionBudgetReserveUseCountInput,
+  sessionExpiresAtMs: number,
+  nowMs: number,
+):
+  | { ok: true; value: WalletSessionBudgetReserveUseCountInput }
+  | { ok: false; code: string; message: string } {
+  const walletSigningSessionId = normalizeBudgetField(input.walletSigningSessionId);
+  const thresholdSessionId = normalizeBudgetField(input.thresholdSessionId);
+  const operationId = normalizeBudgetField(input.operationId);
+  const requestDigest = normalizeBudgetField(input.requestDigest);
+  const signatureUses = parseBudgetSignatureUses(input.signatureUses);
+  const expiresAtMs = Math.min(Number(input.expiresAtMs), sessionExpiresAtMs);
+  if (
+    !walletSigningSessionId ||
+    !thresholdSessionId ||
+    !operationId ||
+    !requestDigest ||
+    !signatureUses ||
+    !Number.isFinite(expiresAtMs) ||
+    expiresAtMs <= nowMs
+  ) {
+    return {
+      ok: false,
+      code: 'invalid_budget_request',
+      message:
+        'budget reservation requires session, threshold session, operation, request digest, signature uses, and future expiry',
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      walletSigningSessionId,
+      curve: input.curve,
+      thresholdSessionId,
+      operationId,
+      requestDigest,
+      signatureUses,
+      expiresAtMs: Math.floor(expiresAtMs),
+    },
+  };
+}
+
+function parseBudgetCommitInput(
+  input: WalletSessionBudgetCommitReservedUseCountInput,
+):
+  | { ok: true; value: WalletSessionBudgetCommitReservedUseCountInput }
+  | { ok: false; code: string; message: string } {
+  const walletSigningSessionId = normalizeBudgetField(input.walletSigningSessionId);
+  const reservationId = normalizeBudgetField(input.reservationId);
+  const operationId = normalizeBudgetField(input.operationId);
+  const requestDigest = normalizeBudgetField(input.requestDigest);
+  if (!walletSigningSessionId || !reservationId || !operationId || !requestDigest) {
+    return {
+      ok: false,
+      code: 'invalid_budget_request',
+      message:
+        'budget commit requires wallet signing session, reservation, operation, and request digest',
+    };
+  }
+  return {
+    ok: true,
+    value: {
+      walletSigningSessionId,
+      reservationId,
+      operationId,
+      requestDigest,
+    },
+  };
+}
+
+function budgetReservationMismatch(): WalletSessionConsumeUsesResult {
+  return {
+    ok: false,
+    code: 'wallet_budget_reservation_mismatch',
+    message: 'wallet signing budget reservation does not match this operation',
+  };
+}
+
+function budgetReservationExpired(): WalletSessionConsumeUsesResult {
+  return {
+    ok: false,
+    code: 'wallet_budget_reservation_expired',
+    message: 'wallet signing budget reservation expired',
+  };
+}
+
+function budgetExhausted(): WalletSessionConsumeUsesResult {
+  return {
+    ok: false,
+    code: 'wallet_budget_exhausted',
+    message: 'wallet signing session exhausted',
+  };
+}
+
+function budgetInFlight(): WalletSessionConsumeUsesResult {
+  return {
+    ok: false,
+    code: 'wallet_budget_in_flight',
+    message: 'wallet signing session budget is reserved by another signing operation',
+  };
+}
+
+function inMemoryBudgetUnavailable(
+  committedRemainingUses: number,
+  reservedUses: number,
+): WalletSessionConsumeUsesResult {
+  if (committedRemainingUses > 0 && reservedUses > 0) return budgetInFlight();
+  return budgetExhausted();
+}
+
+function inMemoryBudgetReservationUnavailable(input: {
+  committedRemainingUses: number;
+  reservedUses: number;
+  signatureUses: number;
+}): WalletSessionBudgetReservationResult {
+  if (input.committedRemainingUses >= input.signatureUses && input.reservedUses > 0) {
+    return {
+      ok: false,
+      code: 'wallet_budget_in_flight',
+      message: 'wallet signing session budget is reserved by another signing operation',
+    };
+  }
+  return {
+    ok: false,
+    code: 'wallet_budget_exhausted',
+    message: 'wallet signing session exhausted',
+  };
+}
+
+function inMemoryBudgetProjection(entry: {
+  remainingUses: number;
+  budgetReservations: Map<string, WalletSigningBudgetReservation>;
+  reservationIdsByOperation: Map<string, string>;
+}): {
+  committedRemainingUses: number;
+  reservedUses: number;
+  availableUses: number;
+} {
+  const nowMs = Date.now();
+  let reservedUses = 0;
+  for (const [reservationId, reservation] of [...entry.budgetReservations.entries()]) {
+    if (reservation.expiresAtMs <= nowMs) {
+      entry.budgetReservations.delete(reservationId);
+      entry.reservationIdsByOperation.delete(budgetOperationKey(reservation));
+      continue;
+    }
+    reservedUses += reservation.signatureUses;
+  }
+  const committedRemainingUses = Math.max(0, Math.floor(Number(entry.remainingUses) || 0));
+  return {
+    committedRemainingUses,
+    reservedUses,
+    availableUses: Math.max(0, committedRemainingUses - reservedUses),
+  };
 }
 
 function replayGuardTtlMs(expiresAtMs: number, nowMs = Date.now()): number {
@@ -303,6 +733,180 @@ function parseRedisConsumedUseResult(raw: unknown): WalletSessionConsumedUseResu
   return { ok: true, consumed: value > 0 };
 }
 
+function redisRawValue(resp: { type: string; value?: unknown }): unknown {
+  if (resp.type === 'integer') return String(resp.value);
+  return resp.value;
+}
+
+function parseRedisJsonObject(raw: unknown): Record<string, unknown> | null {
+  const text = String(raw ?? '').trim();
+  if (!text) return null;
+  try {
+    const parsed = JSON.parse(text);
+    return isObject(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseRedisBudgetReservation(raw: unknown): WalletSessionBudgetReservationResult {
+  const record = parseRedisJsonObject(raw);
+  if (!record) {
+    return { ok: false, code: 'internal', message: 'Redis budget reserve returned invalid response' };
+  }
+  if (record.ok === false) {
+    return {
+      ok: false,
+      code: normalizeBudgetField(record.code) || 'internal',
+      message: normalizeBudgetField(record.message) || 'Redis budget reserve failed',
+    };
+  }
+  const reservationRaw = isObject(record.reservation)
+    ? (record.reservation as Record<string, unknown>)
+    : null;
+  const reservation = parseWalletSigningBudgetReservation(reservationRaw);
+  const remainingUses = Number(record.remainingUses);
+  const reservedUses = Number(record.reservedUses);
+  const availableUses = Number(record.availableUses);
+  if (
+    !reservation ||
+    !Number.isFinite(remainingUses) ||
+    !Number.isFinite(reservedUses) ||
+    !Number.isFinite(availableUses)
+  ) {
+    return { ok: false, code: 'internal', message: 'Redis budget reserve returned invalid payload' };
+  }
+  return {
+    ok: true,
+    reservation,
+    remainingUses,
+    reservedUses,
+    availableUses,
+  };
+}
+
+function parseRedisBudgetCommit(raw: unknown): WalletSessionConsumeUsesResult {
+  const record = parseRedisJsonObject(raw);
+  if (!record) {
+    return { ok: false, code: 'internal', message: 'Redis budget commit returned invalid response' };
+  }
+  if (record.ok === false) {
+    return {
+      ok: false,
+      code: normalizeBudgetField(record.code) || 'internal',
+      message: normalizeBudgetField(record.message) || 'Redis budget commit failed',
+    };
+  }
+  const remainingUses = Number(record.remainingUses);
+  if (!Number.isFinite(remainingUses)) {
+    return { ok: false, code: 'internal', message: 'Redis budget commit returned invalid uses' };
+  }
+  return { ok: true, remainingUses };
+}
+
+function parseRedisBudgetRelease(raw: unknown): WalletSessionBudgetReleaseResult {
+  const record = parseRedisJsonObject(raw);
+  if (!record) {
+    return { ok: false, code: 'internal', message: 'Redis budget release returned invalid response' };
+  }
+  if (record.ok === false) {
+    return {
+      ok: false,
+      code: normalizeBudgetField(record.code) || 'internal',
+      message: normalizeBudgetField(record.message) || 'Redis budget release failed',
+    };
+  }
+  const remainingUses = Number(record.remainingUses);
+  const reservedUses = Number(record.reservedUses);
+  const availableUses = Number(record.availableUses);
+  if (
+    !Number.isFinite(remainingUses) ||
+    !Number.isFinite(reservedUses) ||
+    !Number.isFinite(availableUses)
+  ) {
+    return { ok: false, code: 'internal', message: 'Redis budget release returned invalid uses' };
+  }
+  return {
+    ok: true,
+    released: record.released === true,
+    remainingUses,
+    reservedUses,
+    availableUses,
+  };
+}
+
+function parseRedisBudgetProjection(
+  raw: unknown,
+): { committedRemainingUses: number; reservedUses: number; availableUses: number } | null {
+  const record = parseRedisJsonObject(raw);
+  if (!record || record.ok === false) return null;
+  const committedRemainingUses = Number(record.remainingUses);
+  const reservedUses = Number(record.reservedUses);
+  const availableUses = Number(record.availableUses);
+  if (
+    !Number.isFinite(committedRemainingUses) ||
+    !Number.isFinite(reservedUses) ||
+    !Number.isFinite(availableUses)
+  ) {
+    return null;
+  }
+  return { committedRemainingUses, reservedUses, availableUses };
+}
+
+function parseWalletSigningBudgetReservation(
+  record: Record<string, unknown> | null,
+): WalletSigningBudgetReservation | null {
+  if (!record || record.kind !== 'wallet_signing_budget_reservation_v1') return null;
+  const walletSigningSessionId = normalizeBudgetField(record.walletSigningSessionId);
+  const curve = record.curve === 'ed25519' || record.curve === 'ecdsa' ? record.curve : null;
+  const thresholdSessionId = normalizeBudgetField(record.thresholdSessionId);
+  const operationId = normalizeBudgetField(record.operationId);
+  const requestDigest = normalizeBudgetField(record.requestDigest);
+  const reservationId = normalizeBudgetField(record.reservationId);
+  const signatureUses = parseBudgetSignatureUses(record.signatureUses);
+  const expiresAtMs = Number(record.expiresAtMs);
+  if (
+    !walletSigningSessionId ||
+    !curve ||
+    !thresholdSessionId ||
+    !operationId ||
+    !requestDigest ||
+    !reservationId ||
+    !signatureUses ||
+    !Number.isFinite(expiresAtMs)
+  ) {
+    return null;
+  }
+  return {
+    kind: 'wallet_signing_budget_reservation_v1',
+    walletSigningSessionId,
+    curve,
+    thresholdSessionId,
+    operationId,
+    requestDigest,
+    signatureUses,
+    reservationId,
+    expiresAtMs: Math.floor(expiresAtMs),
+  };
+}
+
+function parsePostgresBudgetReservation(
+  walletSigningSessionId: string,
+  row: Record<string, unknown>,
+): WalletSigningBudgetReservation | null {
+  return parseWalletSigningBudgetReservation({
+    kind: 'wallet_signing_budget_reservation_v1',
+    walletSigningSessionId,
+    curve: row.curve,
+    thresholdSessionId: row.threshold_session_id,
+    operationId: row.operation_id,
+    requestDigest: row.request_digest,
+    reservationId: row.reservation_id,
+    signatureUses: row.signature_uses,
+    expiresAtMs: row.expires_at_ms,
+  });
+}
+
 const CONSUME_ONCE_EXISTS_LUA = `
 local marker_key = KEYS[1]
 return redis.call('EXISTS', marker_key)
@@ -348,6 +952,214 @@ redis.call('SET', key, '1', 'EX', ttl_seconds)
 return 'ok'
 `;
 
+const BUDGET_STATUS_LUA = `
+local uses_key = KEYS[1]
+local index_key = KEYS[2]
+local now_ms = tonumber(ARGV[1] or '')
+local current = tonumber(redis.call('GET', uses_key) or '')
+if current == nil or now_ms == nil then
+  return cjson.encode({ ok = false, code = 'unauthorized', message = 'threshold session expired or invalid' })
+end
+local reserved = 0
+local keys = redis.call('SMEMBERS', index_key)
+for _, reservation_key in ipairs(keys) do
+  local raw = redis.call('GET', reservation_key)
+  if raw then
+    local reservation = cjson.decode(raw)
+    if tonumber(reservation.expiresAtMs or 0) <= now_ms then
+      redis.call('DEL', reservation_key)
+      if reservation.operationKey then redis.call('DEL', reservation.operationKey) end
+      redis.call('SREM', index_key, reservation_key)
+    else
+      reserved = reserved + tonumber(reservation.signatureUses or 0)
+    end
+  else
+    redis.call('SREM', index_key, reservation_key)
+  end
+end
+local available = current - reserved
+if available < 0 then available = 0 end
+return cjson.encode({ ok = true, remainingUses = current, reservedUses = reserved, availableUses = available })
+`;
+
+const BUDGET_RESERVE_LUA = `
+local uses_key = KEYS[1]
+local index_key = KEYS[2]
+local operation_key = KEYS[3]
+local reservation_key = KEYS[4]
+local current = tonumber(redis.call('GET', uses_key) or '')
+local now_ms = tonumber(ARGV[9] or '')
+if current == nil then
+  return cjson.encode({ ok = false, code = 'unauthorized', message = 'threshold session expired or invalid' })
+end
+if now_ms == nil then
+  return cjson.encode({ ok = false, code = 'invalid_budget_request', message = 'invalid budget clock' })
+end
+local reserved = 0
+local keys = redis.call('SMEMBERS', index_key)
+for _, active_key in ipairs(keys) do
+  local raw = redis.call('GET', active_key)
+  if raw then
+    local active = cjson.decode(raw)
+    if tonumber(active.expiresAtMs or 0) <= now_ms then
+      redis.call('DEL', active_key)
+      if active.operationKey then redis.call('DEL', active.operationKey) end
+      redis.call('SREM', index_key, active_key)
+    else
+      reserved = reserved + tonumber(active.signatureUses or 0)
+    end
+  else
+    redis.call('SREM', index_key, active_key)
+  end
+end
+local existing_key = redis.call('GET', operation_key)
+if existing_key then
+  local existing_raw = redis.call('GET', existing_key)
+  if existing_raw then
+    local existing = cjson.decode(existing_raw)
+    if tonumber(existing.expiresAtMs or 0) > now_ms then
+      local available = current - reserved
+      if available < 0 then available = 0 end
+      return cjson.encode({ ok = true, reservation = existing, remainingUses = current, reservedUses = reserved, availableUses = available })
+    end
+    redis.call('DEL', existing_key)
+    redis.call('SREM', index_key, existing_key)
+  end
+  redis.call('DEL', operation_key)
+end
+local signature_uses = tonumber(ARGV[7] or '')
+if signature_uses == nil or signature_uses <= 0 then
+  return cjson.encode({ ok = false, code = 'invalid_budget_request', message = 'invalid budget signature uses' })
+end
+local available = current - reserved
+if available < signature_uses then
+  if current >= signature_uses and reserved > 0 then
+    return cjson.encode({ ok = false, code = 'wallet_budget_in_flight', message = 'wallet signing session budget is reserved by another signing operation' })
+  end
+  return cjson.encode({ ok = false, code = 'wallet_budget_exhausted', message = 'wallet signing session exhausted' })
+end
+local expires_at_ms = tonumber(ARGV[8] or '')
+if expires_at_ms == nil or expires_at_ms <= now_ms then
+  return cjson.encode({ ok = false, code = 'invalid_budget_request', message = 'budget reservation expiry must be in the future' })
+end
+local ttl_seconds = math.max(1, math.ceil((expires_at_ms - now_ms) / 1000))
+local reservation = {
+  kind = 'wallet_signing_budget_reservation_v1',
+  walletSigningSessionId = ARGV[1],
+  curve = ARGV[2],
+  thresholdSessionId = ARGV[3],
+  operationId = ARGV[4],
+  requestDigest = ARGV[5],
+  reservationId = ARGV[6],
+  signatureUses = signature_uses,
+  expiresAtMs = expires_at_ms,
+  operationKey = operation_key
+}
+local reservation_json = cjson.encode(reservation)
+redis.call('SET', reservation_key, reservation_json, 'EX', ttl_seconds)
+redis.call('SET', operation_key, reservation_key, 'EX', ttl_seconds)
+redis.call('SADD', index_key, reservation_key)
+redis.call('EXPIRE', index_key, ttl_seconds)
+local next_reserved = reserved + signature_uses
+local next_available = current - next_reserved
+if next_available < 0 then next_available = 0 end
+return cjson.encode({ ok = true, reservation = reservation, remainingUses = current, reservedUses = next_reserved, availableUses = next_available })
+`;
+
+const BUDGET_COMMIT_LUA = `
+local uses_key = KEYS[1]
+local index_key = KEYS[2]
+local reservation_key = KEYS[3]
+local committed_key = KEYS[4]
+local operation_id = ARGV[1]
+local request_digest = ARGV[2]
+local now_ms = tonumber(ARGV[3] or '')
+local session_ttl_seconds = tonumber(redis.call('TTL', uses_key) or '0')
+if session_ttl_seconds == nil or session_ttl_seconds <= 0 then
+  session_ttl_seconds = tonumber(ARGV[4] or '60')
+end
+local committed_raw = redis.call('GET', committed_key)
+if committed_raw then
+  local committed = cjson.decode(committed_raw)
+  if committed.operationId ~= operation_id or committed.requestDigest ~= request_digest then
+    return cjson.encode({ ok = false, code = 'wallet_budget_reservation_mismatch', message = 'wallet signing budget reservation does not match this operation' })
+  end
+  return cjson.encode({ ok = true, remainingUses = tonumber(committed.remainingUses or 0) })
+end
+local reservation_raw = redis.call('GET', reservation_key)
+if not reservation_raw then
+  return cjson.encode({ ok = false, code = 'wallet_budget_reservation_expired', message = 'wallet signing budget reservation expired' })
+end
+local reservation = cjson.decode(reservation_raw)
+if reservation.operationId ~= operation_id or reservation.requestDigest ~= request_digest then
+  return cjson.encode({ ok = false, code = 'wallet_budget_reservation_mismatch', message = 'wallet signing budget reservation does not match this operation' })
+end
+if now_ms == nil or tonumber(reservation.expiresAtMs or 0) <= now_ms then
+  redis.call('DEL', reservation_key)
+  if reservation.operationKey then redis.call('DEL', reservation.operationKey) end
+  redis.call('SREM', index_key, reservation_key)
+  return cjson.encode({ ok = false, code = 'wallet_budget_reservation_expired', message = 'wallet signing budget reservation expired' })
+end
+local current = tonumber(redis.call('GET', uses_key) or '')
+if current == nil then
+  return cjson.encode({ ok = false, code = 'unauthorized', message = 'threshold session expired or invalid' })
+end
+local signature_uses = tonumber(reservation.signatureUses or 0)
+if current < signature_uses then
+  return cjson.encode({ ok = false, code = 'wallet_budget_exhausted', message = 'wallet signing session exhausted' })
+end
+local remaining = redis.call('INCRBY', uses_key, -signature_uses)
+redis.call('DEL', reservation_key)
+if reservation.operationKey then redis.call('DEL', reservation.operationKey) end
+redis.call('SREM', index_key, reservation_key)
+redis.call('SET', committed_key, cjson.encode({
+  operationId = operation_id,
+  requestDigest = request_digest,
+  remainingUses = remaining
+}), 'EX', math.max(1, session_ttl_seconds))
+return cjson.encode({ ok = true, remainingUses = remaining })
+`;
+
+const BUDGET_RELEASE_LUA = `
+local uses_key = KEYS[1]
+local index_key = KEYS[2]
+local reservation_key = KEYS[3]
+local now_ms = tonumber(ARGV[1] or '')
+local released = false
+local reservation_raw = redis.call('GET', reservation_key)
+if reservation_raw then
+  local reservation = cjson.decode(reservation_raw)
+  redis.call('DEL', reservation_key)
+  if reservation.operationKey then redis.call('DEL', reservation.operationKey) end
+  redis.call('SREM', index_key, reservation_key)
+  released = true
+end
+local current = tonumber(redis.call('GET', uses_key) or '')
+if current == nil or now_ms == nil then
+  return cjson.encode({ ok = false, code = 'unauthorized', message = 'threshold session expired or invalid' })
+end
+local reserved = 0
+local keys = redis.call('SMEMBERS', index_key)
+for _, active_key in ipairs(keys) do
+  local raw = redis.call('GET', active_key)
+  if raw then
+    local active = cjson.decode(raw)
+    if tonumber(active.expiresAtMs or 0) <= now_ms then
+      redis.call('DEL', active_key)
+      if active.operationKey then redis.call('DEL', active.operationKey) end
+      redis.call('SREM', index_key, active_key)
+    else
+      reserved = reserved + tonumber(active.signatureUses or 0)
+    end
+  else
+    redis.call('SREM', index_key, active_key)
+  end
+end
+local available = current - reserved
+if available < 0 then available = 0 end
+return cjson.encode({ ok = true, released = released, remainingUses = current, reservedUses = reserved, availableUses = available })
+`;
+
 class UpstashRedisRestEd25519WalletSessionStore implements Ed25519WalletSessionStore {
   private readonly client: UpstashRedisRestClient;
   private readonly keyPrefix: string;
@@ -371,6 +1183,22 @@ class UpstashRedisRestEd25519WalletSessionStore implements Ed25519WalletSessionS
 
   private consumeOnceKey(id: string, idempotencyKey: string): string {
     return `${this.usesKey(id)}:once:${normalizeConsumeOnceKey(idempotencyKey)}`;
+  }
+
+  private budgetReservationIndexKey(id: string): string {
+    return `${this.usesKey(id)}:budget-reservations`;
+  }
+
+  private budgetReservationKey(id: string, reservationId: string): string {
+    return `${this.usesKey(id)}:budget-reservation:${normalizeBudgetToken(reservationId)}`;
+  }
+
+  private budgetOperationKey(id: string, operationId: string, requestDigest: string): string {
+    return `${this.usesKey(id)}:${budgetOperationKey({ operationId, requestDigest })}`;
+  }
+
+  private budgetCommitKey(id: string, reservationId: string): string {
+    return `${this.usesKey(id)}:budget-commit:${normalizeBudgetToken(reservationId)}`;
   }
 
   private replayGuardKey(scopeId: string, replayKey: string): string {
@@ -399,14 +1227,21 @@ class UpstashRedisRestEd25519WalletSessionStore implements Ed25519WalletSessionS
   async getSessionStatus(id: string): Promise<Ed25519WalletSessionStatus | null> {
     const record = parseEd25519WalletSessionRecord(await this.client.getJson(this.metaKey(id)));
     if (!record) return null;
-    const remainingUsesRaw = await this.client.getRaw(this.usesKey(id));
-    const remainingUses =
-      typeof remainingUsesRaw === 'number' ? remainingUsesRaw : Number(remainingUsesRaw);
-    if (!Number.isFinite(remainingUses)) return null;
+    const budget = parseRedisBudgetProjection(
+      await this.client.eval(
+        BUDGET_STATUS_LUA,
+        [this.usesKey(id), this.budgetReservationIndexKey(id)],
+        [String(Date.now())],
+      ),
+    );
+    if (!budget) return null;
     return {
       record,
       expiresAtMs: record.expiresAtMs,
-      remainingUses,
+      committedRemainingUses: budget.committedRemainingUses,
+      reservedUses: budget.reservedUses,
+      availableUses: budget.availableUses,
+      remainingUses: budget.availableUses,
     };
   }
 
@@ -444,6 +1279,100 @@ class UpstashRedisRestEd25519WalletSessionStore implements Ed25519WalletSessionS
           ? (e as { message?: unknown }).message
           : e || 'Failed to consume threshold session',
       );
+      return { ok: false, code: 'internal', message: msg };
+    }
+  }
+
+  async reserveUseCountOnce(
+    input: WalletSessionBudgetReserveUseCountInput,
+  ): Promise<WalletSessionBudgetReservationResult> {
+    const nowMs = Date.now();
+    const parsed = parseBudgetReservationInput(input, Number.MAX_SAFE_INTEGER, nowMs);
+    if (!parsed.ok) return parsed;
+    const reservationId = createBudgetReservationId();
+    try {
+      const raw = await this.client.eval(
+        BUDGET_RESERVE_LUA,
+        [
+          this.usesKey(parsed.value.walletSigningSessionId),
+          this.budgetReservationIndexKey(parsed.value.walletSigningSessionId),
+          this.budgetOperationKey(
+            parsed.value.walletSigningSessionId,
+            parsed.value.operationId,
+            parsed.value.requestDigest,
+          ),
+          this.budgetReservationKey(parsed.value.walletSigningSessionId, reservationId),
+        ],
+        [
+          parsed.value.walletSigningSessionId,
+          parsed.value.curve,
+          parsed.value.thresholdSessionId,
+          parsed.value.operationId,
+          parsed.value.requestDigest,
+          reservationId,
+          String(parsed.value.signatureUses),
+          String(parsed.value.expiresAtMs),
+          String(nowMs),
+        ],
+      );
+      return parseRedisBudgetReservation(raw);
+    } catch (e: unknown) {
+      const msg = errorMessage(e) || 'Failed to reserve threshold session budget';
+      return { ok: false, code: 'internal', message: msg };
+    }
+  }
+
+  async commitReservedUseCountOnce(
+    input: WalletSessionBudgetCommitReservedUseCountInput,
+  ): Promise<WalletSessionConsumeUsesResult> {
+    const parsed = parseBudgetCommitInput(input);
+    if (!parsed.ok) return parsed;
+    try {
+      const raw = await this.client.eval(
+        BUDGET_COMMIT_LUA,
+        [
+          this.usesKey(parsed.value.walletSigningSessionId),
+          this.budgetReservationIndexKey(parsed.value.walletSigningSessionId),
+          this.budgetReservationKey(
+            parsed.value.walletSigningSessionId,
+            parsed.value.reservationId,
+          ),
+          this.budgetCommitKey(parsed.value.walletSigningSessionId, parsed.value.reservationId),
+        ],
+        [parsed.value.operationId, parsed.value.requestDigest, String(Date.now()), '60'],
+      );
+      return parseRedisBudgetCommit(raw);
+    } catch (e: unknown) {
+      const msg = errorMessage(e) || 'Failed to commit threshold session budget';
+      return { ok: false, code: 'internal', message: msg };
+    }
+  }
+
+  async releaseReservedUseCount(
+    input: WalletSessionBudgetReleaseReservedUseCountInput,
+  ): Promise<WalletSessionBudgetReleaseResult> {
+    const walletSigningSessionId = normalizeBudgetField(input.walletSigningSessionId);
+    const reservationId = normalizeBudgetField(input.reservationId);
+    if (!walletSigningSessionId || !reservationId) {
+      return {
+        ok: false,
+        code: 'invalid_budget_request',
+        message: 'budget release requires wallet signing session and reservation',
+      };
+    }
+    try {
+      const raw = await this.client.eval(
+        BUDGET_RELEASE_LUA,
+        [
+          this.usesKey(walletSigningSessionId),
+          this.budgetReservationIndexKey(walletSigningSessionId),
+          this.budgetReservationKey(walletSigningSessionId, reservationId),
+        ],
+        [String(Date.now())],
+      );
+      return parseRedisBudgetRelease(raw);
+    } catch (e: unknown) {
+      const msg = errorMessage(e) || 'Failed to release threshold session budget';
       return { ok: false, code: 'internal', message: msg };
     }
   }
@@ -519,6 +1448,22 @@ class RedisTcpEd25519WalletSessionStore implements Ed25519WalletSessionStore {
     return `${this.usesKey(id)}:once:${normalizeConsumeOnceKey(idempotencyKey)}`;
   }
 
+  private budgetReservationIndexKey(id: string): string {
+    return `${this.usesKey(id)}:budget-reservations`;
+  }
+
+  private budgetReservationKey(id: string, reservationId: string): string {
+    return `${this.usesKey(id)}:budget-reservation:${normalizeBudgetToken(reservationId)}`;
+  }
+
+  private budgetOperationKey(id: string, operationId: string, requestDigest: string): string {
+    return `${this.usesKey(id)}:${budgetOperationKey({ operationId, requestDigest })}`;
+  }
+
+  private budgetCommitKey(id: string, reservationId: string): string {
+    return `${this.usesKey(id)}:budget-commit:${normalizeBudgetToken(reservationId)}`;
+  }
+
   private replayGuardKey(scopeId: string, replayKey: string): string {
     return `${this.keyPrefix}replay:${normalizeConsumeOnceKey(scopeId)}:${normalizeConsumeOnceKey(replayKey)}`;
   }
@@ -547,12 +1492,24 @@ class RedisTcpEd25519WalletSessionStore implements Ed25519WalletSessionStore {
     const resp = await this.client.send(['GET', this.usesKey(id)]);
     if (resp.type === 'error') throw new Error(`Redis GET error: ${resp.value}`);
     if (resp.type !== 'bulk' || resp.value == null) return null;
-    const remainingUses = Number(resp.value);
-    if (!Number.isFinite(remainingUses)) return null;
+    const budgetResp = await this.client.send([
+      'EVAL',
+      BUDGET_STATUS_LUA,
+      '2',
+      this.usesKey(id),
+      this.budgetReservationIndexKey(id),
+      String(Date.now()),
+    ]);
+    if (budgetResp.type === 'error') throw new Error(`Redis EVAL error: ${budgetResp.value}`);
+    const budget = parseRedisBudgetProjection(redisRawValue(budgetResp));
+    if (!budget) return null;
     return {
       record,
       expiresAtMs: record.expiresAtMs,
-      remainingUses,
+      committedRemainingUses: budget.committedRemainingUses,
+      reservedUses: budget.reservedUses,
+      availableUses: budget.availableUses,
+      remainingUses: budget.availableUses,
     };
   }
 
@@ -602,6 +1559,110 @@ class RedisTcpEd25519WalletSessionStore implements Ed25519WalletSessionStore {
           ? (e as { message?: unknown }).message
           : e || 'Failed to consume threshold session',
       );
+      return { ok: false, code: 'internal', message: msg };
+    }
+  }
+
+  async reserveUseCountOnce(
+    input: WalletSessionBudgetReserveUseCountInput,
+  ): Promise<WalletSessionBudgetReservationResult> {
+    const nowMs = Date.now();
+    const parsed = parseBudgetReservationInput(input, Number.MAX_SAFE_INTEGER, nowMs);
+    if (!parsed.ok) return parsed;
+    const reservationId = createBudgetReservationId();
+    try {
+      const resp = await this.client.send([
+        'EVAL',
+        BUDGET_RESERVE_LUA,
+        '4',
+        this.usesKey(parsed.value.walletSigningSessionId),
+        this.budgetReservationIndexKey(parsed.value.walletSigningSessionId),
+        this.budgetOperationKey(
+          parsed.value.walletSigningSessionId,
+          parsed.value.operationId,
+          parsed.value.requestDigest,
+        ),
+        this.budgetReservationKey(parsed.value.walletSigningSessionId, reservationId),
+        parsed.value.walletSigningSessionId,
+        parsed.value.curve,
+        parsed.value.thresholdSessionId,
+        parsed.value.operationId,
+        parsed.value.requestDigest,
+        reservationId,
+        String(parsed.value.signatureUses),
+        String(parsed.value.expiresAtMs),
+        String(nowMs),
+      ]);
+      if (resp.type === 'error') {
+        return { ok: false, code: 'internal', message: `Redis EVAL error: ${resp.value}` };
+      }
+      return parseRedisBudgetReservation(redisRawValue(resp));
+    } catch (e: unknown) {
+      const msg = errorMessage(e) || 'Failed to reserve threshold session budget';
+      return { ok: false, code: 'internal', message: msg };
+    }
+  }
+
+  async commitReservedUseCountOnce(
+    input: WalletSessionBudgetCommitReservedUseCountInput,
+  ): Promise<WalletSessionConsumeUsesResult> {
+    const parsed = parseBudgetCommitInput(input);
+    if (!parsed.ok) return parsed;
+    try {
+      const resp = await this.client.send([
+        'EVAL',
+        BUDGET_COMMIT_LUA,
+        '4',
+        this.usesKey(parsed.value.walletSigningSessionId),
+        this.budgetReservationIndexKey(parsed.value.walletSigningSessionId),
+        this.budgetReservationKey(
+          parsed.value.walletSigningSessionId,
+          parsed.value.reservationId,
+        ),
+        this.budgetCommitKey(parsed.value.walletSigningSessionId, parsed.value.reservationId),
+        parsed.value.operationId,
+        parsed.value.requestDigest,
+        String(Date.now()),
+        '60',
+      ]);
+      if (resp.type === 'error') {
+        return { ok: false, code: 'internal', message: `Redis EVAL error: ${resp.value}` };
+      }
+      return parseRedisBudgetCommit(redisRawValue(resp));
+    } catch (e: unknown) {
+      const msg = errorMessage(e) || 'Failed to commit threshold session budget';
+      return { ok: false, code: 'internal', message: msg };
+    }
+  }
+
+  async releaseReservedUseCount(
+    input: WalletSessionBudgetReleaseReservedUseCountInput,
+  ): Promise<WalletSessionBudgetReleaseResult> {
+    const walletSigningSessionId = normalizeBudgetField(input.walletSigningSessionId);
+    const reservationId = normalizeBudgetField(input.reservationId);
+    if (!walletSigningSessionId || !reservationId) {
+      return {
+        ok: false,
+        code: 'invalid_budget_request',
+        message: 'budget release requires wallet signing session and reservation',
+      };
+    }
+    try {
+      const resp = await this.client.send([
+        'EVAL',
+        BUDGET_RELEASE_LUA,
+        '3',
+        this.usesKey(walletSigningSessionId),
+        this.budgetReservationIndexKey(walletSigningSessionId),
+        this.budgetReservationKey(walletSigningSessionId, reservationId),
+        String(Date.now()),
+      ]);
+      if (resp.type === 'error') {
+        return { ok: false, code: 'internal', message: `Redis EVAL error: ${resp.value}` };
+      }
+      return parseRedisBudgetRelease(redisRawValue(resp));
+    } catch (e: unknown) {
+      const msg = errorMessage(e) || 'Failed to release threshold session budget';
       return { ok: false, code: 'internal', message: msg };
     }
   }
@@ -683,6 +1744,38 @@ class PostgresEd25519WalletSessionStore implements Ed25519WalletSessionStore {
       `,
       [this.namespace, 'wallet_session', id],
     );
+  }
+
+  private async cleanupExpiredBudgetReservations(
+    client: { query: (text: string, values?: unknown[]) => Promise<{ rows: any[] }> },
+    id: string,
+    nowMs: number,
+  ): Promise<void> {
+    await client.query(
+      `
+        DELETE FROM threshold_wallet_session_budget_reservations
+        WHERE namespace = $1 AND session_id = $2 AND status = $3 AND expires_at_ms <= $4
+      `,
+      [this.namespace, id, 'reserved', nowMs],
+    );
+  }
+
+  private async activeReservedUses(
+    client: { query: (text: string, values?: unknown[]) => Promise<{ rows: any[] }> },
+    id: string,
+    nowMs: number,
+  ): Promise<number> {
+    await this.cleanupExpiredBudgetReservations(client, id, nowMs);
+    const { rows } = await client.query(
+      `
+        SELECT COALESCE(SUM(signature_uses), 0) AS reserved_uses
+        FROM threshold_wallet_session_budget_reservations
+        WHERE namespace = $1 AND session_id = $2 AND status = $3 AND expires_at_ms > $4
+      `,
+      [this.namespace, id, 'reserved', nowMs],
+    );
+    const reservedUses = Number(rows[0]?.reserved_uses ?? 0);
+    return Number.isFinite(reservedUses) ? Math.max(0, Math.floor(reservedUses)) : 0;
   }
 
   async putSession(
@@ -767,7 +1860,14 @@ class PostgresEd25519WalletSessionStore implements Ed25519WalletSessionStore {
       await this.deleteSessionRow(id);
       return null;
     }
-    return parsed.value;
+    const reservedUses = await this.activeReservedUses(pool, id, nowMs);
+    return {
+      ...parsed.value,
+      committedRemainingUses: parsed.value.remainingUses,
+      reservedUses,
+      availableUses: Math.max(0, parsed.value.remainingUses - reservedUses),
+      remainingUses: Math.max(0, parsed.value.remainingUses - reservedUses),
+    };
   }
 
   private async explainMissing(
@@ -917,6 +2017,358 @@ class PostgresEd25519WalletSessionStore implements Ed25519WalletSessionStore {
           ? (e as { message?: unknown }).message
           : e || 'Failed to consume threshold session',
       );
+      return { ok: false, code: 'internal', message: msg };
+    } finally {
+      client.release();
+    }
+  }
+
+  async reserveUseCountOnce(
+    input: WalletSessionBudgetReserveUseCountInput,
+  ): Promise<WalletSessionBudgetReservationResult> {
+    const pool = await this.poolPromise;
+    const client =
+      typeof pool.connect === 'function'
+        ? await pool.connect()
+        : {
+            query: pool.query.bind(pool),
+            release: () => undefined,
+          };
+    const nowMs = Date.now();
+    try {
+      await client.query('BEGIN');
+      const { rows } = await client.query(
+        `
+          SELECT expires_at_ms, remaining_uses
+          FROM threshold_ed25519_sessions
+          WHERE namespace = $1 AND kind = $2 AND session_id = $3
+          FOR UPDATE
+        `,
+        [this.namespace, 'wallet_session', input.walletSigningSessionId],
+      );
+      const session = rows[0];
+      if (!session) {
+        await client.query('ROLLBACK');
+        return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
+      }
+      const expiresAtMs = Number(session.expires_at_ms);
+      const committedRemainingUses = Number(session.remaining_uses);
+      if (!Number.isFinite(expiresAtMs) || expiresAtMs <= nowMs) {
+        await client.query('ROLLBACK');
+        return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
+      }
+      if (!Number.isFinite(committedRemainingUses)) {
+        await client.query('ROLLBACK');
+        return { ok: false, code: 'internal', message: 'Postgres returned invalid remainingUses' };
+      }
+      const parsed = parseBudgetReservationInput(input, expiresAtMs, nowMs);
+      if (!parsed.ok) {
+        await client.query('ROLLBACK');
+        return parsed;
+      }
+      await this.cleanupExpiredBudgetReservations(client, parsed.value.walletSigningSessionId, nowMs);
+      const existing = await client.query(
+        `
+          SELECT reservation_id, operation_id, request_digest, curve, threshold_session_id,
+                 signature_uses, expires_at_ms, status, remaining_uses_after_commit
+          FROM threshold_wallet_session_budget_reservations
+          WHERE namespace = $1 AND session_id = $2 AND operation_id = $3 AND request_digest = $4
+          FOR UPDATE
+        `,
+        [
+          this.namespace,
+          parsed.value.walletSigningSessionId,
+          parsed.value.operationId,
+          parsed.value.requestDigest,
+        ],
+      );
+      const existingRow = existing.rows[0];
+      if (existingRow && existingRow.status === 'reserved') {
+        const reservation = parsePostgresBudgetReservation(parsed.value.walletSigningSessionId, existingRow);
+        if (!reservation) {
+          await client.query('ROLLBACK');
+          return { ok: false, code: 'internal', message: 'Postgres returned invalid reservation' };
+        }
+        const reservedUses = await this.activeReservedUses(
+          client,
+          parsed.value.walletSigningSessionId,
+          nowMs,
+        );
+        await client.query('COMMIT');
+        return {
+          ok: true,
+          reservation,
+          remainingUses: committedRemainingUses,
+          reservedUses,
+          availableUses: Math.max(0, committedRemainingUses - reservedUses),
+        };
+      }
+      if (existingRow) {
+        await client.query('ROLLBACK');
+        return {
+          ok: false,
+          code: 'wallet_budget_reservation_mismatch',
+          message: 'wallet signing budget operation was already committed',
+        };
+      }
+      const reservedUses = await this.activeReservedUses(
+        client,
+        parsed.value.walletSigningSessionId,
+        nowMs,
+      );
+      const availableUses = Math.max(0, committedRemainingUses - reservedUses);
+      if (availableUses < parsed.value.signatureUses) {
+        await client.query('ROLLBACK');
+        return inMemoryBudgetReservationUnavailable({
+          committedRemainingUses,
+          reservedUses,
+          signatureUses: parsed.value.signatureUses,
+        });
+      }
+      const reservation: WalletSigningBudgetReservation = {
+        kind: 'wallet_signing_budget_reservation_v1',
+        walletSigningSessionId: parsed.value.walletSigningSessionId,
+        curve: parsed.value.curve,
+        thresholdSessionId: parsed.value.thresholdSessionId,
+        operationId: parsed.value.operationId,
+        requestDigest: parsed.value.requestDigest,
+        signatureUses: parsed.value.signatureUses,
+        reservationId: createBudgetReservationId(),
+        expiresAtMs: parsed.value.expiresAtMs,
+      };
+      await client.query(
+        `
+          INSERT INTO threshold_wallet_session_budget_reservations
+            (namespace, session_id, reservation_id, operation_id, request_digest, curve,
+             threshold_session_id, signature_uses, expires_at_ms, status, created_at_ms, updated_at_ms)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+        `,
+        [
+          this.namespace,
+          reservation.walletSigningSessionId,
+          reservation.reservationId,
+          reservation.operationId,
+          reservation.requestDigest,
+          reservation.curve,
+          reservation.thresholdSessionId,
+          reservation.signatureUses,
+          reservation.expiresAtMs,
+          'reserved',
+          nowMs,
+        ],
+      );
+      await client.query('COMMIT');
+      const nextReservedUses = reservedUses + reservation.signatureUses;
+      return {
+        ok: true,
+        reservation,
+        remainingUses: committedRemainingUses,
+        reservedUses: nextReservedUses,
+        availableUses: Math.max(0, committedRemainingUses - nextReservedUses),
+      };
+    } catch (e: unknown) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      const msg = errorMessage(e) || 'Failed to reserve threshold session budget';
+      return { ok: false, code: 'internal', message: msg };
+    } finally {
+      client.release();
+    }
+  }
+
+  async commitReservedUseCountOnce(
+    input: WalletSessionBudgetCommitReservedUseCountInput,
+  ): Promise<WalletSessionConsumeUsesResult> {
+    const parsed = parseBudgetCommitInput(input);
+    if (!parsed.ok) return parsed;
+    const pool = await this.poolPromise;
+    const client =
+      typeof pool.connect === 'function'
+        ? await pool.connect()
+        : {
+            query: pool.query.bind(pool),
+            release: () => undefined,
+          };
+    const nowMs = Date.now();
+    try {
+      await client.query('BEGIN');
+      const sessionRows = await client.query(
+        `
+          SELECT expires_at_ms, remaining_uses
+          FROM threshold_ed25519_sessions
+          WHERE namespace = $1 AND kind = $2 AND session_id = $3
+          FOR UPDATE
+        `,
+        [this.namespace, 'wallet_session', parsed.value.walletSigningSessionId],
+      );
+      const session = sessionRows.rows[0];
+      if (!session) {
+        await client.query('ROLLBACK');
+        return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
+      }
+      const sessionExpiresAtMs = Number(session.expires_at_ms);
+      const committedRemainingUses = Number(session.remaining_uses);
+      if (!Number.isFinite(sessionExpiresAtMs) || sessionExpiresAtMs <= nowMs) {
+        await client.query('ROLLBACK');
+        return { ok: false, code: 'unauthorized', message: 'threshold session expired' };
+      }
+      if (!Number.isFinite(committedRemainingUses)) {
+        await client.query('ROLLBACK');
+        return { ok: false, code: 'internal', message: 'Postgres returned invalid remainingUses' };
+      }
+      const reservationRows = await client.query(
+        `
+          SELECT reservation_id, operation_id, request_digest, curve, threshold_session_id,
+                 signature_uses, expires_at_ms, status, remaining_uses_after_commit
+          FROM threshold_wallet_session_budget_reservations
+          WHERE namespace = $1 AND session_id = $2 AND reservation_id = $3
+          FOR UPDATE
+        `,
+        [this.namespace, parsed.value.walletSigningSessionId, parsed.value.reservationId],
+      );
+      const reservation = reservationRows.rows[0];
+      if (!reservation) {
+        await client.query('ROLLBACK');
+        return budgetReservationExpired();
+      }
+      if (
+        reservation.operation_id !== parsed.value.operationId ||
+        reservation.request_digest !== parsed.value.requestDigest
+      ) {
+        await client.query('ROLLBACK');
+        return budgetReservationMismatch();
+      }
+      if (reservation.status === 'committed') {
+        const remainingUses = Number(reservation.remaining_uses_after_commit);
+        await client.query('COMMIT');
+        return Number.isFinite(remainingUses)
+          ? { ok: true, remainingUses }
+          : { ok: false, code: 'internal', message: 'Postgres returned invalid committed budget' };
+      }
+      const reservationExpiresAtMs = Number(reservation.expires_at_ms);
+      if (!Number.isFinite(reservationExpiresAtMs) || reservationExpiresAtMs <= nowMs) {
+        await client.query(
+          `
+            DELETE FROM threshold_wallet_session_budget_reservations
+            WHERE namespace = $1 AND session_id = $2 AND reservation_id = $3
+          `,
+          [this.namespace, parsed.value.walletSigningSessionId, parsed.value.reservationId],
+        );
+        await client.query('ROLLBACK');
+        return budgetReservationExpired();
+      }
+      const signatureUses = Number(reservation.signature_uses);
+      if (!Number.isFinite(signatureUses) || signatureUses <= 0) {
+        await client.query('ROLLBACK');
+        return { ok: false, code: 'internal', message: 'Postgres returned invalid reservation uses' };
+      }
+      if (committedRemainingUses < signatureUses) {
+        await client.query('ROLLBACK');
+        return budgetExhausted();
+      }
+      const nextRemainingUses = committedRemainingUses - signatureUses;
+      await client.query(
+        `
+          UPDATE threshold_ed25519_sessions
+          SET remaining_uses = $5
+          WHERE namespace = $1 AND kind = $2 AND session_id = $3 AND expires_at_ms > $4
+        `,
+        [
+          this.namespace,
+          'wallet_session',
+          parsed.value.walletSigningSessionId,
+          nowMs,
+          nextRemainingUses,
+        ],
+      );
+      await client.query(
+        `
+          UPDATE threshold_wallet_session_budget_reservations
+          SET status = $5, remaining_uses_after_commit = $6, updated_at_ms = $7
+          WHERE namespace = $1 AND session_id = $2 AND reservation_id = $3 AND status = $4
+        `,
+        [
+          this.namespace,
+          parsed.value.walletSigningSessionId,
+          parsed.value.reservationId,
+          'reserved',
+          'committed',
+          nextRemainingUses,
+          nowMs,
+        ],
+      );
+      await client.query('COMMIT');
+      return { ok: true, remainingUses: nextRemainingUses };
+    } catch (e: unknown) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      const msg = errorMessage(e) || 'Failed to commit threshold session budget';
+      return { ok: false, code: 'internal', message: msg };
+    } finally {
+      client.release();
+    }
+  }
+
+  async releaseReservedUseCount(
+    input: WalletSessionBudgetReleaseReservedUseCountInput,
+  ): Promise<WalletSessionBudgetReleaseResult> {
+    const walletSigningSessionId = normalizeBudgetField(input.walletSigningSessionId);
+    const reservationId = normalizeBudgetField(input.reservationId);
+    if (!walletSigningSessionId || !reservationId) {
+      return {
+        ok: false,
+        code: 'invalid_budget_request',
+        message: 'budget release requires wallet signing session and reservation',
+      };
+    }
+    const pool = await this.poolPromise;
+    const client =
+      typeof pool.connect === 'function'
+        ? await pool.connect()
+        : {
+            query: pool.query.bind(pool),
+            release: () => undefined,
+          };
+    const nowMs = Date.now();
+    try {
+      await client.query('BEGIN');
+      const sessionRows = await client.query(
+        `
+          SELECT expires_at_ms, remaining_uses
+          FROM threshold_ed25519_sessions
+          WHERE namespace = $1 AND kind = $2 AND session_id = $3
+          FOR UPDATE
+        `,
+        [this.namespace, 'wallet_session', walletSigningSessionId],
+      );
+      const session = sessionRows.rows[0];
+      if (!session) {
+        await client.query('ROLLBACK');
+        return { ok: false, code: 'unauthorized', message: 'threshold session expired or invalid' };
+      }
+      const committedRemainingUses = Number(session.remaining_uses);
+      if (!Number.isFinite(committedRemainingUses)) {
+        await client.query('ROLLBACK');
+        return { ok: false, code: 'internal', message: 'Postgres returned invalid remainingUses' };
+      }
+      const deleted = await client.query(
+        `
+          DELETE FROM threshold_wallet_session_budget_reservations
+          WHERE namespace = $1 AND session_id = $2 AND reservation_id = $3 AND status = $4
+          RETURNING 1
+        `,
+        [this.namespace, walletSigningSessionId, reservationId, 'reserved'],
+      );
+      const reservedUses = await this.activeReservedUses(client, walletSigningSessionId, nowMs);
+      await client.query('COMMIT');
+      return {
+        ok: true,
+        released: !!deleted.rows[0],
+        remainingUses: committedRemainingUses,
+        reservedUses,
+        availableUses: Math.max(0, committedRemainingUses - reservedUses),
+      };
+    } catch (e: unknown) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      const msg = errorMessage(e) || 'Failed to release threshold session budget';
       return { ok: false, code: 'internal', message: msg };
     } finally {
       client.release();

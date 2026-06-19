@@ -728,6 +728,32 @@ export async function ensurePostgresSchema(input: {
       CREATE INDEX IF NOT EXISTS threshold_wallet_session_consumptions_expires_idx
       ON threshold_wallet_session_consumptions (expires_at_ms)
     `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS threshold_wallet_session_budget_reservations (
+        namespace TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        reservation_id TEXT NOT NULL,
+        operation_id TEXT NOT NULL,
+        request_digest TEXT NOT NULL,
+        curve TEXT NOT NULL,
+        threshold_session_id TEXT NOT NULL,
+        signature_uses INTEGER NOT NULL,
+        expires_at_ms BIGINT NOT NULL,
+        status TEXT NOT NULL,
+        remaining_uses_after_commit INTEGER,
+        created_at_ms BIGINT NOT NULL,
+        updated_at_ms BIGINT NOT NULL,
+        PRIMARY KEY (namespace, session_id, reservation_id),
+        UNIQUE (namespace, session_id, operation_id, request_digest),
+        CHECK (curve IN ('ed25519', 'ecdsa')),
+        CHECK (status IN ('reserved', 'committed')),
+        CHECK (signature_uses > 0)
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS threshold_wallet_session_budget_reservations_expires_idx
+      ON threshold_wallet_session_budget_reservations (expires_at_ms)
+    `);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS threshold_ecdsa_presign_sessions (

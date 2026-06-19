@@ -29,6 +29,9 @@ function makeStatus(input: {
       ...(input.walletBudgetBinding ? { walletBudgetBinding: input.walletBudgetBinding } : {}),
     },
     expiresAtMs: input.expiresAtMs,
+    committedRemainingUses: input.remainingUses,
+    reservedUses: 0,
+    availableUses: input.remainingUses,
     remainingUses: input.remainingUses,
   };
 }
@@ -54,6 +57,19 @@ function makeStore(entries: {
     },
     async consumeUseCountOnce(id: string) {
       return consume[id] || { ok: false, code: 'not_found', message: 'missing' };
+    },
+    async reserveUseCountOnce() {
+      return { ok: false, code: 'not_found', message: 'missing' };
+    },
+    async commitReservedUseCountOnce() {
+      return { ok: false, code: 'not_found', message: 'missing' };
+    },
+    async releaseReservedUseCount() {
+      return {
+        ok: false,
+        code: 'not_found',
+        message: 'missing',
+      };
     },
     async hasConsumedUseCountOnce() {
       return { ok: true, consumed: false };

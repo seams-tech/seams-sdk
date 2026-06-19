@@ -271,7 +271,7 @@ Acceptance:
 
 ## Phase 1: Add Server Budget Reservation Primitives
 
-- [ ] Extend `Ed25519WalletSessionStore` with reservation methods:
+- [x] Extend `Ed25519WalletSessionStore` with reservation methods:
 
 ```ts
 reserveUseCountOnce(input: {
@@ -297,20 +297,28 @@ releaseReservedUseCount(input: {
 }): Promise<WalletSessionBudgetReleaseResult>;
 ```
 
-- [ ] Implement reservation primitives for:
+- [x] Implement reservation primitives for:
   - InMemory store
   - Redis store
   - Upstash store
   - Postgres store
   - Cloudflare Durable Object store
-- [ ] Reservation must decrement available budget for subsequent status reads
+- [x] Reservation must decrement available budget for subsequent status reads
       without committing a permanent consume.
-- [ ] Commit must be idempotent for the same
+- [x] Commit must be idempotent for the same
       `walletSigningSessionId + operationId + requestDigest`.
-- [ ] Commit must reject mismatched reservation identity.
-- [ ] Expired reservations must be ignored and cleaned up.
+- [x] Commit must reject mismatched reservation identity.
+- [x] Expired reservations must be ignored and cleaned up.
 - [ ] Add store-level tests for reserve, commit, release, duplicate commit,
       exhausted budget, expired reservation, and identity mismatch.
+
+Validation added:
+
+- `tests/unit/walletSessionBudgetReservation.store.unit.test.ts` covers the
+  in-memory store reserve, duplicate reserve, in-flight rejection, commit
+  idempotency, release, and visible available budget projection.
+- Cross-backend behavioral tests for Redis, Upstash, Postgres, and Cloudflare
+  remain open.
 
 Acceptance:
 

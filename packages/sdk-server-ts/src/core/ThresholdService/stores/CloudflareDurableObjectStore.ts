@@ -27,6 +27,12 @@ import {
 import type {
   WalletSessionReplayGuardResult,
   WalletSessionConsumeUsesResult,
+  WalletSessionBudgetCommitReservedUseCountInput,
+  WalletSessionBudgetReleaseReservedUseCountInput,
+  WalletSessionBudgetReleaseResult,
+  WalletSessionBudgetReservationResult,
+  WalletSessionBudgetReserveUseCountInput,
+  WalletSigningBudgetReservation,
   Ed25519WalletSessionRecord,
   Ed25519WalletSessionStore,
 } from './WalletSessionStore';
@@ -102,6 +108,25 @@ type DoAuthHasConsumedUseCountOnceRequest = {
   key: string;
   idempotencyKey: string;
 };
+type DoAuthGetBudgetStatusRequest = {
+  op: 'authGetBudgetStatus';
+  key: string;
+};
+type DoAuthReserveBudgetUseCountRequest = {
+  op: 'authReserveBudgetUseCount';
+  key: string;
+  input: WalletSessionBudgetReserveUseCountInput;
+};
+type DoAuthCommitReservedBudgetUseCountRequest = {
+  op: 'authCommitReservedBudgetUseCount';
+  key: string;
+  input: WalletSessionBudgetCommitReservedUseCountInput;
+};
+type DoAuthReleaseReservedBudgetUseCountRequest = {
+  op: 'authReleaseReservedBudgetUseCount';
+  key: string;
+  input: WalletSessionBudgetReleaseReservedUseCountInput;
+};
 type DoAuthReserveReplayGuardRequest = {
   op: 'authReserveReplayGuard';
   key: string;
@@ -176,6 +201,10 @@ type DoRequest =
   | DoAuthConsumeUseCountRequest
   | DoAuthConsumeUseCountOnceRequest
   | DoAuthHasConsumedUseCountOnceRequest
+  | DoAuthGetBudgetStatusRequest
+  | DoAuthReserveBudgetUseCountRequest
+  | DoAuthCommitReservedBudgetUseCountRequest
+  | DoAuthReleaseReservedBudgetUseCountRequest
   | DoAuthReserveReplayGuardRequest
   | DoRouterAbEcdsaHssPresignaturePutRequest
   | DoRouterAbEcdsaHssPresignatureReserveRequest
@@ -191,6 +220,8 @@ type DoAuthEntry = {
   record: Ed25519WalletSessionRecord;
   remainingUses: number;
   expiresAtMs: number;
+  reservedUses?: number;
+  availableUses?: number;
 };
 
 type ThresholdEcdsaSharedIdentityGuard = {
@@ -438,23 +469,29 @@ export class CloudflareDurableObjectEd25519WalletSessionStore implements Ed25519
   }
 
   async getSessionStatus(id: string) {
-    const resp = await callDo<unknown | null>(this.stub, { op: 'get', key: this.key(id) });
+    const resp = await callDo<{
+      record: Ed25519WalletSessionRecord;
+      expiresAtMs: number;
+      remainingUses: number;
+      reservedUses: number;
+      availableUses: number;
+    } | null>(this.stub, { op: 'authGetBudgetStatus', key: this.key(id) });
     if (!resp.ok) return null;
-    const raw = resp.value;
-    const entry = isObject(raw) ? (raw as Record<string, unknown>) : null;
-    const record = entry
-      ? parseEd25519WalletSessionRecord((entry as { record?: unknown }).record)
-      : null;
-    const expiresAtMs = entry ? Number((entry as { expiresAtMs?: unknown }).expiresAtMs) : NaN;
-    const remainingUses = entry
-      ? Number((entry as { remainingUses?: unknown }).remainingUses)
-      : NaN;
-    if (!record || !Number.isFinite(expiresAtMs) || !Number.isFinite(remainingUses)) return null;
-    if (Date.now() > expiresAtMs) return null;
+    if (!resp.value) return null;
+    const record = parseEd25519WalletSessionRecord(resp.value.record);
+    if (!record) return null;
+    const expiresAtMs = Number(resp.value.expiresAtMs);
+    const committedRemainingUses = Math.max(0, Math.floor(Number(resp.value.remainingUses) || 0));
+    const activeReservedUses = Math.max(0, Math.floor(Number(resp.value.reservedUses) || 0));
+    const activeAvailableUses = Math.max(0, Math.floor(Number(resp.value.availableUses) || 0));
+    if (!Number.isFinite(expiresAtMs) || Date.now() > expiresAtMs) return null;
     return {
       record,
       expiresAtMs,
-      remainingUses,
+      committedRemainingUses,
+      reservedUses: activeReservedUses,
+      availableUses: activeAvailableUses,
+      remainingUses: activeAvailableUses,
     };
   }
 
@@ -478,6 +515,64 @@ export class CloudflareDurableObjectEd25519WalletSessionStore implements Ed25519
     });
     if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
     return { ok: true, remainingUses: resp.value.remainingUses };
+  }
+
+  async reserveUseCountOnce(
+    input: WalletSessionBudgetReserveUseCountInput,
+  ): Promise<WalletSessionBudgetReservationResult> {
+    const resp = await callDo<{
+      reservation: WalletSigningBudgetReservation;
+      remainingUses: number;
+      reservedUses: number;
+      availableUses: number;
+    }>(this.stub, {
+      op: 'authReserveBudgetUseCount',
+      key: this.key(input.walletSigningSessionId),
+      input,
+    });
+    if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
+    return {
+      ok: true,
+      reservation: resp.value.reservation,
+      remainingUses: resp.value.remainingUses,
+      reservedUses: resp.value.reservedUses,
+      availableUses: resp.value.availableUses,
+    };
+  }
+
+  async commitReservedUseCountOnce(
+    input: WalletSessionBudgetCommitReservedUseCountInput,
+  ): Promise<WalletSessionConsumeUsesResult> {
+    const resp = await callDo<{ remainingUses: number }>(this.stub, {
+      op: 'authCommitReservedBudgetUseCount',
+      key: this.key(input.walletSigningSessionId),
+      input,
+    });
+    if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
+    return { ok: true, remainingUses: resp.value.remainingUses };
+  }
+
+  async releaseReservedUseCount(
+    input: WalletSessionBudgetReleaseReservedUseCountInput,
+  ): Promise<WalletSessionBudgetReleaseResult> {
+    const resp = await callDo<{
+      released: boolean;
+      remainingUses: number;
+      reservedUses: number;
+      availableUses: number;
+    }>(this.stub, {
+      op: 'authReleaseReservedBudgetUseCount',
+      key: this.key(input.walletSigningSessionId),
+      input,
+    });
+    if (!resp.ok) return { ok: false, code: resp.code, message: resp.message };
+    return {
+      ok: true,
+      released: resp.value.released,
+      remainingUses: resp.value.remainingUses,
+      reservedUses: resp.value.reservedUses,
+      availableUses: resp.value.availableUses,
+    };
   }
 
   async hasConsumedUseCountOnce(
