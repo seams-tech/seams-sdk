@@ -477,9 +477,9 @@ Required validation:
 1. Signing-session architecture:
    [../signing-session-architecture/](../signing-session-architecture/).
 2. Route auth planes:
-   [../walletAuth-gating-routes.md](../walletAuth-gating-routes.md).
-3. Threshold session token naming:
-   [../signing-session-architecture/threshold-session-auth-token.md](../signing-session-architecture/threshold-session-auth-token.md).
+   [../auth-gating-routes.md](../auth-gating-routes.md).
+3. Wallet Session V2 and Router A/B auth:
+   [../refactor-68-wallet-session-v2.md](../refactor-68-wallet-session-v2.md).
 4. Email OTP recovery codes UI:
    [refactor-55-otp-recovery-codes-ui.md](refactor-55-otp-recovery-codes-ui.md).
 5. Future Email OTP/passkey add-key product plan:

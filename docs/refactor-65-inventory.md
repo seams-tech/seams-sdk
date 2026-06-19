@@ -12,7 +12,7 @@ cross-platform folder reorganization.
 | --- | --- | --- |
 | `sdk/` | `packages/sdk-web/` | Web SDK package, build scripts, package metadata, distribution config. |
 | `client/src/` | `packages/sdk-web/src/` | Browser SDK source, React exports, plugins, theme, wallet iframe, browser UI, signing engine source still owned by web SDK. |
-| `client/src/core/runtime/` | `packages/sdk-runtime-ts/src/runtime/` | Extracted platform-neutral runtime entrypoint and runtime config/types. |
+| `client/src/core/runtime/` | `packages/sdk-web/src/core/runtime/` | Platform-neutral runtime entrypoint and runtime config/types folded back into the web package source tree. |
 | `server/src/` | `packages/sdk-server-ts/src/` | Server library, route adapters, console services, storage, threshold server code. |
 | `shared/src/` | `packages/shared-ts/src/` | Shared protocol, console, threshold, and utility TypeScript. |
 | `examples/seams-site/` | `apps/web-client/` | Deployable web client. |
@@ -26,7 +26,6 @@ cross-platform folder reorganization.
 | Package root | Package name | Notes |
 | --- | --- | --- |
 | `packages/sdk-web` | `@seams/sdk` | Public npm package remains the web SDK package for this migration. Server exports are still surfaced through this package. |
-| `packages/sdk-runtime-ts` | `@seams-internal/sdk-runtime-ts` | Workspace-private runtime package. Current extraction covers `runtime/**`; deeper neutral signing/platform extraction remains follow-up work. |
 | `packages/sdk-server-ts` | `@seams-internal/sdk-server-ts` | Workspace-private server library source package. |
 | `packages/shared-ts` | `@seams-internal/shared-ts` | Workspace-private shared TypeScript package with package exports for `console/*`, `threshold/*`, and `utils/*`. |
 

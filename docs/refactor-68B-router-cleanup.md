@@ -1,6 +1,6 @@
 # Refactor 68B: Router Worker Cleanup
 
-Status: in progress; local topology switch applied
+Status: closed unless drift appears; local topology switch and spec audit complete
 
 ## Goal
 
@@ -100,23 +100,44 @@ Decision: the main Router runtime is the SDK server route layer
 auth, sessions, registration, WebAuthn, Wallet Session seal, budget, and console
 surfaces. Router A/B strict protocol code must move behind this route layer.
 
-- [ ] Treat the Rust `router` worker in `crates/router-ab-dev` as a temporary
+- [x] Treat the Rust `router` worker in `crates/router-ab-dev` as a temporary
       strict-protocol implementation detail.
+      Evidence on 2026-06-19: the SDK Router route table owns the
+      browser-facing local API. The existing source guard
+      `pnpm router launches one public Router server and three private workers`
+      asserts repo-level `pnpm router` does not spawn the Rust router role.
 - [x] Move public Router A/B Ed25519 normal-signing handlers into the main Router
       route table.
 - [x] Move public Router A/B ECDSA-HSS normal-signing handlers into the main
       Router route table.
 - [x] Keep Deriver A/B and SigningWorker private HTTP workers for local dev and
       Cloudflare service bindings.
-- [ ] Delete the separate public Rust Router role once the main Router route
+- [x] Delete the separate public Rust Router role once the main Router route
       table owns equivalent admission, replay, quota, abuse, and forwarding
       behavior.
+      Evidence on 2026-06-19: the local worker binary rejects the removed public
+      Router role, the single-process local profile binary and scripts are
+      deleted, obsolete Rust public Router forwarding handlers are deleted, and
+      `rtk cargo check --manifest-path crates/router-ab-dev/Cargo.toml` passes.
 
 ## Phase 4: Port Strict Router A/B Admission Into Main Router
 
-- [ ] Extract the strict Router A/B public-route admission logic from
+- [x] Extract the strict Router A/B public-route admission logic from
       `crates/router-ab-cloudflare` into reusable protocol tests/vectors where
       practical.
+      Current extraction coverage:
+      - [x] Ed25519 normal-signing SDK builders are checked against Rust
+            admission digest vectors:
+            `tests/unit/routerAbNormalSigningVectors.unit.test.ts`.
+      - [x] ECDSA-HSS normal-signing request/response digest binding is covered
+            by focused TypeScript boundary tests:
+            `tests/unit/routerAbEcdsaHssNormalSigning.unit.test.ts`.
+      - [x] ECDSA-HSS route admission scope comparison is guarded to use
+            canonical protocol bytes:
+            `tests/unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts`.
+      - [x] Quota and abuse admission-store behavior is ported to focused
+            TypeScript store tests:
+            `tests/unit/routerAbNormalSigningAdmissionStore.unit.test.ts`.
 - [x] Add main Router Wallet Session, scope, SigningWorker id, and expiry
       checks before active Ed25519 and ECDSA-HSS signing requests are forwarded.
 - [x] Forward main Router active Ed25519 and ECDSA-HSS signing requests only to
@@ -125,13 +146,105 @@ surfaces. Router A/B strict protocol code must move behind this route layer.
       the main Router route layer.
 - [x] Implement ECDSA-HSS prepare and finalize admission in the main Router route
       layer.
-- [ ] Preserve raw-body digest semantics where the spec requires exact request
-      binding.
-- [ ] Preserve replay, expiry, quota, abuse, and abandoned-prepare cleanup
+- [x] Preserve exact request-binding digest semantics required by the current
+      normal-signing specs. Current Ed25519 and ECDSA-HSS normal-signing specs
+      bind canonical typed protocol bytes:
+      - [x] Ed25519 admission material matches Rust vectors:
+            `tests/unit/routerAbNormalSigningVectors.unit.test.ts`.
+      - [x] ECDSA-HSS prepare/finalize request digest mismatches are rejected:
+            `tests/unit/routerAbEcdsaHssNormalSigning.unit.test.ts`.
+      - [x] ECDSA-HSS scope comparison uses canonical protocol bytes in shared
+            code and server admission:
+            `tests/unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts`.
+- [x] Preserve replay, expiry, quota, abuse, and abandoned-prepare cleanup
       semantics.
-- [ ] Add negative tests for missing bearer, old threshold JWT kinds, scope drift,
+      Current semantics coverage:
+      - [x] Replay rejection for Ed25519 and ECDSA-HSS prepare request ids:
+            `tests/relayer/router-ab-normal-signing-auth-boundary.test.ts`.
+      - [x] Current-time expiry rejection before private SigningWorker
+            forwarding:
+            `tests/unit/thresholdSessionClaims.unit.test.ts` and
+            `tests/relayer/router-ab-normal-signing-auth-boundary.test.ts`.
+      - [x] Abandoned-prepare cleanup semantics in strict Cloudflare and
+            local-dev stores:
+            `crates/router-ab-cloudflare/tests/bindings.rs` and
+            `crates/router-ab-dev/src/lib.rs`.
+      - [x] Main Router route layer has a typed normal-signing admission
+            boundary for project-policy, quota, and abuse decisions:
+            `packages/sdk-server-ts/src/router/routerAbPrivateSigningWorker.ts`.
+      - [x] Ed25519 and ECDSA-HSS prepare/finalize route handlers evaluate that
+            boundary before private SigningWorker configuration, material, or
+            forwarding is read:
+            `packages/sdk-server-ts/src/router/express/routes/thresholdEd25519.ts`,
+            `packages/sdk-server-ts/src/router/express/routes/thresholdEcdsa.ts`,
+            `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEd25519.ts`,
+            and `packages/sdk-server-ts/src/router/cloudflare/routes/thresholdEcdsa.ts`.
+      - [x] Focused route tests cover quota saturation and abuse rejection
+            before private SigningWorker forwarding:
+            `tests/relayer/router-ab-normal-signing-auth-boundary.test.ts`.
+      - [x] Durable quota and abuse admission-store parity is implemented in the
+            main Router route layer:
+            `packages/sdk-server-ts/src/router/routerAbNormalSigningAdmissionStore.ts`
+            defines strict project-policy, quota, and abuse decision unions,
+            in-memory local state, and Postgres-backed admission tables.
+      - [x] The app server wires the concrete admission adapter whenever Router
+            A/B normal signing is enabled:
+            `apps/web-server/src/index.ts`.
+      - [x] Focused store tests cover accepted, reuse-existing, short-window
+            saturation, project-policy rejection, abuse rate limiting/rejection,
+            expiry, and Ed25519/ECDSA-HSS quota separation:
+            `tests/unit/routerAbNormalSigningAdmissionStore.unit.test.ts`.
+- [x] Add negative tests for missing bearer, old threshold JWT kinds, scope drift,
       expired requests, replayed request ids, duplicate handles, and
       cross-session attempts.
+      Current negative-test coverage:
+      - [x] Missing bearer rejection at the validator boundary:
+            `tests/unit/thresholdSessionClaims.unit.test.ts`.
+      - [x] Missing bearer rejection at the public route boundary before private
+            SigningWorker configuration is read:
+            `tests/relayer/router-ab-normal-signing-auth-boundary.test.ts`.
+      - [x] Legacy threshold JWT kind rejection at the validator boundary:
+            `tests/unit/thresholdSessionClaims.unit.test.ts`.
+      - [x] Legacy threshold JWT kind rejection at the public route boundary
+            before private SigningWorker configuration is read:
+            `tests/relayer/router-ab-normal-signing-auth-boundary.test.ts`.
+      - [x] Ed25519 scope, session, worker, Wallet Session expiry drift, and
+            current-time expired request rejection at the private validator
+            boundary:
+            `tests/unit/thresholdSessionClaims.unit.test.ts`.
+      - [x] Ed25519 scope drift rejection at the public route boundary before
+            private SigningWorker configuration is read:
+            `tests/relayer/router-ab-normal-signing-auth-boundary.test.ts`.
+      - [x] Ed25519 cross-session scope drift rejection at the public route
+            boundary before private SigningWorker configuration is read:
+            `tests/relayer/router-ab-normal-signing-auth-boundary.test.ts`.
+      - [x] ECDSA-HSS canonical scope, Wallet Session expiry drift, and
+            current-time expired request rejection at the private validator
+            boundary:
+            `tests/unit/thresholdSessionClaims.unit.test.ts`.
+      - [x] ECDSA-HSS canonical scope drift rejection at the public route
+            boundary:
+            `tests/relayer/router-ab-normal-signing-auth-boundary.test.ts`.
+      - [x] ECDSA-HSS cross-session canonical scope drift rejection at the
+            public route boundary before private SigningWorker configuration is
+            read:
+            `tests/relayer/router-ab-normal-signing-auth-boundary.test.ts`.
+      - [x] Current-time expired request rejection at the public route boundary
+            before private SigningWorker configuration is read:
+            `tests/relayer/router-ab-normal-signing-auth-boundary.test.ts`.
+      - [x] Replayed prepare request id rejection before a second private
+            SigningWorker forward for Ed25519 and ECDSA-HSS:
+            `tests/relayer/router-ab-normal-signing-auth-boundary.test.ts`.
+      - [x] Duplicate presignature handle rejection:
+            `tests/unit/routerAbEcdsaHssPresignBridge.unit.test.ts`.
+      - [x] Rejected ECDSA-HSS presign-step cleanup and replay/missing-session
+            rejection after cleanup:
+            `tests/unit/thresholdEcdsa.presignDistributed.unit.test.ts`.
+      - [x] Abandoned-prepare cleanup semantics:
+            strict SigningWorker round-1 Durable Object cleanup is covered by
+            `crates/router-ab-cloudflare/tests/bindings.rs`, and local-dev
+            in-memory round-1 cleanup is covered by
+            `crates/router-ab-dev/src/lib.rs`.
 
 ## Phase 5: Collapse Local Port Model
 
@@ -165,20 +278,74 @@ surfaces. Router A/B strict protocol code must move behind this route layer.
       `POST /v2/router-ab/ed25519/sign`,
       `POST /v1/hss/ecdsa/sign/prepare`, `POST /v1/hss/ecdsa/sign`, Wallet
       Session issuance, and seal routes.
-- [ ] Local browser unlock-to-sign test passes for Ed25519.
-- [ ] Local browser unlock-to-sign test passes for ECDSA-HSS Tempo and EVM.
-- [ ] `pnpm router` starts Caddy plus exactly one public Router server.
+- [x] Local browser unlock-to-sign test passes for Ed25519.
+      Evidence on 2026-06-18: `rtk pnpm -C tests exec playwright test
+      ./e2e/emailOtp.thresholdEcdsa.tempoSigning.test.ts -g
+      "session-mode Email OTP reload signs NEAR and Tempo without another OTP"
+      --reporter=line` passed. This covers the reload path that restores the
+      Email OTP Ed25519 companion material and signs without a second OTP.
+- [x] Local browser unlock-to-sign test passes for ECDSA-HSS Tempo and EVM.
+      Evidence on 2026-06-18: `rtk pnpm -C tests exec playwright test
+      ./e2e/emailOtp.thresholdEcdsa.tempoSigning.test.ts -g
+      "session-mode Email OTP login (bootstraps warm ECDSA capability and signs
+      twice|also signs normal EVM eip1559 transactions)" --reporter=line`
+      passed for the Tempo-twice and EVM EIP-1559 cases.
+- [x] `pnpm router` manages the local Caddy proxy, exactly one public Router
+      server, and the three private Router A/B service workers.
+      Evidence on 2026-06-18: the focused source guard
+      `pnpm router launches one public Router server and three private workers`
+      passed, and `rtk pnpm router -- --help` reports Router server
+      `127.0.0.1:9090`, Caddy `https://localhost:9444`, Deriver A, Deriver B,
+      and SigningWorker as the managed local topology.
 - [x] `pnpm router:public-route-smoke` passes with the local site and Router
       workers running.
 - [x] `pnpm router:check` validates Ed25519 and ECDSA-HSS through
       `https://localhost:9444`.
       Evidence on 2026-06-18: `rtk pnpm router:check` passed against the live
-      local four-worker topology. The summary reported Ed25519
+      local SDK Router plus private-worker topology. The summary reported Ed25519
       `normal_signing_status=ed25519_v1`, ECDSA-HSS
       `ecdsa_hss_prepare_status=http_200_bound`,
       `ecdsa_hss_finalize_status=http_200_signature`, and
       `ecdsa_hss_replay_rejection_status=http_400_one_use_replay_rejected`.
 - [x] Source guards pass for no public split routing.
+
+## Phase 8: Final Spec-To-Code Compliance Audit
+
+Run this phase only after all Phase 3 and Phase 4 items are complete, including
+deletion of the temporary public Rust Router role.
+
+- [x] Use `/Users/pta/.codex/skills/spec-to-code-compliance/SKILL.md` to audit
+      the completed implementation against the Router A/B spec corpus.
+- [x] Discover and normalize the relevant spec corpus before comparing code.
+      At minimum include this plan plus the Router A/B topology, local-dev,
+      single-session, deployment-choice, signing, and cleanup docs that define
+      public Router ownership, Wallet Session auth, replay, quota/abuse,
+      request binding, private worker boundaries, and Caddy topology.
+- [x] Produce a durable audit artifact under `docs/audits/` with:
+      - Spec-IR for every extracted intended behavior, invariant, actor,
+        trust boundary, timing/order constraint, error condition, and security
+        requirement.
+      - Code-IR for the public Router route layer, private worker forwarding,
+        Wallet Session validation, replay, quota/abuse admission, request
+        binding, Caddy topology guards, and local worker orchestration.
+      - Alignment-IR mapping every Spec-IR item to code evidence with one of
+        `full_match`, `partial_match`, `mismatch`, `missing_in_code`,
+        `code_stronger_than_spec`, or `code_weaker_than_spec`.
+      - Divergence findings for every mismatch, missing implementation, weaker
+        code path, undocumented code path, or ambiguity.
+      - The 16-section final report required by the skill.
+- [x] Cite exact documentation excerpts and exact code line numbers for every
+      audit claim. Low-confidence items must be classified as ambiguous instead
+      of inferred.
+- [x] If the audit finds any divergence, add a new remediation phase below this
+      phase with one checklist item per finding, including severity, evidence,
+      remediation, and validation command.
+- [x] Mark this phase complete only after the audit has no open Critical, High,
+      or Medium divergence findings, or after the newly added remediation phase
+      has been implemented and validated.
+      Evidence on 2026-06-19:
+      `docs/audits/refactor-68b-spec-to-code-compliance-2026-06-19.md`
+      found no open Critical, High, or Medium divergences.
 
 ## Completion Criteria
 
@@ -189,3 +356,5 @@ surfaces. Router A/B strict protocol code must move behind this route layer.
   workers.
 - Manual Ed25519 and ECDSA-HSS signing tests pass locally before Cloudflare
   deployment work resumes.
+- Phase 8 spec-to-code compliance audit has passed, or all audit findings have
+  been captured in a follow-up remediation phase and closed.

@@ -2,11 +2,23 @@
 
 Date created: June 16, 2026
 
-Status: local signing cleanup review-ready. The public threshold-era lifecycle
-endpoint migration is implemented locally, and Ed25519/ECDSA signatures are
-signed only through Router A/B in the active SDK/server signing paths. Remaining
-Cloudflare deployed-runtime checks are tracked separately in Phase 16 as the
-post-deployment release tail.
+Status: active route cleanup is locally implemented, with one local architecture
+phase still open. The public threshold-era lifecycle endpoint migration is
+implemented locally, and Ed25519/ECDSA signatures are signed only through Router
+A/B in the active SDK/server signing paths. Local Rust ECDSA-HSS route parity is
+implemented in Phase 15.8 with live `pnpm router` smoke/evidence capture. Phase
+15.9 tracks the crypto-secret boundary cleanup that moves Ed25519/ECDSA client
+signing material behind `crates/signer-core` and WASM worker handles. Phase
+15.10 prepares the raw-material deletion gates and stale-record invalidation
+paths. Phase 15.11 makes signable persisted state strict. Phase 15.12 deletes
+raw-material fields and helpers after those prerequisites are closed for each
+curve/surface. Phases 15.13 through 15.16 split the broader rot audit into SDK
+route/auth boundaries, canonical digests, Rust/local topology cleanup, and
+test/docs/artifact hygiene. Phase 15.17 tracks the remaining server seal/budget
+boundary cleanup. Phase 15.18 is the spec-to-code compliance audit gate after
+local cleanup is complete, and Phase 15.19 is reserved for issues found by that
+audit. Cloudflare deployment-config hardening and deployed-runtime checks are
+tracked separately in Phase 16 as the post-deployment release tail.
 
 Primary plans:
 
@@ -47,7 +59,24 @@ cleanup surfaces. Server Wallet Session record storage is now named through
 
 Remaining cleanup work:
 
-- Post-deployment Cloudflare browser/runtime evidence is tracked in Phase 16.
+- Local Rust `pnpm router` ECDSA-HSS live smoke/evidence capture is complete in
+  Phase 15.8.
+- Crypto-secret material must be moved out of TypeScript orchestration and into
+  `crates/signer-core` plus WASM worker-owned handles in Phase 15.9.
+- Raw-material deletion must be prepared in Phase 15.10, blocked on strict
+  persisted state in Phase 15.11, and executed per eligible curve/surface in
+  Phase 15.12.
+- The broader refactor rot found in the June 18, 2026 diff audit must be
+  closed in Phases 15.13 through 15.16: SDK route/auth boundaries, canonical
+  scope binding, module splitting, and test replacement mapping.
+- Remaining server Ed25519 seal and budget boundary cleanup is tracked in Phase
+  15.17.
+- After Phases 15.9 through 15.17 are closed, Phase 15.18 runs the
+  `spec-to-code-compliance` audit against the Router A/B specification corpus and
+  active implementation. Any issues found by that audit must be copied into
+  Phase 15.19 as traceable remediation tasks.
+- Post-deployment Cloudflare deployment-config hardening and browser/runtime
+  evidence are tracked in Phase 16.
 
 Current Router A/B private worker routes such as
 `/router-ab/v1/signing-worker/sign`, `/router-ab/v1/signing-worker/sign/prepare`,
@@ -57,8 +86,25 @@ gets a new durable wire version.
 
 Current deletion blockers:
 
-- Post-deployment Cloudflare browser/runtime evidence remains the production
-  release-tail blocker in Phase 16.
+- Phase 15.9 must remove raw Ed25519/ECDSA client signing material from active
+  TypeScript signing orchestration before the local cleanup plan is complete.
+- Phase 15.10 must prepare stale raw-material record invalidation without
+  deleting parsers or fields that Phase 15.11 still needs to classify old
+  development state.
+- Phase 15.11 must make current signable persisted state strict enough that raw
+  fields cannot be selected as ready.
+- Phase 15.12 must delete the obsolete raw-material persistence/request
+  compatibility surface only after the relevant Phase 15.10 and 15.11 gates are
+  complete for that curve/surface.
+- Phases 15.13 through 15.16 must close the broad Router A/B rot audit without
+  deleting core Router A/B features or reintroducing old threshold-session
+  compatibility.
+- Phase 15.17 must close the remaining server seal/budget boundary cleanup.
+- Phase 15.18 must run the final spec-to-code compliance audit after the local
+  cleanup plan is complete. Phase 15.19 must resolve or explicitly defer every
+  audit finding before Cloudflare release evidence work resumes.
+- Cloudflare deployment-config hardening and browser/runtime evidence remain the
+  production release-tail blockers in Phase 16.
 
 ## Deletion Rules
 
@@ -102,10 +148,14 @@ Current product-flow matrix:
 
 | Product flow | SDK entrypoint | Public Router route | Private worker route | Old route status | Focused coverage |
 | --- | --- | --- | --- | --- | --- |
-| Ed25519 NEAR transaction | `signTransactions` | Pool hit: `/v2/hss/sign`; pool miss: `/v2/hss/sign/prepare` then `/v2/hss/sign`; refill: `/v2/hss/sign/presign-pool/prepare` | `/router-ab/v1/signing-worker/sign*` | `/threshold-ed25519/*` public signing routes deleted and guarded | `thresholdEd25519.presignPool.unit.test.ts`, `routerAbNormalSigningVectors.unit.test.ts`, `routerAbNormalSigningSdk.guard.unit.test.ts` |
-| Ed25519 NEP-413 message | `signNep413` | Pool hit: `/v2/hss/sign`; pool miss: `/v2/hss/sign/prepare` then `/v2/hss/sign`; refill: `/v2/hss/sign/presign-pool/prepare` | `/router-ab/v1/signing-worker/sign*` | `/threshold-ed25519/*` public signing routes deleted and guarded | `thresholdEd25519.presignPool.unit.test.ts`, `routerAbNormalSigningVectors.unit.test.ts`, `routerAbNormalSigningSdk.guard.unit.test.ts` |
-| Ed25519 NEP-461 delegate action | `signDelegate` | Pool hit: `/v2/hss/sign`; pool miss: `/v2/hss/sign/prepare` then `/v2/hss/sign`; refill: `/v2/hss/sign/presign-pool/prepare` | `/router-ab/v1/signing-worker/sign*` | `/threshold-ed25519/*` public signing routes deleted and guarded | `thresholdEd25519.presignPool.unit.test.ts`, `routerAbNormalSigningVectors.unit.test.ts`, `routerAbNormalSigningSdk.guard.unit.test.ts` |
+| Ed25519 NEAR transaction | `signTransactions` | Pool hit: `/v2/router-ab/ed25519/sign`; pool miss: `/v2/router-ab/ed25519/sign/prepare` then `/v2/router-ab/ed25519/sign`; refill: `/v2/router-ab/ed25519/sign/presign-pool/prepare` | `/router-ab/v1/signing-worker/sign*` | `/threshold-ed25519/*` public signing routes deleted and guarded | `thresholdEd25519.presignPool.unit.test.ts`, `routerAbNormalSigningVectors.unit.test.ts`, `routerAbNormalSigningSdk.guard.unit.test.ts` |
+| Ed25519 NEP-413 message | `signNep413` | Pool hit: `/v2/router-ab/ed25519/sign`; pool miss: `/v2/router-ab/ed25519/sign/prepare` then `/v2/router-ab/ed25519/sign`; refill: `/v2/router-ab/ed25519/sign/presign-pool/prepare` | `/router-ab/v1/signing-worker/sign*` | `/threshold-ed25519/*` public signing routes deleted and guarded | `thresholdEd25519.presignPool.unit.test.ts`, `routerAbNormalSigningVectors.unit.test.ts`, `routerAbNormalSigningSdk.guard.unit.test.ts` |
+| Ed25519 NEP-461 delegate action | `signDelegate` | Pool hit: `/v2/router-ab/ed25519/sign`; pool miss: `/v2/router-ab/ed25519/sign/prepare` then `/v2/router-ab/ed25519/sign`; refill: `/v2/router-ab/ed25519/sign/presign-pool/prepare` | `/router-ab/v1/signing-worker/sign*` | `/threshold-ed25519/*` public signing routes deleted and guarded | `thresholdEd25519.presignPool.unit.test.ts`, `routerAbNormalSigningVectors.unit.test.ts`, `routerAbNormalSigningSdk.guard.unit.test.ts` |
 | ECDSA-HSS EVM digest | `signEvmFamily` | Sign: `/v1/hss/ecdsa/sign/prepare` then `/v1/hss/ecdsa/sign`; pool fill: `/v1/hss/ecdsa/presignature-pool/fill/init` and `/v1/hss/ecdsa/presignature-pool/fill/step` | `/router-ab/v1/signing-worker/ecdsa-hss/sign*` and `/router-ab/v1/signing-worker/ecdsa-hss/presignature-pool/put` | `/threshold-ecdsa/*` public signing and presign routes deleted and guarded | `routerAbEcdsaHssNormalSigning.unit.test.ts`, `thresholdEcdsa.presignPoolRefill.unit.test.ts`, `routerAbNormalSigningSdk.guard.unit.test.ts` |
+
+The matrix above describes the intended SDK/server, strict Cloudflare route
+surface, and local Rust `pnpm router` route parity. The ECDSA-HSS private
+SigningWorker paths are covered in Phase 15.8.
 
 Remaining coverage gap:
 
@@ -997,8 +1047,8 @@ Run focused checks after each deletion slice:
       Passed: Router A/B release blockers clear.
 - [x] `rtk pnpm router:deploy:dry-run -- --env staging`
       Passed for Router, Deriver A, Deriver B, and SigningWorker dry-run
-      packages. Wrote startup report:
-      `crates/router-ab-cloudflare/reports/startup-latencies/startup-latencies-2026-06-16T18-58-46-840Z.json`.
+      packages. Wrote an ignored startup report under
+      `crates/router-ab-cloudflare/reports/startup-latencies/`.
 
 Run full local verification before Cloudflare deployment:
 
@@ -1026,7 +1076,8 @@ Run full local verification before Cloudflare deployment:
       The harness exercises the current public and private ECDSA-HSS route
       shape, strict prepare/finalize request parsers, prepare response
       `request_digest` binding, finalize-to-prepare digest binding, and
-      response binding for 250 iterations. Evidence report:
+      response binding for 250 iterations. This is protocol-shape evidence, not
+      live `pnpm router` HTTP dispatch evidence for ECDSA-HSS. Evidence report:
       `crates/router-ab-dev/reports/local-release-evidence/local-release-evidence-2026-06-17-command.json`
       recorded average local protocol prepare/finalize binding time at 934 us.
       This is local protocol timing evidence; deployed runtime/browser evidence
@@ -1035,9 +1086,9 @@ Run full local verification before Cloudflare deployment:
       Completed with the same local Router A/B release-evidence harness:
       `rtk pnpm router:evidence -- --out
       crates/router-ab-dev/reports/local-release-evidence/local-release-evidence-2026-06-17-command.json`.
-      The harness exercises `/v2/hss/sign/presign-pool/prepare`, pool-hit
-      `/v2/hss/sign` lowering to the v2 finalize shape, and pool-miss
-      `/v2/hss/sign/prepare` plus `/v2/hss/sign` protocol parsing for 250
+      The harness exercises `/v2/router-ab/ed25519/sign/presign-pool/prepare`, pool-hit
+      `/v2/router-ab/ed25519/sign` lowering to the v2 finalize shape, and pool-miss
+      `/v2/router-ab/ed25519/sign/prepare` plus `/v2/router-ab/ed25519/sign` protocol parsing for 250
       iterations. Evidence report averages: refill 87 us, pool-hit finalize
       741 us, and pool-miss prepare/finalize 349 us. The report also records
       one accepted pool entry, one rejected entry, and
@@ -2511,19 +2562,13 @@ Safety constraints for this phase:
       `routerAbNormalSigningSdk.guard.unit.test.ts` to reject old auth fields in
       active Ed25519 signing modules.
 - [x] Recheck missing-key repair ownership after the auth collapse.
-      `ensureThresholdEd25519HssClientBase` and
-      `repairThresholdEd25519MissingRelayerKey` are still valid only if they
-      repair current HSS client-base material and retry Router A/B signing. If a
-      branch exists only to recover the old relayer authorize/sign route path,
-      delete it. If the repair path remains current, test that the retry still
-      signs through Router A/B prepare/finalize and never calls
-      `/threshold-ed25519/*`.
-      Completed by retaining the repair path as HSS client-base reconstruction,
-      feeding it `walletSessionJwt` from the Router A/B Ed25519 ready state, and
-      adding a source guard that requires transaction, delegate, and NEP-413
-      repair branches to rebuild the Router A/B payload and retry their Router
-      A/B signing executor without old `/threshold-ed25519/*` route references
-      or legacy auth reads.
+      Missing-key repair now force-refreshes current worker-owned Ed25519 HSS
+      signing material through `ensureThresholdEd25519HssSigningMaterial`, feeds
+      it `walletSessionJwt` from the Router A/B Ed25519 ready state, rebuilds the
+      Router A/B request payload, and retries the same Router A/B signing
+      executor. The old raw-cache repair helper,
+      `repairThresholdEd25519MissingRelayerKey`, was deleted after active
+      transactions, delegate, and NEP-413 signing stopped importing it.
 - [x] Rename or delete stale internal threshold-presign labels that now describe
       Router A/B behavior. Review
       `packages/sdk-web/src/core/signingEngine/flows/signNear/shared/ed25519PresignFinalize.ts`
@@ -2788,10 +2833,67 @@ Implementation checklist:
       satisfying it with route-definition/source-guard checks and relayer 404
       tests.
 
+## Phase 15.6: Strict Internal Signing Wallet Session Types
+
+Phase 15.5 removed or renamed the public threshold-era lifecycle routes, but the
+SDK still has lower-level provisioning and persistence types that can describe
+cookie-backed signing-capable state. This phase makes that invalid state
+unrepresentable inside the SDK. Public app-session cookies can still authorize
+lifecycle routes, but every internal signing-capable Wallet Session record must
+carry bearer Wallet Session JWT auth plus curve-specific Router A/B state before
+it can be persisted, advertised as ready, or passed to a signer.
+
+Implementation checklist:
+
+- [x] Add strict internal curve-specific Wallet Session types:
+      `RouterAbEd25519SigningWalletSession` and
+      `RouterAbEcdsaHssSigningWalletSession`. Each type must require
+      `walletSessionJwt`, `walletSigningSessionId`, `thresholdSessionId`,
+      expiry/quota fields, runtime-policy scope, and the curve-specific Router
+      A/B normal-signing state. These are SDK-internal types only; public app
+      APIs, iframe messages, diagnostics, and callbacks must not expose the JWT.
+- [x] Add boundary builders that convert route responses, runtime records,
+      sealed recovery records, and warm-capability records into the strict
+      internal types. A builder must return a typed failure instead of producing a
+      signable object when Wallet Session JWT auth, Router A/B state,
+      SigningWorker identity, or required scope is missing.
+- [x] Change Router A/B Ed25519 and ECDSA signing/readiness inputs to require the
+      strict internal types. Final signing helpers, ready-signer builders,
+      availability lane builders, budget readers, and warm-session reconnect code
+      must not accept raw records, optional JWTs, optional Router A/B state, or
+      broad `sessionKind` unions.
+- [x] Delete cookie-backed signing-capability branches from SDK internals:
+      `cookie_passkey`, `sessionKind: 'cookie'` on signing-capable warm
+      capabilities, passkey Ed25519/ECDSA provisioning, Email OTP ECDSA
+      bootstrap/enrollment/login, worker payloads, and ECDSA use-case activation
+      plans. Keep cookie auth only as lifecycle route authorization that mints or
+      refreshes a bearer Wallet Session JWT-backed internal record.
+- [x] Add `@ts-expect-error` fixtures proving the strict types reject missing
+      `walletSessionJwt`, missing Ed25519 `routerAbNormalSigning`, missing ECDSA
+      `routerAbEcdsaHssNormalSigning`, cookie auth as signing auth, legacy
+      `threshold_ecdsa_session_v2` / `threshold_ed25519_session_v1` as current
+      Wallet Session auth, and public SDK shapes that expose Wallet Session JWTs.
+- [x] Add source guards for the strict phase. Active signing-capable SDK modules
+      must reject `cookie_passkey`, signing-capable `sessionKind: 'cookie'`,
+      `thresholdSessionAuthToken`, and old threshold-session JWT kinds outside
+      parser/test compatibility boundaries.
+- [ ] Add unlock-to-sign regression coverage that uses real persisted state:
+      passkey unlock to Ed25519 sign, passkey unlock to ECDSA sign, Email OTP
+      unlock to Ed25519 sign, and Email OTP unlock to ECDSA sign. The tests must
+      fail before final signing if the persisted lane cannot build the strict
+      internal Wallet Session type.
+- [x] Update `docs/refactor-68-wallet-session-v2.md` when this phase lands so the
+      Wallet Session V2 historical plan records the internal/public boundary:
+      public APIs do not expose Wallet Session JWTs; internal signing sessions
+      require bearer JWT plus Router A/B state; cookies are lifecycle route auth
+      only.
+
 Validation checklist:
 
 - [x] `rtk pnpm -C packages/sdk-web type-check`.
 - [x] `rtk pnpm -C packages/sdk-server-ts type-check`.
+- [x] `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts
+      unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`.
 - [x] Focused SDK readiness tests proving wallet unlock produces Ed25519
       Router A/B-ready persisted records before transaction, NEP-413, or
       delegate signing can build ready state.
@@ -2824,8 +2926,2095 @@ Validation checklist:
       Covered by
       `unit/routerAbNormalSigningSdk.guard.unit.test.ts` and
       `unit/router.routeDefinitions.unit.test.ts`.
+- [x] Router A/B signing-capable lifecycle routes reject cookie-mode session
+      issuance/bootstrap before writing server signing state.
+      Covered by
+      `relayer/threshold-ed25519.scheme-dispatch.test.ts` and
+      `relayer/threshold-ecdsa-role-local-passkey-bootstrap.test.ts`; both
+      assert `400`, no `Set-Cookie`, and no downstream session/bootstrap call.
+- [x] Router A/B signing-capable route validators require Router A/B Wallet
+      Session JWT claim kinds instead of legacy `threshold_*_session_*` kinds.
+      Covered by `unit/thresholdSessionClaims.unit.test.ts` and route-level
+      rejection coverage in `relayer/threshold-ed25519.scheme-dispatch.test.ts`.
+- [x] Executable harness/docs no longer advertise the old public threshold
+      lifecycle route names.
+      Updated `tests/scripts/test-relay-server.mjs`,
+      `apps/web-server/README.md`,
+      `docs/signing-session-architecture/sealed-refresh.md`,
+      `docs/threshold-ecdsa/ecdsa-hss-v2-integration.md`, and
+      `crates/ed25519-hss/README.md`.
 - [x] `rtk pnpm -C tests run test:threshold-core`.
 - [x] `rtk git diff --check`.
+
+## Phase 15.7: Strict Server Wallet Session Claim Boundaries
+
+Phase 15.6 makes SDK signing-capable state strict, but the server must enforce
+the same rule at every signing-capable claim boundary. Active Router A/B Wallet
+Session issuance, sealed-refresh, budget-status, HSS lifecycle, ECDSA-HSS
+bootstrap/export, and internal service entrypoints must use Router A/B Wallet
+Session JWT claim kinds only. Legacy `threshold_ed25519_session_v1` and
+`threshold_ecdsa_session_v2` claims may remain only in explicitly named legacy
+parser tests or non-signing compatibility readers with a deletion condition.
+
+Implementation checklist:
+
+- [x] Add narrow server JWT signing wrappers:
+      `signRouterAbEd25519WalletSessionJwt` and
+      `signRouterAbEcdsaHssWalletSessionJwt`. These wrappers must hard-code the
+      Router A/B claim kind, require `sessionKind: 'jwt'`, reject cookie-mode
+      signing auth, and require the curve-specific binding inputs needed by
+      signing-capable records. Ed25519 inputs must include
+      `routerAbNormalSigning`, SigningWorker id, runtime-policy scope, threshold
+      session id, wallet signing grant/session id, participant set, and expiry.
+      ECDSA-HSS inputs must include the Router A/B ECDSA-HSS normal-signing
+      state or its issuer-side binding components: stable key context, public
+      identity, SigningWorker id, activation epoch, participant set, key handle,
+      threshold session id, wallet signing grant/session id, and expiry.
+      Completed in `commonRouterUtils.ts`; the Ed25519 wrapper validates
+      Router A/B normal-signing state and runtime-policy scope, and the
+      ECDSA-HSS wrapper validates the issuer-side key/identity/activation
+      binding or a full Router A/B ECDSA-HSS normal-signing state before
+      minting. The validated Router A/B binding is signed into the JWT:
+      Ed25519 JWTs carry `routerAbNormalSigning`, and ECDSA-HSS JWTs carry
+      either `routerAbEcdsaHssNormalSigning` or
+      `routerAbEcdsaHssIssuerBinding`. ECDSA-HSS JWT parsing requires exactly
+      one of those two binding branches so normal-signing state and issuer-side
+      binding cannot disagree inside the same token.
+- [x] Convert active signable issuers to the narrow wrappers:
+      `packages/sdk-server-ts/src/router/relayWalletRegistration.ts`,
+      `packages/sdk-server-ts/src/router/express/routes/linkDevice.ts`,
+      `packages/sdk-server-ts/src/router/cloudflare/routes/linkDevice.ts`,
+      `packages/sdk-server-ts/src/router/express/routes/syncAccount.ts`,
+      `packages/sdk-server-ts/src/router/cloudflare/routes/syncAccount.ts`,
+      `packages/sdk-server-ts/src/router/express/routes/emailRecovery.ts`,
+      `packages/sdk-server-ts/src/router/cloudflare/routes/emailRecovery.ts`,
+      Ed25519 Wallet Session issuance, and ECDSA-HSS bootstrap. Keep any generic
+      `signWalletSessionJwt` helper only as a lower-level implementation detail
+      or rename it as legacy/non-signing if a compatibility boundary still needs
+      it.
+      Completed for the listed issuer inventory; direct Ed25519 JWT construction
+      now also routes through the strict wrapper. The generic
+      `signWalletSessionJwt` implementation is private and accepts Router A/B
+      Wallet Session kinds only.
+- [x] Make `/v2/wallet-session/seal/*` Router A/B Wallet Session-only at the
+      auth boundary. The seal route and service must parse
+      `parseRouterAbEd25519WalletSessionClaims` /
+      `parseRouterAbEcdsaHssWalletSessionClaims`, reject legacy threshold-session
+      claim kinds, and refuse to hydrate a signable sealed record unless the
+      restored payload can recover the exact Router A/B state required by
+      Phase 15.6.
+      Already satisfied by the Wallet Session seal route/service boundary; this
+      pass kept the legacy rejection coverage in
+      `relayer/signing-session-seal-router.test.ts`.
+- [x] Make signing budget-status auth Router A/B Wallet Session-only. Remove
+      `parseThresholdEd25519SessionClaims` and
+      `parseThresholdEcdsaSessionClaims` fallbacks from active budget-status
+      parsing, and add negative tests proving old threshold-session JWTs cannot
+      read current signing budgets.
+      Completed in `signingBudgetStatus.ts` with a dedicated legacy-token
+      rejection test.
+- [x] Remove legacy claim-parser fallbacks from signing-capable service
+      entrypoints, including Ed25519 HSS `prepareWithSession`,
+      `respondWithSession`, `finalizeWithSession`, and ECDSA-HSS bootstrap/auth
+      service paths. Route wrappers already validate Router A/B claims, but the
+      service boundary must not silently accept old threshold-session claims.
+      Completed in `ThresholdSigningService.ts`; Ed25519 HSS session methods and
+      ECDSA-HSS session authorization now parse Router A/B Wallet Session claims
+      only.
+- [x] Add source guards for active server route/service code. Guards must fail if
+      active signing-capable files contain `kind: 'threshold_ed25519_session_v1'`,
+      `kind: 'threshold_ecdsa_session_v2'`,
+      `parseThresholdEd25519SessionClaims`, or
+      `parseThresholdEcdsaSessionClaims`. Allow exceptions only through an exact
+      file allowlist, and each allowlisted file must contain a comment explaining
+      why the legacy parser remains plus its deletion condition. Active
+      route/service files have zero tolerance.
+      Completed with
+      `unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts`; the
+      only active-code allowlist is the legacy parser definition file, which now
+      carries deletion-condition comments. The guard also rejects exported
+      generic JWT signers, legacy session-token constants, and active SDK
+      `browser_cookie` signing auth.
+- [x] Update tests for the new server claim boundary:
+      seal route legacy rejection, budget-status legacy rejection, Ed25519 HSS
+      route/service legacy rejection, ECDSA-HSS bootstrap/export legacy
+      rejection, and positive Router A/B Wallet Session claim coverage.
+      Completed with wrapper tests, budget-status legacy rejection, source
+      guard coverage, and the existing seal/route rejection suites.
+- [x] Remove SDK signing-capable cookie auth escape hatches.
+      Ed25519 persisted Wallet Session auth, sealed-recovery auth, Email OTP
+      ECDSA publication, EVM-family ECDSA transport auth, and durable ECDSA lane
+      parsing now require bearer Router A/B Wallet Session JWT material for
+      signable state.
+- [x] Update `docs/refactor-68-wallet-session-v2.md` to record the final server
+      claim-boundary rule: Router A/B signable state is issued, sealed,
+      refreshed, budget-checked, and consumed with Router A/B Wallet Session JWT
+      kinds only.
+
+Validation checklist:
+
+- [x] `rtk pnpm -C packages/sdk-server-ts type-check`.
+- [x] Focused claim parser and route tests:
+      `unit/thresholdSessionClaims.unit.test.ts`,
+      `relayer/signing-session-seal-router.test.ts`, and
+      `unit/signingBudgetStatus.parser.unit.test.ts`.
+      Also covered by
+      `unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts`.
+- [x] Focused Ed25519/ECDSA Router A/B route tests covering legacy-claim
+      rejection and Router A/B claim success.
+- [x] `rtk git diff --check`.
+
+## Phase 15.8: Local Rust ECDSA-HSS Dev Worker Route Parity
+
+The strict Cloudflare SigningWorker exposes the ECDSA-HSS private routes, and the
+TypeScript relay-side pool-fill bridge now posts to
+`/router-ab/v1/signing-worker/ecdsa-hss/presignature-pool/put`. The local Rust
+`pnpm router` four-worker and bundled topologies need the same ECDSA-HSS route
+surface before they can be used as local ECDSA-HSS end-to-end evidence.
+
+Implementation checklist:
+
+- [x] Add local Rust route constants in `crates/router-ab-dev/src/lib.rs` for the
+      public ECDSA-HSS signing routes and strict private SigningWorker routes:
+      `/v1/hss/ecdsa/sign/prepare`, `/v1/hss/ecdsa/sign`,
+      `/router-ab/v1/signing-worker/ecdsa-hss/presignature-pool/put`,
+      `/router-ab/v1/signing-worker/ecdsa-hss/sign/prepare`, and
+      `/router-ab/v1/signing-worker/ecdsa-hss/sign`.
+- [x] Extend `local_worker_owned_paths_v1` so the Router owns the public
+      ECDSA-HSS prepare/finalize routes and the SigningWorker owns the private
+      pool-put, prepare, and finalize routes.
+- [x] Extend `router_ab_local_worker` four-worker dispatch for ECDSA-HSS:
+      Router public prepare/finalize should validate local Wallet Session auth,
+      forward only admitted ECDSA-HSS requests to the SigningWorker, and validate
+      the SigningWorker response binding before returning it.
+- [x] Extend `router_ab_local_worker` SigningWorker dispatch for ECDSA-HSS:
+      pool-put must parse the strict private pool-fill request, bind it to the
+      active ECDSA-HSS SigningWorker scope, and persist a one-use local
+      presignature pool record; prepare must consume exactly one pool entry and
+      persist a request-bound server presignature record; finalize must consume
+      exactly that request-bound record and return a response bound to the
+      prepare request.
+      - [x] Pool-put strict private request parsing, active scope binding, one-use
+            pool insert, duplicate detection, and Cloudflare-compatible receipt.
+            Local pool storage is keyed by active SigningWorker state plus
+            presignature id, and same-id different-scope/material replays fail.
+      - [x] Prepare requires local internal service auth, parses a
+            Router-admitted service envelope, consumes exactly one pool entry,
+            and persists a request-bound server presignature record.
+      - [x] Finalize requires local internal service auth, parses a
+            Router-admitted service envelope, consumes exactly that
+            request-bound record, and returns a response bound to the prepare
+            request.
+- [x] Extend `router_ab_local_bundled` with the same ECDSA-HSS public and private
+      route handling so `pnpm router:smoke:bundled` exercises the same route
+      surface as the split-worker topology.
+      - [x] Bundled private pool-put dispatch matches split-worker dispatch.
+      - [x] Bundled public prepare/finalize and private prepare/finalize dispatch.
+- [x] Mirror strict Cloudflare service-auth semantics for local private
+      ECDSA-HSS pool-fill, prepare, and finalize routes. Use
+      `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET` when configured, otherwise use the
+      local development secret, and keep the auth check at the private request
+      boundary.
+- [x] Add live local Rust HTTP smoke coverage for ECDSA-HSS pool-fill plus
+      prepare/finalize. The smoke must prove a relay-side pool-fill request to
+      the SigningWorker private
+      `/router-ab/v1/signing-worker/ecdsa-hss/presignature-pool/put` route
+      succeeds, an ECDSA public prepare consumes that pool entry, finalize
+      consumes the request-bound presignature, and a second consume fails.
+- [x] Update `rtk pnpm router:smoke`, `rtk pnpm router:smoke:bundled`, and
+      `rtk pnpm router:evidence` output so local ECDSA-HSS evidence clearly
+      distinguishes live HTTP route dispatch from protocol-shape/parser-only
+      evidence.
+      `router:smoke` and `router:smoke:bundled` now report
+      `ecdsa_hss_evidence_kind: live_http_route_dispatch` plus pool-fill,
+      prepare, finalize, and replay-rejection statuses. `router:evidence` now
+      reports `evidence_kind: protocol_shape_parser_binding_timing`, includes
+      the private pool-fill route, and explicitly points to the smoke commands
+      for live HTTP evidence.
+- [x] Add a source guard or release-check assertion that fails if the cleanup plan
+      or release evidence marks local ECDSA-HSS `pnpm router` support complete
+      while the local Rust route table lacks the private ECDSA-HSS SigningWorker
+      routes.
+
+Validation checklist:
+
+- [x] `rtk cargo test --manifest-path crates/router-ab-dev/Cargo.toml`.
+- [x] `rtk pnpm router:smoke`.
+      Passed on June 18, 2026 with four-worker live HTTP
+      ECDSA-HSS pool-fill, prepare, finalize, and one-use replay rejection.
+- [x] `rtk pnpm router:smoke:bundled`.
+      Passed on June 18, 2026 with bundled live HTTP ECDSA-HSS pool-fill,
+      prepare, finalize, and one-use replay rejection.
+- [x] `rtk pnpm router:evidence -- --out <new evidence report>`.
+      Passed on June 18, 2026 and wrote
+      `crates/router-ab-dev/reports/local-release-evidence/local-release-evidence-2026-06-18-phase-15-8.json`.
+- [x] Focused source/release guard covering local ECDSA-HSS route parity.
+
+## Phase 15.9: Move Client Crypto Material Behind Signer-Core And WASM Handles
+
+The Router A/B signing cleanup removed legacy public signing routes, but active
+SDK code still exposes crypto-secret client material in TypeScript. Ed25519 HSS
+client-base material is persisted as `xClientBaseB64u`, TypeScript readiness code
+can decide whether that material is usable, and normal-signing flows pass raw
+client material through orchestration code before reaching WASM. ECDSA-HSS has
+similar risks around client verifying shares, presignature material, and
+registration/bootstrap public fact construction.
+
+Target boundary:
+
+- `crates/signer-core` owns cryptographic protocol logic, key/share derivation,
+      material validation, signing-share generation, binding checks, and
+      crypto-adjacent serialization formats.
+- WASM workers are the browser execution boundary for `signer-core` operations.
+      They own secret material, PRF-derived state, nonce/client-base state,
+      presign/client-share state, and crypto validation.
+- The TypeScript SDK orchestrates only: route selection, public/session metadata,
+      typed lifecycle state, worker calls, non-secret handles, public binding
+      facts, Wallet Session JWTs, and server requests.
+- The Router/server owns admission, policy, JWT/session issuance, route auth,
+      persistence, SigningWorker forwarding, and observability.
+- Cloudflare SigningWorker owns server-side signing material, one-use
+      nonce/presign state, prepare/finalize execution, and private route
+      enforcement.
+
+Implementation checklist:
+
+- [x] Added the first Ed25519 worker material-handle slice:
+      `Ed25519HssMaterialHandle`, `RouterAbEd25519SigningMaterialReady`,
+      an HSS client-worker material store, and a handle-based normal-signing
+      client-share command.
+- [x] Replaced active Ed25519 Router A/B normal-signing finalizers in
+      `signTransactions`, `signDelegate`, `signNep413`, and
+      `ed25519PresignFinalize` so the final signing boundary consumes
+      `RouterAbEd25519SigningMaterialReady` instead of raw `xClientBaseB64u`.
+- [x] Replaced the Ed25519 Router A/B presign-pool refill and pool-hit signing
+      path so client presign creation and presign signing consume the worker
+      material handle plus public verifying-share binding. The shared
+      `ed25519PresignFinalize` orchestration file no longer references
+      `xClientBaseB64u`.
+- [x] Removed raw Ed25519 client-base material from
+      `RouterAbEd25519NormalSigningReadyState`. The ready state now carries
+      Router A/B auth/session/worker identity, expiry, policy scope, and public
+      client verifying-share binding; the temporary raw client-base field is
+      confined to the HSS material reconstruction adapter and persistence
+      cleanup tail.
+- [x] Replaced raw Ed25519 client-base arguments in active signing executors
+      with a narrow `Ed25519HssMaterialCache` boundary object. `signTransactions`,
+      `signDelegate`, and `signNep413` now pass `existingMaterialCache` /
+      `repairedMaterialCache` into the HSS material adapter instead of threading
+      `existingXClientBaseB64u`, `existingClientVerifyingShareB64u`, or
+      `repairedXClientBaseB64u` through orchestration code.
+- [x] Added a focused SDK source guard proving active Ed25519 Router A/B final
+      signing and Ed25519 presign-pool orchestration do not pass raw
+      client-base material into finalizer payloads.
+- [x] Define a browser worker material-handle model for Ed25519 HSS signing:
+      `Ed25519HssMaterialHandle`, `Ed25519HssMaterialBinding`, and a
+      `RouterAbEd25519SigningMaterialReady` state. The binding must cover at
+      least wallet id/account id, threshold session id, wallet signing session
+      id, signing root id/version, relayer key id, participant ids,
+      SigningWorker id, Wallet Session JWT subject/session binding, client
+      verifying share public fact, and expiry.
+      Completed for Ed25519 active signing with `RouterAbEd25519SigningMaterialReady`;
+      the material binding now includes account id, threshold session id, wallet
+      signing session id, signing root id/version, expiry, relayer key id,
+      participant ids, SigningWorker id, and client verifying-share public fact.
+- [x] Move active Ed25519 HSS client-base use behind a WASM worker material
+      handle. Active Ed25519 signing executors no longer receive or pass raw
+      client-base strings, and the SDK now persists/restores worker-owned
+      material handles plus binding digests for sign-ready Ed25519 records.
+- [ ] Delete the temporary Ed25519 raw-material reconstruction surface after the
+      handle-only request/persistence boundary is complete. The remaining
+      `Ed25519HssMaterialCache` reconstruction adapter and raw persistence
+      fields are prepared for deletion in Phase 15.10 and removed in Phase 15.12
+      only after stale raw development records are rejected, pruned, or
+      invalidated at the boundary.
+- [x] Replace Ed25519 normal-signing flow inputs in `signTransactions`,
+      `signDelegate`, `signNep413`, and `ed25519PresignFinalize` so they accept
+      only `RouterAbEd25519SigningMaterialReady`. The final client-share worker
+      command should take the handle and request binding, validate both inside
+      the worker, and return only the public protocol response needed by Router
+      A/B.
+- [x] Persist and restore Ed25519 worker-owned material handles for active
+      Wallet Session records. Warm-session bootstrap, Email OTP provisioning,
+      and active Ed25519 signing flows now write/read `{ materialHandle,
+      bindingDigest, publicFacts, sessionIds, walletSessionJwt,
+      signingWorkerScope }` for sign-ready state before final signing.
+      The Ed25519 material loader now validates already-loaded HSS-client and
+      NEAR-signer worker handles before attempting raw-cache or PRF
+      reconstruction, so a freshly provisioned signable record can sign from the
+      worker-owned handle without another passkey prompt.
+      Current progress, June 19, 2026: active NEAR transaction, delegate, and
+      NEP-413 final signing now call
+      `requireThresholdEd25519HssSigningMaterialHandle` for ordinary signing.
+      The reconstruction-capable `ensureThresholdEd25519HssSigningMaterial`
+      helper remains only in explicit repair/bootstrap paths until Phase 15.12
+      deletes the raw-material compatibility surface.
+- [x] Move Ed25519 warm-session reconstruction persistence to worker-owned
+      material handles. The warm-session reconstruction path still uses the
+      temporary reconstruction adapter, but it now stores only
+      `{ ed25519HssMaterialHandle, ed25519HssMaterialBindingDigest,
+      clientVerifyingShareB64u }` in the active session record and clears stale
+      `xClientBaseB64u` when the handle is persisted.
+- [ ] Update passkey registration, login, sealed restore, Email OTP restore, and
+      warm-session bootstrap so they persist only `{ materialHandle,
+      bindingDigest, publicFacts, sessionIds, walletSessionJwt,
+      signingWorkerScope }` for Ed25519 signable state. Remove persisted
+      `xClientBaseB64u` from current active records after a request/persistence
+      boundary parser can delete or invalidate old development records.
+      Current progress, June 18, 2026: the warm-session Ed25519 persistence
+      writer no longer accepts or writes `xClientBaseB64u`. Email OTP Ed25519
+      reconstruction still uses raw HSS output only inside the provisioning
+      worker boundary, stores the worker material handle plus public verifying
+      share, and no longer exposes `xClientBaseB64u` in its result type. The
+      active NEAR Ed25519 signing state no longer exposes `xClientBaseB64u` or
+      a `persistClientBase` callback, and transactions/delegate/NEP-413 repair
+      paths now force-refresh `ensureThresholdEd25519HssSigningMaterial` and
+      persist the refreshed worker-owned material handle before retrying Router
+      A/B signing. The focused Router A/B normal-signing SDK source guard now
+      rejects `persistClientBase`, `ed25519HssMaterialCacheFromWalletSessionState`,
+      and `repairThresholdEd25519MissingRelayerKey` in active Ed25519 signing
+      executors. The raw-cache repair helper file was deleted. The remaining
+      work is passkey registration/login, sealed restore, and the remaining
+      Email OTP restore compatibility surfaces.
+      Current progress, June 19, 2026: Email OTP ECDSA sealed restore now rejects
+      signing-root drift before worker rehydrate using the flattened sealed
+      ECDSA signing-root metadata, and it no longer hydrates companion Ed25519
+      recovery from raw `xClientBaseB64u` / `clientVerifyingShareB64u` material.
+      The ECDSA companion seal writer is a no-op until the sealed companion
+      schema can carry worker-owned Ed25519 material handles.
+      Current progress, June 19, 2026: Email OTP Ed25519 provisioning no longer
+      opens `completed.clientOutput.xClientBaseB64u` in TypeScript. It now runs
+      the HSS ceremony to a worker-owned material handle through
+      `runThresholdEd25519HssCeremonyWithMaterialHandle`; the HSS client worker
+      opens the finalized client output, derives the public client verifying
+      share, computes the canonical Router A/B material binding digest, stores
+      the raw client base internally, and returns only
+      `{ materialHandle, bindingDigest, clientVerifyingShareB64u }`. Email OTP
+      Ed25519 seal transport also stopped carrying `emailOtpRestore` raw
+      material.
+      Current progress, June 19, 2026: warm-session Ed25519 reconstruction now
+      uses `runThresholdEd25519HssCeremonyWithMaterialHandle` as well. The
+      warm-session bootstrap path no longer opens `completed.clientOutput` in
+      TypeScript, no longer derives `clientVerifyingShareB64u` from
+      `xClientBaseB64u` in orchestration code, and no longer calls the temporary
+      raw-cache store helper. It persists only the worker material handle,
+      binding digest, and public client verifying share returned by the HSS
+      worker.
+      Current progress, June 19, 2026: the active NEAR final-signing paths no
+      longer use `ensureThresholdEd25519HssSigningMaterial` for ordinary signing.
+      They require a preloaded worker-owned handle and only enter the
+      reconstruction helper inside the existing repair branch.
+- [x] Add a pending/non-signing restore state for any restored Ed25519 material.
+      A record becomes sign-ready only after the WASM worker validates the handle
+      and binding against the current Router A/B Wallet Session state.
+- [x] Define the equivalent ECDSA-HSS worker handle model for registration,
+      activation, presign-pool refill, and normal signing. TS may carry public
+      identity, activation epoch, key handle, scope digest, and public binding
+      facts; client signing material and presignature material stay inside the
+      worker.
+      Current progress: ECDSA-HSS presign-pool refill now receives a
+      worker-owned one-use presignature handle plus public `bigR`; normal
+      signing consumes the handle inside the worker; the public presign/signing
+      APIs now take a one-shot `RouterAbEcdsaHssClientSigningMaterialSource`
+      instead of a raw `clientSigningShare32`. Registration and activation now
+      publish signable key refs with `role_local_worker_handle`.
+      Remaining raw-material debt is the bootstrap compatibility boundary that
+      still carries a ready-state blob long enough to store it in the worker.
+- [ ] Move ECDSA-HSS registration/bootstrap finalization and presignature refill
+      client-share generation behind signer-core/WASM commands that return
+      handles plus public facts. TS bootstrap code must stop assembling
+      crypto-adjacent ready state from raw field bags.
+      Current progress: presignature refill/signing no longer exposes `kShare32`,
+      `sigmaShare32`, or raw presignature bytes to TypeScript pool orchestration.
+      Refill opens the ECDSA client signing share only through a one-shot source
+      inside the Router A/B ECDSA-HSS pool boundary and zeroizes it after the
+      handshake. Registration/bootstrap finalization remains open.
+      Current progress, June 18, 2026: active EVM/Tempo secp256k1 signing no
+      longer opens `clientSigningShare32` or role-local state blobs in
+      `signers/secp256k1.ts`. It now asks a narrow Router A/B ECDSA-HSS material
+      source helper for a one-shot signing source, while the active signer
+      orchestrates only public facts, Router A/B scope, Wallet Session auth, and
+      the digest request. Registration/bootstrap finalization remains open.
+      Current progress, June 19, 2026: the generic Router A/B ECDSA-HSS
+      presignature pool no longer opens `clientSigningShare32`, maps additive
+      shares, initializes EVM presign sessions, steps local presign sessions, or
+      aborts local presign sessions directly. It delegates the local presign
+      session lifecycle to the typed material-source boundary and orchestrates
+      only route calls, public `bigR`, one-use presignature handles, pool keys,
+      and signing scope. The remaining ECDSA-HSS raw-share exposure is confined
+      to `clientSigningMaterialBoundary.ts`,
+      `ecdsaHssClientSigningMaterialSource.ts`, Email OTP worker boundaries, and
+      `ecdsaLoginPrefillSigningMaterialSource.ts`. Closing this task fully still
+      requires the Email OTP ECDSA path and bootstrap finalization to return
+      worker-owned handles plus public facts without exposing raw shares to
+      TypeScript.
+      Current progress, June 19, 2026: role-local ECDSA-HSS presign refill,
+      pool-hit signing, and pool-miss signing now use HSS-client worker commands
+      that consume `role_local_worker_session` material handles, run local
+      presign init/step/abort inside that worker, store HSS-owned presignature
+      handles, and compute signature shares from those HSS-owned handles. The
+      generic pool asks the material source to spend the presignature handle, so
+      a handle is spent by the same worker family that created it.
+      - [x] Move the generic Router A/B ECDSA-HSS presignature pool away from
+            raw `clientSigningShare32` opening, additive-share mapping, and local
+            EVM presign-session initialization.
+      - [x] Move local ECDSA-HSS presign-session `step` and `abort` ownership out
+            of the generic pool and into the typed material-source boundary.
+      - [x] Replace the warm-login ECDSA-HSS prefill
+            `resolveClientSigningShare32` dependency with a typed
+            `resolveClientSigningMaterialSource` boundary. The prefill
+            orchestrator now receives the same material-source shape as active
+            signing and no longer asks broad warm-signing assembly code for a raw
+            32-byte share.
+      - [x] Move role-local ECDSA-HSS presign init/step/abort and signature-share
+            computation behind HSS-client worker commands that consume
+            `role_local_worker_session` material handles.
+      - [ ] Replace the remaining typed material-source boundary with a
+            worker-owned ECDSA-HSS presign refill command for Email OTP ECDSA
+            worker sessions, then delete the temporary additive-share bridge.
+- [x] Store ECDSA-HSS registration role-local signing material behind the WASM
+      worker boundary before publishing signable registration key refs. The
+      registration finalizer now returns finalized public facts and a ready-state
+      compatibility blob, then the per-chain session bootstrap stores that
+      material through `SignerCryptoPort.storeEcdsaRoleLocalSigningMaterial` and
+      emits active key refs with `role_local_worker_handle`. The raw
+      ready-state blob remains only inside the persisted role-local ready record
+      until Phase 15.12 deletes the raw-material compatibility surface.
+- [ ] Update sealed-session persistence and recovery records for both curves to
+      store worker handles and public bindings only. Any old raw-material
+      compatibility parser must live in a named request/persistence boundary
+      with an explicit deletion condition, and active signing paths must reject
+      records that still require raw material in TS.
+      Current progress, June 19, 2026: normalized Email OTP Ed25519 sealed
+      recovery records no longer carry `xClientBaseB64u` or
+      `clientVerifyingShareB64u`, and type fixtures reject adding those fields
+      to the normalized recovery shape. The sealed-store classifier now marks
+      Ed25519 sealed records with raw HSS material as `delete_required`, and it
+      strips stale raw Ed25519 companion metadata from normalized ECDSA sealed
+      records so ECDSA restore cannot rehydrate an Ed25519 companion through
+      raw client-base material.
+- [x] Add source guards that fail if active SDK orchestration files reference
+      raw crypto-secret fields or operations:
+      `xClientBaseB64u`, additive shares, signing shares, nonce secrets,
+      presignature secrets, PRF-derived material, or signer-core crypto commands
+      outside the WASM worker boundary and named persistence/request parsers.
+      Completed for active signing orchestration on June 18, 2026:
+      `routerAbNormalSigningSdk.guard.unit.test.ts` proves active Ed25519
+      signing executors consume worker material handles instead of raw
+      client-base material, active ECDSA-HSS signing uses the narrow one-shot
+      material source, and ECDSA auth planning no longer branches on raw
+      `role_local_ready_state_blob` material. Remaining raw-material references
+      are confined to the ECDSA material-state boundary, the temporary
+      ECDSA-HSS material-source helper, WASM worker bridges, and named
+      persistence/request parsers scheduled for Phase 15.12 deletion.
+      Current progress, June 19, 2026: ECDSA-HSS activation now stores the
+      role-local ready-state blob in the HSS client worker before publishing a
+      signable key ref, and active activation key refs now use
+      `role_local_worker_handle` instead of `role_local_ready_state_blob`.
+      The bootstrap response still carries a ready-state blob through the
+      compatibility boundary long enough to store it in the worker; Phase 15.12
+      must delete that raw boundary once signer-core can return only a handle
+      plus public facts.
+      Current progress, June 19, 2026: the source guard now inspects the active
+      final-signing slice in `signTransactions`, `signDelegate`, and `signNep413`.
+      It requires `requireThresholdEd25519HssSigningMaterialHandle` and rejects
+      ordinary final-signing use of `ensureThresholdEd25519HssSigningMaterial`.
+      Current progress, June 19, 2026: the same source-guard suite now confines
+      ECDSA-HSS `clientSigningShare32`, additive-share mapping, and
+      presign-session init references to exact worker wrappers, the named
+      ECDSA-HSS client signing-material boundary, Email OTP worker boundaries,
+      warm-login prefill, and type fixtures. Active EVM/Tempo signing files and
+      the generic Router A/B ECDSA-HSS presignature pool remain zero-tolerance for
+      those raw-share markers.
+- [x] Add type fixtures that reject direct construction of sign-ready Ed25519 or
+      ECDSA states without a worker material handle, binding digest, public
+      facts, Wallet Session JWT, SigningWorker scope, threshold session id, and
+      wallet signing session id.
+      Completed on June 18, 2026: `routerAbSigningWalletSession.typecheck.ts`
+      rejects signable Ed25519 Wallet Session state without a worker material
+      handle, binding digest, wallet signing session id, or bearer JWT auth, and
+      rejects raw `xClientBaseB64u` on signable state. It also rejects signable
+      ECDSA-HSS Wallet Session state without Router A/B normal-signing state,
+      runtime-policy scope, bearer JWT auth, or with raw `clientSigningShare32`.
+- [ ] Add regression tests:
+      fresh registration produces Ed25519 and ECDSA sign-ready handles without
+      raw material in TS records; sealed restore publishes sign-ready state only
+      after worker validation; stale handle binding fails before signing; warm
+      Ed25519 signing does not prompt for passkey or transaction confirmation
+      when a valid handle exists; ECDSA pool refill/signing keeps client
+      presignature material inside the worker.
+      Current progress: `unit/thresholdEd25519.hssMaterialHandle.unit.test.ts`
+      proves the Ed25519 signing-material loader uses a loaded worker handle
+      before PRF reconstruction.
+      Current progress: `unit/addWalletSigner.orchestration.unit.test.ts` now
+      uses Router A/B keyset prefetch, Router A/B Ed25519/ECDSA Wallet Session
+      JWT fixtures, and ECDSA `role_local_worker_handle` registration material
+      storage in the registration/add-signer orchestration coverage.
+      Current progress, June 18, 2026: warm-session persistence type fixtures
+      reject raw Ed25519 `xClientBaseB64u`, and focused warm-session tests prove
+      strict pending/ready behavior still passes after the writer stopped
+      accepting raw client-base material.
+- [x] Update `docs/refactor-68-wallet-session-v2.md`, `docs/router-a-b-ecdsa.md`,
+      and `docs/router-A-B-signer-SPEC.md` so the public architecture states
+      that TypeScript holds handles and public facts, while signer-core/WASM owns
+      crypto-secret client material.
+      Completed on June 18, 2026: all three docs now state that SDK TypeScript
+      carries only orchestration state, Wallet Session auth, worker handles,
+      binding digests, public facts, and scope metadata, while `signer-core` and
+      WASM workers own Ed25519/ECDSA client secret material and binding checks.
+
+Validation checklist:
+
+- [x] `rtk pnpm -C packages/sdk-web type-check`.
+      Passed on June 18, 2026 after the first Ed25519 material-handle slice.
+      Passed again on June 18, 2026 after the Ed25519 presign-pool handle slice.
+      Passed again on June 18, 2026 after adding expiry to the Ed25519 material
+      binding.
+      Passed again on June 18, 2026 after removing raw client-base material from
+      `RouterAbEd25519NormalSigningReadyState`.
+      Passed again on June 18, 2026 after replacing active executor raw
+      client-base arguments with `Ed25519HssMaterialCache`.
+      Passed again on June 18, 2026 after Ed25519 handle persistence,
+      `material_pending` readiness, and ECDSA presign-pool handle conversion.
+      Passed again on June 18, 2026 after replacing ECDSA presign/signing public
+      inputs with `RouterAbEcdsaHssClientSigningMaterialSource`.
+      Passed again on June 18, 2026 after adding Ed25519 worker material-handle
+      validation before PRF reconstruction.
+      Passed again on June 18, 2026 after Ed25519 warm-session reconstruction
+      persistence stopped writing raw client-base material.
+      Passed again on June 18, 2026 after active ECDSA-HSS secp256k1 signing
+      moved raw share opening behind the Router A/B material-source helper.
+      Passed again on June 18, 2026 after adding strict Router A/B signable
+      Wallet Session type fixtures for Ed25519 and ECDSA-HSS.
+      Passed again on June 18, 2026 after moving Email OTP ECDSA readiness
+      source classification behind the ECDSA material-state boundary.
+      Passed again on June 18, 2026 after ECDSA-HSS registration session
+      bootstrap started storing finalized role-local signing material in the HSS
+      worker and publishing signable key refs with `role_local_worker_handle`.
+      Passed again on June 18, 2026 after repairing registration/add-signer
+      Router A/B Wallet Session fixtures and documenting the signer-core/WASM
+      material boundary.
+      Passed again on June 18, 2026 after the warm-session Ed25519 persistence
+      writer stopped accepting raw `xClientBaseB64u`.
+      Passed again on June 19, 2026 after warm-session Ed25519 reconstruction
+      moved from the raw `runThresholdEd25519HssCeremonyWithSession` output to
+      `runThresholdEd25519HssCeremonyWithMaterialHandle`.
+      Passed again on June 19, 2026 after active NEAR Ed25519 final signing moved
+      to the handle-only loader and ECDSA activation type-check issues were
+      verified fixed.
+      Passed again on June 19, 2026 after ECDSA-HSS presign refill moved local
+      presign-session initialization out of the generic pool and into the named
+      client signing-material boundary.
+      Passed again on June 19, 2026 after ECDSA-HSS presign refill moved local
+      presign-session step/abort ownership out of the generic pool and into the
+      named client signing-material boundary.
+      Passed again on June 19, 2026 after warm-login ECDSA-HSS prefill stopped
+      depending on a raw `resolveClientSigningShare32` callback and now receives
+      a typed Router A/B client signing-material source:
+      `rtk pnpm -C packages/sdk-web type-check`.
+      Passed again on June 19, 2026 after role-local ECDSA-HSS presign refill
+      and signature-share computation moved to HSS-client worker commands keyed
+      by `role_local_worker_session` material handles:
+      `rtk pnpm -C packages/sdk-web type-check`.
+- [x] `rtk pnpm -C tests exec tsc --noEmit -p tsconfig.playwright.json`.
+      Passed on June 18, 2026 after the first Ed25519 material-handle slice.
+      Passed again on June 18, 2026 after the Ed25519 presign-pool handle slice.
+      Passed again on June 18, 2026 after adding expiry to the Ed25519 material
+      binding.
+      Passed again on June 18, 2026 after removing raw client-base material from
+      `RouterAbEd25519NormalSigningReadyState`.
+      Passed again on June 18, 2026 after replacing active executor raw
+      client-base arguments with `Ed25519HssMaterialCache`.
+      Passed again on June 18, 2026 after Ed25519 handle persistence,
+      `material_pending` readiness, and ECDSA presign-pool handle conversion.
+      Passed again on June 18, 2026 after replacing ECDSA presign/signing public
+      inputs with `RouterAbEcdsaHssClientSigningMaterialSource`.
+      Passed again on June 18, 2026 after adding Ed25519 worker material-handle
+      validation before PRF reconstruction.
+      Passed again on June 18, 2026 after Ed25519 warm-session reconstruction
+      persistence stopped writing raw client-base material.
+      Passed again on June 18, 2026 after active ECDSA-HSS secp256k1 signing
+      moved raw share opening behind the Router A/B material-source helper.
+      Passed again on June 18, 2026 after adding strict Router A/B signable
+      Wallet Session type fixtures for Ed25519 and ECDSA-HSS.
+      Passed again on June 18, 2026 after moving Email OTP ECDSA readiness
+      source classification behind the ECDSA material-state boundary.
+      Passed again on June 18, 2026 after ECDSA-HSS registration session
+      bootstrap started storing finalized role-local signing material in the HSS
+      worker and publishing signable key refs with `role_local_worker_handle`.
+      Passed again on June 18, 2026 after repairing registration/add-signer
+      Router A/B Wallet Session fixtures and documenting the signer-core/WASM
+      material boundary.
+      Passed again on June 18, 2026 after the warm-session Ed25519 persistence
+      writer stopped accepting raw `xClientBaseB64u`.
+      Passed again on June 19, 2026 after warm-session Ed25519 reconstruction
+      moved to the worker-owned material-handle HSS ceremony.
+      Passed again on June 19, 2026 after active NEAR Ed25519 final signing moved
+      to the handle-only loader and the relayer auth-boundary fixture typing was
+      narrowed to the actual session adapter parser.
+      Passed again on June 19, 2026 after ECDSA-HSS presign refill moved local
+      presign-session initialization out of the generic pool and into the named
+      client signing-material boundary.
+      Passed again on June 19, 2026 after ECDSA-HSS presign refill moved local
+      presign-session step/abort ownership out of the generic pool and into the
+      named client signing-material boundary.
+      Passed again on June 19, 2026 after warm-login ECDSA-HSS prefill stopped
+      depending on a raw `resolveClientSigningShare32` callback and now receives
+      a typed Router A/B client signing-material source:
+      `rtk pnpm -C tests exec tsc --noEmit -p tsconfig.playwright.json`.
+      Passed again on June 19, 2026 after role-local ECDSA-HSS presign refill
+      and signature-share computation moved to HSS-client worker commands keyed
+      by `role_local_worker_session` material handles:
+      `rtk pnpm -C tests exec tsc --noEmit -p tsconfig.playwright.json`.
+- [x] Focused unit/type tests for Ed25519 and ECDSA worker material-handle state.
+      `unit/warmSessionReadModel.unit.test.ts` now covers Ed25519
+      `material_pending`, `unit/routerAbEd25519.walletSessionState.unit.test.ts`
+      covers strict Ed25519 Wallet Session state, and
+      `unit/thresholdEcdsa.presignPoolRefill.unit.test.ts` covers ECDSA
+      presign-pool refill/signing with worker-owned handles.
+      Passed on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/warmSessionReadModel.unit.test.ts unit/routerAbEd25519.walletSessionState.unit.test.ts --reporter=line`.
+      Passed again on June 18, 2026 after Ed25519 warm-session reconstruction
+      persistence stopped writing raw client-base material:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEd25519.walletSessionState.unit.test.ts unit/seamsWeb.loginThresholdWarm.unit.test.ts unit/warmSessionReadModel.unit.test.ts unit/warmSessionStore.transitions.unit.test.ts --reporter=line`.
+      Passed on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/thresholdEcdsa.presignPoolRefill.unit.test.ts --reporter=line`.
+      Passed again on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/thresholdEcdsa.presignPoolRefill.unit.test.ts unit/thresholdEcdsa.presignPoolPolicy.unit.test.ts --reporter=line`.
+      Passed again on June 18, 2026 after the active secp256k1 signer delegated
+      ECDSA-HSS material opening to the Router A/B material-source helper:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/thresholdEcdsa.presignPoolRefill.unit.test.ts --reporter=line`.
+      Passed again on June 18, 2026 after ECDSA-HSS registration session
+      bootstrap began emitting `role_local_worker_handle` key refs:
+      `W3A_TEST_FRONTEND_URL=http://127.0.0.1:5199 rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/walletRegistrationEcdsaRouterAbBootstrap.unit.test.ts --reporter=line`.
+      The default unit-test run on port 3600 was blocked by an unrelated
+      existing dev server, so this focused run used an alternate local frontend
+      port.
+      Passed again on June 18, 2026 after the Ed25519 warm-session persistence
+      writer stopped accepting raw client-base material:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/seamsWeb.loginThresholdWarm.unit.test.ts unit/warmSessionReadModel.unit.test.ts unit/warmSessionStore.transitions.unit.test.ts --reporter=line`.
+      Passed again on June 19, 2026 after warm-session reconstruction stopped
+      opening raw HSS client output in TypeScript:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/seamsWeb.loginThresholdWarm.unit.test.ts unit/warmSessionReadModel.unit.test.ts unit/warmSessionStore.transitions.unit.test.ts unit/thresholdEd25519.hssMaterialHandle.unit.test.ts --reporter=line`.
+      Passed again on June 19, 2026 after active NEAR Ed25519 final signing moved
+      to the handle-only loader:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/thresholdEd25519.hssMaterialHandle.unit.test.ts unit/routerAbEd25519.walletSessionState.unit.test.ts unit/signingCapabilityStrictRecords.unit.test.ts --reporter=line`.
+      Passed again on June 19, 2026 after the generic ECDSA-HSS presign pool
+      stopped opening client signing shares:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/thresholdEcdsa.presignPoolRefill.unit.test.ts unit/thresholdEcdsa.presignPoolPolicy.unit.test.ts --reporter=line`.
+      Passed again on June 19, 2026 after the generic ECDSA-HSS presign pool
+      delegated local presign-session step/abort to the typed material-source
+      boundary:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/thresholdEcdsa.presignPoolRefill.unit.test.ts unit/thresholdEcdsa.presignPoolPolicy.unit.test.ts --reporter=line`.
+      Passed again on June 19, 2026 after warm-login ECDSA-HSS prefill started
+      constructing the same typed client signing-material source used by active
+      Router A/B signing:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/thresholdEcdsa.presignPoolRefill.unit.test.ts unit/thresholdEcdsa.presignPoolPolicy.unit.test.ts --reporter=line`.
+      Passed again on June 19, 2026 after role-local ECDSA-HSS presignature
+      handles became worker-family-owned and signature-share computation moved
+      through the material-source boundary:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/thresholdEcdsa.presignPoolRefill.unit.test.ts unit/thresholdEcdsa.presignPoolPolicy.unit.test.ts --reporter=line`.
+- [x] Focused source guards proving active TS signing orchestration has no raw
+      crypto-secret material references.
+      `unit/routerAbNormalSigningSdk.guard.unit.test.ts` now checks that active
+      Ed25519 Router A/B final signing and presign-pool orchestration consume
+      worker material handles instead of `xClientBaseB64u`.
+      `unit/thresholdEd25519.presignPool.unit.test.ts` passed after the
+      presign-pool handle slice.
+      The guard now also rejects `existingXClientBaseB64u`,
+      `existingClientVerifyingShareB64u`, and `repairedXClientBaseB64u` in
+      active Ed25519 signing executors.
+      The guard now also checks that ECDSA-HSS Router A/B public presign/signing
+      APIs accept the one-shot material source and consume worker-owned
+      presignature handles. Passed on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`.
+      Passed again on June 18, 2026 after moving raw ECDSA share opening out of
+      `signers/secp256k1.ts` and into the narrow Router A/B ECDSA-HSS material
+      source helper:
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`.
+      Passed again on June 18, 2026 after adding strict Router A/B signable
+      Wallet Session type fixtures:
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`.
+      Passed again on June 18, 2026 after guarding ECDSA auth planning against
+      raw role-local material branches:
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`.
+      Passed again on June 18, 2026 after ECDSA-HSS registration session
+      bootstrap began emitting worker-handle-backed signable key refs:
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`.
+      Passed again on June 18, 2026 after removing the duplicate `site:router`
+      local mode and narrowing Ed25519 warm-session persistence away from raw
+      client-base material:
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`.
+      Passed again on June 19, 2026 after warm-session reconstruction switched
+      to the worker-owned material-handle HSS ceremony:
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`.
+      Passed again on June 19, 2026 after Email OTP Ed25519 sealed recovery
+      records stopped normalizing raw HSS material:
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`.
+      Passed again on June 19, 2026 after the guard started rejecting ordinary
+      final-signing use of `ensureThresholdEd25519HssSigningMaterial` in active
+      NEAR Ed25519 signing files:
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`.
+      Passed again on June 19, 2026 after the guard began confining ECDSA-HSS
+      raw client signing-share markers to exact temporary/worker boundary files
+      and rejected those markers in the generic ECDSA-HSS presign pool:
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`.
+      Passed again on June 19, 2026 after the guard also rejected local ECDSA-HSS
+      presign-session step/abort WASM calls in the generic ECDSA-HSS presign pool:
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`.
+      Passed again on June 19, 2026 after the guard started rejecting
+      `resolveClientSigningShare32` in warm-login ECDSA-HSS prefill and broad
+      warm-signing assembly code:
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`.
+      Passed again on June 19, 2026 after the guard started requiring role-local
+      ECDSA-HSS presign/sign-share paths to use HSS-client worker material-handle
+      commands:
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`.
+- [x] Focused Ed25519 handle-first regression test.
+      `unit/thresholdEd25519.hssMaterialHandle.unit.test.ts` proves the loader
+      validates loaded HSS-client and NEAR-signer worker handles before falling
+      back to PRF reconstruction. Passed on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/thresholdEd25519.hssMaterialHandle.unit.test.ts --reporter=line`.
+      Passed again on June 19, 2026 after the stale NEAR-signer duplicate
+      validation expectation was removed and the active HSS-client material
+      handle boundary stayed covered.
+      Passed again on June 19, 2026 as part of the focused warm-session
+      material-handle regression run.
+- [ ] Local browser registration-to-sign test passes for Ed25519 without a
+      second transaction-confirmation prompt or Touch ID prompt.
+- [ ] Local browser registration-to-sign test passes for ECDSA-HSS Tempo and EVM
+      without raw client presignature material crossing TypeScript orchestration.
+- [ ] `rtk pnpm router:smoke` and `rtk pnpm router:smoke:bundled` still pass.
+
+## Phase 15.10: Prepare Raw-Material Deletion Gates
+
+Start this phase only after Phase 15.9 has landed for the specific curve/surface
+being prepared. Do not delete raw-material fields, parsers, or helpers in this
+phase. The purpose is to make the later destructive deletion safe by proving old
+raw-material records are terminal at the boundary and cannot become signable.
+
+Boundary code may recognize old raw-material development records only to reject,
+prune, or invalidate them. It must not hydrate old raw fields into current
+signable state.
+
+Surface eligibility checklist:
+
+- [ ] The current writer stores only worker handles, binding digests, public
+      facts, session ids, Wallet Session JWTs, and SigningWorker scope.
+      Current progress, June 18, 2026: the Ed25519 warm-session capability
+      writer no longer accepts or persists raw `xClientBaseB64u`; it stores the
+      worker material handle, material binding digest, public client verifying
+      share, session ids, Wallet Session JWT, and Router A/B SigningWorker
+      scope. Other Ed25519/ECDSA writers remain to be audited before this
+      surface-wide gate is complete.
+      Current progress, June 19, 2026: Email OTP Ed25519 reconstruction
+      provisioning stores the same handle/digest/public-facts shape after the
+      worker consumes HSS ceremony output internally, and UI-confirm seal
+      transport now rejects `emailOtpRestore` raw material for Email OTP
+      Ed25519.
+      Current progress, June 19, 2026: warm-session Ed25519 reconstruction now
+      stores the same worker-owned material handle shape directly from the
+      worker-owned ceremony result; the bootstrap path no longer handles raw
+      `xClientBaseB64u`.
+      Current progress, June 19, 2026: ECDSA-HSS activation writers now store
+      role-local signing material in the HSS client worker and publish
+      `role_local_worker_handle` key refs for signable activation records. The
+      ECDSA bootstrap compatibility boundary still carries the ready-state blob
+      before worker storage, so the surface-wide gate remains open.
+- [ ] The Phase 15.11 strict reader/parser exists for this surface and parses
+      records into `signable`, `pending_restore`, `pending_material`, `invalid`,
+      or `non_signing` states. Phase 15.10 only verifies the gate for the
+      surface being prepared; it must not implement a second parser.
+- [ ] Restore/bootstrap paths cannot select a raw-material record as ready.
+- [ ] Stale raw-material records are rejected, pruned, or invalidated at the
+      request/persistence boundary with a focused regression test.
+      Current progress, June 18, 2026: selected Ed25519 signing-capability
+      reads now reject stale raw-material-only records before final signing.
+      `classifyRouterAbEd25519PersistedSigningRecord` returns `invalid` with
+      `raw_material_without_handle` when a record still carries
+      `xClientBaseB64u` but lacks a worker-owned `ed25519HssMaterialHandle`.
+      Current progress, June 18, 2026: passkey Ed25519 sealed-store and
+      sealed-recovery boundaries now reject records that carry raw
+      `xClientBaseB64u` / `clientVerifyingShareB64u` material instead of
+      hydrating them into signable or restorable passkey state. Ed25519
+      warm-session reconstruction now persists a worker-owned material handle
+      and clears stale raw client-base material. Remaining work: apply the same
+      terminal boundary behavior to bootstrap and ECDSA-HSS surfaces before
+      deleting fields.
+      Current progress, June 19, 2026: Email OTP ECDSA sealed restore rejects
+      raw companion Ed25519 recovery before worker rehydrate, and best-effort
+      ECDSA companion seal updates no longer write raw Ed25519 restore material
+      into ECDSA sealed records.
+      Current progress, June 19, 2026: Email OTP Ed25519 provisioning no longer
+      sends raw `xClientBaseB64u` through TypeScript or seal transport; the HSS
+      client worker stores the material behind the canonical Router A/B handle.
+      Current progress, June 19, 2026: Email OTP Ed25519 sealed recovery records
+      with raw `xClientBaseB64u` / `clientVerifyingShareB64u` are rejected at
+      the recovery normalizer and classified as `delete_required` by the sealed
+      store. ECDSA sealed records keep their ECDSA restore path, but stale raw
+      Ed25519 companion metadata is dropped from the normalized record.
+- [x] Add and run the current Ed25519 local dev-store cleanup path that deletes
+      stale raw-material signable records for development accounts. This path is
+      a current-schema cleanup: ordinary account, threshold-session, lane, and
+      list reads prune Ed25519 records that still carry `xClientBaseB64u` without
+      a worker-owned `ed25519HssMaterialHandle`, and never hydrate the raw
+      material into active signing state.
+- [ ] Add and run equivalent cleanup paths for remaining raw-material
+      persistence surfaces, including ECDSA-HSS and any durable IndexedDB records
+      that Phase 15.11 still classifies before Phase 15.12 deletion.
+- [x] Active signing code has a source guard proving it does not depend on raw
+      material helper or field names for the prepared surface.
+      Current progress, June 18, 2026: the Router A/B normal-signing SDK guard
+      rejects `persistClientBase`, `ed25519HssMaterialCacheFromWalletSessionState`,
+      and `repairThresholdEd25519MissingRelayerKey` in active Ed25519 signing
+      executors, and requires missing-key repair retries to force-refresh and
+      persist worker-owned signing material before rebuilding the Router A/B
+      request payload.
+      Current progress, June 19, 2026: the guard now rejects ordinary final
+      signing use of `ensureThresholdEd25519HssSigningMaterial` in
+      `signTransactions`, `signDelegate`, and `signNep413`; that reconstruction
+      helper remains allowed only in repair/bootstrap paths.
+
+Validation checklist:
+
+- [ ] Focused tests prove stale raw-material records are rejected, pruned, or
+      invalidated before final signing for each prepared surface.
+      Current progress, June 18, 2026:
+      `unit/signingCapabilityStrictRecords.unit.test.ts` covers the selected
+      Ed25519 final-signing boundary rejection for stale raw-material-only
+      records.
+      `unit/routerAbEd25519.walletSessionState.unit.test.ts` now proves
+      persisting an Ed25519 material handle clears stale `xClientBaseB64u`.
+      The same focused file also proves stale Ed25519 raw-material records are
+      pruned from active account, threshold-session, lane, and list reads.
+      `unit/sealedRecovery.methodAdapters.unit.test.ts` now proves Email OTP
+      Ed25519 sealed recovery records with raw client-base metadata are
+      rejected at the normalized recovery boundary. `unit/sealedSessionStore.unit.test.ts`
+      passed with the sealed-store classifier deleting Ed25519 raw-material
+      sealed records and dropping stale raw Ed25519 companion metadata from
+      normalized ECDSA records.
+- [x] `rtk pnpm -C packages/sdk-web type-check`.
+      Passed on June 18, 2026 after selected Ed25519/ECDSA signing-capability
+      reads were gated by the strict Router A/B Wallet Session record parsers.
+      Passed again on June 18, 2026 after Ed25519 warm-session reconstruction
+      persistence stopped writing raw client-base material.
+      Passed again on June 18, 2026 after the Ed25519 active dev-store pruning
+      path rejected stale raw-material records at account/session/lane reads.
+      Passed again on June 18, 2026 after the Ed25519 warm-session persistence
+      writer stopped accepting raw `xClientBaseB64u`.
+      Passed again on June 18, 2026 after active Ed25519 signing state stopped
+      exposing `xClientBaseB64u` / `persistClientBase` and repair retries moved
+      through force-refreshed worker-owned material handles.
+      Passed again on June 19, 2026 after Email OTP Ed25519 provisioning moved
+      finalized HSS client-output opening and material storage into the HSS
+      client worker.
+      Passed again on June 19, 2026 after normalized Email OTP Ed25519 sealed
+      recovery stopped carrying raw HSS material.
+      Passed again on June 19, 2026 after ECDSA-HSS activation started
+      publishing `role_local_worker_handle` key refs.
+- [x] `rtk pnpm -C tests exec tsc --noEmit -p tsconfig.playwright.json`.
+      Passed on June 18, 2026 after the Ed25519 worker material-handle
+      validation slice.
+      Passed again on June 18, 2026 after Ed25519 warm-session reconstruction
+      persistence stopped writing raw client-base material.
+      Passed again on June 18, 2026 after the Ed25519 active dev-store pruning
+      path rejected stale raw-material records at account/session/lane reads.
+      Passed again on June 18, 2026 after active Ed25519 signing state stopped
+      exposing `xClientBaseB64u` / `persistClientBase` and repair retries moved
+      through force-refreshed worker-owned material handles.
+      Passed again on June 19, 2026 after Email OTP Ed25519 provisioning moved
+      finalized HSS client-output opening and material storage into the HSS
+      client worker.
+      Passed again on June 19, 2026 after normalized Email OTP Ed25519 sealed
+      recovery records rejected raw HSS material fields.
+- [ ] Fresh registration-to-sign and wallet-unlock-to-sign browser tests pass
+      for Ed25519, ECDSA-HSS Tempo, and EVM with worker handles only.
+- [ ] `rtk pnpm router:smoke` and `rtk pnpm router:smoke:bundled` pass.
+
+## Phase 15.11: Strict Signable State And Lane Diagnostics
+
+The June 18, 2026 diff audit found that the Router A/B refactor has the right
+target architecture, but several implementation seams became too broad while
+legacy paths were being deleted. This first rot-hardening phase fixes the
+persisted-state and lane-readiness problems that produced "almost ready"
+sessions. It must preserve Router A/B-only signing, Wallet Session JWT-only
+signing auth, one-use SigningWorker nonce/presignature state, canonical
+request/scope binding, and signer-core/WASM ownership of crypto-secret client
+material.
+
+General implementation guidance:
+
+- Work from the boundary inward. Start by adding boundary parsers/builders for
+      route responses, decoded JWTs, IndexedDB records, sealed-session payloads,
+      and worker responses. Convert raw shapes into precise internal states once,
+      then make core signing and readiness functions accept only those states.
+- Make invalid signable state unrepresentable before deleting more code. Add the
+      strict discriminated unions and type fixtures first, then update callers,
+      then delete old optional-field helpers. This keeps regressions visible at
+      compile time instead of surfacing during wallet unlock or final signing.
+- Keep crypto-secret material movement separate from state-shape cleanup. Phase
+      15.9 moves active Ed25519/ECDSA material behind worker handles, Phase
+      15.10 prepares stale-record invalidation, and Phase 15.12 deletes raw
+      material surfaces after strict state exists. Phase 15.11 should focus on
+      strict persisted state, ready-state construction, and lane diagnostics.
+      Later rot-hardening work is split into Phases 15.13 through 15.16.
+- Preserve every old security invariant before deleting its old test. Build the
+      deleted-test replacement map early, land Router A/B coverage for each
+      invariant, and delete old tests only after the replacement is named in this
+      plan.
+- Refactor by vertical slices. For example: first Ed25519 persisted-state and
+      lane diagnostics, then ECDSA-HSS persisted-state and lane diagnostics, then
+      canonical scope digests, then server helper narrowing, then Rust module
+      splitting. Each slice should have focused type-check/source-guard/test
+      evidence.
+- Keep compatibility isolated and terminal. A parser may reject or invalidate an
+      old development record at a persistence/request boundary. It must not
+      hydrate that record into current signable state or fallback to old
+      threshold-session routes.
+- Prefer shared canonical builders over duplicated validation. If a value is
+      security-significant across SDK, server, local Router, and Cloudflare, put
+      its parser or digest builder in `shared-ts`, `router-ab-core`, or
+      `signer-core` as appropriate and use the same helper everywhere.
+- Treat diagnostics as observability, not control flow. Availability and unlock
+      paths should expose stable invalid-lane reasons, but signing decisions must
+      depend on strict internal state, not on warning strings or best-effort
+      diagnostics.
+- Split monoliths only after the behavior is pinned by tests. Move code into
+      modules with route constants, parsers, and security checks preserved
+      exactly; keep any behavior change in a separate commit from file movement.
+- Keep commits small and reviewable. Separate SDK state hardening, server JWT
+      boundary hardening, private service HTTP consolidation, Rust module
+      splitting, generated-artifact cleanup, and unrelated demo/package/docs
+      cleanup.
+
+Implementation checklist:
+
+- [ ] Replace persisted signing-session records that can describe "almost ready"
+      state with strict internal discriminated unions. Signable Ed25519 and
+      ECDSA-HSS records must require Wallet Session JWT auth, threshold session
+      id, wallet signing session id, runtime-policy scope, SigningWorker scope,
+      expiry/quota, and the curve-specific Router A/B normal-signing state or
+      worker material handle. Raw IndexedDB, sealed-session, route-response, and
+      request/persistence compatibility shapes must be parsed once at the
+      boundary into `signable`, `pending_restore`, `invalid`, or `non_signing`
+      states.
+      Current progress: Ed25519 final NEAR signing ready state now requires
+      `ed25519HssMaterialHandle` and `ed25519HssMaterialBindingDigest`.
+      ECDSA-HSS final EVM signing now converts role-local material into a local
+      handle-only signable union after loading it into the HSS worker. The
+      selected signing-capability reader now rejects Ed25519/ECDSA records that
+      fail the strict Router A/B Wallet Session parser before final signing.
+      Current progress, June 18, 2026: `routerAbSigningWalletSession.ts` now
+      classifies persisted Ed25519 and ECDSA-HSS records into explicit
+      `signable`, `pending_material`, `invalid`, and `non_signing` states, and
+      selected signing capability reads consume those classifier branches. The
+      warm-session read model and envelope invariant checker now derive
+      `ready` only from the `signable` classifier branch. The remaining work is
+      to replace the broad persisted record shapes at raw IndexedDB/sealed
+      parsing boundaries with explicit `signable`, `pending_restore`,
+      `pending_material`, `invalid`, and `non_signing` parser outputs.
+      Current progress, June 18, 2026: `routerAbSigningWalletSession.typecheck.ts`
+      now pins the strict signable Wallet Session state shape for both curves at
+      compile time. It rejects Ed25519 states missing worker material handle,
+      material binding digest, wallet signing session id, or bearer JWT auth,
+      and rejects ECDSA-HSS states missing Router A/B normal-signing state,
+      runtime-policy scope, or bearer JWT auth.
+- [ ] Make malformed persisted lanes explicit. Availability readers must stop
+      silently skipping runtime Ed25519/ECDSA records that are missing Router A/B
+      state, Wallet Session JWT auth, runtime-policy scope, SigningWorker scope,
+      or budget identity. Return an invalid-lane diagnostic with a stable reason,
+      and make unlock-to-sign tests fail before final signing when a lane cannot
+      build the strict internal state.
+      Current progress: available-lane reads now return
+      `diagnostics.invalidLanes` with stable runtime-record reasons for missing
+      Router A/B state, missing threshold session ids, missing wallet signing
+      session ids, unsupported ECDSA chain targets, and invalid ECDSA public
+      facts. Ed25519 and ECDSA warm-session read-model tests now prove records
+      missing Router A/B state remain non-ready before final signing. Remaining
+      work is to extend the same explicit diagnostics to raw IndexedDB/sealed
+      record parser branches and the full unlock-to-sign path.
+- [x] Make ECDSA warm capability readiness JWT-only. `deriveEcdsaCapabilityState`
+      and `persistedWarmSessionRecordRequiresWalletSessionJwt` must require
+      bearer Wallet Session JWT auth for every ECDSA signing-capable record,
+      regardless of `thresholdSessionKind`. Cookie-backed ECDSA records should
+      normalize to `invalid` or `auth_missing`, never `ready`. Add focused tests
+      proving a cookie ECDSA record with warm PRF material cannot become a ready
+      Router A/B signing capability.
+      Fix guidance: replace the capability-specific conditional in
+      `persistedWarmSessionRecordRequiresWalletSessionJwt` with an unconditional
+      JWT requirement for both Ed25519 and ECDSA signable records. Then make
+      `resolveEcdsaAuthMaterial` return a discriminated failure for
+      `cookie_session` / `missing_wallet_session_jwt`, and teach
+      `deriveEcdsaCapabilityState` plus `assertWarmSessionEnvelopeInvariant` to
+      map that failure to `auth_missing` or `invalid`. Avoid reading
+      `thresholdSessionKind` in core readiness logic except to reject old
+      records at the persistence boundary.
+      Completed on June 18, 2026: warm-session records now require Wallet
+      Session JWT auth unconditionally, ECDSA auth resolution returns explicit
+      `cookie_session` and `missing_wallet_session_jwt` failure branches, and
+      ECDSA readiness/invariant derivation maps both branches to `auth_missing`
+      before a warm PRF claim can advertise the lane as ready.
+- [x] Make Router A/B ECDSA-HSS normal-signing config mandatory at signable
+      activation boundaries. `activateEcdsaSession` must fail closed when it is
+      asked to create or refresh a signing-capable ECDSA session and
+      `routerAbNormalSigning.mode` is not `enabled`. It must not persist a live
+      ECDSA record without `routerAbEcdsaHssNormalSigning`, SigningWorker scope,
+      Wallet Session JWT auth, and runtime-policy scope. Keep any disabled-mode
+      behavior only for explicitly non-signing local/test boundaries with source
+      guards.
+      Fix guidance: split ECDSA activation into explicit signable and
+      non-signing/bootstrap-only branches. The signable branch should accept
+      `RouterAbNormalSigningConfig & { mode: "enabled" }` or a prevalidated
+      `RouterAbEcdsaHssNormalSigningStateV1`; the disabled branch should not be
+      able to call the persisted signable-record builder. Move the existing
+      `case "disabled": return undefined` behavior behind a named
+      non-signing/test helper, and add a source guard so active EVM/Tempo
+      activation cannot import it.
+      Completed on June 18, 2026: `activateEcdsaSession` now rejects disabled
+      Router A/B normal-signing config before bootstrap, session-id allocation,
+      worker use, or persistence; the Router A/B ECDSA-HSS normal-signing state
+      builder returns a required state; and the persisted ECDSA key ref stores
+      that state unconditionally for signable activation.
+      Current progress, June 19, 2026: signable activation now stores
+      role-local signing material in the HSS client worker and publishes
+      `role_local_worker_handle` key refs. The focused activation test covers
+      the worker-store call and key-ref material kind.
+- [x] Tighten Ed25519 passkey provisioning so it cannot persist a signable JWT
+      session without Router A/B signing material. `provisionThresholdEd25519Session`
+      must either produce a strict Router A/B signable record with
+      `routerAbNormalSigning`, runtime-policy scope, signing root, material
+      handle, binding digest, client verifying share, Wallet Session JWT, and
+      wallet signing-session id, or persist a non-signing/pending-material state
+      that transaction, NEP-413, and delegate signing cannot select as ready.
+      Fix guidance: introduce a boundary builder such as
+      `buildRouterAbEd25519SignableRecord` that takes the mint response, HSS
+      material-handle result, runtime policy, and Wallet Session JWT and returns
+      only a strict signable record. If passkey provisioning has only PRF material
+      and no material handle yet, persist a `pending_material` record through a
+      different builder and keep it out of `thresholdEd25519LaneCandidateFromSessionRecord`
+      / available-lane ready selection. Final signing should consume only the
+      strict builder output.
+      Completed on June 18, 2026: Ed25519 passkey provisioning records that
+      carry Wallet Session JWT auth and Router A/B state but do not yet carry a
+      worker-owned HSS material handle now remain `material_pending` in the
+      warm-session read model, and selected final signing rejects them with the
+      strict Router A/B signable-record parser before any signing attempt.
+- [ ] Tighten persisted-record parsers for current signable records. ECDSA
+      normalization must reject or classify as non-signing any current record
+      missing `routerAbEcdsaHssNormalSigning`. Ed25519 normalization must reject
+      or classify as pending/non-signing records missing signing root, HSS
+      material handle, material binding digest, client verifying share,
+      runtime-policy scope, Wallet Session JWT, wallet signing-session id, or
+      `routerAbNormalSigning`. Keep old-record handling only as a boundary
+      rejection/pruning path.
+      Fix guidance: stop returning one broad `ThresholdEd25519SessionRecord` /
+      `ThresholdEcdsaSessionRecord` shape from raw persistence parsing. Parse raw
+      records into a union with at least `signable`, `pending_restore`,
+      `pending_material`, `invalid`, and `non_signing` branches. Provide narrow
+      accessors like `requireSignableRouterAbEd25519Record` and
+      `requireSignableRouterAbEcdsaHssRecord`; selection, budget, pool-fill, and
+      signing code should accept those narrow types. Old records should be
+      pruned or reported as invalid lanes during read, not upgraded by optional
+      field checks in core logic.
+      Current progress, June 18, 2026: selected signing capability, warm-session
+      read-state derivation, and warm-session envelope invariants now use the
+      Router A/B persisted-record classifier. This blocks "almost ready" records
+      from becoming sign-ready, but the lower raw persistence parsers still need
+      the full union rewrite before this task is complete.
+      Current progress, June 18, 2026: the Ed25519 classifier now distinguishes
+      stale raw-material-only development records from ordinary
+      `pending_material` records. Records with `xClientBaseB64u` but no
+      worker-owned HSS material handle classify as `invalid` with
+      `raw_material_without_handle`, and selected final-signing capability reads
+      fail before any signing attempt.
+      Current progress, June 18, 2026: Ed25519 warm-session reconstruction now
+      persists strict handle-backed material state and clears stale
+      `xClientBaseB64u`, so a reconstructed record cannot re-enter final signing
+      through the raw client-base field.
+- [x] Make stale Ed25519 raw-material active-store records terminal at the
+      persistence boundary. Account, threshold-session, lane, and list read paths
+      now prune records that still carry `xClientBaseB64u` without an
+      `ed25519HssMaterialHandle`, so old development state cannot survive lane
+      selection by moving between store indexes.
+- [x] Make stale Ed25519 raw-material records terminal in warm-session readiness
+      and auth planning. A record with raw `xClientBaseB64u` but no worker-owned
+      HSS material handle now derives `invalid` instead of `material_pending`,
+      and NEAR signing auth planning fails before restore, status probing, or
+      step-up selection. Deleted stale NEAR session-selection tests that treated
+      raw cached client-base material or status-only sealed restore as a valid
+      warm signing session.
+- [x] Repair stale registration/add-signer orchestration fixtures. The
+      `addWalletSigner.orchestration.unit.test.ts` fixture now enables Router
+      A/B normal signing, serves the Router A/B public keyset prefetch route,
+      mints Router A/B Ed25519/ECDSA Wallet Session JWTs, and stores
+      registration ECDSA role-local material through a worker-owned handle
+      fixture. This keeps the test aligned with the Router A/B-only product
+      state instead of the old disabled-normal-signing fixture path.
+	- [x] Fix stale available-lane durable fixture coverage in
+	      `tests/unit/availableSigningLanes.ed25519Duplicates.unit.test.ts`. The
+	      suite still contains sealed-record fixture assumptions from before the
+	      current Router A/B sealed restore contract, which causes broad runs to fail
+      with `missing_restore_metadata` even though the focused runtime diagnostic
+      test passes. Keep only current availability-normalization assertions:
+      update the remaining Ed25519 durable fixture to the current sealed restore
+      contract, and delete durable ECDSA/readback assertions that belong in
+      sealed-store/parser tests or only preserve obsolete raw-material and
+      pre-Router A/B restore behavior. The full file must pass before Phase 15.11
+      is marked complete.
+      Completed on June 18, 2026: stale durable ECDSA sealed-readback assertions
+      and the obsolete passkey Ed25519 no-client-base durable assertion were
+	      deleted from this availability-normalization suite; the remaining tests
+	      cover current Ed25519 durable duplicate normalization plus runtime Router
+	      A/B Ed25519/ECDSA availability and diagnostics.
+	- [x] Make passkey Ed25519 sealed restore records terminal when they contain raw
+	      client-base material. `sealedSessionStore.ts` now classifies passkey
+	      Ed25519 sealed records with `xClientBaseB64u` as `delete_required`, and
+	      `recoveryRecord.ts` rejects passkey Ed25519 sealed recovery records with
+	      either `xClientBaseB64u` or `clientVerifyingShareB64u`. Email OTP Ed25519
+	      recovery keeps its explicit encrypted-restorable raw-material fixture
+	      until the Email OTP worker-handle replacement lands. The passkey
+	      Ed25519 sealed-restore publisher no longer writes unreachable
+	      `xClientBaseB64u` / `clientVerifyingShareB64u` fields after worker
+	      rehydrate succeeds.
+
+Validation checklist:
+
+	- [x] `rtk pnpm -C packages/sdk-web type-check`.
+	      Passed on June 18, 2026 after the Ed25519 final ready-state material
+	      handle slice and ECDSA-HSS final signing handle-only local union slice.
+      Passed again on June 18, 2026 after ECDSA warm-capability JWT-only
+      readiness hardening.
+      Passed again on June 18, 2026 after ECDSA activation fail-closed
+      hardening.
+	      Passed again on June 18, 2026 after selected Ed25519/ECDSA
+	      signing-capability reads were gated by the strict Router A/B Wallet
+	      Session record parsers.
+	      Passed again on June 18, 2026 after passkey Ed25519 sealed-store and
+	      sealed-recovery boundaries rejected raw client-base material.
+	      Passed again on June 18, 2026 after Ed25519 warm-session reconstruction
+	      persistence moved to material handles.
+      Passed again on June 18, 2026 after Ed25519 active-store reads pruned stale
+      raw-material records before lane selection.
+      Passed again on June 18, 2026 after the Ed25519 warm-session persistence
+      writer stopped accepting raw `xClientBaseB64u`.
+      Passed again on June 19, 2026 after ECDSA-HSS activation started storing
+      role-local material through worker handles.
+	- [x] `rtk pnpm -C tests exec tsc --noEmit -p tsconfig.playwright.json`.
+	      Passed on June 18, 2026 after the Ed25519 worker material-handle
+	      validation slice.
+      Passed again on June 18, 2026 after selected Ed25519/ECDSA
+      signing-capability reads were gated by the strict Router A/B Wallet
+      Session record parsers.
+      Passed again on June 18, 2026 after the focused strict selected-capability
+      fixture covered Ed25519 and ECDSA invalid persisted signable records.
+      Passed again on June 18, 2026 after the availability diagnostics suite
+      added the symmetric ECDSA missing Router A/B state assertion.
+      Passed again on June 18, 2026 after the Ed25519 passkey provisioning
+      pending-material regression test.
+	      Passed again on June 18, 2026 after the Router A/B persisted-record
+	      classifier was wired into selected capability reads and warm-session
+	      readiness.
+	      Passed again on June 18, 2026 after passkey Ed25519 sealed-store and
+	      sealed-recovery boundaries rejected raw client-base material.
+	      Passed again on June 18, 2026 after Ed25519 warm-session reconstruction
+	      persistence moved to material handles.
+      Passed again on June 18, 2026 after Ed25519 active-store reads pruned stale
+      raw-material records before lane selection.
+      Passed again on June 19, 2026 after ECDSA-HSS activation started storing
+      role-local material through worker handles.
+- [ ] Focused unlock-to-sign regression tests for fresh and restored Ed25519,
+      ECDSA-HSS Tempo, and EVM sessions.
+- [x] Focused warm-capability tests proving ECDSA cookie records and records
+      missing Wallet Session JWT auth cannot produce `state: "ready"`.
+      Passed on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/warmSessionReadModel.unit.test.ts --reporter=line`.
+      Related invariant/provisioning/transition tests passed:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/warmSessionStore.invariants.unit.test.ts unit/warmSessionTransitions.unit.test.ts unit/warmSessionEcdsaProvisioning.unit.test.ts --reporter=line`.
+- [x] Focused warm read-model and invariant tests proving Ed25519/ECDSA records
+      missing Router A/B state cannot become `ready`.
+      Passed on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/warmSessionReadModel.unit.test.ts --reporter=line`.
+      Related transition coverage passed:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/warmSessionStore.transitions.unit.test.ts --reporter=line`.
+- [x] Focused ECDSA activation tests proving disabled Router A/B normal-signing
+      config cannot create a signing-capable ECDSA session record.
+      Passed on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/thresholdEcdsa.authorizationBootstrapVerifier.unit.test.ts --reporter=line`.
+      Passed again on June 19, 2026 after adding the signable activation
+      regression proving activation stores role-local material in the HSS client
+      worker and publishes a `role_local_worker_handle` key ref.
+- [x] Focused Ed25519 passkey provisioning tests proving a successful passkey
+      provision either creates strict Router A/B signable material or a
+      non-signing pending state that cannot be selected for final signing.
+      Passed on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/warmSessionStore.transitions.unit.test.ts --reporter=line`.
+      The focused regression covers a successful Ed25519 provision that persists
+      Wallet Session JWT auth and Router A/B state without a worker-owned
+      material handle; the warm-session state remains `material_pending`, and
+      selected final signing rejects the record as `missing_material_handle`.
+      Passed again on June 18, 2026 after stale raw-material-only Ed25519
+      records became terminal `invalid` warm-session state:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/warmSessionReadModel.unit.test.ts unit/signingCapabilityStrictRecords.unit.test.ts unit/warmSessionStore.transitions.unit.test.ts --reporter=line`.
+- [x] Focused persisted-record parser tests proving current Ed25519/ECDSA
+      signable records without Router A/B state/material are rejected or
+      surfaced as invalid/pending records before final signing.
+      Passed on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/signingCapabilityStrictRecords.unit.test.ts --reporter=line`.
+      The focused fixture proves selected Ed25519 signing capability rejects
+      records missing worker-owned material handles and selected ECDSA signing
+      capability rejects records missing Router A/B ECDSA-HSS normal-signing
+      state before final signing.
+      Passed again on June 18, 2026 after adding
+      `raw_material_without_handle` as a distinct invalid Ed25519 parser reason.
+      `unit/nearSigning.sessionSelection.unit.test.ts` also passed after stale
+      raw-cache and status-only sealed-restore assertions were deleted:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/nearSigning.sessionSelection.unit.test.ts --reporter=line`.
+      Passed again on June 18, 2026 after active-store account, threshold-session,
+      lane, and list reads pruned stale Ed25519 raw-material records:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEd25519.walletSessionState.unit.test.ts unit/warmSessionReadModel.unit.test.ts unit/warmSessionStore.transitions.unit.test.ts --reporter=line`.
+	- [x] Focused lane-diagnostics tests proving malformed persisted records are
+	      surfaced as invalid lanes instead of being hidden.
+	      Passed on June 18, 2026. The focused Ed25519 runtime record case passed
+      with:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/availableSigningLanes.ed25519Duplicates.unit.test.ts -g "does not advertise a warm Ed25519 runtime lane without Router A/B normal-signing state" --reporter=line`.
+	      The full `availableSigningLanes.ed25519Duplicates.unit.test.ts` file
+	      now covers Ed25519 and ECDSA runtime rows missing Router A/B state and
+	      passes after obsolete durable-readback assertions were deleted:
+	      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/availableSigningLanes.ed25519Duplicates.unit.test.ts --reporter=line`.
+	- [x] Focused sealed-session boundary tests proving passkey Ed25519 sealed
+	      restore no longer accepts raw client-base material. Passed on June 18,
+	      2026:
+	      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/sealedSessionStore.unit.test.ts unit/sealedRecovery.methodAdapters.unit.test.ts --reporter=line`.
+	      Passed again after deleting the dead passkey Ed25519 sealed-restore raw
+	      material write path, with the related passkey recovery and NEAR
+	      session-selection coverage:
+	      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/sealedSessionStore.unit.test.ts unit/sealedRecovery.methodAdapters.unit.test.ts unit/passkeyEd25519Recovery.unit.test.ts unit/nearSigning.sessionSelection.unit.test.ts --reporter=line`.
+	- [x] Focused warm-session reconstruction tests proving Ed25519 handle
+	      persistence clears stale raw client-base material and still satisfies
+	      strict Router A/B ready-state fixtures. Passed on June 18, 2026:
+	      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEd25519.walletSessionState.unit.test.ts unit/seamsWeb.loginThresholdWarm.unit.test.ts unit/warmSessionReadModel.unit.test.ts unit/warmSessionStore.transitions.unit.test.ts --reporter=line`.
+- [x] Focused registration/add-signer orchestration test proving the current
+      fixtures use Router A/B keyset prefetch, Router A/B Wallet Session JWTs,
+      and worker-handle-backed ECDSA registration material. Passed on June 18,
+      2026:
+      `W3A_TEST_FRONTEND_URL=http://127.0.0.1:5208 rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/addWalletSigner.orchestration.unit.test.ts --reporter=line`.
+
+## Phase 15.12: Delete Raw-Material Compatibility Surface
+
+Start this phase only after the relevant Phase 15.10 surface gates and Phase
+15.11 strict signable-state gates have landed for the curve/surface being
+cleaned. Do not run this as one broad deletion pass. A surface is eligible only
+when its writer, reader, restore parser, sign-ready builder, stale-record
+invalidation path, and tests all use worker-owned material handles.
+
+This phase removes the temporary compatibility surface so raw crypto-secret
+material cannot drift back into TypeScript orchestration.
+
+Deletion checklist:
+
+- [ ] Delete active TypeScript record fields that store Ed25519 client-base
+      material or ECDSA client signing material. Current durable signable records
+      should carry only worker handles, binding digests, public facts, session
+      ids, Wallet Session JWTs, and SigningWorker scope.
+- [ ] Delete raw-material write paths:
+      `persistStoredThresholdEd25519SessionClientBase`, direct
+      `xClientBaseB64u` record writes, direct `clientVerifyingShareB64u` record
+      writes for signable Ed25519 state, and any ECDSA presign/client-share
+      writes outside worker-owned storage.
+- [ ] Delete raw-material read paths from active signing and restore code. If an
+      old development record is encountered, invalidate it and require a fresh
+      Wallet Session/bootstrap flow instead of reconstructing active signing
+      state from raw fields.
+- [ ] Delete request/persistence compatibility parsers that accepted raw Ed25519
+      HSS client-base material or raw ECDSA client signing material after the
+      stale-record cleanup path is covered by tests. Any parser retained after
+      this phase must be non-signing, named as a historical import/export
+      boundary, and guarded by a deletion issue/date.
+- [ ] Delete or rewrite tests, fixtures, mocks, and snapshots that construct
+      sign-ready Ed25519/ECDSA state with raw material fields. Keep only tests
+      that prove old raw-material records are rejected or invalidated at the
+      boundary.
+      Current progress: `unit/thresholdEcdsa.presignPoolRefill.unit.test.ts`
+      now constructs ECDSA presign-pool state with worker handles and public
+      `bigR`, and the raw `thresholdEcdsaComputeSignatureShare` worker
+      operation/wrapper was deleted. Active ECDSA presign/signing API call sites
+      now pass `RouterAbEcdsaHssClientSigningMaterialSource` instead of
+      `clientSigningShare32`.
+- [ ] Delete docs that instruct SDK, app, or test authors to handle
+      `xClientBaseB64u`, client shares, signing shares, nonce secrets,
+      presignature secrets, or PRF-derived material in TypeScript.
+- [ ] Rename any remaining `clientBase`/`clientShare` TypeScript domain objects
+      that now represent worker handles or public facts so the names cannot be
+      mistaken for secret material.
+- [ ] Narrow source-guard allowlists to exact files. Active SDK orchestration,
+      route clients, registration/login flows, restore flows, sealed-session
+      persistence, and test fixture builders must be zero-tolerance for raw
+      material names unless the file is a WASM worker boundary or signer-core
+      binding shim.
+- [ ] Remove any temporary diagnostic logs that print raw material presence,
+      cache hit/miss state for secret material, or crypto-secret field names in
+      active user flows.
+
+Validation checklist:
+
+- [ ] `rtk rg "xClientBaseB64u|clientVerifyingShareB64u|signingShare|additiveShare|prfFirstB64u" packages/sdk-web/src` returns only WASM worker boundaries,
+      signer-core binding shims, negative guards, and historical docs explicitly
+      marked as non-active.
+- [ ] `rtk pnpm -C packages/sdk-web type-check`.
+- [x] `rtk pnpm -C tests exec tsc --noEmit -p tsconfig.playwright.json`.
+      Passed on June 18, 2026 after the selected-capability, availability
+      diagnostics, and Ed25519 pending-material provisioning slices.
+- [ ] Focused source guards reject raw-material references in active SDK
+      orchestration, persistence, restore, registration, and route-client code.
+- [ ] Fresh registration-to-sign and wallet-unlock-to-sign browser tests pass
+      for Ed25519, ECDSA-HSS Tempo, and EVM with worker handles only.
+- [ ] `rtk pnpm router:smoke` and `rtk pnpm router:smoke:bundled` pass.
+
+## Phase 15.13: SDK And Server Route/Auth Boundary Cleanup
+
+This phase narrows active SDK route clients, browser registration/bootstrap
+parsing, and server Wallet Session issuance boundaries. It should not change
+crypto protocol semantics or persisted record shapes; it should make route/auth
+inputs exact before later route-module cleanup.
+
+Implementation checklist:
+
+- [x] Narrow the SDK ECDSA-HSS route client auth surface. Remove `cookie`,
+      `threshold_session`, and `sessionKind?: "cookie"` branches from active
+      Router A/B ECDSA-HSS bootstrap/export/signing route-client types. Active
+      callers should pass exact Wallet Session/app/bootstrap bearer auth unions,
+      and request builders should always use `credentials: "omit"` for
+      signing-capable Router A/B routes. Keep legacy route-auth parsing only in
+      explicitly named boundary tests or deleted-route compatibility parsers.
+      Fix guidance: split `ThresholdEcdsaHssRouteAuth` into branch-specific
+      route auth types: first-bootstrap app/bootstrap bearer auth, signable
+      Wallet Session bearer auth, and export bearer auth. Delete `CookieSessionAuth`
+      and `{ kind: "threshold_session" }` from active route-client imports.
+      Replace `buildRelayRequestInit` with a bearer-only request builder for
+      signing-capable Router A/B routes, and leave any cookie-capable request
+      builder in a lifecycle-only module with source guards.
+      Completed on June 18, 2026: `WalletSessionJwtAuth` now uses the
+      `wallet_session` discriminator, the active ECDSA-HSS route client no
+      longer imports `CookieSessionAuth` or accepts `sessionKind?: "jwt" |
+      "cookie"`, the ECDSA bootstrap platform input is JWT-only, and the
+      ECDSA-HSS request builder always sends bearer requests with
+      `credentials: "omit"`. The login warm-up path now fails fast when only
+      cookie route auth is available.
+- [x] Clean up passkey ECDSA sealed-restore storage writes. Replace the ad hoc
+      `upsertStoredThresholdEcdsaSessionRecord({ recordsByLane: new Map() },
+      ...)` call with an explicit restore-store dependency or a dedicated global
+      restore helper that documents which indices and artifacts are updated.
+      The restore path must preserve ECDSA role-local ready state, Router A/B
+      normal-signing state, Wallet Session auth, chain target, and export/seal
+      metadata without relying on a disposable map side effect.
+      Fix guidance: add a restore-specific storage port to
+      `restorePasskeyEcdsaSealedRecordForWallet` or create a helper such as
+      `upsertRestoredThresholdEcdsaSessionRecord`. That helper should call the
+      same canonical signable-record parser as normal activation, update the
+      global lane/session indices intentionally, preserve any export artifact
+      map if the caller owns one, and return the exact record that
+      `getStoredThresholdEcdsaSessionRecordByThresholdSessionIdForTarget` will
+      later resolve. Add a regression test that restore, status read, and final
+      ECDSA material selection all see the same record.
+      Completed on June 18, 2026: passkey ECDSA sealed restore now calls the
+      dedicated `upsertRestoredThresholdEcdsaSessionRecord` helper instead of
+      passing a disposable empty map to the generic upsert path. The helper
+      writes intentionally into the active ECDSA session index used by
+      threshold-session lookups.
+- [x] Remove route-client JWT claim parsing from active browser registration
+      clients. `walletRegistration.ts` must stop manually decoding Wallet
+      Session JWT payloads to reconstruct Router A/B ECDSA-HSS normal-signing
+      state. Either the server response must return the typed Router A/B state
+      directly, or the claim parser/binding validator must live in `shared-ts`
+      and be reused by server, SDK, and tests.
+      Completed on June 18, 2026: `walletRegistration.ts` uses the shared
+      `parseRouterAbEcdsaHssNormalSigningFromWalletRegistrationJwtV1` boundary
+      parser from `shared-ts`; the focused source guard rejects inline claim
+      parsing markers such as `decodeJwtPayloadRecord` and direct
+      `payload.routerAbEcdsaHssNormalSigning` reads in the browser registration
+      client.
+- [x] Narrow server Wallet Session signing helpers further. Active signable
+      issuers should call curve-specific builders that accept exact Router A/B
+      inputs and return exact claim objects. Keep any generic JWT signer private
+      and unable to accept broad `extraClaims`, optional session identity, or
+      issuer-binding-only ECDSA state for signing-capable tokens.
+      Completed on June 18, 2026: `commonRouterUtils.ts` now builds exact
+      `RouterAbEd25519WalletSessionClaims` and
+      `RouterAbEcdsaHssWalletSessionClaims` objects before signing. The private
+      signer validates those exact claims and no longer accepts `kind`,
+      `allowedSessionKinds`, or `extraClaims`. The ECDSA-HSS wrapper also
+      verifies the Router A/B normal-signing state against the bootstrap wallet,
+      RP, key context, public identity, activation epoch, and SigningWorker id
+      before minting a signable JWT.
+
+Validation checklist:
+
+- [x] `rtk pnpm -C packages/sdk-server-ts type-check`.
+      Passed on June 18, 2026 after the SDK route-auth discriminator cleanup
+      and Wallet Session seal status discriminator normalization.
+      Passed again on June 18, 2026 after narrowing the server Wallet Session
+      JWT helper to exact curve-specific Router A/B claim builders.
+- [x] Focused SDK route-client/source-guard tests proving active ECDSA-HSS
+      Router A/B route clients no longer expose cookie auth,
+      `threshold_session`, or `sessionKind: "cookie"` branches.
+      Current progress: `unit/routerAbNormalSigningSdk.guard.unit.test.ts`
+      covers the browser registration client shared-claim boundary.
+      Passed on June 18, 2026 after adding a source guard for current
+      Wallet Session route-auth discriminators and bearer-only ECDSA-HSS route
+      client boundaries:
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`.
+      Focused token/status/bootstrap regression tests also passed:
+      `W3A_TEST_FRONTEND_URL=http://127.0.0.1:5211 rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/sessionTokens.unit.test.ts unit/signingBudgetStatus.parser.unit.test.ts unit/walletRegistrationEcdsaRouterAbBootstrap.unit.test.ts --reporter=line`.
+      The Wallet Session seal route regression suite passed:
+      `rtk pnpm -C tests exec playwright test -c playwright.relayer.config.ts relayer/signing-session-seal-router.test.ts --reporter=line`.
+      Passkey ECDSA restored-record indexing is covered by
+      `unit/ecdsaRoleLocalRecords.unit.test.ts`. Passed on June 18, 2026:
+      `W3A_TEST_FRONTEND_URL=http://127.0.0.1:5212 rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/ecdsaRoleLocalRecords.unit.test.ts --reporter=line`.
+- [x] Focused server-route tests proving signable Wallet Session JWT issuance
+      cannot produce issuer-binding-only ECDSA tokens.
+      Completed on June 18, 2026: `unit/thresholdSessionClaims.unit.test.ts`
+      now proves Router A/B ECDSA-HSS JWT issuance succeeds only with
+      normal-signing state bound to the bootstrap facts and rejects
+      issuer-binding-only ECDSA input without calling the session signer.
+      Passed:
+      `W3A_TEST_FRONTEND_URL=http://127.0.0.1:5213 rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/thresholdSessionClaims.unit.test.ts --reporter=line`.
+      The broader Playwright TypeScript gate also passed after the stale ECDSA
+      fixture literal was replaced with the shared normal-signing state kind:
+      `rtk pnpm -C tests exec tsc --noEmit -p tsconfig.playwright.json`.
+- [x] Source guards proving no broad `extraClaims` signable JWT issuer and no
+      cookie-capable request builder in active signing-capable Router A/B route
+      clients.
+      Completed on June 18, 2026: `unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts`
+      rejects `extraClaims`, `allowedSessionKinds`, legacy generic Wallet
+      Session signer names, and legacy JWT-kind helpers in the active server
+      Router A/B issuer. `unit/routerAbNormalSigningSdk.guard.unit.test.ts`
+      continues to prove the active SDK route clients use current bearer-only
+      Wallet Session discriminators. Passed:
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts --reporter=line`.
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`.
+
+## Phase 15.14: Canonical Scope Digests And Private Service HTTP
+
+This phase replaces ad hoc equality and repeated private HTTP plumbing with
+canonical builders and shared service-call helpers. Keep endpoint-specific
+validators and service auth intact while deduplicating.
+
+Implementation checklist:
+
+- [x] Replace structural `JSON.stringify` scope equality with canonical
+      request/scope digests. ECDSA-HSS prepare/finalize validators, private
+      SigningWorker forwarding, pool-fill scope checks, and SDK pool keys should
+      compare canonical bytes or shared digest builders from
+      `shared-ts/routerAbEcdsaHss`, not object stringification.
+      Completed on June 18, 2026: `shared-ts/routerAbEcdsaHss` now exports
+      canonical normal-signing scope bytes and a canonical scope equality
+      helper. Shared prepare/finalize response validation, server private
+      SigningWorker request validation, and SDK ECDSA-HSS browser presignature
+      pool keys now use the shared canonical scope boundary instead of
+      structural JSON stringification.
+- [x] Consolidate private service-binding HTTP/auth boilerplate. The ECDSA-HSS
+      pool-fill bridge, private SigningWorker forwarder, and Cloudflare
+      service-binding callers should use one typed `postServiceJson`-style
+      helper plus endpoint-specific request/response validators. Do not weaken
+      service auth, route ownership checks, or error normalization while
+      deduplicating.
+      Completed on June 18, 2026: `internalServiceHttp.ts` now owns the shared
+      Router A/B internal-service auth header, token normalization, JSON POST,
+      response text capture, and JSON parsing for the TS Router layer. The
+      ECDSA-HSS pool-fill bridge and private SigningWorker forwarder call that
+      helper and keep their endpoint-specific request validators and error
+      normalization. Cloudflare service-binding callers already route through
+      `post_service_json`; local Rust private SigningWorker forwarding now uses
+      `local_http_post_signing_worker_private_json_v1` with endpoint-specific
+      validation preserved.
+
+Validation checklist:
+
+- [x] Focused private SigningWorker validator tests proving canonical
+      request/scope digest mismatch is rejected for prepare, finalize, pool-fill,
+      and replay cases.
+      Completed on June 18, 2026: `unit/thresholdSessionClaims.unit.test.ts`
+      now proves ECDSA-HSS private prepare and finalize validators accept the
+      exact canonical Wallet Session scope and reject activation/scope drift
+      before the request is forwarded to the SigningWorker. Focused ECDSA-HSS
+      normal-signing, pool-fill bridge, and presignature-pool tests passed after
+      canonical scope comparison and shared private service HTTP consolidation.
+      Replay protection remains in the Router/core replay boundary rather than
+      the stateless private validator: `crates/router-ab-core` covers replay
+      nonce digest binding and local replay-cache rejection, while the active
+      ECDSA-HSS pool-fill test covers replayed/missing presign-session handling.
+      Passed:
+      `W3A_TEST_FRONTEND_URL=http://127.0.0.1:5216 rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/thresholdSessionClaims.unit.test.ts --reporter=line`.
+- [x] Source guards proving no `JSON.stringify` scope comparison in active
+      Router A/B signing, pool-fill, or private SigningWorker validators.
+      Completed on June 18, 2026:
+      `unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts` now
+      rejects structural JSON scope comparison helpers in the shared ECDSA-HSS
+      protocol module, server private SigningWorker validator, and SDK
+      ECDSA-HSS presignature pool key. It also proves the ECDSA-HSS pool-fill
+      bridge and private SigningWorker forwarder use the shared
+      `postRouterAbInternalServiceJson` helper instead of hand-rolled
+      internal-auth JSON POSTs. Passed:
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts --reporter=line`.
+      Focused canonical boundary and pool-key tests passed:
+      `W3A_TEST_FRONTEND_URL=http://127.0.0.1:5214 rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEcdsaHssNormalSigning.unit.test.ts unit/thresholdSessionClaims.unit.test.ts unit/thresholdEcdsa.presignPoolRefill.unit.test.ts --reporter=line`.
+      Focused private-service HTTP bridge tests passed:
+      `W3A_TEST_FRONTEND_URL=http://127.0.0.1:5215 rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/routerAbEcdsaHssPresignBridge.unit.test.ts unit/routerAbEcdsaHssNormalSigning.unit.test.ts unit/thresholdSessionClaims.unit.test.ts --reporter=line`.
+      TypeScript validation passed:
+      `rtk pnpm -C packages/sdk-server-ts type-check`;
+      `rtk pnpm -C packages/sdk-web type-check`;
+      `rtk pnpm -C tests exec tsc --noEmit -p tsconfig.playwright.json`.
+- [x] `rtk cargo test --manifest-path crates/router-ab-core/Cargo.toml`.
+      Passed on June 18, 2026 after canonical scope and private service HTTP
+      consolidation.
+- [x] `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings --test source_guards`.
+      Passed on June 18, 2026 after confirming Cloudflare service-binding calls
+      continue to use shared `post_service_json` routing.
+      Local Rust Router A/B validation also passed:
+      `rtk cargo check --manifest-path crates/router-ab-dev/Cargo.toml`;
+      `rtk cargo test --manifest-path crates/router-ab-dev/Cargo.toml --test local_worker_http local_router_private_forwarding_uses_shared_internal_service_http_helper -- --nocapture`;
+      `rtk cargo test --manifest-path crates/router-ab-dev/Cargo.toml --test local_worker_http ecdsa_hss -- --nocapture`.
+
+## Phase 15.15: Rust And Local Router Topology Cleanup
+
+This phase is file/module cleanup for Rust Router A/B and local development
+topology. It must preserve route constants, parser boundaries, service auth,
+Router-admitted envelope forwarding, and existing local smoke behavior.
+
+Implementation checklist:
+
+- [ ] Split Router A/B monolith files by protocol surface without changing
+      behavior. Break `crates/router-ab-cloudflare/src/lib.rs`,
+      `durable_object.rs`, `strict_worker.rs`, `tests/bindings.rs`, and
+      `crates/router-ab-dev/src/lib.rs` into modules for Ed25519 normal signing,
+      ECDSA-HSS normal signing, ECDSA-HSS pool fill, ceremony persistence,
+      keyset/config, local dev dispatch, and service-binding HTTP. Keep route
+      constants and parser boundaries centralized.
+      Current progress, June 18, 2026: local private service HTTP forwarding
+      was split out of `crates/router-ab-dev/src/lib.rs` into
+      `crates/router-ab-dev/src/local_service_http.rs`. The same module now
+      owns the generic local service-binding endpoint/client helpers and the
+      direct JSON POST helper used for private SigningWorker forwarding. Local
+      HTTP request parsing/response/error helpers were split into
+      `crates/router-ab-dev/src/local_dev_http.rs`. Local worker source guards
+      now prove those helpers stay out of the `router-ab-dev` monolith, while
+      route handlers continue to call the shared dispatcher and service helper.
+      Local worker topology helpers were also split into
+      `crates/router-ab-dev/src/local_worker_topology.rs`, with a focused source
+      guard proving health response and route-ownership helpers stay out of
+      `lib.rs`. Local dev dispatch was moved into
+      `crates/router-ab-dev/src/local_dev_http.rs`; bin entrypoints now call the
+      shared dispatcher while protocol handlers remain in `lib.rs` until their
+      protocol-surface module split. The local Ed25519 normal-signing smoke flow
+      now builds client
+      finalization material from the same scope-bound HSS fixture used by the
+      SigningWorker, fixing the stale fixture mismatch that produced `Ed25519
+      verifying shares do not sum to group public key`.
+      Completed local split slices:
+      - [x] Local service-binding HTTP client and private SigningWorker POST
+            helper live in `crates/router-ab-dev/src/local_service_http.rs`.
+      - [x] Local HTTP request parsing, response writing, JSON errors, and
+            auth checks live in `crates/router-ab-dev/src/local_dev_http.rs`.
+      - [x] Local worker health/topology and route-ownership helpers live in
+            `crates/router-ab-dev/src/local_worker_topology.rs`.
+      - [x] Local ECDSA-HSS presignature pool ids stay burned after prepare:
+            the local SigningWorker store now models `Available` versus
+            `Consumed`, exact duplicates are idempotent only before prepare, and
+            reuse after prepare/finalize is rejected by route tests.
+      - [x] Local ECDSA-HSS presignature pool lifecycle storage lives in
+            `crates/router-ab-dev/src/local_ecdsa_hss_pool_store.rs`, with a
+            source guard keeping the one-use lifecycle state out of `lib.rs`.
+      - [x] Local dev dispatch lives in
+            `crates/router-ab-dev/src/local_dev_http.rs`, with a source guard
+            proving `LocalDevHttpTopologyV1`, `local_dev_http_handle_request_v1`,
+            and the topology route helpers stay out of `lib.rs`.
+      - [ ] Ed25519 normal-signing, ECDSA-HSS normal-signing, ECDSA-HSS pool-fill,
+            ceremony persistence, keyset/config, and Cloudflare worker modules
+            still need protocol-surface splits.
+- [x] Unify local-dev route dispatch. The split-worker and bundled local Rust
+      servers should share request parsing, internal service-auth checks, JSON
+      error bodies, Router-admitted envelope forwarding, and ECDSA-HSS/Ed25519
+      route ownership logic, with only topology-specific wiring left in the bin
+      entrypoints.
+      Completed on June 18, 2026: both `router_ab_local_worker` and
+      `router_ab_local_bundled` delegate requests to
+      `local_dev_http_handle_request_v1`. The focused source guard
+      `local_worker_bins_delegate_to_shared_route_dispatcher` now rejects route
+      tables in either bin entrypoint, and the shared dispatcher is covered by
+      split-worker and bundled route-surface tests.
+
+Validation checklist:
+
+- [x] `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings --test source_guards`.
+      Passed on June 18, 2026 after the local service HTTP module split and
+      local Ed25519 fixture consistency fix.
+- [x] `rtk cargo test --manifest-path crates/router-ab-dev/Cargo.toml`.
+      Passed on June 18, 2026 after extracting local service HTTP and fixing
+      local Ed25519 normal-signing fixture consistency. Focused checks also
+      passed:
+      `rtk cargo check --manifest-path crates/router-ab-dev/Cargo.toml`;
+      `rtk cargo test --manifest-path crates/router-ab-dev/Cargo.toml --test local_worker_http local_dev_http_request_boundary_lives_outside_monolith -- --nocapture`;
+      `rtk cargo test --manifest-path crates/router-ab-dev/Cargo.toml --test local_worker_http local_dev_http_dispatch_lives_outside_monolith -- --nocapture`;
+      `rtk cargo test --manifest-path crates/router-ab-dev/Cargo.toml --test local_worker_http local_signing_worker_private_http_helper_lives_outside_monolith -- --nocapture`;
+      `rtk cargo test --manifest-path crates/router-ab-dev/Cargo.toml --test local_worker_http local_worker_topology_helpers_live_outside_monolith -- --nocapture`;
+      `rtk cargo test --manifest-path crates/router-ab-dev/Cargo.toml --test local_worker_http local_ecdsa_hss_pool_lifecycle_store_lives_outside_monolith -- --nocapture`;
+      `rtk cargo test --manifest-path crates/router-ab-dev/Cargo.toml --test local_worker_http local_worker_bins_delegate_to_shared_route_dispatcher -- --nocapture`;
+      `rtk cargo test --manifest-path crates/router-ab-dev/Cargo.toml --test local_worker_http local_router_private_forwarding_uses_shared_internal_service_http_helper -- --nocapture`;
+      `rtk cargo test --manifest-path crates/router-ab-dev/Cargo.toml --test local_worker_http local_router_ecdsa_hss_pool_fill_prepare_finalize_uses_one_prepared_record -- --nocapture`;
+      `rtk cargo test --manifest-path crates/router-ab-dev/Cargo.toml --test local_worker_http ecdsa_hss -- --nocapture`.
+- [x] `rtk pnpm router:smoke` and `rtk pnpm router:smoke:bundled`.
+      Passed on June 18, 2026 after the smoke binary switched Ed25519
+      finalization to the scope-bound HSS fixture. Both four-worker and bundled
+      smoke summaries reported `normal_signing_status: "ed25519_v1"`,
+      `ecdsa_hss_prepare_status: "http_200_bound"`,
+      `ecdsa_hss_finalize_status: "http_200_signature"`, and
+      `ecdsa_hss_replay_rejection_status: "http_400_one_use_replay_rejected"`.
+- [x] Route-surface tests proving split-worker and bundled local dispatch expose
+      the same public/private Router A/B behavior.
+      Completed on June 18, 2026: `local_worker_http` covers split-worker
+      Ed25519 normal signing, split-worker ECDSA-HSS pool-fill/prepare/finalize,
+      private service-auth rejection, and bundled Ed25519 normal signing through
+      one listener. The bundled listener test now also exercises ECDSA-HSS
+      pool-fill/prepare/finalize through the same public/private route surface.
+      `rtk cargo test --manifest-path crates/router-ab-dev/Cargo.toml` passed
+      with 53 tests across 16 suites.
+
+## Phase 15.16: Test, Route-Surface, Package, And Artifact Hygiene
+
+This phase removes review friction after behavior is pinned. It should not
+change signing semantics. Use it to preserve invariant coverage, move generated
+artifacts out of source paths, align local docs/scripts, and keep package
+cleanup separate from protocol changes.
+
+Implementation checklist:
+
+- [ ] Create a deleted-test replacement map before removing more old threshold
+      tests. For each deleted Ed25519/ECDSA threshold test, record the preserved
+      invariant and the current Router A/B test that covers it: digest/request
+      binding, FROST/share tamper rejection, session exhaustion, scope rejection,
+      replay rejection, relayer/SigningWorker failure, CORS/route rejection, and
+      budget expiry.
+- [ ] Move generated evidence artifacts out of committed source paths or keep
+      only summarized docs. Startup-latency and release-evidence JSON files
+      should be written under ignored `target/` or report artifact directories
+      unless a specific summary is intentionally checked into docs.
+- [ ] Separate unrelated churn from Router A/B cleanup commits. VoiceID/demo
+      changes, package-wrapper slimming, benchmark deletion, stale-doc tombstones,
+      Rust module splitting, SDK state hardening, and server route cleanup should
+      be committed as separate reviewable slices.
+- [x] Fix the package/runtime export guard after folding `sdk-runtime-ts` into
+      `sdk-web`. The canonical declaration layout is
+      `dist/types/sdk-web/...`; `@seams/sdk/runtime` exports
+      `createSigningRuntime` and `createSigningRuntimeStatePorts`; and focused
+      package/export tests cover the public runtime value exports.
+- [x] Resolve the `pnpm site` / `pnpm site:router` local-mode ambiguity.
+      `pnpm site` is now the single Router A/B local site entrypoint and the
+      duplicate `site:router` script has been deleted from `package.json`.
+      The focused source guard now rejects reintroducing `site:router` and
+      requires `pnpm site` to carry the local Router A/B SigningWorker id.
+      Passed on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`.
+- [x] Update local port docs and smoke assumptions after moving the Router server
+      upstream to `127.0.0.1:9090`. `package.json` and
+      `apps/web-client/Caddyfile` now point Caddy at `9090`; README,
+      `docs/router-a-b-local-dev.md`, `apps/web-client/README.md`, the focused
+      source guard, and `pnpm router:public-route-smoke` agree on the same
+      topology.
+- [x] Finish the local package-boundary cleanup left after deleting
+      `sdk-runtime-ts`. `packages/sdk-server-ts` is isolated from the web
+      tsconfig and `@/*` alias, shared server-consumed types are in
+      `shared-ts` or server-local modules, and `pg` plus
+      `@simplewebauthn/server` are no longer hard browser dependencies.
+- [x] Repair stale source-guard harness assumptions after the package/folder
+      cleanup. The source-script tests now use
+      `tests/tsconfig.playwright.json`, the Postgres split-domain script tests
+      provide the required signer/console env fixture before checking invalid
+      SQL identifiers, and the headless-auth guard points at the current
+      `apps/web-client` demo path.
+- [x] Repair stale Email OTP coordinator fixtures after the Router A/B Wallet
+      Session and handle-owned material cleanup. The focused coordinator suite
+      now uses Router A/B ECDSA-HSS Wallet Session JWT fixtures, enabled local
+      Router A/B normal-signing config, valid ECDSA public facts, and the
+      current no-raw-Ed25519-companion behavior. ECDSA sealed restore now
+      rejects signing-root/runtime-policy drift before invoking worker
+      rehydrate.
+      Passed on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/emailOtpWalletSessionCoordinator.unit.test.ts --reporter=line`.
+      Passed again on June 19, 2026 after ECDSA sealed restore stopped hydrating
+      raw Ed25519 companion material and the fixture helper stopped auto-injecting
+      `xClientBaseB64u`: 31 tests passed.
+      Passed again on June 19, 2026 after Email OTP Ed25519 provisioning moved
+      finalized HSS client-output opening and material storage into the HSS
+      client worker, and Email OTP Ed25519 seal transport stopped carrying raw
+      restore metadata: 31 tests passed.
+- [x] Decide the larger public server package/export split sequencing.
+      `@seams/sdk-server` is real packaging cleanup, but it is not a Router A/B
+      correctness blocker. Keep it behind Router topology, signer-material
+      handles, raw-material deletion gates, and server auth/session boundary
+      cleanup.
+- [ ] Implement the `@seams/sdk-server` split after signing/session cleanup is
+      stable. Publish `packages/sdk-server-ts` as `@seams/sdk-server`; move
+      `./server`, `./server/router/express`, `./server/router/cloudflare`,
+      `./server/router/ror`, and `./server/wasm/signer` exports out of
+      `packages/sdk-web/package.json`; keep `@seams/sdk` browser/runtime/react
+      only; move server deps from optional peers in `@seams/sdk` to normal
+      dependencies or peers in `@seams/sdk-server`; update imports from
+      `@seams/sdk/server` to `@seams/sdk-server`; add clean-room browser and
+      server package install smokes; and delete the old `@seams/sdk/server`
+      subpaths.
+- [ ] Split Router A/B route handlers out of threshold-named server modules.
+      Active Router A/B public routes now live in
+      `express/routes/thresholdEd25519.ts`,
+      `express/routes/thresholdEcdsa.ts`, and their Cloudflare equivalents, with
+      threshold log prefixes and `thresholdSessionRoute` metadata still carrying
+      Router A/B routes. Move them to `routerAbEd25519Routes` and
+      `routerAbEcdsaHssRoutes`, rename log prefixes/status helpers, and make
+      route-definition auth metadata describe Wallet Session JWT auth rather than
+      threshold-era route categories.
+- [ ] Split ECDSA-HSS bootstrap authorization branches into exact route/service
+      types. The current bootstrap handler accepts either existing Router A/B
+      ECDSA Wallet Session auth or first-bootstrap auth, then mints a signable
+      Wallet Session JWT. Model these as separate branch results so
+      issuer-binding/bootstrap and signable Wallet Session refresh paths cannot
+      produce different Router A/B claim shapes or accidentally mint
+      issuer-binding-only signing tokens.
+- [ ] Normalize Ed25519 Router A/B normal-signing status mapping across Express
+      and Cloudflare. The new Ed25519 normal-signing handler manually maps
+      validation failures while ECDSA uses the shared threshold status helper.
+      Use one Router A/B status mapper so malformed bodies, missing sessions,
+      invalid Wallet Session claims, not-configured service state, and scope
+      errors return the same status/body shape in every adapter.
+- [ ] Add source guards and type fixtures for the rot fixes: no raw crypto-secret
+      fields in active SDK orchestration, no optional critical signable-state
+      fields, no broad `extraClaims` signable JWT issuer, no `JSON.stringify`
+      scope comparison, no silent lane skip for missing Router A/B state, and no
+      old public threshold signing route literals outside deny-list tests/docs.
+      Current progress: `routerAbWalletSessionCredential.typecheck.ts` rejects
+      Ed25519 Router A/B ready states that omit the worker-owned material handle
+      or binding digest. Add the remaining guards/type fixtures as each Phase
+      15.11 through 15.16 slice lands.
+
+Validation note, June 18, 2026: stale source-guard harness fixes reduced
+`rtk pnpm -C tests test:source-guards` from 23 failures to 18 failures. The
+three source-backed `tsx` tests, the Postgres split-domain script guard, and
+the headless-auth source guard now pass in focused runs. The full source-guard
+gate remains red on raw-material, signing-state, duplicate iframe, signer-worker
+PRF, architecture, signing-root, and local cargo/fixture-vector failures.
+
+Shared validation checklist for Phases 15.11 through 15.16:
+
+- [x] `rtk pnpm -C packages/sdk-web type-check`.
+      Passed on June 18, 2026 after the Ed25519 final ready-state material
+      handle slice and ECDSA-HSS final signing handle-only local union slice.
+      Passed again on June 18, 2026 after ECDSA warm-capability JWT-only
+      readiness hardening.
+      Passed again on June 18, 2026 after ECDSA activation fail-closed
+      hardening.
+      Passed again on June 18, 2026 after the Router A/B persisted-record
+      classifier was wired into selected capability reads and warm-session
+      readiness.
+      Passed again on June 18, 2026 after repairing the Email OTP coordinator
+      fixtures and adding sealed ECDSA signing-root drift rejection before
+      worker rehydrate.
+      Passed again on June 19, 2026 after Email OTP ECDSA companion restore was
+      made fail-closed for raw Ed25519 companion material.
+- [x] `rtk pnpm -C packages/sdk-server-ts type-check`.
+      Passed on June 18, 2026 after the `pnpm site` / `site:router`
+      local-mode cleanup.
+- [x] `rtk pnpm -C tests exec tsc --noEmit -p tsconfig.playwright.json`.
+      Passed on June 18, 2026 after the selected-capability, availability
+      diagnostics, Ed25519 pending-material provisioning, and warm-session
+      strict-readiness slices.
+      Passed again on June 18, 2026 after repairing the Email OTP coordinator
+      fixtures and adding sealed ECDSA signing-root drift rejection before
+      worker rehydrate.
+      Passed again on June 19, 2026 after Email OTP ECDSA companion restore was
+      made fail-closed for raw Ed25519 companion material.
+- [ ] Focused unlock-to-sign regression tests for fresh and restored Ed25519,
+      ECDSA-HSS Tempo, and EVM sessions.
+- [x] Focused warm-capability tests proving ECDSA cookie records and records
+      missing Wallet Session JWT auth cannot produce `state: "ready"`.
+      Passed on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/warmSessionReadModel.unit.test.ts --reporter=line`.
+      Related invariant/provisioning/transition tests passed:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/warmSessionStore.invariants.unit.test.ts unit/warmSessionTransitions.unit.test.ts unit/warmSessionEcdsaProvisioning.unit.test.ts --reporter=line`.
+- [x] Focused warm read-model and invariant tests proving Ed25519/ECDSA records
+      missing Router A/B state cannot become `ready`.
+      Passed on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/warmSessionReadModel.unit.test.ts --reporter=line`.
+      Related transition coverage passed:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/warmSessionStore.transitions.unit.test.ts --reporter=line`.
+- [x] Focused ECDSA activation tests proving disabled Router A/B normal-signing
+      config cannot create a signing-capable ECDSA session record.
+      Passed on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/thresholdEcdsa.authorizationBootstrapVerifier.unit.test.ts --reporter=line`.
+- [x] Focused Ed25519 passkey provisioning tests proving a successful passkey
+      provision either creates strict Router A/B signable material or a
+      non-signing pending state that cannot be selected for final signing.
+      Passed on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/warmSessionStore.transitions.unit.test.ts --reporter=line`.
+- [x] Focused persisted-record parser tests proving current Ed25519/ECDSA
+      signable records without Router A/B state/material are rejected or
+      surfaced as invalid/pending records before final signing.
+      Passed on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/signingCapabilityStrictRecords.unit.test.ts --reporter=line`.
+- [x] Focused SDK route-client/source-guard tests proving active ECDSA-HSS
+      Router A/B route clients no longer expose cookie auth,
+      `threshold_session`, or `sessionKind: "cookie"` branches.
+      Passed on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`.
+- [x] Focused lane-diagnostics tests proving malformed persisted records are
+      surfaced as invalid lanes instead of being hidden.
+      Passed on June 18, 2026:
+      `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts unit/availableSigningLanes.ed25519Duplicates.unit.test.ts --reporter=line`.
+- [ ] Focused server-route tests proving signable Wallet Session JWT issuance
+      cannot produce issuer-binding-only ECDSA tokens.
+- [ ] Focused private SigningWorker validator tests proving canonical
+      request/scope digest mismatch is rejected for prepare, finalize, pool-fill,
+      and replay cases.
+- [x] `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts
+      unit/refactor51bPackageExports.unit.test.ts --reporter=line`.
+      Passed on June 18, 2026 after the package/runtime export cleanup.
+- [ ] Focused route-surface tests proving Router A/B routes are registered by
+      Router A/B-named modules, old threshold route modules do not own active
+      Router A/B signing routes, and Express/Cloudflare return identical statuses
+      for Ed25519 and ECDSA-HSS validation failures.
+- [ ] Focused package-boundary guards proving `sdk-server-ts` no longer extends
+      `sdk-web/tsconfig.json`, server source does not import `@/core/*` from
+      web-owned modules except through explicitly retained boundary files, and
+      the local site/server scripts have one documented Router A/B topology.
+- [ ] Source guards for raw material, optional signable-state fields,
+      `JSON.stringify` scope comparison, broad signable JWT helpers, and deleted
+      public threshold route literals.
+- [ ] `rtk cargo test --manifest-path crates/router-ab-core/Cargo.toml`.
+- [ ] `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings --test source_guards`.
+- [ ] `rtk cargo test --manifest-path crates/router-ab-dev/Cargo.toml`.
+- [ ] `rtk pnpm router:smoke` and `rtk pnpm router:smoke:bundled`.
+- [x] `rtk git diff --check`.
+      Passed on June 18, 2026 after the `pnpm site` / `site:router`
+      local-mode cleanup and focused topology guard update.
+
+## Phase 15.17: Server Route/Auth, Seal, And Budget Boundary Cleanup
+
+This phase addresses the remaining server-side Router A/B route/auth, Ed25519
+seal, signing budget, and signing-session seal findings from the diff audit. The
+goal is to make the server route/auth model match the Router A/B-only product
+model: signing-capable routes require bearer Router A/B Wallet Session JWTs,
+route metadata says Wallet Session rather than threshold-era session auth,
+sealed restore records cannot model cookie-backed signable state, and shared
+wallet-signing budget storage is explicit.
+
+Implementation checklist:
+
+- [ ] **P1: Make signing-capable server auth bearer-only.**
+      `validateRouterAbEd25519WalletSessionTokenInputs`,
+      `validateRouterAbEcdsaHssWalletSessionInputs`,
+      `parseWalletSigningBudgetStatusRequest`, and
+      signing-session seal authorization currently call generic
+      `session.parse(headers)`, which accepts cookies when no bearer token is
+      present. Add a narrow bearer-only Wallet Session parser for Router A/B
+      signing-capable routes. It should extract only `Authorization: Bearer`,
+      verify the JWT with the existing session service, parse the curve-specific
+      Router A/B Wallet Session claim kind, and reject cookie-only requests
+      before service logic runs.
+- [ ] Apply the bearer-only parser to Ed25519 HSS
+      prepare/respond/finalize, Ed25519 normal signing prepare/finalize/presign
+      pool prepare, ECDSA-HSS signing/bootstrap/export/pool-fill routes where
+      they consume signable Wallet Session auth, signing budget status, and
+      `/v2/wallet-session/seal/*`. Lifecycle routes that intentionally allow
+      app-session cookies must stay outside this parser and use separately named
+      app-session auth helpers.
+- [ ] Add focused Express and Cloudflare tests proving cookie-only requests to
+      every signing-capable Router A/B server route return `401` and do not
+      mint, read, refresh, seal, unseal, forward to SigningWorker, or consume
+      budget state. Add positive tests for bearer Router A/B Wallet Session JWTs
+      on the same routes.
+- [ ] **P2: Replace threshold-era route auth metadata for Router A/B routes.**
+      `routeDefinitions.ts` still registers Router A/B Ed25519 HSS/signing
+      routes with `thresholdSessionRoute(...)`, and
+      `/session/signing-budget/status` is marked Ed25519-only even though the
+      parser accepts Ed25519 and ECDSA-HSS Router A/B Wallet Session JWTs. Add a
+      `walletSessionRoute(...)` or `routerAbWalletSessionRoute(...)` helper with
+      curve-specific variants such as `ed25519`, `ecdsa_hss`, and `any_router_ab`.
+      Use it for Router A/B signing-capable routes and budget/seal routes.
+- [ ] Update `RouteAuthPolicy` and route-policy/source-guard tests so active
+      Router A/B signing-capable routes cannot be registered with generic
+      `threshold_session` auth. Keep the stable wire string
+      `threshold_session` only where it is an intentional persisted or SDK
+      compatibility discriminant, not as route-registry auth for current Router
+      A/B signing routes.
+- [ ] **P2: Split legacy sealed-restore shapes from active signable restore
+      state.** `SealedSigningSessionEcdsaRestoreMetadata` and
+      `SealedSigningSessionEd25519RestoreMetadata` still permit
+      `sessionKind: "cookie"` and optional Wallet Session / Router A/B material.
+      Introduce boundary-only legacy record parsers for old persisted blobs, then
+      convert successful parses into exact active restore branches:
+      Ed25519 active restore must require a bearer Wallet Session JWT,
+      Router A/B normal-signing state, threshold session id, wallet signing
+      session id, participant ids, and required signer-worker/public material
+      handles. ECDSA-HSS active restore must require bearer Wallet Session JWT,
+      Router A/B ECDSA-HSS normal-signing scope, key handle, activation epoch,
+      chain target, participant ids, and presignature-pool scope material.
+- [ ] Add type fixtures and parser tests proving active restore/signable state
+      cannot be constructed with `sessionKind: "cookie"`, missing
+      `walletSessionJwt`, missing Router A/B normal-signing state, missing
+      threshold session id, or optional identity/auth/signing fields. Keep old
+      cookie-shaped records only in named persistence-compatibility fixtures
+      that parse to non-signable pending/invalid states or fail with a clear
+      migration error.
+- [ ] **P3: Rename and isolate shared wallet signing-budget storage.**
+      Budget records are intentionally shared across Ed25519 and ECDSA-HSS but
+      are wired through the Ed25519 wallet-session store name. Introduce a
+      `WalletSigningBudgetStore` adapter or clearly named wrapper over the
+      existing backing store. Route code and seal policy should depend on
+      `walletSigningBudgetStore`, while curve session stores remain
+      `ed25519WalletSessionStore` and `ecdsaWalletSessionStore`.
+- [ ] Add budget-store tests proving Ed25519 and ECDSA-HSS budget status,
+      consume, and refresh use the same signer-bound budget id format while
+      still rejecting mismatched curve, threshold session id, user id, rp id, and
+      participant set. The tests should make cross-curve budget intent explicit
+      so future maintainers do not “fix” it into two incompatible stores.
+
+Validation checklist:
+
+- [x] `rtk pnpm -C packages/sdk-server-ts type-check`.
+      Passed on June 18, 2026 after the `pnpm site` / `site:router`
+      local-mode cleanup.
+- [ ] `rtk pnpm -C tests exec playwright test -c playwright.relayer.config.ts
+      relayer/threshold-ed25519.scheme-dispatch.test.ts
+      relayer/signing-session-seal-router.test.ts
+      relayer/router-ab-keyset-routes.test.ts --reporter=line`.
+- [ ] `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts
+      unit/thresholdSessionClaims.unit.test.ts
+      unit/signingBudgetStatus.parser.unit.test.ts
+      unit/router.routeDefinitions.unit.test.ts
+      unit/routerAbServerWalletSessionClaimBoundary.guard.unit.test.ts
+      --reporter=line`.
+- [ ] Source guards proving active Router A/B route definitions do not use
+      generic `thresholdSessionRoute(...)`, active signing-capable auth parsers
+      do not call cookie-capable `session.parse(headers)`, and active
+      signable-state types do not expose `sessionKind: "cookie"`.
+- [x] `rtk git diff --check`.
+      Passed on June 18, 2026 after the `pnpm site` / `site:router`
+      local-mode cleanup and focused topology guard update.
+
+## Phase 15.18: Spec-To-Code Compliance Audit Gate
+
+Start this phase only after Phases 15.9 through 15.17 have no open
+implementation or local-validation tasks. This is the final local review gate
+before Phase 16 deployed Cloudflare evidence work.
+
+Use `/Users/pta/.codex/skills/spec-to-code-compliance/SKILL.md` for the audit.
+The audit must separate extraction, alignment, classification, and reporting;
+each claim must cite exact documentation text and code line evidence, include a
+confidence score, and classify ambiguity instead of inferring unspecified
+behavior.
+
+Specification corpus:
+
+- [ ] Normalize and include `docs/router-a-b-single-session.md`.
+- [ ] Normalize and include `docs/router-a-b-ecdsa.md`.
+- [ ] Normalize and include `docs/router-A-B-signer-SPEC.md`.
+- [ ] Normalize and include `docs/router-A-B-signer.md`.
+- [ ] Normalize and include `docs/refactor-68-wallet-session-v2.md`.
+- [ ] Normalize and include `docs/refactor-68B-router-cleanup.md`.
+- [ ] Normalize and include `docs/router-a-b-local-dev.md`.
+- [ ] Normalize and include this cleanup plan.
+- [ ] Add any referenced Router A/B, Wallet Session, ECDSA-HSS, Ed25519 HSS,
+      sealed-session, deployment, or route-topology docs discovered during
+      documentation discovery.
+
+Spec-IR requirements:
+
+- [ ] Extract actors, roles, trust boundaries, and public/private route
+      ownership for Router, Deriver A, Deriver B, SigningWorker, browser SDK,
+      WASM workers, Wallet Session, seal service, and budget service.
+- [ ] Extract Ed25519 requirements for HSS setup, normal signing,
+      presign-pool hit and miss behavior, one-use handles, replay rejection,
+      route auth, scope binding, Wallet Session JWT use, and worker-owned client
+      material.
+- [ ] Extract ECDSA-HSS requirements for key identity, bootstrap, activation,
+      stable key context, active-state binding, presignature pool refill,
+      prepare/finalize signing, one-use nonce/presignature semantics, export,
+      route auth, and worker-owned client material.
+- [ ] Extract Router A/B local topology requirements: one public Router server
+      behind Caddy, private Deriver/SigningWorker service routes, internal
+      service-auth, and no Caddy path split for signing routes.
+- [ ] Extract cleanup invariants: no old public `/threshold-*` signing routes,
+      no legacy threshold-session signing auth in active signing paths, no
+      cookie-backed signable state, no raw crypto-secret client material in
+      TypeScript orchestration, and no stale test/docs surfaces that advertise
+      deleted behavior.
+
+Code-IR requirements:
+
+- [ ] Analyze active SDK signing code under `packages/sdk-web/src/core/signingEngine/`
+      and registration/session orchestration under `packages/sdk-web/src/SeamsWeb/operations/`.
+- [ ] Analyze active server route, Wallet Session, seal, budget, and Router A/B
+      service code under `packages/sdk-server-ts/src/`.
+- [ ] Analyze shared Router A/B protocol utilities under `packages/shared-ts/src/`.
+- [ ] Analyze Rust Router A/B protocol, local-dev, and Cloudflare worker code
+      under `crates/router-ab-core/`, `crates/router-ab-dev/`, and
+      `crates/router-ab-cloudflare/`.
+- [ ] Analyze WASM worker and signer-core boundaries under `wasm/eth_signer/`
+      and any signer-core crates used by Ed25519/ECDSA client material handles.
+- [ ] Analyze source guards, route-surface tests, type fixtures, and local smoke
+      harnesses that enforce Router A/B-only behavior.
+
+Alignment and reporting:
+
+- [ ] Produce Spec-IR, Code-IR, Alignment-IR, and divergence findings with exact
+      source evidence and confidence scores.
+- [ ] Write the audit report to
+      `docs/audits/router-a-b-spec-to-code-compliance-YYYY-MM-DD.md`.
+- [ ] Include an alignment matrix for Ed25519 signing, ECDSA-HSS signing,
+      Wallet Session JWT claims, sealed restore, budget status/consume, route
+      topology, private service auth, worker-owned material handles, one-use
+      nonce/presignature lifecycle, and cleanup/source-guard invariants.
+- [ ] Classify every divergence as Critical, High, Medium, or Low using the
+      skill severity model. Mark undocumented active code behavior as
+      `UNDOCUMENTED CODE PATH`.
+- [ ] Copy every unresolved divergence into Phase 15.19 with the same severity,
+      spec excerpt, code evidence, confidence score, and remediation target.
+- [ ] Do not mark local cleanup complete while any Critical, High, or
+      security-relevant Medium finding remains open, unless it is explicitly a
+      deployment-only item moved to Phase 16 with evidence.
+
+Validation checklist:
+
+- [ ] The audit report exists and cites exact line references for every finding.
+- [ ] Phase 15.19 is populated from the audit report or explicitly marked empty
+      with report evidence.
+- [ ] `rtk git diff --check`.
+
+## Phase 15.19: Spec-To-Code Compliance Findings Remediation
+
+This phase is intentionally empty until Phase 15.18 produces the final
+spec-to-code compliance report. Populate it directly from that report.
+
+Historical audit status:
+
+- [x] Reconciled
+      `docs/audits/router-a-b-spec-to-code-compliance-2026-06-16.md` after
+      checking the follow-up implementation. The historical P1 private-worker
+      boundary issue, P1 ECDSA explicit export audit issue, P2 Ed25519
+      finalize group-key hardening issue, P3 stale-checklist drift, and P3
+      Router A/B ECDSA bridge naming issue are marked fixed locally in the audit
+      report. The only remaining item from that historical audit is deployed
+      strict Cloudflare browser/runtime evidence, which is tracked in Phase 16.
+
+Rules for adding findings:
+
+- [ ] Add each finding as a checklist item with severity, affected spec section,
+      affected code path, confidence score, and remediation target.
+- [ ] Keep Critical and High findings as local cleanup blockers.
+- [ ] Keep security-relevant Medium findings as local cleanup blockers unless
+      their evidence proves they are Cloudflare-deployment-only and they are
+      moved to Phase 16.
+- [ ] Resolve Low documentation drift by updating or tombstoning stale docs,
+      tests, and harnesses that can reintroduce old threshold-session behavior.
+- [ ] After remediation, rerun the focused validation listed in the finding and
+      update the corresponding checklist item with the command and result.
 
 ## Completion Criteria
 
@@ -2879,6 +5068,18 @@ Validation checklist:
       ECDSA and Ed25519 signing modules.
 - [x] Local smoke, focused tests, type-checks, release guards, and staging
       dry-run all pass.
+- [x] Local Rust `pnpm router` ECDSA-HSS route parity is proven over live HTTP:
+      pool-fill put, public prepare, public finalize, one-use pool entry
+      consumption, and one-use request-bound presignature consumption all pass in
+      split-worker and bundled local topologies.
+- [ ] Active TypeScript SDK signing orchestration holds no raw crypto-secret
+      Ed25519 or ECDSA client material. It may persist and route worker material
+      handles, binding digests, public facts, session ids, Wallet Session JWTs,
+      and SigningWorker scopes only.
+- [ ] Raw-material compatibility code has been deleted after the worker-handle
+      model is active. Old development records with raw signable material are
+      invalidated at a boundary instead of being hydrated into active signing
+      state.
 - [x] No signing-capable public lifecycle endpoint remains under
       `/threshold-ed25519/*`, `/threshold-ecdsa/*`, or
       `/threshold/signing-session-seal/*`. Any retained threshold-named route is
@@ -2889,26 +5090,68 @@ Validation checklist:
       callers use Router A/B or Wallet Session route constants.
 - [x] Deployed Cloudflare evidence is excluded from local cleanup completion and
       tracked as a separate post-deployment release gate in Phase 16.
+- [ ] Phase 15.18 spec-to-code compliance audit is complete, the report is
+      committed under `docs/audits/`, and Phase 15.19 contains every unresolved
+      finding from the report.
+- [ ] Phase 15.19 has no open Critical, High, or security-relevant Medium
+      finding before Phase 16 Cloudflare evidence work resumes.
 
 ## Phase 16: Post-Deployment Cloudflare Evidence
 
-Start this phase after the local cleanup plan is reviewed and the cleaned Router
-A/B workers are deployed or uploaded to staging. This phase is the release-tail
-gate for production deployment, not a blocker for reviewing the local cleanup
-implementation.
+Start this phase after the local cleanup plan is reviewed, Phase 15.8 local
+ECDSA-HSS route parity is closed if local ECDSA end-to-end evidence is required,
+and the Cloudflare deployment configuration has been hardened. This phase is the
+deployed-runtime release-tail gate for production deployment.
 
 - [x] Run the local release blocker check before any upload attempt.
       `rtk pnpm router:deploy:check` passed on June 17, 2026 with
       "Router A/B release blockers clear."
 - [x] Run the non-mutating staging startup dry-run for all four strict Workers.
       `rtk pnpm router:deploy:dry-run -- --env staging` passed on
-      June 17, 2026 and wrote
-      `crates/router-ab-cloudflare/reports/startup-latencies/startup-latencies-2026-06-17T15-58-20-248Z.json`.
+      June 17, 2026 and wrote an ignored timestamped report under
+      `crates/router-ab-cloudflare/reports/startup-latencies/`.
       Dry-run gzip sizes: Router `932.46 KiB`, Deriver A `792.16 KiB`,
       Deriver B `792.72 KiB`, SigningWorker `974.57 KiB`.
 - [x] Create a local commit for the current cleanup implementation before using
       the GitHub deployment workflow. Completed in local commit `615fcf24b`
       (`Complete Router A/B lifecycle route migration`).
+- [ ] Add Cloudflare internal service-auth secret provisioning before any
+      upload/deploy. All four strict Workers now read the binding named by
+      `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET_BINDING` and use
+      `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET` for private cross-worker service
+      calls, but the deployment workflow currently only provisions the older
+      role secrets. Add one high-entropy shared internal service-auth secret to
+      keygen output, GitHub environment docs, workflow secret checks, and
+      `wrangler secret put` for Router, Deriver A, Deriver B, and
+      SigningWorker. Add a release check proving the binding name and secret
+      provisioning contract are present for every role.
+- [ ] Make release validation reject placeholder Cloudflare runtime values.
+      `router:deploy:check` must fail for production/staging deploy paths when
+      Wrangler or injected workflow values contain `issuer.example`,
+      `REPLACE_WITH`, `<...>` placeholders, repeated dummy X25519 public keys
+      such as `x25519:111...`, or malformed JWT issuer/JWKS/public-key values.
+      Keep checked-in placeholder Wrangler values only as dry-run templates, and
+      make the deploy workflow prove real GitHub Environment values override
+      them.
+- [ ] Promote key epochs into the deploy contract. Current Wrangler files fix
+      signer-envelope HPKE, peer-signing, and SigningWorker server-output epochs
+      to `epoch-1` while the workflow injects only key material. Add explicit
+      deploy variables for the current epochs, or derive epochs from public-key
+      fingerprints. Add a release check that a changed deployed public key cannot
+      reuse the previous epoch, and include the optional previous-key overlap
+      variables in the rotation procedure.
+- [ ] Decide and guard production Router `workers_dev` exposure. Deriver A,
+      Deriver B, and SigningWorker are guarded against `workers_dev = true`, but
+      production Router still enables workers.dev. Either set the production
+      Router to `workers_dev = false` with a route/custom-domain deployment, or
+      document workers.dev as intentional public exposure and add an explicit
+      release-check assertion for that decision.
+- [ ] Remove or isolate local-machine compiler fallbacks from release scripts.
+      Homebrew-specific `CC_wasm32_unknown_unknown` fallback behavior is useful
+      for local smoke commands, but release validation should use an explicit
+      CI/toolchain setup and fail clearly when the wasm compiler is missing.
+      Keep any fallback in local-only commands, or emit an obvious diagnostic
+      when it is used.
 - [ ] Push the local cleanup implementation commits to `dev` before using the
       GitHub deployment workflow. The workflow runs the remote ref, so an upload
       from unpushed local commits would deploy stale code.
@@ -2917,10 +5160,16 @@ implementation.
       variables plus private role keys, while `CLOUDFLARE_API_TOKEN`,
       `CLOUDFLARE_ACCOUNT_ID`, `SIGNER_A_ROOT_SHARE_WIRE_SECRET`, and
       `SIGNER_B_ROOT_SHARE_WIRE_SECRET` are still missing from the workflow
-      secret surface.
+      secret surface. This must also include
+      `ROUTER_AB_INTERNAL_SERVICE_AUTH_SECRET` after the service-auth deploy
+      contract is added.
+- [ ] Re-run `rtk pnpm router:deploy:check` and
+      `rtk pnpm router:deploy:dry-run -- --env staging` after the deployment
+      hardening tasks above. The June 17, 2026 passing evidence predates the
+      Cloudflare deployment-config audit and is no longer sufficient by itself.
 - [ ] Deploy or upload the cleaned Router A/B workers to staging.
-- [ ] Capture deployed browser evidence for Ed25519 `/v2/hss/sign/prepare`,
-      `/v2/hss/sign/presign-pool/prepare`, and `/v2/hss/sign`.
+- [ ] Capture deployed browser evidence for Ed25519 `/v2/router-ab/ed25519/sign/prepare`,
+      `/v2/router-ab/ed25519/sign/presign-pool/prepare`, and `/v2/router-ab/ed25519/sign`.
 - [ ] Capture deployed browser evidence for ECDSA-HSS Router A/B registration,
       activation, prepare, finalize, and pool-fill dependent signing.
 - [ ] Confirm configured-origin success, rejected-origin behavior, preflight

@@ -132,10 +132,10 @@ Implemented a four-process local harness in `crates/router-ab-dev`.
 
 Local roles:
 
-- Router: default `http://127.0.0.1:8787`
-- Deriver A: default `http://127.0.0.1:8788`
-- Deriver B: default `http://127.0.0.1:8789`
-- SigningWorker: default `http://127.0.0.1:8790`
+- Router: default `http://127.0.0.1:9090`
+- Deriver A: default `http://127.0.0.1:9091`
+- Deriver B: default `http://127.0.0.1:9092`
+- SigningWorker: default `http://127.0.0.1:9093`
 
 Commands added to root `package.json`:
 
@@ -161,7 +161,7 @@ pnpm router:check
 pnpm router:down
 ```
 
-If default ports `8787-8790` are occupied:
+If default ports `9090-9093` are occupied:
 
 ```sh
 pnpm router:init -- --force --ephemeral-ports
@@ -286,7 +286,7 @@ deployed upload/version flow.
 Upload attempt status:
 
 ```sh
-rtk pnpm -C crates/router-ab-cloudflare measure:startup-latencies -- --upload --out reports/startup-latencies/startup-latencies-2026-06-14-upload.json
+rtk pnpm -C crates/router-ab-cloudflare measure:startup-latencies -- --upload --out reports/startup-latencies/startup-latencies-upload.json
 ```
 
 Result:
@@ -296,7 +296,7 @@ Result:
   non-interactive session has no `CLOUDFLARE_API_TOKEN`.
 - The generated report has `startupTimeMs: null` and `upload: null` for all
   four roles:
-  `reports/startup-latencies/startup-latencies-2026-06-14-upload.json`.
+  `reports/startup-latencies/startup-latencies-upload.json`.
 
 ## Formal Verification And Spec Compliance
 
@@ -357,7 +357,7 @@ cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features st
 passed
 
 pnpm -C crates/router-ab-cloudflare measure:startup-latencies -- --dry-run
-passed and wrote reports/startup-latencies/startup-latencies-2026-06-14T03-47-45-021Z.json
+passed and wrote an ignored timestamped report under reports/startup-latencies/
 ```
 
 Completed since the first handoff draft:
@@ -419,8 +419,8 @@ pnpm router`.
       was superseded by the later
       `pnpm -C crates/router-ab-cloudflare assert:release-ready` pass below.
 - [x] Re-ran `pnpm router:deploy:dry-run`; all four strict Worker roles bundled
-      and wrote
-      `crates/router-ab-cloudflare/reports/startup-latencies/startup-latencies-2026-06-14T14-11-55-253Z.json`.
+      and wrote an ignored timestamped report under
+      `crates/router-ab-cloudflare/reports/startup-latencies/`.
       Dry-run gzip upload sizes: Router `573.83 KiB`, Deriver A `598.97 KiB`,
       Deriver B `599.92 KiB`, SigningWorker `567.14 KiB`.
 - [x] Added `ed25519_hss::role_signing`, the role-separated Ed25519-HSS

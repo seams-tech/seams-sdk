@@ -4,9 +4,10 @@ Status: draft implementation plan.
 
 This plan defines how local development should mimic the Cloudflare Router/A/B
 deployment while keeping the existing fast in-process tests. The target local
-shape is four independently started services:
+shape is one SDK Router/API server plus three independently started private
+workers:
 
-- Router
+- SDK Router/API server
 - Deriver A
 - Deriver B
 - SigningWorker
@@ -17,7 +18,8 @@ rules as production.
 
 ## Goals
 
-- Run the Router/A/B setup and refresh path through four local processes.
+- Run the Router/A/B setup and refresh path through the SDK Router server and
+  private workers.
 - Run normal signing through `Client -> Router -> SigningWorker -> Router -> Client`.
 - Keep Deriver A and Deriver B off the normal-signing hot path.
 - Keep role-specific env, keys, storage, and diagnostics separated.
@@ -35,20 +37,20 @@ rules as production.
 
 Default ports:
 
-| Role          | URL                     |
-| ------------- | ----------------------- |
-| Router        | `http://127.0.0.1:8787` |
-| Deriver A     | `http://127.0.0.1:8788` |
-| Deriver B     | `http://127.0.0.1:8789` |
-| SigningWorker | `http://127.0.0.1:8790` |
+| Service               | URL                     |
+| --------------------- | ----------------------- |
+| SDK Router/API server | `http://127.0.0.1:9090` |
+| Deriver A             | `http://127.0.0.1:9091` |
+| Deriver B             | `http://127.0.0.1:9092` |
+| SigningWorker         | `http://127.0.0.1:9093` |
 
 ```mermaid
 flowchart LR
   C["Client"]
-  R["Router :8787"]
-  A["Deriver A :8788"]
-  B["Deriver B :8789"]
-  SW["SigningWorker :8790"]
+  R["SDK Router/API :9090"]
+  A["Deriver A :9091"]
+  B["Deriver B :9092"]
+  SW["SigningWorker :9093"]
 
   C -->|"setup/export/refresh"| R
   R -->|"private deriver request"| A
@@ -73,7 +75,7 @@ flowchart LR
 - `router-ab-dev` has SQLite seeding helpers for local signing-root metadata and
   sealed root-share records.
 - `router-ab-dev` has the dev-only Ed25519-HSS parity adapter.
-- `router-ab-dev` has a persistent four-process HTTP runner:
+- `router-ab-dev` has persistent private-worker helpers:
   `router_ab_local_init`, `router_ab_local_up`, `router_ab_local_smoke`, and
   `router_ab_local_down`.
 - `router-ab-cloudflare` has role-specific `workers-rs` entrypoint features and
@@ -89,7 +91,8 @@ Remaining local parity pieces:
 
 ## Architecture
 
-Add one role-parametrized Rust binary under `crates/router-ab-dev`:
+The SDK Router/API server owns public Router routes. Add one role-parametrized
+Rust binary under `crates/router-ab-dev` for private worker roles:
 
 ```text
 crates/router-ab-dev/src/bin/router_ab_local_worker.rs
@@ -98,7 +101,6 @@ crates/router-ab-dev/src/bin/router_ab_local_worker.rs
 The binary should accept:
 
 ```text
-router-ab-local-worker --role router --env .env.router-ab.router.local
 router-ab-local-worker --role deriver-a --env .env.router-ab.deriver-a.local
 router-ab-local-worker --role deriver-b --env .env.router-ab.deriver-b.local
 router-ab-local-worker --role signing-worker --env .env.router-ab.signing-worker.local
@@ -108,7 +110,6 @@ Each process parses raw env once at startup into a precise role branch:
 
 ```rust
 enum LocalWorkerRoleConfig {
-    Router(LocalRouterWorkerConfig),
     DeriverA(LocalDeriverAWorkerConfig),
     DeriverB(LocalDeriverBWorkerConfig),
     SigningWorker(LocalSigningWorkerConfig),
@@ -135,7 +136,7 @@ adapter already defines them:
 | `/router-ab/v1/signing-worker/sign`                    | SigningWorker | private normal-signing request              |
 
 The current `LocalHttpPathV1` `/local/...` routes remain useful for
-in-process unit tests. The four-process harness should converge on the
+in-process unit tests. The local topology should converge on the
 Cloudflare route constants so local smoke tests catch production path drift.
 
 ## Local Storage
@@ -225,7 +226,7 @@ trait LocalServiceBindingTransport {
 }
 ```
 
-The Router process uses this transport for Deriver A, Deriver B, and
+The SDK Router server uses this transport for Deriver A, Deriver B, and
 SigningWorker calls. Deriver A and Deriver B use it for direct A/B peer
 coordination. The transport must preserve the same canonical request bytes used
 by Cloudflare service-binding requests.
@@ -258,7 +259,7 @@ by Cloudflare service-binding requests.
 8. Smoke check asserts Deriver A and Deriver B receive zero requests.
 
 The local HTTP smoke uses a deterministic dev SigningWorker signature over a
-required payload so the four-process path can prove Router -> SigningWorker
+required payload so the local path can prove Router -> SigningWorker
 success and Deriver A/B idleness. The Cloudflare strict worker remains gated on
 the production role-separated Ed25519-HSS signer API.
 
@@ -270,36 +271,33 @@ Add these commands after the binary exists:
 pnpm router:init
 pnpm router:up
 pnpm router:check
-pnpm router:smoke
-pnpm router:smoke:bundled
+pnpm router:public-route-smoke
+pnpm router:evidence
 pnpm router:down
 pnpm router
 pnpm router:multiplex
-pnpm router:bundled
 ```
 
 Expected behavior:
 
 - `router:init` generates dev-only env files, keys, and SQLite seed data.
-- `router:up` starts four detached processes and writes pids under
+- `router:up` starts detached private worker processes and writes pids under
   `.router-ab-local/pids`.
 - `router:check` runs setup/activation and normal-signing prepare/finalize
-  smoke tests through an already running Router public URL.
-- `router:smoke` starts four ephemeral workers, runs the same smoke checks, and
-  tears the workers down.
-- `router:smoke:bundled` starts one ephemeral bundled server, runs the same
-  setup/activation and normal-signing prepare/finalize checks through one
-  listener, and tears it down.
+  smoke tests through the already running SDK Router public URL.
+- `router:public-route-smoke` verifies local Caddy forwards
+  `https://localhost:9444` to one Router upstream and POST-probes the Ed25519
+  normal-signing prepare and Wallet Session issuance routes through that public
+  HTTPS origin.
+- `router:evidence` runs the local release-evidence protocol harness for
+  ECDSA-HSS normal-signing binding and Ed25519 presign-pool refill, pool-hit,
+  and pool-miss timing.
 - `router:down` stops only pids created by `router:up`.
-- `router` starts Router, Deriver A, Deriver B, and SigningWorker in one
-  terminal with interleaved color-labeled logs and stops all four workers on
-  Ctrl-C.
-- `router:multiplex` starts the same four workers in one 2x2 terminal
-  dashboard and stops all four workers on Ctrl-C.
-- `router:bundled` starts one process that exposes Router, Deriver A,
-  Deriver B, and SigningWorker routes from a single HTTP listener. This is the
-  local TEE-shaped profile for deployments that deliberately give up process
-  segregation.
+- `router` starts the SDK Router server plus Deriver A, Deriver B, and
+  SigningWorker in one terminal with interleaved color-labeled logs and stops
+  managed processes on Ctrl-C.
+- `router:multiplex` starts the same services in one 2x2 terminal dashboard and
+  stops managed processes on Ctrl-C.
 
 Frontend account-creation testing uses the regular local app stack:
 
@@ -309,54 +307,34 @@ pnpm router:multiplex
 ```
 
 Run those commands in separate terminals. `pnpm site` owns
-`https://localhost`, and `pnpm router:multiplex` starts the relay upstream at
-`127.0.0.1:8444` when it is not already running. It verifies
+`https://localhost`, and `pnpm router:multiplex` starts the Router server at
+`127.0.0.1:9090` when it is not already running. It verifies
 `https://localhost:9444/.well-known/webauthn` and starts the local Caddy proxy
 when that HTTPS endpoint is absent. The Router A/B harness workers still run on
 their own local ports for protocol work.
 
-`pnpm server` still starts the main SDK relay server in `apps/web-server`. It
-does not mean Router A/B bundled mode.
+`pnpm server` starts the main Router server in `apps/web-server`.
 
-When default ports `8787-8790` are occupied, initialize with free localhost
+If a browser request through `https://localhost:9444` returns an Express-style
+`Cannot POST /v2/router-ab/...`, the main Router route table is missing that
+route. Do not fix this with Caddy path selection; Caddy must forward the whole
+origin to one Router server.
+
+When default ports `9090-9093` are occupied, initialize with free localhost
 ports:
 
 ```sh
-pnpm router:init -- --force --ephemeral-ports
-pnpm router:up
-pnpm router:check
-pnpm router:down
+pnpm router -- --fresh --ephemeral-ports
 ```
 
 The generated env files record the selected URLs, so `router:up` and
-`router:check` use the same four-worker topology without extra flags.
+`router:check` use the same local topology without extra flags.
 
 For fresh single-terminal runs with free ports:
 
 ```sh
 pnpm router -- --fresh
 pnpm router:multiplex -- --fresh
-```
-
-For the bundled single-server profile, first generate env files, then run:
-
-```sh
-pnpm router:bundled
-```
-
-Use `--url http://127.0.0.1:<port>` to override the Router env file's
-`ROUTER_PUBLIC_URL`.
-
-To smoke-test a running bundled server from another terminal:
-
-```sh
-pnpm router:check -- --topology bundled
-```
-
-For a one-command bundled smoke with temp state and an ephemeral port:
-
-```sh
-pnpm router:smoke:bundled
 ```
 
 The implementation can also expose equivalent `just` recipes if the repo
@@ -366,15 +344,15 @@ standardizes Router/A/B developer commands there.
 
 2026-06-14 local development evidence:
 
-- [x] `pnpm build:sdk && pnpm router` starts the frontend relay, verifies
+- [x] `pnpm build:sdk && pnpm router` starts the Router server, verifies
       `https://localhost:9444/.well-known/webauthn`, and starts Router,
-      Deriver A, Deriver B, and SigningWorker after the browser-facing relay
+      Deriver A, Deriver B, and SigningWorker after the browser-facing Router
       path is stable.
 - [x] Passkey wallet unlock succeeds against the local stack.
 - [x] Passkey account registration succeeds against the local stack.
 - [x] Ed25519 transaction signing succeeds against the local stack.
 - [x] ECDSA transaction signing succeeds against the local stack.
-- [x] Ctrl-C stops the started local workers and frontend relay.
+- [x] Ctrl-C stops the started local workers and Router server.
 
 This is local development evidence. It does not replace deployed Cloudflare
 runtime evidence or the production Ed25519-HSS normal-signing release gate.
@@ -386,9 +364,8 @@ Focused gates:
 - unit tests for env parser role branches and forbidden-key checks,
 - unit tests for route path ownership,
 - unit tests for local Durable Object storage parity with memory storage,
-- four-process setup/activation smoke,
-- four-process normal-signing smoke proving Deriver A/B stay idle,
-- bundled single-process setup/activation and normal-signing smoke,
+- local setup/activation smoke through the SDK Router server and private workers,
+- local normal-signing smoke proving Deriver A/B stay idle,
 - source guard proving the local HTTP harness uses Cloudflare route constants,
 - source guard proving local logs accept only redacted diagnostics.
 
@@ -401,7 +378,7 @@ Release gates before Cloudflare deployment:
 - `cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-signer-a-entrypoint`
 - `cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-signer-b-entrypoint`
 - `cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-signing-worker-entrypoint`
-- local four-process smoke
+- local Router/API plus private-worker smoke
 - Wrangler dry-run for all four role configs
 
 ## Phased Todo List
@@ -463,15 +440,14 @@ Release gates before Cloudflare deployment:
 - [x] Add `pnpm router:down`.
 - [x] Add `pnpm router` interleaved logs with Ctrl-C cleanup.
 - [x] Add `pnpm router:multiplex` 2x2 dashboard with Ctrl-C cleanup.
-- [x] Add `pnpm router:bundled` single-server mode for local TEE-shaped
-      deployment checks.
-- [x] Add CI-safe smoke mode that uses ephemeral ports and temp directories.
-- [x] Add bundled topology to the smoke runner and CI-safe bundled smoke
-      command.
+- [x] Delete the obsolete single-process local profile after the SDK Router
+      route table became the only public Router runtime.
+- [x] Delete ephemeral local smoke commands that preserved the old public Rust
+      Router role.
 - [x] Add persistent local init mode that materializes free ports when defaults
       are occupied.
 - [x] Make `pnpm router` and `pnpm router:multiplex` auto-start the
-      `127.0.0.1:8444` frontend relay upstream when it is not already running.
+      `127.0.0.1:9090` Router server when it is not already running.
 - [x] Make `pnpm router` and `pnpm router:multiplex` verify the
       `https://localhost:9444/.well-known/webauthn` proxy path before workers
       are marked ready.
@@ -490,23 +466,23 @@ Release gates before Cloudflare deployment:
 - [x] Add manual Router A/B upload/deploy workflow for Cloudflare startup
       evidence and target deployment.
 - [x] Re-run local Wrangler startup dry-run after the local browser-flow fixes.
-      Evidence:
-      `crates/router-ab-cloudflare/reports/startup-latencies/startup-latencies-2026-06-14T14-11-55-253Z.json`.
+      Evidence: timestamped ignored JSON under
+      `crates/router-ab-cloudflare/reports/startup-latencies/`.
       Dry-run gzip upload sizes: Router `573.83 KiB`, Deriver A `598.97 KiB`,
       Deriver B `599.92 KiB`, SigningWorker `567.14 KiB`.
-- [x] Capture current local four-worker smoke timing evidence.
+- [x] Capture current local smoke timing evidence.
       2026-06-14 local run: setup `18 ms`, SigningWorker activation `1 ms`,
       normal signing `0 ms`, total `36 ms`; Deriver A/B normal-signing request
       counts stayed `0`.
 - [x] Move local normal-signing smoke from `local_dev_ed25519_v1` to the
       production Ed25519-HSS prepare/finalize shape. Current
-      `pnpm router:smoke` and `pnpm router:smoke:bundled` runs report
-      `normal_signing_status: "ed25519_v1"`.
+      `pnpm router:check` runs report `normal_signing_status: "ed25519_v1"`.
 - [ ] Record deployed Cloudflare startup and hot-path benchmarks next to the
       local timing evidence.
 
-`router:check` and `router:smoke` emit local per-phase
-elapsed times in milliseconds. `router:measure` writes the same data
-to `crates/router-ab-dev/reports/local-smoke-timings/`. Keep the deployed
-benchmark checkbox open until Cloudflare startup and hot-path measurements are
-recorded next to those local numbers.
+`router:check` emits local per-phase elapsed times in milliseconds.
+`router:measure` writes the same data to
+`crates/router-ab-dev/reports/local-smoke-timings/`. `router:evidence` writes
+local protocol timing evidence for the ECDSA-HSS and Ed25519 presign-pool
+release gates. Keep the deployed benchmark checkbox open until Cloudflare
+startup and hot-path measurements are recorded next to those local numbers.

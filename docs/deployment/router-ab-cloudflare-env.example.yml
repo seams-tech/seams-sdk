@@ -102,6 +102,7 @@ cloudflare_workers:
       SIGNER_A_ROOT_SHARE_DO: RouterAbSignerARootShareDurableObject
     service_bindings:
       SIGNER_B: deriver-b
+      SIGNING_WORKER: signing-worker
     runtime_vars_from_github:
       ROUTER_AB_SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY: SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY
       ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX: SIGNER_A_PEER_VERIFYING_KEY_HEX
@@ -124,6 +125,7 @@ cloudflare_workers:
       SIGNER_B_ROOT_SHARE_DO: RouterAbSignerBRootShareDurableObject
     service_bindings:
       SIGNER_A: deriver-a
+      SIGNING_WORKER: signing-worker
     runtime_vars_from_github:
       ROUTER_AB_SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY: SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY
       ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX: SIGNER_A_PEER_VERIFYING_KEY_HEX

@@ -571,10 +571,10 @@ If the customer wants a fresh root, that is wallet-key migration.
 Local development should mirror Router A/B boundaries:
 
 ```text
-localhost:8787  Router
-localhost:8788  Signer A
-localhost:8789  Signer B
-localhost:8790  Relayer
+localhost:9090  Router
+localhost:9091  Signer A
+localhost:9092  Signer B
+localhost:9093  Relayer
 local Postgres  signing-root metadata and sealed-share records
 ```
 

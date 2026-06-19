@@ -1,7 +1,7 @@
 # Refactor 67: Reorganize Folders For Cross-Platform Products
 
 Date created: 2026-06-10
-Status: implemented, with follow-up runtime extraction noted
+Status: implemented, with runtime package extraction later folded back
 Owner: SDK architecture
 
 ## Purpose
@@ -28,19 +28,17 @@ Implemented on 2026-06-10:
 - moved deployable apps from `examples/seams-site`, `examples/relay-server`,
   and `examples/seams-docs` to `apps/web-client`, `apps/web-server`, and
   `apps/docs`;
-- created `packages/sdk-runtime-ts/` and moved `core/runtime/**` there;
+- moved `core/runtime/**` into `packages/sdk-web/src/core/runtime`;
 - created `clients/ios/` and `crates/seams-embedded/` implementation roots;
 - updated workspace metadata, root scripts, package paths, build paths,
   TypeScript configs, tests, and app imports for the new roots;
 - added `tests/unit/refactor67ReorgFolders.guard.unit.test.ts` to reject old
   implementation roots and deployable app imports through package source paths.
 
-The runtime package extraction is intentionally partial in this implementation:
-`packages/sdk-runtime-ts/src/runtime/**` is split out, while several runtime
-types still reference existing web SDK core modules. Moving additional neutral
-`core/platform`, signing, relayer, and generated schema code into
-`sdk-runtime-ts` should be handled as a focused follow-up once those modules can
-be separated without broad signing-engine churn.
+The separate runtime package extraction was folded back because the runtime
+source remained small and coupled to existing web SDK core modules. A future
+runtime package should be created only when the neutral dependency closure can
+stand on its own.
 
 Validation completed on 2026-06-10 after generated WASM artifacts were
 restored:
@@ -113,7 +111,6 @@ apps/
 
 packages/
   sdk-web/
-  sdk-runtime-ts/
   sdk-server-ts/
   shared-ts/
 
@@ -140,7 +137,7 @@ examples/
 | Area | Target location | Notes |
 | --- | --- | --- |
 | Web SDK package | `packages/sdk-web/` | Owns `SeamsWeb`, React exports, browser plugins, browser platform adapter, IndexedDB, wallet iframe, browser UI, and web build scripts. The npm package may remain `@seams/sdk` during the source move. |
-| Runtime TS package | `packages/sdk-runtime-ts/` | Owns platform-neutral TypeScript runtime services, ports, generated signer-core schemas, and type-only package exports. It must have no DOM, React, browser storage, wallet iframe, or server route dependencies. |
+| Runtime TS directory | `packages/sdk-web/src/core/runtime/` | Owns platform-neutral TypeScript runtime composition. It must have no DOM, React, browser storage, wallet iframe, or server route dependencies. |
 | Server TS package | `packages/sdk-server-ts/` | Owns server routes, WebAuthn verifier policy, route adapters, storage adapters, and server wasm bindings currently under `server/src`. |
 | Shared TS package | `packages/shared-ts/` | Owns protocol/domain TypeScript shared by web SDK, runtime, server, and tests. This can start as a move of `shared/src`. |
 | Web client app | `apps/web-client/` | Owns the browser app or site currently represented by `examples/seams-site`. It imports package exports instead of relative source roots. |
@@ -153,15 +150,15 @@ examples/
 
 ## Package Boundary Rules
 
-1. `packages/sdk-web` may import `packages/sdk-runtime-ts`, `packages/shared-ts`,
-   browser-compatible wasm outputs, and browser-only dependencies.
+1. `packages/sdk-web` may import `packages/shared-ts`, browser-compatible wasm
+   outputs, and browser-only dependencies.
 2. `packages/sdk-web` must not import `packages/sdk-server-ts` or server app
    code.
-3. `packages/sdk-runtime-ts` may import `packages/shared-ts`, generated
-   signer-core schemas, and type-only dependency packages.
-4. `packages/sdk-runtime-ts` must not import React, DOM UI modules, IndexedDB,
-   browser platform adapters, wallet iframe code, server routes, Node database
-   clients, or deployable apps.
+3. `packages/sdk-web/src/core/runtime` may import `packages/shared-ts`,
+   generated signer-core schemas, and type-only dependency packages.
+4. `packages/sdk-web/src/core/runtime` must not import React, DOM UI modules,
+   IndexedDB, browser platform adapters, wallet iframe code, server routes,
+   Node database clients, or deployable apps.
 5. `packages/sdk-server-ts` may import `packages/shared-ts`, generated schemas,
    server dependencies, and signer-core wasm/server bindings.
 6. `packages/sdk-server-ts` must not import `SeamsWeb`, React, wallet iframe
@@ -205,27 +202,17 @@ packages/sdk-web/
 platform adapters currently under `client/src/core/platform/browser` move under
 the web package because they are implementation details of the browser package.
 
-### `packages/sdk-runtime-ts`
+### `packages/sdk-web/src/core/runtime`
 
 ```text
-packages/sdk-runtime-ts/
-  package.json
-  src/
-    index.ts
-    runtime/
-    platform/
-      ports.ts
-      runtime.ts
-      secretSources.ts
-      http.ts
-      ecdsaRoleLocalRecords.ts
-      generated/
-    signing/
-    relayer/
-  tsconfig.json
+packages/sdk-web/src/core/runtime/
+  index.ts
+  createSigningRuntime.ts
+  types.ts
+  runtimeConfig.typecheck.ts
 ```
 
-This package exposes only neutral contracts and services. If a module needs
+This directory exposes only neutral contracts and services. If a module needs
 `window`, `document`, `navigator`, `IndexedDBManager`, React, wallet iframe
 routing, browser workers, `pg`, or Express, it belongs somewhere else.
 
@@ -374,14 +361,12 @@ Tasks:
 - [ ] Add `packages/README.md` with the package boundary summary.
 - [ ] Add placeholder roots:
   - [ ] `packages/sdk-web/README.md`;
-  - [ ] `packages/sdk-runtime-ts/README.md`;
   - [ ] `packages/sdk-server-ts/README.md`;
   - [ ] `packages/shared-ts/README.md`.
 - [ ] Add future workspace package rows to `pnpm-workspace.yaml` only when each
       root contains a real `package.json`.
 - [ ] Add or reserve aliases for:
   - [ ] `@seams-internal/sdk-web/*`;
-  - [ ] `@seams-internal/runtime/*`;
   - [ ] `@seams-internal/server/*`;
   - [ ] `@seams-internal/shared/*`.
 - [ ] Keep existing public package exports unchanged in this phase.
@@ -398,40 +383,40 @@ Validation:
 - Documentation-only or metadata-only checks for this phase.
 - `pnpm -C sdk type-check` if TypeScript aliases or workspace metadata changed.
 
-## Phase 2: Extract Platform-Neutral Runtime TypeScript
+## Phase 2: Keep Platform-Neutral Runtime Under Web Source
 
 Goals:
 
 - move neutral runtime code out of `client/`;
-- make `sdk-runtime-ts` the owner of cross-platform TypeScript contracts;
+- keep `packages/sdk-web/src/core/runtime` as the owner of cross-platform
+  TypeScript runtime composition until a real standalone package exists;
 - keep browser adapters in the web package.
 
 Tasks:
 
 - [ ] Move neutral runtime modules from `client/src/core/runtime/**` to
-      `packages/sdk-runtime-ts/src/runtime/**`.
-- [ ] Move neutral platform modules from `client/src/core/platform/**` to
-      `packages/sdk-runtime-ts/src/platform/**`, excluding browser adapter code
-      and browser storage.
-- [ ] Move generated signer-core TypeScript schemas to the runtime package or a
-      generated shared package path.
-- [ ] Update imports in web, server, tests, and build scripts to use the runtime
-      package alias.
+      `packages/sdk-web/src/core/runtime/**`.
+- [ ] Keep neutral platform modules in `packages/sdk-web/src/core/platform/**`
+      until they can move without broad signing-engine churn.
+- [ ] Move generated signer-core TypeScript schemas only when the destination
+      has a real independent owner.
+- [ ] Update imports in web, server, tests, and build scripts to use
+      `@/core/runtime/*`.
 - [ ] Keep `client/src/runtime.ts` as a temporary forwarding file only until the
       web package move. The forwarding file must be listed in the temporary path
       register.
 - [ ] Add guards that reject React, DOM globals, IndexedDB, wallet iframe, and
-      browser adapter imports from `packages/sdk-runtime-ts/src/**`.
-- [ ] Add guards that reject `packages/sdk-runtime-ts` importing server routes,
-      Node database clients, or deployable apps.
+      browser adapter imports from `packages/sdk-web/src/core/runtime/**`.
+- [ ] Add guards that reject `packages/sdk-web/src/core/runtime` importing
+      server routes, Node database clients, or deployable apps.
 
 Acceptance:
 
-- Runtime source has a package root outside `client/`.
+- Runtime source has a stable owner under `packages/sdk-web/src/core/runtime`.
 - `SigningRuntime` can still be constructed by browser tests with browser
   platform ports.
-- Native and embedded adapter contracts point at runtime package paths instead
-  of `client/src/core/platform`.
+- Native and embedded adapter contracts do not point at deleted `client/`
+  paths.
 
 Validation:
 
@@ -620,7 +605,6 @@ Tasks:
 - [ ] Keep the top-level `tests/` package during the first moves.
 - [ ] Add package-aware test directories:
   - [ ] `tests/unit/sdk-web/`;
-  - [ ] `tests/unit/sdk-runtime-ts/`;
   - [ ] `tests/unit/sdk-server-ts/`;
   - [ ] `tests/integration/web-client/`;
   - [ ] `tests/integration/web-server/`;
@@ -700,9 +684,9 @@ Add or update guards for:
 - no new deployable app imports from `client/src`, `server/src`, `shared/src`,
   or package implementation files;
 - no React, DOM globals, browser storage, browser platform adapter, or wallet
-  iframe imports from `packages/sdk-runtime-ts/src/**`;
+  iframe imports from `packages/sdk-web/src/core/runtime/**`;
 - no server route, Express, `pg`, Node database, or deployable app imports from
-  `packages/sdk-runtime-ts/src/**`;
+  `packages/sdk-web/src/core/runtime/**`;
 - no server package imports from `packages/sdk-web/src/**`;
 - no `SeamsWeb`, React, wallet iframe, browser adapter, or browser storage
   imports from `packages/sdk-server-ts/src/**`;
@@ -720,9 +704,8 @@ Recommended migration:
 
 1. Keep `@seams/sdk` as the web SDK package name while moving source into
    `packages/sdk-web`.
-2. Keep `@seams/sdk/runtime` as a web package export only until
-   `packages/sdk-runtime-ts` can be published or consumed as a workspace
-   package.
+2. Keep `@seams/sdk/runtime` as a web package export. Create a separate runtime
+   package only when it has an independent dependency closure.
 3. Keep `@seams/sdk/server` as a web package export only until the server
    package split is accepted.
 4. Add new published package names in a later plan if product packaging needs
@@ -747,7 +730,8 @@ Before merging a phase:
 ## Final Target State
 
 - `packages/sdk-web` is the browser TypeScript SDK source root.
-- `packages/sdk-runtime-ts` owns platform-neutral TypeScript runtime contracts.
+- `packages/sdk-web/src/core/runtime` owns platform-neutral TypeScript runtime
+  composition.
 - `packages/sdk-server-ts` owns server library exports.
 - `apps/web-client` owns the deployable web client.
 - `apps/web-server` owns the deployable web server.

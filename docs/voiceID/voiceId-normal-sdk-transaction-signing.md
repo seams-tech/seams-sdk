@@ -5,8 +5,8 @@ Status: implementation TODO list.
 Related docs:
 
 - [VoiceID MVP 1 tasks](voiceId-mvp-1-tasks.md)
+- [VoiceID SDK auth method integration](voiceId-sdk-auth-method-integration.md)
 - [VoiceID MVP 2](voiceId-mvp-2.md)
-- [Router A/B single wallet session plan](../router-a-b-single-session.md)
 - [Router A/B signer architecture](../router-A-B-signer.md)
 
 ## Goal
@@ -26,10 +26,12 @@ SDK transaction request
   -> normal SDK signing path only when policy accepts
 ```
 
-Router A/B signing integration remains a later hardening phase. The SDK signing
-APIs are actively moving toward the single Wallet Session model described in
-`docs/router-a-b-single-session.md`, so VoiceID should depend on a narrow
-signing-gate adapter instead of concrete Router A/B helper names.
+Router A/B signing integration now targets the signer architecture in
+`docs/router-A-B-signer.md`: Router owns the public admission boundary, normal
+signing flows through the active `SigningWorker`, and Deriver A/B stay out of
+the hot signing path. VoiceID should depend on a narrow signing-gate adapter
+around typed normal-signing prepare/finalize requests while avoiding concrete
+Cloudflare role helpers.
 
 ## Guardrails
 
@@ -40,10 +42,90 @@ signing-gate adapter instead of concrete Router A/B helper names.
   call the signing continuation.
 - Step-up-required policy decisions cannot sign through VoiceID alone.
 - The first implementation uses the normal SDK route/module path.
-- Router A/B issuer, JWT, and admission-token work stays deferred until the
-  normal SDK policy gate works.
-- The VoiceID code should not duplicate Router A/B canonicalization. When
-  Router A/B v2 vectors are needed, use the Rust-vector-backed SDK builders.
+- Router A/B admission integration stays deferred until the normal SDK policy
+  gate works.
+- VoiceID must not call Deriver A, Deriver B, SigningWorker, or Cloudflare role
+  internals directly.
+- The VoiceID code should not duplicate Router A/B canonicalization. For signing
+  integration, use the Router A/B v2 typed builders and vectors for
+  `RouterAbEd25519NormalSigningIntentV2`,
+  `RouterAbEd25519SigningPayloadV2`, and
+  `RouterAbEd25519NormalSigningAdmissionMaterialV2`.
+
+## Digest Boundary
+
+The standalone voice loop can continue to use `VoiceIdIntentDigest` for spoken
+command verification. The signing adapter must additionally bind the accepted
+VoiceID evidence to the Router A/B normal-signing digest tuple:
+
+- Router A/B `intent_digest`
+- Router A/B `signing_payload_digest`
+- Router A/B `admitted_signing_digest`
+
+If VoiceID keeps a separate `voice_id_intent_digest`, the adapter must carry
+both digests and prove they describe the same displayed transaction before
+Router admission runs.
+
+## Intermediate Phase: Prove The Voice Loop
+
+Before integrating VoiceID into transaction signing, prove the standalone
+VoiceID loop end to end:
+
+```text
+enroll owner voice with enrollment prompt samples
+  -> build spoken command intent: "send 50 USDC to bob"
+  -> record the spoken command
+  -> verify phrase + speaker
+  -> authorize owner presence for the intentDigest
+  -> log accepted, rejected, or uncertain result
+```
+
+Enrollment and transaction verification are separate steps. Enrollment creates
+the owner speaker template from enrollment-prompt samples. Transaction
+verification uses the spoken transaction command as the expected phrase, checks
+that the captured voice matches the enrolled speaker, then authorizes owner
+presence for the matching `intentDigest`.
+
+What already exists:
+
+- [x] Enrollment lifecycle:
+      start enrollment, record samples, require accepted samples, and finalize
+      an enrolled template.
+- [x] Verification lifecycle:
+      start verification, bind it to `intentDigest`, record a sample, and
+      produce accepted/rejected/uncertain verification results.
+- [x] Spoken command parsing for token transfers such as
+      `send 50 USDC to bob`.
+- [x] Canonical `intentDigest` generation for spoken token-transfer commands.
+- [x] Owner-presence authorization for completed verification records.
+- [x] One-use owner-presence evidence after successful authorization.
+- [x] Audit events for enrollment, verification, and owner-presence
+      authorization.
+
+What is still needed for the test loop:
+
+- [x] Add a dedicated developer test path for this exact flow, using
+      `send 50 USDC to bob` as the default spoken transaction command.
+- [x] Show or persist a compact event log for:
+      enrollment started, enrollment sample recorded, enrollment finalized,
+      verification issued, verification completed, and owner-presence
+      authorized.
+- [x] Make accepted/rejected/uncertain verification outcomes easy to trigger in
+      the fake-verifier path.
+- [x] Add a route or harness assertion that the command phrase maps to the same
+      `intentDigest` used by owner-presence authorization.
+- [x] Add mismatch coverage proving completed VoiceID verification cannot
+      authorize a different digest.
+- [x] Add replay coverage proving accepted owner-presence evidence is one-use.
+- [x] Keep this loop independent from normal SDK signing and Router A/B.
+
+Acceptance for this intermediate phase:
+
+- A developer can enroll a voice.
+- A developer can speak or simulate `send 50 USDC to bob`.
+- The system reports accepted, rejected, or uncertain.
+- The system logs the result without raw audio or template material.
+- The loop does not call any signing API.
 
 ## Phase 0: Freeze The Local Contract
 
@@ -56,8 +138,7 @@ signing-gate adapter instead of concrete Router A/B helper names.
 - [ ] Return a discriminated result union:
       `signed`, `rejected`, `step_up_required`, `voice_id_required`,
       `cancelled`, and `failed`.
-- [ ] Keep signing API churn contained to one adapter module while
-      `docs/router-a-b-single-session.md` is being implemented.
+- [ ] Keep Router A/B signer API details contained to one adapter module.
 - [ ] Add type fixtures proving rejected, uncertain, and step-up branches cannot
       carry a signing continuation result.
 
@@ -72,8 +153,10 @@ signing-gate adapter instead of concrete Router A/B helper names.
       recipient, token or asset, amount, chain/network, method/action kind,
       known-recipient status, and risk tier input.
 - [ ] Include payload binding fields that can survive SDK signing refactors:
-      transaction payload digest, Router A/B operation fingerprint, or current
-      typed signing-payload digest when available.
+      Router A/B operation fingerprint, Router normal-signing `intent_digest`,
+      `signing_payload_digest`, and `admitted_signing_digest` when available.
+- [ ] Bind the VoiceID transaction intent to the same Router A/B typed normal
+      signing intent used for admission.
 - [ ] Build `intentDigest` from the canonical VoiceID transaction intent.
 - [ ] Add fixtures showing amount, recipient, account, network, nonce, expiry,
       and payload changes all alter the digest.
@@ -82,18 +165,20 @@ signing-gate adapter instead of concrete Router A/B helper names.
 
 ## Phase 2: Consume Owner-Presence In Wallet Policy
 
-- [ ] Extend normal SDK test coverage after
+- [x] Extend normal SDK test coverage after
       `/voice-id/owner-presence/authorize`.
-- [ ] Convert the accepted owner-presence result into
+- [x] Convert the accepted owner-presence result into
       `VoiceIdWalletPolicyInput`.
-- [ ] Evaluate low-value known-recipient transactions as accepted.
-- [ ] Evaluate new-recipient transactions as `step_up_required`.
-- [ ] Evaluate high-value or anomalous transactions as `step_up_required`.
-- [ ] Preserve rejected, uncertain, expired, and intent-mismatch branches as
+- [x] Evaluate low-value known-recipient transactions as accepted.
+- [x] Evaluate new-recipient transactions as `step_up_required`.
+- [x] Evaluate high-value or anomalous transactions as `step_up_required`.
+- [x] Preserve rejected, uncertain, expired, and intent-mismatch branches as
       non-signing policy decisions.
-- [ ] Add assertions that policy version, model version, threshold version,
+- [x] Add assertions that policy version, model version, threshold version,
       liveness evidence, device id, sidecar id, and `intentDigest` survive the
       adapter boundary.
+- [ ] Add assertions that accepted wallet policy carries the Router A/B
+      operation fingerprint and normal-signing digest tuple unchanged.
 
 ## Phase 3: Add The Normal SDK Signing Gate
 
@@ -118,20 +203,24 @@ transaction candidate
 - [ ] Return `step_up_required` before signing when policy requires step-up.
 - [ ] Add tests proving the continuation is never called for non-accepted
       branches.
-- [ ] Add a source guard that the gate does not import Router A/B issuer/JWT
-      code.
+- [ ] Add a source guard that the gate does not import Deriver A, Deriver B,
+      SigningWorker, or Cloudflare role-specific code.
 
 ## Phase 4: Wire The Current Normal SDK Signing Path
 
-- [ ] Identify the current normal SDK signing entrypoint after the active
-      Router A/B single-session refactor.
-- [ ] Add one adapter from `VoiceIdTransactionSigningGate` to that entrypoint.
-- [ ] Use the current Wallet Session credential model when the Router A/B v2
-      SDK path is active.
-- [ ] Use the current branch-specific request builder for NEAR transaction,
-      NEP-413, or delegate-action signing when available.
-- [ ] Keep the adapter small so it can be replaced when signing helper names
-      settle.
+- [ ] Add one adapter from `VoiceIdTransactionSigningGate` to the current Router
+      A/B normal-signing v2 path.
+- [ ] Build `RouterAbEd25519NormalSigningPrepareRequestV2` from the transaction
+      candidate, active `NormalSigningScopeV1`, typed normal-signing intent, and
+      typed signing payload.
+- [ ] Derive `RouterAbEd25519NormalSigningAdmissionMaterialV2` and assert the
+      wallet policy decision binds to the same `intent_digest`.
+- [ ] Route accepted policy decisions through Router admission and the active
+      `SigningWorker` prepare/finalize flow.
+- [ ] Use the current branch-specific Router A/B builders for NEAR transaction,
+      NEP-413, or delegate-action signing.
+- [ ] Keep the adapter small so it can be replaced if public SDK helper names
+      change.
 - [ ] Delete any temporary adapter branch that exists only for a superseded
       signing request shape.
 
@@ -160,8 +249,8 @@ transaction candidate
 - [ ] Show policy result:
       accepted, rejected, uncertain, or step-up required.
 - [ ] Call a fake signing continuation first.
-- [ ] Swap the fake continuation for the current normal SDK signing adapter
-      after the signing API refactor reaches a stable checkpoint.
+- [ ] Swap the fake continuation for the current Router A/B normal-signing
+      adapter after the normal SDK policy gate passes.
 - [ ] Keep fixture capture separate from transaction signing UX.
 
 ## Phase 7: Fixture And Threshold Readiness
@@ -175,20 +264,20 @@ transaction candidate
 
 ## Phase 8: Router A/B Signing Integration
 
-Start this phase after the normal SDK gate works and the single-session signing
-refactor has a stable public SDK shape.
+Start this phase after the normal SDK gate works.
 
-- [ ] Map the accepted VoiceID wallet policy decision into the Router A/B v2
-      Wallet Session plus typed request flow.
-- [ ] Ensure Router A/B request intent and VoiceID transaction intent bind to
-      the same operation fingerprint and payload digest.
-- [ ] Add Router A/B E2E coverage:
-      accepted VoiceID policy decision to Router prepare/finalize to signature.
+- [ ] Map the accepted VoiceID wallet policy decision into Router A/B v2 normal
+      signing admission for `RouterAbEd25519NormalSigningPrepareRequestV2`.
+- [ ] Ensure Router A/B typed intent, signing payload, and VoiceID transaction
+      intent bind to the same operation fingerprint, `intent_digest`,
+      `signing_payload_digest`, and `admitted_signing_digest`.
+- [ ] Add Router A/B E2E coverage from accepted VoiceID policy decision to
+      Router admission, SigningWorker prepare/finalize, and signature.
 - [ ] Keep Deriver A and Deriver B out of the normal signing hot path.
-- [ ] Keep Router A/B policy issuer/JWT work deferred unless the product needs
-      a separate policy authority after the single-session model settles.
+- [ ] Treat any signed VoiceID policy evidence as an input to Router admission,
+      not as a replacement for Router-derived admission material.
 - [ ] Delete any VoiceID-specific Router A/B compatibility path once the v2
-      Wallet Session path covers the active signing flow.
+      normal-signing path covers the active signing flow.
 
 ## Phase 9: Production Hardening
 
@@ -212,6 +301,7 @@ refactor has a stable public SDK shape.
 - Expired owner-presence evidence cannot sign.
 - Rejected or uncertain VoiceID cannot sign.
 - Step-up-required policy cannot sign through VoiceID alone.
-- The first working path does not require Router A/B issuer/JWT machinery.
-- The signing adapter can absorb Router A/B single-session API churn without
-  changing VoiceID policy types.
+- The first working path does not require VoiceID to bypass Router admission or
+  call SigningWorker directly.
+- The signing adapter can absorb Router A/B normal-signing SDK helper churn
+  without changing VoiceID policy types.

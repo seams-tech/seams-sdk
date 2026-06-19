@@ -38,6 +38,20 @@ Client -> Router -> SigningWorker -> Router -> Client
 
 Deriver A and Deriver B do not participate in each normal ECDSA signature.
 
+## Client Material Boundary
+
+The TypeScript SDK holds ECDSA-HSS orchestration state, public identity, active
+scope metadata, Wallet Session JWTs, key handles, worker material handles,
+binding digests, and public facts. Secret client signing material, role-local
+state blobs, presignature/client-share material, nonce material, PRF-derived
+secret state, and crypto binding checks belong to `crates/signer-core` and the
+browser WASM workers.
+
+Registration, activation, presign-pool refill, and normal signing should expose
+only worker-owned handles and public facts to TypeScript. The active signing
+path consumes those handles plus Router A/B Wallet Session state; it does not
+assemble or inspect raw secp256k1 signing shares in SDK orchestration code.
+
 ## Security Rationale
 
 The current ECDSA-HSS role-local design is:
@@ -307,10 +321,14 @@ SigningWorker/client signing protocol. Deriver A/B stay out of online signing.
 
 ## Implementation Plan
 
-Current status as of 2026-06-16:
+Current status as of 2026-06-18:
 
-- [x] Existing passkey ECDSA transaction signing works in the local browser stack
-      started with `pnpm build:sdk && pnpm router`.
+- [x] Local Rust `pnpm router` ECDSA-HSS live HTTP route parity is complete and
+      recorded in [router-a-b-cleanup.md](./router-a-b-cleanup.md) Phase 15.8.
+      The active SDK/server ECDSA-HSS signing code is Router A/B-only, strict
+      Cloudflare ECDSA-HSS route handlers are implemented, and the Rust dev
+      worker covers ECDSA-HSS private pool-fill, public prepare/finalize, and
+      one-use replay rejection in local end-to-end `pnpm router` evidence.
 - [x] Normal ECDSA signing remains off the A/B derivation path in the validated
       local stack.
 - [x] Router A/B ECDSA-HSS registration, activation, export, recovery, refresh,
@@ -427,9 +445,10 @@ Current status as of 2026-06-16:
       JWT configuration, Cloudflare credentials, and Deriver A/B root-share wire
       secrets.
 
-Treat the local ECDSA transaction result as hot-path signing evidence. It does
-not complete the Cloudflare Router A/B ECDSA-HSS release requirement or
-`router_ab_ecdsa_hss_secp256k1_v1`.
+Treat the existing local ECDSA protocol/parser, SDK/server, strict
+Cloudflare-handler tests, and live `pnpm router` ECDSA-HSS route evidence as
+hot-path implementation evidence. Deployed Cloudflare evidence remains the
+release-tail gate.
 
 ### Phase 0: Release Scope Freeze
 
@@ -789,14 +808,21 @@ Cloudflare Router A/B deployment is allowed only after:
 - [x] Local ECDSA-HSS hot-path signing, registration/bootstrap, export,
       recovery/refresh, native vectors, Wasm adapter tests, and Cloudflare
       boundary parser tests pass.
+- [x] Local Rust `pnpm router` ECDSA-HSS live HTTP route parity covers private
+      pool-fill put, public prepare, public finalize, one-use pool entry
+      consumption, and one-use request-bound presignature consumption. Completed
+      in [router-a-b-cleanup.md](./router-a-b-cleanup.md) Phase 15.8 with
+      `rtk pnpm router:smoke`, `rtk pnpm router:smoke:bundled`, and
+      `rtk pnpm router:evidence -- --out crates/router-ab-dev/reports/local-release-evidence/local-release-evidence-2026-06-18-phase-15-8.json`.
 - [ ] Deployed strict Cloudflare evidence covers Ed25519 Wallet Session V2 and
       ECDSA-HSS Router A/B configured-origin success, rejected-origin behavior,
       preflight behavior, timing with preflight included, worker metrics/logs,
       and Deriver A/B non-invocation on normal signing.
 - [x] Final cleanup ownership moved to
       [router-a-b-cleanup.md](./router-a-b-cleanup.md) Phase 11 and surrounding
-      cleanup phases. Local Router A/B-only cleanup is complete there; deployed
-      Cloudflare evidence remains the open release-tail item.
+      cleanup phases. Active SDK/server Router A/B-only cleanup and local Rust
+      ECDSA-HSS route parity are complete there; deployed Cloudflare evidence
+      remains the open release-tail item.
 
 ## Validation Evidence
 
@@ -1012,9 +1038,10 @@ Validation runs on June 15-16, 2026:
   export artifact generation, and 0.1 ms for browser client prepare.
 - The old threshold-ECDSA presign benchmark has been retired. It still measured
   deleted `/threshold-ecdsa/*` public signing routes, so it is no longer valid
-  Router A/B ECDSA-HSS release evidence. Router A/B ECDSA-HSS normal-signing
-  timing now requires a replacement harness that exercises the Router A/B
-  prepare/finalize and pool-fill routes directly.
+  Router A/B ECDSA-HSS release evidence. Router A/B ECDSA-HSS local route
+  evidence now comes from `rtk pnpm router:smoke`,
+  `rtk pnpm router:smoke:bundled`, and the Phase 15.8
+  `router:evidence` protocol-shape report.
 - `rtk cargo bench --manifest-path crates/router-ab-cloudflare/Cargo.toml --bench router_latency -- router_ab_ecdsa_hss_activation_storage_v1 --sample-size 10 --warm-up-time 1 --measurement-time 2`
   passed on June 16 after adding the local SigningWorker-output activation
   storage benchmark. The measured
@@ -1023,8 +1050,9 @@ Validation runs on June 15-16, 2026:
   `time: [128.89 µs 129.51 µs 130.44 µs]`.
 - `rtk pnpm router:deploy:dry-run -- --env staging` passed on June 16 after
   setting the worker-build WASM C compiler to the Homebrew LLVM clang when the
-  local shell has not set `CC_wasm32_unknown_unknown`. The run wrote
-  `crates/router-ab-cloudflare/reports/startup-latencies/startup-latencies-2026-06-16T05-38-33-964Z.json`
+  local shell has not set `CC_wasm32_unknown_unknown`. The run wrote an
+  ignored timestamped report under
+  `crates/router-ab-cloudflare/reports/startup-latencies/`
   with Router 2887.88 KiB / gzip 879.45 KiB, Deriver A 2336.55 KiB / gzip
   737.40 KiB, Deriver B 2336.49 KiB / gzip 738.38 KiB, and SigningWorker
   2784.06 KiB / gzip 896.44 KiB.

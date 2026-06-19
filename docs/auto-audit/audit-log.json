@@ -1,0 +1,37 @@
+{
+  "updated_at": "2026-06-18T08:05:26Z",
+  "audited_files": [
+    "crates/router-ab-core/src/protocol/ecdsa_hss.rs"
+  ],
+  "audited_flows": [
+    "Router A/B ECDSA-HSS registration, export, recovery, refresh, and normal-signing boundary"
+  ],
+  "entries": [
+    {
+      "timestamp": "2026-06-18T08:05:26Z",
+      "target_file": "crates/router-ab-core/src/protocol/ecdsa_hss.rs",
+      "flow": "Router A/B ECDSA-HSS registration, export, recovery, refresh, and normal-signing boundary",
+      "report_path": "docs/auto-audit/2026-06-18T08-05-26Z-router-ab-core-protocol-ecdsa-hss.md",
+      "finding_counts": {
+        "security": 3,
+        "refactor": 2,
+        "total": 5
+      },
+      "highest_severity": "high",
+      "highest_severity_findings": [
+        "Registration and export requests do not enforce lifecycle.work_kind",
+        "Active-state session ids are collision-prone because they join unconstrained fields with ':'"
+      ],
+      "recommended_next_files": [
+        "packages/shared-ts/src/utils/routerAbEcdsaHss.ts",
+        "crates/router-ab-cloudflare/src/lib.rs",
+        "crates/router-ab-cloudflare/src/durable_object.rs"
+      ],
+      "recommended_next_flows": [
+        "Wallet SDK Router A/B ECDSA-HSS wire parser and JWT/session rehydration boundary",
+        "Cloudflare Router A/B ECDSA-HSS prepare/finalize handlers",
+        "Cloudflare durable-object active-signing-worker lookup and ECDSA presignature pool state"
+      ]
+    }
+  ]
+}

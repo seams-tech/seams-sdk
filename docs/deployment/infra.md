@@ -55,7 +55,7 @@ environment.
 | `ROUTER_AB_SIGNING_WORKER_SERVER_OUTPUT_HPKE_PUBLIC_KEY` | Router A/B deploy | Public key matching `SIGNING_WORKER_SERVER_OUTPUT_HPKE_PRIVATE_KEY`.         |
 | `ROUTER_AB_SIGNER_A_PEER_VERIFYING_KEY_HEX`              | Router A/B deploy | Public verifying key matching `SIGNER_A_PEER_SIGNING_KEY`.                   |
 | `ROUTER_AB_SIGNER_B_PEER_VERIFYING_KEY_HEX`              | Router A/B deploy | Public verifying key matching `SIGNER_B_PEER_SIGNING_KEY`.                   |
-| `VITE_RELAYER_URL`                                       | Pages build       | Public relay API base URL.                                                   |
+| `VITE_RELAYER_URL`                                       | Pages build       | Public Router API base URL; historical env var name.                         |
 | `VITE_CONSOLE_BASE_URL`                                  | Pages build       | Optional console API base URL; defaults in app code when unset.              |
 | `VITE_RELAYER_ACCOUNT_ID`                                | Pages build       | Parent NEAR account used for account creation.                               |
 | `VITE_SEAMS_ENVIRONMENT_ID`                              | Pages build       | Hosted environment id for managed registration and sponsored actions.        |
@@ -216,11 +216,11 @@ in stdout; use `--show-secrets` only for manual secret entry.
 The Router serves public deployment keys at:
 
 - `/.well-known/router-ab/keyset`
-- `/v1/router-ab/keyset`
+- `/v2/router-ab/keyset`
 
 Self-hosted relay deployments may serve the same public keyset routes when
 `routerAbPublicKeyset` is provided to the relay router. The browser SDK
-prefetches `/v1/router-ab/keyset` during registration precompute whenever
+prefetches `/v2/router-ab/keyset` during registration precompute whenever
 Router A/B normal signing is enabled.
 
 Manual validation and deployment:
@@ -242,7 +242,8 @@ pnpm router:deploy:upload -- --env staging
 
 Latest local dry-run evidence:
 
-- `crates/router-ab-cloudflare/reports/startup-latencies/startup-latencies-2026-06-14T14-11-55-253Z.json`
+- ignored timestamped JSON under
+  `crates/router-ab-cloudflare/reports/startup-latencies/`
 - mode: `dry_run`
 - gzip upload sizes: Router `573.83 KiB`, Deriver A `598.97 KiB`, Deriver B
   `599.92 KiB`, SigningWorker `567.14 KiB`

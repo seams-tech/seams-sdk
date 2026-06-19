@@ -727,13 +727,13 @@ checklists linked above.
 
 ### Phase 5: Documentation And Product Packaging
 
-- [ ] Make `router_ab_cloudflare_same_account_v1` the documented production
+- [x] Make `router_ab_cloudflare_same_account_v1` the documented production
       self-host default.
-- [ ] Document `router_ab_cloudflare_separate_accounts_v1` as the insider-risk
+- [x] Document `router_ab_cloudflare_separate_accounts_v1` as the insider-risk
       hardening path.
-- [ ] Document `router_ab_provider_diverse_v1` as the enterprise
+- [x] Document `router_ab_provider_diverse_v1` as the enterprise
       highest-assurance path.
-- [ ] Keep one-Worker self-host docs under local/dev/evaluation/escape-hatch
+- [x] Keep one-Worker self-host docs under local/dev/evaluation/escape-hatch
       language.
 
 ## Decision Summary

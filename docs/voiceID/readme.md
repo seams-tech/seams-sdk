@@ -221,7 +221,8 @@ Completed embedded transaction-signing prerequisites:
 2. Owner-presence policy and replay resistance.
 3. Device and sidecar policy context.
 4. Wallet policy tiers and step-up results.
-5. Router A/B normal-signing admission with matching `intentDigest`.
+5. Router A/B normal-signing admission with matching VoiceID evidence and
+   Router `intent_digest`.
 6. SigningWorker admission checks for admitted intent-bound requests.
 
 Remaining implementation work:
@@ -229,10 +230,11 @@ Remaining implementation work:
 1. Add normal SDK coverage for typed wallet policy consumption after
    owner-presence authorization.
 2. Expand normal SDK demo or fixture coverage around that policy consumption.
-3. Implement the concrete Router A/B policy issuer and key-management path in
+3. Implement the concrete Router A/B admission adapter in
    `docs/voiceID/voiceId-router-policy-issuer.md`.
 4. Add an end-to-end test from accepted VoiceID wallet policy decision to Router
-   JWT to admitted normal-signing request after the normal SDK path works.
+   admission, SigningWorker prepare/finalize, and signature after the normal SDK
+   path works.
 5. Re-run fixture evaluation after verifier, threshold, or liveness-policy
    changes.
 6. Collect true independent human different-speaker clips before tightening

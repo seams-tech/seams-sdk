@@ -26,8 +26,9 @@ new code is correct.
 - Passkey and Email OTP are separate auth methods. A flow selected as
   `email_otp` must not call passkey/WebAuthn credential lookup. A flow selected
   as `passkey` must not call Email OTP verification.
-- Registration and wallet unlock must leave the wallet with equivalent usable
-  lane inventory for the same wallet, auth method, and configured chains.
+- Registration and default wallet unlock must leave the wallet with equivalent
+  usable lane inventory for the same wallet, auth method, and configured chains.
+  Explicit partial unlock must hydrate only the requested lane subset.
 - Transaction signing uses warm-session budget. It should not ask for step-up
   while a valid warm session has enough signature uses for the requested
   operation.
@@ -123,7 +124,9 @@ Expected behaviour:
 - Unlock prompts for the wallet's registered passkey.
 - If the credential id is known, WebAuthn should request that credential
   directly so the browser does not show an unnecessary account picker.
-- Unlock warms NEAR Ed25519 and configured ECDSA signing lanes.
+- By default, unlock warms NEAR Ed25519 and configured ECDSA signing lanes.
+- Callers may request an explicit subset, such as NEAR-only, ECDSA-only, or
+  specific ECDSA targets, to avoid unnecessary unlock latency.
 - Unlock creates a multi-use transaction-signing session according to the
   current environment policy.
 - Unlock should not require Email OTP.
@@ -135,7 +138,7 @@ Failure behaviour:
 
 - If no passkey auth method or credential can be found for the wallet, unlock
   fails before reporting success.
-- If configured signing lanes cannot be hydrated, unlock fails or reports a
+- If requested signing lanes cannot be hydrated, unlock fails or reports a
   typed partial-hydration error before normal signing begins.
 
 ### Email OTP Account
@@ -143,13 +146,17 @@ Failure behaviour:
 Expected behaviour:
 
 - Unlock sends one wallet-unlock OTP challenge.
-- Verifying the OTP warms NEAR Ed25519 and configured ECDSA signing lanes.
+- By default, verifying the OTP warms NEAR Ed25519 and configured ECDSA signing
+  lanes.
+- Callers may request an explicit subset, such as NEAR-only, ECDSA-only, or
+  specific ECDSA targets, to avoid unnecessary unlock latency.
 - Unlock creates a multi-use transaction-signing session according to the
   current environment policy.
 - Unlock should not require passkey/WebAuthn.
 - Unlock should not call passkey PRF/touch-confirm sealed restore.
-- Unlock should hydrate the same lane inventory as successful Email OTP
-  registration for the same wallet and auth method.
+- Default unlock should hydrate the same lane inventory as successful Email OTP
+  registration for the same wallet and auth method. Explicit partial unlock
+  should hydrate the requested lane subset only.
 
 Failure behaviour:
 

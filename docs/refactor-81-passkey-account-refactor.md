@@ -120,7 +120,7 @@ Warm sessions:
 fresh passkey unlock
   -> opens holder share inside worker
   -> creates bounded holder-share session handle
-  -> handle is bound to walletKeyId, laneId, laneShareEpoch, ttl, and budget
+  -> handle is bound to walletKeyId, laneId, laneShareEpoch, ttl, and signingGrantId
 ```
 
 Warm sessions should cache an opened holder-share handle or a worker-confined
@@ -608,9 +608,12 @@ Prep should leave these behaviors unchanged:
 - [ ] Pass only opened holder-share handles into signing code.
 - [ ] Remove direct PRF-as-client-share inputs from core signing functions.
 - [ ] Keep warm sessions as bounded holder-share unwrap sessions.
-- [ ] Bind warm sessions to `walletKeyId`, `laneId`, and `laneShareEpoch`.
+- [ ] Bind warm sessions to `walletKeyId`, `laneId`, `laneShareEpoch`, and
+      the active `signingGrantId` when the warm capability spends a signing
+      grant.
 - [ ] Clear warm sessions when the envelope or lane epoch is revoked.
-- [ ] Record budget spends against `laneId` and `laneShareEpoch`.
+- [ ] Record budget spends against `signingGrantId`, `laneId`, and
+      `laneShareEpoch`.
 
 ### Phase 5: Recovery
 

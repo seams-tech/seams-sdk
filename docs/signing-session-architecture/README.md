@@ -624,8 +624,8 @@ Guard tests should reject:
    [../otp/email-otp.md](../otp/email-otp.md).
 2. Sealed refresh:
    [sealed-refresh.md](sealed-refresh.md).
-3. Threshold session token naming:
-   [threshold-session-auth-token.md](threshold-session-auth-token.md).
+3. Wallet Session V2 and Router A/B auth:
+   [../refactor-68-wallet-session-v2.md](../refactor-68-wallet-session-v2.md).
 4. ECDSA model:
    [../ecdsa_threshold_signing.md](../ecdsa_threshold_signing.md).
 5. Ed25519 model:

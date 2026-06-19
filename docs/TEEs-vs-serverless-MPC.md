@@ -80,17 +80,14 @@ The advantage is deployment simplicity:
 TEE recombine-and-sign usually wins on single-signature latency. Once key shares
 are inside the enclave, signing is ordinary Ed25519 or ECDSA signing.
 
-Serverless MPC has extra protocol work. For the current Ed25519 threshold path,
-warm signing uses two visible MPC round trips:
+Serverless MPC has extra protocol work. For Router A/B Ed25519 normal signing,
+the pool-miss path uses a public prepare request followed by finalize, while the
+pool-hit path uses one public finalize request:
 
-1. commitment exchange through `/threshold-ed25519/sign/init`
-2. signature-share finalize through `/threshold-ed25519/sign/finalize`
-
-The planned Ed25519 presign pool reduces the warm pool-hit path to one visible
-round trip:
-
-1. client consumes a precomputed nonce transcript, sends a client signature
-   share, and the server finalizes or dispatches
+1. Pool miss: Router A/B prepare creates a single-use server nonce handle, then
+   Router A/B finalize consumes the exact bound handle.
+2. Pool hit: the client consumes a prefilled Router A/B presign entry and sends
+   one finalize request after user confirmation.
 
 That narrows the latency gap while preserving the serverless MPC deployment
 model.

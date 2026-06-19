@@ -187,8 +187,8 @@ The current assumption is:
   single-key lifecycle
 - the removed threshold-ed25519 microbenchmark harness is obsolete and should
   not be used as a live performance reference for the active path
-- the active performance and verification reference now lives in
-  [threshold-ed25519-single-key-hss.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/benchmarks/threshold-ed25519-single-key-hss.md)
+- Router A/B Ed25519 signing performance and verification evidence now lives in
+  [router-a-b-single-session.md](../router-a-b-single-session.md)
 
 The performance bar is therefore:
 

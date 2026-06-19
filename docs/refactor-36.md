@@ -1700,9 +1700,9 @@ Implementation targets:
   `tests/unit/seamsPasskey.loginThresholdWarm.unit.test.ts` around old
   fresh-Ed25519 caller-visible `sessionId` behavior before final Phase 12
   closure.
-- [x] Fix the `signTransactionsWithActions` import/export mismatch blocking
-  `tests/unit/thresholdEd25519.immediateSignFallback.unit.test.ts` before final
-  Phase 12 closure.
+- [x] Fix the `signTransactionsWithActions` import/export mismatch that once
+  blocked `tests/unit/thresholdEd25519.immediateSignFallback.unit.test.ts`.
+  That legacy fallback suite was later deleted during Router A/B-only cleanup.
 
 Exit criteria:
 

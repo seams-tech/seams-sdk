@@ -251,17 +251,17 @@ formats from entering the SDK.
 - [ ] Add worker unit coverage for each new primitive and tweaked signature
   share computation.
 
-### Server Signing Flow
+### Router A/B ECDSA-HSS Signing Flow
 
-- [ ] Extend `/threshold-ecdsa/authorize` request parsing with a discriminated
+- [ ] Extend Router A/B ECDSA-HSS prepare request parsing with a discriminated
   signing tweak branch.
-- [ ] Store tweak metadata in the authorized MPC session record.
+- [ ] Store tweak metadata in the Router A/B ECDSA-HSS request or active
+  signing context.
 - [ ] Include base public key, effective public key, derived address, tweak
   kind, tweak scalar hash/redaction, and announcement reference in records.
-- [ ] Extend `/threshold-ecdsa/sign/init` to carry the authorized tweak into the
-  signing session.
-- [ ] Extend `/threshold-ecdsa/sign/finalize` to pass the authorized tweak to
-  WASM finalization.
+- [ ] Bind Router A/B prepare and finalize to the same authorized tweak context.
+- [ ] Pass the authorized tweak to WASM finalization through the Router A/B
+  SigningWorker boundary.
 - [ ] Ensure signature verification and recovery use the effective public key.
 - [ ] Add authorization failures for missing, malformed, or mismatched tweak
   metadata.
@@ -273,9 +273,10 @@ formats from entering the SDK.
 - [ ] Add `ThresholdEcdsaSigningKeyMode` as a discriminated union.
 - [ ] Require `kind: 'standard'` on all existing ECDSA signing paths.
 - [ ] Add `kind: 'erc5564_stealth_address'` for stealth spending paths.
-- [ ] Thread the tweak branch through `signThresholdEcdsaDigestWithPool`.
+- [ ] Thread the tweak branch through the Router A/B ECDSA-HSS signing helper.
 - [ ] Pass tweak data into `thresholdEcdsaComputeSignatureShareWasm`.
-- [ ] Pass tweak data through `ecdsaSignInit` and `ecdsaSignFinalize`.
+- [ ] Pass tweak data through Router A/B ECDSA-HSS prepare/finalize request
+  builders.
 - [ ] Add type fixtures rejecting optional/bag-shaped tweak inputs.
 - [ ] Keep base-key presignature pool behavior unless the presign-pool spec
   decision requires per-tweak isolation.
@@ -609,14 +610,14 @@ TypeScript:
 
 Server:
 
-- Add tweak fields to `/threshold-ecdsa/authorize`, `/sign/init`, and
-  `/sign/finalize` session records.
+- Add tweak fields to Router A/B ECDSA-HSS prepare/finalize request and
+  active-state records.
 - Bind the authorization record to the derived address and announcement ref.
 - Persist only public tweak metadata and authorization state.
 
 Client:
 
-- Include tweak metadata in `signThresholdEcdsaDigestWithPool`.
+- Include tweak metadata in the Router A/B ECDSA-HSS signing helper.
 - Include tweak metadata in presign pool keys only if the protocol requires
   separate presign pools. The threshold-signatures rerandomization design should
   allow base-key presignatures to be reused across tweaks, so start with the

@@ -69,11 +69,15 @@ signing, and robot commands while preserving rejected, uncertain, expired, and
 intent-mismatch branches as non-signing policy decisions.
 The immediate integration target is the normal SDK: mount VoiceID through
 `RelayRouterModule`, exercise the API and owner-presence policy result, and keep
-Router A/B out of the first SDK test path. The later Router A/B policy issuer
-contract is documented in `docs/voiceID/voiceId-router-policy-issuer.md` for
-the signing phase after normal SDK testing works.
+Router A/B out of the first SDK test path. The later Router A/B admission
+adapter contract is documented in
+`docs/voiceID/voiceId-router-policy-issuer.md` for the signing phase after
+normal SDK testing works.
 The phased normal-SDK transaction-signing TODO list lives in
 `docs/voiceID/voiceId-normal-sdk-transaction-signing.md`.
+The SDK auth-method integration plan lives in
+`docs/voiceID/voiceId-sdk-auth-method-integration.md`.
+The VoiceID UI/UX requirements live in `docs/voiceID/voiceID-UI.md`.
 The VoiceID API now exposes `POST /voice-id/owner-presence/authorize`, which
 combines a completed verification record, `intentDigest`, use case, and typed
 liveness or owner-presence signals into one authorization decision. Camera,
@@ -254,19 +258,31 @@ Remaining:
   signing integration.
 - [x] Add normal SDK coverage for mounting VoiceID routes, enrollment,
   verification, and owner-presence authorization.
-- [ ] Add normal SDK coverage for typed wallet policy consumption after
+- [x] Add normal SDK coverage for typed wallet policy consumption after
   owner-presence authorization.
+- [ ] Complete the normal-SDK plan intermediate phase for the pre-signing voice loop:
+  - [x] add a standalone demo section below the existing UI
+  - [x] enroll owner voice with enrollment prompt samples
+  - [x] verify the spoken transaction command `send 50 USDC to bob`
+  - [x] authorize owner presence for the matching `intentDigest`
+  - [x] log accepted, rejected, or uncertain result without raw audio
+  - [x] keep the loop independent from signing APIs
+  - [ ] manually run the browser microphone loop end to end
 - [ ] Implement the phased normal-SDK transaction-signing plan in
   `docs/voiceID/voiceId-normal-sdk-transaction-signing.md`.
+- [ ] Implement the SDK auth-method integration plan in
+  `docs/voiceID/voiceId-sdk-auth-method-integration.md`.
+- [ ] Implement the VoiceID UI/UX requirements in
+  `docs/voiceID/voiceID-UI.md`.
 - [ ] Add independent human different-speaker clips before tightening thresholds
   or making stronger security claims.
 - [ ] Compare fallback pretrained speaker-verification models only if ECAPA has
   calibration, licensing, latency, or deployment problems.
-- [ ] After normal SDK testing works, implement the concrete Router A/B policy
-  issuer service and key-management path described in
+- [ ] After normal SDK testing works, implement the concrete Router A/B
+  admission adapter described in
   `docs/voiceID/voiceId-router-policy-issuer.md`.
 - [ ] Add a later Router A/B signing test from accepted VoiceID wallet policy
-  decision to Router JWT to admitted normal-signing request.
+  decision to Router admission, SigningWorker prepare/finalize, and signature.
 
 ## Model Recommendation
 
@@ -1113,8 +1129,9 @@ test should stay on the normal SDK route/module path:
 Normal SDK host -> VoiceID routes -> owner-presence policy -> wallet policy
 ```
 
-When Router A/B signing is enabled, owner-presence and `intentDigest` evidence
-feed Router admission. Normal signing stays on:
+When Router A/B signing is enabled, owner-presence evidence, VoiceID
+`intentDigest`, and the Router normal-signing digest tuple feed Router
+admission. Normal signing stays on:
 
 ```text
 Client -> Router -> SigningWorker -> Router -> Client
@@ -1136,17 +1153,19 @@ should not enter the normal VoiceID signing path.
   - [x] new-recipient payment
   - [x] high-value or anomalous payment
 - [x] Add step-up requirements for risky actions.
-- [x] Bind Router A/B normal-signing request to `intentDigest`.
-- [x] Require Router normal-signing JWT `intentDigest` as an unpadded base64url
-  32-byte digest string.
+- [x] Bind Router A/B normal-signing request to accepted VoiceID evidence and
+  Router `intent_digest`.
+- [x] Require Router normal-signing admission evidence to bind `intentDigest` as
+  an unpadded base64url 32-byte digest string.
 - [x] Ensure VoiceID never signs directly and never acts as a bearer secret.
 - [x] Add Router admission checks before forwarding to SigningWorker.
 - [x] Add SigningWorker checks for accepted policy evidence and matching
   `intentDigest`.
 - [x] Add embedded device/sidecar policy boundary.
-- [x] Document the Router A/B policy issuer JWT contract in
+- [x] Document the Router A/B admission adapter contract in
   `docs/voiceID/voiceId-router-policy-issuer.md`.
-- [x] Test the normal SDK path before implementing the Router A/B issuer:
+- [x] Test the normal SDK path before implementing the Router A/B signer
+  adapter:
   - [x] mount VoiceID through `RelayRouterModule`
   - [x] enroll and verify through the normal SDK-hosted routes
   - [x] call owner-presence authorization for a concrete `intentDigest`
@@ -1156,10 +1175,10 @@ should not enter the normal VoiceID signing path.
 Validation:
 
 - [x] Accepted VoiceID alone cannot create a signature.
-- [x] Router A/B signing requires an accepted policy decision and matching
-  `intentDigest`.
-- [x] Router rejects missing, malformed, or mismatched normal-signing JWT
-  `intentDigest` claims.
+- [x] Router A/B signing requires an accepted policy decision, matching VoiceID
+  evidence, and matching Router `intent_digest`.
+- [x] Router admission rejects missing, malformed, or mismatched normal-signing
+  `intentDigest` evidence.
 - [x] Deriver A and Deriver B are not invoked for normal VoiceID signing.
 - [x] SigningWorker receives only admitted, intent-bound normal-signing
   requests.

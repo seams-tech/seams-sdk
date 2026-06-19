@@ -63,8 +63,8 @@ validation.
 Public route shape:
 
 ```text
-POST /v2/hss/sign/prepare
-POST /v2/hss/sign
+POST /v2/router-ab/ed25519/sign/prepare
+POST /v2/router-ab/ed25519/sign
 ```
 
 Public credential:
@@ -100,6 +100,21 @@ Router
 ```
 
 Router admission is internal state. It is never returned to the SDK as a token.
+
+## Client Material Boundary
+
+TypeScript SDK code orchestrates Router A/B signing with worker handles and
+public facts. It may persist and route material handles, binding digests,
+Wallet Session JWTs, session ids, runtime-policy scope, SigningWorker scope,
+client verifying-share public facts, ECDSA public identity, and activation
+metadata.
+
+`crates/signer-core` and the browser WASM workers own crypto-secret client
+material and crypto-adjacent validation. Ed25519 HSS client-base material,
+ECDSA-HSS client signing shares, presignature/client-share material, nonce
+state, PRF-derived secret material, binding checks, and signing-share
+generation stay behind that boundary. Active SDK signing paths consume strict
+Router A/B Wallet Session state plus worker-owned handles.
 
 ## Core Decisions
 
@@ -561,10 +576,54 @@ retain protocol or persistence fields.
       await-confirmation and Router A/B ECDSA-HSS normal-signing unit tests, and
       source scans passed.
 
+### June 18, 2026
+
+- [x] Patched the Wallet Session V2 lifecycle JWT tail that was still assuming
+      legacy threshold-session token kinds.
+      Wallet-registration, link-device, sync-account, and email-recovery
+      lifecycle issuers now mint Router A/B Wallet Session JWT kinds for current
+      Ed25519 and ECDSA-HSS signing-capable sessions. Budget-status parsing,
+      ECDSA durable-lane recovery, and current server route/service boundaries
+      now require Router A/B Wallet Session JWT kinds for signable state.
+- [x] Updated server HSS/session claim boundaries to enforce Router A/B Wallet
+      Session claims only for active signing-capable state.
+      `ThresholdSigningService` now parses Router A/B Ed25519 claims for HSS
+      prepare/respond/finalize and Router A/B ECDSA-HSS claims when an existing
+      ECDSA Wallet Session authorizes Ed25519 session minting. Legacy
+      threshold-session claim parsers remain only in the validation boundary
+      file with deletion-condition comments and source-guard coverage.
+- [x] Added strict server Wallet Session JWT wrapper coverage.
+      Active signable issuers now call
+      `signRouterAbEd25519WalletSessionJwt` or
+      `signRouterAbEcdsaHssWalletSessionJwt`, which hard-code Router A/B claim
+      kinds, reject cookie-mode signing auth, and require curve-specific Router
+      A/B binding inputs before minting a JWT. Those bindings are now part of
+      the signed JWT payload, and Router A/B claim parsers reject under-bound
+      tokens. ECDSA-HSS JWTs carry exactly one binding branch:
+      `routerAbEcdsaHssNormalSigning` or `routerAbEcdsaHssIssuerBinding`. The
+      generic signer implementation is private and Router A/B-only.
+      SDK signing-capable state no longer normalizes browser-cookie auth into
+      Ed25519/ECDSA signer state. Validation covered
+      `rtk pnpm -C packages/sdk-server-ts type-check`, focused claim/budget
+      parser unit tests, the server claim-boundary source guard, and the
+      relayer seal plus Ed25519/ECDSA route subset.
+- [x] Finish the remaining cookie-mode lower-level provisioning audit.
+      Current login/warm-session paths require bearer Wallet Session auth for
+      Router A/B signing. Lower-level Email OTP/passkey provisioning helpers were
+      audited and narrowed so app-session cookies remain route authorization
+      only, while signing-capable Wallet Session records cannot be minted or
+      advertised without Router A/B state and bearer JWT material.
+      Completed in the strict internal signing Wallet Session pass: SDK
+      signing-capable provision/bootstrap/worker payloads are JWT-only, active
+      Ed25519 and ECDSA ready-state builders consume strict Router A/B signing
+      Wallet Session types, and server route wrappers parse Router A/B session
+      info before issuing Wallet Session JWTs.
+
 Recent validation for this cleanup pass:
 
 - `rtk pnpm -C packages/sdk-web run type-check`
 - `rtk pnpm -C packages/sdk-server-ts run type-check`
+- `rtk pnpm -C tests exec playwright test unit/signingBudgetStatus.parser.unit.test.ts unit/availableSigningLanes.ecdsaDuplicates.unit.test.ts --reporter=line`
 - `rtk pnpm -C packages/sdk-web run build`
 - `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/sessionTokens.unit.test.ts ./unit/thresholdSessionClaims.unit.test.ts --reporter=line`
 - `rtk pnpm -C tests exec playwright test -c playwright.unit.config.ts ./unit/routerAbEd25519.walletSessionState.unit.test.ts ./unit/warmSessionStore.bootstrapResolution.unit.test.ts ./unit/warmSessionStore.capabilityResolution.unit.test.ts --reporter=line`
@@ -878,8 +937,8 @@ Local/manual pre-deploy testing is ready. Use the current public route shape and
 bearer Wallet Session credential:
 
 ```text
-POST /v2/hss/sign/prepare
-POST /v2/hss/sign
+POST /v2/router-ab/ed25519/sign/prepare
+POST /v2/router-ab/ed25519/sign
 Authorization: Bearer <wallet-session-jwt>
 ```
 

@@ -653,7 +653,7 @@ lane moving from an old epoch to a new epoch.
 Prep should leave these behaviors unchanged:
 
 - current server-share custody rotation behavior
-- current signing-session budget admission
+- current signing-grant admission and budget accounting
 - current link-device flow
 - current passkey and Email OTP signing behavior
 - current `docs/rotate-korg-secrets.md` content until the server-custody split
@@ -685,7 +685,8 @@ Prep should leave these behaviors unchanged:
 ### Phase 1: Lane Epoch Identity
 
 - [ ] Add `laneShareEpoch` to lane records.
-- [ ] Add `laneShareEpoch` to signing-session claims and budget status checks.
+- [ ] Add `laneShareEpoch` to `thresholdSessionId` claims, `signingGrantId`
+      claims, and budget status checks.
 - [ ] Add `laneShareEpoch` to holder and server share envelopes.
 - [ ] Reject signing requests that present stale lane epochs.
 - [ ] Add lane-scoped rotation locks and wallet-key-level operation sequencing.

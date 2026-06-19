@@ -6,12 +6,12 @@ Owner: SDK React and auth UX
 
 ## Dependency
 
-Start this refactor after `docs/refactor-52-ed25519-presign-pool-plan.md` is
-implemented and validated.
+Start this refactor after the Router A/B signing cleanup in
+`docs/router-a-b-cleanup.md` is implemented and validated.
 
-Reason: Refactor 52 changes warm Ed25519 session behavior after unlock. This
-plan simplifies React login and registration surfaces, so it should build on the
-post-Refactor-52 warm-session semantics.
+Reason: Router A/B cleanup changes warm Ed25519 session behavior after unlock.
+This plan simplifies React login and registration surfaces, so it should build
+on the post-cleanup warm-session semantics.
 
 This refactor should also stay aligned with `docs/refactor-51-cross-platform-2.md`:
 React components call public/headless SDK flows, while SDK internals own use-case

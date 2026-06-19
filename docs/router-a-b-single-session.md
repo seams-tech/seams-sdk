@@ -321,8 +321,8 @@ algorithm for Router admission. Every branch needs cross-language vectors for:
 Keep public endpoints simple:
 
 ```text
-POST /v2/hss/sign/prepare
-POST /v2/hss/sign
+POST /v2/router-ab/ed25519/sign/prepare
+POST /v2/router-ab/ed25519/sign
 ```
 
 Both MVP endpoints accept:
@@ -351,8 +351,8 @@ No public endpoint should mint `routerAbNormalSigningGrant`.
 Strict Cloudflare Router deployment must expose browser-safe CORS for these
 public endpoints:
 
-- `OPTIONS /v2/hss/sign/prepare`
-- `OPTIONS /v2/hss/sign`
+- `OPTIONS /v2/router-ab/ed25519/sign/prepare`
+- `OPTIONS /v2/router-ab/ed25519/sign`
 - configured allowlist for app and wallet origins
 - deployed Worker evidence that browser prepare/finalize requests succeed
 
@@ -413,8 +413,8 @@ round-1 record or carry it in the Router-to-SigningWorker private finalize
 request after prepare lookup. The client-facing finalize request must not be
 the authority for that digest.
 
-The active public normal-signing endpoints use explicit `/v2/hss/sign/prepare`
-and `/v2/hss/sign` paths because the body contract is a clean replacement for
+The active public normal-signing endpoints use explicit `/v2/router-ab/ed25519/sign/prepare`
+and `/v2/router-ab/ed25519/sign` paths because the body contract is a clean replacement for
 the old digest-only public shape.
 
 ## Phased TODO List
@@ -730,7 +730,7 @@ falls back to the current just-in-time prepare/finalize path.
       handle plus the full typed intent/signing-payload data needed for Router
       admission.
 - [x] Add a public Wallet Session authenticated pool-refill route at
-      `/v2/hss/sign/presign-pool/prepare` that accepts client-generated
+      `/v2/router-ab/ed25519/sign/presign-pool/prepare` that accepts client-generated
       commitment offers, verifies account/session/SigningWorker scope, enforces
       refill size/TTL bounds, and forwards only Router-authenticated pool
       material to SigningWorker.
@@ -771,7 +771,7 @@ falls back to the current just-in-time prepare/finalize path.
       and generation.
 - [x] Update Router A/B SDK signing selection:
       pool hit -> one public finalize request;
-      pool miss -> current `/v2/hss/sign/prepare` plus `/v2/hss/sign` fallback;
+      pool miss -> current `/v2/router-ab/ed25519/sign/prepare` plus `/v2/router-ab/ed25519/sign` fallback;
       background refill -> keep target depth above the low-water mark after a
       miss or successful use.
 - [x] Add local and Cloudflare Durable Object cleanup for expired unbound pool
@@ -881,13 +881,13 @@ Flow-module builders return `{ body, walletSessionJwt? }`. `buildFinalizeRequest
 receives the prepare request and the deployed prepare response so it can create
 the matching client signature share for the one-use round-1 handle.
 
-- `OPTIONS /v2/hss/sign/prepare` returns the configured origin, omits
+- `OPTIONS /v2/router-ab/ed25519/sign/prepare` returns the configured origin, omits
   `Access-Control-Allow-Credentials`, and returns the expected method/header
   allowlist.
-- `OPTIONS /v2/hss/sign` returns the same bearer-only CORS policy.
-- Browser `POST /v2/hss/sign/prepare` with a bearer Wallet Session succeeds
+- `OPTIONS /v2/router-ab/ed25519/sign` returns the same bearer-only CORS policy.
+- Browser `POST /v2/router-ab/ed25519/sign/prepare` with a bearer Wallet Session succeeds
   from an allowed origin and rejects a missing or wrong origin.
-- Browser `POST /v2/hss/sign` succeeds only after the matching prepare binding
+- Browser `POST /v2/router-ab/ed25519/sign` succeeds only after the matching prepare binding
   and round-1 handle are returned by prepare.
 - Deployed timing captures include the preflight round trip when the browser
   cannot use a cached preflight.
@@ -970,7 +970,7 @@ Completed on June 15, 2026:
   credentials only. Cookie Wallet Session state fails at the Router A/B
   boundary until the deferred browser-cookie requirements are specified.
 - Public Router normal-signing endpoints now use explicit
-  `/v2/hss/sign/prepare` and `/v2/hss/sign` paths in the SDK, strict
+  `/v2/router-ab/ed25519/sign/prepare` and `/v2/router-ab/ed25519/sign` paths in the SDK, strict
   Cloudflare Router, and local dev harness.
 - The near-signer WASM boundary now exposes a delegate signing-payload builder
   so the SDK can supply canonical NEP-461 delegate preimages to the Router v2
@@ -1137,12 +1137,12 @@ Validation run on June 15, 2026:
   passed after converting the normal-signing latency bench to v2
   prepare/finalize admission.
 - `rtk cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-router-entrypoint`
-  passed after moving public normal-signing paths to `/v2/hss/sign/*`.
+  passed after moving public normal-signing paths to `/v2/router-ab/ed25519/sign/*`.
 - `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test source_guards`
-  passed 15 tests after adding guards for the `/v2/hss/sign/*` public routes.
+  passed 15 tests after adding guards for the `/v2/router-ab/ed25519/sign/*` public routes.
 - `rtk cargo test --manifest-path crates/router-ab-dev/Cargo.toml`
   passed 50 tests after moving the local Router normal-signing public paths to
-  `/v2/hss/sign/*`.
+  `/v2/router-ab/ed25519/sign/*`.
 - `rtk pnpm -C tests exec playwright test -c playwright.source.config.ts ./unit/routerAbNormalSigningSdk.guard.unit.test.ts --reporter=line`
   passed 1 test after enforcing v2 SDK paths and bearer-only Router A/B
   credentials.
@@ -1247,8 +1247,9 @@ Validation run on June 15, 2026:
   `seams-tech/seams-sdk`, then
   `rtk pnpm router:deploy:keygen -- --env production --apply --repo seams-tech/seams-sdk`
   applied real production Router A/B deployment identity variables and secrets.
-- `rtk pnpm router:deploy:dry-run -- --env staging` passed and wrote
-  `crates/router-ab-cloudflare/reports/startup-latencies/startup-latencies-2026-06-16T05-38-33-964Z.json`.
+- `rtk pnpm router:deploy:dry-run -- --env staging` passed and wrote a
+  timestamped ignored report under
+  `crates/router-ab-cloudflare/reports/startup-latencies/`.
   Dry-run upload totals were Router 2887.88 KiB / gzip 879.45 KiB,
   Deriver A 2336.55 KiB / gzip 737.40 KiB, Deriver B 2336.49 KiB / gzip
   738.38 KiB, and SigningWorker 2784.06 KiB / gzip 896.44 KiB after
@@ -1261,7 +1262,7 @@ Validation run on June 15, 2026:
   pool-hit finalization lowering.
 - `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings -- normal_signing`
   passed 33 focused tests after adding the Wallet Session authenticated
-  `/v2/hss/sign/presign-pool/prepare` route model, SigningWorker private
+  `/v2/router-ab/ed25519/sign/presign-pool/prepare` route model, SigningWorker private
   presign-pool refill materialization, unbound Ed25519 Durable Object put
   storage, and duplicate client-presign conflict coverage.
 - `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings -- normal_signing`
@@ -1278,7 +1279,7 @@ Validation run on June 15, 2026:
   passed after wiring the strict private SigningWorker presign-pool refill
   route.
 - `rtk cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-router-entrypoint`
-  passed after wiring `/v2/hss/sign` to accept both the just-in-time finalize
+  passed after wiring `/v2/router-ab/ed25519/sign` to accept both the just-in-time finalize
   request shape and the presign-pool-hit finalize request shape.
 - `rtk cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --features strict-worker-signing-worker-entrypoint`
   passed after wiring the private
@@ -1497,7 +1498,7 @@ Next implementation order:
 
    - [ ] Capture deployed strict Cloudflare browser evidence with
          `rtk pnpm router:deploy:browser-evidence` for
-         `/v2/hss/sign/prepare` and `/v2/hss/sign`: configured-origin success,
+         `/v2/router-ab/ed25519/sign/prepare` and `/v2/router-ab/ed25519/sign`: configured-origin success,
          rejected-origin behavior, preflight behavior, and timing with
          preflight included. Blocked until `ROUTER_AB_DEPLOYED_BASE_URL`, the
          remaining `ROUTER_AB_DEPLOYED_*` inputs, and a request-scoped Wallet

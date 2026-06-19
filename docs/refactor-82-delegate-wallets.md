@@ -654,7 +654,7 @@ New or revised records:
 - `DelegatedSigningRequestRecord`
 - `DelegatedBudgetReservationRecord`
 
-Existing session and budget records should gain:
+Existing threshold-session, signing-grant, and budget-status records should gain:
 
 - `walletKeyId`
 - `laneId`
@@ -691,8 +691,8 @@ POST /wallet/delegations/agent-lanes/{lane_id}/budgets
 POST /wallet/delegations/agent-lanes/{lane_id}/policies
 POST /wallet/delegations/agent-lanes/{lane_id}/sign
 POST /wallet/devices/link-sessions
-POST /wallet/devices/link-sessions/{session_id}/authorize
-POST /wallet/devices/link-sessions/{session_id}/complete
+POST /wallet/devices/link-sessions/{link_session_id}/authorize
+POST /wallet/devices/link-sessions/{link_session_id}/complete
 GET  /wallet/devices/linked-device-lanes
 POST /wallet/devices/linked-device-lanes/{lane_id}/revoke
 ```
@@ -842,8 +842,7 @@ type LinkDeviceSessionId = DomainId<'LinkDeviceSessionId'>;
 ```
 
 Add matching parsers and `@ts-expect-error` fixtures proving these ids are not
-interchangeable with `WalletId`, `WalletSigningSessionId`,
-`ThresholdEcdsaSessionId`, or `ThresholdEd25519SessionId`.
+interchangeable with `WalletId`, `SigningGrantId`, or `ThresholdSessionId`.
 
 ### Structs To Introduce Without Behavior Changes
 
@@ -964,7 +963,8 @@ boundary parser results.
 ### Phase 0: Boundary Agreement
 
 - [ ] Adopt `WalletKey` and `SigningLane` as first-class concepts.
-- [ ] Keep `walletSigningSessionId` as session budget identity.
+- [ ] Use `signingGrantId` as the user-approved signing grant and budget
+      identity.
 - [ ] Add `walletKeyId`, `laneId`, and `laneShareEpoch` to the planning model.
 - [ ] Define delegated-lane mandate policy fields.
 - [ ] Define revocation epoch semantics.

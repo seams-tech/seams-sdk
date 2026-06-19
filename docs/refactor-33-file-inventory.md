@@ -126,7 +126,7 @@ Generated Phase 0 inventory for `client/src/core/signingEngine`. Classification 
 | `client/src/core/signingEngine/orchestration/near/nearSigningFlow.ts` | operation flow | Current NEAR operation orchestration. | 2 |
 | `client/src/core/signingEngine/orchestration/near/nep413Flow.ts` | operation flow | Current NEAR operation orchestration. | 2 |
 | `client/src/core/signingEngine/orchestration/near/shared/ensureThresholdEd25519HssClientBase.ts` | operation flow | Current NEAR operation orchestration. | 3 |
-| `client/src/core/signingEngine/orchestration/near/shared/repairThresholdEd25519MissingRelayerKey.ts` | operation flow | Current NEAR operation orchestration. | 0 |
+| `client/src/core/signingEngine/orchestration/near/shared/repairThresholdEd25519MissingRelayerKey.ts` | deleted Router A/B raw-material helper | Deleted during Router A/B worker-handle cleanup; active NEAR signing force-refreshes worker-owned material handles instead. | 0 |
 | `client/src/core/signingEngine/orchestration/near/shared/signingMaterials.ts` | operation flow | Current NEAR operation orchestration. | 2 |
 | `client/src/core/signingEngine/orchestration/near/shared/thresholdAuthMode.ts` | operation flow | Current NEAR operation orchestration. | 5 |
 | `client/src/core/signingEngine/orchestration/near/shared/thresholdSessionAuth.ts` | operation flow | Current NEAR operation orchestration. | 1 |

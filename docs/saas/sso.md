@@ -28,7 +28,7 @@ This document is the canonical dashboard auth reference. Any dashboard auth beha
 - Dashboard unauthenticated guard redirects to `/dashboard/login`.
 - Dashboard sign-out calls `POST /session/revoke` and clears local dashboard state.
 - Shared app-session console auth helper (`createAppSessionConsoleAuthAdapter`) is exported from both adaptors.
-- Example relay server uses shared app-session console auth.
+- Example Router API server uses shared app-session console auth.
 - First-login SSO provisioning is implemented (org ensure, membership bootstrap, audit event).
 - First-login SSO without a configured/default org creates a stable org context for the OIDC user, then bootstraps owner/admin membership so a fresh database can reach onboarding.
 - Session-state UX distinguishes `401 unauthorized` vs `403 forbidden`.

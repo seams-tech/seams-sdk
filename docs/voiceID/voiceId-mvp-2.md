@@ -432,6 +432,260 @@ requirement:
 - pyannote if access/licensing/deployment weight are acceptable
 - TitaNet/NeMo if a heavier NVIDIA stack becomes useful
 
+## Provider-Grade Feature Track
+
+Goal: evolve the local VoiceID stack toward the standard set by commercial
+voice-biometric providers such as Veridas while preserving our wallet-specific
+auth model.
+
+The public Veridas materials set a useful bar:
+
+- [Voice Authentication](https://veridas.com/en/voice-biometric-authentication/)
+  describes short enrollment and authentication samples, provider-managed
+  biometric vectors, same-person decisions, deployment modes, and anti-spoofing
+  as part of the authentication result.
+- [das-Peak introduction](https://docs.veridas.com/das-peak/cloud/v2.20/)
+  describes text-independent speaker similarity between two recordings,
+  preprocessing, voice activity detection, noise analysis, irreversible voice
+  vectors, score output from 0 to 1, and threshold selection using FPR/FNR.
+- [das-Peak main features](https://docs.veridas.com/das-peak/cloud/v2.20/main-features/)
+  lists 3-second minimum voice duration, vector-to-audio comparison latency,
+  text-independent and language-aware matching, VAD, noise detection,
+  authenticity detection, calibration modes, capture SDKs, and immediate
+  deletion of cloud-processed personal data.
+- [Voice Shield](https://veridas.com/en/voice-shield/) frames the spoof layer
+  around recorded, manipulated, and AI-generated audio.
+
+These are product references, not guaranteed targets for our MVP. The plan is
+to implement the same feature classes, measure them honestly against our
+fixtures, and tighten model, threshold, and capture quality until the local
+system is fast and accurate enough for wallet policy experiments.
+
+### Feature 1: Short-Sample Enrollment And Authentication
+
+User outcome: enroll this browser or device once, then authenticate the enrolled
+speaker from a short fresh sample.
+
+Implementation requirements:
+
+1. Keep enrollment and verification text-independent at the speaker layer.
+   The speaker verifier decides whether the voice matches the enrolled template;
+   the ASR and intent parser decide what the user said.
+2. Accept clean short clips once VAD confirms enough speech. The product target
+   is 3 seconds of usable speech; the verifier must report actual speech
+   duration separately from container duration.
+3. Keep the current 3-sample enrollment UX for template quality, then support a
+   provider-grade fast enrollment mode once calibration proves one short sample
+   is reliable for the selected capture channel.
+4. Build templates from normalized speaker embeddings with model id, adapter
+   id, threshold version, calibration mode, prompt policy, device id, and
+   fixture-manifest hash.
+5. Store encrypted templates and typed audit events. Raw enrollment audio stays
+   disabled by default, with explicit diagnostic retention windows only.
+6. Bind every authentication attempt to an enrolled device proof and a fresh
+   capture session. Browser experiments can use the demo device id; wallet use
+   requires the same device-binding pattern as email OTP or passkey-adjacent
+   auth method flows.
+7. Return separate quality, speaker, phrase, liveness/authenticity, device, and
+   policy branches. A failure in one branch must remain visible to callers.
+
+Provider-grade acceptance:
+
+1. Clean 3-second clips from the enrolled user authenticate reliably on the
+   primary browser microphone profile.
+2. Same-speaker and different-speaker distributions are calibrated from real
+   independent human fixtures.
+3. Threshold versions include FPR, FNR, false-accept, false-reject, fixture
+   manifest, capture channel, model version, and scoring backend.
+4. Warm verifier latency is measured separately for decode, VAD/quality,
+   embedding, scoring, ASR, and policy.
+5. The UX can show recording, processing, accepted, rejected, uncertain, and
+   retry states without exposing raw model detail.
+
+### Feature 2: Audio Clip Speaker Comparison
+
+User outcome: compare two arbitrary audio clips and decide whether they likely
+belong to the same speaker.
+
+This feature should live beside enrollment/authentication, not inside the wallet
+auth path. It is useful for fixture analysis, support tooling, provider parity,
+and future admin/debug flows.
+
+Implementation requirements:
+
+1. Add a dedicated comparison service boundary:
+
+   ```text
+   clip A + clip B
+     -> decode and normalize each clip
+     -> quality and VAD for each clip
+     -> embedding extraction for each accepted clip
+     -> cosine score plus calibrated threshold
+     -> same_speaker / different_speaker / uncertain result
+   ```
+
+2. Define a `VoiceIdClipComparisonResult` union with:
+   - `kind: 'same_speaker'`
+   - `kind: 'different_speaker'`
+   - `kind: 'uncertain'`
+3. Include per-clip quality outcomes, score, threshold, model id, adapter id,
+   threshold version, calibration mode, and timing breakdown.
+4. Keep phrase transcript, wallet intent, enrollment id, and signing authority
+   out of the clip-comparison result.
+5. Add route and test coverage behind the VoiceID module boundary. SDK wallet
+   code should consume owner-presence grants, not raw clip-comparison output.
+6. Reuse the same model runtime and calibration reports as enrollment
+   verification so the feature does not fork into a second verifier stack.
+
+Provider-grade acceptance:
+
+1. Clean same-speaker pairs and independent different-speaker pairs separate at
+   the chosen threshold in the fixture report.
+2. Low-quality, too-short, multi-speaker, or undecodable pairs return
+   `uncertain` before speaker scoring.
+3. Reports include score histograms and confusion matrices for same-speaker,
+   different-speaker, wrong-phrase, noisy, and replay/synthetic subsets.
+4. The API can compare two uploaded clips without storing raw audio by default.
+
+### Feature 3: Spoofing, Deepfake, And Replay Detection
+
+User outcome: block or step up attempts that sound like the owner but appear to
+be recorded, synthetic, injected, replayed, or otherwise non-live.
+
+This is a separate authenticity layer. Speaker similarity alone does not prove a
+fresh human is present. For wallet signing, authenticity should combine audio
+countermeasures, dynamic phrase or intent binding, device binding, capture
+freshness, rate limits, and policy.
+
+Implementation requirements:
+
+1. Add a `VoiceIdAuthenticityResult` union:
+
+   ```ts
+   type VoiceIdAuthenticityResult =
+     | { kind: 'accepted'; modelVersion: VoiceIdModelVersion; score: number }
+     | {
+         kind: 'rejected';
+         reason:
+           | 'replay_suspected'
+           | 'synthetic_voice_suspected'
+           | 'voice_conversion_suspected'
+           | 'injected_audio_suspected'
+           | 'multi_speaker_suspected';
+         modelVersion: VoiceIdModelVersion;
+         score: number;
+       }
+     | {
+         kind: 'uncertain';
+         reason:
+           | 'insufficient_speech'
+           | 'low_audio_quality'
+           | 'model_low_confidence';
+         modelVersion: VoiceIdModelVersion;
+         score: number;
+       }
+     | {
+         kind: 'uncertain';
+         reason: 'authenticity_model_unavailable';
+         modelVersion?: never;
+         score?: never;
+       };
+   ```
+
+2. Keep authenticity separate from speaker match and phrase match in all service
+   and wallet-facing results.
+3. Start with replay-risk heuristics that are cheap and explainable:
+   - exact or near-duplicate audio fingerprint across attempts
+   - repeated waveform/embedding patterns for different requested intents
+   - suspicious channel metadata or missing browser capture timing
+   - speech starting before the prompt window
+   - implausible duration for the requested phrase
+4. Add a model-backed countermeasure track after fixtures exist. Candidate
+   classes include ASVspoof-trained AASIST, RawNet-style models, SSL/Wav2Vec2
+   spoof detectors, and vendor-style replay classifiers. Pick one model after a
+   measured spike, then expose it behind the same Python verifier HTTP boundary.
+5. Build attack fixtures before making product claims:
+   - loudspeaker replay of owner enrollment and verification clips
+   - phone speaker replay
+   - synthetic TTS for matching phrases
+   - voice-clone samples when we can generate or source them lawfully
+   - injected file uploads that bypass live microphone capture
+   - multi-speaker and background speech clips
+6. Bind verification to a dynamic transaction phrase or intent digest. A replay
+   of an older accepted command should fail because the phrase, nonce, expiry,
+   device id, and intent digest changed.
+7. Use step-up for high-risk or uncertain authenticity outcomes. VoiceID can
+   authorize low-risk tasks when all branches accept; risky wallet work should
+   require passkey, email OTP, phone, or another factor when authenticity is
+   uncertain.
+
+Provider-grade acceptance:
+
+1. Replay, synthetic, injected, and multi-speaker subsets appear in the
+   calibration report with separate false-accept and false-reject numbers.
+2. The service records spoof-model version, threshold version, calibration mode,
+   capture channel, and timing for every authenticity result.
+3. Accepted wallet policy requires accepted quality, phrase/intent,
+   speaker, device, and authenticity branches for flows that enable
+   spoof-resistance policy.
+4. The UI shows a single user-facing decision while preserving branch-level
+   diagnostics for audit and development.
+5. No production claim says "deepfake-proof". Claims must reference measured
+   attack classes, fixture versions, and known limitations.
+
+### Provider-Grade Phased TODO
+
+Phase A: tighten the local short-sample auth loop.
+
+- [x] ECAPA verifier path behind the Python sidecar.
+- [x] Quality-first gates before speaker scoring.
+- [x] Encrypted template storage boundary.
+- [x] Dynamic command phrase and intent digest binding in the demo.
+- [ ] Require and report speech duration independently from recording duration.
+- [ ] Add capture-channel calibration modes: `browser-lossless`,
+  `mobile-lossless`, `telephone-channel`, and `robot-microphone`.
+- [ ] Add timing breakdowns to verifier, ASR, and policy responses.
+- [ ] Add fixture reports that summarize FPR/FNR by capture channel and
+  threshold version.
+
+Phase B: add first-class clip comparison.
+
+- [ ] Define `VoiceIdClipComparisonResult` in `voiceId/shared`.
+- [ ] Add Python verifier request/response schemas for clip-to-clip comparison.
+- [ ] Add TypeScript adapter parsing and tests.
+- [ ] Add a server route for development and fixture tooling.
+- [ ] Add fixture report output for clip-pair score distributions.
+
+Phase C: build the authenticity layer.
+
+- [ ] Define `VoiceIdAuthenticityResult` and thread it through verifier,
+  policy, auth-policy adapter, and audit events.
+- [ ] Add cheap replay heuristics: duplicate audio fingerprint, stale prompt
+  timing, repeated command audio, and channel metadata checks.
+- [ ] Add replay and injected-audio fixture capture scripts.
+- [ ] Spike one ASVspoof-style model behind the Python HTTP verifier boundary.
+- [ ] Calibrate authenticity thresholds with attack-class-specific reports.
+
+Phase D: optimize for provider-grade latency and quality.
+
+- [ ] Preload model weights and expose sidecar warmup health.
+- [ ] Cache enrollment embeddings/templates without caching raw audio.
+- [ ] Measure p50/p95 decode, VAD, embedding, scoring, ASR, spoof detection,
+  and policy time.
+- [ ] Reduce payload size and normalize browser recording format before upload.
+- [ ] Add regression fixtures that fail CI when latency or score separation
+  moves outside configured bounds.
+
+Phase E: integrate as wallet auth evidence.
+
+- [ ] Keep VoiceID equivalent to email OTP: server-verified, device-bound,
+  grant-issuing, and short-lived.
+- [ ] Require accepted speaker, phrase/intent, authenticity, quality, and
+  device branches before issuing a low-risk signing grant.
+- [ ] Route uncertain authenticity to step-up.
+- [ ] Keep clip comparison as tooling; wallet code consumes only
+  owner-presence/auth-policy grants.
+
 ## Core Result Shape
 
 MVP 2 should expose one policy result to wallet or robot code:
@@ -679,8 +933,9 @@ VoiceID accepted owner presence
 
 The signing architecture is the existing Router A/B signer design in
 `docs/router-A-B-signer.md`. VoiceID supplies typed owner-presence evidence and
-the bound `intentDigest`. Router admission checks policy, quota, replay,
-session, and risk. Normal signing remains:
+the bound VoiceID `intentDigest` plus Router normal-signing digest tuple. Router
+admission checks policy, quota, replay, session, and risk. Normal signing
+remains:
 
 ```text
 Client -> Router -> SigningWorker -> Router -> Client
@@ -688,6 +943,10 @@ Client -> Router -> SigningWorker -> Router -> Client
 
 Deriver A and Deriver B stay on setup/export/recovery/SigningWorker-refresh
 ceremonies and are not introduced into the normal VoiceID signing path.
+The concrete signer adapter should bind VoiceID policy evidence to
+`RouterAbEd25519NormalSigningPrepareRequestV2`,
+`RouterAbEd25519NormalSigningFinalizeRequestV2`, and
+`RouterAbEd25519NormalSigningAdmissionMaterialV2`.
 
 Robot policy flow:
 
@@ -707,7 +966,8 @@ Rules:
 2. VoiceID outputs typed policy evidence.
 3. Router admission decides whether an owner-presence result can be forwarded to
    the active SigningWorker.
-4. SigningWorker participation binds to `intentDigest`, expiry, device id,
+4. SigningWorker participation binds to Router `intent_digest`,
+   `signing_payload_digest`, `admitted_signing_digest`, expiry, device id,
    nonce, request digest, and the existing Router A/B signer transcript fields.
 5. High-value actions can require additional factors.
 
@@ -770,6 +1030,14 @@ MVP 2 is ready for policy experiments when:
    liveness branches without requiring camera extraction in this MVP.
 8. Wallet/MPC policy consumes VoiceID as owner presence only.
 9. Raw audio retention remains disabled by default.
+10. Short-sample enrollment/authentication reports speech duration, score,
+    threshold, calibration mode, model version, and timing.
+11. Clip-to-clip speaker comparison exists as a typed VoiceID capability outside
+    wallet signing authority.
+12. Spoof, deepfake, replay, injected-audio, and multi-speaker checks produce a
+    separate authenticity result branch.
+13. Calibration reports include independent human different-speaker clips and
+    attack-class fixtures before any provider-grade claims.
 
 ## Implementation Order
 
@@ -799,10 +1067,18 @@ Remaining order:
 1. Add normal SDK coverage for typed wallet policy consumption after
    owner-presence authorization.
 2. Expand normal SDK demo or fixture coverage around that policy consumption.
-3. Expand fixtures and rerun calibration reports.
-4. Add embedded/robot sidecar architecture proof of concept.
-5. Defer Router A/B issuer and signing tests until the normal SDK path works.
-6. Future camera, face, mouth, and lip-sync work lives in
+3. Tighten short-sample enrollment/authentication with speech-duration reporting,
+   capture-channel calibration modes, timing breakdowns, and updated fixture
+   reports.
+4. Add the first-class clip-to-clip speaker comparison capability.
+5. Add the spoof, deepfake, replay, injected-audio, and multi-speaker
+   authenticity layer.
+6. Expand fixtures and rerun calibration reports across speaker, phrase,
+   quality, and authenticity branches.
+7. Add embedded/robot sidecar architecture proof of concept.
+8. Defer Router A/B admission-adapter and signing tests until the normal SDK
+   path works.
+9. Future camera, face, mouth, and lip-sync work lives in
    `docs/voiceID/voiceId-camera-liveness-future.md`.
 
 ## Research Basis

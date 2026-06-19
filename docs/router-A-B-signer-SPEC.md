@@ -5,7 +5,7 @@ Date created: June 11, 2026
 Status: pre-implementation specification.
 
 Related plan:
-[docs/router-A-B-signer.md](/Users/pta/Dev/rust/simple-threshold-signer/docs/router-A-B-signer.md).
+[docs/router-A-B-signer.md](./router-A-B-signer.md).
 
 ## Purpose
 
@@ -20,6 +20,23 @@ Terminology: target architecture prose uses `Deriver A`, `Deriver B`, and
 `SigningWorker`. Current implementation labels such as `SignerA`, `SignerB`,
 `SIGNER_A_*`, `SIGNER_B_*`, and server-labelled activation types are
 transitional and should be renamed during the slimming refactor.
+
+## Client Material Boundary
+
+Router A/B client code has a strict split between orchestration and
+cryptographic material. TypeScript SDK code carries public/session metadata,
+Wallet Session JWTs, route requests, worker material handles, binding digests,
+public facts, runtime-policy scope, and SigningWorker scope. It must not own
+Ed25519 HSS client-base material, ECDSA-HSS client signing shares,
+presignature/client-share material, nonce secrets, PRF-derived secret state, or
+signing-share generation.
+
+`crates/signer-core` and browser WASM workers own client-side cryptographic
+protocol logic, secret material, binding checks, serialization formats that are
+crypto-adjacent, and client share generation. Cloudflare SigningWorker owns
+server-side one-use nonce/presignature state and server signing material. Router
+owns admission, policy, Wallet Session verification, replay/quota/abuse gates,
+private worker forwarding, and response binding validation.
 
 ## Protocol Decision Gates
 
@@ -778,47 +795,54 @@ Implemented production metadata:
 
 Deriver-envelope HPKE private-key source rules:
 
-| Worker        | Allowed deriver-envelope Secret bindings   |
-| ------------- | ------------------------------------------ |
-| Router        | none                                       |
-| Deriver A     | `DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY` only |
-| Deriver B     | `DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY` only |
-| SigningWorker | none                                       |
+| Worker        | Allowed deriver-envelope Secret bindings |
+| ------------- | ---------------------------------------- |
+| Router        | none                                     |
+| Deriver A     | `SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY`, optional `SIGNER_A_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY` during overlap |
+| Deriver B     | `SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY`, optional `SIGNER_B_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY` during overlap |
+| SigningWorker | none                                     |
 
 Direct A/B peer-message signing key-source rules:
 
 | Worker        | Allowed peer-message signing Secret bindings |
 | ------------- | -------------------------------------------- |
 | Router        | none                                         |
-| Deriver A     | `DERIVER_A_PEER_SIGNING_KEY` only            |
-| Deriver B     | `DERIVER_B_PEER_SIGNING_KEY` only            |
+| Deriver A     | `SIGNER_A_PEER_SIGNING_KEY` only             |
+| Deriver B     | `SIGNER_B_PEER_SIGNING_KEY` only             |
 | SigningWorker | none                                         |
 
 Direct A/B peer-message verifying key-source rules:
 
 | Worker        | Allowed peer-message verifying keys                                    |
 | ------------- | ---------------------------------------------------------------------- |
-| Router        | optional public config only                                            |
-| Deriver A     | `DERIVER_A_PEER_VERIFYING_KEY_HEX`, `DERIVER_B_PEER_VERIFYING_KEY_HEX` |
-| Deriver B     | `DERIVER_A_PEER_VERIFYING_KEY_HEX`, `DERIVER_B_PEER_VERIFYING_KEY_HEX` |
-| SigningWorker | optional public config only                                            |
+| Router        | optional public config only                                          |
+| Deriver A     | `SIGNER_A_PEER_VERIFYING_KEY_HEX`, `SIGNER_B_PEER_VERIFYING_KEY_HEX` |
+| Deriver B     | `SIGNER_A_PEER_VERIFYING_KEY_HEX`, `SIGNER_B_PEER_VERIFYING_KEY_HEX` |
+| SigningWorker | optional public config only                                          |
 
 The Cloudflare parser receives public key-source descriptors and public
 verifying-key bytes:
 
 ```text
-DERIVER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
-DERIVER_A_ENVELOPE_HPKE_KEY_EPOCH
-DERIVER_A_ENVELOPE_HPKE_PUBLIC_KEY
-DERIVER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
-DERIVER_B_ENVELOPE_HPKE_KEY_EPOCH
-DERIVER_B_ENVELOPE_HPKE_PUBLIC_KEY
-DERIVER_A_PEER_SIGNING_KEY_BINDING
-DERIVER_A_PEER_SIGNING_KEY_EPOCH
-DERIVER_B_PEER_SIGNING_KEY_BINDING
-DERIVER_B_PEER_SIGNING_KEY_EPOCH
-DERIVER_A_PEER_VERIFYING_KEY_HEX
-DERIVER_B_PEER_VERIFYING_KEY_HEX
+SIGNER_A_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
+SIGNER_A_ENVELOPE_HPKE_KEY_EPOCH
+SIGNER_A_ENVELOPE_HPKE_PUBLIC_KEY
+SIGNER_B_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
+SIGNER_B_ENVELOPE_HPKE_KEY_EPOCH
+SIGNER_B_ENVELOPE_HPKE_PUBLIC_KEY
+SIGNER_A_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
+SIGNER_A_PREVIOUS_ENVELOPE_HPKE_KEY_EPOCH
+SIGNER_A_PREVIOUS_ENVELOPE_HPKE_PUBLIC_KEY
+SIGNER_B_PREVIOUS_ENVELOPE_HPKE_PRIVATE_KEY_BINDING
+SIGNER_B_PREVIOUS_ENVELOPE_HPKE_KEY_EPOCH
+SIGNER_B_PREVIOUS_ENVELOPE_HPKE_PUBLIC_KEY
+ROUTER_AB_PREVIOUS_ENVELOPE_HPKE_RETIRE_AT_MS
+SIGNER_A_PEER_SIGNING_KEY_BINDING
+SIGNER_A_PEER_SIGNING_KEY_EPOCH
+SIGNER_B_PEER_SIGNING_KEY_BINDING
+SIGNER_B_PEER_SIGNING_KEY_EPOCH
+SIGNER_A_PEER_VERIFYING_KEY_HEX
+SIGNER_B_PEER_VERIFYING_KEY_HEX
 ```
 
 For the production HPKE path, `*_PRIVATE_KEY_BINDING` names a role-local
@@ -827,6 +851,9 @@ Cloudflare Secret binding containing the HPKE private key material. The paired
 `*_KEY_EPOCH` is public rotation metadata. Router may receive public keys and
 key epochs. Router must reject private-key binding Env keys, and each deriver
 must reject the other deriver's private-key binding Env key.
+Previous signer-envelope HPKE private bindings are configured as an all-or-none
+set: previous private binding, previous key epoch, previous public key, and
+`ROUTER_AB_PREVIOUS_ENVELOPE_HPKE_RETIRE_AT_MS`.
 
 The HPKE private-key Secret text format is:
 
@@ -1105,6 +1132,106 @@ Local shortcuts forbidden:
 - one local process combines joined `d`, `a`, or `x_client_base`
 - local-only wire encoding that differs from production
 
+## Deriver Identity Pinning And Key-Epoch Rotation Runbook
+
+Production Router A/B deployments pin role identity at startup and bind that
+identity through every transcript that crosses a public or private Worker
+boundary. The pinned deployment descriptor must include:
+
+- Router deployment id and active public keyset epoch
+- Deriver A signer id, signing-key epoch, envelope HPKE key epoch, and Worker
+  service binding
+- Deriver B signer id, signing-key epoch, envelope HPKE key epoch, and Worker
+  service binding
+- SigningWorker signer id, signing-key epoch, envelope HPKE key epoch, and
+  Worker service binding
+- root-share set id, root epoch, expected role, sealed-share storage key, and
+  local Durable Object namespace binding
+- request TTL, retry grace, and previous-epoch retirement deadline
+
+Startup validation must fail closed when any configured identity, role, key
+epoch, Durable Object binding, or Service Binding is absent or crosses roles.
+Runtime validation must bind the configured signer identity and key epoch into
+the request transcript, role envelope AAD, recipient proof-bundle AAD,
+SigningWorker activation scope, and output response binding. Replay reservations
+and one-use SigningWorker handles are epoch-scoped and cannot be replayed across
+an epoch transition.
+
+Key-epoch rotation sequence:
+
+1. Generate new Deriver A, Deriver B, and SigningWorker signing keys plus
+   envelope HPKE recipient keys.
+2. Publish a Router keyset descriptor that carries the current epoch and a
+   previous epoch with an explicit retirement deadline.
+3. Configure Router to accept current plus previous verifying keys only for
+   `request_ttl + retry_grace`.
+4. Deploy Deriver A, Deriver B, and SigningWorker with the new key epochs while
+   keeping previous envelope decrypt keys available until the overlap window
+   closes.
+5. Run canonical wire vectors, payload vectors, HPKE seal/open vectors, and
+   private-route source guards against the staged descriptors.
+6. Upload or profile role-specific Worker bundles and record compressed size,
+   uncompressed size, and `startup_time_ms`.
+7. Promote the Router keyset current epoch, then monitor gate rejects,
+   deriver-role rejects, stale-epoch rejects, SigningWorker activation rejects,
+   and replay rejections.
+8. Retire previous signing keys and envelope decrypt keys only after the overlap
+   deadline, no accepted in-flight requests remain, and retirement evidence is
+   exported.
+
+Required rotation evidence:
+
+- `rtk pnpm -C crates/router-ab-cloudflare test:wasm-vectors`
+- `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test source_guards`
+- `rtk pnpm -C crates/router-ab-cloudflare measure:startup-latencies -- --upload --env <env>`
+- a rejected stale-key-epoch request for each role after the overlap window
+- a rejected cross-role descriptor for each deriver role
+- a rejected replay reservation that attempts to cross epochs
+- a key-retirement artifact naming the retired signer id, retired key epoch,
+  retirement timestamp, and approving operator or automation identity
+
+## Incident Response Runbooks
+
+All incidents start with preserving redacted logs, current keyset descriptors,
+Durable Object metadata hashes, and recent deploy artifacts. Do not export raw
+shares, decrypted envelopes, client secrets, or `x_client_base` during triage.
+
+| Incident | Immediate containment | Recovery path | Verification evidence |
+| --- | --- | --- | --- |
+| Router compromise | Stop public routes, revoke Router deploy token, freeze new derivation and signing requests, keep Deriver A/B and SigningWorker secrets untouched. | Deploy a clean Router with a new deployment id and keyset epoch, replay no cached admissions, then re-enable traffic after Wallet Session and replay stores are clean. | source-guard pass, rejected old Router signatures, replay-store reset receipt, successful registration/signing smoke test through the clean Router. |
+| Deriver A compromise | Disable Deriver A Service Binding or route, freeze root-share refresh and new derivations, keep Deriver B isolated. | Rotate Deriver A signing and envelope keys, rewrap or refresh A-side root shares, then run address/public-key parity checks before reopening. | old Deriver A key rejected, A role metadata matches the new epoch, B role metadata unchanged, parity evidence for sampled wallets. |
+| Deriver B compromise | Disable Deriver B Service Binding or route, freeze root-share refresh and new derivations, keep Deriver A isolated. | Rotate Deriver B signing and envelope keys, rewrap or refresh B-side root shares, then run address/public-key parity checks before reopening. | old Deriver B key rejected, B role metadata matches the new epoch, A role metadata unchanged, parity evidence for sampled wallets. |
+| Deriver A plus Deriver B compromise | Freeze all hosted derivation, export, recovery, and refresh ceremonies; disable affected root-share epochs. | Treat server custody as compromised, perform approved root replacement or same-wallet migration only after customer and policy approval, and retire old epochs. | retired-root evidence, new root-share epoch evidence, customer approval artifact, sampled wallet parity or migration evidence. |
+| SigningWorker compromise | Disable normal signing and activation refresh for affected SigningWorker identity, preserve active-state metadata, and revoke SigningWorker deploy credentials. | Rotate SigningWorker identity and envelope keys, refresh active server-output material where policy requires it, invalidate stale activation state. | old SigningWorker identity rejected, stale activation rejected, fresh prepare/finalize smoke pass, no Deriver A/B invocation on normal signing. |
+| Storage compromise | Freeze ceremonies that read affected Durable Object or database namespaces, snapshot metadata hashes, and rotate storage credentials. | Rebuild state from authoritative signed artifacts when available, otherwise run approved root-share refresh or wallet migration for affected scopes. | namespace binding audit, metadata-hash comparison, stale/missing binding rejection tests, sampled wallet parity evidence. |
+| KEK compromise | Disable seal/unseal operations for affected key ids and stop deployments that can read the compromised KEK. | Generate a new KEK, rewrap sealed root shares and SigningWorker material, then retire old sealed blobs and key ids. | old KEK disabled, new sealed-share metadata recorded, unseal with old key rejected, startup validation succeeds with the new key id only. |
+
+## Production Alerting Rules
+
+Production telemetry must use redacted diagnostic fields only. Alert labels may
+include role, Worker name, request kind, protocol version, root epoch, key epoch,
+and redacted error code. Alert payloads must exclude protocol plaintext,
+encrypted payload bytes, raw JWTs, raw Wallet Session claims, sealed-share bytes,
+HPKE private keys, threshold shares, and signing material.
+
+Required alert rules:
+
+| Signal | Trigger | First response |
+| --- | --- | --- |
+| gate rejects | rejection rate exceeds the rolling baseline for one request kind or policy reason | inspect admission policy changes, abuse/quota inputs, and Wallet Session verifier health before reopening traffic. |
+| replay rejects | duplicate replay reservations spike or cross-epoch replay attempts appear | preserve replay-store evidence, check client retry behavior, and verify epoch retirement windows. |
+| share access rejects | any role tries to access an opposite-role root-share or SigningWorker-output scope | disable the offending deployment, compare startup bindings with the deployment descriptor, and run source guards. |
+| deriver envelope rejects | wrong role, wrong key epoch, AAD mismatch, or transcript mismatch exceeds baseline | pin the active Router keyset, inspect recent deploys, and run wire/HPKE vectors against staged descriptors. |
+| deriver peer rejects | A/B peer identity, transcript, or proof-bundle validation fails | freeze derivations and refreshes, inspect peer verifying-key descriptors, and verify both role Workers use the same current keyset. |
+| SigningWorker activation rejects | stale activation, wrong recipient, wrong output kind, or duplicate-role aggregation appears | disable activation refresh, inspect direct-delivery records, and verify active-state epoch monotonicity. |
+| normal-signing anomalies | Deriver A/B receives normal-signing traffic, presign pool misses spike, or one-use nonce take conflicts rise | block the affected Router route, inspect SDK route selection, and verify SigningWorker presign-pool storage. |
+| storage errors | Durable Object missing-binding, conflict, or cleanup failures exceed baseline | freeze writes for the affected namespace, export metadata hashes, and compare namespace bindings with the deployment descriptor. |
+
+Alert evidence for deployment readiness must include configured Cloudflare alert
+or log-query identifiers, a synthetic firing example for at least one gate
+reject and one stale-epoch reject, and an incident ticket or artifact linking
+the alert to the relevant runbook row.
+
 ## Rust/Wasm Bundle Discipline
 
 Recommendation: separate bundles per role and measure every release candidate.
@@ -1160,7 +1287,6 @@ profile:
   no Wrangler bundling pass
 
 sizes:
-  strict-worker-entrypoint          combined role dispatch  2,370,450 bytes  gzip 671,138 bytes
   strict-worker-router-entrypoint   Router                  1,836,346 bytes  gzip 487,682 bytes
   strict-worker-signer-a-entrypoint pre-split Deriver A activation        2,126,483 bytes  gzip 614,303 bytes
   strict-worker-signer-b-entrypoint Deriver B                1,990,085 bytes  gzip 577,469 bytes
@@ -1188,7 +1314,6 @@ profile:
   Binding entries
 
 optimized worker-build wasm:
-  strict-worker-entrypoint          combined role dispatch  1,505,206 bytes  gzip 561,307 bytes
   strict-worker-router-entrypoint   Router                  1,066,608 bytes  gzip 380,786 bytes
   strict-worker-signer-a-entrypoint pre-split Deriver A activation        1,321,089 bytes  gzip 498,834 bytes
   strict-worker-signer-b-entrypoint Deriver B                1,252,900 bytes  gzip 479,720 bytes
@@ -1204,7 +1329,7 @@ DO classes, migrations, and Service Bindings; production still needs real
 verifying-key values, Cloudflare secrets under the configured secret binding
 names, and route/account selection.
 
-Current native Router adapter CPU baseline, captured June 12, 2026:
+Current native Router adapter CPU baseline, captured June 17, 2026:
 
 ```text
 command:
@@ -1220,10 +1345,20 @@ profile:
   no Cloudflare runtime, Service Binding, or network latency
 
 latency:
-  1 simulated A/B round trip   62.882 us median
-  2 simulated A/B round trips  82.568 us median
-  3 simulated A/B round trips 102.72 us median
-  4 simulated A/B round trips 123.85 us median
+  registration, 1 simulated A/B round trip    80.646 us median
+  registration, 2 simulated A/B round trips   94.294 us median
+  registration, 3 simulated A/B round trips  114.94 us median
+  registration, 4 simulated A/B round trips  136.10 us median
+
+  export, 1 simulated A/B round trip          68.112 us median
+  export, 2 simulated A/B round trips         98.488 us median
+  export, 3 simulated A/B round trips        113.03 us median
+  export, 4 simulated A/B round trips        135.28 us median
+
+  refresh, 1 simulated A/B round trip         68.822 us median
+  refresh, 2 simulated A/B round trips        91.081 us median
+  refresh, 3 simulated A/B round trips       112.26 us median
+  refresh, 4 simulated A/B round trips       136.76 us median
 ```
 
 ## Recovery And Migration Gates
@@ -1474,8 +1609,23 @@ Required before production recipient-output encryption:
 
 - [x] Implement benchmark harness for MPC threshold-PRF-to-shares.
 - [x] Implement benchmark harness for new split root derivation.
-- [ ] Record native and Wasm CPU time.
-- [ ] Record message count and total bytes.
+- [x] Record native and Wasm CPU time.
+      Native Candidate A threshold-PRF path: DLEQ prove ~102 us, DLEQ verify
+      ~123 us, verified combine ~263 us, two proofs plus combine ~467 us.
+      Native Candidate B split-root path: derive output share ~2.46 us and
+      combine output shares ~6.58 us. Wasm Candidate A threshold-PRF path,
+      captured with `pnpm benchmark:router-ab-threshold-prf:wasm --
+      --iterations 12 --warmup 3`: two DLEQ proof bundles 0.672 ms median,
+      verified combine 0.854 ms median, and two proofs plus combine 1.454 ms
+      median. Artifact:
+      `benchmarks/router-ab-threshold-prf-wasm/out/2026-06-17T08-47-53-975Z/summary.md`.
+- [x] Record message count and total bytes.
+      The selected `mpc_threshold_prf_v1` report records 7 protocol messages
+      per registration/export/refresh ceremony: 1 Router-facing client request,
+      2 Router-to-Deriver messages, and 4 recipient output packages. The raw
+      proof-bundle inner wire total is 656 bytes per ceremony before HPKE,
+      JSON, HTTP, or Worker transport overhead. Validation: `rtk cargo test
+      --manifest-path crates/router-ab-core/Cargo.toml --test bench`.
 - [x] Record estimated A/B round trips.
 - [x] Verify candidate outputs can feed the role-separated HSS API.
   - [x] Added Ed25519-HSS role-separated normal-signing parity tests that feed
@@ -1503,7 +1653,15 @@ Required before production recipient-output encryption:
       client/server verifying-share derivation, client signature-share creation,
       and server finalization from `x_server_base` without reconstructing joined
       `a` or importing an Ed25519 private key.
-- [ ] Wire selected split derivation output into A/B HSS.
+- [x] Wire selected split derivation output into A/B HSS.
+      The selected `mpc_threshold_prf_v1` derivation backend now produces
+      recipient-scoped `x_client_base` and `x_server_base` proof bundles.
+      Client delivery, SigningWorker activation, and Ed25519 normal signing all
+      consume those split outputs through the role-separated HSS API.
+      Validation: `rtk cargo test --manifest-path
+      crates/router-ab-core/Cargo.toml --test generated_vectors --test
+      protocol_boundaries` and `rtk cargo test --manifest-path
+      crates/ed25519-hss/Cargo.toml --test mod role_signing`.
 - [x] Produce encrypted client-output packages.
       Cloudflare and local deriver paths now deliver encrypted recipient proof
       bundles for the client recipient path instead of joined server-side output.
@@ -1567,23 +1725,28 @@ SigningWorker` proof bundles and opens them only at the SigningWorker
       drives demo frontend sessions, and
       `ROUTER_AB_NORMAL_SIGNING_WORKER_ID` constrains relay/server session
       policy acceptance.
-- [ ] Extend Router A/B SDK normal signing to signature-only Ed25519 flows
+- [x] Extend Router A/B SDK normal signing to signature-only Ed25519 flows
       such as NEP-413 and delegate actions.
+      The SDK now routes signature-only NEP-413 and delegate-action signing
+      through Router A/B prepare/finalize before the local fallback path.
 - [x] Verify no joined `d`, `a`, `y_server`, `tau_server`, or
       `x_client_base` appears in production role paths.
       Source guards cover the Cloudflare normal-signing production paths and
       reject joined-state recovery, direct Ed25519 private-key import, and the
       old unconfigured-handler stub.
-- [ ] Add address/public-key parity vectors.
-      The role-separated normal-signing parity test now covers public-key and
-      signature verification against committed HSS fixtures. Address-format
-      vectors still need to be recorded for chain-specific consumers.
-- [ ] Review `group_public_key` in normal-signing finalize material.
-      This does not keep P1 open because the strict path finalizes through the
-      role-separated SigningWorker handler, but production hardening should
-      either remove the client-supplied field from finalize material or add
-      explicit transcript-bound parity vectors proving it cannot alter the
-      committed public-key/address identity.
+- [x] Add address/public-key parity vectors.
+      Ed25519 role-separated normal-signing parity covers public-key and
+      signature verification against committed HSS fixtures. ECDSA-HSS
+      role-local vectors cover `X_client + X_server = X`, Ethereum address
+      derivation from `X`, and public-key/address mismatch rejection.
+      Validation: `rtk cargo test --manifest-path
+      crates/ed25519-hss/Cargo.toml --test mod role_signing` and `rtk cargo
+      test --manifest-path crates/ecdsa-hss/Cargo.toml --test role_local_mvp`.
+- [x] Remove client-supplied `group_public_key` from v2 normal-signing finalize
+      material.
+      Strict SigningWorker finalize now loads the account/group public key from
+      active SigningWorker state, and v2 boundary parsers reject
+      `group_public_key` on finalize protocol material.
 - [x] Persist and enforce the full Cloudflare `DerivationCeremony` lifecycle
       state machine at the Durable Object boundary.
       `CloudflareDerivationCeremonyV1` is a dedicated Durable Object record and
@@ -1624,8 +1787,11 @@ SigningWorker` proof bundles and opens them only at the SigningWorker
       bindings.
 - [x] Add typed strict bearer-token parsing, JWT verifier, JWT-backed session,
       and store-backed project-policy, quota, and abuse provider adapters.
-- [ ] Implement the concrete Worker/JWKS JWT verifier and Durable Object-backed
+- [x] Implement the concrete Worker/JWKS JWT verifier and Durable Object-backed
       project-policy, quota, and abuse store handlers behind those adapters.
+      The strict Router path verifies Wallet Session bearer JWTs with configured
+      JWKS material and derives policy, quota, and abuse decisions through
+      Durable Object-backed adapters before forwarding.
 - [x] Add thin `workers-rs` Deriver A wrapper.
 - [x] Add thin `workers-rs` Deriver B wrapper.
 - [x] Add Deriver A, Deriver B, and SigningWorker runtime contexts around
@@ -1796,12 +1962,40 @@ SigningWorker` proof bundles and opens them only at the SigningWorker
       round-trip/malformed-key tests.
 - [x] Add an RFC 9180 AES-256-GCM base-mode open vector with modified-AAD
       rejection.
-- [ ] Add deterministic seal vectors and a Wasm HPKE vector pass.
-- [ ] Verify AES-256-GCM constant-time posture for the Cloudflare Wasm target,
+- [x] Add deterministic seal vectors and a Wasm HPKE vector pass.
+  - Native HPKE vector coverage includes the deterministic recipient
+    proof-bundle seal vector plus the RFC 9180 AES-256-GCM base open vector:
+    `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml cloudflare_hpke`
+    passes with 6 HPKE tests.
+  - Cloudflare Wasm vector coverage runs the committed wire/payload adapters
+    plus HPKE recipient proof-bundle seal/open/AAD-drift rejection under the
+    workers-rs Router feature:
+    `rtk pnpm -C crates/router-ab-cloudflare test:wasm-vectors` passes with 3
+    wasm-bindgen tests.
+- [x] Verify AES-256-GCM constant-time posture for the Cloudflare Wasm target,
       or add a ChaCha20-Poly1305 HPKE suite before production use.
+  - Current Cloudflare HPKE uses
+    `Hpke<DhKemX25519HkdfSha256, HkdfSha256, Aes256Gcm>` from pinned
+    `hpke-ng = "=0.1.0"`.
+  - `rtk rustc --print cfg --target wasm32-unknown-unknown` confirms the
+    Worker build target is `target_arch="wasm32"` and
+    `target_pointer_width="32"`.
+  - RustCrypto `aes = "0.8.4"` selects its software fixslice backend for
+    wasm32 because the AES-NI and ARMv8 cfg branches do not apply. The backend
+    documentation states it uses bitwise arithmetic with no lookup tables or
+    data-dependent branches.
+  - RustCrypto `aes-gcm = "0.10.3"` uses GHASH through
+    `ghash = "0.5.1"` / `polyval = "0.6.2"`. On wasm32, POLYVAL selects the
+    soft32 backend. The crate documents that backend as a constant-time
+    BearSSL-derived implementation, with the standard requirement that the
+    executing processor has constant-time multiplication.
+  - Production posture accepted for the current Cloudflare Wasm target. Reopen
+    this item and switch to an HPKE ChaCha20-Poly1305 suite if deployment
+    evidence shows a runtime or processor family with variable-time integer
+    multiplication.
 - [ ] Record Worker compressed size, uncompressed size, and `startup_time_ms`.
-  - [x] Record combined strict Worker role-dispatch artifact size:
-        2,370,450 bytes uncompressed, 671,138 bytes gzip.
+  - [x] Retire the combined strict Worker role-dispatch artifact. Current
+        measurement tooling records role-specific artifacts only.
   - [x] Record role-specific strict Worker release Wasm sizes:
         Router 1,836,346 bytes uncompressed / 487,682 bytes gzip;
         pre-split Deriver A activation 2,126,483 / 614,303;
@@ -1810,12 +2004,22 @@ SigningWorker` proof bundles and opens them only at the SigningWorker
         Router 1088.52 KiB / gzip 381.52 KiB;
         pre-split Deriver A activation 1340.19 KiB / gzip 497.55 KiB;
         Deriver B 1273.60 KiB / gzip 478.68 KiB.
+  - [x] Record local Wrangler role dry-run upload sizes:
+        `rtk pnpm -C crates/router-ab-cloudflare measure:startup-latencies -- --dry-run --out reports/startup-latencies/startup-latencies-local-dry-run.json`.
+        Report:
+        Router 3048.44 KiB / gzip 917.94 KiB;
+        Deriver A 2489.28 KiB / gzip 776.88 KiB;
+        Deriver B 2489.23 KiB / gzip 777.04 KiB;
+        SigningWorker 3021.03 KiB / gzip 962.28 KiB.
   - [ ] Record Wrangler `startup_time_ms` from deployed or Wrangler-profiled
         role Worker bundles.
-- [ ] Benchmark setup/export/refresh with 1, 2, 3, and 4 A/B round trips.
+- [x] Benchmark setup/export/refresh with 1, 2, 3, and 4 A/B round trips.
   - [x] Add and run native Router adapter CPU benchmark:
-        1 round trip 62.882 us; 2 round trips 82.568 us;
-        3 round trips 102.72 us; 4 round trips 123.85 us.
+        `rtk cargo bench --manifest-path crates/router-ab-cloudflare/Cargo.toml --bench router_latency -- --sample-size 10 --warm-up-time 0.1 --measurement-time 0.2`.
+        Registration medians: 80.646 us / 94.294 us / 114.94 us /
+        136.10 us. Export medians: 68.112 us / 98.488 us /
+        113.03 us / 135.28 us. Refresh medians: 68.822 us / 91.081 us /
+        112.26 us / 136.76 us.
 
 ### Phase 7: Router A/B Server-Custody Rotation And Migration
 
@@ -1824,7 +2028,17 @@ Wallet and lane-level share rotation moved to
 A/B phase owns server-custody rotation, root-share refresh, self-host migration
 evidence, and Router A/B stale-epoch rejection.
 
-- [ ] Implement role-local share rewrap as server internal custody rotation.
+- [x] Implement role-local share rewrap as server internal custody rotation.
+  - Current custody model rewrap is a role-local Durable Object metadata
+    transition: the signer set, role, signer id, signer key epoch, and
+    root-share epoch stay fixed while the sealed-share storage key moves to the
+    rewrapped share location. Runtime unsealing or KMS-backed blob movement
+    remains scoped to the Phase 6 sealed-storage follow-up if production
+    introduces that storage path.
+  - Evidence:
+    `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings root_share`,
+    `rtk cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --no-default-features --features strict-worker-signer-a-entrypoint`,
+    `rtk cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --no-default-features --features strict-worker-signer-b-entrypoint`.
 - [ ] Implement distributed or approved-provisioning root-share refresh.
 - [ ] Produce Router A/B address/public-key parity evidence before and after
       root-share refresh.
@@ -1832,7 +2046,14 @@ evidence, and Router A/B stale-epoch rejection.
       changes when policy requires it.
 - [ ] Implement self-host export/import vectors for Router A/B custody.
 - [ ] Verify hosted disablement and share retirement evidence.
-- [ ] Test Router A/B root-epoch rollback behavior and stale-epoch rejection.
+- [x] Test Router A/B root-epoch rollback behavior and stale-epoch rejection.
+  - Root-share Durable Object storage rejects stale old-epoch lookups after an
+    epoch advance and fails closed if next-epoch metadata is mis-indexed under
+    an old-epoch storage key:
+    `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings durable_object_handler_rejects_stale_root_share_epoch_after_epoch_advance`.
+  - SigningWorker output activation rejects stale refresh activation timestamps
+    and preserves the current active state:
+    `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings durable_object_handler_rejects_stale_signing_worker_output_refresh_activation`.
 
 ### Phase 8: Production Hardening
 
@@ -1840,22 +2061,58 @@ evidence, and Router A/B stale-epoch rejection.
       SigningWorker.
 - [x] Add Router public keyset discovery and SDK registration-time keyset
       prefetch for the active single-epoch deployment keys.
-- [ ] Split Router, A, and B across separate Cloudflare accounts if required.
-- [ ] Add deriver identity pinning and key-epoch rotation runbooks.
+- [x] Split Router, A, and B across separate Cloudflare accounts if required.
+  - Decision: same-account Cloudflare is the documented default self-host
+    production profile; separate accounts are the insider-risk hardening
+    profile, per
+    [router-a-b-deployment-choices.md](./router-a-b-deployment-choices.md).
+- [x] Add deriver identity pinning and key-epoch rotation runbooks.
+  - See
+    [Deriver Identity Pinning And Key-Epoch Rotation Runbook](#deriver-identity-pinning-and-key-epoch-rotation-runbook).
 - [ ] Revisit deriver-envelope HPKE rotation semantics after MVP: current and
       previous epoch descriptors, request-TTL overlap, stale-epoch rejection,
       and current/previous epoch tests.
-- [ ] Add alerting for unusual gate, share access, and deriver error patterns.
-- [ ] Add incident runbooks for Router, A, B, A+B, SigningWorker, storage, and
+  - [x] Add public current/previous signer-envelope HPKE keyset descriptors,
+        request-TTL overlap retirement semantics, and stale previous-epoch
+        rejection helpers at the Rust and TypeScript boundaries.
+        Evidence:
+        `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings cloudflare_signer_envelope_hpke_rotation_keyset`,
+        `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings router_public_keyset_builds_from_public_env_only`,
+        `rtk pnpm -C tests exec playwright test tests/unit/routerAbPublicKeyset.unit.test.ts tests/unit/routerAbPublicKeysetEnvBoundary.unit.test.ts --config=playwright.unit.config.ts`.
+  - [x] Add role-local previous HPKE decrypt-key bindings and strict private
+        Deriver decrypt selection for the overlap window.
+        Evidence:
+        `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings cloudflare_signer_envelope_hpke_decrypt_key_set`,
+        `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings env_parser_builds_deriver`,
+        `rtk cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --no-default-features --features strict-worker-signer-a-entrypoint`,
+        `rtk cargo check --manifest-path crates/router-ab-cloudflare/Cargo.toml --no-default-features --features strict-worker-signer-b-entrypoint`.
+  - [x] Add local strict rotation smoke vectors proving current-key success,
+        previous-key overlap success, and stale previous-key rejection before
+        staged/deployed validation.
+        Evidence:
+        `rtk cargo test --manifest-path crates/router-ab-cloudflare/Cargo.toml --test bindings cloudflare_signer_envelope_hpke_decrypt_key_set`.
+  - [ ] Add staged or deployed rotation smoke evidence proving current-key
+        success, previous-key overlap success, and stale previous-key rejection.
+- [x] Add alerting for unusual gate, share access, and deriver error patterns.
+  - See [Production Alerting Rules](#production-alerting-rules).
+- [x] Add incident runbooks for Router, A, B, A+B, SigningWorker, storage, and
       KEK compromise.
+  - See [Incident Response Runbooks](#incident-response-runbooks).
 - [ ] Evaluate strong output correctness once performance data exists.
 - [ ] Evaluate multi-cloud TEE placement once operational need justifies it.
 
-### Post-MVP Phase: ECDSA-HSS Router-A-B Version
+### Release-Blocking Phase: ECDSA-HSS Router-A-B Version
 
-The detailed post-MVP ECDSA-HSS Router-A-B plan is owned by
+The detailed ECDSA-HSS Router-A-B release plan is owned by
 [router-a-b-ecdsa.md](router-a-b-ecdsa.md). Keep this spec focused on the
-current Ed25519-HSS Router-A-B MVP and its production hardening gates.
+Ed25519-HSS Router-A-B protocol and its production hardening gates, while
+treating the dedicated ECDSA-HSS plan as an additional release blocker for any
+Cloudflare Router A/B deployment that includes ECDSA support.
+
+Ed25519-HSS readiness alone does not authorize staging or production deploy
+while ECDSA-HSS remains in release scope. Deployment is allowed only after the
+ECDSA-HSS acceptance criteria in [router-a-b-ecdsa.md](router-a-b-ecdsa.md)
+pass or ECDSA-HSS is explicitly removed from the release.
 
 The ECDSA plan keeps these cross-reference decisions:
 

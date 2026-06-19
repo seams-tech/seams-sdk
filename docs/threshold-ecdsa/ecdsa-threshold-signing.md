@@ -1,80 +1,47 @@
-# Threshold ECDSA Signing
+# Router A/B ECDSA-HSS Signing
 
-Last updated: 2026-05-16
+Last updated: 2026-06-17
 
-## 1. Non-Negotiable Invariants
+## Scope
 
-- EVM SIGNERS MUST ALL SHARE THE SAME ADDRESS for the same wallet, RP,
-  signing root, and key version. Tempo, Arc, Ethereum, and future EVM-family
-  targets reuse one `ecdsaThresholdKeyId`, threshold public key, and Ethereum
-  owner address. Chain targets partition sessions, budgets, nonce lanes, sealed
-  records, and signing requests only.
-- Public threshold ECDSA operations carry `walletSession` and a concrete
-  `chainTarget`. Public callers do not supply internal ECDSA key IDs,
-  participant IDs, threshold session IDs, or client root shares.
-- Threshold ECDSA signing reads key identity and session state from one canonical store only.
-- `signTempo` does not trigger hidden bootstrap.
-- There is no legacy fallback for participant IDs, JWT, or session ID.
-- Threshold ECDSA session creation is explicit (`registerPasskey` provisioning or `bootstrapEcdsaSession`), never transaction-time.
-- Worker reset returns deterministic typed status (`not_found`, `expired`, `exhausted`) with explicit reconnect guidance, never silent retry with stale state.
-- Threshold ECDSA sign requests for the same account are serialized FIFO across Tempo and EVM in the SDK path.
-- Temporary threshold-trace debug instrumentation is not part of steady-state hot paths.
+ECDSA signing now uses Router A/B ECDSA-HSS for product signing flows. Public
+SDK callers provide wallet/session context and a concrete chain target; they do
+not call public threshold ECDSA authorize, presign, sign-init, or sign-finalize
+routes.
 
-## 2. Architecture
+The active release requirement is:
 
-### 2.1 Canonical Session Record
+- EVM-family digest signing uses Router A/B ECDSA-HSS normal signing.
+- Pool-hit signing consumes one prepared Router A/B ECDSA-HSS presignature.
+- Pool-miss signing refills through Router A/B ECDSA-HSS pool-fill and then
+  signs through the same Router A/B normal-signing boundary.
+- Registration, activation, recovery, refresh, export, and keyset publication
+  keep using the current ECDSA-HSS lifecycle surfaces described in
+  [router-a-b-ecdsa.md](../router-a-b-ecdsa.md).
 
-The SDK owns threshold ECDSA session records keyed by wallet/session context,
-concrete chain target, signing root, and key identity. The canonical
-record includes:
+## Public Signing Boundary
 
-- `walletId`
-- concrete `chainTarget` (`tempo` or `evm` with `chainId` and network slug)
-- `relayerUrl`
-- `ecdsaThresholdKeyId`
-- `participantIds` (required)
-- `thresholdSessionKind`, `thresholdSessionId`, `walletSigningSessionId`, `thresholdSessionAuthToken`
-- `expiresAtMs`, `remainingUses`
-- `groupPublicKeyB64u`
-- `ethereumAddress`
-- `updatedAtMs`
-- `source` (`registration` or `manual-bootstrap`)
+The public client boundary is the Router A/B normal-signing route pair:
 
-`ecdsaThresholdKeyId`, `groupPublicKeyB64u`, and `ethereumAddress` are the
-product-facing threshold identity seam for signing and later export-equivalence
-checks.
+- `POST /v1/hss/ecdsa/sign/prepare`
+- `POST /v1/hss/ecdsa/sign`
 
-For EVM-family targets, these fields are family-scoped. Records for Tempo, Arc,
-Ethereum, or another EVM-class target may carry different `chainTarget`,
-`thresholdSessionId`, `walletSigningSessionId`, and budget state, while the
-displayed signer address must remain identical for the same wallet/RP
-and signing root.
+The Router A/B ECDSA-HSS pool-fill boundary is:
 
-Backend bridge inputs still exist behind `keyRef.backendBinding` where the
-current signer backend needs them:
+- `POST /v1/hss/ecdsa/presignature-pool/fill/init`
+- `POST /v1/hss/ecdsa/presignature-pool/fill/step`
 
-- `relayerKeyId`
-- `clientVerifyingShareB64u`
-- `relayerVerifyingShareB64u`
+The SDK sends a bearer Wallet Session JWT with browser credentials omitted. The
+request builders bind the typed ECDSA-HSS scope, request id, signing digest,
+presignature id, expiry, and response digest checks before the signature is
+accepted by the SDK.
 
-Those fields are no longer the canonical product identity.
+The old public threshold ECDSA authorize, presign, and signing endpoint family
+is deleted from active Express and Cloudflare route definitions.
 
-### 2.2 Ownership Model
+## Identity Model
 
-- Writers are limited to registration provisioning and explicit reconnect/manual bootstrap.
-- Readers are signing flows.
-- UI components only mirror state for display and do not mutate canonical threshold session state directly.
-
-### 2.3 Flow Boundaries
-
-1. Registration/bootstrap mints threshold ECDSA session state and writes the canonical record.
-2. Signing validates the canonical record and worker cache status (`getWarmSessionStatus`) before confirmation/sign orchestration.
-3. Missing or invalid state fails closed with typed errors and routes to explicit reconnect/provision flows.
-
-### 2.4 Public Operation Boundary
-
-Public ECDSA bootstrap, signing, execution, nonce lifecycle, and export inputs
-use the same command subject shape:
+Public ECDSA operation inputs stay wallet and chain scoped:
 
 ```ts
 {
@@ -88,103 +55,35 @@ use the same command subject shape:
 }
 ```
 
-`bootstrapEcdsaSession` accepts only the public warm-reuse lifecycle:
+`signingRootId` and `signingRootVersion` are server/protocol/persistence
+normalization details. They should not reappear as client SDK domain fields.
+Client-side active signing state uses Router A/B key-handle state and Wallet
+Session credentials instead.
 
-```ts
-{
-  kind: 'reuse_warm_ecdsa_bootstrap';
-  walletSession: WalletSessionRef;
-  chainTarget: ThresholdEcdsaChainTarget;
-}
-```
+## Presignature Lifecycle
 
-Fresh passkey, reconnect, Email OTP, and export bootstrap branches are internal
-signing-engine lifecycle requests. Boundary code creates those requests after it
-has normalized raw session, auth, and persistence data.
+Router A/B ECDSA-HSS preserves the user-facing latency model:
 
-### 2.5 Per-Account Commit Queue (Tempo + EVM)
+- Pool hit: pop one local presignature, finalize through Router A/B normal
+  signing, and consume the matching server presignature exactly once.
+- Pool miss: perform Router A/B ECDSA-HSS pool-fill, then continue through the
+  Router A/B normal-signing boundary.
+- Missing `poolFill` is a hard failure in live presign refill. There is no
+  fallback to the old public threshold ECDSA presign routes.
 
-- Queue scope is the wallet/session for the EVM-family signer.
-- Queue domain is threshold ECDSA commit stage (`senderSignatureAlgorithm=secp256k1`) across both chains.
-- Ordering is FIFO.
-- A second sign click is queued (not rejected) and begins after the prior request completes, fails, or is cancelled.
-- Queued requests can be cancelled before execution via existing abort/cancel signals.
-- Guardrails: bounded queue length (`commit_queue_overflow`), queue timeout budget (`commit_queue_timeout`), and deterministic teardown on lock/engine destroy.
+One-use presignature semantics are release-critical. A claimed presignature must
+be bound to the exact request context and must not return to the available pool
+after use, abort, expiry, or drift rejection.
 
-### 2.6 Family vs Network Naming
+## Current Evidence
 
-- Threshold ECDSA orchestration is family-scoped (`chain: 'tempo' | 'evm'`).
-- Concrete RPC/explorer/nonce isolation is network + chainId scoped.
-- `evm` is the family label; Arc and Ethereum are concrete EVM networks (for example `arc-testnet`, `ethereum-sepolia`).
+Current implementation and cleanup evidence is tracked in:
 
-## 3. Failure and Recovery Model
+- [router-a-b-ecdsa.md](../router-a-b-ecdsa.md)
+- [router-a-b-single-session.md](../router-a-b-single-session.md)
+- [router-a-b-cleanup.md](../router-a-b-cleanup.md)
+- [refactor-68-wallet-session-v2.md](../refactor-68-wallet-session-v2.md)
 
-- Missing canonical session data is an immediate typed failure before authorize/sign.
-- Worker reset never silently reuses stale in-memory state.
-- Recovery happens through a single explicit reconnect/provision entrypoint.
-- Removed fallback patterns (implicit participant IDs, stale JWT/session fallback) are treated as regressions and blocked by tests/architecture checks.
-
-## 4. Runtime Caching Model
-
-Current caches are intentionally minimal and mostly memory-scoped:
-
-1. Canonical threshold ECDSA session record: memory + `sessionStorage` (not IndexedDB). File: `client/src/core/signingEngine/api/thresholdLifecycle/thresholdEcdsaSessionStore.ts`.
-
-2. ECDSA auth-session policy/JWT: in-memory map. File: `client/src/core/signingEngine/threshold/session/ecdsaAuthSession.ts`.
-
-3. Client presign pool: in-memory only (not persisted). File: `client/src/core/signingEngine/orchestration/walletOrigin/thresholdEcdsaCoordinator.ts`.
-
-Implication: after refresh/new tab/new process, presign pool depth resets to `0`, so the next sign is cold unless pool entries are re-prepared in the same runtime.
-
-## 5. Performance Notes
-
-- The dominant cold-sign cost is the presign handshake (`/threshold-ecdsa/presign/init` + `/threshold-ecdsa/presign/step`), not bootstrap/authorize/sign-init/finalize.
-- Historically, first-sign latency spikes came from concurrent foreground sign and background refill starting duplicate presign handshakes for the same pool key.
-- Current mitigations: foreground sign waits for and reuses in-flight refill; refill skips while foreground sign is active; commit-start refill skips on true cold start (depth `0`); server presign routing prioritizes foreground over background.
-- Observed result after mitigation: first sign reduced to around `~3s` in recent tests, with subsequent signs often around `~0.5-1s` when the pool is warm.
-
-### 5.1 Latest Benchmark Gate Snapshot (2026-02-25)
-
-- Run ID: `20260225-091017Z`
-- Artifact path: `benchmarks/threshold-ecdsa-presign/out/20260225-091017Z`
-- Full report: `docs/benchmarks/threshold-ecdsa-presign.md`
-- SLO gate outcome: `5/5 passed`
-- Key measurements:
-  - `cold_first_sign_no_pool` p95: `2226ms`
-  - `warm_sign_pool_hit` p95: `24ms`
-  - `/threshold-ecdsa/presign/step` p95: `783ms`
-  - `/threshold-ecdsa/presign/step` p99: `783ms`
-  - Non-fallback replay ratio: `0.00` (gate max `0.01`)
-
-## 6. Perf Ops and Observability
-
-Server-side instrumentation for threshold ECDSA presign/sign should be treated as part of normal operations, not temporary debugging.
-
-- Request-level latency logs include route and duration:
-  - `[threshold-ecdsa] response { route, status, ok, durationMs, ... }`
-- Presign request metadata distinguishes user-facing and refill traffic:
-  - `requestTag` (`background_presign_pool_refill` for refill traffic),
-  - `presignTrafficClass` (`foreground` or `background`),
-  - `gateWaitMs`, `gateQueuedDepth`.
-- Presign-step phase timing logs isolate bottlenecks:
-  - `[threshold-ecdsa] presign/step perf { ... }`
-  - Useful fields: `totalMs`, `storeGetSessionMs`, `liveResolveMs`, `liveResolveSource`, `replayRestoreMs`, `replayFallbackReason`, `wasmStepMs`, `storeCasMs`, `casCode`, `resultCode`.
-- Replay fallback visibility:
-  - `presign live-session fallback to replay` (warn),
-  - `presign live-session fallback replay failed` (error),
-  - `presign live-session fallback replay stage mismatch` (error).
-- Hot-path store guidance:
-  - For lower presign/sign p95/p99, configure Redis/Upstash (`UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN`, or `REDIS_URL` in node runtime).
-  - With those values present, hot-path threshold ECDSA stores prefer Redis/Upstash over slower defaults.
-
-## 7. Key Code References
-
-1. Session store and activation lifecycle: `client/src/core/signingEngine/api/thresholdLifecycle/thresholdEcdsaSessionStore.ts`, `client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionActivation.ts`.
-
-2. Signing algorithm and queue/guardrail paths: `client/src/core/signingEngine/signers/algorithms/secp256k1.ts`, `client/src/core/signingEngine/api/thresholdLifecycle/thresholdEcdsaCommitQueue.ts`.
-
-3. Wallet-origin coordinator and presign pool scheduling: `client/src/core/signingEngine/orchestration/walletOrigin/thresholdEcdsaCoordinator.ts`.
-
-4. ECDSA bootstrap path: `client/src/core/signingEngine/api/thresholdLifecycle/thresholdSessionActivation.ts`, `client/src/SeamsWeb/registration.ts`.
-
-5. Server route timings and presign prioritization: `server/src/router/express/routes/thresholdEcdsa.ts`.
+Local type-checks, focused Router A/B ECDSA-HSS tests, source guards, local
+smoke, bundled smoke, release checks, and staging dry-run are recorded there.
+Deployed Cloudflare browser evidence remains the release-tail gate.
